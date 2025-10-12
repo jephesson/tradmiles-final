@@ -95,6 +95,11 @@ function download(filename: string, text: string) {
   URL.revokeObjectURL(url);
 }
 
+/** Type guard genérico para validar objetos. */
+function isRecord(v: unknown): v is Record<string, unknown> {
+  return typeof v === "object" && v !== null;
+}
+
 /** Normaliza entradas numéricas e retorna pontos inteiros (≥ 0). */
 function parsePoints(input: Cell): number {
   if (input === null || input === undefined) return 0;
@@ -373,7 +378,8 @@ export default function CedentesImporter() {
       const byId = funcionarios.find((f) => f.id.toLowerCase() === raw.toLowerCase());
       if (byId) return byId;
 
-      const bySlug = funcionarios.find((f) => (f.slug ?? "").toLowerCase() === raw.toLowerCase());
+      // @ts-expect-error: alguns Funcionario podem ter "slug" opcional
+      const bySlug = funcionarios.find((f) => typeof f.slug === "string" && f.slug.toLowerCase() === raw.toLowerCase());
       if (bySlug) return bySlug;
 
       const target = keyName(raw);
@@ -465,10 +471,17 @@ export default function CedentesImporter() {
           },
         }),
       });
+
       const json: unknown = await res.json();
-      if (!(typeof json === "object" && json && (json as any).ok)) {
-        throw new Error((json as any)?.error || "Falha ao salvar");
+
+      if (!isRecord(json) || typeof json.ok !== "boolean") {
+        throw new Error("Resposta inválida do servidor");
       }
+      if (!json.ok) {
+        const msg = typeof json.error === "string" ? json.error : "Falha ao salvar";
+        throw new Error(msg);
+      }
+
       alert("Salvo com sucesso ✅");
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : "Erro desconhecido";
@@ -480,17 +493,29 @@ export default function CedentesImporter() {
     try {
       const res = await fetch("/api/cedentes", { method: "GET" });
       const json: unknown = await res.json();
-      if (!(typeof json === "object" && json && (json as any).ok)) {
-        throw new Error((json as any)?.error || "Falha ao carregar");
+
+      if (!isRecord(json) || typeof json.ok !== "boolean") {
+        throw new Error("Resposta inválida do servidor");
+        }
+
+      if (!json.ok) {
+        const msg = typeof json.error === "string" ? json.error : "Falha ao carregar";
+        throw new Error(msg);
       }
-      const data = (json as any).data as { listaCedentes?: Cedente[]; savedAt?: string } | undefined;
-      if (!data?.listaCedentes?.length) {
+
+      const data = isRecord(json.data) ? (json.data as Record<string, unknown>) : undefined;
+
+      const lista = Array.isArray(data?.listaCedentes) ? (data!.listaCedentes as Cedente[]) : undefined;
+      const savedAt = typeof data?.savedAt === "string" ? (data!.savedAt as string) : undefined;
+
+      if (!lista?.length) {
         alert("Nenhum dado salvo ainda.");
         return;
       }
-      setListaCedentes(data.listaCedentes);
-      setDedupedNames(data.listaCedentes.map((c) => c.nome_completo));
-      alert(`Carregado ${data.listaCedentes.length} cedentes${data.savedAt ? ` (salvo em ${data.savedAt})` : ""}.`);
+
+      setListaCedentes(lista);
+      setDedupedNames(lista.map((c) => c.nome_completo));
+      alert(`Carregado ${lista.length} cedentes${savedAt ? ` (salvo em ${savedAt})` : ""}.`);
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : "Erro desconhecido";
       alert(`Erro ao carregar: ${msg}`);
