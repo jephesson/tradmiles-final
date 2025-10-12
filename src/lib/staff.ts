@@ -2,26 +2,26 @@
 "use client";
 
 export type Funcionario = {
-  id: string;                 // ex.: F001 (alinha com responsável dos cedentes)
+  id: string; // ex.: F001 (alinha com responsável dos cedentes)
   nome: string;
   email?: string | null;
-  login?: string | null;      // ex.: "Jephesson"
+  login?: string | null; // ex.: "Jephesson"
   role?: "admin" | "staff";
-  team?: string | null;       // ex.: "@vias_aereas"
+  team?: string | null; // ex.: "@vias_aereas"
   active?: boolean;
   // PARA LOGIN SIMPLES (DEV): guardado em localStorage
-  password?: string | null;   // ⚠️ Apenas para ambiente interno/dev
+  password?: string | null; // ⚠️ Apenas para ambiente interno/dev
 };
 
 export type TeamMeta = {
-  name: string;               // ex.: "@vias_aereas"
+  name: string; // ex.: "@vias_aereas"
   adminName: string;
   adminLogin: string;
   adminEmail: string;
 };
 
 const STAFF_KEY = "funcionarios";
-const TEAM_KEY  = "staff_team_meta";
+const TEAM_KEY = "staff_team_meta";
 
 // --------- SEED ---------
 const DEFAULT_TEAM: TeamMeta = {
@@ -76,20 +76,28 @@ const SEED: Funcionario[] = [
 ];
 
 // --------- HELPERS ---------
-function normalize(list: any[]): Funcionario[] {
-  return (Array.isArray(list) ? list : []).map((x: any) => ({
-    id: String(x?.id ?? "").trim() || "F???",
-    nome: String(x?.nome ?? "").trim(),
-    email: x?.email ?? null,
-    login: x?.login ?? null,
-    role: x?.role === "admin" ? "admin" : "staff",
-    team: x?.team ?? DEFAULT_TEAM.name,
-    active: typeof x?.active === "boolean" ? x.active : true,
-    password: x?.password ?? null,
-  }));
+function normalize(list: unknown[]): Funcionario[] {
+  const arr = Array.isArray(list) ? list : [];
+  return arr.map((item) => {
+    const obj = item as Partial<Funcionario> | undefined;
+    return {
+      id: String(obj?.id ?? "").trim() || "F???",
+      nome: String(obj?.nome ?? "").trim(),
+      email: typeof obj?.email === "string" ? obj.email : null,
+      login: typeof obj?.login === "string" ? obj.login : null,
+      role: obj?.role === "admin" ? "admin" : "staff",
+      team: typeof obj?.team === "string" ? obj.team : DEFAULT_TEAM.name,
+      active: typeof obj?.active === "boolean" ? obj.active : true,
+      password: typeof obj?.password === "string" ? obj.password : null,
+    };
+  });
 }
 
-export function findByLoginAndTeam(login: string, team: string): Funcionario | undefined {
+// --------- CORE FUNCTIONS ---------
+export function findByLoginAndTeam(
+  login: string,
+  team: string
+): Funcionario | undefined {
   const list = loadFuncionarios();
   const L = (login || "").trim().toLowerCase();
   const T = (team || "").trim().toLowerCase();
@@ -106,7 +114,7 @@ export function verifyPassword(func: Funcionario, password: string): boolean {
   return String(password) === String(pwd);
 }
 
-// --------- API ---------
+// --------- API LOCAL ---------
 export function loadFuncionarios(): Funcionario[] {
   if (typeof window === "undefined") return SEED;
   try {
@@ -115,7 +123,7 @@ export function loadFuncionarios(): Funcionario[] {
       localStorage.setItem(STAFF_KEY, JSON.stringify(SEED));
       return SEED;
     }
-    const parsed = JSON.parse(raw);
+    const parsed = JSON.parse(raw) as unknown[];
     return normalize(parsed);
   } catch {
     return SEED;
@@ -136,7 +144,11 @@ export function setPasswordById(id: string, newPassword: string) {
   }
 }
 
-export function setPasswordByLogin(login: string, team: string, newPassword: string) {
+export function setPasswordByLogin(
+  login: string,
+  team: string,
+  newPassword: string
+) {
   const list = loadFuncionarios();
   const idx = list.findIndex(
     (f) =>
@@ -149,6 +161,7 @@ export function setPasswordByLogin(login: string, team: string, newPassword: str
   }
 }
 
+// --------- TEAM META ---------
 export function loadTeam(): TeamMeta {
   if (typeof window === "undefined") return DEFAULT_TEAM;
   try {
@@ -157,7 +170,7 @@ export function loadTeam(): TeamMeta {
       localStorage.setItem(TEAM_KEY, JSON.stringify(DEFAULT_TEAM));
       return DEFAULT_TEAM;
     }
-    const obj = JSON.parse(raw);
+    const obj = JSON.parse(raw) as Partial<TeamMeta>;
     return {
       name: obj?.name ?? DEFAULT_TEAM.name,
       adminName: obj?.adminName ?? DEFAULT_TEAM.adminName,

@@ -122,10 +122,12 @@ export async function POST(req: Request): Promise<NextResponse> {
       }
 
       // Busca no banco
-      let user = await prisma.user.findUnique({ where: { login } }).catch(() => null);
+      const dbUser = await prisma.user
+        .findUnique({ where: { login } })
+        .catch(() => null);
 
       // Fallback: usa SEED se não existir no banco
-      if (!user) {
+      if (!dbUser) {
         const seedUser = SEED_USERS.find((u) => u.login === login);
         if (!seedUser) {
           return NextResponse.json(
@@ -140,7 +142,6 @@ export async function POST(req: Request): Promise<NextResponse> {
           );
         }
 
-        // cria sessão temporária (sem banco)
         const session: Session = {
           id: `seed-${seedUser.login}`,
           name: seedUser.name,
@@ -159,7 +160,7 @@ export async function POST(req: Request): Promise<NextResponse> {
       }
 
       // Login normal via Prisma
-      if (user.passwordHash !== sha256(password)) {
+      if (dbUser.passwordHash !== sha256(password)) {
         return NextResponse.json(
           { ok: false, error: "Senha inválida" },
           { status: 401, headers: noCache() }
@@ -167,15 +168,18 @@ export async function POST(req: Request): Promise<NextResponse> {
       }
 
       const session: Session = {
-        id: user.id,
-        name: user.name,
-        login: user.login,
-        email: user.email ?? null,
-        team: user.team,
-        role: user.role as Role,
+        id: dbUser.id,
+        name: dbUser.name,
+        login: dbUser.login,
+        email: dbUser.email ?? null,
+        team: dbUser.team,
+        role: dbUser.role as Role,
       };
 
-      const res = NextResponse.json({ ok: true, data: { session } }, { headers: noCache() });
+      const res = NextResponse.json(
+        { ok: true, data: { session } },
+        { headers: noCache() }
+      );
       setSessionCookie(res, session);
       return res;
     }
@@ -232,7 +236,10 @@ export async function POST(req: Request): Promise<NextResponse> {
         )
       );
 
-      return NextResponse.json({ ok: true, message: "Seed restaurado" }, { headers: noCache() });
+      return NextResponse.json(
+        { ok: true, message: "Seed restaurado" },
+        { headers: noCache() }
+      );
     }
 
     // ============ LOGOUT ============
@@ -249,7 +256,11 @@ export async function POST(req: Request): Promise<NextResponse> {
     );
   } catch (err) {
     console.error("Erro em /api/auth:", err);
-    const msg = err instanceof Error ? err.message : "Erro ao processar requisição";
-    return NextResponse.json({ ok: false, error: msg }, { status: 500, headers: noCache() });
+    const msg =
+      err instanceof Error ? err.message : "Erro ao processar requisição";
+    return NextResponse.json(
+      { ok: false, error: msg },
+      { status: 500, headers: noCache() }
+    );
   }
 }
