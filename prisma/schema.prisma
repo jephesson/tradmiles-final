@@ -1,6 +1,24 @@
 // prisma/schema.prisma
+
 datasource db {
   provider  = "postgresql"
   url       = env("DATABASE_URL") // Pooler (PgBouncer) → para a app
   directUrl = env("DIRECT_URL")   // Direct (sem pooler) → para migrações
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// ============ MODELOS ============
+model User {
+  id           String   @id @default(cuid())
+  login        String   @unique
+  name         String
+  email        String?
+  team         String
+  role         String
+  passwordHash String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 }
