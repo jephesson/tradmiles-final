@@ -75,13 +75,17 @@ function noCache() {
   };
 }
 
+/**
+ * Define o cookie de sessão (válido em www e apex domain)
+ */
 function setSessionCookie(res: NextResponse, session: Session) {
   res.cookies.set("tm.session", encodeURIComponent(JSON.stringify(session)), {
     httpOnly: true,
-    sameSite: "lax",
     secure: process.env.NODE_ENV === "production",
+    sameSite: "lax",
     path: "/",
-    maxAge: 60 * 60 * 8, // 8 horas
+    maxAge: 60 * 60 * 8, // 8h
+    domain: ".trademiles.com.br", // ✅ garante validade em www.trademiles.com.br e trademiles.com.br
   });
 }
 
@@ -122,9 +126,7 @@ export async function POST(req: Request): Promise<NextResponse> {
       }
 
       // Busca no banco
-      const dbUser = await prisma.user
-        .findUnique({ where: { login } })
-        .catch(() => null);
+      const dbUser = await prisma.user.findUnique({ where: { login } }).catch(() => null);
 
       // Fallback: usa SEED se não existir no banco
       if (!dbUser) {
@@ -245,7 +247,7 @@ export async function POST(req: Request): Promise<NextResponse> {
     // ============ LOGOUT ============
     if (raw.action === "logout") {
       const res = NextResponse.json({ ok: true }, { headers: noCache() });
-      res.cookies.set("tm.session", "", { path: "/", maxAge: 0 });
+      res.cookies.set("tm.session", "", { path: "/", maxAge: 0, domain: ".trademiles.com.br" });
       return res;
     }
 
@@ -256,11 +258,7 @@ export async function POST(req: Request): Promise<NextResponse> {
     );
   } catch (err) {
     console.error("Erro em /api/auth:", err);
-    const msg =
-      err instanceof Error ? err.message : "Erro ao processar requisição";
-    return NextResponse.json(
-      { ok: false, error: msg },
-      { status: 500, headers: noCache() }
-    );
+    const msg = err instanceof Error ? err.message : "Erro ao processar requisição";
+    return NextResponse.json({ ok: false, error: msg }, { status: 500, headers: noCache() });
   }
 }
