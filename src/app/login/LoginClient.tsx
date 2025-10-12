@@ -41,7 +41,7 @@ export default function LoginClient() {
         <div className="flex items-center gap-3">
           {/* Troque o src conforme seu arquivo (svg/png) */}
           <Image
-            src="/trademiles.svg"
+            src="/trademiles.png"
             alt="TradeMiles"
             width={36}
             height={36}
