@@ -4,7 +4,6 @@
 import Image from "next/image";
 import { useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { loadTeam, findByLoginAndTeam, verifyPassword } from "@/lib/staff";
 
 export default function LoginClient() {
   const [login, setLogin] = useState("");
@@ -15,7 +14,6 @@ export default function LoginClient() {
 
   const params = useSearchParams();
   const router = useRouter();
-  const team = loadTeam(); // @vias_aereas por padrão
 
   const next = useMemo(() => {
     const raw = params.get("next");
@@ -25,35 +23,21 @@ export default function LoginClient() {
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     setErr(null);
-
-    // valida local (dev)
-    const user = findByLoginAndTeam(login, team.name);
-    if (!user || !verifyPassword(user, password)) {
-      setErr("Login ou senha inválidos");
-      return;
-    }
-
     setLoading(true);
+
     try {
       const r = await fetch("/api/auth", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "login",
-          user: {
-            id: user.id,
-            nome: user.nome,
-            login: user.login,
-            role: user.role,
-            team: user.team,
-          },
-        }),
+        body: JSON.stringify({ action: "login", login, password }),
       });
+
       const json = await r.json().catch(() => ({}));
       if (!r.ok || !json?.ok) {
-        setErr(json?.error || "Falha ao criar sessão");
+        setErr(json?.error || "Login ou senha inválidos");
         return;
       }
+
       router.replace(next);
     } catch {
       setErr("Erro de rede. Tente novamente.");
@@ -71,7 +55,7 @@ export default function LoginClient() {
         {/* Header com logo + nome */}
         <div className="flex items-center gap-3">
           <Image
-            src="/trademiles.png" // em public/trademiles.png
+            src="/trademiles.png"
             alt="TradeMiles"
             width={36}
             height={36}
@@ -113,9 +97,7 @@ export default function LoginClient() {
             </button>
           </div>
 
-          {err && (
-            <p className="text-xs text-red-600">{err}</p>
-          )}
+          {err && <p className="text-xs text-red-600">{err}</p>}
 
           <button
             className="w-full rounded-xl bg-black px-4 py-2 text-white disabled:opacity-60"
@@ -126,7 +108,7 @@ export default function LoginClient() {
         </div>
 
         <p className="text-[11px] text-neutral-500 text-center pt-1">
-          © {new Date().getFullYear()} TradeMiles · Time {team.name}
+          © {new Date().getFullYear()} TradeMiles
         </p>
       </form>
     </main>
