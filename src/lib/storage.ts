@@ -46,6 +46,7 @@ export type ComissaoCedente = {
  * Helpers
  * ======================================================================= */
 const isBrowser = () => typeof window !== "undefined";
+
 const safeParse = <T,>(raw: string | null): T | null => {
   if (!raw) return null;
   try {
@@ -54,6 +55,18 @@ const safeParse = <T,>(raw: string | null): T | null => {
     return null;
   }
 };
+
+const isRecord = (v: unknown): v is Record<string, unknown> =>
+  typeof v === "object" && v !== null;
+
+const pickString = (v: unknown, fallback = ""): string =>
+  typeof v === "string" ? v : fallback;
+
+const pickNumber = (v: unknown, fallback = 0): number =>
+  typeof v === "number" && Number.isFinite(v) ? v : fallback;
+
+const pickNullableString = (v: unknown): string | null =>
+  v == null ? null : String(v);
 
 /* =======================================================================
  * Keys
@@ -67,13 +80,23 @@ const COMISSOES_KEY = "comissoes";
  * ======================================================================= */
 export function loadCedentesLocal(): Cedente[] {
   if (!isBrowser()) return [];
-  const arr = safeParse<any[]>(localStorage.getItem(CEDENTES_KEY)) ?? [];
-  // migração leve p/ registros antigos
-  return arr.map((c) => ({
-    responsavelId: null,
-    responsavelNome: null,
-    ...c,
-  })) as Cedente[];
+  const raw = safeParse<unknown>(localStorage.getItem(CEDENTES_KEY));
+  const arr = Array.isArray(raw) ? raw : [];
+
+  // migração leve p/ registros antigos e validação defensiva
+  return arr.map((c): Cedente => {
+    const r = isRecord(c) ? c : {};
+    return {
+      identificador: pickString(r.identificador),
+      nome_completo: pickString(r.nome_completo),
+      latam: pickNumber(r.latam),
+      esfera: pickNumber(r.esfera),
+      livelo: pickNumber(r.livelo),
+      smiles: pickNumber(r.smiles),
+      responsavelId: pickNullableString(r.responsavelId),
+      responsavelNome: pickNullableString(r.responsavelNome),
+    };
+  });
 }
 
 export function saveCedentesLocal(lista: Cedente[]) {
@@ -91,23 +114,25 @@ export const saveCedentes = saveCedentesLocal;
 export async function loadCedentesServer(): Promise<Cedente[]> {
   const res = await fetch("/api/cedentes", { cache: "no-store" });
   if (!res.ok) return [];
-  const json = await res.json().catch(() => null);
-  const arr = Array.isArray(json) ? json : json?.data;
+  const json: unknown = await res.json().catch(() => null);
+  const arr = Array.isArray(json) ? json : (isRecord(json) ? json.data : null);
   return Array.isArray(arr) ? (arr as Cedente[]) : [];
 }
 
 export async function saveCedentesServer(payload: {
   listaCedentes: Cedente[];
-  meta?: any;
+  meta?: Record<string, unknown>;
 }) {
   const res = await fetch("/api/cedentes", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   });
-  const json = await res.json().catch(() => ({}));
-  if (!res.ok || (json && json.ok === false)) {
-    throw new Error(json?.error || "Falha ao salvar no servidor");
+  const json: unknown = await res.json().catch(() => ({}));
+  const ok = isRecord(json) && (typeof json.ok === "boolean" ? json.ok : true);
+  if (!res.ok || !ok) {
+    const msg = isRecord(json) && typeof json.error === "string" ? json.error : "Falha ao salvar no servidor";
+    throw new Error(msg);
   }
   return json;
 }
@@ -117,8 +142,18 @@ export async function saveCedentesServer(payload: {
  * ======================================================================= */
 export function loadFuncionariosLocal(): Funcionario[] {
   if (!isBrowser()) return [];
-  const arr = safeParse<any[]>(localStorage.getItem(FUNCIONARIOS_KEY)) ?? [];
-  return Array.isArray(arr) ? (arr as Funcionario[]) : [];
+  const raw = safeParse<unknown>(localStorage.getItem(FUNCIONARIOS_KEY));
+  const arr = Array.isArray(raw) ? raw : [];
+  return arr.map((c): Funcionario => {
+    const r = isRecord(c) ? c : {};
+    return {
+      id: pickString(r.id),
+      nome: pickString(r.nome),
+      email: typeof r.email === "string" ? r.email : undefined,
+      ativo: typeof r.ativo === "boolean" ? r.ativo : undefined,
+      slug: r.slug == null ? null : String(r.slug),
+    };
+  });
 }
 
 export function saveFuncionariosLocal(lista: Funcionario[]) {
@@ -136,23 +171,25 @@ export const saveFuncionarios = saveFuncionariosLocal;
 export async function loadFuncionariosServer(): Promise<Funcionario[]> {
   const res = await fetch("/api/funcionarios", { cache: "no-store" });
   if (!res.ok) return [];
-  const json = await res.json().catch(() => null);
-  const arr = Array.isArray(json) ? json : json?.data;
+  const json: unknown = await res.json().catch(() => null);
+  const arr = Array.isArray(json) ? json : (isRecord(json) ? json.data : null);
   return Array.isArray(arr) ? (arr as Funcionario[]) : [];
 }
 
 export async function saveFuncionariosServer(payload: {
   lista: Funcionario[];
-  meta?: any;
+  meta?: Record<string, unknown>;
 }) {
   const res = await fetch("/api/funcionarios", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   });
-  const json = await res.json().catch(() => ({}));
-  if (!res.ok || (json && json.ok === false)) {
-    throw new Error(json?.error || "Falha ao salvar funcionários");
+  const json: unknown = await res.json().catch(() => ({}));
+  const ok = isRecord(json) && (typeof json.ok === "boolean" ? json.ok : true);
+  if (!res.ok || !ok) {
+    const msg = isRecord(json) && typeof json.error === "string" ? json.error : "Falha ao salvar funcionários";
+    throw new Error(msg);
   }
   return json;
 }
@@ -221,6 +258,7 @@ export function removeComissaoLocal(id: string) {
 // atalhos
 export const loadComissoes = loadComissoesLocal;
 export const saveComissoes = saveComissoesLocal;
+export const addComissoes = addComissaoLocal; // (mantém padrão de nome, se precisar use addComissao abaixo)
 export const addComissao = addComissaoLocal;
 export const updateComissao = updateComissaoLocal;
 export const setStatusComissao = setStatusComissaoLocal;
@@ -232,8 +270,8 @@ export const removeComissao = removeComissaoLocal;
 export async function loadComissoesServer(): Promise<ComissaoCedente[]> {
   const res = await fetch("/api/comissoes", { cache: "no-store" });
   if (!res.ok) return [];
-  const json = await res.json().catch(() => null);
-  const arr = Array.isArray(json) ? json : json?.data;
+  const json: unknown = await res.json().catch(() => null);
+  const arr = Array.isArray(json) ? json : (isRecord(json) ? json.data : null);
   return Array.isArray(arr) ? (arr as ComissaoCedente[]) : [];
 }
 
@@ -243,8 +281,9 @@ export async function createComissaoServer(payload: Omit<ComissaoCedente, "id" |
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   });
-  const json = await res.json().catch(() => ({}));
-  if (!res.ok || json?.ok === false) throw new Error(json?.error || "Falha ao criar comissão");
+  const json: unknown = await res.json().catch(() => ({}));
+  const ok = isRecord(json) && (typeof json.ok === "boolean" ? json.ok : true);
+  if (!res.ok || !ok) throw new Error(isRecord(json) && typeof json.error === "string" ? json.error : "Falha ao criar comissão");
   return json;
 }
 
@@ -254,8 +293,9 @@ export async function updateComissaoServer(id: string, patch: Partial<ComissaoCe
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(patch),
   });
-  const json = await res.json().catch(() => ({}));
-  if (!res.ok || json?.ok === false) throw new Error(json?.error || "Falha ao atualizar comissão");
+  const json: unknown = await res.json().catch(() => ({}));
+  const ok = isRecord(json) && (typeof json.ok === "boolean" ? json.ok : true);
+  if (!res.ok || !ok) throw new Error(isRecord(json) && typeof json.error === "string" ? json.error : "Falha ao atualizar comissão");
   return json;
 }
 
