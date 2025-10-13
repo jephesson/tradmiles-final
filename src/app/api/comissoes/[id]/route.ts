@@ -19,32 +19,51 @@ function noCache() {
   } as const;
 }
 
-/* ---------- Tipos auxiliares (evitam any) ---------- */
+/** Extrai o {id} da URL da rota /api/comissoes/[id] */
+function extractIdFromUrl(req: Request): string | null {
+  const url = new URL(req.url);
+  // Ex.: /api/comissoes/ABC123  (suporta / no final)
+  const m = url.pathname.match(/\/api\/comissoes\/([^/]+)\/?$/);
+  return m ? decodeURIComponent(m[1]) : null;
+}
+
+/** Shape esperado do repositório no Prisma Client */
 type RepoUpdateArg = { where: { id: string }; data: { status: Status; atualizadoEm: Date } };
 type RepoDeleteArg = { where: { id: string } };
 type RepoShape = {
   update?: (args: RepoUpdateArg) => Promise<unknown>;
   delete?: (args: RepoDeleteArg) => Promise<unknown>;
 };
-type PrismaIndexed = Record<string, RepoShape>;
 
-/* Pega um “repo” válido no Prisma Client sem usar any */
+/** Type guard sem usar `any` */
+function isRepoShape(x: unknown): x is RepoShape {
+  if (typeof x !== "object" || x === null) return false;
+  const rec = x as Record<string, unknown>;
+  const u = rec.update;
+  const d = rec.delete;
+  return (typeof u === "function") || (typeof d === "function");
+}
+
+/** Tenta localizar o model correto no prisma (sem `any`) */
 function getComissaoRepo(): RepoShape | null {
-  const p = (prisma as unknown as PrismaIndexed);
-  return p.comissaoCedente ?? p.comissao ?? p.commission ?? null;
+  const candidates = ["comissaoCedente", "comissao", "commission"] as const;
+  for (const key of candidates) {
+    const val = (prisma as unknown as Record<string, unknown>)[key];
+    if (isRepoShape(val)) return val;
+  }
+  return null;
 }
 
 /** Atualiza o status da comissão {id} para 'pago' | 'aguardando' */
-export async function PATCH(
-  req: Request,
-  context: { params: { id: string } }
-) {
-  const { id } = context.params;
-
+export async function PATCH(req: Request) {
   try {
+    const id = extractIdFromUrl(req);
+    if (!id) {
+      return NextResponse.json({ ok: false, error: "id inválido" }, { status: 400, headers: noCache() });
+    }
+
     const raw = (await req.json().catch(() => ({}))) as Partial<{ status: Status }>;
     const status = raw?.status;
-
     if (status !== "pago" && status !== "aguardando") {
       return NextResponse.json(
         { ok: false, error: "status inválido (use 'pago' ou 'aguardando')" },
@@ -54,14 +73,11 @@ export async function PATCH(
 
     const repo = getComissaoRepo();
     if (repo?.update) {
-      const data = await repo.update({
-        where: { id },
-        data: { status, atualizadoEm: new Date() },
-      });
+      const data = await repo.update({ where: { id }, data: { status, atualizadoEm: new Date() } });
       return NextResponse.json({ ok: true, data }, { headers: noCache() });
     }
 
-    // Fallback sem DB (não quebra build)
+    // Fallback para não quebrar o build caso o model não exista no Client
     return NextResponse.json(
       { ok: true, data: { id, status, _db: "skipped (model not found)" } },
       { headers: noCache() }
@@ -79,20 +95,19 @@ export async function PATCH(
 }
 
 /** Remove a comissão {id} */
-export async function DELETE(
-  _req: Request,
-  context: { params: { id: string } }
-) {
-  const { id } = context.params;
-
+export async function DELETE(req: Request) {
   try {
+    const id = extractIdFromUrl(req);
+    if (!id) {
+      return NextResponse.json({ ok: false, error: "id inválido" }, { status: 400, headers: noCache() });
+    }
+
     const repo = getComissaoRepo();
     if (repo?.delete) {
       await repo.delete({ where: { id } });
       return NextResponse.json({ ok: true, removedId: id }, { headers: noCache() });
     }
 
-    // Fallback sem DB (não quebra build)
     return NextResponse.json(
       { ok: true, removedId: id, _db: "skipped (model not found)" },
       { headers: noCache() }
