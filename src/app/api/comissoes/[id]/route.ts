@@ -19,12 +19,12 @@ function noCache() {
 }
 
 /** Atualiza o status da comissão {id} para 'pago' | 'aguardando' */
-export async function PATCH(
-  req: Request,
-  { params }: { params: { id: string } }
-) {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export async function PATCH(req: Request, ctx: any) {
+  const { params } = (ctx ?? {}) as { params: { id: string } };
+  const { id } = params || ({} as { id: string });
+
   try {
-    const { id } = params;
     const raw = (await req.json().catch(() => ({}))) as Partial<{ status: Status }>;
     const status = raw?.status;
 
@@ -54,12 +54,12 @@ export async function PATCH(
 }
 
 /** Remove a comissão {id} */
-export async function DELETE(
-  _req: Request,
-  { params }: { params: { id: string } }
-) {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export async function DELETE(_req: Request, ctx: any) {
+  const { params } = (ctx ?? {}) as { params: { id: string } };
+  const { id } = params || ({} as { id: string });
+
   try {
-    const { id } = params;
     await prisma.comissao.delete({ where: { id } });
     return NextResponse.json({ ok: true, removedId: id }, { headers: noCache() });
   } catch (err: unknown) {
