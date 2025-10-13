@@ -29,12 +29,18 @@ export default function ComissoesPage() {
       setItems(arr);
     };
     refresh();
-    const onEvt = () => refresh();
+
+    // Tipamos explicitamente como EventListener para servir em qualquer evento string
+    const onEvt: EventListener = () => {
+      refresh();
+    };
+
     window.addEventListener("storage", onEvt);
-    window.addEventListener("comissoes:refresh", onEvt as any);
+    window.addEventListener("comissoes:refresh", onEvt);
+
     return () => {
       window.removeEventListener("storage", onEvt);
-      window.removeEventListener("comissoes:refresh", onEvt as any);
+      window.removeEventListener("comissoes:refresh", onEvt);
     };
   }, []);
 
@@ -71,10 +77,20 @@ export default function ComissoesPage() {
     window.dispatchEvent(new Event("comissoes:refresh"));
   }
   function setStatusItem(id: string, st: StatusComissao) {
-    persist(items.map((c) => (c.id === id ? { ...c, status: st, atualizadoEm: new Date().toISOString() } : c)));
+    persist(
+      items.map((c) =>
+        c.id === id ? { ...c, status: st, atualizadoEm: new Date().toISOString() } : c
+      )
+    );
   }
   function remover(id: string) {
     persist(items.filter((c) => c.id !== id));
+  }
+
+  // helper para selecionar status no filtro (sem any)
+  function parseStatusValue(v: string): "" | StatusComissao {
+    if (v === "") return "";
+    return v === "pago" || v === "aguardando" ? v : "";
   }
 
   return (
@@ -109,7 +125,7 @@ export default function ComissoesPage() {
           />
           <select
             value={status}
-            onChange={(e) => setStatus(e.target.value as any)}
+            onChange={(e) => setStatus(parseStatusValue(e.target.value))}
             className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
           >
             <option value="">Todos os status</option>
