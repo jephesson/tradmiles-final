@@ -18,10 +18,8 @@ type SortDir = "asc" | "desc";
 
 /* ===== Utils ===== */
 function uuid() {
-  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
-    // @ts-ignore
-    return crypto.randomUUID();
-  }
+  const c = globalThis.crypto as { randomUUID?: () => string } | undefined;
+  if (c?.randomUUID) return c.randomUUID();
   return Math.random().toString(36).slice(2) + Date.now().toString(36);
 }
 
@@ -52,7 +50,8 @@ export default function ClientesPage() {
       if (json.ok && Array.isArray(json.data?.lista)) {
         setClientes(json.data.lista as Cliente[]);
       }
-    } catch (e) {
+    } catch (e: unknown) {
+      // mantém silencioso no UI, só loga
       console.error(e);
     } finally {
       setLoading(false);
@@ -71,8 +70,9 @@ export default function ClientesPage() {
       if (!json.ok) throw new Error(json.error || "Falha ao salvar");
       setClientes(next);
       alert("Clientes salvos ✅");
-    } catch (e: any) {
-      alert(`Erro ao salvar: ${e.message}`);
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : String(e);
+      alert(`Erro ao salvar: ${message}`);
     } finally {
       setLoading(false);
     }
@@ -95,7 +95,8 @@ export default function ClientesPage() {
 
   function openEdit(c: Cliente) {
     setMode("edit");
-    setEditing(JSON.parse(JSON.stringify(c)) as Cliente);
+    // clone raso suficiente para o form
+    setEditing({ ...c });
     dialogRef.current?.showModal();
   }
 
@@ -120,13 +121,13 @@ export default function ClientesPage() {
       return;
     }
     const now = new Date().toISOString();
-    const record = { ...editing, updatedAt: now } as Cliente;
+    const record: Cliente = { ...editing, updatedAt: now };
 
     if (mode === "add") {
       const next = [record, ...clientes];
       void saveToServer(next);
     } else {
-      const next = clientes.map(c => (c.id === record.id ? record : c));
+      const next = clientes.map((c) => (c.id === record.id ? record : c));
       void saveToServer(next);
     }
     closeModal();
@@ -134,14 +135,14 @@ export default function ClientesPage() {
 
   function excluir(id: string) {
     if (!confirm("Excluir este cliente?")) return;
-    const next = clientes.filter(c => c.id !== id);
+    const next = clientes.filter((c) => c.id !== id);
     void saveToServer(next);
   }
 
   /* ---- lista visível ---- */
   const filtered = useMemo(() => {
     const term = q.trim().toLowerCase();
-    return clientes.filter(c => {
+    return clientes.filter((c) => {
       if (!term) return true;
       const hay = `${c.nome} ${c.origem}`.toLowerCase();
       return hay.includes(term);
@@ -183,7 +184,7 @@ export default function ClientesPage() {
         <div className="flex flex-wrap items-center gap-2">
           <input
             value={q}
-            onChange={e => setQ(e.target.value)}
+            onChange={(e) => setQ(e.target.value)}
             placeholder="Buscar por nome ou origem…"
             className="rounded-xl border px-3 py-2 text-sm"
           />
@@ -191,7 +192,7 @@ export default function ClientesPage() {
           <select
             className="rounded-xl border px-3 py-2 text-sm"
             value={`${sortKey}:${sortDir}`}
-            onChange={e => {
+            onChange={(e) => {
               const [k, d] = e.target.value.split(":") as [SortKey, SortDir];
               setSortKey(k);
               setSortDir(d);
@@ -280,7 +281,7 @@ export default function ClientesPage() {
         <form
           method="dialog"
           className="w-[min(560px,92vw)] rounded-xl bg-white p-5"
-          onSubmit={e => {
+          onSubmit={(e) => {
             e.preventDefault();
             confirmSaveEditing();
           }}
@@ -295,7 +296,7 @@ export default function ClientesPage() {
                 <label className="mb-1 block text-xs text-slate-600">Nome</label>
                 <input
                   value={editing.nome}
-                  onChange={e => onChangeField({ nome: e.target.value })}
+                  onChange={(e) => onChangeField({ nome: e.target.value })}
                   className="w-full rounded-xl border px-3 py-2 text-sm"
                 />
               </div>
@@ -303,7 +304,7 @@ export default function ClientesPage() {
                 <label className="mb-1 block text-xs text-slate-600">Origem</label>
                 <input
                   value={editing.origem}
-                  onChange={e => onChangeField({ origem: e.target.value })}
+                  onChange={(e) => onChangeField({ origem: e.target.value })}
                   placeholder="ex.: Instagram, Indicação, WhatsApp…"
                   className="w-full rounded-xl border px-3 py-2 text-sm"
                 />
