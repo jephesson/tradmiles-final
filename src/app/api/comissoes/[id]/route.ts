@@ -1,5 +1,4 @@
-// src/app/api/comissoes/[id]/route.ts
-import { NextResponse } from "next/server";
+import { NextResponse, type NextRequest } from "next/server";
 import { prisma } from "@/lib/db";
 import { Prisma } from "@prisma/client";
 
@@ -18,16 +17,14 @@ function noCache(): HeadersMap {
   };
 }
 
-type Params = { id: string };
 type Status = "pago" | "aguardando";
 
-/**
- * Atualiza o status da comissão {id} para 'pago' | 'aguardando'
- */
-export async function PATCH(
-  req: Request,
-  { params }: { params: Params }
-) {
+type RouteContext = {
+  params: { id: string };
+};
+
+/** Atualiza o status da comissão {id} para 'pago' | 'aguardando' */
+export async function PATCH(req: NextRequest, { params }: RouteContext) {
   try {
     const { id } = params;
     const raw = (await req.json().catch(() => ({}))) as Partial<{ status: Status }>;
@@ -58,13 +55,8 @@ export async function PATCH(
   }
 }
 
-/**
- * Remove a comissão {id}
- */
-export async function DELETE(
-  _req: Request,
-  { params }: { params: Params }
-) {
+/** Remove a comissão {id} */
+export async function DELETE(_req: NextRequest, { params }: RouteContext) {
   try {
     const { id } = params;
     await prisma.comissao.delete({ where: { id } });
