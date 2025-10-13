@@ -19,11 +19,27 @@ function noCache() {
   } as const;
 }
 
+/* ---------- Tipos auxiliares (evitam any) ---------- */
+type RepoUpdateArg = { where: { id: string }; data: { status: Status; atualizadoEm: Date } };
+type RepoDeleteArg = { where: { id: string } };
+type RepoShape = {
+  update?: (args: RepoUpdateArg) => Promise<unknown>;
+  delete?: (args: RepoDeleteArg) => Promise<unknown>;
+};
+type PrismaIndexed = Record<string, RepoShape>;
+
+/* Pega um “repo” válido no Prisma Client sem usar any */
+function getComissaoRepo(): RepoShape | null {
+  const p = (prisma as unknown as PrismaIndexed);
+  return p.comissaoCedente ?? p.comissao ?? p.commission ?? null;
+}
+
 /** Atualiza o status da comissão {id} para 'pago' | 'aguardando' */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export async function PATCH(req: Request, ctx: any) {
-  const { params } = (ctx ?? {}) as { params: { id: string } };
-  const { id } = params || ({} as { id: string });
+export async function PATCH(
+  req: Request,
+  context: { params: { id: string } }
+) {
+  const { id } = context.params;
 
   try {
     const raw = (await req.json().catch(() => ({}))) as Partial<{ status: Status }>;
@@ -36,16 +52,7 @@ export async function PATCH(req: Request, ctx: any) {
       );
     }
 
-    // Tenta achar um modelo válido no Prisma Client
-    const repo =
-      // tente "comissaoCedente" (nome provável)
-      (prisma as any).comissaoCedente ??
-      // tente "comissao"
-      (prisma as any).comissao ??
-      // tente "commission" (caso schema esteja em inglês)
-      (prisma as any).commission ??
-      null;
-
+    const repo = getComissaoRepo();
     if (repo?.update) {
       const data = await repo.update({
         where: { id },
@@ -54,7 +61,7 @@ export async function PATCH(req: Request, ctx: any) {
       return NextResponse.json({ ok: true, data }, { headers: noCache() });
     }
 
-    // Fallback sem DB (não quebra o build)
+    // Fallback sem DB (não quebra build)
     return NextResponse.json(
       { ok: true, data: { id, status, _db: "skipped (model not found)" } },
       { headers: noCache() }
@@ -72,24 +79,20 @@ export async function PATCH(req: Request, ctx: any) {
 }
 
 /** Remove a comissão {id} */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export async function DELETE(_req: Request, ctx: any) {
-  const { params } = (ctx ?? {}) as { params: { id: string } };
-  const { id } = params || ({} as { id: string });
+export async function DELETE(
+  _req: Request,
+  context: { params: { id: string } }
+) {
+  const { id } = context.params;
 
   try {
-    const repo =
-      (prisma as any).comissaoCedente ??
-      (prisma as any).comissao ??
-      (prisma as any).commission ??
-      null;
-
+    const repo = getComissaoRepo();
     if (repo?.delete) {
       await repo.delete({ where: { id } });
       return NextResponse.json({ ok: true, removedId: id }, { headers: noCache() });
     }
 
-    // Fallback sem DB (não quebra o build)
+    // Fallback sem DB (não quebra build)
     return NextResponse.json(
       { ok: true, removedId: id, _db: "skipped (model not found)" },
       { headers: noCache() }
