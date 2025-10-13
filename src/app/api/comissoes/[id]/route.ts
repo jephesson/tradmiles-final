@@ -1,4 +1,4 @@
-import { NextResponse, type NextRequest } from "next/server";
+import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { Prisma } from "@prisma/client";
 
@@ -6,25 +6,23 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-type HeadersMap = Record<string, string>;
-function noCache(): HeadersMap {
+type Status = "pago" | "aguardando";
+
+function noCache() {
   return {
     "Content-Type": "application/json; charset=utf-8",
     "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
     Pragma: "no-cache",
     Expires: "0",
     "Surrogate-Control": "no-store",
-  };
+  } as const;
 }
 
-type Status = "pago" | "aguardando";
-
-type RouteContext = {
-  params: { id: string };
-};
-
 /** Atualiza o status da comissão {id} para 'pago' | 'aguardando' */
-export async function PATCH(req: NextRequest, { params }: RouteContext) {
+export async function PATCH(
+  req: Request,
+  { params }: { params: { id: string } }
+) {
   try {
     const { id } = params;
     const raw = (await req.json().catch(() => ({}))) as Partial<{ status: Status }>;
@@ -56,7 +54,10 @@ export async function PATCH(req: NextRequest, { params }: RouteContext) {
 }
 
 /** Remove a comissão {id} */
-export async function DELETE(_req: NextRequest, { params }: RouteContext) {
+export async function DELETE(
+  _req: Request,
+  { params }: { params: { id: string } }
+) {
   try {
     const { id } = params;
     await prisma.comissao.delete({ where: { id } });
