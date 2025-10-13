@@ -61,6 +61,33 @@ type Linha = {
   proxRenovacao: Date | null;
 };
 
+// ====== helpers utilitários de tipo/parse ======
+type SheetRow = Record<string, unknown>;
+
+function getString(obj: Record<string, unknown>, key: string, dflt = ""): string {
+  const v = obj[key];
+  return (typeof v === "string" ? v : String(v ?? dflt)).trim();
+}
+function getNumber(obj: Record<string, unknown>, key: string): number | null {
+  const v = obj[key];
+  if (typeof v === "number" && Number.isFinite(v)) return v;
+  if (typeof v === "string") {
+    const only = v.replace(/[^\d.-]/g, "");
+    if (!only) return null;
+    const n = Number(only);
+    return Number.isFinite(n) ? n : null;
+  }
+  return null;
+}
+function parseIntLooseVal(v: unknown): number {
+  if (typeof v === "number" && Number.isFinite(v)) return Math.max(0, Math.floor(v));
+  if (typeof v === "string") {
+    const only = v.replace(/[^\d]/g, "");
+    return only ? Math.max(0, parseInt(only, 10)) : 0;
+  }
+  return 0;
+}
+
 // ======================= utils de data =======================
 const PT_MONTHS = [
   "jan", "fev", "mar", "abr", "mai", "jun",
@@ -77,9 +104,9 @@ function endOfMonth(d: Date) {
 function startOfYear(y: number) {
   return new Date(y, 0, 1, 0, 0, 0, 0);
 }
-function parseDate(anyDate: any): Date | null {
+function parseDate(anyDate: unknown): Date | null {
   if (!anyDate) return null;
-  const d = new Date(anyDate);
+  const d = new Date(anyDate as string | number | Date);
   return isNaN(d.getTime()) ? null : d;
 }
 function addYears(d: Date, n: number) {
@@ -102,7 +129,7 @@ function normCia(v?: string): "latam" | "smiles" | "outros" {
 
 /** tenta extrair a QTD de passageiros dos vários campos possíveis */
 function getQtdFromVenda(v: Venda): number {
-  const candidates: any[] = [
+  const candidates: unknown[] = [
     v.qtdPassageiros,
     v.quantidadePassageiros,
     v.passageiros,
@@ -119,6 +146,21 @@ function getQtdFromVenda(v: Venda): number {
   return 1; // fallback seguro
 }
 
+function pickVendaEmissor(v: Venda): string {
+  // privilegia os campos tipados, mas aceita variações se existirem
+  const r = v as Record<string, unknown>;
+  const raw =
+    v.funcionario ??
+    v.vendedor ??
+    v.colaborador ??
+    (typeof r["funcionário"] === "string" ? (r["funcionário"] as string) : undefined) ??
+    (typeof r["Funcionario"] === "string" ? (r["Funcionario"] as string) : undefined) ??
+    (typeof r["Colaborador"] === "string" ? (r["Colaborador"] as string) : undefined) ??
+    "";
+  const s = String(raw || "").trim();
+  return s || "Sem emissor";
+}
+
 /** extrai registros básicos das vendas */
 function extractFromVendas(vendas: Venda[]): Registro[] {
   const out: Registro[] = [];
@@ -128,11 +170,7 @@ function extractFromVendas(vendas: Venda[]): Registro[] {
 
     const cia = normCia(v.cia);
     const data = parseDate(v.data);
-    const emissor =
-      (v as any).funcionario ||
-      (v as any).vendedor ||
-      (v as any).colaborador ||
-      "Sem emissor";
+    const emissor = pickVendaEmissor(v);
 
     out.push({ emissor, cia, data, qtd, origem: "venda" });
   }
@@ -184,43 +222,61 @@ function detectMonthColumns(headers: string[]): Record<string, Date> {
 }
 
 /** long/tidy -> Emissor, CIA, Data(opcional), Qtd */
-function extractFromSheetLong(rows: any[]): Registro[] {
+function extractFromSheetLong(rows: SheetRow[]): Registro[] {
   const out: Registro[] = [];
   for (const r of rows) {
     const emissor =
-      String(
-        r.Emissor || r.Nome || r.Funcionário || r.Funcionario || ""
-      ).trim() || "Sem emissor";
-    const cia = normCia(String(r.CIA || r.Companhia || r.Programa || ""));
-    const data = parseDate(r["Data"] || r["Data de Emissão"] || r.Emissão);
-    const qtdRaw = r.Qtd ?? r.Passageiros ?? r.Quantidade ?? 1;
-    const qtd =
-      Math.max(0, parseInt(String(qtdRaw).replace(/[^\d]/g, "")) || 0) || 1;
+      getString(r, "Emissor") ||
+      getString(r, "Nome") ||
+      getString(r, "Funcionário") ||
+      getString(r, "Funcionario") ||
+      "Sem emissor";
+
+    const cia = normCia(
+      getString(r, "CIA") || getString(r, "Companhia") || getString(r, "Programa")
+    );
+
+    const data =
+      parseDate(r["Data"]) ||
+      parseDate(r["Data de Emissão"]) ||
+      parseDate(r["Emissão"]) ||
+      null;
+
+    const qtdRaw =
+      (r["Qtd"] ?? r["Passageiros"] ?? r["Quantidade"] ?? 1) as unknown;
+    const qtd = parseIntLooseVal(qtdRaw) || 1;
+
     out.push({ emissor, cia, data, qtd, origem: "import" });
   }
   return out;
 }
 
 /** wide (meses como colunas) -> cada célula vira uma emissão no último dia do mês indicado */
-function extractFromSheetWide(rows: any[]): Registro[] {
+function extractFromSheetWide(rows: SheetRow[]): Registro[] {
   const out: Registro[] = [];
   if (rows.length === 0) return out;
-  const header = Object.keys(rows[0] ?? {});
+
+  const header = Object.keys(rows[0] as object);
   const monthCols = detectMonthColumns(header);
   if (Object.keys(monthCols).length === 0) return out;
 
   for (const r of rows) {
     const emissor =
-      String(
-        r.Emissor || r.Nome || r.Funcionário || r.Funcionario || ""
-      ).trim() || "Sem emissor";
-    const cia = normCia(String(r.CIA || r.Companhia || r.Programa || "LATAM")); // default LATAM
+      getString(r, "Emissor") ||
+      getString(r, "Nome") ||
+      getString(r, "Funcionário") ||
+      getString(r, "Funcionario") ||
+      "Sem emissor";
+
+    const cia = normCia(
+      getString(r, "CIA") || getString(r, "Companhia") || getString(r, "Programa") || "LATAM"
+    );
 
     for (const col of Object.keys(monthCols)) {
       const val = r[col];
-      const qtd =
-        Math.max(0, parseInt(String(val ?? "").replace(/[^\d]/g, "")) || 0) || 0;
+      const qtd = parseIntLooseVal(val);
       if (!qtd) continue;
+
       out.push({
         emissor,
         cia,
@@ -233,7 +289,7 @@ function extractFromSheetWide(rows: any[]): Registro[] {
   return out;
 }
 
-function extractFromSheet(rows: any[]): Registro[] {
+function extractFromSheet(rows: SheetRow[]): Registro[] {
   // tenta wide primeiro (porque bate com seu print)
   const wide = extractFromSheetWide(rows);
   if (wide.length) return wide;
@@ -257,8 +313,8 @@ function consolidar(registros: Registro[], agora = new Date()): Linha[] {
   const todayEndMonth = endOfMonth(agora);
 
   for (const r of registros) {
-    let data = r.data;
-    if (!data) data = todayEndMonth; // sem data
+    let data = r.data ?? null;
+    if (!data) data = todayEndMonth; // sem data -> fim do mês atual
 
     // verifica se está ativo conforme regra
     let ativo = true;
@@ -273,8 +329,8 @@ function consolidar(registros: Registro[], agora = new Date()): Linha[] {
         break;
       }
       default: {
-        // outros/importados: consideramos ativos até o fim do mês da "data" (já é fim do mês)
-        ativo = data >= startOfYear(1900); // sempre ativo no mês corrente setado acima
+        // outros/importados: consideramos ativos até o fim do mês (já é fim do mês)
+        ativo = true;
       }
     }
     if (!ativo) continue;
@@ -287,7 +343,7 @@ function consolidar(registros: Registro[], agora = new Date()): Linha[] {
       emissor: r.emissor,
     };
     prev.total += r.qtd || 0;
-    if (r.cia === "latam") prev.datas.push(data); // guardamos as datas para prox. renovação
+    if (r.cia === "latam" && data) prev.datas.push(data); // guardamos as datas para prox. renovação
     map.set(key, prev);
   }
 
@@ -336,8 +392,10 @@ export default function CPFPage() {
   useEffect(() => {
     try {
       const raw = localStorage.getItem(VENDAS_KEY);
-      if (raw) setVendas(JSON.parse(raw));
-    } catch {}
+      if (raw) setVendas(JSON.parse(raw) as Venda[]);
+    } catch {
+      /* ignore */
+    }
   }, []);
 
   const registros = useMemo(
@@ -370,11 +428,11 @@ export default function CPFPage() {
     if (!file) return;
     const reader = new FileReader();
     reader.onload = (evt) => {
-      const data = new Uint8Array(evt.target?.result as ArrayBuffer);
+      const data = new Uint8Array((evt.target?.result as ArrayBuffer) || new ArrayBuffer(0));
       const wb = XLSX.read(data, { type: "array" });
       const sheet = wb.Sheets[wb.SheetNames[0]];
-      const json = XLSX.utils.sheet_to_json(sheet);
-      const regs = extractFromSheet(json as any[]);
+      const json = XLSX.utils.sheet_to_json<SheetRow>(sheet);
+      const regs = extractFromSheet(json);
       setImportados(regs);
     };
     reader.readAsArrayBuffer(file);
@@ -394,7 +452,11 @@ export default function CPFPage() {
           />
           <select
             value={filtroCIA}
-            onChange={(e) => setFiltroCIA(e.target.value as any)}
+            onChange={(e) =>
+              setFiltroCIA(
+                (e.target.value as "todos" | "latam" | "smiles" | "outros")
+              )
+            }
             className="border rounded px-3 py-2 text-sm"
           >
             <option value="todos">Todas CIA</option>
