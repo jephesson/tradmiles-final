@@ -119,15 +119,21 @@ function extractCedenteId(b: AnyBloqueio): string {
   );
 }
 function extractCompraCedenteId(c: AnyCompra): string {
+  // Narrow seguro para a união string | objeto
+  const ced = c.cedente;
+  const cedKey =
+    typeof ced === "string"
+      ? ced
+      : (ced?.identificador || ced?.id || "");
+
   const raw =
     c.identificador ||
     c.cedenteId ||
     c.cedente_id ||
     c.cedenteID ||
-    (typeof c.cedente === "string" ? c.cedente : c.cedente?.identificador) ||
-    c.cedente?.id ||
+    cedKey ||
     "";
-  return String(raw || "").toUpperCase();
+  return String(raw).toUpperCase();
 }
 function compraPoints(c: AnyCompra): number {
   const v = Number(c.pontos ?? c.quantidade ?? c.qtd ?? 0);
@@ -170,28 +176,28 @@ function daysUntil(d?: Date | null) {
 function getUnlockDate(b?: AnyBloqueio): Date | null {
   if (!b) return null;
 
-  const dExp = parseFlexibleDate(b.expectedUnlockAt);
+  const dExp = parseFlexibleDate(b?.expectedUnlockAt);
   if (dExp) return dExp;
 
   const candidates = [
-    b.prevDesbloqueio,
-    b.prev_desbloqueio,
-    b.desbloqueioPrevisto,
-    b.previstoDesbloqueio,
-    b.unlockAt,
-    b.fim,
+    b?.prevDesbloqueio,
+    b?.prev_desbloqueio,
+    b?.desbloqueioPrevisto,
+    b?.previstoDesbloqueio,
+    b?.unlockAt,
+    b?.fim,
   ];
   for (const c of candidates) {
     const d = parseFlexibleDate(c);
     if (d) return d;
   }
 
-  const start = parseFlexibleDate(b.startedAt) || parseFlexibleDate(b.inicio);
+  const start = parseFlexibleDate(b?.startedAt) || parseFlexibleDate(b?.inicio);
   const period =
-    (typeof b.periodDays === "number" && b.periodDays) ||
-    (typeof b.periodo === "number" && b.periodo) ||
-    (typeof b.period === "number" && b.period) ||
-    (typeof b.dias === "number" && b.dias) ||
+    (typeof b?.periodDays === "number" && b?.periodDays) ||
+    (typeof b?.periodo === "number" && b?.periodo) ||
+    (typeof b?.period === "number" && b?.period) ||
+    (typeof b?.dias === "number" && b?.dias) ||
     0;
 
   if (start && period > 0) return addDays(start, period);
@@ -345,7 +351,6 @@ export default function CedentesVisualizarPage() {
   };
 
   /* ---------- carregar dados ---------- */
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     setFuncionarios(loadFuncionarios());
 
@@ -751,7 +756,7 @@ export default function CedentesVisualizarPage() {
     baseRef.current = new Map();
     setSelected(new Set());
     // evita reaplicar overwrite com assinatura antiga
-    const _noop = ""; // só para evitar variáveis extras
+    lastOverwriteSigRef.current = "";
 
     // avisa servidor (silencioso)
     if (ALSO_SAVE_SERVER) {
@@ -1134,7 +1139,7 @@ export default function CedentesVisualizarPage() {
               {showCols === "smiles" && (
                 <>
                   <th className="px-3 py-2 font-medium text-right">Smiles pendente</th>
-                <th className="px-3 py-2 font-medium text-right">Smiles (total + pend.)</th>
+                  <th className="px-3 py-2 font-medium text-right">Smiles (total + pend.)</th>
                 </>
               )}
 
