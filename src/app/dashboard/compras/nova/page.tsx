@@ -4,10 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
 /** === Comissão (storage helpers) =============================== */
-import {
-  loadComissoes,   // lê todas as comissões do localStorage
-  saveComissoes,   // salva lista de comissões
-} from "@/lib/storage";
+import { loadComissoes, saveComissoes } from "@/lib/storage";
 
 /** ================= Helpers ================= */
 const fmtMoney = (v: number) =>
@@ -64,10 +61,10 @@ type TransfItem = {
   origem: ProgramaOrigem;
   destino: ProgramaCIA;
   modo: "pontos" | "pontos+dinheiro";
-  pontosUsados: number;       // pontos que saem da origem
-  pontosTotais: number;       // pontos que chegam ANTES do bônus
-  valorPago: number;          // dinheiro desembolsado (se houver)
-  bonusPct: number;           // %
+  pontosUsados: number;
+  pontosTotais: number;
+  valorPago: number;
+  bonusPct: number;
   status: StatusItem;
 };
 
@@ -75,6 +72,9 @@ type ItemLinha =
   | { kind: "clube"; data: ClubeItem }
   | { kind: "compra"; data: CompraItem }
   | { kind: "transferencia"; data: TransfItem };
+
+// API: item mínimo para descobrir próximo ID
+type CompraListItem = { id?: string; compraId?: string; identificador?: string };
 
 // >>> Cedente com saldos atuais
 type Cedente = {
@@ -84,6 +84,15 @@ type Cedente = {
   smiles?: number;
   livelo?: number;
   esfera?: number;
+};
+
+type CedenteRaw = {
+  identificador: string;
+  nome_completo: string;
+  latam?: number | string;
+  smiles?: number | string;
+  livelo?: number | string;
+  esfera?: number | string;
 };
 
 /** ================= Inputs ================= */
@@ -175,23 +184,30 @@ export default function NovaCompraPage() {
   async function loadNextCompraId() {
     try {
       const res = await fetch(`/api/compras?ts=${Date.now()}`, { cache: "no-store" });
-      let list: any[] = [];
-      if (res.ok) {
-        const json = await res.json();
-        list = Array.isArray(json?.items) ? json.items : Array.isArray(json?.data) ? json.data : [];
-      }
-      const nums = list
+      const json: unknown = res.ok ? await res.json() : null;
+
+      const listUnknown =
+        (json && typeof json === "object" && Array.isArray((json as { items?: unknown[] }).items))
+          ? (json as { items: unknown[] }).items
+          : (json && typeof json === "object" && Array.isArray((json as { data?: unknown[] }).data))
+          ? (json as { data: unknown[] }).data
+          : [];
+
+      const nums = (listUnknown as CompraListItem[])
         .map((r) => {
           const raw = r?.id ?? r?.compraId ?? r?.identificador ?? "";
           const d = onlyDigits(String(raw));
           return d ? Number(d) : 0;
         })
-        .filter((n) => Number.isFinite(n)) as number[];
+        .filter((n) => Number.isFinite(n));
+
       let maxSrv = nums.length ? Math.max(...nums) : 0;
+
       try {
         const lastLocal = Number(localStorage.getItem("TM_COMPRAS_LAST_ID") || "0");
         if (Number.isFinite(lastLocal)) maxSrv = Math.max(maxSrv, lastLocal);
-      } catch {}
+      } catch { /* ignore storage */ }
+
       const next = pad4(maxSrv + 1);
       setCompraId((cur) => (idTouched ? cur : next));
     } catch {
@@ -199,7 +215,7 @@ export default function NovaCompraPage() {
         const lastLocal = Number(localStorage.getItem("TM_COMPRAS_LAST_ID") || "0");
         const next = pad4((Number.isFinite(lastLocal) ? lastLocal : 0) + 1);
         setCompraId((cur) => (idTouched ? cur : next));
-      } catch {}
+      } catch { /* ignore storage */ }
     }
   }
   useEffect(() => {
@@ -220,16 +236,19 @@ export default function NovaCompraPage() {
       try {
         const res = await fetch("/api/cedentes", { cache: "no-store" });
         if (res.ok) {
-          const json = await res.json();
-          const arr: Cedente[] =
-            json?.data?.listaCedentes?.map((c: any) => ({
-              id: c.identificador,
-              nome: c.nome_completo,
-              latam: Number(c.latam || 0),
-              smiles: Number(c.smiles || 0),
-              livelo: Number(c.livelo || 0),
-              esfera: Number(c.esfera || 0),
-            })) ?? [];
+          const json: unknown = await res.json();
+          const lista = (json as { data?: { listaCedentes?: unknown[] } }).data?.listaCedentes ?? [];
+          const arr: Cedente[] = (Array.isArray(lista) ? lista : []).map((c) => {
+            const r = c as CedenteRaw;
+            return {
+              id: String(r.identificador),
+              nome: String(r.nome_completo),
+              latam: Number(r.latam ?? 0),
+              smiles: Number(r.smiles ?? 0),
+              livelo: Number(r.livelo ?? 0),
+              esfera: Number(r.esfera ?? 0),
+            };
+          });
           setCedentes(arr);
           if (!cedenteId && arr.length) setCedenteId(arr[0].id);
         }
@@ -340,8 +359,8 @@ export default function NovaCompraPage() {
   const removeLinha = (id: number) => {
     setLinhas((prev) =>
       prev.filter((l) => {
-        const any = l.kind === "clube" ? l.data : l.kind === "compra" ? l.data : l.data;
-        return any.id !== id;
+        const item = l.data as { id: number };
+        return item.id !== id;
       })
     );
   };
@@ -349,12 +368,12 @@ export default function NovaCompraPage() {
   const toggleStatus = (id: number) => {
     setLinhas((prev) =>
       prev.map((l) => {
-        const any = l.kind === "clube" ? l.data : l.kind === "compra" ? l.data : l.data;
-        if (any.id !== id) return l;
-        const next: StatusItem = any.status === "liberado" ? "aguardando" : "liberado";
-        if (l.kind === "clube") return { kind: "clube", data: { ...l.data, status: next } };
-        if (l.kind === "compra") return { kind: "compra", data: { ...l.data, status: next } };
-        return { kind: "transferencia", data: { ...l.data, status: next } };
+        const item = l.data as { id: number; status: StatusItem };
+        if (item.id !== id) return l;
+        const next: StatusItem = item.status === "liberado" ? "aguardando" : "liberado";
+        if (l.kind === "clube") return { kind: "clube", data: { ...(l.data as ClubeItem), status: next } };
+        if (l.kind === "compra") return { kind: "compra", data: { ...(l.data as CompraItem), status: next } };
+        return { kind: "transferencia", data: { ...(l.data as TransfItem), status: next } };
       })
     );
   };
@@ -379,12 +398,12 @@ export default function NovaCompraPage() {
   const valorItem = (l: ItemLinha) => {
     if (l.kind === "clube") return l.data.valor;
     if (l.kind === "compra") return l.data.valor;
-    return l.data.valorPago || 0; // transferência: custo é o dinheiro pago
+    return l.data.valorPago || 0;
   };
 
   // delta previsto por programa (para o painel de saldos)
   const deltaPrevisto = useMemo(() => {
-    const d = { latam: 0, smiles: 0, livelo: 0, esfera: 0 };
+    const d: Record<"latam" | "smiles" | "livelo" | "esfera", number> = { latam: 0, smiles: 0, livelo: 0, esfera: 0 };
     for (const l of linhas) {
       if (l.kind === "clube") {
         d[l.data.programa] += l.data.pontos;
@@ -399,7 +418,7 @@ export default function NovaCompraPage() {
         const base = modo === "pontos+dinheiro" ? pontosTotais : pontosUsados;
         const chegam = Math.round(base * (1 + (bonusPct || 0) / 100));
         d[destino] += chegam;         // crédito na CIA
-        d[origem] -= pontosUsados;    // débito no banco (regra solicitada)
+        d[origem] -= pontosUsados;    // débito no banco
       }
     }
     return d;
@@ -534,13 +553,13 @@ export default function NovaCompraPage() {
       try {
         const valor = parseMoney(comissaoCedente);
         if (valor > 0 && cedenteId) {
-          const lista = loadComissoes();
-          const idx = lista.findIndex(
-            (c: any) => c.compraId === compraId && c.cedenteId === cedenteId
-          );
+          const lista = loadComissoes() as Array<Record<string, unknown>>;
+          const idx = lista.findIndex((c) => {
+            const cur = c as { compraId?: string; cedenteId?: string };
+            return cur.compraId === compraId && cur.cedenteId === cedenteId;
+          });
           const now = new Date().toISOString();
           if (idx >= 0) {
-            // atualiza
             lista[idx] = {
               ...lista[idx],
               valor,
@@ -549,32 +568,36 @@ export default function NovaCompraPage() {
               atualizadoEm: now,
             };
           } else {
-            // cria
             lista.unshift({
-              id: crypto.randomUUID(),
+              id:
+                typeof crypto !== "undefined" && "randomUUID" in crypto
+                  ? (crypto as unknown as { randomUUID: () => string }).randomUUID()
+                  : String(Date.now()),
               compraId,
               cedenteId,
               cedenteNome,
               valor,
-              status: comissaoStatus as StatusComissao,
+              status: comissaoStatus,
               criadoEm: now,
               atualizadoEm: now,
-            });
+            } as Record<string, unknown>);
           }
-          saveComissoes(lista);
+          // salva como veio (a lib aceita a estrutura)
+          saveComissoes(lista as unknown as never);
         }
       } catch { /* silencioso */ }
 
       try {
         const cur = Number(onlyDigits(compraId) || "0");
         if (Number.isFinite(cur)) localStorage.setItem("TM_COMPRAS_LAST_ID", String(cur));
-      } catch {}
+      } catch { /* ignore storage */ }
+
       const nextId = pad4((Number(onlyDigits(compraId)) || 0) + 1);
       if (!goToList) setCompraId(nextId);
       setMsg({ kind: "ok", text: "Salvo com sucesso." });
       if (goToList) router.push("/dashboard/compras");
-    } catch (e: any) {
-      const txt = String(e?.message || "Erro ao salvar.");
+    } catch (e: unknown) {
+      const txt = e instanceof Error ? e.message : String(e);
       setMsg({ kind: "err", text: txt.startsWith("<!DOCTYPE") ? "Erro ao salvar." : txt });
     } finally {
       setSaving("idle");
@@ -805,7 +828,11 @@ export default function NovaCompraPage() {
 
             <div>
               <label className="mb-1 block text-xs text-slate-600">Modo</label>
-              <select value={trModo} onChange={(e) => setTrModo(e.target.value as any)} className="w-full rounded-xl border px-3 py-2 text-sm">
+              <select
+                value={trModo}
+                onChange={(e) => setTrModo(e.target.value as "pontos" | "pontos+dinheiro")}
+                className="w-full rounded-xl border px-3 py-2 text-sm"
+              >
                 <option value="pontos">Pontos</option>
                 <option value="pontos+dinheiro">Pontos + dinheiro</option>
               </select>
@@ -938,10 +965,10 @@ function Carrinho({
   return (
     <ul className="divide-y">
       {linhas.map((l) => {
-        const any = l.kind === "clube" ? l.data : l.kind === "compra" ? l.data : l.data;
+        const item = l.data as { id: number; status: StatusItem };
         const resumo = renderResumoUnico(l);
         return (
-          <li key={any.id} className="flex flex-col gap-2 px-3 py-2 text-sm md:flex-row md:items-center md:justify-between">
+          <li key={item.id} className="flex flex-col gap-2 px-3 py-2 text-sm md:flex-row md:items-center md:justify-between">
             <div className="flex items-center gap-2">
               <span className={"rounded-full px-2 py-[2px] text-[11px] " + badgeColor(l.kind)}>
                 {labelKind(l.kind)}
@@ -950,16 +977,20 @@ function Carrinho({
             </div>
             <div className="flex items-center gap-2">
               <button
-                className={"rounded border px-2 py-1 text-xs " +
-                  (any.status === "liberado" ? "bg-green-50 border-green-200 text-green-700" : "bg-yellow-50 border-yellow-200 text-yellow-700")}
-                onClick={() => onToggleStatus(any.id)}
+                className={
+                  "rounded border px-2 py-1 text-xs " +
+                  (item.status === "liberado"
+                    ? "bg-green-50 border-green-200 text-green-700"
+                    : "bg-yellow-50 border-yellow-200 text-yellow-700")
+                }
+                onClick={() => onToggleStatus(item.id)}
                 title="Alternar status (Aguardando / Liberado)"
               >
-                {any.status === "liberado" ? "Liberado" : "Aguardando"}
+                {item.status === "liberado" ? "Liberado" : "Aguardando"}
               </button>
               <button
                 className="rounded border px-2 py-1 text-xs hover:bg-slate-100"
-                onClick={() => onRemove(any.id)}
+                onClick={() => onRemove(item.id)}
               >
                 Remover
               </button>
@@ -1010,7 +1041,4 @@ function badgeColor(k: ItemLinha["kind"]): string {
   if (k === "clube") return "bg-indigo-50 text-indigo-700 border border-indigo-200";
   if (k === "compra") return "bg-sky-50 text-sky-700 border border-sky-200";
   return "bg-amber-50 text-amber-700 border border-amber-200";
-}
-function labelStatus(s: StatusItem): string {
-  return s === "liberado" ? "Liberado" : "Aguardando liberação";
 }

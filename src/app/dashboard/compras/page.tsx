@@ -1,24 +1,33 @@
-// src/app/dashboard/compras/page.tsx
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState, ReactNode } from "react";
+import {
+  CIA,
+  Origem,
+  StatusPontos,
+  CompraRow,
+  CompraItem,
+  isItemCompra,
+  isItemTransf,
+  isItemClube,
+} from "@/types/compras";
 
 /** ===== Helpers ===== */
 const fmtMoney = (v: number) =>
   new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(
-    isFinite(v) ? v : 0
+    Number.isFinite(v) ? v : 0
   );
 
 const fmtInt = (n: number) =>
   new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 0 }).format(
-    isFinite(n) ? Math.round(n) : 0
+    Number.isFinite(n) ? Math.round(n) : 0
   );
 
 async function extractError(res: Response) {
   try {
     const data = await res.clone().json();
-    return data?.error || data?.message || res.statusText;
+    return (data as any)?.error || (data as any)?.message || res.statusText;
   } catch {
     const txt = await res.text();
     if (txt.startsWith("<!DOCTYPE") || txt.includes("<html")) return res.statusText;
@@ -26,61 +35,28 @@ async function extractError(res: Response) {
   }
 }
 
-/** ===== Tipos (compatível com modelos antigo e novo) ===== */
-type CIA = "latam" | "smiles";
-type Origem = "livelo" | "esfera";
-type StatusPontos = "aguardando" | "liberados";
-
-type CompraRow = {
-  id: string;
-  dataCompra: string;
-  statusPontos?: StatusPontos;
-
-  // modelo antigo (1 item só):
-  modo?: "compra" | "transferencia";
-  ciaCompra?: CIA;
-  destCia?: CIA;
-  origem?: Origem;
-  calculos?: { totalPts: number; custoMilheiro: number; custoTotal: number; lucroTotal: number };
-
-  // modelo novo (vários itens)
-  itens?: Array<
-    | { kind: "clube"; data: { programa: "latam" | "smiles" | "livelo" | "esfera"; pontos: number; valor: number } }
-    | { kind: "compra"; data: { programa: "latam" | "smiles" | "livelo" | "esfera"; pontos: number; valor: number; bonusPct: number } }
-    | { kind: "transferencia"; data: { origem: Origem; destino: CIA; modo: "pontos" | "pontos+dinheiro"; pontosUsados: number; pontosTotais: number; valorPago: number; bonusPct: number } }
-  >;
-  totais?: {
-    totalCIA?: number;             // pontos
-    custoMilheiroTotal?: number;   // R$/milheiro (total)
-    lucroTotal?: number;           // R$
-    // pode existir metaMilheiro em algumas versões
-    metaMilheiro?: number;
-  };
-
-  // compat com uma variação anterior
-  totaisId?: { totalPts: number; custoMilheiro: number; custoTotal: number; lucroTotal: number };
-  // em algumas versões a meta pode estar na raiz:
-  metaMilheiro?: number;
-};
-
 /* ===== Helpers de cálculo específicos desta tela ===== */
 
 /** Total de pontos (compat. com modelos) */
 function rowTotalPts(c: CompraRow) {
+  // Modelo antigo
   const old = c.calculos?.totalPts ?? c.totaisId?.totalPts;
   if (typeof old === "number" && old > 0) return old;
 
+  // Modelo novo – total consolidado
   const novo = c.totais?.totalCIA;
-  if (typeof novo === "number") return novo;
+  if (typeof novo === "number" && novo > 0) return novo;
 
+  // Fallback: somar dos itens (quando houver "resumo")
   const somaResumo =
-    c.itens?.reduce((s: number, it: any) => s + (it.resumo?.totalPts || 0), 0) ?? 0;
+    c.itens?.reduce<number>((s, it) => s + (it.resumo?.totalPts ?? 0), 0) ?? 0;
   return somaResumo;
 }
 
 /** Custo por milheiro (compat.) */
 function rowCustoMilheiro(c: CompraRow) {
-  if (c.totais?.custoMilheiroTotal) return c.totais.custoMilheiroTotal;
+  const direto = c.totais?.custoMilheiroTotal;
+  if (typeof direto === "number" && direto > 0) return direto;
 
   const stored = c.totaisId?.custoMilheiro ?? c.calculos?.custoMilheiro ?? 0;
   if (stored && stored >= 1) return stored;
@@ -90,16 +66,11 @@ function rowCustoMilheiro(c: CompraRow) {
   return pts > 0 ? custoTotal / (pts / 1000) : 0;
 }
 
-/** Meta do milheiro da compra.
- *  Ordem de busca:
- *   - c.totais?.metaMilheiro
- *   - c.metaMilheiro (raiz)
- *   - fallback: custoMilheiro + 1,50
- */
+/** Meta do milheiro da compra. */
 function rowMetaMilheiro(c: CompraRow) {
   const m =
-    (typeof c.totais?.metaMilheiro === "number" && c.totais!.metaMilheiro! > 0
-      ? c.totais!.metaMilheiro!
+    (typeof c.totais?.metaMilheiro === "number" && c.totais.metaMilheiro > 0
+      ? c.totais.metaMilheiro
       : 0) ||
     (typeof c.metaMilheiro === "number" && c.metaMilheiro > 0 ? c.metaMilheiro : 0);
 
@@ -113,20 +84,17 @@ function rowMetaMilheiro(c: CompraRow) {
 /** Lucro armazenado (se houver na compra) */
 function rowLucro(c: CompraRow) {
   if (typeof c.totais?.lucroTotal === "number") return c.totais.lucroTotal;
-  return (
+
+  const ant =
     c.calculos?.lucroTotal ??
     c.totaisId?.lucroTotal ??
-    c.itens?.reduce((s: number, it: any) => s + (it.resumo?.lucroTotal || 0), 0) ??
-    0
-  );
+    c.itens?.reduce<number>((s, it) => s + (it.resumo?.lucroTotal ?? 0), 0) ??
+    0;
+
+  return ant;
 }
 
-/** Lucro projetado pela meta:
- *  receita_meta = (pts/1000) * metaMilheiro
- *  custo_total  = (pts/1000) * custoMilheiro
- *  lucro_proj   = receita_meta - custo_total
- *  (sem bônus 30%, pois a meta é o patamar onde o bônus é zero)
- */
+/** Lucro projetado pela meta. */
 function rowLucroProjetado(c: CompraRow) {
   const pts = rowTotalPts(c);
   const milheiros = pts / 1000;
@@ -135,6 +103,76 @@ function rowLucroProjetado(c: CompraRow) {
   const receita = milheiros * meta;
   const custoTotal = milheiros * custo;
   return receita - custoTotal;
+}
+
+/** Helpers de exibição (compatíveis com 2 modelos) */
+function rowModo(c: CompraRow): ReactNode {
+  if (c.modo) return c.modo;
+
+  const kinds = new Set((c.itens ?? []).map((it) => it.kind));
+  if (kinds.size === 0) return "—";
+  if (kinds.size > 1) return "múltiplos";
+
+  const k = [...kinds][0];
+  if (k === "compra") return "compra";
+  if (k === "transferencia") return "transferencia";
+  return "—";
+}
+
+function rowCiaOrigem(c: CompraRow): string {
+  // Modelo antigo explícito
+  if (c.modo === "compra") {
+    const cia = c.ciaCompra;
+    return cia ? (cia === "latam" ? "Latam" : "Smiles") : "—";
+  }
+  if (c.modo === "transferencia") {
+    const d = c.destCia ? (c.destCia === "latam" ? "Latam" : "Smiles") : "?";
+    const o = c.origem ? (c.origem === "livelo" ? "Livelo" : "Esfera") : "?";
+    return `${d} ← ${o}`;
+  }
+
+  const its = c.itens ?? [];
+  if (its.length === 0) return "—";
+
+  const compras = its.filter(isItemCompra);
+  const transf = its.filter(isItemTransf);
+  const clubes = its.filter(isItemClube);
+
+  if (compras.length && !transf.length && !clubes.length) {
+    const cias = new Set(
+      compras
+        .map((x) => x.data.programa)
+        .filter((p): p is CIA => p === "latam" || p === "smiles")
+    );
+    if (cias.size === 1) return [...cias][0] === "latam" ? "Latam" : "Smiles";
+    return "múltiplas";
+  }
+
+  if (transf.length && !compras.length && !clubes.length) {
+    const dests = new Set(transf.map((x) => x.data.destino));
+    const orgs = new Set(transf.map((x) => x.data.origem));
+    const d =
+      dests.size === 1 ? ([...dests][0] === "latam" ? "Latam" : "Smiles") : "múltiplas";
+    const o =
+      orgs.size === 1 ? ([...orgs][0] === "livelo" ? "Livelo" : "Esfera") : "múltiplas";
+    return `${d} ← ${o}`;
+  }
+
+  return "múltiplos";
+}
+
+function StatusChip({ s }: { s?: StatusPontos }) {
+  if (s === "liberados")
+    return (
+      <span className="rounded-full bg-green-100 px-2 py-1 text-[11px] font-medium text-green-700">
+        Liberados
+      </span>
+    );
+  return (
+    <span className="rounded-full bg-amber-100 px-2 py-1 text-[11px] font-medium text-amber-700">
+      Aguardando
+    </span>
+  );
 }
 
 export default function ComprasListaPage() {
@@ -175,7 +213,7 @@ export default function ComprasListaPage() {
         });
         const res = await fetch(`/api/compras?${qs.toString()}`, { signal: ctrl.signal });
         const json = await res.json();
-        const arr: CompraRow[] = json.items || json.data || [];
+        const arr: CompraRow[] = (json.items || json.data || []) as CompraRow[];
         setItems(arr);
         setTotal(json.total ?? (arr ? arr.length : 0));
       } catch {
@@ -224,9 +262,12 @@ export default function ComprasListaPage() {
       setItems((prev) => prev.filter((x) => x.id !== id));
       setTotal((t) => Math.max(0, t - 1));
       setMsg(`Compra ${id} excluída com sucesso.`);
-      try { localStorage.setItem("TM_COMPRAS_REFRESH", String(Date.now())); } catch {}
-    } catch (err: any) {
-      setMsg(`Erro ao excluir: ${err?.message || "Falha na rede"}`);
+      try {
+        localStorage.setItem("TM_COMPRAS_REFRESH", String(Date.now()));
+      } catch {}
+    } catch (err: unknown) {
+      const e = err as { message?: string };
+      setMsg(`Erro ao excluir: ${e?.message || "Falha na rede"}`);
     } finally {
       setTimeout(() => setMsg(null), 3500);
     }
@@ -243,75 +284,15 @@ export default function ComprasListaPage() {
       setItems((prev) =>
         prev.map((r) => (r.id === id ? { ...r, statusPontos: "liberados" } : r))
       );
-      try { localStorage.setItem("TM_COMPRAS_REFRESH", String(Date.now())); } catch {}
-    } catch (e: any) {
+      try {
+        localStorage.setItem("TM_COMPRAS_REFRESH", String(Date.now()));
+      } catch {}
+    } catch (err: unknown) {
+      const e = err as { message?: string };
       setMsg(e?.message || "Erro ao liberar");
       setTimeout(() => setMsg(null), 3000);
     }
   }
-
-  // === Helpers de exibição (compatíveis com 2 modelos) ===
-  function rowModo(c: CompraRow) {
-    if (c.modo) return c.modo;
-
-    const kinds = new Set((c.itens || []).map((it: any) => it.kind));
-    if (kinds.size === 0) return "—";
-    if (kinds.size > 1) return "múltiplos";
-    const k = [...kinds][0];
-    if (k === "compra") return "compra";
-    if (k === "transferencia") return "transferencia";
-    return "—";
-  }
-
-  function rowCiaOrigem(c: CompraRow) {
-    if (c.modo === "compra") {
-      const cia = c.ciaCompra;
-      return cia ? (cia === "latam" ? "Latam" : "Smiles") : "—";
-    }
-    if (c.modo === "transferencia") {
-      const d = c.destCia ? (c.destCia === "latam" ? "Latam" : "Smiles") : "?";
-      const o = c.origem ? (c.origem === "livelo" ? "Livelo" : "Esfera") : "?";
-      return `${d} ← ${o}`;
-    }
-
-    const its = c.itens || [];
-    if (its.length === 0) return "—";
-    const compras = its.filter((x: any) => x.kind === "compra");
-    const transf = its.filter((x: any) => x.kind === "transferencia");
-    const clubes = its.filter((x: any) => x.kind === "clube");
-
-    if (compras.length && !transf.length && !clubes.length) {
-      const cias = new Set(
-        compras.map((x: any) => x.data.programa).filter((p: string) => p === "latam" || p === "smiles")
-      );
-      if (cias.size === 1) return [...cias][0] === "latam" ? "Latam" : "Smiles";
-      return "múltiplas";
-    }
-    if (transf.length && !compras.length && !clubes.length) {
-      const dests = new Set(transf.map((x: any) => x.data.destino));
-      const orgs = new Set(transf.map((x: any) => x.data.origem));
-      const d =
-        dests.size === 1 ? ([...dests][0] === "latam" ? "Latam" : "Smiles") : "múltiplas";
-      const o =
-        orgs.size === 1 ? ([...orgs][0] === "livelo" ? "Livelo" : "Esfera") : "múltiplas";
-      return `${d} ← ${o}`;
-    }
-    return "múltiplos";
-  }
-
-  const StatusChip: React.FC<{ s?: StatusPontos }> = ({ s }) => {
-    if (s === "liberados")
-      return (
-        <span className="rounded-full bg-green-100 px-2 py-1 text-[11px] font-medium text-green-700">
-          Liberados
-        </span>
-      );
-    return (
-      <span className="rounded-full bg-amber-100 px-2 py-1 text-[11px] font-medium text-amber-700">
-        Aguardando
-      </span>
-    );
-  };
 
   return (
     <main className="mx-auto max-w-6xl">
@@ -346,7 +327,7 @@ export default function ComprasListaPage() {
           value={modo}
           onChange={(e) => {
             setOffset(0);
-            setModo(e.target.value as any);
+            setModo(e.target.value as "compra" | "transferencia" | "");
           }}
           className="rounded-xl border px-3 py-2 text-sm"
         >
@@ -358,7 +339,7 @@ export default function ComprasListaPage() {
           value={cia}
           onChange={(e) => {
             setOffset(0);
-            setCia(e.target.value as any);
+            setCia(e.target.value as CIA | "");
           }}
           className="rounded-xl border px-3 py-2 text-sm"
         >
@@ -370,7 +351,7 @@ export default function ComprasListaPage() {
           value={origem}
           onChange={(e) => {
             setOffset(0);
-            setOrigem(e.target.value as any);
+            setOrigem(e.target.value as Origem | "");
           }}
           className="rounded-xl border px-3 py-2 text-sm"
         >
@@ -473,7 +454,13 @@ export default function ComprasListaPage() {
 
       {/* Paginação */}
       <div className="mt-3 flex items-center justify-between text-sm text-slate-600">
-        <div>{total > 0 ? <>Mostrando {pageFrom} – {pageTo} de {total}</> : <>0 resultados</>}</div>
+        <div>
+          {total > 0 ? (
+            <>Mostrando {pageFrom} – {pageTo} de {total}</>
+          ) : (
+            <>0 resultados</>
+          )}
+        </div>
         <div className="flex items-center gap-2">
           <button
             className="rounded-lg border px-3 py-1 disabled:opacity-40"
