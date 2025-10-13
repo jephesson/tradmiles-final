@@ -7,7 +7,6 @@ import {
   Origem,
   StatusPontos,
   CompraRow,
-  CompraItem,
   isItemCompra,
   isItemTransf,
   isItemClube,
@@ -24,10 +23,20 @@ const fmtInt = (n: number) =>
     Number.isFinite(n) ? Math.round(n) : 0
   );
 
+function isRecord(v: unknown): v is Record<string, unknown> {
+  return !!v && typeof v === "object" && !Array.isArray(v);
+}
+
 async function extractError(res: Response) {
   try {
-    const data = await res.clone().json();
-    return (data as any)?.error || (data as any)?.message || res.statusText;
+    const data: unknown = await res.clone().json();
+    if (isRecord(data)) {
+      const err = data.error;
+      const msg = (data as { message?: unknown }).message;
+      if (typeof err === "string" && err.trim()) return err;
+      if (typeof msg === "string" && msg.trim()) return msg;
+    }
+    return res.statusText;
   } catch {
     const txt = await res.text();
     if (txt.startsWith("<!DOCTYPE") || txt.includes("<html")) return res.statusText;
