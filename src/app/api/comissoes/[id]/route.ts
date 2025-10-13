@@ -1,3 +1,4 @@
+// src/app/api/comissoes/[id]/route.ts
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { Prisma } from "@prisma/client";
@@ -35,7 +36,7 @@ export async function PATCH(req: Request, ctx: any) {
       );
     }
 
-    const data = await prisma.comissao.update({
+    const data = await prisma.comissaoCedente.update({
       where: { id },
       data: { status, atualizadoEm: new Date() },
     });
@@ -60,7 +61,7 @@ export async function DELETE(_req: Request, ctx: any) {
   const { id } = params || ({} as { id: string });
 
   try {
-    await prisma.comissao.delete({ where: { id } });
+    await prisma.comissaoCedente.delete({ where: { id } });
     return NextResponse.json({ ok: true, removedId: id }, { headers: noCache() });
   } catch (err: unknown) {
     if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2025") {
