@@ -17,7 +17,6 @@ type CIA = "latam" | "smiles";
 type Origem = "livelo" | "esfera";
 type Status = "aguardando" | "liberados";
 
-
 type AnyObj = Record<string, unknown>;
 
 function isRecord(v: unknown): v is AnyObj {
@@ -309,19 +308,23 @@ export async function GET(req: Request): Promise<NextResponse> {
 
       if (!hasPts) {
         const totals = smartTotals((item.itens as unknown[]) || [], item.totais);
+
+        // usa objeto local tipado para evitar spread de tipo possivelmente indefinido
+        const totalsIdObj = {
+          totalPts: totals.totalPts,
+          custoTotal: totals.custoTotal,
+          custoMilheiro: totals.custoMilheiro,
+          lucroTotal: totals.lucroTotal,
+        };
+
         item.totais = {
           totalCIA: totals.totalPts,
           custoTotal: totals.custoTotal,
           custoMilheiroTotal: totals.custoMilheiro,
           lucroTotal: totals.lucroTotal,
         };
-        item.totaisId = {
-          totalPts: totals.totalPts,
-          custoTotal: totals.custoTotal,
-          custoMilheiro: totals.custoMilheiro,
-          lucroTotal: totals.lucroTotal,
-        };
-        item.calculos = { ...item.totaisId };
+        item.totaisId = totalsIdObj;
+        item.calculos = { ...totalsIdObj };
       }
       return NextResponse.json(item, { headers: noCache() });
     }
@@ -521,13 +524,16 @@ export async function PATCH(req: Request): Promise<NextResponse> {
     // Se vierem itens e não vier `totais`, gere compat/novos; se vier `totais`, gere totaisId/calculos.
     if (Array.isArray(apply.itens) && !apply.totais && !apply.totaisId) {
       const smart = smartTotals(apply.itens as unknown[]);
-      apply.totaisId = {
+
+      const totalsIdObj = {
         totalPts: smart.totalPts,
         custoTotal: smart.custoTotal,
         custoMilheiro: smart.custoMilheiro,
         lucroTotal: smart.lucroTotal,
       };
-      apply.calculos = { ...apply.totaisId };
+
+      apply.totaisId = totalsIdObj;
+      apply.calculos = { ...totalsIdObj };
       apply.totais = {
         totalCIA: smart.totalPts,
         custoTotal: smart.custoTotal,
@@ -537,8 +543,14 @@ export async function PATCH(req: Request): Promise<NextResponse> {
     }
     if (apply.totais && !apply.totaisId) {
       const compatTot = totalsCompatFromTotais(apply.totais);
-      apply.totaisId = { ...compatTot };
-      apply.calculos = { ...compatTot };
+      const totalsIdObj = {
+        totalPts: compatTot.totalPts,
+        custoTotal: compatTot.custoTotal,
+        custoMilheiro: compatTot.custoMilheiro,
+        lucroTotal: compatTot.lucroTotal,
+      };
+      apply.totaisId = totalsIdObj;
+      apply.calculos = { ...totalsIdObj };
     }
 
     // Mantém campos compat para a listagem
