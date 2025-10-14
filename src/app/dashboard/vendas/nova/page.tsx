@@ -264,10 +264,14 @@ function extractMetaMilheiroFromCompra(c: AnyCompra): number {
 
 /** ===== uuid simples p/ novos clientes ===== */
 function uuid() {
-  if (typeof globalThis.crypto !== "undefined" && "randomUUID" in globalThis.crypto) {
-    // @ts-expect-error showPicker is not in lib.dom types; calling when available
-    return globalThis.crypto.randomUUID();
+  // Usa Web Crypto quando disponível (tipado, sem @ts-expect-error)
+  if (
+    typeof globalThis.crypto !== "undefined" &&
+    typeof (globalThis.crypto as { randomUUID?: () => string }).randomUUID === "function"
+  ) {
+    return (globalThis.crypto as { randomUUID: () => string }).randomUUID();
   }
+  // Fallback universal
   return Math.random().toString(36).slice(2) + Date.now().toString(36);
 }
 
@@ -407,12 +411,13 @@ export default function PageNovaVenda() {
   const abrirSelect = useCallback(() => {
     if (!selectRef.current) return;
     selectRef.current.focus();
-    // @ts-expect-error showPicker is non-standard but present in some browsers
-    if (typeof selectRef.current.showPicker === "function") {
-      try {
-        // @ts-expect-error calling showPicker on supported browsers
-        selectRef.current.showPicker();
-      } catch {}
+
+    // Tipagem segura para browsers que implementam showPicker()
+    const el = selectRef.current as HTMLSelectElement & { showPicker?: () => void };
+    try {
+      el.showPicker?.();
+    } catch {
+      // silencia se não suportar
     }
   }, []);
 
@@ -474,16 +479,6 @@ export default function PageNovaVenda() {
     });
   }, [bloqueios]);
 
-  const availableFor = useCallback((c: CedenteLista, program: CIA): number => {
-    const idUpper = c.identificador.toUpperCase();
-    const base = Number((c as Record<string, unknown>)[program] ?? 0);
-    const extra = (program === "latam"
-      ? latamLiberadoByCedente.get(idUpper)
-      : smilesLiberadoByCedente.get(idUpper)) || 0;
-    return base + extra;
-  }, [latamLiberadoByCedente, smilesLiberadoByCedente]);
-
-  /** ------- mapas de liberado por programa ------- */
   const latamLiberadoByCedente = useMemo(() => {
     const map = new Map<string, number>();
     for (const c of compras) {
@@ -505,6 +500,14 @@ export default function PageNovaVenda() {
     }
     return map;
   }, [compras]);
+
+  const availableFor = useCallback((c: CedenteLista, program: CIA): number => {
+    const idUpper = c.identificador.toUpperCase();
+    const base = Number((c as Record<string, unknown>)[program] ?? 0);
+    const extra =
+      (program === "latam" ? latamLiberadoByCedente.get(idUpper) : smilesLiberadoByCedente.get(idUpper)) || 0;
+    return base + extra;
+  }, [latamLiberadoByCedente, smilesLiberadoByCedente]);
 
   /** ------- disponíveis por cedente p/ CIA ------- */
   const findCompraIdForCedenteProgram = useCallback((cedId: string, program: CIA, needAtLeast: number): string | null => {
