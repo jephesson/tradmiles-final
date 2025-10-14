@@ -1,3 +1,4 @@
+// src/app/dashboard/lucros/page.tsx
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
@@ -35,9 +36,7 @@ type VendaRec = {
     id: string; // ID do cedente/conta usada (para achar dono/owner)
     nome?: string;
   } | null;
-  // campos diversos do payload original podem existir — ignoramos
-  [k: string]: any;
-};
+} & Record<string, unknown>;
 
 type FinalizacaoRec = {
   id?: string;
@@ -46,15 +45,13 @@ type FinalizacaoRec = {
   ownerFuncionarioId?: string | null; // dono da conta finalizada (se já vier)
   contaId?: string | null; // id da conta/cedente
   lucroFinalizacao?: number; // R$ (lucro que sobrou ao encerrar)
-  [k: string]: any;
-};
+} & Record<string, unknown>;
 
 type CedenteMin = {
   identificador: string;
   responsavelId?: string | null;
   responsavelNome?: string | null;
-  [k: string]: any;
-};
+} & Record<string, unknown>;
 
 type PayStatus = Record<string, Record<string, boolean>>; // por data -> funcId -> pago?
 
@@ -65,20 +62,19 @@ const fmtMoney = (v: number) =>
   new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(
     Number.isFinite(v) ? v : 0
   );
-const fmtInt = (n: number) =>
-  new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 0 }).format(
-    Number.isFinite(n) ? Math.round(n) : 0
-  );
+
 const toISODate = (d: Date) =>
   new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()))
     .toISOString()
     .slice(0, 10);
+
 const nextDayISO = (iso: string) => {
   const [y, m, d] = iso.split("-").map((x) => parseInt(x, 10));
   const date = new Date(Date.UTC(y, m - 1, d));
   date.setUTCDate(date.getUTCDate() + 1);
   return toISODate(date);
 };
+
 const ym = (iso: string) => iso.slice(0, 7); // yyyy-mm
 
 function loadRateio(): Matrix {
@@ -150,23 +146,28 @@ export default function LucrosPage() {
       try {
         // VENDAS
         const resV = await fetch("/api/vendas?limit=5000");
-        const jsonV = await resV.json();
-        const listV = (jsonV?.items || jsonV?.data || jsonV || []) as VendaRec[];
-        setVendas(Array.isArray(listV) ? listV : []);
+        const jsonV: unknown = await resV.json();
+        const listV = ((jsonV as Record<string, unknown>)?.items ??
+          (jsonV as Record<string, unknown>)?.data ??
+          jsonV) as VendaRec[] | unknown;
+        setVendas(Array.isArray(listV) ? (listV as VendaRec[]) : []);
 
         // FINALIZAÇÕES (opcional)
         let listF: FinalizacaoRec[] = [];
         try {
           const resF = await fetch("/api/finalizacoes?limit=5000", { cache: "no-store" });
           if (resF.ok) {
-            const jsonF = await resF.json();
-            listF = (jsonF?.items || jsonF?.data || jsonF || []) as FinalizacaoRec[];
+            const jsonF: unknown = await resF.json();
+            const arrF = ((jsonF as Record<string, unknown>)?.items ??
+              (jsonF as Record<string, unknown>)?.data ??
+              jsonF) as FinalizacaoRec[] | unknown;
+            listF = Array.isArray(arrF) ? (arrF as FinalizacaoRec[]) : [];
           }
         } catch {
           // se não existir endpoint, segue sem finalizações
         }
         setFinalizacoes(Array.isArray(listF) ? listF : []);
-      } catch (e) {
+      } catch {
         setMsg("Não foi possível carregar dados de vendas/finalizações.");
         setTimeout(() => setMsg(null), 3500);
       } finally {
@@ -339,10 +340,10 @@ export default function LucrosPage() {
 
     if (statusFilter) {
       out = out.filter((b) => {
-        const funcs = Object.keys(b.porFuncionario);
-        if (funcs.length === 0) return false;
-        // se TODOS (ou o único) do dia atenderem ao filtro, fica
-        return funcs.some((fid) => {
+        const fids = Object.keys(b.porFuncionario);
+        if (fids.length === 0) return false;
+        // se ALGUM do dia atender ao filtro, fica
+        return fids.some((fid) => {
           const paid = !!payStatus[b.date]?.[fid];
           return statusFilter === "pago" ? paid : !paid;
         });
@@ -426,7 +427,9 @@ export default function LucrosPage() {
           <label className="text-[11px] uppercase tracking-wide text-slate-600">Status</label>
           <select
             value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value as any)}
+            onChange={(e) =>
+              setStatusFilter(e.target.value as "" | "pago" | "aguardando")
+            }
             className="rounded-xl border px-3 py-2 text-sm"
           >
             <option value="">Todos</option>
