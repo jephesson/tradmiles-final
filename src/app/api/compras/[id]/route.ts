@@ -4,12 +4,7 @@ import {
   updateCompraById,
   deleteCompraById,
 } from "@/lib/comprasRepo";
-import type {
-  CompraDoc,
-  CIA,
-  Origem,
-  StatusPontos,
-} from "@/lib/comprasRepo";
+import type { CompraDoc, CIA, Origem, StatusPontos } from "@/lib/comprasRepo";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -31,10 +26,10 @@ const isObject = (v: unknown): v is Record<string, unknown> =>
 /** GET /api/compras/:id */
 export async function GET(
   _req: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ): Promise<NextResponse> {
   try {
-    const { id } = params;
+    const { id } = await params;
     const item = await findCompraById(id.trim());
     if (!item) {
       return NextResponse.json(
@@ -52,10 +47,10 @@ export async function GET(
 /** PATCH /api/compras/:id */
 export async function PATCH(
   req: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ): Promise<NextResponse> {
   try {
-    const { id } = params;
+    const { id } = await params;
     const body = await req.json().catch(() => null);
     if (!isObject(body)) {
       return NextResponse.json(
@@ -122,7 +117,6 @@ export async function PATCH(
           break;
 
         case "valores":
-          // mantém o formato livre (mesmo tipo exportado em CompraDoc)
           patch.valores = v as CompraDoc["valores"];
           break;
 
@@ -156,7 +150,6 @@ export async function PATCH(
           }
           break;
 
-        // compat: alguns clientes mandam "totais" ao invés de "totaisId"
         case "totais":
           if (isObject(v)) {
             const maybe = v as Partial<NonNullable<CompraDoc["totaisId"]>>;
@@ -206,10 +199,10 @@ export async function PATCH(
 /** DELETE /api/compras/:id */
 export async function DELETE(
   _req: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ): Promise<NextResponse> {
   try {
-    const { id } = params;
+    const { id } = await params;
     await deleteCompraById(id.trim());
     return NextResponse.json({ ok: true }, { headers: noCache() });
   } catch (e: unknown) {
