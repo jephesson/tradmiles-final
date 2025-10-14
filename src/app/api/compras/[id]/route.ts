@@ -1,5 +1,5 @@
 // src/app/api/compras/[id]/route.ts
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import {
   findCompraById,
   updateCompraById,
@@ -27,11 +27,11 @@ const isObject = (v: unknown): v is Record<string, unknown> =>
 
 /** GET /api/compras/:id */
 export async function GET(
-  _req: NextRequest,
-  context: { params: { id: string } }
+  _req: Request,
+  { params }: { params: { id: string } }
 ): Promise<NextResponse> {
   try {
-    const { id } = context.params;
+    const { id } = params;
     const item = await findCompraById(id.trim());
     if (!item) {
       return NextResponse.json(
@@ -48,11 +48,11 @@ export async function GET(
 
 /** PATCH /api/compras/:id */
 export async function PATCH(
-  req: NextRequest,
-  context: { params: { id: string } }
+  req: Request,
+  { params }: { params: { id: string } }
 ): Promise<NextResponse> {
   try {
-    const { id } = context.params;
+    const { id } = params;
     const body = await req.json().catch(() => null);
     if (!isObject(body)) {
       return NextResponse.json(
@@ -95,7 +95,7 @@ export async function PATCH(
       }
     }
 
-    const updated = await updateCompraById(id.trim(), patch);
+    const updated = await updateCompraById(id.trim(), patch as any);
     if (!updated) {
       return NextResponse.json(
         { error: "Não encontrado" },
@@ -115,11 +115,11 @@ export async function PATCH(
 
 /** DELETE /api/compras/:id */
 export async function DELETE(
-  _req: NextRequest,
-  context: { params: { id: string } }
+  _req: Request,
+  { params }: { params: { id: string } }
 ): Promise<NextResponse> {
   try {
-    const { id } = context.params;
+    const { id } = params;
     await deleteCompraById(id.trim());
     return NextResponse.json({ ok: true }, { headers: noCache() });
   } catch (e: unknown) {
