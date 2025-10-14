@@ -7,6 +7,7 @@ import {
   updateCompraById,
   deleteCompraById,
 } from "@/lib/comprasRepo";
+import type { CompraDoc } from "@/lib/comprasRepo";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -309,7 +310,6 @@ export async function GET(req: Request): Promise<NextResponse> {
       if (!hasPts) {
         const totals = smartTotals((item.itens as unknown[]) || [], item.totais);
 
-        // usa objeto local tipado para evitar spread de tipo possivelmente indefinido
         const totalsIdObj = {
           totalPts: totals.totalPts,
           custoTotal: totals.custoTotal,
@@ -433,7 +433,7 @@ export async function GET(req: Request): Promise<NextResponse> {
         (r) =>
           str(r.id).toLowerCase().includes(q) ||
           str(r.cedenteId).toLowerCase().includes(q) ||
-          str(r.cedenteNome).toLowerCase().includes(q)
+          str((r as AnyObj).cedenteNome ?? "").toLowerCase().includes(q)
       );
     }
     if (modoFil) rows = rows.filter((r) => firstModo(r) === modoFil);
@@ -451,6 +451,8 @@ export async function GET(req: Request): Promise<NextResponse> {
     });
 
     const total = rows.length;
+    const offset = parseInt(url.searchParams.get("offset") || "0", 10);
+    const limit = parseInt(url.searchParams.get("limit") || "20", 10);
     const offsetClamped = Math.max(0, offset);
     const limitClamped = Math.max(1, Math.min(limit, 500));
     const items = rows.slice(offsetClamped, offsetClamped + limitClamped);
@@ -472,39 +474,30 @@ export async function POST(req: Request): Promise<NextResponse> {
     const dataCompra = str(body.dataCompra);
     const statusPontos = (str(body.statusPontos) as Status) || "aguardando";
     const cedenteId = str(body.cedenteId);
-    const cedenteNome = str(body.cedenteNome);
 
     const usingNew = Array.isArray(body.itens);
-    const { itens, totaisId, totais, compat } = usingNew
+    const { itens, totaisId, /* totais, */ compat } = usingNew
       ? normalizeFromNewShape(body)
       : normalizeFromOldShape(body);
 
-    const row: AnyObj = {
+    // Persistimos somente campos definidos no tipo CompraDoc
+    const doc: CompraDoc = {
       id,
       dataCompra,
       statusPontos,
-      cedenteId,
-      cedenteNome,
-
-      itens,
-      totais, // novo padrão
-
-      // compat p/ listagem antiga
+      cedenteId: cedenteId || undefined,
+      itens: (itens as unknown[]) as CompraDoc["itens"],
       totaisId,
       modo: compat.modo ?? undefined,
-      ciaCompra: compat.ciaCompra ?? undefined,
-      destCia: compat.destCia ?? undefined,
-      origem: compat.origem ?? undefined,
+      ciaCompra: (compat.ciaCompra as CIA | null) ?? undefined,
+      destCia: (compat.destCia as CIA | null) ?? undefined,
+      origem: (compat.origem as Origem | null) ?? undefined,
       calculos: { ...totaisId },
-
-      metaMilheiro: body.metaMilheiro ?? undefined,
-      comissaoCedente: body.comissaoCedente ?? undefined,
-
       savedAt: Date.now(),
     };
 
-    await upsertCompra(row);
-    return NextResponse.json({ ok: true, id: row.id }, { headers: noCache() });
+    await upsertCompra(doc);
+    return NextResponse.json({ ok: true, id: doc.id }, { headers: noCache() });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : "erro ao salvar";
     return NextResponse.json({ ok: false, error: msg }, { status: 500, headers: noCache() });
@@ -534,12 +527,7 @@ export async function PATCH(req: Request): Promise<NextResponse> {
 
       apply.totaisId = totalsIdObj;
       apply.calculos = { ...totalsIdObj };
-      apply.totais = {
-        totalCIA: smart.totalPts,
-        custoTotal: smart.custoTotal,
-        custoMilheiroTotal: smart.custoMilheiro,
-        lucroTotal: smart.lucroTotal,
-      };
+      // `totais` não é persistido no arquivo; usado só para resposta quando necessário.
     }
     if (apply.totais && !apply.totaisId) {
       const compatTot = totalsCompatFromTotais(apply.totais);
@@ -553,35 +541,60 @@ export async function PATCH(req: Request): Promise<NextResponse> {
       apply.calculos = { ...totalsIdObj };
     }
 
-    // Mantém campos compat para a listagem
-    const first = Array.isArray(apply.itens) ? (apply.itens as AnyObj[])[0] : undefined;
-    if (first) {
-      const modo = str(first.modo ?? first.kind);
-      apply.modo = modo;
-      if (modo === "compra") {
-        apply.ciaCompra = str(
-          (first.valores as AnyObj | undefined)?.ciaCompra ??
-            (first.data as AnyObj | undefined)?.programa ??
-            null
-        );
-        apply.destCia = null;
-        apply.origem = null;
-      } else if (modo === "transferencia") {
-        apply.ciaCompra = null;
-        apply.destCia = str(
-          (first.valores as AnyObj | undefined)?.destCia ??
-            (first.data as AnyObj | undefined)?.destino ??
-            null
-        );
-        apply.origem = str(
-          (first.valores as AnyObj | undefined)?.origem ??
-            (first.data as AnyObj | undefined)?.origem ??
-            null
-        );
+    // Monta um Partial<CompraDoc> apenas com campos válidos
+    const patchDoc: Partial<CompraDoc> = {};
+    if (typeof apply.statusPontos === "string") {
+      const s = apply.statusPontos as Status;
+      if (s === "aguardando" || s === "liberados") patchDoc.statusPontos = s;
+    }
+    if (typeof apply.dataCompra === "string") patchDoc.dataCompra = apply.dataCompra;
+    if (typeof apply.cedenteId === "string") patchDoc.cedenteId = apply.cedenteId;
+
+    if (apply.totaisId && isRecord(apply.totaisId)) {
+      patchDoc.totaisId = {
+        totalPts: num((apply.totaisId as AnyObj).totalPts),
+        custoMilheiro: num((apply.totaisId as AnyObj).custoMilheiro),
+        custoTotal: num((apply.totaisId as AnyObj).custoTotal),
+        lucroTotal: num((apply.totaisId as AnyObj).lucroTotal),
+      };
+      patchDoc.calculos = { ...patchDoc.totaisId };
+    }
+
+    if (Array.isArray(apply.itens)) {
+      patchDoc.itens = (apply.itens as unknown[]) as CompraDoc["itens"];
+
+      // Mantém campos compat para a listagem
+      const first = (apply.itens as AnyObj[])[0];
+      if (first) {
+        const modo = str(first.modo ?? first.kind);
+        patchDoc.modo = modo === "compra" || modo === "transferencia" ? modo : undefined;
+        if (patchDoc.modo === "compra") {
+          patchDoc.ciaCompra = str(
+            (first.valores as AnyObj | undefined)?.ciaCompra ??
+              (first.data as AnyObj | undefined)?.programa ??
+              ""
+          ) as CIA;
+          patchDoc.destCia = undefined;
+          patchDoc.origem = undefined;
+        } else if (patchDoc.modo === "transferencia") {
+          patchDoc.ciaCompra = undefined;
+          patchDoc.destCia = str(
+            (first.valores as AnyObj | undefined)?.destCia ??
+              (first.data as AnyObj | undefined)?.destino ??
+              ""
+          ) as CIA;
+          patchDoc.origem = str(
+            (first.valores as AnyObj | undefined)?.origem ??
+              (first.data as AnyObj | undefined)?.origem ??
+              ""
+          ) as Origem;
+        }
       }
     }
 
-    const updated = await updateCompraById(id, apply);
+    if (typeof apply.savedAt === "number") patchDoc.savedAt = apply.savedAt;
+
+    const updated = await updateCompraById(id, patchDoc);
     return NextResponse.json(updated, { headers: noCache() });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : "Erro ao atualizar";
