@@ -212,7 +212,7 @@ export default function VendasListaPage() {
       });
       const json = (await res.json()) as { ok?: boolean; error?: string; record?: VendaRecord };
       if (!json?.ok) throw new Error(json?.error || "Falha ao atualizar status");
-      if (json.record) setData((arr) => arr.map((v) => (v.id === id ? json.record as VendaRecord : v)));
+      if (json.record) setData((arr) => arr.map((v) => (v.id === id ? (json.record as VendaRecord) : v)));
       pingCedentes(); // 🔔 avisa outra(s) aba(s)
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -413,27 +413,29 @@ export default function VendasListaPage() {
                 "Origem IATA",
                 "Sobrenome",
               ] as const;
+
               const rows: Array<
                 [
-                  string,
-                  string,
-                  string,
-                  string,
-                  number,
-                  number,
-                  number,
-                  number,
-                  number,
-                  number,
-                  string,
-                  string,
-                  string,
-                  string,
-                  string,
-                  string,
-                  string,
-                  string,
-                  string
+                  string, // ID
+                  string, // Criado em
+                  string, // Data venda
+                  string, // CIA
+                  number, // Pontos
+                  number, // Milheiros
+                  number, // Valor Milheiro
+                  number, // Taxa
+                  number, // Total sem Taxa
+                  number, // Total Cobrar
+                  string, // Status
+                  string, // Cliente
+                  string, // Origem Cliente
+                  string, // Funcionário
+                  string, // Conta (ID)
+                  string, // Conta (Nome)
+                  string, // Compra ID
+                  string, // Localizador
+                  string, // Origem IATA
+                  string  // Sobrenome
                 ]
               > = sorted.map((v) => [
                 v.id,
@@ -457,16 +459,18 @@ export default function VendasListaPage() {
                 v.origemIATA ?? "",
                 v.sobrenome ?? "",
               ]);
+
               const csv =
                 header.join(";") +
                 "\n" +
                 rows
                   .map((r) =>
                     r
-                      .map((c) => String(c).replace(/;/g, ","))
+                      .map((c) => String(c).replace(/;/g, ",")) // evita quebrar colunas
                       .join(";")
                   )
                   .join("\n");
+
               const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
               const url = URL.createObjectURL(blob);
               const a = document.createElement("a");
