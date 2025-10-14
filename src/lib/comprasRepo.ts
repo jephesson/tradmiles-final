@@ -7,6 +7,16 @@ export type CIA = "latam" | "smiles";
 export type Origem = "livelo" | "esfera";
 export type StatusPontos = "aguardando" | "liberados";
 
+/**
+ * Estrutura genérica para o campo `valores` usada em itens/compat:
+ * mantém os campos que você acessa no código e permite extras.
+ */
+export type ValoresGenericos = Record<string, unknown> & {
+  ciaCompra?: CIA;
+  destCia?: CIA;
+  origem?: Origem;
+};
+
 export type CompraItemResumo = {
   totalPts: number;
   custoMilheiro: number;
@@ -18,7 +28,7 @@ export type CompraItem = {
   idx: number;
   modo: "compra" | "transferencia";
   resumo: CompraItemResumo;
-  valores: any;
+  valores: ValoresGenericos;
 };
 
 export type CompraDoc = {
@@ -38,7 +48,7 @@ export type CompraDoc = {
   ciaCompra?: CIA;
   destCia?: CIA;
   origem?: Origem;
-  valores?: any;
+  valores?: ValoresGenericos;
   calculos?: CompraItemResumo;
   savedAt?: number;
 };
@@ -49,7 +59,7 @@ const DATA = path.join(process.cwd(), ".data/compras.json");
 function readAll(): CompraDoc[] {
   try {
     const raw = fs.readFileSync(DATA, "utf8");
-    const arr = JSON.parse(raw);
+    const arr: unknown = JSON.parse(raw);
     return Array.isArray(arr) ? (arr as CompraDoc[]) : [];
   } catch {
     return [];
@@ -85,15 +95,15 @@ function totalsFromItens(itens: CompraItem[] = []) {
 
 /** ================== Repositório ================== */
 // Mantém o nome antigo
-export async function listCompras() {
+export async function listCompras(): Promise<CompraDoc[]> {
   return readAll();
 }
 // E exporta o nome que a rota usa
-export async function listComprasRaw() {
+export async function listComprasRaw(): Promise<CompraDoc[]> {
   return readAll();
 }
 
-export async function upsertCompra(doc: CompraDoc) {
+export async function upsertCompra(doc: CompraDoc): Promise<CompraDoc> {
   const all = readAll();
   const idx = all.findIndex((x) => x.id === doc.id);
   const row: CompraDoc = { ...doc, savedAt: Date.now() };
@@ -103,12 +113,12 @@ export async function upsertCompra(doc: CompraDoc) {
   return row;
 }
 
-export async function findCompraById(id: string) {
+export async function findCompraById(id: string): Promise<CompraDoc | null> {
   const all = readAll();
   return all.find((x) => x.id === id) || null;
 }
 
-export async function deleteCompraById(id: string) {
+export async function deleteCompraById(id: string): Promise<void> {
   const all = readAll();
   const next = all.filter((x) => x.id !== id);
   if (next.length === all.length) throw new Error("ID não encontrado");
@@ -142,11 +152,11 @@ export async function updateCompraById(
     const first = itens[0] || null;
     updated.modo = first?.modo ?? prev.modo;
     updated.ciaCompra =
-      first?.modo === "compra" ? first?.valores?.ciaCompra ?? prev.ciaCompra : prev.ciaCompra;
+      first?.modo === "compra" ? (first?.valores?.ciaCompra as CIA | undefined) ?? prev.ciaCompra : prev.ciaCompra;
     updated.destCia =
-      first?.modo === "transferencia" ? first?.valores?.destCia ?? prev.destCia : prev.destCia;
+      first?.modo === "transferencia" ? (first?.valores?.destCia as CIA | undefined) ?? prev.destCia : prev.destCia;
     updated.origem =
-      first?.modo === "transferencia" ? first?.valores?.origem ?? prev.origem : prev.origem;
+      first?.modo === "transferencia" ? (first?.valores?.origem as Origem | undefined) ?? prev.origem : prev.origem;
     updated.calculos = { ...totais };
   }
 

@@ -106,6 +106,12 @@ function toNum(v: unknown): number {
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
 }
+function hasListaCedentes(v: unknown): v is { listaCedentes: unknown[] } {
+  return isRecord(v) && Array.isArray(v.listaCedentes);
+}
+function hasDataListaCedentes(v: unknown): v is { data: { listaCedentes: unknown[] } } {
+  return isRecord(v) && isRecord(v.data) && Array.isArray(v.data.listaCedentes);
+}
 
 /* ================== Persistência ================== */
 // Em produção (Vercel) só /tmp é gravável; local: ./data
@@ -159,15 +165,15 @@ async function loadCedentesFile(): Promise<{
   list: CedenteRec[];
   write: (arr: CedenteRec[]) => Promise<void>;
 }> {
-  const parsed = await readJson<unknown>(CEDENTES_FILE, null as unknown as Record<string, unknown>);
+  const parsed = await readJson<unknown | null>(CEDENTES_FILE, null);
 
   let list: CedenteRec[] = [];
   if (Array.isArray(parsed)) {
     list = parsed.map(pickCedenteFields);
-  } else if (isRecord(parsed) && Array.isArray(parsed["listaCedentes"])) {
-    list = (parsed["listaCedentes"] as unknown[]).map(pickCedenteFields);
-  } else if (isRecord(parsed) && isRecord(parsed["data"]) && Array.isArray((parsed["data"] as any)["listaCedentes"])) {
-    list = ((parsed["data"] as any)["listaCedentes"] as unknown[]).map(pickCedenteFields);
+  } else if (hasListaCedentes(parsed)) {
+    list = parsed.listaCedentes.map(pickCedenteFields);
+  } else if (hasDataListaCedentes(parsed)) {
+    list = parsed.data.listaCedentes.map(pickCedenteFields);
   }
 
   const write = async (arr: CedenteRec[]) => {
@@ -175,14 +181,20 @@ async function loadCedentesFile(): Promise<{
       await writeJson<CedenteRec[]>(CEDENTES_FILE, arr);
       return;
     }
-    if (isRecord(parsed) && Array.isArray(parsed["listaCedentes"])) {
-      const next = { ...parsed, listaCedentes: arr };
-      await writeJson(CEDENTES_FILE, next as any);
+    if (hasListaCedentes(parsed)) {
+      const next: { listaCedentes: CedenteRec[] } & Record<string, unknown> = {
+        ...parsed,
+        listaCedentes: arr,
+      };
+      await writeJson(CEDENTES_FILE, next);
       return;
     }
-    if (isRecord(parsed) && isRecord(parsed["data"]) && Array.isArray((parsed["data"] as any)["listaCedentes"])) {
-      const next = { ...parsed, data: { ...(parsed["data"] as object), listaCedentes: arr } };
-      await writeJson(CEDENTES_FILE, next as any);
+    if (hasDataListaCedentes(parsed)) {
+      const next: { data: { listaCedentes: CedenteRec[] } } & Record<string, unknown> = {
+        ...parsed,
+        data: { ...parsed.data, listaCedentes: arr },
+      };
+      await writeJson(CEDENTES_FILE, next);
       return;
     }
     await writeJson<CedenteRec[]>(CEDENTES_FILE, arr);
@@ -210,7 +222,7 @@ export async function POST(req: Request): Promise<NextResponse> {
 
     const { list: cedentesFromDisk, write: writeCedentesPreservingShape } = await loadCedentesFile();
 
-    const seedArr = Array.isArray(body["cedentes"])
+    const seedArr: unknown[] = Array.isArray(body["cedentes"])
       ? (body["cedentes"] as unknown[])
       : Array.isArray(body["cedentesSnapshot"])
       ? (body["cedentesSnapshot"] as unknown[])
