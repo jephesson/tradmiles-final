@@ -23,14 +23,59 @@ import {
 const VENDAS_KEY = "TM_VENDAS";
 const FUNC_KEY = "TM_FUNCIONARIOS";
 
+/* =========================
+ * Tipos
+ * ========================= */
+type VendaLocal = {
+  id?: string;
+  data?: string; // ISO
+  funcionarioId?: string | null;
+  funcionarioNome?: string | null;
+  taxaEmbarque?: number;
+  lucro?: number; // pode não existir -> será calculado
+  comissaoPercent?: number; // ex.: 0.01 ou 0.3
+  comissaoTipo?: "1%" | "30%" | string;
+  valorBruto?: number;
+  status?: string;
+} & Record<string, unknown>;
+
+type FuncMin = {
+  id: string;
+  nome?: string;
+} & Record<string, unknown>;
+
+type AgregadoFunc = {
+  nome: string;
+  lucro: number;
+  taxa: number;
+  com1: number;
+  com30: number;
+  finalizados: number;
+};
+
+type TotaisMes = {
+  lucro: number;
+  taxa: number;
+  com1: number;
+  com30: number;
+  finalizados: number;
+};
+
+type BarRow = { nome: string; com1: number; com30: number; finalizados: number };
+type LineRow = { label: string; lucro: number };
+
+/* =========================
+ * Utils
+ * ========================= */
 function fmtMoney(n: number) {
+  const v = Number.isFinite(n) ? n : 0;
   return new Intl.NumberFormat("pt-BR", {
     style: "currency",
     currency: "BRL",
-  }).format(n || 0);
+  }).format(v);
 }
 
-function parseISODate(iso: string) {
+function parseISODate(iso?: string | null): Date | null {
   if (!iso) return null;
   const d = new Date(iso);
   return isNaN(d.getTime()) ? null : d;
@@ -52,46 +97,55 @@ function uniq<T>(arr: T[]): T[] {
   return Array.from(new Set(arr));
 }
 
-function loadVendas() {
+function loadVendas(): VendaLocal[] {
   try {
-    return JSON.parse(localStorage.getItem(VENDAS_KEY) || "[]");
+    const raw = localStorage.getItem(VENDAS_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? (parsed as VendaLocal[]) : [];
   } catch {
     return [];
   }
 }
 
-function loadFuncionarios() {
+function loadFuncionariosLocal(): FuncMin[] {
   try {
-    return JSON.parse(localStorage.getItem(FUNC_KEY) || "[]");
+    const raw = localStorage.getItem(FUNC_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? (parsed as FuncMin[]) : [];
   } catch {
     return [];
   }
 }
 
+/* =========================
+ * Página
+ * ========================= */
 export default function ResumoPage() {
-  const [vendas, setVendas] = useState<any[]>([]);
-  const [funcs, setFuncs] = useState<any[]>([]);
+  const [vendas, setVendas] = useState<VendaLocal[]>([]);
+  const [funcs, setFuncs] = useState<FuncMin[]>([]);
   const now = new Date();
-  const [year, setYear] = useState(now.getFullYear());
-  const [monthIdx, setMonthIdx] = useState(now.getMonth());
-  const [selectedFunc, setSelectedFunc] = useState("all");
+  const [year, setYear] = useState<number>(now.getFullYear());
+  const [monthIdx, setMonthIdx] = useState<number>(now.getMonth());
+  const [selectedFunc, setSelectedFunc] = useState<string>("all");
 
   useEffect(() => {
     setVendas(loadVendas());
-    setFuncs(loadFuncionarios());
+    setFuncs(loadFuncionariosLocal());
   }, []);
 
   // vendas do mês filtradas (por funcionário, se houver)
   const vendasMes = useMemo(() => {
+    const base = new Date(year, monthIdx, 1);
     return vendas.filter((v) => {
       const d = parseISODate(v.data);
       if (!d) return false;
-      if (!sameYearMonth(d, new Date(year, monthIdx, 1))) return false;
+      if (!sameYearMonth(d, base)) return false;
       if (selectedFunc !== "all" && v.funcionarioId !== selectedFunc) return false;
       return true;
     });
   }, [vendas, year, monthIdx, selectedFunc]);
 
+  // (permanece para possíveis futuros usos)
   const funcsMes = useMemo(
     () => uniq(vendasMes.map((v) => v.funcionarioId || "sem-id")),
     [vendasMes]
@@ -99,11 +153,16 @@ export default function ResumoPage() {
 
   // agregações p/ mês selecionado
   const agregados = useMemo(() => {
-    const porFunc = new Map();
+    const porFunc = new Map<string, AgregadoFunc>();
+
     for (const v of vendasMes) {
-      const id = v.funcionarioId || "sem-id";
-      const nome = v.funcionarioNome || funcs.find((f) => f.id === id)?.nome || id;
-      if (!porFunc.has(id))
+      const id = (v.funcionarioId || "sem-id") as string;
+      const nome =
+        v.funcionarioNome ||
+        funcs.find((f) => f.id === id)?.nome ||
+        id;
+
+      if (!porFunc.has(id)) {
         porFunc.set(id, {
           nome,
           lucro: 0,
@@ -112,25 +171,38 @@ export default function ResumoPage() {
           com30: 0,
           finalizados: 0,
         });
-      const acc = porFunc.get(id);
+      }
+      const acc = porFunc.get(id)!;
+
       const taxa = Number(v.taxaEmbarque || 0);
       const lucro = Number(v.lucro || 0);
+
       const perc =
-        v.comissaoPercent ||
-        (v.comissaoTipo === "1%" ? 0.01 : v.comissaoTipo === "30%" ? 0.3 : 0);
-      const comVal = (v.valorBruto || 0) * perc;
+        typeof v.comissaoPercent === "number"
+          ? v.comissaoPercent
+          : v.comissaoTipo === "1%"
+          ? 0.01
+          : v.comissaoTipo === "30%"
+          ? 0.3
+          : 0;
+
+      const bruto = Number(v.valorBruto || 0);
+      const comVal = bruto * perc;
 
       // lucro líquido (se não vier v.lucro, considera comissao - taxa)
       acc.lucro += Number.isFinite(lucro) && lucro !== 0 ? lucro : comVal - taxa;
       acc.taxa += taxa;
       if (perc === 0.01) acc.com1 += comVal;
       if (perc === 0.3) acc.com30 += comVal;
-      if ((v.status || "").toLowerCase() === "finalizado") acc.finalizados += lucro || 0;
+
+      if ((v.status || "").toLowerCase() === "finalizado") {
+        acc.finalizados += lucro || 0;
+      }
     }
 
     // totais (para cards quando "Todos")
-    const totais = Array.from(porFunc.values()).reduce(
-      (acc: any, f: any) => {
+    const totais = Array.from(porFunc.values()).reduce<TotaisMes>(
+      (acc, f) => {
         acc.lucro += f.lucro;
         acc.taxa += f.taxa;
         acc.com1 += f.com1;
@@ -145,9 +217,9 @@ export default function ResumoPage() {
   }, [vendasMes, funcs]);
 
   // dados p/ gráfico de barras
-  const barData = useMemo(
+  const barData: BarRow[] = useMemo(
     () =>
-      Array.from(agregados.porFunc.values()).map((f: any) => ({
+      Array.from(agregados.porFunc.values()).map((f) => ({
         nome: f.nome,
         com1: f.com1,
         com30: f.com30,
@@ -157,8 +229,8 @@ export default function ResumoPage() {
   );
 
   // linha do tempo (últimos 12 meses)
-  const linhaDoTempo = useMemo(() => {
-    const data: any[] = [];
+  const linhaDoTempo: LineRow[] = useMemo(() => {
+    const data: LineRow[] = [];
     for (let i = 11; i >= 0; i--) {
       const d = new Date(year, monthIdx - i, 1);
       const key = monthKey(d);
@@ -166,12 +238,12 @@ export default function ResumoPage() {
         .filter((v) => {
           const vd = parseISODate(v.data);
           return (
-            vd &&
+            !!vd &&
             monthKey(vd) === key &&
             (selectedFunc === "all" || v.funcionarioId === selectedFunc)
           );
         })
-        .reduce((s, v) => s + (v.lucro || 0), 0);
+        .reduce((s, v) => s + Number(v.lucro || 0), 0);
       data.push({
         label: d.toLocaleString("pt-BR", { month: "short" }),
         lucro: total,
@@ -184,8 +256,8 @@ export default function ResumoPage() {
   // PROJEÇÃO DO MÊS ATUAL
   // ============================
   const projecao = useMemo(() => {
-    const isCurrent =
-      year === new Date().getFullYear() && monthIdx === new Date().getMonth();
+    const today = new Date();
+    const isCurrent = year === today.getFullYear() && monthIdx === today.getMonth();
     if (!isCurrent) return null;
 
     // lucro acumulado no filtro atual (Todos ou Funcionário específico)
@@ -195,16 +267,16 @@ export default function ResumoPage() {
         : agregados.porFunc.get(selectedFunc)?.lucro || 0;
 
     // dias trabalhados (dias com lançamentos) OU, se zero, usar dias corridos passados
-    const diasTrabalhados = new Set(
-      vendasMes
-        .map((v) => parseISODate(v.data))
-        .filter(Boolean)
-        .map((d: any) => d.toISOString().slice(0, 10))
-    ).size;
+    const workedDates = vendasMes
+      .map((v) => parseISODate(v.data))
+      .filter((d): d is Date => !!d)
+      .map((d) => d.toISOString().slice(0, 10));
+
+    const diasTrabalhados = new Set(workedDates).size;
 
     const base = new Date(year, monthIdx, 1);
     const totalDias = daysInMonth(base);
-    const diasCorridos = new Date().getDate();
+    const diasCorridos = today.getDate();
     const baseDivisor = Math.max(1, diasTrabalhados || diasCorridos);
     const mediaDiaria = lucroAcumulado / baseDivisor;
     const estimadoMes = mediaDiaria * totalDias;
@@ -254,7 +326,7 @@ export default function ResumoPage() {
             <option value="all">Todos</option>
             {funcs.map((f) => (
               <option key={f.id} value={f.id}>
-                {f.nome}
+                {f.nome || f.id}
               </option>
             ))}
           </select>
@@ -267,16 +339,12 @@ export default function ResumoPage() {
           <Card
             title="Lucro acumulado no mês"
             value={fmtMoney(projecao.lucroAcumulado)}
-            subtitle={`Base: ${
-              projecao.diasTrabalhados || projecao.diasCorridos
-            } dia(s)`}
+            subtitle={`Base: ${projecao.diasTrabalhados || projecao.diasCorridos} dia(s)`}
           />
           <Card
             title="Projeção para o mês"
             value={fmtMoney(projecao.estimadoMes)}
-            subtitle={`Média diária: ${fmtMoney(
-              projecao.mediaDiaria
-            )} • ${projecao.totalDias} dias`}
+            subtitle={`Média diária: ${fmtMoney(projecao.mediaDiaria)} • ${projecao.totalDias} dias`}
           />
         </section>
       )}
@@ -290,9 +358,9 @@ export default function ResumoPage() {
             <YAxis />
             <Tooltip formatter={(v: number) => fmtMoney(v)} />
             <Legend />
-            <Bar dataKey="com1" name="Comissão 1%" fill="#82ca9d" />
-            <Bar dataKey="com30" name="Comissão 30%" fill="#8884d8" />
-            <Bar dataKey="finalizados" name="Finalizados" fill="#ffc658" />
+            <Bar dataKey="com1" name="Comissão 1%" />
+            <Bar dataKey="com30" name="Comissão 30%" />
+            <Bar dataKey="finalizados" name="Finalizados" />
           </BarChart>
         </ResponsiveContainer>
       </div>
@@ -306,7 +374,7 @@ export default function ResumoPage() {
             <YAxis />
             <Tooltip formatter={(v: number) => fmtMoney(v)} />
             <Legend />
-            <Line dataKey="lucro" name="Lucro" stroke="#8884d8" />
+            <Line dataKey="lucro" name="Lucro" />
           </LineChart>
         </ResponsiveContainer>
       </div>

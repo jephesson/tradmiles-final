@@ -1,4 +1,4 @@
-// app/dashboard/vendas/page.tsx
+// src/app/dashboard/vendas/page.tsx
 "use client";
 
 import Link from "next/link";
@@ -7,6 +7,16 @@ import { useEffect, useMemo, useState, Fragment } from "react";
 /** ===== Tipos ===== */
 type PaymentStatus = "pago" | "pendente";
 type CIA = "latam" | "smiles";
+type CIAAll = "all" | CIA;
+type StatusAll = "all" | PaymentStatus;
+type SortKey =
+  | "data"
+  | "cliente"
+  | "funcionario"
+  | "cia"
+  | "pontos"
+  | "valorMilheiro"
+  | "totalCobrar";
 
 type CancelInfo = {
   at: string;
@@ -88,6 +98,26 @@ const fmtDateTime = (iso?: string) => {
 };
 const norm = (s?: string | null) => (s ?? "").toString().trim().toLowerCase();
 
+/** helpers de conversão segura p/ selects */
+function toCIAAll(v: string): CIAAll {
+  return v === "latam" || v === "smiles" ? v : "all";
+}
+function toStatusAll(v: string): StatusAll {
+  return v === "pago" || v === "pendente" ? v : "all";
+}
+function toSortKey(v: string): SortKey {
+  const allowed: SortKey[] = [
+    "data",
+    "cliente",
+    "funcionario",
+    "cia",
+    "pontos",
+    "valorMilheiro",
+    "totalCobrar",
+  ];
+  return (allowed.includes(v as SortKey) ? v : "data") as SortKey;
+}
+
 const statusPillClass = (s: PaymentStatus, disabled = false) =>
   [
     "inline-flex items-center gap-2 rounded-full px-2 py-0.5 text-[11px]",
@@ -126,17 +156,9 @@ export default function VendasListaPage() {
   const [data, setData] = useState<VendaRecord[]>([]);
   const [loading, setLoading] = useState(false);
   const [q, setQ] = useState("");
-  const [cia, setCia] = useState<"all" | CIA>("all");
-  const [status, setStatus] = useState<"all" | PaymentStatus>("all");
-  const [sortBy, setSortBy] = useState<
-    | "data"
-    | "cliente"
-    | "funcionario"
-    | "cia"
-    | "pontos"
-    | "valorMilheiro"
-    | "totalCobrar"
-  >("data");
+  const [cia, setCia] = useState<CIAAll>("all");
+  const [status, setStatus] = useState<StatusAll>("all");
+  const [sortBy, setSortBy] = useState<SortKey>("data");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
 
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -162,10 +184,11 @@ export default function VendasListaPage() {
     try {
       setLoading(true);
       const res = await fetch(`/api/vendas?ts=${Date.now()}`, { cache: "no-store" });
-      const json = await res.json();
+      const json = (await res.json()) as { lista?: VendaRecord[] };
       const lista: VendaRecord[] = Array.isArray(json?.lista) ? json.lista : [];
       setData(lista);
-    } catch (e) {
+    } catch (e: unknown) {
+      // log seguro
       console.error(e);
     } finally {
       setLoading(false);
@@ -187,12 +210,13 @@ export default function VendasListaPage() {
         cache: "no-store",
         body: JSON.stringify({ id, pagamentoStatus: next }),
       });
-      const json = await res.json();
+      const json = (await res.json()) as { ok?: boolean; error?: string; record?: VendaRecord };
       if (!json?.ok) throw new Error(json?.error || "Falha ao atualizar status");
-      if (json.record) setData((arr) => arr.map((v) => (v.id === id ? json.record : v)));
+      if (json.record) setData((arr) => arr.map((v) => (v.id === id ? json.record as VendaRecord : v)));
       pingCedentes(); // 🔔 avisa outra(s) aba(s)
-    } catch (e: any) {
-      alert(`Não consegui alterar o status: ${e?.message || "erro"}`);
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      alert(`Não consegui alterar o status: ${msg}`);
       setData((arr) => arr.map((v) => (v.id === id ? { ...v, pagamentoStatus: prev } : v)));
     } finally {
       setSavingIds((prevSet) => {
@@ -212,12 +236,13 @@ export default function VendasListaPage() {
         method: "DELETE",
         cache: "no-store",
       });
-      const json = await res.json();
+      const json = (await res.json()) as { ok?: boolean; error?: string };
       if (!json?.ok) throw new Error(json?.error || "Falha ao apagar");
       setData((arr) => arr.filter((x) => x.id !== v.id));
       pingCedentes(); // 🔔
-    } catch (e: any) {
-      alert(`Não consegui apagar: ${e?.message || "erro"}`);
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      alert(`Não consegui apagar: ${msg}`);
     } finally {
       setSavingIds((s) => {
         const n = new Set(s);
@@ -257,13 +282,14 @@ export default function VendasListaPage() {
           },
         }),
       });
-      const json = await res.json();
+      const json = (await res.json()) as { ok?: boolean; error?: string; record?: VendaRecord };
       if (!json?.ok) throw new Error(json?.error || "Falha ao cancelar");
-      if (json.record) setData((arr) => arr.map((v) => (v.id === id ? json.record : v)));
+      if (json.record) setData((arr) => arr.map((v) => (v.id === id ? (json.record as VendaRecord) : v)));
       closeCancel();
       pingCedentes(); // 🔔
-    } catch (e: any) {
-      alert(`Não consegui cancelar: ${e?.message || "erro"}`);
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      alert(`Não consegui cancelar: ${msg}`);
     } finally {
       setSavingIds((s) => {
         const n = new Set(s);
@@ -386,8 +412,30 @@ export default function VendasListaPage() {
                 "Localizador",
                 "Origem IATA",
                 "Sobrenome",
-              ];
-              const rows = sorted.map((v) => [
+              ] as const;
+              const rows: Array<
+                [
+                  string,
+                  string,
+                  string,
+                  string,
+                  number,
+                  number,
+                  number,
+                  number,
+                  number,
+                  number,
+                  string,
+                  string,
+                  string,
+                  string,
+                  string,
+                  string,
+                  string,
+                  string,
+                  string
+                ]
+              > = sorted.map((v) => [
                 v.id,
                 fmtDateTime(v.createdAt),
                 fmtDate(v.data),
@@ -412,7 +460,13 @@ export default function VendasListaPage() {
               const csv =
                 header.join(";") +
                 "\n" +
-                rows.map((r) => r.map((c) => String(c).replace(/;/g, ",")).join(";")).join("\n");
+                rows
+                  .map((r) =>
+                    r
+                      .map((c) => String(c).replace(/;/g, ","))
+                      .join(";")
+                  )
+                  .join("\n");
               const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
               const url = URL.createObjectURL(blob);
               const a = document.createElement("a");
@@ -464,7 +518,7 @@ export default function VendasListaPage() {
           </div>
           <div className="grid gap-1">
             <label className={labelCls}>CIA</label>
-            <select value={cia} onChange={(e) => setCia(e.target.value as any)} className="rounded-xl border px-3 py-2 text-sm">
+            <select value={cia} onChange={(e) => setCia(toCIAAll(e.target.value))} className="rounded-xl border px-3 py-2 text-sm">
               <option value="all">Todas</option>
               <option value="latam">LATAM Pass</option>
               <option value="smiles">Smiles</option>
@@ -472,7 +526,7 @@ export default function VendasListaPage() {
           </div>
           <div className="grid gap-1">
             <label className={labelCls}>Status</label>
-            <select value={status} onChange={(e) => setStatus(e.target.value as any)} className="rounded-xl border px-3 py-2 text-sm">
+            <select value={status} onChange={(e) => setStatus(toStatusAll(e.target.value))} className="rounded-xl border px-3 py-2 text-sm">
               <option value="all">Todos</option>
               <option value="pago">Pago</option>
               <option value="pendente">Pendente</option>
@@ -481,7 +535,7 @@ export default function VendasListaPage() {
           <div className="grid gap-1">
             <label className={labelCls}>Ordenar por</label>
             <div className="flex gap-2">
-              <select value={sortBy} onChange={(e) => setSortBy(e.target.value as any)} className="flex-1 rounded-xl border px-3 py-2 text-sm">
+              <select value={sortBy} onChange={(e) => setSortBy(toSortKey(e.target.value))} className="flex-1 rounded-xl border px-3 py-2 text-sm">
                 <option value="data">Data da venda</option>
                 <option value="cliente">Cliente</option>
                 <option value="funcionario">Funcionário</option>
@@ -522,7 +576,7 @@ export default function VendasListaPage() {
           <tbody>
             {sorted.length === 0 && (
               <tr>
-                <td className="px-3 py-6 text-center text-slate-500" colSpan={14}>
+                <td className="px-3 py-6 text-center text-slate-500" colSpan={COLSPAN}>
                   {loading ? "Carregando…" : "Nenhuma venda encontrada."}
                 </td>
               </tr>
@@ -642,7 +696,7 @@ export default function VendasListaPage() {
                   {/* Detalhes */}
                   {open && (
                     <tr className="bg-slate-50/40">
-                      <td colSpan={14} className="px-3 py-4">
+                      <td colSpan={COLSPAN} className="px-3 py-4">
                         <div className="rounded-xl border bg-white p-4 space-y-3">
                           <h3 className="text-lg font-semibold">Detalhes da venda</h3>
 

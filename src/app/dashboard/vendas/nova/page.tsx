@@ -1,6 +1,7 @@
+// src/app/dashboard/vendas/nova/page.tsx
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { Cedente, loadCedentes } from "@/lib/storage";
 
 /** ==================== Tipos ==================== */
@@ -31,6 +32,24 @@ type CedenteLista = Cedente & {
   esfera?: number;
 };
 
+/** ===== Itens de compra (tipos estritos) ===== */
+type ItemCompra =
+  | { kind: "clube"; data: { programa: ProgramKey; pontos: number; valor: number } }
+  | { kind: "compra"; data: { programa: ProgramKey; pontos: number; valor: number; bonusPct?: number } }
+  | {
+      kind: "transferencia";
+      data: {
+        origem: "livelo" | "esfera";
+        destino: "latam" | "smiles";
+        modo?: "pontos" | "pontos+dinheiro";
+        pontosUsados?: number;
+        pontosTotais?: number;
+        valorPago?: number;
+        bonusPct?: number;
+        pontos?: number;
+      };
+    };
+
 /** --------- formatos tolerados (iguais aos da página Visualizar) --------- */
 type AnyBloqueio = {
   cedenteId?: string; cedente_id?: string; cedenteID?: string;
@@ -42,7 +61,7 @@ type AnyBloqueio = {
   prevDesbloqueio?: string; prev_desbloqueio?: string;
   desbloqueioPrevisto?: string; previstoDesbloqueio?: string; expectedUnlockAt?: string;
   periodDays?: number; period?: number; periodo?: number; dias?: number;
-} & Record<string, any>;
+} & Record<string, unknown>;
 
 type AnyCompra = {
   id?: string; compraId?: string; identificador?: string;
@@ -52,14 +71,10 @@ type AnyCompra = {
   cia?: string; program?: string; companhia?: string; destCia?: string; origem?: string;
   status?: string; statusPontos?: string;
   pontos?: number | string; quantidade?: number | string; qtd?: number | string;
-  itens?: Array<
-    | { kind: "clube"; data: { programa: ProgramKey; pontos: number; valor: number } }
-    | { kind: "compra"; data: { programa: ProgramKey; pontos: number; valor: number; bonusPct?: number } }
-    | { kind: "transferencia"; data: { origem: "livelo" | "esfera"; destino: "latam" | "smiles"; modo?: "pontos" | "pontos+dinheiro"; pontosUsados?: number; pontosTotais?: number; valorPago?: number; bonusPct?: number; pontos?: number } }
-  >;
+  itens?: ItemCompra[];
   totais?: { totalCIA?: number; custoMilheiroTotal?: number; custoMilheiro?: number };
   metaMilheiro?: number;
-} & Record<string, any>;
+} & Record<string, unknown>;
 
 /** ==================== Funcionários (seed + storage) ==================== */
 const FUNC_KEY = "TM_FUNCIONARIOS";
@@ -149,7 +164,8 @@ function extractCedenteIdFromCompra(c: AnyCompra): string {
   return String(raw || "").toUpperCase();
 }
 function compraPoints(c: AnyCompra): number {
-  const v = Number(c.pontos ?? c.quantidade ?? c.qtd ?? 0);
+  const base = c.pontos ?? c.quantidade ?? c.qtd ?? 0;
+  const v = typeof base === "string" ? Number(base) : (base as number);
   return Number.isFinite(v) ? v : 0;
 }
 
@@ -193,22 +209,22 @@ function isBloqueioAtivo(b: AnyBloqueio): boolean {
 }
 
 function isCompraLiberada(c: AnyCompra): boolean {
-  const s = norm((c as any).statusPontos || c.status);
+  const s = norm((c as { statusPontos?: unknown }).statusPontos as string ?? (c.status as string | undefined));
   return ["liberado", "liberados", "aprovado", "concluido", "concluído"].some((w) => s.includes(w));
 }
 function detectTargetPrograms(c: AnyCompra): Set<ProgramKey> {
   const out = new Set<ProgramKey>();
-  const ciaOld = normalizeCia((c as any).cia || (c as any).program || (c as any).companhia);
-  const destOld = normalizeCia((c as any).destCia);
-  if (ciaOld) out.add(ciaOld as ProgramKey);
-  if (destOld) out.add(destOld as ProgramKey);
-  const its: any[] = Array.isArray((c as any).itens) ? (c as any).itens : [];
+  const ciaOld = normalizeCia((c.cia as string | undefined) || (c.program as string | undefined) || (c.companhia as string | undefined));
+  const destOld = normalizeCia((c.destCia as string | undefined));
+  if (ciaOld) out.add(ciaOld);
+  if (destOld) out.add(destOld);
+  const its = Array.isArray(c.itens) ? c.itens : ([] as ItemCompra[]);
   for (const it of its) {
     if (it?.kind === "compra") {
-      const p = normalizeCia(it.data?.programa); if (p) out.add(p as ProgramKey);
+      const p = normalizeCia(it.data?.programa); if (p) out.add(p);
     }
     if (it?.kind === "transferencia") {
-      const p = normalizeCia(it.data?.destino); if (p) out.add(p as ProgramKey);
+      const p = normalizeCia(it.data?.destino); if (p) out.add(p);
     }
   }
   return out;
@@ -216,9 +232,9 @@ function detectTargetPrograms(c: AnyCompra): Set<ProgramKey> {
 function pointsToProgram(c: AnyCompra, program: ProgramKey): number {
   const targets = detectTargetPrograms(c);
   if (!targets.has(program)) return 0;
-  const topo = Number((c as any).totais?.totalCIA ?? 0);
-  if (isFinite(topo) && topo > 0) return topo;
-  const its: any[] = Array.isArray((c as any).itens) ? (c as any).itens : [];
+  const topo = Number(c.totais?.totalCIA ?? 0);
+  if (Number.isFinite(topo) && topo > 0) return topo;
+  const its = Array.isArray(c.itens) ? c.itens : ([] as ItemCompra[]);
   let sum = 0;
   for (const it of its) {
     if (it?.kind === "compra" && normalizeCia(it.data?.programa) === program) sum += Number(it.data?.pontos ?? 0);
@@ -230,20 +246,16 @@ function pointsToProgram(c: AnyCompra, program: ProgramKey): number {
   return sum;
 }
 function getCompraDisplayId(c: AnyCompra): string | null {
-  const raw = (c.id ?? (c as any).compraId ?? (c as any).identificador ?? "").toString().trim();
+  const raw = (c.id ?? c.compraId ?? c.identificador ?? "").toString().trim();
   return raw || null;
 }
 
 /** ===== Helper: meta da compra (ou fallback custo + 1,50) ===== */
 function extractMetaMilheiroFromCompra(c: AnyCompra): number {
-  const m1 = Number((c as any).metaMilheiro ?? (c as any).meta ?? 0);
+  const m1 = Number(c.metaMilheiro ?? (c as { meta?: unknown }).meta ?? 0);
   if (Number.isFinite(m1) && m1 > 0) return m1;
 
-  const custo = Number(
-    (c as any).totais?.custoMilheiroTotal ??
-    (c as any).totais?.custoMilheiro ??
-    0
-  );
+  const custo = Number(c.totais?.custoMilheiroTotal ?? c.totais?.custoMilheiro ?? 0);
   if (Number.isFinite(custo) && custo > 0) {
     return Math.round((custo + 1.5) * 100) / 100;
   }
@@ -252,9 +264,9 @@ function extractMetaMilheiroFromCompra(c: AnyCompra): number {
 
 /** ===== uuid simples p/ novos clientes ===== */
 function uuid() {
-  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
-    // @ts-ignore
-    return crypto.randomUUID();
+  if (typeof globalThis.crypto !== "undefined" && "randomUUID" in globalThis.crypto) {
+    // @ts-expect-error showPicker is not in lib.dom types; calling when available
+    return globalThis.crypto.randomUUID();
   }
   return Math.random().toString(36).slice(2) + Date.now().toString(36);
 }
@@ -318,7 +330,7 @@ export default function PageNovaVenda() {
     (async () => {
       try {
         const res = await fetch("/api/clientes");
-        const json = await res.json();
+        const json = (await res.json()) as { data?: { lista?: Cliente[] } };
         const list: Cliente[] = json?.data?.lista || [];
         if (Array.isArray(list)) setClientes(list);
       } catch {}
@@ -330,11 +342,15 @@ export default function PageNovaVenda() {
         let res = await fetch(`/api/bloqueios?ts=${Date.now()}`, { cache: "no-store" });
         if (!res.ok) res = await fetch(`/api/blocks?ts=${Date.now()}`, { cache: "no-store" });
         if (res.ok) {
-          const json = await res.json(); const root = json?.data ?? json;
-          const list = Array.isArray(root) ? root :
-            root?.listaBloqueios || root?.lista || root?.bloqueios || root?.items ||
-            root?.data?.listaBloqueios || root?.data?.lista || root?.data?.bloqueios || root?.data?.items || [];
-          if (Array.isArray(list)) setBloqueios(list as AnyBloqueio[]);
+          const json = await res.json();
+          const root: unknown = (json as { data?: unknown }).data ?? json;
+          const list =
+            (Array.isArray(root) ? root :
+              (root as { listaBloqueios?: unknown[]; lista?: unknown[]; bloqueios?: unknown[]; items?: unknown[] } | undefined)
+            );
+          const arr =
+            (list && (list.listaBloqueios || list.lista || list.bloqueios || list.items)) ?? [];
+          if (Array.isArray(arr)) setBloqueios(arr as AnyBloqueio[]);
         }
       } catch {}
     })();
@@ -345,11 +361,15 @@ export default function PageNovaVenda() {
         let res = await fetch(`/api/compras?ts=${Date.now()}`, { cache: "no-store" });
         if (!res.ok) res = await fetch(`/api/pedidos?ts=${Date.now()}`, { cache: "no-store" });
         if (res.ok) {
-          const json = await res.json(); const root = json?.data ?? json;
-          const list = Array.isArray(root) ? root :
-            root?.listaCompras || root?.compras || root?.items || root?.lista ||
-            root?.data?.compras || root?.data?.items || [];
-          if (Array.isArray(list)) setCompras(list as AnyCompra[]);
+          const json = await res.json();
+          const root: unknown = (json as { data?: unknown }).data ?? json;
+          const listRaw =
+            (Array.isArray(root) ? root :
+              (root as { listaCompras?: unknown[]; compras?: unknown[]; items?: unknown[]; lista?: unknown[] } | undefined)
+            );
+          const arr =
+            (listRaw && (listRaw.listaCompras || listRaw.compras || listRaw.items || listRaw.lista)) ?? [];
+          if (Array.isArray(arr)) setCompras(arr as AnyCompra[]);
         }
       } catch {}
     })();
@@ -384,12 +404,17 @@ export default function PageNovaVenda() {
 
   useEffect(() => { if (!selectedFuncionarioId) selectRef.current?.focus(); }, [selectedFuncionarioId]);
 
-  function abrirSelect() {
+  const abrirSelect = useCallback(() => {
     if (!selectRef.current) return;
     selectRef.current.focus();
-    // @ts-expect-error
-    if (typeof selectRef.current.showPicker === "function") { try { /* @ts-expect-error */ selectRef.current.showPicker(); } catch {} }
-  }
+    // @ts-expect-error showPicker is non-standard but present in some browsers
+    if (typeof selectRef.current.showPicker === "function") {
+      try {
+        // @ts-expect-error calling showPicker on supported browsers
+        selectRef.current.showPicker();
+      } catch {}
+    }
+  }, []);
 
   /** ------- salvar lista de clientes no servidor (mesmo contrato da página Clientes) ------- */
   async function saveClientesOnServer(next: Cliente[]) {
@@ -399,7 +424,7 @@ export default function PageNovaVenda() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ lista: next }),
       });
-      const json = await res.json();
+      const json = (await res.json()) as { ok?: boolean; error?: string };
       if (!json?.ok) throw new Error(json?.error || "Falha ao salvar clientes");
       setClientes(next);
       return true;
@@ -439,6 +464,25 @@ export default function PageNovaVenda() {
     }
   }
 
+  /** ------- helpers memorizados ------- */
+  const getBloqueioAtivo = useCallback((cedenteId: string, ciaProg: ProgramKey) => {
+    const wantedId = cedenteId.toUpperCase();
+    return bloqueios.find((b) => {
+      const bId = extractCedenteIdFromBloq(b).toUpperCase();
+      const bCia = normalizeCia((b.cia as string | undefined) || (b.program as string | undefined) || (b.companhia as string | undefined));
+      return bId === wantedId && bCia === ciaProg && isBloqueioAtivo(b);
+    });
+  }, [bloqueios]);
+
+  const availableFor = useCallback((c: CedenteLista, program: CIA): number => {
+    const idUpper = c.identificador.toUpperCase();
+    const base = Number((c as Record<string, unknown>)[program] ?? 0);
+    const extra = (program === "latam"
+      ? latamLiberadoByCedente.get(idUpper)
+      : smilesLiberadoByCedente.get(idUpper)) || 0;
+    return base + extra;
+  }, [latamLiberadoByCedente, smilesLiberadoByCedente]);
+
   /** ------- mapas de liberado por programa ------- */
   const latamLiberadoByCedente = useMemo(() => {
     const map = new Map<string, number>();
@@ -462,28 +506,8 @@ export default function PageNovaVenda() {
     return map;
   }, [compras]);
 
-  /** ------- bloqueio ativo ------- */
-  function getBloqueioAtivo(cedenteId: string, ciaProg: ProgramKey) {
-    const wantedId = cedenteId.toUpperCase();
-    return bloqueios.find((b) => {
-      const bId = extractCedenteIdFromBloq(b).toUpperCase();
-      const bCia = normalizeCia(b.cia || b.program || b.companhia);
-      return bId === wantedId && bCia === ciaProg && isBloqueioAtivo(b);
-    });
-  }
-
   /** ------- disponíveis por cedente p/ CIA ------- */
-  function availableFor(c: CedenteLista, program: CIA): number {
-    const idUpper = c.identificador.toUpperCase();
-    const base = Number((c as any)[program] || 0);
-    const extra = (program === "latam"
-      ? latamLiberadoByCedente.get(idUpper)
-      : smilesLiberadoByCedente.get(idUpper)) || 0;
-    return base + extra;
-  }
-
-  /** ------- compras liberadas p/ um cedente+programa (p/ ID) ------- */
-  function findCompraIdForCedenteProgram(cedId: string, program: CIA, needAtLeast: number): string | null {
+  const findCompraIdForCedenteProgram = useCallback((cedId: string, program: CIA, needAtLeast: number): string | null => {
     const candidates = compras
       .filter((c) => isCompraLiberada(c))
       .filter((c) => extractCedenteIdFromCompra(c).toUpperCase() === cedId.toUpperCase())
@@ -495,7 +519,7 @@ export default function PageNovaVenda() {
     const enough = candidates.find((c) => pointsToProgram(c, program) >= needAtLeast);
     const pick = enough ?? candidates[0];
     return getCompraDisplayId(pick);
-  }
+  }, [compras]);
 
   /** ------- contas que cobrem sozinhas ------- */
   const requested = typeof pontos === "number" ? pontos : 0;
@@ -509,7 +533,7 @@ export default function PageNovaVenda() {
       .map(({ c, disp }) => ({ c, disp, leftover: disp - requested }));
     arr.sort((a, b) => a.leftover - b.leftover || a.disp - b.disp || a.c.identificador.localeCompare(b.c.identificador));
     return arr;
-  }, [cedentes, cia, requested, latamLiberadoByCedente, smilesLiberadoByCedente, bloqueios]);
+  }, [cedentes, cia, requested, availableFor, getBloqueioAtivo]);
 
   /** ------- sugestão única (regra) ------- */
   const sugestaoUnica = useMemo(() => {
@@ -533,7 +557,7 @@ export default function PageNovaVenda() {
     const compraId = findCompraIdForCedenteProgram(item.c.identificador, cia, Math.min(requested, item.disp));
     setSelecionada({
       id: item.c.identificador,
-      nome: (item.c as any).nome_completo ?? (item.c as any).nome ?? "",
+      nome: (item.c as { nome_completo?: string; nome?: string }).nome_completo ?? (item.c as { nome?: string }).nome ?? "",
       usar: requested,
       disponivel: item.disp,
       leftover: item.leftover,
@@ -553,10 +577,10 @@ export default function PageNovaVenda() {
     if (!busca.trim()) return arr;
     const term = busca.trim().toLowerCase();
     return arr.filter(({ c }) =>
-      ((c as any).nome_completo ?? (c as any).nome ?? "").toLowerCase().includes(term) ||
+      (((c as { nome_completo?: string }).nome_completo ?? (c as { nome?: string }).nome ?? "") as string).toLowerCase().includes(term) ||
       c.identificador.toLowerCase().includes(term)
     );
-  }, [cedentes, cia, busca, latamLiberadoByCedente, smilesLiberadoByCedente, bloqueios]);
+  }, [cedentes, cia, busca, availableFor, getBloqueioAtivo]);
 
   /** ------- combinação ------- */
   const combinacao = useMemo(() => {
@@ -571,11 +595,12 @@ export default function PageNovaVenda() {
     for (const { c, disp } of candidatos) {
       if (falta <= 0) break;
       const usar = Math.min(disp, falta);
-      picks.push({ id: c.identificador, nome: (c as any).nome_completo ?? (c as any).nome ?? "", usar, disp });
+      const nome = (c as { nome_completo?: string; nome?: string }).nome_completo ?? (c as { nome?: string }).nome ?? "";
+      picks.push({ id: c.identificador, nome, usar, disp });
       falta -= usar;
     }
     return picks;
-  }, [cedentes, cia, requested, latamLiberadoByCedente, smilesLiberadoByCedente, bloqueios]);
+  }, [cedentes, cia, requested, availableFor, getBloqueioAtivo]);
 
   /** ------- Cálculos ------- */
   const milheiros = useMemo(() => (requested > 0 ? requested / 1000 : 0), [requested]);
@@ -682,7 +707,12 @@ export default function PageNovaVenda() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
-      const json = await res.json();
+      const json = (await res.json()) as {
+        ok?: boolean;
+        error?: string;
+        id?: string;
+        nextCedentes?: CedenteLista[];
+      };
 
       if (!json?.ok) throw new Error(json?.error || "Falha ao salvar a venda");
 
@@ -692,13 +722,14 @@ export default function PageNovaVenda() {
         try { localStorage.setItem("TM_CEDENTES", JSON.stringify(json.nextCedentes)); } catch {}
       }
 
-      alert("Venda salva com sucesso! ID: " + json.id);
+      alert("Venda salva com sucesso! ID: " + (json.id ?? "—"));
 
       // Reset leve (opcional)
       // setPontos(""); setPontosStr(""); setValorMilheiro(""); setTaxaEmbarque("");
       // setQtdPassageiros(1); setSelecionada(null); setCaixaAberta(true);
-    } catch (err: any) {
-      alert("Erro ao salvar: " + (err?.message || "desconhecido"));
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      alert("Erro ao salvar: " + msg);
     }
   }
 
@@ -883,7 +914,7 @@ export default function PageNovaVenda() {
                 <div className="flex items-center justify-between gap-3">
                   <div className="text-sm">
                     <div className="font-medium">
-                      {(sugestaoUnica.c as any).nome_completo ?? (sugestaoUnica.c as any).nome ?? ""}
+                      {(sugestaoUnica.c as { nome_completo?: string; nome?: string }).nome_completo ?? (sugestaoUnica.c as { nome?: string }).nome ?? ""}
                     </div>
                     <div className="text-[11px] text-slate-600">{sugestaoUnica.c.identificador}</div>
                     <div className="text-[13px] mt-1 flex items-center gap-2">
@@ -907,7 +938,7 @@ export default function PageNovaVenda() {
                 {elegiveis.map((item) => (
                   <li key={item.c.identificador} className="flex items-center justify-between rounded-md border px-3 py-2">
                     <div className="text-sm">
-                      <div className="font-medium">{(item.c as any).nome_completo ?? (item.c as any).nome ?? ""}</div>
+                      <div className="font-medium">{(item.c as { nome_completo?: string; nome?: string }).nome_completo ?? (item.c as { nome?: string }).nome ?? ""}</div>
                       <div className="text-[11px] text-slate-500">{item.c.identificador}</div>
                       <div className="text-[12px] text-slate-600 flex items-center gap-2">
                         <span>Disp.: <b>{fmtInt(item.disp)}</b> • Sobra: <b>{fmtInt(item.leftover)}</b></span>
@@ -1144,11 +1175,12 @@ export default function PageNovaVenda() {
               )}
               {candidatosTodas.map(({ c, disp }) => {
                 const leftover = disp - requested;
-                const compraId = findCompraIdForCedenteProgram(c.identificador, cia!, Math.min(requested, disp));
+                const compraId = findCompraIdForCedenteProgram(c.identificador, cia as CIA, Math.min(requested, disp));
+                const nome = (c as { nome_completo?: string; nome?: string }).nome_completo ?? (c as { nome?: string }).nome ?? "";
                 return (
                   <li key={c.identificador} className="flex items-center justify-between p-3">
                     <div>
-                      <div className="font-medium">{(c as any).nome_completo ?? (c as any).nome ?? ""}</div>
+                      <div className="font-medium">{nome}</div>
                       <div className="text-xs text-slate-500">{c.identificador}</div>
                       <div className="text-xs text-slate-600 mt-0.5 flex items-center gap-2">
                         <span>Disp.: <strong>{fmtInt(disp)}</strong> • {disp >= requested ? "Sobra" : "Faltam"}: <strong>{fmtInt(Math.abs(leftover))}</strong></span>
@@ -1160,7 +1192,7 @@ export default function PageNovaVenda() {
                       onClick={() => {
                         setSelecionada({
                           id: c.identificador,
-                          nome: (c as any).nome_completo ?? (c as any).nome ?? "",
+                          nome,
                           usar: requested,
                           disponivel: disp,
                           leftover,
