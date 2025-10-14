@@ -1,16 +1,19 @@
-// src/app/api/compras/[id]/route.ts
 import { NextResponse } from "next/server";
 import {
   findCompraById,
   updateCompraById,
   deleteCompraById,
 } from "@/lib/comprasRepo";
+import type {
+  CompraDoc,
+  CIA,
+  Origem,
+  StatusPontos,
+} from "@/lib/comprasRepo";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
-
-type StatusPontos = "aguardando" | "liberados";
 
 function noCache() {
   return {
@@ -80,22 +83,109 @@ export async function PATCH(
       "savedAt",
     ]);
 
-    const patch: Record<string, unknown> = {};
-    for (const [k, v] of Object.entries(body)) {
-      if (allowed.has(k)) patch[k] = v;
-    }
+    const patch: Partial<CompraDoc> = {};
 
-    if ("statusPontos" in patch) {
-      const s = String(patch.statusPontos) as StatusPontos;
-      if (s !== "aguardando" && s !== "liberados") {
-        return NextResponse.json(
-          { error: "statusPontos inválido (use 'aguardando' ou 'liberados')" },
-          { status: 400, headers: noCache() }
-        );
+    for (const [k, v] of Object.entries(body)) {
+      if (!allowed.has(k)) continue;
+
+      switch (k) {
+        case "statusPontos": {
+          const s = String(v) as StatusPontos;
+          if (s === "aguardando" || s === "liberados") patch.statusPontos = s;
+          break;
+        }
+        case "dataCompra":
+          if (typeof v === "string") patch.dataCompra = v;
+          break;
+
+        case "cedenteId":
+          if (typeof v === "string") patch.cedenteId = v;
+          break;
+        case "cedenteNome":
+          if (typeof v === "string") (patch as { cedenteNome?: string }).cedenteNome = v;
+          break;
+
+        case "modo":
+          if (v === "compra" || v === "transferencia") patch.modo = v;
+          break;
+
+        case "ciaCompra":
+          if (v === "latam" || v === "smiles") patch.ciaCompra = v as CIA;
+          break;
+
+        case "destCia":
+          if (v === "latam" || v === "smiles") patch.destCia = v as CIA;
+          break;
+
+        case "origem":
+          if (v === "livelo" || v === "esfera") patch.origem = v as Origem;
+          break;
+
+        case "valores":
+          // mantém o formato livre (mesmo tipo exportado em CompraDoc)
+          patch.valores = v as CompraDoc["valores"];
+          break;
+
+        case "calculos":
+          if (isObject(v)) {
+            const maybe = v as Partial<NonNullable<CompraDoc["calculos"]>>;
+            patch.calculos = {
+              totalPts: Number(maybe.totalPts ?? 0),
+              custoMilheiro: Number(maybe.custoMilheiro ?? 0),
+              custoTotal: Number(maybe.custoTotal ?? 0),
+              lucroTotal: Number(maybe.lucroTotal ?? 0),
+            };
+          }
+          break;
+
+        case "itens":
+          if (Array.isArray(v)) {
+            patch.itens = v as CompraDoc["itens"];
+          }
+          break;
+
+        case "totaisId":
+          if (isObject(v)) {
+            const maybe = v as Partial<NonNullable<CompraDoc["totaisId"]>>;
+            patch.totaisId = {
+              totalPts: Number(maybe.totalPts ?? 0),
+              custoMilheiro: Number(maybe.custoMilheiro ?? 0),
+              custoTotal: Number(maybe.custoTotal ?? 0),
+              lucroTotal: Number(maybe.lucroTotal ?? 0),
+            };
+          }
+          break;
+
+        // compat: alguns clientes mandam "totais" ao invés de "totaisId"
+        case "totais":
+          if (isObject(v)) {
+            const maybe = v as Partial<NonNullable<CompraDoc["totaisId"]>>;
+            const norm = {
+              totalPts: Number(maybe.totalPts ?? 0),
+              custoMilheiro: Number(maybe.custoMilheiro ?? 0),
+              custoTotal: Number(maybe.custoTotal ?? 0),
+              lucroTotal: Number(maybe.lucroTotal ?? 0),
+            };
+            patch.totaisId = norm;
+            patch.calculos = norm;
+          }
+          break;
+
+        case "metaMilheiro":
+          if (typeof v === "number") (patch as { metaMilheiro?: number }).metaMilheiro = v;
+          break;
+
+        case "comissaoCedente":
+          if (typeof v === "number") (patch as { comissaoCedente?: number }).comissaoCedente = v;
+          break;
+
+        case "savedAt":
+          if (typeof v === "number") patch.savedAt = v;
+          break;
       }
     }
 
-    const updated = await updateCompraById(id.trim(), patch as any);
+    const updated = await updateCompraById(id.trim(), patch);
     if (!updated) {
       return NextResponse.json(
         { error: "Não encontrado" },
