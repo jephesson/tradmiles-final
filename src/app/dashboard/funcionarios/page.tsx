@@ -50,7 +50,8 @@ export default function FuncionariosPage() {
   }
 
   function openEdit(f: Funcionario) {
-    setEditing(JSON.parse(JSON.stringify(f)));
+    // cria cópia profunda simples
+    setEditing(JSON.parse(JSON.stringify(f)) as Funcionario);
     dialogRef.current?.showModal();
   }
 
@@ -80,12 +81,10 @@ export default function FuncionariosPage() {
     const exists = list.some(
       (x) => x.id.trim().toLowerCase() === editing.id.trim().toLowerCase()
     );
-    let next: Funcionario[];
-    if (exists) {
-      next = list.map((x) => (x.id === editing.id ? editing : x));
-    } else {
-      next = [...list, editing];
-    }
+    const next: Funcionario[] = exists
+      ? list.map((x) => (x.id === editing.id ? editing : x))
+      : [...list, editing];
+
     saveFuncionarios(next);
     setList(next);
     closeModal();
@@ -121,12 +120,13 @@ export default function FuncionariosPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "setPassword", login, password: pwd1 }),
       });
-      const json = await res.json();
+      const json: { ok?: boolean; error?: string } = await res.json();
       if (!json.ok) throw new Error(json.error || "Falha ao definir senha.");
       alert(`Senha atualizada para ${login}.`);
       setPwd1("");
       setPwd2("");
-    } catch (e: any) {
+    } catch (err: unknown) {
+      const e = err as { message?: string };
       alert(e?.message || "Erro ao definir senha.");
     } finally {
       setPwdSaving(false);
