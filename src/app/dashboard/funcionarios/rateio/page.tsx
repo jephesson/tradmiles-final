@@ -9,7 +9,7 @@ import { loadCedentes, type Cedente } from "@/lib/storage";
 /* =========================
  *  Storage keys
  * ========================= */
-const RATEIO_KEY = "TM_RATEIO_FUNCIONARIOS";     // matriz de percentuais por dono
+const RATEIO_KEY = "TM_RATEIO_FUNCIONARIOS"; // matriz de percentuais por dono
 const FINALIZADOS_KEY = "TM_RATEIO_FINALIZADOS"; // histórico de finalizações
 
 /* =========================
@@ -36,11 +36,13 @@ type ItemCompra = {
 
 type ItemTransferencia = {
   kind: "transferencia";
-  data?: {
-    destino?: string;
-    pontosTotais?: number;
-    pontos?: number; // fallback para versões antigas
-  } | undefined;
+  data?:
+    | {
+        destino?: string;
+        pontosTotais?: number;
+        pontos?: number; // fallback
+      }
+    | undefined;
 };
 
 type ItemClube = {
@@ -79,9 +81,9 @@ type AnyVenda = {
   id?: string;
   cia: CIA;
   pontos?: number;
-  valorPontos?: number;      // receita de pontos (milheiros * valorMilheiro)
-  taxaEmbarque?: number;     // receita de taxa
-  totalCobrar?: number;      // receita total — preferencial
+  valorPontos?: number; // receita de pontos (milheiros * valorMilheiro)
+  taxaEmbarque?: number; // receita de taxa
+  totalCobrar?: number; // receita total — preferencial
   comissaoBonusMeta?: number; // 30% da parte acima da meta (já calculado na Nova venda)
   contaEscolhida?: ContaEscolhida;
   cancelInfo?: { recreditPoints?: boolean } | null;
@@ -96,8 +98,8 @@ type Finalizacao = {
   soldPts: number;
   remainingPts: number;
   receita: number;
-  custoTotalLote: number;       // custo total do lote (100%)
-  custoBonus30: number;         // soma dos bônus 30% (custo)
+  custoTotalLote: number; // custo total do lote (100%)
+  custoBonus30: number; // soma dos bônus 30% (custo)
   custoTotalConsiderado: number; // custoTotalLote + custoBonus30
   lucro: number;
   finalizadoEm: string; // ISO
@@ -107,6 +109,28 @@ type Finalizacao = {
 /* =========================
  *  Utils
  * ========================= */
+type UnknownRecord = Record<string, unknown>;
+
+const isRecord = (v: unknown): v is UnknownRecord =>
+  typeof v === "object" && v !== null && !Array.isArray(v);
+
+const getProp = (obj: unknown, key: string): unknown =>
+  isRecord(obj) ? obj[key] : undefined;
+
+const getPath = (obj: unknown, path: string[]): unknown => {
+  let cur: unknown = obj;
+  for (const k of path) {
+    cur = getProp(cur, k);
+    if (cur === undefined) return undefined;
+  }
+  return cur;
+};
+
+const pickFirstArray = (...candidates: unknown[]): unknown[] => {
+  for (const c of candidates) if (Array.isArray(c)) return c;
+  return [];
+};
+
 const norm = (s?: string | null) => (s ?? "").toString().trim().toLowerCase();
 const fmtInt = (n: number) =>
   new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 0 }).format(
@@ -128,8 +152,7 @@ function normalizeCia(v?: string | null): ProgramKey | "" {
 }
 
 function getCompraDisplayId(c: AnyCompra): string | null {
-  const raw =
-    (c.id ?? c.compraId ?? c.identificador ?? "").toString().trim();
+  const raw = (c.id ?? c.compraId ?? c.identificador ?? "").toString().trim();
   return raw || null;
 }
 
@@ -226,20 +249,17 @@ export default function RateioPorContaPage() {
 
         if (res.ok) {
           const json: unknown = await res.json();
-          const root = (json as Record<string, unknown>)?.["data"] ?? json;
+          const root = isRecord(json) && "data" in json ? (json as UnknownRecord)["data"] : json;
 
-          const list =
-            (Array.isArray(root) && root) ||
-            (Array.isArray((root as any)?.listaCompras) &&
-              (root as any).listaCompras) ||
-            (Array.isArray((root as any)?.compras) && (root as any).compras) ||
-            (Array.isArray((root as any)?.items) && (root as any).items) ||
-            (Array.isArray((root as any)?.lista) && (root as any).lista) ||
-            (Array.isArray((root as any)?.data?.compras) &&
-              (root as any).data.compras) ||
-            (Array.isArray((root as any)?.data?.items) &&
-              (root as any).data.items) ||
-            [];
+          const list = pickFirstArray(
+            root,
+            getPath(root, ["listaCompras"]),
+            getPath(root, ["compras"]),
+            getPath(root, ["items"]),
+            getPath(root, ["lista"]),
+            getPath(root, ["data", "compras"]),
+            getPath(root, ["data", "items"])
+          );
 
           setCompras(list as AnyCompra[]);
         }
@@ -253,8 +273,9 @@ export default function RateioPorContaPage() {
         });
         if (res.ok) {
           const json: unknown = await res.json();
-          const lista =
-            (Array.isArray((json as any)?.lista) && (json as any).lista) || [];
+          const lista = Array.isArray(getProp(json, "lista"))
+            ? (getProp(json, "lista") as unknown[])
+            : [];
           setVendas(lista as AnyVenda[]);
         }
       } catch {
@@ -273,13 +294,15 @@ export default function RateioPorContaPage() {
 
   const cedenteOwnerById = useMemo(() => {
     const m = new Map<string, string | null>();
-    cedentes.forEach((c) =>
-      m.set(
-        c.identificador.toUpperCase(),
-        // versões antigas podem não ter 'responsavelId'
-        (c as unknown as { responsavelId?: string | null }).responsavelId ?? null
-      )
-    );
+    cedentes.forEach((c) => {
+      const id = (c as UnknownRecord)["identificador"];
+      const ident = typeof id === "string" ? id.toUpperCase() : "";
+      const resp =
+        "responsavelId" in c && typeof (c as UnknownRecord)["responsavelId"] === "string"
+          ? ((c as UnknownRecord)["responsavelId"] as string)
+          : null;
+      if (ident) m.set(ident, resp);
+    });
     return m;
   }, [cedentes]);
 
@@ -541,8 +564,7 @@ export default function RateioPorContaPage() {
           <tbody>
             {linhas.map((l) => {
               const donoNome = l.ownerFuncionarioId
-                ? byFuncId.get(l.ownerFuncionarioId)?.nome ||
-                  l.ownerFuncionarioId
+                ? byFuncId.get(l.ownerFuncionarioId)?.nome || l.ownerFuncionarioId
                 : "—";
               const alerta = l.restantePts < 3000 && !l.finalizado;
               return (
@@ -555,21 +577,14 @@ export default function RateioPorContaPage() {
                   <td className="px-3 py-2 text-right">{fmtInt(l.vendidosPts)}</td>
                   <td
                     className={
-                      "px-3 py-2 text-right " +
-                      (alerta ? "text-amber-700 font-medium" : "")
+                      "px-3 py-2 text-right " + (alerta ? "text-amber-700 font-medium" : "")
                     }
                   >
                     {fmtInt(l.restantePts)} {alerta ? "• fechar?" : ""}
                   </td>
-                  <td className="px-3 py-2 text-right">
-                    {fmtBRL(l.custoMilheiro)}
-                  </td>
-                  <td className="px-3 py-2 text-right">
-                    {fmtBRL(l.custoTotalLote)}
-                  </td>
-                  <td className="px-3 py-2 text-right">
-                    {fmtBRL(l.custoBonus30)}
-                  </td>
+                  <td className="px-3 py-2 text-right">{fmtBRL(l.custoMilheiro)}</td>
+                  <td className="px-3 py-2 text-right">{fmtBRL(l.custoTotalLote)}</td>
+                  <td className="px-3 py-2 text-right">{fmtBRL(l.custoBonus30)}</td>
                   <td className="px-3 py-2 text-right">
                     {fmtBRL(l.custoTotalConsiderado)}
                   </td>
@@ -586,9 +601,7 @@ export default function RateioPorContaPage() {
                     {l.finalizado ? (
                       <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] text-slate-700">
                         Finalizado{" "}
-                        {new Date(l.finalizado.finalizadoEm).toLocaleDateString(
-                          "pt-BR"
-                        )}
+                        {new Date(l.finalizado.finalizadoEm).toLocaleDateString("pt-BR")}
                       </span>
                     ) : (
                       <button
@@ -604,10 +617,7 @@ export default function RateioPorContaPage() {
             })}
             {linhas.length === 0 && (
               <tr>
-                <td
-                  className="px-3 py-6 text-center text-slate-500"
-                  colSpan={14}
-                >
+                <td className="px-3 py-6 text-center text-slate-500" colSpan={14}>
                   Nenhuma compra consolidada.
                 </td>
               </tr>
@@ -628,27 +638,19 @@ export default function RateioPorContaPage() {
                 <th className="px-3 py-2 font-medium">CIA</th>
                 <th className="px-3 py-2 font-medium">Dono</th>
                 <th className="px-3 py-2 font-medium text-right">Receita</th>
-                <th className="px-3 py-2 font-medium text-right">
-                  Custo total do lote
-                </th>
+                <th className="px-3 py-2 font-medium text-right">Custo total do lote</th>
                 <th className="px-3 py-2 font-medium text-right">Bônus 30%</th>
                 <th className="px-3 py-2 font-medium text-right">Lucro</th>
-                <th className="px-3 py-2 font-medium">
-                  Rateio (lucro por funcionário)
-                </th>
+                <th className="px-3 py-2 font-medium">Rateio (lucro por funcionário)</th>
               </tr>
             </thead>
             <tbody>
               {finalizados.map((f) => {
                 const donoNome = f.ownerFuncionarioId
-                  ? byFuncId.get(f.ownerFuncionarioId)?.nome ||
-                    f.ownerFuncionarioId
+                  ? byFuncId.get(f.ownerFuncionarioId)?.nome || f.ownerFuncionarioId
                   : "—";
                 return (
-                  <tr
-                    key={`${f.compraId}-${f.finalizadoEm}`}
-                    className="border-t align-top"
-                  >
+                  <tr key={`${f.compraId}-${f.finalizadoEm}`} className="border-t align-top">
                     <td className="px-3 py-2">
                       {new Date(f.finalizadoEm).toLocaleDateString("pt-BR")}
                     </td>
@@ -656,16 +658,11 @@ export default function RateioPorContaPage() {
                     <td className="px-3 py-2 uppercase">{f.cia}</td>
                     <td className="px-3 py-2">{donoNome}</td>
                     <td className="px-3 py-2 text-right">{fmtBRL(f.receita)}</td>
-                    <td className="px-3 py-2 text-right">
-                      {fmtBRL(f.custoTotalLote)}
-                    </td>
-                    <td className="px-3 py-2 text-right">
-                      {fmtBRL(f.custoBonus30)}
-                    </td>
+                    <td className="px-3 py-2 text-right">{fmtBRL(f.custoTotalLote)}</td>
+                    <td className="px-3 py-2 text-right">{fmtBRL(f.custoBonus30)}</td>
                     <td
                       className={
-                        "px-3 py-2 text-right " +
-                        (f.lucro >= 0 ? "text-emerald-700" : "text-rose-700")
+                        "px-3 py-2 text-right " + (f.lucro >= 0 ? "text-emerald-700" : "text-rose-700")
                       }
                     >
                       {fmtBRL(f.lucro)}
@@ -673,23 +670,16 @@ export default function RateioPorContaPage() {
                     <td className="px-3 py-2">
                       <ul className="space-y-0.5">
                         {f.rateio.map((r) => (
-                          <li
-                            key={r.funcId}
-                            className="flex items-center justify-between"
-                          >
+                          <li key={r.funcId} className="flex items-center justify-between">
                             <span>
                               {r.nome}{" "}
-                              <span className="text-slate-500 text-xs">
-                                ({r.pct.toFixed(2)}%)
-                              </span>
+                              <span className="text-slate-500 text-xs">({r.pct.toFixed(2)}%)</span>
                             </span>
                             <b>{fmtBRL(r.valor)}</b>
                           </li>
                         ))}
                         {f.rateio.length === 0 && (
-                          <span className="text-slate-500 text-xs">
-                            Sem percentuais cadastrados
-                          </span>
+                          <span className="text-slate-500 text-xs">Sem percentuais cadastrados</span>
                         )}
                       </ul>
                     </td>
@@ -698,10 +688,7 @@ export default function RateioPorContaPage() {
               })}
               {finalizados.length === 0 && (
                 <tr>
-                  <td
-                    className="px-3 py-6 text-center text-slate-500"
-                    colSpan={9}
-                  >
+                  <td className="px-3 py-6 text-center text-slate-500" colSpan={9}>
                     Nenhuma finalização registrada ainda.
                   </td>
                 </tr>
@@ -711,9 +698,9 @@ export default function RateioPorContaPage() {
         </div>
         <div className="text-xs text-slate-500">
           Observação: o custo considerado é <b>100% do lote</b> somado ao{" "}
-          <b>bônus de 30% acima da meta</b> das vendas com o mesmo{" "}
-          <code>compraId</code>. O rateio distribui o <b>lucro</b> final conforme
-          a matriz de percentuais do dono da conta.
+          <b>bônus de 30% acima da meta</b> das vendas com o mesmo <code>compraId</code>. O
+          rateio distribui o <b>lucro</b> final conforme a matriz de percentuais do dono da
+          conta.
         </div>
       </section>
     </main>
