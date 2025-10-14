@@ -451,8 +451,6 @@ export async function GET(req: Request): Promise<NextResponse> {
     });
 
     const total = rows.length;
-    const offset = parseInt(url.searchParams.get("offset") || "0", 10);
-    const limit = parseInt(url.searchParams.get("limit") || "20", 10);
     const offsetClamped = Math.max(0, offset);
     const limitClamped = Math.max(1, Math.min(limit, 500));
     const items = rows.slice(offsetClamped, offsetClamped + limitClamped);
