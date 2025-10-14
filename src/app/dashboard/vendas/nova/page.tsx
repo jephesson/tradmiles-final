@@ -348,12 +348,20 @@ export default function PageNovaVenda() {
         if (res.ok) {
           const json = await res.json();
           const root: unknown = (json as { data?: unknown }).data ?? json;
-          const list =
-            (Array.isArray(root) ? root :
-              (root as { listaBloqueios?: unknown[]; lista?: unknown[]; bloqueios?: unknown[]; items?: unknown[] } | undefined)
-            );
-          const arr =
-            (list && (list.listaBloqueios || list.lista || list.bloqueios || list.items)) ?? [];
+
+          let arr: unknown[] = [];
+          if (Array.isArray(root)) {
+            arr = root;
+          } else if (root && typeof root === "object") {
+            const obj = root as {
+              listaBloqueios?: unknown[];
+              lista?: unknown[];
+              bloqueios?: unknown[];
+              items?: unknown[];
+            };
+            arr = obj.listaBloqueios ?? obj.lista ?? obj.bloqueios ?? obj.items ?? [];
+          }
+
           if (Array.isArray(arr)) setBloqueios(arr as AnyBloqueio[]);
         }
       } catch {}
@@ -367,12 +375,20 @@ export default function PageNovaVenda() {
         if (res.ok) {
           const json = await res.json();
           const root: unknown = (json as { data?: unknown }).data ?? json;
-          const listRaw =
-            (Array.isArray(root) ? root :
-              (root as { listaCompras?: unknown[]; compras?: unknown[]; items?: unknown[]; lista?: unknown[] } | undefined)
-            );
-          const arr =
-            (listRaw && (listRaw.listaCompras || listRaw.compras || listRaw.items || listRaw.lista)) ?? [];
+
+          let arr: unknown[] = [];
+          if (Array.isArray(root)) {
+            arr = root;
+          } else if (root && typeof root === "object") {
+            const obj = root as {
+              listaCompras?: unknown[];
+              compras?: unknown[];
+              items?: unknown[];
+              lista?: unknown[];
+            };
+            arr = obj.listaCompras ?? obj.compras ?? obj.items ?? obj.lista ?? [];
+          }
+
           if (Array.isArray(arr)) setCompras(arr as AnyCompra[]);
         }
       } catch {}
@@ -515,7 +531,7 @@ export default function PageNovaVenda() {
       .filter((c) => isCompraLiberada(c))
       .filter((c) => extractCedenteIdFromCompra(c).toUpperCase() === cedId.toUpperCase())
       .filter((c) => pointsToProgram(c, program) > 0)
-      .sort((a, b) => pointsToProgram(b, program) - pointsToProgram(a, program));
+    .sort((a, b) => pointsToProgram(b, program) - pointsToProgram(a, program));
 
     if (!candidates.length) return null;
 
@@ -607,8 +623,8 @@ export default function PageNovaVenda() {
 
   /** ------- Cálculos ------- */
   const milheiros = useMemo(() => (requested > 0 ? requested / 1000 : 0), [requested]);
-  const valorMilheiroNum = typeof valorMilheiro === "number" ? valorMilheiro : 0;
-  const taxaEmbarqueNum = typeof taxaEmbarque === "number" ? taxaEmbarque : 0;
+  const valorMilheiroNum = useMemo(() => (typeof valorMilheiro === "number" ? valorMilheiro : 0), [valorMilheiro]);
+  const taxaEmbarqueNum = useMemo(() => (typeof taxaEmbarque === "number" ? taxaEmbarque : 0), [taxaEmbarque]);
   const valorPontos = useMemo(() => milheiros * valorMilheiroNum, [milheiros, valorMilheiroNum]);
   const totalCobrar = useMemo(() => valorPontos + taxaEmbarqueNum, [valorPontos, taxaEmbarqueNum]);
 

@@ -164,7 +164,7 @@ export default function Sidebar() {
       {/* Header */}
       <div className="flex items-center justify-between gap-3 border-b border-slate-200 p-4">
         <div className="flex items-center gap-3">
-          <Image src="/logo.png" alt="TradeMiles" width={32} height={32} />
+          <Image src="/trademiles.png" alt="TradeMiles" width={32} height={32} />
           <span className="font-semibold">TradeMiles</span>
         </div>
 
