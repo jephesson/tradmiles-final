@@ -104,6 +104,12 @@ function download(filename: string, text: string) {
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null;
 }
+function hasProp<T extends string>(o: unknown, k: T): o is Record<T, unknown> {
+  return isRecord(o) && k in o;
+}
+function hasStringProp<T extends string>(o: unknown, k: T): o is Record<T, string> {
+  return hasProp(o, k) && typeof (o as Record<T, unknown>)[k] === "string";
+}
 function isCedenteArray(v: unknown): v is Cedente[] {
   return (
     Array.isArray(v) &&
@@ -382,22 +388,25 @@ export default function CedentesImporter() {
 
   function safeColumnValue(sheet: string, raw: string) {
     const v = (raw || "").toUpperCase();
-    const cols = (() => {
-      const sh = sheets.find((s) => s.name === sheet);
-      if (!sh) return ["A"];
-      const rows = sh.rows.slice(0, 32);
-      const maxLen = Math.max(...rows.map((r) => (Array.isArray(r) ? r.length : 0)), 1);
-      return Array.from({ length: maxLen }, (_, i) => indexToColLetter(i));
-    })();
+    const sh = sheets.find((s) => s.name === sheet);
+    if (!sh) return "";
+    const rows = sh.rows.slice(0, 32);
+    const maxLen = Math.max(...rows.map((r) => (Array.isArray(r) ? r.length : 0)), 1);
+    const cols = Array.from({ length: maxLen }, (_, i) => indexToColLetter(i));
     return cols.includes(v) ? v : "";
   }
 
   function applyResponsaveis() {
     const sh = sheets.find((s) => s.name === respCfg.sheet);
-    if (!sh || !respCfg.colCedente || !respCfg.colResp) return;
+    if (!sh) return;
 
-    const idxCed = colLetterToIndex(respCfg.colCedente);
-    const idxResp = colLetterToIndex(respCfg.colResp);
+    // validação de colunas recebidas (podem ter vindo de estado antigo)
+    const colCed = safeColumnValue(respCfg.sheet, respCfg.colCedente);
+    const colResp = safeColumnValue(respCfg.sheet, respCfg.colResp);
+    if (!colCed || !colResp) return;
+
+    const idxCed = colLetterToIndex(colCed);
+    const idxResp = colLetterToIndex(colResp);
 
     const mapResp = new Map<string, string>();
     const cedentesInSheet: Array<{ key: string; raw: string; resp: string }> = [];
@@ -407,12 +416,14 @@ export default function CedentesImporter() {
       const cedRaw = r[idxCed];
       const respRaw = r[idxResp];
       if (typeof cedRaw !== "string" || !cedRaw.trim()) continue;
-      if (respRaw === null || respRaw === undefined || respRaw === "") continue;
+
+      if (respRaw === null || respRaw === undefined) continue;
+      const respStr = typeof respRaw === "string" ? respRaw.trim() : String(respRaw).trim();
+      if (!respStr) continue;
 
       const k = keyName(cedRaw);
-      const rstr = String(respRaw).trim();
-      cedentesInSheet.push({ key: k, raw: String(cedRaw), resp: rstr });
-      mapResp.set(k, rstr);
+      cedentesInSheet.push({ key: k, raw: String(cedRaw), resp: respStr });
+      mapResp.set(k, respStr);
     }
 
     function findFuncionario(ref: string): Funcionario | undefined {
@@ -422,10 +433,7 @@ export default function CedentesImporter() {
       const byId = funcionarios.find((f) => f.id.toLowerCase() === raw.toLowerCase());
       if (byId) return byId;
 
-      // slug opcional — sem usar any
-      const hasSlug = (f: Funcionario): f is Funcionario & { slug: string } =>
-        isRecord(f) && typeof (f as Record<string, unknown>).slug === "string";
-      const bySlug = funcionarios.find((f) => hasSlug(f) && f.slug.toLowerCase() === raw.toLowerCase());
+      const bySlug = funcionarios.find((f) => hasStringProp(f, "slug") && f.slug.toLowerCase() === raw.toLowerCase());
       if (bySlug) return bySlug;
 
       const target = keyName(raw);
