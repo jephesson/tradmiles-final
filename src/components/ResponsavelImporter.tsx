@@ -1,11 +1,49 @@
 // src/components/ResponsavelImporter.tsx
 "use client";
 
-import React, { useCallback, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import * as XLSX from "xlsx";
 import { type Cedente } from "@/lib/storage";
 import { loadFuncionarios, type Funcionario } from "@/lib/staff";
+
+/** ===== Error Boundary (evita tela branca e mostra a causa) ===== */
+class ErrorBoundary extends React.Component<
+  { children: React.ReactNode },
+  { error?: Error | null; info?: React.ErrorInfo | null }
+> {
+  constructor(props: { children: React.ReactNode }) {
+    super(props);
+    this.state = { error: null, info: null };
+  }
+  static getDerivedStateFromError(error: Error) {
+    return { error };
+  }
+  componentDidCatch(error: Error, info: React.ErrorInfo): void {
+    // já fica logado
+    console.error("[ResponsavelImporter] Uncaught error:", error, info?.componentStack);
+    this.setState({ error, info });
+  }
+  render() {
+    if (this.state.error) {
+      return (
+        <div className="mx-auto max-w-3xl rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">
+          <div className="mb-1 font-semibold">Erro na interface</div>
+          <div className="mb-2">{this.state.error.message}</div>
+          {this.state.info?.componentStack ? (
+            <pre className="whitespace-pre-wrap text-xs text-rose-800">
+              {this.state.info.componentStack}
+            </pre>
+          ) : null}
+          <button className="mt-3 rounded-md bg-black px-3 py-1 text-white" onClick={() => location.reload()}>
+            Recarregar
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 /** ===== Types ===== */
 type Cell = string | number | boolean | null | undefined;
@@ -72,7 +110,6 @@ function similarity(a: unknown, b: unknown) {
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null;
 }
-// Aceita a lista mesmo que faltem campos; tratamos depois
 function isCedenteArray(v: unknown): v is Cedente[] {
   return (
     Array.isArray(v) &&
@@ -87,8 +124,8 @@ function isStaff(v: unknown): v is Staff {
   return isRecord(v) && typeof v.id === "string" && typeof v.nome === "string";
 }
 
-/** ===== Component ===== */
-export default function ResponsavelImporter() {
+/** ===== Inner Component ===== */
+function Inner() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Excel
@@ -105,9 +142,27 @@ export default function ResponsavelImporter() {
   // Dados
   const [listaCedentes, setListaCedentes] = useState<Cedente[]>([]);
   const [funcionarios] = useState<Staff[]>(() => {
-    const raw = loadFuncionarios();
-    return Array.isArray(raw) ? raw.filter(isStaff).map((f) => ({ ...f })) : [];
+    try {
+      const raw = loadFuncionarios();
+      return Array.isArray(raw) ? raw.filter(isStaff).map((f) => ({ ...f })) : [];
+    } catch (e) {
+      console.error("[ResponsavelImporter] loadFuncionarios error:", e);
+      return [];
+    }
   });
+
+  // Coleta erros globais (para sabermos a causa real)
+  useEffect(() => {
+    const onErr = (ev: ErrorEvent) => console.error("[window.onerror]", ev.message, ev.filename, ev.lineno, ev.error);
+    const onRej = (ev: PromiseRejectionEvent) =>
+      console.error("[window.unhandledrejection]", ev.reason);
+    window.addEventListener("error", onErr);
+    window.addEventListener("unhandledrejection", onRej);
+    return () => {
+      window.removeEventListener("error", onErr);
+      window.removeEventListener("unhandledrejection", onRej);
+    };
+  }, []);
 
   /** ===== Coluna helpers ===== */
   function colLetterToIndex(col: string) {
@@ -239,7 +294,7 @@ export default function ResponsavelImporter() {
         const respStr = safeString(r[idxResp]).trim();
         if (!cedStr || !respStr) continue;
         const k = keyName(cedStr);
-        if (!k) continue; // ignora chaves vazias
+        if (!k) continue;
         cedentesInSheet.push({ key: k, raw: cedStr, resp: respStr });
         mapResp.set(k, respStr);
       }
@@ -271,11 +326,14 @@ export default function ResponsavelImporter() {
         return undefined;
       }
 
-      let matched = 0, notFound = 0;
+      let matched = 0,
+        notFound = 0;
 
       const updated = listaCedentes.map((c) => {
-        // sem any: destruturação com tipo seguro
-        const { identificador, nome_completo }: { identificador?: unknown; nome_completo?: unknown } = c as unknown as {
+        const {
+          identificador,
+          nome_completo,
+        }: { identificador?: unknown; nome_completo?: unknown } = (c as unknown) as {
           identificador?: unknown;
           nome_completo?: unknown;
         };
@@ -286,7 +344,6 @@ export default function ResponsavelImporter() {
 
         let respRef: string | undefined;
 
-        // correspondência exata
         for (const k of keysDoCedente) {
           const hit = mapResp.get(k);
           if (hit) {
@@ -295,7 +352,6 @@ export default function ResponsavelImporter() {
           }
         }
 
-        // fallback aproximado
         if (!respRef && respCfg.approximate && cedentesInSheet.length && keysDoCedente.length) {
           let best: { resp: string; score: number } | null = null;
           for (const cand of cedentesInSheet) {
@@ -479,5 +535,14 @@ export default function ResponsavelImporter() {
         </div>
       )}
     </div>
+  );
+}
+
+/** ===== Exporta com Boundary ===== */
+export default function ResponsavelImporter() {
+  return (
+    <ErrorBoundary>
+      <Inner />
+    </ErrorBoundary>
   );
 }
