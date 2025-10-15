@@ -104,9 +104,6 @@ function download(filename: string, text: string) {
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null;
 }
-function isStringArray(v: unknown): v is string[] {
-  return Array.isArray(v) && v.every((i) => typeof i === "string");
-}
 function isCedenteArray(v: unknown): v is Cedente[] {
   return Array.isArray(v) && v.every((o) => isRecord(o) && typeof o.identificador === "string" && typeof o.nome_completo === "string");
 }
@@ -280,6 +277,20 @@ export default function CedentesImporter() {
       return typeof cell === "string" ? cell : "";
     });
   }, [namesSheetObj, colNome]);
+
+  /* ========= Normalização de selects da Etapa 3 (evita “valor fora da lista”) ========= */
+  const respCols = useMemo(() => availableColumnsOn(respCfg.sheet), [sheets, respCfg.sheet]);
+
+  useEffect(() => {
+    // Se a coluna atual não existir na lista, resetamos para "" (valor válido)
+    if (respCfg.colCedente && !respCols.includes(respCfg.colCedente)) {
+      setRespCfg((prev) => ({ ...prev, colCedente: "" }));
+    }
+    if (respCfg.colResp && !respCols.includes(respCfg.colResp)) {
+      setRespCfg((prev) => ({ ...prev, colResp: "" }));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [respCols.join("|")]);
 
   /* ---------- Etapa 1: processar nomes ---------- */
   function processNames() {
@@ -787,7 +798,13 @@ export default function CedentesImporter() {
                   value={respCfg.sheet}
                   onChange={(e) => {
                     const v = e.currentTarget.value;
-                    setRespCfg((prev) => ({ ...prev, sheet: v, colCedente: "", colResp: "", stats: { matched: 0, notFound: 0 } }));
+                    setRespCfg((prev) => ({
+                      ...prev,
+                      sheet: v,
+                      colCedente: "",
+                      colResp: "",
+                      stats: { matched: 0, notFound: 0 },
+                    }));
                   }}
                 >
                   {sheets.map((s) => (
@@ -803,10 +820,12 @@ export default function CedentesImporter() {
                 <select
                   className="rounded-xl border px-3 py-2"
                   value={respCfg.colCedente}
-                  onChange={(e) => setRespCfg((prev) => ({ ...prev, colCedente: e.currentTarget.value }))}
+                  onChange={(e) =>
+                    setRespCfg((prev) => ({ ...prev, colCedente: e.currentTarget.value.toUpperCase() }))
+                  }
                 >
                   <option value="">Selecione…</option>
-                  {availableColumnsOn(respCfg.sheet).map((c) => (
+                  {respCols.map((c) => (
                     <option key={c} value={c}>
                       {c}
                     </option>
@@ -819,10 +838,12 @@ export default function CedentesImporter() {
                 <select
                   className="rounded-xl border px-3 py-2"
                   value={respCfg.colResp}
-                  onChange={(e) => setRespCfg((prev) => ({ ...prev, colResp: e.currentTarget.value }))}
+                  onChange={(e) =>
+                    setRespCfg((prev) => ({ ...prev, colResp: e.currentTarget.value.toUpperCase() }))
+                  }
                 >
                   <option value="">Selecione…</option>
-                  {availableColumnsOn(respCfg.sheet).map((c) => (
+                  {respCols.map((c) => (
                     <option key={c} value={c}>
                       {c}
                     </option>
