@@ -1,10 +1,11 @@
 // src/components/CedentesImporter.tsx
 "use client";
 
-import React, { useMemo, useRef, useState } from "react";
+import React, { useCallback, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import * as XLSX from "xlsx";
 import { type Cedente } from "@/lib/storage";
+import { loadFuncionarios, type Funcionario } from "@/lib/staff";
 
 /* =========================
    Tipos utilitários
@@ -23,18 +24,28 @@ type ProgramConfig = {
   stats: { matched: number; notFound: number };
 };
 
-/* API response types */
+type RespConfig = {
+  sheet: string;
+  colCedente: string; // coluna com o cedente (nome/ID) para casar
+  colResp: string;    // coluna com o responsável (id/slug/nome)
+  approximate: boolean;
+  stats: { matched: number; notFound: number };
+};
+
+/* API response types (sem any) */
 type ApiOk = { ok: true };
 type ApiErr = { ok: false; error?: string };
 type ApiSaveResp = (ApiOk & { data?: unknown }) | ApiErr;
 type ApiLoadData = { listaCedentes?: unknown; savedAt?: unknown };
 type ApiLoadResp = (ApiOk & { data?: unknown }) | ApiErr;
 
+/* Staff com slug opcional */
+type Staff = Funcionario & { slug?: string };
+
 /* =========================
    Utils (sem \p{…})
 ========================= */
 function stripDiacritics(str: string) {
-  // remove acentos via NFD + faixa de combinantes e limpa símbolos
   return str
     .normalize("NFD")
     .replace(/[\u0300-\u036f]+/g, "")
@@ -49,29 +60,33 @@ function toTitleCase(str: string) {
     .map((w) => (w ? w[0].toUpperCase() + w.slice(1) : w))
     .join(" ");
 }
-function keyName(str: string) {
-  return stripDiacritics(str).toLowerCase().replace(/\s+/g, " ").trim();
+function safeString(v: unknown) {
+  return v == null ? "" : String(v);
+}
+function keyName(v: unknown) {
+  const s = safeString(v);
+  if (!s) return "";
+  return stripDiacritics(s).toLowerCase().replace(/\s+/g, " ").trim();
 }
 function levenshtein(a: string, b: string) {
   if (a === b) return 0;
-  const m = a.length,
-    n = b.length;
+  const m = a.length, n = b.length;
   if (m === 0) return n;
   if (n === 0) return m;
   const dp = Array.from({ length: m + 1 }, () => new Array(n + 1).fill(0));
   for (let i = 0; i <= m; i++) dp[i][0] = i;
   for (let j = 0; j <= n; j++) dp[0][j] = j;
   for (let i = 1; i <= m; i++) {
+    const ai = a[i - 1];
     for (let j = 1; j <= n; j++) {
-      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      const cost = ai === b[j - 1] ? 0 : 1;
       dp[i][j] = Math.min(dp[i - 1][j] + 1, dp[i][j - 1] + 1, dp[i - 1][j - 1] + cost);
     }
   }
   return dp[m][n];
 }
-function similarity(a: string, b: string) {
-  const s1 = keyName(a),
-    s2 = keyName(b);
+function similarity(a: unknown, b: unknown) {
+  const s1 = keyName(a), s2 = keyName(b);
   if (!s1 || !s2) return 0;
   const dist = levenshtein(s1, s2);
   const maxLen = Math.max(s1.length, s2.length);
@@ -99,26 +114,16 @@ function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null;
 }
 function isCedenteArray(v: unknown): v is Cedente[] {
-  return (
-    Array.isArray(v) &&
-    v.every((o) => {
-      if (!isRecord(o)) return false;
-      const obj = o as Record<string, unknown>;
-      return typeof obj.identificador === "string" && typeof obj.nome_completo === "string";
-    })
-  );
+  return Array.isArray(v) && v.every((o) => isRecord(o) && typeof (o as Record<string, unknown>).nome_completo === "string");
 }
-/** Guard para ApiErr */
 function isApiErr(v: unknown): v is ApiErr {
-  return isRecord(v) && v.ok === false;
+  return isRecord(v) && (v as Record<string, unknown>).ok === false;
 }
 
 /** Normaliza entradas numéricas e retorna pontos inteiros (≥ 0). */
 function parsePoints(input: Cell): number {
   if (input === null || input === undefined) return 0;
-  if (typeof input === "number" && Number.isFinite(input)) {
-    return Math.max(0, Math.round(input));
-  }
+  if (typeof input === "number" && Number.isFinite(input)) return Math.max(0, Math.round(input));
   const raw = String(input).trim();
   if (!raw) return 0;
 
@@ -179,6 +184,28 @@ export default function CedentesImporter() {
     { key: "smiles", label: "Smiles", sheet: "", colName: "", colPoints: "", stats: { matched: 0, notFound: 0 } },
   ]);
 
+  // Etapa 3 — Responsáveis
+  const [respCfg, setRespCfg] = useState<RespConfig>({
+    sheet: "",
+    colCedente: "",
+    colResp: "",
+    approximate: true,
+    stats: { matched: 0, notFound: 0 },
+  });
+
+  // Funcionários locais
+  const [funcionarios] = useState<Staff[]>(() => {
+    try {
+      const raw = loadFuncionarios();
+      return Array.isArray(raw)
+        ? raw.filter((f): f is Staff => isRecord(f) && typeof (f as Staff).id === "string" && typeof (f as Staff).nome === "string")
+        : [];
+    } catch (e) {
+      console.error("[CedentesImporter] loadFuncionarios error:", e);
+      return [];
+    }
+  });
+
   /* ---------- Helpers de coluna ---------- */
   function colLetterToIndex(col: string) {
     if (!col) return 0;
@@ -197,6 +224,17 @@ export default function CedentesImporter() {
     }
     return s || "A";
   }
+
+  const respColsFor = useCallback(
+    (sheetName: string) => {
+      const sh = sheets.find((s) => s.name === sheetName);
+      if (!sh) return ["A"];
+      const rows = sh.rows.slice(0, 32);
+      const maxLen = Math.max(...rows.map((r) => (Array.isArray(r) ? r.length : 0)), 1);
+      return Array.from({ length: maxLen }, (_, i) => indexToColLetter(i));
+    },
+    [sheets],
+  );
 
   /* ---------- Abrir arquivo ---------- */
   function parseWorkbook(file: File) {
@@ -225,6 +263,8 @@ export default function CedentesImporter() {
           setPrograms((prev) =>
             prev.map((p) => ({ ...p, sheet: first, colName: "", colPoints: "", stats: { matched: 0, notFound: 0 } })),
           );
+
+          setRespCfg({ sheet: first, colCedente: "", colResp: "", approximate: true, stats: { matched: 0, notFound: 0 } });
         } catch (e) {
           console.error("[CedentesImporter] reader.onload error:", e);
           alert("Erro ao ler o Excel.");
@@ -299,6 +339,7 @@ export default function CedentesImporter() {
     setListaCedentes(base);
 
     setPrograms((prev) => prev.map((p) => ({ ...p, stats: { matched: 0, notFound: 0 } })));
+    setRespCfg((prev) => ({ ...prev, stats: { matched: 0, notFound: 0 } }));
   }
 
   /* ---------- Etapa 2 ---------- */
@@ -324,8 +365,7 @@ export default function CedentesImporter() {
 
     const base = listaCedentes.map((c) => ({ ...c, [p.key]: 0 })) as Cedente[];
 
-    let matched = 0,
-      notFound = 0;
+    let matched = 0, notFound = 0;
 
     const updated = base.map((c) => {
       const k = keyName(c.nome_completo);
@@ -359,6 +399,116 @@ export default function CedentesImporter() {
     );
   }
 
+  /* ---------- Etapa 3 — Responsáveis ---------- */
+  function applyResponsaveis() {
+    try {
+      const sh = sheets.find((s) => s.name === respCfg.sheet);
+      if (!sh) {
+        alert("Selecione uma aba válida.");
+        return;
+      }
+      const colCed = respColsFor(respCfg.sheet).includes(respCfg.colCedente.toUpperCase())
+        ? respCfg.colCedente.toUpperCase()
+        : "";
+      const colResp = respColsFor(respCfg.sheet).includes(respCfg.colResp.toUpperCase())
+        ? respCfg.colResp.toUpperCase()
+        : "";
+
+      if (!colCed || !colResp) {
+        alert("Escolha as colunas de Cedente e Responsável.");
+        return;
+      }
+
+      const idxCed = colLetterToIndex(colCed);
+      const idxResp = colLetterToIndex(colResp);
+
+      const mapResp = new Map<string, string>();
+      const cedentesInSheet: Array<{ key: string; raw: string; resp: string }> = [];
+
+      for (const row of sh.rows) {
+        const r = Array.isArray(row) ? row : [];
+        const cedStr = safeString(r[idxCed]).trim();
+        const respStr = safeString(r[idxResp]).trim();
+        if (!cedStr || !respStr) continue;
+        const k = keyName(cedStr);
+        if (!k) continue;
+        cedentesInSheet.push({ key: k, raw: cedStr, resp: respStr });
+        mapResp.set(k, respStr);
+      }
+
+      function findFuncionario(ref: string): Staff | undefined {
+        const raw = ref.trim();
+        if (!raw) return undefined;
+
+        const byId = funcionarios.find((f) => f.id.toLowerCase() === raw.toLowerCase());
+        if (byId) return byId;
+
+        const bySlug = funcionarios.find(
+          (f) => typeof f.slug === "string" && f.slug.toLowerCase() === raw.toLowerCase(),
+        );
+        if (bySlug) return bySlug;
+
+        const target = keyName(raw);
+        const byName = funcionarios.find((f) => keyName(f.nome) === target);
+        if (byName) return byName;
+
+        if (!respCfg.approximate) return undefined;
+
+        let best: { f: Staff; score: number } | null = null;
+        for (const f of funcionarios) {
+          const sc = similarity(f.nome, raw);
+          if (!best || sc > best.score) best = { f, score: sc };
+        }
+        if (best && best.score >= 0.88) return best.f;
+        return undefined;
+      }
+
+      let matched = 0, notFound = 0;
+
+      const updated = listaCedentes.map((c) => {
+        const idKey = keyName(c.identificador);
+        const nomeKey = keyName(c.nome_completo);
+        const keysDoCedente = [idKey, nomeKey].filter(Boolean);
+
+        let respRef: string | undefined;
+
+        for (const k of keysDoCedente) {
+          const hit = mapResp.get(k);
+          if (hit) {
+            respRef = hit;
+            break;
+          }
+        }
+
+        if (!respRef && respCfg.approximate && cedentesInSheet.length && keysDoCedente.length) {
+          let best: { resp: string; score: number } | null = null;
+          for (const cand of cedentesInSheet) {
+            const sc = Math.max(...keysDoCedente.map((k) => similarity(cand.key, k)));
+            if (!best || sc > best.score) best = { resp: cand.resp, score: sc };
+          }
+          if (best && best.score >= 0.9) respRef = best.resp;
+        }
+
+        if (respRef) {
+          const f = findFuncionario(respRef);
+          if (f) {
+            matched++;
+            return { ...c, responsavelId: f.id, responsavelNome: f.nome };
+          }
+        }
+        notFound++;
+        return c;
+      });
+
+      setListaCedentes(updated);
+      setRespCfg((prev) => ({ ...prev, stats: { matched, notFound } }));
+      alert(`Responsáveis aplicados: ${matched}. Não encontrados: ${notFound}.`);
+    } catch (e) {
+      console.error("[CedentesImporter] applyResponsaveis error:", e);
+      alert("Erro ao aplicar responsáveis. Veja o console para detalhes.");
+    }
+  }
+
   /* ---------- Persistência ---------- */
   async function saveToServer() {
     if (!listaCedentes.length) {
@@ -383,18 +533,19 @@ export default function CedentesImporter() {
               colName: p.colName,
               colPoints: p.colPoints,
             })),
+            responsaveis: {
+              sheet: respCfg.sheet,
+              colCedente: respCfg.colCedente,
+              colResp: respCfg.colResp,
+              approximate: respCfg.approximate,
+            },
           },
         }),
       });
 
       const json: ApiSaveResp = await res.json();
-
-      if (!("ok" in json) || typeof json.ok !== "boolean") {
-        throw new Error("Resposta inválida do servidor");
-      }
-      if (isApiErr(json)) {
-        throw new Error(typeof json.error === "string" ? json.error : "Falha ao salvar");
-      }
+      if (!("ok" in json) || typeof json.ok !== "boolean") throw new Error("Resposta inválida do servidor");
+      if (isApiErr(json)) throw new Error(typeof json.error === "string" ? json.error : "Falha ao salvar");
 
       alert("Salvo com sucesso ✅");
     } catch (e: unknown) {
@@ -408,12 +559,8 @@ export default function CedentesImporter() {
       const res = await fetch("/api/cedentes", { method: "GET" });
       const json: ApiLoadResp = await res.json();
 
-      if (!("ok" in json) || typeof json.ok !== "boolean") {
-        throw new Error("Resposta inválida do servidor");
-      }
-      if (isApiErr(json)) {
-        throw new Error(typeof json.error === "string" ? json.error : "Falha ao carregar");
-      }
+      if (!("ok" in json) || typeof json.ok !== "boolean") throw new Error("Resposta inválida do servidor");
+      if (isApiErr(json)) throw new Error(typeof json.error === "string" ? json.error : "Falha ao carregar");
 
       const dataAny = (json as ApiOk & { data?: unknown }).data;
       const data: ApiLoadData | undefined = isRecord(dataAny) ? (dataAny as ApiLoadData) : undefined;
@@ -426,11 +573,11 @@ export default function CedentesImporter() {
         return;
       }
 
-      setListaCedentes(listaRaw);
-      setDedupedNames(listaRaw.map((c) => c.nome_completo));
+      setListaCedentes(listaRaw as Cedente[]);
+      setDedupedNames((listaRaw as Cedente[]).map((c) => c.nome_completo));
 
       const savedAt = typeof savedAtRaw === "string" ? savedAtRaw : undefined;
-      alert(`Carregado ${listaRaw.length} cedentes${savedAt ? ` (salvo em ${savedAt})` : ""}.`);
+      alert(`Carregado ${(listaRaw as Cedente[]).length} cedentes${savedAt ? ` (salvo em ${savedAt})` : ""}.`);
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : "Erro desconhecido";
       alert(`Erro ao carregar: ${msg}`);
@@ -440,8 +587,7 @@ export default function CedentesImporter() {
   /* ---------- Export ---------- */
   function exportCSV() {
     if (!listaCedentes.length) return;
-    const header =
-      "identificador;nome_completo;latam;esfera;livelo;smiles;responsavel_id;responsavel_nome\n";
+    const header = "identificador;nome_completo;latam;esfera;livelo;smiles;responsavel_id;responsavel_nome\n";
     const lines = listaCedentes.map(
       (r) =>
         `${r.identificador};${r.nome_completo};${r.latam};${r.esfera};${r.livelo};${r.smiles};${r.responsavelId || ""};${
@@ -456,6 +602,8 @@ export default function CedentesImporter() {
   }
 
   /* ---------- UI ---------- */
+  const respCols = useMemo(() => respColsFor(respCfg.sheet), [respCfg.sheet, respColsFor]);
+
   return (
     <div className="mx-auto max-w-6xl">
       {/* Header */}
@@ -466,7 +614,7 @@ export default function CedentesImporter() {
 
       <p className="mb-6 text-sm text-slate-600">
         Etapa 1: importe os nomes e gere IDs. Etapa 2: para <b>cada programa</b> (Latam, Esfera, Livelo, Smiles), selecione
-        a <b>aba</b> e as colunas de <b>Nome</b> e <b>Pontos</b>.
+        a <b>aba</b> e as colunas de <b>Nome</b> e <b>Pontos</b>. Etapa 3: aplique os <b>responsáveis</b>.
       </p>
 
       {/* Upload */}
@@ -507,42 +655,21 @@ export default function CedentesImporter() {
           <div className="mb-4 grid grid-cols-1 gap-3 md:grid-cols-3">
             <div className="flex flex-col">
               <label className="mb-1 text-xs font-medium text-slate-600">Aba dos Nomes</label>
-              <select
-                className="rounded-xl border px-3 py-2"
-                value={namesSheet}
-                onChange={(e) => setNamesSheet(e.currentTarget?.value ?? "")}
-              >
+              <select className="rounded-xl border px-3 py-2" value={namesSheet} onChange={(e) => setNamesSheet(e.currentTarget?.value ?? "")}>
                 {sheets.map((s) => (
-                  <option key={s.name} value={s.name}>
-                    {s.name}
-                  </option>
+                  <option key={s.name} value={s.name}>{s.name}</option>
                 ))}
               </select>
             </div>
             <div className="flex flex-col">
               <label className="mb-1 text-xs font-medium text-slate-600">Coluna com os Nomes</label>
-              <select
-                className="rounded-xl border px-3 py-2"
-                value={colNome}
-                onChange={(e) => setColNome(e.currentTarget?.value ?? "A")}
-              >
-                {availableColumnsOnNames.map((c) => (
-                  <option key={c} value={c}>
-                    {c}
-                  </option>
-                ))}
+              <select className="rounded-xl border px-3 py-2" value={colNome} onChange={(e) => setColNome(e.currentTarget?.value ?? "A")}>
+                {availableColumnsOnNames.map((c) => (<option key={c} value={c}>{c}</option>))}
               </select>
             </div>
             <div className="flex flex-col">
               <label className="mb-1 text-xs font-medium text-slate-600">Similaridade (≥) p/ deduplicar nomes</label>
-              <input
-                type="range"
-                min={0.7}
-                max={0.98}
-                step={0.01}
-                value={threshold}
-                onChange={(e) => setThreshold(parseFloat(e.currentTarget?.value ?? "0.9"))}
-              />
+              <input type="range" min={0.7} max={0.98} step={0.01} value={threshold} onChange={(e) => setThreshold(parseFloat(e.currentTarget?.value ?? "0.9"))}/>
               <div className="text-xs text-slate-600">{Math.round(threshold * 100)}%</div>
             </div>
           </div>
@@ -551,19 +678,12 @@ export default function CedentesImporter() {
             <div className="mb-3 rounded-xl border border-slate-200 bg-white p-3 text-sm">
               <div className="mb-2 font-medium">Prévia (primeiras linhas da coluna de nomes)</div>
               <ul className="list-disc space-y-1 pl-6">
-                {firstRowsPreview.map((v, i) => (
-                  <li key={i} className="text-slate-700">
-                    {v || <span className="text-slate-400">(vazio)</span>}
-                  </li>
-                ))}
+                {firstRowsPreview.map((v, i) => (<li key={i} className="text-slate-700">{v || <span className="text-slate-400">(vazio)</span>}</li>))}
               </ul>
             </div>
           )}
 
-          <button
-            onClick={processNames}
-            className="mb-6 rounded-xl bg-black px-4 py-2 text-white shadow-soft hover:bg-gray-800"
-          >
+          <button onClick={processNames} className="mb-6 rounded-xl bg-black px-4 py-2 text-white shadow-soft hover:bg-gray-800">
             Processar nomes e gerar IDs
           </button>
         </>
@@ -575,12 +695,7 @@ export default function CedentesImporter() {
           <div className="mt-2 mb-3 flex items-center gap-3">
             <h2 className="text-lg font-semibold">Etapa 2 — Importar Pontos por Programa</h2>
             <label className="flex items-center gap-2 text-xs text-slate-700">
-              <input
-                type="checkbox"
-                className="h-4 w-4"
-                checked={approximatePoints}
-                onChange={(e) => setApproximatePoints(e.currentTarget?.checked ?? false)}
-              />
+              <input type="checkbox" className="h-4 w-4" checked={approximatePoints} onChange={(e) => setApproximatePoints(e.currentTarget?.checked ?? false)} />
               Usar correspondência aproximada (≥ 90%)
             </label>
           </div>
@@ -593,81 +708,45 @@ export default function CedentesImporter() {
                   <div className="mb-3 flex items-center justify-between">
                     <div className="text-base font-medium">{p.label}</div>
                     {p.stats.matched + p.stats.notFound > 0 && (
-                      <div className="text-xs text-slate-600">
-                        Casados: <b>{p.stats.matched}</b> • Não encontrados: <b>{p.stats.notFound}</b>
-                      </div>
+                      <div className="text-xs text-slate-600">Casados: <b>{p.stats.matched}</b> • Não encontrados: <b>{p.stats.notFound}</b></div>
                     )}
                   </div>
 
                   <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
                     <div className="flex flex-col">
                       <label className="mb-1 text-xs font-medium text-slate-600">Aba</label>
-                      <select
-                        className="rounded-xl border px-3 py-2"
-                        value={p.sheet}
-                        onChange={(e) => {
-                          const v = e.currentTarget?.value ?? "";
-                          setPrograms((prev) =>
-                            prev.map((cfg, i) =>
-                              i === idx
-                                ? { ...cfg, sheet: v, colName: "", colPoints: "", stats: { matched: 0, notFound: 0 } }
-                                : cfg,
-                            ),
-                          );
-                        }}
-                      >
-                        {sheets.map((s) => (
-                          <option key={s.name} value={s.name}>
-                            {s.name}
-                          </option>
-                        ))}
+                      <select className="rounded-xl border px-3 py-2" value={p.sheet} onChange={(e) => {
+                        const v = e.currentTarget?.value ?? "";
+                        setPrograms((prev) => prev.map((cfg, i) => i === idx ? { ...cfg, sheet: v, colName: "", colPoints: "", stats: { matched: 0, notFound: 0 } } : cfg));
+                      }}>
+                        {sheets.map((s) => (<option key={s.name} value={s.name}>{s.name}</option>))}
                       </select>
                     </div>
 
                     <div className="flex flex-col">
                       <label className="mb-1 text-xs font-medium text-slate-600">Coluna do Nome</label>
-                      <select
-                        className="rounded-xl border px-3 py-2"
-                        value={p.colName}
-                        onChange={(e) => {
-                          const v = e.currentTarget?.value ?? "";
-                          setPrograms((prev) => prev.map((cfg, i) => (i === idx ? { ...cfg, colName: v } : cfg)));
-                        }}
-                      >
+                      <select className="rounded-xl border px-3 py-2" value={p.colName} onChange={(e) => {
+                        const v = e.currentTarget?.value ?? "";
+                        setPrograms((prev) => prev.map((cfg, i) => (i === idx ? { ...cfg, colName: v } : cfg)));
+                      }}>
                         <option value="">Selecione…</option>
-                        {cols.map((c) => (
-                          <option key={c} value={c}>
-                            {c}
-                          </option>
-                        ))}
+                        {cols.map((c) => (<option key={c} value={c}>{c}</option>))}
                       </select>
                     </div>
 
                     <div className="flex flex-col">
                       <label className="mb-1 text-xs font-medium text-slate-600">Coluna dos Pontos</label>
-                      <select
-                        className="rounded-xl border px-3 py-2"
-                        value={p.colPoints}
-                        onChange={(e) => {
-                          const v = e.currentTarget?.value ?? "";
-                          setPrograms((prev) => prev.map((cfg, i) => (i === idx ? { ...cfg, colPoints: v } : cfg)));
-                        }}
-                      >
+                      <select className="rounded-xl border px-3 py-2" value={p.colPoints} onChange={(e) => {
+                        const v = e.currentTarget?.value ?? "";
+                        setPrograms((prev) => prev.map((cfg, i) => (i === idx ? { ...cfg, colPoints: v } : cfg)));
+                      }}>
                         <option value="">Selecione…</option>
-                        {cols.map((c) => (
-                          <option key={c} value={c}>
-                            {c}
-                          </option>
-                        ))}
+                        {cols.map((c) => (<option key={c} value={c}>{c}</option>))}
                       </select>
                     </div>
 
                     <div className="flex items-end">
-                      <button
-                        onClick={() => applyPointsForProgram(p)}
-                        className="rounded-xl bg-black px-4 py-2 text-white shadow-soft hover:bg-gray-800 disabled:opacity-50"
-                        disabled={!p.sheet || !p.colName || !p.colPoints}
-                      >
+                      <button onClick={() => applyPointsForProgram(p)} className="rounded-xl bg-black px-4 py-2 text-white shadow-soft hover:bg-gray-800 disabled:opacity-50" disabled={!p.sheet || !p.colName || !p.colPoints}>
                         Aplicar {p.label}
                       </button>
                     </div>
@@ -679,34 +758,81 @@ export default function CedentesImporter() {
         </>
       )}
 
+      {/* ETAPA 3 — RESPONSÁVEIS */}
+      {listaCedentes.length > 0 && sheets.length > 0 && (
+        <>
+          <h2 className="mt-6 mb-3 text-lg font-semibold">Etapa 3 — Atribuir Responsáveis</h2>
+          <div className="rounded-xl border border-slate-200 bg-white p-4">
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-5">
+              <div className="flex flex-col">
+                <label className="mb-1 text-xs font-medium text-slate-600">Aba</label>
+                <select className="rounded-xl border px-3 py-2" value={respCfg.sheet} onChange={(e) => {
+                  const v = e.currentTarget?.value ?? "";
+                  setRespCfg((prev) => ({ ...prev, sheet: v, colCedente: "", colResp: "", stats: { matched: 0, notFound: 0 } }));
+                }}>
+                  {sheets.map((s) => (<option key={s.name} value={s.name}>{s.name}</option>))}
+                </select>
+              </div>
+
+              <div className="flex flex-col">
+                <label className="mb-1 text-xs font-medium text-slate-600">Coluna do Cedente</label>
+                <select className="rounded-xl border px-3 py-2" value={respCfg.colCedente} onChange={(e) => {
+                  const v = e.currentTarget?.value ?? "";
+                  setRespCfg((prev) => ({ ...prev, colCedente: v.toUpperCase(), stats: { matched: 0, notFound: 0 } }));
+                }}>
+                  <option value="">Selecione…</option>
+                  {respCols.map((c) => (<option key={c} value={c}>{c}</option>))}
+                </select>
+              </div>
+
+              <div className="flex flex-col">
+                <label className="mb-1 text-xs font-medium text-slate-600">Coluna do Responsável</label>
+                <select className="rounded-xl border px-3 py-2" value={respCfg.colResp} onChange={(e) => {
+                  const v = e.currentTarget?.value ?? "";
+                  setRespCfg((prev) => ({ ...prev, colResp: v.toUpperCase(), stats: { matched: 0, notFound: 0 } }));
+                }}>
+                  <option value="">Selecione…</option>
+                  {respCols.map((c) => (<option key={c} value={c}>{c}</option>))}
+                </select>
+              </div>
+
+              <label className="mt-6 flex items-center gap-2 text-xs text-slate-700">
+                <input type="checkbox" className="h-4 w-4" checked={respCfg.approximate} onChange={(e) => setRespCfg((prev) => ({ ...prev, approximate: e.currentTarget?.checked ?? true }))}/>
+                Usar correspondência aproximada
+              </label>
+
+              <div className="flex items-end">
+                <button onClick={applyResponsaveis} className="w-full rounded-xl bg-black px-4 py-2 text-white shadow-soft hover:bg-gray-800 disabled:opacity-50" disabled={!respCfg.sheet || !respCfg.colCedente || !respCfg.colResp || !listaCedentes.length}>
+                  Aplicar responsáveis
+                </button>
+              </div>
+            </div>
+
+            {respCfg.stats.matched + respCfg.stats.notFound > 0 && (
+              <div className="mt-3 text-xs text-slate-600">
+                Atribuídos: <b>{respCfg.stats.matched}</b> • Não encontrados: <b>{respCfg.stats.notFound}</b>
+              </div>
+            )}
+          </div>
+        </>
+      )}
+
       {/* Resultado final */}
       {listaCedentes.length > 0 && (
         <div className="mt-4 rounded-xl border border-slate-200 bg-white p-5">
           <div className="mb-3 flex items-center justify-between">
             <h2 className="text-lg font-semibold text-slate-900">Resultado ({listaCedentes.length} cedentes)</h2>
             <div className="flex flex-wrap gap-3">
-              <button
-                onClick={saveToServer}
-                className="rounded-xl bg-black px-4 py-2 text-white hover:bg-gray-800 disabled:opacity-50"
-                disabled={!listaCedentes.length}
-              >
+              <button onClick={saveToServer} className="rounded-xl bg-black px-4 py-2 text-white hover:bg-gray-800 disabled:opacity-50" disabled={!listaCedentes.length}>
                 Salvar no servidor
               </button>
               <button onClick={loadFromServer} className="rounded-xl bg-black px-4 py-2 text-white hover:bg-gray-800">
                 Carregar último
               </button>
-              <button
-                onClick={exportCSV}
-                className="rounded-xl bg-black px-4 py-2 text-white hover:bg-gray-800 disabled:opacity-50"
-                disabled={!listaCedentes.length}
-              >
+              <button onClick={exportCSV} className="rounded-xl bg-black px-4 py-2 text-white hover:bg-gray-800 disabled:opacity-50" disabled={!listaCedentes.length}>
                 Exportar CSV
               </button>
-              <button
-                onClick={exportJSON}
-                className="rounded-xl bg-black px-4 py-2 text-white hover:bg-gray-800 disabled:opacity-50"
-                disabled={!listaCedentes.length}
-              >
+              <button onClick={exportJSON} className="rounded-xl bg-black px-4 py-2 text-white hover:bg-gray-800 disabled:opacity-50" disabled={!listaCedentes.length}>
                 Exportar JSON
               </button>
             </div>
@@ -733,9 +859,7 @@ export default function CedentesImporter() {
                     <td className="px-3 py-2 font-mono">{r.identificador}</td>
                     <td className="px-3 py-2">{toTitleCase(r.nome_completo)}</td>
                     <td className="px-3 py-2">
-                      {r.responsavelNome ? `${r.responsavelNome} (${r.responsavelId})` : (
-                        <span className="text-slate-400">—</span>
-                      )}
+                      {r.responsavelNome ? `${r.responsavelNome} (${r.responsavelId})` : <span className="text-slate-400">—</span>}
                     </td>
                     <td className="px-3 py-2 text-right">{(r.latam ?? 0).toLocaleString("pt-BR")}</td>
                     <td className="px-3 py-2 text-right">{(r.esfera ?? 0).toLocaleString("pt-BR")}</td>
