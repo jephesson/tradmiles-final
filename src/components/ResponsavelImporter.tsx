@@ -32,7 +32,13 @@ type Staff = Funcionario & { slug?: string };
 function stripDiacritics(s: string) {
   return s.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
 }
-function keyName(str: string) {
+function safeString(v: unknown) {
+  return v == null ? "" : String(v);
+}
+// ⇩ Agora aceita qualquer valor e nunca quebra
+function keyName(value: unknown) {
+  const str = safeString(value);
+  if (!str) return "";
   return stripDiacritics(str)
     .replace(/[^A-Za-z0-9\s']/g, " ")
     .replace(/\s+/g, " ")
@@ -41,8 +47,7 @@ function keyName(str: string) {
 }
 function levenshtein(a: string, b: string) {
   if (a === b) return 0;
-  const m = a.length,
-    n = b.length;
+  const m = a.length, n = b.length;
   if (!m) return n;
   if (!n) return m;
   const dp = Array.from({ length: m + 1 }, () => new Array(n + 1).fill(0));
@@ -57,9 +62,9 @@ function levenshtein(a: string, b: string) {
   }
   return dp[m][n];
 }
-function similarity(a: string, b: string) {
-  const s1 = keyName(a),
-    s2 = keyName(b);
+function similarity(a: unknown, b: unknown) {
+  const s1 = keyName(a);
+  const s2 = keyName(b);
   if (!s1 || !s2) return 0;
   const dist = levenshtein(s1, s2);
   const maxLen = Math.max(s1.length, s2.length);
@@ -68,11 +73,16 @@ function similarity(a: string, b: string) {
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null;
 }
+// ⇩ Aceita cedentes mesmo que faltem campos; tratamos adiante
 function isCedenteArray(v: unknown): v is Cedente[] {
-  return Array.isArray(v) && v.every((o) => isRecord(o) && typeof o.identificador === "string" && typeof o.nome_completo === "string");
-}
-function safeString(v: unknown) {
-  return v == null ? "" : String(v);
+  return (
+    Array.isArray(v) &&
+    v.every((o) => {
+      if (!isRecord(o)) return false;
+      const hasAnyKey = "identificador" in o || "nome_completo" in o;
+      return hasAnyKey;
+    })
+  );
 }
 function isStaff(v: unknown): v is Staff {
   return isRecord(v) && typeof v.id === "string" && typeof v.nome === "string";
@@ -230,6 +240,7 @@ export default function ResponsavelImporter() {
         const respStr = safeString(r[idxResp]).trim();
         if (!cedStr || !respStr) continue;
         const k = keyName(cedStr);
+        if (!k) continue; // ignora chaves vazias
         cedentesInSheet.push({ key: k, raw: cedStr, resp: respStr });
         mapResp.set(k, respStr);
       }
@@ -261,12 +272,17 @@ export default function ResponsavelImporter() {
         return undefined;
       }
 
-      let matched = 0,
-        notFound = 0;
+      let matched = 0, notFound = 0;
+
       const updated = listaCedentes.map((c) => {
-        const keysDoCedente = [keyName(c.identificador), keyName(c.nome_completo)];
+        // gere chaves com segurança; podem estar ausentes
+        const idKey = keyName((c as any).identificador);
+        const nomeKey = keyName((c as any).nome_completo);
+        const keysDoCedente = [idKey, nomeKey].filter(Boolean);
+
         let respRef: string | undefined;
 
+        // correspondência exata
         for (const k of keysDoCedente) {
           const hit = mapResp.get(k);
           if (hit) {
@@ -274,10 +290,12 @@ export default function ResponsavelImporter() {
             break;
           }
         }
-        if (!respRef && respCfg.approximate && cedentesInSheet.length) {
+
+        // fallback aproximado
+        if (!respRef && respCfg.approximate && cedentesInSheet.length && keysDoCedente.length) {
           let best: { resp: string; score: number } | null = null;
           for (const cand of cedentesInSheet) {
-            const sc = Math.max(similarity(cand.key, keysDoCedente[0]), similarity(cand.key, keysDoCedente[1]));
+            const sc = Math.max(...keysDoCedente.map((k) => similarity(cand.key, k)));
             if (!best || sc > best.score) best = { resp: cand.resp, score: sc };
           }
           if (best && best.score >= 0.9) respRef = best.resp;
