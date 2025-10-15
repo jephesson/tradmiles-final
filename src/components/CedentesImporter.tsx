@@ -1,7 +1,7 @@
 // src/components/CedentesImporter.tsx
 "use client";
 
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import * as XLSX from "xlsx";
 import { type Cedente } from "@/lib/storage";
@@ -104,6 +104,10 @@ function isCedenteArray(v: unknown): v is Cedente[] {
       return typeof obj.identificador === "string" && typeof obj.nome_completo === "string";
     })
   );
+}
+/** Guard para ApiErr */
+function isApiErr(v: unknown): v is ApiErr {
+  return isRecord(v) && v.ok === false;
 }
 
 /** Normaliza entradas numéricas e retorna pontos inteiros (≥ 0). */
@@ -374,12 +378,8 @@ export default function CedentesImporter() {
       if (!("ok" in json) || typeof json.ok !== "boolean") {
         throw new Error("Resposta inválida do servidor");
       }
-      if (!json.ok) {
-        const msg =
-          isRecord(json) && typeof (json as Record<string, unknown>).error === "string"
-            ? (json as Record<string, string>).error
-            : "Falha ao salvar";
-        throw new Error(msg);
+      if (isApiErr(json)) {
+        throw new Error(typeof json.error === "string" ? json.error : "Falha ao salvar");
       }
 
       alert("Salvo com sucesso ✅");
@@ -397,18 +397,13 @@ export default function CedentesImporter() {
       if (!("ok" in json) || typeof json.ok !== "boolean") {
         throw new Error("Resposta inválida do servidor");
       }
-      if (!json.ok) {
-        const msg =
-          isRecord(json) && typeof (json as Record<string, unknown>).error === "string"
-            ? (json as Record<string, string>).error
-            : "Falha ao carregar";
-        throw new Error(msg);
+      if (isApiErr(json)) {
+        throw new Error(typeof json.error === "string" ? json.error : "Falha ao carregar");
       }
 
-      const data: ApiLoadData | undefined =
-        isRecord(json) && isRecord((json as Record<string, unknown>).data)
-          ? ((json as Record<string, unknown>).data as ApiLoadData)
-          : undefined;
+      // json agora é ApiOk & possivelmente { data?: unknown }
+      const dataAny = (json as ApiOk & { data?: unknown }).data;
+      const data: ApiLoadData | undefined = isRecord(dataAny) ? (dataAny as ApiLoadData) : undefined;
 
       const listaRaw = data?.listaCedentes;
       const savedAtRaw = data?.savedAt;
