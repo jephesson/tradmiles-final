@@ -1,7 +1,7 @@
 // src/components/ResponsavelImporter.tsx
 "use client";
 
-import React, { useMemo, useRef, useState } from "react";
+import React, { useCallback, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import * as XLSX from "xlsx";
 import { type Cedente } from "@/lib/storage";
@@ -25,25 +25,24 @@ type ApiErr = { ok: false; error?: string };
 type ApiLoadData = { listaCedentes?: unknown; savedAt?: unknown };
 type ApiLoadResp = (ApiOk & { data?: unknown }) | ApiErr;
 
+// Permite slug opcional
+type Staff = Funcionario & { slug?: string };
+
 /** ===== Utils (sem \p{…}) ===== */
 function stripDiacritics(s: string) {
-  // Remove diacríticos combinantes (faixa \u0300-\u036F) — estável em todos os browsers modernos
   return s.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
 }
-function toTitleCase(str: string) {
-  return str
-    .toLowerCase()
-    .split(/\s+/)
-    .map((w) => (w ? w[0].toUpperCase() + w.slice(1) : w))
-    .join(" ");
-}
 function keyName(str: string) {
-  // Mantém só ASCII letters/numbers/space/apóstrofo — evita \p{L}\p{N}
-  return stripDiacritics(str).replace(/[^A-Za-z0-9\s']/g, " ").replace(/\s+/g, " ").trim().toLowerCase();
+  return stripDiacritics(str)
+    .replace(/[^A-Za-z0-9\s']/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
 }
 function levenshtein(a: string, b: string) {
   if (a === b) return 0;
-  const m = a.length, n = b.length;
+  const m = a.length,
+    n = b.length;
   if (!m) return n;
   if (!n) return m;
   const dp = Array.from({ length: m + 1 }, () => new Array(n + 1).fill(0));
@@ -59,7 +58,8 @@ function levenshtein(a: string, b: string) {
   return dp[m][n];
 }
 function similarity(a: string, b: string) {
-  const s1 = keyName(a), s2 = keyName(b);
+  const s1 = keyName(a),
+    s2 = keyName(b);
   if (!s1 || !s2) return 0;
   const dist = levenshtein(s1, s2);
   const maxLen = Math.max(s1.length, s2.length);
@@ -73,6 +73,9 @@ function isCedenteArray(v: unknown): v is Cedente[] {
 }
 function safeString(v: unknown) {
   return v == null ? "" : String(v);
+}
+function isStaff(v: unknown): v is Staff {
+  return isRecord(v) && typeof v.id === "string" && typeof v.nome === "string";
 }
 
 /** ===== Component ===== */
@@ -92,11 +95,9 @@ export default function ResponsavelImporter() {
 
   // Dados
   const [listaCedentes, setListaCedentes] = useState<Cedente[]>([]);
-  const [funcionarios] = useState<Funcionario[]>(() => {
+  const [funcionarios] = useState<Staff[]>(() => {
     const raw = loadFuncionarios();
-    return Array.isArray(raw)
-      ? raw.filter((f) => isRecord(f) && typeof f.id === "string" && typeof f.nome === "string")
-      : [];
+    return Array.isArray(raw) ? raw.filter(isStaff).map((f) => ({ ...f })) : [];
   });
 
   /** ===== Coluna helpers ===== */
@@ -117,13 +118,16 @@ export default function ResponsavelImporter() {
     }
     return s || "A";
   }
-  function respColsFor(sheetName: string) {
-    const sh = sheets.find((s) => s.name === sheetName);
-    if (!sh) return ["A"];
-    const rows = sh.rows.slice(0, 32);
-    const maxLen = Math.max(...rows.map((r) => (Array.isArray(r) ? r.length : 0)), 1);
-    return Array.from({ length: maxLen }, (_, i) => indexToColLetter(i));
-  }
+  const respColsFor = useCallback(
+    (sheetName: string) => {
+      const sh = sheets.find((s) => s.name === sheetName);
+      if (!sh) return ["A"];
+      const rows = sh.rows.slice(0, 32);
+      const maxLen = Math.max(...rows.map((r) => (Array.isArray(r) ? r.length : 0)), 1);
+      return Array.from({ length: maxLen }, (_, i) => indexToColLetter(i));
+    },
+    [sheets],
+  );
   function safeColumnValue(sheet: string, raw: string) {
     try {
       const v = (raw || "").toUpperCase();
@@ -181,17 +185,21 @@ export default function ResponsavelImporter() {
       if (!("ok" in json) || typeof json.ok !== "boolean") throw new Error("Resposta inválida do servidor");
       if (!json.ok) throw new Error((json as ApiErr).error || "Falha ao carregar");
 
-      const data = (json as any).data as ApiLoadData | undefined;
-      const listaRaw = data?.listaCedentes;
+      const data: ApiLoadData | undefined =
+        isRecord(json) && isRecord((json as Record<string, unknown>).data)
+          ? ((json as Record<string, unknown>).data as ApiLoadData)
+          : undefined;
 
+      const listaRaw = data?.listaCedentes;
       if (!isCedenteArray(listaRaw)) {
         alert("Nenhum dado salvo ainda.");
         return;
       }
       setListaCedentes(listaRaw);
-    } catch (e: any) {
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "desconhecido";
       console.error("[ResponsavelImporter] loadFromServer error:", e);
-      alert(`Erro ao carregar: ${e?.message || "desconhecido"}`);
+      alert(`Erro ao carregar: ${msg}`);
     }
   }
 
@@ -226,14 +234,16 @@ export default function ResponsavelImporter() {
         mapResp.set(k, respStr);
       }
 
-      function findFuncionario(ref: string): Funcionario | undefined {
+      function findFuncionario(ref: string): Staff | undefined {
         const raw = ref.trim();
         if (!raw) return undefined;
 
         const byId = funcionarios.find((f) => f.id.toLowerCase() === raw.toLowerCase());
         if (byId) return byId;
 
-        const bySlug = funcionarios.find((f: any) => typeof f?.slug === "string" && f.slug.toLowerCase() === raw.toLowerCase());
+        const bySlug = funcionarios.find(
+          (f) => typeof f.slug === "string" && f.slug.toLowerCase() === raw.toLowerCase(),
+        );
         if (bySlug) return bySlug;
 
         const target = keyName(raw);
@@ -242,7 +252,7 @@ export default function ResponsavelImporter() {
 
         if (!respCfg.approximate) return undefined;
 
-        let best: { f: Funcionario; score: number } | null = null;
+        let best: { f: Staff; score: number } | null = null;
         for (const f of funcionarios) {
           const sc = similarity(f.nome, raw);
           if (!best || sc > best.score) best = { f, score: sc };
@@ -251,14 +261,18 @@ export default function ResponsavelImporter() {
         return undefined;
       }
 
-      let matched = 0, notFound = 0;
+      let matched = 0,
+        notFound = 0;
       const updated = listaCedentes.map((c) => {
         const keysDoCedente = [keyName(c.identificador), keyName(c.nome_completo)];
         let respRef: string | undefined;
 
         for (const k of keysDoCedente) {
           const hit = mapResp.get(k);
-          if (hit) { respRef = hit; break; }
+          if (hit) {
+            respRef = hit;
+            break;
+          }
         }
         if (!respRef && respCfg.approximate && cedentesInSheet.length) {
           let best: { resp: string; score: number } | null = null;
@@ -283,7 +297,6 @@ export default function ResponsavelImporter() {
       setListaCedentes(updated);
       setRespCfg((prev) => ({ ...prev, stats: { matched, notFound } }));
       alert(`Responsáveis aplicados: ${matched}. Não encontrados: ${notFound}.`);
-
     } catch (e) {
       console.error("[ResponsavelImporter] applyResponsaveis error:", e);
       alert("Erro ao aplicar responsáveis. Veja o console para detalhes.");
@@ -291,15 +304,14 @@ export default function ResponsavelImporter() {
   }
 
   /** ===== UI ===== */
-  const respCols = useMemo(() => respColsFor(respCfg.sheet), [sheets, respCfg.sheet]);
+  const respCols = useMemo(() => respColsFor(respCfg.sheet), [respColsFor, respCfg.sheet]);
 
   return (
     <div className="mx-auto max-w-6xl">
-      <h2 className="mb-1 text-[13px] font-medium text-slate-700">
-        Sincronizar responsáveis com cedentes
-      </h2>
+      <h2 className="mb-1 text-[13px] font-medium text-slate-700">Sincronizar responsáveis com cedentes</h2>
       <p className="mb-6 text-xs text-slate-500">
-        Carregue o Excel com as colunas de <b>Cedente</b> e <b>Responsável</b>, aplique a correspondência e salve para atualizar os cedentes existentes.
+        Carregue o Excel com as colunas de <b>Cedente</b> e <b>Responsável</b>, aplique a correspondência e salve para
+        atualizar os cedentes existentes.
       </p>
 
       <div className="mb-6 flex items-center gap-3">
@@ -308,10 +320,7 @@ export default function ResponsavelImporter() {
       </div>
 
       <div className="mb-3 flex flex-wrap items-center gap-3">
-        <button
-          onClick={loadFromServer}
-          className="rounded-xl bg-black px-4 py-2 text-white shadow-soft hover:bg-gray-800"
-        >
+        <button onClick={loadFromServer} className="rounded-xl bg-black px-4 py-2 text-white shadow-soft hover:bg-gray-800">
           Carregar cedentes salvos
         </button>
         <span className="text-xs text-slate-500">
@@ -368,7 +377,9 @@ export default function ResponsavelImporter() {
                 }
               >
                 {sheets.map((s) => (
-                  <option key={s.name} value={s.name}>{s.name}</option>
+                  <option key={s.name} value={s.name}>
+                    {s.name}
+                  </option>
                 ))}
               </select>
             </div>
@@ -388,7 +399,9 @@ export default function ResponsavelImporter() {
               >
                 <option value="">Selecione…</option>
                 {respCols.map((c) => (
-                  <option key={c} value={c}>{c}</option>
+                  <option key={c} value={c}>
+                    {c}
+                  </option>
                 ))}
               </select>
             </div>
@@ -408,7 +421,9 @@ export default function ResponsavelImporter() {
               >
                 <option value="">Selecione…</option>
                 {respCols.map((c) => (
-                  <option key={c} value={c}>{c}</option>
+                  <option key={c} value={c}>
+                    {c}
+                  </option>
                 ))}
               </select>
             </div>
