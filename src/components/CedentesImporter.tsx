@@ -371,7 +371,7 @@ export default function CedentesImporter() {
 
   /* ---------- Etapa 3: responsáveis ---------- */
 
-  // Colunas válidas para a aba selecionada (sem depender da função no array do useMemo)
+  // Colunas válidas para a aba selecionada (sem depender de função externa no array do useMemo)
   const respCols = useMemo(() => {
     const sh = sheets.find((s) => s.name === respCfg.sheet);
     if (!sh) return ["A"];
@@ -520,8 +520,8 @@ export default function CedentesImporter() {
         throw new Error("Resposta inválida do servidor");
       }
       if (!json.ok) {
-        const msg = isRecord(json) && typeof (json as Record<string, unknown>).error === "string" ? (json as Record<string, string>).error : "Falha ao salvar";
-        throw new Error(msg);
+        // json é ApiErr aqui
+        throw new Error(json.error ?? "Falha ao salvar");
       }
 
       alert("Salvo com sucesso ✅");
@@ -534,19 +534,22 @@ export default function CedentesImporter() {
   async function loadFromServer() {
     try {
       const res = await fetch("/api/cedentes", { method: "GET" });
-    const json: ApiLoadResp = await res.json();
+      const json: ApiLoadResp = await res.json();
 
       if (!("ok" in json) || typeof json.ok !== "boolean") {
         throw new Error("Resposta inválida do servidor");
       }
       if (!json.ok) {
-        const msg = isRecord(json) && typeof (json as Record<string, unknown>).error === "string" ? (json as Record<string, string>).error : "Falha ao carregar";
-        throw new Error(msg);
+        // json é ApiErr aqui
+        throw new Error(json.error ?? "Falha ao carregar");
       }
 
-      const data: ApiLoadData | undefined = isRecord(json) && isRecord((json as Record<string, unknown>).data) ? ((json as Record<string, unknown>).data as ApiLoadData) : undefined;
-      const listaRaw = data?.listaCedentes;
-      const savedAtRaw = data?.savedAt;
+      // json é ApiOk & { data?: unknown } aqui
+      const data = json.data;
+      const dataObj: ApiLoadData | undefined = isRecord(data) ? (data as ApiLoadData) : undefined;
+
+      const listaRaw = dataObj?.listaCedentes;
+      const savedAtRaw = dataObj?.savedAt;
 
       if (!isCedenteArray(listaRaw)) {
         alert("Nenhum dado salvo ainda.");
