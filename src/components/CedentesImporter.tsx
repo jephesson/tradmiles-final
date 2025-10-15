@@ -32,6 +32,13 @@ type RespConfig = {
   stats: { matched: number; notFound: number };
 };
 
+/* API response types (sem any) */
+type ApiOk = { ok: true };
+type ApiErr = { ok: false; error?: string };
+type ApiSaveResp = (ApiOk & { data?: unknown }) | ApiErr;
+type ApiLoadData = { listaCedentes?: unknown; savedAt?: unknown };
+type ApiLoadResp = (ApiOk & { data?: unknown }) | ApiErr;
+
 /* =========================
    Utils
 ========================= */
@@ -93,9 +100,15 @@ function download(filename: string, text: string) {
   URL.revokeObjectURL(url);
 }
 
-/** Type guard genérico para validar objetos. */
+/** Type guards básicos */
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null;
+}
+function isStringArray(v: unknown): v is string[] {
+  return Array.isArray(v) && v.every((i) => typeof i === "string");
+}
+function isCedenteArray(v: unknown): v is Cedente[] {
+  return Array.isArray(v) && v.every((o) => isRecord(o) && typeof o.identificador === "string" && typeof o.nome_completo === "string");
 }
 
 /** Normaliza entradas numéricas e retorna pontos inteiros (≥ 0). */
@@ -306,7 +319,7 @@ export default function CedentesImporter() {
     setRespCfg((prev) => ({ ...prev, stats: { matched: 0, notFound: 0 } }));
   }
 
-  /* ---------- Etapa 2: aplicar pontos (idempotente e robusto) ---------- */
+  /* ---------- Etapa 2: aplicar pontos ---------- */
   function applyPointsForProgram(p: ProgramConfig) {
     const sheetObj = sheets.find((s) => s.name === p.sheet);
     if (!sheetObj || !p.colName || !p.colPoints) return;
@@ -363,7 +376,7 @@ export default function CedentesImporter() {
     );
   }
 
-  /* ---------- Etapa 3: responsáveis (robusto) ---------- */
+  /* ---------- Etapa 3: responsáveis ---------- */
   function applyResponsaveis() {
     const sh = sheets.find((s) => s.name === respCfg.sheet);
     if (!sh || !respCfg.colCedente || !respCfg.colResp) return;
@@ -394,8 +407,8 @@ export default function CedentesImporter() {
       const byId = funcionarios.find((f) => f.id.toLowerCase() === raw.toLowerCase());
       if (byId) return byId;
 
-      // @ts-expect-error: alguns Funcionario podem ter "slug" opcional
-      const bySlug = funcionarios.find((f) => typeof (f as any).slug === "string" && (f as any).slug.toLowerCase() === raw.toLowerCase());
+      // @ts-expect-error slug opcional em alguns registros
+      const bySlug = funcionarios.find((f) => typeof f.slug === "string" && f.slug.toLowerCase() === raw.toLowerCase());
       if (bySlug) return bySlug;
 
       const target = keyName(raw);
@@ -484,13 +497,13 @@ export default function CedentesImporter() {
         }),
       });
 
-      const json: unknown = await res.json();
+      const json: ApiSaveResp = await res.json();
 
-      if (!isRecord(json) || typeof json.ok !== "boolean") {
+      if (!("ok" in json) || typeof json.ok !== "boolean") {
         throw new Error("Resposta inválida do servidor");
       }
       if (!json.ok) {
-        const msg = typeof (json as any).error === "string" ? (json as any).error : "Falha ao salvar";
+        const msg = isRecord(json) && typeof json.error === "string" ? json.error : "Falha ao salvar";
         throw new Error(msg);
       }
 
@@ -504,29 +517,30 @@ export default function CedentesImporter() {
   async function loadFromServer() {
     try {
       const res = await fetch("/api/cedentes", { method: "GET" });
-      const json: unknown = await res.json();
+      const json: ApiLoadResp = await res.json();
 
-      if (!isRecord(json) || typeof json.ok !== "boolean") {
+      if (!("ok" in json) || typeof json.ok !== "boolean") {
         throw new Error("Resposta inválida do servidor");
       }
-
       if (!json.ok) {
-        const msg = typeof (json as any).error === "string" ? (json as any).error : "Falha ao carregar";
+        const msg = isRecord(json) && typeof json.error === "string" ? json.error : "Falha ao carregar";
         throw new Error(msg);
       }
 
-      const data = isRecord((json as any).data) ? ((json as any).data as Record<string, unknown>) : undefined;
-      const lista = Array.isArray(data?.listaCedentes) ? (data!.listaCedentes as Cedente[]) : undefined;
-      const savedAt = typeof data?.savedAt === "string" ? (data!.savedAt as string) : undefined;
+      const data: ApiLoadData | undefined = isRecord(json) && isRecord(json.data) ? (json.data as ApiLoadData) : undefined;
+      const listaRaw = data?.listaCedentes;
+      const savedAtRaw = data?.savedAt;
 
-      if (!lista?.length) {
+      if (!isCedenteArray(listaRaw)) {
         alert("Nenhum dado salvo ainda.");
         return;
       }
 
-      setListaCedentes(lista);
-      setDedupedNames(lista.map((c) => c.nome_completo));
-      alert(`Carregado ${lista.length} cedentes${savedAt ? ` (salvo em ${savedAt})` : ""}.`);
+      setListaCedentes(listaRaw);
+      setDedupedNames(listaRaw.map((c) => c.nome_completo));
+
+      const savedAt = typeof savedAtRaw === "string" ? savedAtRaw : undefined;
+      alert(`Carregado ${listaRaw.length} cedentes${savedAt ? ` (salvo em ${savedAt})` : ""}.`);
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : "Erro desconhecido";
       alert(`Erro ao carregar: ${msg}`);
