@@ -104,21 +104,23 @@ function download(filename: string, text: string) {
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null;
 }
-function hasString<K extends string>(o: unknown, k: K): o is Record<K, string> {
-  return isRecord(o) && typeof (o as any)[k] === "string";
-}
 function isCedenteArray(v: unknown): v is Cedente[] {
-  return Array.isArray(v) && v.every((o) => isRecord(o) && typeof (o as any).identificador === "string" && typeof (o as any).nome_completo === "string");
+  return (
+    Array.isArray(v) &&
+    v.every((o) => {
+      if (!isRecord(o)) return false;
+      const obj = o as Record<string, unknown>;
+      return typeof obj.identificador === "string" && typeof obj.nome_completo === "string";
+    })
+  );
 }
 
 /** Normaliza entradas numéricas e retorna pontos inteiros (≥ 0). */
 function parsePoints(input: Cell): number {
   if (input === null || input === undefined) return 0;
-
   if (typeof input === "number" && Number.isFinite(input)) {
     return Math.max(0, Math.round(input));
   }
-
   const raw = String(input).trim();
   if (!raw) return 0;
 
@@ -369,13 +371,24 @@ export default function CedentesImporter() {
 
   /* ---------- Etapa 3: responsáveis ---------- */
 
-  // lista de colunas válidas para a aba selecionada (Etapa 3)
-  const respCols = useMemo(() => availableColumnsOn(respCfg.sheet), [sheets, respCfg.sheet]);
+  // Colunas válidas para a aba selecionada (sem depender da função no array do useMemo)
+  const respCols = useMemo(() => {
+    const sh = sheets.find((s) => s.name === respCfg.sheet);
+    if (!sh) return ["A"];
+    const rows = sh.rows.slice(0, 32);
+    const maxLen = Math.max(...rows.map((r) => (Array.isArray(r) ? r.length : 0)), 1);
+    return Array.from({ length: maxLen }, (_, i) => indexToColLetter(i));
+  }, [sheets, respCfg.sheet]);
 
-  // garante que só gravamos valores válidos de coluna (uppercase e dentro da lista)
   function safeColumnValue(sheet: string, raw: string) {
-    const cols = availableColumnsOn(sheet);
     const v = (raw || "").toUpperCase();
+    const cols = (() => {
+      const sh = sheets.find((s) => s.name === sheet);
+      if (!sh) return ["A"];
+      const rows = sh.rows.slice(0, 32);
+      const maxLen = Math.max(...rows.map((r) => (Array.isArray(r) ? r.length : 0)), 1);
+      return Array.from({ length: maxLen }, (_, i) => indexToColLetter(i));
+    })();
     return cols.includes(v) ? v : "";
   }
 
@@ -409,7 +422,10 @@ export default function CedentesImporter() {
       const byId = funcionarios.find((f) => f.id.toLowerCase() === raw.toLowerCase());
       if (byId) return byId;
 
-      const bySlug = funcionarios.find((f) => hasString(f as unknown, "slug") && (f as unknown as { slug: string }).slug.toLowerCase() === raw.toLowerCase());
+      // slug opcional — sem usar any
+      const hasSlug = (f: Funcionario): f is Funcionario & { slug: string } =>
+        isRecord(f) && typeof (f as Record<string, unknown>).slug === "string";
+      const bySlug = funcionarios.find((f) => hasSlug(f) && f.slug.toLowerCase() === raw.toLowerCase());
       if (bySlug) return bySlug;
 
       const target = keyName(raw);
@@ -504,7 +520,7 @@ export default function CedentesImporter() {
         throw new Error("Resposta inválida do servidor");
       }
       if (!json.ok) {
-        const msg = isRecord(json) && typeof json.error === "string" ? json.error : "Falha ao salvar";
+        const msg = isRecord(json) && typeof (json as Record<string, unknown>).error === "string" ? (json as Record<string, string>).error : "Falha ao salvar";
         throw new Error(msg);
       }
 
@@ -518,17 +534,17 @@ export default function CedentesImporter() {
   async function loadFromServer() {
     try {
       const res = await fetch("/api/cedentes", { method: "GET" });
-      const json: ApiLoadResp = await res.json();
+    const json: ApiLoadResp = await res.json();
 
       if (!("ok" in json) || typeof json.ok !== "boolean") {
         throw new Error("Resposta inválida do servidor");
       }
       if (!json.ok) {
-        const msg = isRecord(json) && typeof json.error === "string" ? json.error : "Falha ao carregar";
+        const msg = isRecord(json) && typeof (json as Record<string, unknown>).error === "string" ? (json as Record<string, string>).error : "Falha ao carregar";
         throw new Error(msg);
       }
 
-      const data: ApiLoadData | undefined = isRecord(json) && isRecord(json.data) ? (json.data as ApiLoadData) : undefined;
+      const data: ApiLoadData | undefined = isRecord(json) && isRecord((json as Record<string, unknown>).data) ? ((json as Record<string, unknown>).data as ApiLoadData) : undefined;
       const listaRaw = data?.listaCedentes;
       const savedAtRaw = data?.savedAt;
 
