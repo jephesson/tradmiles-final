@@ -35,7 +35,6 @@ function stripDiacritics(s: string) {
 function safeString(v: unknown) {
   return v == null ? "" : String(v);
 }
-// ⇩ Agora aceita qualquer valor e nunca quebra
 function keyName(value: unknown) {
   const str = safeString(value);
   if (!str) return "";
@@ -73,7 +72,7 @@ function similarity(a: unknown, b: unknown) {
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null;
 }
-// ⇩ Aceita cedentes mesmo que faltem campos; tratamos adiante
+// Aceita a lista mesmo que faltem campos; tratamos depois
 function isCedenteArray(v: unknown): v is Cedente[] {
   return (
     Array.isArray(v) &&
@@ -275,9 +274,14 @@ export default function ResponsavelImporter() {
       let matched = 0, notFound = 0;
 
       const updated = listaCedentes.map((c) => {
-        // gere chaves com segurança; podem estar ausentes
-        const idKey = keyName((c as any).identificador);
-        const nomeKey = keyName((c as any).nome_completo);
+        // sem any: destruturação com tipo seguro
+        const { identificador, nome_completo }: { identificador?: unknown; nome_completo?: unknown } = c as unknown as {
+          identificador?: unknown;
+          nome_completo?: unknown;
+        };
+
+        const idKey = keyName(identificador);
+        const nomeKey = keyName(nome_completo);
         const keysDoCedente = [idKey, nomeKey].filter(Boolean);
 
         let respRef: string | undefined;
