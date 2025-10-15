@@ -5,10 +5,9 @@ import React, { useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import * as XLSX from "xlsx";
 import { type Cedente } from "@/lib/storage";
+import { loadFuncionarios, type Funcionario } from "@/lib/staff";
 
-/* =========================
-   Tipos utilitários
-========================= */
+/** ===== Types ===== */
 type Cell = string | number | boolean | null | undefined;
 type Row = Cell[];
 type SheetData = { name: string; rows: Row[] };
@@ -21,21 +20,15 @@ type RespConfig = {
   stats: { matched: number; notFound: number };
 };
 
-/* API response types */
-type ApiOk = { ok: true; data?: unknown };
+type ApiOk = { ok: true };
 type ApiErr = { ok: false; error?: string };
-type ApiResp = ApiOk | ApiErr;
+type ApiLoadData = { listaCedentes?: unknown; savedAt?: unknown };
+type ApiLoadResp = (ApiOk & { data?: unknown }) | ApiErr;
 
-/* =========================
-   Utils
-========================= */
-function stripDiacritics(str: string) {
-  return str
-    .normalize("NFD")
-    .replace(/\p{Diacritic}+/gu, "")
-    .replace(/[^\p{L}\p{N}\s']/gu, " ")
-    .replace(/\s+/g, " ")
-    .trim();
+/** ===== Utils (sem \p{…}) ===== */
+function stripDiacritics(s: string) {
+  // Remove diacríticos combinantes (faixa \u0300-\u036F) — estável em todos os browsers modernos
+  return s.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
 }
 function toTitleCase(str: string) {
   return str
@@ -45,25 +38,21 @@ function toTitleCase(str: string) {
     .join(" ");
 }
 function keyName(str: string) {
-  return stripDiacritics(str).toLowerCase().replace(/\s+/g, " ").trim();
-}
-function slugify(str: string) {
-  return stripDiacritics(String(str))
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
+  // Mantém só ASCII letters/numbers/space/apóstrofo — evita \p{L}\p{N}
+  return stripDiacritics(str).replace(/[^A-Za-z0-9\s']/g, " ").replace(/\s+/g, " ").trim().toLowerCase();
 }
 function levenshtein(a: string, b: string) {
   if (a === b) return 0;
   const m = a.length, n = b.length;
-  if (m === 0) return n;
-  if (n === 0) return m;
+  if (!m) return n;
+  if (!n) return m;
   const dp = Array.from({ length: m + 1 }, () => new Array(n + 1).fill(0));
   for (let i = 0; i <= m; i++) dp[i][0] = i;
   for (let j = 0; j <= n; j++) dp[0][j] = j;
   for (let i = 1; i <= m; i++) {
+    const ai = a[i - 1];
     for (let j = 1; j <= n; j++) {
-      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      const cost = ai === b[j - 1] ? 0 : 1;
       dp[i][j] = Math.min(dp[i - 1][j] + 1, dp[i][j - 1] + 1, dp[i - 1][j - 1] + cost);
     }
   }
@@ -80,21 +69,13 @@ function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null;
 }
 function isCedenteArray(v: unknown): v is Cedente[] {
-  return (
-    Array.isArray(v) &&
-    v.every((o) => {
-      if (!isRecord(o)) return false;
-      return typeof o.identificador === "string" && typeof o.nome_completo === "string";
-    })
-  );
+  return Array.isArray(v) && v.every((o) => isRecord(o) && typeof o.identificador === "string" && typeof o.nome_completo === "string");
 }
-function isApiErr(r: ApiResp): r is ApiErr {
-  return (r as ApiErr).ok === false;
+function safeString(v: unknown) {
+  return v == null ? "" : String(v);
 }
 
-/* =========================
-   Componente
-========================= */
+/** ===== Component ===== */
 export default function ResponsavelImporter() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -109,39 +90,16 @@ export default function ResponsavelImporter() {
     stats: { matched: 0, notFound: 0 },
   });
 
-  // Cedentes já salvos no servidor
+  // Dados
   const [listaCedentes, setListaCedentes] = useState<Cedente[]>([]);
-  const [isLoaded, setIsLoaded] = useState(false);
+  const [funcionarios] = useState<Funcionario[]>(() => {
+    const raw = loadFuncionarios();
+    return Array.isArray(raw)
+      ? raw.filter((f) => isRecord(f) && typeof f.id === "string" && typeof f.nome === "string")
+      : [];
+  });
 
-  /* ---------- Abrir arquivo ---------- */
-  function parseWorkbook(file: File) {
-    setFileName(file.name);
-    const reader = new FileReader();
-    reader.onload = (evt) => {
-      const buf = evt.target?.result;
-      if (!(buf instanceof ArrayBuffer)) return;
-      const data = new Uint8Array(buf);
-      const wb = XLSX.read(data, { type: "array" });
-      const parsed: SheetData[] = wb.SheetNames.map((name) => {
-        const ws = wb.Sheets[name];
-        const rows = XLSX.utils.sheet_to_json(ws, { header: 1, raw: false }) as Row[];
-        return { name, rows };
-      });
-      setSheets(parsed);
-
-      const first = parsed[0]?.name || "";
-      setRespCfg({
-        sheet: first,
-        colCedente: "",
-        colResp: "",
-        approximate: true,
-        stats: { matched: 0, notFound: 0 },
-      });
-    };
-    reader.readAsArrayBuffer(file);
-  }
-
-  /* ---------- Helpers de coluna ---------- */
+  /** ===== Coluna helpers ===== */
   function colLetterToIndex(col: string) {
     if (!col) return 0;
     let idx = 0;
@@ -159,164 +117,208 @@ export default function ResponsavelImporter() {
     }
     return s || "A";
   }
-  const respCols = useMemo(() => {
-    const sh = sheets.find((s) => s.name === respCfg.sheet);
+  function respColsFor(sheetName: string) {
+    const sh = sheets.find((s) => s.name === sheetName);
     if (!sh) return ["A"];
     const rows = sh.rows.slice(0, 32);
     const maxLen = Math.max(...rows.map((r) => (Array.isArray(r) ? r.length : 0)), 1);
     return Array.from({ length: maxLen }, (_, i) => indexToColLetter(i));
-  }, [sheets, respCfg.sheet]);
-
+  }
   function safeColumnValue(sheet: string, raw: string) {
-    const v = (raw || "").toUpperCase();
-    const sh = sheets.find((s) => s.name === sheet);
-    if (!sh) return "";
-    const rows = sh.rows.slice(0, 32);
-    const maxLen = Math.max(...rows.map((r) => (Array.isArray(r) ? r.length : 0)), 1);
-    const cols = Array.from({ length: maxLen }, (_, i) => indexToColLetter(i));
-    return cols.includes(v) ? v : "";
+    try {
+      const v = (raw || "").toUpperCase();
+      const cols = respColsFor(sheet);
+      return cols.includes(v) ? v : "";
+    } catch (e) {
+      console.error("[ResponsavelImporter] safeColumnValue error:", e);
+      return "";
+    }
   }
 
-  /* ---------- Carregar cedentes do servidor ---------- */
+  /** ===== Abrir arquivo ===== */
+  function parseWorkbook(file: File) {
+    try {
+      setFileName(file.name);
+      const reader = new FileReader();
+      reader.onload = (evt) => {
+        try {
+          const buf = evt.target?.result;
+          if (!(buf instanceof ArrayBuffer)) return;
+          const data = new Uint8Array(buf);
+          const wb = XLSX.read(data, { type: "array" });
+          const parsed: SheetData[] = wb.SheetNames.map((name) => {
+            const ws = wb.Sheets[name];
+            const rows = XLSX.utils.sheet_to_json(ws, { header: 1, raw: false }) as Row[];
+            return { name, rows };
+          });
+          setSheets(parsed);
+          const first = parsed[0]?.name || "";
+          setRespCfg({
+            sheet: first,
+            colCedente: "",
+            colResp: "",
+            approximate: true,
+            stats: { matched: 0, notFound: 0 },
+          });
+        } catch (e) {
+          console.error("[ResponsavelImporter] reader.onload error:", e);
+          alert("Erro ao ler o Excel.");
+        }
+      };
+      reader.readAsArrayBuffer(file);
+    } catch (e) {
+      console.error("[ResponsavelImporter] parseWorkbook error:", e);
+      alert("Erro ao abrir o arquivo.");
+    }
+  }
+
+  /** ===== Carregar cedentes já salvos ===== */
   async function loadFromServer() {
     try {
       const res = await fetch("/api/cedentes", { method: "GET" });
-      const json: ApiResp = await res.json();
-      if (isApiErr(json)) throw new Error(json.error ?? "Falha ao carregar");
-      const data = isRecord(json.data) ? (json.data as Record<string, unknown>) : {};
-      const listaRaw = data.listaCedentes;
+      const json: ApiLoadResp = await res.json();
+
+      if (!("ok" in json) || typeof json.ok !== "boolean") throw new Error("Resposta inválida do servidor");
+      if (!json.ok) throw new Error((json as ApiErr).error || "Falha ao carregar");
+
+      const data = (json as any).data as ApiLoadData | undefined;
+      const listaRaw = data?.listaCedentes;
+
       if (!isCedenteArray(listaRaw)) {
         alert("Nenhum dado salvo ainda.");
         return;
       }
       setListaCedentes(listaRaw);
-      setIsLoaded(true);
-      alert(`Carregado ${listaRaw.length} cedentes.`);
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : "Erro desconhecido";
-      alert(`Erro ao carregar: ${msg}`);
+    } catch (e: any) {
+      console.error("[ResponsavelImporter] loadFromServer error:", e);
+      alert(`Erro ao carregar: ${e?.message || "desconhecido"}`);
     }
   }
 
-  /* ---------- Aplicar responsáveis ---------- */
+  /** ===== Aplicar responsáveis ===== */
   function applyResponsaveis() {
-    const sh = sheets.find((s) => s.name === respCfg.sheet);
-    if (!sh) {
-      alert("Selecione a aba que contém Cedente e Responsável.");
-      return;
-    }
-    const colCed = safeColumnValue(respCfg.sheet, respCfg.colCedente);
-    const colResp = safeColumnValue(respCfg.sheet, respCfg.colResp);
-    if (!colCed || !colResp) {
-      alert("Verifique as colunas de Cedente e Responsável.");
-      return;
-    }
-
-    const idxCed = colLetterToIndex(colCed);
-    const idxResp = colLetterToIndex(colResp);
-
-    const mapResp = new Map<string, string>();
-    const cedentesInSheet: Array<{ key: string; raw: string; resp: string }> = [];
-
-    for (const row of sh.rows) {
-      const r = Array.isArray(row) ? row : [];
-      const cedRaw = r[idxCed];
-      const respRaw = r[idxResp];
-
-      const cedStr = typeof cedRaw === "string" ? cedRaw.trim() : String(cedRaw ?? "").trim();
-      const respStr = typeof respRaw === "string" ? respRaw.trim() : String(respRaw ?? "").trim();
-      if (!cedStr) continue;
-      if (!respStr) continue;
-
-      const k = keyName(cedStr);
-      cedentesInSheet.push({ key: k, raw: cedStr, resp: respStr });
-      mapResp.set(k, respStr);
-    }
-
-    let matched = 0, notFound = 0;
-
-    const updated = listaCedentes.map((c) => {
-      const keysDoCedente = [keyName(c.identificador), keyName(c.nome_completo)];
-      let respRef: string | undefined;
-
-      for (const k of keysDoCedente) {
-        const hit = mapResp.get(k);
-        if (hit) { respRef = hit; break; }
-      }
-
-      if (!respRef && respCfg.approximate && cedentesInSheet.length) {
-        let best: { resp: string; score: number } | null = null;
-        for (const cand of cedentesInSheet) {
-          const s1 = similarity(cand.key, keysDoCedente[0]);
-          const s2 = similarity(cand.key, keysDoCedente[1]);
-          const sc = Math.max(s1, s2);
-          if (!best || sc > best.score) best = { resp: cand.resp, score: sc };
-        }
-        if (best && best.score >= 0.9) respRef = best.resp;
-      }
-
-      if (respRef) {
-        matched++;
-        return { ...c, responsavelNome: toTitleCase(respRef), responsavelId: slugify(respRef) };
-      }
-
-      notFound++;
-      return c;
-    });
-
-    setListaCedentes(updated);
-    setRespCfg((prev) => ({ ...prev, stats: { matched, notFound } }));
-  }
-
-  /* ---------- Salvar ---------- */
-  async function saveToServer() {
-    if (!listaCedentes.length) {
-      alert("Nada para salvar. Carregue os cedentes primeiro.");
-      return;
-    }
     try {
-      const res = await fetch("/api/cedentes", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ listaCedentes }),
+      const sh = sheets.find((s) => s.name === respCfg.sheet);
+      if (!sh) {
+        alert("Selecione uma aba válida.");
+        return;
+      }
+      const colCed = safeColumnValue(respCfg.sheet, respCfg.colCedente);
+      const colResp = safeColumnValue(respCfg.sheet, respCfg.colResp);
+      if (!colCed || !colResp) {
+        alert("Escolha as colunas de Cedente e Responsável.");
+        return;
+      }
+
+      const idxCed = colLetterToIndex(colCed);
+      const idxResp = colLetterToIndex(colResp);
+
+      const mapResp = new Map<string, string>();
+      const cedentesInSheet: Array<{ key: string; raw: string; resp: string }> = [];
+
+      for (const row of sh.rows) {
+        const r = Array.isArray(row) ? row : [];
+        const cedStr = safeString(r[idxCed]).trim();
+        const respStr = safeString(r[idxResp]).trim();
+        if (!cedStr || !respStr) continue;
+        const k = keyName(cedStr);
+        cedentesInSheet.push({ key: k, raw: cedStr, resp: respStr });
+        mapResp.set(k, respStr);
+      }
+
+      function findFuncionario(ref: string): Funcionario | undefined {
+        const raw = ref.trim();
+        if (!raw) return undefined;
+
+        const byId = funcionarios.find((f) => f.id.toLowerCase() === raw.toLowerCase());
+        if (byId) return byId;
+
+        const bySlug = funcionarios.find((f: any) => typeof f?.slug === "string" && f.slug.toLowerCase() === raw.toLowerCase());
+        if (bySlug) return bySlug;
+
+        const target = keyName(raw);
+        const byName = funcionarios.find((f) => keyName(f.nome) === target);
+        if (byName) return byName;
+
+        if (!respCfg.approximate) return undefined;
+
+        let best: { f: Funcionario; score: number } | null = null;
+        for (const f of funcionarios) {
+          const sc = similarity(f.nome, raw);
+          if (!best || sc > best.score) best = { f, score: sc };
+        }
+        if (best && best.score >= 0.88) return best.f;
+        return undefined;
+      }
+
+      let matched = 0, notFound = 0;
+      const updated = listaCedentes.map((c) => {
+        const keysDoCedente = [keyName(c.identificador), keyName(c.nome_completo)];
+        let respRef: string | undefined;
+
+        for (const k of keysDoCedente) {
+          const hit = mapResp.get(k);
+          if (hit) { respRef = hit; break; }
+        }
+        if (!respRef && respCfg.approximate && cedentesInSheet.length) {
+          let best: { resp: string; score: number } | null = null;
+          for (const cand of cedentesInSheet) {
+            const sc = Math.max(similarity(cand.key, keysDoCedente[0]), similarity(cand.key, keysDoCedente[1]));
+            if (!best || sc > best.score) best = { resp: cand.resp, score: sc };
+          }
+          if (best && best.score >= 0.9) respRef = best.resp;
+        }
+
+        if (respRef) {
+          const f = findFuncionario(respRef);
+          if (f) {
+            matched++;
+            return { ...c, responsavelId: f.id, responsavelNome: f.nome };
+          }
+        }
+        notFound++;
+        return c;
       });
-      const json: ApiResp = await res.json();
-      if (isApiErr(json)) throw new Error(json.error ?? "Falha ao salvar");
-      alert("Salvo com sucesso ✅");
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : "Erro desconhecido";
-      alert(`Erro ao salvar: ${msg}`);
+
+      setListaCedentes(updated);
+      setRespCfg((prev) => ({ ...prev, stats: { matched, notFound } }));
+      alert(`Responsáveis aplicados: ${matched}. Não encontrados: ${notFound}.`);
+
+    } catch (e) {
+      console.error("[ResponsavelImporter] applyResponsaveis error:", e);
+      alert("Erro ao aplicar responsáveis. Veja o console para detalhes.");
     }
   }
 
-  /* ---------- UI ---------- */
+  /** ===== UI ===== */
+  const respCols = useMemo(() => respColsFor(respCfg.sheet), [sheets, respCfg.sheet]);
+
   return (
     <div className="mx-auto max-w-6xl">
-      {/* Header */}
-      <div className="mb-6 flex items-center gap-3">
-        <Image src="/logo.png" alt="TradeMiles" width={48} height={48} />
-        <h1 className="text-3xl font-extrabold tracking-tight text-slate-900">TradeMiles • Responsáveis</h1>
-      </div>
-
-      <p className="mb-6 text-sm text-slate-600">
-        Importe uma planilha contendo as colunas <b>Cedente</b> e <b>Responsável</b>. O sistema vai casar com os cedentes já salvos e atribuir o responsável.
+      <h2 className="mb-1 text-[13px] font-medium text-slate-700">
+        Sincronizar responsáveis com cedentes
+      </h2>
+      <p className="mb-6 text-xs text-slate-500">
+        Carregue o Excel com as colunas de <b>Cedente</b> e <b>Responsável</b>, aplique a correspondência e salve para atualizar os cedentes existentes.
       </p>
 
-      {/* Ações topo */}
-      <div className="mb-4 flex flex-wrap items-center gap-3">
+      <div className="mb-6 flex items-center gap-3">
+        <Image src="/logo.png" alt="TradeMiles" width={40} height={40} />
+        <h1 className="text-2xl font-bold">TradeMiles • Responsáveis</h1>
+      </div>
+
+      <div className="mb-3 flex flex-wrap items-center gap-3">
         <button
-          type="button"
           onClick={loadFromServer}
           className="rounded-xl bg-black px-4 py-2 text-white shadow-soft hover:bg-gray-800"
         >
           Carregar cedentes salvos
         </button>
-        <span className="text-xs text-slate-600">
-          {isLoaded ? `Lista carregada (${listaCedentes.length})` : "Nenhuma lista carregada ainda"}
+        <span className="text-xs text-slate-500">
+          {listaCedentes.length ? `${listaCedentes.length} registros carregados` : "Nenhuma lista carregada ainda"}
         </span>
       </div>
 
-      {/* Upload Excel */}
       <div className="mb-4 flex flex-col gap-2">
         <span className="text-sm font-medium text-slate-700">Arquivo Excel (com Cedente e Responsável)</span>
         <input
@@ -324,8 +326,13 @@ export default function ResponsavelImporter() {
           type="file"
           accept=".xlsx,.xls"
           onChange={(e) => {
-            const f = e.currentTarget.files?.[0];
-            if (f) parseWorkbook(f);
+            try {
+              const f = e.currentTarget.files?.[0];
+              if (f) parseWorkbook(f);
+            } catch (err) {
+              console.error("[ResponsavelImporter] onChange file error:", err);
+              alert("Falha ao ler o arquivo.");
+            }
           }}
           style={{ display: "none" }}
         />
@@ -342,7 +349,6 @@ export default function ResponsavelImporter() {
         </div>
       </div>
 
-      {/* Config de responsáveis */}
       {sheets.length > 0 && (
         <div className="rounded-xl border border-slate-200 bg-white p-4">
           <div className="grid grid-cols-1 gap-3 md:grid-cols-5">
@@ -351,21 +357,18 @@ export default function ResponsavelImporter() {
               <select
                 className="rounded-xl border px-3 py-2"
                 value={respCfg.sheet}
-                onChange={(e) => {
-                  const v = e.currentTarget.value;
+                onChange={(e) =>
                   setRespCfg((prev) => ({
                     ...prev,
-                    sheet: v,
+                    sheet: e.currentTarget.value,
                     colCedente: "",
                     colResp: "",
                     stats: { matched: 0, notFound: 0 },
-                  }));
-                }}
+                  }))
+                }
               >
                 {sheets.map((s) => (
-                  <option key={s.name} value={s.name}>
-                    {s.name}
-                  </option>
+                  <option key={s.name} value={s.name}>{s.name}</option>
                 ))}
               </select>
             </div>
@@ -376,14 +379,16 @@ export default function ResponsavelImporter() {
                 className="rounded-xl border px-3 py-2"
                 value={respCfg.colCedente}
                 onChange={(e) =>
-                  setRespCfg((prev) => ({ ...prev, colCedente: safeColumnValue(prev.sheet, e.currentTarget.value) }))
+                  setRespCfg((prev) => ({
+                    ...prev,
+                    colCedente: safeColumnValue(prev.sheet, e.currentTarget.value),
+                    stats: { matched: 0, notFound: 0 },
+                  }))
                 }
               >
                 <option value="">Selecione…</option>
                 {respCols.map((c) => (
-                  <option key={c} value={c}>
-                    {c}
-                  </option>
+                  <option key={c} value={c}>{c}</option>
                 ))}
               </select>
             </div>
@@ -394,14 +399,16 @@ export default function ResponsavelImporter() {
                 className="rounded-xl border px-3 py-2"
                 value={respCfg.colResp}
                 onChange={(e) =>
-                  setRespCfg((prev) => ({ ...prev, colResp: safeColumnValue(prev.sheet, e.currentTarget.value) }))
+                  setRespCfg((prev) => ({
+                    ...prev,
+                    colResp: safeColumnValue(prev.sheet, e.currentTarget.value),
+                    stats: { matched: 0, notFound: 0 },
+                  }))
                 }
               >
                 <option value="">Selecione…</option>
                 {respCols.map((c) => (
-                  <option key={c} value={c}>
-                    {c}
-                  </option>
+                  <option key={c} value={c}>{c}</option>
                 ))}
               </select>
             </div>
@@ -432,53 +439,6 @@ export default function ResponsavelImporter() {
               Atribuídos: <b>{respCfg.stats.matched}</b> • Não encontrados: <b>{respCfg.stats.notFound}</b>
             </div>
           )}
-        </div>
-      )}
-
-      {/* Resultado */}
-      {listaCedentes.length > 0 && (
-        <div className="mt-4 rounded-xl border border-slate-200 bg-white p-5">
-          <div className="mb-3 flex items-center justify-between">
-            <h2 className="text-lg font-semibold text-slate-900">Cedentes ({listaCedentes.length})</h2>
-            <div className="flex gap-3">
-              <button
-                onClick={saveToServer}
-                className="rounded-xl bg-black px-4 py-2 text-white hover:bg-gray-800 disabled:opacity-50"
-                disabled={!listaCedentes.length}
-              >
-                Salvar no servidor
-              </button>
-            </div>
-          </div>
-
-          <div className="max-h-[460px] overflow-auto rounded-xl border">
-            <table className="min-w-full text-sm">
-              <thead className="sticky top-0 bg-white">
-                <tr className="text-left">
-                  <th className="px-3 py-2 font-medium">#</th>
-                  <th className="px-3 py-2 font-medium">ID</th>
-                  <th className="px-3 py-2 font-medium">Nome completo</th>
-                  <th className="px-3 py-2 font-medium">Responsável</th>
-                </tr>
-              </thead>
-              <tbody>
-                {listaCedentes.map((r, idx) => (
-                  <tr key={r.identificador} className="border-t border-slate-200">
-                    <td className="px-3 py-2 text-slate-500">{idx + 1}</td>
-                    <td className="px-3 py-2 font-mono">{r.identificador}</td>
-                    <td className="px-3 py-2">{toTitleCase(r.nome_completo)}</td>
-                    <td className="px-3 py-2">
-                      {r.responsavelNome ? `${r.responsavelNome} (${r.responsavelId})` : <span className="text-slate-400">—</span>}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-
-          <div className="mt-3 text-xs text-slate-500">
-            Dica: se muitos ficarem “não encontrados”, confira a aba/colunas e considere ativar a correspondência aproximada.
-          </div>
         </div>
       )}
     </div>
