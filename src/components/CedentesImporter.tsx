@@ -23,7 +23,7 @@ type ProgramConfig = {
   stats: { matched: number; notFound: number };
 };
 
-/* API response types (sem any) */
+/* API response types */
 type ApiOk = { ok: true };
 type ApiErr = { ok: false; error?: string };
 type ApiSaveResp = (ApiOk & { data?: unknown }) | ApiErr;
@@ -31,13 +31,14 @@ type ApiLoadData = { listaCedentes?: unknown; savedAt?: unknown };
 type ApiLoadResp = (ApiOk & { data?: unknown }) | ApiErr;
 
 /* =========================
-   Utils
+   Utils (sem \p{…})
 ========================= */
 function stripDiacritics(str: string) {
+  // remove acentos via NFD + faixa de combinantes e limpa símbolos
   return str
     .normalize("NFD")
-    .replace(/\p{Diacritic}+/gu, "")
-    .replace(/[^\p{L}\p{N}\s']/gu, " ")
+    .replace(/[\u0300-\u036f]+/g, "")
+    .replace(/[^A-Za-z0-9\s']/g, " ")
     .replace(/\s+/g, " ")
     .trim();
 }
@@ -53,7 +54,8 @@ function keyName(str: string) {
 }
 function levenshtein(a: string, b: string) {
   if (a === b) return 0;
-  const m = a.length, n = b.length;
+  const m = a.length,
+    n = b.length;
   if (m === 0) return n;
   if (n === 0) return m;
   const dp = Array.from({ length: m + 1 }, () => new Array(n + 1).fill(0));
@@ -68,7 +70,8 @@ function levenshtein(a: string, b: string) {
   return dp[m][n];
 }
 function similarity(a: string, b: string) {
-  const s1 = keyName(a), s2 = keyName(b);
+  const s1 = keyName(a),
+    s2 = keyName(b);
   if (!s1 || !s2) return 0;
   const dist = levenshtein(s1, s2);
   const maxLen = Math.max(s1.length, s2.length);
@@ -197,31 +200,41 @@ export default function CedentesImporter() {
 
   /* ---------- Abrir arquivo ---------- */
   function parseWorkbook(file: File) {
-    setFileName(file.name);
-    const reader = new FileReader();
-    reader.onload = (evt) => {
-      const buf = evt.target?.result;
-      if (!(buf instanceof ArrayBuffer)) return;
-      const data = new Uint8Array(buf);
-      const wb = XLSX.read(data, { type: "array" });
-      const parsed: SheetData[] = wb.SheetNames.map((name) => {
-        const ws = wb.Sheets[name];
-        const rows = XLSX.utils.sheet_to_json(ws, { header: 1, raw: false }) as Row[];
-        return { name, rows };
-      });
-      setSheets(parsed);
+    try {
+      setFileName(file.name);
+      const reader = new FileReader();
+      reader.onload = (evt) => {
+        try {
+          const buf = evt.target?.result;
+          if (!(buf instanceof ArrayBuffer)) return;
+          const data = new Uint8Array(buf);
+          const wb = XLSX.read(data, { type: "array" });
+          const parsed: SheetData[] = wb.SheetNames.map((name) => {
+            const ws = wb.Sheets[name];
+            const rows = XLSX.utils.sheet_to_json(ws, { header: 1, raw: false }) as Row[];
+            return { name, rows };
+          });
+          setSheets(parsed);
 
-      const first = parsed[0]?.name || "";
-      setNamesSheet(first);
-      setColNome("A");
-      setDedupedNames([]);
-      setListaCedentes([]);
+          const first = parsed[0]?.name || "";
+          setNamesSheet(first);
+          setColNome("A");
+          setDedupedNames([]);
+          setListaCedentes([]);
 
-      setPrograms((prev) =>
-        prev.map((p) => ({ ...p, sheet: first, colName: "", colPoints: "", stats: { matched: 0, notFound: 0 } })),
-      );
-    };
-    reader.readAsArrayBuffer(file);
+          setPrograms((prev) =>
+            prev.map((p) => ({ ...p, sheet: first, colName: "", colPoints: "", stats: { matched: 0, notFound: 0 } })),
+          );
+        } catch (e) {
+          console.error("[CedentesImporter] reader.onload error:", e);
+          alert("Erro ao ler o Excel.");
+        }
+      };
+      reader.readAsArrayBuffer(file);
+    } catch (e) {
+      console.error("[CedentesImporter] parseWorkbook error:", e);
+      alert("Erro ao abrir o arquivo.");
+    }
   }
 
   /* ---------- Options de colunas ---------- */
@@ -311,7 +324,8 @@ export default function CedentesImporter() {
 
     const base = listaCedentes.map((c) => ({ ...c, [p.key]: 0 })) as Cedente[];
 
-    let matched = 0, notFound = 0;
+    let matched = 0,
+      notFound = 0;
 
     const updated = base.map((c) => {
       const k = keyName(c.nome_completo);
@@ -401,7 +415,6 @@ export default function CedentesImporter() {
         throw new Error(typeof json.error === "string" ? json.error : "Falha ao carregar");
       }
 
-      // json agora é ApiOk & possivelmente { data?: unknown }
       const dataAny = (json as ApiOk & { data?: unknown }).data;
       const data: ApiLoadData | undefined = isRecord(dataAny) ? (dataAny as ApiLoadData) : undefined;
 
@@ -464,8 +477,13 @@ export default function CedentesImporter() {
           type="file"
           accept=".xlsx,.xls"
           onChange={(e) => {
-            const f = e.currentTarget.files?.[0];
-            if (f) parseWorkbook(f);
+            try {
+              const f = e.currentTarget?.files?.[0];
+              if (f) parseWorkbook(f);
+            } catch (err) {
+              console.error("[CedentesImporter] onChange file error:", err);
+              alert("Falha ao ler o arquivo.");
+            }
           }}
           style={{ display: "none" }}
         />
@@ -489,7 +507,11 @@ export default function CedentesImporter() {
           <div className="mb-4 grid grid-cols-1 gap-3 md:grid-cols-3">
             <div className="flex flex-col">
               <label className="mb-1 text-xs font-medium text-slate-600">Aba dos Nomes</label>
-              <select className="rounded-xl border px-3 py-2" value={namesSheet} onChange={(e) => setNamesSheet(e.target.value)}>
+              <select
+                className="rounded-xl border px-3 py-2"
+                value={namesSheet}
+                onChange={(e) => setNamesSheet(e.currentTarget?.value ?? "")}
+              >
                 {sheets.map((s) => (
                   <option key={s.name} value={s.name}>
                     {s.name}
@@ -499,7 +521,11 @@ export default function CedentesImporter() {
             </div>
             <div className="flex flex-col">
               <label className="mb-1 text-xs font-medium text-slate-600">Coluna com os Nomes</label>
-              <select className="rounded-xl border px-3 py-2" value={colNome} onChange={(e) => setColNome(e.target.value)}>
+              <select
+                className="rounded-xl border px-3 py-2"
+                value={colNome}
+                onChange={(e) => setColNome(e.currentTarget?.value ?? "A")}
+              >
                 {availableColumnsOnNames.map((c) => (
                   <option key={c} value={c}>
                     {c}
@@ -515,7 +541,7 @@ export default function CedentesImporter() {
                 max={0.98}
                 step={0.01}
                 value={threshold}
-                onChange={(e) => setThreshold(parseFloat(e.currentTarget.value))}
+                onChange={(e) => setThreshold(parseFloat(e.currentTarget?.value ?? "0.9"))}
               />
               <div className="text-xs text-slate-600">{Math.round(threshold * 100)}%</div>
             </div>
@@ -534,7 +560,10 @@ export default function CedentesImporter() {
             </div>
           )}
 
-          <button onClick={processNames} className="mb-6 rounded-xl bg-black px-4 py-2 text-white shadow-soft hover:bg-gray-800">
+          <button
+            onClick={processNames}
+            className="mb-6 rounded-xl bg-black px-4 py-2 text-white shadow-soft hover:bg-gray-800"
+          >
             Processar nomes e gerar IDs
           </button>
         </>
@@ -546,7 +575,12 @@ export default function CedentesImporter() {
           <div className="mt-2 mb-3 flex items-center gap-3">
             <h2 className="text-lg font-semibold">Etapa 2 — Importar Pontos por Programa</h2>
             <label className="flex items-center gap-2 text-xs text-slate-700">
-              <input type="checkbox" className="h-4 w-4" checked={approximatePoints} onChange={(e) => setApproximatePoints(e.currentTarget.checked)} />
+              <input
+                type="checkbox"
+                className="h-4 w-4"
+                checked={approximatePoints}
+                onChange={(e) => setApproximatePoints(e.currentTarget?.checked ?? false)}
+              />
               Usar correspondência aproximada (≥ 90%)
             </label>
           </div>
@@ -572,10 +606,12 @@ export default function CedentesImporter() {
                         className="rounded-xl border px-3 py-2"
                         value={p.sheet}
                         onChange={(e) => {
-                          const v = e.currentTarget.value;
+                          const v = e.currentTarget?.value ?? "";
                           setPrograms((prev) =>
                             prev.map((cfg, i) =>
-                              i === idx ? { ...cfg, sheet: v, colName: "", colPoints: "", stats: { matched: 0, notFound: 0 } } : cfg,
+                              i === idx
+                                ? { ...cfg, sheet: v, colName: "", colPoints: "", stats: { matched: 0, notFound: 0 } }
+                                : cfg,
                             ),
                           );
                         }}
@@ -594,7 +630,7 @@ export default function CedentesImporter() {
                         className="rounded-xl border px-3 py-2"
                         value={p.colName}
                         onChange={(e) => {
-                          const v = e.currentTarget.value;
+                          const v = e.currentTarget?.value ?? "";
                           setPrograms((prev) => prev.map((cfg, i) => (i === idx ? { ...cfg, colName: v } : cfg)));
                         }}
                       >
@@ -613,7 +649,7 @@ export default function CedentesImporter() {
                         className="rounded-xl border px-3 py-2"
                         value={p.colPoints}
                         onChange={(e) => {
-                          const v = e.currentTarget.value;
+                          const v = e.currentTarget?.value ?? "";
                           setPrograms((prev) => prev.map((cfg, i) => (i === idx ? { ...cfg, colPoints: v } : cfg)));
                         }}
                       >
@@ -649,16 +685,28 @@ export default function CedentesImporter() {
           <div className="mb-3 flex items-center justify-between">
             <h2 className="text-lg font-semibold text-slate-900">Resultado ({listaCedentes.length} cedentes)</h2>
             <div className="flex flex-wrap gap-3">
-              <button onClick={saveToServer} className="rounded-xl bg-black px-4 py-2 text-white hover:bg-gray-800 disabled:opacity-50" disabled={!listaCedentes.length}>
+              <button
+                onClick={saveToServer}
+                className="rounded-xl bg-black px-4 py-2 text-white hover:bg-gray-800 disabled:opacity-50"
+                disabled={!listaCedentes.length}
+              >
                 Salvar no servidor
               </button>
               <button onClick={loadFromServer} className="rounded-xl bg-black px-4 py-2 text-white hover:bg-gray-800">
                 Carregar último
               </button>
-              <button onClick={exportCSV} className="rounded-xl bg-black px-4 py-2 text-white hover:bg-gray-800 disabled:opacity-50" disabled={!listaCedentes.length}>
+              <button
+                onClick={exportCSV}
+                className="rounded-xl bg-black px-4 py-2 text-white hover:bg-gray-800 disabled:opacity-50"
+                disabled={!listaCedentes.length}
+              >
                 Exportar CSV
               </button>
-              <button onClick={exportJSON} className="rounded-xl bg-black px-4 py-2 text-white hover:bg-gray-800 disabled:opacity-50" disabled={!listaCedentes.length}>
+              <button
+                onClick={exportJSON}
+                className="rounded-xl bg-black px-4 py-2 text-white hover:bg-gray-800 disabled:opacity-50"
+                disabled={!listaCedentes.length}
+              >
                 Exportar JSON
               </button>
             </div>
@@ -685,7 +733,9 @@ export default function CedentesImporter() {
                     <td className="px-3 py-2 font-mono">{r.identificador}</td>
                     <td className="px-3 py-2">{toTitleCase(r.nome_completo)}</td>
                     <td className="px-3 py-2">
-                      {r.responsavelNome ? `${r.responsavelNome} (${r.responsavelId})` : <span className="text-slate-400">—</span>}
+                      {r.responsavelNome ? `${r.responsavelNome} (${r.responsavelId})` : (
+                        <span className="text-slate-400">—</span>
+                      )}
                     </td>
                     <td className="px-3 py-2 text-right">{(r.latam ?? 0).toLocaleString("pt-BR")}</td>
                     <td className="px-3 py-2 text-right">{(r.esfera ?? 0).toLocaleString("pt-BR")}</td>
