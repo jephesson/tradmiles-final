@@ -104,8 +104,11 @@ function download(filename: string, text: string) {
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null;
 }
+function hasString<K extends string>(o: unknown, k: K): o is Record<K, string> {
+  return isRecord(o) && typeof (o as any)[k] === "string";
+}
 function isCedenteArray(v: unknown): v is Cedente[] {
-  return Array.isArray(v) && v.every((o) => isRecord(o) && typeof o.identificador === "string" && typeof o.nome_completo === "string");
+  return Array.isArray(v) && v.every((o) => isRecord(o) && typeof (o as any).identificador === "string" && typeof (o as any).nome_completo === "string");
 }
 
 /** Normaliza entradas numéricas e retorna pontos inteiros (≥ 0). */
@@ -243,18 +246,12 @@ export default function CedentesImporter() {
   }
 
   /* ---------- Options de colunas (robustas) ---------- */
-  const namesSheetObj = useMemo(
-    () => sheets.find((s) => s.name === namesSheet),
-    [sheets, namesSheet]
-  );
+  const namesSheetObj = useMemo(() => sheets.find((s) => s.name === namesSheet), [sheets, namesSheet]);
 
   const availableColumnsOnNames = useMemo(() => {
     if (!namesSheetObj) return ["A"];
     const rows = namesSheetObj.rows.slice(0, 32);
-    const maxLen = Math.max(
-      ...rows.map((r) => (Array.isArray(r) ? r.length : 0)),
-      1
-    );
+    const maxLen = Math.max(...rows.map((r) => (Array.isArray(r) ? r.length : 0)), 1);
     return Array.from({ length: maxLen }, (_, i) => indexToColLetter(i));
   }, [namesSheetObj]);
 
@@ -262,10 +259,7 @@ export default function CedentesImporter() {
     const sh = sheets.find((s) => s.name === sheetName);
     if (!sh) return ["A"];
     const rows = sh.rows.slice(0, 32);
-    const maxLen = Math.max(
-      ...rows.map((r) => (Array.isArray(r) ? r.length : 0)),
-      1
-    );
+    const maxLen = Math.max(...rows.map((r) => (Array.isArray(r) ? r.length : 0)), 1);
     return Array.from({ length: maxLen }, (_, i) => indexToColLetter(i));
   }
 
@@ -277,20 +271,6 @@ export default function CedentesImporter() {
       return typeof cell === "string" ? cell : "";
     });
   }, [namesSheetObj, colNome]);
-
-  /* ========= Normalização de selects da Etapa 3 (evita “valor fora da lista”) ========= */
-  const respCols = useMemo(() => availableColumnsOn(respCfg.sheet), [sheets, respCfg.sheet]);
-
-  useEffect(() => {
-    // Se a coluna atual não existir na lista, resetamos para "" (valor válido)
-    if (respCfg.colCedente && !respCols.includes(respCfg.colCedente)) {
-      setRespCfg((prev) => ({ ...prev, colCedente: "" }));
-    }
-    if (respCfg.colResp && !respCols.includes(respCfg.colResp)) {
-      setRespCfg((prev) => ({ ...prev, colResp: "" }));
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [respCols.join("|")]);
 
   /* ---------- Etapa 1: processar nomes ---------- */
   function processNames() {
@@ -388,6 +368,17 @@ export default function CedentesImporter() {
   }
 
   /* ---------- Etapa 3: responsáveis ---------- */
+
+  // lista de colunas válidas para a aba selecionada (Etapa 3)
+  const respCols = useMemo(() => availableColumnsOn(respCfg.sheet), [sheets, respCfg.sheet]);
+
+  // garante que só gravamos valores válidos de coluna (uppercase e dentro da lista)
+  function safeColumnValue(sheet: string, raw: string) {
+    const cols = availableColumnsOn(sheet);
+    const v = (raw || "").toUpperCase();
+    return cols.includes(v) ? v : "";
+  }
+
   function applyResponsaveis() {
     const sh = sheets.find((s) => s.name === respCfg.sheet);
     if (!sh || !respCfg.colCedente || !respCfg.colResp) return;
@@ -418,8 +409,7 @@ export default function CedentesImporter() {
       const byId = funcionarios.find((f) => f.id.toLowerCase() === raw.toLowerCase());
       if (byId) return byId;
 
-      // @ts-expect-error slug opcional em alguns registros
-      const bySlug = funcionarios.find((f) => typeof f.slug === "string" && f.slug.toLowerCase() === raw.toLowerCase());
+      const bySlug = funcionarios.find((f) => hasString(f as unknown, "slug") && (f as unknown as { slug: string }).slug.toLowerCase() === raw.toLowerCase());
       if (bySlug) return bySlug;
 
       const target = keyName(raw);
@@ -821,7 +811,7 @@ export default function CedentesImporter() {
                   className="rounded-xl border px-3 py-2"
                   value={respCfg.colCedente}
                   onChange={(e) =>
-                    setRespCfg((prev) => ({ ...prev, colCedente: e.currentTarget.value.toUpperCase() }))
+                    setRespCfg((prev) => ({ ...prev, colCedente: safeColumnValue(prev.sheet, e.currentTarget.value) }))
                   }
                 >
                   <option value="">Selecione…</option>
@@ -839,7 +829,7 @@ export default function CedentesImporter() {
                   className="rounded-xl border px-3 py-2"
                   value={respCfg.colResp}
                   onChange={(e) =>
-                    setRespCfg((prev) => ({ ...prev, colResp: e.currentTarget.value.toUpperCase() }))
+                    setRespCfg((prev) => ({ ...prev, colResp: safeColumnValue(prev.sheet, e.currentTarget.value) }))
                   }
                 >
                   <option value="">Selecione…</option>
