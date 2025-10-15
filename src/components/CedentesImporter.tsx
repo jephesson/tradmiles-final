@@ -55,8 +55,7 @@ function keyName(str: string) {
 }
 function levenshtein(a: string, b: string) {
   if (a === b) return 0;
-  const m = a.length,
-    n = b.length;
+  const m = a.length, n = b.length;
   if (m === 0) return n;
   if (n === 0) return m;
   const dp = Array.from({ length: m + 1 }, () => new Array(n + 1).fill(0));
@@ -71,8 +70,7 @@ function levenshtein(a: string, b: string) {
   return dp[m][n];
 }
 function similarity(a: string, b: string) {
-  const s1 = keyName(a),
-    s2 = keyName(b);
+  const s1 = keyName(a), s2 = keyName(b);
   if (!s1 || !s2) return 0;
   const dist = levenshtein(s1, s2);
   const maxLen = Math.max(s1.length, s2.length);
@@ -185,21 +183,23 @@ export default function CedentesImporter() {
     setFuncionarios(loadFuncionarios());
   }, []);
 
-  /* ---------- Helpers de coluna ---------- */
+  /* ---------- Helpers de coluna (robustos) ---------- */
   function colLetterToIndex(col: string) {
+    if (!col) return 0;
     let idx = 0;
-    for (let i = 0; i < col.length; i++) idx = idx * 26 + (col.charCodeAt(i) - 64);
-    return idx - 1;
+    const up = col.toUpperCase().replace(/[^A-Z]/g, "");
+    for (let i = 0; i < up.length; i++) idx = idx * 26 + (up.charCodeAt(i) - 64);
+    return Math.max(0, idx - 1);
   }
   function indexToColLetter(idx: number) {
     let s = "";
-    idx += 1;
+    idx = Math.max(0, idx) + 1;
     while (idx > 0) {
       const rem = (idx - 1) % 26;
       s = String.fromCharCode(65 + rem) + s;
       idx = Math.floor((idx - 1) / 26);
     }
-    return s;
+    return s || "A";
   }
 
   /* ---------- Abrir arquivo ---------- */
@@ -232,26 +232,40 @@ export default function CedentesImporter() {
     reader.readAsArrayBuffer(file);
   }
 
-  /* ---------- Options de colunas ---------- */
-  const namesSheetObj = useMemo(() => sheets.find((s) => s.name === namesSheet), [sheets, namesSheet]);
+  /* ---------- Options de colunas (robustas) ---------- */
+  const namesSheetObj = useMemo(
+    () => sheets.find((s) => s.name === namesSheet),
+    [sheets, namesSheet]
+  );
 
   const availableColumnsOnNames = useMemo(() => {
     if (!namesSheetObj) return ["A"];
-    const maxLen = Math.max(...namesSheetObj.rows.slice(0, 32).map((r) => r.length), 1);
+    const rows = namesSheetObj.rows.slice(0, 32);
+    const maxLen = Math.max(
+      ...rows.map((r) => (Array.isArray(r) ? r.length : 0)),
+      1
+    );
     return Array.from({ length: maxLen }, (_, i) => indexToColLetter(i));
   }, [namesSheetObj]);
 
   function availableColumnsOn(sheetName: string) {
     const sh = sheets.find((s) => s.name === sheetName);
     if (!sh) return ["A"];
-    const maxLen = Math.max(...sh.rows.slice(0, 32).map((r) => r.length), 1);
+    const rows = sh.rows.slice(0, 32);
+    const maxLen = Math.max(
+      ...rows.map((r) => (Array.isArray(r) ? r.length : 0)),
+      1
+    );
     return Array.from({ length: maxLen }, (_, i) => indexToColLetter(i));
   }
 
   const firstRowsPreview = useMemo(() => {
     if (!namesSheetObj) return [] as string[];
     const idx = colLetterToIndex(colNome);
-    return namesSheetObj.rows.slice(0, 8).map((r) => (typeof r[idx] === "string" ? (r[idx] as string) : ""));
+    return namesSheetObj.rows.slice(0, 8).map((r) => {
+      const cell = Array.isArray(r) ? r[idx] : undefined;
+      return typeof cell === "string" ? cell : "";
+    });
   }, [namesSheetObj, colNome]);
 
   /* ---------- Etapa 1: processar nomes ---------- */
@@ -261,7 +275,8 @@ export default function CedentesImporter() {
     const idx = colLetterToIndex(colNome);
     const names: string[] = [];
     for (const row of namesSheetObj.rows) {
-      const cell = row[idx];
+      const r = Array.isArray(row) ? row : [];
+      const cell = r[idx];
       if (typeof cell === "string" && cell.trim()) names.push(toTitleCase(cell.trim()));
     }
 
@@ -291,7 +306,7 @@ export default function CedentesImporter() {
     setRespCfg((prev) => ({ ...prev, stats: { matched: 0, notFound: 0 } }));
   }
 
-  /* ---------- Etapa 2: aplicar pontos (idempotente) ---------- */
+  /* ---------- Etapa 2: aplicar pontos (idempotente e robusto) ---------- */
   function applyPointsForProgram(p: ProgramConfig) {
     const sheetObj = sheets.find((s) => s.name === p.sheet);
     if (!sheetObj || !p.colName || !p.colPoints) return;
@@ -303,18 +318,18 @@ export default function CedentesImporter() {
     const namesInSheet: Array<{ orig: string; key: string }> = [];
 
     for (const row of sheetObj.rows) {
-      const n = row[nameIdx];
+      const r = Array.isArray(row) ? row : [];
+      const n = r[nameIdx];
       if (typeof n !== "string" || !n.trim()) continue;
       const key = keyName(n);
       namesInSheet.push({ orig: n, key });
-      const pts = parsePoints(row[pointsIdx]);
+      const pts = parsePoints(r[pointsIdx]);
       mapExact.set(key, (mapExact.get(key) ?? 0) + pts);
     }
 
     const base = listaCedentes.map((c) => ({ ...c, [p.key]: 0 })) as Cedente[];
 
-    let matched = 0,
-      notFound = 0;
+    let matched = 0, notFound = 0;
 
     const updated = base.map((c) => {
       const k = keyName(c.nome_completo);
@@ -348,7 +363,7 @@ export default function CedentesImporter() {
     );
   }
 
-  /* ---------- Etapa 3: responsáveis ---------- */
+  /* ---------- Etapa 3: responsáveis (robusto) ---------- */
   function applyResponsaveis() {
     const sh = sheets.find((s) => s.name === respCfg.sheet);
     if (!sh || !respCfg.colCedente || !respCfg.colResp) return;
@@ -360,15 +375,16 @@ export default function CedentesImporter() {
     const cedentesInSheet: Array<{ key: string; raw: string; resp: string }> = [];
 
     for (const row of sh.rows) {
-      const cedRaw = row[idxCed];
-      const respRaw = row[idxResp];
+      const r = Array.isArray(row) ? row : [];
+      const cedRaw = r[idxCed];
+      const respRaw = r[idxResp];
       if (typeof cedRaw !== "string" || !cedRaw.trim()) continue;
       if (respRaw === null || respRaw === undefined || respRaw === "") continue;
 
       const k = keyName(cedRaw);
-      const r = String(respRaw).trim();
-      cedentesInSheet.push({ key: k, raw: String(cedRaw), resp: r });
-      mapResp.set(k, r);
+      const rstr = String(respRaw).trim();
+      cedentesInSheet.push({ key: k, raw: String(cedRaw), resp: rstr });
+      mapResp.set(k, rstr);
     }
 
     function findFuncionario(ref: string): Funcionario | undefined {
@@ -379,7 +395,7 @@ export default function CedentesImporter() {
       if (byId) return byId;
 
       // @ts-expect-error: alguns Funcionario podem ter "slug" opcional
-      const bySlug = funcionarios.find((f) => typeof f.slug === "string" && f.slug.toLowerCase() === raw.toLowerCase());
+      const bySlug = funcionarios.find((f) => typeof (f as any).slug === "string" && (f as any).slug.toLowerCase() === raw.toLowerCase());
       if (bySlug) return bySlug;
 
       const target = keyName(raw);
@@ -396,8 +412,7 @@ export default function CedentesImporter() {
       return undefined;
     }
 
-    let matched = 0,
-      notFound = 0;
+    let matched = 0, notFound = 0;
 
     const updated = listaCedentes.map((c) => {
       const keysDoCedente = [keyName(c.identificador), keyName(c.nome_completo)];
@@ -405,10 +420,7 @@ export default function CedentesImporter() {
 
       for (const k of keysDoCedente) {
         const hit = mapResp.get(k);
-        if (hit) {
-          respRef = hit;
-          break;
-        }
+        if (hit) { respRef = hit; break; }
       }
 
       if (!respRef && respCfg.approximate && cedentesInSheet.length) {
@@ -478,7 +490,7 @@ export default function CedentesImporter() {
         throw new Error("Resposta inválida do servidor");
       }
       if (!json.ok) {
-        const msg = typeof json.error === "string" ? json.error : "Falha ao salvar";
+        const msg = typeof (json as any).error === "string" ? (json as any).error : "Falha ao salvar";
         throw new Error(msg);
       }
 
@@ -496,15 +508,14 @@ export default function CedentesImporter() {
 
       if (!isRecord(json) || typeof json.ok !== "boolean") {
         throw new Error("Resposta inválida do servidor");
-        }
+      }
 
       if (!json.ok) {
-        const msg = typeof json.error === "string" ? json.error : "Falha ao carregar";
+        const msg = typeof (json as any).error === "string" ? (json as any).error : "Falha ao carregar";
         throw new Error(msg);
       }
 
-      const data = isRecord(json.data) ? (json.data as Record<string, unknown>) : undefined;
-
+      const data = isRecord((json as any).data) ? ((json as any).data as Record<string, unknown>) : undefined;
       const lista = Array.isArray(data?.listaCedentes) ? (data!.listaCedentes as Cedente[]) : undefined;
       const savedAt = typeof data?.savedAt === "string" ? (data!.savedAt as string) : undefined;
 
