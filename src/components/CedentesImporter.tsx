@@ -100,23 +100,33 @@ function download(filename: string, text: string) {
   URL.revokeObjectURL(url);
 }
 
-/** Type guards básicos */
+/** Helpers seguros */
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null;
 }
-function hasProp<T extends string>(o: unknown, k: T): o is Record<T, unknown> {
-  return isRecord(o) && k in o;
+function hasString(o: unknown, k: string): o is Record<string, string> {
+  return isRecord(o) && typeof o[k] === "string";
 }
-function hasStringProp<T extends string>(o: unknown, k: T): o is Record<T, string> {
-  return hasProp(o, k) && typeof (o as Record<T, unknown>)[k] === "string";
+function safeString(v: unknown): string {
+  if (v === null || v === undefined) return "";
+  return typeof v === "string" ? v : String(v);
+}
+function safeLower(v: unknown): string {
+  const s = safeString(v);
+  return s.toLowerCase();
+}
+function safeKey(v: unknown): string {
+  return keyName(safeString(v));
+}
+function isFuncionario(v: unknown): v is Funcionario {
+  return isRecord(v) && typeof v.id === "string" && typeof v.nome === "string";
 }
 function isCedenteArray(v: unknown): v is Cedente[] {
   return (
     Array.isArray(v) &&
     v.every((o) => {
       if (!isRecord(o)) return false;
-      const obj = o as Record<string, unknown>;
-      return typeof obj.identificador === "string" && typeof obj.nome_completo === "string";
+      return typeof o.identificador === "string" && typeof o.nome_completo === "string";
     })
   );
 }
@@ -124,9 +134,7 @@ function isCedenteArray(v: unknown): v is Cedente[] {
 /** Normaliza entradas numéricas e retorna pontos inteiros (≥ 0). */
 function parsePoints(input: Cell): number {
   if (input === null || input === undefined) return 0;
-  if (typeof input === "number" && Number.isFinite(input)) {
-    return Math.max(0, Math.round(input));
-  }
+  if (typeof input === "number" && Number.isFinite(input)) return Math.max(0, Math.round(input));
   const raw = String(input).trim();
   if (!raw) return 0;
 
@@ -199,12 +207,20 @@ export default function CedentesImporter() {
     stats: { matched: 0, notFound: 0 },
   });
 
-  /* ---------- carregar funcionários ---------- */
+  /* ---------- carregar e sanitizar funcionários ---------- */
   useEffect(() => {
-    setFuncionarios(loadFuncionarios());
+    const raw = loadFuncionarios();
+    const sane = Array.isArray(raw) ? raw.filter(isFuncionario) : [];
+    if (sane.length !== raw.length) {
+      console.warn(
+        "[CedentesImporter] Alguns funcionários foram ignorados por faltar id/nome:",
+        raw.filter((f) => !isFuncionario(f))
+      );
+    }
+    setFuncionarios(sane);
   }, []);
 
-  /* ---------- Helpers de coluna (robustos) ---------- */
+  /* ---------- Helpers de coluna ---------- */
   function colLetterToIndex(col: string) {
     if (!col) return 0;
     let idx = 0;
@@ -253,7 +269,7 @@ export default function CedentesImporter() {
     reader.readAsArrayBuffer(file);
   }
 
-  /* ---------- Options de colunas (robustas) ---------- */
+  /* ---------- Options de colunas ---------- */
   const namesSheetObj = useMemo(() => sheets.find((s) => s.name === namesSheet), [sheets, namesSheet]);
 
   const availableColumnsOnNames = useMemo(() => {
@@ -280,7 +296,7 @@ export default function CedentesImporter() {
     });
   }, [namesSheetObj, colNome]);
 
-  /* ---------- Etapa 1: processar nomes ---------- */
+  /* ---------- Etapa 1 ---------- */
   function processNames() {
     if (!namesSheetObj) return;
 
@@ -318,7 +334,7 @@ export default function CedentesImporter() {
     setRespCfg((prev) => ({ ...prev, stats: { matched: 0, notFound: 0 } }));
   }
 
-  /* ---------- Etapa 2: aplicar pontos ---------- */
+  /* ---------- Etapa 2 ---------- */
   function applyPointsForProgram(p: ProgramConfig) {
     const sheetObj = sheets.find((s) => s.name === p.sheet);
     if (!sheetObj || !p.colName || !p.colPoints) return;
@@ -375,9 +391,7 @@ export default function CedentesImporter() {
     );
   }
 
-  /* ---------- Etapa 3: responsáveis ---------- */
-
-  // Colunas válidas para a aba selecionada (sem depender de função externa no array do useMemo)
+  /* ---------- Etapa 3 — responsáveis ---------- */
   const respCols = useMemo(() => {
     const sh = sheets.find((s) => s.name === respCfg.sheet);
     if (!sh) return ["A"];
@@ -397,95 +411,106 @@ export default function CedentesImporter() {
   }
 
   function applyResponsaveis() {
-    const sh = sheets.find((s) => s.name === respCfg.sheet);
-    if (!sh) return;
-
-    // validação de colunas recebidas (podem ter vindo de estado antigo)
-    const colCed = safeColumnValue(respCfg.sheet, respCfg.colCedente);
-    const colResp = safeColumnValue(respCfg.sheet, respCfg.colResp);
-    if (!colCed || !colResp) return;
-
-    const idxCed = colLetterToIndex(colCed);
-    const idxResp = colLetterToIndex(colResp);
-
-    const mapResp = new Map<string, string>();
-    const cedentesInSheet: Array<{ key: string; raw: string; resp: string }> = [];
-
-    for (const row of sh.rows) {
-      const r = Array.isArray(row) ? row : [];
-      const cedRaw = r[idxCed];
-      const respRaw = r[idxResp];
-      if (typeof cedRaw !== "string" || !cedRaw.trim()) continue;
-
-      if (respRaw === null || respRaw === undefined) continue;
-      const respStr = typeof respRaw === "string" ? respRaw.trim() : String(respRaw).trim();
-      if (!respStr) continue;
-
-      const k = keyName(cedRaw);
-      cedentesInSheet.push({ key: k, raw: String(cedRaw), resp: respStr });
-      mapResp.set(k, respStr);
-    }
-
-    function findFuncionario(ref: string): Funcionario | undefined {
-      const raw = ref.trim();
-      if (!raw) return undefined;
-
-      const byId = funcionarios.find((f) => f.id.toLowerCase() === raw.toLowerCase());
-      if (byId) return byId;
-
-      const bySlug = funcionarios.find((f) => hasStringProp(f, "slug") && f.slug.toLowerCase() === raw.toLowerCase());
-      if (bySlug) return bySlug;
-
-      const target = keyName(raw);
-      const byName = funcionarios.find((f) => keyName(f.nome) === target);
-      if (byName) return byName;
-
-      if (!respCfg.approximate) return undefined;
-      let best: { f: Funcionario; score: number } | null = null;
-      for (const f of funcionarios) {
-        const sc = similarity(f.nome, raw);
-        if (!best || sc > best.score) best = { f, score: sc };
-      }
-      if (best && best.score >= 0.88) return best.f;
-      return undefined;
-    }
-
-    let matched = 0, notFound = 0;
-
-    const updated = listaCedentes.map((c) => {
-      const keysDoCedente = [keyName(c.identificador), keyName(c.nome_completo)];
-      let respRef: string | undefined;
-
-      for (const k of keysDoCedente) {
-        const hit = mapResp.get(k);
-        if (hit) { respRef = hit; break; }
+    try {
+      const sh = sheets.find((s) => s.name === respCfg.sheet);
+      if (!sh) {
+        alert("Selecione uma aba de responsáveis.");
+        return;
       }
 
-      if (!respRef && respCfg.approximate && cedentesInSheet.length) {
-        let best: { resp: string; score: number } | null = null;
-        for (const cand of cedentesInSheet) {
-          const s1 = similarity(cand.key, keysDoCedente[0]);
-          const s2 = similarity(cand.key, keysDoCedente[1]);
-          const sc = Math.max(s1, s2);
-          if (!best || sc > best.score) best = { resp: cand.resp, score: sc };
+      const colCed = safeColumnValue(respCfg.sheet, respCfg.colCedente);
+      const colResp = safeColumnValue(respCfg.sheet, respCfg.colResp);
+      if (!colCed || !colResp) {
+        alert("Verifique as colunas de Cedente e Responsável.");
+        return;
+      }
+
+      const idxCed = colLetterToIndex(colCed);
+      const idxResp = colLetterToIndex(colResp);
+
+      const mapResp = new Map<string, string>();
+      const cedentesInSheet: Array<{ key: string; raw: string; resp: string }> = [];
+
+      for (const row of sh.rows) {
+        const r = Array.isArray(row) ? row : [];
+        const cedRaw = r[idxCed];
+        const respRaw = r[idxResp];
+
+        const cedStr = safeString(cedRaw).trim();
+        const respStr = safeString(respRaw).trim();
+        if (!cedStr) continue;
+        if (!respStr) continue;
+
+        const k = keyName(cedStr);
+        cedentesInSheet.push({ key: k, raw: cedStr, resp: respStr });
+        mapResp.set(k, respStr);
+      }
+
+      function findFuncionario(ref: string): Funcionario | undefined {
+        const raw = ref.trim();
+        if (!raw) return undefined;
+
+        const byId = funcionarios.find((f) => safeLower(f.id) === safeLower(raw));
+        if (byId) return byId;
+
+        const bySlug = funcionarios.find((f) => hasString(f, "slug") && safeLower(f.slug) === safeLower(raw));
+        if (bySlug) return bySlug;
+
+        const target = safeKey(raw);
+        const byName = funcionarios.find((f) => safeKey(f.nome) === target);
+        if (byName) return byName;
+
+        if (!respCfg.approximate) return undefined;
+
+        let best: { f: Funcionario; score: number } | null = null;
+        for (const f of funcionarios) {
+          const sc = similarity(f.nome, raw);
+          if (!best || sc > best.score) best = { f, score: sc };
         }
-        if (best && best.score >= 0.9) respRef = best.resp;
+        if (best && best.score >= 0.88) return best.f;
+        return undefined;
       }
 
-      if (respRef) {
-        const f = findFuncionario(respRef);
-        if (f) {
-          matched++;
-          return { ...c, responsavelId: f.id, responsavelNome: f.nome };
+      let matched = 0, notFound = 0;
+
+      const updated = listaCedentes.map((c) => {
+        const keysDoCedente = [safeKey(c.identificador), safeKey(c.nome_completo)];
+        let respRef: string | undefined;
+
+        for (const k of keysDoCedente) {
+          const hit = mapResp.get(k);
+          if (hit) { respRef = hit; break; }
         }
-      }
 
-      notFound++;
-      return c;
-    });
+        if (!respRef && respCfg.approximate && cedentesInSheet.length) {
+          let best: { resp: string; score: number } | null = null;
+          for (const cand of cedentesInSheet) {
+            const s1 = similarity(cand.key, keysDoCedente[0]);
+            const s2 = similarity(cand.key, keysDoCedente[1]);
+            const sc = Math.max(s1, s2);
+            if (!best || sc > best.score) best = { resp: cand.resp, score: sc };
+          }
+          if (best && best.score >= 0.9) respRef = best.resp;
+        }
 
-    setListaCedentes(updated);
-    setRespCfg((prev) => ({ ...prev, stats: { matched, notFound } }));
+        if (respRef) {
+          const f = findFuncionario(respRef);
+          if (f) {
+            matched++;
+            return { ...c, responsavelId: f.id, responsavelNome: f.nome };
+          }
+        }
+
+        notFound++;
+        return c;
+      });
+
+      setListaCedentes(updated);
+      setRespCfg((prev) => ({ ...prev, stats: { matched, notFound } }));
+    } catch (err) {
+      console.error("[CedentesImporter] Erro em applyResponsaveis:", err);
+      alert("Erro ao importar responsáveis. Veja o console para detalhes.");
+    }
   }
 
   /* ---------- Persistência ---------- */
@@ -528,7 +553,6 @@ export default function CedentesImporter() {
         throw new Error("Resposta inválida do servidor");
       }
       if (!json.ok) {
-        // json é ApiErr aqui
         throw new Error(json.error ?? "Falha ao salvar");
       }
 
@@ -548,11 +572,9 @@ export default function CedentesImporter() {
         throw new Error("Resposta inválida do servidor");
       }
       if (!json.ok) {
-        // json é ApiErr aqui
         throw new Error(json.error ?? "Falha ao carregar");
       }
 
-      // json é ApiOk & { data?: unknown } aqui
       const data = json.data;
       const dataObj: ApiLoadData | undefined = isRecord(data) ? (data as ApiLoadData) : undefined;
 
