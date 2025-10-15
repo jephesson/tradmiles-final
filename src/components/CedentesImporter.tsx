@@ -5,7 +5,6 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import * as XLSX from "xlsx";
 import { type Cedente } from "@/lib/storage";
-import { loadFuncionarios, type Funcionario } from "@/lib/staff";
 
 /* =========================
    Tipos utilitários
@@ -21,14 +20,6 @@ type ProgramConfig = {
   sheet: string;
   colName: string;
   colPoints: string;
-  stats: { matched: number; notFound: number };
-};
-
-type RespConfig = {
-  sheet: string;
-  colCedente: string;
-  colResp: string;
-  approximate: boolean;
   stats: { matched: number; notFound: number };
 };
 
@@ -100,33 +91,17 @@ function download(filename: string, text: string) {
   URL.revokeObjectURL(url);
 }
 
-/** Helpers seguros */
+/** Type guards básicos */
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null;
-}
-function hasString(o: unknown, k: string): o is Record<string, string> {
-  return isRecord(o) && typeof o[k] === "string";
-}
-function safeString(v: unknown): string {
-  if (v === null || v === undefined) return "";
-  return typeof v === "string" ? v : String(v);
-}
-function safeLower(v: unknown): string {
-  const s = safeString(v);
-  return s.toLowerCase();
-}
-function safeKey(v: unknown): string {
-  return keyName(safeString(v));
-}
-function isFuncionario(v: unknown): v is Funcionario {
-  return isRecord(v) && typeof v.id === "string" && typeof v.nome === "string";
 }
 function isCedenteArray(v: unknown): v is Cedente[] {
   return (
     Array.isArray(v) &&
     v.every((o) => {
       if (!isRecord(o)) return false;
-      return typeof o.identificador === "string" && typeof o.nome_completo === "string";
+      const obj = o as Record<string, unknown>;
+      return typeof obj.identificador === "string" && typeof obj.nome_completo === "string";
     })
   );
 }
@@ -134,7 +109,9 @@ function isCedenteArray(v: unknown): v is Cedente[] {
 /** Normaliza entradas numéricas e retorna pontos inteiros (≥ 0). */
 function parsePoints(input: Cell): number {
   if (input === null || input === undefined) return 0;
-  if (typeof input === "number" && Number.isFinite(input)) return Math.max(0, Math.round(input));
+  if (typeof input === "number" && Number.isFinite(input)) {
+    return Math.max(0, Math.round(input));
+  }
   const raw = String(input).trim();
   if (!raw) return 0;
 
@@ -180,9 +157,6 @@ export default function CedentesImporter() {
   const [sheets, setSheets] = useState<SheetData[]>([]);
   const [namesSheet, setNamesSheet] = useState<string>("");
 
-  // Funcionários
-  const [funcionarios, setFuncionarios] = useState<Funcionario[]>([]);
-
   // Etapa 1 — Nomes
   const [colNome, setColNome] = useState("A");
   const [threshold, setThreshold] = useState(0.9);
@@ -197,28 +171,6 @@ export default function CedentesImporter() {
     { key: "livelo", label: "Livelo", sheet: "", colName: "", colPoints: "", stats: { matched: 0, notFound: 0 } },
     { key: "smiles", label: "Smiles", sheet: "", colName: "", colPoints: "", stats: { matched: 0, notFound: 0 } },
   ]);
-
-  // Etapa 3 — Responsável
-  const [respCfg, setRespCfg] = useState<RespConfig>({
-    sheet: "",
-    colCedente: "",
-    colResp: "",
-    approximate: true,
-    stats: { matched: 0, notFound: 0 },
-  });
-
-  /* ---------- carregar e sanitizar funcionários ---------- */
-  useEffect(() => {
-    const raw = loadFuncionarios();
-    const sane = Array.isArray(raw) ? raw.filter(isFuncionario) : [];
-    if (sane.length !== raw.length) {
-      console.warn(
-        "[CedentesImporter] Alguns funcionários foram ignorados por faltar id/nome:",
-        raw.filter((f) => !isFuncionario(f))
-      );
-    }
-    setFuncionarios(sane);
-  }, []);
 
   /* ---------- Helpers de coluna ---------- */
   function colLetterToIndex(col: string) {
@@ -264,7 +216,6 @@ export default function CedentesImporter() {
       setPrograms((prev) =>
         prev.map((p) => ({ ...p, sheet: first, colName: "", colPoints: "", stats: { matched: 0, notFound: 0 } })),
       );
-      setRespCfg({ sheet: first, colCedente: "", colResp: "", approximate: true, stats: { matched: 0, notFound: 0 } });
     };
     reader.readAsArrayBuffer(file);
   }
@@ -331,7 +282,6 @@ export default function CedentesImporter() {
     setListaCedentes(base);
 
     setPrograms((prev) => prev.map((p) => ({ ...p, stats: { matched: 0, notFound: 0 } })));
-    setRespCfg((prev) => ({ ...prev, stats: { matched: 0, notFound: 0 } }));
   }
 
   /* ---------- Etapa 2 ---------- */
@@ -391,128 +341,6 @@ export default function CedentesImporter() {
     );
   }
 
-  /* ---------- Etapa 3 — responsáveis ---------- */
-  const respCols = useMemo(() => {
-    const sh = sheets.find((s) => s.name === respCfg.sheet);
-    if (!sh) return ["A"];
-    const rows = sh.rows.slice(0, 32);
-    const maxLen = Math.max(...rows.map((r) => (Array.isArray(r) ? r.length : 0)), 1);
-    return Array.from({ length: maxLen }, (_, i) => indexToColLetter(i));
-  }, [sheets, respCfg.sheet]);
-
-  function safeColumnValue(sheet: string, raw: string) {
-    const v = (raw || "").toUpperCase();
-    const sh = sheets.find((s) => s.name === sheet);
-    if (!sh) return "";
-    const rows = sh.rows.slice(0, 32);
-    const maxLen = Math.max(...rows.map((r) => (Array.isArray(r) ? r.length : 0)), 1);
-    const cols = Array.from({ length: maxLen }, (_, i) => indexToColLetter(i));
-    return cols.includes(v) ? v : "";
-  }
-
-  function applyResponsaveis() {
-    try {
-      const sh = sheets.find((s) => s.name === respCfg.sheet);
-      if (!sh) {
-        alert("Selecione uma aba de responsáveis.");
-        return;
-      }
-
-      const colCed = safeColumnValue(respCfg.sheet, respCfg.colCedente);
-      const colResp = safeColumnValue(respCfg.sheet, respCfg.colResp);
-      if (!colCed || !colResp) {
-        alert("Verifique as colunas de Cedente e Responsável.");
-        return;
-      }
-
-      const idxCed = colLetterToIndex(colCed);
-      const idxResp = colLetterToIndex(colResp);
-
-      const mapResp = new Map<string, string>();
-      const cedentesInSheet: Array<{ key: string; raw: string; resp: string }> = [];
-
-      for (const row of sh.rows) {
-        const r = Array.isArray(row) ? row : [];
-        const cedRaw = r[idxCed];
-        const respRaw = r[idxResp];
-
-        const cedStr = safeString(cedRaw).trim();
-        const respStr = safeString(respRaw).trim();
-        if (!cedStr) continue;
-        if (!respStr) continue;
-
-        const k = keyName(cedStr);
-        cedentesInSheet.push({ key: k, raw: cedStr, resp: respStr });
-        mapResp.set(k, respStr);
-      }
-
-      function findFuncionario(ref: string): Funcionario | undefined {
-        const raw = ref.trim();
-        if (!raw) return undefined;
-
-        const byId = funcionarios.find((f) => safeLower(f.id) === safeLower(raw));
-        if (byId) return byId;
-
-        const bySlug = funcionarios.find((f) => hasString(f, "slug") && safeLower(f.slug) === safeLower(raw));
-        if (bySlug) return bySlug;
-
-        const target = safeKey(raw);
-        const byName = funcionarios.find((f) => safeKey(f.nome) === target);
-        if (byName) return byName;
-
-        if (!respCfg.approximate) return undefined;
-
-        let best: { f: Funcionario; score: number } | null = null;
-        for (const f of funcionarios) {
-          const sc = similarity(f.nome, raw);
-          if (!best || sc > best.score) best = { f, score: sc };
-        }
-        if (best && best.score >= 0.88) return best.f;
-        return undefined;
-      }
-
-      let matched = 0, notFound = 0;
-
-      const updated = listaCedentes.map((c) => {
-        const keysDoCedente = [safeKey(c.identificador), safeKey(c.nome_completo)];
-        let respRef: string | undefined;
-
-        for (const k of keysDoCedente) {
-          const hit = mapResp.get(k);
-          if (hit) { respRef = hit; break; }
-        }
-
-        if (!respRef && respCfg.approximate && cedentesInSheet.length) {
-          let best: { resp: string; score: number } | null = null;
-          for (const cand of cedentesInSheet) {
-            const s1 = similarity(cand.key, keysDoCedente[0]);
-            const s2 = similarity(cand.key, keysDoCedente[1]);
-            const sc = Math.max(s1, s2);
-            if (!best || sc > best.score) best = { resp: cand.resp, score: sc };
-          }
-          if (best && best.score >= 0.9) respRef = best.resp;
-        }
-
-        if (respRef) {
-          const f = findFuncionario(respRef);
-          if (f) {
-            matched++;
-            return { ...c, responsavelId: f.id, responsavelNome: f.nome };
-          }
-        }
-
-        notFound++;
-        return c;
-      });
-
-      setListaCedentes(updated);
-      setRespCfg((prev) => ({ ...prev, stats: { matched, notFound } }));
-    } catch (err) {
-      console.error("[CedentesImporter] Erro em applyResponsaveis:", err);
-      alert("Erro ao importar responsáveis. Veja o console para detalhes.");
-    }
-  }
-
   /* ---------- Persistência ---------- */
   async function saveToServer() {
     if (!listaCedentes.length) {
@@ -537,12 +365,6 @@ export default function CedentesImporter() {
               colName: p.colName,
               colPoints: p.colPoints,
             })),
-            responsavel: {
-              sheet: respCfg.sheet,
-              colCedente: respCfg.colCedente,
-              colResp: respCfg.colResp,
-              approximate: respCfg.approximate,
-            },
           },
         }),
       });
@@ -553,7 +375,11 @@ export default function CedentesImporter() {
         throw new Error("Resposta inválida do servidor");
       }
       if (!json.ok) {
-        throw new Error(json.error ?? "Falha ao salvar");
+        const msg =
+          isRecord(json) && typeof (json as Record<string, unknown>).error === "string"
+            ? (json as Record<string, string>).error
+            : "Falha ao salvar";
+        throw new Error(msg);
       }
 
       alert("Salvo com sucesso ✅");
@@ -572,14 +398,20 @@ export default function CedentesImporter() {
         throw new Error("Resposta inválida do servidor");
       }
       if (!json.ok) {
-        throw new Error(json.error ?? "Falha ao carregar");
+        const msg =
+          isRecord(json) && typeof (json as Record<string, unknown>).error === "string"
+            ? (json as Record<string, string>).error
+            : "Falha ao carregar";
+        throw new Error(msg);
       }
 
-      const data = json.data;
-      const dataObj: ApiLoadData | undefined = isRecord(data) ? (data as ApiLoadData) : undefined;
+      const data: ApiLoadData | undefined =
+        isRecord(json) && isRecord((json as Record<string, unknown>).data)
+          ? ((json as Record<string, unknown>).data as ApiLoadData)
+          : undefined;
 
-      const listaRaw = dataObj?.listaCedentes;
-      const savedAtRaw = dataObj?.savedAt;
+      const listaRaw = data?.listaCedentes;
+      const savedAtRaw = data?.savedAt;
 
       if (!isCedenteArray(listaRaw)) {
         alert("Nenhum dado salvo ainda.");
@@ -626,8 +458,7 @@ export default function CedentesImporter() {
 
       <p className="mb-6 text-sm text-slate-600">
         Etapa 1: importe os nomes e gere IDs. Etapa 2: para <b>cada programa</b> (Latam, Esfera, Livelo, Smiles), selecione
-        a <b>aba</b> e as colunas de <b>Nome</b> e <b>Pontos</b>. Etapa 3: importe o <b>Responsável</b> escolhendo a{" "}
-        <b>aba</b> e as colunas de <b>Cedente</b> e <b>Responsável</b>.
+        a <b>aba</b> e as colunas de <b>Nome</b> e <b>Pontos</b>.
       </p>
 
       {/* Upload */}
@@ -817,109 +648,6 @@ export default function CedentesImporter() {
         </>
       )}
 
-      {/* ETAPA 3 — RESPONSÁVEL */}
-      {listaCedentes.length > 0 && sheets.length > 0 && (
-        <>
-          <div className="mt-6 mb-3 flex items-center justify-between">
-            <h2 className="text-lg font-semibold">Etapa 3 — Importar Responsável</h2>
-            <div className="text-xs text-slate-600">
-              Funcionários cadastrados: <b>{funcionarios.length}</b>
-              {funcionarios.length ? ` — ${funcionarios.map((f) => f.nome).join(", ")}` : " —"}
-            </div>
-          </div>
-
-          <div className="rounded-xl border border-slate-200 bg-white p-4">
-            <div className="grid grid-cols-1 gap-3 md:grid-cols-5">
-              <div className="flex flex-col">
-                <label className="mb-1 text-xs font-medium text-slate-600">Aba</label>
-                <select
-                  className="rounded-xl border px-3 py-2"
-                  value={respCfg.sheet}
-                  onChange={(e) => {
-                    const v = e.currentTarget.value;
-                    setRespCfg((prev) => ({
-                      ...prev,
-                      sheet: v,
-                      colCedente: "",
-                      colResp: "",
-                      stats: { matched: 0, notFound: 0 },
-                    }));
-                  }}
-                >
-                  {sheets.map((s) => (
-                    <option key={s.name} value={s.name}>
-                      {s.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="flex flex-col">
-                <label className="mb-1 text-xs font-medium text-slate-600">Coluna do Cedente</label>
-                <select
-                  className="rounded-xl border px-3 py-2"
-                  value={respCfg.colCedente}
-                  onChange={(e) =>
-                    setRespCfg((prev) => ({ ...prev, colCedente: safeColumnValue(prev.sheet, e.currentTarget.value) }))
-                  }
-                >
-                  <option value="">Selecione…</option>
-                  {respCols.map((c) => (
-                    <option key={c} value={c}>
-                      {c}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="flex flex-col">
-                <label className="mb-1 text-xs font-medium text-slate-600">Coluna do Responsável</label>
-                <select
-                  className="rounded-xl border px-3 py-2"
-                  value={respCfg.colResp}
-                  onChange={(e) =>
-                    setRespCfg((prev) => ({ ...prev, colResp: safeColumnValue(prev.sheet, e.currentTarget.value) }))
-                  }
-                >
-                  <option value="">Selecione…</option>
-                  {respCols.map((c) => (
-                    <option key={c} value={c}>
-                      {c}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <label className="mt-6 flex items-center gap-2 text-xs text-slate-700">
-                <input
-                  type="checkbox"
-                  className="h-4 w-4"
-                  checked={respCfg.approximate}
-                  onChange={(e) => setRespCfg((prev) => ({ ...prev, approximate: e.currentTarget.checked }))}
-                />
-                Usar correspondência aproximada
-              </label>
-
-              <div className="flex items-end">
-                <button
-                  onClick={applyResponsaveis}
-                  className="w-full rounded-xl bg-black px-4 py-2 text-white shadow-soft hover:bg-gray-800 disabled:opacity-50"
-                  disabled={!respCfg.sheet || !respCfg.colCedente || !respCfg.colResp}
-                >
-                  Aplicar responsáveis
-                </button>
-              </div>
-            </div>
-
-            {respCfg.stats.matched + respCfg.stats.notFound > 0 && (
-              <div className="mt-3 text-xs text-slate-600">
-                Atribuídos: <b>{respCfg.stats.matched}</b> • Não encontrados: <b>{respCfg.stats.notFound}</b>
-              </div>
-            )}
-          </div>
-        </>
-      )}
-
       {/* Resultado final */}
       {listaCedentes.length > 0 && (
         <div className="mt-4 rounded-xl border border-slate-200 bg-white p-5">
@@ -977,7 +705,7 @@ export default function CedentesImporter() {
       )}
 
       <div className="mt-6 text-xs text-slate-500">
-        Dica: se um programa ou responsável estiver com muitos “não encontrados”, confira as colunas e a aba.
+        Dica: se um programa estiver com muitos “não encontrados”, confira as colunas e a aba.
         Se os nomes variam muito, ative a correspondência aproximada.
       </div>
     </div>
