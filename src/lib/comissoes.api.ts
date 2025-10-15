@@ -1,7 +1,7 @@
 // src/lib/comissoes.api.ts
 import type { ComissaoCedente, IComissoesRepo, StatusComissao } from "./comissoes.repo";
 
-const JSON = (r: Response) => r.json().catch(() => ({}));
+const parseJSON = (r: Response) => r.json().catch(() => ({}));
 
 export class ApiComissoesRepo implements IComissoesRepo {
   base = "/api/comissoes";
@@ -11,7 +11,7 @@ export class ApiComissoesRepo implements IComissoesRepo {
     if (params?.q) qs.set("q", params.q);
     if (params?.status) qs.set("status", params.status);
     const res = await fetch(`${this.base}?${qs.toString()}`, { cache: "no-store" });
-    const json = await JSON(res);
+    const json = await parseJSON(res);
     return Array.isArray(json?.data) ? (json.data as ComissaoCedente[]) : [];
   }
 
@@ -21,9 +21,10 @@ export class ApiComissoesRepo implements IComissoesRepo {
     const res = await fetch(this.base, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
+      body: JSON.stringify(payload), // agora usa o JSON global normalmente
+      // alternativa segura seria: body: globalThis.JSON.stringify(payload)
     });
-    const json = await JSON(res);
+    const json = await parseJSON(res);
     if (!res.ok) throw new Error(json?.error || "Falha ao salvar comissão");
     return json?.data as ComissaoCedente;
   }
