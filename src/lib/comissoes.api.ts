@@ -1,5 +1,5 @@
 // src/lib/comissoes.api.ts
-import { ComissaoCedente, IComissoesRepo, StatusComissao } from "./comissoes.repo";
+import type { ComissaoCedente, IComissoesRepo, StatusComissao } from "./comissoes.repo";
 
 const JSON = (r: Response) => r.json().catch(() => ({}));
 
@@ -12,10 +12,12 @@ export class ApiComissoesRepo implements IComissoesRepo {
     if (params?.status) qs.set("status", params.status);
     const res = await fetch(`${this.base}?${qs.toString()}`, { cache: "no-store" });
     const json = await JSON(res);
-    return Array.isArray(json?.data) ? json.data : [];
+    return Array.isArray(json?.data) ? (json.data as ComissaoCedente[]) : [];
   }
 
-  async upsert(payload: Omit<ComissaoCedente, "id"|"criadoEm"|"atualizadoEm"> & { id?: string }): Promise<ComissaoCedente> {
+  async upsert(
+    payload: Omit<ComissaoCedente, "id" | "criadoEm" | "atualizadoEm"> & { id?: string }
+  ): Promise<ComissaoCedente> {
     const res = await fetch(this.base, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -40,4 +42,3 @@ export class ApiComissoesRepo implements IComissoesRepo {
     if (!res.ok) throw new Error("Falha ao remover");
   }
 }
-  
