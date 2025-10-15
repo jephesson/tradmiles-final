@@ -7,7 +7,7 @@ import * as XLSX from "xlsx";
 import { type Cedente } from "@/lib/storage";
 import { loadFuncionarios, type Funcionario } from "@/lib/staff";
 
-/** ===== Error Boundary (evita tela branca e mostra a causa) ===== */
+/** ===== Error Boundary ===== */
 class ErrorBoundary extends React.Component<
   { children: React.ReactNode },
   { error?: Error | null; info?: React.ErrorInfo | null }
@@ -19,8 +19,7 @@ class ErrorBoundary extends React.Component<
   static getDerivedStateFromError(error: Error) {
     return { error };
   }
-  componentDidCatch(error: Error, info: React.ErrorInfo): void {
-    // já fica logado
+  componentDidCatch(error: Error, info: React.ErrorInfo) {
     console.error("[ResponsavelImporter] Uncaught error:", error, info?.componentStack);
     this.setState({ error, info });
   }
@@ -66,7 +65,7 @@ type ApiLoadResp = (ApiOk & { data?: unknown }) | ApiErr;
 // Permite slug opcional
 type Staff = Funcionario & { slug?: string };
 
-/** ===== Utils (sem \p{…}) ===== */
+/** ===== Utils ===== */
 function stripDiacritics(s: string) {
   return s.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
 }
@@ -115,8 +114,7 @@ function isCedenteArray(v: unknown): v is Cedente[] {
     Array.isArray(v) &&
     v.every((o) => {
       if (!isRecord(o)) return false;
-      const hasAnyKey = "identificador" in o || "nome_completo" in o;
-      return hasAnyKey;
+      return "identificador" in o || "nome_completo" in o;
     })
   );
 }
@@ -124,7 +122,7 @@ function isStaff(v: unknown): v is Staff {
   return isRecord(v) && typeof v.id === "string" && typeof v.nome === "string";
 }
 
-/** ===== Inner Component ===== */
+/** ===== Inner component ===== */
 function Inner() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -151,11 +149,10 @@ function Inner() {
     }
   });
 
-  // Coleta erros globais (para sabermos a causa real)
+  // Para capturar qualquer erro global
   useEffect(() => {
     const onErr = (ev: ErrorEvent) => console.error("[window.onerror]", ev.message, ev.filename, ev.lineno, ev.error);
-    const onRej = (ev: PromiseRejectionEvent) =>
-      console.error("[window.unhandledrejection]", ev.reason);
+    const onRej = (ev: PromiseRejectionEvent) => console.error("[window.unhandledrejection]", ev.reason);
     window.addEventListener("error", onErr);
     window.addEventListener("unhandledrejection", onRej);
     return () => {
@@ -330,13 +327,8 @@ function Inner() {
         notFound = 0;
 
       const updated = listaCedentes.map((c) => {
-        const {
-          identificador,
-          nome_completo,
-        }: { identificador?: unknown; nome_completo?: unknown } = (c as unknown) as {
-          identificador?: unknown;
-          nome_completo?: unknown;
-        };
+        const { identificador, nome_completo }: { identificador?: unknown; nome_completo?: unknown } =
+          (c as unknown) as { identificador?: unknown; nome_completo?: unknown };
 
         const idKey = keyName(identificador);
         const nomeKey = keyName(nome_completo);
@@ -414,7 +406,7 @@ function Inner() {
           accept=".xlsx,.xls"
           onChange={(e) => {
             try {
-              const f = e.currentTarget.files?.[0];
+              const f = e.currentTarget?.files?.[0];
               if (f) parseWorkbook(f);
             } catch (err) {
               console.error("[ResponsavelImporter] onChange file error:", err);
@@ -444,15 +436,16 @@ function Inner() {
               <select
                 className="rounded-xl border px-3 py-2"
                 value={respCfg.sheet}
-                onChange={(e) =>
+                onChange={(e) => {
+                  const v = e.currentTarget?.value ?? "";
                   setRespCfg((prev) => ({
                     ...prev,
-                    sheet: e.currentTarget.value,
+                    sheet: v,
                     colCedente: "",
                     colResp: "",
                     stats: { matched: 0, notFound: 0 },
-                  }))
-                }
+                  }));
+                }}
               >
                 {sheets.map((s) => (
                   <option key={s.name} value={s.name}>
@@ -467,13 +460,14 @@ function Inner() {
               <select
                 className="rounded-xl border px-3 py-2"
                 value={respCfg.colCedente}
-                onChange={(e) =>
+                onChange={(e) => {
+                  const v = e.currentTarget?.value ?? "";
                   setRespCfg((prev) => ({
                     ...prev,
-                    colCedente: safeColumnValue(prev.sheet, e.currentTarget.value),
+                    colCedente: safeColumnValue(prev.sheet, v),
                     stats: { matched: 0, notFound: 0 },
-                  }))
-                }
+                  }));
+                }}
               >
                 <option value="">Selecione…</option>
                 {respCols.map((c) => (
@@ -489,13 +483,14 @@ function Inner() {
               <select
                 className="rounded-xl border px-3 py-2"
                 value={respCfg.colResp}
-                onChange={(e) =>
+                onChange={(e) => {
+                  const v = e.currentTarget?.value ?? "";
                   setRespCfg((prev) => ({
                     ...prev,
-                    colResp: safeColumnValue(prev.sheet, e.currentTarget.value),
+                    colResp: safeColumnValue(prev.sheet, v),
                     stats: { matched: 0, notFound: 0 },
-                  }))
-                }
+                  }));
+                }}
               >
                 <option value="">Selecione…</option>
                 {respCols.map((c) => (
@@ -511,7 +506,7 @@ function Inner() {
                 type="checkbox"
                 className="h-4 w-4"
                 checked={respCfg.approximate}
-                onChange={(e) => setRespCfg((prev) => ({ ...prev, approximate: e.currentTarget.checked }))}
+                onChange={(e) => setRespCfg((prev) => ({ ...prev, approximate: e.currentTarget?.checked ?? true }))}
               />
               Usar correspondência aproximada
             </label>
