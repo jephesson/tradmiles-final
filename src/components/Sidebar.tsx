@@ -53,9 +53,15 @@ export default function Sidebar() {
     pathname.startsWith("/dashboard/bloqueios");
   const isComprasRoute = pathname.startsWith("/dashboard/compras");
   const isVendasRoute = pathname.startsWith("/dashboard/vendas");
-  const isFuncionariosRoute = pathname.startsWith("/dashboard/funcionarios");
-  const isClientesRoute = pathname.startsWith("/dashboard/clientes");
+
+  // Funcionários
   const isRateioRoute = pathname.startsWith("/dashboard/funcionarios/rateio");
+  const isFuncionariosSyncRoute = pathname.startsWith("/dashboard/funcionarios/sincronizar");
+  const isFuncionariosBaseRoute =
+    pathname.startsWith("/dashboard/funcionarios") &&
+    !isRateioRoute; // inclui /funcionarios e /funcionarios/sincronizar
+
+  const isClientesRoute = pathname.startsWith("/dashboard/clientes");
 
   const isLucrosRoute = pathname.startsWith("/dashboard/lucros");
   const isResumoRoute = pathname.startsWith("/dashboard/resumo");
@@ -80,6 +86,9 @@ export default function Sidebar() {
   );
   const [openLucros, setOpenLucros] = useState(isResumoRoute || isLucrosRoute);
 
+  // NOVO: acordeão Funcionários (lista + sincronizar)
+  const [openFuncionarios, setOpenFuncionarios] = useState(isFuncionariosBaseRoute);
+
   useEffect(() => setOpenCedentes(isCedentesRoute), [isCedentesRoute]);
   useEffect(() => setOpenCompras(isComprasRoute), [isComprasRoute]);
   useEffect(() => setOpenVendas(isVendasRoute), [isVendasRoute]);
@@ -91,6 +100,10 @@ export default function Sidebar() {
   useEffect(() => {
     setOpenLucros(isResumoRoute || isLucrosRoute);
   }, [isResumoRoute, isLucrosRoute]);
+
+  useEffect(() => {
+    setOpenFuncionarios(isFuncionariosBaseRoute);
+  }, [isFuncionariosBaseRoute]);
 
   /** =========================
    *  Quick Filter (Cedentes)
@@ -125,6 +138,11 @@ export default function Sidebar() {
   const isVendasItemActive = (href: string) =>
     href === "/dashboard/vendas"
       ? pathname === "/dashboard/vendas"
+      : pathname.startsWith(href);
+
+  const isFuncionariosItemActive = (href: string) =>
+    href === "/dashboard/funcionarios"
+      ? pathname === "/dashboard/funcionarios"
       : pathname.startsWith(href);
 
   /** =========================
@@ -440,25 +458,54 @@ export default function Sidebar() {
           </div>
         </div>
 
-        {/* === Funcionários e Clientes === */}
+        {/* === Funcionários (lista + sincronizar) === */}
         <div className="my-3 border-t border-slate-200" />
-        <Link
-          href="/dashboard/funcionarios"
-          className={cn(
-            "block rounded-lg px-3 py-2 text-sm transition-colors",
-            isFuncionariosRoute && !pathname.startsWith("/dashboard/funcionarios/rateio")
-              ? "bg-black text-white"
-              : "text-slate-700 hover:bg-slate-100"
-          )}
-          aria-current={
-            isFuncionariosRoute && !pathname.startsWith("/dashboard/funcionarios/rateio")
-              ? "page"
-              : undefined
-          }
+        <Accordion
+          title="Funcionários"
+          open={openFuncionarios}
+          onToggle={() => setOpenFuncionarios((v) => !v)}
+          active={isFuncionariosBaseRoute && !isRateioRoute}
         >
-          Funcionários
-        </Link>
+          <ul className="mt-1 space-y-1">
+            <li>
+              <Link
+                href="/dashboard/funcionarios"
+                className={cn(
+                  "block rounded-lg px-3 py-2 pl-8 text-sm transition-colors",
+                  isFuncionariosItemActive("/dashboard/funcionarios") &&
+                  !isFuncionariosSyncRoute
+                    ? "bg-black text-white"
+                    : "text-slate-700 hover:bg-slate-100"
+                )}
+                aria-current={
+                  isFuncionariosItemActive("/dashboard/funcionarios") &&
+                  !isFuncionariosSyncRoute
+                    ? "page"
+                    : undefined
+                }
+              >
+                Lista de funcionários
+              </Link>
+            </li>
+            <li>
+              <Link
+                href="/dashboard/funcionarios/sincronizar"
+                className={cn(
+                  "block rounded-lg px-3 py-2 pl-8 text-sm transition-colors",
+                  isFuncionariosSyncRoute
+                    ? "bg-black text-white"
+                    : "text-slate-700 hover:bg-slate-100"
+                )}
+                aria-current={isFuncionariosSyncRoute ? "page" : undefined}
+              >
+                Sincronizar aos cedentes
+              </Link>
+            </li>
+          </ul>
+        </Accordion>
 
+        {/* === Clientes === */}
+        <div className="my-3 border-t border-slate-200" />
         <Link
           href="/dashboard/clientes"
           className={cn(
