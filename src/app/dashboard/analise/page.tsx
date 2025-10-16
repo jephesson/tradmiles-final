@@ -5,12 +5,17 @@ import { useEffect, useState } from "react";
 import { type Cedente, loadCedentes } from "@/lib/storage";
 
 /* ===========================================================
- *  Estoque de Pontos (BÁSICO) — mesma origem da tela Visualizar
- *  - GET /api/cedentes (data.listaCedentes)
+ *  Estoque de Pontos (BÁSICO) + Previsão de Dinheiro
+ *  - Lê os mesmos dados da tela Visualizar (/api/cedentes)
  *  - Fallback: loadCedentes() do localStorage
+ *  - Permite configurar R$/milheiro para prever receita na venda
  * =========================================================== */
 
 type ProgramKey = "latam" | "smiles" | "livelo" | "esfera";
+const PROGRAMAS: ProgramKey[] = ["latam", "smiles", "livelo", "esfera"] as const;
+
+/** storage para os preços por milheiro */
+const MILHEIRO_KEY = "TM_MILHEIRO_PREVISAO";
 
 type ApiOk = { ok: true; data?: unknown };
 type ApiErr = { ok: false; error?: string };
@@ -61,6 +66,14 @@ function getPts(c: Cedente, k: ProgramKey): number {
   return toNum(record[k]);
 }
 
+function fmtMoney(n: number): string {
+  return new Intl.NumberFormat("pt-BR", {
+    style: "currency",
+    currency: "BRL",
+    maximumFractionDigits: 2,
+  }).format(Number(n) || 0);
+}
+
 export default function AnaliseBasica() {
   const [tot, setTot] = useState<Record<ProgramKey, number>>({
     latam: 0,
@@ -73,6 +86,42 @@ export default function AnaliseBasica() {
   const [erro, setErro] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [fonte, setFonte] = useState<"server" | "local" | "-">("-");
+
+  // preços do milheiro (R$ por 1.000)
+  const [milheiro, setMilheiro] = useState<Record<ProgramKey, number>>({
+    latam: 25,
+    smiles: 24,
+    livelo: 32,
+    esfera: 28,
+  });
+
+  // carrega preços do localStorage 1x
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(MILHEIRO_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw) as Partial<Record<ProgramKey, number>>;
+        const next: Record<ProgramKey, number> = { ...milheiro };
+        for (const p of PROGRAMAS) {
+          const v = Number((parsed as Record<string, unknown>)[p] ?? next[p]);
+          next[p] = Number.isFinite(v) ? v : next[p];
+        }
+        setMilheiro(next);
+      }
+    } catch {
+      /* noop */
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // salva preços no localStorage sempre que mudar
+  useEffect(() => {
+    try {
+      localStorage.setItem(MILHEIRO_KEY, JSON.stringify(milheiro));
+    } catch {
+      /* noop */
+    }
+  }, [milheiro]);
 
   async function carregar() {
     setLoading(true);
@@ -134,6 +183,29 @@ export default function AnaliseBasica() {
 
   const totalGeral = tot.latam + tot.smiles + tot.livelo + tot.esfera;
 
+  // ======= PREVISÃO DE DINHEIRO =======
+  type LinhaPrev = {
+    programa: string;
+    pontos: number;
+    precoMilheiro: number;
+    valorPrev: number;
+    key: ProgramKey;
+  };
+
+  const linhasPrev: LinhaPrev[] = PROGRAMAS.map((p) => {
+    const pontos = tot[p];
+    const preco = milheiro[p] || 0;
+    return {
+      programa: p.toUpperCase(),
+      pontos,
+      precoMilheiro: preco,
+      valorPrev: (pontos / 1000) * preco,
+      key: p,
+    };
+  });
+
+  const totalPrev = linhasPrev.reduce((s, l) => s + l.valorPrev, 0);
+
   return (
     <div className="p-6 space-y-6">
       <div className="flex items-center justify-between">
@@ -185,6 +257,72 @@ export default function AnaliseBasica() {
         </div>
       </section>
 
+      {/* =================== PREVISÃO DE DINHEIRO =================== */}
+      <section className="bg-white rounded-2xl shadow p-4 space-y-4">
+        <h2 className="font-medium">Previsão de Dinheiro (se vender)</h2>
+
+        {/* Inputs de preço do milheiro */}
+        <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+          {PROGRAMAS.map((p) => (
+            <label key={p} className="block">
+              <div className="mb-1 text-xs text-slate-600">
+                Preço {p.toUpperCase()} — R$ por 1.000
+              </div>
+              <input
+                type="number"
+                min={0}
+                step={0.01}
+                value={milheiro[p]}
+                onChange={(e) =>
+                  setMilheiro((prev) => ({ ...prev, [p]: Number(e.target.value) || 0 }))
+                }
+                className="w-full rounded-lg border px-3 py-2 text-sm"
+                placeholder="0,00"
+              />
+            </label>
+          ))}
+        </div>
+
+        {/* Tabela de previsão */}
+        <div className="overflow-auto">
+          <table className="min-w-full text-sm">
+            <thead>
+              <tr className="text-left border-b">
+                <th className="py-2 pr-4">Programa</th>
+                <th className="py-2 pr-4 text-right">Pontos</th>
+                <th className="py-2 pr-4 text-right">R$/milheiro</th>
+                <th className="py-2 pr-4 text-right">Valor previsto</th>
+              </tr>
+            </thead>
+            <tbody>
+              {linhasPrev.map((l) => (
+                <tr key={l.programa} className="border-b">
+                  <td className="py-2 pr-4">{l.programa}</td>
+                  <td className="py-2 pr-4 text-right">
+                    {l.pontos.toLocaleString("pt-BR")}
+                  </td>
+                  <td className="py-2 pr-4 text-right">{fmtMoney(l.precoMilheiro)}</td>
+                  <td className="py-2 pr-4 text-right font-medium">
+                    {fmtMoney(l.valorPrev)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot>
+              <tr>
+                <td className="py-2 pr-4 font-medium">Total previsto</td>
+                <td className="py-2 pr-4" />
+                <td className="py-2 pr-4" />
+                <td className="py-2 pr-4 text-right font-semibold">
+                  {fmtMoney(totalPrev)}
+                </td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      </section>
+
+      {/* Depuração rápida */}
       <section className="rounded-2xl border p-4">
         <div className="text-sm font-medium mb-2">Depuração rápida</div>
         <ul className="text-sm text-slate-700 space-y-1">
@@ -192,7 +330,9 @@ export default function AnaliseBasica() {
           <li>SMILES: {tot.smiles.toLocaleString("pt-BR")} pts</li>
           <li>LIVELO: {tot.livelo.toLocaleString("pt-BR")} pts</li>
           <li>ESFERA: {tot.esfera.toLocaleString("pt-BR")} pts</li>
-          <li className="font-medium">TOTAL: {totalGeral.toLocaleString("pt-BR")} pts</li>
+          <li className="font-medium">
+            TOTAL: {(totalGeral).toLocaleString("pt-BR")} pts
+          </li>
         </ul>
       </section>
     </div>
