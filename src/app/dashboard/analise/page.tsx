@@ -90,6 +90,33 @@ type DebtTxn = {
 };
 
 /* =========================
+ *  Tipos/guards p/ API de cedentes (sem any)
+ * ========================= */
+type ApiOk = { ok: true; data?: unknown };
+type ApiErr = { ok: false; error?: string };
+type ApiResp = ApiOk | ApiErr;
+
+type CedenteMin = {
+  latam?: number;
+  esfera?: number;
+  livelo?: number;
+  smiles?: number;
+};
+
+function isRecord(v: unknown): v is Record<string, unknown> {
+  return typeof v === "object" && v !== null;
+}
+function isNumberLike(v: unknown): v is number {
+  return typeof v === "number" && Number.isFinite(v);
+}
+function isCedenteMin(v: unknown): v is CedenteMin {
+  if (!isRecord(v)) return false;
+  const { latam, esfera, livelo, smiles } = v as Record<string, unknown>;
+  const ok = (x: unknown) => x === undefined || isNumberLike(x);
+  return ok(latam) && ok(esfera) && ok(livelo) && ok(smiles);
+}
+
+/* =========================
  *  Utilitários
  * ========================= */
 function loadLS<T>(key: string, fallback: T): T {
@@ -213,17 +240,20 @@ export default function AnalisePage() {
     (async () => {
       try {
         const res = await fetch("/api/cedentes", { method: "GET" });
-        const json = await res.json();
-        const lista: any[] | undefined = json?.data?.listaCedentes;
-        if (Array.isArray(lista)) {
-          const acc: Record<ProgramKey, number> = { latam: 0, smiles: 0, livelo: 0, esfera: 0 };
-          for (const c of lista) {
-            acc.latam += Number(c?.latam || 0);
-            acc.esfera += Number(c?.esfera || 0);
-            acc.livelo += Number(c?.livelo || 0);
-            acc.smiles += Number(c?.smiles || 0);
+        const json: ApiResp = await res.json();
+
+        if ("ok" in json && json.ok && isRecord(json.data)) {
+          const lista = (json.data as Record<string, unknown>).listaCedentes;
+          if (Array.isArray(lista) && lista.every(isCedenteMin)) {
+            const acc: Record<ProgramKey, number> = { latam: 0, smiles: 0, livelo: 0, esfera: 0 };
+            for (const c of lista as CedenteMin[]) {
+              acc.latam += Number(c.latam || 0);
+              acc.esfera += Number(c.esfera || 0);
+              acc.livelo += Number(c.livelo || 0);
+              acc.smiles += Number(c.smiles || 0);
+            }
+            setEstoque(acc);
           }
-          setEstoque(acc);
         }
       } catch (e) {
         // silencioso para não atrapalhar a tela
