@@ -4,7 +4,7 @@
 import { useEffect, useState } from "react";
 
 /* ===========================================================
- *  TradeMiles – Análise (versão básica)
+ *  TradeMiles – Estoque de Pontos (Básico e resiliente)
  *  Foco: Somatório de pontos por programa a partir de /api/cedentes
  * =========================================================== */
 
@@ -32,6 +32,48 @@ function toNum(x: unknown): number {
   return Number.isFinite(n) ? n : 0;
 }
 
+/** Procura um array de cedentes em vários formatos comuns */
+function pickCedentes(payload: unknown): CedenteMin[] | null {
+  // 1) Se já for array
+  if (Array.isArray(payload)) return payload as CedenteMin[];
+
+  // 2) Se for objeto, tentar várias chaves superficiais
+  if (isRecord(payload)) {
+    const directKeys = ["listaCedentes", "lista", "items", "itens", "cedentes"];
+    for (const k of directKeys) {
+      const v = payload[k];
+      if (Array.isArray(v)) return v as CedenteMin[];
+    }
+
+    // 3) Tentar dentro de "data"
+    const data = payload["data"];
+    if (isRecord(data)) {
+      for (const k of directKeys) {
+        const v = data[k];
+        if (Array.isArray(v)) return v as CedenteMin[];
+      }
+    }
+  }
+  return null;
+}
+
+/** Fallback local: tenta ler do localStorage (mesma base do Visualizar) */
+function loadCedentesLocal(): CedenteMin[] {
+  try {
+    const raw = localStorage.getItem("TM_CEDENTES");
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as unknown;
+    if (Array.isArray(parsed)) return parsed as CedenteMin[];
+    if (isRecord(parsed)) {
+      const arr = pickCedentes(parsed);
+      return arr ?? [];
+    }
+    return [];
+  } catch {
+    return [];
+  }
+}
+
 export default function AnaliseBasica() {
   const [estoque, setEstoque] = useState<Record<ProgramKey, number>>({
     latam: 0,
@@ -52,27 +94,48 @@ export default function AnaliseBasica() {
         method: "GET",
         cache: "no-store",
       });
-      const json: ApiResp = await res.json();
+      const json: ApiResp | unknown = await res.json();
 
-      if (!("ok" in json) || !json.ok || !isRecord(json.data)) {
-        const msg = "error" in (json as ApiErr) && (json as ApiErr).error
-          ? (json as ApiErr).error
-          : "Resposta inválida";
-        throw new Error(msg);
+      // Root flexível: {ok:true,data:...} | {listaCedentes:...} | [...]
+      let root: unknown = json;
+      if (isRecord(json) && "ok" in json) {
+        const resp = json as ApiResp;
+        if (!resp.ok) {
+          const msg =
+            (resp as ApiErr).error || "API retornou ok=false";
+          throw new Error(msg);
+        }
+        root = (resp as ApiOk).data;
       }
 
-      const lista = (json.data as Record<string, unknown>).listaCedentes;
-      if (!Array.isArray(lista)) {
-        throw new Error("Campo data.listaCedentes ausente/inesperado");
+      let lista: CedenteMin[] | null = pickCedentes(root);
+
+      // Fallbacks adicionais: talvez o array esteja direto no root.data.data etc.
+      if (!lista && isRecord(root)) {
+        // tenta root.data (se não tentamos ainda)
+        const d = root["data"];
+        lista = pickCedentes(d);
+      }
+
+      // Se mesmo assim não veio, tenta localStorage
+      if (!lista) {
+        const local = loadCedentesLocal();
+        if (local.length) {
+          lista = local;
+        }
+      }
+
+      if (!lista) {
+        throw new Error("Formato inesperado em /api/cedentes e sem fallback local");
       }
 
       const acc: Record<ProgramKey, number> = { latam: 0, smiles: 0, livelo: 0, esfera: 0 };
-      for (const raw of lista as CedenteMin[]) {
+      for (const raw of lista) {
         if (!isRecord(raw)) continue;
-        acc.latam += toNum((raw as CedenteMin).latam);
-        acc.smiles += toNum((raw as CedenteMin).smiles);
-        acc.livelo += toNum((raw as CedenteMin).livelo);
-        acc.esfera += toNum((raw as CedenteMin).esfera);
+        acc.latam += toNum(raw.latam);
+        acc.smiles += toNum(raw.smiles);
+        acc.livelo += toNum(raw.livelo);
+        acc.esfera += toNum(raw.esfera);
       }
 
       setEstoque(acc);
@@ -88,6 +151,15 @@ export default function AnaliseBasica() {
 
   useEffect(() => {
     carregar();
+
+    // Reage a atualizações feitas na tela "Visualizar"
+    function onStorage(ev: StorageEvent) {
+      if (ev.key === "TM_CEDENTES_REFRESH" || ev.key === "TM_CEDENTES") {
+        void carregar();
+      }
+    }
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
   }, []);
 
   const totalGeral =
