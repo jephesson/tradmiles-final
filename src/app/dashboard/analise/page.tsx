@@ -5,9 +5,9 @@ import { useEffect, useState } from "react";
 import { type Cedente, loadCedentes } from "@/lib/storage";
 
 /* ===========================================================
- *  Estoque de Pontos (BÁSICO) — usa a MESMA rota do Visualizar
- *  - Tenta GET /api/cedentes (data.listaCedentes)
- *  - Se vazio, faz fallback para loadCedentes() (localStorage)
+ *  Estoque de Pontos (BÁSICO) — mesma origem da tela Visualizar
+ *  - GET /api/cedentes (data.listaCedentes)
+ *  - Fallback: loadCedentes() do localStorage
  * =========================================================== */
 
 type ProgramKey = "latam" | "smiles" | "livelo" | "esfera";
@@ -19,33 +19,46 @@ type ApiResp = ApiOk | ApiErr;
 function isObj(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null;
 }
+/** Converte string/number “à brasileira” para número */
 function toNum(x: unknown): number {
   const s = String(x ?? 0).trim().replace(/\./g, "").replace(",", ".");
   const n = Number(s);
   return Number.isFinite(n) ? n : 0;
 }
 
-/** Extrai listaCedentes de payloads variados (mesma ideia da tela visualizar) */
+/** Extrai listaCedentes de payloads variados (compatível com Visualizar) */
 function pickListaCedentes(root: unknown): Cedente[] {
-  const tryGet = (p: any): unknown => {
+  const tryGet = (p: unknown): unknown[] => {
     if (!p) return [];
     if (Array.isArray(p)) return p;
-    const cands = [
-      p.listaCedentes,
-      p.cedentes,
-      p.items,
-      p.lista,
-      p?.data?.listaCedentes,
-      p?.data?.cedentes,
-      p?.data?.items,
-      p?.data?.lista,
-    ];
-    for (const c of cands) if (Array.isArray(c)) return c;
+    if (isObj(p)) {
+      const candidates: unknown[] = [
+        p["listaCedentes"],
+        p["cedentes"],
+        p["items"],
+        p["lista"],
+      ];
+      const nested = isObj(p["data"])
+        ? [
+            (p["data"] as Record<string, unknown>)["listaCedentes"],
+            (p["data"] as Record<string, unknown>)["cedentes"],
+            (p["data"] as Record<string, unknown>)["items"],
+            (p["data"] as Record<string, unknown>)["lista"],
+          ]
+        : [];
+      for (const c of [...candidates, ...nested]) if (Array.isArray(c)) return c;
+    }
     return [];
   };
 
   const arr = tryGet(root);
-  return Array.isArray(arr) ? (arr as Cedente[]) : [];
+  return (Array.isArray(arr) ? (arr as Cedente[]) : []) ?? [];
+}
+
+/** Lê um campo de pontos do Cedente sem usar any */
+function getPts(c: Cedente, k: ProgramKey): number {
+  const record = c as unknown as Record<string, unknown>;
+  return toNum(record[k]);
 }
 
 export default function AnaliseBasica() {
@@ -65,20 +78,20 @@ export default function AnaliseBasica() {
     setLoading(true);
     setErro(null);
     try {
-      // 1) servidor (mesma rota do visualizar)
+      // 1) servidor (mesma rota do Visualizar)
       const res = await fetch(`/api/cedentes?ts=${Date.now()}`, {
         method: "GET",
         cache: "no-store",
       });
+
       let lista: Cedente[] = [];
       if (res.ok) {
         const json: ApiResp | unknown = await res.json();
-        let root: unknown = json;
-        if (isObj(json) && "ok" in json) root = (json as ApiOk).data;
+        const root = isObj(json) && "ok" in json ? (json as ApiOk).data : json;
         lista = pickListaCedentes(root);
       }
 
-      // 2) fallback localStorage (loadCedentes) se vier vazio
+      // 2) fallback localStorage se vier vazio
       if (!lista?.length) {
         lista = loadCedentes();
         setFonte("local");
@@ -87,12 +100,12 @@ export default function AnaliseBasica() {
       }
 
       // Somatório simples por programa
-      const totals = lista.reduce(
+      const totals = lista.reduce<Record<ProgramKey, number>>(
         (acc, c) => {
-          acc.latam += toNum((c as any).latam);
-          acc.smiles += toNum((c as any).smiles);
-          acc.livelo += toNum((c as any).livelo);
-          acc.esfera += toNum((c as any).esfera);
+          acc.latam += getPts(c, "latam");
+          acc.smiles += getPts(c, "smiles");
+          acc.livelo += getPts(c, "livelo");
+          acc.esfera += getPts(c, "esfera");
           return acc;
         },
         { latam: 0, smiles: 0, livelo: 0, esfera: 0 }
@@ -101,8 +114,8 @@ export default function AnaliseBasica() {
       setTot(totals);
       setQtdCedentes(lista.length);
       setUpdatedAt(new Date().toLocaleString("pt-BR"));
-    } catch (e: any) {
-      setErro(e?.message || "Falha ao carregar");
+    } catch (e: unknown) {
+      setErro(e instanceof Error ? e.message : "Falha ao carregar");
     } finally {
       setLoading(false);
     }
@@ -113,7 +126,7 @@ export default function AnaliseBasica() {
 
     // Recarrega automaticamente quando a tela "Visualizar" salva
     function onStorage(e: StorageEvent) {
-      if (e.key === "TM_CEDENTES_REFRESH") carregar();
+      if (e.key === "TM_CEDENTES_REFRESH") void carregar();
     }
     window.addEventListener("storage", onStorage);
     return () => window.removeEventListener("storage", onStorage);
