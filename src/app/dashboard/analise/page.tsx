@@ -9,7 +9,6 @@ import { useEffect, useState } from "react";
  * =========================================================== */
 
 type ProgramKey = "latam" | "smiles" | "livelo" | "esfera";
-const PROGRAMAS: ProgramKey[] = ["latam", "smiles", "livelo", "esfera"];
 
 type ApiOk = { ok: true; data?: unknown };
 type ApiErr = { ok: false; error?: string };
@@ -56,7 +55,10 @@ export default function AnaliseBasica() {
       const json: ApiResp = await res.json();
 
       if (!("ok" in json) || !json.ok || !isRecord(json.data)) {
-        throw new Error(("error" in json && (json as ApiErr).error) || "Resposta inválida");
+        const msg = "error" in (json as ApiErr) && (json as ApiErr).error
+          ? (json as ApiErr).error
+          : "Resposta inválida";
+        throw new Error(msg);
       }
 
       const lista = (json.data as Record<string, unknown>).listaCedentes;
@@ -76,8 +78,9 @@ export default function AnaliseBasica() {
       setEstoque(acc);
       setQtdCedentes(lista.length);
       setLastUpdated(new Date().toLocaleString("pt-BR"));
-    } catch (e: any) {
-      setErro(e?.message || "Falha ao carregar");
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setErro(msg || "Falha ao carregar");
     } finally {
       setLoading(false);
     }
@@ -143,7 +146,6 @@ export default function AnaliseBasica() {
         </div>
       </section>
 
-      {/* Bloco de depuração simples (útil enquanto ajustamos a API) */}
       <section className="rounded-2xl border p-4">
         <div className="text-sm font-medium mb-2">Depuração rápida</div>
         <ul className="text-sm text-slate-700 space-y-1">
