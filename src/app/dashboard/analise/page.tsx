@@ -1,3 +1,4 @@
+// src/app/dashboard/analise/page.tsx
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
@@ -6,6 +7,8 @@ import {
   BarChart,
   CartesianGrid,
   Legend,
+  Line,
+  LineChart,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -27,6 +30,9 @@ const DEBTS_TXNS_KEY = "TM_DEBTS_TXNS";
 /** Preços do milheiro (R$ por 1.000 pontos) */
 const MILHEIRO_KEY = "TM_PRECOS_MILHEIRO";
 
+type ProgramKey = "latam" | "smiles" | "livelo" | "esfera";
+const PROGRAMAS: ProgramKey[] = ["latam", "smiles", "livelo", "esfera"];
+
 /* =========================
  *  Tipos de domínio
  * ========================= */
@@ -38,7 +44,7 @@ type Venda = {
   pontos?: number;
   status?: string;
   funcionarioId?: string;
-  cia?: "latam" | "smiles" | "livelo" | "esfera" | string;
+  cia?: ProgramKey | string;
   pendenteCliente?: boolean;
 };
 
@@ -47,15 +53,15 @@ type Compra = {
   data: string; // ISO ou yyyy-mm-dd
   valorTotal?: number;
   pontos?: number;
-  programa?: "latam" | "smiles" | "livelo" | "esfera" | string;
+  programa?: ProgramKey | string;
 };
 
 type Manual = {
-  caixaAtual: number;               // único editável aqui
-  valoresAReceber: number;          // vindo de outra tela
-  pagarFuncionarios: number;        // vindo de outra tela
-  pendenteCedentes: number;         // vindo de outra tela
-  saldoPontosBloqueados: number;    // vindo de outra tela
+  caixaAtual: number; // único editável aqui
+  valoresAReceber: number;
+  pagarFuncionarios: number;
+  pendenteCedentes: number;
+  saldoPontosBloqueados: number;
 };
 
 type CashTxn = {
@@ -82,9 +88,6 @@ type DebtTxn = {
   obs?: string;
   dataISO: string;
 };
-
-type ProgramKey = "latam" | "smiles" | "livelo" | "esfera";
-const PROGRAMAS: ProgramKey[] = ["latam", "smiles", "livelo", "esfera"];
 
 /* =========================
  *  Utilitários
@@ -153,6 +156,7 @@ function stripPrefix(s: string) {
 /* =========================
  *  Tipos para dados de gráfico
  * ========================= */
+type DiaSerie = { dia: string; valor: number; lucro: number };
 type SerieHistorico6 = { label: string; venda: number; lucro: number };
 type SerieMediaCIA = { cia: string; media: number };
 type PontosProgramaRow = { programa: string; atuais: number; pendentes: number; total: number };
@@ -187,7 +191,15 @@ export default function AnalisePage() {
     esfera: 28,
   });
 
-  /** Carregar dados do localStorage (apenas 1x) */
+  /** Estoque de pontos atual (somado da lista de cedentes no servidor) */
+  const [estoque, setEstoque] = useState<Record<ProgramKey, number>>({
+    latam: 0,
+    smiles: 0,
+    livelo: 0,
+    esfera: 0,
+  });
+
+  /** Carregar dados do localStorage + estoque de /api/cedentes (1x) */
   useEffect(() => {
     setVendas(loadLS<Venda[]>(VENDAS_KEY, []));
     setCompras(loadLS<Compra[]>(COMPRAS_KEY, []));
@@ -196,6 +208,28 @@ export default function AnalisePage() {
     setDebts(loadLS<Debt[]>(DEBTS_KEY, []));
     setDebtTxns(loadLS<DebtTxn[]>(DEBTS_TXNS_KEY, []));
     setMilheiro(loadLS<Record<ProgramKey, number>>(MILHEIRO_KEY, milheiro));
+
+    // puxa a última lista salva no servidor e soma os pontos por programa
+    (async () => {
+      try {
+        const res = await fetch("/api/cedentes", { method: "GET" });
+        const json = await res.json();
+        const lista: any[] | undefined = json?.data?.listaCedentes;
+        if (Array.isArray(lista)) {
+          const acc: Record<ProgramKey, number> = { latam: 0, smiles: 0, livelo: 0, esfera: 0 };
+          for (const c of lista) {
+            acc.latam += Number(c?.latam || 0);
+            acc.esfera += Number(c?.esfera || 0);
+            acc.livelo += Number(c?.livelo || 0);
+            acc.smiles += Number(c?.smiles || 0);
+          }
+          setEstoque(acc);
+        }
+      } catch (e) {
+        // silencioso para não atrapalhar a tela
+        console.warn("[Analise] Falha ao carregar /api/cedentes:", e);
+      }
+    })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -331,33 +365,46 @@ export default function AnalisePage() {
     }));
   }, [vendasMes]);
 
-  /** ===== Pontos por programa (atuais & pendentes) ===== */
+  /** ===== Vendas/Lucro por dia (mês) ===== */
+  const vendasPorDiaData = useMemo<DiaSerie[]>(() => {
+    const arr: DiaSerie[] = [];
+    const base = new Date(year, monthIdx, 1);
+    const nDays = daysInMonth(base);
+    const byDay = metrics.byDay;
+
+    for (let d = 1; d <= nDays; d++) {
+      const key = isoDateKey(new Date(year, monthIdx, d));
+      const v = byDay.get(key);
+      arr.push({ dia: String(d).padStart(2, "0"), valor: v?.valor || 0, lucro: v?.lucro || 0 });
+    }
+    return arr;
+  }, [metrics.byDay, year, monthIdx]);
+
+  /** ===== Pontos por programa (atuais & pendentes) =====
+   *  - "atuais": vem do estoque carregado de /api/cedentes
+   *  - "pendentes": soma das vendas com pendenteCliente = true
+   */
   const pontosPorPrograma = useMemo<PontosProgramaAgg>(() => {
-    const atual = new Map<string, number>();
     const pend = new Map<string, number>();
 
-    for (const c of compras) {
-      const pg = (c.programa || "").toLowerCase();
-      if (!PROGRAMAS.includes(pg as ProgramKey)) continue;
-      atual.set(pg, (atual.get(pg) || 0) + Number(c.pontos || 0));
-    }
     for (const v of vendas) {
       const pg = (v.cia || "").toLowerCase();
       if (!PROGRAMAS.includes(pg as ProgramKey)) continue;
       const pts = Number(v.pontos || 0);
-      if (v.pendenteCliente) {
-        pend.set(pg, (pend.get(pg) || 0) + pts);
-      } else {
-        atual.set(pg, (atual.get(pg) || 0) - pts);
-      }
+      if (v.pendenteCliente) pend.set(pg, (pend.get(pg) || 0) + pts);
     }
 
-    const data: PontosProgramaRow[] = PROGRAMAS.map((p) => ({
-      programa: p.toUpperCase(),
-      atuais: atual.get(p) || 0,
-      pendentes: pend.get(p) || 0,
-      total: (atual.get(p) || 0) + (pend.get(p) || 0),
-    }));
+    const data: PontosProgramaRow[] = PROGRAMAS.map((p) => {
+      const atuais = Number(estoque[p] || 0);
+      const pendentes = pend.get(p) || 0;
+      return {
+        programa: p.toUpperCase(),
+        atuais,
+        pendentes,
+        total: atuais + pendentes,
+      };
+    });
+
     const totais = data.reduce(
       (a, r) => ({
         atuais: a.atuais + r.atuais,
@@ -368,7 +415,7 @@ export default function AnalisePage() {
     );
 
     return { data, totais };
-  }, [vendas, compras]);
+  }, [vendas, estoque]);
 
   /** ===== Avaliação (R$) do estoque de pontos ===== */
   const avaliacaoPontos = useMemo(() => {
@@ -418,7 +465,7 @@ export default function AnalisePage() {
     return { linhas, totais };
   }, [pontosPorPrograma, milheiro]);
 
-  /** ========= Dívidas (total em aberto) ========= */
+  /* ========= Dívidas (total em aberto) ========= */
   const totalDividasAbertas = useMemo(() => {
     const saldo = (debtId: string) => {
       const d = debts.find((x) => x.id === debtId);
@@ -434,7 +481,7 @@ export default function AnalisePage() {
     return debts.filter((d) => !d.isClosed).reduce((s, d) => s + saldo(d.id), 0);
   }, [debts, debtTxns]);
 
-  /** ========= Aguardando clientes (das vendas pendentes) ========= */
+  /* ========= Aguardando clientes (automático das vendas pendentes) ========= */
   const aguardandoClientes = useMemo(() => {
     return vendas.filter((v) => v.pendenteCliente).reduce((s, v) => s + Number(v.valorTotal || 0), 0);
   }, [vendas]);
@@ -470,7 +517,7 @@ export default function AnalisePage() {
     const pagarFuncs = Number(manual.pagarFuncionarios || 0);
     const pendCed = Number(manual.pendenteCedentes || 0);
 
-    // Não somo o valor dos pontos ao saldo "financeiro puro".
+    // saldo financeiro puro (não soma pontos aqui)
     const saldoAtual = caixa - dividas + aReceber + aguardandoClientes - pagarFuncs - pendCed;
     const saldoDesconsiderando = saldoAtual;
 
@@ -540,6 +587,24 @@ export default function AnalisePage() {
         </section>
       )}
 
+      {/* Vendas e Lucro por Dia (mês) */}
+      <section className="bg-white rounded-2xl shadow p-4">
+        <h2 className="font-medium mb-2">Vendas e Lucro por Dia</h2>
+        <div className="h-72">
+          <ResponsiveContainer width="100%" height="100%">
+            <LineChart data={vendasPorDiaData}>
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis dataKey="dia" />
+              <YAxis />
+              <Tooltip formatter={(v) => (typeof v === "number" ? fmtMoney(v) : String(v))} />
+              <Legend />
+              <Line type="monotone" dataKey="valor" name="Vendas (R$)" dot={false} />
+              <Line type="monotone" dataKey="lucro" name="Lucro (R$)" dot={false} />
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+      </section>
+
       {/* Comparação com meses anteriores (6) */}
       <section className="bg-white rounded-2xl shadow p-4">
         <h2 className="font-medium mb-2">Comparação (últimos 6 meses)</h2>
@@ -553,23 +618,6 @@ export default function AnalisePage() {
               <Legend />
               <Bar dataKey="venda" name="Vendas (R$)" />
               <Bar dataKey="lucro" name="Lucro (R$)" />
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
-      </section>
-
-      {/* Média por CIA */}
-      <section className="bg-white rounded-2xl shadow p-4">
-        <h2 className="font-medium mb-2">Média de Vendas por CIA Aérea (mês)</h2>
-        <div className="h-72">
-          <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={mediaPorCIA}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="cia" />
-              <YAxis />
-              <Tooltip formatter={(v) => (typeof v === "number" ? fmtMoney(v) : String(v))} />
-              <Legend />
-              <Bar dataKey="media" name="Média (R$)" />
             </BarChart>
           </ResponsiveContainer>
         </div>
