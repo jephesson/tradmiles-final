@@ -15,20 +15,19 @@ import {
 } from "recharts";
 
 /* ======================================================================
- *  TradeMiles – Aba "Análise" (caixa editável, dívidas automáticas)
+ *  TradeMiles – Aba "Análise" (inclui avaliação de pontos por milheiro)
  * ====================================================================== */
 
 /** Storage keys */
 const VENDAS_KEY = "TM_VENDAS";
 const COMPRAS_KEY = "TM_COMPRAS";
 const MANUAL_KEY = "TM_ANALISE_MANUAL";
-
-/** Movimentações de CAIXA desta página */
 const CAIXA_TXNS_KEY = "TM_ANALISE_CASH_TXNS";
-
-/** Dívidas vindas da página /dashboard/dividas */
 const DEBTS_KEY = "TM_DEBTS";
 const DEBTS_TXNS_KEY = "TM_DEBTS_TXNS";
+
+/** Preços do milheiro (R$ por 1.000 pontos) */
+const MILHEIRO_KEY = "TM_PRECOS_MILHEIRO";
 
 /* =========================
  *  Tipos de domínio
@@ -54,14 +53,11 @@ type Compra = {
 };
 
 type Manual = {
-  /** ÚNICO campo editável aqui */
-  caixaAtual: number;
-
-  /** Abaixo mantidos SOMENTE-LEITURA nesta página (podem ser alimentados por outras telas/processos) */
-  valoresAReceber: number; // não-vendas (manual em outra tela)
-  pagarFuncionarios: number; // manual em outra tela
-  pendenteCedentes: number; // manual em outra tela
-  saldoPontosBloqueados: number;
+  caixaAtual: number;               // único editável aqui
+  valoresAReceber: number;          // vindo de outra tela
+  pagarFuncionarios: number;        // vindo de outra tela
+  pendenteCedentes: number;         // vindo de outra tela
+  saldoPontosBloqueados: number;    // vindo de outra tela
 };
 
 type CashTxn = {
@@ -89,6 +85,9 @@ type DebtTxn = {
   dataISO: string;
 };
 
+type ProgramKey = "latam" | "smiles" | "livelo" | "esfera";
+const PROGRAMAS: ProgramKey[] = ["latam", "smiles", "livelo", "esfera"];
+
 /* =========================
  *  Utilitários
  * ========================= */
@@ -111,13 +110,11 @@ function saveLS<T>(key: string, value: T) {
 function fmtMoney(n: number) {
   return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(Number(n) || 0);
 }
-
 function parseISO(iso?: string): Date | null {
   if (!iso) return null;
   const d = new Date(iso);
   return Number.isNaN(d.getTime()) ? null : d;
 }
-
 function sameYM(a: Date, b: Date) {
   return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth();
 }
@@ -181,12 +178,17 @@ export default function AnalisePage() {
     pendenteCedentes: 0,
     saldoPontosBloqueados: 0,
   });
-
   const [cashTxns, setCashTxns] = useState<CashTxn[]>([]);
-
-  // Dívidas
   const [debts, setDebts] = useState<Debt[]>([]);
   const [debtTxns, setDebtTxns] = useState<DebtTxn[]>([]);
+
+  /** Preço do milheiro (R$/1000 pts) */
+  const [milheiro, setMilheiro] = useState<Record<ProgramKey, number>>({
+    latam: 25,     // defaults razoáveis; ajuste na UI
+    smiles: 24,
+    livelo: 32,
+    esfera: 28,
+  });
 
   /** Carregar dados do localStorage (apenas 1x) */
   useEffect(() => {
@@ -196,8 +198,11 @@ export default function AnalisePage() {
     setCashTxns(loadLS<CashTxn[]>(CAIXA_TXNS_KEY, []));
     setDebts(loadLS<Debt[]>(DEBTS_KEY, []));
     setDebtTxns(loadLS<DebtTxn[]>(DEBTS_TXNS_KEY, []));
+    setMilheiro(loadLS<Record<ProgramKey, number>>(MILHEIRO_KEY, milheiro));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => saveLS(MILHEIRO_KEY, milheiro), [milheiro]);
 
   const isMesAtual = useMemo(
     () => sameYM(new Date(year, monthIdx, 1), new Date()),
@@ -331,24 +336,28 @@ export default function AnalisePage() {
 
   /** ===== Pontos por programa (atuais & pendentes) ===== */
   const pontosPorPrograma = useMemo<PontosProgramaAgg>(() => {
-    const programas = ["latam", "smiles", "livelo", "esfera"] as const;
     const atual = new Map<string, number>();
     const pend = new Map<string, number>();
 
     for (const c of compras) {
       const pg = (c.programa || "").toLowerCase();
-      if (!(programas as readonly string[]).includes(pg)) continue;
+      if (!PROGRAMAS.includes(pg as ProgramKey)) continue;
       atual.set(pg, (atual.get(pg) || 0) + Number(c.pontos || 0));
     }
     for (const v of vendas) {
       const pg = (v.cia || "").toLowerCase();
-      if (!(programas as readonly string[]).includes(pg)) continue;
+      if (!PROGRAMAS.includes(pg as ProgramKey)) continue;
       const pts = Number(v.pontos || 0);
-      if (v.pendenteCliente) pend.set(pg, (pend.get(pg) || 0) + pts);
-      else atual.set(pg, (atual.get(pg) || 0) - pts);
+      if (v.pendenteCliente) {
+        // pontos comprometidos em vendas ainda não pagas pelos clientes
+        pend.set(pg, (pend.get(pg) || 0) + pts);
+      } else {
+        // vendas concluídas consomem o estoque atual
+        atual.set(pg, (atual.get(pg) || 0) - pts);
+      }
     }
 
-    const data: PontosProgramaRow[] = programas.map((p) => ({
+    const data: PontosProgramaRow[] = PROGRAMAS.map((p) => ({
       programa: p.toUpperCase(),
       atuais: atual.get(p) || 0,
       pendentes: pend.get(p) || 0,
@@ -366,22 +375,55 @@ export default function AnalisePage() {
     return { data, totais };
   }, [vendas, compras]);
 
-  /** ===== Vendas/Lucro por dia (mês) ===== */
-  const vendasPorDiaData = useMemo<DiaSerie[]>(() => {
-    const arr: DiaSerie[] = [];
-    const base = new Date(year, monthIdx, 1);
-    const nDays = daysInMonth(base);
-    const byDay = metrics.byDay;
+  /** ===== Avaliação (R$) do estoque de pontos ===== */
+  const avaliacaoPontos = useMemo(() => {
+    type LinhaVal = {
+      programa: string;
+      ptsAtuais: number;
+      precoMilheiro: number;
+      valorAtual: number;
+      ptsPendentes: number;
+      valorPendente: number;
+      ptsTotal: number;
+      valorTotal: number;
+      key: ProgramKey;
+    };
 
-    for (let d = 1; d <= nDays; d++) {
-      const key = isoDateKey(new Date(year, monthIdx, d));
-      const v = byDay.get(key);
-      arr.push({ dia: String(d).padStart(2, "0"), valor: v?.valor || 0, lucro: v?.lucro || 0 });
-    }
-    return arr;
-  }, [metrics.byDay, year, monthIdx]);
+    const linhas: LinhaVal[] = pontosPorPrograma.data.map((r) => {
+      const key = r.programa.toLowerCase() as ProgramKey;
+      const preco = milheiro[key] || 0; // R$ por 1.000 pts
+      const valorAtual = (r.atuais / 1000) * preco;
+      const valorPendente = (r.pendentes / 1000) * preco;
+      return {
+        programa: r.programa,
+        key,
+        ptsAtuais: r.atuais,
+        precoMilheiro: preco,
+        valorAtual,
+        ptsPendentes: r.pendentes,
+        valorPendente,
+        ptsTotal: r.total,
+        valorTotal: valorAtual + valorPendente,
+      };
+    });
 
-  /* ========= Dívidas (total em aberto) ========= */
+    const totais = linhas.reduce(
+      (a, l) => {
+        a.ptsAtuais += l.ptsAtuais;
+        a.valorAtual += l.valorAtual;
+        a.ptsPendentes += l.ptsPendentes;
+        a.valorPendentes += l.valorPendente;
+        a.ptsTotal += l.ptsTotal;
+        a.valorTotal += l.valorTotal;
+        return a;
+      },
+      { ptsAtuais: 0, valorAtual: 0, ptsPendentes: 0, valorPendentes: 0, ptsTotal: 0, valorTotal: 0 }
+    );
+
+    return { linhas, totais };
+  }, [pontosPorPrograma, milheiro]);
+
+  /** ========= Dívidas (total em aberto) ========= */
   const totalDividasAbertas = useMemo(() => {
     const saldo = (debtId: string) => {
       const d = debts.find((x) => x.id === debtId);
@@ -397,7 +439,7 @@ export default function AnalisePage() {
     return debts.filter((d) => !d.isClosed).reduce((s, d) => s + saldo(d.id), 0);
   }, [debts, debtTxns]);
 
-  /* ========= Aguardando clientes (automático das vendas pendentes) ========= */
+  /** ========= Aguardando clientes (das vendas pendentes) ========= */
   const aguardandoClientes = useMemo(() => {
     return vendas.filter((v) => v.pendenteCliente).reduce((s, v) => s + Number(v.valorTotal || 0), 0);
   }, [vendas]);
@@ -433,8 +475,10 @@ export default function AnalisePage() {
     const pagarFuncs = Number(manual.pagarFuncionarios || 0);
     const pendCed = Number(manual.pendenteCedentes || 0);
 
+    // Não somo o valor dos pontos ao saldo "financeiro puro".
+    // Exibimos em KPIs próprios abaixo.
     const saldoAtual = caixa - dividas + aReceber + aguardandoClientes - pagarFuncs - pendCed;
-    const saldoDesconsiderando = saldoAtual; // financeiro puro
+    const saldoDesconsiderando = saldoAtual;
 
     return { caixa, saldoAtual, saldoDesconsiderando, dividas };
   }, [caixaCalculado, totalDividasAbertas, aguardandoClientes, manual]);
@@ -511,9 +555,7 @@ export default function AnalisePage() {
               <CartesianGrid strokeDasharray="3 3" />
               <XAxis dataKey="dia" />
               <YAxis />
-              <Tooltip
-                formatter={(v) => (typeof v === "number" ? fmtMoney(v) : String(v))}
-              />
+              <Tooltip formatter={(v) => (typeof v === "number" ? fmtMoney(v) : String(v))} />
               <Legend />
               <Line type="monotone" dataKey="valor" name="Vendas (R$)" dot={false} />
               <Line type="monotone" dataKey="lucro" name="Lucro (R$)" dot={false} />
@@ -531,9 +573,7 @@ export default function AnalisePage() {
               <CartesianGrid strokeDasharray="3 3" />
               <XAxis dataKey="label" />
               <YAxis />
-              <Tooltip
-                formatter={(v) => (typeof v === "number" ? fmtMoney(v) : String(v))}
-              />
+              <Tooltip formatter={(v) => (typeof v === "number" ? fmtMoney(v) : String(v))} />
               <Legend />
               <Bar dataKey="venda" name="Vendas (R$)" />
               <Bar dataKey="lucro" name="Lucro (R$)" />
@@ -551,9 +591,7 @@ export default function AnalisePage() {
               <CartesianGrid strokeDasharray="3 3" />
               <XAxis dataKey="cia" />
               <YAxis />
-              <Tooltip
-                formatter={(v) => (typeof v === "number" ? fmtMoney(v) : String(v))}
-              />
+              <Tooltip formatter={(v) => (typeof v === "number" ? fmtMoney(v) : String(v))} />
               <Legend />
               <Bar dataKey="media" name="Média (R$)" />
             </BarChart>
@@ -561,44 +599,83 @@ export default function AnalisePage() {
         </div>
       </section>
 
-      {/* Pontos por programa */}
-      <section className="bg-white rounded-2xl shadow p-4">
-        <h2 className="font-medium mb-2">Pontos por Programa</h2>
+      {/* ===== Preços do milheiro + Avaliação dos pontos ===== */}
+      <section className="bg-white rounded-2xl shadow p-4 space-y-4">
+        <h2 className="font-medium">Estoque de Pontos & Avaliação (R$/milheiro)</h2>
+
+        {/* Inputs de preço do milheiro */}
+        <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+          {PROGRAMAS.map((p) => (
+            <CurrencyInput
+              key={p}
+              label={`Preço ${p.toUpperCase()} (R$ por 1.000)`}
+              value={milheiro[p]}
+              onChange={(v) => setMilheiro((prev) => ({ ...prev, [p]: v }))}
+            />
+          ))}
+        </div>
+
+        {/* Tabela de pontos e valores */}
         <div className="overflow-auto">
           <table className="min-w-full text-sm">
             <thead>
               <tr className="text-left border-b">
                 <th className="py-2 pr-4">Programa</th>
-                <th className="py-2 pr-4">Atuais</th>
-                <th className="py-2 pr-4">Pendentes</th>
-                <th className="py-2 pr-4">Total</th>
+                <th className="py-2 pr-4 text-right">Pontos atuais</th>
+                <th className="py-2 pr-4 text-right">R$/milheiro</th>
+                <th className="py-2 pr-4 text-right">Valor (atuais)</th>
+                <th className="py-2 pr-4 text-right">Pendentes</th>
+                <th className="py-2 pr-4 text-right">Valor pendente</th>
+                <th className="py-2 pr-4 text-right">Total pontos</th>
+                <th className="py-2 pr-4 text-right">Valor total</th>
               </tr>
             </thead>
             <tbody>
-              {pontosPorPrograma.data.map((r) => (
-                <tr key={r.programa} className="border-b">
-                  <td className="py-2 pr-4">{r.programa}</td>
-                  <td className="py-2 pr-4">{r.atuais.toLocaleString("pt-BR")}</td>
-                  <td className="py-2 pr-4">{r.pendentes.toLocaleString("pt-BR")}</td>
-                  <td className="py-2 pr-4 font-medium">{r.total.toLocaleString("pt-BR")}</td>
+              {avaliacaoPontos.linhas.map((l) => (
+                <tr key={l.programa} className="border-b">
+                  <td className="py-2 pr-4">{l.programa}</td>
+                  <td className="py-2 pr-4 text-right">{l.ptsAtuais.toLocaleString("pt-BR")}</td>
+                  <td className="py-2 pr-4 text-right">{fmtMoney(l.precoMilheiro)}</td>
+                  <td className="py-2 pr-4 text-right">{fmtMoney(l.valorAtual)}</td>
+                  <td className="py-2 pr-4 text-right">{l.ptsPendentes.toLocaleString("pt-BR")}</td>
+                  <td className="py-2 pr-4 text-right">{fmtMoney(l.valorPendente)}</td>
+                  <td className="py-2 pr-4 text-right">{l.ptsTotal.toLocaleString("pt-BR")}</td>
+                  <td className="py-2 pr-4 text-right font-medium">{fmtMoney(l.valorTotal)}</td>
                 </tr>
               ))}
             </tbody>
             <tfoot>
               <tr>
                 <td className="py-2 pr-4 font-medium">Totais</td>
-                <td className="py-2 pr-4 font-medium">
-                  {pontosPorPrograma.totais.atuais.toLocaleString("pt-BR")}
+                <td className="py-2 pr-4 text-right font-medium">
+                  {avaliacaoPontos.totais.ptsAtuais.toLocaleString("pt-BR")}
                 </td>
-                <td className="py-2 pr-4 font-medium">
-                  {pontosPorPrograma.totais.pendentes.toLocaleString("pt-BR")}
+                <td className="py-2 pr-4"></td>
+                <td className="py-2 pr-4 text-right font-semibold">
+                  {fmtMoney(avaliacaoPontos.totais.valorAtual)}
                 </td>
-                <td className="py-2 pr-4 font-semibold">
-                  {pontosPorPrograma.totais.total.toLocaleString("pt-BR")}
+                <td className="py-2 pr-4 text-right font-medium">
+                  {avaliacaoPontos.totais.ptsPendentes.toLocaleString("pt-BR")}
+                </td>
+                <td className="py-2 pr-4 text-right font-semibold">
+                  {fmtMoney(avaliacaoPontos.totais.valorPendentes)}
+                </td>
+                <td className="py-2 pr-4 text-right font-semibold">
+                  {avaliacaoPontos.totais.ptsTotal.toLocaleString("pt-BR")}
+                </td>
+                <td className="py-2 pr-4 text-right font-bold">
+                  {fmtMoney(avaliacaoPontos.totais.valorTotal)}
                 </td>
               </tr>
             </tfoot>
           </table>
+        </div>
+
+        {/* KPIs rápidos do valor dos pontos */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <CardKPI title="Valor dos pontos (atuais)" value={fmtMoney(avaliacaoPontos.totais.valorAtual)} />
+          <CardKPI title="Valor pendente (pontos)" value={fmtMoney(avaliacaoPontos.totais.valorPendentes)} />
+          <CardKPI title="Valor total (atuais + pendentes)" value={fmtMoney(avaliacaoPontos.totais.valorTotal)} />
         </div>
       </section>
 
