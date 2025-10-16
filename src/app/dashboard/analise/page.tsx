@@ -6,8 +6,6 @@ import {
   BarChart,
   CartesianGrid,
   Legend,
-  Line,
-  LineChart,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -155,7 +153,6 @@ function stripPrefix(s: string) {
 /* =========================
  *  Tipos para dados de gráfico
  * ========================= */
-type DiaSerie = { dia: string; valor: number; lucro: number };
 type SerieHistorico6 = { label: string; venda: number; lucro: number };
 type SerieMediaCIA = { cia: string; media: number };
 type PontosProgramaRow = { programa: string; atuais: number; pendentes: number; total: number };
@@ -184,7 +181,7 @@ export default function AnalisePage() {
 
   /** Preço do milheiro (R$/1000 pts) */
   const [milheiro, setMilheiro] = useState<Record<ProgramKey, number>>({
-    latam: 25,     // defaults razoáveis; ajuste na UI
+    latam: 25,
     smiles: 24,
     livelo: 32,
     esfera: 28,
@@ -349,10 +346,8 @@ export default function AnalisePage() {
       if (!PROGRAMAS.includes(pg as ProgramKey)) continue;
       const pts = Number(v.pontos || 0);
       if (v.pendenteCliente) {
-        // pontos comprometidos em vendas ainda não pagas pelos clientes
         pend.set(pg, (pend.get(pg) || 0) + pts);
       } else {
-        // vendas concluídas consomem o estoque atual
         atual.set(pg, (atual.get(pg) || 0) - pts);
       }
     }
@@ -476,7 +471,6 @@ export default function AnalisePage() {
     const pendCed = Number(manual.pendenteCedentes || 0);
 
     // Não somo o valor dos pontos ao saldo "financeiro puro".
-    // Exibimos em KPIs próprios abaixo.
     const saldoAtual = caixa - dividas + aReceber + aguardandoClientes - pagarFuncs - pendCed;
     const saldoDesconsiderando = saldoAtual;
 
@@ -545,24 +539,6 @@ export default function AnalisePage() {
           />
         </section>
       )}
-
-      {/* Vendas e Lucro por Dia (mês) */}
-      <section className="bg-white rounded-2xl shadow p-4">
-        <h2 className="font-medium mb-2">Vendas e Lucro por Dia</h2>
-        <div className="h-72">
-          <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={vendasPorDiaData}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="dia" />
-              <YAxis />
-              <Tooltip formatter={(v) => (typeof v === "number" ? fmtMoney(v) : String(v))} />
-              <Legend />
-              <Line type="monotone" dataKey="valor" name="Vendas (R$)" dot={false} />
-              <Line type="monotone" dataKey="lucro" name="Lucro (R$)" dot={false} />
-            </LineChart>
-          </ResponsiveContainer>
-        </div>
-      </section>
 
       {/* Comparação com meses anteriores (6) */}
       <section className="bg-white rounded-2xl shadow p-4">
