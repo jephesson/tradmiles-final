@@ -27,7 +27,7 @@ type ProgramConfig = {
 type RespConfig = {
   sheet: string;
   colCedente: string; // coluna com o cedente (nome/ID) para casar
-  colResp: string;    // coluna com o responsável (id/slug/nome)
+  colResp: string; // coluna com o responsável (id/slug/nome)
   approximate: boolean;
   stats: { matched: number; notFound: number };
 };
@@ -70,7 +70,8 @@ function keyName(v: unknown) {
 }
 function levenshtein(a: string, b: string) {
   if (a === b) return 0;
-  const m = a.length, n = b.length;
+  const m = a.length,
+    n = b.length;
   if (m === 0) return n;
   if (n === 0) return m;
   const dp = Array.from({ length: m + 1 }, () => new Array(n + 1).fill(0));
@@ -86,7 +87,8 @@ function levenshtein(a: string, b: string) {
   return dp[m][n];
 }
 function similarity(a: unknown, b: unknown) {
-  const s1 = keyName(a), s2 = keyName(b);
+  const s1 = keyName(a),
+    s2 = keyName(b);
   if (!s1 || !s2) return 0;
   const dist = levenshtein(s1, s2);
   const maxLen = Math.max(s1.length, s2.length);
@@ -114,7 +116,10 @@ function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null;
 }
 function isCedenteArray(v: unknown): v is Cedente[] {
-  return Array.isArray(v) && v.every((o) => isRecord(o) && typeof (o as Record<string, unknown>).nome_completo === "string");
+  return (
+    Array.isArray(v) &&
+    v.every((o) => isRecord(o) && typeof (o as Record<string, unknown>).nome_completo === "string")
+  );
 }
 function isApiErr(v: unknown): v is ApiErr {
   return isRecord(v) && (v as Record<string, unknown>).ok === false;
@@ -198,7 +203,10 @@ export default function CedentesImporter() {
     try {
       const raw = loadFuncionarios();
       return Array.isArray(raw)
-        ? raw.filter((f): f is Staff => isRecord(f) && typeof (f as Staff).id === "string" && typeof (f as Staff).nome === "string")
+        ? raw.filter(
+            (f): f is Staff =>
+              isRecord(f) && typeof (f as Staff).id === "string" && typeof (f as Staff).nome === "string",
+          )
         : [];
     } catch (e) {
       console.error("[CedentesImporter] loadFuncionarios error:", e);
@@ -264,7 +272,13 @@ export default function CedentesImporter() {
             prev.map((p) => ({ ...p, sheet: first, colName: "", colPoints: "", stats: { matched: 0, notFound: 0 } })),
           );
 
-          setRespCfg({ sheet: first, colCedente: "", colResp: "", approximate: true, stats: { matched: 0, notFound: 0 } });
+          setRespCfg({
+            sheet: first,
+            colCedente: "",
+            colResp: "",
+            approximate: true,
+            stats: { matched: 0, notFound: 0 },
+          });
         } catch (e) {
           console.error("[CedentesImporter] reader.onload error:", e);
           alert("Erro ao ler o Excel.");
@@ -316,7 +330,9 @@ export default function CedentesImporter() {
       if (typeof cell === "string" && cell.trim()) names.push(toTitleCase(cell.trim()));
     }
 
-    const cleaned = names.map((n) => toTitleCase(stripDiacritics(n))).filter((n) => n && n.length > 1);
+    const cleaned = names
+      .map((n) => toTitleCase(stripDiacritics(n)))
+      .filter((n) => n && n.length > 1);
     const unique = Array.from(new Set(cleaned));
     const deduped: string[] = [];
     for (const name of unique) {
@@ -365,7 +381,8 @@ export default function CedentesImporter() {
 
     const base = listaCedentes.map((c) => ({ ...c, [p.key]: 0 })) as Cedente[];
 
-    let matched = 0, notFound = 0;
+    let matched = 0,
+      notFound = 0;
 
     const updated = base.map((c) => {
       const k = keyName(c.nome_completo);
@@ -463,7 +480,8 @@ export default function CedentesImporter() {
         return undefined;
       }
 
-      let matched = 0, notFound = 0;
+      let matched = 0,
+        notFound = 0;
 
       const updated = listaCedentes.map((c) => {
         const idKey = keyName(c.identificador);
@@ -502,6 +520,16 @@ export default function CedentesImporter() {
 
       setListaCedentes(updated);
       setRespCfg((prev) => ({ ...prev, stats: { matched, notFound } }));
+
+      // log de apoio (apenas no console)
+      if (notFound > 0) {
+        const exemplos = updated
+          .filter((c) => !c.responsavelId)
+          .slice(0, 10)
+          .map((c) => ({ cedente: c.nome_completo, id: c.identificador }));
+        console.table(exemplos);
+      }
+
       alert(`Responsáveis aplicados: ${matched}. Não encontrados: ${notFound}.`);
     } catch (e) {
       console.error("[CedentesImporter] applyResponsaveis error:", e);
@@ -587,12 +615,13 @@ export default function CedentesImporter() {
   /* ---------- Export ---------- */
   function exportCSV() {
     if (!listaCedentes.length) return;
-    const header = "identificador;nome_completo;latam;esfera;livelo;smiles;responsavel_id;responsavel_nome\n";
+    const header =
+      "identificador;nome_completo;latam;esfera;livelo;smiles;responsavel_id;responsavel_nome\n";
     const lines = listaCedentes.map(
       (r) =>
-        `${r.identificador};${r.nome_completo};${r.latam};${r.esfera};${r.livelo};${r.smiles};${r.responsavelId || ""};${
-          r.responsavelNome || ""
-        }`,
+        `${r.identificador};${r.nome_completo};${r.latam};${r.esfera};${r.livelo};${r.smiles};${
+          r.responsavelId || ""
+        };${r.responsavelNome || ""}`,
     );
     download("cedentes_importados.csv", header + lines.join("\n"));
   }
@@ -613,8 +642,9 @@ export default function CedentesImporter() {
       </div>
 
       <p className="mb-6 text-sm text-slate-600">
-        Etapa 1: importe os nomes e gere IDs. Etapa 2: para <b>cada programa</b> (Latam, Esfera, Livelo, Smiles), selecione
-        a <b>aba</b> e as colunas de <b>Nome</b> e <b>Pontos</b>. Etapa 3: aplique os <b>responsáveis</b>.
+        Etapa 1: importe os nomes e gere IDs. Etapa 2: para <b>cada programa</b> (Latam, Esfera, Livelo,
+        Smiles), selecione a <b>aba</b> e as colunas de <b>Nome</b> e <b>Pontos</b>. Etapa 3: aplique os{" "}
+        <b>responsáveis</b>.
       </p>
 
       {/* Upload */}
@@ -648,28 +678,51 @@ export default function CedentesImporter() {
         </div>
       </div>
 
-      {/* ETAPA 1 — NOMES */}
+      {/* ETAPA 1 — Nomes */}
       {sheets.length > 0 && (
         <>
           <h2 className="mt-6 mb-2 text-lg font-semibold">Etapa 1 — Nomes</h2>
           <div className="mb-4 grid grid-cols-1 gap-3 md:grid-cols-3">
             <div className="flex flex-col">
               <label className="mb-1 text-xs font-medium text-slate-600">Aba dos Nomes</label>
-              <select className="rounded-xl border px-3 py-2" value={namesSheet} onChange={(e) => setNamesSheet(e.currentTarget?.value ?? "")}>
+              <select
+                className="rounded-xl border px-3 py-2"
+                value={namesSheet}
+                onChange={(e) => setNamesSheet(e.currentTarget?.value ?? "")}
+              >
                 {sheets.map((s) => (
-                  <option key={s.name} value={s.name}>{s.name}</option>
+                  <option key={s.name} value={s.name}>
+                    {s.name}
+                  </option>
                 ))}
               </select>
             </div>
             <div className="flex flex-col">
               <label className="mb-1 text-xs font-medium text-slate-600">Coluna com os Nomes</label>
-              <select className="rounded-xl border px-3 py-2" value={colNome} onChange={(e) => setColNome(e.currentTarget?.value ?? "A")}>
-                {availableColumnsOnNames.map((c) => (<option key={c} value={c}>{c}</option>))}
+              <select
+                className="rounded-xl border px-3 py-2"
+                value={colNome}
+                onChange={(e) => setColNome(e.currentTarget?.value ?? "A")}
+              >
+                {availableColumnsOnNames.map((c) => (
+                  <option key={c} value={c}>
+                    {c}
+                  </option>
+                ))}
               </select>
             </div>
             <div className="flex flex-col">
-              <label className="mb-1 text-xs font-medium text-slate-600">Similaridade (≥) p/ deduplicar nomes</label>
-              <input type="range" min={0.7} max={0.98} step={0.01} value={threshold} onChange={(e) => setThreshold(parseFloat(e.currentTarget?.value ?? "0.9"))}/>
+              <label className="mb-1 text-xs font-medium text-slate-600">
+                Similaridade (≥) p/ deduplicar nomes
+              </label>
+              <input
+                type="range"
+                min={0.7}
+                max={0.98}
+                step={0.01}
+                value={threshold}
+                onChange={(e) => setThreshold(parseFloat(e.currentTarget?.value ?? "0.9"))}
+              />
               <div className="text-xs text-slate-600">{Math.round(threshold * 100)}%</div>
             </div>
           </div>
@@ -678,12 +731,19 @@ export default function CedentesImporter() {
             <div className="mb-3 rounded-xl border border-slate-200 bg-white p-3 text-sm">
               <div className="mb-2 font-medium">Prévia (primeiras linhas da coluna de nomes)</div>
               <ul className="list-disc space-y-1 pl-6">
-                {firstRowsPreview.map((v, i) => (<li key={i} className="text-slate-700">{v || <span className="text-slate-400">(vazio)</span>}</li>))}
+                {firstRowsPreview.map((v, i) => (
+                  <li key={i} className="text-slate-700">
+                    {v || <span className="text-slate-400">(vazio)</span>}
+                  </li>
+                ))}
               </ul>
             </div>
           )}
 
-          <button onClick={processNames} className="mb-6 rounded-xl bg-black px-4 py-2 text-white shadow-soft hover:bg-gray-800">
+          <button
+            onClick={processNames}
+            className="mb-6 rounded-xl bg-black px-4 py-2 text-white shadow-soft hover:bg-gray-800"
+          >
             Processar nomes e gerar IDs
           </button>
         </>
@@ -695,7 +755,12 @@ export default function CedentesImporter() {
           <div className="mt-2 mb-3 flex items-center gap-3">
             <h2 className="text-lg font-semibold">Etapa 2 — Importar Pontos por Programa</h2>
             <label className="flex items-center gap-2 text-xs text-slate-700">
-              <input type="checkbox" className="h-4 w-4" checked={approximatePoints} onChange={(e) => setApproximatePoints(e.currentTarget?.checked ?? false)} />
+              <input
+                type="checkbox"
+                className="h-4 w-4"
+                checked={approximatePoints}
+                onChange={(e) => setApproximatePoints(e.currentTarget?.checked ?? false)}
+              />
               Usar correspondência aproximada (≥ 90%)
             </label>
           </div>
@@ -708,45 +773,85 @@ export default function CedentesImporter() {
                   <div className="mb-3 flex items-center justify-between">
                     <div className="text-base font-medium">{p.label}</div>
                     {p.stats.matched + p.stats.notFound > 0 && (
-                      <div className="text-xs text-slate-600">Casados: <b>{p.stats.matched}</b> • Não encontrados: <b>{p.stats.notFound}</b></div>
+                      <div className="text-xs text-slate-600">
+                        Casados: <b>{p.stats.matched}</b> • Não encontrados: <b>{p.stats.notFound}</b>
+                      </div>
                     )}
                   </div>
 
                   <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
                     <div className="flex flex-col">
                       <label className="mb-1 text-xs font-medium text-slate-600">Aba</label>
-                      <select className="rounded-xl border px-3 py-2" value={p.sheet} onChange={(e) => {
-                        const v = e.currentTarget?.value ?? "";
-                        setPrograms((prev) => prev.map((cfg, i) => i === idx ? { ...cfg, sheet: v, colName: "", colPoints: "", stats: { matched: 0, notFound: 0 } } : cfg));
-                      }}>
-                        {sheets.map((s) => (<option key={s.name} value={s.name}>{s.name}</option>))}
+                      <select
+                        className="rounded-xl border px-3 py-2"
+                        value={p.sheet}
+                        onChange={(e) => {
+                          const v = e.currentTarget?.value ?? "";
+                          setPrograms((prev) =>
+                            prev.map((cfg, i) =>
+                              i === idx
+                                ? { ...cfg, sheet: v, colName: "", colPoints: "", stats: { matched: 0, notFound: 0 } }
+                                : cfg,
+                            ),
+                          );
+                        }}
+                      >
+                        {sheets.map((s) => (
+                          <option key={s.name} value={s.name}>
+                            {s.name}
+                          </option>
+                        ))}
                       </select>
                     </div>
 
                     <div className="flex flex-col">
                       <label className="mb-1 text-xs font-medium text-slate-600">Coluna do Nome</label>
-                      <select className="rounded-xl border px-3 py-2" value={p.colName} onChange={(e) => {
-                        const v = e.currentTarget?.value ?? "";
-                        setPrograms((prev) => prev.map((cfg, i) => (i === idx ? { ...cfg, colName: v } : cfg)));
-                      }}>
+                      <select
+                        className="rounded-xl border px-3 py-2"
+                        value={p.colName}
+                        onChange={(e) => {
+                          const v = e.currentTarget?.value ?? "";
+                          setPrograms((prev) =>
+                            prev.map((cfg, i) => (i === idx ? { ...cfg, colName: v } : cfg)),
+                          );
+                        }}
+                      >
                         <option value="">Selecione…</option>
-                        {cols.map((c) => (<option key={c} value={c}>{c}</option>))}
+                        {cols.map((c) => (
+                          <option key={c} value={c}>
+                            {c}
+                          </option>
+                        ))}
                       </select>
                     </div>
 
                     <div className="flex flex-col">
                       <label className="mb-1 text-xs font-medium text-slate-600">Coluna dos Pontos</label>
-                      <select className="rounded-xl border px-3 py-2" value={p.colPoints} onChange={(e) => {
-                        const v = e.currentTarget?.value ?? "";
-                        setPrograms((prev) => prev.map((cfg, i) => (i === idx ? { ...cfg, colPoints: v } : cfg)));
-                      }}>
+                      <select
+                        className="rounded-xl border px-3 py-2"
+                        value={p.colPoints}
+                        onChange={(e) => {
+                          const v = e.currentTarget?.value ?? "";
+                          setPrograms((prev) =>
+                            prev.map((cfg, i) => (i === idx ? { ...cfg, colPoints: v } : cfg)),
+                          );
+                        }}
+                      >
                         <option value="">Selecione…</option>
-                        {cols.map((c) => (<option key={c} value={c}>{c}</option>))}
+                        {cols.map((c) => (
+                          <option key={c} value={c}>
+                            {c}
+                          </option>
+                        ))}
                       </select>
                     </div>
 
                     <div className="flex items-end">
-                      <button onClick={() => applyPointsForProgram(p)} className="rounded-xl bg-black px-4 py-2 text-white shadow-soft hover:bg-gray-800 disabled:opacity-50" disabled={!p.sheet || !p.colName || !p.colPoints}>
+                      <button
+                        onClick={() => applyPointsForProgram(p)}
+                        className="rounded-xl bg-black px-4 py-2 text-white shadow-soft hover:bg-gray-800 disabled:opacity-50"
+                        disabled={!p.sheet || !p.colName || !p.colPoints}
+                      >
                         Aplicar {p.label}
                       </button>
                     </div>
@@ -766,43 +871,84 @@ export default function CedentesImporter() {
             <div className="grid grid-cols-1 gap-3 md:grid-cols-5">
               <div className="flex flex-col">
                 <label className="mb-1 text-xs font-medium text-slate-600">Aba</label>
-                <select className="rounded-xl border px-3 py-2" value={respCfg.sheet} onChange={(e) => {
-                  const v = e.currentTarget?.value ?? "";
-                  setRespCfg((prev) => ({ ...prev, sheet: v, colCedente: "", colResp: "", stats: { matched: 0, notFound: 0 } }));
-                }}>
-                  {sheets.map((s) => (<option key={s.name} value={s.name}>{s.name}</option>))}
+                <select
+                  className="rounded-xl border px-3 py-2"
+                  value={respCfg.sheet}
+                  onChange={(e) => {
+                    const v = e.currentTarget?.value ?? "";
+                    setRespCfg((prev) => ({
+                      ...prev,
+                      sheet: v,
+                      colCedente: "",
+                      colResp: "",
+                      stats: { matched: 0, notFound: 0 },
+                    }));
+                  }}
+                >
+                  {sheets.map((s) => (
+                    <option key={s.name} value={s.name}>
+                      {s.name}
+                    </option>
+                  ))}
                 </select>
               </div>
 
               <div className="flex flex-col">
                 <label className="mb-1 text-xs font-medium text-slate-600">Coluna do Cedente</label>
-                <select className="rounded-xl border px-3 py-2" value={respCfg.colCedente} onChange={(e) => {
-                  const v = e.currentTarget?.value ?? "";
-                  setRespCfg((prev) => ({ ...prev, colCedente: v.toUpperCase(), stats: { matched: 0, notFound: 0 } }));
-                }}>
+                <select
+                  className="rounded-xl border px-3 py-2"
+                  value={respCfg.colCedente}
+                  onChange={(e) => {
+                    const v = e.currentTarget?.value ?? "";
+                    setRespCfg((prev) => ({ ...prev, colCedente: v.toUpperCase(), stats: { matched: 0, notFound: 0 } }));
+                  }}
+                >
                   <option value="">Selecione…</option>
-                  {respCols.map((c) => (<option key={c} value={c}>{c}</option>))}
+                  {respCols.map((c) => (
+                    <option key={c} value={c}>
+                      {c}
+                    </option>
+                  ))}
                 </select>
               </div>
 
               <div className="flex flex-col">
                 <label className="mb-1 text-xs font-medium text-slate-600">Coluna do Responsável</label>
-                <select className="rounded-xl border px-3 py-2" value={respCfg.colResp} onChange={(e) => {
-                  const v = e.currentTarget?.value ?? "";
-                  setRespCfg((prev) => ({ ...prev, colResp: v.toUpperCase(), stats: { matched: 0, notFound: 0 } }));
-                }}>
+                <select
+                  className="rounded-xl border px-3 py-2"
+                  value={respCfg.colResp}
+                  onChange={(e) => {
+                    const v = e.currentTarget?.value ?? "";
+                    setRespCfg((prev) => ({ ...prev, colResp: v.toUpperCase(), stats: { matched: 0, notFound: 0 } }));
+                  }}
+                >
                   <option value="">Selecione…</option>
-                  {respCols.map((c) => (<option key={c} value={c}>{c}</option>))}
+                  {respCols.map((c) => (
+                    <option key={c} value={c}>
+                      {c}
+                    </option>
+                  ))}
                 </select>
               </div>
 
               <label className="mt-6 flex items-center gap-2 text-xs text-slate-700">
-                <input type="checkbox" className="h-4 w-4" checked={respCfg.approximate} onChange={(e) => setRespCfg((prev) => ({ ...prev, approximate: e.currentTarget?.checked ?? true }))}/>
+                <input
+                  type="checkbox"
+                  className="h-4 w-4"
+                  checked={respCfg.approximate}
+                  onChange={(e) =>
+                    setRespCfg((prev) => ({ ...prev, approximate: e.currentTarget?.checked ?? true }))
+                  }
+                />
                 Usar correspondência aproximada
               </label>
 
               <div className="flex items-end">
-                <button onClick={applyResponsaveis} className="w-full rounded-xl bg-black px-4 py-2 text-white shadow-soft hover:bg-gray-800 disabled:opacity-50" disabled={!respCfg.sheet || !respCfg.colCedente || !respCfg.colResp || !listaCedentes.length}>
+                <button
+                  onClick={applyResponsaveis}
+                  className="w-full rounded-xl bg-black px-4 py-2 text-white shadow-soft hover:bg-gray-800 disabled:opacity-50"
+                  disabled={!respCfg.sheet || !respCfg.colCedente || !respCfg.colResp || !listaCedentes.length}
+                >
                   Aplicar responsáveis
                 </button>
               </div>
@@ -823,16 +969,31 @@ export default function CedentesImporter() {
           <div className="mb-3 flex items-center justify-between">
             <h2 className="text-lg font-semibold text-slate-900">Resultado ({listaCedentes.length} cedentes)</h2>
             <div className="flex flex-wrap gap-3">
-              <button onClick={saveToServer} className="rounded-xl bg-black px-4 py-2 text-white hover:bg-gray-800 disabled:opacity-50" disabled={!listaCedentes.length}>
+              <button
+                onClick={saveToServer}
+                className="rounded-xl bg-black px-4 py-2 text-white hover:bg-gray-800 disabled:opacity-50"
+                disabled={!listaCedentes.length}
+              >
                 Salvar no servidor
               </button>
-              <button onClick={loadFromServer} className="rounded-xl bg-black px-4 py-2 text-white hover:bg-gray-800">
+              <button
+                onClick={loadFromServer}
+                className="rounded-xl bg-black px-4 py-2 text-white hover:bg-gray-800"
+              >
                 Carregar último
               </button>
-              <button onClick={exportCSV} className="rounded-xl bg-black px-4 py-2 text-white hover:bg-gray-800 disabled:opacity-50" disabled={!listaCedentes.length}>
+              <button
+                onClick={exportCSV}
+                className="rounded-xl bg-black px-4 py-2 text-white hover:bg-gray-800 disabled:opacity-50"
+                disabled={!listaCedentes.length}
+              >
                 Exportar CSV
               </button>
-              <button onClick={exportJSON} className="rounded-xl bg-black px-4 py-2 text-white hover:bg-gray-800 disabled:opacity-50" disabled={!listaCedentes.length}>
+              <button
+                onClick={exportJSON}
+                className="rounded-xl bg-black px-4 py-2 text-white hover:bg-gray-800 disabled:opacity-50"
+                disabled={!listaCedentes.length}
+              >
                 Exportar JSON
               </button>
             </div>
@@ -859,7 +1020,11 @@ export default function CedentesImporter() {
                     <td className="px-3 py-2 font-mono">{r.identificador}</td>
                     <td className="px-3 py-2">{toTitleCase(r.nome_completo)}</td>
                     <td className="px-3 py-2">
-                      {r.responsavelNome ? `${r.responsavelNome} (${r.responsavelId})` : <span className="text-slate-400">—</span>}
+                      {r.responsavelNome ? (
+                        `${r.responsavelNome} (${r.responsavelId})`
+                      ) : (
+                        <span className="text-slate-400">—</span>
+                      )}
                     </td>
                     <td className="px-3 py-2 text-right">{(r.latam ?? 0).toLocaleString("pt-BR")}</td>
                     <td className="px-3 py-2 text-right">{(r.esfera ?? 0).toLocaleString("pt-BR")}</td>
@@ -874,8 +1039,8 @@ export default function CedentesImporter() {
       )}
 
       <div className="mt-6 text-xs text-slate-500">
-        Dica: se um programa estiver com muitos “não encontrados”, confira as colunas e a aba.
-        Se os nomes variam muito, ative a correspondência aproximada.
+        Dica: se um programa estiver com muitos “não encontrados”, confira as colunas e a aba. Se os nomes variam
+        muito, ative a correspondência aproximada.
       </div>
     </div>
   );
