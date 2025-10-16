@@ -97,24 +97,19 @@ type ApiErr = { ok: false; error?: string };
 type ApiResp = ApiOk | ApiErr;
 
 type CedenteMin = {
-  latam?: number;
-  esfera?: number;
-  livelo?: number;
-  smiles?: number;
+  latam?: number | string;
+  esfera?: number | string;
+  livelo?: number | string;
+  smiles?: number | string;
 };
 
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null;
 }
-function isNumberLike(v: unknown): v is number {
-  return typeof v === "number" && Number.isFinite(v);
-}
-function isCedenteMin(v: unknown): v is CedenteMin {
-  if (!isRecord(v)) return false;
-  const { latam, esfera, livelo, smiles } = v as Record<string, unknown>;
-  const ok = (x: unknown) => x === undefined || isNumberLike(x);
-  return ok(latam) && ok(esfera) && ok(livelo) && ok(smiles);
-}
+
+/** Converte valores numéricos tolerando "54.000", "54000", 54000, "1,5" etc. */
+const toNum = (x: unknown): number =>
+  Number(String(x ?? 0).replace(/\./g, "").replace(",", "."));
 
 /* =========================
  *  Utilitários
@@ -236,21 +231,24 @@ export default function AnalisePage() {
     setDebtTxns(loadLS<DebtTxn[]>(DEBTS_TXNS_KEY, []));
     setMilheiro(loadLS<Record<ProgramKey, number>>(MILHEIRO_KEY, milheiro));
 
-    // puxa a última lista salva no servidor e soma os pontos por programa
-    (async () => {
+    const fetchEstoque = async () => {
       try {
-        const res = await fetch("/api/cedentes", { method: "GET" });
+        const res = await fetch(`/api/cedentes?ts=${Date.now()}`, {
+          method: "GET",
+          cache: "no-store",
+        });
         const json: ApiResp = await res.json();
 
         if ("ok" in json && json.ok && isRecord(json.data)) {
           const lista = (json.data as Record<string, unknown>).listaCedentes;
-          if (Array.isArray(lista) && lista.every(isCedenteMin)) {
+          if (Array.isArray(lista)) {
             const acc: Record<ProgramKey, number> = { latam: 0, smiles: 0, livelo: 0, esfera: 0 };
             for (const c of lista as CedenteMin[]) {
-              acc.latam += Number(c.latam || 0);
-              acc.esfera += Number(c.esfera || 0);
-              acc.livelo += Number(c.livelo || 0);
-              acc.smiles += Number(c.smiles || 0);
+              if (!isRecord(c)) continue;
+              acc.latam += toNum((c as CedenteMin).latam);
+              acc.esfera += toNum((c as CedenteMin).esfera);
+              acc.livelo += toNum((c as CedenteMin).livelo);
+              acc.smiles += toNum((c as CedenteMin).smiles);
             }
             setEstoque(acc);
           }
@@ -259,7 +257,17 @@ export default function AnalisePage() {
         // silencioso para não atrapalhar a tela
         console.warn("[Analise] Falha ao carregar /api/cedentes:", e);
       }
-    })();
+    };
+
+    // primeira carga
+    fetchEstoque();
+
+    // recarrega quando o Visualizar salvar/atualizar
+    function onStorage(e: StorageEvent) {
+      if (e.key === "TM_CEDENTES_REFRESH") fetchEstoque();
+    }
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
