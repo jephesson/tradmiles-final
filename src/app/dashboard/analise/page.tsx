@@ -2,11 +2,12 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { type Cedente, loadCedentes } from "@/lib/storage";
 
 /* ===========================================================
- *  Estoque de Pontos (BÁSICO)
- *  - Soma LATAM/SMILES/LIVELO/ESFERA em qualquer formato de JSON
- *  - Sem dependências, sem gráficos, só o total correto
+ *  Estoque de Pontos (BÁSICO) — usa a MESMA rota do Visualizar
+ *  - Tenta GET /api/cedentes (data.listaCedentes)
+ *  - Se vazio, faz fallback para loadCedentes() (localStorage)
  * =========================================================== */
 
 type ProgramKey = "latam" | "smiles" | "livelo" | "esfera";
@@ -15,101 +16,93 @@ type ApiOk = { ok: true; data?: unknown };
 type ApiErr = { ok: false; error?: string };
 type ApiResp = ApiOk | ApiErr;
 
-function isRecord(v: unknown): v is Record<string, unknown> {
-  return typeof v === "object" && v !== null && !Array.isArray(v);
+function isObj(v: unknown): v is Record<string, unknown> {
+  return typeof v === "object" && v !== null;
 }
-
-/** Converte "54.000" | "1,5" | 54000 -> number seguro */
 function toNum(x: unknown): number {
   const s = String(x ?? 0).trim().replace(/\./g, "").replace(",", ".");
   const n = Number(s);
   return Number.isFinite(n) ? n : 0;
 }
 
-/** Walker recursivo: soma campos com nomes de programas em *qualquer* nível */
-function sumPrograms(payload: unknown) {
-  const totals: Record<ProgramKey, number> = {
-    latam: 0,
-    smiles: 0,
-    livelo: 0,
-    esfera: 0,
+/** Extrai listaCedentes de payloads variados (mesma ideia da tela visualizar) */
+function pickListaCedentes(root: unknown): Cedente[] {
+  const tryGet = (p: any): unknown => {
+    if (!p) return [];
+    if (Array.isArray(p)) return p;
+    const cands = [
+      p.listaCedentes,
+      p.cedentes,
+      p.items,
+      p.lista,
+      p?.data?.listaCedentes,
+      p?.data?.cedentes,
+      p?.data?.items,
+      p?.data?.lista,
+    ];
+    for (const c of cands) if (Array.isArray(c)) return c;
+    return [];
   };
 
-  // contagem de "cedentes": objetos que possuem ao menos 1 dos campos-programa
-  let cedentesCount = 0;
-
-  function walk(node: unknown) {
-    if (Array.isArray(node)) {
-      for (const item of node) walk(item);
-      return;
-    }
-    if (isRecord(node)) {
-      // Se este objeto tiver algum dos campos-programa, conta como um cedente
-      let hasProgramField = false;
-
-      for (const [k, v] of Object.entries(node)) {
-        const key = k.toLowerCase() as ProgramKey;
-
-        if (key === "latam" || key === "smiles" || key === "livelo" || key === "esfera") {
-          totals[key] += toNum(v);
-          hasProgramField = true;
-        }
-
-        // Recurse também em valores que sejam objetos/arrays (pode haver nesting)
-        if (typeof v === "object" && v !== null) {
-          walk(v);
-        }
-      }
-
-      if (hasProgramField) cedentesCount += 1;
-    }
-  }
-
-  walk(payload);
-  return { totals, cedentesCount };
+  const arr = tryGet(root);
+  return Array.isArray(arr) ? (arr as Cedente[]) : [];
 }
 
-export default function EstoqueBasico() {
+export default function AnaliseBasica() {
   const [tot, setTot] = useState<Record<ProgramKey, number>>({
     latam: 0,
     smiles: 0,
     livelo: 0,
     esfera: 0,
   });
-  const [totalGeral, setTotalGeral] = useState(0);
-  const [cedentes, setCedentes] = useState(0);
-  const [updatedAt, setUpdatedAt] = useState<string>("-");
-  const [loading, setLoading] = useState(false);
+  const [qtdCedentes, setQtdCedentes] = useState(0);
+  const [updatedAt, setUpdatedAt] = useState("-");
   const [erro, setErro] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [fonte, setFonte] = useState<"server" | "local" | "-">("-");
 
   async function carregar() {
     setLoading(true);
     setErro(null);
     try {
+      // 1) servidor (mesma rota do visualizar)
       const res = await fetch(`/api/cedentes?ts=${Date.now()}`, {
         method: "GET",
         cache: "no-store",
       });
-      const json: ApiResp | unknown = await res.json();
-
-      // payload pode ser { ok:true, data }, ou outra coisa
-      let root: unknown = json;
-      if (isRecord(json) && "ok" in json) {
-        const r = json as ApiResp;
-        if (!r.ok) throw new Error((r as ApiErr).error || "ok=false");
-        root = (r as ApiOk).data;
+      let lista: Cedente[] = [];
+      if (res.ok) {
+        const json: ApiResp | unknown = await res.json();
+        let root: unknown = json;
+        if (isObj(json) && "ok" in json) root = (json as ApiOk).data;
+        lista = pickListaCedentes(root);
       }
 
-      const { totals, cedentesCount } = sumPrograms(root);
+      // 2) fallback localStorage (loadCedentes) se vier vazio
+      if (!lista?.length) {
+        lista = loadCedentes();
+        setFonte("local");
+      } else {
+        setFonte("server");
+      }
 
-      const geral = totals.latam + totals.smiles + totals.livelo + totals.esfera;
+      // Somatório simples por programa
+      const totals = lista.reduce(
+        (acc, c) => {
+          acc.latam += toNum((c as any).latam);
+          acc.smiles += toNum((c as any).smiles);
+          acc.livelo += toNum((c as any).livelo);
+          acc.esfera += toNum((c as any).esfera);
+          return acc;
+        },
+        { latam: 0, smiles: 0, livelo: 0, esfera: 0 }
+      );
 
       setTot(totals);
-      setTotalGeral(geral);
-      setCedentes(cedentesCount);
+      setQtdCedentes(lista.length);
       setUpdatedAt(new Date().toLocaleString("pt-BR"));
-    } catch (e: unknown) {
-      setErro(e instanceof Error ? e.message : String(e));
+    } catch (e: any) {
+      setErro(e?.message || "Falha ao carregar");
     } finally {
       setLoading(false);
     }
@@ -118,15 +111,15 @@ export default function EstoqueBasico() {
   useEffect(() => {
     carregar();
 
-    // Se outra tela salvar, podemos reagir via localStorage (opcional)
-    function onStorage(ev: StorageEvent) {
-      if (ev.key === "TM_CEDENTES" || ev.key === "TM_CEDENTES_REFRESH") {
-        void carregar();
-      }
+    // Recarrega automaticamente quando a tela "Visualizar" salva
+    function onStorage(e: StorageEvent) {
+      if (e.key === "TM_CEDENTES_REFRESH") carregar();
     }
     window.addEventListener("storage", onStorage);
     return () => window.removeEventListener("storage", onStorage);
   }, []);
+
+  const totalGeral = tot.latam + tot.smiles + tot.livelo + tot.esfera;
 
   return (
     <div className="p-6 space-y-6">
@@ -142,7 +135,7 @@ export default function EstoqueBasico() {
       </div>
 
       {erro && (
-        <div className="rounded-lg border border-red-300 bg-red-50 text-red-700 px-3 py-2 text-sm">
+        <div className="rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700">
           Erro: {erro}
         </div>
       )}
@@ -174,8 +167,8 @@ export default function EstoqueBasico() {
           </table>
         </div>
 
-        <div className="text-xs text-slate-500 mt-3">
-          Última atualização: {updatedAt} • Cedentes detectados: {cedentes}
+        <div className="mt-3 text-xs text-slate-500">
+          Última atualização: {updatedAt} • Cedentes: {qtdCedentes} • Fonte: {fonte}
         </div>
       </section>
 
