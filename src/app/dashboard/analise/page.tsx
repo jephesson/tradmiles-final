@@ -4,8 +4,9 @@
 import { useEffect, useState } from "react";
 
 /* ===========================================================
- *  TradeMiles – Estoque de Pontos (Básico e resiliente)
- *  Foco: Somatório de pontos por programa a partir de /api/cedentes
+ *  Estoque de Pontos (BÁSICO)
+ *  - Soma LATAM/SMILES/LIVELO/ESFERA em qualquer formato de JSON
+ *  - Sem dependências, sem gráficos, só o total correto
  * =========================================================== */
 
 type ProgramKey = "latam" | "smiles" | "livelo" | "esfera";
@@ -14,77 +15,72 @@ type ApiOk = { ok: true; data?: unknown };
 type ApiErr = { ok: false; error?: string };
 type ApiResp = ApiOk | ApiErr;
 
-type CedenteMin = {
-  latam?: number | string;
-  smiles?: number | string;
-  livelo?: number | string;
-  esfera?: number | string;
-};
-
 function isRecord(v: unknown): v is Record<string, unknown> {
-  return typeof v === "object" && v !== null;
+  return typeof v === "object" && v !== null && !Array.isArray(v);
 }
 
-/** Converte "54.000" | "1,5" | 54000 -> number */
+/** Converte "54.000" | "1,5" | 54000 -> number seguro */
 function toNum(x: unknown): number {
   const s = String(x ?? 0).trim().replace(/\./g, "").replace(",", ".");
   const n = Number(s);
   return Number.isFinite(n) ? n : 0;
 }
 
-/** Procura um array de cedentes em vários formatos comuns */
-function pickCedentes(payload: unknown): CedenteMin[] | null {
-  // 1) Se já for array
-  if (Array.isArray(payload)) return payload as CedenteMin[];
+/** Walker recursivo: soma campos com nomes de programas em *qualquer* nível */
+function sumPrograms(payload: unknown) {
+  const totals: Record<ProgramKey, number> = {
+    latam: 0,
+    smiles: 0,
+    livelo: 0,
+    esfera: 0,
+  };
 
-  // 2) Se for objeto, tentar várias chaves superficiais
-  if (isRecord(payload)) {
-    const directKeys = ["listaCedentes", "lista", "items", "itens", "cedentes"];
-    for (const k of directKeys) {
-      const v = payload[k];
-      if (Array.isArray(v)) return v as CedenteMin[];
+  // contagem de "cedentes": objetos que possuem ao menos 1 dos campos-programa
+  let cedentesCount = 0;
+
+  function walk(node: unknown) {
+    if (Array.isArray(node)) {
+      for (const item of node) walk(item);
+      return;
     }
+    if (isRecord(node)) {
+      // Se este objeto tiver algum dos campos-programa, conta como um cedente
+      let hasProgramField = false;
 
-    // 3) Tentar dentro de "data"
-    const data = payload["data"];
-    if (isRecord(data)) {
-      for (const k of directKeys) {
-        const v = data[k];
-        if (Array.isArray(v)) return v as CedenteMin[];
+      for (const [k, v] of Object.entries(node)) {
+        const key = k.toLowerCase() as ProgramKey;
+
+        if (key === "latam" || key === "smiles" || key === "livelo" || key === "esfera") {
+          totals[key] += toNum(v);
+          hasProgramField = true;
+        }
+
+        // Recurse também em valores que sejam objetos/arrays (pode haver nesting)
+        if (typeof v === "object" && v !== null) {
+          walk(v);
+        }
       }
+
+      if (hasProgramField) cedentesCount += 1;
     }
   }
-  return null;
+
+  walk(payload);
+  return { totals, cedentesCount };
 }
 
-/** Fallback local: tenta ler do localStorage (mesma base do Visualizar) */
-function loadCedentesLocal(): CedenteMin[] {
-  try {
-    const raw = localStorage.getItem("TM_CEDENTES");
-    if (!raw) return [];
-    const parsed = JSON.parse(raw) as unknown;
-    if (Array.isArray(parsed)) return parsed as CedenteMin[];
-    if (isRecord(parsed)) {
-      const arr = pickCedentes(parsed);
-      return arr ?? [];
-    }
-    return [];
-  } catch {
-    return [];
-  }
-}
-
-export default function AnaliseBasica() {
-  const [estoque, setEstoque] = useState<Record<ProgramKey, number>>({
+export default function EstoqueBasico() {
+  const [tot, setTot] = useState<Record<ProgramKey, number>>({
     latam: 0,
     smiles: 0,
     livelo: 0,
     esfera: 0,
   });
+  const [totalGeral, setTotalGeral] = useState(0);
+  const [cedentes, setCedentes] = useState(0);
+  const [updatedAt, setUpdatedAt] = useState<string>("-");
   const [loading, setLoading] = useState(false);
-  const [lastUpdated, setLastUpdated] = useState<string>("-");
   const [erro, setErro] = useState<string | null>(null);
-  const [qtdCedentes, setQtdCedentes] = useState(0);
 
   async function carregar() {
     setLoading(true);
@@ -96,54 +92,24 @@ export default function AnaliseBasica() {
       });
       const json: ApiResp | unknown = await res.json();
 
-      // Root flexível: {ok:true,data:...} | {listaCedentes:...} | [...]
+      // payload pode ser { ok:true, data }, ou outra coisa
       let root: unknown = json;
       if (isRecord(json) && "ok" in json) {
-        const resp = json as ApiResp;
-        if (!resp.ok) {
-          const msg =
-            (resp as ApiErr).error || "API retornou ok=false";
-          throw new Error(msg);
-        }
-        root = (resp as ApiOk).data;
+        const r = json as ApiResp;
+        if (!r.ok) throw new Error((r as ApiErr).error || "ok=false");
+        root = (r as ApiOk).data;
       }
 
-      let lista: CedenteMin[] | null = pickCedentes(root);
+      const { totals, cedentesCount } = sumPrograms(root);
 
-      // Fallbacks adicionais: talvez o array esteja direto no root.data.data etc.
-      if (!lista && isRecord(root)) {
-        // tenta root.data (se não tentamos ainda)
-        const d = root["data"];
-        lista = pickCedentes(d);
-      }
+      const geral = totals.latam + totals.smiles + totals.livelo + totals.esfera;
 
-      // Se mesmo assim não veio, tenta localStorage
-      if (!lista) {
-        const local = loadCedentesLocal();
-        if (local.length) {
-          lista = local;
-        }
-      }
-
-      if (!lista) {
-        throw new Error("Formato inesperado em /api/cedentes e sem fallback local");
-      }
-
-      const acc: Record<ProgramKey, number> = { latam: 0, smiles: 0, livelo: 0, esfera: 0 };
-      for (const raw of lista) {
-        if (!isRecord(raw)) continue;
-        acc.latam += toNum(raw.latam);
-        acc.smiles += toNum(raw.smiles);
-        acc.livelo += toNum(raw.livelo);
-        acc.esfera += toNum(raw.esfera);
-      }
-
-      setEstoque(acc);
-      setQtdCedentes(lista.length);
-      setLastUpdated(new Date().toLocaleString("pt-BR"));
+      setTot(totals);
+      setTotalGeral(geral);
+      setCedentes(cedentesCount);
+      setUpdatedAt(new Date().toLocaleString("pt-BR"));
     } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : String(e);
-      setErro(msg || "Falha ao carregar");
+      setErro(e instanceof Error ? e.message : String(e));
     } finally {
       setLoading(false);
     }
@@ -152,9 +118,9 @@ export default function AnaliseBasica() {
   useEffect(() => {
     carregar();
 
-    // Reage a atualizações feitas na tela "Visualizar"
+    // Se outra tela salvar, podemos reagir via localStorage (opcional)
     function onStorage(ev: StorageEvent) {
-      if (ev.key === "TM_CEDENTES_REFRESH" || ev.key === "TM_CEDENTES") {
+      if (ev.key === "TM_CEDENTES" || ev.key === "TM_CEDENTES_REFRESH") {
         void carregar();
       }
     }
@@ -162,22 +128,17 @@ export default function AnaliseBasica() {
     return () => window.removeEventListener("storage", onStorage);
   }, []);
 
-  const totalGeral =
-    estoque.latam + estoque.smiles + estoque.livelo + estoque.esfera;
-
   return (
     <div className="p-6 space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-semibold">Estoque de Pontos (Básico)</h1>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={carregar}
-            className="rounded-lg border px-3 py-2 text-sm hover:bg-slate-50 disabled:opacity-60"
-            disabled={loading}
-          >
-            {loading ? "Recarregando..." : "Recarregar"}
-          </button>
-        </div>
+        <button
+          onClick={carregar}
+          className="rounded-lg border px-3 py-2 text-sm hover:bg-slate-50 disabled:opacity-60"
+          disabled={loading}
+        >
+          {loading ? "Recarregando..." : "Recarregar"}
+        </button>
       </div>
 
       {erro && (
@@ -197,10 +158,10 @@ export default function AnaliseBasica() {
               </tr>
             </thead>
             <tbody>
-              <Row programa="LATAM" valor={estoque.latam} />
-              <Row programa="SMILES" valor={estoque.smiles} />
-              <Row programa="LIVELO" valor={estoque.livelo} />
-              <Row programa="ESFERA" valor={estoque.esfera} />
+              <Row programa="LATAM" valor={tot.latam} />
+              <Row programa="SMILES" valor={tot.smiles} />
+              <Row programa="LIVELO" valor={tot.livelo} />
+              <Row programa="ESFERA" valor={tot.esfera} />
             </tbody>
             <tfoot>
               <tr className="border-t">
@@ -214,17 +175,17 @@ export default function AnaliseBasica() {
         </div>
 
         <div className="text-xs text-slate-500 mt-3">
-          Última atualização: {lastUpdated} • Cedentes na soma: {qtdCedentes}
+          Última atualização: {updatedAt} • Cedentes detectados: {cedentes}
         </div>
       </section>
 
       <section className="rounded-2xl border p-4">
         <div className="text-sm font-medium mb-2">Depuração rápida</div>
         <ul className="text-sm text-slate-700 space-y-1">
-          <li>LATAM: {estoque.latam.toLocaleString("pt-BR")} pts</li>
-          <li>SMILES: {estoque.smiles.toLocaleString("pt-BR")} pts</li>
-          <li>LIVELO: {estoque.livelo.toLocaleString("pt-BR")} pts</li>
-          <li>ESFERA: {estoque.esfera.toLocaleString("pt-BR")} pts</li>
+          <li>LATAM: {tot.latam.toLocaleString("pt-BR")} pts</li>
+          <li>SMILES: {tot.smiles.toLocaleString("pt-BR")} pts</li>
+          <li>LIVELO: {tot.livelo.toLocaleString("pt-BR")} pts</li>
+          <li>ESFERA: {tot.esfera.toLocaleString("pt-BR")} pts</li>
           <li className="font-medium">TOTAL: {totalGeral.toLocaleString("pt-BR")} pts</li>
         </ul>
       </section>
