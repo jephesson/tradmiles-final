@@ -27,7 +27,7 @@ type ProgramConfig = {
 type RespConfig = {
   sheet: string;
   colCedente: string; // coluna com o cedente (nome/ID) para casar
-  colResp: string; // coluna com o responsável (id/slug/nome)
+  colResp: string; // coluna com o responsável (id/slug/nome/login)
   approximate: boolean;
   stats: { matched: number; notFound: number };
 };
@@ -39,8 +39,12 @@ type ApiSaveResp = (ApiOk & { data?: unknown }) | ApiErr;
 type ApiLoadData = { listaCedentes?: unknown; savedAt?: unknown };
 type ApiLoadResp = (ApiOk & { data?: unknown }) | ApiErr;
 
-/* Staff com slug opcional */
-type Staff = Funcionario & { slug?: string };
+/* Staff com campos extras opcionais (login/email/slug) */
+type Staff = Funcionario & {
+  slug?: string;
+  login?: string;
+  email?: string;
+};
 
 /* =========================
    Utils (sem \p{…})
@@ -67,6 +71,21 @@ function keyName(v: unknown) {
   const s = safeString(v);
   if (!s) return "";
   return stripDiacritics(s).toLowerCase().replace(/\s+/g, " ").trim();
+}
+function norm(s: string) {
+  return stripDiacritics(s).toLowerCase().trim();
+}
+function cleanRespRef(raw: string) {
+  // normaliza entradas da planilha: "@login", "login@dominio", "Nome (obs)" etc.
+  let s = raw.trim();
+  s = s.replace(/^@+/, "");
+  s = s.replace(/\(.*?\)$/g, "").trim();
+  if (s.includes("@")) s = s.split("@")[0];
+  return s;
+}
+function firstName(full: string) {
+  const t = (full || "").trim().split(/\s+/);
+  return t[0] || "";
 }
 function levenshtein(a: string, b: string) {
   if (a === b) return 0;
@@ -444,39 +463,58 @@ export default function CedentesImporter() {
 
       for (const row of sh.rows) {
         const r = Array.isArray(row) ? row : [];
-        const cedStr = safeString(r[idxCed]).trim();
-        const respStr = safeString(r[idxResp]).trim();
-        if (!cedStr || !respStr) continue;
-        const k = keyName(cedStr);
-        if (!k) continue;
-        cedentesInSheet.push({ key: k, raw: cedStr, resp: respStr });
-        mapResp.set(k, respStr);
+        theLoop: {
+          const cedStr = safeString(r[idxCed]).trim();
+          const respStr = safeString(r[idxResp]).trim();
+          if (!cedStr || !respStr) break theLoop;
+          const k = keyName(cedStr);
+          if (!k) break theLoop;
+          cedentesInSheet.push({ key: k, raw: cedStr, resp: respStr });
+          mapResp.set(k, respStr);
+        }
       }
 
+      // ===== NOVO findFuncionario aceita login/primeiro nome/email =====
       function findFuncionario(ref: string): Staff | undefined {
-        const raw = ref.trim();
+        const raw = (ref || "").trim();
         if (!raw) return undefined;
 
-        const byId = funcionarios.find((f) => f.id.toLowerCase() === raw.toLowerCase());
-        if (byId) return byId;
+        const cleaned = cleanRespRef(raw);
+        const targetMain = norm(cleaned);
+        const targetFirst = norm(firstName(cleaned));
 
-        const bySlug = funcionarios.find(
-          (f) => typeof f.slug === "string" && f.slug.toLowerCase() === raw.toLowerCase(),
-        );
-        if (bySlug) return bySlug;
+        // Match exato por vários campos
+        const exact =
+          funcionarios.find((f) => norm(f.id) === targetMain) ||
+          funcionarios.find((f) => typeof f.slug === "string" && norm(f.slug) === targetMain) ||
+          funcionarios.find((f) => typeof f.login === "string" && norm(f.login) === targetMain) ||
+          funcionarios.find((f) => norm(firstName(f.nome)) === targetMain) ||
+          funcionarios.find((f) => norm(f.nome) === targetMain) ||
+          funcionarios.find(
+            (f) => typeof f.email === "string" && norm(f.email.split("@")[0]) === targetMain,
+          ) ||
+          // também aceite quando a célula tem só o primeiro nome
+          funcionarios.find((f) => norm(firstName(f.nome)) === targetFirst);
 
-        const target = keyName(raw);
-        const byName = funcionarios.find((f) => keyName(f.nome) === target);
-        if (byName) return byName;
+        if (exact) return exact;
 
         if (!respCfg.approximate) return undefined;
 
+        // Aproximação: considera login/primeiro nome/nome completo/etc.
         let best: { f: Staff; score: number } | null = null;
         for (const f of funcionarios) {
-          const sc = similarity(f.nome, raw);
-          if (!best || sc > best.score) best = { f, score: sc };
+          const candidates = [
+            f.nome,
+            firstName(f.nome),
+            f.login ?? "",
+            f.slug ?? "",
+            typeof f.email === "string" ? f.email.split("@")[0] : "",
+            f.id,
+          ].filter(Boolean);
+          const score = Math.max(...candidates.map((c) => similarity(c, cleaned)));
+          if (!best || score > best.score) best = { f, score };
         }
-        if (best && best.score >= 0.88) return best.f;
+        if (best && best.score >= 0.86) return best.f;
         return undefined;
       }
 
