@@ -6,18 +6,22 @@ import { type Cedente, loadCedentes } from "@/lib/storage";
 
 /* ===========================================================
  *  Estoque de Pontos (BÁSICO) + Previsão de Dinheiro + Caixa
+ *  + Limite de cartões (dinâmico)
  * =========================================================== */
 
 type ProgramKey = "latam" | "smiles" | "livelo" | "esfera";
 const PROGRAMAS: ProgramKey[] = ["latam", "smiles", "livelo", "esfera"] as const;
 
-/** storage para os preços por milheiro e caixa corrente */
+/** storage para os preços por milheiro, caixa corrente e cartões */
 const MILHEIRO_KEY = "TM_MILHEIRO_PREVISAO";
 const CAIXA_KEY = "TM_CAIXA_CORRENTE";
+const CARTOES_KEY = "TM_CARTOES_LIMITES";
 
 type ApiOk = { ok: true; data?: unknown };
 type ApiErr = { ok: false; error?: string };
 type ApiResp = ApiOk | ApiErr;
+
+type CartaoLimite = { id: string; nome: string; limite: number };
 
 function isObj(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null;
@@ -144,7 +148,10 @@ export default function AnaliseBasica() {
   // CAIXA CORRENTE (R$)
   const [caixa, setCaixa] = useState<number>(0);
 
-  // carregar preços + caixa do localStorage 1x
+  // CARTÕES (lista dinâmica)
+  const [cartoes, setCartoes] = useState<CartaoLimite[]>([]);
+
+  // carregar preços + caixa + cartões do localStorage 1x
   useEffect(() => {
     try {
       const raw = localStorage.getItem(MILHEIRO_KEY);
@@ -165,9 +172,16 @@ export default function AnaliseBasica() {
         if (Number.isFinite(n)) setCaixa(n);
       }
     } catch {}
+    try {
+      const rawCards = localStorage.getItem(CARTOES_KEY);
+      if (rawCards) {
+        const arr = JSON.parse(rawCards) as CartaoLimite[];
+        if (Array.isArray(arr)) setCartoes(arr.map((c) => ({ ...c, limite: Number(c.limite || 0) })));
+      }
+    } catch {}
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-  // salvar preços + caixa sempre que mudar
+  // salvar preços + caixa + cartões sempre que mudar
   useEffect(() => {
     try {
       localStorage.setItem(MILHEIRO_KEY, JSON.stringify(milheiro));
@@ -178,6 +192,11 @@ export default function AnaliseBasica() {
       localStorage.setItem(CAIXA_KEY, String(caixa));
     } catch {}
   }, [caixa]);
+  useEffect(() => {
+    try {
+      localStorage.setItem(CARTOES_KEY, JSON.stringify(cartoes));
+    } catch {}
+  }, [cartoes]);
 
   async function carregar() {
     setLoading(true);
@@ -248,7 +267,24 @@ export default function AnaliseBasica() {
   });
   const totalPrev = linhasPrev.reduce((s, l) => s + l.valorPrev, 0);
 
+  const totalLimites = cartoes.reduce((s, c) => s + Number(c.limite || 0), 0);
   const caixaMaisPrev = caixa + totalPrev;
+
+  /* ======= Ações cartões ======= */
+  function addCartao() {
+    const novo: CartaoLimite = {
+      id: (globalThis.crypto?.randomUUID?.() ?? `card-${Date.now()}`) as string,
+      nome: "",
+      limite: 0,
+    };
+    setCartoes((prev) => [novo, ...prev]);
+  }
+  function updateCartao(id: string, patch: Partial<CartaoLimite>) {
+    setCartoes((prev) => prev.map((c) => (c.id === id ? { ...c, ...patch } : c)));
+  }
+  function removeCartao(id: string) {
+    setCartoes((prev) => prev.filter((c) => c.id !== id));
+  }
 
   return (
     <div className="p-6 space-y-6">
@@ -375,11 +411,86 @@ export default function AnaliseBasica() {
           />
         </div>
 
-        {/* Resumo rápido */}
+        {/* Resumo rápido (não inclui limite cartão) */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <KPI title="Caixa atual" value={fmtMoney(caixa)} />
           <KPI title="Total previsto (pontos)" value={fmtMoney(totalPrev)} />
           <KPI title="Caixa + previsto" value={fmtMoney(caixaMaisPrev)} />
+        </div>
+      </section>
+
+      {/* =================== LIMITES DE CARTÕES =================== */}
+      <section className="bg-white rounded-2xl shadow p-4 space-y-4">
+        <div className="flex items-center justify-between">
+          <h2 className="font-medium">Limite de cartões</h2>
+          <button
+            onClick={addCartao}
+            className="rounded-lg border px-3 py-2 text-sm hover:bg-slate-50"
+          >
+            + Adicionar cartão
+          </button>
+        </div>
+
+        <div className="overflow-auto">
+          <table className="min-w-full text-sm">
+            <thead>
+              <tr className="text-left border-b">
+                <th className="py-2 pr-4">Cartão / Banco</th>
+                <th className="py-2 pr-4 text-right">Limite (R$)</th>
+                <th className="py-2 pr-4 text-right">Ações</th>
+              </tr>
+            </thead>
+            <tbody>
+              {cartoes.length === 0 && (
+                <tr>
+                  <td colSpan={3} className="py-4 pr-4 text-slate-500">
+                    Nenhum cartão cadastrado.
+                  </td>
+                </tr>
+              )}
+              {cartoes.map((c) => (
+                <tr key={c.id} className="border-b">
+                  <td className="py-2 pr-4">
+                    <input
+                      value={c.nome}
+                      onChange={(e) => updateCartao(c.id, { nome: e.target.value })}
+                      placeholder="Ex.: Itaú Visa Infinite"
+                      className="w-full rounded-lg border px-3 py-2 text-sm"
+                    />
+                  </td>
+                  <td className="py-2 pr-4">
+                    <CurrencyInputBRL
+                      label=""
+                      value={c.limite}
+                      onChange={(v) => updateCartao(c.id, { limite: v })}
+                    />
+                  </td>
+                  <td className="py-2 pr-4 text-right">
+                    <button
+                      onClick={() => removeCartao(c.id)}
+                      className="rounded-lg border px-3 py-2 text-sm hover:bg-slate-50"
+                    >
+                      Remover
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+            {cartoes.length > 0 && (
+              <tfoot>
+                <tr>
+                  <td className="py-2 pr-4 font-medium">Total de limites</td>
+                  <td className="py-2 pr-4 text-right font-semibold">{fmtMoney(totalLimites)}</td>
+                  <td />
+                </tr>
+              </tfoot>
+            )}
+          </table>
+        </div>
+
+        {/* KPI só para limites (separado do caixa) */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <KPI title="Total de limites" value={fmtMoney(totalLimites)} />
         </div>
       </section>
     </div>
