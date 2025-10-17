@@ -1,8 +1,8 @@
 // src/app/api/compras/[id]/route.ts
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { Prisma } from "@prisma/client";
 import { randomUUID } from "node:crypto";
-import type { Prisma } from "@prisma/client";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -26,11 +26,6 @@ type AnyObj = Record<string, unknown>;
 const isObject = (v: unknown): v is AnyObj =>
   typeof v === "object" && v !== null && !Array.isArray(v);
 
-/** remove undefined / funções e garante JSON puro */
-function toJsonSafe<T>(v: T): T {
-  return JSON.parse(JSON.stringify(v)) as T;
-}
-
 /* ---------- Tipos mínimos usados neste endpoint ---------- */
 type CIA = "latam" | "smiles";
 type Origem = "livelo" | "esfera";
@@ -48,13 +43,9 @@ type CompraDoc = {
   destCia?: CIA;
   origem?: Origem;
   valores?: unknown;
-  calculos?:
-    | { totalPts: number; custoMilheiro: number; custoTotal: number; lucroTotal: number }
-    | null;
+  calculos?: { totalPts: number; custoMilheiro: number; custoTotal: number; lucroTotal: number } | null;
   itens?: unknown[];
-  totaisId?:
-    | { totalPts: number; custoMilheiro: number; custoTotal: number; lucroTotal: number }
-    | null;
+  totaisId?: { totalPts: number; custoMilheiro: number; custoTotal: number; lucroTotal: number } | null;
   metaMilheiro?: number;
   comissaoCedente?: number;
   savedAt?: number;
@@ -63,13 +54,17 @@ type CompraDoc = {
 /* ---------- Acesso ao AppBlob ---------- */
 async function loadItems(): Promise<CompraDoc[]> {
   const blob = await prisma.appBlob.findUnique({ where: { kind: BLOB_KIND } });
-  const items = (blob?.data as { items?: unknown } | null)?.items;
+  // data é JsonValue; acessamos com any e validamos
+  const data = blob?.data as any;
+  const items = data?.items;
   return Array.isArray(items) ? (items as CompraDoc[]) : [];
 }
 
 async function saveItems(items: CompraDoc[]): Promise<void> {
-  // Garante JSON válido e tipa como InputJsonValue
-  const data: Prisma.InputJsonValue = { items: toJsonSafe(items) };
+  // Converte o array para JsonArray conforme o Prisma espera
+  const jsonItems = items as unknown as Prisma.JsonArray;
+  const data = { items: jsonItems } as unknown as Prisma.InputJsonValue;
+
   await prisma.appBlob.upsert({
     where: { kind: BLOB_KIND },
     create: { id: randomUUID(), kind: BLOB_KIND, data },
@@ -103,6 +98,7 @@ export async function GET(
 
 /* =========================================================
  *  PATCH /api/compras/:id
+ *  (mesma whitelist/normalização que você já usa)
  * ========================================================= */
 export async function PATCH(
   req: Request,
