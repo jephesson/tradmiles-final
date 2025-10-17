@@ -1,17 +1,85 @@
 // src/app/api/compras/route.ts
 import { NextResponse } from "next/server";
-import {
-  listComprasRaw,
-  findCompraById,
-  upsertCompra,
-  updateCompraById,
-  deleteCompraById,
-} from "@/lib/comprasRepo";
-import type { CompraDoc } from "@/lib/comprasRepo";
+import { prisma } from "@/lib/prisma";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
+
+/* ---------------- Persistência via AppBlob ---------------- */
+const BLOB_KIND = "compras_blob";
+
+/** Estrutura que guardaremos no AppBlob */
+type BlobShape = {
+  savedAt: string;
+  items: AnyObj[]; // lista de documentos de compras
+};
+
+async function loadAll(): Promise<BlobShape> {
+  const blob = await prisma.appBlob.findUnique({ where: { kind: BLOB_KIND } });
+  const data = (blob?.data as unknown) as Partial<BlobShape> | undefined;
+
+  if (data && Array.isArray(data.items)) {
+    return {
+      savedAt: data.savedAt || new Date().toISOString(),
+      items: data.items as AnyObj[],
+    };
+  }
+  // primeira vez
+  return { savedAt: new Date().toISOString(), items: [] };
+}
+
+async function saveAll(payload: BlobShape): Promise<void> {
+  await prisma.appBlob.upsert({
+    where: { kind: BLOB_KIND },
+    create: {
+      id: crypto.randomUUID(),
+      kind: BLOB_KIND,
+      data: payload,
+    },
+    update: { data: payload },
+  });
+}
+
+async function listComprasRaw(): Promise<AnyObj[]> {
+  const all = await loadAll();
+  return all.items;
+}
+
+async function findCompraById(id: string): Promise<AnyObj | null> {
+  if (!id) return null;
+  const all = await loadAll();
+  return all.items.find((x) => String(x.id) === id) ?? null;
+}
+
+async function upsertCompra(doc: AnyObj): Promise<void> {
+  const all = await loadAll();
+  const idx = all.items.findIndex((x) => String(x.id) === String(doc.id));
+  if (idx >= 0) all.items[idx] = doc;
+  else all.items.unshift(doc);
+  all.savedAt = new Date().toISOString();
+  await saveAll(all);
+}
+
+async function updateCompraById(id: string, patch: Partial<AnyObj>): Promise<AnyObj> {
+  const all = await loadAll();
+  const idx = all.items.findIndex((x) => String(x.id) === id);
+  if (idx < 0) throw new Error("Registro não encontrado");
+  const next = { ...all.items[idx], ...patch };
+  all.items[idx] = next;
+  all.savedAt = new Date().toISOString();
+  await saveAll(all);
+  return next;
+}
+
+async function deleteCompraById(id: string): Promise<void> {
+  const all = await loadAll();
+  const prevLen = all.items.length;
+  all.items = all.items.filter((x) => String(x.id) !== id);
+  if (all.items.length === prevLen) throw new Error("Registro não encontrado");
+  all.savedAt = new Date().toISOString();
+  await saveAll(all);
+}
 
 /* ---------------- Helpers de tipos/guards ---------------- */
 type CIA = "latam" | "smiles";
@@ -325,6 +393,9 @@ export async function GET(req: Request): Promise<NextResponse> {
         };
         item.totaisId = totalsIdObj;
         item.calculos = { ...totalsIdObj };
+
+        // persiste correção
+        await upsertCompra(item);
       }
       return NextResponse.json(item, { headers: noCache() });
     }
@@ -451,9 +522,9 @@ export async function GET(req: Request): Promise<NextResponse> {
     });
 
     const total = rows.length;
-    const offsetClamped = Math.max(0, offset);
-    const limitClamped = Math.max(1, Math.min(limit, 500));
-    const items = rows.slice(offsetClamped, offsetClamped + limitClamped);
+    const offset = Math.max(0, parseInt(url.searchParams.get("offset") || "0", 10));
+    const limit = Math.max(1, Math.min(parseInt(url.searchParams.get("limit") || "20", 10), 500));
+    const items = rows.slice(offset, offset + limit);
 
     return NextResponse.json({ ok: true, total, items }, { headers: noCache() });
   } catch (err: unknown) {
@@ -478,13 +549,12 @@ export async function POST(req: Request): Promise<NextResponse> {
       ? normalizeFromNewShape(body)
       : normalizeFromOldShape(body);
 
-    // Persistimos somente campos definidos no tipo CompraDoc
-    const doc: CompraDoc = {
+    const doc: AnyObj = {
       id,
       dataCompra,
       statusPontos,
       cedenteId: cedenteId || undefined,
-      itens: (itens as unknown[]) as CompraDoc["itens"],
+      itens: itens as unknown[],
       totaisId,
       modo: compat.modo ?? undefined,
       ciaCompra: (compat.ciaCompra as CIA | null) ?? undefined,
@@ -495,7 +565,7 @@ export async function POST(req: Request): Promise<NextResponse> {
     };
 
     await upsertCompra(doc);
-    return NextResponse.json({ ok: true, id: doc.id }, { headers: noCache() });
+    return NextResponse.json({ ok: true, id: String(doc.id) }, { headers: noCache() });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : "erro ao salvar";
     return NextResponse.json({ ok: false, error: msg }, { status: 500, headers: noCache() });
@@ -512,20 +582,16 @@ export async function PATCH(req: Request): Promise<NextResponse> {
     const patchRaw: unknown = await req.json().catch(() => ({}));
     const apply: AnyObj = isRecord(patchRaw) ? { ...patchRaw } : {};
 
-    // Se vierem itens e não vier `totais`, gere compat/novos; se vier `totais`, gere totaisId/calculos.
     if (Array.isArray(apply.itens) && !apply.totais && !apply.totaisId) {
       const smart = smartTotals(apply.itens as unknown[]);
-
       const totalsIdObj = {
         totalPts: smart.totalPts,
         custoTotal: smart.custoTotal,
         custoMilheiro: smart.custoMilheiro,
         lucroTotal: smart.lucroTotal,
       };
-
       apply.totaisId = totalsIdObj;
       apply.calculos = { ...totalsIdObj };
-      // `totais` não é persistido no arquivo; usado só para resposta quando necessário.
     }
     if (apply.totais && !apply.totaisId) {
       const compatTot = totalsCompatFromTotais(apply.totais);
@@ -539,8 +605,7 @@ export async function PATCH(req: Request): Promise<NextResponse> {
       apply.calculos = { ...totalsIdObj };
     }
 
-    // Monta um Partial<CompraDoc> apenas com campos válidos
-    const patchDoc: Partial<CompraDoc> = {};
+    const patchDoc: AnyObj = {};
     if (typeof apply.statusPontos === "string") {
       const s = apply.statusPontos as Status;
       if (s === "aguardando" || s === "liberados") patchDoc.statusPontos = s;
@@ -555,13 +620,12 @@ export async function PATCH(req: Request): Promise<NextResponse> {
         custoTotal: num((apply.totaisId as AnyObj).custoTotal),
         lucroTotal: num((apply.totaisId as AnyObj).lucroTotal),
       };
-      patchDoc.calculos = { ...patchDoc.totaisId };
+      patchDoc.calculos = { ...patchDoc.totaisId } as AnyObj;
     }
 
     if (Array.isArray(apply.itens)) {
-      patchDoc.itens = (apply.itens as unknown[]) as CompraDoc["itens"];
+      patchDoc.itens = apply.itens as unknown[];
 
-      // Mantém campos compat para a listagem
       const first = (apply.itens as AnyObj[])[0];
       if (first) {
         const modo = str(first.modo ?? first.kind);

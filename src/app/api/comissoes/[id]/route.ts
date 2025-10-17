@@ -1,6 +1,6 @@
 // src/app/api/comissoes/[id]/route.ts
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/db";
+import { prisma } from "@/lib/prisma"; // ✅ corrige import
 import { Prisma } from "@prisma/client";
 
 export const runtime = "nodejs";
@@ -47,7 +47,7 @@ function isRepoShape(x: unknown): x is RepoShape {
 
 /** Tenta localizar o model correto no prisma (nomes possíveis do schema) */
 function getComissaoRepo(): RepoShape | null {
-  const candidates = ["comissaoCedente", "comissao", "commission"] as const;
+  const candidates = ["comissao", "comissaoCedente", "commission"] as const;
   for (const key of candidates) {
     const val = (prisma as unknown as Record<string, unknown>)[key];
     if (isRepoShape(val)) return val;

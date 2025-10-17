@@ -1,31 +1,24 @@
 // src/app/api/clientes/route.ts
 import { NextResponse } from "next/server";
-import { promises as fs } from "node:fs";
-import path from "node:path";
+import { prisma } from "@/lib/prisma";
 
-/** Força execução dinâmica e sem cache (App Router) */
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 export const runtime = "nodejs";
 
-/** Em serverless (Vercel) escreva em /tmp; em dev, na pasta do projeto */
-const ROOT_DIR = process.env.VERCEL ? "/tmp" : process.cwd();
-const DATA_DIR = path.join(ROOT_DIR, "data");
-const DATA_FILE = path.join(DATA_DIR, "clientes.json");
+// Chave única para guardar os clientes no AppBlob
+const BLOB_KIND = "clientes_blob";
 
 /* ---------------- Tipos ---------------- */
 type Json = string | number | boolean | null | Json[] | { [k: string]: Json };
 
 type Payload = {
-  savedAt: string | null;
+  savedAt: string | null; // compat: pode ser null
   lista: Json[];
 };
 
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
-}
-function hasCode(e: unknown): e is { code: string } {
-  return typeof e === "object" && e !== null && "code" in e && typeof (e as { code?: unknown }).code === "string";
 }
 
 /** Cabeçalhos pra desabilitar cache no browser/CDN */
@@ -37,14 +30,6 @@ function noCacheHeaders() {
     Expires: "0",
     "Surrogate-Control": "no-store",
   };
-}
-
-async function ensureDir() {
-  try {
-    await fs.mkdir(DATA_DIR, { recursive: true });
-  } catch {
-    /* noop */
-  }
 }
 
 /** Aceita vários formatos de entrada e devolve sempre um array */
@@ -69,67 +54,43 @@ function pickLista(payload: unknown): Json[] {
 /* =============== GET =============== */
 export async function GET(): Promise<NextResponse> {
   try {
-    await ensureDir();
+    const blob = await prisma.appBlob.findUnique({ where: { kind: BLOB_KIND } });
+    const raw = (blob?.data as unknown) ?? null;
 
-    let parsed: unknown = null;
-    try {
-      const buf = await fs.readFile(DATA_FILE);
-      parsed = JSON.parse(buf.toString("utf-8"));
-    } catch (e) {
-      // arquivo ainda não existe
-      if (!(hasCode(e) && e.code === "ENOENT")) {
-        throw e;
-      }
-    }
-
-    // formato normalizado { savedAt, lista }
+    // Se já estiver salvo normalizado { savedAt, lista }, mantém
     if (
-      isRecord(parsed) &&
-      "savedAt" in parsed &&
-      "lista" in parsed &&
-      Array.isArray((parsed as { lista?: unknown }).lista)
+      isRecord(raw) &&
+      "savedAt" in raw &&
+      "lista" in raw &&
+      Array.isArray((raw as { lista?: unknown }).lista)
     ) {
-      const savedAtRaw = (parsed as { savedAt?: unknown }).savedAt;
+      const savedAtRaw = (raw as { savedAt?: unknown }).savedAt;
       const savedAt = typeof savedAtRaw === "string" ? savedAtRaw : null;
-
-      const out: Payload = {
-        savedAt,
-        lista: (parsed as { lista: Json[] }).lista,
-      };
-
-      return new NextResponse(JSON.stringify({ ok: true, data: out }), {
-        status: 200,
-        headers: noCacheHeaders(),
-      });
+      const out: Payload = { savedAt, lista: (raw as { lista: Json[] }).lista };
+      return NextResponse.json({ ok: true, data: out }, { status: 200, headers: noCacheHeaders() });
     }
 
-    // fallback para formatos antigos/alternativos
-    const lista = pickLista(parsed);
+    // Compat com formatos alternativos
+    const lista = pickLista(raw);
     const savedAt =
-      isRecord(parsed) && typeof (parsed as Record<string, unknown>).savedAt === "string"
-        ? (parsed as { savedAt: string }).savedAt
+      isRecord(raw) && typeof (raw as Record<string, unknown>).savedAt === "string"
+        ? ((raw as { savedAt: string }).savedAt)
         : null;
 
-    return new NextResponse(JSON.stringify({ ok: true, data: { savedAt, lista } }), {
-      status: 200,
-      headers: noCacheHeaders(),
-    });
+    return NextResponse.json(
+      { ok: true, data: { savedAt, lista } satisfies Payload },
+      { status: 200, headers: noCacheHeaders() }
+    );
   } catch (e) {
-    const msg =
-      typeof e === "object" && e && "message" in e
-        ? String((e as { message?: unknown }).message)
-        : "erro ao carregar";
-    return new NextResponse(JSON.stringify({ ok: false, error: msg }), {
-      status: 500,
-      headers: noCacheHeaders(),
-    });
+    const msg = e instanceof Error ? e.message : "erro ao carregar";
+    return NextResponse.json({ ok: false, error: msg }, { status: 500, headers: noCacheHeaders() });
   }
 }
 
 /* =============== POST ===============
 Aceita:
 - { lista:[...] } | { items:[...] } | [ ... ]
-Salva NORMALIZADO como { savedAt, lista }.
+Salva NORMALIZADO como { savedAt, lista } em AppBlob.
 ===================================== */
 export async function POST(req: Request): Promise<NextResponse> {
   try {
@@ -155,21 +116,15 @@ export async function POST(req: Request): Promise<NextResponse> {
       lista,
     };
 
-    await ensureDir();
-    await fs.writeFile(DATA_FILE, JSON.stringify(payload, null, 2), "utf-8");
+    await prisma.appBlob.upsert({
+      where: { kind: BLOB_KIND },
+      create: { id: crypto.randomUUID(), kind: BLOB_KIND, data: payload },
+      update: { data: payload },
+    });
 
-    return new NextResponse(JSON.stringify({ ok: true, data: payload }), {
-      status: 200,
-      headers: noCacheHeaders(),
-    });
+    return NextResponse.json({ ok: true, data: payload }, { status: 200, headers: noCacheHeaders() });
   } catch (e) {
-    const msg =
-      typeof e === "object" && e && "message" in e
-        ? String((e as { message?: unknown }).message)
-        : "erro ao salvar";
-    return new NextResponse(JSON.stringify({ ok: false, error: msg }), {
-      status: 500,
-      headers: noCacheHeaders(),
-    });
+    const msg = e instanceof Error ? e.message : "erro ao salvar";
+    return NextResponse.json({ ok: false, error: msg }, { status: 500, headers: noCacheHeaders() });
   }
 }

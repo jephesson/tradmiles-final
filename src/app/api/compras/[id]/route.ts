@@ -1,15 +1,15 @@
+// src/app/api/compras/[id]/route.ts
 import { NextResponse } from "next/server";
-import {
-  findCompraById,
-  updateCompraById,
-  deleteCompraById,
-} from "@/lib/comprasRepo";
-import type { CompraDoc, CIA, Origem, StatusPontos } from "@/lib/comprasRepo";
+import { prisma } from "@/lib/prisma";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
+/* ---------- Constantes ---------- */
+const BLOB_KIND = "compras_blob";
+
+/* ---------- Helpers comuns ---------- */
 function noCache() {
   return {
     "Content-Type": "application/json; charset=utf-8",
@@ -17,20 +17,64 @@ function noCache() {
     Pragma: "no-cache",
     Expires: "0",
     "Surrogate-Control": "no-store",
-  };
+  } as const;
 }
 
-const isObject = (v: unknown): v is Record<string, unknown> =>
+type AnyObj = Record<string, unknown>;
+const isObject = (v: unknown): v is AnyObj =>
   typeof v === "object" && v !== null && !Array.isArray(v);
 
-/** GET /api/compras/:id */
+/* ---------- Tipos mínimos usados neste endpoint ---------- */
+type CIA = "latam" | "smiles";
+type Origem = "livelo" | "esfera";
+type StatusPontos = "aguardando" | "liberados";
+
+// shape mínimo para compilar o PATCH com type-safety
+type CompraDoc = {
+  id: string;
+  dataCompra?: string;
+  statusPontos?: StatusPontos;
+  cedenteId?: string;
+  cedenteNome?: string;
+  modo?: "compra" | "transferencia";
+  ciaCompra?: CIA;
+  destCia?: CIA;
+  origem?: Origem;
+  valores?: unknown;
+  calculos?: { totalPts: number; custoMilheiro: number; custoTotal: number; lucroTotal: number } | null;
+  itens?: unknown[];
+  totaisId?: { totalPts: number; custoMilheiro: number; custoTotal: number; lucroTotal: number } | null;
+  metaMilheiro?: number;
+  comissaoCedente?: number;
+  savedAt?: number;
+};
+
+/* ---------- Acesso ao AppBlob ---------- */
+async function loadItems(): Promise<CompraDoc[]> {
+  const blob = await prisma.appBlob.findUnique({ where: { kind: BLOB_KIND } });
+  const items = (blob?.data as { items?: unknown } | null)?.items;
+  return Array.isArray(items) ? (items as CompraDoc[]) : [];
+}
+
+async function saveItems(items: CompraDoc[]): Promise<void> {
+  await prisma.appBlob.upsert({
+    where: { kind: BLOB_KIND },
+    create: { id: crypto.randomUUID(), kind: BLOB_KIND, data: { items } },
+    update: { data: { items } },
+  });
+}
+
+/* =========================================================
+ *  GET /api/compras/:id
+ * ========================================================= */
 export async function GET(
   _req: Request,
   { params }: { params: Promise<{ id: string }> }
 ): Promise<NextResponse> {
   try {
     const { id } = await params;
-    const item = await findCompraById(id.trim());
+    const list = await loadItems();
+    const item = list.find((x) => String(x.id).trim() === id.trim());
     if (!item) {
       return NextResponse.json(
         { error: "Não encontrado" },
@@ -44,7 +88,10 @@ export async function GET(
   }
 }
 
-/** PATCH /api/compras/:id */
+/* =========================================================
+ *  PATCH /api/compras/:id
+ *  (mesma whitelist/normalização que você já usa)
+ * ========================================================= */
 export async function PATCH(
   req: Request,
   { params }: { params: Promise<{ id: string }> }
@@ -96,8 +143,9 @@ export async function PATCH(
         case "cedenteId":
           if (typeof v === "string") patch.cedenteId = v;
           break;
+
         case "cedenteNome":
-          if (typeof v === "string") (patch as { cedenteNome?: string }).cedenteNome = v;
+          if (typeof v === "string") patch.cedenteNome = v;
           break;
 
         case "modo":
@@ -117,7 +165,7 @@ export async function PATCH(
           break;
 
         case "valores":
-          patch.valores = v as CompraDoc["valores"];
+          patch.valores = v;
           break;
 
         case "calculos":
@@ -133,20 +181,19 @@ export async function PATCH(
           break;
 
         case "itens":
-          if (Array.isArray(v)) {
-            patch.itens = v as CompraDoc["itens"];
-          }
+          if (Array.isArray(v)) patch.itens = v as unknown[];
           break;
 
         case "totaisId":
           if (isObject(v)) {
             const maybe = v as Partial<NonNullable<CompraDoc["totaisId"]>>;
-            patch.totaisId = {
+            const norm = {
               totalPts: Number(maybe.totalPts ?? 0),
               custoMilheiro: Number(maybe.custoMilheiro ?? 0),
               custoTotal: Number(maybe.custoTotal ?? 0),
               lucroTotal: Number(maybe.lucroTotal ?? 0),
             };
+            patch.totaisId = norm;
           }
           break;
 
@@ -165,11 +212,11 @@ export async function PATCH(
           break;
 
         case "metaMilheiro":
-          if (typeof v === "number") (patch as { metaMilheiro?: number }).metaMilheiro = v;
+          if (typeof v === "number") patch.metaMilheiro = v;
           break;
 
         case "comissaoCedente":
-          if (typeof v === "number") (patch as { comissaoCedente?: number }).comissaoCedente = v;
+          if (typeof v === "number") patch.comissaoCedente = v;
           break;
 
         case "savedAt":
@@ -178,13 +225,19 @@ export async function PATCH(
       }
     }
 
-    const updated = await updateCompraById(id.trim(), patch);
-    if (!updated) {
+    // carrega, aplica patch e persiste
+    const list = await loadItems();
+    const idx = list.findIndex((x) => String(x.id).trim() === id.trim());
+    if (idx === -1) {
       return NextResponse.json(
         { error: "Não encontrado" },
         { status: 404, headers: noCache() }
       );
     }
+
+    const updated: CompraDoc = { ...list[idx], ...patch };
+    list[idx] = updated;
+    await saveItems(list);
 
     return NextResponse.json(
       { ok: true, id: id.trim(), data: updated },
@@ -196,14 +249,26 @@ export async function PATCH(
   }
 }
 
-/** DELETE /api/compras/:id */
+/* =========================================================
+ *  DELETE /api/compras/:id
+ * ========================================================= */
 export async function DELETE(
   _req: Request,
   { params }: { params: Promise<{ id: string }> }
 ): Promise<NextResponse> {
   try {
     const { id } = await params;
-    await deleteCompraById(id.trim());
+    const list = await loadItems();
+    const next = list.filter((x) => String(x.id).trim() !== id.trim());
+
+    if (next.length === list.length) {
+      return NextResponse.json(
+        { error: "Não encontrado" },
+        { status: 404, headers: noCache() }
+      );
+    }
+
+    await saveItems(next);
     return NextResponse.json({ ok: true }, { headers: noCache() });
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : "Erro ao excluir";

@@ -1,6 +1,6 @@
-// app/api/comissoes/route.ts
+// src/app/api/comissoes/route.ts
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/db";
+import { prisma } from "@/lib/prisma"; // ✅ usa o client correto
 import { Prisma } from "@prisma/client";
 
 export const runtime = "nodejs";
@@ -49,7 +49,9 @@ function isRepoShape(x: unknown): x is RepoShape {
   return isFunction(r.findMany) || isFunction(r.upsert);
 }
 
-/* ========= resolve o model dinamicamente ========= */
+/* ========= resolve o model dinamicamente =========
+   (permite nomes alternativos caso o model tenha outro nome no schema)
+*/
 function getRepo(): RepoShape | null {
   const client = prisma as unknown as Record<string, unknown>;
   const candidates = ["comissao", "comissaoCedente", "commission"] as const;

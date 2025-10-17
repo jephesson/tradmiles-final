@@ -1,11 +1,14 @@
-// app/api/vendas/route.ts
+// src/app/api/vendas/route.ts
 import { NextResponse } from "next/server";
-import fs from "node:fs/promises";
-import path from "node:path";
+import { prisma } from "@/lib/prisma";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
+
+/* ================== Constantes de Blob ================== */
+const VENDAS_KIND = "vendas_blob";
+const CEDENTES_KIND = "cedentes_blob";
 
 /* ================== Tipos ================== */
 type PaymentStatus = "pago" | "pendente";
@@ -106,43 +109,39 @@ function toNum(v: unknown): number {
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
 }
-function hasListaCedentes(v: unknown): v is { listaCedentes: unknown[] } {
-  return isRecord(v) && Array.isArray(v.listaCedentes);
-}
-function hasDataListaCedentes(v: unknown): v is { data: { listaCedentes: unknown[] } } {
-  return isRecord(v) && isRecord(v.data) && Array.isArray(v.data.listaCedentes);
-}
 
-/* ================== Persistência ================== */
-// Em produção (Vercel) só /tmp é gravável; local: ./data
-const ROOT_DIR = process.env.VERCEL ? "/tmp" : process.cwd();
-const DATA_DIR = path.join(ROOT_DIR, "data");
-const VENDAS_FILE = path.join(DATA_DIR, "vendas.json");
-const CEDENTES_FILE = path.join(DATA_DIR, "cedentes.json");
-
-async function ensureDir(): Promise<void> {
-  try {
-    await fs.mkdir(DATA_DIR, { recursive: true });
-  } catch {
-    /* noop */
-  }
+/* ================== AppBlob helpers ================== */
+async function loadArrayFromBlob<T = unknown>(kind: string, field: string): Promise<T[]> {
+  const blob = await prisma.appBlob.findUnique({ where: { kind } });
+  const data = blob?.data as Record<string, unknown> | null;
+  const arr = data && Array.isArray(data[field]) ? (data[field] as T[]) : [];
+  return arr;
+}
+async function saveArrayToBlob(kind: string, field: string, items: unknown[]): Promise<void> {
+  await prisma.appBlob.upsert({
+    where: { kind },
+    create: { id: crypto.randomUUID(), kind, data: { [field]: items } },
+    update: { data: { [field]: items } },
+  });
 }
 
-async function readJson<T>(file: string, fallback: T): Promise<T> {
-  try {
-    const raw = await fs.readFile(file, "utf8");
-    return JSON.parse(raw) as T;
-  } catch {
-    // ENOENT ou JSON inválido => retorna fallback
-    return fallback;
-  }
+/* Cedentes: sempre usamos o campo "listaCedentes" dentro do blob */
+async function loadCedentes(): Promise<CedenteRec[]> {
+  const blob = await prisma.appBlob.findUnique({ where: { kind: CEDENTES_KIND } });
+  const raw = blob?.data as Record<string, unknown> | null;
+  const arr =
+    raw && Array.isArray(raw["listaCedentes"]) ? (raw["listaCedentes"] as unknown[]) : [];
+  return arr.map(pickCedenteFields);
+}
+async function saveCedentes(arr: CedenteRec[]): Promise<void> {
+  await prisma.appBlob.upsert({
+    where: { kind: CEDENTES_KIND },
+    create: { id: crypto.randomUUID(), kind: CEDENTES_KIND, data: { listaCedentes: arr } },
+    update: { data: { listaCedentes: arr } },
+  });
 }
 
-async function writeJson<T>(file: string, data: T): Promise<void> {
-  await ensureDir();
-  await fs.writeFile(file, JSON.stringify(data, null, 2), "utf8");
-}
-
+/* ================== Normalizadores ================== */
 function pickCedenteFields(c: unknown): CedenteRec {
   const r = isRecord(c) ? c : {};
   return {
@@ -160,52 +159,9 @@ function pickCedenteFields(c: unknown): CedenteRec {
   };
 }
 
-/** Lê o arquivo de cedentes aceitando vários formatos e devolve um writer que preserva o formato */
-async function loadCedentesFile(): Promise<{
-  list: CedenteRec[];
-  write: (arr: CedenteRec[]) => Promise<void>;
-}> {
-  const parsed = await readJson<unknown | null>(CEDENTES_FILE, null);
-
-  let list: CedenteRec[] = [];
-  if (Array.isArray(parsed)) {
-    list = parsed.map(pickCedenteFields);
-  } else if (hasListaCedentes(parsed)) {
-    list = parsed.listaCedentes.map(pickCedenteFields);
-  } else if (hasDataListaCedentes(parsed)) {
-    list = parsed.data.listaCedentes.map(pickCedenteFields);
-  }
-
-  const write = async (arr: CedenteRec[]) => {
-    if (Array.isArray(parsed)) {
-      await writeJson<CedenteRec[]>(CEDENTES_FILE, arr);
-      return;
-    }
-    if (hasListaCedentes(parsed)) {
-      const next: { listaCedentes: CedenteRec[] } & Record<string, unknown> = {
-        ...parsed,
-        listaCedentes: arr,
-      };
-      await writeJson(CEDENTES_FILE, next);
-      return;
-    }
-    if (hasDataListaCedentes(parsed)) {
-      const next: { data: { listaCedentes: CedenteRec[] } } & Record<string, unknown> = {
-        ...parsed,
-        data: { ...parsed.data, listaCedentes: arr },
-      };
-      await writeJson(CEDENTES_FILE, next);
-      return;
-    }
-    await writeJson<CedenteRec[]>(CEDENTES_FILE, arr);
-  };
-
-  return { list, write };
-}
-
 /* ================== Handlers ================== */
 export async function GET(): Promise<NextResponse> {
-  const vendas = await readJson<VendaRecord[]>(VENDAS_FILE, []);
+  const vendas = await loadArrayFromBlob<VendaRecord>(VENDAS_KIND, "lista");
   return NextResponse.json({ ok: true, lista: vendas }, { headers: noCache() });
 }
 
@@ -220,8 +176,8 @@ export async function POST(req: Request): Promise<NextResponse> {
       );
     }
 
-    const { list: cedentesFromDisk, write: writeCedentesPreservingShape } = await loadCedentesFile();
-
+    // Cedentes: usa blob existente; se não houver, aceita seed do body.
+    const cedentesFromDb = await loadCedentes();
     const seedArr: unknown[] = Array.isArray(body["cedentes"])
       ? (body["cedentes"] as unknown[])
       : Array.isArray(body["cedentesSnapshot"])
@@ -229,15 +185,15 @@ export async function POST(req: Request): Promise<NextResponse> {
       : [];
 
     const cedentes: CedenteRec[] =
-      Array.isArray(cedentesFromDisk) && cedentesFromDisk.length
-        ? [...cedentesFromDisk]
+      cedentesFromDb.length > 0
+        ? [...cedentesFromDb]
         : seedArr.length
         ? seedArr.map(pickCedenteFields)
         : [];
 
-    // Se não existe arquivo e veio um snapshot no POST, inicializa o arquivo
-    if (cedentesFromDisk.length === 0 && seedArr.length) {
-      await writeJson<CedenteRec[]>(CEDENTES_FILE, cedentes);
+    // Se não havia nada e veio seed, já persiste para iniciar o blob de cedentes
+    if (cedentesFromDb.length === 0 && seedArr.length) {
+      await saveCedentes(cedentes);
     }
 
     const id = "V" + Date.now();
@@ -270,13 +226,15 @@ export async function POST(req: Request): Promise<NextResponse> {
       taxaEmbarque: toNum(body["taxaEmbarque"]),
       totalCobrar: toNum(body["totalCobrar"]),
 
-      metaMilheiro: typeof body["metaMilheiro"] === "number" ? (body["metaMilheiro"] as number) : null,
+      metaMilheiro:
+        typeof body["metaMilheiro"] === "number" ? (body["metaMilheiro"] as number) : null,
       comissaoBase: toNum(body["comissaoBase"]),
       comissaoBonusMeta: toNum(body["comissaoBonusMeta"]),
       comissaoTotal: toNum(body["comissaoTotal"]),
 
       cartaoFuncionarioId: (body["cartaoFuncionarioId"] as string | null | undefined) ?? null,
-      cartaoFuncionarioNome: (body["cartaoFuncionarioNome"] as string | null | undefined) ?? null,
+      cartaoFuncionarioNome:
+        (body["cartaoFuncionarioNome"] as string | null | undefined) ?? null,
 
       pagamentoStatus: (body["pagamentoStatus"] as PaymentStatus) || "pendente",
 
@@ -287,9 +245,9 @@ export async function POST(req: Request): Promise<NextResponse> {
       cancelInfo: null,
     };
 
-    const vendas = await readJson<VendaRecord[]>(VENDAS_FILE, []);
+    const vendas = await loadArrayFromBlob<VendaRecord>(VENDAS_KIND, "lista");
     vendas.unshift(record);
-    await writeJson(VENDAS_FILE, vendas);
+    await saveArrayToBlob(VENDAS_KIND, "lista", vendas);
 
     // desconta pontos
     const saldoField: keyof CedenteRec = record.cia === "latam" ? "latam" : "smiles";
@@ -308,7 +266,7 @@ export async function POST(req: Request): Promise<NextResponse> {
       }
     }
 
-    await writeCedentesPreservingShape(cedentes);
+    await saveCedentes(cedentes);
 
     return NextResponse.json({ ok: true, id, nextCedentes: cedentes }, { headers: noCache() });
   } catch (e) {
@@ -320,7 +278,7 @@ export async function POST(req: Request): Promise<NextResponse> {
 export async function PATCH(req: Request): Promise<NextResponse> {
   try {
     const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
-    const vendas = await readJson<VendaRecord[]>(VENDAS_FILE, []);
+    const vendas = await loadArrayFromBlob<VendaRecord>(VENDAS_KIND, "lista");
 
     const id = String(body["id"] ?? "");
     const idx = vendas.findIndex((v) => v.id === id);
@@ -333,9 +291,12 @@ export async function PATCH(req: Request): Promise<NextResponse> {
     const cur = vendas[idx];
 
     // 1) Atualização simples do pagamentoStatus
-    if (body["pagamentoStatus"] && (body["pagamentoStatus"] === "pago" || body["pagamentoStatus"] === "pendente")) {
+    if (
+      body["pagamentoStatus"] &&
+      (body["pagamentoStatus"] === "pago" || body["pagamentoStatus"] === "pendente")
+    ) {
       vendas[idx] = { ...cur, pagamentoStatus: body["pagamentoStatus"] as PaymentStatus };
-      await writeJson(VENDAS_FILE, vendas);
+      await saveArrayToBlob(VENDAS_KIND, "lista", vendas);
       return NextResponse.json({ ok: true, record: vendas[idx] }, { headers: noCache() });
     }
 
@@ -363,7 +324,7 @@ export async function PATCH(req: Request): Promise<NextResponse> {
 
       // devolve pontos (opcional)
       if (recredit) {
-        const { list: cedentes, write } = await loadCedentesFile();
+        const cedentes = await loadCedentes();
         const saldoField: keyof CedenteRec = cur.cia === "latam" ? "latam" : "smiles";
         const creditar = (cedenteId: string, qtd: number) => {
           const i = cedentes.findIndex((c) => up(c.identificador) === up(cedenteId));
@@ -379,11 +340,11 @@ export async function PATCH(req: Request): Promise<NextResponse> {
             creditar(parte.id, toNum(parte.usar));
           }
         }
-        await write(cedentes);
+        await saveCedentes(cedentes);
       }
 
       vendas[idx] = updated;
-      await writeJson(VENDAS_FILE, vendas);
+      await saveArrayToBlob(VENDAS_KIND, "lista", vendas);
       return NextResponse.json({ ok: true, record: updated }, { headers: noCache() });
     }
 
@@ -407,7 +368,8 @@ export async function DELETE(req: Request): Promise<NextResponse> {
     try {
       const body = (await req.json()) as Record<string, unknown>;
       if (body?.["id"]) id = String(body["id"]);
-      if (typeof body?.["restorePoints"] === "boolean") restorePoints = Boolean(body["restorePoints"]);
+      if (typeof body?.["restorePoints"] === "boolean")
+        restorePoints = Boolean(body["restorePoints"]);
     } catch {
       /* body vazio */
     }
@@ -419,7 +381,7 @@ export async function DELETE(req: Request): Promise<NextResponse> {
       );
     }
 
-    const vendas = await readJson<VendaRecord[]>(VENDAS_FILE, []);
+    const vendas = await loadArrayFromBlob<VendaRecord>(VENDAS_KIND, "lista");
     const idx = vendas.findIndex((v) => v.id === id);
     if (idx < 0) {
       return NextResponse.json(
@@ -432,7 +394,7 @@ export async function DELETE(req: Request): Promise<NextResponse> {
 
     // devolve pontos ao apagar (por erro) — padrão: sim
     if (restorePoints) {
-      const { list: cedentes, write } = await loadCedentesFile();
+      const cedentes = await loadCedentes();
       const saldoField: keyof CedenteRec = removed.cia === "latam" ? "latam" : "smiles";
 
       const creditar = (cedenteId: string, qtd: number) => {
@@ -444,16 +406,19 @@ export async function DELETE(req: Request): Promise<NextResponse> {
 
       if (removed.contaEscolhida?.id) {
         creditar(removed.contaEscolhida.id, removed.pontos);
-      } else if (Array.isArray(removed.sugestaoCombinacao) && removed.sugestaoCombinacao.length) {
+      } else if (
+        Array.isArray(removed.sugestaoCombinacao) &&
+        removed.sugestaoCombinacao.length
+      ) {
         for (const parte of removed.sugestaoCombinacao) {
           creditar(parte.id, toNum(parte.usar));
         }
       }
-      await write(cedentes);
+      await saveCedentes(cedentes);
     }
 
     vendas.splice(idx, 1);
-    await writeJson(VENDAS_FILE, vendas);
+    await saveArrayToBlob(VENDAS_KIND, "lista", vendas);
     return NextResponse.json({ ok: true, removedId: id }, { headers: noCache() });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Erro inesperado";
