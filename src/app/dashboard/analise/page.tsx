@@ -5,8 +5,8 @@ import { useEffect, useState } from "react";
 import { type Cedente, loadCedentes } from "@/lib/storage";
 
 /* ===========================================================
- *  Estoque de Pontos (BÁSICO) + Previsão de Dinheiro + Caixa
- *  + Limite de cartões (dinâmico)
+ *  Estoque de Pontos (BÁSICO) + Caixa & Limites (no topo)
+ *  + Previsão de Dinheiro (com preços por milheiro)
  * =========================================================== */
 
 type ProgramKey = "latam" | "smiles" | "livelo" | "esfera";
@@ -104,7 +104,7 @@ function CurrencyInputBRL({
 
   return (
     <label className="block">
-      <div className="mb-1 text-xs text-slate-600">{label}</div>
+      {label && <div className="mb-1 text-xs text-slate-600">{label}</div>}
       <div className="flex items-center rounded-lg border px-3 py-2 text-sm">
         <span className="mr-2 text-slate-500">R$</span>
         <input
@@ -267,8 +267,10 @@ export default function AnaliseBasica() {
   });
   const totalPrev = linhasPrev.reduce((s, l) => s + l.valorPrev, 0);
 
+  // ======= CAIXA + LIMITES no topo =======
   const totalLimites = cartoes.reduce((s, c) => s + Number(c.limite || 0), 0);
-  const caixaMaisPrev = caixa + totalPrev;
+  const caixaTotal = caixa + totalLimites; // somatório conforme solicitado
+  const caixaTotalMaisPrev = caixaTotal + totalPrev;
 
   /* ======= Ações cartões ======= */
   function addCartao() {
@@ -289,13 +291,13 @@ export default function AnaliseBasica() {
   return (
     <div className="p-6 space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold">Estoque de Pontos (Básico)</h1>
+        <h1 className="text-2xl font-semibold">Análise (Caixa, Limites e Pontos)</h1>
         <button
           onClick={carregar}
           className="rounded-lg border px-3 py-2 text-sm hover:bg-slate-50 disabled:opacity-60"
           disabled={loading}
         >
-          {loading ? "Recarregando..." : "Recarregar"}
+          {loading ? "Recarregando..." : "Recarregar cedentes"}
         </button>
       </div>
 
@@ -305,7 +307,99 @@ export default function AnaliseBasica() {
         </div>
       )}
 
-      {/* Tabela de pontos */}
+      {/* =================== CAIXA + LIMITES (TOPO) =================== */}
+      <section className="bg-white rounded-2xl shadow p-4 space-y-4">
+        <h2 className="font-medium">Caixa e Limites</h2>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div>
+            <CurrencyInputBRL
+              label="Caixa na conta (agora)"
+              value={caixa}
+              onChange={setCaixa}
+            />
+          </div>
+
+          <div className="md:col-span-2">
+            <div className="flex items-center justify-between mb-2">
+              <div className="text-xs text-slate-600">Limites de cartões</div>
+              <button
+                onClick={addCartao}
+                className="rounded-lg border px-3 py-2 text-sm hover:bg-slate-50"
+              >
+                + Adicionar cartão
+              </button>
+            </div>
+
+            <div className="overflow-auto rounded-xl border">
+              <table className="min-w-full text-sm">
+                <thead>
+                  <tr className="text-left border-b">
+                    <th className="py-2 pr-4">Cartão / Banco</th>
+                    <th className="py-2 pr-4 text-right">Limite (R$)</th>
+                    <th className="py-2 pr-4 text-right">Ações</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {cartoes.length === 0 && (
+                    <tr>
+                      <td colSpan={3} className="py-3 pr-4 text-slate-500">
+                        Nenhum cartão cadastrado.
+                      </td>
+                    </tr>
+                  )}
+                  {cartoes.map((c) => (
+                    <tr key={c.id} className="border-t">
+                      <td className="py-2 pr-4">
+                        <input
+                          value={c.nome}
+                          onChange={(e) => updateCartao(c.id, { nome: e.target.value })}
+                          placeholder="Ex.: Itaú Visa Infinite"
+                          className="w-full rounded-lg border px-3 py-2 text-sm"
+                        />
+                      </td>
+                      <td className="py-2 pr-4">
+                        <CurrencyInputBRL
+                          label=""
+                          value={c.limite}
+                          onChange={(v) => updateCartao(c.id, { limite: v })}
+                        />
+                      </td>
+                      <td className="py-2 pr-4 text-right">
+                        <button
+                          onClick={() => removeCartao(c.id)}
+                          className="rounded-lg border px-3 py-2 text-sm hover:bg-slate-50"
+                        >
+                          Remover
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+                {cartoes.length > 0 && (
+                  <tfoot>
+                    <tr>
+                      <td className="py-2 pr-4 font-medium">Total de limites</td>
+                      <td className="py-2 pr-4 text-right font-semibold">{fmtMoney(totalLimites)}</td>
+                      <td />
+                    </tr>
+                  </tfoot>
+                )}
+              </table>
+            </div>
+          </div>
+        </div>
+
+        {/* KPIs de caixa */}
+        <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
+          <KPI title="Caixa (conta)" value={fmtMoney(caixa)} />
+          <KPI title="Limites (cartões)" value={fmtMoney(totalLimites)} />
+          <KPI title="Caixa total (conta + limites)" value={fmtMoney(caixaTotal)} />
+          <KPI title="Caixa total + previsto" value={fmtMoney(caixaTotalMaisPrev)} />
+        </div>
+      </section>
+
+      {/* =================== PONTOS =================== */}
       <section className="bg-white rounded-2xl shadow p-4">
         <h2 className="font-medium mb-3">Pontos por Programa</h2>
         <div className="overflow-auto">
@@ -342,7 +436,7 @@ export default function AnaliseBasica() {
       <section className="bg-white rounded-2xl shadow p-4 space-y-4">
         <h2 className="font-medium">Previsão de Dinheiro (se vender)</h2>
 
-        {/* Inputs de preço do milheiro com "R$" dentro */}
+        {/* Inputs de preço do milheiro */}
         <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
           <CurrencyInputBRL
             label="Preço LATAM — R$ por 1.000"
@@ -396,101 +490,6 @@ export default function AnaliseBasica() {
               </tr>
             </tfoot>
           </table>
-        </div>
-      </section>
-
-      {/* =================== CAIXA CORRENTE =================== */}
-      <section className="bg-white rounded-2xl shadow p-4 space-y-4">
-        <h2 className="font-medium">Caixa corrente (agora)</h2>
-
-        <div className="grid max-w-xl grid-cols-1 gap-3">
-          <CurrencyInputBRL
-            label="Quanto tenho na conta agora"
-            value={caixa}
-            onChange={setCaixa}
-          />
-        </div>
-
-        {/* Resumo rápido (não inclui limite cartão) */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          <KPI title="Caixa atual" value={fmtMoney(caixa)} />
-          <KPI title="Total previsto (pontos)" value={fmtMoney(totalPrev)} />
-          <KPI title="Caixa + previsto" value={fmtMoney(caixaMaisPrev)} />
-        </div>
-      </section>
-
-      {/* =================== LIMITES DE CARTÕES =================== */}
-      <section className="bg-white rounded-2xl shadow p-4 space-y-4">
-        <div className="flex items-center justify-between">
-          <h2 className="font-medium">Limite de cartões</h2>
-          <button
-            onClick={addCartao}
-            className="rounded-lg border px-3 py-2 text-sm hover:bg-slate-50"
-          >
-            + Adicionar cartão
-          </button>
-        </div>
-
-        <div className="overflow-auto">
-          <table className="min-w-full text-sm">
-            <thead>
-              <tr className="text-left border-b">
-                <th className="py-2 pr-4">Cartão / Banco</th>
-                <th className="py-2 pr-4 text-right">Limite (R$)</th>
-                <th className="py-2 pr-4 text-right">Ações</th>
-              </tr>
-            </thead>
-            <tbody>
-              {cartoes.length === 0 && (
-                <tr>
-                  <td colSpan={3} className="py-4 pr-4 text-slate-500">
-                    Nenhum cartão cadastrado.
-                  </td>
-                </tr>
-              )}
-              {cartoes.map((c) => (
-                <tr key={c.id} className="border-b">
-                  <td className="py-2 pr-4">
-                    <input
-                      value={c.nome}
-                      onChange={(e) => updateCartao(c.id, { nome: e.target.value })}
-                      placeholder="Ex.: Itaú Visa Infinite"
-                      className="w-full rounded-lg border px-3 py-2 text-sm"
-                    />
-                  </td>
-                  <td className="py-2 pr-4">
-                    <CurrencyInputBRL
-                      label=""
-                      value={c.limite}
-                      onChange={(v) => updateCartao(c.id, { limite: v })}
-                    />
-                  </td>
-                  <td className="py-2 pr-4 text-right">
-                    <button
-                      onClick={() => removeCartao(c.id)}
-                      className="rounded-lg border px-3 py-2 text-sm hover:bg-slate-50"
-                    >
-                      Remover
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-            {cartoes.length > 0 && (
-              <tfoot>
-                <tr>
-                  <td className="py-2 pr-4 font-medium">Total de limites</td>
-                  <td className="py-2 pr-4 text-right font-semibold">{fmtMoney(totalLimites)}</td>
-                  <td />
-                </tr>
-              </tfoot>
-            )}
-          </table>
-        </div>
-
-        {/* KPI só para limites (separado do caixa) */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          <KPI title="Total de limites" value={fmtMoney(totalLimites)} />
         </div>
       </section>
     </div>
