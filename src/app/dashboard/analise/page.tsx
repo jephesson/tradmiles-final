@@ -1,36 +1,31 @@
-// src/app/dashboard/analise/page.tsx
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { type Cedente, loadCedentes } from "@/lib/storage";
 
 /* ===========================================================
- *  Estoque de Pontos + Caixa & Limites + Previsão de Dinheiro
- *  • Carrega e salva online: caixa, cartões e preços por milheiro
- *  • Fallback para localStorage se offline
- *  • KPIs sem “Caixa real (– dívidas)”
- *  • Previsto líquido (– dívidas) = (caixa + limites + previsto) – dívidas
+ *  Análise (Caixa, Limites, Dívidas e Pontos)
+ *  - UI alinhada: cards com mesma altura, inputs padronizados
+ *  - CurrencyInput ultra fluido (auto-centavos)
+ *  - Autosave /api/analise
+ *  - Dívidas 100% via API (/api/dividas)
  * =========================================================== */
 
 type ProgramKey = "latam" | "smiles" | "livelo" | "esfera";
 const PROGRAMAS: ProgramKey[] = ["latam", "smiles", "livelo", "esfera"] as const;
 
-/** Local fallback keys */
+/** Cache local apenas p/ análise (opcional) */
 const MILHEIRO_KEY = "TM_MILHEIRO_PREVISAO";
 const CAIXA_KEY = "TM_CAIXA_CORRENTE";
 const CARTOES_KEY = "TM_CARTOES_LIMITES";
 
-/** Dívidas (mesmos usados na aba Dívidas) */
-const DEBTS_KEY = "TM_DEBTS";
-const DEBTS_TXNS_KEY = "TM_DEBTS_TXNS";
-
+/** API types */
 type ApiOk = { ok: true; data?: unknown };
 type ApiErr = { ok: false; error?: string };
 type ApiResp = ApiOk | ApiErr;
 
 type CartaoLimite = { id: string; nome: string; limite: number };
 
-/* ======= API /analise payload ======= */
 type AnaliseBlob = {
   caixa: number;
   cartoes: CartaoLimite[];
@@ -54,6 +49,9 @@ type DebtTxn = {
   obs?: string;
   dataISO: string;
 };
+
+type DividasBlob = { debts: Debt[]; txns: DebtTxn[]; savedAt?: string };
+const DIVIDAS_API = "/api/dividas";
 
 function isObj(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null;
@@ -92,17 +90,17 @@ function fmtMoney(n: number): string {
   return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(Number(n) || 0);
 }
 
-/* ===== Helpers p/ moeda (auto-centavos) ===== */
-function formatDigitsToBRL(digits: string) {
+/* ========= Helpers moeda (auto-centavos) ========= */
+function digitsToBRL(digits: string) {
   const only = digits.replace(/\D/g, "");
-  const padded = only.padStart(3, "0");
-  const intPart = padded.slice(0, -2);
-  const decPart = padded.slice(-2);
+  const pad = only.padStart(3, "0");
+  const intPart = pad.slice(0, -2);
+  const decPart = pad.slice(-2);
   const num = Number(intPart + "." + decPart);
   return {
-    text: new Intl.NumberFormat("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(num),
+    display: new Intl.NumberFormat("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(num),
     value: num,
-    digits: only.replace(/^0+(?=\d)/, ""),
+    clean: only.replace(/^0+(?=\d)/, ""),
   };
 }
 function numberToDigits(n: number) {
@@ -110,7 +108,59 @@ function numberToDigits(n: number) {
   return String(Math.max(0, cents));
 }
 
-/* ===== Input BRL super fluido (auto-centavos) ===== */
+/* ========= UI atoms ========= */
+function SectionCard({ title, aside, children }: { title: string; aside?: React.ReactNode; children: React.ReactNode }) {
+  return (
+    <section className="bg-white rounded-2xl shadow-sm ring-1 ring-slate-200/70 p-5">
+      <div className="mb-4 flex items-center justify-between gap-4">
+        <h2 className="font-semibold tracking-tight text-slate-800">{title}</h2>
+        {aside}
+      </div>
+      {children}
+    </section>
+  );
+}
+function Field({
+  label,
+  prefix,
+  children,
+}: {
+  label: string;
+  prefix?: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  return (
+    <label className="block">
+      <div className="mb-1 text-xs font-medium text-slate-600">{label}</div>
+      <div className="flex h-10 items-center rounded-xl border border-slate-300 focus-within:ring-2 focus-within:ring-slate-400/40 px-3">
+        {prefix ? <span className="mr-2 text-slate-500">{prefix}</span> : null}
+        <div className="flex-1">{children}</div>
+      </div>
+    </label>
+  );
+}
+function Stat({
+  title,
+  value,
+  variant = "default",
+}: {
+  title: string;
+  value: string;
+  variant?: "default" | "danger";
+}) {
+  const danger = variant === "danger";
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm min-h-[96px] flex flex-col justify-between">
+      <div className={`text-[11px] uppercase tracking-wide ${danger ? "text-rose-600" : "text-slate-500"}`}>{title}</div>
+      <div className={`text-2xl font-semibold tabular-nums ${danger ? "text-rose-600" : "text-slate-900"}`}>{value}</div>
+    </div>
+  );
+}
+function Pill({ children }: { children: React.ReactNode }) {
+  return <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-600">{children}</span>;
+}
+
+/* ========= Input BRL (auto-centavos, alinhado à direita) ========= */
 function CurrencyInputBRL({
   label,
   value,
@@ -124,35 +174,29 @@ function CurrencyInputBRL({
 }) {
   const [digits, setDigits] = useState<string>(numberToDigits(value));
   useEffect(() => setDigits(numberToDigits(value)), [value]);
-
-  const { text } = formatDigitsToBRL(digits);
+  const { display } = digitsToBRL(digits);
 
   return (
-    <label className="block">
-      {label && <div className="mb-1 text-xs text-slate-600">{label}</div>}
-      <div className="flex items-center rounded-lg border px-3 py-2 text-sm">
-        <span className="mr-2 text-slate-500">R$</span>
-        <input
-          value={text}
-          onChange={(e) => {
-            const nextDigits = e.target.value.replace(/\D/g, "");
-            const { value: num, digits: cleaned } = formatDigitsToBRL(nextDigits);
-            setDigits(cleaned);
-            onChange(num);
-          }}
-          onFocus={(e) => {
-            if (selectOnFocus) setTimeout(() => e.currentTarget.select(), 0);
-          }}
-          className="w-full outline-none"
-          inputMode="numeric"
-          pattern="[0-9]*"
-          placeholder="0,00"
-        />
-      </div>
-    </label>
+    <Field label={label} prefix="R$">
+      <input
+        value={display}
+        onChange={(e) => {
+          const nextDigits = e.target.value.replace(/\D/g, "");
+          const { value: num, clean } = digitsToBRL(nextDigits);
+          setDigits(clean);
+          onChange(num);
+        }}
+        onFocus={(e) => selectOnFocus && setTimeout(() => e.currentTarget.select(), 0)}
+        className="w-full bg-transparent outline-none text-right tabular-nums"
+        inputMode="numeric"
+        pattern="[0-9]*"
+        placeholder="0,00"
+      />
+    </Field>
   );
 }
 
+/* ========= Página ========= */
 export default function AnaliseBasica() {
   const [tot, setTot] = useState<Record<ProgramKey, number>>({ latam: 0, smiles: 0, livelo: 0, esfera: 0 });
   const [qtdCedentes, setQtdCedentes] = useState(0);
@@ -161,31 +205,26 @@ export default function AnaliseBasica() {
   const [loading, setLoading] = useState(false);
   const [fonte, setFonte] = useState<"server" | "local" | "-">("-");
 
-  // preços do milheiro (R$ por 1.000)
   const [milheiro, setMilheiro] = useState<Record<ProgramKey, number>>({ latam: 25, smiles: 24, livelo: 32, esfera: 28 });
-  // CAIXA
   const [caixa, setCaixa] = useState<number>(0);
-  // CARTÕES
   const [cartoes, setCartoes] = useState<CartaoLimite[]>([]);
-  // status do salvamento online
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const hydrated = useRef(false); // evita autosave logo após load
 
-  // DÍVIDAS (para mostrar o total em aberto)
+  // Dívidas (somente via API)
   const [debts, setDebts] = useState<Debt[]>([]);
   const [txns, setTxns] = useState<DebtTxn[]>([]);
 
-  /* ====== LOAD online + fallback local ====== */
-  async function loadOnline() {
+  const loadOnline = useCallback(async () => {
     try {
       const r = await fetch("/api/analise", { cache: "no-store" });
       if (!r.ok) throw new Error("GET /api/analise falhou");
       const j = (await r.json()) as ApiResp | unknown;
       const data = (isObj(j) && "ok" in j ? (j as ApiOk).data : j) as Partial<AnaliseBlob> | undefined;
-
       if (isObj(data)) {
         if (typeof data.caixa === "number") setCaixa(data.caixa);
-        if (data.cartoes && Array.isArray(data.cartoes))
+        if (Array.isArray(data.cartoes)) {
           setCartoes(
             data.cartoes.map((c) => ({
               id: String(c.id),
@@ -193,6 +232,7 @@ export default function AnaliseBasica() {
               limite: Number(c.limite || 0),
             }))
           );
+        }
         if (isObj(data.milheiro)) {
           const m = data.milheiro as Record<string, number>;
           setMilheiro((prev) => ({
@@ -202,7 +242,7 @@ export default function AnaliseBasica() {
             esfera: Number(m.esfera ?? prev.esfera),
           }));
         }
-        // espelha no localStorage como cache
+        // cache local só para análise (opcional)
         try {
           localStorage.setItem(CAIXA_KEY, String(data.caixa ?? 0));
           localStorage.setItem(CARTOES_KEY, JSON.stringify(data.cartoes ?? []));
@@ -213,6 +253,26 @@ export default function AnaliseBasica() {
       }
     } catch {
       loadLocalFallback();
+    }
+  }, []);
+
+  async function loadDividasOnline() {
+    try {
+      const r = await fetch(`${DIVIDAS_API}?ts=${Date.now()}`, { cache: "no-store" });
+      if (!r.ok) throw new Error("GET /api/dividas falhou");
+      const j = (await r.json()) as ApiResp | unknown;
+      const data = (isObj(j) && "ok" in j ? (j as ApiOk).data : j) as Partial<DividasBlob> | undefined;
+
+      if (isObj(data)) {
+        setDebts(Array.isArray(data.debts) ? (data.debts as Debt[]) : []);
+        setTxns(Array.isArray(data.txns) ? (data.txns as DebtTxn[]) : []);
+      } else {
+        setDebts([]);
+        setTxns([]);
+      }
+    } catch {
+      setDebts([]);
+      setTxns([]);
     }
   }
 
@@ -238,17 +298,13 @@ export default function AnaliseBasica() {
     } catch {}
   }
 
+  // mount
   useEffect(() => {
-    loadOnline();
-    try {
-      const rawDebts = localStorage.getItem(DEBTS_KEY);
-      const rawTxns = localStorage.getItem(DEBTS_TXNS_KEY);
-      if (rawDebts) setDebts(JSON.parse(rawDebts) as Debt[]);
-      if (rawTxns) setTxns(JSON.parse(rawTxns) as DebtTxn[]);
-    } catch {}
-  }, []);
+    void loadOnline();
+    void loadDividasOnline();
+  }, [loadOnline]);
 
-  // cache local sempre
+  // cache local (opcional) – somente análise
   useEffect(() => {
     try {
       localStorage.setItem(CAIXA_KEY, String(caixa));
@@ -257,7 +313,7 @@ export default function AnaliseBasica() {
     } catch {}
   }, [caixa, cartoes, milheiro]);
 
-  /* ====== AUTO-SAVE (debounced) para /api/analise ====== */
+  // autosave /api/analise (pula a primeira hidratação)
   function scheduleSave() {
     if (saveTimer.current) clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(async () => {
@@ -271,18 +327,21 @@ export default function AnaliseBasica() {
         });
         if (!r.ok) throw new Error("PATCH /api/analise falhou");
         setSaveState("saved");
-        setTimeout(() => setSaveState("idle"), 1200);
+        setTimeout(() => setSaveState("idle"), 900);
       } catch {
         setSaveState("error");
       }
-    }, 600);
+    }, 500);
   }
   useEffect(() => {
+    if (!hydrated.current) {
+      hydrated.current = true;
+      return;
+    }
     scheduleSave();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [caixa, cartoes, milheiro]);
 
-  /* ====== Cedentes ====== */
   async function carregarCedentes() {
     setLoading(true);
     setErro(null);
@@ -320,33 +379,10 @@ export default function AnaliseBasica() {
     }
   }
 
-  useEffect(() => {
-    carregarCedentes();
-    function onStorage(e: StorageEvent) {
-      if (e.key === "TM_CEDENTES_REFRESH") void carregarCedentes();
-      if (e.key === DEBTS_KEY || e.key === DEBTS_TXNS_KEY) {
-        try {
-          const rawDebts = localStorage.getItem(DEBTS_KEY);
-          const rawTxns = localStorage.getItem(DEBTS_TXNS_KEY);
-          if (rawDebts) setDebts(JSON.parse(rawDebts) as Debt[]);
-          if (rawTxns) setTxns(JSON.parse(rawTxns) as DebtTxn[]);
-        } catch {}
-      }
-    }
-    window.addEventListener("storage", onStorage);
-    return () => window.removeEventListener("storage", onStorage);
-  }, []);
-
   const totalGeral = tot.latam + tot.smiles + tot.livelo + tot.esfera;
 
-  /* ======= PREVISÃO DE DINHEIRO ======= */
-  type LinhaPrev = {
-    programa: string;
-    pontos: number;
-    precoMilheiro: number;
-    valorPrev: number;
-    key: ProgramKey;
-  };
+  /* ======= Previsão de dinheiro ======= */
+  type LinhaPrev = { programa: string; pontos: number; precoMilheiro: number; valorPrev: number; key: ProgramKey };
   const linhasPrev: LinhaPrev[] = PROGRAMAS.map((p) => {
     const pontos = tot[p];
     const preco = milheiro[p] || 0;
@@ -354,12 +390,12 @@ export default function AnaliseBasica() {
   });
   const totalPrev = linhasPrev.reduce((s, l) => s + l.valorPrev, 0);
 
-  /* ======= CAIXA + LIMITES ======= */
+  /* ======= Caixa + Limites ======= */
   const totalLimites = cartoes.reduce((s, c) => s + Number(c.limite || 0), 0);
   const caixaTotal = caixa + totalLimites;
   const caixaTotalMaisPrev = caixaTotal + totalPrev;
 
-  /* ======= DÍVIDAS (total em aberto) ======= */
+  /* ======= Dívidas ======= */
   const saldoDebt = (debtId: string) => {
     const d = debts.find((x) => x.id === debtId);
     if (!d) return 0;
@@ -373,10 +409,10 @@ export default function AnaliseBasica() {
     [debts, txns]
   );
 
-  // KPI líquido pedida: subtrai dívidas
+  const caixaLiquido = caixaTotal - totalDividasAbertas;
   const previstoLiquido = caixaTotalMaisPrev - totalDividasAbertas;
 
-  /* ======= Cartões handlers ======= */
+  /* ======= Card helpers ======= */
   function addCartao() {
     const novo: CartaoLimite = {
       id: (globalThis.crypto?.randomUUID?.() ?? `card-${Date.now()}`) as string,
@@ -394,17 +430,22 @@ export default function AnaliseBasica() {
 
   return (
     <div className="p-6 space-y-6">
+      {/* Header */}
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold">Análise (Caixa, Limites, Dívidas e Pontos)</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">Análise (Caixa, Limites, Dívidas e Pontos)</h1>
         <div className="flex items-center gap-3">
-          <span className="text-xs text-slate-500">
-            {saveState === "saving" && "Salvando..."}
-            {saveState === "saved" && "Salvo ✓"}
-            {saveState === "error" && "Erro ao salvar"}
-          </span>
+          <Pill>
+            {saveState === "saving"
+              ? "Salvando..."
+              : saveState === "saved"
+              ? "Salvo ✓"
+              : saveState === "error"
+              ? "Erro ao salvar"
+              : "Sincronizado"}
+          </Pill>
           <button
             onClick={carregarCedentes}
-            className="rounded-lg border px-3 py-2 text-sm hover:bg-slate-50 disabled:opacity-60"
+            className="rounded-xl border border-slate-300 px-3 py-2 text-sm hover:bg-slate-50 disabled:opacity-60"
             disabled={loading}
           >
             {loading ? "Recarregando..." : "Recarregar cedentes"}
@@ -412,55 +453,56 @@ export default function AnaliseBasica() {
         </div>
       </div>
 
-      {erro && <div className="rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700">Erro: {erro}</div>}
+      {erro && <div className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{erro}</div>}
 
-      {/* =================== CAIXA + LIMITES (TOPO) =================== */}
-      <section className="bg-white rounded-2xl shadow p-4 space-y-4">
-        <h2 className="font-medium">Caixa e Limites</h2>
+      {/* Caixa e Limites */}
+      <SectionCard title="Caixa e Limites">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+          <CurrencyInputBRL label="Caixa na conta (agora)" value={caixa} onChange={setCaixa} />
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div>
-            <CurrencyInputBRL label="Caixa na conta (agora)" value={caixa} onChange={setCaixa} />
-          </div>
-
-          <div className="md:col-span-2">
-            <div className="flex items-center justify-between mb-2">
+          <div className="md:col-span-2 space-y-3">
+            <div className="flex items-center justify-between">
               <div className="text-xs text-slate-600">Limites de cartões</div>
-              <button onClick={addCartao} className="rounded-lg border px-3 py-2 text-sm hover:bg-slate-50">
+              <button onClick={addCartao} className="rounded-xl border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-50">
                 + Adicionar cartão
               </button>
             </div>
 
-            <div className="overflow-auto rounded-xl border">
+            <div className="overflow-auto rounded-xl border border-slate-200">
               <table className="min-w-full text-sm">
-                <thead>
-                  <tr className="text-left border-b">
-                    <th className="py-2 pr-4">Cartão / Banco</th>
-                    <th className="py-2 pr-4 text-right">Limite (R$)</th>
-                    <th className="py-2 pr-4 text-right">Ações</th>
+                <thead className="bg-slate-50/60">
+                  <tr className="text-left border-b border-slate-200">
+                    <th className="py-2 px-3">Cartão / Banco</th>
+                    <th className="py-2 px-3 text-right">Limite (R$)</th>
+                    <th className="py-2 px-3 text-right">Ações</th>
                   </tr>
                 </thead>
                 <tbody>
                   {cartoes.length === 0 && (
                     <tr>
-                      <td colSpan={3} className="py-3 pr-4 text-slate-500">Nenhum cartão cadastrado.</td>
+                      <td colSpan={3} className="py-3 px-3 text-slate-500">
+                        Nenhum cartão cadastrado.
+                      </td>
                     </tr>
                   )}
                   {cartoes.map((c) => (
-                    <tr key={c.id} className="border-t">
-                      <td className="py-2 pr-4">
+                    <tr key={c.id} className="border-t border-slate-200">
+                      <td className="py-2 px-3">
                         <input
                           value={c.nome}
                           onChange={(e) => updateCartao(c.id, { nome: e.target.value })}
                           placeholder="Ex.: Itaú Visa Infinite"
-                          className="w-full rounded-lg border px-3 py-2 text-sm"
+                          className="w-full h-10 rounded-lg border border-slate-300 px-3 text-sm"
                         />
                       </td>
-                      <td className="py-2 pr-4">
+                      <td className="py-2 px-3">
                         <CurrencyInputBRL label="" value={c.limite} onChange={(v) => updateCartao(c.id, { limite: v })} />
                       </td>
-                      <td className="py-2 pr-4 text-right">
-                        <button onClick={() => removeCartao(c.id)} className="rounded-lg border px-3 py-2 text-sm hover:bg-slate-50">
+                      <td className="py-2 px-3 text-right">
+                        <button
+                          onClick={() => removeCartao(c.id)}
+                          className="rounded-lg border border-slate-300 px-3 py-2 text-sm hover:bg-slate-50"
+                        >
                           Remover
                         </button>
                       </td>
@@ -469,9 +511,9 @@ export default function AnaliseBasica() {
                 </tbody>
                 {cartoes.length > 0 && (
                   <tfoot>
-                    <tr>
-                      <td className="py-2 pr-4 font-medium">Total de limites</td>
-                      <td className="py-2 pr-4 text-right font-semibold">{fmtMoney(totalLimites)}</td>
+                    <tr className="bg-slate-50/60 border-t border-slate-200">
+                      <td className="py-2 px-3 font-medium">Total de limites</td>
+                      <td className="py-2 px-3 text-right font-semibold tabular-nums">{fmtMoney(totalLimites)}</td>
                       <td />
                     </tr>
                   </tfoot>
@@ -481,25 +523,28 @@ export default function AnaliseBasica() {
           </div>
         </div>
 
-        {/* KPIs de caixa */}
-        <div className="grid grid-cols-1 sm:grid-cols-5 gap-4">
-          <KPI title="Caixa (conta)" value={fmtMoney(caixa)} />
-          <KPI title="Limites (cartões)" value={fmtMoney(totalLimites)} />
-          <KPI title="Dívidas em aberto" value={fmtMoney(totalDividasAbertas)} variant="danger" />
-          <KPI title="Caixa total (conta + limites)" value={fmtMoney(caixaTotal)} />
-          <KPI title="Previsto líquido (– dívidas)" value={fmtMoney(previstoLiquido)} />
+        {/* KPIs */}
+        <div className="mt-5 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-4">
+          <Stat title="Caixa (conta)" value={fmtMoney(caixa)} />
+          <Stat title="Limites (cartões)" value={fmtMoney(totalLimites)} />
+          <Stat title="Dívidas em aberto" value={fmtMoney(totalDividasAbertas)} variant="danger" />
+          <Stat title="Caixa total (conta + limites)" value={fmtMoney(caixaTotal)} />
+          <Stat title="Caixa total (– dívidas)" value={fmtMoney(caixaLiquido)} />
+          <Stat title="Caixa + previsto (– dívidas)" value={fmtMoney(previstoLiquido)} />
         </div>
-      </section>
+      </SectionCard>
 
-      {/* =================== PONTOS =================== */}
-      <section className="bg-white rounded-2xl shadow p-4">
-        <h2 className="font-medium mb-3">Pontos por Programa</h2>
-        <div className="overflow-auto">
+      {/* Pontos */}
+      <SectionCard
+        title="Pontos por Programa"
+        aside={<div className="text-xs text-slate-500">Última atualização: {updatedAt} • Cedentes: {qtdCedentes} • Fonte: {fonte}</div>}
+      >
+        <div className="overflow-auto rounded-xl border border-slate-200">
           <table className="min-w-full text-sm">
-            <thead>
-              <tr className="text-left border-b">
-                <th className="py-2 pr-4">Programa</th>
-                <th className="py-2 pr-4 text-right">Pontos</th>
+            <thead className="bg-slate-50/60">
+              <tr className="text-left border-b border-slate-200">
+                <th className="py-2 px-3">Programa</th>
+                <th className="py-2 px-3 text-right">Pontos</th>
               </tr>
             </thead>
             <tbody>
@@ -509,89 +554,66 @@ export default function AnaliseBasica() {
               <Row programa="ESFERA" valor={tot.esfera} />
             </tbody>
             <tfoot>
-              <tr className="border-t">
-                <td className="py-2 pr-4 font-medium">Total</td>
-                <td className="py-2 pr-4 text-right font-semibold">{totalGeral.toLocaleString("pt-BR")}</td>
+              <tr className="border-t border-slate-200 bg-slate-50/60">
+                <td className="py-2 px-3 font-medium">Total</td>
+                <td className="py-2 px-3 text-right font-semibold tabular-nums">
+                  {totalGeral.toLocaleString("pt-BR")}
+                </td>
               </tr>
             </tfoot>
           </table>
         </div>
+      </SectionCard>
 
-        <div className="mt-3 text-xs text-slate-500">
-          Última atualização: {updatedAt} • Cedentes: {qtdCedentes} • Fonte: {fonte}
-        </div>
-      </section>
-
-      {/* =================== PREVISÃO DE DINHEIRO =================== */}
-      <section className="bg-white rounded-2xl shadow p-4 space-y-4">
-        <h2 className="font-medium">Previsão de Dinheiro (se vender)</h2>
-
-        <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
-          <CurrencyInputBRL label="Preço LATAM — R$ por 1.000" value={milheiro.latam} onChange={(v) => setMilheiro((prev) => ({ ...prev, latam: v }))} />
-          <CurrencyInputBRL label="Preço SMILES — R$ por 1.000" value={milheiro.smiles} onChange={(v) => setMilheiro((prev) => ({ ...prev, smiles: v }))} />
-          <CurrencyInputBRL label="Preço LIVELO — R$ por 1.000" value={milheiro.livelo} onChange={(v) => setMilheiro((prev) => ({ ...prev, livelo: v }))} />
-          <CurrencyInputBRL label="Preço ESFERA — R$ por 1.000" value={milheiro.esfera} onChange={(v) => setMilheiro((prev) => ({ ...prev, esfera: v }))} />
+      {/* Previsão de Dinheiro */}
+      <SectionCard title="Previsão de Dinheiro (se vender)">
+        <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
+          <CurrencyInputBRL label="Preço LATAM — R$ por 1.000" value={milheiro.latam} onChange={(v) => setMilheiro((p) => ({ ...p, latam: v }))} />
+          <CurrencyInputBRL label="Preço SMILES — R$ por 1.000" value={milheiro.smiles} onChange={(v) => setMilheiro((p) => ({ ...p, smiles: v }))} />
+          <CurrencyInputBRL label="Preço LIVELO — R$ por 1.000" value={milheiro.livelo} onChange={(v) => setMilheiro((p) => ({ ...p, livelo: v }))} />
+          <CurrencyInputBRL label="Preço ESFERA — R$ por 1.000" value={milheiro.esfera} onChange={(v) => setMilheiro((p) => ({ ...p, esfera: v }))} />
         </div>
 
-        <div className="overflow-auto">
+        <div className="mt-4 overflow-auto rounded-xl border border-slate-200">
           <table className="min-w-full text-sm">
-            <thead>
-              <tr className="text-left border-b">
-                <th className="py-2 pr-4">Programa</th>
-                <th className="py-2 pr-4 text-right">Pontos</th>
-                <th className="py-2 pr-4 text-right">R$/milheiro</th>
-                <th className="py-2 pr-4 text-right">Valor previsto</th>
+            <thead className="bg-slate-50/60">
+              <tr className="text-left border-b border-slate-200">
+                <th className="py-2 px-3">Programa</th>
+                <th className="py-2 px-3 text-right">Pontos</th>
+                <th className="py-2 px-3 text-right">R$/milheiro</th>
+                <th className="py-2 px-3 text-right">Valor previsto</th>
               </tr>
             </thead>
             <tbody>
               {linhasPrev.map((l) => (
-                <tr key={l.programa} className="border-b">
-                  <td className="py-2 pr-4">{l.programa}</td>
-                  <td className="py-2 pr-4 text-right">{l.pontos.toLocaleString("pt-BR")}</td>
-                  <td className="py-2 pr-4 text-right">{fmtMoney(l.precoMilheiro)}</td>
-                  <td className="py-2 pr-4 text-right font-medium">{fmtMoney(l.valorPrev)}</td>
+                <tr key={l.programa} className="border-b border-slate-100">
+                  <td className="py-2 px-3">{l.programa}</td>
+                  <td className="py-2 px-3 text-right tabular-nums">{l.pontos.toLocaleString("pt-BR")}</td>
+                  <td className="py-2 px-3 text-right tabular-nums">{fmtMoney(l.precoMilheiro)}</td>
+                  <td className="py-2 px-3 text-right font-medium tabular-nums">{fmtMoney(l.valorPrev)}</td>
                 </tr>
               ))}
             </tbody>
             <tfoot>
-              <tr>
-                <td className="py-2 pr-4 font-medium">Total previsto</td>
-                <td className="py-2 pr-4" />
-                <td className="py-2 pr-4" />
-                <td className="py-2 pr-4 text-right font-semibold">{fmtMoney(totalPrev)}</td>
+              <tr className="bg-slate-50/60">
+                <td className="py-2 px-3 font-medium">Total previsto</td>
+                <td className="py-2 px-3" />
+                <td className="py-2 px-3" />
+                <td className="py-2 px-3 text-right font-semibold tabular-nums">{fmtMoney(totalPrev)}</td>
               </tr>
             </tfoot>
           </table>
         </div>
-      </section>
+      </SectionCard>
     </div>
   );
 }
 
 function Row({ programa, valor }: { programa: string; valor: number }) {
   return (
-    <tr className="border-b">
-      <td className="py-2 pr-4">{programa}</td>
-      <td className="py-2 pr-4 text-right">{valor.toLocaleString("pt-BR")}</td>
+    <tr className="border-b border-slate-100">
+      <td className="py-2 px-3">{programa}</td>
+      <td className="py-2 px-3 text-right tabular-nums">{valor.toLocaleString("pt-BR")}</td>
     </tr>
-  );
-}
-
-function KPI({
-  title,
-  value,
-  variant = "default",
-}: {
-  title: string;
-  value: string;
-  variant?: "default" | "danger";
-}) {
-  const titleCls = variant === "danger" ? "text-xs uppercase tracking-wide text-red-600 mb-1" : "text-xs uppercase tracking-wide text-slate-500 mb-1";
-  const valueCls = variant === "danger" ? "text-2xl font-semibold text-red-600" : "text-2xl font-semibold";
-  return (
-    <div className="rounded-2xl border p-4">
-      <div className={titleCls}>{title}</div>
-      <div className={valueCls}>{value}</div>
-    </div>
   );
 }
