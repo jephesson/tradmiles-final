@@ -1,5 +1,6 @@
 // src/app/api/session/route.ts
 import { NextResponse } from "next/server";
+import { cookies } from "next/headers";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -17,17 +18,17 @@ function noCache() {
 
 export async function GET() {
   try {
-    const raw = (await import("next/headers")).cookies().get("tm.session")?.value || "";
+    const raw = cookies().get("tm.session")?.value ?? "";
     if (!raw) return NextResponse.json({ ok: true, user: null }, { headers: noCache() });
 
     const sess = JSON.parse(decodeURIComponent(raw));
     const user = {
-      id: String(sess.id ?? ""),
-      name: String(sess.name ?? ""),
-      email: sess.email ?? null,
-      login: String(sess.login ?? ""),   // <- importante para mapear funcionário
-      role: String(sess.role ?? ""),
-      team: String(sess.team ?? ""),
+      id: String(sess?.id ?? ""),
+      name: String(sess?.name ?? ""),
+      email: sess?.email ?? null,
+      login: String(sess?.login ?? ""),
+      role: String(sess?.role ?? ""),
+      team: String(sess?.team ?? ""),
     };
     return NextResponse.json({ ok: true, user }, { headers: noCache() });
   } catch {
