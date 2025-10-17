@@ -28,8 +28,6 @@ function hojeISO() {
   const d2 = new Date(d.getTime() - off * 60 * 1000);
   return d2.toISOString().slice(0, 10);
 }
-const onlyDigits = (s: string) => (s || "").replace(/\D/g, "");
-const pad4 = (n: number) => String(Math.max(0, n | 0)).padStart(4, "0");
 
 /** ================= Tipos ================= */
 type ProgramaCIA = "latam" | "smiles";
@@ -96,7 +94,9 @@ function Money({
   placeholder,
 }: { value: string; onChange: (s: string) => void; placeholder?: string }) {
   const [display, setDisplay] = useState(value);
-  useEffect(() => { if (value !== display) setDisplay(value); }, [value, display]);
+  useEffect(() => {
+    if (value !== display) setDisplay(value);
+  }, [value, display]);
   const cents = display?.replace(/[^\d]/g, "") || "";
   const num = cents ? Number(cents) / 100 : 0;
   return (
@@ -122,7 +122,9 @@ function Int({
 }: { value: string; onChange: (s: string) => void; placeholder?: string }) {
   const [focused, setFocused] = useState(false);
   const [display, setDisplay] = useState(value);
-  useEffect(() => { if (!focused && value !== display) setDisplay(value); }, [value, focused, display]);
+  useEffect(() => {
+    if (!focused && value !== display) setDisplay(value);
+  }, [value, focused, display]);
   return (
     <input
       type="text"
@@ -147,7 +149,9 @@ function Pct({
   placeholder,
 }: { value: string; onChange: (s: string) => void; placeholder?: string }) {
   const [display, setDisplay] = useState(value);
-  useEffect(() => { if (value !== display) setDisplay(value); }, [value, display]);
+  useEffect(() => {
+    if (value !== display) setDisplay(value);
+  }, [value, display]);
   return (
     <input
       type="text"
@@ -219,7 +223,9 @@ export default function NovaCompraPage() {
           setCedentes(arr);
           if (!cedenteId && arr.length) setCedenteId(arr[0].id);
         }
-      } catch { /* silencioso */ }
+      } catch {
+        /* silencioso */
+      }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -273,7 +279,7 @@ export default function NovaCompraPage() {
   /** Comissão + meta */
   const [comissaoCedente, setComissaoCedente] = useState(""); // money string
   const [comissaoStatus, setComissaoStatus] = useState<StatusComissao>("aguardando");
-  const [metaMilheiro, setMetaMilheiro] = useState("150");    // "centavos" string (R$ 1,50)
+  const [metaMilheiro, setMetaMilheiro] = useState("150"); // "centavos" string (R$ 1,50)
   const [metaTouched, setMetaTouched] = useState(false);
 
   /** Add handlers */
@@ -286,8 +292,10 @@ export default function NovaCompraPage() {
       status: clubeStatus,
     };
     setLinhas((prev) => [...prev, { kind: "clube", data: it }]);
-    setClubePontos(""); setClubeValor("");
-    setClubeStatus("aguardando"); setOpenClube(false);
+    setClubePontos("");
+    setClubeValor("");
+    setClubeStatus("aguardando");
+    setOpenClube(false);
   };
 
   const addCompra = () => {
@@ -300,8 +308,11 @@ export default function NovaCompraPage() {
       status: compStatus,
     };
     setLinhas((prev) => [...prev, { kind: "compra", data: it }]);
-    setCompPontos(""); setCompValor(""); setCompBonus("");
-    setCompStatus("aguardando"); setOpenCompra(false);
+    setCompPontos("");
+    setCompValor("");
+    setCompBonus("");
+    setCompStatus("aguardando");
+    setOpenCompra(false);
   };
 
   const addTransf = () => {
@@ -319,8 +330,13 @@ export default function NovaCompraPage() {
       status: trStatus,
     };
     setLinhas((prev) => [...prev, { kind: "transferencia", data: it }]);
-    setTrPontosUsados(""); setTrPontosTotais(""); setTrValorPago(""); setTrBonus("");
-    setTrStatus("aguardando"); setTrModo("pontos"); setOpenTransf(false);
+    setTrPontosUsados("");
+    setTrPontosTotais("");
+    setTrValorPago("");
+    setTrBonus("");
+    setTrStatus("aguardando");
+    setTrModo("pontos");
+    setOpenTransf(false);
   };
 
   const removeLinha = (id: number) => {
@@ -353,9 +369,7 @@ export default function NovaCompraPage() {
     }
     if (l.kind === "compra") {
       const { programa, pontos, bonusPct } = l.data;
-      return (programa === "latam" || programa === "smiles")
-        ? pontos * (1 + (bonusPct || 0) / 100)
-        : 0;
+      return (programa === "latam" || programa === "smiles") ? pontos * (1 + (bonusPct || 0) / 100) : 0;
     }
     const { modo, pontosUsados, pontosTotais, bonusPct } = l.data;
     const basePts = modo === "pontos+dinheiro" ? pontosTotais : pontosUsados;
@@ -384,8 +398,8 @@ export default function NovaCompraPage() {
         const { origem, destino, modo, pontosUsados, pontosTotais, bonusPct } = l.data;
         const base = modo === "pontos+dinheiro" ? pontosTotais : pontosUsados;
         const chegam = Math.round(base * (1 + (bonusPct || 0) / 100));
-        d[destino] += chegam;         // crédito na CIA
-        d[origem] -= pontosUsados;    // débito no banco
+        d[destino] += chegam; // crédito na CIA
+        d[origem] -= pontosUsados; // débito no banco
       }
     }
     return d;
@@ -488,8 +502,6 @@ export default function NovaCompraPage() {
       metaMilheiro: parseMoney(metaMilheiro),
       comissaoCedente: parseMoney(comissaoCedente),
       comissaoStatus, // novo: salva status junto
-
-      // 👇 NOVO: servidor aplicará esse delta no Cedente (100% online)
       saldosDelta: {
         latam: deltaPrevisto.latam,
         smiles: deltaPrevisto.smiles,
@@ -525,7 +537,7 @@ export default function NovaCompraPage() {
         body: JSON.stringify(payloadFromState()),
       });
       if (!res.ok) throw new Error(await res.text());
-      const body = await res.json();
+      const body: unknown = await res.json();
 
       // 2) Upsert da comissão 100% online
       const valorComissao = parseMoney(comissaoCedente);
@@ -543,16 +555,22 @@ export default function NovaCompraPage() {
         });
       }
 
-      // 3) Se vier a lista de cedentes atualizada, reflita na UI
-      if (Array.isArray(body?.nextCedentes)) {
-        setCedentes(body.nextCedentes.map((c: any) => ({
-          id: String(c.identificador),
-          nome: String(c.nome_completo ?? c.nome ?? ""),
-          latam: Number(c.latam ?? 0),
-          smiles: Number(c.smiles ?? 0),
-          livelo: Number(c.livelo ?? 0),
-          esfera: Number(c.esfera ?? 0),
-        })));
+      // 3) Se vier a lista de cedentes atualizada, reflita na UI (sem any)
+      if (Array.isArray((body as { nextCedentes?: unknown[] }).nextCedentes)) {
+        type CedenteApi = Partial<CedenteRaw> & { nome?: string };
+        const nextListRaw = (body as { nextCedentes: unknown[] }).nextCedentes;
+        const proximaLista: Cedente[] = nextListRaw.map((c) => {
+          const r = c as CedenteApi;
+          return {
+            id: String(r.identificador),
+            nome: String(r.nome_completo ?? r.nome ?? ""),
+            latam: Number(r.latam ?? 0),
+            smiles: Number(r.smiles ?? 0),
+            livelo: Number(r.livelo ?? 0),
+            esfera: Number(r.esfera ?? 0),
+          };
+        });
+        setCedentes(proximaLista);
       }
 
       // 4) Pega próximo ID online
@@ -658,7 +676,9 @@ export default function NovaCompraPage() {
               <div key={k} className="rounded-lg border px-3 py-2">
                 <div className="mb-1 text-xs uppercase tracking-wide text-slate-500">{k}</div>
                 <div className="text-[13px]">
-                  <div>Atual: <b>{fmtInt(saldoAtual[k])}</b></div>
+                  <div>
+                    Atual: <b>{fmtInt(saldoAtual[k])}</b>
+                  </div>
                   <div>
                     Variação desta compra:{" "}
                     <b className={deltaPrevisto[k] >= 0 ? "text-green-700" : "text-red-700"}>
@@ -666,7 +686,9 @@ export default function NovaCompraPage() {
                       {fmtInt(deltaPrevisto[k])}
                     </b>
                   </div>
-                  <div>Previsto: <b>{fmtInt(saldoPrevisto[k])}</b></div>
+                  <div>
+                    Previsto: <b>{fmtInt(saldoPrevisto[k])}</b>
+                  </div>
                 </div>
               </div>
             ))}
@@ -678,7 +700,10 @@ export default function NovaCompraPage() {
       <section className="mb-4 rounded-xl border">
         <div className="flex items-center justify-between border-b px-3 py-2">
           <div className="text-sm font-semibold">Clubes</div>
-          <button className="rounded-lg border px-3 py-1 text-sm hover:bg-slate-100" onClick={() => setOpenClube((v) => !v)}>
+          <button
+            className="rounded-lg border px-3 py-1 text-sm hover:bg-slate-100"
+            onClick={() => setOpenClube((v) => !v)}
+          >
             {openClube ? "Fechar" : "+ Adicionar"}
           </button>
         </div>
@@ -687,7 +712,11 @@ export default function NovaCompraPage() {
           <div className="grid grid-cols-1 gap-3 p-3 md:grid-cols-5">
             <div>
               <label className="mb-1 block text-xs text-slate-600">Programa</label>
-              <select value={clubePrograma} onChange={(e) => setClubePrograma(e.target.value as ProgramaGeral)} className="w-full rounded-xl border px-3 py-2 text-sm">
+              <select
+                value={clubePrograma}
+                onChange={(e) => setClubePrograma(e.target.value as ProgramaGeral)}
+                className="w-full rounded-xl border px-3 py-2 text-sm"
+              >
                 <option value="livelo">Livelo</option>
                 <option value="esfera">Esfera</option>
                 <option value="latam">Latam Pass</option>
@@ -704,13 +733,22 @@ export default function NovaCompraPage() {
             </div>
             <div>
               <label className="mb-1 block text-xs text-slate-600">Status inicial</label>
-              <select value={clubeStatus} onChange={(e) => setClubeStatus(e.target.value as StatusItem)} className="w-full rounded-xl border px-3 py-2 text-sm">
+              <select
+                value={clubeStatus}
+                onChange={(e) => setClubeStatus(e.target.value as StatusItem)}
+                className="w-full rounded-xl border px-3 py-2 text-sm"
+              >
                 <option value="aguardando">Aguardando liberação</option>
                 <option value="liberado">Liberado</option>
               </select>
             </div>
             <div className="flex items-end">
-              <button className="w-full rounded-lg bg-black px-3 py-2 text-sm text-white hover:opacity-90" onClick={addClube}>Adicionar</button>
+              <button
+                className="w-full rounded-lg bg-black px-3 py-2 text-sm text-white hover:opacity-90"
+                onClick={addClube}
+              >
+                Adicionar
+              </button>
             </div>
             <div className="md:col-span-5 text-[11px] text-slate-600">
               * Apenas <b>Latam/Smiles</b> contam para o total de pontos da CIA. Livelo/Esfera não somam.
@@ -723,7 +761,10 @@ export default function NovaCompraPage() {
       <section className="mb-4 rounded-xl border">
         <div className="flex items-center justify-between border-b px-3 py-2">
           <div className="text-sm font-semibold">Compra de pontos</div>
-          <button className="rounded-lg border px-3 py-1 text-sm hover:bg-slate-100" onClick={() => setOpenCompra((v) => !v)}>
+          <button
+            className="rounded-lg border px-3 py-1 text-sm hover:bg-slate-100"
+            onClick={() => setOpenCompra((v) => !v)}
+          >
             {openCompra ? "Fechar" : "+ Adicionar"}
           </button>
         </div>
@@ -732,7 +773,11 @@ export default function NovaCompraPage() {
           <div className="grid grid-cols-1 gap-3 p-3 md:grid-cols-6">
             <div>
               <label className="mb-1 block text-xs text-slate-600">Programa</label>
-              <select value={compPrograma} onChange={(e) => setCompPrograma(e.target.value as ProgramaGeral)} className="w-full rounded-xl border px-3 py-2 text-sm">
+              <select
+                value={compPrograma}
+                onChange={(e) => setCompPrograma(e.target.value as ProgramaGeral)}
+                className="w-full rounded-xl border px-3 py-2 text-sm"
+              >
                 <option value="livelo">Livelo</option>
                 <option value="esfera">Esfera</option>
                 <option value="latam">Latam Pass</option>
@@ -753,13 +798,22 @@ export default function NovaCompraPage() {
             </div>
             <div>
               <label className="mb-1 block text-xs text-slate-600">Status inicial</label>
-              <select value={compStatus} onChange={(e) => setCompStatus(e.target.value as StatusItem)} className="w-full rounded-xl border px-3 py-2 text-sm">
+              <select
+                value={compStatus}
+                onChange={(e) => setCompStatus(e.target.value as StatusItem)}
+                className="w-full rounded-xl border px-3 py-2 text-sm"
+              >
                 <option value="aguardando">Aguardando liberação</option>
                 <option value="liberado">Liberado</option>
               </select>
             </div>
             <div className="flex items-end">
-              <button className="w-full rounded-lg bg-black px-3 py-2 text-sm text-white hover:opacity-90" onClick={addCompra}>Adicionar</button>
+              <button
+                className="w-full rounded-lg bg-black px-3 py-2 text-sm text-white hover:opacity-90"
+                onClick={addCompra}
+              >
+                Adicionar
+              </button>
             </div>
             <div className="md:col-span-6 text-[11px] text-slate-600">
               * Só contam para a CIA as <b>compras em Latam/Smiles</b> (aplicando o bônus).
@@ -772,7 +826,10 @@ export default function NovaCompraPage() {
       <section className="mb-6 rounded-xl border">
         <div className="flex items-center justify-between border-b px-3 py-2">
           <div className="text-sm font-semibold">Transferência de pontos</div>
-          <button className="rounded-lg border px-3 py-1 text-sm hover:bg-slate-100" onClick={() => setOpenTransf((v) => !v)}>
+          <button
+            className="rounded-lg border px-3 py-1 text-sm hover:bg-slate-100"
+            onClick={() => setOpenTransf((v) => !v)}
+          >
             {openTransf ? "Fechar" : "+ Adicionar"}
           </button>
         </div>
@@ -781,7 +838,11 @@ export default function NovaCompraPage() {
           <div className="grid grid-cols-1 gap-3 p-3 md:grid-cols-8">
             <div>
               <label className="mb-1 block text-xs text-slate-600">Origem</label>
-              <select value={trOrigem} onChange={(e) => setTrOrigem(e.target.value as ProgramaOrigem)} className="w-full rounded-xl border px-3 py-2 text-sm">
+              <select
+                value={trOrigem}
+                onChange={(e) => setTrOrigem(e.target.value as ProgramaOrigem)}
+                className="w-full rounded-xl border px-3 py-2 text-sm"
+              >
                 <option value="livelo">Livelo</option>
                 <option value="esfera">Esfera</option>
               </select>
@@ -789,7 +850,11 @@ export default function NovaCompraPage() {
 
             <div>
               <label className="mb-1 block text-xs text-slate-600">Destino</label>
-              <select value={trDestino} onChange={(e) => setTrDestino(e.target.value as ProgramaCIA)} className="w-full rounded-xl border px-3 py-2 text-sm">
+              <select
+                value={trDestino}
+                onChange={(e) => setTrDestino(e.target.value as ProgramaCIA)}
+                className="w-full rounded-xl border px-3 py-2 text-sm"
+              >
                 <option value="latam">Latam Pass</option>
                 <option value="smiles">Smiles</option>
               </select>
@@ -831,7 +896,11 @@ export default function NovaCompraPage() {
 
             <div>
               <label className="mb-1 block text-xs text-slate-600">Status inicial</label>
-              <select value={trStatus} onChange={(e) => setTrStatus(e.target.value as StatusItem)} className="w-full rounded-xl border px-3 py-2 text-sm">
+              <select
+                value={trStatus}
+                onChange={(e) => setTrStatus(e.target.value as StatusItem)}
+                className="w-full rounded-xl border px-3 py-2 text-sm"
+              >
                 <option value="aguardando">Aguardando</option>
                 <option value="liberado">Liberado</option>
               </select>
@@ -844,9 +913,11 @@ export default function NovaCompraPage() {
             </div>
 
             <div className="md:col-span-8 text-[11px] text-slate-600">
-              * Chegam na CIA: <b>
+              * Chegam na CIA:{" "}
+              <b>
                 {trModo === "pontos+dinheiro" ? "pts transferidos × (1 + bônus%)" : "pontos usados × (1 + bônus%)"}
-              </b>.
+              </b>
+              .
             </div>
           </div>
         )}
@@ -855,11 +926,7 @@ export default function NovaCompraPage() {
       {/* ===== Carrinho (itens adicionados) ===== */}
       <section className="mb-6 rounded-xl border">
         <div className="border-b px-3 py-2 text-sm font-semibold">Itens adicionados</div>
-        <Carrinho
-          linhas={linhas}
-          onToggleStatus={toggleStatus}
-          onRemove={removeLinha}
-        />
+        <Carrinho linhas={linhas} onToggleStatus={toggleStatus} onRemove={removeLinha} />
       </section>
 
       {/* ===== Comissão + Meta ===== */}
@@ -878,15 +945,16 @@ export default function NovaCompraPage() {
               <option value="pago">Pago</option>
             </select>
           </div>
-          <div className="mt-1 text-[11px] text-slate-500">
-            Entra no custo total (além de 1% de taxa vendedores).
-          </div>
+          <div className="mt-1 text-[11px] text-slate-500">Entra no custo total (além de 1% de taxa vendedores).</div>
         </div>
         <div>
           <label className="mb-1 block text-xs text-slate-600">Meta de venda (R$/milheiro)</label>
           <Money
             value={metaMilheiro}
-            onChange={(v) => { setMetaTouched(true); setMetaMilheiro(v); }}
+            onChange={(v) => {
+              setMetaTouched(true);
+              setMetaMilheiro(v);
+            }}
             placeholder="R$ 0,00"
           />
         </div>
@@ -897,21 +965,43 @@ export default function NovaCompraPage() {
         <div className="mb-2 text-lg font-semibold">Resumo</div>
         <div className="grid grid-cols-1 gap-2 md:grid-cols-2 text-sm">
           <div>
-            {cedenteNome && <div>Cedente: <b>{cedenteNome}</b></div>}
-            <div>Total de pontos (CIA): <b>{fmtInt(totals.totalCIA)}</b></div>
-            <div>Pontos liberados: <b>{fmtInt(totals.ptsLiberados)}</b></div>
-            <div>Pontos aguardando: <b>{fmtInt(totals.ptsAguardando)}</b></div>
+            {cedenteNome && (
+              <div>
+                Cedente: <b>{cedenteNome}</b>
+              </div>
+            )}
+            <div>
+              Total de pontos (CIA): <b>{fmtInt(totals.totalCIA)}</b>
+            </div>
+            <div>
+              Pontos liberados: <b>{fmtInt(totals.ptsLiberados)}</b>
+            </div>
+            <div>
+              Pontos aguardando: <b>{fmtInt(totals.ptsAguardando)}</b>
+            </div>
           </div>
           <div>
-            <div>Custo base dos itens: <b>{fmtMoney(totals.custoBase)}</b></div>
-            <div>Taxa vendedores (1%): <b>{fmtMoney(totals.taxaVendedores)}</b></div>
-            <div>Comissão ao cedente: <b>{fmtMoney(totals.comissao)}</b></div>
+            <div>
+              Custo base dos itens: <b>{fmtMoney(totals.custoBase)}</b>
+            </div>
+            <div>
+              Taxa vendedores (1%): <b>{fmtMoney(totals.taxaVendedores)}</b>
+            </div>
+            <div>
+              Comissão ao cedente: <b>{fmtMoney(totals.comissao)}</b>
+            </div>
           </div>
         </div>
         <div className="mt-2 text-sm">
-          <div><b>Custo total</b>: {fmtMoney(totals.custoTotal)}</div>
-          <div><b>Custo por milheiro (total)</b>: {fmtMoney(totals.custoMilheiroTotal || 0)}</div>
-          <div><b>Lucro estimado (sobre liberado)</b>: {fmtMoney(totals.lucroTotal)}</div>
+          <div>
+            <b>Custo total</b>: {fmtMoney(totals.custoTotal)}
+          </div>
+          <div>
+            <b>Custo por milheiro (total)</b>: {fmtMoney(totals.custoMilheiroTotal || 0)}
+          </div>
+          <div>
+            <b>Lucro estimado (sobre liberado)</b>: {fmtMoney(totals.lucroTotal)}
+          </div>
         </div>
       </div>
     </main>
@@ -937,7 +1027,10 @@ function Carrinho({
         const item = l.data as { id: number; status: StatusItem };
         const resumo = renderResumoUnico(l);
         return (
-          <li key={item.id} className="flex flex-col gap-2 px-3 py-2 text-sm md:flex-row md:items-center md:justify-between">
+          <li
+            key={item.id}
+            className="flex flex-col gap-2 px-3 py-2 text-sm md:flex-row md:items-center md:justify-between"
+          >
             <div className="flex items-center gap-2">
               <span className={"rounded-full px-2 py-[2px] text-[11px] " + badgeColor(l.kind)}>
                 {labelKind(l.kind)}
@@ -957,10 +1050,7 @@ function Carrinho({
               >
                 {item.status === "liberado" ? "Liberado" : "Aguardando"}
               </button>
-              <button
-                className="rounded border px-2 py-1 text-xs hover:bg-slate-100"
-                onClick={() => onRemove(item.id)}
-              >
+              <button className="rounded border px-2 py-1 text-xs hover:bg-slate-100" onClick={() => onRemove(item.id)}>
                 Remover
               </button>
             </div>
@@ -975,13 +1065,17 @@ function renderResumoUnico(l: ItemLinha): string {
   if (l.kind === "clube") {
     const it = l.data;
     const conta = it.programa === "latam" || it.programa === "smiles";
-    return `${labelPrograma(it.programa)} • ${fmtInt(it.pontos)} pts ${conta ? "(conta)" : "(não conta)"} • ${fmtMoney(it.valor)}`;
+    return `${labelPrograma(it.programa)} • ${fmtInt(it.pontos)} pts ${conta ? "(conta)" : "(não conta)"} • ${fmtMoney(
+      it.valor
+    )}`;
   }
   if (l.kind === "compra") {
     const it = l.data;
     const conta = it.programa === "latam" || it.programa === "smiles";
     const ptsFinais = conta ? Math.round(it.pontos * (1 + (it.bonusPct || 0) / 100)) : it.pontos;
-    return `${labelPrograma(it.programa)} • ${fmtInt(ptsFinais)} pts ${conta ? "(conta)" : "(não conta)"} • bônus ${it.bonusPct || 0}% • ${fmtMoney(it.valor)}`;
+    return `${labelPrograma(it.programa)} • ${fmtInt(ptsFinais)} pts ${conta ? "(conta)" : "(não conta)"} • bônus ${
+      it.bonusPct || 0
+    }% • ${fmtMoney(it.valor)}`;
   }
   const it = l.data;
   const base = it.modo === "pontos+dinheiro" ? it.pontosTotais : it.pontosUsados;
@@ -991,16 +1085,22 @@ function renderResumoUnico(l: ItemLinha): string {
       ? `usados ${fmtInt(it.pontosUsados)} • totais ${fmtInt(it.pontosTotais)}`
       : `usados ${fmtInt(it.pontosUsados)}`;
   const valor = fmtMoney(it.valorPago || 0);
-  return `${labelPrograma(it.origem)} → ${labelPrograma(it.destino)} • ${it.modo} • ${detalhe} • chegam ${fmtInt(chegam)} pts • ${valor}`;
+  return `${labelPrograma(it.origem)} → ${labelPrograma(it.destino)} • ${it.modo} • ${detalhe} • chegam ${fmtInt(
+    chegam
+  )} pts • ${valor}`;
 }
 
 /** ===== Auxiliares ===== */
 function labelPrograma(p: ProgramaGeral): string {
   switch (p) {
-    case "latam": return "Latam Pass";
-    case "smiles": return "Smiles";
-    case "livelo": return "Livelo";
-    case "esfera": return "Esfera";
+    case "latam":
+      return "Latam Pass";
+    case "smiles":
+      return "Smiles";
+    case "livelo":
+      return "Livelo";
+    case "esfera":
+      return "Esfera";
   }
 }
 function labelKind(k: ItemLinha["kind"]): string {
