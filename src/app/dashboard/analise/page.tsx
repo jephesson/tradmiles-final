@@ -1,12 +1,13 @@
 // src/app/dashboard/analise/page.tsx
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { type Cedente, loadCedentes } from "@/lib/storage";
 
 /* ===========================================================
  *  Estoque de Pontos (BÁSICO) + Caixa & Limites (no topo)
  *  + Previsão de Dinheiro (com preços por milheiro)
+ *  + Total de Dívidas em Aberto (somado por credor)
  * =========================================================== */
 
 type ProgramKey = "latam" | "smiles" | "livelo" | "esfera";
@@ -17,11 +18,33 @@ const MILHEIRO_KEY = "TM_MILHEIRO_PREVISAO";
 const CAIXA_KEY = "TM_CAIXA_CORRENTE";
 const CARTOES_KEY = "TM_CARTOES_LIMITES";
 
+/** storage das dívidas (mesmos usados na aba Dívidas) */
+const DEBTS_KEY = "TM_DEBTS";
+const DEBTS_TXNS_KEY = "TM_DEBTS_TXNS";
+
 type ApiOk = { ok: true; data?: unknown };
 type ApiErr = { ok: false; error?: string };
 type ApiResp = ApiOk | ApiErr;
 
 type CartaoLimite = { id: string; nome: string; limite: number };
+
+/** Tipos de Dívidas (iguais à aba Dívidas) */
+type Debt = {
+  id: string;
+  nome: string;
+  inicial: number;
+  nota?: string;
+  createdAt: string;
+  isClosed?: boolean;
+};
+type DebtTxn = {
+  id: string;
+  debtId: string;
+  tipo: "add" | "pay";
+  valor: number;
+  obs?: string;
+  dataISO: string;
+};
 
 function isObj(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null;
@@ -38,12 +61,7 @@ function pickListaCedentes(root: unknown): Cedente[] {
     if (!p) return [];
     if (Array.isArray(p)) return p;
     if (isObj(p)) {
-      const candidates: unknown[] = [
-        p["listaCedentes"],
-        p["cedentes"],
-        p["items"],
-        p["lista"],
-      ];
+      const candidates: unknown[] = [p["listaCedentes"], p["cedentes"], p["items"], p["lista"]];
       const nested = isObj(p["data"])
         ? [
             (p["data"] as Record<string, unknown>)["listaCedentes"],
@@ -151,7 +169,11 @@ export default function AnaliseBasica() {
   // CARTÕES (lista dinâmica)
   const [cartoes, setCartoes] = useState<CartaoLimite[]>([]);
 
-  // carregar preços + caixa + cartões do localStorage 1x
+  // DÍVIDAS (carregar para exibir total em aberto)
+  const [debts, setDebts] = useState<Debt[]>([]);
+  const [txns, setTxns] = useState<DebtTxn[]>([]);
+
+  // carregar preços + caixa + cartões + dívidas do localStorage 1x
   useEffect(() => {
     try {
       const raw = localStorage.getItem(MILHEIRO_KEY);
@@ -178,6 +200,12 @@ export default function AnaliseBasica() {
         const arr = JSON.parse(rawCards) as CartaoLimite[];
         if (Array.isArray(arr)) setCartoes(arr.map((c) => ({ ...c, limite: Number(c.limite || 0) })));
       }
+    } catch {}
+    try {
+      const rawDebts = localStorage.getItem(DEBTS_KEY);
+      const rawTxns = localStorage.getItem(DEBTS_TXNS_KEY);
+      if (rawDebts) setDebts(JSON.parse(rawDebts) as Debt[]);
+      if (rawTxns) setTxns(JSON.parse(rawTxns) as DebtTxn[]);
     } catch {}
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -239,6 +267,15 @@ export default function AnaliseBasica() {
     carregar();
     function onStorage(e: StorageEvent) {
       if (e.key === "TM_CEDENTES_REFRESH") void carregar();
+      if (e.key === DEBTS_KEY || e.key === DEBTS_TXNS_KEY) {
+        // refletir alterações feitas na aba Dívidas
+        try {
+          const rawDebts = localStorage.getItem(DEBTS_KEY);
+          const rawTxns = localStorage.getItem(DEBTS_TXNS_KEY);
+          if (rawDebts) setDebts(JSON.parse(rawDebts) as Debt[]);
+          if (rawTxns) setTxns(JSON.parse(rawTxns) as DebtTxn[]);
+        } catch {}
+      }
     }
     window.addEventListener("storage", onStorage);
     return () => window.removeEventListener("storage", onStorage);
@@ -272,6 +309,24 @@ export default function AnaliseBasica() {
   const caixaTotal = caixa + totalLimites; // somatório conforme solicitado
   const caixaTotalMaisPrev = caixaTotal + totalPrev;
 
+  // ======= DÍVIDAS: total em aberto (igual à aba Dívidas) =======
+  const saldoDebt = (debtId: string) => {
+    const d = debts.find((x) => x.id === debtId);
+    if (!d) return 0;
+    const adds = txns
+      .filter((t) => t.debtId === debtId && t.tipo === "add")
+      .reduce((s, t) => s + t.valor, 0);
+    const pays = txns
+      .filter((t) => t.debtId === debtId && t.tipo === "pay")
+      .reduce((s, t) => s + t.valor, 0);
+    return d.inicial + adds - pays;
+  };
+  const totalDividasAbertas = useMemo(
+    () => debts.filter((d) => !d.isClosed).reduce((s, d) => s + saldoDebt(d.id), 0),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [debts, txns]
+  );
+
   /* ======= Ações cartões ======= */
   function addCartao() {
     const novo: CartaoLimite = {
@@ -291,7 +346,7 @@ export default function AnaliseBasica() {
   return (
     <div className="p-6 space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold">Análise (Caixa, Limites e Pontos)</h1>
+        <h1 className="text-2xl font-semibold">Análise (Caixa, Limites, Dívidas e Pontos)</h1>
         <button
           onClick={carregar}
           className="rounded-lg border px-3 py-2 text-sm hover:bg-slate-50 disabled:opacity-60"
@@ -313,20 +368,13 @@ export default function AnaliseBasica() {
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div>
-            <CurrencyInputBRL
-              label="Caixa na conta (agora)"
-              value={caixa}
-              onChange={setCaixa}
-            />
+            <CurrencyInputBRL label="Caixa na conta (agora)" value={caixa} onChange={setCaixa} />
           </div>
 
           <div className="md:col-span-2">
             <div className="flex items-center justify-between mb-2">
               <div className="text-xs text-slate-600">Limites de cartões</div>
-              <button
-                onClick={addCartao}
-                className="rounded-lg border px-3 py-2 text-sm hover:bg-slate-50"
-              >
+              <button onClick={addCartao} className="rounded-lg border px-3 py-2 text-sm hover:bg-slate-50">
                 + Adicionar cartão
               </button>
             </div>
@@ -359,17 +407,10 @@ export default function AnaliseBasica() {
                         />
                       </td>
                       <td className="py-2 pr-4">
-                        <CurrencyInputBRL
-                          label=""
-                          value={c.limite}
-                          onChange={(v) => updateCartao(c.id, { limite: v })}
-                        />
+                        <CurrencyInputBRL label="" value={c.limite} onChange={(v) => updateCartao(c.id, { limite: v })} />
                       </td>
                       <td className="py-2 pr-4 text-right">
-                        <button
-                          onClick={() => removeCartao(c.id)}
-                          className="rounded-lg border px-3 py-2 text-sm hover:bg-slate-50"
-                        >
+                        <button onClick={() => removeCartao(c.id)} className="rounded-lg border px-3 py-2 text-sm hover:bg-slate-50">
                           Remover
                         </button>
                       </td>
@@ -391,11 +432,12 @@ export default function AnaliseBasica() {
         </div>
 
         {/* KPIs de caixa */}
-        <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-5 gap-4">
           <KPI title="Caixa (conta)" value={fmtMoney(caixa)} />
           <KPI title="Limites (cartões)" value={fmtMoney(totalLimites)} />
           <KPI title="Caixa total (conta + limites)" value={fmtMoney(caixaTotal)} />
           <KPI title="Caixa total + previsto" value={fmtMoney(caixaTotalMaisPrev)} />
+          <KPI title="Dívidas em aberto" value={fmtMoney(totalDividasAbertas)} />
         </div>
       </section>
 
@@ -419,9 +461,7 @@ export default function AnaliseBasica() {
             <tfoot>
               <tr className="border-t">
                 <td className="py-2 pr-4 font-medium">Total</td>
-                <td className="py-2 pr-4 text-right font-semibold">
-                  {totalGeral.toLocaleString("pt-BR")}
-                </td>
+                <td className="py-2 pr-4 text-right font-semibold">{totalGeral.toLocaleString("pt-BR")}</td>
               </tr>
             </tfoot>
           </table>
@@ -438,26 +478,10 @@ export default function AnaliseBasica() {
 
         {/* Inputs de preço do milheiro */}
         <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
-          <CurrencyInputBRL
-            label="Preço LATAM — R$ por 1.000"
-            value={milheiro.latam}
-            onChange={(v) => setMilheiro((prev) => ({ ...prev, latam: v }))}
-          />
-          <CurrencyInputBRL
-            label="Preço SMILES — R$ por 1.000"
-            value={milheiro.smiles}
-            onChange={(v) => setMilheiro((prev) => ({ ...prev, smiles: v }))}
-          />
-          <CurrencyInputBRL
-            label="Preço LIVELO — R$ por 1.000"
-            value={milheiro.livelo}
-            onChange={(v) => setMilheiro((prev) => ({ ...prev, livelo: v }))}
-          />
-          <CurrencyInputBRL
-            label="Preço ESFERA — R$ por 1.000"
-            value={milheiro.esfera}
-            onChange={(v) => setMilheiro((prev) => ({ ...prev, esfera: v }))}
-          />
+          <CurrencyInputBRL label="Preço LATAM — R$ por 1.000" value={milheiro.latam} onChange={(v) => setMilheiro((prev) => ({ ...prev, latam: v }))} />
+          <CurrencyInputBRL label="Preço SMILES — R$ por 1.000" value={milheiro.smiles} onChange={(v) => setMilheiro((prev) => ({ ...prev, smiles: v }))} />
+          <CurrencyInputBRL label="Preço LIVELO — R$ por 1.000" value={milheiro.livelo} onChange={(v) => setMilheiro((prev) => ({ ...prev, livelo: v }))} />
+          <CurrencyInputBRL label="Preço ESFERA — R$ por 1.000" value={milheiro.esfera} onChange={(v) => setMilheiro((prev) => ({ ...prev, esfera: v }))} />
         </div>
 
         {/* Tabela de previsão */}
