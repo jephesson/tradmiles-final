@@ -117,12 +117,21 @@ function toJsonValue<T>(value: T): Prisma.InputJsonValue {
   return JSON.parse(JSON.stringify(value)) as unknown as Prisma.InputJsonValue;
 }
 
+/** Lê com segurança um campo array de um objeto desconhecido, sem usar `any`. */
+function getArrayField<T = unknown>(obj: unknown, field: string): T[] {
+  if (obj && typeof obj === "object" && !Array.isArray(obj)) {
+    const rec = obj as Record<string, unknown>;
+    const value = rec[field];
+    if (Array.isArray(value)) return value as T[];
+  }
+  return [];
+}
+
 /* ================== AppBlob helpers ================== */
 async function loadArrayFromBlob<T = unknown>(kind: string, field: string): Promise<T[]> {
   const blob = await prisma.appBlob.findUnique({ where: { kind } });
   const data = (blob?.data as Record<string, unknown> | null) ?? null;
-  const arr = data && Array.isArray((data as any)[field]) ? ((data as any)[field] as T[]) : [];
-  return arr;
+  return getArrayField<T>(data, field);
 }
 async function saveArrayToBlob(kind: string, field: string, items: unknown[]): Promise<void> {
   const data = toJsonValue({ [field]: items });
@@ -137,7 +146,7 @@ async function saveArrayToBlob(kind: string, field: string, items: unknown[]): P
 async function loadCedentes(): Promise<CedenteRec[]> {
   const blob = await prisma.appBlob.findUnique({ where: { kind: CEDENTES_KIND } });
   const raw = (blob?.data as Record<string, unknown> | null) ?? null;
-  const arr = raw && Array.isArray((raw as any)["listaCedentes"]) ? ((raw as any)["listaCedentes"] as unknown[]) : [];
+  const arr = getArrayField<unknown>(raw, "listaCedentes");
   return arr.map(pickCedenteFields);
 }
 async function saveCedentes(arr: CedenteRec[]): Promise<void> {
