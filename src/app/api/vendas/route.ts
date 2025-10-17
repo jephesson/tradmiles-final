@@ -3,9 +3,6 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
 import { randomUUID } from "node:crypto";
-import { getServerSession } from "next-auth";
-// ⚠️ Se o seu authOptions estiver em outro caminho, ajuste esse import:
-import { authOptions } from "@/lib/auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -178,7 +175,7 @@ function pickCedenteFields(c: unknown): CedenteRec {
   };
 }
 
-/* ================== Funcionário a partir do login ================== */
+/* ================== Funcionário a partir do "login" do front ================== */
 /** Tabela simples (mesmo seed do front) */
 const FUNC_MAP: Record<string, { id: string; nome: string }> = {
   jephesson: { id: "F001", nome: "Jephesson" },
@@ -187,18 +184,15 @@ const FUNC_MAP: Record<string, { id: string; nome: string }> = {
   eduarda: { id: "F004", nome: "Eduarda" },
 };
 
-function resolveFuncionarioFromSession(
+function resolveFuncionarioByNameOrEmailLocal(
   user: { name?: string | null; email?: string | null } | null
 ): { id: string; nome: string } | null {
   if (!user) return null;
   const byName = norm(user.name);
   const byLocal = norm((user.email || "").split("@")[0] || "");
-
   if (byName && FUNC_MAP[byName]) return FUNC_MAP[byName];
-
-  // tenta "contém" no local-part (ex.: lucas.souza -> lucas)
-  for (const key of Object.keys(FUNC_MAP)) {
-    if (byLocal.includes(key)) return FUNC_MAP[key];
+  for (const k of Object.keys(FUNC_MAP)) {
+    if (byLocal.includes(k)) return FUNC_MAP[k];
   }
   return null;
 }
@@ -220,10 +214,12 @@ export async function POST(req: Request): Promise<NextResponse> {
       );
     }
 
-    // ==== sessão (NextAuth) -> trava funcionário pelo login ====
-    const session = await getServerSession(authOptions as any).catch(() => null);
-    const sessionUser = session?.user ?? null;
-    const funcionarioSessao = resolveFuncionarioFromSession(sessionUser);
+    // Sem next-auth no server: usa userName/userEmail enviados pelo front
+    const frontUser = {
+      name: (body["userName"] as string | null | undefined) ?? null,
+      email: (body["userEmail"] as string | null | undefined) ?? null,
+    };
+    const funcionarioSessao = resolveFuncionarioByNameOrEmailLocal(frontUser);
 
     // Cedentes: usa blob existente; se não houver, aceita seed do body.
     const cedentesFromDb = await loadCedentes();
@@ -254,7 +250,7 @@ export async function POST(req: Request): Promise<NextResponse> {
       cia: body["cia"] === "latam" ? "latam" : "smiles",
       qtdPassageiros: toNum(body["qtdPassageiros"]),
 
-      // >>> força pelo login; se não achar, cai no que veio do body
+      // força pelo "login" inferido do front; se não achar, usa o que veio no body
       funcionarioId:
         funcionarioSessao?.id ??
         ((body["funcionarioId"] as string | null | undefined) ?? null),
@@ -262,8 +258,8 @@ export async function POST(req: Request): Promise<NextResponse> {
         funcionarioSessao?.nome ??
         ((body["funcionarioNome"] as string | null | undefined) ?? null),
 
-      userName: (sessionUser?.name as string | null | undefined) ?? (body["userName"] as string | null | undefined) ?? null,
-      userEmail: (sessionUser?.email as string | null | undefined) ?? (body["userEmail"] as string | null | undefined) ?? null,
+      userName: frontUser.name,
+      userEmail: frontUser.email,
 
       clienteId: (body["clienteId"] as string | null | undefined) ?? null,
       clienteNome: (body["clienteNome"] as string | null | undefined) ?? null,
@@ -286,7 +282,7 @@ export async function POST(req: Request): Promise<NextResponse> {
       comissaoBonusMeta: toNum(body["comissaoBonusMeta"]),
       comissaoTotal: toNum(body["comissaoTotal"]),
 
-      // Cartão: se não vier, usa o mesmo do funcionário logado
+      // Cartão: se não vier, usa o mesmo do funcionário “logado”
       cartaoFuncionarioId:
         (body["cartaoFuncionarioId"] as string | null | undefined) ??
         funcionarioSessao?.id ??
