@@ -522,8 +522,6 @@ export async function GET(req: Request): Promise<NextResponse> {
     });
 
     const total = rows.length;
-    const offsetRaw = parseInt(url.searchParams.get("offset") || "0", 10);
-    const limitRaw = parseInt(url.searchParams.get("limit") || "20", 10);
     const offsetClamped = Math.max(0, Number.isFinite(offsetRaw) ? offsetRaw : 0);
     const limitClamped = Math.max(1, Math.min(Number.isFinite(limitRaw) ? limitRaw : 20, 500));
     const items = rows.slice(offsetClamped, offsetClamped + limitClamped);
