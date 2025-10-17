@@ -26,12 +26,20 @@ type AnyObj = Record<string, unknown>;
 const isObject = (v: unknown): v is AnyObj =>
   typeof v === "object" && v !== null && !Array.isArray(v);
 
+/** Garante um objeto JSON serializável e com tipo do Prisma */
+function toJsonValue<T>(value: T): Prisma.InputJsonValue {
+  // remove referências/funcs/símbolos via JSON round-trip
+  return JSON.parse(JSON.stringify(value)) as unknown as Prisma.InputJsonValue;
+}
+
 /* ---------- Tipos mínimos usados neste endpoint ---------- */
 type CIA = "latam" | "smiles";
 type Origem = "livelo" | "esfera";
 type StatusPontos = "aguardando" | "liberados";
 
-// shape mínimo para compilar o PATCH com type-safety
+type Totais = { totalPts: number; custoMilheiro: number; custoTotal: number; lucroTotal: number };
+
+/** shape mínimo para compilar com type-safety */
 type CompraDoc = {
   id: string;
   dataCompra?: string;
@@ -43,9 +51,9 @@ type CompraDoc = {
   destCia?: CIA;
   origem?: Origem;
   valores?: unknown;
-  calculos?: { totalPts: number; custoMilheiro: number; custoTotal: number; lucroTotal: number } | null;
+  calculos?: Totais | null;
   itens?: unknown[];
-  totaisId?: { totalPts: number; custoMilheiro: number; custoTotal: number; lucroTotal: number } | null;
+  totaisId?: Totais | null;
   metaMilheiro?: number;
   comissaoCedente?: number;
   savedAt?: number;
@@ -54,17 +62,12 @@ type CompraDoc = {
 /* ---------- Acesso ao AppBlob ---------- */
 async function loadItems(): Promise<CompraDoc[]> {
   const blob = await prisma.appBlob.findUnique({ where: { kind: BLOB_KIND } });
-  // data é JsonValue; acessamos com any e validamos
-  const data = blob?.data as any;
-  const items = data?.items;
+  const items = (blob?.data as { items?: unknown } | null)?.items;
   return Array.isArray(items) ? (items as CompraDoc[]) : [];
 }
 
 async function saveItems(items: CompraDoc[]): Promise<void> {
-  // Converte o array para JsonArray conforme o Prisma espera
-  const jsonItems = items as unknown as Prisma.JsonArray;
-  const data = { items: jsonItems } as unknown as Prisma.InputJsonValue;
-
+  const data: Prisma.InputJsonValue = toJsonValue({ items });
   await prisma.appBlob.upsert({
     where: { kind: BLOB_KIND },
     create: { id: randomUUID(), kind: BLOB_KIND, data },
@@ -98,7 +101,6 @@ export async function GET(
 
 /* =========================================================
  *  PATCH /api/compras/:id
- *  (mesma whitelist/normalização que você já usa)
  * ========================================================= */
 export async function PATCH(
   req: Request,
@@ -178,7 +180,7 @@ export async function PATCH(
 
         case "calculos":
           if (isObject(v)) {
-            const maybe = v as Partial<NonNullable<CompraDoc["calculos"]>>;
+            const maybe = v as Partial<Totais>;
             patch.calculos = {
               totalPts: Number(maybe.totalPts ?? 0),
               custoMilheiro: Number(maybe.custoMilheiro ?? 0),
@@ -194,8 +196,8 @@ export async function PATCH(
 
         case "totaisId":
           if (isObject(v)) {
-            const maybe = v as Partial<NonNullable<CompraDoc["totaisId"]>>;
-            const norm = {
+            const maybe = v as Partial<Totais>;
+            const norm: Totais = {
               totalPts: Number(maybe.totalPts ?? 0),
               custoMilheiro: Number(maybe.custoMilheiro ?? 0),
               custoTotal: Number(maybe.custoTotal ?? 0),
@@ -207,8 +209,8 @@ export async function PATCH(
 
         case "totais":
           if (isObject(v)) {
-            const maybe = v as Partial<NonNullable<CompraDoc["totaisId"]>>;
-            const norm = {
+            const maybe = v as Partial<Totais>;
+            const norm: Totais = {
               totalPts: Number(maybe.totalPts ?? 0),
               custoMilheiro: Number(maybe.custoMilheiro ?? 0),
               custoTotal: Number(maybe.custoTotal ?? 0),
