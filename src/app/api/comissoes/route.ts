@@ -58,7 +58,7 @@ type RepoShape = {
 };
 
 /* ========= type guards ========= */
-function isFunction(x: unknown): x is (...args: any[]) => any {
+function isFunction(x: unknown): x is (...args: unknown[]) => unknown {
   return typeof x === "function";
 }
 function isRepoShape(x: unknown): x is RepoShape {
@@ -156,16 +156,6 @@ export async function GET(req: Request): Promise<NextResponse> {
 }
 
 /* ============== POST (upsert por compraId+cedenteId) ============== */
-/**
-Body:
-{
-  "compraId": string,
-  "cedenteId": string,
-  "cedenteNome"?: string,
-  "valor": number | string,
-  "status"?: "pago" | "aguardando"
-}
-*/
 type PostBody = {
   compraId: string;
   cedenteId: string;
@@ -224,17 +214,6 @@ export async function POST(req: Request): Promise<NextResponse> {
 }
 
 /* ============== PATCH (atualizar valor/status/nome) ============== */
-/**
-Query:
-- compraId, cedenteId (ambos obrigatórios)
-
-Body (qualquer campo abaixo é opcional):
-{
-  "valor"?: number | string,
-  "status"?: "pago" | "aguardando",
-  "cedenteNome"?: string
-}
-*/
 type PatchBody = {
   valor?: number | string;
   status?: Status | "";
