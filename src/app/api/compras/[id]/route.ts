@@ -1,6 +1,8 @@
 // src/app/api/compras/[id]/route.ts
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { randomUUID } from "node:crypto";
+import type { Prisma } from "@prisma/client";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -24,6 +26,11 @@ type AnyObj = Record<string, unknown>;
 const isObject = (v: unknown): v is AnyObj =>
   typeof v === "object" && v !== null && !Array.isArray(v);
 
+/** remove undefined / funções e garante JSON puro */
+function toJsonSafe<T>(v: T): T {
+  return JSON.parse(JSON.stringify(v)) as T;
+}
+
 /* ---------- Tipos mínimos usados neste endpoint ---------- */
 type CIA = "latam" | "smiles";
 type Origem = "livelo" | "esfera";
@@ -41,9 +48,13 @@ type CompraDoc = {
   destCia?: CIA;
   origem?: Origem;
   valores?: unknown;
-  calculos?: { totalPts: number; custoMilheiro: number; custoTotal: number; lucroTotal: number } | null;
+  calculos?:
+    | { totalPts: number; custoMilheiro: number; custoTotal: number; lucroTotal: number }
+    | null;
   itens?: unknown[];
-  totaisId?: { totalPts: number; custoMilheiro: number; custoTotal: number; lucroTotal: number } | null;
+  totaisId?:
+    | { totalPts: number; custoMilheiro: number; custoTotal: number; lucroTotal: number }
+    | null;
   metaMilheiro?: number;
   comissaoCedente?: number;
   savedAt?: number;
@@ -57,10 +68,12 @@ async function loadItems(): Promise<CompraDoc[]> {
 }
 
 async function saveItems(items: CompraDoc[]): Promise<void> {
+  // Garante JSON válido e tipa como InputJsonValue
+  const data: Prisma.InputJsonValue = { items: toJsonSafe(items) };
   await prisma.appBlob.upsert({
     where: { kind: BLOB_KIND },
-    create: { id: crypto.randomUUID(), kind: BLOB_KIND, data: { items } },
-    update: { data: { items } },
+    create: { id: randomUUID(), kind: BLOB_KIND, data },
+    update: { data },
   });
 }
 
@@ -90,7 +103,6 @@ export async function GET(
 
 /* =========================================================
  *  PATCH /api/compras/:id
- *  (mesma whitelist/normalização que você já usa)
  * ========================================================= */
 export async function PATCH(
   req: Request,
