@@ -3,18 +3,15 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 
-/** =========================
- *  API
- * ========================= */
+/* ===========================================================
+ * Dívidas — 100% Online (Vercel KV)
+ * - GET /api/dividas para carregar
+ * - PATCH /api/dividas para salvar (debounce + otimista)
+ * - Sem localStorage
+ * =========================================================== */
+
 const DIVIDAS_API = "/api/dividas";
 
-type ApiOk = { ok: true; data?: unknown };
-type ApiErr = { ok: false; error?: string };
-type ApiResp = ApiOk | ApiErr;
-
-/** =========================
- *  Tipos
- * ========================= */
 type Debt = {
   id: string;
   nome: string;
@@ -26,7 +23,7 @@ type Debt = {
 type DebtTxn = {
   id: string;
   debtId: string;
-  tipo: "add" | "pay"; // add = nova dívida; pay = pagamento
+  tipo: "add" | "pay";
   valor: number;
   obs?: string;
   dataISO: string;
@@ -37,11 +34,24 @@ type DividasBlob = {
   savedAt?: string;
 };
 
-/** =========================
- *  Helpers dinheiro (BRL)
- * ========================= */
+type ApiOk = { ok: true; data: DividasBlob };
+type ApiErr = { ok: false; error?: string };
+type ApiResp = ApiOk | ApiErr;
+
+/* ===== Helpers ===== */
+function isObj(v: unknown): v is Record<string, unknown> {
+  return typeof v === "object" && v !== null;
+}
+function uid() {
+  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+  return (globalThis.crypto?.randomUUID?.() as string) ?? `id-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
 function fmtMoney(n: number) {
   return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(Number(n) || 0);
+}
+function formatBRLNoPrefix(n: number) {
+  const v = Number(n) || 0;
+  return new Intl.NumberFormat("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(v);
 }
 function parseBRL(s: string) {
   if (!s) return 0;
@@ -49,14 +59,8 @@ function parseBRL(s: string) {
   const n = Number(cleaned);
   return Number.isFinite(n) ? n : 0;
 }
-function formatBRLNoPrefix(n: number) {
-  const v = Number(n) || 0;
-  return new Intl.NumberFormat("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(v);
-}
 
-/** =========================
- *  CurrencyInputBRL (fluido)
- * ========================= */
+/* ===== Input BRL (fluido) ===== */
 function CurrencyInputBRL({
   label,
   value,
@@ -69,11 +73,7 @@ function CurrencyInputBRL({
   placeholder?: string;
 }) {
   const [txt, setTxt] = useState<string>(formatBRLNoPrefix(value));
-
-  useEffect(() => {
-    // Atualiza texto quando valor “externo” muda (ex.: após salvar/carregar)
-    setTxt(formatBRLNoPrefix(value));
-  }, [value]);
+  useEffect(() => setTxt(formatBRLNoPrefix(value)), [value]);
 
   return (
     <label className="block">
@@ -85,11 +85,9 @@ function CurrencyInputBRL({
           onChange={(e) => {
             let raw = e.target.value.replace(/[^\d,\.]/g, "").replace(/\./g, ",");
             const parts = raw.split(",");
-            if (parts.length > 2) {
-              raw = parts[0] + "," + parts.slice(1).join("").replace(/,/g, "");
-            }
+            if (parts.length > 2) raw = parts[0] + "," + parts.slice(1).join("").replace(/,/g, "");
             setTxt(raw);
-            onChange(parseBRL(raw)); // envia número a cada tecla
+            onChange(parseBRL(raw));
           }}
           onBlur={() => setTxt(formatBRLNoPrefix(parseBRL(txt)))}
           className="w-full outline-none"
@@ -102,100 +100,86 @@ function CurrencyInputBRL({
   );
 }
 
-/** =========================
- *  Utils
- * ========================= */
-function isObj(v: unknown): v is Record<string, unknown> {
-  return typeof v === "object" && v !== null;
-}
-function id() {
-  // crypto.randomUUID (moderno) + fallback
-  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
-  return (globalThis.crypto?.randomUUID?.() as string) ?? `id-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-}
-
-/** =========================
- *  Página
- * ========================= */
+/* ===== Página ===== */
 export default function DividasPage() {
   const [debts, setDebts] = useState<Debt[]>([]);
   const [txns, setTxns] = useState<DebtTxn[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const [serverError, setServerError] = useState<string | null>(null);
+  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // form "nova dívida"
+  // Form "nova dívida"
   const [nome, setNome] = useState("");
   const [valorInicial, setValorInicial] = useState<number>(0);
   const [nota, setNota] = useState("");
 
-  // linha-ação (aplica no credor escolhido)
+  // Ação rápida
   const [valorAcao, setValorAcao] = useState<number>(0);
   const [obsAcao, setObsAcao] = useState("");
 
-  // estado de carregamento/salvamento online
-  const [loading, setLoading] = useState(false);
-  const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
-  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  /** ---------- LOAD (apenas online) ---------- */
+  /* ---------- LOAD ---------- */
   async function loadOnline() {
     setLoading(true);
+    setServerError(null);
     try {
       const r = await fetch(`${DIVIDAS_API}?ts=${Date.now()}`, { cache: "no-store" });
-      if (!r.ok) throw new Error("GET /api/dividas falhou");
-      const j = (await r.json()) as ApiResp | unknown;
-      const data = (isObj(j) && "ok" in j ? (j as ApiOk).data : j) as Partial<DividasBlob> | undefined;
-
-      if (isObj(data)) {
-        setDebts(Array.isArray(data.debts) ? (data.debts as Debt[]) : []);
-        setTxns(Array.isArray(data.txns) ? (data.txns as DebtTxn[]) : []);
-      } else {
-        setDebts([]);
-        setTxns([]);
+      const j = (await r.json()) as ApiResp;
+      if (!r.ok || !isObj(j) || !("ok" in j) || !j.ok) {
+        const msg = (isObj(j) && "error" in j && (j as ApiErr).error) || "Falha ao carregar";
+        throw new Error(msg);
       }
-    } catch {
-      // sem fallback local por requisito
+      setDebts(Array.isArray(j.data.debts) ? j.data.debts : []);
+      setTxns(Array.isArray(j.data.txns) ? j.data.txns : []);
+    } catch (e: unknown) {
       setDebts([]);
       setTxns([]);
+      setServerError(e instanceof Error ? e.message : "Falha ao carregar");
     } finally {
       setLoading(false);
     }
   }
-
   useEffect(() => {
     loadOnline();
   }, []);
 
-  /** ---------- SAVE online (debounce) ---------- */
+  /* ---------- SAVE (debounce + otimista) ---------- */
   function scheduleSave(nextDebts: Debt[], nextTxns: DebtTxn[]) {
     if (saveTimer.current) clearTimeout(saveTimer.current);
     const payload: DividasBlob = { debts: nextDebts, txns: nextTxns };
     saveTimer.current = setTimeout(async () => {
       setSaveState("saving");
+      setServerError(null);
       try {
         const r = await fetch(DIVIDAS_API, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload),
         });
-        if (!r.ok) throw new Error("PATCH /api/dividas falhou");
+        const j = (await r.json()) as ApiResp;
+        if (!r.ok || !("ok" in j) || !j.ok) {
+          const msg = ("error" in (j as ApiErr) && (j as ApiErr).error) || "Falha ao salvar dívidas";
+          throw new Error(msg);
+        }
         setSaveState("saved");
         setTimeout(() => setSaveState("idle"), 1200);
-      } catch {
+      } catch (e: unknown) {
         setSaveState("error");
+        setServerError(e instanceof Error ? e.message : "Falha ao salvar");
       }
     }, 600);
   }
-
   function persist(nextDebts: Debt[] = debts, nextTxns: DebtTxn[] = txns) {
-    setDebts(nextDebts);
+    setDebts(nextDebts); // otimista
     setTxns(nextTxns);
     scheduleSave(nextDebts, nextTxns);
   }
 
-  /** ---------- Ações ---------- */
+  /* ---------- Ações ---------- */
   function addDebt() {
     if (!nome.trim()) return;
     const d: Debt = {
-      id: id(),
+      id: uid(),
       nome: nome.trim(),
       inicial: Number(valorInicial) || 0,
       nota: (nota || "").trim() || undefined,
@@ -206,25 +190,23 @@ export default function DividasPage() {
     setValorInicial(0);
     setNota("");
   }
-
   function addTxn(debtId: string, tipo: DebtTxn["tipo"], valor: number, obs?: string) {
     if (!valor || valor <= 0) return;
-    const t: DebtTxn = { id: id(), debtId, tipo, valor, obs, dataISO: new Date().toISOString() };
+    const t: DebtTxn = { id: uid(), debtId, tipo, valor, obs, dataISO: new Date().toISOString() };
     persist(debts, [t, ...txns]);
   }
-
   function toggleClose(debtId: string) {
-    const list = debts.map((d) => (d.id === debtId ? { ...d, isClosed: !d.isClosed } : d));
-    persist(list, txns);
+    persist(debts.map((d) => (d.id === debtId ? { ...d, isClosed: !d.isClosed } : d)), txns);
   }
-
   function removeDebt(debtId: string) {
     if (!confirm("Remover esta dívida e todo o seu histórico?")) return;
-    const list = debts.filter((d) => d.id !== debtId);
-    const tx = txns.filter((t) => t.debtId !== debtId);
-    persist(list, tx);
+    persist(
+      debts.filter((d) => d.id !== debtId),
+      txns.filter((t) => t.debtId !== debtId)
+    );
   }
 
+  /* ---------- Cálculos ---------- */
   function saldo(debtId: string) {
     const d = debts.find((x) => x.id === debtId);
     if (!d) return 0;
@@ -232,14 +214,13 @@ export default function DividasPage() {
     const pays = txns.filter((t) => t.debtId === debtId && t.tipo === "pay").reduce((s, t) => s + t.valor, 0);
     return d.inicial + adds - pays;
   }
-
   const totalAberto = useMemo(
     () => debts.filter((d) => !d.isClosed).reduce((s, d) => s + saldo(d.id), 0),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [debts, txns]
   );
 
-  /** ---------- Render ---------- */
+  /* ---------- UI ---------- */
   return (
     <div className="p-6 space-y-6">
       <div className="flex items-center justify-between">
@@ -248,10 +229,10 @@ export default function DividasPage() {
           <div className="text-sm text-slate-600">
             Total em aberto: <span className="font-semibold">{fmtMoney(totalAberto)}</span>
           </div>
-          <div className="text-xs text-slate-500">
-            {saveState === "saving" && "Salvando..."}
-            {saveState === "saved" && "Salvo ✓"}
-            {saveState === "error" && "Erro ao salvar"}
+          <div className="text-xs">
+            {saveState === "saving" && <span className="text-slate-500">Salvando...</span>}
+            {saveState === "saved" && <span className="text-emerald-600">Salvo ✓</span>}
+            {saveState === "error" && <span className="text-rose-600">Erro ao salvar</span>}
           </div>
           <button
             onClick={loadOnline}
@@ -262,6 +243,10 @@ export default function DividasPage() {
           </button>
         </div>
       </div>
+
+      {serverError && (
+        <div className="rounded-lg border border-rose-300 bg-rose-50 px-3 py-2 text-sm text-rose-700">{serverError}</div>
+      )}
 
       {/* Nova dívida */}
       <section className="bg-white rounded-2xl shadow p-4 space-y-3">
@@ -277,11 +262,7 @@ export default function DividasPage() {
             />
           </label>
 
-          <CurrencyInputBRL
-            label="Valor inicial"
-            value={valorInicial}
-            onChange={setValorInicial}
-          />
+          <CurrencyInputBRL label="Valor inicial" value={valorInicial} onChange={setValorInicial} />
 
           <label className="sm:col-span-2 block">
             <div className="text-xs text-slate-600 mb-1">Observação</div>
@@ -304,14 +285,10 @@ export default function DividasPage() {
       <section className="bg-white rounded-2xl shadow p-4">
         <h2 className="font-medium mb-2">Dívidas registradas</h2>
 
-        {/* Ações rápidas (valor/obs) que serão aplicadas no credor escolhido */}
+        {/* Ações rápidas */}
         <div className="grid grid-cols-1 sm:grid-cols-5 gap-2 mb-3">
           <div className="sm:col-span-2">
-            <CurrencyInputBRL
-              label="Valor p/ ação"
-              value={valorAcao}
-              onChange={setValorAcao}
-            />
+            <CurrencyInputBRL label="Valor p/ ação" value={valorAcao} onChange={setValorAcao} />
           </div>
           <div className="sm:col-span-3">
             <div className="text-xs text-slate-600 mb-1">Observação</div>
@@ -397,13 +374,9 @@ export default function DividasPage() {
   );
 }
 
-/** =========================
- *  Extrato com saldo acumulado
- * ========================= */
+/* ===== Extrato ===== */
 function DebtExtract({ debt, txns }: { debt: Debt; txns: DebtTxn[] }) {
-  // ordenar do mais antigo para o mais novo para calcular saldo acumulado
   const ordered = [...txns].sort((a, b) => new Date(a.dataISO).getTime() - new Date(b.dataISO).getTime());
-
   let running = debt.inicial;
 
   return (

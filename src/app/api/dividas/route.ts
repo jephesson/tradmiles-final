@@ -1,3 +1,4 @@
+// src/app/api/dividas/route.ts
 import { NextResponse } from "next/server";
 import { kv } from "@vercel/kv";
 
@@ -30,7 +31,7 @@ type DividasBlob = {
 
 const KEY = "TM:DIVIDAS:BLOB:v1";
 
-/* ------------ normalizadores (acabam com o any) ------------ */
+/* ---------- Normalizadores (tip-safe) ---------- */
 function normalizeDebt(input: unknown): Debt {
   const d = (input ?? {}) as Record<string, unknown>;
   return {
@@ -60,7 +61,7 @@ export async function GET() {
   try {
     const data = (await kv.get<DividasBlob>(KEY)) ?? { debts: [], txns: [], savedAt: undefined };
     return NextResponse.json({ ok: true, data });
-  } catch (_e: unknown) {
+  } catch {
     return NextResponse.json({ ok: false, error: "Falha ao carregar dívidas" }, { status: 500 });
   }
 }
@@ -86,7 +87,7 @@ export async function PATCH(req: Request) {
     await kv.set(KEY, data);
 
     return NextResponse.json({ ok: true, data });
-  } catch (_e: unknown) {
+  } catch {
     return NextResponse.json({ ok: false, error: "Falha ao salvar dívidas" }, { status: 500 });
   }
 }
