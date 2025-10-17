@@ -6,9 +6,6 @@ import { type Cedente, loadCedentes } from "@/lib/storage";
 
 /* ===========================================================
  *  Estoque de Pontos (BÁSICO) + Previsão de Dinheiro
- *  - Lê os mesmos dados da tela Visualizar (/api/cedentes)
- *  - Fallback: loadCedentes() do localStorage
- *  - Permite configurar R$/milheiro para prever receita na venda
  * =========================================================== */
 
 type ProgramKey = "latam" | "smiles" | "livelo" | "esfera";
@@ -30,7 +27,6 @@ function toNum(x: unknown): number {
   const n = Number(s);
   return Number.isFinite(n) ? n : 0;
 }
-
 /** Extrai listaCedentes de payloads variados (compatível com Visualizar) */
 function pickListaCedentes(root: unknown): Cedente[] {
   const tryGet = (p: unknown): unknown[] => {
@@ -59,19 +55,68 @@ function pickListaCedentes(root: unknown): Cedente[] {
   const arr = tryGet(root);
   return (Array.isArray(arr) ? (arr as Cedente[]) : []) ?? [];
 }
-
 /** Lê um campo de pontos do Cedente sem usar any */
 function getPts(c: Cedente, k: ProgramKey): number {
   const record = c as unknown as Record<string, unknown>;
   return toNum(record[k]);
 }
-
 function fmtMoney(n: number): string {
-  return new Intl.NumberFormat("pt-BR", {
-    style: "currency",
-    currency: "BRL",
-    maximumFractionDigits: 2,
-  }).format(Number(n) || 0);
+  return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(Number(n) || 0);
+}
+
+/* ===== Helpers de input BRL ===== */
+function formatBRL(n: number) {
+  const v = Number(n) || 0;
+  return (
+    "R$ " +
+    new Intl.NumberFormat("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(v)
+  );
+}
+function parseBRL(s: string) {
+  if (!s) return 0;
+  const cleaned = s.replace(/[^\d,-]/g, "").replace(/\./g, "").replace(",", ".");
+  const n = Number(cleaned);
+  return Number.isFinite(n) ? n : 0;
+}
+function stripPrefix(s: string) {
+  return (s || "").replace(/^R\$\s?/, "");
+}
+
+/* ===== Input controlado com prefixo R$ dentro da caixa ===== */
+function CurrencyInputBRL({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: number;
+  onChange: (v: number) => void;
+}) {
+  const [txt, setTxt] = useState(formatBRL(value));
+  useEffect(() => {
+    setTxt(formatBRL(value));
+  }, [value]);
+
+  return (
+    <label className="block">
+      <div className="mb-1 text-xs text-slate-600">{label}</div>
+      <div className="flex items-center rounded-lg border px-3 py-2 text-sm">
+        <span className="mr-2 text-slate-500">R$</span>
+        <input
+          value={stripPrefix(txt)}
+          onChange={(e) => {
+            const raw = "R$ " + e.target.value;
+            setTxt(raw);
+            onChange(parseBRL(raw));
+          }}
+          onBlur={() => setTxt(formatBRL(parseBRL(txt)))}
+          className="w-full outline-none"
+          inputMode="decimal"
+          placeholder="0,00"
+        />
+      </div>
+    </label>
+  );
 }
 
 export default function AnaliseBasica() {
@@ -108,47 +153,33 @@ export default function AnaliseBasica() {
         }
         setMilheiro(next);
       }
-    } catch {
-      /* noop */
-    }
+    } catch {}
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
   // salva preços no localStorage sempre que mudar
   useEffect(() => {
     try {
       localStorage.setItem(MILHEIRO_KEY, JSON.stringify(milheiro));
-    } catch {
-      /* noop */
-    }
+    } catch {}
   }, [milheiro]);
 
   async function carregar() {
     setLoading(true);
     setErro(null);
     try {
-      // 1) servidor (mesma rota do Visualizar)
-      const res = await fetch(`/api/cedentes?ts=${Date.now()}`, {
-        method: "GET",
-        cache: "no-store",
-      });
-
+      const res = await fetch(`/api/cedentes?ts=${Date.now()}`, { method: "GET", cache: "no-store" });
       let lista: Cedente[] = [];
       if (res.ok) {
         const json: ApiResp | unknown = await res.json();
         const root = isObj(json) && "ok" in json ? (json as ApiOk).data : json;
         lista = pickListaCedentes(root);
       }
-
-      // 2) fallback localStorage se vier vazio
       if (!lista?.length) {
         lista = loadCedentes();
         setFonte("local");
       } else {
         setFonte("server");
       }
-
-      // Somatório simples por programa
       const totals = lista.reduce<Record<ProgramKey, number>>(
         (acc, c) => {
           acc.latam += getPts(c, "latam");
@@ -159,7 +190,6 @@ export default function AnaliseBasica() {
         },
         { latam: 0, smiles: 0, livelo: 0, esfera: 0 }
       );
-
       setTot(totals);
       setQtdCedentes(lista.length);
       setUpdatedAt(new Date().toLocaleString("pt-BR"));
@@ -172,8 +202,6 @@ export default function AnaliseBasica() {
 
   useEffect(() => {
     carregar();
-
-    // Recarrega automaticamente quando a tela "Visualizar" salva
     function onStorage(e: StorageEvent) {
       if (e.key === "TM_CEDENTES_REFRESH") void carregar();
     }
@@ -191,7 +219,6 @@ export default function AnaliseBasica() {
     valorPrev: number;
     key: ProgramKey;
   };
-
   const linhasPrev: LinhaPrev[] = PROGRAMAS.map((p) => {
     const pontos = tot[p];
     const preco = milheiro[p] || 0;
@@ -203,7 +230,6 @@ export default function AnaliseBasica() {
       key: p,
     };
   });
-
   const totalPrev = linhasPrev.reduce((s, l) => s + l.valorPrev, 0);
 
   return (
@@ -225,6 +251,7 @@ export default function AnaliseBasica() {
         </div>
       )}
 
+      {/* Tabela de pontos */}
       <section className="bg-white rounded-2xl shadow p-4">
         <h2 className="font-medium mb-3">Pontos por Programa</h2>
         <div className="overflow-auto">
@@ -261,26 +288,28 @@ export default function AnaliseBasica() {
       <section className="bg-white rounded-2xl shadow p-4 space-y-4">
         <h2 className="font-medium">Previsão de Dinheiro (se vender)</h2>
 
-        {/* Inputs de preço do milheiro */}
+        {/* Inputs de preço do milheiro com "R$" dentro */}
         <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
-          {PROGRAMAS.map((p) => (
-            <label key={p} className="block">
-              <div className="mb-1 text-xs text-slate-600">
-                Preço {p.toUpperCase()} — R$ por 1.000
-              </div>
-              <input
-                type="number"
-                min={0}
-                step={0.01}
-                value={milheiro[p]}
-                onChange={(e) =>
-                  setMilheiro((prev) => ({ ...prev, [p]: Number(e.target.value) || 0 }))
-                }
-                className="w-full rounded-lg border px-3 py-2 text-sm"
-                placeholder="0,00"
-              />
-            </label>
-          ))}
+          <CurrencyInputBRL
+            label="Preço LATAM — R$ por 1.000"
+            value={milheiro.latam}
+            onChange={(v) => setMilheiro((prev) => ({ ...prev, latam: v }))}
+          />
+          <CurrencyInputBRL
+            label="Preço SMILES — R$ por 1.000"
+            value={milheiro.smiles}
+            onChange={(v) => setMilheiro((prev) => ({ ...prev, smiles: v }))}
+          />
+          <CurrencyInputBRL
+            label="Preço LIVELO — R$ por 1.000"
+            value={milheiro.livelo}
+            onChange={(v) => setMilheiro((prev) => ({ ...prev, livelo: v }))}
+          />
+          <CurrencyInputBRL
+            label="Preço ESFERA — R$ por 1.000"
+            value={milheiro.esfera}
+            onChange={(v) => setMilheiro((prev) => ({ ...prev, esfera: v }))}
+          />
         </div>
 
         {/* Tabela de previsão */}
@@ -298,13 +327,9 @@ export default function AnaliseBasica() {
               {linhasPrev.map((l) => (
                 <tr key={l.programa} className="border-b">
                   <td className="py-2 pr-4">{l.programa}</td>
-                  <td className="py-2 pr-4 text-right">
-                    {l.pontos.toLocaleString("pt-BR")}
-                  </td>
+                  <td className="py-2 pr-4 text-right">{l.pontos.toLocaleString("pt-BR")}</td>
                   <td className="py-2 pr-4 text-right">{fmtMoney(l.precoMilheiro)}</td>
-                  <td className="py-2 pr-4 text-right font-medium">
-                    {fmtMoney(l.valorPrev)}
-                  </td>
+                  <td className="py-2 pr-4 text-right font-medium">{fmtMoney(l.valorPrev)}</td>
                 </tr>
               ))}
             </tbody>
@@ -313,27 +338,11 @@ export default function AnaliseBasica() {
                 <td className="py-2 pr-4 font-medium">Total previsto</td>
                 <td className="py-2 pr-4" />
                 <td className="py-2 pr-4" />
-                <td className="py-2 pr-4 text-right font-semibold">
-                  {fmtMoney(totalPrev)}
-                </td>
+                <td className="py-2 pr-4 text-right font-semibold">{fmtMoney(totalPrev)}</td>
               </tr>
             </tfoot>
           </table>
         </div>
-      </section>
-
-      {/* Depuração rápida */}
-      <section className="rounded-2xl border p-4">
-        <div className="text-sm font-medium mb-2">Depuração rápida</div>
-        <ul className="text-sm text-slate-700 space-y-1">
-          <li>LATAM: {tot.latam.toLocaleString("pt-BR")} pts</li>
-          <li>SMILES: {tot.smiles.toLocaleString("pt-BR")} pts</li>
-          <li>LIVELO: {tot.livelo.toLocaleString("pt-BR")} pts</li>
-          <li>ESFERA: {tot.esfera.toLocaleString("pt-BR")} pts</li>
-          <li className="font-medium">
-            TOTAL: {(totalGeral).toLocaleString("pt-BR")} pts
-          </li>
-        </ul>
       </section>
     </div>
   );
