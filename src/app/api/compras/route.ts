@@ -2,6 +2,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { randomUUID } from "node:crypto";
+import { Prisma } from "@prisma/client";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -16,6 +17,11 @@ type BlobShape = {
   savedAt: string;
   items: AnyObj[]; // lista de documentos de compras
 };
+
+/** Garante JSON puro compatível com Prisma.InputJsonValue */
+function toJsonValue<T>(value: T): Prisma.InputJsonValue {
+  return JSON.parse(JSON.stringify(value)) as unknown as Prisma.InputJsonValue;
+}
 
 async function loadAll(): Promise<BlobShape> {
   const blob = await prisma.appBlob.findUnique({ where: { kind: BLOB_KIND } });
@@ -37,9 +43,9 @@ async function saveAll(payload: BlobShape): Promise<void> {
     create: {
       id: randomUUID(),
       kind: BLOB_KIND,
-      data: payload,
+      data: toJsonValue(payload),
     },
-    update: { data: payload },
+    update: { data: toJsonValue(payload) },
   });
 }
 
