@@ -8,6 +8,7 @@ import { type Cedente, loadCedentes } from "@/lib/storage";
  *  Estoque de Pontos (BÁSICO) + Caixa & Limites (no topo)
  *  + Previsão de Dinheiro (com preços por milheiro)
  *  + Total de Dívidas em Aberto (somado por credor)
+ *  + KPIs líquidos subtraindo dívidas
  * =========================================================== */
 
 type ProgramKey = "latam" | "smiles" | "livelo" | "esfera";
@@ -306,7 +307,7 @@ export default function AnaliseBasica() {
 
   // ======= CAIXA + LIMITES no topo =======
   const totalLimites = cartoes.reduce((s, c) => s + Number(c.limite || 0), 0);
-  const caixaTotal = caixa + totalLimites; // somatório conforme solicitado
+  const caixaTotal = caixa + totalLimites; // somatório solicitado
   const caixaTotalMaisPrev = caixaTotal + totalPrev;
 
   // ======= DÍVIDAS: total em aberto (igual à aba Dívidas) =======
@@ -326,6 +327,10 @@ export default function AnaliseBasica() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [debts, txns]
   );
+
+  // ======= KPIs líquidos (subtraindo dívidas) =======
+  const caixaReal = caixaTotal - totalDividasAbertas; // conta + limites - dívidas
+  const previstoLiquido = caixaTotalMaisPrev - totalDividasAbertas;
 
   /* ======= Ações cartões ======= */
   function addCartao() {
@@ -432,12 +437,13 @@ export default function AnaliseBasica() {
         </div>
 
         {/* KPIs de caixa */}
-        <div className="grid grid-cols-1 sm:grid-cols-5 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
           <KPI title="Caixa (conta)" value={fmtMoney(caixa)} />
           <KPI title="Limites (cartões)" value={fmtMoney(totalLimites)} />
+          <KPI title="Dívidas em aberto" value={fmtMoney(totalDividasAbertas)} variant="danger" />
           <KPI title="Caixa total (conta + limites)" value={fmtMoney(caixaTotal)} />
-          <KPI title="Caixa total + previsto" value={fmtMoney(caixaTotalMaisPrev)} />
-          <KPI title="Dívidas em aberto" value={fmtMoney(totalDividasAbertas)} />
+          <KPI title="Caixa real (– dívidas)" value={fmtMoney(caixaReal)} />
+          <KPI title="Previsto líquido (– dívidas)" value={fmtMoney(previstoLiquido)} />
         </div>
       </section>
 
@@ -529,11 +535,25 @@ function Row({ programa, valor }: { programa: string; valor: number }) {
   );
 }
 
-function KPI({ title, value }: { title: string; value: string }) {
+function KPI({
+  title,
+  value,
+  variant = "default",
+}: {
+  title: string;
+  value: string;
+  variant?: "default" | "danger";
+}) {
+  const titleCls =
+    variant === "danger"
+      ? "text-xs uppercase tracking-wide text-red-600 mb-1"
+      : "text-xs uppercase tracking-wide text-slate-500 mb-1";
+  const valueCls = variant === "danger" ? "text-2xl font-semibold text-red-600" : "text-2xl font-semibold";
+
   return (
     <div className="rounded-2xl border p-4">
-      <div className="text-xs uppercase tracking-wide text-slate-500 mb-1">{title}</div>
-      <div className="text-2xl font-semibold">{value}</div>
+      <div className={titleCls}>{title}</div>
+      <div className={valueCls}>{value}</div>
     </div>
   );
 }
