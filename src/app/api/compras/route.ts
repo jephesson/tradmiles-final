@@ -315,7 +315,7 @@ function normalizeFromNewShape(body: AnyObj) {
   );
   if (kinds.size === 1) {
     const k = [...kinds][0];
-    if (k === "compra" ou k === "transferencia") modo = k;
+    if (k === "compra" || k === "transferencia") modo = k as "compra" | "transferencia";
   }
 
   let ciaCompra: CIA | null = null;
@@ -331,13 +331,13 @@ function normalizeFromNewShape(body: AnyObj) {
 
   if (isRecord(firstCompra?.data)) {
     const p = str((firstCompra.data as AnyObj).programa);
-    if (p === "latam" || p === "smiles") ciaCompra = p;
+    if (p === "latam" || p === "smiles") ciaCompra = p as CIA;
   }
   if (isRecord(firstTransf?.data)) {
     const d = str((firstTransf.data as AnyObj).destino);
     const o = str((firstTransf.data as AnyObj).origem);
-    if (d === "latam" || d === "smiles") destCia = d;
-    if (o === "livelo" || o === "esfera") origem = o;
+    if (d === "latam" || d === "smiles") destCia = d as CIA;
+    if (o === "livelo" || o === "esfera") origem = o as Origem;
   }
 
   const totaisId = {
@@ -522,6 +522,8 @@ export async function GET(req: Request): Promise<NextResponse> {
     });
 
     const total = rows.length;
+    const offsetRaw = parseInt(url.searchParams.get("offset") || "0", 10);
+    const limitRaw = parseInt(url.searchParams.get("limit") || "20", 10);
     const offsetClamped = Math.max(0, Number.isFinite(offsetRaw) ? offsetRaw : 0);
     const limitClamped = Math.max(1, Math.min(Number.isFinite(limitRaw) ? limitRaw : 20, 500));
     const items = rows.slice(offsetClamped, offsetClamped + limitClamped);
