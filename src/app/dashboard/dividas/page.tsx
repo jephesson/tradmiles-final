@@ -4,14 +4,15 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
 /* ===========================================================
- * Dívidas — 100% Online (Vercel KV)
- * - GET /api/dividas para carregar
- * - PATCH /api/dividas para salvar (debounce + otimista)
+ * Dívidas — 100% Online (via API /api/dividas; backend Neon)
+ * - GET  /api/dividas  -> carrega { debts, txns }
+ * - PATCH /api/dividas  -> salva { debts, txns } (debounce + otimista)
  * - Sem localStorage
  * =========================================================== */
 
 const DIVIDAS_API = "/api/dividas";
 
+/* ===== Tipos ===== */
 type Debt = {
   id: string;
   nome: string;
@@ -33,8 +34,7 @@ type DividasBlob = {
   txns: DebtTxn[];
   savedAt?: string;
 };
-
-type ApiOk = { ok: true; data: DividasBlob };
+type ApiOk = { ok: true; data?: DividasBlob };
 type ApiErr = { ok: false; error?: string };
 type ApiResp = ApiOk | ApiErr;
 
@@ -125,12 +125,15 @@ export default function DividasPage() {
     try {
       const r = await fetch(`${DIVIDAS_API}?ts=${Date.now()}`, { cache: "no-store" });
       const j = (await r.json()) as ApiResp;
+
       if (!r.ok || !isObj(j) || !("ok" in j) || !j.ok) {
         const msg = (isObj(j) && "error" in j && (j as ApiErr).error) || "Falha ao carregar";
-        throw new Error(msg);
+        throw new Error(String(msg));
       }
-      setDebts(Array.isArray(j.data.debts) ? j.data.debts : []);
-      setTxns(Array.isArray(j.data.txns) ? j.data.txns : []);
+
+      const data = (j as ApiOk).data ?? { debts: [], txns: [] };
+      setDebts(Array.isArray(data.debts) ? data.debts : []);
+      setTxns(Array.isArray(data.txns) ? data.txns : []);
     } catch (e: unknown) {
       setDebts([]);
       setTxns([]);
@@ -147,6 +150,7 @@ export default function DividasPage() {
   function scheduleSave(nextDebts: Debt[], nextTxns: DebtTxn[]) {
     if (saveTimer.current) clearTimeout(saveTimer.current);
     const payload: DividasBlob = { debts: nextDebts, txns: nextTxns };
+
     saveTimer.current = setTimeout(async () => {
       setSaveState("saving");
       setServerError(null);
@@ -157,10 +161,12 @@ export default function DividasPage() {
           body: JSON.stringify(payload),
         });
         const j = (await r.json()) as ApiResp;
+
         if (!r.ok || !("ok" in j) || !j.ok) {
           const msg = ("error" in (j as ApiErr) && (j as ApiErr).error) || "Falha ao salvar dívidas";
-          throw new Error(msg);
+          throw new Error(String(msg));
         }
+
         setSaveState("saved");
         setTimeout(() => setSaveState("idle"), 1200);
       } catch (e: unknown) {
