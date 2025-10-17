@@ -5,14 +5,15 @@ import { useEffect, useState } from "react";
 import { type Cedente, loadCedentes } from "@/lib/storage";
 
 /* ===========================================================
- *  Estoque de Pontos (BÁSICO) + Previsão de Dinheiro
+ *  Estoque de Pontos (BÁSICO) + Previsão de Dinheiro + Caixa
  * =========================================================== */
 
 type ProgramKey = "latam" | "smiles" | "livelo" | "esfera";
 const PROGRAMAS: ProgramKey[] = ["latam", "smiles", "livelo", "esfera"] as const;
 
-/** storage para os preços por milheiro */
+/** storage para os preços por milheiro e caixa corrente */
 const MILHEIRO_KEY = "TM_MILHEIRO_PREVISAO";
+const CAIXA_KEY = "TM_CAIXA_CORRENTE";
 
 type ApiOk = { ok: true; data?: unknown };
 type ApiErr = { ok: false; error?: string };
@@ -140,7 +141,10 @@ export default function AnaliseBasica() {
     esfera: 28,
   });
 
-  // carrega preços do localStorage 1x
+  // CAIXA CORRENTE (R$)
+  const [caixa, setCaixa] = useState<number>(0);
+
+  // carregar preços + caixa do localStorage 1x
   useEffect(() => {
     try {
       const raw = localStorage.getItem(MILHEIRO_KEY);
@@ -154,14 +158,26 @@ export default function AnaliseBasica() {
         setMilheiro(next);
       }
     } catch {}
+    try {
+      const rawC = localStorage.getItem(CAIXA_KEY);
+      if (rawC) {
+        const n = Number(rawC);
+        if (Number.isFinite(n)) setCaixa(n);
+      }
+    } catch {}
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-  // salva preços no localStorage sempre que mudar
+  // salvar preços + caixa sempre que mudar
   useEffect(() => {
     try {
       localStorage.setItem(MILHEIRO_KEY, JSON.stringify(milheiro));
     } catch {}
   }, [milheiro]);
+  useEffect(() => {
+    try {
+      localStorage.setItem(CAIXA_KEY, String(caixa));
+    } catch {}
+  }, [caixa]);
 
   async function carregar() {
     setLoading(true);
@@ -231,6 +247,8 @@ export default function AnaliseBasica() {
     };
   });
   const totalPrev = linhasPrev.reduce((s, l) => s + l.valorPrev, 0);
+
+  const caixaMaisPrev = caixa + totalPrev;
 
   return (
     <div className="p-6 space-y-6">
@@ -344,6 +362,26 @@ export default function AnaliseBasica() {
           </table>
         </div>
       </section>
+
+      {/* =================== CAIXA CORRENTE =================== */}
+      <section className="bg-white rounded-2xl shadow p-4 space-y-4">
+        <h2 className="font-medium">Caixa corrente (agora)</h2>
+
+        <div className="grid max-w-xl grid-cols-1 gap-3">
+          <CurrencyInputBRL
+            label="Quanto tenho na conta agora"
+            value={caixa}
+            onChange={setCaixa}
+          />
+        </div>
+
+        {/* Resumo rápido */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <KPI title="Caixa atual" value={fmtMoney(caixa)} />
+          <KPI title="Total previsto (pontos)" value={fmtMoney(totalPrev)} />
+          <KPI title="Caixa + previsto" value={fmtMoney(caixaMaisPrev)} />
+        </div>
+      </section>
     </div>
   );
 }
@@ -354,5 +392,14 @@ function Row({ programa, valor }: { programa: string; valor: number }) {
       <td className="py-2 pr-4">{programa}</td>
       <td className="py-2 pr-4 text-right">{valor.toLocaleString("pt-BR")}</td>
     </tr>
+  );
+}
+
+function KPI({ title, value }: { title: string; value: string }) {
+  return (
+    <div className="rounded-2xl border p-4">
+      <div className="text-xs uppercase tracking-wide text-slate-500 mb-1">{title}</div>
+      <div className="text-2xl font-semibold">{value}</div>
+    </div>
   );
 }
