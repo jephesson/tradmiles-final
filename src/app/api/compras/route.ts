@@ -626,7 +626,8 @@ export async function PATCH(req: Request): Promise<NextResponse> {
         custoTotal: num((apply.totaisId as AnyObj).custoTotal),
         lucroTotal: num((apply.totaisId as AnyObj).lucroTotal),
       };
-      patchDoc.calculos = { ...patchDoc.totaisId } as AnyObj;
+      const tid = { ...patchDoc.totaisId };
+      patchDoc.calculos = tid as AnyObj;
     }
 
     if (Array.isArray(apply.itens)) {
