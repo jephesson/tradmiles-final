@@ -21,38 +21,52 @@ function noCache() {
 type AnyObj = Record<string, unknown>;
 
 function onlyDigits(s: string): string {
-  return s.replace(/\D+/g, "");
+  return (s || "").replace(/\D+/g, "");
+}
+function toNum(s: string): number {
+  const n = Number(s);
+  return Number.isFinite(n) ? n : NaN;
 }
 
+/** Tenta extrair a lista de items do blob, aceitando variações */
+function extractItems(raw: unknown): AnyObj[] {
+  // formato oficial: { savedAt, items }
+  const direct = (raw as { items?: unknown })?.items;
+  if (Array.isArray(direct)) return direct as AnyObj[];
+
+  // alguns ambientes salvam com nesting { data: { items } }
+  const nested = (raw as { data?: { items?: unknown } })?.data?.items;
+  if (Array.isArray(nested)) return nested as AnyObj[];
+
+  return [];
+}
+
+/** Calcula próximo ID preservando a maior largura atual (mín. 4) */
 function nextIdFromList(items: AnyObj[]): string {
-  const nums = items
+  const ids = items
     .map((it) => String((it as AnyObj).id ?? ""))
-    .filter((s) => s.length > 0)
-    .map((s) => {
-      const d = onlyDigits(s);
-      return d ? Number(d) : NaN;
-    })
+    .filter((s) => s.length > 0);
+
+  const numericParts = ids
+    .map((s) => onlyDigits(s))
+    .map(toNum)
     .filter((n) => Number.isFinite(n)) as number[];
 
-  const maxNum = nums.length ? Math.max(...nums) : 0;
+  const maxNum = numericParts.length ? Math.max(...numericParts) : 0;
 
-  // Largura: preserva a maior largura atual de dígitos, no mínimo 4
   const widest = Math.max(
     4,
-    ...items
-      .map((it) => onlyDigits(String((it as AnyObj).id ?? "")))
-      .map((d) => d.length || 0)
+    ...ids.map((s) => onlyDigits(s).length || 0)
   );
 
-  const next = String(maxNum + 1).padStart(widest, "0");
-  return next;
+  return String(maxNum + 1).padStart(widest, "0");
 }
 
 export async function GET(): Promise<NextResponse> {
   try {
     const blob = await prisma.appBlob.findUnique({ where: { kind: BLOB_KIND } });
-    const data = (blob?.data as unknown) as { items?: AnyObj[] } | undefined;
-    const items = Array.isArray(data?.items) ? (data!.items as AnyObj[]) : [];
+
+    const items = extractItems(blob?.data as unknown);
 
     const nextId = nextIdFromList(items);
 
@@ -62,9 +76,10 @@ export async function GET(): Promise<NextResponse> {
     );
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : "Erro ao calcular próximo ID";
+    // fallback seguro: 0001 (mantendo shape compatível)
     return NextResponse.json(
-      { ok: false, error: msg },
-      { status: 500, headers: noCache() }
+      { ok: false, error: msg, nextId: "0001", data: { nextId: "0001" } },
+      { status: 200, headers: noCache() }
     );
   }
 }

@@ -11,11 +11,26 @@ export const revalidate = 0;
 /* ---------------- Persistência via AppBlob ---------------- */
 const BLOB_KIND = "compras_blob";
 
+/** >>> NOVO: blob de cedentes (para saldos 100% online) */
+const CEDENTES_BLOB = "cedentes_blob";
+
 /** Estrutura que guardaremos no AppBlob */
 type AnyObj = Record<string, unknown>;
 type BlobShape = {
   savedAt: string;
   items: AnyObj[]; // lista de documentos de compras
+};
+
+type CedentesBlob = {
+  savedAt: string;
+  listaCedentes: Array<{
+    identificador: string;
+    nome_completo: string;
+    latam?: number;
+    smiles?: number;
+    livelo?: number;
+    esfera?: number;
+  }>;
 };
 
 /** Garante JSON puro compatível com Prisma.InputJsonValue */
@@ -87,6 +102,55 @@ async function deleteCompraById(id: string): Promise<void> {
   if (all.items.length === prevLen) throw new Error("Registro não encontrado");
   all.savedAt = new Date().toISOString();
   await saveAll(all);
+}
+
+/* ---------------- Cedentes helpers (blob online) ---------------- */
+async function loadCedentes(): Promise<CedentesBlob> {
+  const blob = await prisma.appBlob.findUnique({ where: { kind: CEDENTES_BLOB } });
+  const data = (blob?.data as unknown as Partial<CedentesBlob>) || undefined;
+
+  if (data && Array.isArray(data.listaCedentes)) {
+    return {
+      savedAt: data.savedAt || new Date().toISOString(),
+      listaCedentes: data.listaCedentes.map((c) => ({
+        identificador: String(c.identificador),
+        nome_completo: String(c.nome_completo),
+        latam: Number(c.latam ?? 0),
+        smiles: Number(c.smiles ?? 0),
+        livelo: Number(c.livelo ?? 0),
+        esfera: Number(c.esfera ?? 0),
+      })),
+    };
+  }
+  return { savedAt: new Date().toISOString(), listaCedentes: [] };
+}
+
+async function saveCedentes(payload: CedentesBlob): Promise<void> {
+  await prisma.appBlob.upsert({
+    where: { kind: CEDENTES_BLOB },
+    create: { id: randomUUID(), kind: CEDENTES_BLOB, data: toJsonValue(payload) },
+    update: { data: toJsonValue(payload) },
+  });
+}
+
+type Delta = { latam?: number; smiles?: number; livelo?: number; esfera?: number };
+async function applyDeltaToCedente(cedenteId: string, delta: Delta): Promise<CedentesBlob> {
+  const all = await loadCedentes();
+  const idx = all.listaCedentes.findIndex((c) => c.identificador === cedenteId);
+  if (idx < 0) return all; // ignora se não encontrado (ou trate como erro se preferir)
+
+  const cur = all.listaCedentes[idx];
+  const next = {
+    ...cur,
+    latam: Math.max(0, Number(cur.latam ?? 0) + Number(delta.latam ?? 0)),
+    smiles: Math.max(0, Number(cur.smiles ?? 0) + Number(delta.smiles ?? 0)),
+    livelo: Math.max(0, Number(cur.livelo ?? 0) + Number(delta.livelo ?? 0)),
+    esfera: Math.max(0, Number(cur.esfera ?? 0) + Number(delta.esfera ?? 0)),
+  };
+  all.listaCedentes[idx] = next;
+  all.savedAt = new Date().toISOString();
+  await saveCedentes(all);
+  return all;
 }
 
 /* ---------------- Helpers de tipos/guards ---------------- */
@@ -549,6 +613,8 @@ export async function POST(req: Request): Promise<NextResponse> {
     const dataCompra = str(body.dataCompra);
     const statusPontos = (str(body.statusPontos) as Status) || "aguardando";
     const cedenteId = str(body.cedenteId);
+    const cedenteNome = str(body.cedenteNome);
+    const saldosDelta = isRecord(body.saldosDelta) ? (body.saldosDelta as AnyObj) : undefined;
 
     const usingNew = Array.isArray(body.itens);
     const { itens, totaisId, /* totais, */ compat } = usingNew
@@ -560,6 +626,7 @@ export async function POST(req: Request): Promise<NextResponse> {
       dataCompra,
       statusPontos,
       cedenteId: cedenteId || undefined,
+      cedenteNome: cedenteNome || undefined,
       itens: itens as unknown[],
       totaisId,
       modo: compat.modo ?? undefined,
@@ -571,7 +638,28 @@ export async function POST(req: Request): Promise<NextResponse> {
     };
 
     await upsertCompra(doc);
-    return NextResponse.json({ ok: true, id: String(doc.id) }, { headers: noCache() });
+
+    // >>> NOVO: aplica delta nos saldos do cedente e retorna a lista atualizada
+    let nextCedentes: CedentesBlob | null = null;
+    if (cedenteId && saldosDelta) {
+      nextCedentes = await applyDeltaToCedente(cedenteId, {
+        latam: num(saldosDelta.latam),
+        smiles: num(saldosDelta.smiles),
+        livelo: num(saldosDelta.livelo),
+        esfera: num(saldosDelta.esfera),
+      });
+    }
+
+    return NextResponse.json(
+      {
+        ok: true,
+        id: String(doc.id),
+        nextCedentes: nextCedentes
+          ? nextCedentes.listaCedentes
+          : undefined,
+      },
+      { headers: noCache() }
+    );
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : "erro ao salvar";
     return NextResponse.json({ ok: false, error: msg }, { status: 500, headers: noCache() });
@@ -626,7 +714,6 @@ export async function PATCH(req: Request): Promise<NextResponse> {
         custoTotal: num((apply.totaisId as AnyObj).custoTotal),
         lucroTotal: num((apply.totaisId as AnyObj).lucroTotal),
       };
-      // evita spread em tipo possivelmente indefinido
       patchDoc.calculos = patchDoc.totaisId as AnyObj;
     }
 

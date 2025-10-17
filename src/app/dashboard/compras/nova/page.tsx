@@ -3,9 +3,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
-/** === Comissão (storage helpers) =============================== */
-import { loadComissoes, saveComissoes } from "@/lib/storage";
-
 /** ================= Helpers ================= */
 const fmtMoney = (v: number) =>
   new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(
@@ -72,9 +69,6 @@ type ItemLinha =
   | { kind: "clube"; data: ClubeItem }
   | { kind: "compra"; data: CompraItem }
   | { kind: "transferencia"; data: TransfItem };
-
-// API: item mínimo para descobrir próximo ID
-type CompraListItem = { id?: string; compraId?: string; identificador?: string };
 
 // >>> Cedente com saldos atuais
 type Cedente = {
@@ -180,42 +174,15 @@ export default function NovaCompraPage() {
   const [compraId, setCompraId] = useState("0001");
   const [idTouched, setIdTouched] = useState(false);
 
-  /** --------- Descobrir próximo ID automaticamente --------- */
+  /** --------- Próximo ID 100% online --------- */
   async function loadNextCompraId() {
     try {
-      const res = await fetch(`/api/compras?ts=${Date.now()}`, { cache: "no-store" });
-      const json: unknown = res.ok ? await res.json() : null;
-
-      const listUnknown =
-        (json && typeof json === "object" && Array.isArray((json as { items?: unknown[] }).items))
-          ? (json as { items: unknown[] }).items
-          : (json && typeof json === "object" && Array.isArray((json as { data?: unknown[] }).data))
-          ? (json as { data: unknown[] }).data
-          : [];
-
-      const nums = (listUnknown as CompraListItem[])
-        .map((r) => {
-          const raw = r?.id ?? r?.compraId ?? r?.identificador ?? "";
-          const d = onlyDigits(String(raw));
-          return d ? Number(d) : 0;
-        })
-        .filter((n) => Number.isFinite(n));
-
-      let maxSrv = nums.length ? Math.max(...nums) : 0;
-
-      try {
-        const lastLocal = Number(localStorage.getItem("TM_COMPRAS_LAST_ID") || "0");
-        if (Number.isFinite(lastLocal)) maxSrv = Math.max(maxSrv, lastLocal);
-      } catch { /* ignore storage */ }
-
-      const next = pad4(maxSrv + 1);
+      const res = await fetch("/api/compras/next-id", { cache: "no-store" });
+      const json = res.ok ? await res.json() : null;
+      const next = String(json?.nextId ?? "0001").padStart(4, "0");
       setCompraId((cur) => (idTouched ? cur : next));
     } catch {
-      try {
-        const lastLocal = Number(localStorage.getItem("TM_COMPRAS_LAST_ID") || "0");
-        const next = pad4((Number.isFinite(lastLocal) ? lastLocal : 0) + 1);
-        setCompraId((cur) => (idTouched ? cur : next));
-      } catch { /* ignore storage */ }
+      // mantém o valor atual se falhar
     }
   }
   useEffect(() => {
@@ -520,7 +487,15 @@ export default function NovaCompraPage() {
       },
       metaMilheiro: parseMoney(metaMilheiro),
       comissaoCedente: parseMoney(comissaoCedente),
-      comissaoStatus, // novo: salva status junto, se sua API aceitar
+      comissaoStatus, // novo: salva status junto
+
+      // 👇 NOVO: servidor aplicará esse delta no Cedente (100% online)
+      saldosDelta: {
+        latam: deltaPrevisto.latam,
+        smiles: deltaPrevisto.smiles,
+        livelo: deltaPrevisto.livelo,
+        esfera: deltaPrevisto.esfera,
+      },
     };
   }, [
     compraId,
@@ -532,6 +507,7 @@ export default function NovaCompraPage() {
     cedenteId,
     cedenteNome,
     comissaoStatus,
+    deltaPrevisto,
   ]);
 
   const salvar = async (goToList = false) => {
@@ -542,58 +518,51 @@ export default function NovaCompraPage() {
     setMsg(null);
     setSaving("saving");
     try {
+      // 1) Salva compra + aplica Δ de saldos no cedente
       const res = await fetch("/api/compras", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payloadFromState()),
       });
       if (!res.ok) throw new Error(await res.text());
+      const body = await res.json();
 
-      /** ---------- UPSERT da comissão no storage (evita duplicar) ---------- */
+      // 2) Upsert da comissão 100% online
+      const valorComissao = parseMoney(comissaoCedente);
+      if (valorComissao > 0 && cedenteId) {
+        await fetch("/api/comissoes", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            compraId,
+            cedenteId,
+            cedenteNome,
+            valor: valorComissao,
+            status: comissaoStatus,
+          }),
+        });
+      }
+
+      // 3) Se vier a lista de cedentes atualizada, reflita na UI
+      if (Array.isArray(body?.nextCedentes)) {
+        setCedentes(body.nextCedentes.map((c: any) => ({
+          id: String(c.identificador),
+          nome: String(c.nome_completo ?? c.nome ?? ""),
+          latam: Number(c.latam ?? 0),
+          smiles: Number(c.smiles ?? 0),
+          livelo: Number(c.livelo ?? 0),
+          esfera: Number(c.esfera ?? 0),
+        })));
+      }
+
+      // 4) Pega próximo ID online
       try {
-        const valor = parseMoney(comissaoCedente);
-        if (valor > 0 && cedenteId) {
-          const lista = loadComissoes() as Array<Record<string, unknown>>;
-          const idx = lista.findIndex((c) => {
-            const cur = c as { compraId?: string; cedenteId?: string };
-            return cur.compraId === compraId && cur.cedenteId === cedenteId;
-          });
-          const now = new Date().toISOString();
-          if (idx >= 0) {
-            lista[idx] = {
-              ...lista[idx],
-              valor,
-              status: comissaoStatus,
-              cedenteNome,
-              atualizadoEm: now,
-            };
-          } else {
-            lista.unshift({
-              id:
-                typeof crypto !== "undefined" && "randomUUID" in crypto
-                  ? (crypto as unknown as { randomUUID: () => string }).randomUUID()
-                  : String(Date.now()),
-              compraId,
-              cedenteId,
-              cedenteNome,
-              valor,
-              status: comissaoStatus,
-              criadoEm: now,
-              atualizadoEm: now,
-            } as Record<string, unknown>);
-          }
-          // salva como veio (a lib aceita a estrutura)
-          saveComissoes(lista as unknown as never);
-        }
-      } catch { /* silencioso */ }
+        const r2 = await fetch("/api/compras/next-id", { cache: "no-store" });
+        const j2 = r2.ok ? await r2.json() : null;
+        const next = String(j2?.nextId ?? "").padStart(4, "0");
+        if (next && !goToList) setCompraId(next);
+      } catch {}
 
-      try {
-        const cur = Number(onlyDigits(compraId) || "0");
-        if (Number.isFinite(cur)) localStorage.setItem("TM_COMPRAS_LAST_ID", String(cur));
-      } catch { /* ignore storage */ }
-
-      const nextId = pad4((Number(onlyDigits(compraId)) || 0) + 1);
-      if (!goToList) setCompraId(nextId);
       setMsg({ kind: "ok", text: "Salvo com sucesso." });
       if (goToList) router.push("/dashboard/compras");
     } catch (e: unknown) {
