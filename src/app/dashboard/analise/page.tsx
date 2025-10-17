@@ -1,25 +1,25 @@
 // src/app/dashboard/analise/page.tsx
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { type Cedente, loadCedentes } from "@/lib/storage";
 
 /* ===========================================================
- *  Estoque de Pontos (BÁSICO) + Caixa & Limites (no topo)
- *  + Previsão de Dinheiro (com preços por milheiro)
- *  + Total de Dívidas em Aberto (somado por credor)
- *  + KPIs líquidos subtraindo dívidas
+ *  Estoque de Pontos + Caixa & Limites + Previsão de Dinheiro
+ *  • Carrega e salva online: caixa, cartões e preços por milheiro
+ *  • Fallback para localStorage se offline
+ *  • KPIs sem “Caixa real (– dívidas)”
  * =========================================================== */
 
 type ProgramKey = "latam" | "smiles" | "livelo" | "esfera";
 const PROGRAMAS: ProgramKey[] = ["latam", "smiles", "livelo", "esfera"] as const;
 
-/** storage para os preços por milheiro, caixa corrente e cartões */
+/** Local fallback keys */
 const MILHEIRO_KEY = "TM_MILHEIRO_PREVISAO";
 const CAIXA_KEY = "TM_CAIXA_CORRENTE";
 const CARTOES_KEY = "TM_CARTOES_LIMITES";
 
-/** storage das dívidas (mesmos usados na aba Dívidas) */
+/** Dívidas (mesmos usados na aba Dívidas) */
 const DEBTS_KEY = "TM_DEBTS";
 const DEBTS_TXNS_KEY = "TM_DEBTS_TXNS";
 
@@ -29,7 +29,14 @@ type ApiResp = ApiOk | ApiErr;
 
 type CartaoLimite = { id: string; nome: string; limite: number };
 
-/** Tipos de Dívidas (iguais à aba Dívidas) */
+/* ======= API /analise payload ======= */
+type AnaliseBlob = {
+  caixa: number;
+  cartoes: CartaoLimite[];
+  milheiro: Record<ProgramKey, number>;
+  savedAt?: string;
+};
+
 type Debt = {
   id: string;
   nome: string;
@@ -50,13 +57,11 @@ type DebtTxn = {
 function isObj(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null;
 }
-/** Converte string/number “à brasileira” para número */
 function toNum(x: unknown): number {
   const s = String(x ?? 0).trim().replace(/\./g, "").replace(",", ".");
   const n = Number(s);
   return Number.isFinite(n) ? n : 0;
 }
-/** Extrai listaCedentes de payloads variados (compatível com Visualizar) */
 function pickListaCedentes(root: unknown): Cedente[] {
   const tryGet = (p: unknown): unknown[] => {
     if (!p) return [];
@@ -75,11 +80,9 @@ function pickListaCedentes(root: unknown): Cedente[] {
     }
     return [];
   };
-
   const arr = tryGet(root);
   return (Array.isArray(arr) ? (arr as Cedente[]) : []) ?? [];
 }
-/** Lê um campo de pontos do Cedente sem usar any */
 function getPts(c: Cedente, k: ProgramKey): number {
   const record = c as unknown as Record<string, unknown>;
   return toNum(record[k]);
@@ -91,10 +94,7 @@ function fmtMoney(n: number): string {
 /* ===== Helpers de input BRL ===== */
 function formatBRL(n: number) {
   const v = Number(n) || 0;
-  return (
-    "R$ " +
-    new Intl.NumberFormat("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(v)
-  );
+  return "R$ " + new Intl.NumberFormat("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(v);
 }
 function parseBRL(s: string) {
   if (!s) return 0;
@@ -106,7 +106,7 @@ function stripPrefix(s: string) {
   return (s || "").replace(/^R\$\s?/, "");
 }
 
-/* ===== Input controlado com prefixo R$ dentro da caixa ===== */
+/* ===== Input controlado BRL ===== */
 function CurrencyInputBRL({
   label,
   value,
@@ -117,10 +117,7 @@ function CurrencyInputBRL({
   onChange: (v: number) => void;
 }) {
   const [txt, setTxt] = useState(formatBRL(value));
-  useEffect(() => {
-    setTxt(formatBRL(value));
-  }, [value]);
-
+  useEffect(() => setTxt(formatBRL(value)), [value]);
   return (
     <label className="block">
       {label && <div className="mb-1 text-xs text-slate-600">{label}</div>}
@@ -144,12 +141,7 @@ function CurrencyInputBRL({
 }
 
 export default function AnaliseBasica() {
-  const [tot, setTot] = useState<Record<ProgramKey, number>>({
-    latam: 0,
-    smiles: 0,
-    livelo: 0,
-    esfera: 0,
-  });
+  const [tot, setTot] = useState<Record<ProgramKey, number>>({ latam: 0, smiles: 0, livelo: 0, esfera: 0 });
   const [qtdCedentes, setQtdCedentes] = useState(0);
   const [updatedAt, setUpdatedAt] = useState("-");
   const [erro, setErro] = useState<string | null>(null);
@@ -157,77 +149,127 @@ export default function AnaliseBasica() {
   const [fonte, setFonte] = useState<"server" | "local" | "-">("-");
 
   // preços do milheiro (R$ por 1.000)
-  const [milheiro, setMilheiro] = useState<Record<ProgramKey, number>>({
-    latam: 25,
-    smiles: 24,
-    livelo: 32,
-    esfera: 28,
-  });
-
-  // CAIXA CORRENTE (R$)
+  const [milheiro, setMilheiro] = useState<Record<ProgramKey, number>>({ latam: 25, smiles: 24, livelo: 32, esfera: 28 });
+  // CAIXA
   const [caixa, setCaixa] = useState<number>(0);
-
-  // CARTÕES (lista dinâmica)
+  // CARTÕES
   const [cartoes, setCartoes] = useState<CartaoLimite[]>([]);
+  // status do salvamento online
+  const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // DÍVIDAS (carregar para exibir total em aberto)
+  // DÍVIDAS (para mostrar o total em aberto)
   const [debts, setDebts] = useState<Debt[]>([]);
   const [txns, setTxns] = useState<DebtTxn[]>([]);
 
-  // carregar preços + caixa + cartões + dívidas do localStorage 1x
-  useEffect(() => {
+  /* ====== LOAD online + fallback local ====== */
+  async function loadOnline() {
     try {
-      const raw = localStorage.getItem(MILHEIRO_KEY);
-      if (raw) {
-        const parsed = JSON.parse(raw) as Partial<Record<ProgramKey, number>>;
-        const next: Record<ProgramKey, number> = { ...milheiro };
-        for (const p of PROGRAMAS) {
-          const v = Number((parsed as Record<string, unknown>)[p] ?? next[p]);
-          next[p] = Number.isFinite(v) ? v : next[p];
+      const r = await fetch("/api/analise", { cache: "no-store" });
+      if (!r.ok) throw new Error("GET /api/analise falhou");
+      const j = (await r.json()) as ApiResp | unknown;
+      const data = (isObj(j) && "ok" in j ? (j as ApiOk).data : j) as Partial<AnaliseBlob> | undefined;
+
+      if (isObj(data)) {
+        if (typeof data.caixa === "number") setCaixa(data.caixa);
+        if (data.cartoes && Array.isArray(data.cartoes))
+          setCartoes(data.cartoes.map((c) => ({ id: String(c.id), nome: String(c.nome ?? ""), limite: Number(c.limite || 0) })));
+        if (isObj(data.milheiro)) {
+          const m = data.milheiro as Record<string, number>;
+          setMilheiro((prev) => ({
+            latam: Number(m.latam ?? prev.latam),
+            smiles: Number(m.smiles ?? prev.smiles),
+            livelo: Number(m.livelo ?? prev.livelo),
+            esfera: Number(m.esfera ?? prev.esfera),
+          }));
         }
-        setMilheiro(next);
+        // espelha no localStorage como cache
+        try {
+          localStorage.setItem(CAIXA_KEY, String(data.caixa ?? 0));
+          localStorage.setItem(CARTOES_KEY, JSON.stringify(data.cartoes ?? []));
+          localStorage.setItem(MILHEIRO_KEY, JSON.stringify(data.milheiro ?? {}));
+        } catch {}
+      } else {
+        // sem dados no server -> tenta local
+        loadLocalFallback();
       }
-    } catch {}
+    } catch {
+      loadLocalFallback();
+    }
+  }
+
+  function loadLocalFallback() {
     try {
       const rawC = localStorage.getItem(CAIXA_KEY);
-      if (rawC) {
-        const n = Number(rawC);
-        if (Number.isFinite(n)) setCaixa(n);
-      }
-    } catch {}
-    try {
+      if (rawC) setCaixa(Number(rawC) || 0);
       const rawCards = localStorage.getItem(CARTOES_KEY);
       if (rawCards) {
         const arr = JSON.parse(rawCards) as CartaoLimite[];
         if (Array.isArray(arr)) setCartoes(arr.map((c) => ({ ...c, limite: Number(c.limite || 0) })));
       }
+      const rawM = localStorage.getItem(MILHEIRO_KEY);
+      if (rawM) {
+        const parsed = JSON.parse(rawM) as Partial<Record<ProgramKey, number>>;
+        setMilheiro((prev) => ({
+          latam: Number(parsed.latam ?? prev.latam),
+          smiles: Number(parsed.smiles ?? prev.smiles),
+          livelo: Number(parsed.livelo ?? prev.livelo),
+          esfera: Number(parsed.esfera ?? prev.esfera),
+        }));
+      }
     } catch {}
+  }
+
+  // 1x on mount: carregar analise online e dívidas + cedentes
+  useEffect(() => {
+    loadOnline();
     try {
       const rawDebts = localStorage.getItem(DEBTS_KEY);
       const rawTxns = localStorage.getItem(DEBTS_TXNS_KEY);
       if (rawDebts) setDebts(JSON.parse(rawDebts) as Debt[]);
       if (rawTxns) setTxns(JSON.parse(rawTxns) as DebtTxn[]);
     } catch {}
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-  // salvar preços + caixa + cartões sempre que mudar
-  useEffect(() => {
-    try {
-      localStorage.setItem(MILHEIRO_KEY, JSON.stringify(milheiro));
-    } catch {}
-  }, [milheiro]);
+
+  // espelhar no localStorage a cada mudança (cache/fallback)
   useEffect(() => {
     try {
       localStorage.setItem(CAIXA_KEY, String(caixa));
-    } catch {}
-  }, [caixa]);
-  useEffect(() => {
-    try {
       localStorage.setItem(CARTOES_KEY, JSON.stringify(cartoes));
+      localStorage.setItem(MILHEIRO_KEY, JSON.stringify(milheiro));
     } catch {}
-  }, [cartoes]);
+  }, [caixa, cartoes, milheiro]);
 
-  async function carregar() {
+  /* ====== AUTO-SAVE (debounced) para /api/analise ====== */
+  function scheduleSave() {
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(async () => {
+      setSaveState("saving");
+      try {
+        const payload: AnaliseBlob = { caixa, cartoes, milheiro };
+        const r = await fetch("/api/analise", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        if (!r.ok) throw new Error("PATCH /api/analise falhou");
+        setSaveState("saved");
+        setTimeout(() => setSaveState("idle"), 1200);
+      } catch {
+        setSaveState("error");
+      }
+    }, 600);
+  }
+
+  // dispara save quando qualquer um dos três muda
+  useEffect(() => {
+    if (saveState === "idle") scheduleSave();
+    else scheduleSave();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [caixa, cartoes, milheiro]);
+
+  /* ====== Cedentes ====== */
+  async function carregarCedentes() {
     setLoading(true);
     setErro(null);
     try {
@@ -265,11 +307,10 @@ export default function AnaliseBasica() {
   }
 
   useEffect(() => {
-    carregar();
+    carregarCedentes();
     function onStorage(e: StorageEvent) {
-      if (e.key === "TM_CEDENTES_REFRESH") void carregar();
+      if (e.key === "TM_CEDENTES_REFRESH") void carregarCedentes();
       if (e.key === DEBTS_KEY || e.key === DEBTS_TXNS_KEY) {
-        // refletir alterações feitas na aba Dívidas
         try {
           const rawDebts = localStorage.getItem(DEBTS_KEY);
           const rawTxns = localStorage.getItem(DEBTS_TXNS_KEY);
@@ -284,7 +325,7 @@ export default function AnaliseBasica() {
 
   const totalGeral = tot.latam + tot.smiles + tot.livelo + tot.esfera;
 
-  // ======= PREVISÃO DE DINHEIRO =======
+  /* ======= PREVISÃO DE DINHEIRO ======= */
   type LinhaPrev = {
     programa: string;
     pontos: number;
@@ -295,31 +336,21 @@ export default function AnaliseBasica() {
   const linhasPrev: LinhaPrev[] = PROGRAMAS.map((p) => {
     const pontos = tot[p];
     const preco = milheiro[p] || 0;
-    return {
-      programa: p.toUpperCase(),
-      pontos,
-      precoMilheiro: preco,
-      valorPrev: (pontos / 1000) * preco,
-      key: p,
-    };
+    return { programa: p.toUpperCase(), pontos, precoMilheiro: preco, valorPrev: (pontos / 1000) * preco, key: p };
   });
   const totalPrev = linhasPrev.reduce((s, l) => s + l.valorPrev, 0);
 
-  // ======= CAIXA + LIMITES no topo =======
+  /* ======= CAIXA + LIMITES ======= */
   const totalLimites = cartoes.reduce((s, c) => s + Number(c.limite || 0), 0);
-  const caixaTotal = caixa + totalLimites; // somatório solicitado
+  const caixaTotal = caixa + totalLimites;
   const caixaTotalMaisPrev = caixaTotal + totalPrev;
 
-  // ======= DÍVIDAS: total em aberto (igual à aba Dívidas) =======
+  /* ======= DÍVIDAS (total em aberto) ======= */
   const saldoDebt = (debtId: string) => {
     const d = debts.find((x) => x.id === debtId);
     if (!d) return 0;
-    const adds = txns
-      .filter((t) => t.debtId === debtId && t.tipo === "add")
-      .reduce((s, t) => s + t.valor, 0);
-    const pays = txns
-      .filter((t) => t.debtId === debtId && t.tipo === "pay")
-      .reduce((s, t) => s + t.valor, 0);
+    const adds = txns.filter((t) => t.debtId === debtId && t.tipo === "add").reduce((s, t) => s + t.valor, 0);
+    const pays = txns.filter((t) => t.debtId === debtId && t.tipo === "pay").reduce((s, t) => s + t.valor, 0);
     return d.inicial + adds - pays;
   };
   const totalDividasAbertas = useMemo(
@@ -328,11 +359,7 @@ export default function AnaliseBasica() {
     [debts, txns]
   );
 
-  // ======= KPIs líquidos (subtraindo dívidas) =======
-  const caixaReal = caixaTotal - totalDividasAbertas; // conta + limites - dívidas
-  const previstoLiquido = caixaTotalMaisPrev - totalDividasAbertas;
-
-  /* ======= Ações cartões ======= */
+  /* ======= Cartões handlers ======= */
   function addCartao() {
     const novo: CartaoLimite = {
       id: (globalThis.crypto?.randomUUID?.() ?? `card-${Date.now()}`) as string,
@@ -352,19 +379,24 @@ export default function AnaliseBasica() {
     <div className="p-6 space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-semibold">Análise (Caixa, Limites, Dívidas e Pontos)</h1>
-        <button
-          onClick={carregar}
-          className="rounded-lg border px-3 py-2 text-sm hover:bg-slate-50 disabled:opacity-60"
-          disabled={loading}
-        >
-          {loading ? "Recarregando..." : "Recarregar cedentes"}
-        </button>
+        <div className="flex items-center gap-3">
+          <span className="text-xs text-slate-500">
+            {saveState === "saving" && "Salvando..."}
+            {saveState === "saved" && "Salvo ✓"}
+            {saveState === "error" && "Erro ao salvar"}
+          </span>
+          <button
+            onClick={carregarCedentes}
+            className="rounded-lg border px-3 py-2 text-sm hover:bg-slate-50 disabled:opacity-60"
+            disabled={loading}
+          >
+            {loading ? "Recarregando..." : "Recarregar cedentes"}
+          </button>
+        </div>
       </div>
 
       {erro && (
-        <div className="rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700">
-          Erro: {erro}
-        </div>
+        <div className="rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700">Erro: {erro}</div>
       )}
 
       {/* =================== CAIXA + LIMITES (TOPO) =================== */}
@@ -396,9 +428,7 @@ export default function AnaliseBasica() {
                 <tbody>
                   {cartoes.length === 0 && (
                     <tr>
-                      <td colSpan={3} className="py-3 pr-4 text-slate-500">
-                        Nenhum cartão cadastrado.
-                      </td>
+                      <td colSpan={3} className="py-3 pr-4 text-slate-500">Nenhum cartão cadastrado.</td>
                     </tr>
                   )}
                   {cartoes.map((c) => (
@@ -437,13 +467,12 @@ export default function AnaliseBasica() {
         </div>
 
         {/* KPIs de caixa */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-5 gap-4">
           <KPI title="Caixa (conta)" value={fmtMoney(caixa)} />
           <KPI title="Limites (cartões)" value={fmtMoney(totalLimites)} />
           <KPI title="Dívidas em aberto" value={fmtMoney(totalDividasAbertas)} variant="danger" />
           <KPI title="Caixa total (conta + limites)" value={fmtMoney(caixaTotal)} />
-          <KPI title="Caixa real (– dívidas)" value={fmtMoney(caixaReal)} />
-          <KPI title="Previsto líquido (– dívidas)" value={fmtMoney(previstoLiquido)} />
+          <KPI title="Caixa total + previsto" value={fmtMoney(caixaTotalMaisPrev)} />
         </div>
       </section>
 
@@ -482,7 +511,6 @@ export default function AnaliseBasica() {
       <section className="bg-white rounded-2xl shadow p-4 space-y-4">
         <h2 className="font-medium">Previsão de Dinheiro (se vender)</h2>
 
-        {/* Inputs de preço do milheiro */}
         <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
           <CurrencyInputBRL label="Preço LATAM — R$ por 1.000" value={milheiro.latam} onChange={(v) => setMilheiro((prev) => ({ ...prev, latam: v }))} />
           <CurrencyInputBRL label="Preço SMILES — R$ por 1.000" value={milheiro.smiles} onChange={(v) => setMilheiro((prev) => ({ ...prev, smiles: v }))} />
@@ -490,7 +518,6 @@ export default function AnaliseBasica() {
           <CurrencyInputBRL label="Preço ESFERA — R$ por 1.000" value={milheiro.esfera} onChange={(v) => setMilheiro((prev) => ({ ...prev, esfera: v }))} />
         </div>
 
-        {/* Tabela de previsão */}
         <div className="overflow-auto">
           <table className="min-w-full text-sm">
             <thead>
