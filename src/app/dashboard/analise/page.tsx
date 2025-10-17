@@ -94,7 +94,21 @@ function fmtMoney(n: number): string {
 /* ===== Helpers de input BRL ===== */
 function formatBRL(n: number) {
   const v = Number(n) || 0;
-  return "R$ " + new Intl.NumberFormat("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(v);
+  return (
+    "R$ " +
+    new Intl.NumberFormat("pt-BR", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(v)
+  );
+}
+// formata sem o prefixo — ideal para exibir dentro do <input>
+function formatBRLNoPrefix(n: number) {
+  const v = Number(n) || 0;
+  return new Intl.NumberFormat("pt-BR", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(v);
 }
 function parseBRL(s: string) {
   if (!s) return 0;
@@ -102,11 +116,8 @@ function parseBRL(s: string) {
   const n = Number(cleaned);
   return Number.isFinite(n) ? n : 0;
 }
-function stripPrefix(s: string) {
-  return (s || "").replace(/^R\$\s?/, "");
-}
 
-/* ===== Input controlado BRL ===== */
+/* ===== Input controlado BRL (fluido) ===== */
 function CurrencyInputBRL({
   label,
   value,
@@ -116,23 +127,39 @@ function CurrencyInputBRL({
   value: number;
   onChange: (v: number) => void;
 }) {
-  const [txt, setTxt] = useState(formatBRL(value));
-  useEffect(() => setTxt(formatBRL(value)), [value]);
+  // guardamos o TEXTO sem prefixo; assim, não “pulamos” o cursor
+  const [txt, setTxt] = useState<string>(formatBRLNoPrefix(value));
+
+  useEffect(() => {
+    // quando value externo muda, refletimos a mudança no texto (sem prefixo)
+    setTxt(formatBRLNoPrefix(value));
+  }, [value]);
+
   return (
     <label className="block">
       {label && <div className="mb-1 text-xs text-slate-600">{label}</div>}
       <div className="flex items-center rounded-lg border px-3 py-2 text-sm">
         <span className="mr-2 text-slate-500">R$</span>
         <input
-          value={stripPrefix(txt)}
+          value={txt}
           onChange={(e) => {
-            const raw = "R$ " + e.target.value;
+            // aceita números, vírgula e ponto; normaliza ponto para vírgula
+            let raw = e.target.value.replace(/[^\d,\.]/g, "").replace(/\./g, ",");
+            // garante no máximo uma vírgula
+            const parts = raw.split(",");
+            if (parts.length > 2) {
+              raw = parts[0] + "," + parts.slice(1).join("").replace(/,/g, "");
+            }
             setTxt(raw);
-            onChange(parseBRL(raw));
+            onChange(parseBRL(raw)); // envia número a cada tecla
           }}
-          onBlur={() => setTxt(formatBRL(parseBRL(txt)))}
+          onBlur={() => {
+            // só aqui formatamos bonito (mantém digitação fluida)
+            setTxt(formatBRLNoPrefix(parseBRL(txt)));
+          }}
           className="w-full outline-none"
           inputMode="decimal"
+          pattern="[0-9,\.]*"
           placeholder="0,00"
         />
       </div>
@@ -173,7 +200,13 @@ export default function AnaliseBasica() {
       if (isObj(data)) {
         if (typeof data.caixa === "number") setCaixa(data.caixa);
         if (data.cartoes && Array.isArray(data.cartoes))
-          setCartoes(data.cartoes.map((c) => ({ id: String(c.id), nome: String(c.nome ?? ""), limite: Number(c.limite || 0) })));
+          setCartoes(
+            data.cartoes.map((c) => ({
+              id: String(c.id),
+              nome: String(c.nome ?? ""),
+              limite: Number(c.limite || 0),
+            }))
+          );
         if (isObj(data.milheiro)) {
           const m = data.milheiro as Record<string, number>;
           setMilheiro((prev) => ({
@@ -263,8 +296,7 @@ export default function AnaliseBasica() {
 
   // dispara save quando qualquer um dos três muda
   useEffect(() => {
-    if (saveState === "idle") scheduleSave();
-    else scheduleSave();
+    scheduleSave();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [caixa, cartoes, milheiro]);
 
@@ -512,10 +544,26 @@ export default function AnaliseBasica() {
         <h2 className="font-medium">Previsão de Dinheiro (se vender)</h2>
 
         <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
-          <CurrencyInputBRL label="Preço LATAM — R$ por 1.000" value={milheiro.latam} onChange={(v) => setMilheiro((prev) => ({ ...prev, latam: v }))} />
-          <CurrencyInputBRL label="Preço SMILES — R$ por 1.000" value={milheiro.smiles} onChange={(v) => setMilheiro((prev) => ({ ...prev, smiles: v }))} />
-          <CurrencyInputBRL label="Preço LIVELO — R$ por 1.000" value={milheiro.livelo} onChange={(v) => setMilheiro((prev) => ({ ...prev, livelo: v }))} />
-          <CurrencyInputBRL label="Preço ESFERA — R$ por 1.000" value={milheiro.esfera} onChange={(v) => setMilheiro((prev) => ({ ...prev, esfera: v }))} />
+          <CurrencyInputBRL
+            label="Preço LATAM — R$ por 1.000"
+            value={milheiro.latam}
+            onChange={(v) => setMilheiro((prev) => ({ ...prev, latam: v }))}
+          />
+          <CurrencyInputBRL
+            label="Preço SMILES — R$ por 1.000"
+            value={milheiro.smiles}
+            onChange={(v) => setMilheiro((prev) => ({ ...prev, smiles: v }))}
+          />
+          <CurrencyInputBRL
+            label="Preço LIVELO — R$ por 1.000"
+            value={milheiro.livelo}
+            onChange={(v) => setMilheiro((prev) => ({ ...prev, livelo: v }))}
+          />
+          <CurrencyInputBRL
+            label="Preço ESFERA — R$ por 1.000"
+            value={milheiro.esfera}
+            onChange={(v) => setMilheiro((prev) => ({ ...prev, esfera: v }))}
+          />
         </div>
 
         <div className="overflow-auto">
@@ -575,7 +623,8 @@ function KPI({
     variant === "danger"
       ? "text-xs uppercase tracking-wide text-red-600 mb-1"
       : "text-xs uppercase tracking-wide text-slate-500 mb-1";
-  const valueCls = variant === "danger" ? "text-2xl font-semibold text-red-600" : "text-2xl font-semibold";
+  const valueCls =
+    variant === "danger" ? "text-2xl font-semibold text-red-600" : "text-2xl font-semibold";
 
   return (
     <div className="rounded-2xl border p-4">
