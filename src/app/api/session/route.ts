@@ -18,8 +18,12 @@ function noCache() {
 
 export async function GET() {
   try {
-    const raw = cookies().get("tm.session")?.value ?? "";
-    if (!raw) return NextResponse.json({ ok: true, user: null }, { headers: noCache() });
+    // 👇 cookies() pode ser Promise no Next 15
+    const store = await cookies();
+    const raw = store.get("tm.session")?.value ?? "";
+    if (!raw) {
+      return NextResponse.json({ ok: true, user: null }, { headers: noCache() });
+    }
 
     const sess = JSON.parse(decodeURIComponent(raw));
     const user = {
@@ -30,6 +34,7 @@ export async function GET() {
       role: String(sess?.role ?? ""),
       team: String(sess?.team ?? ""),
     };
+
     return NextResponse.json({ ok: true, user }, { headers: noCache() });
   } catch {
     return NextResponse.json({ ok: true, user: null }, { headers: noCache() });
