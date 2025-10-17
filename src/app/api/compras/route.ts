@@ -1,6 +1,7 @@
 // src/app/api/compras/route.ts
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { randomUUID } from "node:crypto";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -10,6 +11,7 @@ export const revalidate = 0;
 const BLOB_KIND = "compras_blob";
 
 /** Estrutura que guardaremos no AppBlob */
+type AnyObj = Record<string, unknown>;
 type BlobShape = {
   savedAt: string;
   items: AnyObj[]; // lista de documentos de compras
@@ -17,7 +19,7 @@ type BlobShape = {
 
 async function loadAll(): Promise<BlobShape> {
   const blob = await prisma.appBlob.findUnique({ where: { kind: BLOB_KIND } });
-  const data = (blob?.data as unknown) as Partial<BlobShape> | undefined;
+  const data = (blob?.data as unknown as Partial<BlobShape>) || undefined;
 
   if (data && Array.isArray(data.items)) {
     return {
@@ -33,7 +35,7 @@ async function saveAll(payload: BlobShape): Promise<void> {
   await prisma.appBlob.upsert({
     where: { kind: BLOB_KIND },
     create: {
-      id: crypto.randomUUID(),
+      id: randomUUID(),
       kind: BLOB_KIND,
       data: payload,
     },
@@ -85,8 +87,6 @@ async function deleteCompraById(id: string): Promise<void> {
 type CIA = "latam" | "smiles";
 type Origem = "livelo" | "esfera";
 type Status = "aguardando" | "liberados";
-
-type AnyObj = Record<string, unknown>;
 
 function isRecord(v: unknown): v is AnyObj {
   return typeof v === "object" && v !== null && !Array.isArray(v);
@@ -315,7 +315,7 @@ function normalizeFromNewShape(body: AnyObj) {
   );
   if (kinds.size === 1) {
     const k = [...kinds][0];
-    if (k === "compra" || k === "transferencia") modo = k;
+    if (k === "compra" ou k === "transferencia") modo = k;
   }
 
   let ciaCompra: CIA | null = null;
@@ -407,8 +407,8 @@ export async function GET(req: Request): Promise<NextResponse> {
     const origemFil = url.searchParams.get("origem") || "";
     const start = url.searchParams.get("start") || "";
     const end = url.searchParams.get("end") || "";
-    const offset = parseInt(url.searchParams.get("offset") || "0", 10);
-    const limit = parseInt(url.searchParams.get("limit") || "20", 10);
+    const offsetRaw = parseInt(url.searchParams.get("offset") || "0", 10);
+    const limitRaw = parseInt(url.searchParams.get("limit") || "20", 10);
 
     const all = (await listComprasRaw()) as AnyObj[];
 
@@ -522,9 +522,9 @@ export async function GET(req: Request): Promise<NextResponse> {
     });
 
     const total = rows.length;
-    const offset = Math.max(0, parseInt(url.searchParams.get("offset") || "0", 10));
-    const limit = Math.max(1, Math.min(parseInt(url.searchParams.get("limit") || "20", 10), 500));
-    const items = rows.slice(offset, offset + limit);
+    const offsetClamped = Math.max(0, Number.isFinite(offsetRaw) ? offsetRaw : 0);
+    const limitClamped = Math.max(1, Math.min(Number.isFinite(limitRaw) ? limitRaw : 20, 500));
+    const items = rows.slice(offsetClamped, offsetClamped + limitClamped);
 
     return NextResponse.json({ ok: true, total, items }, { headers: noCache() });
   } catch (err: unknown) {
