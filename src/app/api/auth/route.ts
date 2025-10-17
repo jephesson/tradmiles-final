@@ -1,7 +1,7 @@
 // src/app/api/auth/route.ts
 import { NextResponse } from "next/server";
 import crypto from "node:crypto";
-import { prisma } from "@/lib/db";
+import { prisma } from "@/lib/prisma"; // ✅ caminho correto
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -76,28 +76,41 @@ function noCache() {
 }
 
 /**
- * Define o cookie de sessão (válido em www e apex domain)
+ * Define o cookie de sessão (válido em localhost, preview e produção).
+ * - Em produção, use a env COOKIE_DOMAIN=.trademiles.com.br (ou o domínio que você quiser).
+ * - Em preview/local, não define "domain" para herdar o host atual.
  */
 function setSessionCookie(res: NextResponse, session: Session) {
-  res.cookies.set("tm.session", encodeURIComponent(JSON.stringify(session)), {
+  const baseCookie = {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
-    sameSite: "lax",
+    sameSite: "lax" as const,
     path: "/",
     maxAge: 60 * 60 * 8, // 8h
-    domain: ".trademiles.com.br", // ✅ garante validade em www.trademiles.com.br e trademiles.com.br
-  });
+  };
+
+  const domain = process.env.COOKIE_DOMAIN?.trim();
+  if (domain) {
+    res.cookies.set("tm.session", encodeURIComponent(JSON.stringify(session)), {
+      ...baseCookie,
+      domain,
+    });
+  } else {
+    res.cookies.set("tm.session", encodeURIComponent(JSON.stringify(session)), baseCookie);
+  }
+}
+
+function clearSessionCookie(res: NextResponse) {
+  const base = { path: "/" as const, maxAge: 0 };
+  const domain = process.env.COOKIE_DOMAIN?.trim();
+  if (domain) res.cookies.set("tm.session", "", { ...base, domain });
+  else res.cookies.set("tm.session", "", base);
 }
 
 function isApiBody(v: unknown): v is ApiBody {
   if (!v || typeof v !== "object") return false;
   const action = (v as { action?: string }).action;
-  return (
-    action === "login" ||
-    action === "setPassword" ||
-    action === "resetSeed" ||
-    action === "logout"
-  );
+  return action === "login" || action === "setPassword" || action === "resetSeed" || action === "logout";
 }
 
 export async function GET(): Promise<NextResponse> {
@@ -125,10 +138,9 @@ export async function POST(req: Request): Promise<NextResponse> {
         );
       }
 
-      // Busca no banco
       const dbUser = await prisma.user.findUnique({ where: { login } }).catch(() => null);
 
-      // Fallback: usa SEED se não existir no banco
+      // Fallback seed
       if (!dbUser) {
         const seedUser = SEED_USERS.find((u) => u.login === login);
         if (!seedUser) {
@@ -161,7 +173,7 @@ export async function POST(req: Request): Promise<NextResponse> {
         return res;
       }
 
-      // Login normal via Prisma
+      // Login via banco
       if (dbUser.passwordHash !== sha256(password)) {
         return NextResponse.json(
           { ok: false, error: "Senha inválida" },
@@ -178,10 +190,7 @@ export async function POST(req: Request): Promise<NextResponse> {
         role: dbUser.role as Role,
       };
 
-      const res = NextResponse.json(
-        { ok: true, data: { session } },
-        { headers: noCache() }
-      );
+      const res = NextResponse.json({ ok: true, data: { session } }, { headers: noCache() });
       setSessionCookie(res, session);
       return res;
     }
@@ -238,20 +247,17 @@ export async function POST(req: Request): Promise<NextResponse> {
         )
       );
 
-      return NextResponse.json(
-        { ok: true, message: "Seed restaurado" },
-        { headers: noCache() }
-      );
+      return NextResponse.json({ ok: true, message: "Seed restaurado" }, { headers: noCache() });
     }
 
     // ============ LOGOUT ============
     if (raw.action === "logout") {
       const res = NextResponse.json({ ok: true }, { headers: noCache() });
-      res.cookies.set("tm.session", "", { path: "/", maxAge: 0, domain: ".trademiles.com.br" });
+      clearSessionCookie(res);
       return res;
     }
 
-    // fallback geral
+    // fallback
     return NextResponse.json(
       { ok: false, error: "Ação desconhecida" },
       { status: 400, headers: noCache() }
