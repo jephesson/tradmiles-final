@@ -264,7 +264,7 @@ function extractMetaMilheiroFromCompra(c: AnyCompra): number {
 
 /** ===== uuid simples p/ novos clientes ===== */
 function uuid() {
-  // Usa Web Crypto quando disponível (tipado, sem @ts-expect-error)
+  // Usa Web Crypto quando disponível
   if (
     typeof globalThis.crypto !== "undefined" &&
     typeof (globalThis.crypto as { randomUUID?: () => string }).randomUUID === "function"
@@ -291,7 +291,7 @@ export default function PageNovaVenda() {
   /** inputs iniciais */
   const [cia, setCia] = useState<CIA | "">("");
   const [pontos, setPontos] = useState<number | "">("");
-  const [pontosStr, setPontosStr] = useState<string>(""); // exibição com separador
+  const [pontosStr, setPontosStr] = useState<string>("");
   const [data, setData] = useState<string>(() => localISODate("America/Sao_Paulo"));
   const [valorMilheiro, setValorMilheiro] = useState<number | "">("");
   const [qtdPassageiros, setQtdPassageiros] = useState<number | "">(1);
@@ -410,34 +410,34 @@ export default function PageNovaVenda() {
     return () => { alive = false; };
   }, []);
 
-  // pré-seleciona emissor e cartão (logado -> emissor; cartão = logado, senão emissor)
-  useEffect(() => {
-    if (!funcionarios.length) return;
-    const match = findFuncionarioForUser(user, funcionarios);
-    setSelectedFuncionarioId(match ? match.id : "");
-    if (match) setCartaoFuncionarioId((prev) => prev || match.id);
-  }, [user, funcionarios]);
+  /** ===== Vincula funcionário ao login ===== */
+  const funcionarioAtual = useMemo(
+    () => findFuncionarioForUser(user, funcionarios),
+    [user, funcionarios]
+  );
 
+  // fixa o ID do funcionário selecionado quando encontrar pelo login
   useEffect(() => {
-    if (!cartaoFuncionarioId && selectedFuncionarioId) setCartaoFuncionarioId(selectedFuncionarioId);
-  }, [selectedFuncionarioId, cartaoFuncionarioId]);
+    if (funcionarioAtual) setSelectedFuncionarioId(funcionarioAtual.id);
+  }, [funcionarioAtual]);
+
+  // por padrão, usa o cartão do mesmo funcionário
+  useEffect(() => {
+    if (funcionarioAtual && !cartaoFuncionarioId) {
+      setCartaoFuncionarioId(funcionarioAtual.id);
+    }
+  }, [funcionarioAtual, cartaoFuncionarioId]);
 
   useEffect(() => { if (!selectedFuncionarioId) selectRef.current?.focus(); }, [selectedFuncionarioId]);
 
   const abrirSelect = useCallback(() => {
     if (!selectRef.current) return;
     selectRef.current.focus();
-
-    // Tipagem segura para browsers que implementam showPicker()
     const el = selectRef.current as HTMLSelectElement & { showPicker?: () => void };
-    try {
-      el.showPicker?.();
-    } catch {
-      // silencia se não suportar
-    }
+    try { el.showPicker?.(); } catch {}
   }, []);
 
-  /** ------- salvar lista de clientes no servidor (mesmo contrato da página Clientes) ------- */
+  /** ------- salvar lista de clientes no servidor ------- */
   async function saveClientesOnServer(next: Cliente[]) {
     try {
       const res = await fetch("/api/clientes", {
@@ -531,7 +531,7 @@ export default function PageNovaVenda() {
       .filter((c) => isCompraLiberada(c))
       .filter((c) => extractCedenteIdFromCompra(c).toUpperCase() === cedId.toUpperCase())
       .filter((c) => pointsToProgram(c, program) > 0)
-    .sort((a, b) => pointsToProgram(b, program) - pointsToProgram(a, program));
+      .sort((a, b) => pointsToProgram(b, program) - pointsToProgram(a, program));
 
     if (!candidates.length) return null;
 
@@ -782,26 +782,39 @@ export default function PageNovaVenda() {
         {/* ====== TOPO COMPACTO ====== */}
         <div className="rounded-lg border p-3">
           <div className="grid gap-3 md:grid-cols-3">
-            {/* Funcionário */}
+            {/* Funcionário (vinculado ao login; fallback seletor) */}
             <div className="grid gap-1">
               <label className={labelCls}>Funcionário</label>
-              <div className="flex gap-2">
-                <select
-                  ref={selectRef}
-                  required
-                  className={`${inputCls} flex-1`}
-                  value={selectedFuncionarioId}
-                  onChange={(e) => setSelectedFuncionarioId(e.target.value)}
-                >
-                  <option value="" disabled>Selecione</option>
-                  {funcionarios.map((f) => (
-                    <option key={f.id} value={f.id}>{f.nome} ({f.id})</option>
-                  ))}
-                </select>
-                <button type="button" onClick={abrirSelect} className="rounded-lg px-3 py-2 border text-sm">
-                  Escolher
-                </button>
-              </div>
+
+              {funcionarioAtual ? (
+                <>
+                  <div className="flex items-center gap-2">
+                    <div className="flex-1 rounded-lg border px-3 py-2 text-sm bg-slate-100">
+                      {funcionarioAtual.nome} ({funcionarioAtual.id})
+                    </div>
+                  </div>
+                  <input type="hidden" name="funcionarioId" value={funcionarioAtual.id} />
+                  <p className="text-[11px] text-slate-500">Vinculado ao seu login.</p>
+                </>
+              ) : (
+                <div className="flex gap-2">
+                  <select
+                    ref={selectRef}
+                    required
+                    className={`${inputCls} flex-1`}
+                    value={selectedFuncionarioId}
+                    onChange={(e) => setSelectedFuncionarioId(e.target.value)}
+                  >
+                    <option value="" disabled>Selecione</option>
+                    {funcionarios.map((f) => (
+                      <option key={f.id} value={f.id}>{f.nome} ({f.id})</option>
+                    ))}
+                  </select>
+                  <button type="button" onClick={abrirSelect} className="rounded-lg px-3 py-2 border text-sm">
+                    Escolher
+                  </button>
+                </div>
+              )}
             </div>
 
             {/* CIA */}
