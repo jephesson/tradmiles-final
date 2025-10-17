@@ -5,7 +5,7 @@ import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { Cedente, loadCedentes } from "@/lib/storage";
 
 /** ==================== Tipos ==================== */
-type SessionUser = { id?: string | null; name?: string | null; email?: string | null };
+type SessionUser = { id?: string | null; name?: string | null; email?: string | null; login?: string | null };
 type Funcionario = { id: string; nome: string };
 type CIA = "smiles" | "latam";
 type ProgramKey = "latam" | "smiles" | "livelo" | "esfera";
@@ -129,8 +129,14 @@ function localISODate(tz: string) {
 }
 
 function findFuncionarioForUser(user: SessionUser, funcionarios: Funcionario[]): Funcionario | null {
+  const byLogin = (user.login || "").trim().toLowerCase();
   const byName = (user.name || "").trim().toLowerCase();
   const byEmailLocal = (user.email || "").split("@")[0]?.toLowerCase() || "";
+
+  if (byLogin) {
+    const m = funcionarios.find((f) => f.nome.trim().toLowerCase().includes(byLogin));
+    if (m) return m;
+  }
   if (byName) {
     const m = funcionarios.find((f) => f.nome.trim().toLowerCase() === byName);
     if (m) return m;
@@ -395,16 +401,22 @@ export default function PageNovaVenda() {
     })();
   }, []);
 
-  // sessão (NextAuth padrão)
+  // sessão (cookie tm.session exposto por /api/session)
   useEffect(() => {
     let alive = true;
     (async () => {
       try {
-        const res = await fetch("/api/auth/session");
+        const res = await fetch("/api/session", { cache: "no-store" });
         if (!res.ok) return;
         const json = await res.json();
         if (!alive) return;
-        setUser({ id: json?.user?.id ?? null, name: json?.user?.name ?? null, email: json?.user?.email ?? null });
+        const u = json?.user || null;
+        setUser({
+          id: u?.id ?? null,
+          name: u?.name ?? null,
+          email: u?.email ?? null,
+          login: u?.login ?? null,
+        });
       } catch {}
     })();
     return () => { alive = false; };
@@ -428,7 +440,7 @@ export default function PageNovaVenda() {
     }
   }, [funcionarioAtual, cartaoFuncionarioId]);
 
-  useEffect(() => { if (!selectedFuncionarioId) selectRef.current?.focus(); }, [selectedFuncionarioId]);
+  useEffect(() => { if (!selectedFuncionarioId && !funcionarioAtual) selectRef.current?.focus(); }, [selectedFuncionarioId, funcionarioAtual]);
 
   const abrirSelect = useCallback(() => {
     if (!selectRef.current) return;
@@ -674,8 +686,9 @@ export default function PageNovaVenda() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
 
-    const funcionarioEmissor = funcionarios.find((f) => f.id === selectedFuncionarioId) || null;
-    const funcionarioCartao = funcionarios.find((f) => f.id === cartaoFuncionarioId) || null;
+    const funcionarioEmissor =
+      funcionarioAtual ?? funcionarios.find((f) => f.id === selectedFuncionarioId) || null;
+    const funcionarioCartao = funcionarios.find((f) => f.id === cartaoFuncionarioId) || funcionarioEmissor || null;
     const cliente = clientes.find((c) => c.id === selectedClienteId) || null;
 
     const payload = {
@@ -1174,7 +1187,7 @@ export default function PageNovaVenda() {
               <button
                 type="submit"
                 className="rounded-xl px-4 py-2 bg-black text-white text-sm hover:opacity-90"
-                disabled={!selectedFuncionarioId || !selectedClienteId || !cia || requested <= 0 || !selecionada}
+                disabled={!(funcionarioAtual?.id || selectedFuncionarioId) || !selectedClienteId || !cia || requested <= 0 || !selecionada}
               >
                 Salvar
               </button>
@@ -1185,7 +1198,7 @@ export default function PageNovaVenda() {
 
       {/* ---------- Modal: escolher outra conta ---------- */}
       <dialog ref={dialogRef} className="rounded-xl p-0 backdrop:bg-black/40">
-        <form method="dialog" className="w-[min(640px,92vw)] rounded-xl bg-white p-5" onSubmit={(e) => e.preventDefault()}>
+        <form method="dialog" className="W-[min(640px,92vw)] rounded-xl bg-white p-5" onSubmit={(e) => e.preventDefault()}>
           <div className="mb-3 flex items-center justify-between">
             <h3 className="text-lg font-semibold">Escolher outra conta</h3>
             <button onClick={() => dialogRef.current?.close()} className="rounded-md border px-3 py-1 text-sm hover:bg-slate-50">
