@@ -128,7 +128,8 @@ function localISODate(tz: string) {
   return `${parts.year}-${parts.month}-${parts.day}`;
 }
 
-function findFuncionarioForUser(user: SessionUser, funcionarios: Funcionario[]): Funcionario | null {
+type SessionUserLike = SessionUser;
+function findFuncionarioForUser(user: SessionUserLike, funcionarios: Funcionario[]): Funcionario | null {
   const byLogin = (user.login || "").trim().toLowerCase();
   const byName = (user.name || "").trim().toLowerCase();
   const byEmailLocal = (user.email || "").split("@")[0]?.toLowerCase() || "";
@@ -687,8 +688,9 @@ export default function PageNovaVenda() {
     e.preventDefault();
 
     const funcionarioEmissor =
-      funcionarioAtual ?? funcionarios.find((f) => f.id === selectedFuncionarioId) || null;
-    const funcionarioCartao = funcionarios.find((f) => f.id === cartaoFuncionarioId) || funcionarioEmissor || null;
+      (funcionarioAtual ?? funcionarios.find((f) => f.id === selectedFuncionarioId)) || null;
+    const funcionarioCartao =
+      funcionarios.find((f) => f.id === cartaoFuncionarioId) || funcionarioEmissor || null;
     const cliente = clientes.find((c) => c.id === selectedClienteId) || null;
 
     const payload = {
@@ -1198,7 +1200,7 @@ export default function PageNovaVenda() {
 
       {/* ---------- Modal: escolher outra conta ---------- */}
       <dialog ref={dialogRef} className="rounded-xl p-0 backdrop:bg-black/40">
-        <form method="dialog" className="W-[min(640px,92vw)] rounded-xl bg-white p-5" onSubmit={(e) => e.preventDefault()}>
+        <form method="dialog" className="w-[min(640px,92vw)] rounded-xl bg-white p-5" onSubmit={(e) => e.preventDefault()}>
           <div className="mb-3 flex items-center justify-between">
             <h3 className="text-lg font-semibold">Escolher outra conta</h3>
             <button onClick={() => dialogRef.current?.close()} className="rounded-md border px-3 py-1 text-sm hover:bg-slate-50">
