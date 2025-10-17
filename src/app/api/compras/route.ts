@@ -137,7 +137,7 @@ type Delta = { latam?: number; smiles?: number; livelo?: number; esfera?: number
 async function applyDeltaToCedente(cedenteId: string, delta: Delta): Promise<CedentesBlob> {
   const all = await loadCedentes();
   const idx = all.listaCedentes.findIndex((c) => c.identificador === cedenteId);
-  if (idx < 0) return all; // ignora se não encontrado (ou trate como erro se preferir)
+  if (idx < 0) return all; // ignora se não encontrado
 
   const cur = all.listaCedentes[idx];
   const next = {
@@ -151,6 +151,30 @@ async function applyDeltaToCedente(cedenteId: string, delta: Delta): Promise<Ced
   all.savedAt = new Date().toISOString();
   await saveCedentes(all);
   return all;
+}
+
+/* --------- Mini repo de comissão (dinâmico) --------- */
+type RepoShape = {
+  delete?: (args: {
+    where: { compraId_cedenteId: { compraId: string; cedenteId: string } };
+  }) => Promise<unknown>;
+};
+function isFn(x: unknown): x is (...args: unknown[]) => unknown {
+  return typeof x === "function";
+}
+function isRepoShape(x: unknown): x is RepoShape {
+  if (!x || typeof x !== "object") return false;
+  const r = x as Record<string, unknown>;
+  return isFn(r.delete);
+}
+function getComissaoRepo(): RepoShape | null {
+  const client = prisma as unknown as Record<string, unknown>;
+  const candidates = ["comissao", "comissaoCedente", "commission"] as const;
+  for (const k of candidates) {
+    const repo = client[k];
+    if (isRepoShape(repo)) return repo as RepoShape;
+  }
+  return null;
 }
 
 /* ---------------- Helpers de tipos/guards ---------------- */
@@ -635,11 +659,13 @@ export async function POST(req: Request): Promise<NextResponse> {
       origem: (compat.origem as Origem | null) ?? undefined,
       calculos: { ...totaisId },
       savedAt: Date.now(),
+      // >>> persistimos o delta para poder reverter no DELETE
+      saldosDelta: saldosDelta || undefined,
     };
 
     await upsertCompra(doc);
 
-    // >>> NOVO: aplica delta nos saldos do cedente e retorna a lista atualizada
+    // >>> aplica delta nos saldos do cedente e retorna a lista atualizada
     let nextCedentes: CedentesBlob | null = null;
     if (cedenteId && saldosDelta) {
       nextCedentes = await applyDeltaToCedente(cedenteId, {
@@ -654,9 +680,7 @@ export async function POST(req: Request): Promise<NextResponse> {
       {
         ok: true,
         id: String(doc.id),
-        nextCedentes: nextCedentes
-          ? nextCedentes.listaCedentes
-          : undefined,
+        nextCedentes: nextCedentes ? nextCedentes.listaCedentes : undefined,
       },
       { headers: noCache() }
     );
@@ -766,11 +790,52 @@ export async function DELETE(req: Request): Promise<NextResponse> {
   if (!id) return NextResponse.json({ error: "Missing id" }, { status: 400, headers: noCache() });
 
   try {
+    // 1) Carrega a compra para obter cedente e delta previamente aplicado
+    const compra = (await findCompraById(id)) as AnyObj | null;
+    if (!compra) {
+      return NextResponse.json({ error: "Registro não encontrado" }, { status: 404, headers: noCache() });
+    }
+
+    const cedenteId = str(compra.cedenteId);
+    const delta = (isRecord(compra.saldosDelta) ? (compra.saldosDelta as AnyObj) : undefined) as
+      | { latam?: number; smiles?: number; livelo?: number; esfera?: number }
+      | undefined;
+
+    // 2) Reverter saldos do cedente (aplicar delta inverso)
+    if (cedenteId && delta) {
+      await applyDeltaToCedente(cedenteId, {
+        latam: -(num(delta.latam)),
+        smiles: -(num(delta.smiles)),
+        livelo: -(num(delta.livelo)),
+        esfera: -(num(delta.esfera)),
+      });
+    }
+
+    // 3) Remover comissão vinculada (se modelo existir)
+    try {
+      const repo = getComissaoRepo();
+      if (repo?.delete && cedenteId) {
+        await repo.delete({
+          where: { compraId_cedenteId: { compraId: id, cedenteId } },
+        });
+      }
+    } catch {
+      // silencioso (ok se não houver tabela ou chave composta)
+    }
+
+    // 4) Remover a compra
     await deleteCompraById(id);
-    return NextResponse.json({ ok: true, deleted: id }, { headers: noCache() });
+
+    // 5) Retorna lista de cedentes atualizada para UI refletir imediatamente
+    const nextCedentes = await loadCedentes();
+
+    return NextResponse.json(
+      { ok: true, deleted: id, nextCedentes: nextCedentes.listaCedentes },
+      { headers: noCache() }
+    );
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : "Erro ao excluir";
-    const code = /não encontrado/i.test(msg) ? 404 : 500;
+    const code = /não encontrado|not found/i.test(msg) ? 404 : 500;
     return NextResponse.json({ error: msg }, { status: code, headers: noCache() });
   }
 }
