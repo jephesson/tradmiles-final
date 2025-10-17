@@ -1,6 +1,8 @@
 // src/app/api/vendas/route.ts
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { Prisma } from "@prisma/client";
+import { randomUUID } from "node:crypto";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -110,34 +112,40 @@ function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
 }
 
+/** Garante JSON puro compatível com Prisma.InputJsonValue */
+function toJsonValue<T>(value: T): Prisma.InputJsonValue {
+  return JSON.parse(JSON.stringify(value)) as unknown as Prisma.InputJsonValue;
+}
+
 /* ================== AppBlob helpers ================== */
 async function loadArrayFromBlob<T = unknown>(kind: string, field: string): Promise<T[]> {
   const blob = await prisma.appBlob.findUnique({ where: { kind } });
-  const data = blob?.data as Record<string, unknown> | null;
-  const arr = data && Array.isArray(data[field]) ? (data[field] as T[]) : [];
+  const data = (blob?.data as Record<string, unknown> | null) ?? null;
+  const arr = data && Array.isArray((data as any)[field]) ? ((data as any)[field] as T[]) : [];
   return arr;
 }
 async function saveArrayToBlob(kind: string, field: string, items: unknown[]): Promise<void> {
+  const data = toJsonValue({ [field]: items });
   await prisma.appBlob.upsert({
     where: { kind },
-    create: { id: crypto.randomUUID(), kind, data: { [field]: items } },
-    update: { data: { [field]: items } },
+    create: { id: randomUUID(), kind, data },
+    update: { data },
   });
 }
 
 /* Cedentes: sempre usamos o campo "listaCedentes" dentro do blob */
 async function loadCedentes(): Promise<CedenteRec[]> {
   const blob = await prisma.appBlob.findUnique({ where: { kind: CEDENTES_KIND } });
-  const raw = blob?.data as Record<string, unknown> | null;
-  const arr =
-    raw && Array.isArray(raw["listaCedentes"]) ? (raw["listaCedentes"] as unknown[]) : [];
+  const raw = (blob?.data as Record<string, unknown> | null) ?? null;
+  const arr = raw && Array.isArray((raw as any)["listaCedentes"]) ? ((raw as any)["listaCedentes"] as unknown[]) : [];
   return arr.map(pickCedenteFields);
 }
 async function saveCedentes(arr: CedenteRec[]): Promise<void> {
+  const data = toJsonValue({ listaCedentes: arr });
   await prisma.appBlob.upsert({
     where: { kind: CEDENTES_KIND },
-    create: { id: crypto.randomUUID(), kind: CEDENTES_KIND, data: { listaCedentes: arr } },
-    update: { data: { listaCedentes: arr } },
+    create: { id: randomUUID(), kind: CEDENTES_KIND, data },
+    update: { data },
   });
 }
 
