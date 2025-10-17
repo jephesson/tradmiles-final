@@ -1,3 +1,4 @@
+// src/app/dashboard/analise/page.tsx
 "use client";
 
 import { useEffect, useMemo, useRef, useState, useCallback } from "react";
@@ -303,6 +304,11 @@ export default function AnaliseBasica() {
     void loadOnline();
     void loadDividasOnline();
   }, [loadOnline]);
+
+  // >>>>>>>>>>>>>>> CARREGAR CEDENTES NO MOUNT (traz os pontos) <<<<<<<<<<<<<<<
+  useEffect(() => {
+    void carregarCedentes();
+  }, []);
 
   // cache local (opcional) – somente análise
   useEffect(() => {

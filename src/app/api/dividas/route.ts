@@ -1,4 +1,3 @@
-// src/app/api/dividas/route.ts
 import { NextResponse } from "next/server";
 import { kv } from "@vercel/kv";
 
@@ -13,7 +12,6 @@ type Debt = {
   createdAt: string;
   isClosed?: boolean;
 };
-
 type DebtTxn = {
   id: string;
   debtId: string;
@@ -22,7 +20,6 @@ type DebtTxn = {
   obs?: string;
   dataISO: string;
 };
-
 type DividasBlob = {
   debts: Debt[];
   txns: DebtTxn[];
@@ -31,7 +28,7 @@ type DividasBlob = {
 
 const KEY = "TM:DIVIDAS:BLOB:v1";
 
-/* ---------- Normalizadores (tip-safe) ---------- */
+/* ----------------- normalizadores ----------------- */
 function normalizeDebt(input: unknown): Debt {
   const d = (input ?? {}) as Record<string, unknown>;
   return {
@@ -56,19 +53,23 @@ function normalizeTxn(input: unknown): DebtTxn {
   };
 }
 
-/** GET /api/dividas -> { ok: true, data } */
+/* ----------------- GET ----------------- */
 export async function GET() {
   try {
-    const data = (await kv.get<DividasBlob>(KEY)) ?? { debts: [], txns: [], savedAt: undefined };
+    const data =
+      (await kv.get<DividasBlob>(KEY)) ?? { debts: [], txns: [], savedAt: undefined };
     return NextResponse.json({ ok: true, data });
-  } catch {
-    return NextResponse.json({ ok: false, error: "Falha ao carregar dívidas" }, { status: 500 });
+  } catch (e: unknown) {
+    const msg =
+      e instanceof Error ? e.message : "Falha ao carregar dívidas (KV)";
+    return NextResponse.json(
+      { ok: false, error: msg },
+      { status: 500 }
+    );
   }
 }
 
-/** PATCH /api/dividas
- * Body: { debts: Debt[], txns: DebtTxn[] }
- */
+/* ----------------- PATCH ----------------- */
 export async function PATCH(req: Request) {
   try {
     const body = (await req.json()) as Partial<DividasBlob> | undefined;
@@ -84,10 +85,18 @@ export async function PATCH(req: Request) {
     const txns: DebtTxn[] = (body.txns as unknown[]).map(normalizeTxn);
 
     const data: DividasBlob = { debts, txns, savedAt: new Date().toISOString() };
+
+    // grava no KV
     await kv.set(KEY, data);
 
     return NextResponse.json({ ok: true, data });
-  } catch {
-    return NextResponse.json({ ok: false, error: "Falha ao salvar dívidas" }, { status: 500 });
+  } catch (e: unknown) {
+    // expõe a mensagem real (ajuda a ver se é KV_URL/KV_REST_API_URL/KV_REST_API_TOKEN faltando)
+    const msg =
+      e instanceof Error ? e.message : "Falha ao salvar dívidas (KV)";
+    return NextResponse.json(
+      { ok: false, error: msg },
+      { status: 500 }
+    );
   }
 }
