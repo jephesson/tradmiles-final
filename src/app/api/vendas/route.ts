@@ -3,6 +3,9 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
 import { randomUUID } from "node:crypto";
+import { getServerSession } from "next-auth";
+// ⚠️ Se o seu authOptions estiver em outro caminho, ajuste esse import:
+import { authOptions } from "@/lib/auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -104,6 +107,9 @@ function noCache(): Record<string, string> {
 function up(s: unknown): string {
   return String(s ?? "").toUpperCase();
 }
+function norm(s?: string | null) {
+  return (s ?? "").toString().trim().toLowerCase();
+}
 function toNum(v: unknown): number {
   const n = Number(v);
   return Number.isFinite(n) ? n : 0;
@@ -111,13 +117,9 @@ function toNum(v: unknown): number {
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
 }
-
-/** Garante JSON puro compatível com Prisma.InputJsonValue */
 function toJsonValue<T>(value: T): Prisma.InputJsonValue {
   return JSON.parse(JSON.stringify(value)) as unknown as Prisma.InputJsonValue;
 }
-
-/** Lê com segurança um campo array de um objeto desconhecido, sem usar `any`. */
 function getArrayField<T = unknown>(obj: unknown, field: string): T[] {
   if (obj && typeof obj === "object" && !Array.isArray(obj)) {
     const rec = obj as Record<string, unknown>;
@@ -176,6 +178,31 @@ function pickCedenteFields(c: unknown): CedenteRec {
   };
 }
 
+/* ================== Funcionário a partir do login ================== */
+/** Tabela simples (mesmo seed do front) */
+const FUNC_MAP: Record<string, { id: string; nome: string }> = {
+  jephesson: { id: "F001", nome: "Jephesson" },
+  lucas: { id: "F002", nome: "Lucas" },
+  paola: { id: "F003", nome: "Paola" },
+  eduarda: { id: "F004", nome: "Eduarda" },
+};
+
+function resolveFuncionarioFromSession(
+  user: { name?: string | null; email?: string | null } | null
+): { id: string; nome: string } | null {
+  if (!user) return null;
+  const byName = norm(user.name);
+  const byLocal = norm((user.email || "").split("@")[0] || "");
+
+  if (byName && FUNC_MAP[byName]) return FUNC_MAP[byName];
+
+  // tenta "contém" no local-part (ex.: lucas.souza -> lucas)
+  for (const key of Object.keys(FUNC_MAP)) {
+    if (byLocal.includes(key)) return FUNC_MAP[key];
+  }
+  return null;
+}
+
 /* ================== Handlers ================== */
 export async function GET(): Promise<NextResponse> {
   const vendas = await loadArrayFromBlob<VendaRecord>(VENDAS_KIND, "lista");
@@ -193,6 +220,11 @@ export async function POST(req: Request): Promise<NextResponse> {
       );
     }
 
+    // ==== sessão (NextAuth) -> trava funcionário pelo login ====
+    const session = await getServerSession(authOptions as any).catch(() => null);
+    const sessionUser = session?.user ?? null;
+    const funcionarioSessao = resolveFuncionarioFromSession(sessionUser);
+
     // Cedentes: usa blob existente; se não houver, aceita seed do body.
     const cedentesFromDb = await loadCedentes();
     const seedArr: unknown[] = Array.isArray(body["cedentes"])
@@ -208,7 +240,6 @@ export async function POST(req: Request): Promise<NextResponse> {
         ? seedArr.map(pickCedenteFields)
         : [];
 
-    // Se não havia nada e veio seed, já persiste para iniciar o blob de cedentes
     if (cedentesFromDb.length === 0 && seedArr.length) {
       await saveCedentes(cedentes);
     }
@@ -223,10 +254,16 @@ export async function POST(req: Request): Promise<NextResponse> {
       cia: body["cia"] === "latam" ? "latam" : "smiles",
       qtdPassageiros: toNum(body["qtdPassageiros"]),
 
-      funcionarioId: (body["funcionarioId"] as string | null | undefined) ?? null,
-      funcionarioNome: (body["funcionarioNome"] as string | null | undefined) ?? null,
-      userName: (body["userName"] as string | null | undefined) ?? null,
-      userEmail: (body["userEmail"] as string | null | undefined) ?? null,
+      // >>> força pelo login; se não achar, cai no que veio do body
+      funcionarioId:
+        funcionarioSessao?.id ??
+        ((body["funcionarioId"] as string | null | undefined) ?? null),
+      funcionarioNome:
+        funcionarioSessao?.nome ??
+        ((body["funcionarioNome"] as string | null | undefined) ?? null),
+
+      userName: (sessionUser?.name as string | null | undefined) ?? (body["userName"] as string | null | undefined) ?? null,
+      userEmail: (sessionUser?.email as string | null | undefined) ?? (body["userEmail"] as string | null | undefined) ?? null,
 
       clienteId: (body["clienteId"] as string | null | undefined) ?? null,
       clienteNome: (body["clienteNome"] as string | null | undefined) ?? null,
@@ -249,9 +286,15 @@ export async function POST(req: Request): Promise<NextResponse> {
       comissaoBonusMeta: toNum(body["comissaoBonusMeta"]),
       comissaoTotal: toNum(body["comissaoTotal"]),
 
-      cartaoFuncionarioId: (body["cartaoFuncionarioId"] as string | null | undefined) ?? null,
+      // Cartão: se não vier, usa o mesmo do funcionário logado
+      cartaoFuncionarioId:
+        (body["cartaoFuncionarioId"] as string | null | undefined) ??
+        funcionarioSessao?.id ??
+        null,
       cartaoFuncionarioNome:
-        (body["cartaoFuncionarioNome"] as string | null | undefined) ?? null,
+        (body["cartaoFuncionarioNome"] as string | null | undefined) ??
+        funcionarioSessao?.nome ??
+        null,
 
       pagamentoStatus: (body["pagamentoStatus"] as PaymentStatus) || "pendente",
 
@@ -381,7 +424,6 @@ export async function DELETE(req: Request): Promise<NextResponse> {
     let id = url.searchParams.get("id");
     let restorePoints = true;
 
-    // também aceita body
     try {
       const body = (await req.json()) as Record<string, unknown>;
       if (body?.["id"]) id = String(body["id"]);
