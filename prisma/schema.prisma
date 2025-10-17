@@ -1,16 +1,16 @@
 // prisma/schema.prisma
-
 datasource db {
   provider  = "postgresql"
-  url       = env("DATABASE_URL") // Pooler (PgBouncer) → para a app
-  directUrl = env("DIRECT_URL")   // Direct (sem pooler) → para migrações
+  url       = env("DATABASE_URL") // pooler para app
+  directUrl = env("DIRECT_URL")   // direct para migrações
 }
 
 generator client {
   provider = "prisma-client-js"
 }
 
-// ============ MODELOS ============
+/* ========= MODELS ========= */
+
 model User {
   id           String   @id @default(cuid())
   login        String   @unique
@@ -21,4 +21,37 @@ model User {
   passwordHash String
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
+}
+
+/* Armazena blobs de configuração/estado (ex.: cedentes) */
+model AppBlob {
+  id        String   @id @default(cuid())
+  kind      String   @unique   // ex.: "cedentes_blob"
+  data      Json
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+/* Dívidas: credores */
+model Debt {
+  id        String   @id @default(cuid())
+  nome      String
+  inicial   Decimal  @db.Decimal(18, 2)  // << corrigido
+  nota      String?
+  createdAt DateTime @default(now())
+  isClosed  Boolean  @default(false)
+
+  txns DebtTxn[]
+}
+
+/* Movimentações da dívida (add/pay) */
+model DebtTxn {
+  id      String  @id @default(cuid())
+  debtId  String
+  tipo    String               // "add" | "pay"
+  valor   Decimal @db.Decimal(18, 2)  // << corrigido
+  obs     String?
+  dataISO DateTime
+
+  debt Debt @relation(fields: [debtId], references: [id], onDelete: Cascade)
 }
