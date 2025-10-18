@@ -134,6 +134,19 @@ async function saveCedentes(payload: CedentesBlob): Promise<void> {
 }
 
 type Delta = { latam?: number; smiles?: number; livelo?: number; esfera?: number };
+
+/** Normaliza qualquer unknown em um Delta com números (0 se inválido) */
+function toDelta(x: unknown): Delta {
+  const o = (typeof x === "object" && x) ? (x as Record<string, unknown>) : {};
+  const toNum = (v: unknown) => (Number.isFinite(Number(v)) ? Number(v) : 0);
+  return {
+    latam: toNum(o.latam),
+    smiles: toNum(o.smiles),
+    livelo: toNum(o.livelo),
+    esfera: toNum(o.esfera),
+  };
+}
+
 async function applyDeltaToCedente(cedenteId: string, delta: Delta): Promise<CedentesBlob> {
   const all = await loadCedentes();
   const idx = all.listaCedentes.findIndex((c) => c.identificador === cedenteId);
@@ -638,7 +651,9 @@ export async function POST(req: Request): Promise<NextResponse> {
     const statusPontos = (str(body.statusPontos) as Status) || "aguardando";
     const cedenteIdNovo = str(body.cedenteId);
     const cedenteNome = str(body.cedenteNome);
-    const deltaNovo = isRecord(body.saldosDelta) ? (body.saldosDelta as AnyObj) : undefined;
+
+    const deltaNovoMaybe = isRecord(body.saldosDelta) ? (body.saldosDelta as AnyObj) : undefined;
+    const deltaNovo: Delta | undefined = deltaNovoMaybe ? toDelta(deltaNovoMaybe) : undefined;
 
     const usingNew = Array.isArray(body.itens);
     const { itens, totaisId, /* totais, */ compat } = usingNew
@@ -648,9 +663,9 @@ export async function POST(req: Request): Promise<NextResponse> {
     // -------- idempotência dos saldos (aplicar só a diferença) --------
     const compraAntiga = id ? ((await findCompraById(id)) as AnyObj | null) : null;
     const cedenteIdAntigo = str(compraAntiga?.cedenteId);
-    const deltaAntigo = (isRecord(compraAntiga?.saldosDelta)
-      ? (compraAntiga!.saldosDelta as AnyObj)
-      : undefined) as { latam?: number; smiles?: number; livelo?: number; esfera?: number } | undefined;
+    const deltaAntigo: Delta | undefined = isRecord(compraAntiga?.saldosDelta)
+      ? toDelta((compraAntiga!.saldosDelta as AnyObj))
+      : undefined;
 
     // Doc que será salvo (guarda o delta novo para o DELETE)
     const doc: AnyObj = {
@@ -676,7 +691,7 @@ export async function POST(req: Request): Promise<NextResponse> {
 
       if (cedenteIdAntigo && cedenteIdAntigo === cedenteIdNovo) {
         // Mesmo cedente: aplica apenas a diferença entre o delta novo e o anterior
-        const net = {
+        const net: Delta = {
           latam: diff(deltaNovo.latam, deltaAntigo?.latam),
           smiles: diff(deltaNovo.smiles, deltaAntigo?.smiles),
           livelo: diff(deltaNovo.livelo, deltaAntigo?.livelo),
@@ -833,17 +848,16 @@ export async function DELETE(req: Request): Promise<NextResponse> {
     }
 
     const cedenteId = str(compra.cedenteId);
-    const delta = (isRecord(compra.saldosDelta) ? (compra.saldosDelta as AnyObj) : undefined) as
-      | { latam?: number; smiles?: number; livelo?: number; esfera?: number }
-      | undefined;
+    const deltaRaw = isRecord(compra.saldosDelta) ? (compra.saldosDelta as AnyObj) : undefined;
+    const delta = deltaRaw ? toDelta(deltaRaw) : undefined;
 
     // 2) Reverter saldos do cedente (aplicar delta inverso)
     if (cedenteId && delta) {
       await applyDeltaToCedente(cedenteId, {
-        latam: -(num(delta.latam)),
-        smiles: -(num(delta.smiles)),
-        livelo: -(num(delta.livelo)),
-        esfera: -(num(delta.esfera)),
+        latam: -num(delta.latam),
+        smiles: -num(delta.smiles),
+        livelo: -num(delta.livelo),
+        esfera: -num(delta.esfera),
       });
     }
 
