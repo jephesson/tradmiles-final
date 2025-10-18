@@ -1,4 +1,3 @@
-// src/app/api/compras/route.ts
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { randomUUID } from "node:crypto";
@@ -206,9 +205,6 @@ function noCache(): Record<string, string> {
     "Surrogate-Control": "no-store",
   };
 }
-function toMoney(v: unknown): number {
-  return num(v);
-}
 
 /* -------- Normalizações específicas da rota (seu formato antigo/novo) -------- */
 function normalizeFromOldShape(body: AnyObj) {
@@ -252,7 +248,7 @@ function normalizeFromOldShape(body: AnyObj) {
 
 function normalizeFromNewShape(body: AnyObj) {
   const itens: unknown[] = Array.isArray(body.itens) ? (body.itens as unknown[]) : [];
-  const totals = smartTotals(itens, body.totais); // <<< engine central
+  const totals = smartTotals(itens, body.totais);
 
   // compat para listagem/filtros antigos
   let modo: "compra" | "transferencia" | null = null;
@@ -324,7 +320,7 @@ export async function GET(req: Request): Promise<NextResponse> {
       const hasPts = num(totaisObj?.totalCIA ?? totaisObj?.pontosCIA) > 0;
 
       if (!hasPts) {
-        const totals = smartTotals((item.itens as unknown[]) || [], item.totais); // engine
+        const totals = smartTotals((item.itens as unknown[]) || [], item.totais);
 
         const totalsIdObj = {
           totalPts: totals.totalPts,
@@ -400,7 +396,7 @@ export async function GET(req: Request): Promise<NextResponse> {
       const totais = isRecord(r.totais) ? (r.totais as AnyObj) : undefined;
       const hasPts = num(totais?.totalCIA ?? totais?.pontosCIA) > 0;
       if (!hasPts) {
-        const totals = smartTotals((r.itens as unknown[]) || [], r.totais); // engine
+        const totals = smartTotals((r.itens as unknown[]) || [], r.totais);
         r = {
           ...r,
           totais: {
@@ -477,7 +473,7 @@ export async function POST(req: Request): Promise<NextResponse> {
     const cedenteNome = str(body.cedenteNome);
 
     const deltaNovoMaybe = isRecord(body.saldosDelta) ? (body.saldosDelta as AnyObj) : undefined;
-    const deltaNovo: Delta | undefined = deltaNovoMaybe ? toDelta(deltaNovoMaybe) : undefined; // engine
+    const deltaNovo: Delta | undefined = deltaNovoMaybe ? toDelta(deltaNovoMaybe) : undefined;
 
     const usingNew = Array.isArray(body.itens);
     const { itens, totaisId, /* totais, */ compat } = usingNew
@@ -488,7 +484,7 @@ export async function POST(req: Request): Promise<NextResponse> {
     const compraAntiga = id ? ((await findCompraById(id)) as AnyObj | null) : null;
     const cedenteIdAntigo = str(compraAntiga?.cedenteId);
     const deltaAntigo: Delta | undefined = isRecord(compraAntiga?.saldosDelta)
-      ? toDelta((compraAntiga!.saldosDelta as AnyObj)) // engine
+      ? toDelta((compraAntiga!.saldosDelta as AnyObj))
       : undefined;
 
     // Doc a salvar (guarda delta p/ DELETE)
@@ -570,7 +566,7 @@ export async function PATCH(req: Request): Promise<NextResponse> {
     const apply: AnyObj = isRecord(patchRaw) ? { ...patchRaw } : {};
 
     if (Array.isArray(apply.itens) && !apply.totais && !apply.totaisId) {
-      const smart = smartTotals(apply.itens as unknown[]); // engine
+      const smart = smartTotals(apply.itens as unknown[]);
       const totalsIdObj = {
         totalPts: smart.totalPts,
         custoTotal: smart.custoTotal,
@@ -581,7 +577,7 @@ export async function PATCH(req: Request): Promise<NextResponse> {
       apply.calculos = { ...totalsIdObj };
     }
     if (apply.totais && !apply.totaisId) {
-      const compatTot = totalsCompatFromTotais(apply.totais); // engine
+      const compatTot = totalsCompatFromTotais(apply.totais);
       const totalsIdObj = {
         totalPts: compatTot.totalPts,
         custoTotal: compatTot.custoTotal,
@@ -665,7 +661,7 @@ export async function DELETE(req: Request): Promise<NextResponse> {
 
     const cedenteId = str(compra.cedenteId);
     const deltaRaw = isRecord(compra.saldosDelta) ? (compra.saldosDelta as AnyObj) : undefined;
-    const delta = deltaRaw ? toDelta(deltaRaw) : undefined; // engine
+    const delta = deltaRaw ? toDelta(deltaRaw) : undefined;
 
     // Reverter saldos (delta inverso)
     if (cedenteId && delta) {

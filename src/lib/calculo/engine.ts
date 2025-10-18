@@ -1,5 +1,13 @@
 /* server-only */
 
+/**
+ * Este arquivo centraliza TODOS os cálculos/normalizações usados nas rotas.
+ * - Tipos de linha (ItemLinha)
+ * - Cálculo de deltas por programa
+ * - Cálculo de totais (custo, milheiro, lucro)
+ * - Helpers de compatibilidade (smartTotals, totalsCompatFromTotais, toDelta)
+ */
+
 export type ProgramaCIA = "latam" | "smiles";
 export type ProgramaOrigem = "livelo" | "esfera";
 export type ProgramaGeral = ProgramaCIA | ProgramaOrigem;
@@ -8,35 +16,64 @@ export type StatusItem = "aguardando" | "liberado";
 export type ClubeItem = {
   id: number;
   programa: ProgramaGeral;
-  pontos: number;
-  valor: number; // R$
+  pontos: number; // pts creditados no programa
+  valor: number;  // R$
   status: StatusItem;
 };
+
 export type CompraItem = {
   id: number;
   programa: ProgramaGeral;
-  pontos: number;
-  valor: number;
+  pontos: number;   // pts base comprados/creditados
+  valor: number;    // R$
   bonusPct: number; // %
   status: StatusItem;
 };
+
 export type TransfItem = {
   id: number;
-  origem: ProgramaOrigem;
-  destino: ProgramaCIA;
+  origem: ProgramaOrigem;     // banco de pontos
+  destino: ProgramaCIA;       // cia aérea
   modo: "pontos" | "pontos+dinheiro";
-  pontosUsados: number;
-  pontosTotais: number;
-  valorPago: number;
-  bonusPct: number;
+  pontosUsados: number;       // pontos debitados do banco
+  pontosTotais: number;       // quando há pontos+dinheiro, total chega aqui
+  valorPago: number;          // R$
+  bonusPct: number;           // %
   status: StatusItem;
 };
+
 export type ItemLinha =
   | { kind: "clube"; data: ClubeItem }
   | { kind: "compra"; data: CompraItem }
   | { kind: "transferencia"; data: TransfItem };
 
 export type Delta = { latam?: number; smiles?: number; livelo?: number; esfera?: number };
+
+export type Totais = {
+  ptsLiberados: number;
+  ptsAguardando: number;
+  custoLiberado: number;
+  custoAguardando: number;
+  custoBase: number;
+  taxaVendedores: number; // 1% do custoBase (padrão)
+  comissao: number;
+  custoTotal: number;
+  custoTotalLiberado: number;
+  custoMilheiro: number;        // sobre liberado
+  custoMilheiroTotal: number;   // sobre total (lib+aguard)
+  totalCIA: number;             // pts liberados + aguard
+  lucroTotal: number;           // (meta - custoMilheiro liberado) * milheirosLiberados
+};
+
+export type TotaisCompat = {
+  totalPts: number;
+  custoTotal: number;
+  custoMilheiro: number;
+  lucroTotal: number;
+};
+
+/* ---------------- Helpers base ---------------- */
+type AnyObj = Record<string, unknown>;
 
 function num(n: unknown): number {
   const v = Number(n);
@@ -45,7 +82,14 @@ function num(n: unknown): number {
 function round(n: number): number {
   return Math.round(num(n));
 }
+function isRecord(v: unknown): v is AnyObj {
+  return typeof v === "object" && v !== null && !Array.isArray(v);
+}
+function str(v: unknown): string {
+  return typeof v === "string" ? v : v == null ? "" : String(v);
+}
 
+/* ---------------- Cálculo de contribuições ---------------- */
 function contribCIA(l: ItemLinha): number {
   if (l.kind === "clube") {
     const { programa, pontos } = l.data;
@@ -70,7 +114,7 @@ function valorItem(l: ItemLinha): number {
   return num(l.data.valor);
 }
 
-/** Delta por programa (previsto) a partir dos itens da compra */
+/* ---------------- Engine: Delta por programa ---------------- */
 export function computeDeltaPorPrograma(itens: ItemLinha[]): Required<Delta> {
   const d = { latam: 0, smiles: 0, livelo: 0, esfera: 0 };
   for (const l of itens) {
@@ -86,29 +130,14 @@ export function computeDeltaPorPrograma(itens: ItemLinha[]): Required<Delta> {
       const { origem, destino, modo, pontosUsados, pontosTotais, bonusPct } = l.data;
       const base = modo === "pontos+dinheiro" ? num(pontosTotais) : num(pontosUsados);
       const chegam = round(base * (1 + num(bonusPct) / 100));
-      d[destino] += chegam;           // crédito na CIA
+      d[destino] += chegam;          // crédito na CIA
       d[origem] -= num(pontosUsados); // débito no banco
     }
   }
   return d;
 }
 
-export type Totais = {
-  ptsLiberados: number;
-  ptsAguardando: number;
-  custoLiberado: number;
-  custoAguardando: number;
-  custoBase: number;
-  taxaVendedores: number; // 1% do custoBase
-  comissao: number;
-  custoTotal: number;
-  custoTotalLiberado: number;
-  custoMilheiro: number;        // sobre liberado
-  custoMilheiroTotal: number;   // sobre total (lib+aguard)
-  totalCIA: number;             // pts liberados + aguard
-  lucroTotal: number;           // (meta - custoMilheiro liberado) * milheirosLiberados
-};
-
+/* ---------------- Engine: Totais principais ---------------- */
 export function computeTotais(
   itens: ItemLinha[],
   comissaoCedente: number,
@@ -208,36 +237,12 @@ export function invertDelta(d?: Delta): Required<Delta> {
   };
 }
 
-/* ===================== COMPAT HELPERS PARA A ROTA ===================== */
+/* ===========================================================
+   ====== COMPAT: normalização de totais/deltas genéricos =====
+   (para suportar documentos antigos/novos na collection)
+   =========================================================== */
 
-export type TotaisCompat = {
-  totalPts: number;
-  custoTotal: number;
-  custoMilheiro: number;
-  lucroTotal: number;
-};
-
-/** Guarda de tipo p/ detectar objeto com campos de totais compatíveis */
-function hasCompatKeys(o: unknown): o is {
-  totalCIA?: unknown;
-  pontosCIA?: unknown;
-  custoTotal?: unknown;
-  custoMilheiroTotal?: unknown;
-  lucroTotal?: unknown;
-} {
-  if (typeof o !== "object" || o === null) return false;
-  const r = o as Record<string, unknown>;
-  return (
-    "totalCIA" in r ||
-    "pontosCIA" in r ||
-    "custoTotal" in r ||
-    "custoMilheiroTotal" in r ||
-    "lucroTotal" in r
-  );
-}
-
-/** Normaliza qualquer unknown para Delta com números (0 se inválido) */
-export function toDelta(x: unknown): Delta {
+export function toDelta(x: unknown): Required<Delta> {
   const o = (typeof x === "object" && x) ? (x as Record<string, unknown>) : {};
   const toNum = (v: unknown) => (Number.isFinite(Number(v)) ? Number(v) : 0);
   return {
@@ -248,41 +253,148 @@ export function toDelta(x: unknown): Delta {
   };
 }
 
-/** Lê tanto totalCIA quanto pontosCIA (compat com telas antigas) */
+/** Lê tanto totalCIA quanto pontosCIA (nome usado na tela nova) */
 export function totalsCompatFromTotais(totais: unknown): TotaisCompat {
-  const t = (typeof totais === "object" && totais) ? (totais as Record<string, unknown>) : {};
-  const totalPtsRaw = num(t.totalCIA ?? t.pontosCIA);
+  const t = isRecord(totais) ? totais : {};
+  const totalPtsRaw = num((t as AnyObj).totalCIA ?? (t as AnyObj).pontosCIA);
   const totalPts = Math.round(totalPtsRaw);
-  const custoTotal = num(t.custoTotal ?? 0);
+  const custoTotal = num((t as AnyObj).custoTotal ?? 0);
   const custoMilheiro =
-    num(t.custoMilheiroTotal) > 0
-      ? num(t.custoMilheiroTotal)
+    num((t as AnyObj).custoMilheiroTotal) > 0
+      ? num((t as AnyObj).custoMilheiroTotal)
       : totalPts > 0
       ? custoTotal / (totalPts / 1000)
       : 0;
-  const lucroTotal = num(t.lucroTotal ?? 0);
+  const lucroTotal = num((t as AnyObj).lucroTotal ?? 0);
   return { totalPts, custoTotal, custoMilheiro, lucroTotal };
 }
 
-/**
- * smartTotals: consolida totais com fallback.
- * - Se veio objeto `totais` compatível, normaliza por totalsCompatFromTotais
- * - Senão, soma a partir de `ItemLinha[]` (engine-first)
- */
-export function smartTotals(itensRaw: unknown[], totais?: unknown): TotaisCompat {
-  if (hasCompatKeys(totais)) {
-    return totalsCompatFromTotais(totais);
-  }
-  const itens: ItemLinha[] = Array.isArray(itensRaw) ? (itensRaw as ItemLinha[]) : [];
+/** quando vier no formato antigo (com resumo dentro de itens) */
+function totalsFromItemsResumo(itens: unknown[]): TotaisCompat {
+  type MediaState = { peso: number; acum: number };
+
+  const safe: AnyObj[] = Array.isArray(itens) ? (itens as AnyObj[]) : [];
+  const totalPts = safe.reduce((s, i) => s + num((i.resumo as AnyObj | undefined)?.totalPts), 0);
+  const custoTotal = safe.reduce((s, i) => s + num((i.resumo as AnyObj | undefined)?.custoTotal), 0);
+
+  const pesoAcum = safe.reduce<MediaState>(
+    (acc, i) => {
+      const milheiros = num((i.resumo as AnyObj | undefined)?.totalPts) / 1000;
+      if (milheiros > 0) {
+        acc.peso += milheiros;
+        acc.acum += num((i.resumo as AnyObj | undefined)?.custoTotal) / milheiros;
+      }
+      return acc;
+    },
+    { peso: 0, acum: 0 }
+  );
+
+  const custoMilheiro = pesoAcum.peso > 0 ? pesoAcum.acum / pesoAcum.peso : 0;
+  const lucroTotal = safe.reduce((s, i) => s + num((i.resumo as AnyObj | undefined)?.lucroTotal), 0);
+  return { totalPts, custoTotal, custoMilheiro, lucroTotal };
+}
+
+/** novo formato: soma por kind aplicando bônus e custos corretos */
+function totalsFromItemsData(itens: unknown[], totais?: unknown): TotaisCompat {
+  const arr = Array.isArray(itens) ? (itens as AnyObj[]) : [];
   let totalPts = 0;
   let custoTotal = 0;
 
-  for (const it of itens) {
-    totalPts += contribCIA(it);
-    custoTotal += valorItem(it);
-  }
-  const custoMilheiro = totalPts > 0 ? custoTotal / (totalPts / 1000) : 0;
+  for (const it of arr) {
+    const kind = str((it as AnyObj).kind ?? (it as AnyObj).modo);
+    const d = isRecord((it as AnyObj).data) ? ((it as AnyObj).data as AnyObj) : {};
 
-  // Sem metaMilheiro aqui, lucroTotal permanece 0 (compat com UI antiga)
-  return { totalPts, custoTotal, custoMilheiro, lucroTotal: 0 };
+    if (kind === "transferencia") {
+      const modo = str(d.modo);
+      const base = modo === "pontos+dinheiro" ? num(d.pontosTotais) : num(d.pontosUsados);
+      const bonus = num(d.bonusPct);
+      const chegam = Math.round(base * (1 + bonus / 100));
+      totalPts += Math.max(0, chegam);
+      custoTotal += num(d.valorPago);
+      continue;
+    }
+
+    if (kind === "compra") {
+      const programa = str(d.programa);
+      const ptsBase = num(d.pontos);
+      const bonus = num(d.bonusPct);
+      if (programa === "latam" || programa === "smiles") {
+        totalPts += Math.round(ptsBase * (1 + bonus / 100));
+      }
+      custoTotal += num(d.valor);
+      continue;
+    }
+
+    if (kind === "clube") {
+      const programa = str(d.programa);
+      const pts = num(d.pontos);
+      if (programa === "latam" || programa === "smiles") {
+        totalPts += Math.max(0, pts);
+      }
+      custoTotal += num(d.valor);
+      continue;
+    }
+
+    // Fallbacks genéricos
+    const ptsCandidates = [
+      d.chegam,
+      d.chegamPts,
+      d.totalCIA,
+      d.pontosCIA,
+      d.total_destino,
+      d.total,
+      d.quantidade,
+      d.pontosTotais,
+      d.pontosUsados,
+      d.pontos,
+    ];
+    const custoCandidates = [d.custoTotal, d.valor, d.valorPago, d.precoTotal, d.preco, d.custo];
+
+    const pts = num(ptsCandidates.find((v) => num(v) > 0));
+    const custo = num(custoCandidates.find((v) => num(v) > 0));
+
+    const tot = isRecord((it as AnyObj).totais) ? ((it as AnyObj).totais as AnyObj) : undefined;
+    const ptsAlt = num(tot?.totalCIA ?? tot?.pontosCIA ?? (tot as AnyObj | undefined)?.cia);
+    const custoAlt = num(tot?.custoTotal);
+
+    totalPts += pts > 0 ? pts : ptsAlt;
+    custoTotal += custo > 0 ? custo : custoAlt;
+
+    if (!(pts > 0 || ptsAlt > 0) && isRecord((it as AnyObj).resumo)) {
+      totalPts += num(((it as AnyObj).resumo as AnyObj).totalPts);
+    }
+    if (!(custo > 0 || custoAlt > 0) && isRecord((it as AnyObj).resumo)) {
+      custoTotal += num(((it as AnyObj).resumo as AnyObj).custoTotal);
+    }
+  }
+
+  // Se veio um objeto totais já normalizado, preferimos custoMilheiro dele quando válido
+  let custoMilheiro =
+    totalPts > 0 ? custoTotal / (totalPts / 1000) : 0;
+  if (isRecord(totais) && num((totais as AnyObj).custoMilheiroTotal) > 0) {
+    custoMilheiro = num((totais as AnyObj).custoMilheiroTotal);
+  }
+
+  const lucroTotal = arr.reduce((s, i) => s + num((i.resumo as AnyObj | undefined)?.lucroTotal), 0);
+
+  return { totalPts, custoTotal, custoMilheiro, lucroTotal };
+}
+
+/** escolhe automaticamente o melhor jeito de consolidar totais */
+export function smartTotals(itens: unknown[], totais?: unknown): TotaisCompat {
+  if (
+    totais &&
+    (isRecord(totais) &&
+      ("totalCIA" in totais ||
+        "pontosCIA" in totais ||
+        "custoTotal" in totais ||
+        "custoMilheiroTotal" in totais))
+  ) {
+    return totalsCompatFromTotais(totais);
+  }
+  const hasResumo =
+    Array.isArray(itens) &&
+    (itens as AnyObj[]).some((i) => isRecord(i.resumo));
+  if (hasResumo) return totalsFromItemsResumo(itens as AnyObj[]);
+  return totalsFromItemsData(itens, totais);
 }

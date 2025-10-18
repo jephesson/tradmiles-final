@@ -1,15 +1,14 @@
-// src/app/api/compras/preview/route.ts
 import { NextResponse } from "next/server";
 import "server-only";
-import { computePreview, ItemLinha } from "@/lib/calculo/engine"; // <— caminho certo
+import { computePreview, ItemLinha } from "@/lib/calculo/engine";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-function num(n: unknown) { const v = Number(n); return Number.isFinite(v) ? v : 0; }
+function num(n: unknown): number { const v = Number(n); return Number.isFinite(v) ? v : 0; }
 function isRecord(v: unknown): v is Record<string, unknown> {
-  return typeof v === "object" && !!v && !Array.isArray(v);
+  return typeof v === "object" && v !== null && !Array.isArray(v);
 }
 function noCache(): Record<string, string> {
   return {
@@ -21,13 +20,20 @@ function noCache(): Record<string, string> {
   };
 }
 
+type PreviewBody = {
+  itens?: ItemLinha[];
+  comissaoCedente?: number;
+  metaMilheiro?: number;
+};
+
 export async function POST(req: Request) {
   try {
     const raw: unknown = await req.json();
-    const body = isRecord(raw) ? raw : {};
-    const itens = Array.isArray((body as any).itens) ? ((body as any).itens as ItemLinha[]) : [];
-    const comissaoCedente = num((body as any).comissaoCedente);
-    const metaMilheiro = num((body as any).metaMilheiro);
+    const body: PreviewBody = isRecord(raw) ? (raw as PreviewBody) : {};
+
+    const itens: ItemLinha[] = Array.isArray(body.itens) ? body.itens : [];
+    const comissaoCedente: number = num(body.comissaoCedente);
+    const metaMilheiro: number = num(body.metaMilheiro);
 
     const out = computePreview({ itens, comissaoCedente, metaMilheiro });
     return NextResponse.json({ ok: true, ...out }, { headers: noCache() });
