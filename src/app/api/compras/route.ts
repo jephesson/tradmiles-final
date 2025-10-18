@@ -25,32 +25,62 @@ const CEDENTES_BLOB = "cedentes_blob";
 
 /** Estruturas utilitárias */
 type AnyObj = Record<string, unknown>;
+
 type BlobShape = {
   savedAt: string;
   items: AnyObj[];
 };
 
+type CIA = "latam" | "smiles";
+type Origem = "livelo" | "esfera";
+type Status = "aguardando" | "liberados";
+
+type CedenteRow = {
+  identificador: string;
+  nome_completo: string;
+  latam?: number;
+  smiles?: number;
+  livelo?: number;
+  esfera?: number;
+  // saldos pendentes
+  latam_pend?: number;
+  smiles_pend?: number;
+  livelo_pend?: number;
+  esfera_pend?: number;
+};
+
 type CedentesBlob = {
   savedAt: string;
-  listaCedentes: Array<{
-    identificador: string;
-    nome_completo: string;
-    latam?: number;
-    smiles?: number;
-    livelo?: number;
-    esfera?: number;
-    // NOVO: saldos pendentes
-    latam_pend?: number;
-    smiles_pend?: number;
-    livelo_pend?: number;
-    esfera_pend?: number;
-  }>;
+  listaCedentes: CedenteRow[];
 };
 
 /** JSON puro p/ Prisma.InputJsonValue */
 function toJsonValue<T>(value: T): Prisma.InputJsonValue {
   return JSON.parse(JSON.stringify(value)) as unknown as Prisma.InputJsonValue;
 }
+
+/* ---------------- Utils ---------------- */
+function isRecord(v: unknown): v is AnyObj {
+  return typeof v === "object" && v !== null && !Array.isArray(v);
+}
+function num(v: unknown): number {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : 0;
+}
+function str(v: unknown): string {
+  return typeof v === "string" ? v : v == null ? "" : String(v);
+}
+function noCache(): Record<string, string> {
+  return {
+    "Content-Type": "application/json; charset=utf-8",
+    "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
+    Pragma: "no-cache",
+    Expires: "0",
+    "Surrogate-Control": "no-store",
+  };
+}
+const add = (a = 0, b = 0) => Number(a || 0) + Number(b || 0);
+const sub = (a = 0, b = 0) => Number(a || 0) - Number(b || 0);
 
 /* ---------------- Compras: CRUD no AppBlob ---------------- */
 async function loadAll(): Promise<BlobShape> {
@@ -123,18 +153,21 @@ async function loadCedentes(): Promise<CedentesBlob> {
   if (data && Array.isArray(data.listaCedentes)) {
     return {
       savedAt: data.savedAt || new Date().toISOString(),
-      listaCedentes: data.listaCedentes.map((c) => ({
-        identificador: String(c.identificador),
-        nome_completo: String(c.nome_completo),
-        latam: z(c.latam),
-        smiles: z(c.smiles),
-        livelo: z(c.livelo),
-        esfera: z(c.esfera),
-        latam_pend: z((c as any).latam_pend),
-        smiles_pend: z((c as any).smiles_pend),
-        livelo_pend: z((c as any).livelo_pend),
-        esfera_pend: z((c as any).esfera_pend),
-      })),
+      listaCedentes: data.listaCedentes.map((c) => {
+        const c0 = c as Partial<CedenteRow>;
+        return {
+          identificador: String(c0.identificador),
+          nome_completo: String(c0.nome_completo),
+          latam: z(c0.latam),
+          smiles: z(c0.smiles),
+          livelo: z(c0.livelo),
+          esfera: z(c0.esfera),
+          latam_pend: z(c0.latam_pend),
+          smiles_pend: z(c0.smiles_pend),
+          livelo_pend: z(c0.livelo_pend),
+          esfera_pend: z(c0.esfera_pend),
+        };
+      }),
     };
   }
   return { savedAt: new Date().toISOString(), listaCedentes: [] };
@@ -148,34 +181,10 @@ async function saveCedentes(payload: CedentesBlob): Promise<void> {
   });
 }
 
-// COMPAT: mantém a função antiga (só saldo principal)
-async function applyDeltaToCedente(cedenteId: string, delta: Delta): Promise<CedentesBlob> {
-  const all = await loadCedentes();
-  const idx = all.listaCedentes.findIndex((c) => c.identificador === cedenteId);
-  if (idx < 0) return all; // ignora se não encontrado
-
-  const cur = all.listaCedentes[idx];
-  const next = {
-    ...cur,
-    latam: Math.max(0, Number(cur.latam ?? 0) + Number(delta.latam ?? 0)),
-    smiles: Math.max(0, Number(cur.smiles ?? 0) + Number(delta.smiles ?? 0)),
-    livelo: Math.max(0, Number(cur.livelo ?? 0) + Number(delta.livelo ?? 0)),
-    esfera: Math.max(0, Number(cur.esfera ?? 0) + Number(delta.esfera ?? 0)),
-  };
-  all.listaCedentes[idx] = next;
-  all.savedAt = new Date().toISOString();
-  await saveCedentes(all);
-  return all;
-}
-
-/** NOVO: aplica delta no lugar certo (principal/pendente) */
 type ApplyOpts =
-  | { mode: "main" }
-  | { mode: "pending" }
-  | { mode: "movePendingToMain" };
-
-function add(a = 0, b = 0) { return Number(a || 0) + Number(b || 0); }
-function sub(a = 0, b = 0) { return Number(a || 0) - Number(b || 0); }
+  | { mode: "main" }              // aplica no saldo principal
+  | { mode: "pending" }           // aplica no saldo pendente
+  | { mode: "movePendingToMain" } // move dos pendentes p/ principal
 
 async function applyDeltaToCedenteWith(
   cedenteId: string,
@@ -194,7 +203,7 @@ async function applyDeltaToCedenteWith(
     esfera: Number(delta.esfera || 0),
   };
 
-  const next = { ...cur };
+  const next: CedenteRow = { ...cur };
 
   if (opts.mode === "main") {
     next.latam = add(cur.latam, d.latam);
@@ -218,40 +227,20 @@ async function applyDeltaToCedenteWith(
     next.esfera = add(cur.esfera, d.esfera);
   }
 
-  // clamp >= 0
-  for (const k of ["latam","smiles","livelo","esfera","latam_pend","smiles_pend","livelo_pend","esfera_pend"] as const) {
-    (next as any)[k] = Math.max(0, Number((next as any)[k] || 0));
-  }
+  const clampKeys: (keyof CedenteRow)[] = [
+    "latam", "smiles", "livelo", "esfera",
+    "latam_pend", "smiles_pend", "livelo_pend", "esfera_pend",
+  ];
+  clampKeys.forEach((k) => {
+    const v = Number(next[k] ?? 0);
+    // @ts-expect-error narrow assignment to same key
+    next[k] = (Number.isFinite(v) ? Math.max(0, v) : 0);
+  });
 
   all.listaCedentes[idx] = next;
   all.savedAt = new Date().toISOString();
   await saveCedentes(all);
   return all;
-}
-
-/* ---------------- Helpers base ---------------- */
-type CIA = "latam" | "smiles";
-type Origem = "livelo" | "esfera";
-type Status = "aguardando" | "liberados";
-
-function isRecord(v: unknown): v is AnyObj {
-  return typeof v === "object" && v !== null && !Array.isArray(v);
-}
-function num(v: unknown): number {
-  const n = Number(v);
-  return Number.isFinite(n) ? n : 0;
-}
-function str(v: unknown): string {
-  return typeof v === "string" ? v : v == null ? "" : String(v);
-}
-function noCache(): Record<string, string> {
-  return {
-    "Content-Type": "application/json; charset=utf-8",
-    "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
-    Pragma: "no-cache",
-    Expires: "0",
-    "Surrogate-Control": "no-store",
-  };
 }
 
 /* -------- Normalizações específicas da rota (seu formato antigo/novo) -------- */
