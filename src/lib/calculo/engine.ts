@@ -86,7 +86,7 @@ export function computeDeltaPorPrograma(itens: ItemLinha[]): Required<Delta> {
       const { origem, destino, modo, pontosUsados, pontosTotais, bonusPct } = l.data;
       const base = modo === "pontos+dinheiro" ? num(pontosTotais) : num(pontosUsados);
       const chegam = round(base * (1 + num(bonusPct) / 100));
-      d[destino] += chegam;     // crédito na CIA
+      d[destino] += chegam;           // crédito na CIA
       d[origem] -= num(pontosUsados); // débito no banco
     }
   }
@@ -206,4 +206,83 @@ export function invertDelta(d?: Delta): Required<Delta> {
     livelo: -num(d?.livelo),
     esfera: -num(d?.esfera),
   };
+}
+
+/* ===================== COMPAT HELPERS PARA A ROTA ===================== */
+
+export type TotaisCompat = {
+  totalPts: number;
+  custoTotal: number;
+  custoMilheiro: number;
+  lucroTotal: number;
+};
+
+/** Guarda de tipo p/ detectar objeto com campos de totais compatíveis */
+function hasCompatKeys(o: unknown): o is {
+  totalCIA?: unknown;
+  pontosCIA?: unknown;
+  custoTotal?: unknown;
+  custoMilheiroTotal?: unknown;
+  lucroTotal?: unknown;
+} {
+  if (typeof o !== "object" || o === null) return false;
+  const r = o as Record<string, unknown>;
+  return (
+    "totalCIA" in r ||
+    "pontosCIA" in r ||
+    "custoTotal" in r ||
+    "custoMilheiroTotal" in r ||
+    "lucroTotal" in r
+  );
+}
+
+/** Normaliza qualquer unknown para Delta com números (0 se inválido) */
+export function toDelta(x: unknown): Delta {
+  const o = (typeof x === "object" && x) ? (x as Record<string, unknown>) : {};
+  const toNum = (v: unknown) => (Number.isFinite(Number(v)) ? Number(v) : 0);
+  return {
+    latam: toNum(o.latam),
+    smiles: toNum(o.smiles),
+    livelo: toNum(o.livelo),
+    esfera: toNum(o.esfera),
+  };
+}
+
+/** Lê tanto totalCIA quanto pontosCIA (compat com telas antigas) */
+export function totalsCompatFromTotais(totais: unknown): TotaisCompat {
+  const t = (typeof totais === "object" && totais) ? (totais as Record<string, unknown>) : {};
+  const totalPtsRaw = num(t.totalCIA ?? t.pontosCIA);
+  const totalPts = Math.round(totalPtsRaw);
+  const custoTotal = num(t.custoTotal ?? 0);
+  const custoMilheiro =
+    num(t.custoMilheiroTotal) > 0
+      ? num(t.custoMilheiroTotal)
+      : totalPts > 0
+      ? custoTotal / (totalPts / 1000)
+      : 0;
+  const lucroTotal = num(t.lucroTotal ?? 0);
+  return { totalPts, custoTotal, custoMilheiro, lucroTotal };
+}
+
+/**
+ * smartTotals: consolida totais com fallback.
+ * - Se veio objeto `totais` compatível, normaliza por totalsCompatFromTotais
+ * - Senão, soma a partir de `ItemLinha[]` (engine-first)
+ */
+export function smartTotals(itensRaw: unknown[], totais?: unknown): TotaisCompat {
+  if (hasCompatKeys(totais)) {
+    return totalsCompatFromTotais(totais);
+  }
+  const itens: ItemLinha[] = Array.isArray(itensRaw) ? (itensRaw as ItemLinha[]) : [];
+  let totalPts = 0;
+  let custoTotal = 0;
+
+  for (const it of itens) {
+    totalPts += contribCIA(it);
+    custoTotal += valorItem(it);
+  }
+  const custoMilheiro = totalPts > 0 ? custoTotal / (totalPts / 1000) : 0;
+
+  // Sem metaMilheiro aqui, lucroTotal permanece 0 (compat com UI antiga)
+  return { totalPts, custoTotal, custoMilheiro, lucroTotal: 0 };
 }
