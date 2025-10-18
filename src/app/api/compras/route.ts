@@ -627,7 +627,7 @@ export async function GET(req: Request): Promise<NextResponse> {
   }
 }
 
-/** ===================== POST (upsert) ===================== */
+/** ===================== POST (upsert idempotente) ===================== */
 export async function POST(req: Request): Promise<NextResponse> {
   try {
     const raw: unknown = await req.json();
@@ -636,20 +636,28 @@ export async function POST(req: Request): Promise<NextResponse> {
     const id = str(body.id);
     const dataCompra = str(body.dataCompra);
     const statusPontos = (str(body.statusPontos) as Status) || "aguardando";
-    const cedenteId = str(body.cedenteId);
+    const cedenteIdNovo = str(body.cedenteId);
     const cedenteNome = str(body.cedenteNome);
-    const saldosDelta = isRecord(body.saldosDelta) ? (body.saldosDelta as AnyObj) : undefined;
+    const deltaNovo = isRecord(body.saldosDelta) ? (body.saldosDelta as AnyObj) : undefined;
 
     const usingNew = Array.isArray(body.itens);
     const { itens, totaisId, /* totais, */ compat } = usingNew
       ? normalizeFromNewShape(body)
       : normalizeFromOldShape(body);
 
+    // -------- idempotência dos saldos (aplicar só a diferença) --------
+    const compraAntiga = id ? ((await findCompraById(id)) as AnyObj | null) : null;
+    const cedenteIdAntigo = str(compraAntiga?.cedenteId);
+    const deltaAntigo = (isRecord(compraAntiga?.saldosDelta)
+      ? (compraAntiga!.saldosDelta as AnyObj)
+      : undefined) as { latam?: number; smiles?: number; livelo?: number; esfera?: number } | undefined;
+
+    // Doc que será salvo (guarda o delta novo para o DELETE)
     const doc: AnyObj = {
       id,
       dataCompra,
       statusPontos,
-      cedenteId: cedenteId || undefined,
+      cedenteId: cedenteIdNovo || undefined,
       cedenteNome: cedenteNome || undefined,
       itens: itens as unknown[],
       totaisId,
@@ -659,28 +667,56 @@ export async function POST(req: Request): Promise<NextResponse> {
       origem: (compat.origem as Origem | null) ?? undefined,
       calculos: { ...totaisId },
       savedAt: Date.now(),
-      // >>> persistimos o delta para poder reverter no DELETE
-      saldosDelta: saldosDelta || undefined,
+      saldosDelta: deltaNovo || undefined,
     };
 
+    // 1) Ajuste consistente dos saldos
+    if (deltaNovo) {
+      const diff = (novo?: number, antigo?: number) => num(novo) - num(antigo);
+
+      if (cedenteIdAntigo && cedenteIdAntigo === cedenteIdNovo) {
+        // Mesmo cedente: aplica apenas a diferença entre o delta novo e o anterior
+        const net = {
+          latam: diff(deltaNovo.latam, deltaAntigo?.latam),
+          smiles: diff(deltaNovo.smiles, deltaAntigo?.smiles),
+          livelo: diff(deltaNovo.livelo, deltaAntigo?.livelo),
+          esfera: diff(deltaNovo.esfera, deltaAntigo?.esfera),
+        };
+        await applyDeltaToCedente(cedenteIdNovo, net);
+      } else {
+        // Cedente mudou (ou não existia antes)
+        // 1) Reverte o delta antigo no cedente antigo
+        if (cedenteIdAntigo && deltaAntigo) {
+          await applyDeltaToCedente(cedenteIdAntigo, {
+            latam: -num(deltaAntigo.latam),
+            smiles: -num(deltaAntigo.smiles),
+            livelo: -num(deltaAntigo.livelo),
+            esfera: -num(deltaAntigo.esfera),
+          });
+        }
+        // 2) Aplica o delta novo no novo cedente
+        if (cedenteIdNovo) {
+          await applyDeltaToCedente(cedenteIdNovo, {
+            latam: num(deltaNovo.latam),
+            smiles: num(deltaNovo.smiles),
+            livelo: num(deltaNovo.livelo),
+            esfera: num(deltaNovo.esfera),
+          });
+        }
+      }
+    }
+
+    // 2) Upsert do documento
     await upsertCompra(doc);
 
-    // >>> aplica delta nos saldos do cedente e retorna a lista atualizada
-    let nextCedentes: CedentesBlob | null = null;
-    if (cedenteId && saldosDelta) {
-      nextCedentes = await applyDeltaToCedente(cedenteId, {
-        latam: num(saldosDelta.latam),
-        smiles: num(saldosDelta.smiles),
-        livelo: num(saldosDelta.livelo),
-        esfera: num(saldosDelta.esfera),
-      });
-    }
+    // 3) Retorna lista atualizada para a UI refletir
+    const nextCedentes = await loadCedentes();
 
     return NextResponse.json(
       {
         ok: true,
         id: String(doc.id),
-        nextCedentes: nextCedentes ? nextCedentes.listaCedentes : undefined,
+        nextCedentes: nextCedentes.listaCedentes,
       },
       { headers: noCache() }
     );
