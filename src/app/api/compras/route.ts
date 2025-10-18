@@ -243,6 +243,30 @@ async function applyDeltaToCedenteWith(
   return all;
 }
 
+/* --------- Mini repo de comissão (dinâmico) --------- */
+type RepoShape = {
+  delete?: (args: {
+    where: { compraId_cedenteId: { compraId: string; cedenteId: string } };
+  }) => Promise<unknown>;
+};
+function isFn(x: unknown): x is (...args: unknown[]) => unknown {
+  return typeof x === "function";
+}
+function isRepoShape(x: unknown): x is RepoShape {
+  if (!x || typeof x !== "object") return false;
+  const r = x as Record<string, unknown>;
+  return isFn(r.delete);
+}
+function getComissaoRepo(): RepoShape | null {
+  const client = prisma as unknown as Record<string, unknown>;
+  const candidates = ["comissao", "comissaoCedente", "commission"] as const;
+  for (const k of candidates) {
+    const repo = client[k];
+    if (isRepoShape(repo)) return repo as RepoShape;
+  }
+  return null;
+}
+
 /* -------- Normalizações específicas da rota (seu formato antigo/novo) -------- */
 function normalizeFromOldShape(body: AnyObj) {
   const modo: "compra" | "transferencia" =
