@@ -39,6 +39,11 @@ type CedentesBlob = {
     smiles?: number;
     livelo?: number;
     esfera?: number;
+    // NOVO: saldos pendentes
+    latam_pend?: number;
+    smiles_pend?: number;
+    livelo_pend?: number;
+    esfera_pend?: number;
   }>;
 };
 
@@ -113,6 +118,7 @@ async function deleteCompraById(id: string): Promise<void> {
 async function loadCedentes(): Promise<CedentesBlob> {
   const blob = await prisma.appBlob.findUnique({ where: { kind: CEDENTES_BLOB } });
   const data = (blob?.data as unknown as Partial<CedentesBlob>) || undefined;
+  const z = (n: unknown) => (Number.isFinite(Number(n)) ? Number(n) : 0);
 
   if (data && Array.isArray(data.listaCedentes)) {
     return {
@@ -120,10 +126,14 @@ async function loadCedentes(): Promise<CedentesBlob> {
       listaCedentes: data.listaCedentes.map((c) => ({
         identificador: String(c.identificador),
         nome_completo: String(c.nome_completo),
-        latam: Number(c.latam ?? 0),
-        smiles: Number(c.smiles ?? 0),
-        livelo: Number(c.livelo ?? 0),
-        esfera: Number(c.esfera ?? 0),
+        latam: z(c.latam),
+        smiles: z(c.smiles),
+        livelo: z(c.livelo),
+        esfera: z(c.esfera),
+        latam_pend: z((c as any).latam_pend),
+        smiles_pend: z((c as any).smiles_pend),
+        livelo_pend: z((c as any).livelo_pend),
+        esfera_pend: z((c as any).esfera_pend),
       })),
     };
   }
@@ -138,6 +148,7 @@ async function saveCedentes(payload: CedentesBlob): Promise<void> {
   });
 }
 
+// COMPAT: mantém a função antiga (só saldo principal)
 async function applyDeltaToCedente(cedenteId: string, delta: Delta): Promise<CedentesBlob> {
   const all = await loadCedentes();
   const idx = all.listaCedentes.findIndex((c) => c.identificador === cedenteId);
@@ -157,28 +168,65 @@ async function applyDeltaToCedente(cedenteId: string, delta: Delta): Promise<Ced
   return all;
 }
 
-/* --------- Mini repo de comissão (dinâmico) --------- */
-type RepoShape = {
-  delete?: (args: {
-    where: { compraId_cedenteId: { compraId: string; cedenteId: string } };
-  }) => Promise<unknown>;
-};
-function isFn(x: unknown): x is (...args: unknown[]) => unknown {
-  return typeof x === "function";
-}
-function isRepoShape(x: unknown): x is RepoShape {
-  if (!x || typeof x !== "object") return false;
-  const r = x as Record<string, unknown>;
-  return isFn(r.delete);
-}
-function getComissaoRepo(): RepoShape | null {
-  const client = prisma as unknown as Record<string, unknown>;
-  const candidates = ["comissao", "comissaoCedente", "commission"] as const;
-  for (const k of candidates) {
-    const repo = client[k];
-    if (isRepoShape(repo)) return repo as RepoShape;
+/** NOVO: aplica delta no lugar certo (principal/pendente) */
+type ApplyOpts =
+  | { mode: "main" }
+  | { mode: "pending" }
+  | { mode: "movePendingToMain" };
+
+function add(a = 0, b = 0) { return Number(a || 0) + Number(b || 0); }
+function sub(a = 0, b = 0) { return Number(a || 0) - Number(b || 0); }
+
+async function applyDeltaToCedenteWith(
+  cedenteId: string,
+  delta: Delta,
+  opts: ApplyOpts
+): Promise<CedentesBlob> {
+  const all = await loadCedentes();
+  const idx = all.listaCedentes.findIndex((c) => c.identificador === cedenteId);
+  if (idx < 0) return all;
+
+  const cur = all.listaCedentes[idx];
+  const d = {
+    latam: Number(delta.latam || 0),
+    smiles: Number(delta.smiles || 0),
+    livelo: Number(delta.livelo || 0),
+    esfera: Number(delta.esfera || 0),
+  };
+
+  const next = { ...cur };
+
+  if (opts.mode === "main") {
+    next.latam = add(cur.latam, d.latam);
+    next.smiles = add(cur.smiles, d.smiles);
+    next.livelo = add(cur.livelo, d.livelo);
+    next.esfera = add(cur.esfera, d.esfera);
+  } else if (opts.mode === "pending") {
+    next.latam_pend = add(cur.latam_pend, d.latam);
+    next.smiles_pend = add(cur.smiles_pend, d.smiles);
+    next.livelo_pend = add(cur.livelo_pend, d.livelo);
+    next.esfera_pend = add(cur.esfera_pend, d.esfera);
+  } else if (opts.mode === "movePendingToMain") {
+    next.latam_pend = sub(cur.latam_pend, d.latam);
+    next.smiles_pend = sub(cur.smiles_pend, d.smiles);
+    next.livelo_pend = sub(cur.livelo_pend, d.livelo);
+    next.esfera_pend = sub(cur.esfera_pend, d.esfera);
+
+    next.latam = add(cur.latam, d.latam);
+    next.smiles = add(cur.smiles, d.smiles);
+    next.livelo = add(cur.livelo, d.livelo);
+    next.esfera = add(cur.esfera, d.esfera);
   }
-  return null;
+
+  // clamp >= 0
+  for (const k of ["latam","smiles","livelo","esfera","latam_pend","smiles_pend","livelo_pend","esfera_pend"] as const) {
+    (next as any)[k] = Math.max(0, Number((next as any)[k] || 0));
+  }
+
+  all.listaCedentes[idx] = next;
+  all.savedAt = new Date().toISOString();
+  await saveCedentes(all);
+  return all;
 }
 
 /* ---------------- Helpers base ---------------- */
@@ -484,8 +532,37 @@ export async function POST(req: Request): Promise<NextResponse> {
     const compraAntiga = id ? ((await findCompraById(id)) as AnyObj | null) : null;
     const cedenteIdAntigo = str(compraAntiga?.cedenteId);
     const deltaAntigo: Delta | undefined = isRecord(compraAntiga?.saldosDelta)
-      ? toDelta((compraAntiga!.saldosDelta as AnyObj))
+      ? toDelta(compraAntiga!.saldosDelta)
       : undefined;
+    const statusAntigo = (str(compraAntiga?.statusPontos) as Status) || "aguardando";
+
+    // 1) Desfaz efeito anterior (se havia)
+    if (cedenteIdAntigo && deltaAntigo) {
+      await applyDeltaToCedenteWith(
+        cedenteIdAntigo,
+        {
+          latam: -num(deltaAntigo.latam),
+          smiles: -num(deltaAntigo.smiles),
+          livelo: -num(deltaAntigo.livelo),
+          esfera: -num(deltaAntigo.esfera),
+        },
+        statusAntigo === "liberados" ? { mode: "main" } : { mode: "pending" }
+      );
+    }
+
+    // 2) Aplica novo efeito conforme status atual
+    if (cedenteIdNovo && deltaNovo) {
+      await applyDeltaToCedenteWith(
+        cedenteIdNovo,
+        {
+          latam: num(deltaNovo.latam),
+          smiles: num(deltaNovo.smiles),
+          livelo: num(deltaNovo.livelo),
+          esfera: num(deltaNovo.esfera),
+        },
+        statusPontos === "liberados" ? { mode: "main" } : { mode: "pending" }
+      );
+    }
 
     // Doc a salvar (guarda delta p/ DELETE)
     const doc: AnyObj = {
@@ -505,44 +582,10 @@ export async function POST(req: Request): Promise<NextResponse> {
       saldosDelta: deltaNovo || undefined,
     };
 
-    // 1) Ajuste consistente dos saldos
-    if (deltaNovo) {
-      const diff = (novo?: number, antigo?: number) => num(novo) - num(antigo);
-
-      if (cedenteIdAntigo && cedenteIdAntigo === cedenteIdNovo) {
-        // Mesmo cedente: aplica só a diferença
-        const net: Delta = {
-          latam: diff(deltaNovo.latam, deltaAntigo?.latam),
-          smiles: diff(deltaNovo.smiles, deltaAntigo?.smiles),
-          livelo: diff(deltaNovo.livelo, deltaAntigo?.livelo),
-          esfera: diff(deltaNovo.esfera, deltaAntigo?.esfera),
-        };
-        await applyDeltaToCedente(cedenteIdNovo, net);
-      } else {
-        // Cedente mudou (ou não existia antes)
-        if (cedenteIdAntigo && deltaAntigo) {
-          await applyDeltaToCedente(cedenteIdAntigo, {
-            latam: -num(deltaAntigo.latam),
-            smiles: -num(deltaAntigo.smiles),
-            livelo: -num(deltaAntigo.livelo),
-            esfera: -num(deltaAntigo.esfera),
-          });
-        }
-        if (cedenteIdNovo) {
-          await applyDeltaToCedente(cedenteIdNovo, {
-            latam: num(deltaNovo.latam),
-            smiles: num(deltaNovo.smiles),
-            livelo: num(deltaNovo.livelo),
-            esfera: num(deltaNovo.esfera),
-          });
-        }
-      }
-    }
-
-    // 2) Upsert do documento
+    // 3) Upsert do documento
     await upsertCompra(doc);
 
-    // 3) Retorna lista atualizada de cedentes
+    // 4) Retorna lista atualizada de cedentes
     const nextCedentes = await loadCedentes();
 
     return NextResponse.json(
@@ -662,15 +705,15 @@ export async function DELETE(req: Request): Promise<NextResponse> {
     const cedenteId = str(compra.cedenteId);
     const deltaRaw = isRecord(compra.saldosDelta) ? (compra.saldosDelta as AnyObj) : undefined;
     const delta = deltaRaw ? toDelta(deltaRaw) : undefined;
+    const statusDaCompra = (str(compra.statusPontos) as Status) || "aguardando";
 
-    // Reverter saldos (delta inverso)
+    // Reverter saldos no lugar correto
     if (cedenteId && delta) {
-      await applyDeltaToCedente(cedenteId, {
-        latam: -num(delta.latam),
-        smiles: -num(delta.smiles),
-        livelo: -num(delta.livelo),
-        esfera: -num(delta.esfera),
-      });
+      await applyDeltaToCedenteWith(
+        cedenteId,
+        { latam: -num(delta.latam), smiles: -num(delta.smiles), livelo: -num(delta.livelo), esfera: -num(delta.esfera) },
+        statusDaCompra === "liberados" ? { mode: "main" } : { mode: "pending" }
+      );
     }
 
     // Remover comissão vinculada (se houver modelo)
