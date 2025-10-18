@@ -12,9 +12,8 @@ import {
   smartTotals,
   totalsCompatFromTotais,
   toDelta,
-  type TotaisCompat,
   type Delta,
-} from "@/lib/engine"; // ajuste o caminho se necessário
+} from "@/lib/calculo/engine";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
