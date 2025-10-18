@@ -3,7 +3,7 @@
 /**
  * Este arquivo centraliza TODOS os cálculos/normalizações usados nas rotas.
  * - Tipos de linha (ItemLinha)
- * - Cálculo de deltas por programa
+ * - Cálculo de deltas por programa (considera apenas itens LIBERADOS)
  * - Cálculo de totais (custo, milheiro, lucro)
  * - Helpers de compatibilidade (smartTotals, totalsCompatFromTotais, toDelta)
  */
@@ -114,26 +114,41 @@ function valorItem(l: ItemLinha): number {
   return num(l.data.valor);
 }
 
-/* ---------------- Engine: Delta por programa ---------------- */
+/* util: regra única para considerar um item como liberado */
+function isLiberado(l: ItemLinha): boolean {
+  return l.data.status === "liberado";
+}
+
+/* ---------------- Engine: Delta por programa (APENAS liberado) ---------------- */
 export function computeDeltaPorPrograma(itens: ItemLinha[]): Required<Delta> {
   const d = { latam: 0, smiles: 0, livelo: 0, esfera: 0 };
+
   for (const l of itens) {
+    if (!isLiberado(l)) continue; // regra: saldo online só conta itens liberados
+
     if (l.kind === "clube") {
       d[l.data.programa as keyof typeof d] += num(l.data.pontos);
-    } else if (l.kind === "compra") {
+      continue;
+    }
+
+    if (l.kind === "compra") {
       const ptsFinal =
         l.data.programa === "latam" || l.data.programa === "smiles"
           ? round(num(l.data.pontos) * (1 + num(l.data.bonusPct) / 100))
           : num(l.data.pontos);
       d[l.data.programa as keyof typeof d] += ptsFinal;
-    } else {
-      const { origem, destino, modo, pontosUsados, pontosTotais, bonusPct } = l.data;
-      const base = modo === "pontos+dinheiro" ? num(pontosTotais) : num(pontosUsados);
-      const chegam = round(base * (1 + num(bonusPct) / 100));
-      d[destino] += chegam;          // crédito na CIA
-      d[origem] -= num(pontosUsados); // débito no banco
+      continue;
     }
+
+    // transferencia: débito no banco e crédito na CIA (quando liberado)
+    const { origem, destino, modo, pontosUsados, pontosTotais, bonusPct } = l.data;
+    const base = modo === "pontos+dinheiro" ? num(pontosTotais) : num(pontosUsados);
+    const chegam = round(base * (1 + num(bonusPct) / 100));
+
+    d[destino] += chegam;           // crédito na CIA
+    d[origem]  -= num(pontosUsados); // débito no banco
   }
+
   return d;
 }
 
@@ -148,10 +163,7 @@ export function computeTotais(
     (acc, l) => {
       const v = valorItem(l);
       const pts = contribCIA(l);
-      const liberado =
-        (l.kind === "clube" && l.data.status === "liberado") ||
-        (l.kind === "compra" && l.data.status === "liberado") ||
-        (l.kind === "transferencia" && l.data.status === "liberado");
+      const liberado = isLiberado(l);
 
       if (liberado) {
         acc.ptsLiberados += pts;
