@@ -4,21 +4,32 @@ import { prisma } from "@/lib/prisma";
 import { randomUUID } from "node:crypto";
 import { Prisma } from "@prisma/client";
 
+/**
+ * >>> CENTRALIZAÇÃO <<<
+ * Tudo que é cálculo/normalização de pontos/custos vem do engine.ts
+ */
+import {
+  smartTotals,
+  totalsCompatFromTotais,
+  toDelta,
+  type TotaisCompat,
+  type Delta,
+} from "@/lib/engine"; // ajuste o caminho se necessário
+
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 /* ---------------- Persistência via AppBlob ---------------- */
 const BLOB_KIND = "compras_blob";
-
-/** >>> NOVO: blob de cedentes (para saldos 100% online) */
+/** blob de cedentes (saldos 100% online) */
 const CEDENTES_BLOB = "cedentes_blob";
 
-/** Estrutura que guardaremos no AppBlob */
+/** Estruturas utilitárias */
 type AnyObj = Record<string, unknown>;
 type BlobShape = {
   savedAt: string;
-  items: AnyObj[]; // lista de documentos de compras
+  items: AnyObj[];
 };
 
 type CedentesBlob = {
@@ -33,11 +44,12 @@ type CedentesBlob = {
   }>;
 };
 
-/** Garante JSON puro compatível com Prisma.InputJsonValue */
+/** JSON puro p/ Prisma.InputJsonValue */
 function toJsonValue<T>(value: T): Prisma.InputJsonValue {
   return JSON.parse(JSON.stringify(value)) as unknown as Prisma.InputJsonValue;
 }
 
+/* ---------------- Compras: CRUD no AppBlob ---------------- */
 async function loadAll(): Promise<BlobShape> {
   const blob = await prisma.appBlob.findUnique({ where: { kind: BLOB_KIND } });
   const data = (blob?.data as unknown as Partial<BlobShape>) || undefined;
@@ -48,18 +60,13 @@ async function loadAll(): Promise<BlobShape> {
       items: data.items as AnyObj[],
     };
   }
-  // primeira vez
   return { savedAt: new Date().toISOString(), items: [] };
 }
 
 async function saveAll(payload: BlobShape): Promise<void> {
   await prisma.appBlob.upsert({
     where: { kind: BLOB_KIND },
-    create: {
-      id: randomUUID(),
-      kind: BLOB_KIND,
-      data: toJsonValue(payload),
-    },
+    create: { id: randomUUID(), kind: BLOB_KIND, data: toJsonValue(payload) },
     update: { data: toJsonValue(payload) },
   });
 }
@@ -133,20 +140,6 @@ async function saveCedentes(payload: CedentesBlob): Promise<void> {
   });
 }
 
-type Delta = { latam?: number; smiles?: number; livelo?: number; esfera?: number };
-
-/** Normaliza qualquer unknown em um Delta com números (0 se inválido) */
-function toDelta(x: unknown): Delta {
-  const o = (typeof x === "object" && x) ? (x as Record<string, unknown>) : {};
-  const toNum = (v: unknown) => (Number.isFinite(Number(v)) ? Number(v) : 0);
-  return {
-    latam: toNum(o.latam),
-    smiles: toNum(o.smiles),
-    livelo: toNum(o.livelo),
-    esfera: toNum(o.esfera),
-  };
-}
-
 async function applyDeltaToCedente(cedenteId: string, delta: Delta): Promise<CedentesBlob> {
   const all = await loadCedentes();
   const idx = all.listaCedentes.findIndex((c) => c.identificador === cedenteId);
@@ -190,7 +183,7 @@ function getComissaoRepo(): RepoShape | null {
   return null;
 }
 
-/* ---------------- Helpers de tipos/guards ---------------- */
+/* ---------------- Helpers base ---------------- */
 type CIA = "latam" | "smiles";
 type Origem = "livelo" | "esfera";
 type Status = "aguardando" | "liberados";
@@ -214,161 +207,11 @@ function noCache(): Record<string, string> {
     "Surrogate-Control": "no-store",
   };
 }
-
-/* ---------------- Helpers numéricos ---------------- */
 function toMoney(v: unknown): number {
   return num(v);
 }
 
-/* ---------------- Totais (compat) ---------------- */
-type TotaisCompat = {
-  totalPts: number;
-  custoTotal: number;
-  custoMilheiro: number;
-  lucroTotal: number;
-};
-
-/** Lê tanto totalCIA quanto pontosCIA (nome usado na tela nova) */
-function totalsCompatFromTotais(totais: unknown): TotaisCompat {
-  const t = isRecord(totais) ? totais : {};
-  const totalPtsRaw = num((t as AnyObj).totalCIA ?? (t as AnyObj).pontosCIA);
-  const totalPts = Math.round(totalPtsRaw);
-  const custoTotal = toMoney((t as AnyObj).custoTotal ?? 0);
-  const custoMilheiro =
-    num((t as AnyObj).custoMilheiroTotal) > 0
-      ? num((t as AnyObj).custoMilheiroTotal)
-      : totalPts > 0
-      ? custoTotal / (totalPts / 1000)
-      : 0;
-  const lucroTotal = toMoney((t as AnyObj).lucroTotal ?? 0);
-  return { totalPts, custoTotal, custoMilheiro, lucroTotal };
-}
-
-/** quando vier no formato antigo (com resumo dentro de itens) */
-function totalsFromItemsResumo(itens: unknown[]): TotaisCompat {
-  type MediaState = { peso: number; acum: number };
-
-  const safe: AnyObj[] = Array.isArray(itens) ? (itens as AnyObj[]) : [];
-  const totalPts = safe.reduce((s, i) => s + num((i.resumo as AnyObj | undefined)?.totalPts), 0);
-  const custoTotal = safe.reduce((s, i) => s + num((i.resumo as AnyObj | undefined)?.custoTotal), 0);
-
-  const pesoAcum = safe.reduce<MediaState>(
-    (acc, i) => {
-      const milheiros = num((i.resumo as AnyObj | undefined)?.totalPts) / 1000;
-      if (milheiros > 0) {
-        acc.peso += milheiros;
-        acc.acum += num((i.resumo as AnyObj | undefined)?.custoTotal) / milheiros;
-      }
-      return acc;
-    },
-    { peso: 0, acum: 0 }
-  );
-
-  const custoMilheiro = pesoAcum.peso > 0 ? pesoAcum.acum / pesoAcum.peso : 0;
-  const lucroTotal = safe.reduce((s, i) => s + num((i.resumo as AnyObj | undefined)?.lucroTotal), 0);
-  return { totalPts, custoTotal, custoMilheiro, lucroTotal };
-}
-
-/** novo formato: soma por kind aplicando bônus e custos corretos */
-function totalsFromItemsData(itens: unknown[]): TotaisCompat {
-  const arr = Array.isArray(itens) ? (itens as AnyObj[]) : [];
-  let totalPts = 0;
-  let custoTotal = 0;
-
-  for (const it of arr) {
-    const kind = str((it as AnyObj).kind ?? (it as AnyObj).modo);
-    const d = isRecord((it as AnyObj).data) ? ((it as AnyObj).data as AnyObj) : {};
-
-    if (kind === "transferencia") {
-      const modo = str(d.modo);
-      const base = modo === "pontos+dinheiro" ? num(d.pontosTotais) : num(d.pontosUsados);
-      const bonus = num(d.bonusPct);
-      const chegam = Math.round(base * (1 + bonus / 100));
-      totalPts += Math.max(0, chegam);
-      custoTotal += toMoney(d.valorPago);
-      continue;
-    }
-
-    if (kind === "compra") {
-      const programa = str(d.programa);
-      const ptsBase = num(d.pontos);
-      const bonus = num(d.bonusPct);
-      if (programa === "latam" || programa === "smiles") {
-        totalPts += Math.round(ptsBase * (1 + bonus / 100));
-      }
-      custoTotal += toMoney(d.valor);
-      continue;
-    }
-
-    if (kind === "clube") {
-      const programa = str(d.programa);
-      const pts = num(d.pontos);
-      if (programa === "latam" || programa === "smiles") {
-        totalPts += Math.max(0, pts);
-      }
-      custoTotal += toMoney(d.valor);
-      continue;
-    }
-
-    // Fallbacks genéricos
-    const ptsCandidates = [
-      d.chegam,
-      d.chegamPts,
-      d.totalCIA,
-      d.pontosCIA,
-      d.total_destino,
-      d.total,
-      d.quantidade,
-      d.pontosTotais,
-      d.pontosUsados,
-      d.pontos,
-    ];
-    const custoCandidates = [d.custoTotal, d.valor, d.valorPago, d.precoTotal, d.preco, d.custo];
-
-    const pts = num(ptsCandidates.find((v) => num(v) > 0));
-    const custo = toMoney(custoCandidates.find((v) => num(v) > 0));
-
-    const totais = isRecord((it as AnyObj).totais) ? ((it as AnyObj).totais as AnyObj) : undefined;
-    const ptsAlt = num(totais?.totalCIA ?? totais?.pontosCIA ?? (totais as AnyObj | undefined)?.cia);
-    const custoAlt = toMoney(totais?.custoTotal);
-
-    totalPts += pts > 0 ? pts : ptsAlt;
-    custoTotal += custo > 0 ? custo : custoAlt;
-
-    if (!(pts > 0 || ptsAlt > 0) && isRecord((it as AnyObj).resumo)) {
-      totalPts += num(((it as AnyObj).resumo as AnyObj).totalPts);
-    }
-    if (!(custo > 0 || custoAlt > 0) && isRecord((it as AnyObj).resumo)) {
-      custoTotal += num(((it as AnyObj).resumo as AnyObj).custoTotal);
-    }
-  }
-
-  const custoMilheiro = totalPts > 0 ? custoTotal / (totalPts / 1000) : 0;
-  const lucroTotal = arr.reduce((s, i) => s + num((i.resumo as AnyObj | undefined)?.lucroTotal), 0);
-
-  return { totalPts, custoTotal, custoMilheiro, lucroTotal };
-}
-
-/** escolhe automaticamente o melhor jeito de consolidar totais */
-function smartTotals(itens: unknown[], totais?: unknown): TotaisCompat {
-  if (
-    totais &&
-    (isRecord(totais) &&
-      ("totalCIA" in totais ||
-        "pontosCIA" in totais ||
-        "custoTotal" in totais ||
-        "custoMilheiroTotal" in totais))
-  ) {
-    return totalsCompatFromTotais(totais);
-  }
-  const hasResumo =
-    Array.isArray(itens) &&
-    (itens as AnyObj[]).some((i) => isRecord(i.resumo));
-  if (hasResumo) return totalsFromItemsResumo(itens as AnyObj[]);
-  return totalsFromItemsData(itens);
-}
-
-/** -------- Normalizações (compat) -------- */
+/* -------- Normalizações específicas da rota (seu formato antigo/novo) -------- */
 function normalizeFromOldShape(body: AnyObj) {
   const modo: "compra" | "transferencia" =
     (str(body.modo) as "compra" | "transferencia") ||
@@ -410,7 +253,7 @@ function normalizeFromOldShape(body: AnyObj) {
 
 function normalizeFromNewShape(body: AnyObj) {
   const itens: unknown[] = Array.isArray(body.itens) ? (body.itens as unknown[]) : [];
-  const totals = smartTotals(itens, body.totais);
+  const totals = smartTotals(itens, body.totais); // <<< engine central
 
   // compat para listagem/filtros antigos
   let modo: "compra" | "transferencia" | null = null;
@@ -472,7 +315,6 @@ export async function GET(req: Request): Promise<NextResponse> {
     const url = new URL(req.url);
     const id = url.searchParams.get("id");
 
-    // /api/compras?id=0001 -> retorna DOC (com totais preenchidos)
     if (id) {
       const item = (await findCompraById(id)) as AnyObj | null;
       if (!item) {
@@ -483,7 +325,7 @@ export async function GET(req: Request): Promise<NextResponse> {
       const hasPts = num(totaisObj?.totalCIA ?? totaisObj?.pontosCIA) > 0;
 
       if (!hasPts) {
-        const totals = smartTotals((item.itens as unknown[]) || [], item.totais);
+        const totals = smartTotals((item.itens as unknown[]) || [], item.totais); // engine
 
         const totalsIdObj = {
           totalPts: totals.totalPts,
@@ -501,7 +343,6 @@ export async function GET(req: Request): Promise<NextResponse> {
         item.totaisId = totalsIdObj;
         item.calculos = { ...totalsIdObj };
 
-        // persiste correção
         await upsertCompra(item);
       }
       return NextResponse.json(item, { headers: noCache() });
@@ -520,37 +361,25 @@ export async function GET(req: Request): Promise<NextResponse> {
     const all = (await listComprasRaw()) as AnyObj[];
 
     const firstModo = (r: AnyObj) =>
-      str(
-        r.modo ??
-          (r.itens as AnyObj[] | undefined)?.[0]?.modo ??
-          (r.itens as AnyObj[] | undefined)?.[0]?.kind
-      );
+      str(r.modo ?? (r.itens as AnyObj[] | undefined)?.[0]?.modo ?? (r.itens as AnyObj[] | undefined)?.[0]?.kind);
 
     const rowCIA = (r: AnyObj): string => {
       const m = firstModo(r);
       if (m === "compra") {
         const v1 = str(r.ciaCompra);
         if (v1) return v1;
-
         const v2 = (r.itens as AnyObj[] | undefined)?.[0]?.valores as AnyObj | undefined;
         if (isRecord(v2) && v2.ciaCompra) return str(v2.ciaCompra);
-
-        const compra = (r.itens as AnyObj[] | undefined)?.find(
-          (x) => str((x as AnyObj).kind) === "compra"
-        ) as AnyObj | undefined;
+        const compra = (r.itens as AnyObj[] | undefined)?.find((x) => str((x as AnyObj).kind) === "compra") as AnyObj | undefined;
         const v3 = isRecord(compra?.data) ? str((compra.data as AnyObj).programa) : "";
         return v3 || "";
       }
       if (m === "transferencia") {
         const v1 = str(r.destCia);
         if (v1) return v1;
-
         const v2 = (r.itens as AnyObj[] | undefined)?.[0]?.valores as AnyObj | undefined;
         if (isRecord(v2) && v2.destCia) return str(v2.destCia);
-
-        const transf = (r.itens as AnyObj[] | undefined)?.find(
-          (x) => str((x as AnyObj).kind) === "transferencia"
-        ) as AnyObj | undefined;
+        const transf = (r.itens as AnyObj[] | undefined)?.find((x) => str((x as AnyObj).kind) === "transferencia") as AnyObj | undefined;
         const v3 = isRecord(transf?.data) ? str((transf.data as AnyObj).destino) : "";
         return v3 || "";
       }
@@ -560,23 +389,19 @@ export async function GET(req: Request): Promise<NextResponse> {
     const rowOrigem = (r: AnyObj): string => {
       const v1 = str(r.origem);
       if (v1) return v1;
-
       const v2 = (r.itens as AnyObj[] | undefined)?.[0]?.valores as AnyObj | undefined;
       if (isRecord(v2) && v2.origem) return str(v2.origem);
-
-      const transf = (r.itens as AnyObj[] | undefined)?.find(
-        (x) => str((x as AnyObj).kind) === "transferencia"
-      ) as AnyObj | undefined;
+      const transf = (r.itens as AnyObj[] | undefined)?.find((x) => str((x as AnyObj).kind) === "transferencia") as AnyObj | undefined;
       const v3 = isRecord(transf?.data) ? str((transf.data as AnyObj).origem) : "";
       return v3 || "";
     };
 
-    // Normaliza totais por linha (aceitando pontosCIA)
+    // Normaliza totais por linha usando o engine (aceita pontosCIA)
     const normalized = (all || []).map((r) => {
       const totais = isRecord(r.totais) ? (r.totais as AnyObj) : undefined;
       const hasPts = num(totais?.totalCIA ?? totais?.pontosCIA) > 0;
       if (!hasPts) {
-        const totals = smartTotals((r.itens as unknown[]) || [], r.totais);
+        const totals = smartTotals((r.itens as unknown[]) || [], r.totais); // engine
         r = {
           ...r,
           totais: {
@@ -653,21 +478,21 @@ export async function POST(req: Request): Promise<NextResponse> {
     const cedenteNome = str(body.cedenteNome);
 
     const deltaNovoMaybe = isRecord(body.saldosDelta) ? (body.saldosDelta as AnyObj) : undefined;
-    const deltaNovo: Delta | undefined = deltaNovoMaybe ? toDelta(deltaNovoMaybe) : undefined;
+    const deltaNovo: Delta | undefined = deltaNovoMaybe ? toDelta(deltaNovoMaybe) : undefined; // engine
 
     const usingNew = Array.isArray(body.itens);
     const { itens, totaisId, /* totais, */ compat } = usingNew
       ? normalizeFromNewShape(body)
       : normalizeFromOldShape(body);
 
-    // -------- idempotência dos saldos (aplicar só a diferença) --------
+    // -------- idempotência dos saldos --------
     const compraAntiga = id ? ((await findCompraById(id)) as AnyObj | null) : null;
     const cedenteIdAntigo = str(compraAntiga?.cedenteId);
     const deltaAntigo: Delta | undefined = isRecord(compraAntiga?.saldosDelta)
-      ? toDelta((compraAntiga!.saldosDelta as AnyObj))
+      ? toDelta((compraAntiga!.saldosDelta as AnyObj)) // engine
       : undefined;
 
-    // Doc que será salvo (guarda o delta novo para o DELETE)
+    // Doc a salvar (guarda delta p/ DELETE)
     const doc: AnyObj = {
       id,
       dataCompra,
@@ -690,7 +515,7 @@ export async function POST(req: Request): Promise<NextResponse> {
       const diff = (novo?: number, antigo?: number) => num(novo) - num(antigo);
 
       if (cedenteIdAntigo && cedenteIdAntigo === cedenteIdNovo) {
-        // Mesmo cedente: aplica apenas a diferença entre o delta novo e o anterior
+        // Mesmo cedente: aplica só a diferença
         const net: Delta = {
           latam: diff(deltaNovo.latam, deltaAntigo?.latam),
           smiles: diff(deltaNovo.smiles, deltaAntigo?.smiles),
@@ -700,7 +525,6 @@ export async function POST(req: Request): Promise<NextResponse> {
         await applyDeltaToCedente(cedenteIdNovo, net);
       } else {
         // Cedente mudou (ou não existia antes)
-        // 1) Reverte o delta antigo no cedente antigo
         if (cedenteIdAntigo && deltaAntigo) {
           await applyDeltaToCedente(cedenteIdAntigo, {
             latam: -num(deltaAntigo.latam),
@@ -709,7 +533,6 @@ export async function POST(req: Request): Promise<NextResponse> {
             esfera: -num(deltaAntigo.esfera),
           });
         }
-        // 2) Aplica o delta novo no novo cedente
         if (cedenteIdNovo) {
           await applyDeltaToCedente(cedenteIdNovo, {
             latam: num(deltaNovo.latam),
@@ -724,15 +547,11 @@ export async function POST(req: Request): Promise<NextResponse> {
     // 2) Upsert do documento
     await upsertCompra(doc);
 
-    // 3) Retorna lista atualizada para a UI refletir
+    // 3) Retorna lista atualizada de cedentes
     const nextCedentes = await loadCedentes();
 
     return NextResponse.json(
-      {
-        ok: true,
-        id: String(doc.id),
-        nextCedentes: nextCedentes.listaCedentes,
-      },
+      { ok: true, id: String(doc.id), nextCedentes: nextCedentes.listaCedentes },
       { headers: noCache() }
     );
   } catch (err: unknown) {
@@ -752,7 +571,7 @@ export async function PATCH(req: Request): Promise<NextResponse> {
     const apply: AnyObj = isRecord(patchRaw) ? { ...patchRaw } : {};
 
     if (Array.isArray(apply.itens) && !apply.totais && !apply.totaisId) {
-      const smart = smartTotals(apply.itens as unknown[]);
+      const smart = smartTotals(apply.itens as unknown[]); // engine
       const totalsIdObj = {
         totalPts: smart.totalPts,
         custoTotal: smart.custoTotal,
@@ -763,7 +582,7 @@ export async function PATCH(req: Request): Promise<NextResponse> {
       apply.calculos = { ...totalsIdObj };
     }
     if (apply.totais && !apply.totaisId) {
-      const compatTot = totalsCompatFromTotais(apply.totais);
+      const compatTot = totalsCompatFromTotais(apply.totais); // engine
       const totalsIdObj = {
         totalPts: compatTot.totalPts,
         custoTotal: compatTot.custoTotal,
@@ -794,7 +613,6 @@ export async function PATCH(req: Request): Promise<NextResponse> {
 
     if (Array.isArray(apply.itens)) {
       patchDoc.itens = apply.itens as unknown[];
-
       const first = (apply.itens as AnyObj[])[0];
       if (first) {
         const modo = str(first.modo ?? first.kind);
@@ -841,7 +659,6 @@ export async function DELETE(req: Request): Promise<NextResponse> {
   if (!id) return NextResponse.json({ error: "Missing id" }, { status: 400, headers: noCache() });
 
   try {
-    // 1) Carrega a compra para obter cedente e delta previamente aplicado
     const compra = (await findCompraById(id)) as AnyObj | null;
     if (!compra) {
       return NextResponse.json({ error: "Registro não encontrado" }, { status: 404, headers: noCache() });
@@ -849,9 +666,9 @@ export async function DELETE(req: Request): Promise<NextResponse> {
 
     const cedenteId = str(compra.cedenteId);
     const deltaRaw = isRecord(compra.saldosDelta) ? (compra.saldosDelta as AnyObj) : undefined;
-    const delta = deltaRaw ? toDelta(deltaRaw) : undefined;
+    const delta = deltaRaw ? toDelta(deltaRaw) : undefined; // engine
 
-    // 2) Reverter saldos do cedente (aplicar delta inverso)
+    // Reverter saldos (delta inverso)
     if (cedenteId && delta) {
       await applyDeltaToCedente(cedenteId, {
         latam: -num(delta.latam),
@@ -861,7 +678,7 @@ export async function DELETE(req: Request): Promise<NextResponse> {
       });
     }
 
-    // 3) Remover comissão vinculada (se modelo existir)
+    // Remover comissão vinculada (se houver modelo)
     try {
       const repo = getComissaoRepo();
       if (repo?.delete && cedenteId) {
@@ -870,15 +687,14 @@ export async function DELETE(req: Request): Promise<NextResponse> {
         });
       }
     } catch {
-      // silencioso (ok se não houver tabela ou chave composta)
+      // silencioso
     }
 
-    // 4) Remover a compra
+    // Remover a compra
     await deleteCompraById(id);
 
-    // 5) Retorna lista de cedentes atualizada para UI refletir imediatamente
+    // Retornar cedentes atualizados
     const nextCedentes = await loadCedentes();
-
     return NextResponse.json(
       { ok: true, deleted: id, nextCedentes: nextCedentes.listaCedentes },
       { headers: noCache() }
