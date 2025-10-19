@@ -12,7 +12,7 @@ import {
   totalsCompatFromTotais,
   toDelta,
   type Delta,
-  computeDeltaPorPrograma, // << usa o engine para gerar o delta quando não vier
+  computeDeltaPorPrograma, // recalcula delta a partir dos itens quando não vier salvo
   type ItemLinha,
 } from "@/lib/calculo/engine";
 
@@ -644,8 +644,8 @@ export async function PATCH(req: Request): Promise<NextResponse> {
     const statusNovo: Status = statusNovoRaw === "liberados" ? "liberados" : "aguardando";
 
     // ----- 2) Ajuste de saldos conforme mudança -----
-    // 2.1) Se trocar o cedente, reverte no antigo e aplica no novo (respeitando o status final)
     if (cedenteIdNovo && cedenteIdAnt && cedenteIdNovo !== cedenteIdAnt) {
+      // troca de cedente: estorna no antigo e aplica no novo
       if (deltaAnt && (deltaAnt.latam || deltaAnt.smiles || deltaAnt.livelo || deltaAnt.esfera)) {
         await applyDeltaToCedenteWith(
           cedenteIdAnt,
@@ -654,23 +654,28 @@ export async function PATCH(req: Request): Promise<NextResponse> {
         );
         await applyDeltaToCedenteWith(
           cedenteIdNovo,
-          { latam: deltaAnt.latam, smiles: deltaAnt.smiles, livelo: deltaAnt.livelo, esfera: deltaAnt.esfera },
+          { latam:  deltaAnt.latam, smiles:  deltaAnt.smiles, livelo:  deltaAnt.livelo, esfera:  deltaAnt.esfera },
           statusNovo === "liberados" ? { mode: "main" } : { mode: "pending" }
         );
       }
     } else {
-      // 2.2) Mesmo cedente, mas mudou o status?
+      // mesmo cedente, mas mudou o status?
       if (cedenteIdAnt && (statusAnt !== statusNovo)) {
         if (deltaAnt && (deltaAnt.latam || deltaAnt.smiles || deltaAnt.livelo || deltaAnt.esfera)) {
           if (statusAnt === "aguardando" && statusNovo === "liberados") {
             // mover pendente -> principal
             await applyDeltaToCedenteWith(cedenteIdAnt, deltaAnt, { mode: "movePendingToMain" });
           } else if (statusAnt === "liberados" && statusNovo === "aguardando") {
-            // mover principal -> pendente (usa delta invertido)
+            // mover principal -> pendente (2 passos: tira do main, põe no pending)
             await applyDeltaToCedenteWith(
               cedenteIdAnt,
               { latam: -deltaAnt.latam, smiles: -deltaAnt.smiles, livelo: -deltaAnt.livelo, esfera: -deltaAnt.esfera },
-              { mode: "movePendingToMain" }
+              { mode: "main" }
+            );
+            await applyDeltaToCedenteWith(
+              cedenteIdAnt,
+              { latam:  deltaAnt.latam, smiles:  deltaAnt.smiles, livelo:  deltaAnt.livelo, esfera:  deltaAnt.esfera },
+              { mode: "pending" }
             );
           }
         }
@@ -771,8 +776,20 @@ export async function DELETE(req: Request): Promise<NextResponse> {
     }
 
     const cedenteId = str(compra.cedenteId);
+
+    // tenta delta salvo
     const deltaRaw = isRecord(compra.saldosDelta) ? (compra.saldosDelta as AnyObj) : undefined;
-    const delta = deltaRaw ? toDelta(deltaRaw) : undefined;
+    let delta = deltaRaw ? toDelta(deltaRaw) : undefined;
+
+    // fallback: calcula pelos itens (somente itens liberados)
+    if (!delta) {
+      try {
+        delta = computeDeltaPorPrograma((compra.itens as unknown[]) as ItemLinha[]);
+      } catch {
+        delta = undefined;
+      }
+    }
+
     const statusDaCompra = (str(compra.statusPontos) as Status) || "aguardando";
 
     // Reverter saldos no lugar correto
