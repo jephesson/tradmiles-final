@@ -12,6 +12,8 @@ import {
   totalsCompatFromTotais,
   toDelta,
   type Delta,
+  computeDeltaPorPrograma, // << usa o engine para gerar o delta quando não vier
+  type ItemLinha,
 } from "@/lib/calculo/engine";
 
 export const runtime = "nodejs";
@@ -527,19 +529,22 @@ export async function POST(req: Request): Promise<NextResponse> {
     const raw: unknown = await req.json();
     const body = isRecord(raw) ? (raw as AnyObj) : {};
 
-    const id = str(body.id);
+    // Gera id se não vier
+    const id = str(body.id) || randomUUID();
     const dataCompra = str(body.dataCompra);
     const statusPontos = (str(body.statusPontos) as Status) || "aguardando";
     const cedenteIdNovo = str(body.cedenteId);
     const cedenteNome = str(body.cedenteNome);
 
-    const deltaNovoMaybe = isRecord(body.saldosDelta) ? (body.saldosDelta as AnyObj) : undefined;
-    const deltaNovo: Delta | undefined = deltaNovoMaybe ? toDelta(deltaNovoMaybe) : undefined;
-
     const usingNew = Array.isArray(body.itens);
     const { itens, totaisId, /* totais, */ compat } = usingNew
       ? normalizeFromNewShape(body)
       : normalizeFromOldShape(body);
+
+    // Delta: usa o enviado ou calcula pelos itens
+    const deltaNovoMaybe = isRecord(body.saldosDelta) ? (body.saldosDelta as AnyObj) : undefined;
+    const deltaNovo: Delta =
+      deltaNovoMaybe ? toDelta(deltaNovoMaybe) : computeDeltaPorPrograma((itens as unknown[]) as ItemLinha[]);
 
     // -------- idempotência dos saldos --------
     const compraAntiga = id ? ((await findCompraById(id)) as AnyObj | null) : null;
@@ -577,7 +582,7 @@ export async function POST(req: Request): Promise<NextResponse> {
       );
     }
 
-    // Doc a salvar (guarda delta p/ DELETE)
+    // Doc a salvar (guarda delta p/ PATCH/DELETE)
     const doc: AnyObj = {
       id,
       dataCompra,
@@ -592,7 +597,7 @@ export async function POST(req: Request): Promise<NextResponse> {
       origem: (compat.origem as Origem | null) ?? undefined,
       calculos: { ...totaisId },
       savedAt: Date.now(),
-      saldosDelta: deltaNovo || undefined,
+      saldosDelta: deltaNovo || { latam: 0, smiles: 0, livelo: 0, esfera: 0 },
     };
 
     // 3) Upsert do documento
@@ -661,7 +666,7 @@ export async function PATCH(req: Request): Promise<NextResponse> {
             // mover pendente -> principal
             await applyDeltaToCedenteWith(cedenteIdAnt, deltaAnt, { mode: "movePendingToMain" });
           } else if (statusAnt === "liberados" && statusNovo === "aguardando") {
-            // mover principal -> pendente (delta invertido)
+            // mover principal -> pendente (usa delta invertido)
             await applyDeltaToCedenteWith(
               cedenteIdAnt,
               { latam: -deltaAnt.latam, smiles: -deltaAnt.smiles, livelo: -deltaAnt.livelo, esfera: -deltaAnt.esfera },
