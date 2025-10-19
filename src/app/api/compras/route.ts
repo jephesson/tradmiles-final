@@ -621,6 +621,58 @@ export async function PATCH(req: Request): Promise<NextResponse> {
     const patchRaw: unknown = await req.json().catch(() => ({}));
     const apply: AnyObj = isRecord(patchRaw) ? { ...patchRaw } : {};
 
+    // ----- 1) Carrega a compra atual para tratar saldos idempotentes -----
+    const atual = (await findCompraById(id)) as AnyObj | null;
+    if (!atual) {
+      return NextResponse.json({ error: "Registro não encontrado" }, { status: 404, headers: noCache() });
+    }
+
+    const cedenteIdAnt = str(atual.cedenteId);
+    const deltaAntRaw = isRecord(atual.saldosDelta) ? (atual.saldosDelta as AnyObj) : undefined;
+    const deltaAnt: Required<Delta> = toDelta(deltaAntRaw);
+    const statusAnt = (str(atual.statusPontos) as Status) || "aguardando";
+
+    // Valores finais (se não vierem no patch, preservam o atual)
+    const cedenteIdNovo = typeof apply.cedenteId === "string" ? apply.cedenteId : cedenteIdAnt;
+    const statusNovoRaw =
+      typeof apply.statusPontos === "string" ? (apply.statusPontos as Status) : statusAnt;
+    const statusNovo: Status = statusNovoRaw === "liberados" ? "liberados" : "aguardando";
+
+    // ----- 2) Ajuste de saldos conforme mudança -----
+    // 2.1) Se trocar o cedente, reverte no antigo e aplica no novo (respeitando o status final)
+    if (cedenteIdNovo && cedenteIdAnt && cedenteIdNovo !== cedenteIdAnt) {
+      if (deltaAnt && (deltaAnt.latam || deltaAnt.smiles || deltaAnt.livelo || deltaAnt.esfera)) {
+        await applyDeltaToCedenteWith(
+          cedenteIdAnt,
+          { latam: -deltaAnt.latam, smiles: -deltaAnt.smiles, livelo: -deltaAnt.livelo, esfera: -deltaAnt.esfera },
+          statusAnt === "liberados" ? { mode: "main" } : { mode: "pending" }
+        );
+        await applyDeltaToCedenteWith(
+          cedenteIdNovo,
+          { latam: deltaAnt.latam, smiles: deltaAnt.smiles, livelo: deltaAnt.livelo, esfera: deltaAnt.esfera },
+          statusNovo === "liberados" ? { mode: "main" } : { mode: "pending" }
+        );
+      }
+    } else {
+      // 2.2) Mesmo cedente, mas mudou o status?
+      if (cedenteIdAnt && (statusAnt !== statusNovo)) {
+        if (deltaAnt && (deltaAnt.latam || deltaAnt.smiles || deltaAnt.livelo || deltaAnt.esfera)) {
+          if (statusAnt === "aguardando" && statusNovo === "liberados") {
+            // mover pendente -> principal
+            await applyDeltaToCedenteWith(cedenteIdAnt, deltaAnt, { mode: "movePendingToMain" });
+          } else if (statusAnt === "liberados" && statusNovo === "aguardando") {
+            // mover principal -> pendente (delta invertido)
+            await applyDeltaToCedenteWith(
+              cedenteIdAnt,
+              { latam: -deltaAnt.latam, smiles: -deltaAnt.smiles, livelo: -deltaAnt.livelo, esfera: -deltaAnt.esfera },
+              { mode: "movePendingToMain" }
+            );
+          }
+        }
+      }
+    }
+
+    // ----- 3) Normalizações existentes (totais/itens) -----
     if (Array.isArray(apply.itens) && !apply.totais && !apply.totaisId) {
       const smart = smartTotals(apply.itens as unknown[]);
       const totalsIdObj = {
@@ -644,11 +696,9 @@ export async function PATCH(req: Request): Promise<NextResponse> {
       apply.calculos = { ...totalsIdObj };
     }
 
+    // ----- 4) Campos persistidos -----
     const patchDoc: AnyObj = {};
-    if (typeof apply.statusPontos === "string") {
-      const s = apply.statusPontos as Status;
-      if (s === "aguardando" || s === "liberados") patchDoc.statusPontos = s;
-    }
+    if (statusNovo) patchDoc.statusPontos = statusNovo;
     if (typeof apply.dataCompra === "string") patchDoc.dataCompra = apply.dataCompra;
     if (typeof apply.cedenteId === "string") patchDoc.cedenteId = apply.cedenteId;
 

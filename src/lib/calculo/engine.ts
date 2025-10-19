@@ -114,9 +114,11 @@ function valorItem(l: ItemLinha): number {
   return num(l.data.valor);
 }
 
-/* util: regra única para considerar um item como liberado */
+/* util: regra única para considerar um item como liberado
+   (tolerante a "liberado" e "liberados") */
 function isLiberado(l: ItemLinha): boolean {
-  return l.data.status === "liberado";
+  const s = String((l.data as any)?.status || "");
+  return s === "liberado" || s === "liberados";
 }
 
 /* ---------------- Engine: Delta por programa (APENAS liberado) ---------------- */
