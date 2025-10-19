@@ -117,7 +117,7 @@ function valorItem(l: ItemLinha): number {
 /* util: regra única para considerar um item como liberado
    (tolerante a "liberado" e "liberados") */
 function isLiberado(l: ItemLinha): boolean {
-  const s = String((l.data as any)?.status || "");
+  const s = String(l.data.status || "");
   return s === "liberado" || s === "liberados";
 }
 
@@ -147,7 +147,7 @@ export function computeDeltaPorPrograma(itens: ItemLinha[]): Required<Delta> {
     const base = modo === "pontos+dinheiro" ? num(pontosTotais) : num(pontosUsados);
     const chegam = round(base * (1 + num(bonusPct) / 100));
 
-    d[destino] += chegam;           // crédito na CIA
+    d[destino] += chegam;            // crédito na CIA
     d[origem]  -= num(pontosUsados); // débito no banco
   }
 
