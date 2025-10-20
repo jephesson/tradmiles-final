@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState, ReactNode } from "react";
 
-/** ===== Helpers gerais (sem types externos) ===== */
+/** ===== Helpers gerais ===== */
 const fmtMoney = (v: number) =>
   new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(
     Number.isFinite(v) ? v : 0
@@ -46,7 +46,7 @@ async function extractError(res: Response) {
   }
 }
 
-/** ===== Type-guards de itens ===== */
+/** ===== Guards de itens ===== */
 function isItemCompra(x: unknown): boolean {
   return isRecord(x) && x.kind === "compra" && isRecord(x.data) && typeof x.data.programa === "string";
 }
@@ -63,7 +63,7 @@ function isItemClube(x: unknown): boolean {
   return isRecord(x) && x.kind === "clube";
 }
 
-/* ===== Helpers de cálculo específicos desta tela ===== */
+/* ===== Cálculos de exibição ===== */
 function rowTotalPts(c: Record<string, unknown>) {
   const calc = isRecord(c.calculos) ? c.calculos : undefined;
   const totId = isRecord(c.totaisId) ? c.totaisId : undefined;
@@ -76,7 +76,9 @@ function rowTotalPts(c: Record<string, unknown>) {
 
   const itens = Array.isArray(c.itens) ? c.itens : [];
   const somaResumo = itens.reduce<number>((s, it) => {
-    const resumo = isRecord(it) && isRecord(it.resumo) ? it.resumo : undefined;
+    const resumo = isRecord(it) && isRecord((it as Record<string, unknown>).resumo)
+      ? (it as Record<string, unknown>).resumo
+      : undefined;
     return s + getNum(resumo?.totalPts);
   }, 0);
   return somaResumo;
@@ -119,7 +121,9 @@ function rowLucro(c: Record<string, unknown>) {
   const ant =
     getNum(calc?.lucroTotal ?? totId?.lucroTotal) ||
     itens.reduce<number>((s, it) => {
-      const resumo = isRecord(it) && isRecord(it.resumo) ? it.resumo : undefined;
+      const resumo = isRecord(it) && isRecord((it as Record<string, unknown>).resumo)
+        ? (it as Record<string, unknown>).resumo
+        : undefined;
       return s + getNum(resumo?.lucroTotal);
     }, 0);
   return ant;
@@ -135,12 +139,14 @@ function rowLucroProjetado(c: Record<string, unknown>) {
   return receita - custoTotal;
 }
 
-/** ===== Helpers de exibição (compat com 2 modelos) ===== */
+/** ===== Exibição (compat 2 modelos) ===== */
 function rowModo(c: Record<string, unknown>): ReactNode {
   if (typeof c.modo === "string") return c.modo as string;
 
   const its = Array.isArray(c.itens) ? c.itens : [];
-  const kinds = new Set(its.map((it) => (isRecord(it) ? (it as Record<string, unknown>).kind : undefined)));
+  const kinds = new Set(
+    its.map((it) => (isRecord(it) ? (it as Record<string, unknown>).kind : undefined))
+  );
   if (kinds.size === 0) return "—";
   if (kinds.size > 1) return "múltiplos";
   const k = [...kinds][0];
@@ -150,7 +156,6 @@ function rowModo(c: Record<string, unknown>): ReactNode {
 }
 
 function rowCiaOrigem(c: Record<string, unknown>): string {
-  // formato antigo explícito
   if (typeof c.modo === "string" && c.modo === "compra") {
     const cia = c.ciaCompra;
     return cia ? (cia === "latam" ? "Latam" : "Smiles") : "—";
@@ -161,7 +166,6 @@ function rowCiaOrigem(c: Record<string, unknown>): string {
     return `${d} ← ${o}`;
   }
 
-  // novo formato (pelos itens)
   const its = Array.isArray(c.itens) ? c.itens : [];
   if (its.length === 0) return "—";
 
@@ -221,7 +225,7 @@ export default function ComprasListaPage() {
   const [start, setStart] = useState<string>("");
   const [end, setEnd] = useState<string>("");
 
-  // paginação / dados
+  // dados
   const [items, setItems] = useState<Record<string, unknown>[]>([]);
   const [total, setTotal] = useState(0);
   const [offset, setOffset] = useState(0);
@@ -229,7 +233,7 @@ export default function ComprasListaPage() {
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
 
-  // tick para forçar reload quando outra aba sinalizar
+  // tick para reload quando outra aba sinalizar
   const [refreshTick, setRefreshTick] = useState(0);
 
   // carregar lista
@@ -239,12 +243,7 @@ export default function ComprasListaPage() {
       setLoading(true);
       try {
         const qs = new URLSearchParams({
-          q,
-          modo,
-          cia,
-          origem,
-          start,
-          end,
+          q, modo, cia, origem, start, end,
           offset: String(offset),
           limit: String(limit),
         });
@@ -262,13 +261,12 @@ export default function ComprasListaPage() {
     return () => ctrl.abort();
   }, [q, modo, cia, origem, start, end, offset, limit, refreshTick]);
 
-  // ouvir mudanças disparadas por outras telas/abas e também ao focar a janela
+  // ouvir mudanças de outras abas e foco
   useEffect(() => {
     const onStorage = (e: StorageEvent) => {
       if (e.key === "TM_COMPRAS_REFRESH") setRefreshTick((t) => t + 1);
     };
     const onFocus = () => setRefreshTick((t) => t + 1);
-
     window.addEventListener("storage", onStorage);
     window.addEventListener("focus", onFocus);
     return () => {
@@ -299,19 +297,45 @@ export default function ComprasListaPage() {
         setMsg(`Erro ao cancelar: ${await extractError(res)}`);
         return;
       }
-      // Atualiza a linha localmente
+      // Marca cancelada localmente
       setItems((prev) =>
-        prev.map((x) =>
-          String(x.id) === id ? ({ ...x, cancelada: true } as Record<string, unknown>) : x
-        )
+        prev.map((x) => (String(x.id) === id ? { ...x, cancelada: true } : x))
       );
       setMsg(`Compra ${id} cancelada e estornada.`);
-      try {
-        localStorage.setItem("TM_COMPRAS_REFRESH", String(Date.now()));
-      } catch {}
+      try { localStorage.setItem("TM_COMPRAS_REFRESH", String(Date.now())); } catch {}
     } catch (err: unknown) {
       const e = err as { message?: string };
       setMsg(`Erro ao cancelar: ${e?.message || "Falha na rede"}`);
+    } finally {
+      setTimeout(() => setMsg(null), 3500);
+    }
+  }
+
+  async function handleExcluir(id: string) {
+    if (!id) return;
+    const ok = confirm(
+      `Excluir a compra ${id}? O registro e o ID serão removidos. Esta ação não pode ser desfeita.`
+    );
+    if (!ok) return;
+
+    setMsg(null);
+    try {
+      // tenta /api/compras/:id; se 404/405, tenta ?id=
+      let res = await fetch(`/api/compras/${encodeURIComponent(id)}`, { method: "DELETE" });
+      if (!res.ok && (res.status === 404 || res.status === 405)) {
+        res = await fetch(`/api/compras?id=${encodeURIComponent(id)}`, { method: "DELETE" });
+      }
+      if (!res.ok) {
+        setMsg(`Erro ao excluir: ${await extractError(res)}`);
+        return;
+      }
+      setItems((prev) => prev.filter((x) => String(x.id) !== id));
+      setTotal((t) => Math.max(0, t - 1));
+      setMsg(`Compra ${id} excluída com sucesso.`);
+      try { localStorage.setItem("TM_COMPRAS_REFRESH", String(Date.now())); } catch {}
+    } catch (err: unknown) {
+      const e = err as { message?: string };
+      setMsg(`Erro ao excluir: ${e?.message || "Falha na rede"}`);
     } finally {
       setTimeout(() => setMsg(null), 3500);
     }
@@ -328,9 +352,7 @@ export default function ComprasListaPage() {
       setItems((prev) =>
         prev.map((r) => (String(r.id) === id ? { ...r, statusPontos: "liberados" } : r))
       );
-      try {
-        localStorage.setItem("TM_COMPRAS_REFRESH", String(Date.now()));
-      } catch {}
+      try { localStorage.setItem("TM_COMPRAS_REFRESH", String(Date.now())); } catch {}
     } catch (err: unknown) {
       const e = err as { message?: string };
       setMsg(e?.message || "Erro ao liberar");
@@ -451,7 +473,7 @@ export default function ComprasListaPage() {
             {!loading && items.length === 0 && (
               <tr>
                 <td className="px-3 py-3 text-center text-slate-500" colSpan={10}>
-                  Nenhuma compra encontrado.
+                  Nenhuma compra encontrada.
                 </td>
               </tr>
             )}
@@ -493,6 +515,12 @@ export default function ComprasListaPage() {
                         Cancelar
                       </button>
                     )}
+                    <button
+                      className="ml-2 rounded-lg border px-3 py-1 hover:bg-rose-50"
+                      onClick={() => handleExcluir(String(c.id))}
+                    >
+                      Excluir
+                    </button>
                   </td>
                 </tr>
               );
