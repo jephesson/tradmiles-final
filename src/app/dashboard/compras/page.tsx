@@ -2,17 +2,8 @@
 
 import Link from "next/link";
 import { useEffect, useState, ReactNode } from "react";
-import {
-  CIA,
-  Origem,
-  StatusPontos,
-  CompraRow,
-  isItemCompra,
-  isItemTransf,
-  isItemClube,
-} from "@/types/compras";
 
-/** ===== Helpers ===== */
+/** ===== Helpers gerais (sem types externos) ===== */
 const fmtMoney = (v: number) =>
   new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(
     Number.isFinite(v) ? v : 0
@@ -25,6 +16,11 @@ const fmtInt = (n: number) =>
 
 function isRecord(v: unknown): v is Record<string, unknown> {
   return !!v && typeof v === "object" && !Array.isArray(v);
+}
+
+function getNum(v: unknown): number {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : 0;
 }
 
 async function extractError(res: Response) {
@@ -44,50 +40,86 @@ async function extractError(res: Response) {
   }
 }
 
-/* ===== Helpers de cálculo específicos desta tela ===== */
+/** ===== Type-guards em tempo de execução ===== */
+function isItemCompra(x: unknown): boolean {
+  return isRecord(x) && x.kind === "compra" && isRecord(x.data) && typeof x.data.programa === "string";
+}
+function isItemTransf(x: unknown): boolean {
+  return (
+    isRecord(x) &&
+    x.kind === "transferencia" &&
+    isRecord(x.data) &&
+    typeof x.data.destino === "string" &&
+    typeof x.data.origem === "string"
+  );
+}
+function isItemClube(x: unknown): boolean {
+  return isRecord(x) && x.kind === "clube";
+}
 
-function rowTotalPts(c: CompraRow) {
-  const old = c.calculos?.totalPts ?? c.totaisId?.totalPts;
-  if (typeof old === "number" && old > 0) return old;
-  const novo = c.totais?.totalCIA;
-  if (typeof novo === "number" && novo > 0) return novo;
-  const somaResumo =
-    c.itens?.reduce<number>((s, it) => s + (it.resumo?.totalPts ?? 0), 0) ?? 0;
+/* ===== Helpers de cálculo específicos desta tela ===== */
+function rowTotalPts(c: Record<string, unknown>) {
+  const calc = isRecord(c.calculos) ? c.calculos : undefined;
+  const totId = isRecord(c.totaisId) ? c.totaisId : undefined;
+  const old = getNum(calc?.totalPts ?? totId?.totalPts);
+  if (old > 0) return old;
+
+  const tot = isRecord(c.totais) ? c.totais : undefined;
+  const novo = getNum(tot?.totalCIA);
+  if (novo > 0) return novo;
+
+  const itens = Array.isArray(c.itens) ? c.itens : [];
+  const somaResumo = itens.reduce<number>((s, it) => {
+    const resumo = isRecord(it) && isRecord(it.resumo) ? it.resumo : undefined;
+    return s + getNum(resumo?.totalPts);
+  }, 0);
   return somaResumo;
 }
 
-function rowCustoMilheiro(c: CompraRow) {
-  const direto = c.totais?.custoMilheiroTotal;
-  if (typeof direto === "number" && direto > 0) return direto;
-  const stored = c.totaisId?.custoMilheiro ?? c.calculos?.custoMilheiro ?? 0;
-  if (stored && stored >= 1) return stored;
-  const custoTotal = c.totaisId?.custoTotal ?? c.calculos?.custoTotal ?? 0;
+function rowCustoMilheiro(c: Record<string, unknown>) {
+  const tot = isRecord(c.totais) ? c.totais : undefined;
+  const direto = getNum(tot?.custoMilheiroTotal);
+  if (direto > 0) return direto;
+
+  const totId = isRecord(c.totaisId) ? c.totaisId : undefined;
+  const calc = isRecord(c.calculos) ? c.calculos : undefined;
+  const stored = getNum(totId?.custoMilheiro ?? calc?.custoMilheiro);
+  if (stored >= 1) return stored;
+
+  const custoTotal = getNum(totId?.custoTotal ?? calc?.custoTotal);
   const pts = rowTotalPts(c);
   return pts > 0 ? custoTotal / (pts / 1000) : 0;
 }
 
-function rowMetaMilheiro(c: CompraRow) {
-  const m =
-    (typeof c.totais?.metaMilheiro === "number" && c.totais.metaMilheiro > 0
-      ? c.totais.metaMilheiro
-      : 0) ||
-    (typeof c.metaMilheiro === "number" && c.metaMilheiro > 0 ? c.metaMilheiro : 0);
+function rowMetaMilheiro(c: Record<string, unknown>) {
+  const tot = isRecord(c.totais) ? c.totais : undefined;
+  const metaTot = getNum(tot?.metaMilheiro);
+  const metaField = getNum((c as Record<string, unknown>)["metaMilheiro"]);
+  const m = metaTot > 0 ? metaTot : metaField > 0 ? metaField : 0;
   if (m > 0) return m;
+
   const custo = rowCustoMilheiro(c);
   return Math.round((custo + 1.5) * 100) / 100;
 }
 
-function rowLucro(c: CompraRow) {
-  if (typeof c.totais?.lucroTotal === "number") return c.totais.lucroTotal;
+function rowLucro(c: Record<string, unknown>) {
+  const tot = isRecord(c.totais) ? c.totais : undefined;
+  if (typeof tot?.lucroTotal === "number") return tot.lucroTotal;
+
+  const calc = isRecord(c.calculos) ? c.calculos : undefined;
+  const totId = isRecord(c.totaisId) ? c.totaisId : undefined;
+  const itens = Array.isArray(c.itens) ? c.itens : [];
+
   const ant =
-    c.calculos?.lucroTotal ??
-    c.totaisId?.lucroTotal ??
-    c.itens?.reduce<number>((s, it) => s + (it.resumo?.lucroTotal ?? 0), 0) ??
-    0;
+    getNum(calc?.lucroTotal ?? totId?.lucroTotal) ??
+    itens.reduce<number>((s, it) => {
+      const resumo = isRecord(it) && isRecord(it.resumo) ? it.resumo : undefined;
+      return s + getNum(resumo?.lucroTotal);
+    }, 0);
   return ant;
 }
 
-function rowLucroProjetado(c: CompraRow) {
+function rowLucroProjetado(c: Record<string, unknown>) {
   const pts = rowTotalPts(c);
   const milheiros = pts / 1000;
   const meta = rowMetaMilheiro(c);
@@ -97,10 +129,12 @@ function rowLucroProjetado(c: CompraRow) {
   return receita - custoTotal;
 }
 
-/** Helpers de exibição (compatíveis com 2 modelos) */
-function rowModo(c: CompraRow): ReactNode {
-  if (c.modo) return c.modo;
-  const kinds = new Set((c.itens ?? []).map((it) => it.kind));
+/** ===== Helpers de exibição (compat com 2 modelos) ===== */
+function rowModo(c: Record<string, unknown>): ReactNode {
+  if (typeof c.modo === "string") return c.modo as string;
+
+  const its = Array.isArray(c.itens) ? c.itens : [];
+  const kinds = new Set(its.map((it) => (isRecord(it) ? (it as Record<string, unknown>).kind : undefined)));
   if (kinds.size === 0) return "—";
   if (kinds.size > 1) return "múltiplos";
   const k = [...kinds][0];
@@ -109,42 +143,51 @@ function rowModo(c: CompraRow): ReactNode {
   return "—";
 }
 
-function rowCiaOrigem(c: CompraRow): string {
-  if (c.modo === "compra") {
+function rowCiaOrigem(c: Record<string, unknown>): string {
+  if (typeof c.modo === "string" && c.modo === "compra") {
     const cia = c.ciaCompra;
     return cia ? (cia === "latam" ? "Latam" : "Smiles") : "—";
   }
-  if (c.modo === "transferencia") {
+  if (typeof c.modo === "string" && c.modo === "transferencia") {
     const d = c.destCia ? (c.destCia === "latam" ? "Latam" : "Smiles") : "?";
     const o = c.origem ? (c.origem === "livelo" ? "Livelo" : "Esfera") : "?";
     return `${d} ← ${o}`;
   }
-  const its = c.itens ?? [];
+
+  const its = Array.isArray(c.itens) ? c.itens : [];
   if (its.length === 0) return "—";
+
   const compras = its.filter(isItemCompra);
   const transf = its.filter(isItemTransf);
   const clubes = its.filter(isItemClube);
 
   if (compras.length && !transf.length && !clubes.length) {
     const cias = new Set(
-      compras.map((x) => x.data.programa).filter((p): p is CIA => p === "latam" || p === "smiles")
+      compras
+        .map((x) => (isRecord(x) && isRecord((x as any).data) ? ((x as any).data.programa as string) : ""))
+        .filter((p) => p === "latam" || p === "smiles")
     );
     if (cias.size === 1) return [...cias][0] === "latam" ? "Latam" : "Smiles";
     return "múltiplas";
   }
+
   if (transf.length && !compras.length && !clubes.length) {
-    const dests = new Set(transf.map((x) => x.data.destino));
-    const orgs = new Set(transf.map((x) => x.data.origem));
-    const d =
-      dests.size === 1 ? ([...dests][0] === "latam" ? "Latam" : "Smiles") : "múltiplas";
-    const o =
-      orgs.size === 1 ? ([...orgs][0] === "livelo" ? "Livelo" : "Esfera") : "múltiplas";
+    const dests = new Set(
+      transf.map((x) => (isRecord(x) && isRecord((x as any).data) ? ((x as any).data.destino as string) : ""))
+    );
+    const orgs = new Set(
+      transf.map((x) => (isRecord(x) && isRecord((x as any).data) ? ((x as any).data.origem as string) : ""))
+    );
+    const d = dests.size === 1 ? ([...dests][0] === "latam" ? "Latam" : "Smiles") : "múltiplas";
+    const o = orgs.size === 1 ? ([...orgs][0] === "livelo" ? "Livelo" : "Esfera") : "múltiplas";
     return `${d} ← ${o}`;
   }
+
   return "múltiplos";
 }
 
-function StatusChip({ s, cancelada }: { s?: StatusPontos; cancelada?: boolean }) {
+function StatusChip(props: { s?: string; cancelada?: boolean }) {
+  const { s, cancelada } = props;
   if (cancelada) {
     return (
       <span className="rounded-full bg-slate-200 px-2 py-1 text-[11px] font-medium text-slate-700">
@@ -168,14 +211,14 @@ function StatusChip({ s, cancelada }: { s?: StatusPontos; cancelada?: boolean })
 export default function ComprasListaPage() {
   // filtros
   const [q, setQ] = useState("");
-  const [modo, setModo] = useState<"" | "compra" | "transferencia">("");
-  const [cia, setCia] = useState<"" | CIA>("");
-  const [origem, setOrigem] = useState<"" | Origem>("");
+  const [modo, setModo] = useState("");
+  const [cia, setCia] = useState("");
+  const [origem, setOrigem] = useState("");
   const [start, setStart] = useState<string>("");
   const [end, setEnd] = useState<string>("");
 
   // paginação / dados
-  const [items, setItems] = useState<CompraRow[]>([]);
+  const [items, setItems] = useState<Record<string, unknown>[]>([]);
   const [total, setTotal] = useState(0);
   const [offset, setOffset] = useState(0);
   const [limit, setLimit] = useState(20);
@@ -203,7 +246,7 @@ export default function ComprasListaPage() {
         });
         const res = await fetch(`/api/compras?${qs.toString()}`, { signal: ctrl.signal });
         const json = await res.json();
-        const arr: CompraRow[] = (json.items || json.data || []) as CompraRow[];
+        const arr = (json.items || json.data || []) as Record<string, unknown>[];
         setItems(arr);
         setTotal(json.total ?? (arr ? arr.length : 0));
       } catch {
@@ -236,7 +279,9 @@ export default function ComprasListaPage() {
   // === Ações ===
   async function handleCancelar(id: string) {
     if (!id) return;
-    const ok = confirm(`Cancelar a compra ${id}? Os pontos serão estornados e o registro permanecerá como "Cancelada".`);
+    const ok = confirm(
+      `Cancelar a compra ${id}? Os pontos serão estornados e o registro permanecerá como "Cancelada".`
+    );
     if (!ok) return;
 
     setMsg(null);
@@ -250,9 +295,11 @@ export default function ComprasListaPage() {
         setMsg(`Erro ao cancelar: ${await extractError(res)}`);
         return;
       }
-      // Atualiza a linha localmente
+      // Atualiza a linha localmente (sem any explícito)
       setItems((prev) =>
-        prev.map((x) => (x.id === id ? { ...x, cancelada: true } as CompraRow : x))
+        prev.map((x) =>
+          String(x.id) === id ? { ...x, cancelada: true } as Record<string, unknown> : x
+        )
       );
       setMsg(`Compra ${id} cancelada e estornada.`);
       try {
@@ -271,11 +318,11 @@ export default function ComprasListaPage() {
       const res = await fetch(`/api/compras/${encodeURIComponent(id)}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ statusPontos: "liberados" as StatusPontos }),
+        body: JSON.stringify({ statusPontos: "liberados" }),
       });
       if (!res.ok) throw new Error(await extractError(res));
       setItems((prev) =>
-        prev.map((r) => (r.id === id ? { ...r, statusPontos: "liberados" } : r))
+        prev.map((r) => (String(r.id) === id ? { ...r, statusPontos: "liberados" } : r))
       );
       try {
         localStorage.setItem("TM_COMPRAS_REFRESH", String(Date.now()));
@@ -320,7 +367,7 @@ export default function ComprasListaPage() {
           value={modo}
           onChange={(e) => {
             setOffset(0);
-            setModo(e.target.value as "compra" | "transferencia" | "");
+            setModo(e.target.value);
           }}
           className="rounded-xl border px-3 py-2 text-sm"
         >
@@ -332,7 +379,7 @@ export default function ComprasListaPage() {
           value={cia}
           onChange={(e) => {
             setOffset(0);
-            setCia(e.target.value as CIA | "");
+            setCia(e.target.value);
           }}
           className="rounded-xl border px-3 py-2 text-sm"
         >
@@ -344,7 +391,7 @@ export default function ComprasListaPage() {
           value={origem}
           onChange={(e) => {
             setOffset(0);
-            setOrigem(e.target.value as Origem | "");
+            setOrigem(e.target.value);
           }}
           className="rounded-xl border px-3 py-2 text-sm"
         >
@@ -404,45 +451,48 @@ export default function ComprasListaPage() {
                 </td>
               </tr>
             )}
-            {items.map((c) => (
-              <tr key={c.id} className={`border-t ${c.cancelada ? "opacity-60" : ""}`}>
-                <td className="px-3 py-2">{c.dataCompra}</td>
-                <td className="px-3 py-2 font-mono">{c.id}</td>
-                <td className="px-3 py-2 capitalize">{rowModo(c)}</td>
-                <td className="px-3 py-2">{rowCiaOrigem(c)}</td>
-                <td className="px-3 py-2 text-right">{fmtInt(rowTotalPts(c))}</td>
-                <td className="px-3 py-2 text-right">{fmtMoney(rowCustoMilheiro(c))}</td>
-                <td className="px-3 py-2 text-right">{fmtMoney(rowLucro(c))}</td>
-                <td className="px-3 py-2 text-right">{fmtMoney(rowLucroProjetado(c))}</td>
-                <td className="px-3 py-2">
-                  <StatusChip s={c.statusPontos} cancelada={(c as any).cancelada === true} />
-                </td>
-                <td className="px-3 py-2 text-right whitespace-nowrap">
-                  <Link
-                    href={`/dashboard/compras/nova?load=${encodeURIComponent(c.id)}`}
-                    className="rounded-lg border px-3 py-1 hover:bg-slate-100"
-                  >
-                    Abrir
-                  </Link>
-                  {!c.cancelada && c.statusPontos !== "liberados" && (
-                    <button
-                      className="ml-2 rounded-lg border px-3 py-1 hover:bg-slate-100"
-                      onClick={() => handleLiberar(c.id)}
+            {items.map((c) => {
+              const cancelada = isRecord(c) && c.cancelada === true;
+              return (
+                <tr key={String(c.id)} className={`border-t ${cancelada ? "opacity-60" : ""}`}>
+                  <td className="px-3 py-2">{String(c.dataCompra || "")}</td>
+                  <td className="px-3 py-2 font-mono">{String(c.id || "")}</td>
+                  <td className="px-3 py-2 capitalize">{rowModo(c)}</td>
+                  <td className="px-3 py-2">{rowCiaOrigem(c)}</td>
+                  <td className="px-3 py-2 text-right">{fmtInt(rowTotalPts(c))}</td>
+                  <td className="px-3 py-2 text-right">{fmtMoney(rowCustoMilheiro(c))}</td>
+                  <td className="px-3 py-2 text-right">{fmtMoney(rowLucro(c))}</td>
+                  <td className="px-3 py-2 text-right">{fmtMoney(rowLucroProjetado(c))}</td>
+                  <td className="px-3 py-2">
+                    <StatusChip s={String(c.statusPontos || "")} cancelada={cancelada} />
+                  </td>
+                  <td className="px-3 py-2 text-right whitespace-nowrap">
+                    <Link
+                      href={`/dashboard/compras/nova?load=${encodeURIComponent(String(c.id || ""))}`}
+                      className="rounded-lg border px-3 py-1 hover:bg-slate-100"
                     >
-                      Liberar
-                    </button>
-                  )}
-                  {!c.cancelada && (
-                    <button
-                      className="ml-2 rounded-lg border px-3 py-1 hover:bg-slate-100"
-                      onClick={() => handleCancelar(c.id)}
-                    >
-                      Cancelar
-                    </button>
-                  )}
-                </td>
-              </tr>
-            ))}
+                      Abrir
+                    </Link>
+                    {!cancelada && String(c.statusPontos) !== "liberados" && (
+                      <button
+                        className="ml-2 rounded-lg border px-3 py-1 hover:bg-slate-100"
+                        onClick={() => handleLiberar(String(c.id))}
+                      >
+                        Liberar
+                      </button>
+                    )}
+                    {!cancelada && (
+                      <button
+                        className="ml-2 rounded-lg border px-3 py-1 hover:bg-slate-100"
+                        onClick={() => handleCancelar(String(c.id))}
+                      >
+                        Cancelar
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
