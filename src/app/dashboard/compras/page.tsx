@@ -21,6 +21,9 @@ function getNum(v: unknown): number {
   const n = Number(v);
   return Number.isFinite(n) ? n : 0;
 }
+function getKey(o: unknown, k: string): unknown {
+  return isRecord(o) ? o[k] : undefined;
+}
 function getStrKey(o: unknown, k: string): string {
   return isRecord(o) && typeof o[k] === "string" ? (o[k] as string) : "";
 }
@@ -67,41 +70,42 @@ function isItemClube(x: unknown): boolean {
 function rowTotalPts(c: Record<string, unknown>) {
   const calc = isRecord(c.calculos) ? c.calculos : undefined;
   const totId = isRecord(c.totaisId) ? c.totaisId : undefined;
-  const old = getNum(calc?.totalPts ?? totId?.totalPts);
+  const old = getNum(getKey(calc, "totalPts") ?? getKey(totId, "totalPts"));
   if (old > 0) return old;
 
   const tot = isRecord(c.totais) ? c.totais : undefined;
-  const novo = getNum(tot?.totalCIA);
+  const novo = getNum(getKey(tot, "totalCIA"));
   if (novo > 0) return novo;
 
   const itens = Array.isArray(c.itens) ? c.itens : [];
   const somaResumo = itens.reduce<number>((s, it) => {
-    const resumo = isRecord(it) && isRecord((it as Record<string, unknown>).resumo)
-      ? (it as Record<string, unknown>).resumo
-      : undefined;
-    return s + getNum(resumo?.totalPts);
+    const resumo =
+      isRecord(it) && isRecord((it as Record<string, unknown>).resumo)
+        ? (it as Record<string, unknown>).resumo
+        : undefined;
+    return s + getNum(getKey(resumo, "totalPts"));
   }, 0);
   return somaResumo;
 }
 
 function rowCustoMilheiro(c: Record<string, unknown>) {
   const tot = isRecord(c.totais) ? c.totais : undefined;
-  const direto = getNum(tot?.custoMilheiroTotal);
+  const direto = getNum(getKey(tot, "custoMilheiroTotal"));
   if (direto > 0) return direto;
 
   const totId = isRecord(c.totaisId) ? c.totaisId : undefined;
   const calc = isRecord(c.calculos) ? c.calculos : undefined;
-  const stored = getNum(totId?.custoMilheiro ?? calc?.custoMilheiro);
+  const stored = getNum(getKey(totId, "custoMilheiro") ?? getKey(calc, "custoMilheiro"));
   if (stored >= 1) return stored;
 
-  const custoTotal = getNum(totId?.custoTotal ?? calc?.custoTotal);
+  const custoTotal = getNum(getKey(totId, "custoTotal") ?? getKey(calc, "custoTotal"));
   const pts = rowTotalPts(c);
   return pts > 0 ? custoTotal / (pts / 1000) : 0;
 }
 
 function rowMetaMilheiro(c: Record<string, unknown>) {
   const tot = isRecord(c.totais) ? c.totais : undefined;
-  const metaTot = getNum(tot?.metaMilheiro);
+  const metaTot = getNum(getKey(tot, "metaMilheiro"));
   const metaField = getNum((c as Record<string, unknown>)["metaMilheiro"]);
   const m = metaTot > 0 ? metaTot : metaField > 0 ? metaField : 0;
   if (m > 0) return m;
@@ -112,19 +116,20 @@ function rowMetaMilheiro(c: Record<string, unknown>) {
 
 function rowLucro(c: Record<string, unknown>) {
   const tot = isRecord(c.totais) ? c.totais : undefined;
-  if (typeof tot?.lucroTotal === "number") return tot.lucroTotal;
+  if (typeof getKey(tot, "lucroTotal") === "number") return getKey(tot, "lucroTotal") as number;
 
   const calc = isRecord(c.calculos) ? c.calculos : undefined;
   const totId = isRecord(c.totaisId) ? c.totaisId : undefined;
   const itens = Array.isArray(c.itens) ? c.itens : [];
 
   const ant =
-    getNum(calc?.lucroTotal ?? totId?.lucroTotal) ||
+    getNum(getKey(calc, "lucroTotal") ?? getKey(totId, "lucroTotal")) ||
     itens.reduce<number>((s, it) => {
-      const resumo = isRecord(it) && isRecord((it as Record<string, unknown>).resumo)
-        ? (it as Record<string, unknown>).resumo
-        : undefined;
-      return s + getNum(resumo?.lucroTotal);
+      const resumo =
+        isRecord(it) && isRecord((it as Record<string, unknown>).resumo)
+          ? (it as Record<string, unknown>).resumo
+          : undefined;
+      return s + getNum(getKey(resumo, "lucroTotal"));
     }, 0);
   return ant;
 }
