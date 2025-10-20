@@ -46,64 +46,47 @@ async function extractError(res: Response) {
 
 /* ===== Helpers de cálculo específicos desta tela ===== */
 
-/** Total de pontos (compat. com modelos) */
 function rowTotalPts(c: CompraRow) {
-  // Modelo antigo
   const old = c.calculos?.totalPts ?? c.totaisId?.totalPts;
   if (typeof old === "number" && old > 0) return old;
-
-  // Modelo novo – total consolidado
   const novo = c.totais?.totalCIA;
   if (typeof novo === "number" && novo > 0) return novo;
-
-  // Fallback: somar dos itens (quando houver "resumo")
   const somaResumo =
     c.itens?.reduce<number>((s, it) => s + (it.resumo?.totalPts ?? 0), 0) ?? 0;
   return somaResumo;
 }
 
-/** Custo por milheiro (compat.) */
 function rowCustoMilheiro(c: CompraRow) {
   const direto = c.totais?.custoMilheiroTotal;
   if (typeof direto === "number" && direto > 0) return direto;
-
   const stored = c.totaisId?.custoMilheiro ?? c.calculos?.custoMilheiro ?? 0;
   if (stored && stored >= 1) return stored;
-
   const custoTotal = c.totaisId?.custoTotal ?? c.calculos?.custoTotal ?? 0;
   const pts = rowTotalPts(c);
   return pts > 0 ? custoTotal / (pts / 1000) : 0;
 }
 
-/** Meta do milheiro da compra. */
 function rowMetaMilheiro(c: CompraRow) {
   const m =
     (typeof c.totais?.metaMilheiro === "number" && c.totais.metaMilheiro > 0
       ? c.totais.metaMilheiro
       : 0) ||
     (typeof c.metaMilheiro === "number" && c.metaMilheiro > 0 ? c.metaMilheiro : 0);
-
   if (m > 0) return m;
-
   const custo = rowCustoMilheiro(c);
-  // fallback: custo + R$1,50
   return Math.round((custo + 1.5) * 100) / 100;
 }
 
-/** Lucro armazenado (se houver na compra) */
 function rowLucro(c: CompraRow) {
   if (typeof c.totais?.lucroTotal === "number") return c.totais.lucroTotal;
-
   const ant =
     c.calculos?.lucroTotal ??
     c.totaisId?.lucroTotal ??
     c.itens?.reduce<number>((s, it) => s + (it.resumo?.lucroTotal ?? 0), 0) ??
     0;
-
   return ant;
 }
 
-/** Lucro projetado pela meta. */
 function rowLucroProjetado(c: CompraRow) {
   const pts = rowTotalPts(c);
   const milheiros = pts / 1000;
@@ -117,11 +100,9 @@ function rowLucroProjetado(c: CompraRow) {
 /** Helpers de exibição (compatíveis com 2 modelos) */
 function rowModo(c: CompraRow): ReactNode {
   if (c.modo) return c.modo;
-
   const kinds = new Set((c.itens ?? []).map((it) => it.kind));
   if (kinds.size === 0) return "—";
   if (kinds.size > 1) return "múltiplos";
-
   const k = [...kinds][0];
   if (k === "compra") return "compra";
   if (k === "transferencia") return "transferencia";
@@ -129,7 +110,6 @@ function rowModo(c: CompraRow): ReactNode {
 }
 
 function rowCiaOrigem(c: CompraRow): string {
-  // Modelo antigo explícito
   if (c.modo === "compra") {
     const cia = c.ciaCompra;
     return cia ? (cia === "latam" ? "Latam" : "Smiles") : "—";
@@ -139,24 +119,19 @@ function rowCiaOrigem(c: CompraRow): string {
     const o = c.origem ? (c.origem === "livelo" ? "Livelo" : "Esfera") : "?";
     return `${d} ← ${o}`;
   }
-
   const its = c.itens ?? [];
   if (its.length === 0) return "—";
-
   const compras = its.filter(isItemCompra);
   const transf = its.filter(isItemTransf);
   const clubes = its.filter(isItemClube);
 
   if (compras.length && !transf.length && !clubes.length) {
     const cias = new Set(
-      compras
-        .map((x) => x.data.programa)
-        .filter((p): p is CIA => p === "latam" || p === "smiles")
+      compras.map((x) => x.data.programa).filter((p): p is CIA => p === "latam" || p === "smiles")
     );
     if (cias.size === 1) return [...cias][0] === "latam" ? "Latam" : "Smiles";
     return "múltiplas";
   }
-
   if (transf.length && !compras.length && !clubes.length) {
     const dests = new Set(transf.map((x) => x.data.destino));
     const orgs = new Set(transf.map((x) => x.data.origem));
@@ -166,11 +141,17 @@ function rowCiaOrigem(c: CompraRow): string {
       orgs.size === 1 ? ([...orgs][0] === "livelo" ? "Livelo" : "Esfera") : "múltiplas";
     return `${d} ← ${o}`;
   }
-
   return "múltiplos";
 }
 
-function StatusChip({ s }: { s?: StatusPontos }) {
+function StatusChip({ s, cancelada }: { s?: StatusPontos; cancelada?: boolean }) {
+  if (cancelada) {
+    return (
+      <span className="rounded-full bg-slate-200 px-2 py-1 text-[11px] font-medium text-slate-700">
+        Cancelada
+      </span>
+    );
+  }
   if (s === "liberados")
     return (
       <span className="rounded-full bg-green-100 px-2 py-1 text-[11px] font-medium text-green-700">
@@ -253,30 +234,33 @@ export default function ComprasListaPage() {
   const pageTo = Math.min(offset + limit, total);
 
   // === Ações ===
-  async function handleExcluir(id: string) {
+  async function handleCancelar(id: string) {
     if (!id) return;
-    const ok = confirm(`Excluir a compra ${id}? Esta ação não pode ser desfeita.`);
+    const ok = confirm(`Cancelar a compra ${id}? Os pontos serão estornados e o registro permanecerá como "Cancelada".`);
     if (!ok) return;
 
     setMsg(null);
     try {
-      let res = await fetch(`/api/compras/${encodeURIComponent(id)}`, { method: "DELETE" });
-      if (!res.ok && (res.status === 404 || res.status === 405)) {
-        res = await fetch(`/api/compras?id=${encodeURIComponent(id)}`, { method: "DELETE" });
-      }
+      const res = await fetch(`/api/compras/${encodeURIComponent(id)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ cancelar: true }),
+      });
       if (!res.ok) {
-        setMsg(`Erro ao excluir: ${await extractError(res)}`);
+        setMsg(`Erro ao cancelar: ${await extractError(res)}`);
         return;
       }
-      setItems((prev) => prev.filter((x) => x.id !== id));
-      setTotal((t) => Math.max(0, t - 1));
-      setMsg(`Compra ${id} excluída com sucesso.`);
+      // Atualiza a linha localmente
+      setItems((prev) =>
+        prev.map((x) => (x.id === id ? { ...x, cancelada: true } as CompraRow : x))
+      );
+      setMsg(`Compra ${id} cancelada e estornada.`);
       try {
         localStorage.setItem("TM_COMPRAS_REFRESH", String(Date.now()));
       } catch {}
     } catch (err: unknown) {
       const e = err as { message?: string };
-      setMsg(`Erro ao excluir: ${e?.message || "Falha na rede"}`);
+      setMsg(`Erro ao cancelar: ${e?.message || "Falha na rede"}`);
     } finally {
       setTimeout(() => setMsg(null), 3500);
     }
@@ -321,7 +305,7 @@ export default function ComprasListaPage() {
         </div>
       )}
 
-      {/* Filtros (a API pode ou não usar; mantemos a UI) */}
+      {/* Filtros */}
       <div className="mb-4 grid grid-cols-1 gap-2 md:grid-cols-7">
         <input
           value={q}
@@ -421,7 +405,7 @@ export default function ComprasListaPage() {
               </tr>
             )}
             {items.map((c) => (
-              <tr key={c.id} className="border-t">
+              <tr key={c.id} className={`border-t ${c.cancelada ? "opacity-60" : ""}`}>
                 <td className="px-3 py-2">{c.dataCompra}</td>
                 <td className="px-3 py-2 font-mono">{c.id}</td>
                 <td className="px-3 py-2 capitalize">{rowModo(c)}</td>
@@ -431,7 +415,7 @@ export default function ComprasListaPage() {
                 <td className="px-3 py-2 text-right">{fmtMoney(rowLucro(c))}</td>
                 <td className="px-3 py-2 text-right">{fmtMoney(rowLucroProjetado(c))}</td>
                 <td className="px-3 py-2">
-                  <StatusChip s={c.statusPontos} />
+                  <StatusChip s={c.statusPontos} cancelada={(c as any).cancelada === true} />
                 </td>
                 <td className="px-3 py-2 text-right whitespace-nowrap">
                   <Link
@@ -440,7 +424,7 @@ export default function ComprasListaPage() {
                   >
                     Abrir
                   </Link>
-                  {c.statusPontos !== "liberados" && (
+                  {!c.cancelada && c.statusPontos !== "liberados" && (
                     <button
                       className="ml-2 rounded-lg border px-3 py-1 hover:bg-slate-100"
                       onClick={() => handleLiberar(c.id)}
@@ -448,12 +432,14 @@ export default function ComprasListaPage() {
                       Liberar
                     </button>
                   )}
-                  <button
-                    className="ml-2 rounded-lg border px-3 py-1 hover:bg-slate-100"
-                    onClick={() => handleExcluir(c.id)}
-                  >
-                    Excluir
-                  </button>
+                  {!c.cancelada && (
+                    <button
+                      className="ml-2 rounded-lg border px-3 py-1 hover:bg-slate-100"
+                      onClick={() => handleCancelar(c.id)}
+                    >
+                      Cancelar
+                    </button>
+                  )}
                 </td>
               </tr>
             ))}

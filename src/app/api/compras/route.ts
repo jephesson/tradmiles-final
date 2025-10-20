@@ -22,16 +22,12 @@ export const revalidate = 0;
 
 /* ---------------- Persistência via AppBlob ---------------- */
 const BLOB_KIND = "compras_blob";
-/** blob de cedentes (saldos 100% online) */
 const CEDENTES_BLOB = "cedentes_blob";
 
 /** Estruturas utilitárias */
 type AnyObj = Record<string, unknown>;
 
-type BlobShape = {
-  savedAt: string;
-  items: AnyObj[];
-};
+type BlobShape = { savedAt: string; items: AnyObj[] };
 
 type CIA = "latam" | "smiles";
 type Origem = "livelo" | "esfera";
@@ -44,17 +40,13 @@ type CedenteRow = {
   smiles?: number;
   livelo?: number;
   esfera?: number;
-  // saldos pendentes
   latam_pend?: number;
   smiles_pend?: number;
   livelo_pend?: number;
   esfera_pend?: number;
 };
 
-type CedentesBlob = {
-  savedAt: string;
-  listaCedentes: CedenteRow[];
-};
+type CedentesBlob = { savedAt: string; listaCedentes: CedenteRow[] };
 
 /** JSON puro p/ Prisma.InputJsonValue */
 function toJsonValue<T>(value: T): Prisma.InputJsonValue {
@@ -84,16 +76,27 @@ function noCache(): Record<string, string> {
 const add = (a = 0, b = 0) => Number(a || 0) + Number(b || 0);
 const sub = (a = 0, b = 0) => Number(a || 0) - Number(b || 0);
 
+/** Extrai id do query (?id=) OU do path (/api/compras/:id) */
+function getIdFromReq(req: Request): string | null {
+  try {
+    const url = new URL(req.url);
+    const qp = url.searchParams.get("id");
+    if (qp) return qp;
+    const segs = url.pathname.split("/").filter(Boolean);
+    const last = segs[segs.length - 1];
+    if (last && last !== "compras") return decodeURIComponent(last);
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 /* ---------------- Compras: CRUD no AppBlob ---------------- */
 async function loadAll(): Promise<BlobShape> {
   const blob = await prisma.appBlob.findUnique({ where: { kind: BLOB_KIND } });
   const data = (blob?.data as unknown as Partial<BlobShape>) || undefined;
-
   if (data && Array.isArray(data.items)) {
-    return {
-      savedAt: data.savedAt || new Date().toISOString(),
-      items: data.items as AnyObj[],
-    };
+    return { savedAt: data.savedAt || new Date().toISOString(), items: data.items as AnyObj[] };
   }
   return { savedAt: new Date().toISOString(), items: [] };
 }
@@ -151,7 +154,6 @@ async function loadCedentes(): Promise<CedentesBlob> {
   const blob = await prisma.appBlob.findUnique({ where: { kind: CEDENTES_BLOB } });
   const data = (blob?.data as unknown as Partial<CedentesBlob>) || undefined;
   const z = (n: unknown) => (Number.isFinite(Number(n)) ? Number(n) : 0);
-
   if (data && Array.isArray(data.listaCedentes)) {
     return {
       savedAt: data.savedAt || new Date().toISOString(),
@@ -184,9 +186,9 @@ async function saveCedentes(payload: CedentesBlob): Promise<void> {
 }
 
 type ApplyOpts =
-  | { mode: "main" }              // aplica no saldo principal
-  | { mode: "pending" }           // aplica no saldo pendente
-  | { mode: "movePendingToMain" } // move dos pendentes p/ principal
+  | { mode: "main" }
+  | { mode: "pending" }
+  | { mode: "movePendingToMain" };
 
 async function applyDeltaToCedenteWith(
   cedenteId: string,
@@ -229,14 +231,13 @@ async function applyDeltaToCedenteWith(
     next.esfera = add(cur.esfera, d.esfera);
   }
 
-  const clampKeys: (keyof CedenteRow)[] = [
+  ([
     "latam", "smiles", "livelo", "esfera",
     "latam_pend", "smiles_pend", "livelo_pend", "esfera_pend",
-  ];
-  clampKeys.forEach((k) => {
+  ] as (keyof CedenteRow)[]).forEach((k) => {
     const v = Number(next[k] ?? 0);
-    // @ts-expect-error narrow assignment to same key
-    next[k] = (Number.isFinite(v) ? Math.max(0, v) : 0);
+    // @ts-expect-error same-key assignment
+    next[k] = Number.isFinite(v) ? Math.max(0, v) : 0;
   });
 
   all.listaCedentes[idx] = next;
@@ -313,7 +314,6 @@ function normalizeFromNewShape(body: AnyObj) {
   const itens: unknown[] = Array.isArray(body.itens) ? (body.itens as unknown[]) : [];
   const totals = smartTotals(itens, body.totais);
 
-  // compat para listagem/filtros antigos
   let modo: "compra" | "transferencia" | null = null;
   const kinds = new Set(
     (itens || []).map((it) => {
@@ -323,19 +323,15 @@ function normalizeFromNewShape(body: AnyObj) {
   );
   if (kinds.size === 1) {
     const k = [...kinds][0];
-    if (k === "compra" || k === "transferencia") modo = k as "compra" | "transferencia";
+    if (k === "compra" || k === "transferencia") modo = k;
   }
 
   let ciaCompra: CIA | null = null;
   let destCia: CIA | null = null;
   let origem: Origem | null = null;
 
-  const firstCompra = (itens || []).find((x) => (x as AnyObj).kind === "compra" || (x as AnyObj).modo === "compra") as
-    | AnyObj
-    | undefined;
-  const firstTransf = (itens || []).find(
-    (x) => (x as AnyObj).kind === "transferencia" || (x as AnyObj).modo === "transferencia"
-  ) as AnyObj | undefined;
+  const firstCompra = (itens || []).find((x) => (x as AnyObj).kind === "compra" || (x as AnyObj).modo === "compra") as AnyObj | undefined;
+  const firstTransf = (itens || []).find((x) => (x as AnyObj).kind === "transferencia" || (x as AnyObj).modo === "transferencia") as AnyObj | undefined;
 
   if (isRecord(firstCompra?.data)) {
     const p = str((firstCompra.data as AnyObj).programa);
@@ -371,7 +367,7 @@ function normalizeFromNewShape(body: AnyObj) {
 export async function GET(req: Request): Promise<NextResponse> {
   try {
     const url = new URL(req.url);
-    const id = url.searchParams.get("id");
+    const id = getIdFromReq(req);
 
     if (id) {
       const item = (await findCompraById(id)) as AnyObj | null;
@@ -384,14 +380,12 @@ export async function GET(req: Request): Promise<NextResponse> {
 
       if (!hasPts) {
         const totals = smartTotals((item.itens as unknown[]) || [], item.totais);
-
         const totalsIdObj = {
           totalPts: totals.totalPts,
           custoTotal: totals.custoTotal,
           custoMilheiro: totals.custoMilheiro,
           lucroTotal: totals.lucroTotal,
         };
-
         item.totais = {
           totalCIA: totals.totalPts,
           custoTotal: totals.custoTotal,
@@ -400,13 +394,11 @@ export async function GET(req: Request): Promise<NextResponse> {
         };
         item.totaisId = totalsIdObj;
         item.calculos = { ...totalsIdObj };
-
         await upsertCompra(item);
       }
       return NextResponse.json(item, { headers: noCache() });
     }
 
-    // listagem + filtros
     const q = (url.searchParams.get("q") || "").toLowerCase();
     const modoFil = url.searchParams.get("modo") || "";
     const ciaFil = url.searchParams.get("cia") || "";
@@ -454,7 +446,6 @@ export async function GET(req: Request): Promise<NextResponse> {
       return v3 || "";
     };
 
-    // Normaliza totais por linha usando o engine (aceita pontosCIA)
     const normalized = (all || []).map((r) => {
       const totais = isRecord(r.totais) ? (r.totais as AnyObj) : undefined;
       const hasPts = num(totais?.totalCIA ?? totais?.pontosCIA) > 0;
@@ -529,7 +520,6 @@ export async function POST(req: Request): Promise<NextResponse> {
     const raw: unknown = await req.json();
     const body = isRecord(raw) ? (raw as AnyObj) : {};
 
-    // Gera id se não vier
     const id = str(body.id) || randomUUID();
     const dataCompra = str(body.dataCompra);
     const statusPontos = (str(body.statusPontos) as Status) || "aguardando";
@@ -537,16 +527,14 @@ export async function POST(req: Request): Promise<NextResponse> {
     const cedenteNome = str(body.cedenteNome);
 
     const usingNew = Array.isArray(body.itens);
-    const { itens, totaisId, /* totais, */ compat } = usingNew
+    const { itens, totaisId, compat } = usingNew
       ? normalizeFromNewShape(body)
       : normalizeFromOldShape(body);
 
-    // Delta: usa o enviado ou calcula pelos itens
     const deltaNovoMaybe = isRecord(body.saldosDelta) ? (body.saldosDelta as AnyObj) : undefined;
     const deltaNovo: Delta =
       deltaNovoMaybe ? toDelta(deltaNovoMaybe) : computeDeltaPorPrograma((itens as unknown[]) as ItemLinha[]);
 
-    // -------- idempotência dos saldos --------
     const compraAntiga = id ? ((await findCompraById(id)) as AnyObj | null) : null;
     const cedenteIdAntigo = str(compraAntiga?.cedenteId);
     const deltaAntigo: Delta | undefined = isRecord(compraAntiga?.saldosDelta)
@@ -554,35 +542,22 @@ export async function POST(req: Request): Promise<NextResponse> {
       : undefined;
     const statusAntigo = (str(compraAntiga?.statusPontos) as Status) || "aguardando";
 
-    // 1) Desfaz efeito anterior (se havia)
     if (cedenteIdAntigo && deltaAntigo) {
       await applyDeltaToCedenteWith(
         cedenteIdAntigo,
-        {
-          latam: -num(deltaAntigo.latam),
-          smiles: -num(deltaAntigo.smiles),
-          livelo: -num(deltaAntigo.livelo),
-          esfera: -num(deltaAntigo.esfera),
-        },
+        { latam: -num(deltaAntigo.latam), smiles: -num(deltaAntigo.smiles), livelo: -num(deltaAntigo.livelo), esfera: -num(deltaAntigo.esfera) },
         statusAntigo === "liberados" ? { mode: "main" } : { mode: "pending" }
       );
     }
 
-    // 2) Aplica novo efeito conforme status atual
     if (cedenteIdNovo && deltaNovo) {
       await applyDeltaToCedenteWith(
         cedenteIdNovo,
-        {
-          latam: num(deltaNovo.latam),
-          smiles: num(deltaNovo.smiles),
-          livelo: num(deltaNovo.livelo),
-          esfera: num(deltaNovo.esfera),
-        },
+        { latam: num(deltaNovo.latam), smiles: num(deltaNovo.smiles), livelo: num(deltaNovo.livelo), esfera: num(deltaNovo.esfera) },
         statusPontos === "liberados" ? { mode: "main" } : { mode: "pending" }
       );
     }
 
-    // Doc a salvar (guarda delta p/ PATCH/DELETE)
     const doc: AnyObj = {
       id,
       dataCompra,
@@ -597,15 +572,13 @@ export async function POST(req: Request): Promise<NextResponse> {
       origem: (compat.origem as Origem | null) ?? undefined,
       calculos: { ...totaisId },
       savedAt: Date.now(),
+      cancelada: false,
       saldosDelta: deltaNovo || { latam: 0, smiles: 0, livelo: 0, esfera: 0 },
     };
 
-    // 3) Upsert do documento
     await upsertCompra(doc);
 
-    // 4) Retorna lista atualizada de cedentes
     const nextCedentes = await loadCedentes();
-
     return NextResponse.json(
       { ok: true, id: String(doc.id), nextCedentes: nextCedentes.listaCedentes },
       { headers: noCache() }
@@ -616,36 +589,72 @@ export async function POST(req: Request): Promise<NextResponse> {
   }
 }
 
-/** ===================== PATCH (?id=) ===================== */
+/** ===================== PATCH (…/id OU ?id=) ===================== */
 export async function PATCH(req: Request): Promise<NextResponse> {
-  const url = new URL(req.url);
-  const id = url.searchParams.get("id");
+  const id = getIdFromReq(req);
   if (!id) return NextResponse.json({ error: "Missing id" }, { status: 400, headers: noCache() });
 
   try {
     const patchRaw: unknown = await req.json().catch(() => ({}));
     const apply: AnyObj = isRecord(patchRaw) ? { ...patchRaw } : {};
 
-    // ----- 1) Carrega a compra atual para tratar saldos idempotentes -----
     const atual = (await findCompraById(id)) as AnyObj | null;
     if (!atual) {
       return NextResponse.json({ error: "Registro não encontrado" }, { status: 404, headers: noCache() });
     }
 
+    // ====== CANCELAR ======
+    if (apply.cancelar === true || apply.cancelada === true) {
+      if (atual.cancelada === true) {
+        return NextResponse.json(atual, { headers: noCache() });
+      }
+
+      const cedenteId = str(atual.cedenteId);
+      const statusDaCompra = (str(atual.statusPontos) as Status) || "aguardando";
+
+      let delta = isRecord(atual.saldosDelta) ? toDelta(atual.saldosDelta as AnyObj) : undefined;
+      if (!delta) {
+        try { delta = computeDeltaPorPrograma((atual.itens as unknown[]) as ItemLinha[]); } catch { delta = undefined; }
+      }
+
+      if (cedenteId && delta) {
+        await applyDeltaToCedenteWith(
+          cedenteId,
+          { latam: -num(delta.latam), smiles: -num(delta.smiles), livelo: -num(delta.livelo), esfera: -num(delta.esfera) },
+          statusDaCompra === "liberados" ? { mode: "main" } : { mode: "pending" }
+        );
+      }
+
+      const patched = await updateCompraById(id, {
+        cancelada: true,
+        cancelledAt: Date.now(),
+        // zera o delta para evitar futuros movimentos (ex.: mudanças de status)
+        saldosDelta: { latam: 0, smiles: 0, livelo: 0, esfera: 0 },
+      });
+
+      const nextCedentes = await loadCedentes();
+      return NextResponse.json({ ok: true, ...patched, nextCedentes: nextCedentes.listaCedentes }, { headers: noCache() });
+    }
+
+    // ===== PATCH normal (status/itens etc.) =====
     const cedenteIdAnt = str(atual.cedenteId);
     const deltaAntRaw = isRecord(atual.saldosDelta) ? (atual.saldosDelta as AnyObj) : undefined;
     const deltaAnt: Required<Delta> = toDelta(deltaAntRaw);
     const statusAnt = (str(atual.statusPontos) as Status) || "aguardando";
 
-    // Valores finais (se não vierem no patch, preservam o atual)
     const cedenteIdNovo = typeof apply.cedenteId === "string" ? apply.cedenteId : cedenteIdAnt;
-    const statusNovoRaw =
-      typeof apply.statusPontos === "string" ? (apply.statusPontos as Status) : statusAnt;
+    const statusNovoRaw = typeof apply.statusPontos === "string" ? (apply.statusPontos as Status) : statusAnt;
     const statusNovo: Status = statusNovoRaw === "liberados" ? "liberados" : "aguardando";
 
-    // ----- 2) Ajuste de saldos conforme mudança -----
+    // Se já estiver cancelada, não mexe mais em saldos (apenas atualiza campos visuais)
+    if (atual.cancelada === true) {
+      const patchDoc: AnyObj = {};
+      if (typeof apply.dataCompra === "string") patchDoc.dataCompra = apply.dataCompra;
+      const updated = await updateCompraById(id, patchDoc);
+      return NextResponse.json(updated, { headers: noCache() });
+    }
+
     if (cedenteIdNovo && cedenteIdAnt && cedenteIdNovo !== cedenteIdAnt) {
-      // troca de cedente: estorna no antigo e aplica no novo
       if (deltaAnt && (deltaAnt.latam || deltaAnt.smiles || deltaAnt.livelo || deltaAnt.esfera)) {
         await applyDeltaToCedenteWith(
           cedenteIdAnt,
@@ -658,31 +667,17 @@ export async function PATCH(req: Request): Promise<NextResponse> {
           statusNovo === "liberados" ? { mode: "main" } : { mode: "pending" }
         );
       }
-    } else {
-      // mesmo cedente, mas mudou o status?
-      if (cedenteIdAnt && (statusAnt !== statusNovo)) {
-        if (deltaAnt && (deltaAnt.latam || deltaAnt.smiles || deltaAnt.livelo || deltaAnt.esfera)) {
-          if (statusAnt === "aguardando" && statusNovo === "liberados") {
-            // mover pendente -> principal
-            await applyDeltaToCedenteWith(cedenteIdAnt, deltaAnt, { mode: "movePendingToMain" });
-          } else if (statusAnt === "liberados" && statusNovo === "aguardando") {
-            // mover principal -> pendente (2 passos: tira do main, põe no pending)
-            await applyDeltaToCedenteWith(
-              cedenteIdAnt,
-              { latam: -deltaAnt.latam, smiles: -deltaAnt.smiles, livelo: -deltaAnt.livelo, esfera: -deltaAnt.esfera },
-              { mode: "main" }
-            );
-            await applyDeltaToCedenteWith(
-              cedenteIdAnt,
-              { latam:  deltaAnt.latam, smiles:  deltaAnt.smiles, livelo:  deltaAnt.livelo, esfera:  deltaAnt.esfera },
-              { mode: "pending" }
-            );
-          }
+    } else if (cedenteIdAnt && (statusAnt !== statusNovo)) {
+      if (deltaAnt && (deltaAnt.latam || deltaAnt.smiles || deltaAnt.livelo || deltaAnt.esfera)) {
+        if (statusAnt === "aguardando" && statusNovo === "liberados") {
+          await applyDeltaToCedenteWith(cedenteIdAnt, deltaAnt, { mode: "movePendingToMain" });
+        } else if (statusAnt === "liberados" && statusNovo === "aguardando") {
+          await applyDeltaToCedenteWith(cedenteIdAnt, { latam: -deltaAnt.latam, smiles: -deltaAnt.smiles, livelo: -deltaAnt.livelo, esfera: -deltaAnt.esfera }, { mode: "main" });
+          await applyDeltaToCedenteWith(cedenteIdAnt, { latam:  deltaAnt.latam, smiles:  deltaAnt.smiles, livelo:  deltaAnt.livelo, esfera:  deltaAnt.esfera }, { mode: "pending" });
         }
       }
     }
 
-    // ----- 3) Normalizações existentes (totais/itens) -----
     if (Array.isArray(apply.itens) && !apply.totais && !apply.totaisId) {
       const smart = smartTotals(apply.itens as unknown[]);
       const totalsIdObj = {
@@ -706,12 +701,10 @@ export async function PATCH(req: Request): Promise<NextResponse> {
       apply.calculos = { ...totalsIdObj };
     }
 
-    // ----- 4) Campos persistidos -----
     const patchDoc: AnyObj = {};
     if (statusNovo) patchDoc.statusPontos = statusNovo;
     if (typeof apply.dataCompra === "string") patchDoc.dataCompra = apply.dataCompra;
     if (typeof apply.cedenteId === "string") patchDoc.cedenteId = apply.cedenteId;
-
     if (apply.totaisId && isRecord(apply.totaisId)) {
       patchDoc.totaisId = {
         totalPts: num((apply.totaisId as AnyObj).totalPts),
@@ -729,25 +722,13 @@ export async function PATCH(req: Request): Promise<NextResponse> {
         const modo = str(first.modo ?? first.kind);
         patchDoc.modo = modo === "compra" || modo === "transferencia" ? modo : undefined;
         if (patchDoc.modo === "compra") {
-          patchDoc.ciaCompra = str(
-            (first.valores as AnyObj | undefined)?.ciaCompra ??
-              (first.data as AnyObj | undefined)?.programa ??
-              ""
-          ) as CIA;
+          patchDoc.ciaCompra = str((first.valores as AnyObj | undefined)?.ciaCompra ?? (first.data as AnyObj | undefined)?.programa ?? "") as CIA;
           patchDoc.destCia = undefined;
           patchDoc.origem = undefined;
         } else if (patchDoc.modo === "transferencia") {
           patchDoc.ciaCompra = undefined;
-          patchDoc.destCia = str(
-            (first.valores as AnyObj | undefined)?.destCia ??
-              (first.data as AnyObj | undefined)?.destino ??
-              ""
-          ) as CIA;
-          patchDoc.origem = str(
-            (first.valores as AnyObj | undefined)?.origem ??
-              (first.data as AnyObj | undefined)?.origem ??
-              ""
-          ) as Origem;
+          patchDoc.destCia = str((first.valores as AnyObj | undefined)?.destCia ?? (first.data as AnyObj | undefined)?.destino ?? "") as CIA;
+          patchDoc.origem = str((first.valores as AnyObj | undefined)?.origem ?? (first.data as AnyObj | undefined)?.origem ?? "") as Origem;
         }
       }
     }
@@ -763,10 +744,10 @@ export async function PATCH(req: Request): Promise<NextResponse> {
   }
 }
 
-/** ===================== DELETE (?id=) ===================== */
+/** ===================== DELETE (…/id OU ?id=) ===================== */
+// Mantido por compatibilidade, mas o front vai usar PATCH cancelar
 export async function DELETE(req: Request): Promise<NextResponse> {
-  const url = new URL(req.url);
-  const id = url.searchParams.get("id");
+  const id = getIdFromReq(req);
   if (!id) return NextResponse.json({ error: "Missing id" }, { status: 400, headers: noCache() });
 
   try {
@@ -777,22 +758,13 @@ export async function DELETE(req: Request): Promise<NextResponse> {
 
     const cedenteId = str(compra.cedenteId);
 
-    // tenta delta salvo
-    const deltaRaw = isRecord(compra.saldosDelta) ? (compra.saldosDelta as AnyObj) : undefined;
-    let delta = deltaRaw ? toDelta(deltaRaw) : undefined;
-
-    // fallback: calcula pelos itens (somente itens liberados)
+    let delta = isRecord(compra.saldosDelta) ? toDelta(compra.saldosDelta as AnyObj) : undefined;
     if (!delta) {
-      try {
-        delta = computeDeltaPorPrograma((compra.itens as unknown[]) as ItemLinha[]);
-      } catch {
-        delta = undefined;
-      }
+      try { delta = computeDeltaPorPrograma((compra.itens as unknown[]) as ItemLinha[]); } catch { delta = undefined; }
     }
 
     const statusDaCompra = (str(compra.statusPontos) as Status) || "aguardando";
 
-    // Reverter saldos no lugar correto
     if (cedenteId && delta) {
       await applyDeltaToCedenteWith(
         cedenteId,
@@ -801,22 +773,15 @@ export async function DELETE(req: Request): Promise<NextResponse> {
       );
     }
 
-    // Remover comissão vinculada (se houver modelo)
     try {
       const repo = getComissaoRepo();
       if (repo?.delete && cedenteId) {
-        await repo.delete({
-          where: { compraId_cedenteId: { compraId: id, cedenteId } },
-        });
+        await repo.delete({ where: { compraId_cedenteId: { compraId: id, cedenteId } } });
       }
-    } catch {
-      // silencioso
-    }
+    } catch {}
 
-    // Remover a compra
     await deleteCompraById(id);
 
-    // Retornar cedentes atualizados
     const nextCedentes = await loadCedentes();
     return NextResponse.json(
       { ok: true, deleted: id, nextCedentes: nextCedentes.listaCedentes },
