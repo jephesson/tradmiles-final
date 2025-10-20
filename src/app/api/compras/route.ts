@@ -364,6 +364,7 @@ function normalizeFromNewShape(body: AnyObj) {
 }
 
 /** ===================== GET ===================== */
+// [igual ao seu, sem alterações]
 export async function GET(req: Request): Promise<NextResponse> {
   try {
     const url = new URL(req.url);
@@ -503,9 +504,9 @@ export async function GET(req: Request): Promise<NextResponse> {
     });
 
     const total = rows.length;
-    const offsetClamped = Math.max(0, Number.isFinite(offsetRaw) ? offsetRaw : 0);
-    const limitClamped = Math.max(1, Math.min(Number.isFinite(limitRaw) ? limitRaw : 20, 500));
-    const items = rows.slice(offsetClamped, offsetClamped + limitClamped);
+    const offsetRawClamped = Math.max(0, Number.isFinite(offsetRaw) ? offsetRaw : 0);
+    const limitRawClamped = Math.max(1, Math.min(Number.isFinite(limitRaw) ? limitRaw : 20, 500));
+    const items = rows.slice(offsetRawClamped, offsetRawClamped + limitRawClamped);
 
     return NextResponse.json({ ok: true, total, items }, { headers: noCache() });
   } catch (err: unknown) {
@@ -515,6 +516,7 @@ export async function GET(req: Request): Promise<NextResponse> {
 }
 
 /** ===================== POST (upsert idempotente) ===================== */
+// [igual ao seu, sem alterações funcionais]
 export async function POST(req: Request): Promise<NextResponse> {
   try {
     const raw: unknown = await req.json();
@@ -603,6 +605,79 @@ export async function PATCH(req: Request): Promise<NextResponse> {
       return NextResponse.json({ error: "Registro não encontrado" }, { status: 404, headers: noCache() });
     }
 
+    // ========= helpers de estorno inteligente =========
+    function cap(cur: number, inv: number): number {
+      // inv < 0 significa "reduzir" saldo → limita pelo saldo atual para não passar de 0
+      if (inv < 0) return -Math.min(Math.abs(inv), Math.max(0, cur));
+      // inv > 0 significa "aumentar" saldo → ok (clamp final já garante >= 0)
+      return inv;
+    }
+
+    async function splitAndApplyRevert(
+      cedenteId: string,
+      inv: Delta,
+      priority: "main" | "pending"
+    ) {
+      const all = await loadCedentes();
+      const idx = all.listaCedentes.findIndex((c) => c.identificador === cedenteId);
+      if (idx < 0) return;
+
+      const cur = all.listaCedentes[idx];
+
+      // lê saldos atuais de cada bucket
+      const curMain = {
+        latam: num(cur.latam),
+        smiles: num(cur.smiles),
+        livelo: num(cur.livelo),
+        esfera: num(cur.esfera),
+      };
+      const curPend = {
+        latam: num(cur.latam_pend),
+        smiles: num(cur.smiles_pend),
+        livelo: num(cur.livelo_pend),
+        esfera: num(cur.esfera_pend),
+      };
+
+      // prioridade define em qual bucket tentar primeiro
+      const first = priority === "main" ? "main" : "pending";
+      const second = priority === "main" ? "pending" : "main";
+
+      const outFirst: Delta = { latam: 0, smiles: 0, livelo: 0, esfera: 0 };
+      const outSecond: Delta = { latam: 0, smiles: 0, livelo: 0, esfera: 0 };
+
+      (["latam", "smiles", "livelo", "esfera"] as const).forEach((k) => {
+        const want = num(inv[k]); // quanto precisamos reverter ao todo (pode ser + ou -)
+        if (!want) return;
+
+        // tenta no bucket prioritário
+        const curFirst = first === "main" ? curMain[k] : curPend[k];
+        const applyFirst = cap(curFirst, want);
+        outFirst[k] = applyFirst;
+
+        // calcula resto (se capou)
+        const rest = want - applyFirst;
+        if (rest) {
+          const curSecond = second === "main" ? curMain[k] : curPend[k];
+          const applySecond = cap(curSecond, rest);
+          outSecond[k] = applySecond;
+        }
+      });
+
+      // aplica no bucket prioritário
+      if (first === "main") {
+        await applyDeltaToCedenteWith(cedenteId, outFirst, { mode: "main" });
+      } else {
+        await applyDeltaToCedenteWith(cedenteId, outFirst, { mode: "pending" });
+      }
+      // depois no outro bucket (se sobrou resto)
+      if (second === "main") {
+        await applyDeltaToCedenteWith(cedenteId, outSecond, { mode: "main" });
+      } else {
+        await applyDeltaToCedenteWith(cedenteId, outSecond, { mode: "pending" });
+      }
+    }
+    // ========= fim helpers =========
+
     // ====== CANCELAR ======
     if (apply.cancelar === true || apply.cancelada === true) {
       if (atual.cancelada === true) {
@@ -618,11 +693,17 @@ export async function PATCH(req: Request): Promise<NextResponse> {
       }
 
       if (cedenteId && delta) {
-        await applyDeltaToCedenteWith(
-          cedenteId,
-          { latam: -num(delta.latam), smiles: -num(delta.smiles), livelo: -num(delta.livelo), esfera: -num(delta.esfera) },
-          statusDaCompra === "liberados" ? { mode: "main" } : { mode: "pending" }
-        );
+        // inverso do efeito
+        const inv: Delta = {
+          latam: -num(delta.latam),
+          smiles: -num(delta.smiles),
+          livelo: -num(delta.livelo),
+          esfera: -num(delta.esfera),
+        };
+
+        // tenta primeiro no bucket onde (em teoria) estava aplicado; se não der, completa no outro
+        const priority = statusDaCompra === "liberados" ? "main" : "pending";
+        await splitAndApplyRevert(cedenteId, inv, priority);
       }
 
       const patched = await updateCompraById(id, {
@@ -745,7 +826,7 @@ export async function PATCH(req: Request): Promise<NextResponse> {
 }
 
 /** ===================== DELETE (…/id OU ?id=) ===================== */
-// Mantido por compatibilidade, mas o front vai usar PATCH cancelar
+// Mantido por compatibilidade (o front usa PATCH cancelar)
 export async function DELETE(req: Request): Promise<NextResponse> {
   const id = getIdFromReq(req);
   if (!id) return NextResponse.json({ error: "Missing id" }, { status: 400, headers: noCache() });
@@ -766,11 +847,50 @@ export async function DELETE(req: Request): Promise<NextResponse> {
     const statusDaCompra = (str(compra.statusPontos) as Status) || "aguardando";
 
     if (cedenteId && delta) {
-      await applyDeltaToCedenteWith(
-        cedenteId,
-        { latam: -num(delta.latam), smiles: -num(delta.smiles), livelo: -num(delta.livelo), esfera: -num(delta.esfera) },
-        statusDaCompra === "liberados" ? { mode: "main" } : { mode: "pending" }
-      );
+      const inv: Delta = {
+        latam: -num(delta.latam),
+        smiles: -num(delta.smiles),
+        livelo: -num(delta.livelo),
+        esfera: -num(delta.esfera),
+      };
+      // usa mesma lógica "capada" do cancelamento
+      const priority = statusDaCompra === "liberados" ? "main" : "pending";
+
+      // helper inline (mesmo de cima, mas simples aqui)
+      const all = await loadCedentes();
+      const idx = all.listaCedentes.findIndex((c) => c.identificador === cedenteId);
+      if (idx >= 0) {
+        const cur = all.listaCedentes[idx];
+        const get = (k: keyof CedenteRow) => num(cur[k]);
+
+        function cap(curVal: number, invVal: number) {
+          return invVal < 0 ? -Math.min(Math.abs(invVal), Math.max(curVal, 0)) : invVal;
+        }
+
+        const plan = (pri: "main" | "pending") => {
+          const cm = { latam: get("latam"), smiles: get("smiles"), livelo: get("livelo"), esfera: get("esfera") };
+          const cp = { latam: get("latam_pend"), smiles: get("smiles_pend"), livelo: get("livelo_pend"), esfera: get("esfera_pend") };
+          const out1: Delta = { latam: 0, smiles: 0, livelo: 0, esfera: 0 };
+          const out2: Delta = { latam: 0, smiles: 0, livelo: 0, esfera: 0 };
+          (["latam","smiles","livelo","esfera"] as const).forEach((key) => {
+            const want = num(inv[key]);
+            if (!want) return;
+            const curFirst = pri === "main" ? cm[key] : cp[key];
+            const a1 = cap(curFirst, want);
+            out1[key] = a1;
+            const rest = want - a1;
+            if (rest) {
+              const curSecond = pri === "main" ? cp[key] : cm[key];
+              out2[key] = cap(curSecond, rest);
+            }
+          });
+          return { out1, out2 };
+        };
+
+        const { out1, out2 } = plan(priority);
+        await applyDeltaToCedenteWith(cedenteId, out1, { mode: priority });
+        await applyDeltaToCedenteWith(cedenteId, out2, { mode: priority === "main" ? "pending" : "main" });
+      }
     }
 
     try {
