@@ -17,10 +17,16 @@ const fmtInt = (n: number) =>
 function isRecord(v: unknown): v is Record<string, unknown> {
   return !!v && typeof v === "object" && !Array.isArray(v);
 }
-
 function getNum(v: unknown): number {
   const n = Number(v);
   return Number.isFinite(n) ? n : 0;
+}
+function getStrKey(o: unknown, k: string): string {
+  return isRecord(o) && typeof o[k] === "string" ? (o[k] as string) : "";
+}
+function getNestedStr(o: unknown, k1: string, k2: string): string {
+  const lvl1 = isRecord(o) ? o[k1] : undefined;
+  return isRecord(lvl1) && typeof lvl1[k2] === "string" ? (lvl1[k2] as string) : "";
 }
 
 async function extractError(res: Response) {
@@ -40,7 +46,7 @@ async function extractError(res: Response) {
   }
 }
 
-/** ===== Type-guards em tempo de execução ===== */
+/** ===== Type-guards de itens ===== */
 function isItemCompra(x: unknown): boolean {
   return isRecord(x) && x.kind === "compra" && isRecord(x.data) && typeof x.data.programa === "string";
 }
@@ -111,7 +117,7 @@ function rowLucro(c: Record<string, unknown>) {
   const itens = Array.isArray(c.itens) ? c.itens : [];
 
   const ant =
-    getNum(calc?.lucroTotal ?? totId?.lucroTotal) ??
+    getNum(calc?.lucroTotal ?? totId?.lucroTotal) ||
     itens.reduce<number>((s, it) => {
       const resumo = isRecord(it) && isRecord(it.resumo) ? it.resumo : undefined;
       return s + getNum(resumo?.lucroTotal);
@@ -144,6 +150,7 @@ function rowModo(c: Record<string, unknown>): ReactNode {
 }
 
 function rowCiaOrigem(c: Record<string, unknown>): string {
+  // formato antigo explícito
   if (typeof c.modo === "string" && c.modo === "compra") {
     const cia = c.ciaCompra;
     return cia ? (cia === "latam" ? "Latam" : "Smiles") : "—";
@@ -154,6 +161,7 @@ function rowCiaOrigem(c: Record<string, unknown>): string {
     return `${d} ← ${o}`;
   }
 
+  // novo formato (pelos itens)
   const its = Array.isArray(c.itens) ? c.itens : [];
   if (its.length === 0) return "—";
 
@@ -164,7 +172,7 @@ function rowCiaOrigem(c: Record<string, unknown>): string {
   if (compras.length && !transf.length && !clubes.length) {
     const cias = new Set(
       compras
-        .map((x) => (isRecord(x) && isRecord((x as any).data) ? ((x as any).data.programa as string) : ""))
+        .map((x) => getNestedStr(x, "data", "programa"))
         .filter((p) => p === "latam" || p === "smiles")
     );
     if (cias.size === 1) return [...cias][0] === "latam" ? "Latam" : "Smiles";
@@ -172,12 +180,8 @@ function rowCiaOrigem(c: Record<string, unknown>): string {
   }
 
   if (transf.length && !compras.length && !clubes.length) {
-    const dests = new Set(
-      transf.map((x) => (isRecord(x) && isRecord((x as any).data) ? ((x as any).data.destino as string) : ""))
-    );
-    const orgs = new Set(
-      transf.map((x) => (isRecord(x) && isRecord((x as any).data) ? ((x as any).data.origem as string) : ""))
-    );
+    const dests = new Set(transf.map((x) => getNestedStr(x, "data", "destino")));
+    const orgs = new Set(transf.map((x) => getNestedStr(x, "data", "origem")));
     const d = dests.size === 1 ? ([...dests][0] === "latam" ? "Latam" : "Smiles") : "múltiplas";
     const o = orgs.size === 1 ? ([...orgs][0] === "livelo" ? "Livelo" : "Esfera") : "múltiplas";
     return `${d} ← ${o}`;
@@ -295,10 +299,10 @@ export default function ComprasListaPage() {
         setMsg(`Erro ao cancelar: ${await extractError(res)}`);
         return;
       }
-      // Atualiza a linha localmente (sem any explícito)
+      // Atualiza a linha localmente
       setItems((prev) =>
         prev.map((x) =>
-          String(x.id) === id ? { ...x, cancelada: true } as Record<string, unknown> : x
+          String(x.id) === id ? ({ ...x, cancelada: true } as Record<string, unknown>) : x
         )
       );
       setMsg(`Compra ${id} cancelada e estornada.`);
@@ -464,7 +468,7 @@ export default function ComprasListaPage() {
                   <td className="px-3 py-2 text-right">{fmtMoney(rowLucro(c))}</td>
                   <td className="px-3 py-2 text-right">{fmtMoney(rowLucroProjetado(c))}</td>
                   <td className="px-3 py-2">
-                    <StatusChip s={String(c.statusPontos || "")} cancelada={cancelada} />
+                    <StatusChip s={getStrKey(c, "statusPontos")} cancelada={cancelada} />
                   </td>
                   <td className="px-3 py-2 text-right whitespace-nowrap">
                     <Link
@@ -473,7 +477,7 @@ export default function ComprasListaPage() {
                     >
                       Abrir
                     </Link>
-                    {!cancelada && String(c.statusPontos) !== "liberados" && (
+                    {!cancelada && getStrKey(c, "statusPontos") !== "liberados" && (
                       <button
                         className="ml-2 rounded-lg border px-3 py-1 hover:bg-slate-100"
                         onClick={() => handleLiberar(String(c.id))}
