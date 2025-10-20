@@ -60,7 +60,8 @@ type TransfItem = {
   pontosTotais: number;
   valorPago: number;
   bonusPct: number;
-  status: StatusItem;
+  /** ATENÇÃO: transferências são sempre salvas como "liberado" */
+  status: "liberado";
 };
 
 type ItemLinha =
@@ -266,7 +267,7 @@ export default function NovaCompraPage() {
   const [compBonus, setCompBonus] = useState("");
   const [compStatus, setCompStatus] = useState<StatusItem>("aguardando");
 
-  /** Forms — Transferências */
+  /** Forms — Transferências (sem status editável) */
   const [trOrigem, setTrOrigem] = useState<ProgramaOrigem>("livelo");
   const [trDestino, setTrDestino] = useState<ProgramaCIA>("latam");
   const [trModo, setTrModo] = useState<"pontos" | "pontos+dinheiro">("pontos");
@@ -274,7 +275,6 @@ export default function NovaCompraPage() {
   const [trPontosTotais, setTrPontosTotais] = useState("");
   const [trValorPago, setTrValorPago] = useState("");
   const [trBonus, setTrBonus] = useState("");
-  const [trStatus, setTrStatus] = useState<StatusItem>("aguardando");
 
   /** Comissão + meta */
   const [comissaoCedente, setComissaoCedente] = useState(""); // money string
@@ -315,6 +315,7 @@ export default function NovaCompraPage() {
     setOpenCompra(false);
   };
 
+  /** Transferência SEM status "aguardando" — entra sempre como "liberado" */
   const addTransf = () => {
     const pontosUsados = parseIntLoose(trPontosUsados);
     const pontosTotais = trModo === "pontos+dinheiro" ? parseIntLoose(trPontosTotais) : pontosUsados;
@@ -327,14 +328,13 @@ export default function NovaCompraPage() {
       pontosTotais,
       valorPago: parseMoney(trValorPago),
       bonusPct: parseFloat((trBonus || "0").replace(",", ".")) || 0,
-      status: trStatus,
+      status: "liberado",
     };
     setLinhas((prev) => [...prev, { kind: "transferencia", data: it }]);
     setTrPontosUsados("");
     setTrPontosTotais("");
     setTrValorPago("");
     setTrBonus("");
-    setTrStatus("aguardando");
     setTrModo("pontos");
     setOpenTransf(false);
   };
@@ -351,12 +351,13 @@ export default function NovaCompraPage() {
   const toggleStatus = (id: number) => {
     setLinhas((prev) =>
       prev.map((l) => {
+        // transferências não alternam status
+        if (l.kind === "transferencia") return l;
         const item = l.data as { id: number; status: StatusItem };
         if (item.id !== id) return l;
         const next: StatusItem = item.status === "liberado" ? "aguardando" : "liberado";
         if (l.kind === "clube") return { kind: "clube", data: { ...(l.data as ClubeItem), status: next } };
-        if (l.kind === "compra") return { kind: "compra", data: { ...(l.data as CompraItem), status: next } };
-        return { kind: "transferencia", data: { ...(l.data as TransfItem), status: next } };
+        return { kind: "compra", data: { ...(l.data as CompraItem), status: next } };
       })
     );
   };
@@ -423,7 +424,7 @@ export default function NovaCompraPage() {
         const isLiberado =
           (l.kind === "clube" && l.data.status === "liberado") ||
           (l.kind === "compra" && l.data.status === "liberado") ||
-          (l.kind === "transferencia" && l.data.status === "liberado");
+          l.kind === "transferencia"; // transferências contam sempre como liberadas
         if (isLiberado) {
           acc.ptsLiberados += pts;
           acc.custoLiberado += v;
@@ -501,7 +502,8 @@ export default function NovaCompraPage() {
       },
       metaMilheiro: parseMoney(metaMilheiro),
       comissaoCedente: parseMoney(comissaoCedente),
-      comissaoStatus, // novo: salva status junto
+      comissaoStatus, // salva status da comissão
+      // delta previsto por programa, para o backend aplicar nos saldos
       saldosDelta: {
         latam: deltaPrevisto.latam,
         smiles: deltaPrevisto.smiles,
@@ -530,7 +532,6 @@ export default function NovaCompraPage() {
     setMsg(null);
     setSaving("saving");
     try {
-      // 1) Salva compra + aplica Δ de saldos no cedente
       const res = await fetch("/api/compras", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -539,7 +540,7 @@ export default function NovaCompraPage() {
       if (!res.ok) throw new Error(await res.text());
       const body: unknown = await res.json();
 
-      // 2) Upsert da comissão 100% online
+      // Upsert comissão
       const valorComissao = parseMoney(comissaoCedente);
       if (valorComissao > 0 && cedenteId) {
         await fetch("/api/comissoes", {
@@ -555,7 +556,7 @@ export default function NovaCompraPage() {
         });
       }
 
-      // 3) Se vier a lista de cedentes atualizada, reflita na UI (sem any)
+      // Recarrega lista de cedentes se vier no payload
       if (Array.isArray((body as { nextCedentes?: unknown[] }).nextCedentes)) {
         type CedenteApi = Partial<CedenteRaw> & { nome?: string };
         const nextListRaw = (body as { nextCedentes: unknown[] }).nextCedentes;
@@ -573,7 +574,7 @@ export default function NovaCompraPage() {
         setCedentes(proximaLista);
       }
 
-      // 4) Pega próximo ID online
+      // Próximo ID
       try {
         const r2 = await fetch("/api/compras/next-id", { cache: "no-store" });
         const j2 = r2.ok ? await r2.json() : null;
@@ -894,30 +895,19 @@ export default function NovaCompraPage() {
               <Pct value={trBonus} onChange={setTrBonus} placeholder="ex.: 70" />
             </div>
 
-            <div>
-              <label className="mb-1 block text-xs text-slate-600">Status inicial</label>
-              <select
-                value={trStatus}
-                onChange={(e) => setTrStatus(e.target.value as StatusItem)}
-                className="w-full rounded-xl border px-3 py-2 text-sm"
-              >
-                <option value="aguardando">Aguardando</option>
-                <option value="liberado">Liberado</option>
-              </select>
-            </div>
-
-            <div className="md:col-span-8 flex items-end">
-              <button className="w-full rounded-lg bg-black px-3 py-2 text-sm text-white hover:opacity-90" onClick={addTransf}>
-                Adicionar
-              </button>
-            </div>
-
+            {/* Sem status para transferência */}
             <div className="md:col-span-8 text-[11px] text-slate-600">
               * Chegam na CIA:{" "}
               <b>
                 {trModo === "pontos+dinheiro" ? "pts transferidos × (1 + bônus%)" : "pontos usados × (1 + bônus%)"}
               </b>
               .
+            </div>
+
+            <div className="md:col-span-8 flex items-end">
+              <button className="w-full rounded-lg bg-black px-3 py-2 text-sm text-white hover:opacity-90" onClick={addTransf}>
+                Adicionar
+              </button>
             </div>
           </div>
         )}
@@ -1024,7 +1014,7 @@ function Carrinho({
   return (
     <ul className="divide-y">
       {linhas.map((l) => {
-        const item = l.data as { id: number; status: StatusItem };
+        const item = l.data as { id: number; status: StatusItem | "liberado" };
         const resumo = renderResumoUnico(l);
         return (
           <li
@@ -1038,18 +1028,24 @@ function Carrinho({
               <span className="text-slate-700">{resumo}</span>
             </div>
             <div className="flex items-center gap-2">
-              <button
-                className={
-                  "rounded border px-2 py-1 text-xs " +
-                  (item.status === "liberado"
-                    ? "bg-green-50 border-green-200 text-green-700"
-                    : "bg-yellow-50 border-yellow-200 text-yellow-700")
-                }
-                onClick={() => onToggleStatus(item.id)}
-                title="Alternar status (Aguardando / Liberado)"
-              >
-                {item.status === "liberado" ? "Liberado" : "Aguardando"}
-              </button>
+              {l.kind !== "transferencia" ? (
+                <button
+                  className={
+                    "rounded border px-2 py-1 text-xs " +
+                    (item.status === "liberado"
+                      ? "bg-green-50 border-green-200 text-green-700"
+                      : "bg-yellow-50 border-yellow-200 text-yellow-700")
+                  }
+                  onClick={() => onToggleStatus(item.id)}
+                  title="Alternar status (Aguardando / Liberado)"
+                >
+                  {item.status === "liberado" ? "Liberado" : "Aguardando"}
+                </button>
+              ) : (
+                <span className="rounded border border-green-200 bg-green-50 px-2 py-1 text-xs text-green-700">
+                  Liberado
+                </span>
+              )}
               <button className="rounded border px-2 py-1 text-xs hover:bg-slate-100" onClick={() => onRemove(item.id)}>
                 Remover
               </button>
