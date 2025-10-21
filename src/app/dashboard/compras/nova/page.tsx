@@ -49,6 +49,16 @@ function hojeISO() {
   const d2 = new Date(d.getTime() - off * 60 * 1000);
   return d2.toISOString().slice(0, 10);
 }
+function isRecord(x: unknown): x is Record<string, unknown> {
+  return !!x && typeof x === "object" && !Array.isArray(x);
+}
+function getNum(v: unknown): number {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : 0;
+}
+function getStr(v: unknown): string {
+  return typeof v === "string" ? v : "";
+}
 
 /** ===== Tipos auxiliares (server) ===== */
 type StatusComissao = "pago" | "aguardando";
@@ -83,7 +93,6 @@ async function apiFetch(path: string, init: RequestInit = {}) {
   const base = `${proto}://${host}`;
 
   const reqHeaders = new Headers(init.headers ?? {});
-
   const jar = await cookies();
   const cookieHeader = jar.getAll().map(c => `${c.name}=${c.value}`).join("; ");
   if (cookieHeader) reqHeaders.set("cookie", cookieHeader);
@@ -156,6 +165,83 @@ async function loadNextCompraId(): Promise<string> {
   }
 }
 
+/** ======= Carregar compra por ID (para editar) ======= */
+async function loadCompraById(id: string): Promise<Record<string, unknown> | null> {
+  try {
+    let res = await apiFetch(`/api/compras/${encodeURIComponent(id)}`, { method: "GET", cache: "no-store" });
+    if (!res.ok && (res.status === 404 || res.status === 405)) {
+      res = await apiFetch(`/api/compras?id=${encodeURIComponent(id)}`, { method: "GET", cache: "no-store" });
+    }
+    if (!res.ok) return null;
+    return await res.json();
+  } catch {
+    return null;
+  }
+}
+
+/** ====== Coerção dos itens da API -> ItemLinha (engine) ====== */
+function coerceItemLinha(u: unknown): ItemLinha | null {
+  if (!isRecord(u)) return null;
+
+  // aceitamos modelo { kind, data } OU top-level (data "achatada")
+  const kindRaw = getStr(u.kind) || getStr((u as any).tipo);
+  const dataRaw: Record<string, unknown> = isRecord(u.data) ? (u.data as Record<string, unknown>) : u;
+
+  // tenta inferir kind se não veio explícito
+  let kind = kindRaw as ItemLinha["kind"] | "";
+  if (!kind) {
+    if (getStr(dataRaw.origem) && getStr(dataRaw.destino)) kind = "transferencia";
+    else if (getStr(dataRaw.programa) && (dataRaw as any).bonusPct !== undefined) kind = "compra";
+    else if (getStr(dataRaw.programa)) kind = "clube";
+  }
+
+  const id = Number((dataRaw as any).id ?? (u as any).id ?? Date.now());
+  const status = (getStr((dataRaw as any).status) || "aguardando") as StatusItem;
+
+  if (kind === "clube") {
+    const it: ClubeItem = {
+      id,
+      programa: getStr((dataRaw as any).programa) as ProgramaGeral,
+      pontos: getNum((dataRaw as any).pontos),
+      valor: getNum((dataRaw as any).valor),
+      status,
+    };
+    return { kind: "clube", data: it };
+  }
+
+  if (kind === "compra") {
+    const it: CompraItem = {
+      id,
+      programa: getStr((dataRaw as any).programa) as ProgramaGeral,
+      pontos: getNum((dataRaw as any).pontos),
+      valor: getNum((dataRaw as any).valor),
+      bonusPct: getNum((dataRaw as any).bonusPct),
+      status,
+    };
+    return { kind: "compra", data: it };
+  }
+
+  if (kind === "transferencia") {
+    const modo = getStr((dataRaw as any).modo) as "pontos" | "pontos+dinheiro";
+    const pontosUsados = getNum((dataRaw as any).pontosUsados);
+    const pontosTotais = getNum((dataRaw as any).pontosTotais) || pontosUsados;
+    const it: TransfItem = {
+      id,
+      origem: getStr((dataRaw as any).origem) as ProgramaOrigem,
+      destino: getStr((dataRaw as any).destino) as ProgramaCIA,
+      modo,
+      pontosUsados,
+      pontosTotais,
+      valorPago: getNum((dataRaw as any).valorPago),
+      bonusPct: getNum((dataRaw as any).bonusPct),
+      status,
+    };
+    return { kind: "transferencia", data: it };
+  }
+
+  return null;
+}
+
 /**
  * ===== Base do draft =====
  */
@@ -182,9 +268,52 @@ async function ensureDraftBase(persistOnInit = false) {
   return d;
 }
 
-/** ===== Persistência do draft em /api/* (sem redirect) ===== */
+/** ===== Quando vier da lista: carregar a compra (online) e seedar o draft ===== */
+async function ensureDraftFromCompraId(idParam: string) {
+  const wantId = String(idParam || "").replace(/[^\d]/g, "");
+  if (!wantId) return;
+
+  const current = await readDraft();
+  if (current?.compraId === wantId && current?.linhas?.length) return; // já está correto
+
+  // busca compra atual no backend
+  const raw = await loadCompraById(wantId);
+  const cedentes = await loadCedentes();
+
+  // base existente ou nova
+  let draft: Draft = {
+    compraId: wantId,
+    dataCompra: hojeISO(),
+    cedenteId: cedentes[0]?.id ?? "",
+    linhas: [],
+    comissaoCedente: 0,
+    comissaoStatus: "aguardando",
+    metaMilheiro: 1.5,
+  };
+
+  if (raw) {
+    const itensRaw = (raw as any).itens ?? (raw as any).data?.itens ?? [];
+    const linhas: ItemLinha[] = (Array.isArray(itensRaw) ? itensRaw : [])
+      .map(coerceItemLinha)
+      .filter(Boolean) as ItemLinha[];
+
+    draft = {
+      compraId: wantId,
+      dataCompra: getStr((raw as any).dataCompra) || hojeISO(),
+      cedenteId: getStr((raw as any).cedenteId) || draft.cedenteId,
+      linhas,
+      comissaoCedente: getNum((raw as any).comissaoCedente),
+      comissaoStatus: (getStr((raw as any).comissaoStatus) as StatusComissao) || "aguardando",
+      metaMilheiro: getNum((raw as any).metaMilheiro) || draft.metaMilheiro,
+    };
+  }
+
+  await writeDraft(draft);
+}
+
+/** ===== Persistência do draft em /api/* (PATCH se existir, fallback) ===== */
 async function persistDraft(d: Draft) {
-  // Mantém o delta da persistência como "liberado" (comportamento atual)
+  // deltas/totais
   const deltaPrevisto = computeDeltaPorPrograma(d.linhas);
   const totals = computeTotais(d.linhas, d.comissaoCedente, d.metaMilheiro, 1);
 
@@ -221,12 +350,34 @@ async function persistDraft(d: Draft) {
     },
   };
 
-  const res = await apiFetch("/api/compras", {
-    method: "POST",
+  // 1) tenta PATCH /api/compras/:id
+  let res = await apiFetch(`/api/compras/${encodeURIComponent(d.compraId)}`, {
+    method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
     cache: "no-store",
   });
+
+  // 2) fallback PATCH ?id=
+  if (!res.ok && (res.status === 404 || res.status === 405)) {
+    res = await apiFetch(`/api/compras?id=${encodeURIComponent(d.compraId)}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+      cache: "no-store",
+    });
+  }
+
+  // 3) se ainda não der, cria via POST (upsert de última instância)
+  if (!res.ok) {
+    res = await apiFetch("/api/compras", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+      cache: "no-store",
+    });
+  }
+
   if (!res.ok) throw new Error("Erro ao salvar a compra");
 
   if (d.comissaoCedente > 0 && d.cedenteId) {
@@ -255,7 +406,7 @@ async function actUpdateHeader(formData: FormData) {
   d.compraId = String(formData.get("compraId") || d.compraId).replace(/[^\d]/g, "").padStart(4, "0");
   d.cedenteId = String(formData.get("cedenteId") || d.cedenteId);
   await writeDraft(d);
-  redirect("/dashboard/compras/nova");
+  redirect("/dashboard/compras/nova?compraId=" + encodeURIComponent(d.compraId) + "&append=1");
 }
 
 /** Comissão + Meta */
@@ -266,7 +417,7 @@ async function actUpdateComissaoMeta(formData: FormData) {
   d.comissaoStatus = (String(formData.get("comissaoStatus")) as StatusComissao) || "aguardando";
   d.metaMilheiro = parseMoneyLoose(formData.get("metaMilheiro"));
   await writeDraft(d);
-  redirect("/dashboard/compras/nova");
+  redirect("/dashboard/compras/nova?compraId=" + encodeURIComponent(d.compraId) + "&append=1");
 }
 
 /** Add Clube */
@@ -282,7 +433,7 @@ async function actAddClube(formData: FormData) {
   };
   d.linhas.push({ kind: "clube", data: it });
   await writeDraft(d);
-  redirect("/dashboard/compras/nova");
+  redirect("/dashboard/compras/nova?compraId=" + encodeURIComponent(d.compraId) + "&append=1");
 }
 
 /** Add Compra */
@@ -299,7 +450,7 @@ async function actAddCompra(formData: FormData) {
   };
   d.linhas.push({ kind: "compra", data: it });
   await writeDraft(d);
-  redirect("/dashboard/compras/nova");
+  redirect("/dashboard/compras/nova?compraId=" + encodeURIComponent(d.compraId) + "&append=1");
 }
 
 /** Add Transferência (entra como AGUARDANDO nesta tela) */
@@ -322,7 +473,7 @@ async function actAddTransf(formData: FormData) {
   };
   d.linhas.push({ kind: "transferencia", data: it });
   await writeDraft(d);
-  redirect("/dashboard/compras/nova");
+  redirect("/dashboard/compras/nova?compraId=" + encodeURIComponent(d.compraId) + "&append=1");
 }
 
 /** Toggle status (apenas clube/compra) */
@@ -339,7 +490,7 @@ async function actToggleStatus(formData: FormData) {
       : { kind: "compra", data: { ...(l.data as CompraItem), status: next } };
   });
   await writeDraft(d);
-  redirect("/dashboard/compras/nova");
+  redirect("/dashboard/compras/nova?compraId=" + encodeURIComponent(d.compraId) + "&append=1");
 }
 
 /** Remover item */
@@ -349,7 +500,7 @@ async function actRemoveItem(formData: FormData) {
   const id = Number(formData.get("itemId"));
   d.linhas = d.linhas.filter((l) => l.data.id !== id);
   await writeDraft(d);
-  redirect("/dashboard/compras/nova");
+  redirect("/dashboard/compras/nova?compraId=" + encodeURIComponent(d.compraId) + "&append=1");
 }
 
 /** Salvar (permanece na página nova) */
@@ -358,7 +509,7 @@ async function actSave() {
   const d = (await ensureDraftBase(true))!;
   await persistDraft(d);
   await clearDraft();
-  redirect("/dashboard/compras/nova");
+  redirect("/dashboard/compras/nova?compraId=" + encodeURIComponent(d.compraId) + "&append=1");
 }
 
 /** Salvar e voltar para a lista */
@@ -371,16 +522,24 @@ async function actSaveAndBack() {
 }
 
 /** ======= Página (Server Component) ======= */
-export default async function NovaCompraPage() {
+export default async function NovaCompraPage({
+  searchParams,
+}: {
+  searchParams?: { compraId?: string; append?: string };
+}) {
+  // Se vier da lista com ?compraId=, sempre resgata online e popula o draft para edição
+  if (searchParams?.compraId) {
+    await ensureDraftFromCompraId(String(searchParams.compraId));
+  }
+
   const d = (await ensureDraftBase(false))!;
   const cedentes = await loadCedentes();
   const cedente = cedentes.find((c) => c.id === d.cedenteId);
 
   // ==== Painel de saldos: atual + previsão ====
-  // 1) Delta "liberado" (estado real)
   const deltaLiberado = computeDeltaPorPrograma(d.linhas);
 
-  // 2) PREVISÃO: trata cada item como "liberado" respeitando a união discriminada
+  // PREVISÃO: trata cada item como "liberado"
   const linhasComoLiberadas: ItemLinha[] = d.linhas.map((l) => {
     switch (l.kind) {
       case "clube": {

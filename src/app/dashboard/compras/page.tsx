@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useRef, useState, ReactNode, Fragment } from "react";
+import { useRouter } from "next/navigation";
 
 /** ===== Helpers gerais ===== */
 const fmtMoney = (v: number) =>
@@ -134,9 +135,10 @@ function rowTotalPts(c: Record<string, unknown>) {
 
   const itens = Array.isArray(c.itens) ? c.itens : [];
   const somaResumo = itens.reduce<number>((s, it) => {
-    const r = isRecord(it) && isRecord((it as Record<string, unknown>).resumo)
-      ? (it as Record<string, unknown>).resumo
-      : undefined;
+    const r =
+      isRecord(it) && isRecord((it as Record<string, unknown>).resumo)
+        ? (it as Record<string, unknown>).resumo
+        : undefined;
     return s + getNum(getKey(r, "totalPts"));
   }, 0);
   return somaResumo;
@@ -179,9 +181,10 @@ function rowLucro(c: Record<string, unknown>) {
   const ant =
     getNum(getKey(calc, "lucroTotal") ?? getKey(totId, "lucroTotal")) ||
     itens.reduce<number>((s, it) => {
-      const r = isRecord(it) && isRecord((it as Record<string, unknown>).resumo)
-        ? (it as Record<string, unknown>).resumo
-        : undefined;
+      const r =
+        isRecord(it) && isRecord((it as Record<string, unknown>).resumo)
+          ? (it as Record<string, unknown>).resumo
+          : undefined;
       return s + getNum(getKey(r, "lucroTotal"));
     }, 0);
   return ant;
@@ -321,6 +324,8 @@ function itemResumo(x: unknown): string {
 
 /** ===== Page ===== */
 export default function ComprasListaPage() {
+  const router = useRouter();
+
   // filtros
   const [q, setQ] = useState("");
   const [modo, setModo] = useState("");
@@ -350,7 +355,6 @@ export default function ComprasListaPage() {
   useEffect(() => {
     let timer: number | undefined;
     function start() {
-      // Só atualiza quando a aba está visível
       if (document.visibilityState === "visible") {
         timer = window.setInterval(() => setRefreshTick((t) => t + 1), 15000);
       }
@@ -412,7 +416,8 @@ export default function ComprasListaPage() {
 
       // se já veio na lista com itens, usa direto
       const row = items.find((r) => String((r as { id?: unknown }).id) === expandedId);
-      const jaTem = isRecord(row) && Array.isArray((row as { itens?: unknown[] }).itens) && (row as { itens: unknown[] }).itens.length > 0;
+      const jaTem =
+        isRecord(row) && Array.isArray((row as { itens?: unknown[] }).itens) && (row as { itens: unknown[] }).itens.length > 0;
       if (jaTem) {
         setDetailsById((prev) => ({ ...prev, [expandedId]: { itens: (row as { itens: unknown[] }).itens } }));
       } else if (!detailsById[expandedId]) {
@@ -430,13 +435,11 @@ export default function ComprasListaPage() {
           /* ignore */
         } finally {
           setLoadingDetails(false);
-          // rolar suavemente até a faixa expandida
           requestAnimationFrame(() => {
             expandedRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
           });
         }
       } else {
-        // já tinha detalhes; apenas rola
         requestAnimationFrame(() => {
           expandedRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
         });
@@ -466,7 +469,6 @@ export default function ComprasListaPage() {
         setMsg(`Erro ao cancelar: ${await extractError(res)}`);
         return;
       }
-      // Marca cancelada localmente
       setItems((prev) =>
         prev.map((x) => (String((x as { id?: unknown }).id) === id ? { ...x, cancelada: true } : x))
       );
@@ -489,7 +491,6 @@ export default function ComprasListaPage() {
 
     setMsg(null);
     try {
-      // tenta /api/compras/:id; se 404/405, tenta ?id=
       let res = await fetch(`/api/compras/${encodeURIComponent(id)}`, { method: "DELETE" });
       if (!res.ok && (res.status === 404 || res.status === 405)) {
         res = await fetch(`/api/compras?id=${encodeURIComponent(id)}`, { method: "DELETE" });
@@ -529,109 +530,14 @@ export default function ComprasListaPage() {
     }
   }
 
-  // Liberar item (3 tentativas de API para compat)
-  async function handleLiberarItem(compraId: string, itemId: number | string) {
-    const idStr = String(compraId);
-    const itIdStr = String(itemId);
+  // Redirecionar para tela "Nova compra" para adicionar item dentro do mesmo ID
+  function goAdicionarItem(compraId: string) {
     try {
-      let res = await fetch(`/api/compras/${encodeURIComponent(idStr)}/itens/${encodeURIComponent(itIdStr)}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status: "liberado" }),
-      });
-
-      if (!res.ok && (res.status === 404 || res.status === 405)) {
-        // fallback 1
-        res = await fetch(`/api/compras/${encodeURIComponent(idStr)}`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ liberarItemId: itemId }),
-        });
-      }
-      if (!res.ok && (res.status === 404 || res.status === 405)) {
-        // fallback 2
-        res = await fetch(`/api/compras/${encodeURIComponent(idStr)}`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ itemId, status: "liberado" }),
-        });
-      }
-      if (!res.ok) throw new Error(await extractError(res));
-
-      // Atualiza localmente
-      setDetailsById((prev) => {
-        const cur = prev[idStr];
-        if (!cur) return prev;
-        const itens = (cur.itens || []).map((x) => markItemLiberado(x, itIdStr));
-        return { ...prev, [idStr]: { itens } };
-      });
-
-      // Se todos ficaram liberados, marca a compra como liberada
-      setItems((prev) =>
-        prev.map((r) => {
-          if (String((r as { id?: unknown }).id) !== idStr) return r;
-          const detalhes = detailsById[idStr]?.itens || [];
-          const itensDepois = detalhes.length > 0 ? detalhes.map((x) => markItemLiberado(x, itIdStr)) : [];
-          const aindaAguardando = itensDepois.some((x) => itemStatus(x) !== "liberado");
-          return aindaAguardando ? r : { ...r, statusPontos: "liberados" };
-        })
-      );
-
-      try { localStorage.setItem("TM_COMPRAS_REFRESH", String(Date.now())); } catch {}
-    } catch (err: unknown) {
-      const e = err as { message?: string };
-      setMsg(e?.message || "Erro ao liberar item");
-      setTimeout(() => setMsg(null), 3000);
-    }
-  }
-
-  /** ===== Adicionar Item (UI + ação) ===== */
-  async function handleAddItem(compraId: string, item: Record<string, unknown>) {
-    setMsg(null);
-    try {
-      // 1) rota dedicada
-      let res = await fetch(`/api/compras/${encodeURIComponent(compraId)}/itens`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ item }),
-      });
-
-      // 2) compat: PATCH addItem
-      if (!res.ok && (res.status === 404 || res.status === 405)) {
-        res = await fetch(`/api/compras/${encodeURIComponent(compraId)}`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ addItem: item }),
-        });
-      }
-
-      // 3) fallback: PATCH com itens completos
-      if (!res.ok && (res.status === 404 || res.status === 405)) {
-        // busca itens atuais
-        let det = await fetch(`/api/compras/${encodeURIComponent(compraId)}`, { cache: "no-store" });
-        if (!det.ok) det = await fetch(`/api/compras?id=${encodeURIComponent(compraId)}`, { cache: "no-store" });
-        const js = await det.json();
-        const atuais = ((js.itens || js.data?.itens || []) as unknown[]).slice();
-        atuais.push(item);
-        res = await fetch(`/api/compras/${encodeURIComponent(compraId)}`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ itens: atuais }),
-        });
-      }
-
-      if (!res.ok) throw new Error(await extractError(res));
-
-      // Força refresh em todos
-      try { localStorage.setItem("TM_COMPRAS_REFRESH", String(Date.now())); } catch {}
-      setRefreshTick((t) => t + 1);
-      setMsg("Item adicionado.");
-    } catch (err: unknown) {
-      const e = err as { message?: string };
-      setMsg(e?.message || "Erro ao adicionar item");
-    } finally {
-      setTimeout(() => setMsg(null), 3000);
-    }
+      // contexto leve para a tela "nova"
+      const payload = { compraId, append: true, ts: Date.now() };
+      localStorage.setItem("TM_COMPRAS_EDIT_CTX", JSON.stringify(payload));
+    } catch { /* ignore */ }
+    router.push(`/dashboard/compras/nova?compraId=${encodeURIComponent(compraId)}&append=1`);
   }
 
   /** ===== Linha expandida ===== */
@@ -639,82 +545,6 @@ export default function ComprasListaPage() {
     const id = String(compra.id || "");
     const cancelada = (compra as { cancelada?: unknown }).cancelada === true;
     const itens = detailsById[id]?.itens || [];
-
-    // UI de novo item
-    const [addOpen, setAddOpen] = useState(false);
-    const [saving, setSaving] = useState(false);
-    const [tipo, setTipo] = useState<"clube" | "compra" | "transferencia">("clube");
-
-    // campos comuns/por tipo
-    const [programa, setPrograma] = useState(""); // clube/compra
-    const [orig, setOrig] = useState(""); // transf
-    const [dest, setDest] = useState(""); // transf
-    const [modoT, setModoT] = useState<"" | "pontos" | "pontos+dinheiro">("");
-    const [pontos, setPontos] = useState<string>(""); // clube/compra
-    const [valor, setValor] = useState<string>(""); // clube/compra
-    const [bonusPct, setBonusPct] = useState<string>("");
-    const [pontosUsados, setPontosUsados] = useState<string>("");
-    const [pontosTotais, setPontosTotais] = useState<string>("");
-    const [valorPago, setValorPago] = useState<string>("");
-
-    function limparForm() {
-      setPrograma("");
-      setOrig("");
-      setDest("");
-      setModoT("");
-      setPontos("");
-      setValor("");
-      setBonusPct("");
-      setPontosUsados("");
-      setPontosTotais("");
-      setValorPago("");
-    }
-
-    async function onSalvarNovoItem() {
-      // monta objeto item
-      let data: Record<string, unknown> = {};
-      if (tipo === "clube") {
-        data = {
-          programa,
-          pontos: Number(pontos) || 0,
-          valor: Number(valor) || 0,
-          status: "aguardando",
-        };
-      } else if (tipo === "compra") {
-        data = {
-          programa,
-          pontos: Number(pontos) || 0,
-          bonusPct: Number(bonusPct) || 0,
-          valor: Number(valor) || 0,
-          status: "aguardando",
-        };
-      } else {
-        data = {
-          origem: orig,
-          destino: dest,
-          modo: modoT,
-          pontosUsados: Number(pontosUsados) || 0,
-          pontosTotais: Number(pontosTotais) || 0,
-          bonusPct: Number(bonusPct) || 0,
-          valorPago: Number(valorPago) || 0,
-          status: "aguardando",
-        };
-      }
-
-      // gera um ID local (server pode ignorar e gerar outro)
-      const localId = Date.now();
-
-      const item: Record<string, unknown> = { id: localId, kind: tipo, data };
-      setSaving(true);
-      await handleAddItem(id, item);
-      setSaving(false);
-      setAddOpen(false);
-      limparForm();
-      // reposiciona view
-      requestAnimationFrame(() => {
-        expandedRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-      });
-    }
 
     return (
       <tr ref={expandedRef}>
@@ -733,9 +563,9 @@ export default function ComprasListaPage() {
                   <>
                     <button
                       className="rounded-lg border px-3 py-1 text-sm hover:bg-slate-100"
-                      onClick={() => setAddOpen((v) => !v)}
+                      onClick={() => goAdicionarItem(id)}
                     >
-                      {addOpen ? "Cancelar" : "Adicionar item"}
+                      Adicionar item
                     </button>
                     <button
                       className="rounded-lg border bg-black px-3 py-1 text-sm text-white hover:opacity-90"
@@ -747,128 +577,6 @@ export default function ComprasListaPage() {
                 )}
               </div>
             </div>
-
-            {addOpen && (
-              <div className="mb-3 rounded-lg border border-slate-200 bg-slate-50 p-3">
-                <div className="mb-2 text-sm font-medium">Novo item</div>
-                <div className="grid grid-cols-1 gap-2 md:grid-cols-6">
-                  <select
-                    value={tipo}
-                    onChange={(e) => setTipo(e.target.value as typeof tipo)}
-                    className="rounded-lg border px-2 py-1 text-sm md:col-span-2"
-                  >
-                    <option value="clube">Clube</option>
-                    <option value="compra">Compra</option>
-                    <option value="transferencia">Transferência</option>
-                  </select>
-
-                  {tipo !== "transferencia" ? (
-                    <>
-                      <input
-                        placeholder="Programa (livelo/esfera ou latam/smiles)"
-                        value={programa}
-                        onChange={(e) => setPrograma(e.target.value)}
-                        className="rounded-lg border px-2 py-1 text-sm md:col-span-2"
-                      />
-                      <input
-                        placeholder="Pontos"
-                        value={pontos}
-                        onChange={(e) => setPontos(e.target.value)}
-                        className="rounded-lg border px-2 py-1 text-sm"
-                        inputMode="numeric"
-                      />
-                      <input
-                        placeholder={tipo === "compra" ? "Bônus %" : "Valor"}
-                        value={tipo === "compra" ? bonusPct : valor}
-                        onChange={(e) => (tipo === "compra" ? setBonusPct(e.target.value) : setValor(e.target.value))}
-                        className="rounded-lg border px-2 py-1 text-sm"
-                        inputMode="decimal"
-                      />
-                      {tipo === "compra" && (
-                        <input
-                          placeholder="Valor"
-                          value={valor}
-                          onChange={(e) => setValor(e.target.value)}
-                          className="rounded-lg border px-2 py-1 text-sm md:col-span-2"
-                          inputMode="decimal"
-                        />
-                      )}
-                    </>
-                  ) : (
-                    <>
-                      <input
-                        placeholder="Origem (livelo/esfera)"
-                        value={orig}
-                        onChange={(e) => setOrig(e.target.value)}
-                        className="rounded-lg border px-2 py-1 text-sm"
-                      />
-                      <input
-                        placeholder="Destino (latam/smiles)"
-                        value={dest}
-                        onChange={(e) => setDest(e.target.value)}
-                        className="rounded-lg border px-2 py-1 text-sm"
-                      />
-                      <select
-                        value={modoT}
-                        onChange={(e) => setModoT(e.target.value as typeof modoT)}
-                        className="rounded-lg border px-2 py-1 text-sm"
-                      >
-                        <option value="">Modo</option>
-                        <option value="pontos">pontos</option>
-                        <option value="pontos+dinheiro">pontos+dinheiro</option>
-                      </select>
-                      <input
-                        placeholder="Pontos usados"
-                        value={pontosUsados}
-                        onChange={(e) => setPontosUsados(e.target.value)}
-                        className="rounded-lg border px-2 py-1 text-sm"
-                        inputMode="numeric"
-                      />
-                      <input
-                        placeholder="Pontos totais (se p+d)"
-                        value={pontosTotais}
-                        onChange={(e) => setPontosTotais(e.target.value)}
-                        className="rounded-lg border px-2 py-1 text-sm"
-                        inputMode="numeric"
-                      />
-                      <input
-                        placeholder="Bônus %"
-                        value={bonusPct}
-                        onChange={(e) => setBonusPct(e.target.value)}
-                        className="rounded-lg border px-2 py-1 text-sm"
-                        inputMode="decimal"
-                      />
-                      <input
-                        placeholder="Valor pago"
-                        value={valorPago}
-                        onChange={(e) => setValorPago(e.target.value)}
-                        className="rounded-lg border px-2 py-1 text-sm"
-                        inputMode="decimal"
-                      />
-                    </>
-                  )}
-                </div>
-                <div className="mt-2 flex justify-end gap-2">
-                  <button
-                    className="rounded-lg border px-3 py-1 text-sm hover:bg-slate-100"
-                    onClick={() => {
-                      setAddOpen(false);
-                      limparForm();
-                    }}
-                    disabled={saving}
-                  >
-                    Cancelar
-                  </button>
-                  <button
-                    className="rounded-lg border bg-black px-3 py-1 text-sm text-white hover:opacity-90 disabled:opacity-50"
-                    onClick={onSalvarNovoItem}
-                    disabled={saving}
-                  >
-                    {saving ? "Salvando..." : "Salvar item"}
-                  </button>
-                </div>
-            </div>
-            )}
 
             {loadingDetails ? (
               <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">
