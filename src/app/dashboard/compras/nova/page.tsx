@@ -1,4 +1,3 @@
-// app/dashboard/compras/nova/page.tsx
 import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 
@@ -83,15 +82,12 @@ async function apiFetch(path: string, init: RequestInit = {}) {
   const host = hdrs.get("x-forwarded-host") ?? hdrs.get("host") ?? "localhost:3000";
   const base = `${proto}://${host}`;
 
-  // Normaliza headers do request usando a classe Headers
   const reqHeaders = new Headers(init.headers ?? {});
 
-  // Copia todos os cookies da req atual
   const jar = await cookies();
   const cookieHeader = jar.getAll().map(c => `${c.name}=${c.value}`).join("; ");
   if (cookieHeader) reqHeaders.set("cookie", cookieHeader);
 
-  // Encaminha Authorization se existir
   const auth = hdrs.get("authorization");
   if (auth && !reqHeaders.has("authorization")) {
     reqHeaders.set("authorization", auth);
@@ -162,8 +158,6 @@ async function loadNextCompraId(): Promise<string> {
 
 /**
  * ===== Base do draft =====
- * persistOnInit=false: NÃO grava cookie durante o render (evita set-cookie em Server Component).
- * Em Server Actions, passe true para persistir.
  */
 async function ensureDraftBase(persistOnInit = false) {
   let d = await readDraft();
@@ -251,7 +245,7 @@ async function persistDraft(d: Draft) {
   }
 }
 
-/** ===== Server Actions (no exports aqui!) ===== */
+/** ===== Server Actions ===== */
 
 /** Cabeçalho */
 async function actUpdateHeader(formData: FormData) {
@@ -383,16 +377,25 @@ export default async function NovaCompraPage() {
   const cedente = cedentes.find((c) => c.id === d.cedenteId);
 
   // ==== Painel de saldos: atual + previsão ====
-  // 1) Delta "liberado" (estado real, como a engine já calcula)
+  // 1) Delta "liberado" (estado real)
   const deltaLiberado = computeDeltaPorPrograma(d.linhas);
 
-  // 2) PREVISÃO: trata todos os itens como "liberado" apenas para exibir no painel (sem 'any')
+  // 2) PREVISÃO: trata cada item como "liberado" respeitando a união discriminada
   const linhasComoLiberadas: ItemLinha[] = d.linhas.map((l) => {
-    const dataComStatus: ClubeItem | CompraItem | TransfItem = {
-      ...(l.data as ClubeItem | CompraItem | TransfItem),
-      status: "liberado" as StatusItem,
-    };
-    return { kind: l.kind, data: dataComStatus };
+    switch (l.kind) {
+      case "clube": {
+        const data: ClubeItem = { ...l.data, status: "liberado" };
+        return { kind: "clube", data };
+      }
+      case "compra": {
+        const data: CompraItem = { ...l.data, status: "liberado" };
+        return { kind: "compra", data };
+      }
+      case "transferencia": {
+        const data: TransfItem = { ...l.data, status: "liberado" };
+        return { kind: "transferencia", data };
+      }
+    }
   });
   const deltaPrevisto = computeDeltaPorPrograma(linhasComoLiberadas);
 
