@@ -108,7 +108,7 @@ async function loadCedentes(): Promise<Cedente[]> {
   try {
     const res = await fetch("/api/cedentes", { cache: "no-store" });
     if (!res.ok) return [];
-    const json = await res.json();
+    const json = (await res.json()) as { data?: { listaCedentes?: CedenteRaw[] } };
     const lista = (json?.data?.listaCedentes ?? []) as CedenteRaw[];
     return (Array.isArray(lista) ? lista : []).map((r) => ({
       id: String(r.identificador),
@@ -126,7 +126,7 @@ async function loadNextCompraId(): Promise<string> {
   try {
     const res = await fetch("/api/compras/next-id", { cache: "no-store" });
     if (!res.ok) return "0001";
-    const json = await res.json();
+    const json = (await res.json()) as { nextId?: number | string };
     return String(json?.nextId ?? "0001").padStart(4, "0");
   } catch {
     return "0001";
@@ -305,13 +305,14 @@ export async function actToggleStatus(formData: FormData) {
   const d = (await ensureDraftBase())!;
   const id = Number(formData.get("itemId"));
   d.linhas = d.linhas.map((l) => {
-    const item = l.data as any;
-    if (item.id !== id) return l;
-    if (l.kind === "transferencia") return l;
-    const next: StatusItem = item.status === "liberado" ? "aguardando" : "liberado";
-    return l.kind === "clube"
-      ? { kind: "clube", data: { ...(l.data as ClubeItem), status: next } }
-      : { kind: "compra", data: { ...(l.data as CompraItem), status: next } };
+    if (l.data.id !== id) return l;
+    if (l.kind === "transferencia") return l; // não alterna aqui
+    const next: StatusItem = l.data.status === "liberado" ? "aguardando" : "liberado";
+    if (l.kind === "clube") {
+      return { kind: "clube", data: { ...l.data, status: next } };
+    }
+    // l.kind === "compra"
+    return { kind: "compra", data: { ...l.data, status: next } };
   });
   writeDraft(d);
   redirect("/dashboard/compras/nova");
@@ -322,7 +323,7 @@ export async function actRemoveItem(formData: FormData) {
   "use server";
   const d = (await ensureDraftBase())!;
   const id = Number(formData.get("itemId"));
-  d.linhas = d.linhas.filter((l) => (l.data as any).id !== id);
+  d.linhas = d.linhas.filter((l) => l.data.id !== id);
   writeDraft(d);
   redirect("/dashboard/compras/nova");
 }
@@ -625,11 +626,12 @@ export default async function NovaCompraPage() {
         ) : (
           <ul className="divide-y">
             {d.linhas.map((l) => {
-              const item = l.data as any as { id: number; status: StatusItem };
+              const itemId = l.data.id;
+              const itemStatus = l.data.status;
               const resumo = renderResumoUnico(l);
               return (
                 <li
-                  key={item.id}
+                  key={itemId}
                   className="flex flex-col gap-2 px-3 py-2 text-sm md:flex-row md:items-center md:justify-between"
                 >
                   <div className="flex items-center gap-2">
@@ -641,17 +643,17 @@ export default async function NovaCompraPage() {
                   <div className="flex items-center gap-2">
                     {l.kind !== "transferencia" ? (
                       <form action={actToggleStatus}>
-                        <input type="hidden" name="itemId" value={String(item.id)} />
+                        <input type="hidden" name="itemId" value={String(itemId)} />
                         <button
                           className={
                             "rounded border px-2 py-1 text-xs " +
-                            (item.status === "liberado"
+                            (itemStatus === "liberado"
                               ? "bg-green-50 border-green-200 text-green-700"
                               : "bg-yellow-50 border-yellow-200 text-yellow-700")
                           }
                           title="Alternar status (Aguardando / Liberado)"
                         >
-                          {item.status === "liberado" ? "Liberado" : "Aguardando"}
+                          {itemStatus === "liberado" ? "Liberado" : "Aguardando"}
                         </button>
                       </form>
                     ) : (
@@ -660,7 +662,7 @@ export default async function NovaCompraPage() {
                       </span>
                     )}
                     <form action={actRemoveItem}>
-                      <input type="hidden" name="itemId" value={String(item.id)} />
+                      <input type="hidden" name="itemId" value={String(itemId)} />
                       <button className="rounded border px-2 py-1 text-xs hover:bg-slate-100">Remover</button>
                     </form>
                   </div>
