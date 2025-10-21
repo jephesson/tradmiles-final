@@ -1,4 +1,3 @@
-// src/app/dashboard/compras/page.tsx
 "use client";
 
 import Link from "next/link";
@@ -531,19 +530,17 @@ export default function ComprasListaPage() {
     }
   }
 
-  // ✅ NOVO: liberar um item específico (corrige "Cannot find name 'handleLiberarItem'")
+  // ✅ Libera um item específico
   async function handleLiberarItem(compraId: string, itemIdStr: string) {
     if (!compraId || !itemIdStr) return;
     setMsg(null);
     try {
-      // 1) Tenta PATCH minimalista (algumas APIs aceitam esse formato)
       let res = await fetch(`/api/compras/${encodeURIComponent(compraId)}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ itemId: itemIdStr, status: "liberado" }),
       });
 
-      // 2) Fallback: busca compra, altera itens localmente e faz PATCH completo
       if (!res.ok) {
         let getRes = await fetch(`/api/compras/${encodeURIComponent(compraId)}`, { cache: "no-store" });
         if (!getRes.ok && (getRes.status === 404 || getRes.status === 405)) {
@@ -572,14 +569,12 @@ export default function ComprasListaPage() {
 
       if (!res.ok) throw new Error(await extractError(res));
 
-      // Atualiza detalhes em memória
       setDetailsById((prev) => {
         const atual = prev[compraId]?.itens || [];
         const novos = atual.map((it) => markItemLiberado(it, itemIdStr));
         return { ...prev, [compraId]: { itens: novos as unknown[] } };
       });
 
-      // Se todos os itens ficaram liberados, marca a compra como liberada na listagem
       const depois = detailsById[compraId]?.itens?.map((it) => markItemLiberado(it, itemIdStr)) || [];
       const allLib = depois.length > 0 && depois.every((it) => itemStatus(it) === "liberado");
       if (allLib) {
@@ -603,7 +598,6 @@ export default function ComprasListaPage() {
   // Redirecionar para tela "Nova compra" para adicionar item dentro do mesmo ID
   function goAdicionarItem(compraId: string) {
     try {
-      // contexto leve para a tela "nova"
       const payload = { compraId, append: true, ts: Date.now() };
       localStorage.setItem("TM_COMPRAS_EDIT_CTX", JSON.stringify(payload));
     } catch { /* ignore */ }
@@ -616,6 +610,12 @@ export default function ComprasListaPage() {
     const cancelada = (compra as { cancelada?: unknown }).cancelada === true;
     const itens = detailsById[id]?.itens || [];
 
+    // helper para clicks dentro da row expandida
+    const stop = (e: React.MouseEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+    };
+
     return (
       <tr ref={expandedRef}>
         <td colSpan={10} className="bg-slate-50 px-3 py-3">
@@ -624,22 +624,25 @@ export default function ComprasListaPage() {
               <div className="text-sm font-semibold">Itens da compra {id}</div>
               <div className="flex items-center gap-2">
                 <button
+                  type="button"
                   className="rounded-lg border px-3 py-1 text-sm hover:bg-slate-100"
-                  onClick={() => setExpandedId(null)}
+                  onClick={(e) => { stop(e); setExpandedId(null); }}
                 >
                   Fechar
                 </button>
                 {!cancelada && getStrKey(compra, "statusPontos") !== "liberados" && (
                   <>
                     <button
+                      type="button"
                       className="rounded-lg border px-3 py-1 text-sm hover:bg-slate-100"
-                      onClick={() => goAdicionarItem(id)}
+                      onClick={(e) => { stop(e); goAdicionarItem(id); }}
                     >
                       Adicionar item
                     </button>
                     <button
+                      type="button"
                       className="rounded-lg border bg-black px-3 py-1 text-sm text-white hover:opacity-90"
-                      onClick={() => handleLiberarCompra(id)}
+                      onClick={(e) => { stop(e); handleLiberarCompra(id); }}
                     >
                       Liberar todos
                     </button>
@@ -697,8 +700,9 @@ export default function ComprasListaPage() {
                           <td className="px-3 py-2 text-right whitespace-nowrap">
                             {!cancelada && status !== "liberado" && (
                               <button
+                                type="button"
                                 className="rounded-lg border px-3 py-1 text-xs hover:bg-slate-100"
-                                onClick={() => handleLiberarItem(id, itemIdStr)}
+                                onClick={(e) => { stop(e); handleLiberarItem(id, itemIdStr); }}
                               >
                                 Liberar item
                               </button>
@@ -716,6 +720,11 @@ export default function ComprasListaPage() {
       </tr>
     );
   }
+
+  const stop = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+  };
 
   return (
     <main className="mx-auto max-w-6xl">
@@ -854,30 +863,34 @@ export default function ComprasListaPage() {
                     </td>
                     <td className="px-3 py-2 text-right whitespace-nowrap">
                       <button
+                        type="button"
                         className="rounded-lg border px-3 py-1 hover:bg-slate-100"
-                        onClick={() => setExpandedId(isOpen ? null : id)}
+                        onClick={(e) => { stop(e); setExpandedId(isOpen ? null : id); }}
                       >
                         {isOpen ? "Fechar" : "Abrir"}
                       </button>
                       {!cancelada && getStrKey(c, "statusPontos") !== "liberados" && (
                         <button
+                          type="button"
                           className="ml-2 rounded-lg border px-3 py-1 hover:bg-slate-100"
-                          onClick={() => handleLiberarCompra(id)}
+                          onClick={(e) => { stop(e); handleLiberarCompra(id); }}
                         >
                           Liberar
                         </button>
                       )}
                       {!cancelada && (
                         <button
+                          type="button"
                           className="ml-2 rounded-lg border px-3 py-1 hover:bg-slate-100"
-                          onClick={() => handleCancelar(id)}
+                          onClick={(e) => { stop(e); handleCancelar(id); }}
                         >
                           Cancelar
                         </button>
                       )}
                       <button
+                        type="button"
                         className="ml-2 rounded-lg border px-3 py-1 hover:bg-rose-50"
-                        onClick={() => handleExcluir(id)}
+                        onClick={(e) => { stop(e); handleExcluir(id); }}
                       >
                         Excluir
                       </button>
@@ -903,16 +916,18 @@ export default function ComprasListaPage() {
         </div>
         <div className="flex items-center gap-2">
           <button
+            type="button"
             className="rounded-lg border px-3 py-1 disabled:opacity-40"
             disabled={offset === 0}
-            onClick={() => setOffset(Math.max(0, offset - limit))}
+            onClick={(e) => { stop(e); setOffset(Math.max(0, offset - limit)); }}
           >
             Anterior
           </button>
           <button
+            type="button"
             className="rounded-lg border px-3 py-1 disabled:opacity-40"
             disabled={offset + limit >= total}
-            onClick={() => setOffset(offset + limit)}
+            onClick={(e) => { stop(e); setOffset(offset + limit); }}
           >
             Próxima
           </button>
