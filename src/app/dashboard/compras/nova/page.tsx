@@ -1,5 +1,5 @@
 // app/dashboard/compras/nova/page.tsx
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 
 /** ====== ENGINE CENTRAL (server-only) ====== */
@@ -76,6 +76,31 @@ type Draft = {
 
 const DRAFT_COOKIE = "nova_compra_draft";
 
+/** ===== Encaminhar cookies/headers para rotas internas ===== */
+async function apiFetch(path: string, init: RequestInit = {}) {
+  const hdrs = await headers();
+  const proto = hdrs.get("x-forwarded-proto") ?? "https";
+  const host = hdrs.get("x-forwarded-host") ?? hdrs.get("host") ?? "localhost:3000";
+  const base = `${proto}://${host}`;
+
+  // Monta header Cookie com todos os cookies da requisição
+  const jar = await cookies();
+  const cookieHeader = jar.getAll().map(c => `${c.name}=${c.value}`).join("; ");
+
+  const mergedHeaders: HeadersInit = {
+    ...(init.headers || {}),
+    ...(cookieHeader ? { cookie: cookieHeader } : {}),
+  };
+
+  // Encaminha Authorization se existir
+  const auth = hdrs.get("authorization");
+  if (auth && !("authorization" in (mergedHeaders as any))) {
+    (mergedHeaders as any).authorization = auth;
+  }
+
+  return fetch(`${base}${path}`, { ...init, headers: mergedHeaders });
+}
+
 /** ===== Persistência de rascunho via cookie (Next 15: cookies() é assíncrono) ===== */
 async function readDraft(): Promise<Draft | null> {
   const jar = await cookies();
@@ -109,7 +134,7 @@ async function clearDraft() {
 /** ===== Carregamentos ===== */
 async function loadCedentes(): Promise<Cedente[]> {
   try {
-    const res = await fetch("/api/cedentes", { cache: "no-store" });
+    const res = await apiFetch("/api/cedentes", { method: "GET", cache: "no-store" });
     if (!res.ok) return [];
     const json = (await res.json()) as { data?: { listaCedentes?: CedenteRaw[] } };
     const lista = (json?.data?.listaCedentes ?? []) as CedenteRaw[];
@@ -127,7 +152,7 @@ async function loadCedentes(): Promise<Cedente[]> {
 }
 async function loadNextCompraId(): Promise<string> {
   try {
-    const res = await fetch("/api/compras/next-id", { cache: "no-store" });
+    const res = await apiFetch("/api/compras/next-id", { method: "GET", cache: "no-store" });
     if (!res.ok) return "0001";
     const json = (await res.json()) as { nextId?: number | string };
     return String(json?.nextId ?? "0001").padStart(4, "0");
@@ -202,7 +227,7 @@ async function persistDraft(d: Draft) {
     },
   };
 
-  const res = await fetch("/api/compras", {
+  const res = await apiFetch("/api/compras", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
@@ -211,7 +236,7 @@ async function persistDraft(d: Draft) {
   if (!res.ok) throw new Error("Erro ao salvar a compra");
 
   if (d.comissaoCedente > 0 && d.cedenteId) {
-    await fetch("/api/comissoes", {
+    await apiFetch("/api/comissoes", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
