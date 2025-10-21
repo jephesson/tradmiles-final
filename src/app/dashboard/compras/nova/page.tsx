@@ -49,15 +49,23 @@ function hojeISO() {
   const d2 = new Date(d.getTime() - off * 60 * 1000);
   return d2.toISOString().slice(0, 10);
 }
+
+/** Helpers de leitura segura (sem any) */
 function isRecord(x: unknown): x is Record<string, unknown> {
   return !!x && typeof x === "object" && !Array.isArray(x);
+}
+function getKey(o: unknown, k: string): unknown {
+  return isRecord(o) ? o[k] : undefined;
+}
+function getStr(v: unknown): string {
+  return typeof v === "string" ? v : "";
+}
+function getStrKey(o: unknown, k: string): string {
+  return getStr(getKey(o, k));
 }
 function getNum(v: unknown): number {
   const n = Number(v);
   return Number.isFinite(n) ? n : 0;
-}
-function getStr(v: unknown): string {
-  return typeof v === "string" ? v : "";
 }
 
 /** ===== Tipos auxiliares (server) ===== */
@@ -173,7 +181,7 @@ async function loadCompraById(id: string): Promise<Record<string, unknown> | nul
       res = await apiFetch(`/api/compras?id=${encodeURIComponent(id)}`, { method: "GET", cache: "no-store" });
     }
     if (!res.ok) return null;
-    return await res.json();
+    return (await res.json()) as Record<string, unknown>;
   } catch {
     return null;
   }
@@ -183,27 +191,27 @@ async function loadCompraById(id: string): Promise<Record<string, unknown> | nul
 function coerceItemLinha(u: unknown): ItemLinha | null {
   if (!isRecord(u)) return null;
 
-  // aceitamos modelo { kind, data } OU top-level (data "achatada")
-  const kindRaw = getStr(u.kind) || getStr((u as any).tipo);
-  const dataRaw: Record<string, unknown> = isRecord(u.data) ? (u.data as Record<string, unknown>) : u;
+  const kindRaw = getStrKey(u, "kind") || getStrKey(u, "tipo");
+  const maybeData = getKey(u, "data");
+  const dataRaw: Record<string, unknown> = isRecord(maybeData) ? maybeData : u;
 
-  // tenta inferir kind se não veio explícito
-  let kind = kindRaw as ItemLinha["kind"] | "";
+  let kind = (kindRaw as ItemLinha["kind"]) || "";
   if (!kind) {
-    if (getStr(dataRaw.origem) && getStr(dataRaw.destino)) kind = "transferencia";
-    else if (getStr(dataRaw.programa) && (dataRaw as any).bonusPct !== undefined) kind = "compra";
-    else if (getStr(dataRaw.programa)) kind = "clube";
+    if (getStrKey(dataRaw, "origem") && getStrKey(dataRaw, "destino")) kind = "transferencia";
+    else if (getStrKey(dataRaw, "programa") && getKey(dataRaw, "bonusPct") !== undefined) kind = "compra";
+    else if (getStrKey(dataRaw, "programa")) kind = "clube";
   }
 
-  const id = Number((dataRaw as any).id ?? (u as any).id ?? Date.now());
-  const status = (getStr((dataRaw as any).status) || "aguardando") as StatusItem;
+  const idCandidate =
+    getNum(getKey(dataRaw, "id")) || getNum(getKey(u, "id")) || Date.now();
+  const status = (getStrKey(dataRaw, "status") || "aguardando") as StatusItem;
 
   if (kind === "clube") {
     const it: ClubeItem = {
-      id,
-      programa: getStr((dataRaw as any).programa) as ProgramaGeral,
-      pontos: getNum((dataRaw as any).pontos),
-      valor: getNum((dataRaw as any).valor),
+      id: idCandidate,
+      programa: getStrKey(dataRaw, "programa") as ProgramaGeral,
+      pontos: getNum(getKey(dataRaw, "pontos")),
+      valor: getNum(getKey(dataRaw, "valor")),
       status,
     };
     return { kind: "clube", data: it };
@@ -211,29 +219,29 @@ function coerceItemLinha(u: unknown): ItemLinha | null {
 
   if (kind === "compra") {
     const it: CompraItem = {
-      id,
-      programa: getStr((dataRaw as any).programa) as ProgramaGeral,
-      pontos: getNum((dataRaw as any).pontos),
-      valor: getNum((dataRaw as any).valor),
-      bonusPct: getNum((dataRaw as any).bonusPct),
+      id: idCandidate,
+      programa: getStrKey(dataRaw, "programa") as ProgramaGeral,
+      pontos: getNum(getKey(dataRaw, "pontos")),
+      valor: getNum(getKey(dataRaw, "valor")),
+      bonusPct: getNum(getKey(dataRaw, "bonusPct")),
       status,
     };
     return { kind: "compra", data: it };
   }
 
   if (kind === "transferencia") {
-    const modo = getStr((dataRaw as any).modo) as "pontos" | "pontos+dinheiro";
-    const pontosUsados = getNum((dataRaw as any).pontosUsados);
-    const pontosTotais = getNum((dataRaw as any).pontosTotais) || pontosUsados;
+    const modo = getStrKey(dataRaw, "modo") as "pontos" | "pontos+dinheiro";
+    const pontosUsados = getNum(getKey(dataRaw, "pontosUsados"));
+    const pontosTotais = getNum(getKey(dataRaw, "pontosTotais")) || pontosUsados;
     const it: TransfItem = {
-      id,
-      origem: getStr((dataRaw as any).origem) as ProgramaOrigem,
-      destino: getStr((dataRaw as any).destino) as ProgramaCIA,
+      id: idCandidate,
+      origem: getStrKey(dataRaw, "origem") as ProgramaOrigem,
+      destino: getStrKey(dataRaw, "destino") as ProgramaCIA,
       modo,
       pontosUsados,
       pontosTotais,
-      valorPago: getNum((dataRaw as any).valorPago),
-      bonusPct: getNum((dataRaw as any).bonusPct),
+      valorPago: getNum(getKey(dataRaw, "valorPago")),
+      bonusPct: getNum(getKey(dataRaw, "bonusPct")),
       status,
     };
     return { kind: "transferencia", data: it };
@@ -274,13 +282,11 @@ async function ensureDraftFromCompraId(idParam: string) {
   if (!wantId) return;
 
   const current = await readDraft();
-  if (current?.compraId === wantId && current?.linhas?.length) return; // já está correto
+  if (current?.compraId === wantId && current?.linhas?.length) return;
 
-  // busca compra atual no backend
   const raw = await loadCompraById(wantId);
   const cedentes = await loadCedentes();
 
-  // base existente ou nova
   let draft: Draft = {
     compraId: wantId,
     dataCompra: hojeISO(),
@@ -292,19 +298,27 @@ async function ensureDraftFromCompraId(idParam: string) {
   };
 
   if (raw) {
-    const itensRaw = (raw as any).itens ?? (raw as any).data?.itens ?? [];
-    const linhas: ItemLinha[] = (Array.isArray(itensRaw) ? itensRaw : [])
-      .map(coerceItemLinha)
-      .filter(Boolean) as ItemLinha[];
+    const rawData = getKey(raw, "data");
+    const itensTop = getKey(raw, "itens");
+    const itensDeep = isRecord(rawData) ? getKey(rawData, "itens") : undefined;
+    const itensRaw = Array.isArray(itensTop)
+      ? (itensTop as unknown[])
+      : Array.isArray(itensDeep)
+      ? (itensDeep as unknown[])
+      : [];
+
+    const linhas: ItemLinha[] = itensRaw
+      .map((x) => coerceItemLinha(x))
+      .filter((x): x is ItemLinha => !!x);
 
     draft = {
       compraId: wantId,
-      dataCompra: getStr((raw as any).dataCompra) || hojeISO(),
-      cedenteId: getStr((raw as any).cedenteId) || draft.cedenteId,
+      dataCompra: getStrKey(raw, "dataCompra") || hojeISO(),
+      cedenteId: getStrKey(raw, "cedenteId") || draft.cedenteId,
       linhas,
-      comissaoCedente: getNum((raw as any).comissaoCedente),
-      comissaoStatus: (getStr((raw as any).comissaoStatus) as StatusComissao) || "aguardando",
-      metaMilheiro: getNum((raw as any).metaMilheiro) || draft.metaMilheiro,
+      comissaoCedente: getNum(getKey(raw, "comissaoCedente")),
+      comissaoStatus: (getStrKey(raw, "comissaoStatus") as StatusComissao) || "aguardando",
+      metaMilheiro: getNum(getKey(raw, "metaMilheiro")) || draft.metaMilheiro,
     };
   }
 
@@ -313,7 +327,6 @@ async function ensureDraftFromCompraId(idParam: string) {
 
 /** ===== Persistência do draft em /api/* (PATCH se existir, fallback) ===== */
 async function persistDraft(d: Draft) {
-  // deltas/totais
   const deltaPrevisto = computeDeltaPorPrograma(d.linhas);
   const totals = computeTotais(d.linhas, d.comissaoCedente, d.metaMilheiro, 1);
 
@@ -350,7 +363,7 @@ async function persistDraft(d: Draft) {
     },
   };
 
-  // 1) tenta PATCH /api/compras/:id
+  // 1) PATCH /api/compras/:id
   let res = await apiFetch(`/api/compras/${encodeURIComponent(d.compraId)}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
@@ -368,7 +381,7 @@ async function persistDraft(d: Draft) {
     });
   }
 
-  // 3) se ainda não der, cria via POST (upsert de última instância)
+  // 3) POST (upsert)
   if (!res.ok) {
     res = await apiFetch("/api/compras", {
       method: "POST",
@@ -483,7 +496,7 @@ async function actToggleStatus(formData: FormData) {
   const id = Number(formData.get("itemId"));
   d.linhas = d.linhas.map((l) => {
     if (l.data.id !== id) return l;
-    if (l.kind === "transferencia") return l; // não alterna aqui
+    if (l.kind === "transferencia") return l;
     const next: StatusItem = l.data.status === "liberado" ? "aguardando" : "liberado";
     return l.kind === "clube"
       ? { kind: "clube", data: { ...(l.data as ClubeItem), status: next } }
@@ -527,7 +540,6 @@ export default async function NovaCompraPage({
 }: {
   searchParams?: { compraId?: string; append?: string };
 }) {
-  // Se vier da lista com ?compraId=, sempre resgata online e popula o draft para edição
   if (searchParams?.compraId) {
     await ensureDraftFromCompraId(String(searchParams.compraId));
   }
@@ -539,8 +551,7 @@ export default async function NovaCompraPage({
   // ==== Painel de saldos: atual + previsão ====
   const deltaLiberado = computeDeltaPorPrograma(d.linhas);
 
-  // PREVISÃO: trata cada item como "liberado"
-  const linhasComoLiberadas: ItemLinha[] = d.linhas.map((l) => {
+  const linhasComoLiberadas: ItemLinha[] = d.linhas.map((l): ItemLinha => {
     switch (l.kind) {
       case "clube": {
         const data: ClubeItem = { ...l.data, status: "liberado" };
@@ -571,7 +582,6 @@ export default async function NovaCompraPage({
     esfera: saldoAtual.esfera + (deltaPrevisto.esfera || 0),
   };
 
-  // Totais com engine
   const totals = computeTotais(d.linhas, d.comissaoCedente, d.metaMilheiro, 1);
 
   return (
