@@ -17,6 +17,9 @@ import {
 
 export const dynamic = "force-dynamic";
 
+/** Para compat com o PageProps do Next 15 (searchParams é Promise) */
+type SearchParams = Record<string, string | string[] | undefined>;
+
 /** ================= Helpers (server) ================= */
 const fmtMoney = (v: number) =>
   new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(
@@ -538,10 +541,16 @@ async function actSaveAndBack() {
 export default async function NovaCompraPage({
   searchParams,
 }: {
-  searchParams?: { compraId?: string; append?: string };
+  searchParams?: Promise<SearchParams>;
 }) {
-  if (searchParams?.compraId) {
-    await ensureDraftFromCompraId(String(searchParams.compraId));
+  // Next 15: searchParams pode vir como Promise
+  const sp = (await searchParams) ?? {};
+  const compraIdRaw = sp.compraId;
+  const compraId = Array.isArray(compraIdRaw) ? compraIdRaw[0] : compraIdRaw;
+
+  // Se vier da lista com ?compraId=, sempre resgata online e popula o draft
+  if (compraId) {
+    await ensureDraftFromCompraId(String(compraId));
   }
 
   const d = (await ensureDraftBase(false))!;
