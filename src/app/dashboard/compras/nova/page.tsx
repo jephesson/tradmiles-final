@@ -69,16 +69,17 @@ type Draft = {
   dataCompra: string;
   cedenteId: string;
   linhas: ItemLinha[];
-  comissaoCedente: number;      // R$
+  comissaoCedente: number; // R$
   comissaoStatus: StatusComissao;
-  metaMilheiro: number;         // R$/milheiro
+  metaMilheiro: number; // R$/milheiro
 };
 
 const DRAFT_COOKIE = "nova_compra_draft";
 
-/** ===== Persistência de rascunho via cookie ===== */
-function readDraft(): Draft | null {
-  const c = cookies().get(DRAFT_COOKIE)?.value;
+/** ===== Persistência de rascunho via cookie (Next 15: cookies() é assíncrono) ===== */
+async function readDraft(): Promise<Draft | null> {
+  const jar = await cookies();
+  const c = jar.get(DRAFT_COOKIE)?.value;
   if (!c) return null;
   try {
     const d = JSON.parse(c) as Draft;
@@ -96,11 +97,13 @@ function readDraft(): Draft | null {
     return null;
   }
 }
-function writeDraft(d: Draft) {
-  cookies().set(DRAFT_COOKIE, JSON.stringify(d), { httpOnly: true, sameSite: "lax", path: "/" });
+async function writeDraft(d: Draft) {
+  const jar = await cookies();
+  jar.set(DRAFT_COOKIE, JSON.stringify(d), { httpOnly: true, sameSite: "lax", path: "/" });
 }
-function clearDraft() {
-  cookies().set(DRAFT_COOKIE, "", { httpOnly: true, sameSite: "lax", path: "/", maxAge: 0 });
+async function clearDraft() {
+  const jar = await cookies();
+  jar.set(DRAFT_COOKIE, "", { httpOnly: true, sameSite: "lax", path: "/", maxAge: 0 });
 }
 
 /** ===== Carregamentos ===== */
@@ -133,9 +136,13 @@ async function loadNextCompraId(): Promise<string> {
   }
 }
 
-/** ===== Base do draft ===== */
-async function ensureDraftBase() {
-  let d = readDraft();
+/**
+ * ===== Base do draft =====
+ * persistOnInit=false: NÃO grava cookie durante o render (evita set-cookie em Server Component).
+ * Em Server Actions, passe true para persistir.
+ */
+async function ensureDraftBase(persistOnInit = false) {
+  let d = await readDraft();
   const cedentes = await loadCedentes();
   if (!d) {
     const nextId = await loadNextCompraId();
@@ -149,10 +156,10 @@ async function ensureDraftBase() {
       comissaoStatus: "aguardando",
       metaMilheiro: 1.5,
     };
-    writeDraft(d);
+    if (persistOnInit) await writeDraft(d);
   } else if (!d.cedenteId && cedentes.length) {
     d.cedenteId = cedentes[0].id;
-    writeDraft(d);
+    if (persistOnInit) await writeDraft(d);
   }
   return d;
 }
@@ -224,29 +231,29 @@ async function persistDraft(d: Draft) {
 /** Cabeçalho */
 async function actUpdateHeader(formData: FormData) {
   "use server";
-  const d = (await ensureDraftBase())!;
+  const d = (await ensureDraftBase(true))!;
   d.dataCompra = String(formData.get("dataCompra") || d.dataCompra);
   d.compraId = String(formData.get("compraId") || d.compraId).replace(/[^\d]/g, "").padStart(4, "0");
   d.cedenteId = String(formData.get("cedenteId") || d.cedenteId);
-  writeDraft(d);
+  await writeDraft(d);
   redirect("/dashboard/compras/nova");
 }
 
 /** Comissão + Meta */
 async function actUpdateComissaoMeta(formData: FormData) {
   "use server";
-  const d = (await ensureDraftBase())!;
+  const d = (await ensureDraftBase(true))!;
   d.comissaoCedente = parseMoneyLoose(formData.get("comissaoCedente"));
   d.comissaoStatus = (String(formData.get("comissaoStatus")) as StatusComissao) || "aguardando";
   d.metaMilheiro = parseMoneyLoose(formData.get("metaMilheiro"));
-  writeDraft(d);
+  await writeDraft(d);
   redirect("/dashboard/compras/nova");
 }
 
 /** Add Clube */
 async function actAddClube(formData: FormData) {
   "use server";
-  const d = (await ensureDraftBase())!;
+  const d = (await ensureDraftBase(true))!;
   const it: ClubeItem = {
     id: Date.now(),
     programa: String(formData.get("clubePrograma")) as ProgramaGeral,
@@ -255,14 +262,14 @@ async function actAddClube(formData: FormData) {
     status: (String(formData.get("clubeStatus")) as StatusItem) || "aguardando",
   };
   d.linhas.push({ kind: "clube", data: it });
-  writeDraft(d);
+  await writeDraft(d);
   redirect("/dashboard/compras/nova");
 }
 
 /** Add Compra */
 async function actAddCompra(formData: FormData) {
   "use server";
-  const d = (await ensureDraftBase())!;
+  const d = (await ensureDraftBase(true))!;
   const it: CompraItem = {
     id: Date.now(),
     programa: String(formData.get("compPrograma")) as ProgramaGeral,
@@ -272,14 +279,14 @@ async function actAddCompra(formData: FormData) {
     status: (String(formData.get("compStatus")) as StatusItem) || "aguardando",
   };
   d.linhas.push({ kind: "compra", data: it });
-  writeDraft(d);
+  await writeDraft(d);
   redirect("/dashboard/compras/nova");
 }
 
 /** Add Transferência (entra como AGUARDANDO nesta tela) */
 async function actAddTransf(formData: FormData) {
   "use server";
-  const d = (await ensureDraftBase())!;
+  const d = (await ensureDraftBase(true))!;
   const modo = String(formData.get("trModo")) as "pontos" | "pontos+dinheiro";
   const pontosUsados = parseIntLoose(formData.get("trPontosUsados"));
   const pontosTotais = modo === "pontos+dinheiro" ? parseIntLoose(formData.get("trPontosTotais")) : pontosUsados;
@@ -295,14 +302,14 @@ async function actAddTransf(formData: FormData) {
     status: "aguardando",
   };
   d.linhas.push({ kind: "transferencia", data: it });
-  writeDraft(d);
+  await writeDraft(d);
   redirect("/dashboard/compras/nova");
 }
 
 /** Toggle status (apenas clube/compra) */
 async function actToggleStatus(formData: FormData) {
   "use server";
-  const d = (await ensureDraftBase())!;
+  const d = (await ensureDraftBase(true))!;
   const id = Number(formData.get("itemId"));
   d.linhas = d.linhas.map((l) => {
     if (l.data.id !== id) return l;
@@ -312,41 +319,41 @@ async function actToggleStatus(formData: FormData) {
       ? { kind: "clube", data: { ...(l.data as ClubeItem), status: next } }
       : { kind: "compra", data: { ...(l.data as CompraItem), status: next } };
   });
-  writeDraft(d);
+  await writeDraft(d);
   redirect("/dashboard/compras/nova");
 }
 
 /** Remover item */
 async function actRemoveItem(formData: FormData) {
   "use server";
-  const d = (await ensureDraftBase())!;
+  const d = (await ensureDraftBase(true))!;
   const id = Number(formData.get("itemId"));
   d.linhas = d.linhas.filter((l) => l.data.id !== id);
-  writeDraft(d);
+  await writeDraft(d);
   redirect("/dashboard/compras/nova");
 }
 
 /** Salvar (permanece na página nova) */
 async function actSave() {
   "use server";
-  const d = (await ensureDraftBase())!;
+  const d = (await ensureDraftBase(true))!;
   await persistDraft(d);
-  clearDraft();
+  await clearDraft();
   redirect("/dashboard/compras/nova");
 }
 
 /** Salvar e voltar para a lista */
 async function actSaveAndBack() {
   "use server";
-  const d = (await ensureDraftBase())!;
+  const d = (await ensureDraftBase(true))!;
   await persistDraft(d);
-  clearDraft();
+  await clearDraft();
   redirect("/dashboard/compras");
 }
 
 /** ======= Página (Server Component) ======= */
 export default async function NovaCompraPage() {
-  const d = (await ensureDraftBase())!;
+  const d = (await ensureDraftBase(false))!;
   const cedentes = await loadCedentes();
   const cedente = cedentes.find((c) => c.id === d.cedenteId);
 
@@ -772,6 +779,8 @@ function labelPrograma(p: ProgramaGeral): string {
       return "Livelo";
     case "esfera":
       return "Esfera";
+    default:
+      return String(p);
   }
 }
 function labelKind(k: ItemLinha["kind"]): string {
@@ -784,21 +793,21 @@ function badgeColor(k: ItemLinha["kind"]): string {
 }
 function renderResumoUnico(l: ItemLinha): string {
   if (l.kind === "clube") {
-    const it = l.data;
+    const it = l.data as ClubeItem;
     const conta = it.programa === "latam" || it.programa === "smiles";
     return `${labelPrograma(it.programa)} • ${fmtInt(it.pontos)} pts ${conta ? "(conta)" : "(não conta)"} • ${fmtMoney(
       it.valor
     )}`;
   }
   if (l.kind === "compra") {
-    const it = l.data;
+    const it = l.data as CompraItem;
     const conta = it.programa === "latam" || it.programa === "smiles";
     const ptsFinais = conta ? Math.round(it.pontos * (1 + (it.bonusPct || 0) / 100)) : it.pontos;
     return `${labelPrograma(it.programa)} • ${fmtInt(ptsFinais)} pts ${conta ? "(conta)" : "(não conta)"} • bônus ${
       it.bonusPct || 0
     }% • ${fmtMoney(it.valor)}`;
   }
-  const it = l.data;
+  const it = l.data as TransfItem;
   const base = it.modo === "pontos+dinheiro" ? it.pontosTotais : it.pontosUsados;
   const chegam = Math.round(base * (1 + (it.bonusPct || 0) / 100));
   const detalhe =
@@ -806,7 +815,7 @@ function renderResumoUnico(l: ItemLinha): string {
       ? `usados ${fmtInt(it.pontosUsados)} • totais ${fmtInt(it.pontosTotais)}`
       : `usados ${fmtInt(it.pontosUsados)}`;
   const valor = fmtMoney(it.valorPago || 0);
-  return `${labelPrograma(it.origem)} → ${labelPrograma(it.destino)} • ${it.modo} • ${detalhe} • chegam ${fmtInt(
-    chegam
-  )} pts • ${valor}`;
+  return `${labelPrograma(it.origem as ProgramaGeral)} → ${labelPrograma(it.destino as ProgramaGeral)} • ${
+    it.modo
+  } • ${detalhe} • chegam ${fmtInt(chegam)} pts • ${valor}`;
 }
