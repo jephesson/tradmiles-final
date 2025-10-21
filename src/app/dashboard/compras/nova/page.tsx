@@ -386,11 +386,14 @@ export default async function NovaCompraPage() {
   // 1) Delta "liberado" (estado real, como a engine já calcula)
   const deltaLiberado = computeDeltaPorPrograma(d.linhas);
 
-  // 2) PREVISÃO: trata todos os itens como "liberado" apenas para exibir no painel
-  const linhasComoLiberadas: ItemLinha[] = d.linhas.map((l) => ({
-    kind: l.kind,
-    data: { ...(l.data as any), status: "liberado" as StatusItem },
-  }));
+  // 2) PREVISÃO: trata todos os itens como "liberado" apenas para exibir no painel (sem 'any')
+  const linhasComoLiberadas: ItemLinha[] = d.linhas.map((l) => {
+    const dataComStatus: ClubeItem | CompraItem | TransfItem = {
+      ...(l.data as ClubeItem | CompraItem | TransfItem),
+      status: "liberado" as StatusItem,
+    };
+    return { kind: l.kind, data: dataComStatus };
+  });
   const deltaPrevisto = computeDeltaPorPrograma(linhasComoLiberadas);
 
   const saldoAtual = {
