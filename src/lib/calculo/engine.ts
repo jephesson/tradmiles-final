@@ -1,11 +1,13 @@
-/* server-only */
+import "server-only";
 
 /**
- * Este arquivo centraliza TODOS os cálculos/normalizações usados nas rotas.
+ * Central de cálculos/normalizações (server-only).
+ *
  * - Tipos de linha (ItemLinha)
- * - Cálculo de deltas por programa (considera apenas itens LIBERADOS)
- * - Cálculo de totais (custo, milheiro, lucro)
- * - Helpers de compatibilidade (smartTotals, totalsCompatFromTotais, toDelta)
+ * - Delta por programa (considera APENAS itens LIBERADOS)
+ * - Totais (custo, milheiro, lucro) respeitando status
+ * - Helpers de compatibilidade:
+ *     smartTotals, totalsCompatFromTotais, toDelta, diffDelta, invertDelta
  */
 
 export type ProgramaCIA = "latam" | "smiles";
@@ -36,10 +38,10 @@ export type TransfItem = {
   destino: ProgramaCIA;       // cia aérea
   modo: "pontos" | "pontos+dinheiro";
   pontosUsados: number;       // pontos debitados do banco
-  pontosTotais: number;       // quando há pontos+dinheiro, total chega aqui
+  pontosTotais: number;       // quando há pontos+dinheiro, total que chega
   valorPago: number;          // R$
   bonusPct: number;           // %
-  status: StatusItem;
+  status: StatusItem;         // respeitado em todos os cálculos
 };
 
 export type ItemLinha =
@@ -102,7 +104,7 @@ function contribCIA(l: ItemLinha): number {
       ? round(base * (1 + num(bonusPct) / 100))
       : 0;
   }
-  // transferencia
+  // transferência
   const { modo, pontosUsados, pontosTotais, bonusPct } = l.data;
   const base = modo === "pontos+dinheiro" ? num(pontosTotais) : num(pontosUsados);
   return round(base * (1 + num(bonusPct) / 100));
@@ -114,8 +116,7 @@ function valorItem(l: ItemLinha): number {
   return num(l.data.valor);
 }
 
-/* util: regra única para considerar um item como liberado
-   (tolerante a "liberado" e "liberados") */
+/* Regra única: considerar item como liberado (tolerante a "liberados") */
 function isLiberado(l: ItemLinha): boolean {
   const s = String(l.data.status || "");
   return s === "liberado" || s === "liberados";
@@ -126,7 +127,7 @@ export function computeDeltaPorPrograma(itens: ItemLinha[]): Required<Delta> {
   const d = { latam: 0, smiles: 0, livelo: 0, esfera: 0 };
 
   for (const l of itens) {
-    if (!isLiberado(l)) continue; // regra: saldo online só conta itens liberados
+    if (!isLiberado(l)) continue; // saldo só com itens liberados
 
     if (l.kind === "clube") {
       d[l.data.programa as keyof typeof d] += num(l.data.pontos);
@@ -142,7 +143,7 @@ export function computeDeltaPorPrograma(itens: ItemLinha[]): Required<Delta> {
       continue;
     }
 
-    // transferencia: débito no banco e crédito na CIA (quando liberado)
+    // transferência: débito no banco e crédito na CIA
     const { origem, destino, modo, pontosUsados, pontosTotais, bonusPct } = l.data;
     const base = modo === "pontos+dinheiro" ? num(pontosTotais) : num(pontosUsados);
     const chegam = round(base * (1 + num(bonusPct) / 100));
@@ -218,7 +219,7 @@ export function computeTotais(
   };
 }
 
-/** Empacota tudo que a UI precisa num preview */
+/** Empacota tudo que a UI/rotas precisam num preview */
 export function computePreview(payload: {
   itens: ItemLinha[];
   comissaoCedente: number;   // R$
@@ -229,7 +230,7 @@ export function computePreview(payload: {
   return { deltaPorPrograma: delta, totais };
 }
 
-/** Calcula a diferença entre dois deltas para aplicar só o “net” */
+/** Diferença entre dois deltas (aplicar apenas o “net”) */
 export function diffDelta(novo?: Delta, antigo?: Delta): Required<Delta> {
   const n = novo || {};
   const a = antigo || {};
@@ -253,7 +254,7 @@ export function invertDelta(d?: Delta): Required<Delta> {
 
 /* ===========================================================
    ====== COMPAT: normalização de totais/deltas genéricos =====
-   (para suportar documentos antigos/novos na collection)
+   (suporta documentos antigos/novos)
    =========================================================== */
 
 export function toDelta(x: unknown): Required<Delta> {
@@ -267,7 +268,7 @@ export function toDelta(x: unknown): Required<Delta> {
   };
 }
 
-/** Lê tanto totalCIA quanto pontosCIA (nome usado na tela nova) */
+/** Lê tanto totalCIA quanto pontosCIA (nome usado em telas antigas) */
 export function totalsCompatFromTotais(totais: unknown): TotaisCompat {
   const t = isRecord(totais) ? totais : {};
   const totalPtsRaw = num((t as AnyObj).totalCIA ?? (t as AnyObj).pontosCIA);
@@ -283,7 +284,7 @@ export function totalsCompatFromTotais(totais: unknown): TotaisCompat {
   return { totalPts, custoTotal, custoMilheiro, lucroTotal };
 }
 
-/** quando vier no formato antigo (com resumo dentro de itens) */
+/** Formato antigo (resumo dentro de itens) */
 function totalsFromItemsResumo(itens: unknown[]): TotaisCompat {
   type MediaState = { peso: number; acum: number };
 
@@ -308,7 +309,7 @@ function totalsFromItemsResumo(itens: unknown[]): TotaisCompat {
   return { totalPts, custoTotal, custoMilheiro, lucroTotal };
 }
 
-/** novo formato: soma por kind aplicando bônus e custos corretos */
+/** Novo formato: soma por kind aplicando bônus e custos corretos (compat) */
 function totalsFromItemsData(itens: unknown[], totais?: unknown): TotaisCompat {
   const arr = Array.isArray(itens) ? (itens as AnyObj[]) : [];
   let totalPts = 0;
@@ -383,8 +384,7 @@ function totalsFromItemsData(itens: unknown[], totais?: unknown): TotaisCompat {
   }
 
   // Se veio um objeto totais já normalizado, preferimos custoMilheiro dele quando válido
-  let custoMilheiro =
-    totalPts > 0 ? custoTotal / (totalPts / 1000) : 0;
+  let custoMilheiro = totalPts > 0 ? custoTotal / (totalPts / 1000) : 0;
   if (isRecord(totais) && num((totais as AnyObj).custoMilheiroTotal) > 0) {
     custoMilheiro = num((totais as AnyObj).custoMilheiroTotal);
   }
@@ -394,7 +394,7 @@ function totalsFromItemsData(itens: unknown[], totais?: unknown): TotaisCompat {
   return { totalPts, custoTotal, custoMilheiro, lucroTotal };
 }
 
-/** escolhe automaticamente o melhor jeito de consolidar totais */
+/** Escolhe automaticamente a melhor forma de consolidar totais (compat) */
 export function smartTotals(itens: unknown[], totais?: unknown): TotaisCompat {
   if (
     totais &&
