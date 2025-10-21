@@ -1,3 +1,4 @@
+// src/app/dashboard/compras/page.tsx
 "use client";
 
 import Link from "next/link";
@@ -527,6 +528,75 @@ export default function ComprasListaPage() {
       const e = err as { message?: string };
       setMsg(e?.message || "Erro ao liberar");
       setTimeout(() => setMsg(null), 3000);
+    }
+  }
+
+  // ✅ NOVO: liberar um item específico (corrige "Cannot find name 'handleLiberarItem'")
+  async function handleLiberarItem(compraId: string, itemIdStr: string) {
+    if (!compraId || !itemIdStr) return;
+    setMsg(null);
+    try {
+      // 1) Tenta PATCH minimalista (algumas APIs aceitam esse formato)
+      let res = await fetch(`/api/compras/${encodeURIComponent(compraId)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ itemId: itemIdStr, status: "liberado" }),
+      });
+
+      // 2) Fallback: busca compra, altera itens localmente e faz PATCH completo
+      if (!res.ok) {
+        let getRes = await fetch(`/api/compras/${encodeURIComponent(compraId)}`, { cache: "no-store" });
+        if (!getRes.ok && (getRes.status === 404 || getRes.status === 405)) {
+          getRes = await fetch(`/api/compras?id=${encodeURIComponent(compraId)}`, { cache: "no-store" });
+        }
+        if (!getRes.ok) throw new Error(await extractError(getRes));
+
+        const json = await getRes.json();
+        const itensOrig = (json.itens || json.data?.itens || []) as unknown[];
+        const itensAtualizados = itensOrig.map((it) => markItemLiberado(it, itemIdStr));
+
+        res = await fetch(`/api/compras/${encodeURIComponent(compraId)}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ itens: itensAtualizados }),
+        });
+
+        if (!res.ok && (res.status === 404 || res.status === 405)) {
+          res = await fetch(`/api/compras?id=${encodeURIComponent(compraId)}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ itens: itensAtualizados }),
+          });
+        }
+      }
+
+      if (!res.ok) throw new Error(await extractError(res));
+
+      // Atualiza detalhes em memória
+      setDetailsById((prev) => {
+        const atual = prev[compraId]?.itens || [];
+        const novos = atual.map((it) => markItemLiberado(it, itemIdStr));
+        return { ...prev, [compraId]: { itens: novos as unknown[] } };
+      });
+
+      // Se todos os itens ficaram liberados, marca a compra como liberada na listagem
+      const depois = detailsById[compraId]?.itens?.map((it) => markItemLiberado(it, itemIdStr)) || [];
+      const allLib = depois.length > 0 && depois.every((it) => itemStatus(it) === "liberado");
+      if (allLib) {
+        setItems((prev) =>
+          prev.map((r) =>
+            String((r as { id?: unknown }).id) === compraId ? { ...r, statusPontos: "liberados" } : r
+          )
+        );
+      }
+
+      try { localStorage.setItem("TM_COMPRAS_REFRESH", String(Date.now())); } catch {}
+      setMsg("Item liberado com sucesso.");
+      setTimeout(() => setMsg(null), 2500);
+    } catch (err: unknown) {
+      const e = err as { message?: string };
+      setMsg(e?.message || "Erro ao liberar item");
+      setTimeout(() => setMsg(null), 3500);
     }
   }
 
