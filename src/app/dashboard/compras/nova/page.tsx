@@ -147,6 +147,15 @@ async function clearDraft() {
   jar.set(DRAFT_COOKIE, "", { httpOnly: true, sameSite: "lax", path: "/", maxAge: 0 });
 }
 
+/** ====== Versão resiliente para usar durante o render (não quebra no server) ====== */
+async function safeWriteDraft(d: Draft) {
+  try {
+    await writeDraft(d);
+  } catch {
+    // Em Server Component o Next pode bloquear cookies().set — ignoramos o erro aqui
+  }
+}
+
 /** ===== Carregamentos ===== */
 async function loadCedentes(): Promise<Cedente[]> {
   try {
@@ -323,7 +332,8 @@ async function ensureDraftFromCompraId(idParam: string) {
     };
   }
 
-  await writeDraft(draft);
+  // <- Em Server Component, gravar cookie pode quebrar; usar versão resiliente
+  await safeWriteDraft(draft);
 }
 
 /** ===== Persistência do draft em /api/* (PATCH se existir, fallback) ===== */
@@ -543,10 +553,13 @@ export default async function NovaCompraPage({
 }) {
   // Next 15: searchParams pode vir como Promise
   const sp = (await searchParams) ?? {};
-  const compraIdRaw = sp.compraId;
+  // tolera tanto ?compraId= quanto o typo ?compralId=
+  const compraIdRaw =
+    (sp.compraId as string | string[] | undefined) ??
+    ((sp as Record<string, string | string[] | undefined>)["compralId"]);
   const compraId = Array.isArray(compraIdRaw) ? compraIdRaw[0] : compraIdRaw;
 
-  // Se vier da lista com ?compraId=, sempre resgata online e popula o draft
+  // Se vier da lista com ?compraId=, resgata online e tenta popular o draft (sem quebrar no server)
   if (compraId) {
     await ensureDraftFromCompraId(String(compraId));
   }
@@ -567,7 +580,6 @@ export default async function NovaCompraPage({
       const data: CompraItem = { ...l.data, status: "liberado" };
       return { kind: "compra", data };
     } else {
-      // transferencia
       const data: TransfItem = { ...l.data, status: "liberado" };
       return { kind: "transferencia", data };
     }
