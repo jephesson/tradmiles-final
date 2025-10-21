@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState, ReactNode } from "react";
+import { useEffect, useRef, useState, ReactNode } from "react";
 
 /** ===== Helpers gerais ===== */
 const fmtMoney = (v: number) =>
@@ -199,6 +199,7 @@ function rowCiaOrigem(c: Record<string, unknown>): string {
   return "múltiplos";
 }
 
+/** ===== UI ===== */
 function StatusChip(props: { s?: string; cancelada?: boolean }) {
   const { s, cancelada } = props;
   if (cancelada) {
@@ -221,6 +222,43 @@ function StatusChip(props: { s?: string; cancelada?: boolean }) {
   );
 }
 
+/** ====== Resumo legível do item (fallback se não existir no banco) ====== */
+function itemResumo(x: unknown): string {
+  if (!isRecord(x)) return "";
+  const kind = String(x.kind || "");
+  const data = isRecord(x.data) ? x.data : {};
+  if (kind === "clube") {
+    const prog = String((data as any).programa || "");
+    const pts = getNum((data as any).pontos);
+    const val = getNum((data as any).valor);
+    return `Clube • ${prog || "?"} • ${fmtInt(pts)} pts • ${fmtMoney(val)}`;
+  }
+  if (kind === "compra") {
+    const prog = String((data as any).programa || "");
+    const pts = getNum((data as any).pontos);
+    const bonus = getNum((data as any).bonusPct);
+    const val = getNum((data as any).valor);
+    const contaCIA = prog === "latam" || prog === "smiles";
+    const finais = contaCIA ? Math.round(pts * (1 + (bonus || 0) / 100)) : pts;
+    return `Compra • ${prog || "?"} • ${fmtInt(finais)} pts • bônus ${bonus || 0}% • ${fmtMoney(val)}`;
+  }
+  if (kind === "transferencia") {
+    const o = String((data as any).origem || "");
+    const d = String((data as any).destino || "");
+    const modo = String((data as any).modo || "");
+    const usados = getNum((data as any).pontosUsados);
+    const totais = getNum((data as any).pontosTotais);
+    const base = modo === "pontos+dinheiro" ? totais : usados;
+    const bonus = getNum((data as any).bonusPct);
+    const chegam = Math.round(base * (1 + (bonus || 0) / 100));
+    const val = getNum((data as any).valorPago);
+    const det = modo === "pontos+dinheiro" ? `usados ${fmtInt(usados)} • totais ${fmtInt(totais)}` : `usados ${fmtInt(usados)}`;
+    return `Transf. • ${o || "?"} → ${d || "?"} • ${modo || "?"} • ${det} • chegam ${fmtInt(chegam)} • ${fmtMoney(val)}`;
+  }
+  return "";
+}
+
+/** ===== Page ===== */
 export default function ComprasListaPage() {
   // filtros
   const [q, setQ] = useState("");
@@ -237,6 +275,12 @@ export default function ComprasListaPage() {
   const [limit, setLimit] = useState(20);
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
+
+  // expansor
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [detailsById, setDetailsById] = useState<Record<string, { itens: unknown[] }>>({});
+  const [loadingDetails, setLoadingDetails] = useState(false);
+  const expandedRef = useRef<HTMLTableRowElement | null>(null);
 
   // tick para reload quando outra aba sinalizar
   const [refreshTick, setRefreshTick] = useState(0);
@@ -279,6 +323,45 @@ export default function ComprasListaPage() {
       window.removeEventListener("focus", onFocus);
     };
   }, []);
+
+  // buscar detalhes quando abrir
+  useEffect(() => {
+    (async () => {
+      if (!expandedId) return;
+
+      // se já veio na lista com itens, usa direto
+      const row = items.find((r) => String(r.id) === expandedId);
+      const jaTem = isRecord(row) && Array.isArray(row.itens) && row.itens.length > 0;
+      if (jaTem) {
+        setDetailsById((prev) => ({ ...prev, [expandedId]: { itens: row!.itens as unknown[] } }));
+      } else if (!detailsById[expandedId]) {
+        setLoadingDetails(true);
+        try {
+          // GET /api/compras/:id  (fallback para ?id=)
+          let res = await fetch(`/api/compras/${encodeURIComponent(expandedId)}`);
+          if (!res.ok && (res.status === 404 || res.status === 405)) {
+            res = await fetch(`/api/compras?id=${encodeURIComponent(expandedId)}`);
+          }
+          const json = await res.json();
+          const itens = (json.itens || json.data?.itens || []) as unknown[];
+          setDetailsById((prev) => ({ ...prev, [expandedId]: { itens } }));
+        } catch {
+          /* ignore */
+        } finally {
+          setLoadingDetails(false);
+          // rolar suavemente até a faixa expandida
+          requestAnimationFrame(() => {
+            expandedRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+          });
+        }
+      } else {
+        // já tinha detalhes; apenas rola
+        requestAnimationFrame(() => {
+          expandedRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+        });
+      }
+    })();
+  }, [expandedId, items, detailsById]);
 
   const pageFrom = total === 0 ? 0 : offset + 1;
   const pageTo = Math.min(offset + limit, total);
@@ -346,7 +429,7 @@ export default function ComprasListaPage() {
     }
   }
 
-  async function handleLiberar(id: string) {
+  async function handleLiberarCompra(id: string) {
     try {
       const res = await fetch(`/api/compras/${encodeURIComponent(id)}`, {
         method: "PATCH",
@@ -363,6 +446,183 @@ export default function ComprasListaPage() {
       setMsg(e?.message || "Erro ao liberar");
       setTimeout(() => setMsg(null), 3000);
     }
+  }
+
+  // Liberar item (3 tentativas de API para compat)
+  async function handleLiberarItem(compraId: string, itemId: number | string) {
+    const idStr = String(compraId);
+    const itIdStr = String(itemId);
+    try {
+      let res = await fetch(`/api/compras/${encodeURIComponent(idStr)}/itens/${encodeURIComponent(itIdStr)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "liberado" }),
+      });
+
+      if (!res.ok && (res.status === 404 || res.status === 405)) {
+        // fallback 1
+        res = await fetch(`/api/compras/${encodeURIComponent(idStr)}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ liberarItemId: itemId }),
+        });
+      }
+      if (!res.ok && (res.status === 404 || res.status === 405)) {
+        // fallback 2
+        res = await fetch(`/api/compras/${encodeURIComponent(idStr)}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ itemId, status: "liberado" }),
+        });
+      }
+      if (!res.ok) throw new Error(await extractError(res));
+
+      // Atualiza localmente
+      setDetailsById((prev) => {
+        const cur = prev[idStr];
+        if (!cur) return prev;
+        const itens = (cur.itens || []).map((x: any) =>
+          isRecord(x) && String((x as any).data?.id ?? (x as any).id) === itIdStr
+            ? { ...x, data: { ...(x as any).data, status: "liberado" } }
+            : x
+        );
+        return { ...prev, [idStr]: { itens } };
+      });
+
+      // Se todos ficaram liberados, marca a compra como liberada
+      setItems((prev) =>
+        prev.map((r) => {
+          if (String(r.id) !== idStr) return r;
+          const detalhes = detailsById[idStr]?.itens || [];
+          const itensDepois =
+            detalhes.length > 0
+              ? detalhes.map((x: any) =>
+                  String((x as any).data?.id ?? (x as any).id) === itIdStr
+                    ? { ...x, data: { ...(x as any).data, status: "liberado" } }
+                    : x
+                )
+              : [];
+          const aindaAguardando = itensDepois.some(
+            (x: any) => (x?.data as any)?.status !== "liberado"
+          );
+          return aindaAguardando ? r : { ...r, statusPontos: "liberados" };
+        })
+      );
+
+      try { localStorage.setItem("TM_COMPRAS_REFRESH", String(Date.now())); } catch {}
+    } catch (err: unknown) {
+      const e = err as { message?: string };
+      setMsg(e?.message || "Erro ao liberar item");
+      setTimeout(() => setMsg(null), 3000);
+    }
+  }
+
+  function ExpandedRow({ compra }: { compra: Record<string, unknown> }) {
+    const id = String(compra.id || "");
+    const cancelada = compra.cancelada === true;
+    const itens = detailsById[id]?.itens || [];
+
+    return (
+      <tr ref={expandedRef}>
+        <td colSpan={10} className="bg-slate-50 px-3 py-3">
+          <div className="rounded-xl border bg-white p-3">
+            <div className="mb-2 flex items-center justify-between">
+              <div className="text-sm font-semibold">Itens da compra {id}</div>
+              <div className="flex items-center gap-2">
+                <button
+                  className="rounded-lg border px-3 py-1 text-sm hover:bg-slate-100"
+                  onClick={() => setExpandedId(null)}
+                >
+                  Fechar
+                </button>
+                {!cancelada && getStrKey(compra, "statusPontos") !== "liberados" && (
+                  <button
+                    className="rounded-lg border bg-black px-3 py-1 text-sm text-white hover:opacity-90"
+                    onClick={() => handleLiberarCompra(id)}
+                  >
+                    Liberar todos
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {loadingDetails ? (
+              <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">
+                Carregando itens…
+              </div>
+            ) : itens.length === 0 ? (
+              <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">
+                Nenhum item encontrado para esta compra.
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="min-w-full text-sm">
+                  <thead>
+                    <tr className="border-b bg-slate-50">
+                      <th className="px-3 py-2 text-left">Tipo</th>
+                      <th className="px-3 py-2 text-left">Detalhe</th>
+                      <th className="px-3 py-2 text-right">Pontos</th>
+                      <th className="px-3 py-2 text-right">Valor</th>
+                      <th className="px-3 py-2 text-left">Status</th>
+                      <th className="px-3 py-2"></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {itens.map((it: any) => {
+                      const kind = String(it?.kind || "");
+                      const data = isRecord(it?.data) ? (it.data as any) : (it as any); // compat
+                      const itemId = Number(data?.id ?? it?.id ?? 0);
+                      const status = String(data?.status || "");
+                      const valor =
+                        kind === "clube"
+                          ? getNum(data?.valor)
+                          : kind === "compra"
+                          ? getNum(data?.valor)
+                          : getNum(data?.valorPago);
+                      const pontos =
+                        kind === "transferencia"
+                          ? getNum(data?.modo) === "pontos+dinheiro"
+                            ? getNum(data?.pontosTotais)
+                            : getNum(data?.pontosUsados)
+                          : getNum(data?.pontos);
+                      return (
+                        <tr key={String(itemId)} className="border-b last:border-0">
+                          <td className="px-3 py-2 capitalize">{kind || "—"}</td>
+                          <td className="px-3 py-2 text-slate-700">{itemResumo(it)}</td>
+                          <td className="px-3 py-2 text-right">{fmtInt(pontos)}</td>
+                          <td className="px-3 py-2 text-right">{fmtMoney(valor)}</td>
+                          <td className="px-3 py-2">
+                            {status === "liberado" ? (
+                              <span className="rounded-full bg-green-100 px-2 py-1 text-[11px] font-medium text-green-700">
+                                Liberado
+                              </span>
+                            ) : (
+                              <span className="rounded-full bg-amber-100 px-2 py-1 text-[11px] font-medium text-amber-700">
+                                Aguardando
+                              </span>
+                            )}
+                          </td>
+                          <td className="px-3 py-2 text-right whitespace-nowrap">
+                            {!cancelada && status !== "liberado" && (
+                              <button
+                                className="rounded-lg border px-3 py-1 text-xs hover:bg-slate-100"
+                                onClick={() => handleLiberarItem(id, itemId)}
+                              >
+                                Liberar item
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </td>
+      </tr>
+    );
   }
 
   return (
@@ -484,50 +744,56 @@ export default function ComprasListaPage() {
             )}
             {items.map((c) => {
               const cancelada = isRecord(c) && c.cancelada === true;
+              const id = String(c.id || "");
+              const isOpen = expandedId === id;
               return (
-                <tr key={String(c.id)} className={`border-t ${cancelada ? "opacity-60" : ""}`}>
-                  <td className="px-3 py-2">{String(c.dataCompra || "")}</td>
-                  <td className="px-3 py-2 font-mono">{String(c.id || "")}</td>
-                  <td className="px-3 py-2 capitalize">{rowModo(c)}</td>
-                  <td className="px-3 py-2">{rowCiaOrigem(c)}</td>
-                  <td className="px-3 py-2 text-right">{fmtInt(rowTotalPts(c))}</td>
-                  <td className="px-3 py-2 text-right">{fmtMoney(rowCustoMilheiro(c))}</td>
-                  <td className="px-3 py-2 text-right">{fmtMoney(rowLucro(c))}</td>
-                  <td className="px-3 py-2 text-right">{fmtMoney(rowLucroProjetado(c))}</td>
-                  <td className="px-3 py-2">
-                    <StatusChip s={getStrKey(c, "statusPontos")} cancelada={cancelada} />
-                  </td>
-                  <td className="px-3 py-2 text-right whitespace-nowrap">
-                    <Link
-                      href={`/dashboard/compras/nova?load=${encodeURIComponent(String(c.id || ""))}`}
-                      className="rounded-lg border px-3 py-1 hover:bg-slate-100"
-                    >
-                      Abrir
-                    </Link>
-                    {!cancelada && getStrKey(c, "statusPontos") !== "liberados" && (
+                <>
+                  <tr key={id} className={`border-t ${cancelada ? "opacity-60" : ""}`}>
+                    <td className="px-3 py-2">{String(c.dataCompra || "")}</td>
+                    <td className="px-3 py-2 font-mono">{id}</td>
+                    <td className="px-3 py-2 capitalize">{rowModo(c)}</td>
+                    <td className="px-3 py-2">{rowCiaOrigem(c)}</td>
+                    <td className="px-3 py-2 text-right">{fmtInt(rowTotalPts(c))}</td>
+                    <td className="px-3 py-2 text-right">{fmtMoney(rowCustoMilheiro(c))}</td>
+                    <td className="px-3 py-2 text-right">{fmtMoney(rowLucro(c))}</td>
+                    <td className="px-3 py-2 text-right">{fmtMoney(rowLucroProjetado(c))}</td>
+                    <td className="px-3 py-2">
+                      <StatusChip s={getStrKey(c, "statusPontos")} cancelada={cancelada} />
+                    </td>
+                    <td className="px-3 py-2 text-right whitespace-nowrap">
                       <button
-                        className="ml-2 rounded-lg border px-3 py-1 hover:bg-slate-100"
-                        onClick={() => handleLiberar(String(c.id))}
+                        className="rounded-lg border px-3 py-1 hover:bg-slate-100"
+                        onClick={() => setExpandedId(isOpen ? null : id)}
                       >
-                        Liberar
+                        {isOpen ? "Fechar" : "Abrir"}
                       </button>
-                    )}
-                    {!cancelada && (
+                      {!cancelada && getStrKey(c, "statusPontos") !== "liberados" && (
+                        <button
+                          className="ml-2 rounded-lg border px-3 py-1 hover:bg-slate-100"
+                          onClick={() => handleLiberarCompra(id)}
+                        >
+                          Liberar
+                        </button>
+                      )}
+                      {!cancelada && (
+                        <button
+                          className="ml-2 rounded-lg border px-3 py-1 hover:bg-slate-100"
+                          onClick={() => handleCancelar(id)}
+                        >
+                          Cancelar
+                        </button>
+                      )}
                       <button
-                        className="ml-2 rounded-lg border px-3 py-1 hover:bg-slate-100"
-                        onClick={() => handleCancelar(String(c.id))}
+                        className="ml-2 rounded-lg border px-3 py-1 hover:bg-rose-50"
+                        onClick={() => handleExcluir(id)}
                       >
-                        Cancelar
+                        Excluir
                       </button>
-                    )}
-                    <button
-                      className="ml-2 rounded-lg border px-3 py-1 hover:bg-rose-50"
-                      onClick={() => handleExcluir(String(c.id))}
-                    >
-                      Excluir
-                    </button>
-                  </td>
-                </tr>
+                    </td>
+                  </tr>
+
+                  {isOpen && <ExpandedRow compra={c as Record<string, unknown>} />}
+                </>
               );
             })}
           </tbody>
