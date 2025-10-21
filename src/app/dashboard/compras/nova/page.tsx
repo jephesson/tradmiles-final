@@ -76,29 +76,28 @@ type Draft = {
 
 const DRAFT_COOKIE = "nova_compra_draft";
 
-/** ===== Encaminhar cookies/headers para rotas internas ===== */
+/** ===== Encaminhar cookies/headers para rotas internas (sem usar any) ===== */
 async function apiFetch(path: string, init: RequestInit = {}) {
   const hdrs = await headers();
   const proto = hdrs.get("x-forwarded-proto") ?? "https";
   const host = hdrs.get("x-forwarded-host") ?? hdrs.get("host") ?? "localhost:3000";
   const base = `${proto}://${host}`;
 
-  // Monta header Cookie com todos os cookies da requisição
+  // Normaliza headers do request usando a classe Headers
+  const reqHeaders = new Headers(init.headers ?? {});
+
+  // Copia todos os cookies da req atual
   const jar = await cookies();
   const cookieHeader = jar.getAll().map(c => `${c.name}=${c.value}`).join("; ");
-
-  const mergedHeaders: HeadersInit = {
-    ...(init.headers || {}),
-    ...(cookieHeader ? { cookie: cookieHeader } : {}),
-  };
+  if (cookieHeader) reqHeaders.set("cookie", cookieHeader);
 
   // Encaminha Authorization se existir
   const auth = hdrs.get("authorization");
-  if (auth && !("authorization" in (mergedHeaders as any))) {
-    (mergedHeaders as any).authorization = auth;
+  if (auth && !reqHeaders.has("authorization")) {
+    reqHeaders.set("authorization", auth);
   }
 
-  return fetch(`${base}${path}`, { ...init, headers: mergedHeaders });
+  return fetch(`${base}${path}`, { ...init, headers: reqHeaders });
 }
 
 /** ===== Persistência de rascunho via cookie (Next 15: cookies() é assíncrono) ===== */
