@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useRef, useState, ReactNode } from "react";
+import { useEffect, useRef, useState, ReactNode, Fragment } from "react";
 
 /** ===== Helpers gerais ===== */
 const fmtMoney = (v: number) =>
@@ -64,6 +64,61 @@ function isItemTransf(x: unknown): boolean {
 }
 function isItemClube(x: unknown): boolean {
   return isRecord(x) && x.kind === "clube";
+}
+
+/** ===== Helpers tipados p/ itens (sem any) ===== */
+type StatusItem = "liberado" | "aguardando" | string;
+
+function itemKind(it: unknown): string {
+  return isRecord(it) && typeof it.kind === "string" ? (it.kind as string) : "";
+}
+function itemData(it: unknown): Record<string, unknown> {
+  if (!isRecord(it)) return {};
+  const d = it.data;
+  return isRecord(d) ? d : (it as Record<string, unknown>);
+}
+function toIdString(v: unknown): string {
+  return typeof v === "string" || typeof v === "number" ? String(v) : "";
+}
+function itemIdString(it: unknown): string {
+  const d = itemData(it);
+  const did = toIdString(d.id);
+  if (did) return did;
+  const tid = isRecord(it) ? toIdString((it as Record<string, unknown>)["id"]) : "";
+  return tid;
+}
+function itemStatus(it: unknown): StatusItem {
+  const d = itemData(it);
+  const s = d.status;
+  return typeof s === "string" ? (s as StatusItem) : "";
+}
+function itemValor(it: unknown): number {
+  const k = itemKind(it);
+  const d = itemData(it);
+  if (k === "clube" || k === "compra") return getNum(d.valor);
+  if (k === "transferencia") return getNum(d.valorPago);
+  return 0;
+}
+function itemPontos(it: unknown): number {
+  const k = itemKind(it);
+  const d = itemData(it);
+  if (k === "transferencia") {
+    const modo = typeof d.modo === "string" ? (d.modo as string) : "";
+    if (modo === "pontos+dinheiro") return getNum(d.pontosTotais);
+    return getNum(d.pontosUsados);
+  }
+  return getNum(d.pontos);
+}
+function markItemLiberado(it: unknown, idStr: string): unknown {
+  if (!isRecord(it)) return it;
+  const d = itemData(it);
+  const topId = isRecord(it) ? (it as Record<string, unknown>)["id"] : undefined;
+  const match = itemIdString(it) === idStr || toIdString(topId) === idStr;
+  if (!match) return it;
+  return {
+    ...(it as Record<string, unknown>),
+    data: { ...d, status: "liberado" as StatusItem },
+  };
 }
 
 /* ===== Cálculos de exibição ===== */
@@ -226,34 +281,40 @@ function StatusChip(props: { s?: string; cancelada?: boolean }) {
 function itemResumo(x: unknown): string {
   if (!isRecord(x)) return "";
   const kind = String(x.kind || "");
-  const data = isRecord(x.data) ? x.data : {};
+  const data = itemData(x);
+
   if (kind === "clube") {
-    const prog = String((data as any).programa || "");
-    const pts = getNum((data as any).pontos);
-    const val = getNum((data as any).valor);
+    const prog = getStrKey(data, "programa");
+    const pts = getNum(getKey(data, "pontos"));
+    const val = getNum(getKey(data, "valor"));
     return `Clube • ${prog || "?"} • ${fmtInt(pts)} pts • ${fmtMoney(val)}`;
   }
   if (kind === "compra") {
-    const prog = String((data as any).programa || "");
-    const pts = getNum((data as any).pontos);
-    const bonus = getNum((data as any).bonusPct);
-    const val = getNum((data as any).valor);
+    const prog = getStrKey(data, "programa");
+    const pts = getNum(getKey(data, "pontos"));
+    const bonus = getNum(getKey(data, "bonusPct"));
+    const val = getNum(getKey(data, "valor"));
     const contaCIA = prog === "latam" || prog === "smiles";
     const finais = contaCIA ? Math.round(pts * (1 + (bonus || 0) / 100)) : pts;
     return `Compra • ${prog || "?"} • ${fmtInt(finais)} pts • bônus ${bonus || 0}% • ${fmtMoney(val)}`;
   }
   if (kind === "transferencia") {
-    const o = String((data as any).origem || "");
-    const d = String((data as any).destino || "");
-    const modo = String((data as any).modo || "");
-    const usados = getNum((data as any).pontosUsados);
-    const totais = getNum((data as any).pontosTotais);
+    const o = getStrKey(data, "origem");
+    const d = getStrKey(data, "destino");
+    const modo = getStrKey(data, "modo");
+    const usados = getNum(getKey(data, "pontosUsados"));
+    const totais = getNum(getKey(data, "pontosTotais"));
     const base = modo === "pontos+dinheiro" ? totais : usados;
-    const bonus = getNum((data as any).bonusPct);
+    const bonus = getNum(getKey(data, "bonusPct"));
     const chegam = Math.round(base * (1 + (bonus || 0) / 100));
-    const val = getNum((data as any).valorPago);
-    const det = modo === "pontos+dinheiro" ? `usados ${fmtInt(usados)} • totais ${fmtInt(totais)}` : `usados ${fmtInt(usados)}`;
-    return `Transf. • ${o || "?"} → ${d || "?"} • ${modo || "?"} • ${det} • chegam ${fmtInt(chegam)} • ${fmtMoney(val)}`;
+    const val = getNum(getKey(data, "valorPago"));
+    const det =
+      modo === "pontos+dinheiro"
+        ? `usados ${fmtInt(usados)} • totais ${fmtInt(totais)}`
+        : `usados ${fmtInt(usados)}`;
+    return `Transf. • ${o || "?"} → ${d || "?"} • ${modo || "?"} • ${det} • chegam ${fmtInt(
+      chegam
+    )} • ${fmtMoney(val)}`;
   }
   return "";
 }
@@ -481,11 +542,7 @@ export default function ComprasListaPage() {
       setDetailsById((prev) => {
         const cur = prev[idStr];
         if (!cur) return prev;
-        const itens = (cur.itens || []).map((x: any) =>
-          isRecord(x) && String((x as any).data?.id ?? (x as any).id) === itIdStr
-            ? { ...x, data: { ...(x as any).data, status: "liberado" } }
-            : x
-        );
+        const itens = (cur.itens || []).map((x) => markItemLiberado(x, itIdStr));
         return { ...prev, [idStr]: { itens } };
       });
 
@@ -495,16 +552,8 @@ export default function ComprasListaPage() {
           if (String(r.id) !== idStr) return r;
           const detalhes = detailsById[idStr]?.itens || [];
           const itensDepois =
-            detalhes.length > 0
-              ? detalhes.map((x: any) =>
-                  String((x as any).data?.id ?? (x as any).id) === itIdStr
-                    ? { ...x, data: { ...(x as any).data, status: "liberado" } }
-                    : x
-                )
-              : [];
-          const aindaAguardando = itensDepois.some(
-            (x: any) => (x?.data as any)?.status !== "liberado"
-          );
+            detalhes.length > 0 ? detalhes.map((x) => markItemLiberado(x, itIdStr)) : [];
+          const aindaAguardando = itensDepois.some((x) => itemStatus(x) !== "liberado");
           return aindaAguardando ? r : { ...r, statusPontos: "liberados" };
         })
       );
@@ -568,25 +617,16 @@ export default function ComprasListaPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {itens.map((it: any) => {
-                      const kind = String(it?.kind || "");
-                      const data = isRecord(it?.data) ? (it.data as any) : (it as any); // compat
-                      const itemId = Number(data?.id ?? it?.id ?? 0);
-                      const status = String(data?.status || "");
-                      const valor =
-                        kind === "clube"
-                          ? getNum(data?.valor)
-                          : kind === "compra"
-                          ? getNum(data?.valor)
-                          : getNum(data?.valorPago);
-                      const pontos =
-                        kind === "transferencia"
-                          ? getNum(data?.modo) === "pontos+dinheiro"
-                            ? getNum(data?.pontosTotais)
-                            : getNum(data?.pontosUsados)
-                          : getNum(data?.pontos);
+                    {itens.map((it: unknown) => {
+                      const kind = itemKind(it);
+                      const data = itemData(it); // compat (pode vir top-level)
+                      const itemIdStr = itemIdString(it) || "0";
+                      const status = itemStatus(it);
+                      const valor = itemValor(it);
+                      const pontos = itemPontos(it);
+
                       return (
-                        <tr key={String(itemId)} className="border-b last:border-0">
+                        <tr key={itemIdStr} className="border-b last:border-0">
                           <td className="px-3 py-2 capitalize">{kind || "—"}</td>
                           <td className="px-3 py-2 text-slate-700">{itemResumo(it)}</td>
                           <td className="px-3 py-2 text-right">{fmtInt(pontos)}</td>
@@ -606,7 +646,7 @@ export default function ComprasListaPage() {
                             {!cancelada && status !== "liberado" && (
                               <button
                                 className="rounded-lg border px-3 py-1 text-xs hover:bg-slate-100"
-                                onClick={() => handleLiberarItem(id, itemId)}
+                                onClick={() => handleLiberarItem(id, itemIdStr)}
                               >
                                 Liberar item
                               </button>
@@ -747,8 +787,8 @@ export default function ComprasListaPage() {
               const id = String(c.id || "");
               const isOpen = expandedId === id;
               return (
-                <>
-                  <tr key={id} className={`border-t ${cancelada ? "opacity-60" : ""}`}>
+                <Fragment key={id}>
+                  <tr className={`border-t ${cancelada ? "opacity-60" : ""}`}>
                     <td className="px-3 py-2">{String(c.dataCompra || "")}</td>
                     <td className="px-3 py-2 font-mono">{id}</td>
                     <td className="px-3 py-2 capitalize">{rowModo(c)}</td>
@@ -793,7 +833,7 @@ export default function ComprasListaPage() {
                   </tr>
 
                   {isOpen && <ExpandedRow compra={c as Record<string, unknown>} />}
-                </>
+                </Fragment>
               );
             })}
           </tbody>
