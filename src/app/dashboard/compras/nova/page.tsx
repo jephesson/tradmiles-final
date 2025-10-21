@@ -219,10 +219,10 @@ async function persistDraft(d: Draft) {
   }
 }
 
-/** ===== Server Actions ===== */
+/** ===== Server Actions (no exports aqui!) ===== */
 
 /** Cabeçalho */
-export async function actUpdateHeader(formData: FormData) {
+async function actUpdateHeader(formData: FormData) {
   "use server";
   const d = (await ensureDraftBase())!;
   d.dataCompra = String(formData.get("dataCompra") || d.dataCompra);
@@ -233,7 +233,7 @@ export async function actUpdateHeader(formData: FormData) {
 }
 
 /** Comissão + Meta */
-export async function actUpdateComissaoMeta(formData: FormData) {
+async function actUpdateComissaoMeta(formData: FormData) {
   "use server";
   const d = (await ensureDraftBase())!;
   d.comissaoCedente = parseMoneyLoose(formData.get("comissaoCedente"));
@@ -244,7 +244,7 @@ export async function actUpdateComissaoMeta(formData: FormData) {
 }
 
 /** Add Clube */
-export async function actAddClube(formData: FormData) {
+async function actAddClube(formData: FormData) {
   "use server";
   const d = (await ensureDraftBase())!;
   const it: ClubeItem = {
@@ -260,7 +260,7 @@ export async function actAddClube(formData: FormData) {
 }
 
 /** Add Compra */
-export async function actAddCompra(formData: FormData) {
+async function actAddCompra(formData: FormData) {
   "use server";
   const d = (await ensureDraftBase())!;
   const it: CompraItem = {
@@ -277,7 +277,7 @@ export async function actAddCompra(formData: FormData) {
 }
 
 /** Add Transferência (entra como AGUARDANDO nesta tela) */
-export async function actAddTransf(formData: FormData) {
+async function actAddTransf(formData: FormData) {
   "use server";
   const d = (await ensureDraftBase())!;
   const modo = String(formData.get("trModo")) as "pontos" | "pontos+dinheiro";
@@ -300,7 +300,7 @@ export async function actAddTransf(formData: FormData) {
 }
 
 /** Toggle status (apenas clube/compra) */
-export async function actToggleStatus(formData: FormData) {
+async function actToggleStatus(formData: FormData) {
   "use server";
   const d = (await ensureDraftBase())!;
   const id = Number(formData.get("itemId"));
@@ -308,18 +308,16 @@ export async function actToggleStatus(formData: FormData) {
     if (l.data.id !== id) return l;
     if (l.kind === "transferencia") return l; // não alterna aqui
     const next: StatusItem = l.data.status === "liberado" ? "aguardando" : "liberado";
-    if (l.kind === "clube") {
-      return { kind: "clube", data: { ...l.data, status: next } };
-    }
-    // l.kind === "compra"
-    return { kind: "compra", data: { ...l.data, status: next } };
+    return l.kind === "clube"
+      ? { kind: "clube", data: { ...(l.data as ClubeItem), status: next } }
+      : { kind: "compra", data: { ...(l.data as CompraItem), status: next } };
   });
   writeDraft(d);
   redirect("/dashboard/compras/nova");
 }
 
 /** Remover item */
-export async function actRemoveItem(formData: FormData) {
+async function actRemoveItem(formData: FormData) {
   "use server";
   const d = (await ensureDraftBase())!;
   const id = Number(formData.get("itemId"));
@@ -329,7 +327,7 @@ export async function actRemoveItem(formData: FormData) {
 }
 
 /** Salvar (permanece na página nova) */
-export async function actSave() {
+async function actSave() {
   "use server";
   const d = (await ensureDraftBase())!;
   await persistDraft(d);
@@ -338,7 +336,7 @@ export async function actSave() {
 }
 
 /** Salvar e voltar para a lista */
-export async function actSaveAndBack() {
+async function actSaveAndBack() {
   "use server";
   const d = (await ensureDraftBase())!;
   await persistDraft(d);
