@@ -364,7 +364,6 @@ function normalizeFromNewShape(body: AnyObj) {
 }
 
 /** ===================== GET ===================== */
-// [igual ao seu, sem alterações]
 export async function GET(req: Request): Promise<NextResponse> {
   try {
     const url = new URL(req.url);
@@ -516,7 +515,6 @@ export async function GET(req: Request): Promise<NextResponse> {
 }
 
 /** ===================== POST (upsert idempotente) ===================== */
-// [igual ao seu, sem alterações funcionais]
 export async function POST(req: Request): Promise<NextResponse> {
   try {
     const raw: unknown = await req.json();

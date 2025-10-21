@@ -30,7 +30,6 @@ const isObject = (v: unknown): v is AnyObj =>
 
 /** Garante um objeto JSON serializável e com tipo do Prisma */
 function toJsonValue<T>(value: T): Prisma.InputJsonValue {
-  // remove referências/funcs/símbolos via JSON round-trip
   return JSON.parse(JSON.stringify(value)) as unknown as Prisma.InputJsonValue;
 }
 
@@ -53,7 +52,6 @@ type Delta = {
   esfera?: number;
 };
 
-/** shape mínimo para compilar com type-safety */
 type CompraDoc = {
   id: string;
   dataCompra?: string;
@@ -70,11 +68,10 @@ type CompraDoc = {
   totaisId?: Totais | null;
   metaMilheiro?: number;
   comissaoCedente?: number;
-  saldosDelta?: Delta | null; // <<< usamos no estorno
+  saldosDelta?: Delta | null; // deltas por programa desta compra
   savedAt?: number;
 };
 
-/** cedente no blob de cedentes */
 type CedenteDoc = {
   identificador: string;
   nome_completo?: string;
@@ -85,7 +82,6 @@ type CedenteDoc = {
   esfera?: number | string;
 };
 
-/** comissão no blob de comissões */
 type ComissaoDoc = {
   id?: string;
   compraId?: string;
@@ -144,6 +140,51 @@ async function saveComissoes(items: ComissaoDoc[]): Promise<void> {
   });
 }
 
+/* ---------- Utilidades de delta/saldo ---------- */
+function normDelta(d?: Delta | null): Required<Delta> {
+  return {
+    latam: Number(d?.latam ?? 0),
+    smiles: Number(d?.smiles ?? 0),
+    livelo: Number(d?.livelo ?? 0),
+    esfera: Number(d?.esfera ?? 0),
+  };
+}
+
+function isZeroDelta(d: Required<Delta>): boolean {
+  return d.latam === 0 && d.smiles === 0 && d.livelo === 0 && d.esfera === 0;
+}
+
+function subDelta(a: Required<Delta>, b: Required<Delta>): Required<Delta> {
+  return {
+    latam: a.latam - b.latam,
+    smiles: a.smiles - b.smiles,
+    livelo: a.livelo - b.livelo,
+    esfera: a.esfera - b.esfera,
+  };
+}
+
+async function aplicarDeltaCedente(cedenteId: string | undefined, delta: Required<Delta>): Promise<void> {
+  if (!cedenteId || isZeroDelta(delta)) return;
+
+  const cedentes = await loadCedentes();
+  const idx = cedentes.findIndex(
+    (c) => String(c.identificador).trim() === String(cedenteId).trim()
+  );
+  if (idx === -1) return;
+
+  const c = { ...cedentes[idx] };
+  const next: CedenteDoc = {
+    ...c,
+    latam: Number(c.latam ?? 0) + delta.latam,
+    smiles: Number(c.smiles ?? 0) + delta.smiles,
+    livelo: Number(c.livelo ?? 0) + delta.livelo,
+    esfera: Number(c.esfera ?? 0) + delta.esfera,
+  };
+
+  cedentes[idx] = next;
+  await saveCedentes(cedentes);
+}
+
 /* =========================================================
  *  GET /api/compras/:id
  * ========================================================= */
@@ -170,6 +211,8 @@ export async function GET(
 
 /* =========================================================
  *  PATCH /api/compras/:id
+ *  -> aplica/estorna saldos conforme mudança de status e/ou
+ *     variação de saldosDelta com status "liberados"
  * ========================================================= */
 export async function PATCH(
   req: Request,
@@ -294,7 +337,7 @@ export async function PATCH(
       }
     }
 
-    // carrega, aplica patch e persiste
+    // carrega compra atual
     const list = await loadCompras();
     const idx = list.findIndex((x) => String(x.id).trim() === id.trim());
     if (idx === -1) {
@@ -304,12 +347,44 @@ export async function PATCH(
       );
     }
 
-    const updated: CompraDoc = { ...list[idx], ...patch };
-    list[idx] = updated;
+    const before = list[idx];
+    const beforeStatus = before.statusPontos ?? "aguardando";
+    const beforeDelta = normDelta(before.saldosDelta);
+
+    // Estado "depois do patch" (ainda não persistido)
+    const after: CompraDoc = { ...before, ...patch };
+    const afterStatus = after.statusPontos ?? "aguardando";
+    const afterDelta = normDelta(after.saldosDelta);
+
+    // 1) Se status mudou, aplica estorno/adição total
+    if (beforeStatus !== afterStatus) {
+      if (afterStatus === "liberados") {
+        // estava aguardando -> liberados: aplica saldosDelta atual
+        await aplicarDeltaCedente(after.cedenteId, afterDelta);
+      } else {
+        // estava liberados -> aguardando: estorna tudo que havia sido aplicado antes
+        await aplicarDeltaCedente(before.cedenteId, {
+          latam: -beforeDelta.latam,
+          smiles: -beforeDelta.smiles,
+          livelo: -beforeDelta.livelo,
+          esfera: -beforeDelta.esfera,
+        });
+      }
+    } else if (afterStatus === "liberados") {
+      // 2) Se continua liberado e o delta mudou, aplica diferença (after - before)
+      const diff = subDelta(afterDelta, beforeDelta);
+      if (!isZeroDelta(diff)) {
+        await aplicarDeltaCedente(after.cedenteId, diff);
+      }
+    }
+    // (Se está aguardando e só mudou o delta, não fazemos nada nos saldos.)
+
+    // Persiste compra
+    list[idx] = after;
     await saveCompras(list);
 
     return NextResponse.json(
-      { ok: true, id: id.trim(), data: updated },
+      { ok: true, id: id.trim(), data: after },
       { headers: noCache() }
     );
   } catch (e: unknown) {
@@ -344,25 +419,14 @@ export async function DELETE(
 
     // 2) Estorna saldos do cedente (se houver info suficiente)
     if (compra.cedenteId && compra.saldosDelta) {
-      const cedentes = await loadCedentes();
-      const cIdx = cedentes.findIndex(
-        (c) => String(c.identificador).trim() === String(compra.cedenteId).trim()
-      );
-
-      if (cIdx !== -1) {
-        const c = cedentes[cIdx];
-        const delta = compra.saldosDelta;
-
-        const next: CedenteDoc = {
-          ...c,
-          latam: Number(c.latam ?? 0) - Number(delta.latam ?? 0),
-          smiles: Number(c.smiles ?? 0) - Number(delta.smiles ?? 0),
-          livelo: Number(c.livelo ?? 0) - Number(delta.livelo ?? 0),
-          esfera: Number(c.esfera ?? 0) - Number(delta.esfera ?? 0),
-        };
-
-        cedentes[cIdx] = next;
-        await saveCedentes(cedentes);
+      const delta = normDelta(compra.saldosDelta);
+      if (!isZeroDelta(delta)) {
+        await aplicarDeltaCedente(compra.cedenteId, {
+          latam: -delta.latam,
+          smiles: -delta.smiles,
+          livelo: -delta.livelo,
+          esfera: -delta.esfera,
+        });
       }
     }
 
