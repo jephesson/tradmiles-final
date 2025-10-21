@@ -1,3 +1,4 @@
+// src/app/dashboard/compras/nova/page.tsx
 import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 
@@ -105,7 +106,7 @@ async function apiFetch(path: string, init: RequestInit = {}) {
 
   const reqHeaders = new Headers(init.headers ?? {});
   const jar = await cookies();
-  const cookieHeader = jar.getAll().map(c => `${c.name}=${c.value}`).join("; ");
+  const cookieHeader = jar.getAll().map((c) => `${c.name}=${c.value}`).join("; ");
   if (cookieHeader) reqHeaders.set("cookie", cookieHeader);
 
   const auth = hdrs.get("authorization");
@@ -205,8 +206,7 @@ function coerceItemLinha(u: unknown): ItemLinha | null {
     else if (getStrKey(dataRaw, "programa")) kind = "clube";
   }
 
-  const idCandidate =
-    getNum(getKey(dataRaw, "id")) || getNum(getKey(u, "id")) || Date.now();
+  const idCandidate = getNum(getKey(dataRaw, "id")) || getNum(getKey(u, "id")) || Date.now();
   const status = (getStrKey(dataRaw, "status") || "aguardando") as StatusItem;
 
   if (kind === "clube") {
@@ -310,9 +310,7 @@ async function ensureDraftFromCompraId(idParam: string) {
       ? (itensDeep as unknown[])
       : [];
 
-    const linhas: ItemLinha[] = itensRaw
-      .map((x) => coerceItemLinha(x))
-      .filter((x): x is ItemLinha => !!x);
+    const linhas: ItemLinha[] = itensRaw.map((x) => coerceItemLinha(x)).filter((x): x is ItemLinha => !!x);
 
     draft = {
       compraId: wantId,
@@ -560,20 +558,18 @@ export default async function NovaCompraPage({
   // ==== Painel de saldos: atual + previsão ====
   const deltaLiberado = computeDeltaPorPrograma(d.linhas);
 
-  const linhasComoLiberadas: ItemLinha[] = d.linhas.map((l): ItemLinha => {
-    switch (l.kind) {
-      case "clube": {
-        const data: ClubeItem = { ...l.data, status: "liberado" };
-        return { kind: "clube", data };
-      }
-      case "compra": {
-        const data: CompraItem = { ...l.data, status: "liberado" };
-        return { kind: "compra", data };
-      }
-      case "transferencia": {
-        const data: TransfItem = { ...l.data, status: "liberado" };
-        return { kind: "transferencia", data };
-      }
+  // Garantir retorno em todas as branches para evitar "undefined"
+  const linhasComoLiberadas: ItemLinha[] = d.linhas.map((l) => {
+    if (l.kind === "clube") {
+      const data: ClubeItem = { ...l.data, status: "liberado" };
+      return { kind: "clube", data };
+    } else if (l.kind === "compra") {
+      const data: CompraItem = { ...l.data, status: "liberado" };
+      return { kind: "compra", data };
+    } else {
+      // transferencia
+      const data: TransfItem = { ...l.data, status: "liberado" };
+      return { kind: "transferencia", data };
     }
   });
   const deltaPrevisto = computeDeltaPorPrograma(linhasComoLiberadas);
@@ -630,11 +626,7 @@ export default async function NovaCompraPage({
 
         <form action={actUpdateHeader}>
           <label className="mb-1 block text-xs text-slate-600">Cedente</label>
-          <select
-            name="cedenteId"
-            defaultValue={d.cedenteId}
-            className="w-full rounded-xl border px-3 py-2 text-sm"
-          >
+          <select name="cedenteId" defaultValue={d.cedenteId} className="w-full rounded-xl border px-3 py-2 text-sm">
             <option value="">Selecione…</option>
             {cedentes.map((c) => (
               <option key={c.id} value={c.id}>
@@ -836,7 +828,8 @@ export default async function NovaCompraPage({
           </div>
 
           <div className="md:col-span-8 text-[11px] text-slate-600">
-            * Chegam na CIA: <b>pontos usados (ou pts transferidos) × (1 + bônus%)</b>. Nesta tela, transferências entram como <b>aguardando</b>.
+            * Chegam na CIA: <b>pontos usados (ou pts transferidos) × (1 + bônus%)</b>. Nesta tela, transferências entram
+            como <b>aguardando</b>.
           </div>
 
           <div className="md:col-span-8 flex items-end">
@@ -933,9 +926,7 @@ export default async function NovaCompraPage({
             placeholder="R$ 0,00"
             className="w-full rounded-xl border px-3 py-2 text-sm"
           />
-          <div className="mt-1 text-[11px] text-slate-500">
-            * Campo aceita dígitos (centavos). Ex.: <b>150</b> = R$ 1,50.
-          </div>
+          <div className="mt-1 text-[11px] text-slate-500">* Campo aceita dígitos (centavos). Ex.: <b>150</b> = R$ 1,50.</div>
         </div>
         <div className="md:col-span-2">
           <button className="rounded-lg border px-4 py-2 text-sm hover:bg-slate-100">Atualizar comissão/meta</button>
