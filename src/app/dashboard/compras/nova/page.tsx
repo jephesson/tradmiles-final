@@ -190,6 +190,7 @@ async function ensureDraftBase(persistOnInit = false) {
 
 /** ===== Persistência do draft em /api/* (sem redirect) ===== */
 async function persistDraft(d: Draft) {
+  // Mantém o delta da persistência como "liberado" (comportamento atual)
   const deltaPrevisto = computeDeltaPorPrograma(d.linhas);
   const totals = computeTotais(d.linhas, d.comissaoCedente, d.metaMilheiro, 1);
 
@@ -381,8 +382,17 @@ export default async function NovaCompraPage() {
   const cedentes = await loadCedentes();
   const cedente = cedentes.find((c) => c.id === d.cedenteId);
 
-  // Painel de saldos: saldo atual + delta (engine só conta LIBERADOS)
-  const deltaPrevisto = computeDeltaPorPrograma(d.linhas);
+  // ==== Painel de saldos: atual + previsão ====
+  // 1) Delta "liberado" (estado real, como a engine já calcula)
+  const deltaLiberado = computeDeltaPorPrograma(d.linhas);
+
+  // 2) PREVISÃO: trata todos os itens como "liberado" apenas para exibir no painel
+  const linhasComoLiberadas: ItemLinha[] = d.linhas.map((l) => ({
+    kind: l.kind,
+    data: { ...(l.data as any), status: "liberado" as StatusItem },
+  }));
+  const deltaPrevisto = computeDeltaPorPrograma(linhasComoLiberadas);
+
   const saldoAtual = {
     latam: Number(cedente?.latam || 0),
     smiles: Number(cedente?.smiles || 0),
@@ -489,11 +499,15 @@ export default async function NovaCompraPage() {
                     Atual: <b>{fmtInt(saldoAtual[k])}</b>
                   </div>
                   <div>
-                    Variação desta compra:{" "}
+                    Variação prevista:{" "}
                     <b className={(deltaPrevisto[k] ?? 0) >= 0 ? "text-green-700" : "text-red-700"}>
                       {(deltaPrevisto[k] ?? 0) >= 0 ? "+" : ""}
                       {fmtInt(deltaPrevisto[k] ?? 0)}
                     </b>
+                  </div>
+                  <div className="text-[11px] text-slate-500">
+                    (Liberado agora: {deltaLiberado[k] >= 0 ? "+" : ""}
+                    {fmtInt(deltaLiberado[k] ?? 0)})
                   </div>
                   <div>
                     Previsto: <b>{fmtInt(saldoPrevisto[k])}</b>
