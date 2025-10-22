@@ -101,6 +101,7 @@ const DRAFT_COOKIE = "nova_compra_draft";
 async function apiFetch(path: string, init: RequestInit = {}) {
   const hdrs = await headers();
   const proto = hdrs.get("x-forwarded-proto") ?? "https";
+  the:
   const host = hdrs.get("x-forwarded-host") ?? hdrs.get("host") ?? "localhost:3000";
   const base = `${proto}://${host}`;
 
@@ -289,12 +290,12 @@ async function ensureDraftBase(persistOnInit = false) {
 }
 
 /** ===== Quando vier da lista: carregar a compra (online) e seedar o draft ===== */
-async function ensureDraftFromCompraId(idParam: string) {
+async function ensureDraftFromCompraId(idParam: string): Promise<Draft | null> {
   const wantId = String(idParam || "").replace(/[^\d]/g, "");
-  if (!wantId) return;
+  if (!wantId) return null;
 
   const current = await readDraft();
-  if (current?.compraId === wantId && current?.linhas?.length) return;
+  if (current?.compraId === wantId && current?.linhas?.length) return current;
 
   const raw = await loadCompraById(wantId);
   const cedentes = await loadCedentes();
@@ -319,7 +320,7 @@ async function ensureDraftFromCompraId(idParam: string) {
       ? (itensDeep as unknown[])
       : [];
 
-    const linhas: ItemLinha[] = itensRaw.map((x) => coerceItemLinha(x)).filter((x): x is ItemLinha => !!x);
+    const linhas: ItemLinha[] = itensRaw.map(coerceItemLinha).filter((x): x is ItemLinha => !!x);
 
     draft = {
       compraId: wantId,
@@ -332,8 +333,8 @@ async function ensureDraftFromCompraId(idParam: string) {
     };
   }
 
-  // <- Em Server Component, gravar cookie pode quebrar; usar versão resiliente
-  await safeWriteDraft(draft);
+  await safeWriteDraft(draft); // mantém cookie p/ próximos requests
+  return draft;                // e já devolve para esta renderização
 }
 
 /** ===== Persistência do draft em /api/* (PATCH se existir, fallback) ===== */
@@ -500,18 +501,17 @@ async function actAddTransf(formData: FormData) {
   redirect("/dashboard/compras/nova?compraId=" + encodeURIComponent(d.compraId) + "&append=1");
 }
 
-/** Toggle status (apenas clube/compra) */
+/** Toggle status (agora para QUALQUER item, incluindo transferência) */
 async function actToggleStatus(formData: FormData) {
   "use server";
   const d = (await ensureDraftBase(true))!;
   const id = Number(formData.get("itemId"));
   d.linhas = d.linhas.map((l) => {
     if (l.data.id !== id) return l;
-    if (l.kind === "transferencia") return l;
     const next: StatusItem = l.data.status === "liberado" ? "aguardando" : "liberado";
-    return l.kind === "clube"
-      ? { kind: "clube", data: { ...(l.data as ClubeItem), status: next } }
-      : { kind: "compra", data: { ...(l.data as CompraItem), status: next } };
+    if (l.kind === "clube") return { kind: "clube", data: { ...(l.data as ClubeItem), status: next } };
+    if (l.kind === "compra") return { kind: "compra", data: { ...(l.data as CompraItem), status: next } };
+    return { kind: "transferencia", data: { ...(l.data as TransfItem), status: next } };
   });
   await writeDraft(d);
   redirect("/dashboard/compras/nova?compraId=" + encodeURIComponent(d.compraId) + "&append=1");
@@ -559,12 +559,10 @@ export default async function NovaCompraPage({
     ((sp as Record<string, string | string[] | undefined>)["compralId"]);
   const compraId = Array.isArray(compraIdRaw) ? compraIdRaw[0] : compraIdRaw;
 
-  // Se vier da lista com ?compraId=, resgata online e tenta popular o draft (sem quebrar no server)
-  if (compraId) {
-    await ensureDraftFromCompraId(String(compraId));
-  }
+  // Se vier da lista com ?compraId=, resgata online e já devolve o draft para este render
+  const draftFromCompra = compraId ? await ensureDraftFromCompraId(String(compraId)) : null;
 
-  const d = (await ensureDraftBase(false))!;
+  const d = draftFromCompra ?? (await ensureDraftBase(false))!;
   const cedentes = await loadCedentes();
   const cedente = cedentes.find((c) => c.id === d.cedenteId);
 
@@ -873,26 +871,20 @@ export default async function NovaCompraPage({
                     <span className="text-slate-700">{resumo}</span>
                   </div>
                   <div className="flex items-center gap-2">
-                    {l.kind !== "transferencia" ? (
-                      <form action={actToggleStatus}>
-                        <input type="hidden" name="itemId" value={String(itemId)} />
-                        <button
-                          className={
-                            "rounded border px-2 py-1 text-xs " +
-                            (itemStatus === "liberado"
-                              ? "bg-green-50 border-green-200 text-green-700"
-                              : "bg-yellow-50 border-yellow-200 text-yellow-700")
-                          }
-                          title="Alternar status (Aguardando / Liberado)"
-                        >
-                          {itemStatus === "liberado" ? "Liberado" : "Aguardando"}
-                        </button>
-                      </form>
-                    ) : (
-                      <span className="rounded border border-yellow-200 bg-yellow-50 px-2 py-1 text-xs text-yellow-700">
-                        Aguardando
-                      </span>
-                    )}
+                    <form action={actToggleStatus}>
+                      <input type="hidden" name="itemId" value={String(itemId)} />
+                      <button
+                        className={
+                          "rounded border px-2 py-1 text-xs " +
+                          (itemStatus === "liberado"
+                            ? "bg-green-50 border-green-200 text-green-700"
+                            : "bg-yellow-50 border-yellow-200 text-yellow-700")
+                        }
+                        title="Alternar status (Aguardando / Liberado)"
+                      >
+                        {itemStatus === "liberado" ? "Liberado" : "Aguardando"}
+                      </button>
+                    </form>
                     <form action={actRemoveItem}>
                       <input type="hidden" name="itemId" value={String(itemId)} />
                       <button className="rounded border px-2 py-1 text-xs hover:bg-slate-100">Remover</button>
