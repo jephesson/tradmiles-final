@@ -27,20 +27,14 @@ export type Funcionario = {
 /** ---------------- Comissões de Cedentes ---------------- */
 export type StatusComissao = "pago" | "aguardando";
 export type ComissaoCedente = {
-  /** id interno (uuid) da comissão */
   id: string;
-  /** id da compra à qual a comissão pertence */
   compraId: string;
-  /** ref. ao cedente */
   cedenteId: string;
   cedenteNome: string;
-  /** valor em BRL */
   valor: number;
-  /** status do pagamento */
   status: StatusComissao;
-  /** auditoria opcional */
-  criadoEm?: string; // ISO
-  atualizadoEm?: string; // ISO
+  criadoEm?: string;
+  atualizadoEm?: string;
 };
 
 /* =======================================================================
@@ -86,7 +80,6 @@ export function loadCedentesLocal(): Cedente[] {
   const raw = safeParse<unknown>(localStorage.getItem(CEDENTES_KEY));
   const arr = Array.isArray(raw) ? raw : [];
 
-  // migração leve p/ registros antigos e validação defensiva
   return arr.map((c): Cedente => {
     const r = isRecord(c) ? c : {};
     return {
@@ -107,20 +100,18 @@ export function saveCedentesLocal(lista: Cedente[]) {
   localStorage.setItem(CEDENTES_KEY, JSON.stringify(lista));
 }
 
-// Aliases convenientes (mantém compat)
+// Aliases
 export const loadCedentes = loadCedentesLocal;
 export const saveCedentes = saveCedentesLocal;
 
 /* =======================================================================
  * Cedentes - Server (via API)
- *   - Compatível com: GET/POST /api/cedentes -> { ok: boolean, data: { savedAt, listaCedentes? } }
  * ======================================================================= */
 type CedentesApiGet =
   | null
   | {
       savedAt?: string;
       listaCedentes?: unknown;
-      // meta?: Record<string, unknown>
     };
 
 function sanitizeCedente(x: unknown): Cedente {
@@ -142,19 +133,21 @@ export async function loadCedentesServer(): Promise<Cedente[]> {
   if (!res.ok) return [];
 
   const json: unknown = await res.json().catch(() => null);
-  // Esperado: { ok: true, data: { savedAt, listaCedentes } }
   if (!isRecord(json)) return [];
-  const data = isRecord(json.data) ? (json.data as CedentesApiGet) : null;
 
-  const rawList = Array.isArray(data?.listaCedentes) ? (data!.listaCedentes as unknown[]) : [];
-  return rawList.map(sanitizeCedente);
+  const dataBlock: unknown = isRecord(json.data) ? json.data : null;
+  const rawList: unknown =
+    isRecord(dataBlock) && Array.isArray((dataBlock as { listaCedentes?: unknown }).listaCedentes)
+      ? (dataBlock as { listaCedentes?: unknown[] }).listaCedentes
+      : [];
+
+  return (rawList as unknown[]).map(sanitizeCedente);
 }
 
 export async function saveCedentesServer(payload: {
   listaCedentes: Cedente[];
   meta?: Record<string, unknown>;
 }) {
-  // garante que o payload chegue já sanitizado
   const listaCedentes = Array.isArray(payload?.listaCedentes)
     ? payload.listaCedentes.map(sanitizeCedente)
     : [];
@@ -166,9 +159,7 @@ export async function saveCedentesServer(payload: {
   });
 
   const json: unknown = await res.json().catch(() => ({}));
-  const ok =
-    isRecord(json) &&
-    (typeof json.ok === "boolean" ? json.ok : res.ok);
+  const ok = isRecord(json) && (typeof json.ok === "boolean" ? json.ok : res.ok);
 
   if (!res.ok || !ok) {
     const msg =
@@ -204,22 +195,27 @@ export function saveFuncionariosLocal(lista: Funcionario[]) {
   localStorage.setItem(FUNCIONARIOS_KEY, JSON.stringify(lista));
 }
 
-// Mantém compatibilidade com componentes que importam estes nomes
 export const loadFuncionarios = loadFuncionariosLocal;
 export const saveFuncionarios = saveFuncionariosLocal;
 
 /* =======================================================================
  * Funcionários - Server (via API)
- * (deixa compatível com um futuro /api/funcionarios {ok,data})
  * ======================================================================= */
 export async function loadFuncionariosServer(): Promise<Funcionario[]> {
   const res = await fetch("/api/funcionarios", { cache: "no-store" });
   if (!res.ok) return [];
+
   const json: unknown = await res.json().catch(() => null);
-  const arr = Array.isArray(json)
-    ? json
-    : (isRecord(json) && Array.isArray((json as any).data) ? (json as any).data : []);
-  return (arr as unknown[]).map((c): Funcionario => {
+
+  // json pode ser um array direto ou um objeto { ok?, data? }
+  let arrUnknown: unknown = Array.isArray(json) ? json : null;
+  if (!arrUnknown && isRecord(json)) {
+    const maybeData: unknown = (json as { data?: unknown }).data;
+    if (Array.isArray(maybeData)) arrUnknown = maybeData;
+  }
+
+  const arr = Array.isArray(arrUnknown) ? arrUnknown : [];
+  return arr.map((c): Funcionario => {
     const r = isRecord(c) ? c : {};
     return {
       id: pickString(r.id),
@@ -267,7 +263,6 @@ export function saveComissoesLocal(lista: ComissaoCedente[]) {
   localStorage.setItem(COMISSOES_KEY, JSON.stringify(lista));
 }
 
-/** Retorna [pago, pendente, total] baseado no array recebido (ou no storage se omitido) */
 export function comissoesTotais(source?: ComissaoCedente[]) {
   const itens = source ?? loadComissoesLocal();
   const pago = itens.filter(i => i.status === "pago").reduce((s, i) => s + i.valor, 0);
@@ -275,7 +270,6 @@ export function comissoesTotais(source?: ComissaoCedente[]) {
   return { pago, pendente: pend, total: pago + pend };
 }
 
-/** Insere nova comissão */
 export function addComissaoLocal(data: Omit<ComissaoCedente, "id" | "criadoEm" | "atualizadoEm">) {
   const lista = loadComissoesLocal();
   const now = new Date().toISOString();
@@ -290,7 +284,6 @@ export function addComissaoLocal(data: Omit<ComissaoCedente, "id" | "criadoEm" |
   return nova;
 }
 
-/** Atualiza status/valor/nome etc. */
 export function updateComissaoLocal(id: string, patch: Partial<ComissaoCedente>) {
   const lista = loadComissoesLocal();
   const now = new Date().toISOString();
@@ -301,12 +294,10 @@ export function updateComissaoLocal(id: string, patch: Partial<ComissaoCedente>)
   return next.find(c => c.id === id) || null;
 }
 
-/** Atualiza apenas o status */
 export function setStatusComissaoLocal(id: string, status: StatusComissao) {
   return updateComissaoLocal(id, { status });
 }
 
-/** Remove uma comissão */
 export function removeComissaoLocal(id: string) {
   const lista = loadComissoesLocal();
   const next = lista.filter((c) => c.id !== id);
@@ -317,23 +308,27 @@ export function removeComissaoLocal(id: string) {
 // atalhos
 export const loadComissoes = loadComissoesLocal;
 export const saveComissoes = saveComissoesLocal;
-export const addComissoes = addComissaoLocal; // (mantém padrão de nome, se precisar use addComissao abaixo)
+export const addComissoes = addComissaoLocal;
 export const addComissao = addComissaoLocal;
 export const updateComissao = updateComissaoLocal;
 export const setStatusComissao = setStatusComissaoLocal;
 export const removeComissao = removeComissaoLocal;
 
 /* =======================================================================
- * Comissões - Server (stubs para quando ligar API/Prisma)
+ * Comissões - Server (stubs)
  * ======================================================================= */
 export async function loadComissoesServer(): Promise<ComissaoCedente[]> {
   const res = await fetch("/api/comissoes", { cache: "no-store" });
   if (!res.ok) return [];
   const json: unknown = await res.json().catch(() => null);
-  const arr = Array.isArray(json)
-    ? json
-    : (isRecord(json) && Array.isArray((json as any).data) ? (json as any).data : []);
-  return (arr as ComissaoCedente[]) ?? [];
+
+  let arrUnknown: unknown = Array.isArray(json) ? json : null;
+  if (!arrUnknown && isRecord(json)) {
+    const maybeData: unknown = (json as { data?: unknown }).data;
+    if (Array.isArray(maybeData)) arrUnknown = maybeData;
+  }
+
+  return (Array.isArray(arrUnknown) ? (arrUnknown as ComissaoCedente[]) : []);
 }
 
 export async function createComissaoServer(
@@ -346,12 +341,13 @@ export async function createComissaoServer(
   });
   const json: unknown = await res.json().catch(() => ({}));
   const ok = isRecord(json) && (typeof json.ok === "boolean" ? json.ok : res.ok);
-  if (!res.ok || !ok)
+  if (!res.ok || !ok) {
     throw new Error(
       isRecord(json) && typeof json.error === "string"
         ? json.error
         : "Falha ao criar comissão"
     );
+  }
   return json;
 }
 
@@ -363,12 +359,13 @@ export async function updateComissaoServer(id: string, patch: Partial<ComissaoCe
   });
   const json: unknown = await res.json().catch(() => ({}));
   const ok = isRecord(json) && (typeof json.ok === "boolean" ? json.ok : res.ok);
-  if (!res.ok || !ok)
+  if (!res.ok || !ok) {
     throw new Error(
       isRecord(json) && typeof json.error === "string"
         ? json.error
         : "Falha ao atualizar comissão"
     );
+  }
   return json;
 }
 

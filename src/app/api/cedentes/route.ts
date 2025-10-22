@@ -97,17 +97,23 @@ export async function GET() {
     // Compatível com a UI: quando nada salvo, data: null
     const raw = (blob?.data as CedentesPayload | null) ?? null;
 
-    // Defesa extra: se existir listaCedentes mas não for array, força []
-    if (raw && raw.listaCedentes && !Array.isArray(raw.listaCedentes)) {
-      raw.listaCedentes = [];
-    }
+    // Normaliza listaCedentes caso venha em formato inesperado
+    const data: CedentesPayload | null = raw
+      ? {
+          ...raw,
+          listaCedentes: Array.isArray(raw.listaCedentes)
+            ? raw.listaCedentes
+            : [],
+        }
+      : null;
 
+    // Last-Modified seguro sem `any`
     const lastMod =
-      (blob as any)?.updatedAt instanceof Date
-        ? (blob as any).updatedAt.toUTCString()
+      blob && "updatedAt" in blob && blob.updatedAt instanceof Date
+        ? blob.updatedAt.toUTCString()
         : undefined;
 
-    return ok(raw, {
+    return ok(data, {
       status: 200,
       headers: noCacheHeaders({
         "X-Data-Kind": BLOB_KIND,
@@ -130,7 +136,9 @@ export async function POST(req: Request) {
 
     // Aceita tanto { listaCedentes, meta } quanto payloads legados
     const listaCedentes = sanitizeListaCedentes(body.listaCedentes);
-    const meta = isRecord(body.meta) ? (body.meta as Record<string, Json>) : undefined;
+    const meta = isRecord(body.meta)
+      ? (body.meta as Record<string, Json>)
+      : undefined;
 
     const payload: CedentesPayload = {
       savedAt: new Date().toISOString(),
@@ -145,12 +153,13 @@ export async function POST(req: Request) {
         kind: BLOB_KIND,
         data: payload,
       },
-      update: {
-        data: payload,
-      },
+      update: { data: payload },
     });
 
-    return ok(payload, { status: 200, headers: noCacheHeaders({ "X-Data-Kind": BLOB_KIND }) });
+    return ok(payload, {
+      status: 200,
+      headers: noCacheHeaders({ "X-Data-Kind": BLOB_KIND }),
+    });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "erro ao salvar no banco";
     return fail(msg, 500);
@@ -162,7 +171,7 @@ export async function POST(req: Request) {
  * ========================= */
 export async function DELETE() {
   try {
-    // Em vez de apagar a linha (para manter `kind` único), zeramos o conteúdo
+    // Mantém a linha (kind único) e zera o conteúdo
     const payload: CedentesPayload = {
       savedAt: new Date().toISOString(),
       listaCedentes: [],
@@ -179,7 +188,10 @@ export async function DELETE() {
       update: { data: payload },
     });
 
-    return ok(payload, { status: 200, headers: noCacheHeaders({ "X-Data-Kind": BLOB_KIND }) });
+    return ok(payload, {
+      status: 200,
+      headers: noCacheHeaders({ "X-Data-Kind": BLOB_KIND }),
+    });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "erro ao limpar";
     return fail(msg, 500);
