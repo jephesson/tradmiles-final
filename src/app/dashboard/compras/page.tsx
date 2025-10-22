@@ -197,6 +197,55 @@ function rowCiaOrigem(c: Record<string, unknown>): string {
   return "múltiplos";
 }
 
+/** ==== API helpers (cancelar/excluir) ==== */
+async function apiCancelCompra(id: string): Promise<boolean> {
+  // 1) tenta PATCH /api/compras/:id
+  try {
+    const r = await fetch(`/api/compras/${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ cancelada: true }),
+      cache: "no-store",
+    });
+    if (r.ok) return true;
+  } catch { /* ignore */ }
+
+  // 2) fallback: PATCH /api/pedidos/:id
+  try {
+    const r = await fetch(`/api/pedidos/${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ cancelada: true }),
+      cache: "no-store",
+    });
+    if (r.ok) return true;
+  } catch { /* ignore */ }
+
+  return false;
+}
+
+async function apiDeleteCompra(id: string): Promise<boolean> {
+  // 1) tenta DELETE /api/compras/:id
+  try {
+    const r = await fetch(`/api/compras/${encodeURIComponent(id)}`, {
+      method: "DELETE",
+      cache: "no-store",
+    });
+    if (r.ok) return true;
+  } catch { /* ignore */ }
+
+  // 2) fallback: DELETE /api/pedidos/:id
+  try {
+    const r = await fetch(`/api/pedidos/${encodeURIComponent(id)}`, {
+      method: "DELETE",
+      cache: "no-store",
+    });
+    if (r.ok) return true;
+  } catch { /* ignore */ }
+
+  return false;
+}
+
 /** ===== Page ===== */
 export default function ComprasListaPage() {
   // filtros
@@ -286,6 +335,30 @@ export default function ComprasListaPage() {
 
   const pageFrom = total === 0 ? 0 : offset + 1;
   const pageTo = Math.min(offset + limit, total);
+
+  async function handleCancelar(id: string) {
+    const ok = confirm("Confirmar cancelamento desta compra? Isso não remove o registro.");
+    if (!ok) return;
+    const done = await apiCancelCompra(id);
+    if (!done) {
+      alert("Não foi possível cancelar. Tente novamente.");
+      return;
+    }
+    try { localStorage.setItem("TM_COMPRAS_REFRESH", String(Date.now())); } catch {}
+    setRefreshTick((t) => t + 1);
+  }
+
+  async function handleExcluir(id: string) {
+    const ok = confirm("Excluir esta compra definitivamente?");
+    if (!ok) return;
+    const done = await apiDeleteCompra(id);
+    if (!done) {
+      alert("Não foi possível excluir. Tente novamente.");
+      return;
+    }
+    try { localStorage.setItem("TM_COMPRAS_REFRESH", String(Date.now())); } catch {}
+    setRefreshTick((t) => t + 1);
+  }
 
   return (
     <main className="mx-auto max-w-6xl">
@@ -415,12 +488,31 @@ export default function ComprasListaPage() {
                     <StatusChip s={getStrKey(c, "statusPontos")} cancelada={cancelada} />
                   </td>
                   <td className="px-3 py-2 text-right whitespace-nowrap">
-                    <Link
-                      href={`/dashboard/compras/nova?compraId=${encodeURIComponent(id)}&append=1`}
-                      className="rounded-lg border px-3 py-1 hover:bg-slate-100"
-                    >
-                      Editar
-                    </Link>
+                    <div className="flex items-center gap-2">
+                      <Link
+                        href={`/dashboard/compras/nova?compraId=${encodeURIComponent(id)}&append=1`}
+                        className="rounded-lg border px-3 py-1 hover:bg-slate-100"
+                      >
+                        Editar
+                      </Link>
+                      <button
+                        type="button"
+                        onClick={() => void handleCancelar(id)}
+                        disabled={cancelada}
+                        className="rounded-lg border px-3 py-1 text-amber-700 hover:bg-amber-50 disabled:opacity-40"
+                        title={cancelada ? "Já cancelada" : "Cancelar compra (mantém registro)"}
+                      >
+                        Cancelar
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void handleExcluir(id)}
+                        className="rounded-lg border border-red-300 bg-red-50 px-3 py-1 text-red-700 hover:bg-red-100"
+                        title="Excluir definitivamente"
+                      >
+                        Excluir
+                      </button>
+                    </div>
                   </td>
                 </tr>
               );
