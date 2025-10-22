@@ -32,6 +32,12 @@ function getNestedStr(o: unknown, k1: string, k2: string): string {
   const lvl1 = isRecord(o) ? o[k1] : undefined;
   return isRecord(lvl1) && typeof lvl1[k2] === "string" ? (lvl1[k2] as string) : "";
 }
+/** Lê kind de forma segura (evita any) */
+function getKind(o: unknown): string {
+  return isRecord(o) && typeof (o as { kind?: unknown }).kind === "string"
+    ? String((o as { kind?: unknown }).kind)
+    : "";
+}
 
 /** ===== UI ===== */
 function StatusChip(props: { s?: string; cancelada?: boolean }) {
@@ -136,12 +142,11 @@ function rowLucroProjetado(c: Record<string, unknown>) {
 
 /** ===== Exibição (compat 2 modelos) ===== */
 function rowModo(c: Record<string, unknown>): string {
-  if (typeof (c as { modo?: unknown }).modo === "string") return String((c as any).modo);
+  const modo = getStrKey(c, "modo");
+  if (modo) return modo;
 
   const its = Array.isArray(c.itens) ? c.itens : [];
-  const kinds = new Set(
-    its.map((it) => (isRecord(it) ? (it as Record<string, unknown>).kind : undefined))
-  );
+  const kinds = new Set(its.map((it) => getKind(it) || undefined));
   if (kinds.size === 0) return "—";
   if (kinds.size > 1) return "múltiplos";
   const k = [...kinds][0];
@@ -151,13 +156,14 @@ function rowModo(c: Record<string, unknown>): string {
 }
 
 function rowCiaOrigem(c: Record<string, unknown>): string {
-  if (typeof (c as { modo?: unknown }).modo === "string" && (c as any).modo === "compra") {
-    const cia = (c as { ciaCompra?: unknown }).ciaCompra as string | undefined;
+  const modo = getStrKey(c, "modo");
+  if (modo === "compra") {
+    const cia = getStrKey(c, "ciaCompra");
     return cia ? (cia === "latam" ? "Latam" : "Smiles") : "—";
   }
-  if (typeof (c as { modo?: unknown }).modo === "string" && (c as any).modo === "transferencia") {
-    const d = (c as { destCia?: unknown }).destCia as string | undefined;
-    const o = (c as { origem?: unknown }).origem as string | undefined;
+  if (modo === "transferencia") {
+    const d = getStrKey(c, "destCia");
+    const o = getStrKey(c, "origem");
     const dTxt = d ? (d === "latam" ? "Latam" : "Smiles") : "?";
     const oTxt = o ? (o === "livelo" ? "Livelo" : "Esfera") : "?";
     return `${dTxt} ← ${oTxt}`;
@@ -166,9 +172,9 @@ function rowCiaOrigem(c: Record<string, unknown>): string {
   const its = Array.isArray((c as { itens?: unknown[] }).itens) ? (c as { itens: unknown[] }).itens : [];
   if (its.length === 0) return "—";
 
-  const compras = its.filter((x) => isRecord(x) && x.kind === "compra");
-  const transf = its.filter((x) => isRecord(x) && x.kind === "transferencia");
-  const clubes = its.filter((x) => isRecord(x) && x.kind === "clube");
+  const compras = its.filter((x) => getKind(x) === "compra");
+  const transf = its.filter((x) => getKind(x) === "transferencia");
+  const clubes = its.filter((x) => getKind(x) === "clube");
 
   if (compras.length && !transf.length && !clubes.length) {
     const cias = new Set(
@@ -223,7 +229,10 @@ export default function ComprasListaPage() {
       if (timer) window.clearInterval(timer);
     }
     start();
-    const onVis = () => { stop(); start(); };
+    const onVis = () => {
+      stop();
+      start();
+    };
     document.addEventListener("visibilitychange", onVis);
     return () => {
       stop();
@@ -238,7 +247,12 @@ export default function ComprasListaPage() {
       setLoading(true);
       try {
         const qs = new URLSearchParams({
-          q, modo, cia, origem, start, end,
+          q,
+          modo,
+          cia,
+          origem,
+          start,
+          end,
           offset: String(offset),
           limit: String(limit),
         });
