@@ -1,3 +1,4 @@
+// src/app/dashboard/cedentes/visualizar/page.tsx
 /* eslint-disable @typescript-eslint/no-explicit-any */
 /* eslint-disable @typescript-eslint/no-unused-vars */
 /* eslint-disable react-hooks/exhaustive-deps */
@@ -119,7 +120,6 @@ function extractCedenteId(b: AnyBloqueio): string {
   );
 }
 function extractCompraCedenteId(c: AnyCompra): string {
-  // Narrow seguro para a união string | objeto
   const ced = c.cedente;
   const cedKey =
     typeof ced === "string"
@@ -205,7 +205,6 @@ function getUnlockDate(b?: AnyBloqueio): Date | null {
   return null;
 }
 
-// Renomeada para evitar conflito com o helper de sort abaixo
 function isBloqueioActive(b: AnyBloqueio): boolean {
   if (typeof b.active === "boolean") return b.active;
   const st = norm(b.status);
@@ -230,17 +229,14 @@ function isCompraLiberada(c: AnyCompra): boolean {
   );
 }
 
-/** Detecta para quais programas a compra credita pontos (compra direta ou transferência) */
 function detectTargetPrograms(c: AnyCompra): Set<ProgramKey> {
   const out = new Set<ProgramKey>();
 
-  // modelos antigos
   const ciaOld = normalizeCia((c as any).cia || (c as any).program || (c as any).companhia);
   const destOld = normalizeCia((c as any).destCia);
   if (ciaOld) out.add(ciaOld as ProgramKey);
   if (destOld) out.add(destOld as ProgramKey);
 
-  // modelo novo (itens)
   const its: any[] = Array.isArray((c as any).itens) ? (c as any).itens : [];
   for (const it of its) {
     if (it?.kind === "compra") {
@@ -255,7 +251,6 @@ function detectTargetPrograms(c: AnyCompra): Set<ProgramKey> {
   return out;
 }
 
-/** Quantidade de pontos destinados a um programa específico nesta compra */
 function pointsToProgram(c: AnyCompra, program: ProgramKey): number {
   const targets = detectTargetPrograms(c);
   if (!targets.has(program)) return 0;
@@ -750,15 +745,12 @@ export default function CedentesVisualizarPage() {
     );
     if (!ok) return;
 
-    // limpa estado e base “congelada”
     setData([]);
     saveCedentes([]);
     baseRef.current = new Map();
     setSelected(new Set());
-    // evita reaplicar overwrite com assinatura antiga
     lastOverwriteSigRef.current = "";
 
-    // avisa servidor (silencioso)
     if (ALSO_SAVE_SERVER) {
       try {
         await fetch(`/api/cedentes?ts=${Date.now()}`, {
@@ -768,9 +760,7 @@ export default function CedentesVisualizarPage() {
           cache: "no-store",
         });
         try { localStorage.setItem("TM_CEDENTES_REFRESH", String(Date.now())); } catch {}
-      } catch {
-        // segue em frente mesmo se falhar
-      }
+      } catch {}
     }
 
     alert("Cedentes e pontos zerados ✅");
@@ -854,20 +844,14 @@ export default function CedentesVisualizarPage() {
   const isActive = (sb: SortBy) => sameSort(sb, sort.by);
 
   /* ========= Cálculo de saldos finais + sobrescrita ========= */
-
-  // Assinatura do último overwrite (evita loops)
   const lastOverwriteSigRef = useRef<string>("");
 
   const saldosAjustados = useMemo(() => {
-    const out = new Map<
-      string,
-      { latam: number; smiles: number; livelo: number; esfera: number }
-    >();
+    const out = new Map<string, { latam: number; smiles: number; livelo: number; esfera: number }>();
 
     for (const c of data) {
       const id = c.identificador.toUpperCase();
 
-      // Base “congelada”, evita somar duas vezes
       const base = baseRef.current.get(id) || {
         latam: Number(c.latam || 0),
         smiles: Number(c.smiles || 0),
@@ -892,15 +876,8 @@ export default function CedentesVisualizarPage() {
       });
     }
     return out;
-  }, [
-    data,
-    vendidosByCedente,
-    latamLiberadoByCedente,
-    smilesLiberadoByCedente,
-    liveloDeltaByCedente,
-  ]);
+  }, [data, vendidosByCedente, latamLiberadoByCedente, smilesLiberadoByCedente, liveloDeltaByCedente]);
 
-  // Sobrescreve automaticamente (local + POST silencioso) quando houver mudança real
   useEffect(() => {
     if (!AUTO_OVERWRITE) return;
     if (!comprasReady || !vendasReady) return;
@@ -932,7 +909,6 @@ export default function CedentesVisualizarPage() {
       setData(next);
       saveCedentes(next);
       void saveToServerSilent(next);
-      // baseRef permanece “congelada”
     } else {
       lastOverwriteSigRef.current = sig;
     }
@@ -1029,7 +1005,6 @@ export default function CedentesVisualizarPage() {
             Inserir manualmente
           </Link>
 
-          {/* novo botão destrutivo */}
           <button
             onClick={resetCedentesAndPoints}
             className="rounded-xl border border-red-400 bg-red-50 px-4 py-2 text-sm font-medium text-red-700 hover:bg-red-100"
@@ -1289,7 +1264,6 @@ export default function CedentesVisualizarPage() {
         </table>
       </div>
 
-      {/* ações em massa (opcional) */}
       {selected.size > 0 && (
         <div className="mt-3 flex items-center justify-between rounded-xl border bg-white p-3 text-xs">
           <div>
@@ -1312,7 +1286,6 @@ export default function CedentesVisualizarPage() {
         </div>
       )}
 
-      {/* modal de edição */}
       <dialog ref={dialogRef} className="rounded-xl p-0 backdrop:bg-black/40">
         <form
           method="dialog"
@@ -1345,7 +1318,6 @@ export default function CedentesVisualizarPage() {
                 </div>
               </div>
 
-              {/* responsável */}
               <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
                 <div>
                   <label className="mb-1 block text-xs text-slate-600">Responsável</label>

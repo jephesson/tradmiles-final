@@ -1,3 +1,4 @@
+// src/lib/storage.ts
 "use client";
 
 /* =======================================================================
@@ -62,8 +63,10 @@ const isRecord = (v: unknown): v is Record<string, unknown> =>
 const pickString = (v: unknown, fallback = ""): string =>
   typeof v === "string" ? v : fallback;
 
-const pickNumber = (v: unknown, fallback = 0): number =>
-  typeof v === "number" && Number.isFinite(v) ? v : fallback;
+const pickNumber = (v: unknown, fallback = 0): number => {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : fallback;
+};
 
 const pickNullableString = (v: unknown): string | null =>
   v == null ? null : String(v);
@@ -87,7 +90,7 @@ export function loadCedentesLocal(): Cedente[] {
   return arr.map((c): Cedente => {
     const r = isRecord(c) ? c : {};
     return {
-      identificador: pickString(r.identificador),
+      identificador: pickString(r.identificador).toUpperCase(),
       nome_completo: pickString(r.nome_completo),
       latam: pickNumber(r.latam),
       esfera: pickNumber(r.esfera),
@@ -104,34 +107,74 @@ export function saveCedentesLocal(lista: Cedente[]) {
   localStorage.setItem(CEDENTES_KEY, JSON.stringify(lista));
 }
 
-// Aliases convenientes
+// Aliases convenientes (mantém compat)
 export const loadCedentes = loadCedentesLocal;
 export const saveCedentes = saveCedentesLocal;
 
 /* =======================================================================
  * Cedentes - Server (via API)
+ *   - Compatível com: GET/POST /api/cedentes -> { ok: boolean, data: { savedAt, listaCedentes? } }
  * ======================================================================= */
+type CedentesApiGet =
+  | null
+  | {
+      savedAt?: string;
+      listaCedentes?: unknown;
+      // meta?: Record<string, unknown>
+    };
+
+function sanitizeCedente(x: unknown): Cedente {
+  const r = isRecord(x) ? x : {};
+  return {
+    identificador: pickString(r.identificador).toUpperCase(),
+    nome_completo: pickString(r.nome_completo),
+    latam: pickNumber(r.latam),
+    esfera: pickNumber(r.esfera),
+    livelo: pickNumber(r.livelo),
+    smiles: pickNumber(r.smiles),
+    responsavelId: pickNullableString(r.responsavelId),
+    responsavelNome: pickNullableString(r.responsavelNome),
+  };
+}
+
 export async function loadCedentesServer(): Promise<Cedente[]> {
   const res = await fetch("/api/cedentes", { cache: "no-store" });
   if (!res.ok) return [];
+
   const json: unknown = await res.json().catch(() => null);
-  const arr = Array.isArray(json) ? json : (isRecord(json) ? json.data : null);
-  return Array.isArray(arr) ? (arr as Cedente[]) : [];
+  // Esperado: { ok: true, data: { savedAt, listaCedentes } }
+  if (!isRecord(json)) return [];
+  const data = isRecord(json.data) ? (json.data as CedentesApiGet) : null;
+
+  const rawList = Array.isArray(data?.listaCedentes) ? (data!.listaCedentes as unknown[]) : [];
+  return rawList.map(sanitizeCedente);
 }
 
 export async function saveCedentesServer(payload: {
   listaCedentes: Cedente[];
   meta?: Record<string, unknown>;
 }) {
+  // garante que o payload chegue já sanitizado
+  const listaCedentes = Array.isArray(payload?.listaCedentes)
+    ? payload.listaCedentes.map(sanitizeCedente)
+    : [];
+
   const res = await fetch("/api/cedentes", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
+    body: JSON.stringify({ listaCedentes, meta: payload?.meta ?? undefined }),
   });
+
   const json: unknown = await res.json().catch(() => ({}));
-  const ok = isRecord(json) && (typeof json.ok === "boolean" ? json.ok : true);
+  const ok =
+    isRecord(json) &&
+    (typeof json.ok === "boolean" ? json.ok : res.ok);
+
   if (!res.ok || !ok) {
-    const msg = isRecord(json) && typeof json.error === "string" ? json.error : "Falha ao salvar no servidor";
+    const msg =
+      isRecord(json) && typeof json.error === "string"
+        ? json.error
+        : "Falha ao salvar no servidor";
     throw new Error(msg);
   }
   return json;
@@ -167,28 +210,44 @@ export const saveFuncionarios = saveFuncionariosLocal;
 
 /* =======================================================================
  * Funcionários - Server (via API)
+ * (deixa compatível com um futuro /api/funcionarios {ok,data})
  * ======================================================================= */
 export async function loadFuncionariosServer(): Promise<Funcionario[]> {
   const res = await fetch("/api/funcionarios", { cache: "no-store" });
   if (!res.ok) return [];
   const json: unknown = await res.json().catch(() => null);
-  const arr = Array.isArray(json) ? json : (isRecord(json) ? json.data : null);
-  return Array.isArray(arr) ? (arr as Funcionario[]) : [];
+  const arr = Array.isArray(json)
+    ? json
+    : (isRecord(json) && Array.isArray((json as any).data) ? (json as any).data : []);
+  return (arr as unknown[]).map((c): Funcionario => {
+    const r = isRecord(c) ? c : {};
+    return {
+      id: pickString(r.id),
+      nome: pickString(r.nome),
+      email: typeof r.email === "string" ? r.email : undefined,
+      ativo: typeof r.ativo === "boolean" ? r.ativo : undefined,
+      slug: r.slug == null ? null : String(r.slug),
+    };
+  });
 }
 
 export async function saveFuncionariosServer(payload: {
   lista: Funcionario[];
   meta?: Record<string, unknown>;
 }) {
+  const lista = Array.isArray(payload?.lista) ? payload.lista : [];
   const res = await fetch("/api/funcionarios", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
+    body: JSON.stringify({ lista, meta: payload?.meta ?? undefined }),
   });
   const json: unknown = await res.json().catch(() => ({}));
-  const ok = isRecord(json) && (typeof json.ok === "boolean" ? json.ok : true);
+  const ok = isRecord(json) && (typeof json.ok === "boolean" ? json.ok : res.ok);
   if (!res.ok || !ok) {
-    const msg = isRecord(json) && typeof json.error === "string" ? json.error : "Falha ao salvar funcionários";
+    const msg =
+      isRecord(json) && typeof json.error === "string"
+        ? json.error
+        : "Falha ao salvar funcionários";
     throw new Error(msg);
   }
   return json;
@@ -271,19 +330,28 @@ export async function loadComissoesServer(): Promise<ComissaoCedente[]> {
   const res = await fetch("/api/comissoes", { cache: "no-store" });
   if (!res.ok) return [];
   const json: unknown = await res.json().catch(() => null);
-  const arr = Array.isArray(json) ? json : (isRecord(json) ? json.data : null);
-  return Array.isArray(arr) ? (arr as ComissaoCedente[]) : [];
+  const arr = Array.isArray(json)
+    ? json
+    : (isRecord(json) && Array.isArray((json as any).data) ? (json as any).data : []);
+  return (arr as ComissaoCedente[]) ?? [];
 }
 
-export async function createComissaoServer(payload: Omit<ComissaoCedente, "id" | "criadoEm" | "atualizadoEm">) {
+export async function createComissaoServer(
+  payload: Omit<ComissaoCedente, "id" | "criadoEm" | "atualizadoEm">
+) {
   const res = await fetch("/api/comissoes", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   });
   const json: unknown = await res.json().catch(() => ({}));
-  const ok = isRecord(json) && (typeof json.ok === "boolean" ? json.ok : true);
-  if (!res.ok || !ok) throw new Error(isRecord(json) && typeof json.error === "string" ? json.error : "Falha ao criar comissão");
+  const ok = isRecord(json) && (typeof json.ok === "boolean" ? json.ok : res.ok);
+  if (!res.ok || !ok)
+    throw new Error(
+      isRecord(json) && typeof json.error === "string"
+        ? json.error
+        : "Falha ao criar comissão"
+    );
   return json;
 }
 
@@ -294,8 +362,13 @@ export async function updateComissaoServer(id: string, patch: Partial<ComissaoCe
     body: JSON.stringify(patch),
   });
   const json: unknown = await res.json().catch(() => ({}));
-  const ok = isRecord(json) && (typeof json.ok === "boolean" ? json.ok : true);
-  if (!res.ok || !ok) throw new Error(isRecord(json) && typeof json.error === "string" ? json.error : "Falha ao atualizar comissão");
+  const ok = isRecord(json) && (typeof json.ok === "boolean" ? json.ok : res.ok);
+  if (!res.ok || !ok)
+    throw new Error(
+      isRecord(json) && typeof json.error === "string"
+        ? json.error
+        : "Falha ao atualizar comissão"
+    );
   return json;
 }
 
