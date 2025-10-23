@@ -721,11 +721,23 @@ export default async function NovaCompraPage({
           </div>
           <div>
             <label className="mb-1 block text-xs text-slate-600">Quantidade de pontos</label>
-            <input name="clubePontos" placeholder="ex.: 3.000" className="w-full rounded-xl border px-3 py-2 text-sm" />
+            <input
+              name="clubePontos"
+              inputMode="numeric"
+              pattern="\d*"
+              placeholder="ex.: 3000"
+              className="w-full rounded-xl border px-3 py-2 text-sm"
+            />
           </div>
           <div>
             <label className="mb-1 block text-xs text-slate-600">Valor</label>
-            <input name="clubeValor" placeholder="R$ 0,00" className="w-full rounded-xl border px-3 py-2 text-sm" />
+            <input
+              name="clubeValor"
+              inputMode="numeric"
+              pattern="\d*"
+              placeholder="ex.: 35600 (centavos)"
+              className="w-full rounded-xl border px-3 py-2 text-sm"
+            />
           </div>
           <div>
             <label className="mb-1 block text-xs text-slate-600">Status inicial</label>
@@ -760,15 +772,33 @@ export default async function NovaCompraPage({
           </div>
           <div>
             <label className="mb-1 block text-xs text-slate-600">Quantidade</label>
-            <input name="compPontos" placeholder="ex.: 90.000" className="w-full rounded-xl border px-3 py-2 text-sm" />
+            <input
+              name="compPontos"
+              inputMode="numeric"
+              pattern="\d*"
+              placeholder="ex.: 90000"
+              className="w-full rounded-xl border px-3 py-2 text-sm"
+            />
           </div>
           <div>
             <label className="mb-1 block text-xs text-slate-600">% bônus</label>
-            <input name="compBonus" placeholder="ex.: 80" className="w-full rounded-xl border px-3 py-2 text-sm" />
+            <input
+              name="compBonus"
+              inputMode="numeric"
+              pattern="\d*"
+              placeholder="ex.: 80"
+              className="w-full rounded-xl border px-3 py-2 text-sm"
+            />
           </div>
           <div>
             <label className="mb-1 block text-xs text-slate-600">Valor</label>
-            <input name="compValor" placeholder="R$ 0,00" className="w-full rounded-xl border px-3 py-2 text-sm" />
+            <input
+              name="compValor"
+              inputMode="numeric"
+              pattern="\d*"
+              placeholder="ex.: 35600 (centavos)"
+              className="w-full rounded-xl border px-3 py-2 text-sm"
+            />
           </div>
           <div>
             <label className="mb-1 block text-xs text-slate-600">Status inicial</label>
@@ -818,22 +848,46 @@ export default async function NovaCompraPage({
 
           <div className="md:col-span-2">
             <label className="mb-1 block text-xs text-slate-600">Pontos usados</label>
-            <input name="trPontosUsados" placeholder="ex.: 90.000" className="w-full rounded-xl border px-3 py-2 text-sm" />
+            <input
+              name="trPontosUsados"
+              inputMode="numeric"
+              pattern="\d*"
+              placeholder="ex.: 90000"
+              className="w-full rounded-xl border px-3 py-2 text-sm"
+            />
           </div>
 
           <div className="md:col-span-2">
             <label className="mb-1 block text-xs text-slate-600">Pts transferidos (se pontos+dinheiro)</label>
-            <input name="trPontosTotais" placeholder="ex.: 130.000" className="w-full rounded-xl border px-3 py-2 text-sm" />
+            <input
+              name="trPontosTotais"
+              inputMode="numeric"
+              pattern="\d*"
+              placeholder="ex.: 130000"
+              className="w-full rounded-xl border px-3 py-2 text-sm"
+            />
           </div>
 
           <div>
             <label className="mb-1 block text-xs text-slate-600">Valor pago</label>
-            <input name="trValorPago" placeholder="R$ 0,00" className="w-full rounded-xl border px-3 py-2 text-sm" />
+            <input
+              name="trValorPago"
+              inputMode="numeric"
+              pattern="\d*"
+              placeholder="ex.: 25000 (centavos)"
+              className="w-full rounded-xl border px-3 py-2 text-sm"
+            />
           </div>
 
           <div>
             <label className="mb-1 block text-xs text-slate-600">% bônus</label>
-            <input name="trBonus" placeholder="ex.: 70" className="w-full rounded-xl border px-3 py-2 text-sm" />
+            <input
+              name="trBonus"
+              inputMode="numeric"
+              pattern="\d*"
+              placeholder="ex.: 70"
+              className="w-full rounded-xl border px-3 py-2 text-sm"
+            />
           </div>
 
           <div className="md:col-span-8 text-[11px] text-slate-600">
@@ -904,7 +958,9 @@ export default async function NovaCompraPage({
             <input
               name="comissaoCedente"
               defaultValue={String(Math.round((d.comissaoCedente || 0) * 100))}
-              placeholder="R$ 0,00"
+              inputMode="numeric"
+              pattern="\d*"
+              placeholder="ex.: 150 (centavos)"
               className="w-full rounded-xl border px-3 py-2 text-sm"
             />
             <select
@@ -926,7 +982,9 @@ export default async function NovaCompraPage({
           <input
             name="metaMilheiro"
             defaultValue={String(Math.round((d.metaMilheiro || 0) * 100))}
-            placeholder="R$ 0,00"
+            inputMode="numeric"
+            pattern="\d*"
+            placeholder="ex.: 150 (centavos)"
             className="w-full rounded-xl border px-3 py-2 text-sm"
           />
           <div className="mt-1 text-[11px] text-slate-500">* Campo aceita dígitos (centavos). Ex.: <b>150</b> = R$ 1,50.</div>
