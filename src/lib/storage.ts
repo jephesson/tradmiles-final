@@ -171,6 +171,29 @@ export async function saveCedentesServer(payload: {
   return json;
 }
 
+/** Salva localmente e no servidor (inclui responsavelId/Nome) e notifica outras abas */
+export async function saveCedentesEverywhere(
+  lista: Cedente[],
+  meta?: Record<string, unknown>
+) {
+  const sanitized: Cedente[] = (Array.isArray(lista) ? lista : []).map(sanitizeCedente);
+
+  // 1) Local
+  saveCedentesLocal(sanitized);
+
+  // 2) Servidor
+  await saveCedentesServer({ listaCedentes: sanitized, meta });
+
+  // 3) Sinaliza outras abas/instâncias
+  if (typeof window !== "undefined") {
+    try {
+      localStorage.setItem("TM_CEDENTES_REFRESH", String(Date.now()));
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
 /* =======================================================================
  * Funcionários - Local
  * ======================================================================= */

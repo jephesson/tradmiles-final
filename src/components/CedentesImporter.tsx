@@ -4,7 +4,7 @@
 import React, { useCallback, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import * as XLSX from "xlsx";
-import { type Cedente } from "@/lib/storage";
+import { type Cedente, saveCedentesEverywhere, saveCedentes as saveCedentesLocal } from "@/lib/storage";
 import { loadFuncionarios, type Funcionario } from "@/lib/staff";
 
 /* =========================
@@ -76,7 +76,6 @@ function norm(s: string) {
   return stripDiacritics(s).toLowerCase().trim();
 }
 function cleanRespRef(raw: string) {
-  // normaliza entradas da planilha: "@login", "login@dominio", "Nome (obs)" etc.
   let s = raw.trim();
   s = s.replace(/^@+/, "");
   s = s.replace(/\(.*?\)$/g, "").trim();
@@ -89,8 +88,7 @@ function firstName(full: string) {
 }
 function levenshtein(a: string, b: string) {
   if (a === b) return 0;
-  const m = a.length,
-    n = b.length;
+  const m = a.length, n = b.length;
   if (m === 0) return n;
   if (n === 0) return m;
   const dp = Array.from({ length: m + 1 }, () => new Array(n + 1).fill(0));
@@ -106,8 +104,7 @@ function levenshtein(a: string, b: string) {
   return dp[m][n];
 }
 function similarity(a: unknown, b: unknown) {
-  const s1 = keyName(a),
-    s2 = keyName(b);
+  const s1 = keyName(a), s2 = keyName(b);
   if (!s1 || !s2) return 0;
   const dist = levenshtein(s1, s2);
   const maxLen = Math.max(s1.length, s2.length);
@@ -135,10 +132,8 @@ function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null;
 }
 function isCedenteArray(v: unknown): v is Cedente[] {
-  return (
-    Array.isArray(v) &&
-    v.every((o) => isRecord(o) && typeof (o as Record<string, unknown>).nome_completo === "string")
-  );
+  return Array.isArray(v) &&
+    v.every((o) => isRecord(o) && typeof (o as Record<string, unknown>).nome_completo === "string");
 }
 function isApiErr(v: unknown): v is ApiErr {
   return isRecord(v) && (v as Record<string, unknown>).ok === false;
@@ -400,8 +395,7 @@ export default function CedentesImporter() {
 
     const base = listaCedentes.map((c) => ({ ...c, [p.key]: 0 })) as Cedente[];
 
-    let matched = 0,
-      notFound = 0;
+    let matched = 0, notFound = 0;
 
     const updated = base.map((c) => {
       const k = keyName(c.nome_completo);
@@ -474,7 +468,7 @@ export default function CedentesImporter() {
         }
       }
 
-      // ===== NOVO findFuncionario aceita login/primeiro nome/email =====
+      // ===== findFuncionario aceita login/primeiro nome/email/slug/id =====
       function findFuncionario(ref: string): Staff | undefined {
         const raw = (ref || "").trim();
         if (!raw) return undefined;
@@ -483,24 +477,19 @@ export default function CedentesImporter() {
         const targetMain = norm(cleaned);
         const targetFirst = norm(firstName(cleaned));
 
-        // Match exato por vários campos
         const exact =
           funcionarios.find((f) => norm(f.id) === targetMain) ||
           funcionarios.find((f) => typeof f.slug === "string" && norm(f.slug) === targetMain) ||
           funcionarios.find((f) => typeof f.login === "string" && norm(f.login) === targetMain) ||
           funcionarios.find((f) => norm(firstName(f.nome)) === targetMain) ||
           funcionarios.find((f) => norm(f.nome) === targetMain) ||
-          funcionarios.find(
-            (f) => typeof f.email === "string" && norm(f.email.split("@")[0]) === targetMain,
-          ) ||
-          // também aceite quando a célula tem só o primeiro nome
+          funcionarios.find((f) => typeof f.email === "string" && norm(f.email.split("@")[0]) === targetMain) ||
           funcionarios.find((f) => norm(firstName(f.nome)) === targetFirst);
 
         if (exact) return exact;
 
         if (!respCfg.approximate) return undefined;
 
-        // Aproximação: considera login/primeiro nome/nome completo/etc.
         let best: { f: Staff; score: number } | null = null;
         for (const f of funcionarios) {
           const candidates = [
@@ -518,8 +507,7 @@ export default function CedentesImporter() {
         return undefined;
       }
 
-      let matched = 0,
-        notFound = 0;
+      let matched = 0, notFound = 0;
 
       const updated = listaCedentes.map((c) => {
         const idKey = keyName(c.identificador);
@@ -559,12 +547,13 @@ export default function CedentesImporter() {
       setListaCedentes(updated);
       setRespCfg((prev) => ({ ...prev, stats: { matched, notFound } }));
 
-      // log de apoio (apenas no console)
       if (notFound > 0) {
         const exemplos = updated
           .filter((c) => !c.responsavelId)
           .slice(0, 10)
           .map((c) => ({ cedente: c.nome_completo, id: c.identificador }));
+        // apenas para diagnóstico local:
+        // eslint-disable-next-line no-console
         console.table(exemplos);
       }
 
@@ -582,36 +571,26 @@ export default function CedentesImporter() {
       return;
     }
     try {
-      const res = await fetch("/api/cedentes", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          listaCedentes,
-          meta: {
-            fileName,
-            namesSheet,
-            colNome,
-            threshold,
-            approximatePoints,
-            programs: programs.map((p) => ({
-              key: p.key,
-              sheet: p.sheet,
-              colName: p.colName,
-              colPoints: p.colPoints,
-            })),
-            responsaveis: {
-              sheet: respCfg.sheet,
-              colCedente: respCfg.colCedente,
-              colResp: respCfg.colResp,
-              approximate: respCfg.approximate,
-            },
-          },
-        }),
+      // Salva local + servidor (inclui responsavelId/Nome)
+      await saveCedentesEverywhere(listaCedentes, {
+        fileName,
+        namesSheet,
+        colNome,
+        threshold,
+        approximatePoints,
+        programs: programs.map((p) => ({
+          key: p.key,
+          sheet: p.sheet,
+          colName: p.colName,
+          colPoints: p.colPoints,
+        })),
+        responsaveis: {
+          sheet: respCfg.sheet,
+          colCedente: respCfg.colCedente,
+          colResp: respCfg.colResp,
+          approximate: respCfg.approximate,
+        },
       });
-
-      const json: ApiSaveResp = await res.json();
-      if (!("ok" in json) || typeof json.ok !== "boolean") throw new Error("Resposta inválida do servidor");
-      if (isApiErr(json)) throw new Error(typeof json.error === "string" ? json.error : "Falha ao salvar");
 
       alert("Salvo com sucesso ✅");
     } catch (e: unknown) {
@@ -639,11 +618,14 @@ export default function CedentesImporter() {
         return;
       }
 
-      setListaCedentes(listaRaw as Cedente[]);
-      setDedupedNames((listaRaw as Cedente[]).map((c) => c.nome_completo));
+      // sincroniza estado e localStorage
+      const list = listaRaw as Cedente[];
+      setListaCedentes(list);
+      setDedupedNames(list.map((c) => c.nome_completo));
+      saveCedentesLocal(list);
 
       const savedAt = typeof savedAtRaw === "string" ? savedAtRaw : undefined;
-      alert(`Carregado ${(listaRaw as Cedente[]).length} cedentes${savedAt ? ` (salvo em ${savedAt})` : ""}.`);
+      alert(`Carregado ${list.length} cedentes${savedAt ? ` (salvo em ${savedAt})` : ""}.`);
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : "Erro desconhecido";
       alert(`Erro ao carregar: ${msg}`);
