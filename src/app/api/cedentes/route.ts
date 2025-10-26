@@ -43,43 +43,69 @@ const noCacheHeaders = (extra?: Record<string, string>): HeadersInit => ({
   ...(extra ?? {}),
 });
 
-const ok = (data: unknown, init?: ResponseInit) => NextResponse.json({ ok: true, data }, init);
+const ok = (data: unknown, init?: ResponseInit) =>
+  NextResponse.json({ ok: true, data }, init);
+
 const fail = (message: string, status = 500) =>
   NextResponse.json({ ok: false, error: message }, { status, headers: noCacheHeaders() });
 
-/** --------- Sanitização flexível ---------
+/** --------- Sanitização flexível (sem any) ---------
  * Aceita formatos:
  * - { responsavelId, responsavelNome }
  * - { responsavel: { id, nome } }
  * - { responsavel: "Nome do responsável" } (sem id)
  * Não converte `undefined` para `null` antes do merge.
  */
-function coerceCedenteLoose(x: unknown): Omit<Cedente, "responsavelId" | "responsavelNome"> & {
+function coerceCedenteLoose(
+  x: unknown
+): Omit<Cedente, "responsavelId" | "responsavelNome"> & {
   responsavelId?: string | null | undefined;
   responsavelNome?: string | null | undefined;
 } {
-  const r = isRecord(x) ? x : {};
+  const r: Record<string, unknown> = isRecord(x) ? x : {};
+
   const identificador = String((r.identificador ?? "") as string).toUpperCase();
   const nome_completo = String((r.nome_completo ?? r.nome ?? "") as string);
 
-  const latam = Number.isFinite(Number(r.latam)) ? Number(r.latam) : 0;
-  const esfera = Number.isFinite(Number(r.esfera)) ? Number(r.esfera) : 0;
-  const livelo = Number.isFinite(Number(r.livelo)) ? Number(r.livelo) : 0;
-  const smiles = Number.isFinite(Number(r.smiles)) ? Number(r.smiles) : 0;
+  const toNum = (v: unknown) => (Number.isFinite(Number(v)) ? Number(v) : 0);
+  const latam = toNum(r.latam);
+  const esfera = toNum(r.esfera);
+  const livelo = toNum(r.livelo);
+  const smiles = toNum(r.smiles);
 
-  // múltiplas formas de receber o responsável
-  let responsavelId: string | null | undefined = (r as any).responsavelId as any;
-  let responsavelNome: string | null | undefined = (r as any).responsavelNome as any;
+  // Helpers p/ string | null | undefined
+  const optStrOrNull = (v: unknown): string | null | undefined =>
+    v === undefined ? undefined : v === null ? null : String(v);
 
-  const resp = (r as any).responsavel;
-  if (isRecord(resp)) {
-    if (resp.id !== undefined) responsavelId = resp.id == null ? null : String(resp.id);
-    if (resp.nome !== undefined) responsavelNome = resp.nome == null ? null : String(resp.nome);
-  } else if (typeof resp === "string" && !responsavelNome) {
-    responsavelNome = resp;
+  // 1) Campos diretos
+  const directRespId = Object.prototype.hasOwnProperty.call(r, "responsavelId")
+    ? (r as Record<string, unknown>)["responsavelId"]
+    : undefined;
+  const directRespNome = Object.prototype.hasOwnProperty.call(r, "responsavelNome")
+    ? (r as Record<string, unknown>)["responsavelNome"]
+    : undefined;
+
+  let responsavelId = optStrOrNull(directRespId);
+  let responsavelNome = optStrOrNull(directRespNome);
+
+  // 2) Objeto aninhado: responsavel: { id, nome }
+  const respRaw = (r as Record<string, unknown>)["responsavel"];
+  if (isRecord(respRaw)) {
+    if (Object.prototype.hasOwnProperty.call(respRaw, "id")) {
+      responsavelId = optStrOrNull(
+        (respRaw as Record<string, unknown>)["id"]
+      );
+    }
+    if (Object.prototype.hasOwnProperty.call(respRaw, "nome")) {
+      responsavelNome = optStrOrNull(
+        (respRaw as Record<string, unknown>)["nome"]
+      );
+    }
+  } else if (typeof respRaw === "string" && responsavelNome === undefined) {
+    // 3) responsavel: "Nome"
+    responsavelNome = respRaw;
   }
 
-  // Não forçar undefined -> null aqui; o merge decidirá.
   return {
     identificador,
     nome_completo,
@@ -132,7 +158,10 @@ export async function GET() {
 
     return ok(data, {
       status: 200,
-      headers: noCacheHeaders({ "X-Data-Kind": BLOB_KIND, ...(lastMod ? { "Last-Modified": lastMod } : {}) }),
+      headers: noCacheHeaders({
+        "X-Data-Kind": BLOB_KIND,
+        ...(lastMod ? { "Last-Modified": lastMod } : {}),
+      }),
     });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "erro ao carregar do banco";
@@ -181,7 +210,10 @@ export async function POST(req: Request) {
       update: { data: payload },
     });
 
-    return ok(payload, { status: 200, headers: noCacheHeaders({ "X-Data-Kind": BLOB_KIND }) });
+    return ok(payload, {
+      status: 200,
+      headers: noCacheHeaders({ "X-Data-Kind": BLOB_KIND }),
+    });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "erro ao salvar no banco";
     return fail(msg, 500);
@@ -205,7 +237,10 @@ export async function DELETE() {
       update: { data: payload },
     });
 
-    return ok(payload, { status: 200, headers: noCacheHeaders({ "X-Data-Kind": BLOB_KIND }) });
+    return ok(payload, {
+      status: 200,
+      headers: noCacheHeaders({ "X-Data-Kind": BLOB_KIND }),
+    });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "erro ao limpar";
     return fail(msg, 500);
