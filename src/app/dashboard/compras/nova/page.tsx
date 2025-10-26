@@ -724,7 +724,7 @@ export default async function NovaCompraPage({
             <input
               name="clubePontos"
               inputMode="numeric"
-              pattern="\d*"
+              pattern="^[0-9]*$"
               placeholder="ex.: 3000"
               className="w-full rounded-xl border px-3 py-2 text-sm"
             />
@@ -733,9 +733,10 @@ export default async function NovaCompraPage({
             <label className="mb-1 block text-xs text-slate-600">Valor</label>
             <input
               name="clubeValor"
-              inputMode="numeric"
-              pattern="\d*"
-              placeholder="ex.: 35600 (centavos)"
+              inputMode="decimal"
+              pattern="^(?:[0-9]+|[0-9]+[.,][0-9]{2})$"
+              title="Aceita 35600 ou 356,00"
+              placeholder="ex.: 35600 ou 356,00"
               className="w-full rounded-xl border px-3 py-2 text-sm"
             />
           </div>
@@ -775,7 +776,7 @@ export default async function NovaCompraPage({
             <input
               name="compPontos"
               inputMode="numeric"
-              pattern="\d*"
+              pattern="^[0-9]*$"
               placeholder="ex.: 90000"
               className="w-full rounded-xl border px-3 py-2 text-sm"
             />
@@ -785,7 +786,7 @@ export default async function NovaCompraPage({
             <input
               name="compBonus"
               inputMode="numeric"
-              pattern="\d*"
+              pattern="^[0-9]*$"
               placeholder="ex.: 80"
               className="w-full rounded-xl border px-3 py-2 text-sm"
             />
@@ -794,9 +795,10 @@ export default async function NovaCompraPage({
             <label className="mb-1 block text-xs text-slate-600">Valor</label>
             <input
               name="compValor"
-              inputMode="numeric"
-              pattern="\d*"
-              placeholder="ex.: 35600 (centavos)"
+              inputMode="decimal"
+              pattern="^(?:[0-9]+|[0-9]+[.,][0-9]{2})$"
+              title="Aceita 35600 ou 356,00"
+              placeholder="ex.: 35600 ou 356,00"
               className="w-full rounded-xl border px-3 py-2 text-sm"
             />
           </div>
@@ -851,7 +853,7 @@ export default async function NovaCompraPage({
             <input
               name="trPontosUsados"
               inputMode="numeric"
-              pattern="\d*"
+              pattern="^[0-9]*$"
               placeholder="ex.: 90000"
               className="w-full rounded-xl border px-3 py-2 text-sm"
             />
@@ -862,7 +864,7 @@ export default async function NovaCompraPage({
             <input
               name="trPontosTotais"
               inputMode="numeric"
-              pattern="\d*"
+              pattern="^[0-9]*$"
               placeholder="ex.: 130000"
               className="w-full rounded-xl border px-3 py-2 text-sm"
             />
@@ -872,9 +874,10 @@ export default async function NovaCompraPage({
             <label className="mb-1 block text-xs text-slate-600">Valor pago</label>
             <input
               name="trValorPago"
-              inputMode="numeric"
-              pattern="\d*"
-              placeholder="ex.: 25000 (centavos)"
+              inputMode="decimal"
+              pattern="^(?:[0-9]+|[0-9]+[.,][0-9]{2})$"
+              title="Aceita 25000 ou 250,00"
+              placeholder="ex.: 25000 ou 250,00"
               className="w-full rounded-xl border px-3 py-2 text-sm"
             />
           </div>
@@ -884,7 +887,7 @@ export default async function NovaCompraPage({
             <input
               name="trBonus"
               inputMode="numeric"
-              pattern="\d*"
+              pattern="^[0-9]*$"
               placeholder="ex.: 70"
               className="w-full rounded-xl border px-3 py-2 text-sm"
             />
@@ -958,9 +961,10 @@ export default async function NovaCompraPage({
             <input
               name="comissaoCedente"
               defaultValue={String(Math.round((d.comissaoCedente || 0) * 100))}
-              inputMode="numeric"
-              pattern="\d*"
-              placeholder="ex.: 150 (centavos)"
+              inputMode="decimal"
+              pattern="^(?:[0-9]+|[0-9]+[.,][0-9]{2})$"
+              title="Aceita 150 ou 1,50"
+              placeholder="ex.: 150 ou 1,50"
               className="w-full rounded-xl border px-3 py-2 text-sm"
             />
             <select
@@ -982,9 +986,10 @@ export default async function NovaCompraPage({
           <input
             name="metaMilheiro"
             defaultValue={String(Math.round((d.metaMilheiro || 0) * 100))}
-            inputMode="numeric"
-            pattern="\d*"
-            placeholder="ex.: 150 (centavos)"
+            inputMode="decimal"
+            pattern="^(?:[0-9]+|[0-9]+[.,][0-9]{2})$"
+            title="Aceita 150 ou 1,50"
+            placeholder="ex.: 150 ou 1,50"
             className="w-full rounded-xl border px-3 py-2 text-sm"
           />
           <div className="mt-1 text-[11px] text-slate-500">* Campo aceita dígitos (centavos). Ex.: <b>150</b> = R$ 1,50.</div>
