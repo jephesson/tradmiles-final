@@ -332,8 +332,8 @@ async function ensureDraftFromCompraId(idParam: string): Promise<Draft | null> {
     };
   }
 
-  await safeWriteDraft(draft); // mantém cookie p/ próximos requests
-  return draft;                // e já devolve para esta renderização
+  await safeWriteDraft(draft);
+  return draft;
 }
 
 /** ===== Persistência do draft em /api/* (PATCH se existir, fallback) ===== */
@@ -550,15 +550,12 @@ export default async function NovaCompraPage({
 }: {
   searchParams?: Promise<SearchParams>;
 }) {
-  // Next 15: searchParams pode vir como Promise
   const sp = (await searchParams) ?? {};
-  // tolera tanto ?compraId= quanto o typo ?compralId=
   const compraIdRaw =
     (sp.compraId as string | string[] | undefined) ??
     ((sp as Record<string, string | string[] | undefined>)["compralId"]);
   const compraId = Array.isArray(compraIdRaw) ? compraIdRaw[0] : compraIdRaw;
 
-  // Se vier da lista com ?compraId=, resgata online e já devolve o draft para este render
   const draftFromCompra = compraId ? await ensureDraftFromCompraId(String(compraId)) : null;
 
   const d = draftFromCompra ?? (await ensureDraftBase(false))!;
@@ -929,17 +926,20 @@ export default async function NovaCompraPage({
                   <div className="flex items-center gap-2">
                     <form action={actToggleStatus}>
                       <input type="hidden" name="itemId" value={String(itemId)} />
-                      <button
-                        className={
-                          "rounded border px-2 py-1 text-xs " +
-                          (itemStatus === "liberado"
-                            ? "bg-green-50 border-green-200 text-green-700"
-                            : "bg-yellow-50 border-yellow-200 text-yellow-700")
-                        }
-                        title="Alternar status (Aguardando / Liberado)"
-                      >
-                        {itemStatus === "liberado" ? "Liberado" : "Aguardando"}
-                      </button>
+                      {(() => {
+                        const isLib = itemStatus === "liberado";
+                        const base = "rounded px-2 py-1 text-xs border transition";
+                        const onClass = "bg-green-50 border-green-200 text-green-700 hover:bg-green-100";
+                        const offClass = "bg-black border-black text-white hover:opacity-90";
+                        return (
+                          <button
+                            className={`${base} ${isLib ? onClass : offClass}`}
+                            title={isLib ? "Desfazer liberação" : "Liberar este item"}
+                          >
+                            {isLib ? "Liberado — desfazer" : "Liberar"}
+                          </button>
+                        );
+                      })()}
                     </form>
                     <form action={actRemoveItem}>
                       <input type="hidden" name="itemId" value={String(itemId)} />
