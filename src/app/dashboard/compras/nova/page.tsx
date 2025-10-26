@@ -1,6 +1,7 @@
 // src/app/dashboard/compras/nova/page.tsx
 import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
+import dynamic from "next/dynamic";
 
 /** ====== ENGINE CENTRAL (server-only) ====== */
 import {
@@ -17,6 +18,7 @@ import {
 } from "@/lib/calculo/engine";
 
 export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 /** Para compat com o PageProps do Next 15 (searchParams é Promise) */
 type SearchParams = Record<string, string | string[] | undefined>;
@@ -117,7 +119,7 @@ async function apiFetch(path: string, init: RequestInit = {}) {
   return fetch(`${base}${path}`, { ...init, headers: reqHeaders });
 }
 
-/** ===== Persistência de rascunho via cookie (Next 15: cookies() é assíncrono) ===== */
+/** ===== Persistência de rascunho via cookie ===== */
 async function readDraft(): Promise<Draft | null> {
   const jar = await cookies();
   const c = jar.get(DRAFT_COOKIE)?.value;
@@ -146,14 +148,10 @@ async function clearDraft() {
   const jar = await cookies();
   jar.set(DRAFT_COOKIE, "", { httpOnly: true, sameSite: "lax", path: "/", maxAge: 0 });
 }
-
-/** ====== Versão resiliente para usar durante o render (não quebra no server) ====== */
 async function safeWriteDraft(d: Draft) {
   try {
     await writeDraft(d);
-  } catch {
-    // Em Server Component o Next pode bloquear cookies().set — ignoramos o erro aqui
-  }
+  } catch {}
 }
 
 /** ===== Carregamentos ===== */
@@ -262,9 +260,7 @@ function coerceItemLinha(u: unknown): ItemLinha | null {
   return null;
 }
 
-/**
- * ===== Base do draft =====
- */
+/** ===== Base do draft ===== */
 async function ensureDraftBase(persistOnInit = false) {
   let d = await readDraft();
   const cedentes = await loadCedentes();
@@ -332,11 +328,11 @@ async function ensureDraftFromCompraId(idParam: string): Promise<Draft | null> {
     };
   }
 
-  await safeWriteDraft(draft); // mantém cookie p/ próximos requests
-  return draft;                // e já devolve para esta renderização
+  await safeWriteDraft(draft);
+  return draft;
 }
 
-/** ===== Persistência do draft em /api/* (PATCH se existir, fallback) ===== */
+/** ===== Persistência do draft ===== */
 async function persistDraft(d: Draft) {
   const deltaPrevisto = computeDeltaPorPrograma(d.linhas);
   const totals = computeTotais(d.linhas, d.comissaoCedente, d.metaMilheiro, 1);
@@ -366,12 +362,7 @@ async function persistDraft(d: Draft) {
     metaMilheiro: d.metaMilheiro,
     comissaoCedente: d.comissaoCedente,
     comissaoStatus: d.comissaoStatus,
-    saldosDelta: {
-      latam: deltaPrevisto.latam,
-      smiles: deltaPrevisto.smiles,
-      livelo: deltaPrevisto.livelo,
-      esfera: deltaPrevisto.esfera,
-    },
+    saldosDelta: deltaPrevisto,
   };
 
   // 1) PATCH /api/compras/:id
@@ -558,6 +549,28 @@ async function actSaveAndBack() {
   redirect("/dashboard/compras");
 }
 
+/** ============ Client helper para preservar a query após hidratação ============ */
+const QueryKeeper = dynamic(
+  async () => {
+    return function QueryKeeperImpl(props: { compraId?: string; append?: string }) {
+      // client-side
+      const { compraId, append } = props;
+      React.useEffect(() => {
+        if (!compraId) return;
+        const q = new URLSearchParams(window.location.search);
+        const hasId = q.get("compraId");
+        if (!hasId) {
+          q.set("compraId", compraId);
+          if (append) q.set("append", append);
+          window.history.replaceState(null, "", `?${q.toString()}`);
+        }
+      }, [compraId, append]);
+      return null;
+    };
+  },
+  { ssr: false }
+);
+
 /** ======= Página (Server Component) ======= */
 export default async function NovaCompraPage({
   searchParams,
@@ -571,6 +584,7 @@ export default async function NovaCompraPage({
     (sp.compraId as string | string[] | undefined) ??
     ((sp as Record<string, string | string[] | undefined>)["compralId"]);
   const compraId = Array.isArray(compraIdRaw) ? compraIdRaw[0] : compraIdRaw;
+  const appendFlag = (sp.append as string | undefined) ?? "1";
 
   // Se vier da lista com ?compraId=, resgata online e já devolve o draft para este render
   const draftFromCompra = compraId ? await ensureDraftFromCompraId(String(compraId)) : null;
@@ -579,23 +593,15 @@ export default async function NovaCompraPage({
   const cedentes = await loadCedentes();
   const cedente = cedentes.find((c) => c.id === d.cedenteId);
 
-  // ==== Painel de saldos: atual + previsão ====
-  // Liberado agora: conta apenas itens com status 'liberado'
+  // ==== Painel de saldos ====
   const deltaLiberado = computeDeltaPorPrograma(d.linhas);
-
-  // Variação prevista: considera todos como liberados (simulação)
-  const linhasComoLiberadas: ItemLinha[] = d.linhas.map((l) => {
-    if (l.kind === "clube") {
-      const data: ClubeItem = { ...l.data, status: "liberado" };
-      return { kind: "clube", data };
-    } else if (l.kind === "compra") {
-      const data: CompraItem = { ...l.data, status: "liberado" };
-      return { kind: "compra", data };
-    } else {
-      const data: TransfItem = { ...l.data, status: "liberado" };
-      return { kind: "transferencia", data };
-    }
-  });
+  const linhasComoLiberadas: ItemLinha[] = d.linhas.map((l) =>
+    l.kind === "clube"
+      ? { kind: "clube", data: { ...(l.data as ClubeItem), status: "liberado" } }
+      : l.kind === "compra"
+      ? { kind: "compra", data: { ...(l.data as CompraItem), status: "liberado" } }
+      : { kind: "transferencia", data: { ...(l.data as TransfItem), status: "liberado" } }
+  );
   const deltaPrevisto = computeDeltaPorPrograma(linhasComoLiberadas);
 
   const saldoAtual = {
@@ -615,6 +621,9 @@ export default async function NovaCompraPage({
 
   return (
     <main className="mx-auto max-w-5xl px-4 py-6">
+      {/* Mantém a query na URL após hidratar */}
+      <QueryKeeper compraId={compraId || d.compraId} append={appendFlag} />
+
       <h1 className="mb-5 text-2xl font-bold">Compra de pontos — ID {d.compraId}</h1>
 
       {/* Cabeçalho */}
@@ -1061,7 +1070,7 @@ export default async function NovaCompraPage({
             <b>Custo por milheiro (total)</b>: {fmtMoney(totals.custoMilheiroTotal || 0)}
           </div>
           <div>
-            <b>Lucro estimado (sobre liberado)</b>: {fmtMoney(totals.lucroTotal)}
+            <b>Lucro estimado (sobre liberado)</b>: {fmtMoney(totals.lucroTotal)}</b>
           </div>
         </div>
       </div>
