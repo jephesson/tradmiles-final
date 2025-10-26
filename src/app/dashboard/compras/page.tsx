@@ -366,6 +366,7 @@ export default function ComprasListaPage() {
         <h1 className="text-2xl font-bold">Compras de pontos</h1>
         <Link
           href="/dashboard/compras/nova"
+          prefetch={false}
           className="rounded-lg border bg-black px-4 py-2 text-sm text-white hover:opacity-90"
         >
           Nova compra
@@ -491,7 +492,9 @@ export default function ComprasListaPage() {
                     <div className="flex items-center gap-2">
                       <Link
                         href={`/dashboard/compras/nova?compraId=${encodeURIComponent(id)}&append=1`}
+                        prefetch={false}
                         className="rounded-lg border px-3 py-1 hover:bg-slate-100"
+                        title="Editar compra"
                       >
                         Editar
                       </Link>
