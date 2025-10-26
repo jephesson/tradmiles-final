@@ -104,7 +104,6 @@ const DRAFT_COOKIE = "nova_compra_draft";
 async function apiFetch(path: string, init: RequestInit = {}) {
   const hdrs = await headers();
   const proto = hdrs.get("x-forwarded-proto") ?? "https";
-  the:
   const host = hdrs.get("x-forwarded-host") ?? hdrs.get("host") ?? "localhost:3000";
   const base = `${proto}://${host}`;
 
