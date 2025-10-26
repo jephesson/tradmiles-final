@@ -1,4 +1,3 @@
-// src/app/dashboard/compras/page.tsx
 "use client";
 
 import Link from "next/link";
@@ -490,14 +489,19 @@ export default function ComprasListaPage() {
                   </td>
                   <td className="px-3 py-2 text-right whitespace-nowrap">
                     <div className="flex items-center gap-2">
-                      <Link
-                        href={`/dashboard/compras/nova?compraId=${encodeURIComponent(id)}&append=1`}
-                        prefetch={false}
-                        className="rounded-lg border px-3 py-1 hover:bg-slate-100"
-                        title="Editar compra"
-                      >
-                        Editar
-                      </Link>
+                      {/* Editar via GET para garantir querystring */}
+                      <form action="/dashboard/compras/nova" method="GET">
+                        <input type="hidden" name="compraId" value={id} />
+                        <input type="hidden" name="append" value="1" />
+                        <button
+                          type="submit"
+                          className="rounded-lg border px-3 py-1 hover:bg-slate-100"
+                          title="Editar compra"
+                        >
+                          Editar
+                        </button>
+                      </form>
+
                       <button
                         type="button"
                         onClick={() => void handleCancelar(id)}
