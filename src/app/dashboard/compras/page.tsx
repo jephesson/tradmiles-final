@@ -1,3 +1,4 @@
+// src/app/dashboard/compras/page.tsx
 "use client";
 
 import Link from "next/link";
@@ -198,7 +199,6 @@ function rowCiaOrigem(c: Record<string, unknown>): string {
 
 /** ==== API helpers (cancelar/excluir) ==== */
 async function apiCancelCompra(id: string): Promise<boolean> {
-  // 1) tenta PATCH /api/compras/:id
   try {
     const r = await fetch(`/api/compras/${encodeURIComponent(id)}`, {
       method: "PATCH",
@@ -207,9 +207,7 @@ async function apiCancelCompra(id: string): Promise<boolean> {
       cache: "no-store",
     });
     if (r.ok) return true;
-  } catch { /* ignore */ }
-
-  // 2) fallback: PATCH /api/pedidos/:id
+  } catch {}
   try {
     const r = await fetch(`/api/pedidos/${encodeURIComponent(id)}`, {
       method: "PATCH",
@@ -218,30 +216,25 @@ async function apiCancelCompra(id: string): Promise<boolean> {
       cache: "no-store",
     });
     if (r.ok) return true;
-  } catch { /* ignore */ }
-
+  } catch {}
   return false;
 }
 
 async function apiDeleteCompra(id: string): Promise<boolean> {
-  // 1) tenta DELETE /api/compras/:id
   try {
     const r = await fetch(`/api/compras/${encodeURIComponent(id)}`, {
       method: "DELETE",
       cache: "no-store",
     });
     if (r.ok) return true;
-  } catch { /* ignore */ }
-
-  // 2) fallback: DELETE /api/pedidos/:id
+  } catch {}
   try {
     const r = await fetch(`/api/pedidos/${encodeURIComponent(id)}`, {
       method: "DELETE",
       cache: "no-store",
     });
     if (r.ok) return true;
-  } catch { /* ignore */ }
-
+  } catch {}
   return false;
 }
 
@@ -310,7 +303,6 @@ export default function ComprasListaPage() {
         setItems(arr);
         setTotal(json.total ?? (arr ? arr.length : 0));
       } catch {
-        /* ignore */
       } finally {
         setLoading(false);
       }
@@ -489,7 +481,7 @@ export default function ComprasListaPage() {
                   </td>
                   <td className="px-3 py-2 text-right whitespace-nowrap">
                     <div className="flex items-center gap-2">
-                      {/* Editar via GET para garantir querystring */}
+                      {/* Editar via GET para garantir querystring e carregamento do rascunho existente */}
                       <form action="/dashboard/compras/nova" method="GET">
                         <input type="hidden" name="compraId" value={id} />
                         <input type="hidden" name="append" value="1" />
