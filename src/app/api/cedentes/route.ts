@@ -13,7 +13,7 @@ const BLOB_KIND = "cedentes_blob";
  * ========================= */
 type Json = string | number | boolean | null | Json[] | { [k: string]: Json };
 
-type Cedente = {
+export type Cedente = {
   identificador: string;
   nome_completo: string;
   latam: number;
@@ -34,55 +34,83 @@ function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
 }
 
-function pickString(v: unknown, fb = ""): string {
-  return typeof v === "string" ? v : fb;
-}
-function pickNullableString(v: unknown): string | null {
-  return v == null ? null : String(v);
-}
-function pickNumber(v: unknown, fb = 0): number {
-  const n = Number(v);
-  return Number.isFinite(n) ? n : fb;
-}
+const noCacheHeaders = (extra?: Record<string, string>): HeadersInit => ({
+  "Content-Type": "application/json; charset=utf-8",
+  "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
+  Pragma: "no-cache",
+  Expires: "0",
+  "Surrogate-Control": "no-store",
+  ...(extra ?? {}),
+});
 
-function sanitizeCedente(x: unknown): Cedente {
+const ok = (data: unknown, init?: ResponseInit) => NextResponse.json({ ok: true, data }, init);
+const fail = (message: string, status = 500) =>
+  NextResponse.json({ ok: false, error: message }, { status, headers: noCacheHeaders() });
+
+/** --------- Sanitização flexível ---------
+ * Aceita formatos:
+ * - { responsavelId, responsavelNome }
+ * - { responsavel: { id, nome } }
+ * - { responsavel: "Nome do responsável" } (sem id)
+ * Não converte `undefined` para `null` antes do merge.
+ */
+function coerceCedenteLoose(x: unknown): Omit<Cedente, "responsavelId" | "responsavelNome"> & {
+  responsavelId?: string | null | undefined;
+  responsavelNome?: string | null | undefined;
+} {
   const r = isRecord(x) ? x : {};
+  const identificador = String((r.identificador ?? "") as string).toUpperCase();
+  const nome_completo = String((r.nome_completo ?? r.nome ?? "") as string);
+
+  const latam = Number.isFinite(Number(r.latam)) ? Number(r.latam) : 0;
+  const esfera = Number.isFinite(Number(r.esfera)) ? Number(r.esfera) : 0;
+  const livelo = Number.isFinite(Number(r.livelo)) ? Number(r.livelo) : 0;
+  const smiles = Number.isFinite(Number(r.smiles)) ? Number(r.smiles) : 0;
+
+  // múltiplas formas de receber o responsável
+  let responsavelId: string | null | undefined = (r as any).responsavelId as any;
+  let responsavelNome: string | null | undefined = (r as any).responsavelNome as any;
+
+  const resp = (r as any).responsavel;
+  if (isRecord(resp)) {
+    if (resp.id !== undefined) responsavelId = resp.id == null ? null : String(resp.id);
+    if (resp.nome !== undefined) responsavelNome = resp.nome == null ? null : String(resp.nome);
+  } else if (typeof resp === "string" && !responsavelNome) {
+    responsavelNome = resp;
+  }
+
+  // Não forçar undefined -> null aqui; o merge decidirá.
   return {
-    identificador: pickString(r.identificador).toUpperCase(),
-    nome_completo: pickString(r.nome_completo),
-    latam: pickNumber(r.latam),
-    esfera: pickNumber(r.esfera),
-    livelo: pickNumber(r.livelo),
-    smiles: pickNumber(r.smiles),
-    responsavelId: pickNullableString(r.responsavelId),
-    responsavelNome: pickNullableString(r.responsavelNome),
+    identificador,
+    nome_completo,
+    latam,
+    esfera,
+    livelo,
+    smiles,
+    responsavelId,
+    responsavelNome,
   };
 }
 
-function sanitizeListaCedentes(v: unknown): Cedente[] {
-  if (!Array.isArray(v)) return [];
-  return v.map(sanitizeCedente);
-}
-
-function noCacheHeaders(extra?: Record<string, string>): HeadersInit {
+/** Normaliza para Cedente final, preenchendo faltas com null */
+function finalizeCedente(
+  loose: ReturnType<typeof coerceCedenteLoose>,
+  previous?: Cedente | null
+): Cedente {
+  const prev = previous ?? null;
   return {
-    "Content-Type": "application/json; charset=utf-8",
-    "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
-    Pragma: "no-cache",
-    Expires: "0",
-    "Surrogate-Control": "no-store",
-    ...(extra ?? {}),
+    identificador: loose.identificador || prev?.identificador || "",
+    nome_completo: loose.nome_completo || prev?.nome_completo || "",
+    latam: Number.isFinite(loose.latam) ? loose.latam : prev?.latam || 0,
+    esfera: Number.isFinite(loose.esfera) ? loose.esfera : prev?.esfera || 0,
+    livelo: Number.isFinite(loose.livelo) ? loose.livelo : prev?.livelo || 0,
+    smiles: Number.isFinite(loose.smiles) ? loose.smiles : prev?.smiles || 0,
+    // Preserva responsável salvo se não vier na requisição
+    responsavelId:
+      loose.responsavelId !== undefined ? (loose.responsavelId ?? null) : prev?.responsavelId ?? null,
+    responsavelNome:
+      loose.responsavelNome !== undefined ? (loose.responsavelNome ?? null) : prev?.responsavelNome ?? null,
   };
-}
-
-function ok(data: unknown, init?: ResponseInit) {
-  return NextResponse.json({ ok: true, data }, init);
-}
-function fail(message: string, status = 500) {
-  return NextResponse.json(
-    { ok: false, error: message },
-    { status, headers: noCacheHeaders() }
-  );
 }
 
 /* =========================
@@ -90,24 +118,13 @@ function fail(message: string, status = 500) {
  * ========================= */
 export async function GET() {
   try {
-    const blob = await prisma.appBlob.findUnique({
-      where: { kind: BLOB_KIND },
-    });
+    const blob = await prisma.appBlob.findUnique({ where: { kind: BLOB_KIND } });
 
-    // Compatível com a UI: quando nada salvo, data: null
     const raw = (blob?.data as CedentesPayload | null) ?? null;
-
-    // Normaliza listaCedentes caso venha em formato inesperado
     const data: CedentesPayload | null = raw
-      ? {
-          ...raw,
-          listaCedentes: Array.isArray(raw.listaCedentes)
-            ? raw.listaCedentes
-            : [],
-        }
+      ? { ...raw, listaCedentes: Array.isArray(raw.listaCedentes) ? raw.listaCedentes : [] }
       : null;
 
-    // Last-Modified seguro sem `any`
     const lastMod =
       blob && "updatedAt" in blob && blob.updatedAt instanceof Date
         ? blob.updatedAt.toUTCString()
@@ -115,10 +132,7 @@ export async function GET() {
 
     return ok(data, {
       status: 200,
-      headers: noCacheHeaders({
-        "X-Data-Kind": BLOB_KIND,
-        ...(lastMod ? { "Last-Modified": lastMod } : {}),
-      }),
+      headers: noCacheHeaders({ "X-Data-Kind": BLOB_KIND, ...(lastMod ? { "Last-Modified": lastMod } : {}) }),
     });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "erro ao carregar do banco";
@@ -134,32 +148,40 @@ export async function POST(req: Request) {
     const raw: unknown = await req.json().catch(() => ({}));
     const body = isRecord(raw) ? raw : {};
 
-    // Aceita tanto { listaCedentes, meta } quanto payloads legados
-    const listaCedentes = sanitizeListaCedentes(body.listaCedentes);
-    const meta = isRecord(body.meta)
-      ? (body.meta as Record<string, Json>)
-      : undefined;
+    // Entrada pode ser { listaCedentes, meta } ou payload legado
+    const incoming = Array.isArray(body.listaCedentes) ? (body.listaCedentes as unknown[]) : [];
+
+    // Carrega existente para preservar campos não enviados
+    const existingBlob = await prisma.appBlob.findUnique({ where: { kind: BLOB_KIND } });
+    const existingList: Cedente[] = Array.isArray(
+      (existingBlob?.data as CedentesPayload | undefined)?.listaCedentes
+    )
+      ? ((existingBlob!.data as CedentesPayload).listaCedentes as Cedente[])
+      : [];
+
+    const existingById = new Map(existingList.map((c) => [c.identificador, c]));
+
+    const listaCedentes: Cedente[] = incoming.map((row) => {
+      const loose = coerceCedenteLoose(row);
+      const prev = existingById.get(loose.identificador) ?? null;
+      return finalizeCedente(loose, prev);
+    });
+
+    const meta = isRecord(body.meta) ? (body.meta as Record<string, Json>) : undefined;
 
     const payload: CedentesPayload = {
       savedAt: new Date().toISOString(),
-      ...(listaCedentes.length ? { listaCedentes } : {}),
+      listaCedentes,
       ...(meta ? { meta } : {}),
     };
 
     await prisma.appBlob.upsert({
       where: { kind: BLOB_KIND },
-      create: {
-        id: crypto.randomUUID(),
-        kind: BLOB_KIND,
-        data: payload,
-      },
+      create: { id: crypto.randomUUID(), kind: BLOB_KIND, data: payload },
       update: { data: payload },
     });
 
-    return ok(payload, {
-      status: 200,
-      headers: noCacheHeaders({ "X-Data-Kind": BLOB_KIND }),
-    });
+    return ok(payload, { status: 200, headers: noCacheHeaders({ "X-Data-Kind": BLOB_KIND }) });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "erro ao salvar no banco";
     return fail(msg, 500);
@@ -171,7 +193,6 @@ export async function POST(req: Request) {
  * ========================= */
 export async function DELETE() {
   try {
-    // Mantém a linha (kind único) e zera o conteúdo
     const payload: CedentesPayload = {
       savedAt: new Date().toISOString(),
       listaCedentes: [],
@@ -180,18 +201,11 @@ export async function DELETE() {
 
     await prisma.appBlob.upsert({
       where: { kind: BLOB_KIND },
-      create: {
-        id: crypto.randomUUID(),
-        kind: BLOB_KIND,
-        data: payload,
-      },
+      create: { id: crypto.randomUUID(), kind: BLOB_KIND, data: payload },
       update: { data: payload },
     });
 
-    return ok(payload, {
-      status: 200,
-      headers: noCacheHeaders({ "X-Data-Kind": BLOB_KIND }),
-    });
+    return ok(payload, { status: 200, headers: noCacheHeaders({ "X-Data-Kind": BLOB_KIND }) });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "erro ao limpar";
     return fail(msg, 500);
