@@ -1,7 +1,8 @@
 // src/app/dashboard/compras/nova/page.tsx
 import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
-import dynamic from "next/dynamic";
+import * as React from "react";
+import nextDynamic from "next/dynamic";
 
 /** ====== ENGINE CENTRAL (server-only) ====== */
 import {
@@ -103,6 +104,7 @@ const DRAFT_COOKIE = "nova_compra_draft";
 async function apiFetch(path: string, init: RequestInit = {}) {
   const hdrs = await headers();
   const proto = hdrs.get("x-forwarded-proto") ?? "https";
+  the:
   const host = hdrs.get("x-forwarded-host") ?? hdrs.get("host") ?? "localhost:3000";
   const base = `${proto}://${host}`;
 
@@ -260,7 +262,9 @@ function coerceItemLinha(u: unknown): ItemLinha | null {
   return null;
 }
 
-/** ===== Base do draft ===== */
+/**
+ * ===== Base do draft =====
+ */
 async function ensureDraftBase(persistOnInit = false) {
   let d = await readDraft();
   const cedentes = await loadCedentes();
@@ -550,10 +554,9 @@ async function actSaveAndBack() {
 }
 
 /** ============ Client helper para preservar a query após hidratação ============ */
-const QueryKeeper = dynamic(
+const QueryKeeper = nextDynamic(
   async () => {
     return function QueryKeeperImpl(props: { compraId?: string; append?: string }) {
-      // client-side
       const { compraId, append } = props;
       React.useEffect(() => {
         if (!compraId) return;
@@ -577,16 +580,13 @@ export default async function NovaCompraPage({
 }: {
   searchParams?: Promise<SearchParams>;
 }) {
-  // Next 15: searchParams pode vir como Promise
   const sp = (await searchParams) ?? {};
-  // tolera tanto ?compraId= quanto o typo ?compralId=
   const compraIdRaw =
     (sp.compraId as string | string[] | undefined) ??
     ((sp as Record<string, string | string[] | undefined>)["compralId"]);
   const compraId = Array.isArray(compraIdRaw) ? compraIdRaw[0] : compraIdRaw;
   const appendFlag = (sp.append as string | undefined) ?? "1";
 
-  // Se vier da lista com ?compraId=, resgata online e já devolve o draft para este render
   const draftFromCompra = compraId ? await ensureDraftFromCompraId(String(compraId)) : null;
 
   const d = draftFromCompra ?? (await ensureDraftBase(false))!;
@@ -734,6 +734,7 @@ export default async function NovaCompraPage({
           <div className="text-sm font-semibold">Clubes</div>
         </div>
         <form action={actAddClube} className="grid grid-cols-1 gap-3 p-3 md:grid-cols-5">
+          {/* ...campos dos Clubes (iguais) ... */}
           <div>
             <label className="mb-1 block text-xs text-slate-600">Programa</label>
             <select name="clubePrograma" defaultValue="latam" className="w-full rounded-xl border px-3 py-2 text-sm">
@@ -786,6 +787,7 @@ export default async function NovaCompraPage({
           <div className="text-sm font-semibold">Compra de pontos</div>
         </div>
         <form action={actAddCompra} className="grid grid-cols-1 gap-3 p-3 md:grid-cols-6">
+          {/* ...campos da Compra (iguais) ... */}
           <div>
             <label className="mb-1 block text-xs text-slate-600">Programa</label>
             <select name="compPrograma" defaultValue="latam" className="w-full rounded-xl border px-3 py-2 text-sm">
@@ -848,6 +850,7 @@ export default async function NovaCompraPage({
           <div className="text-sm font-semibold">Transferência de pontos</div>
         </div>
         <form action={actAddTransf} className="grid grid-cols-1 gap-3 p-3 md:grid-cols-8">
+          {/* ...campos da Transferência (iguais) ... */}
           <div>
             <label className="mb-1 block text-xs text-slate-600">Origem</label>
             <select name="trOrigem" defaultValue="livelo" className="w-full rounded-xl border px-3 py-2 text-sm">
@@ -855,7 +858,6 @@ export default async function NovaCompraPage({
               <option value="esfera">Esfera</option>
             </select>
           </div>
-
           <div>
             <label className="mb-1 block text-xs text-slate-600">Destino</label>
             <select name="trDestino" defaultValue="latam" className="w-full rounded-xl border px-3 py-2 text-sm">
@@ -863,7 +865,6 @@ export default async function NovaCompraPage({
               <option value="smiles">Smiles</option>
             </select>
           </div>
-
           <div>
             <label className="mb-1 block text-xs text-slate-600">Modo</label>
             <select name="trModo" defaultValue="pontos" className="w-full rounded-xl border px-3 py-2 text-sm">
@@ -871,7 +872,6 @@ export default async function NovaCompraPage({
               <option value="pontos+dinheiro">Pontos + dinheiro</option>
             </select>
           </div>
-
           <div className="md:col-span-2">
             <label className="mb-1 block text-xs text-slate-600">Pontos usados</label>
             <input
@@ -882,7 +882,6 @@ export default async function NovaCompraPage({
               className="w-full rounded-xl border px-3 py-2 text-sm"
             />
           </div>
-
           <div className="md:col-span-2">
             <label className="mb-1 block text-xs text-slate-600">Pts transferidos (se pontos+dinheiro)</label>
             <input
@@ -893,7 +892,6 @@ export default async function NovaCompraPage({
               className="w-full rounded-xl border px-3 py-2 text-sm"
             />
           </div>
-
           <div>
             <label className="mb-1 block text-xs text-slate-600">Valor pago</label>
             <input
@@ -905,7 +903,6 @@ export default async function NovaCompraPage({
               className="w-full rounded-xl border px-3 py-2 text-sm"
             />
           </div>
-
           <div>
             <label className="mb-1 block text-xs text-slate-600">% bônus</label>
             <input
@@ -916,12 +913,10 @@ export default async function NovaCompraPage({
               className="w-full rounded-xl border px-3 py-2 text-sm"
             />
           </div>
-
           <div className="md:col-span-8 text-[11px] text-slate-600">
             * Chegam na CIA: <b>pontos usados (ou pts transferidos) × (1 + bônus%)</b>. Nesta tela, transferências entram
             como <b>aguardando</b>.
           </div>
-
           <div className="md:col-span-8 flex items-end">
             <button className="w-full rounded-lg bg-black px-3 py-2 text-sm text-white hover:opacity-90">Adicionar</button>
           </div>
@@ -1070,7 +1065,7 @@ export default async function NovaCompraPage({
             <b>Custo por milheiro (total)</b>: {fmtMoney(totals.custoMilheiroTotal || 0)}
           </div>
           <div>
-            <b>Lucro estimado (sobre liberado)</b>: {fmtMoney(totals.lucroTotal)}</b>
+            <b>Lucro estimado (sobre liberado)</b>: {fmtMoney(totals.lucroTotal)}
           </div>
         </div>
       </div>
