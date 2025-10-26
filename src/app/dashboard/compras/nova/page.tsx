@@ -332,8 +332,8 @@ async function ensureDraftFromCompraId(idParam: string): Promise<Draft | null> {
     };
   }
 
-  await safeWriteDraft(draft);
-  return draft;
+  await safeWriteDraft(draft); // mantém cookie p/ próximos requests
+  return draft;                // e já devolve para esta renderização
 }
 
 /** ===== Persistência do draft em /api/* (PATCH se existir, fallback) ===== */
@@ -500,17 +500,31 @@ async function actAddTransf(formData: FormData) {
   redirect("/dashboard/compras/nova?compraId=" + encodeURIComponent(d.compraId) + "&append=1");
 }
 
-/** Toggle status (agora para QUALQUER item, incluindo transferência) */
-async function actToggleStatus(formData: FormData) {
+/** Liberar item (status = liberado) */
+async function actLiberarItem(formData: FormData) {
   "use server";
   const d = (await ensureDraftBase(true))!;
   const id = Number(formData.get("itemId"));
   d.linhas = d.linhas.map((l) => {
     if (l.data.id !== id) return l;
-    const next: StatusItem = l.data.status === "liberado" ? "aguardando" : "liberado";
-    if (l.kind === "clube") return { kind: "clube", data: { ...(l.data as ClubeItem), status: next } };
-    if (l.kind === "compra") return { kind: "compra", data: { ...(l.data as CompraItem), status: next } };
-    return { kind: "transferencia", data: { ...(l.data as TransfItem), status: next } };
+    if (l.kind === "clube") return { kind: "clube", data: { ...(l.data as ClubeItem), status: "liberado" } };
+    if (l.kind === "compra") return { kind: "compra", data: { ...(l.data as CompraItem), status: "liberado" } };
+    return { kind: "transferencia", data: { ...(l.data as TransfItem), status: "liberado" } };
+  });
+  await writeDraft(d);
+  redirect("/dashboard/compras/nova?compraId=" + encodeURIComponent(d.compraId) + "&append=1");
+}
+
+/** Colocar item como aguardando (status = aguardando) */
+async function actAguardarItem(formData: FormData) {
+  "use server";
+  const d = (await ensureDraftBase(true))!;
+  const id = Number(formData.get("itemId"));
+  d.linhas = d.linhas.map((l) => {
+    if (l.data.id !== id) return l;
+    if (l.kind === "clube") return { kind: "clube", data: { ...(l.data as ClubeItem), status: "aguardando" } };
+    if (l.kind === "compra") return { kind: "compra", data: { ...(l.data as CompraItem), status: "aguardando" } };
+    return { kind: "transferencia", data: { ...(l.data as TransfItem), status: "aguardando" } };
   });
   await writeDraft(d);
   redirect("/dashboard/compras/nova?compraId=" + encodeURIComponent(d.compraId) + "&append=1");
@@ -550,12 +564,15 @@ export default async function NovaCompraPage({
 }: {
   searchParams?: Promise<SearchParams>;
 }) {
+  // Next 15: searchParams pode vir como Promise
   const sp = (await searchParams) ?? {};
+  // tolera tanto ?compraId= quanto o typo ?compralId=
   const compraIdRaw =
     (sp.compraId as string | string[] | undefined) ??
     ((sp as Record<string, string | string[] | undefined>)["compralId"]);
   const compraId = Array.isArray(compraIdRaw) ? compraIdRaw[0] : compraIdRaw;
 
+  // Se vier da lista com ?compraId=, resgata online e já devolve o draft para este render
   const draftFromCompra = compraId ? await ensureDraftFromCompraId(String(compraId)) : null;
 
   const d = draftFromCompra ?? (await ensureDraftBase(false))!;
@@ -563,9 +580,10 @@ export default async function NovaCompraPage({
   const cedente = cedentes.find((c) => c.id === d.cedenteId);
 
   // ==== Painel de saldos: atual + previsão ====
+  // Liberado agora: conta apenas itens com status 'liberado'
   const deltaLiberado = computeDeltaPorPrograma(d.linhas);
 
-  // Garantir retorno em todas as branches para evitar "undefined"
+  // Variação prevista: considera todos como liberados (simulação)
   const linhasComoLiberadas: ItemLinha[] = d.linhas.map((l) => {
     if (l.kind === "clube") {
       const data: ClubeItem = { ...l.data, status: "liberado" };
@@ -924,23 +942,27 @@ export default async function NovaCompraPage({
                     <span className="text-slate-700">{resumo}</span>
                   </div>
                   <div className="flex items-center gap-2">
-                    <form action={actToggleStatus}>
-                      <input type="hidden" name="itemId" value={String(itemId)} />
-                      {(() => {
-                        const isLib = itemStatus === "liberado";
-                        const base = "rounded px-2 py-1 text-xs border transition";
-                        const onClass = "bg-green-50 border-green-200 text-green-700 hover:bg-green-100";
-                        const offClass = "bg-black border-black text-white hover:opacity-90";
-                        return (
-                          <button
-                            className={`${base} ${isLib ? onClass : offClass}`}
-                            title={isLib ? "Desfazer liberação" : "Liberar este item"}
-                          >
-                            {isLib ? "Liberado — desfazer" : "Liberar"}
-                          </button>
-                        );
-                      })()}
-                    </form>
+                    {itemStatus === "liberado" ? (
+                      <form action={actAguardarItem}>
+                        <input type="hidden" name="itemId" value={String(itemId)} />
+                        <button
+                          className="rounded border px-2 py-1 text-xs bg-yellow-50 border-yellow-200 text-yellow-700"
+                          title="Colocar como aguardando"
+                        >
+                          Aguardar
+                        </button>
+                      </form>
+                    ) : (
+                      <form action={actLiberarItem}>
+                        <input type="hidden" name="itemId" value={String(itemId)} />
+                        <button
+                          className="rounded border px-2 py-1 text-xs bg-green-50 border-green-200 text-green-700"
+                          title="Marcar como liberado"
+                        >
+                          Liberar
+                        </button>
+                      </form>
+                    )}
                     <form action={actRemoveItem}>
                       <input type="hidden" name="itemId" value={String(itemId)} />
                       <button className="rounded border px-2 py-1 text-xs hover:bg-slate-100">Remover</button>
