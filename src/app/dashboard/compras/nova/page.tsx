@@ -571,8 +571,6 @@ export default async function NovaCompraPage({
   const d = draftFromCompra ?? (await ensureDraftBase(false))!;
 
   // --- CANONICALIZAÇÃO DA URL (sem Client Component) ---
-  // Se faltar compraId (ou estiver diferente) ou faltar append=1, redireciona no servidor.
-  // Assim a URL fica certa inclusive ao vir do "Editar" — sem precisar clicar em nada.
   const urlHasRightCompraId = !!compraId && compraId === d.compraId;
   const urlHasAppend = appendFlag === "1";
   if (!urlHasRightCompraId || !urlHasAppend) {
@@ -584,6 +582,7 @@ export default async function NovaCompraPage({
 
   // ==== Painel de saldos ====
   const deltaLiberado = computeDeltaPorPrograma(d.linhas);
+
   const linhasComoLiberadas: ItemLinha[] = d.linhas.map((l) =>
     l.kind === "clube"
       ? { kind: "clube", data: { ...(l.data as ClubeItem), status: "liberado" } }
@@ -593,12 +592,30 @@ export default async function NovaCompraPage({
   );
   const deltaPrevisto = computeDeltaPorPrograma(linhasComoLiberadas);
 
+  // pendente = previsto - liberado
+  const deltaPendente = {
+    latam: (deltaPrevisto.latam ?? 0) - (deltaLiberado.latam ?? 0),
+    smiles: (deltaPrevisto.smiles ?? 0) - (deltaLiberado.smiles ?? 0),
+    livelo: (deltaPrevisto.livelo ?? 0) - (deltaLiberado.livelo ?? 0),
+    esfera: (deltaPrevisto.esfera ?? 0) - (deltaLiberado.esfera ?? 0),
+  };
+
   const saldoAtual = {
     latam: Number(cedente?.latam || 0),
     smiles: Number(cedente?.smiles || 0),
     livelo: Number(cedente?.livelo || 0),
     esfera: Number(cedente?.esfera || 0),
   };
+
+  // “Saldo agora” = Atual + Liberado
+  const saldoComLiberados = {
+    latam: saldoAtual.latam + (deltaLiberado.latam || 0),
+    smiles: saldoAtual.smiles + (deltaLiberado.smiles || 0),
+    livelo: saldoAtual.livelo + (deltaLiberado.livelo || 0),
+    esfera: saldoAtual.esfera + (deltaLiberado.esfera || 0),
+  };
+
+  // “Previsto (total)” = Atual + Previsto
   const saldoPrevisto = {
     latam: saldoAtual.latam + (deltaPrevisto.latam || 0),
     smiles: saldoAtual.smiles + (deltaPrevisto.smiles || 0),
@@ -689,24 +706,24 @@ export default async function NovaCompraPage({
             {(["latam", "smiles", "livelo", "esfera"] as const).map((k) => (
               <div key={k} className="rounded-lg border px-3 py-2">
                 <div className="mb-1 text-xs uppercase tracking-wide text-slate-500">{k}</div>
-                <div className="text-[13px]">
+                <div className="text-[13px] space-y-1">
+                  <div>Atual: <b>{fmtInt(saldoAtual[k])}</b></div>
                   <div>
-                    Atual: <b>{fmtInt(saldoAtual[k])}</b>
-                  </div>
-                  <div>
-                    Variação prevista:{" "}
-                    <b className={(deltaPrevisto[k] ?? 0) >= 0 ? "text-green-700" : "text-red-700"}>
-                      {(deltaPrevisto[k] ?? 0) >= 0 ? "+" : ""}
-                      {fmtInt(deltaPrevisto[k] ?? 0)}
+                    Liberado (entra agora):{" "}
+                    <b className={(deltaLiberado[k] ?? 0) >= 0 ? "text-green-700" : "text-red-700"}>
+                      {(deltaLiberado[k] ?? 0) >= 0 ? "+" : ""}{fmtInt(deltaLiberado[k] ?? 0)}
                     </b>
                   </div>
-                  <div className="text-[11px] text-slate-500">
-                    (Liberado agora: {deltaLiberado[k] >= 0 ? "+" : ""}
-                    {fmtInt(deltaLiberado[k] ?? 0)})
-                  </div>
                   <div>
-                    Previsto: <b>{fmtInt(saldoPrevisto[k])}</b>
+                    Pendente:{" "}
+                    <b className={(deltaPendente[k] ?? 0) >= 0 ? "text-amber-700" : "text-red-700"}>
+                      {(deltaPendente[k] ?? 0) >= 0 ? "+" : ""}{fmtInt(deltaPendente[k] ?? 0)}
+                    </b>
                   </div>
+                  <div className="pt-1 border-t text-[12px] text-slate-600">
+                    Saldo agora (Atual + Liberado): <b>{fmtInt(saldoComLiberados[k])}</b>
+                  </div>
+                  <div>Previsto (total): <b>{fmtInt(saldoPrevisto[k])}</b></div>
                 </div>
               </div>
             ))}
