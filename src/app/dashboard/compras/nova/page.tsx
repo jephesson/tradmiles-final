@@ -946,46 +946,43 @@ export default async function NovaCompraPage({
                     <span className="text-slate-700">{resumo}</span>
                     <span
                       className={
-                        "ml-2 inline-flex items-center rounded-full px-2 py-[2px] text-[10px] " +
+                        "ml-2 rounded-full border px-2 py-[2px] text-[10px] " +
                         (itemStatus === "liberado"
-                          ? "bg-green-50 text-green-700 border border-green-200"
-                          : "bg-yellow-50 text-yellow-700 border border-yellow-200")
+                          ? "bg-green-50 text-green-700 border-green-200"
+                          : "bg-yellow-50 text-yellow-700 border-yellow-200")
                       }
                     >
                       {itemStatus === "liberado" ? "LIBERADO" : "AGUARDANDO"}
                     </span>
                   </div>
 
-                  {/* Botões com efeito prático via formAction */}
-                  <form method="post" className="flex items-center gap-2">
-                    <input type="hidden" name="itemId" value={String(itemId)} />
+                  <div className="flex items-center gap-2">
                     {itemStatus === "liberado" ? (
-                      <button
-                        type="submit"
-                        formAction={actAguardarItem}
-                        className="rounded border px-2 py-1 text-xs bg-yellow-50 border-yellow-200 text-yellow-700"
-                        title="Colocar como aguardando"
-                      >
-                        Aguardar
-                      </button>
+                      <form action={actAguardarItem} method="post">
+                        <input type="hidden" name="itemId" value={String(itemId)} />
+                        <button
+                          className="rounded border px-2 py-1 text-xs bg-yellow-50 border-yellow-200 text-yellow-700"
+                          title="Colocar como aguardando"
+                        >
+                          Aguardar
+                        </button>
+                      </form>
                     ) : (
-                      <button
-                        type="submit"
-                        formAction={actLiberarItem}
-                        className="rounded border px-2 py-1 text-xs bg-green-50 border-green-200 text-green-700"
-                        title="Marcar como liberado"
-                      >
-                        Liberar
-                      </button>
+                      <form action={actLiberarItem} method="post">
+                        <input type="hidden" name="itemId" value={String(itemId)} />
+                        <button
+                          className="rounded border px-2 py-1 text-xs bg-green-50 border-green-200 text-green-700"
+                          title="Marcar como liberado"
+                        >
+                          Liberar
+                        </button>
+                      </form>
                     )}
-                    <button
-                      type="submit"
-                      formAction={actRemoveItem}
-                      className="rounded border px-2 py-1 text-xs hover:bg-slate-100"
-                    >
-                      Remover
-                    </button>
-                  </form>
+                    <form action={actRemoveItem} method="post">
+                      <input type="hidden" name="itemId" value={String(itemId)} />
+                      <button className="rounded border px-2 py-1 text-xs hover:bg-slate-100">Remover</button>
+                    </form>
+                  </div>
                 </li>
               );
             })}
