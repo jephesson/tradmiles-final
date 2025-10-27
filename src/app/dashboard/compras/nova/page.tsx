@@ -2,7 +2,6 @@
 import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 import * as React from "react";
-import Script from "next/script";
 
 /** ====== ENGINE CENTRAL (server-only) ====== */
 import {
@@ -559,15 +558,27 @@ export default async function NovaCompraPage({
   searchParams?: Promise<SearchParams>;
 }) {
   const sp = (await searchParams) ?? {};
+
+  // aceita "compraId" e também o antigo/typo "compralId"
   const compraIdRaw =
     (sp.compraId as string | string[] | undefined) ??
     ((sp as Record<string, string | string[] | undefined>)["compralId"]);
+
   const compraId = Array.isArray(compraIdRaw) ? compraIdRaw[0] : compraIdRaw;
   const appendFlag = (sp.append as string | undefined) ?? "1";
 
   const draftFromCompra = compraId ? await ensureDraftFromCompraId(String(compraId)) : null;
-
   const d = draftFromCompra ?? (await ensureDraftBase(false))!;
+
+  // --- CANONICALIZAÇÃO DA URL (sem Client Component) ---
+  // Se faltar compraId (ou estiver diferente) ou faltar append=1, redireciona no servidor.
+  // Assim a URL fica certa inclusive ao vir do "Editar" — sem precisar clicar em nada.
+  const urlHasRightCompraId = !!compraId && compraId === d.compraId;
+  const urlHasAppend = appendFlag === "1";
+  if (!urlHasRightCompraId || !urlHasAppend) {
+    redirect(`/dashboard/compras/nova?compraId=${encodeURIComponent(d.compraId)}&append=1`);
+  }
+
   const cedentes = await loadCedentes();
   const cedente = cedentes.find((c) => c.id === d.cedenteId);
 
@@ -599,25 +610,6 @@ export default async function NovaCompraPage({
 
   return (
     <main className="mx-auto max-w-5xl px-4 py-6">
-      {/* Mantém a query na URL após hidratar */}
-      <Script id="query-keeper" strategy="afterInteractive">
-        {`
-          (function () {
-            try {
-              var compraId = ${JSON.stringify(compraId || d.compraId)};
-              var append = ${JSON.stringify(appendFlag)};
-              if (!compraId) return;
-              var q = new URLSearchParams(window.location.search);
-              if (!q.get('compraId')) {
-                q.set('compraId', compraId);
-                if (append) q.set('append', append);
-                window.history.replaceState(null, '', '?' + q.toString());
-              }
-            } catch (e) {}
-          })();
-        `}
-      </Script>
-
       <h1 className="mb-5 text-2xl font-bold">Compra de pontos — ID {d.compraId}</h1>
 
       {/* Cabeçalho */}
@@ -728,7 +720,6 @@ export default async function NovaCompraPage({
           <div className="text-sm font-semibold">Clubes</div>
         </div>
         <form action={actAddClube} className="grid grid-cols-1 gap-3 p-3 md:grid-cols-5">
-          {/* ...campos dos Clubes (iguais) ... */}
           <div>
             <label className="mb-1 block text-xs text-slate-600">Programa</label>
             <select name="clubePrograma" defaultValue="latam" className="w-full rounded-xl border px-3 py-2 text-sm">
@@ -781,7 +772,6 @@ export default async function NovaCompraPage({
           <div className="text-sm font-semibold">Compra de pontos</div>
         </div>
         <form action={actAddCompra} className="grid grid-cols-1 gap-3 p-3 md:grid-cols-6">
-          {/* ...campos da Compra (iguais) ... */}
           <div>
             <label className="mb-1 block text-xs text-slate-600">Programa</label>
             <select name="compPrograma" defaultValue="latam" className="w-full rounded-xl border px-3 py-2 text-sm">
@@ -844,7 +834,6 @@ export default async function NovaCompraPage({
           <div className="text-sm font-semibold">Transferência de pontos</div>
         </div>
         <form action={actAddTransf} className="grid grid-cols-1 gap-3 p-3 md:grid-cols-8">
-          {/* ...campos da Transferência (iguais) ... */}
           <div>
             <label className="mb-1 block text-xs text-slate-600">Origem</label>
             <select name="trOrigem" defaultValue="livelo" className="w-full rounded-xl border px-3 py-2 text-sm">
