@@ -533,6 +533,24 @@ async function actRemoveItem(formData: FormData) {
   redirect("/dashboard/compras/nova?compraId=" + encodeURIComponent(d.compraId) + "&append=1");
 }
 
+/** Salvar (permanece na página nova) */
+async function actSave() {
+  "use server";
+  const d = (await ensureDraftBase(true))!;
+  await persistDraft(d);
+  await clearDraft();
+  redirect("/dashboard/compras/nova?compraId=" + encodeURIComponent(d.compraId) + "&append=1");
+}
+
+/** Salvar e voltar para a lista */
+async function actSaveAndBack() {
+  "use server";
+  const d = (await ensureDraftBase(true))!;
+  await persistDraft(d);
+  await clearDraft();
+  redirect("/dashboard/compras");
+}
+
 /** ======= Página (Server Component) ======= */
 export default async function NovaCompraPage({
   searchParams,
@@ -589,6 +607,7 @@ export default async function NovaCompraPage({
     esfera: Number(cedente?.esfera || 0),
   };
 
+  // “Saldo agora” = Atual + Liberado
   const saldoComLiberados = {
     latam: saldoAtual.latam + (deltaLiberado.latam || 0),
     smiles: saldoAtual.smiles + (deltaLiberado.smiles || 0),
@@ -596,6 +615,7 @@ export default async function NovaCompraPage({
     esfera: saldoAtual.esfera + (deltaLiberado.esfera || 0),
   };
 
+  // “Previsto (total)” = Atual + Previsto
   const saldoPrevisto = {
     latam: saldoAtual.latam + (deltaPrevisto.latam || 0),
     smiles: saldoAtual.smiles + (deltaPrevisto.smiles || 0),
