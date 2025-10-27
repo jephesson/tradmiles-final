@@ -533,24 +533,6 @@ async function actRemoveItem(formData: FormData) {
   redirect("/dashboard/compras/nova?compraId=" + encodeURIComponent(d.compraId) + "&append=1");
 }
 
-/** Salvar (permanece na página nova) */
-async function actSave() {
-  "use server";
-  const d = (await ensureDraftBase(true))!;
-  await persistDraft(d);
-  await clearDraft();
-  redirect("/dashboard/compras/nova?compraId=" + encodeURIComponent(d.compraId) + "&append=1");
-}
-
-/** Salvar e voltar para a lista */
-async function actSaveAndBack() {
-  "use server";
-  const d = (await ensureDraftBase(true))!;
-  await persistDraft(d);
-  await clearDraft();
-  redirect("/dashboard/compras");
-}
-
 /** ======= Página (Server Component) ======= */
 export default async function NovaCompraPage({
   searchParams,
@@ -607,7 +589,6 @@ export default async function NovaCompraPage({
     esfera: Number(cedente?.esfera || 0),
   };
 
-  // “Saldo agora” = Atual + Liberado
   const saldoComLiberados = {
     latam: saldoAtual.latam + (deltaLiberado.latam || 0),
     smiles: saldoAtual.smiles + (deltaLiberado.smiles || 0),
@@ -615,7 +596,6 @@ export default async function NovaCompraPage({
     esfera: saldoAtual.esfera + (deltaLiberado.esfera || 0),
   };
 
-  // “Previsto (total)” = Atual + Previsto
   const saldoPrevisto = {
     latam: saldoAtual.latam + (deltaPrevisto.latam || 0),
     smiles: saldoAtual.smiles + (deltaPrevisto.smiles || 0),
@@ -944,43 +924,51 @@ export default async function NovaCompraPage({
                       {labelKind(l.kind)}
                     </span>
                     <span className="text-slate-700">{resumo}</span>
-                    <span
-                      className={
-                        "ml-2 rounded-full border px-2 py-[2px] text-[10px] " +
-                        (itemStatus === "liberado"
-                          ? "bg-green-50 text-green-700 border-green-200"
-                          : "bg-yellow-50 text-yellow-700 border-yellow-200")
-                      }
-                    >
-                      {itemStatus === "liberado" ? "LIBERADO" : "AGUARDANDO"}
-                    </span>
+                    {itemStatus === "liberado" ? (
+                      <span className="ml-2 rounded-full bg-green-100 text-green-800 text-[11px] px-2 py-[2px] border border-green-200">
+                        LIBERADO
+                      </span>
+                    ) : (
+                      <span className="ml-2 rounded-full bg-yellow-100 text-yellow-800 text-[11px] px-2 py-[2px] border border-yellow-200">
+                        AGUARDANDO
+                      </span>
+                    )}
                   </div>
 
                   <div className="flex items-center gap-2">
                     {itemStatus === "liberado" ? (
-                      <form action={actAguardarItem} method="post">
+                      <form action={actAguardarItem}>
                         <input type="hidden" name="itemId" value={String(itemId)} />
                         <button
-                          className="rounded border px-2 py-1 text-xs bg-yellow-50 border-yellow-200 text-yellow-700"
+                          type="submit"
+                          className="rounded-lg px-3 py-1 text-xs font-medium bg-amber-600 text-white hover:bg-amber-700 active:scale-[.98]"
                           title="Colocar como aguardando"
                         >
                           Aguardar
                         </button>
                       </form>
                     ) : (
-                      <form action={actLiberarItem} method="post">
+                      <form action={actLiberarItem}>
                         <input type="hidden" name="itemId" value={String(itemId)} />
                         <button
-                          className="rounded border px-2 py-1 text-xs bg-green-50 border-green-200 text-green-700"
+                          type="submit"
+                          className="rounded-lg px-3 py-1 text-xs font-medium bg-green-600 text-white hover:bg-green-700 active:scale-[.98]"
                           title="Marcar como liberado"
                         >
                           Liberar
                         </button>
                       </form>
                     )}
-                    <form action={actRemoveItem} method="post">
+
+                    <form action={actRemoveItem}>
                       <input type="hidden" name="itemId" value={String(itemId)} />
-                      <button className="rounded border px-2 py-1 text-xs hover:bg-slate-100">Remover</button>
+                      <button
+                        type="submit"
+                        className="rounded-lg px-3 py-1 text-xs font-medium border hover:bg-slate-100 active:scale-[.98]"
+                        title="Remover item"
+                      >
+                        Remover
+                      </button>
                     </form>
                   </div>
                 </li>
