@@ -944,6 +944,16 @@ export default async function NovaCompraPage({
                       {labelKind(l.kind)}
                     </span>
                     <span className="text-slate-700">{resumo}</span>
+                    <span
+                      className={
+                        "ml-2 inline-flex items-center rounded-full px-2 py-[2px] text-[10px] " +
+                        (itemStatus === "liberado"
+                          ? "bg-green-50 text-green-700 border border-green-200"
+                          : "bg-yellow-50 text-yellow-700 border border-yellow-200")
+                      }
+                    >
+                      {itemStatus === "liberado" ? "LIBERADO" : "AGUARDANDO"}
+                    </span>
                   </div>
 
                   {/* Botões com efeito prático via formAction */}
