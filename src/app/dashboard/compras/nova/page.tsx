@@ -945,33 +945,37 @@ export default async function NovaCompraPage({
                     </span>
                     <span className="text-slate-700">{resumo}</span>
                   </div>
-                  <div className="flex items-center gap-2">
+
+                  {/* Botões com efeito prático via formAction */}
+                  <form method="post" className="flex items-center gap-2">
+                    <input type="hidden" name="itemId" value={String(itemId)} />
                     {itemStatus === "liberado" ? (
-                      <form action={actAguardarItem}>
-                        <input type="hidden" name="itemId" value={String(itemId)} />
-                        <button
-                          className="rounded border px-2 py-1 text-xs bg-yellow-50 border-yellow-200 text-yellow-700"
-                          title="Colocar como aguardando"
-                        >
-                          Aguardar
-                        </button>
-                      </form>
+                      <button
+                        type="submit"
+                        formAction={actAguardarItem}
+                        className="rounded border px-2 py-1 text-xs bg-yellow-50 border-yellow-200 text-yellow-700"
+                        title="Colocar como aguardando"
+                      >
+                        Aguardar
+                      </button>
                     ) : (
-                      <form action={actLiberarItem}>
-                        <input type="hidden" name="itemId" value={String(itemId)} />
-                        <button
-                          className="rounded border px-2 py-1 text-xs bg-green-50 border-green-200 text-green-700"
-                          title="Marcar como liberado"
-                        >
-                          Liberar
-                        </button>
-                      </form>
+                      <button
+                        type="submit"
+                        formAction={actLiberarItem}
+                        className="rounded border px-2 py-1 text-xs bg-green-50 border-green-200 text-green-700"
+                        title="Marcar como liberado"
+                      >
+                        Liberar
+                      </button>
                     )}
-                    <form action={actRemoveItem}>
-                      <input type="hidden" name="itemId" value={String(itemId)} />
-                      <button className="rounded border px-2 py-1 text-xs hover:bg-slate-100">Remover</button>
-                    </form>
-                  </div>
+                    <button
+                      type="submit"
+                      formAction={actRemoveItem}
+                      className="rounded border px-2 py-1 text-xs hover:bg-slate-100"
+                    >
+                      Remover
+                    </button>
+                  </form>
                 </li>
               );
             })}
