@@ -2,7 +2,7 @@
 import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 import * as React from "react";
-import nextDynamic from "next/dynamic";
+import Script from "next/script";
 
 /** ====== ENGINE CENTRAL (server-only) ====== */
 import {
@@ -552,27 +552,6 @@ async function actSaveAndBack() {
   redirect("/dashboard/compras");
 }
 
-/** ============ Client helper para preservar a query após hidratação ============ */
-const QueryKeeper = nextDynamic(
-  async () => {
-    return function QueryKeeperImpl(props: { compraId?: string; append?: string }) {
-      const { compraId, append } = props;
-      React.useEffect(() => {
-        if (!compraId) return;
-        const q = new URLSearchParams(window.location.search);
-        const hasId = q.get("compraId");
-        if (!hasId) {
-          q.set("compraId", compraId);
-          if (append) q.set("append", append);
-          window.history.replaceState(null, "", `?${q.toString()}`);
-        }
-      }, [compraId, append]);
-      return null;
-    };
-  },
-  { ssr: false }
-);
-
 /** ======= Página (Server Component) ======= */
 export default async function NovaCompraPage({
   searchParams,
@@ -621,7 +600,23 @@ export default async function NovaCompraPage({
   return (
     <main className="mx-auto max-w-5xl px-4 py-6">
       {/* Mantém a query na URL após hidratar */}
-      <QueryKeeper compraId={compraId || d.compraId} append={appendFlag} />
+      <Script id="query-keeper" strategy="afterInteractive">
+        {`
+          (function () {
+            try {
+              var compraId = ${JSON.stringify(compraId || d.compraId)};
+              var append = ${JSON.stringify(appendFlag)};
+              if (!compraId) return;
+              var q = new URLSearchParams(window.location.search);
+              if (!q.get('compraId')) {
+                q.set('compraId', compraId);
+                if (append) q.set('append', append);
+                window.history.replaceState(null, '', '?' + q.toString());
+              }
+            } catch (e) {}
+          })();
+        `}
+      </Script>
 
       <h1 className="mb-5 text-2xl font-bold">Compra de pontos — ID {d.compraId}</h1>
 
