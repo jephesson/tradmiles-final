@@ -662,37 +662,7 @@ async function actLiberarItem(formData: FormData) {
   );
 }
 
-/** Colocar item como aguardando (status = aguardando) */
-async function actAguardarItem(formData: FormData) {
-  "use server";
-  const d = (await ensureDraftBase(true))!;
-  const id = Number(formData.get("itemId"));
-  d.linhas = d.linhas.map((l) => {
-    if (l.data.id !== id) return l;
-    if (l.kind === "clube")
-      return {
-        kind: "clube",
-        data: { ...(l.data as ClubeItem), status: "aguardando" },
-      };
-    if (l.kind === "compra")
-      return {
-        kind: "compra",
-        data: { ...(l.data as CompraItem), status: "aguardando" },
-      };
-    return {
-      kind: "transferencia",
-      data: { ...(l.data as TransfItem), status: "aguardando" },
-    };
-  });
-  await writeDraft(d);
-  redirect(
-    "/dashboard/compras/nova?compraId=" +
-      encodeURIComponent(d.compraId) +
-      "&append=1"
-  );
-}
-
-/** Remover item */
+/** Remover item (extorna do saldo, pois some dos cálculos) */
 async function actRemoveItem(formData: FormData) {
   "use server";
   const d = (await ensureDraftBase(true))!;
@@ -1330,22 +1300,7 @@ export default async function NovaCompraPage({
                   </div>
 
                   <div className="flex items-center gap-2">
-                    {itemStatus === "liberado" ? (
-                      <form action={actAguardarItem}>
-                        <input
-                          type="hidden"
-                          name="itemId"
-                          value={String(itemId)}
-                        />
-                        <button
-                          type="submit"
-                          className="rounded-lg px-3 py-1 text-xs font-medium bg-amber-600 text-white hover:bg-amber-700 active:scale-[.98]"
-                          title="Colocar como aguardando"
-                        >
-                          Aguardar
-                        </button>
-                      </form>
-                    ) : (
+                    {itemStatus !== "liberado" && (
                       <form action={actLiberarItem}>
                         <input
                           type="hidden"
@@ -1370,10 +1325,19 @@ export default async function NovaCompraPage({
                       />
                       <button
                         type="submit"
-                        className="rounded-lg px-3 py-1 text-xs font-medium border hover:bg-slate-100 active:scale-[.98]"
-                        title="Remover item"
+                        className={
+                          "rounded-lg px-3 py-1 text-xs font-medium border active:scale-[.98] " +
+                          (itemStatus === "liberado"
+                            ? "border-red-500 text-red-600 hover:bg-red-50"
+                            : "hover:bg-slate-100")
+                        }
+                        title={
+                          itemStatus === "liberado"
+                            ? "Extornar pontos e remover item"
+                            : "Remover item"
+                        }
                       >
-                        Remover
+                        {itemStatus === "liberado" ? "Extornar" : "Remover"}
                       </button>
                     </form>
                   </div>
