@@ -814,9 +814,10 @@ export default async function NovaCompraPage({
       ? d.comissaoCedente.toFixed(2).replace(".", ",")
       : "";
 
+  // 🔽 aqui passa a usar SEMPRE a meta sugerida para preencher o input
   const metaInputDefault =
-    metaEffective && metaEffective > 0
-      ? metaEffective.toFixed(2).replace(".", ",")
+    metaSugerida && metaSugerida > 0
+      ? metaSugerida.toFixed(2).replace(".", ",")
       : "";
 
   // flag para saber se já existe transferência nesse ID
@@ -1593,7 +1594,7 @@ function badgeColor(k: ItemLinha["kind"]): string {
     return "bg-indigo-50 text-indigo-700 border border-indigo-200";
   if (k === "compra")
     return "bg-sky-50 text-sky-700 border border-sky-200";
-  return "bg-amber-50 text-amber-700 border border-amber-200";
+  return "bg-amber-50 text-amber-700 border-amber-200";
 }
 function renderResumoUnico(l: ItemLinha): string {
   if (l.kind === "clube") {
