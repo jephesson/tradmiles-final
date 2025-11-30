@@ -1,6 +1,7 @@
 // src/app/dashboard/compras/nova/page.tsx
 import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
+import Script from "next/script";
 import * as React from "react";
 
 /** ====== ENGINE CENTRAL (server-only) ====== */
@@ -822,7 +823,7 @@ export default async function NovaCompraPage({
   const hasTransf = d.linhas.some((l) => l.kind === "transferencia");
 
   // se ainda não houver transferência, sugere como "pontos extras"
-  // o saldo atual da Latam (default do select de destino é Latam)
+  // o saldo atual (com liberados) da Latam — default do select de destino é Latam
   const defaultPontosExtrasPrimeiraTransf =
     !hasTransf && saldoComLiberados.latam > 0
       ? saldoComLiberados.latam
@@ -1456,13 +1457,20 @@ export default async function NovaCompraPage({
             </div>
           </div>
         </div>
-        <div className="mt-2 text-sm">
+        <div
+          className="mt-2 text-sm"
+          id="resumo-custo-milheiro"
+          data-base-custo-total={String(totals.custoTotal || 0)}
+          data-base-total-cia={String(totals.totalCIA || 0)}
+        >
           <div>
             <b>Custo total</b>: {fmtMoney(totals.custoTotal)}
           </div>
           <div>
             <b>Custo por milheiro (total)</b>:{" "}
-            {fmtMoney(totals.custoMilheiroTotal || 0)}
+            <span id="custo-milheiro-text">
+              {fmtMoney(totals.custoMilheiroTotal || 0)}
+            </span>
           </div>
           <div>
             <b>Lucro estimado (sobre liberado)</b>:{" "}
@@ -1470,6 +1478,94 @@ export default async function NovaCompraPage({
           </div>
         </div>
       </div>
+
+      {/* Script para pré-visualizar o custo/milheiro ao digitar os pontos extras */}
+      <Script id="preview-custo-milheiro" strategy="afterInteractive">
+        {`
+          (function () {
+            function parseMoneyLooseClient(value) {
+              if (!value) return 0;
+              const raw = String(value).trim();
+              if (!raw) return 0;
+              if (/[.,]/.test(raw)) {
+                const normalized = raw.replace(/\\./g, "").replace(",", ".");
+                const n = Number(normalized);
+                return Number.isFinite(n) ? n : 0;
+              }
+              const onlyDigits = raw.replace(/[^\\d]/g, "");
+              if (!onlyDigits) return 0;
+              const n = Number(onlyDigits);
+              return Number.isFinite(n) ? n : 0;
+            }
+
+            function parseIntLooseClient(value) {
+              if (!value) return 0;
+              const only = String(value).replace(/[^\\d]/g, "");
+              return only ? Number(only) : 0;
+            }
+
+            function recalc() {
+              const resumoEl = document.getElementById("resumo-custo-milheiro");
+              const spanEl = document.getElementById("custo-milheiro-text");
+              if (!resumoEl || !spanEl) return;
+
+              const baseCustoTotal = parseFloat(
+                resumoEl.dataset.baseCustoTotal || "0"
+              );
+              const baseTotalCIA = parseFloat(
+                resumoEl.dataset.baseTotalCia || "0"
+              );
+
+              let custoTotal = baseCustoTotal;
+              const totalCIA = baseTotalCIA; // extras não somam pontos, só custo
+
+              const inputPtsExtras = document.querySelector(
+                'input[name="trPontosExtras"]'
+              ) as HTMLInputElement | null;
+              const inputCustoExtras = document.querySelector(
+                'input[name="trCustoMilheiroExtras"]'
+              ) as HTMLInputElement | null;
+
+              const ptsExtras = inputPtsExtras
+                ? parseIntLooseClient(inputPtsExtras.value)
+                : 0;
+              const custoMilheiroExtras = inputCustoExtras
+                ? parseMoneyLooseClient(inputCustoExtras.value)
+                : 0;
+
+              if (ptsExtras > 0 && custoMilheiroExtras > 0) {
+                custoTotal += (ptsExtras / 1000) * custoMilheiroExtras;
+              }
+
+              const custoMilheiro =
+                totalCIA > 0 ? custoTotal / (totalCIA / 1000) : 0;
+
+              spanEl.textContent = custoMilheiro.toLocaleString("pt-BR", {
+                style: "currency",
+                currency: "BRL",
+              });
+            }
+
+            window.addEventListener("load", function () {
+              const inputPtsExtras = document.querySelector(
+                'input[name="trPontosExtras"]'
+              ) as HTMLInputElement | null;
+              const inputCustoExtras = document.querySelector(
+                'input[name="trCustoMilheiroExtras"]'
+              ) as HTMLInputElement | null;
+
+              if (inputPtsExtras) {
+                inputPtsExtras.addEventListener("input", recalc);
+              }
+              if (inputCustoExtras) {
+                inputCustoExtras.addEventListener("input", recalc);
+              }
+
+              recalc();
+            });
+          })();
+        `}
+      </Script>
     </main>
   );
 }
@@ -1497,7 +1593,7 @@ function badgeColor(k: ItemLinha["kind"]): string {
     return "bg-indigo-50 text-indigo-700 border border-indigo-200";
   if (k === "compra")
     return "bg-sky-50 text-sky-700 border border-sky-200";
-  return "bg-amber-50 text-amber-700 border-amber-200";
+  return "bg-amber-50 text-amber-700 border border-amber-200";
 }
 function renderResumoUnico(l: ItemLinha): string {
   if (l.kind === "clube") {
