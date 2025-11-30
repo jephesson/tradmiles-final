@@ -818,6 +818,16 @@ export default async function NovaCompraPage({
       ? metaEffective.toFixed(2).replace(".", ",")
       : "";
 
+  // flag para saber se já existe transferência nesse ID
+  const hasTransf = d.linhas.some((l) => l.kind === "transferencia");
+
+  // se ainda não houver transferência, sugere como "pontos extras"
+  // o saldo atual da Latam (default do select de destino é Latam)
+  const defaultPontosExtrasPrimeiraTransf =
+    !hasTransf && saldoComLiberados.latam > 0
+      ? saldoComLiberados.latam
+      : 0;
+
   return (
     <main className="mx-auto max-w-5xl px-4 py-6">
       <h1 className="mb-5 text-2xl font-bold">
@@ -1222,6 +1232,11 @@ export default async function NovaCompraPage({
               inputMode="numeric"
               pattern="^[0-9]*$"
               placeholder="ex.: 5000"
+              defaultValue={
+                defaultPontosExtrasPrimeiraTransf
+                  ? String(defaultPontosExtrasPrimeiraTransf)
+                  : ""
+              }
               className="w-full rounded-xl border px-3 py-2 text-sm"
             />
           </div>
@@ -1482,7 +1497,7 @@ function badgeColor(k: ItemLinha["kind"]): string {
     return "bg-indigo-50 text-indigo-700 border border-indigo-200";
   if (k === "compra")
     return "bg-sky-50 text-sky-700 border border-sky-200";
-  return "bg-amber-50 text-amber-700 border border-amber-200";
+  return "bg-amber-50 text-amber-700 border-amber-200";
 }
 function renderResumoUnico(l: ItemLinha): string {
   if (l.kind === "clube") {
