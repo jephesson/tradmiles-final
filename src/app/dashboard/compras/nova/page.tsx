@@ -1,4 +1,3 @@
-// src/app/dashboard/compras/nova/page.tsx
 import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 import Script from "next/script";
@@ -101,6 +100,7 @@ function getNum(v: unknown): number {
 
 /** ===== Tipos auxiliares (server) ===== */
 type StatusComissao = "pago" | "aguardando";
+
 type Cedente = {
   id: string;
   nome: string;
@@ -119,6 +119,12 @@ type CedenteRaw = {
   esfera?: number | string;
 };
 
+type CustoExtra = {
+  id: number;
+  descricao: string;
+  valor: number;
+};
+
 type Draft = {
   compraId: string;
   dataCompra: string;
@@ -127,6 +133,7 @@ type Draft = {
   comissaoCedente: number; // R$
   comissaoStatus: StatusComissao;
   metaMilheiro: number; // R$/milheiro
+  custosExtras: CustoExtra[];
 };
 
 const DRAFT_COOKIE = "nova_compra_draft";
@@ -161,18 +168,23 @@ async function readDraft(): Promise<Draft | null> {
   const c = jar.get(DRAFT_COOKIE)?.value;
   if (!c) return null;
   try {
-    const d = JSON.parse(c) as Draft;
+    const d = JSON.parse(c) as Partial<Draft>;
     if (!d || typeof d !== "object") return null;
     return {
       compraId: String(d.compraId || "0001"),
       dataCompra: String(d.dataCompra || hojeISO()),
       cedenteId: String(d.cedenteId || ""),
       linhas: Array.isArray(d.linhas) ? (d.linhas as ItemLinha[]) : [],
-      comissaoCedente: Number.isFinite(d.comissaoCedente)
-        ? d.comissaoCedente
+      comissaoCedente: Number.isFinite(d.comissaoCedente as number)
+        ? (d.comissaoCedente as number)
         : 0,
       comissaoStatus: (d.comissaoStatus as StatusComissao) || "aguardando",
-      metaMilheiro: Number.isFinite(d.metaMilheiro) ? d.metaMilheiro : 0,
+      metaMilheiro: Number.isFinite(d.metaMilheiro as number)
+        ? (d.metaMilheiro as number)
+        : 0,
+      custosExtras: Array.isArray(d.custosExtras)
+        ? (d.custosExtras as CustoExtra[])
+        : [],
     };
   } catch {
     return null;
@@ -349,10 +361,15 @@ async function ensureDraftBase(persistOnInit = false) {
       comissaoCedente: 0,
       comissaoStatus: "aguardando",
       metaMilheiro: 0,
+      custosExtras: [],
     };
     if (persistOnInit) await writeDraft(d);
   } else if (!d.cedenteId && cedentes.length) {
     d.cedenteId = cedentes[0].id;
+    if (!d.custosExtras) d.custosExtras = [];
+    if (persistOnInit) await writeDraft(d);
+  } else if (!d.custosExtras) {
+    d.custosExtras = [];
     if (persistOnInit) await writeDraft(d);
   }
   return d;
@@ -379,6 +396,7 @@ async function ensureDraftFromCompraId(
     comissaoCedente: 0,
     comissaoStatus: "aguardando",
     metaMilheiro: 0,
+    custosExtras: [],
   };
 
   if (raw) {
@@ -405,6 +423,7 @@ async function ensureDraftFromCompraId(
         (getStrKey(raw, "comissaoStatus") as StatusComissao) ||
         "aguardando",
       metaMilheiro: getNum(getKey(raw, "metaMilheiro")) || 0,
+      custosExtras: [],
     };
   }
 
@@ -414,21 +433,50 @@ async function ensureDraftFromCompraId(
 
 /** ===== Persistência do draft ===== */
 async function persistDraft(d: Draft) {
-  // Primeiro calcula sem forçar meta para descobrir o custo/milheiro total.
+  // 1) Totais base com a meta atual (pode ser 0)
   const baseTotals = computeTotais(
     d.linhas,
     d.comissaoCedente,
     d.metaMilheiro,
     1
   );
-  const metaSugerida =
-    baseTotals.custoMilheiroTotal > 0
-      ? baseTotals.custoMilheiroTotal + 1.5
+
+  const totalCustoExtras = (d.custosExtras ?? []).reduce(
+    (acc, ce) => acc + (ce.valor || 0),
+    0
+  );
+
+  const custoTotalComExtrasBase = baseTotals.custoTotal + totalCustoExtras;
+  const custoMilheiroTotalComExtrasBase =
+    baseTotals.totalCIA > 0
+      ? custoTotalComExtrasBase / (baseTotals.totalCIA / 1000)
       : 0;
+
+  const metaSugerida =
+    custoMilheiroTotalComExtrasBase > 0
+      ? custoMilheiroTotalComExtrasBase + 1.5
+      : 0;
+
   const metaEffective =
     d.metaMilheiro && d.metaMilheiro > 0 ? d.metaMilheiro : metaSugerida;
 
-  const totals = computeTotais(d.linhas, d.comissaoCedente, metaEffective, 1);
+  // 2) Totais finais com a meta efetiva
+  const totalsBase = computeTotais(
+    d.linhas,
+    d.comissaoCedente,
+    metaEffective,
+    1
+  );
+
+  const custoBaseComExtras = totalsBase.custoBase + totalCustoExtras;
+  const custoTotalComExtras = totalsBase.custoTotal + totalCustoExtras;
+  const custoTotalLiberadoComExtras =
+    totalsBase.custoTotalLiberado + totalCustoExtras;
+  const custoMilheiroTotalComExtras =
+    totalsBase.totalCIA > 0
+      ? custoTotalComExtras / (totalsBase.totalCIA / 1000)
+      : 0;
+  const lucroComExtras = totalsBase.lucroTotal - totalCustoExtras;
 
   const deltaPrevisto = computeDeltaPorPrograma(d.linhas);
 
@@ -443,22 +491,23 @@ async function persistDraft(d: Draft) {
     cedenteNome,
     itens: d.linhas,
     totais: {
-      pontosCIA: totals.totalCIA,
-      pontosLiberados: totals.ptsLiberados,
-      pontosAguardando: totals.ptsAguardando,
-      custoBase: totals.custoBase,
-      taxaVendedores: totals.taxaVendedores,
-      comissao: totals.comissao,
-      custoTotal: totals.custoTotal,
-      custoTotalLiberado: totals.custoTotalLiberado,
-      custoMilheiro: totals.custoMilheiro,
-      custoMilheiroTotal: totals.custoMilheiroTotal,
-      lucroTotal: totals.lucroTotal,
+      pontosCIA: totalsBase.totalCIA,
+      pontosLiberados: totalsBase.ptsLiberados,
+      pontosAguardando: totalsBase.ptsAguardando,
+      custoBase: custoBaseComExtras,
+      taxaVendedores: totalsBase.taxaVendedores,
+      comissao: totalsBase.comissao,
+      custoTotal: custoTotalComExtras,
+      custoTotalLiberado: custoTotalLiberadoComExtras,
+      custoMilheiro: totalsBase.custoMilheiro,
+      custoMilheiroTotal: custoMilheiroTotalComExtras,
+      lucroTotal: lucroComExtras,
     },
     metaMilheiro: metaEffective,
     comissaoCedente: d.comissaoCedente,
     comissaoStatus: d.comissaoStatus,
     saldosDelta: deltaPrevisto,
+    custosExtras: d.custosExtras ?? [],
   };
 
   // 1) PATCH /api/compras/:id
@@ -600,18 +649,7 @@ async function actAddTransf(formData: FormData) {
       ? parseIntLoose(formData.get("trPontosTotais"))
       : pontosUsados;
 
-  // Pontos extras já existentes na CIA que serão usados na venda
-  const pontosExtras = parseIntLoose(formData.get("trPontosExtras"));
-  const custoMilheiroExtras = parseMoneyLoose(
-    formData.get("trCustoMilheiroExtras")
-  );
-  const custoExtras =
-    pontosExtras > 0 && custoMilheiroExtras > 0
-      ? (pontosExtras / 1000) * custoMilheiroExtras
-      : 0;
-
   const valorPagoBase = parseMoneyLoose(formData.get("trValorPago"));
-  const valorPagoTotal = valorPagoBase + custoExtras;
 
   const it: TransfItem = {
     id: Date.now(),
@@ -620,7 +658,7 @@ async function actAddTransf(formData: FormData) {
     modo,
     pontosUsados,
     pontosTotais,
-    valorPago: valorPagoTotal,
+    valorPago: valorPagoBase,
     bonusPct: parsePctLoose(formData.get("trBonus")),
     status: "aguardando",
   };
@@ -669,6 +707,44 @@ async function actRemoveItem(formData: FormData) {
   const d = (await ensureDraftBase(true))!;
   const id = Number(formData.get("itemId"));
   d.linhas = d.linhas.filter((l) => l.data.id !== id);
+  await writeDraft(d);
+  redirect(
+    "/dashboard/compras/nova?compraId=" +
+      encodeURIComponent(d.compraId) +
+      "&append=1"
+  );
+}
+
+/** Add Custo Extra */
+async function actAddCustoExtra(formData: FormData) {
+  "use server";
+  const d = (await ensureDraftBase(true))!;
+  const descricao = String(formData.get("extraDescricao") || "").trim();
+  const valor = parseMoneyLoose(formData.get("extraValor"));
+
+  if (valor > 0) {
+    d.custosExtras = d.custosExtras ?? [];
+    d.custosExtras.push({
+      id: Date.now(),
+      descricao: descricao || "Custo extra",
+      valor,
+    });
+    await writeDraft(d);
+  }
+
+  redirect(
+    "/dashboard/compras/nova?compraId=" +
+      encodeURIComponent(d.compraId) +
+      "&append=1"
+  );
+}
+
+/** Remover Custo Extra */
+async function actRemoveCustoExtra(formData: FormData) {
+  "use server";
+  const d = (await ensureDraftBase(true))!;
+  const id = Number(formData.get("custoExtraId"));
+  d.custosExtras = (d.custosExtras ?? []).filter((ce) => ce.id !== id);
   await writeDraft(d);
   redirect(
     "/dashboard/compras/nova?compraId=" +
@@ -788,47 +864,59 @@ export default async function NovaCompraPage({
     esfera: saldoAtual.esfera + (deltaPrevisto.esfera || 0),
   };
 
-  // Totais + meta sugerida
+  // ===== Totais + meta sugerida (considerando custos extras) =====
   const baseTotals = computeTotais(
     d.linhas,
     d.comissaoCedente,
     d.metaMilheiro,
     1
   );
-  const metaSugerida =
-    baseTotals.custoMilheiroTotal > 0
-      ? baseTotals.custoMilheiroTotal + 1.5
+
+  const totalCustoExtras = (d.custosExtras ?? []).reduce(
+    (acc, ce) => acc + (ce.valor || 0),
+    0
+  );
+
+  const custoTotalComExtrasBase = baseTotals.custoTotal + totalCustoExtras;
+  const custoMilheiroTotalComExtrasBase =
+    baseTotals.totalCIA > 0
+      ? custoTotalComExtrasBase / (baseTotals.totalCIA / 1000)
       : 0;
+
+  const metaSugerida =
+    custoMilheiroTotalComExtrasBase > 0
+      ? custoMilheiroTotalComExtrasBase + 1.5
+      : 0;
+
   const metaEffective =
     d.metaMilheiro && d.metaMilheiro > 0 ? d.metaMilheiro : metaSugerida;
 
-  const totals = computeTotais(
+  const totalsBase = computeTotais(
     d.linhas,
     d.comissaoCedente,
     metaEffective,
     1
   );
 
+  const custoBaseComExtras = totalsBase.custoBase + totalCustoExtras;
+  const custoTotalComExtras = totalsBase.custoTotal + totalCustoExtras;
+  const custoTotalLiberadoComExtras =
+    totalsBase.custoTotalLiberado + totalCustoExtras;
+  const custoMilheiroTotalComExtras =
+    totalsBase.totalCIA > 0
+      ? custoTotalComExtras / (totalsBase.totalCIA / 1000)
+      : 0;
+  const lucroComExtras = totalsBase.lucroTotal - totalCustoExtras;
+
   const comissaoInputDefault =
     d.comissaoCedente && d.comissaoCedente > 0
       ? d.comissaoCedente.toFixed(2).replace(".", ",")
       : "";
 
-  // 🔽 aqui passa a usar SEMPRE a meta sugerida para preencher o input
   const metaInputDefault =
-    metaSugerida && metaSugerida > 0
-      ? metaSugerida.toFixed(2).replace(".", ",")
+    metaEffective && metaEffective > 0
+      ? metaEffective.toFixed(2).replace(".", ",")
       : "";
-
-  // flag para saber se já existe transferência nesse ID
-  const hasTransf = d.linhas.some((l) => l.kind === "transferencia");
-
-  // se ainda não houver transferência, sugere como "pontos extras"
-  // o saldo atual (com liberados) da Latam — default do select de destino é Latam
-  const defaultPontosExtrasPrimeiraTransf =
-    !hasTransf && saldoComLiberados.latam > 0
-      ? saldoComLiberados.latam
-      : 0;
 
   return (
     <main className="mx-auto max-w-5xl px-4 py-6">
@@ -1225,47 +1313,10 @@ export default async function NovaCompraPage({
             />
           </div>
 
-          <div className="md:col-span-2">
-            <label className="mb-1 block text-xs text-slate-600">
-              Pontos extras na CIA (já existentes, usados na venda)
-            </label>
-            <input
-              name="trPontosExtras"
-              inputMode="numeric"
-              pattern="^[0-9]*$"
-              placeholder="ex.: 5000"
-              defaultValue={
-                defaultPontosExtrasPrimeiraTransf
-                  ? String(defaultPontosExtrasPrimeiraTransf)
-                  : ""
-              }
-              className="w-full rounded-xl border px-3 py-2 text-sm"
-            />
-          </div>
-          <div className="md:col-span-2">
-            <label className="mb-1 block text-xs text-slate-600">
-              Custo por milheiro desses extras (R$)
-            </label>
-            <input
-              name="trCustoMilheiroExtras"
-              inputMode="decimal"
-              pattern="^(?:[0-9]+|[0-9]+[.,][0-9]{2})$"
-              title="Quanto vai custar o milheiro só desses pontos anteriores. Ex.: 25 ou 25,50"
-              placeholder="ex.: 25 ou 25,50"
-              className="w-full rounded-xl border px-3 py-2 text-sm"
-            />
-            <div className="mt-1 text-[11px] text-slate-500">
-              * Ex.: se você usar 5.000 pts antigos a R$ 25/milheiro, serão
-              adicionados R$ 125,00 ao custo desta transferência.
-            </div>
-          </div>
-
           <div className="md:col-span-8 text-[11px] text-slate-600">
             * Chegam na CIA:{" "}
             <b>pontos usados (ou pts transferidos) × (1 + bônus%)</b>. Nesta
-            tela, transferências entram como <b>aguardando</b>. Pontos extras na
-            CIA entram apenas no <b>custo</b>, não alteram o total de pontos
-            previstos.
+            tela, transferências entram como <b>aguardando</b>.
           </div>
           <div className="md:col-span-8 flex items-end">
             <button className="w-full rounded-lg bg-black px-3 py-2 text-sm text-white hover:opacity-90">
@@ -1365,6 +1416,93 @@ export default async function NovaCompraPage({
         )}
       </section>
 
+      {/* ===== Custos extras ===== */}
+      <section className="mb-6 rounded-xl border">
+        <div className="flex items-center justify-between border-b px-3 py-2">
+          <div className="text-sm font-semibold">Custos extras</div>
+        </div>
+        <form
+          action={actAddCustoExtra}
+          className="grid grid-cols-1 gap-3 p-3 md:grid-cols-3"
+        >
+          <div className="md:col-span-2">
+            <label className="mb-1 block text-xs text-slate-600">
+              Descrição (opcional)
+            </label>
+            <input
+              name="extraDescricao"
+              placeholder="ex.: IOF, taxa bancária, ajuste manual…"
+              className="w-full rounded-xl border px-3 py-2 text-sm"
+            />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs text-slate-600">
+              Valor (R$)
+            </label>
+            <div className="flex gap-2">
+              <input
+                name="extraValor"
+                inputMode="decimal"
+                pattern="^(?:[0-9]+|[0-9]+[.,][0-9]{2})$"
+                title="Digite o valor em reais. Aceita 50 ou 50,00"
+                placeholder="ex.: 50 ou 50,00"
+                className="w-full rounded-xl border px-3 py-2 text-sm"
+              />
+              <button
+                type="submit"
+                className="rounded-lg bg-black px-3 py-2 text-sm text-white hover:opacity-90"
+                title="Adicionar custo extra"
+              >
+                +
+              </button>
+            </div>
+          </div>
+          <div className="md:col-span-3 text-[11px] text-slate-600">
+            * Cada custo extra entra direto no <b>custo total</b> e reduz o{" "}
+            <b>lucro</b>.
+          </div>
+        </form>
+
+        {d.custosExtras && d.custosExtras.length > 0 && (
+          <div className="border-t px-3 py-2 text-sm">
+            <div className="mb-1 text-xs font-semibold text-slate-600">
+              Lista de custos extras
+            </div>
+            <ul className="space-y-1">
+              {d.custosExtras.map((ce) => (
+                <li
+                  key={ce.id}
+                  className="flex items-center justify-between rounded-lg border px-3 py-1"
+                >
+                  <div>
+                    <span className="text-slate-700">
+                      {ce.descricao || "Custo extra"}
+                    </span>{" "}
+                    — <b>{fmtMoney(ce.valor || 0)}</b>
+                  </div>
+                  <form action={actRemoveCustoExtra}>
+                    <input
+                      type="hidden"
+                      name="custoExtraId"
+                      value={String(ce.id)}
+                    />
+                    <button
+                      type="submit"
+                      className="text-xs text-red-600 hover:underline"
+                    >
+                      Remover
+                    </button>
+                  </form>
+                </li>
+              ))}
+            </ul>
+            <div className="mt-2 text-xs text-slate-700">
+              Total de custos extras: <b>{fmtMoney(totalCustoExtras)}</b>
+            </div>
+          </div>
+        )}
+      </section>
+
       {/* ===== Comissão + Meta ===== */}
       <form
         action={actUpdateComissaoMeta}
@@ -1414,8 +1552,8 @@ export default async function NovaCompraPage({
           />
           <div className="mt-1 text-[11px] text-slate-500">
             * Sugestão automática:{" "}
-            <b>custo/milheiro total + R$ 1,50</b>. Ajuste se quiser subir ou
-            baixar a margem.
+            <b>custo/milheiro total (com extras) + R$ 1,50</b>. Ajuste se quiser
+            subir ou baixar a margem.
           </div>
         </div>
         <div className="md:col-span-2">
@@ -1436,137 +1574,50 @@ export default async function NovaCompraPage({
               </div>
             )}
             <div>
-              Total de pontos (CIA): <b>{fmtInt(totals.totalCIA)}</b>
+              Total de pontos (CIA): <b>{fmtInt(totalsBase.totalCIA)}</b>
             </div>
             <div>
-              Pontos liberados: <b>{fmtInt(totals.ptsLiberados)}</b>
+              Pontos liberados: <b>{fmtInt(totalsBase.ptsLiberados)}</b>
             </div>
             <div>
-              Pontos aguardando: <b>{fmtInt(totals.ptsAguardando)}</b>
+              Pontos aguardando: <b>{fmtInt(totalsBase.ptsAguardando)}</b>
             </div>
           </div>
           <div>
             <div>
-              Custo base dos itens: <b>{fmtMoney(totals.custoBase)}</b>
+              Custo base dos itens + extras:{" "}
+              <b>{fmtMoney(custoBaseComExtras)}</b>
             </div>
             <div>
               Taxa vendedores (1%):{" "}
-              <b>{fmtMoney(totals.taxaVendedores)}</b>
+              <b>{fmtMoney(totalsBase.taxaVendedores)}</b>
             </div>
             <div>
-              Comissão ao cedente: <b>{fmtMoney(totals.comissao)}</b>
+              Comissão ao cedente: <b>{fmtMoney(totalsBase.comissao)}</b>
+            </div>
+            <div>
+              Total em custos extras: <b>{fmtMoney(totalCustoExtras)}</b>
             </div>
           </div>
         </div>
-        <div
-          className="mt-2 text-sm"
-          id="resumo-custo-milheiro"
-          data-base-custo-total={String(totals.custoTotal || 0)}
-          data-base-total-cia={String(totals.totalCIA || 0)}
-        >
+        <div className="mt-2 text-sm">
           <div>
-            <b>Custo total</b>: {fmtMoney(totals.custoTotal)}
+            <b>Custo total</b>: {fmtMoney(custoTotalComExtras)}
+          </div>
+          <div>
+            <b>Custo total (apenas liberado)</b>:{" "}
+            {fmtMoney(custoTotalLiberadoComExtras)}
           </div>
           <div>
             <b>Custo por milheiro (total)</b>:{" "}
-            <span id="custo-milheiro-text">
-              {fmtMoney(totals.custoMilheiroTotal || 0)}
-            </span>
+            {fmtMoney(custoMilheiroTotalComExtras || 0)}
           </div>
           <div>
             <b>Lucro estimado (sobre liberado)</b>:{" "}
-            {fmtMoney(totals.lucroTotal)}
+            {fmtMoney(lucroComExtras)}
           </div>
         </div>
       </div>
-
-      {/* Script para pré-visualizar o custo/milheiro ao digitar os pontos extras */}
-      <Script id="preview-custo-milheiro" strategy="afterInteractive">
-        {`
-          (function () {
-            function parseMoneyLooseClient(value) {
-              if (!value) return 0;
-              const raw = String(value).trim();
-              if (!raw) return 0;
-              if (/[.,]/.test(raw)) {
-                const normalized = raw.replace(/\\./g, "").replace(",", ".");
-                const n = Number(normalized);
-                return Number.isFinite(n) ? n : 0;
-              }
-              const onlyDigits = raw.replace(/[^\\d]/g, "");
-              if (!onlyDigits) return 0;
-              const n = Number(onlyDigits);
-              return Number.isFinite(n) ? n : 0;
-            }
-
-            function parseIntLooseClient(value) {
-              if (!value) return 0;
-              const only = String(value).replace(/[^\\d]/g, "");
-              return only ? Number(only) : 0;
-            }
-
-            function recalc() {
-              const resumoEl = document.getElementById("resumo-custo-milheiro");
-              const spanEl = document.getElementById("custo-milheiro-text");
-              if (!resumoEl || !spanEl) return;
-
-              const baseCustoTotal = parseFloat(
-                resumoEl.dataset.baseCustoTotal || "0"
-              );
-              const baseTotalCIA = parseFloat(
-                resumoEl.dataset.baseTotalCia || "0"
-              );
-
-              let custoTotal = baseCustoTotal;
-              const totalCIA = baseTotalCIA; // extras não somam pontos, só custo
-
-              const inputPtsExtras = document.querySelector(
-                'input[name="trPontosExtras"]'
-              ) as HTMLInputElement | null;
-              const inputCustoExtras = document.querySelector(
-                'input[name="trCustoMilheiroExtras"]'
-              ) as HTMLInputElement | null;
-
-              const ptsExtras = inputPtsExtras
-                ? parseIntLooseClient(inputPtsExtras.value)
-                : 0;
-              const custoMilheiroExtras = inputCustoExtras
-                ? parseMoneyLooseClient(inputCustoExtras.value)
-                : 0;
-
-              if (ptsExtras > 0 && custoMilheiroExtras > 0) {
-                custoTotal += (ptsExtras / 1000) * custoMilheiroExtras;
-              }
-
-              const custoMilheiro =
-                totalCIA > 0 ? custoTotal / (totalCIA / 1000) : 0;
-
-              spanEl.textContent = custoMilheiro.toLocaleString("pt-BR", {
-                style: "currency",
-                currency: "BRL",
-              });
-            }
-
-            window.addEventListener("load", function () {
-              const inputPtsExtras = document.querySelector(
-                'input[name="trPontosExtras"]'
-              ) as HTMLInputElement | null;
-              const inputCustoExtras = document.querySelector(
-                'input[name="trCustoMilheiroExtras"]'
-              ) as HTMLInputElement | null;
-
-              if (inputPtsExtras) {
-                inputPtsExtras.addEventListener("input", recalc);
-              }
-              if (inputCustoExtras) {
-                inputCustoExtras.addEventListener("input", recalc);
-              }
-
-              recalc();
-            });
-          })();
-        `}
-      </Script>
     </main>
   );
 }
