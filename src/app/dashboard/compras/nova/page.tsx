@@ -1613,8 +1613,7 @@ export default async function NovaCompraPage({
             {fmtMoney(custoMilheiroTotalComExtras || 0)}
           </div>
           <div>
-            <b>Lucro estimado (sobre liberado)</b>:{" "}
-            {fmtMoney(lucroComExtras)}
+            <b>Lucro estimado (total)</b>: {fmtMoney(lucroComExtras)}
           </div>
         </div>
       </div>
