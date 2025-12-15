@@ -3,7 +3,7 @@
 import Image from "next/image";
 import { useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Instagram } from "lucide-react";
+import { Instagram, MessageCircle } from "lucide-react";
 
 export default function LoginClient() {
   const [login, setLogin] = useState("");
@@ -95,27 +95,36 @@ export default function LoginClient() {
               type="button"
               onClick={() => setShowPwd((v) => !v)}
               className="text-xs text-neutral-500 hover:text-neutral-700"
-              aria-label={showPwd ? "Ocultar senha" : "Mostrar senha"}
             >
               {showPwd ? "Ocultar" : "Mostrar"}
             </button>
           </div>
 
-          {/* Instagram institucional */}
-          <div className="flex items-center justify-center gap-2 pt-1">
-            <Instagram size={14} className="text-neutral-500" />
+          {/* Redes sociais */}
+          <div className="flex justify-center gap-6 pt-1">
             <a
               href="https://instagram.com/viasaereastrip"
               target="_blank"
               rel="noopener noreferrer"
-              className="text-[11px] text-neutral-500 hover:text-neutral-700 underline"
+              className="flex items-center gap-1.5 text-[11px] text-neutral-500 hover:text-neutral-700"
             >
+              <Instagram size={14} />
               @viasaereastrip
+            </a>
+
+            <a
+              href="https://wa.me/5553999760707"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-1.5 text-[11px] text-neutral-500 hover:text-neutral-700"
+            >
+              <MessageCircle size={14} />
+              WhatsApp
             </a>
           </div>
 
           {err && (
-            <p className="text-xs text-red-600">
+            <p className="text-xs text-red-600 text-center">
               {err}
             </p>
           )}
@@ -134,15 +143,7 @@ export default function LoginClient() {
             TradeMiles — uma empresa do grupo Vias Aéreas LTDA
           </p>
           <p>
-            CNPJ: 63.817.773/0001-85 ·{" "}
-            <a
-              href="https://wa.me/5553999760707"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="underline hover:text-neutral-700"
-            >
-              Contato: (53) 99976-0707
-            </a>
+            CNPJ: 63.817.773/0001-85
           </p>
         </footer>
       </form>
