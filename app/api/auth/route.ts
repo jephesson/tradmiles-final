@@ -93,12 +93,6 @@ function b64urlEncode(input: string) {
     .replace(/=+$/g, "");
 }
 
-function b64urlDecode(input: string) {
-  const pad = input.length % 4 === 0 ? "" : "=".repeat(4 - (input.length % 4));
-  const base64 = (input + pad).replace(/-/g, "+").replace(/_/g, "/");
-  return Buffer.from(base64, "base64").toString("utf8");
-}
-
 /**
  * Cookie de sessão:
  * - Em produção, use COOKIE_DOMAIN=.seu-dominio.com (opcional)
@@ -140,8 +134,11 @@ function isApiBody(v: unknown): v is ApiBody {
   return action === "login" || action === "setPassword" || action === "resetSeed" || action === "logout";
 }
 
-function jsonOk(data: unknown, init?: { status?: number }) {
-  return NextResponse.json({ ok: true, ...data }, { status: init?.status ?? 200, headers: noCacheHeaders() });
+function jsonOk(data: Record<string, unknown> = {}, init?: { status?: number }) {
+  return NextResponse.json(
+    { ok: true, ...data },
+    { status: init?.status ?? 200, headers: noCacheHeaders() }
+  );
 }
 
 function jsonFail(error: string, init?: { status?: number }) {
