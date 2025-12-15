@@ -3,6 +3,7 @@
 import Image from "next/image";
 import { useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { Instagram } from "lucide-react";
 
 export default function LoginClient() {
   const [login, setLogin] = useState("");
@@ -98,6 +99,19 @@ export default function LoginClient() {
             >
               {showPwd ? "Ocultar" : "Mostrar"}
             </button>
+          </div>
+
+          {/* Instagram institucional */}
+          <div className="flex items-center justify-center gap-2 pt-1">
+            <Instagram size={14} className="text-neutral-500" />
+            <a
+              href="https://instagram.com/viasaereastrip"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-[11px] text-neutral-500 hover:text-neutral-700 underline"
+            >
+              @viasaereastrip
+            </a>
           </div>
 
           {err && (
