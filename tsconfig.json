@@ -17,10 +17,10 @@
     "jsx": "react-jsx",
     "incremental": true,
 
-    /* 🔑 ALIAS CORRETO PARA src/ */
+    /* 🔑 ALIAS CORRETO PARA RAIZ (sem src/) */
     "baseUrl": ".",
     "paths": {
-      "@/*": ["src/*"]
+      "@/*": ["./*"]
     },
 
     "plugins": [
