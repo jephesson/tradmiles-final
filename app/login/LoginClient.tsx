@@ -1,4 +1,3 @@
-// src/app/login/LoginClient.tsx
 "use client";
 
 import Image from "next/image";
@@ -50,9 +49,9 @@ export default function LoginClient() {
     <main className="min-h-screen grid place-items-center p-6">
       <form
         onSubmit={onSubmit}
-        className="w-[min(420px,92vw)] space-y-4 rounded-2xl border p-6 shadow-sm"
+        className="w-[min(420px,92vw)] space-y-4 rounded-2xl border p-6 shadow-sm bg-white"
       >
-        {/* Header com logo + nome */}
+        {/* Header */}
         <div className="flex items-center gap-3">
           <Image
             src="/trademiles.png"
@@ -63,22 +62,26 @@ export default function LoginClient() {
             className="rounded-md"
           />
           <div>
-            <h1 className="text-xl font-semibold tracking-tight">TradeMiles</h1>
-            <p className="text-xs text-neutral-500">Acesse seu painel</p>
+            <h1 className="text-xl font-semibold tracking-tight">
+              TradeMiles
+            </h1>
+            <p className="text-xs text-neutral-500">
+              Acesse seu painel
+            </p>
           </div>
         </div>
 
         {/* Campos */}
         <div className="space-y-3 pt-2">
           <input
-            className="w-full rounded-xl border px-3 py-2 text-sm"
+            className="w-full rounded-xl border px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-black/10"
             placeholder="Login"
             value={login}
             onChange={(e) => setLogin(e.target.value)}
             autoComplete="username"
           />
 
-          <div className="w-full rounded-xl border px-3 py-2 text-sm flex items-center gap-2">
+          <div className="w-full rounded-xl border px-3 py-2 text-sm flex items-center gap-2 focus-within:ring-1 focus-within:ring-black/10">
             <input
               className="outline-none flex-1"
               placeholder="Senha"
@@ -90,26 +93,44 @@ export default function LoginClient() {
             <button
               type="button"
               onClick={() => setShowPwd((v) => !v)}
-              className="text-xs text-neutral-500"
+              className="text-xs text-neutral-500 hover:text-neutral-700"
               aria-label={showPwd ? "Ocultar senha" : "Mostrar senha"}
             >
               {showPwd ? "Ocultar" : "Mostrar"}
             </button>
           </div>
 
-          {err && <p className="text-xs text-red-600">{err}</p>}
+          {err && (
+            <p className="text-xs text-red-600">
+              {err}
+            </p>
+          )}
 
           <button
-            className="w-full rounded-xl bg-black px-4 py-2 text-white disabled:opacity-60"
+            className="w-full rounded-xl bg-black px-4 py-2 text-white text-sm font-medium disabled:opacity-60"
             disabled={loading}
           >
             {loading ? "Entrando..." : "Entrar"}
           </button>
         </div>
 
-        <p className="text-[11px] text-neutral-500 text-center pt-1">
-          © {new Date().getFullYear()} TradeMiles
-        </p>
+        {/* Rodapé institucional */}
+        <footer className="pt-3 text-center text-[11px] text-neutral-500 space-y-0.5">
+          <p>
+            TradeMiles — uma empresa do grupo Vias Aéreas LTDA
+          </p>
+          <p>
+            CNPJ: 63.817.773/0001-85 ·{" "}
+            <a
+              href="https://wa.me/5553999760707"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="underline hover:text-neutral-700"
+            >
+              Contato: (53) 99976-0707
+            </a>
+          </p>
+        </footer>
       </form>
     </main>
   );
