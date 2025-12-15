@@ -25,9 +25,15 @@ export default function Sidebar() {
     pathname.startsWith("/dashboard/funcionarios") ||
     pathname.startsWith("/dashboard/bloqueios");
 
+  const isPontosVisualizarRoute = pathname.startsWith(
+    "/dashboard/cedentes/visualizar"
+  );
+
+  const isComprasRoute = pathname.startsWith("/dashboard/compras");
+  const isVendasRoute = pathname.startsWith("/dashboard/vendas");
+
   const isGestaoPontosRoute =
-    pathname.startsWith("/dashboard/compras") ||
-    pathname.startsWith("/dashboard/vendas");
+    isPontosVisualizarRoute || isComprasRoute || isVendasRoute;
 
   const isLucrosRoute =
     pathname.startsWith("/dashboard/lucros") ||
@@ -55,10 +61,34 @@ export default function Sidebar() {
   );
 
   const [openGestaoPontos, setOpenGestaoPontos] = useState(isGestaoPontosRoute);
+  const [openPontosVisualizar, setOpenPontosVisualizar] =
+    useState(isPontosVisualizarRoute);
+  const [openCompras, setOpenCompras] = useState(isComprasRoute);
+  const [openVendas, setOpenVendas] = useState(isVendasRoute);
+
   const [openLucros, setOpenLucros] = useState(isLucrosRoute);
   const [openAnalise, setOpenAnalise] = useState(isAnaliseRoute);
 
   useEffect(() => setOpenCadastro(isCadastroRoute), [isCadastroRoute]);
+  useEffect(() => setOpenGestaoPontos(isGestaoPontosRoute), [isGestaoPontosRoute]);
+
+  useEffect(() => setOpenPontosVisualizar(isPontosVisualizarRoute), [isPontosVisualizarRoute]);
+  useEffect(() => setOpenCompras(isComprasRoute), [isComprasRoute]);
+  useEffect(() => setOpenVendas(isVendasRoute), [isVendasRoute]);
+
+  /* =========================
+   * FILTRO (VISUALIZAR PONTOS)
+   * ========================= */
+  const programa = (search?.get("programa") || "").toLowerCase();
+
+  function pushWithPrograma(value: string | undefined) {
+    const qs = new URLSearchParams(search?.toString() || "");
+    if (!value) qs.delete("programa");
+    else qs.set("programa", value);
+
+    const q = qs.toString();
+    router.push(q ? `${pathname}?${q}` : pathname);
+  }
 
   /* =========================
    * RATEIO
@@ -118,38 +148,35 @@ export default function Sidebar() {
         <Accordion
           title="Cadastro"
           open={openCadastro}
-          onToggle={() => setOpenCadastro(v => !v)}
+          onToggle={() => setOpenCadastro((v) => !v)}
           active={isCadastroRoute}
         >
-          {/* Cedentes */}
           <SubAccordion
             title="Cedentes"
             open={openCedentes}
-            onToggle={() => setOpenCedentes(v => !v)}
+            onToggle={() => setOpenCedentes((v) => !v)}
           >
             <NavLink href="/dashboard/cedentes/importar">Importar cedentes</NavLink>
             <NavLink href="/dashboard/cedentes/novo">Cadastrar cedente</NavLink>
             <NavLink href="/dashboard/cedentes/visualizar">Visualizar cedentes</NavLink>
           </SubAccordion>
 
-          {/* Funcionários */}
           <SubAccordion
             title="Funcionários"
             open={openFuncionarios}
-            onToggle={() => setOpenFuncionarios(v => !v)}
+            onToggle={() => setOpenFuncionarios((v) => !v)}
           >
-            <NavLink href="/dashboard/funcionarios">Visualizar funcionários</NavLink>
             <NavLink href="/dashboard/funcionarios/novo">Cadastrar funcionário</NavLink>
+            <NavLink href="/dashboard/funcionarios">Visualizar funcionários</NavLink>
           </SubAccordion>
 
-          {/* Clientes */}
           <SubAccordion
             title="Clientes"
             open={openClientes}
-            onToggle={() => setOpenClientes(v => !v)}
+            onToggle={() => setOpenClientes((v) => !v)}
           >
-            <NavLink href="/dashboard/clientes">Visualizar clientes</NavLink>
             <NavLink href="/dashboard/clientes/novo">Cadastrar cliente</NavLink>
+            <NavLink href="/dashboard/clientes">Visualizar clientes</NavLink>
           </SubAccordion>
         </Accordion>
 
@@ -157,20 +184,109 @@ export default function Sidebar() {
         <Accordion
           title="Gestão de pontos"
           open={openGestaoPontos}
-          onToggle={() => setOpenGestaoPontos(v => !v)}
+          onToggle={() => setOpenGestaoPontos((v) => !v)}
           active={isGestaoPontosRoute}
         >
-          <NavLink href="/dashboard/compras">Compras</NavLink>
-          <NavLink href="/dashboard/compras/nova">Nova compra</NavLink>
-          <NavLink href="/dashboard/vendas">Vendas</NavLink>
-          <NavLink href="/dashboard/vendas/nova">Nova venda</NavLink>
+          {/* Visualizar pontos */}
+          <SubAccordion
+            title="Visualizar pontos"
+            open={openPontosVisualizar}
+            onToggle={() => setOpenPontosVisualizar((v) => !v)}
+          >
+            <NavLink href="/dashboard/cedentes/visualizar">Todos</NavLink>
+
+            {/* botões de filtro */}
+            {isPontosVisualizarRoute ? (
+              <div className="pl-2 pr-2 pb-1">
+                <div className="flex flex-wrap gap-1">
+                  <button
+                    type="button"
+                    onClick={() => pushWithPrograma(undefined)}
+                    className={cn(
+                      "px-3 py-1 text-xs rounded-full border",
+                      programa === "" ? "bg-black text-white" : "hover:bg-slate-100"
+                    )}
+                  >
+                    Todos
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => pushWithPrograma("latam")}
+                    className={cn(
+                      "px-3 py-1 text-xs rounded-full border",
+                      programa === "latam" ? "bg-black text-white" : "hover:bg-slate-100"
+                    )}
+                  >
+                    Latam
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => pushWithPrograma("smiles")}
+                    className={cn(
+                      "px-3 py-1 text-xs rounded-full border",
+                      programa === "smiles" ? "bg-black text-white" : "hover:bg-slate-100"
+                    )}
+                  >
+                    Smiles
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => pushWithPrograma("livelo")}
+                    className={cn(
+                      "px-3 py-1 text-xs rounded-full border",
+                      programa === "livelo" ? "bg-black text-white" : "hover:bg-slate-100"
+                    )}
+                  >
+                    Livelo
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => pushWithPrograma("esfera")}
+                    className={cn(
+                      "px-3 py-1 text-xs rounded-full border",
+                      programa === "esfera" ? "bg-black text-white" : "hover:bg-slate-100"
+                    )}
+                  >
+                    Esfera
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <>
+                <NavLink href="/dashboard/cedentes/visualizar?programa=latam">Latam</NavLink>
+                <NavLink href="/dashboard/cedentes/visualizar?programa=smiles">Smiles</NavLink>
+                <NavLink href="/dashboard/cedentes/visualizar?programa=livelo">Livelo</NavLink>
+                <NavLink href="/dashboard/cedentes/visualizar?programa=esfera">Esfera</NavLink>
+              </>
+            )}
+          </SubAccordion>
+
+          {/* Compras */}
+          <SubAccordion
+            title="Compras"
+            open={openCompras}
+            onToggle={() => setOpenCompras((v) => !v)}
+          >
+            <NavLink href="/dashboard/compras/nova">Efetuar compra</NavLink>
+            <NavLink href="/dashboard/compras">Visualizar compras</NavLink>
+          </SubAccordion>
+
+          {/* Vendas */}
+          <SubAccordion
+            title="Vendas"
+            open={openVendas}
+            onToggle={() => setOpenVendas((v) => !v)}
+          >
+            <NavLink href="/dashboard/vendas/nova">Efetuar venda</NavLink>
+            <NavLink href="/dashboard/vendas">Painel de vendas</NavLink>
+          </SubAccordion>
         </Accordion>
 
         {/* ================= LUCROS ================= */}
         <Accordion
           title="Lucros & Comissões"
           open={openLucros}
-          onToggle={() => setOpenLucros(v => !v)}
+          onToggle={() => setOpenLucros((v) => !v)}
           active={isLucrosRoute}
         >
           <NavLink href="/dashboard/resumo">Resumo</NavLink>
@@ -189,7 +305,7 @@ export default function Sidebar() {
         <Accordion
           title="Análise"
           open={openAnalise}
-          onToggle={() => setOpenAnalise(v => !v)}
+          onToggle={() => setOpenAnalise((v) => !v)}
           active={isAnaliseRoute}
         >
           <NavLink href="/dashboard/analise">Análise geral</NavLink>
