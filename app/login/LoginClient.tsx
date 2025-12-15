@@ -48,105 +48,98 @@ export default function LoginClient() {
 
   return (
     <main className="min-h-screen grid place-items-center p-6">
-      <form
-        onSubmit={onSubmit}
-        className="w-[min(420px,92vw)] space-y-4 rounded-2xl border p-6 shadow-sm bg-white"
-      >
-        {/* Header */}
-        <div className="flex items-center gap-3">
-          <Image
-            src="/trademiles.png"
-            alt="TradeMiles"
-            width={36}
-            height={36}
-            priority
-            className="rounded-md"
-          />
-          <div>
-            <h1 className="text-xl font-semibold tracking-tight">
-              TradeMiles
-            </h1>
-            <p className="text-xs text-neutral-500">
-              Acesse seu painel
-            </p>
-          </div>
-        </div>
-
-        {/* Campos */}
-        <div className="space-y-3 pt-2">
-          <input
-            className="w-full rounded-xl border px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-black/10"
-            placeholder="Login"
-            value={login}
-            onChange={(e) => setLogin(e.target.value)}
-            autoComplete="username"
-          />
-
-          <div className="w-full rounded-xl border px-3 py-2 text-sm flex items-center gap-2 focus-within:ring-1 focus-within:ring-black/10">
-            <input
-              className="outline-none flex-1"
-              placeholder="Senha"
-              type={showPwd ? "text" : "password"}
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              autoComplete="current-password"
+      {/* Wrapper pra permitir card + links fora */}
+      <div className="w-[min(420px,92vw)]">
+        <form
+          onSubmit={onSubmit}
+          className="space-y-4 rounded-2xl border p-6 shadow-sm bg-white"
+        >
+          {/* Header */}
+          <div className="flex items-center gap-3">
+            <Image
+              src="/trademiles.png"
+              alt="TradeMiles"
+              width={36}
+              height={36}
+              priority
+              className="rounded-md"
             />
+            <div>
+              <h1 className="text-xl font-semibold tracking-tight">TradeMiles</h1>
+              <p className="text-xs text-neutral-500">Acesse seu painel</p>
+            </div>
+          </div>
+
+          {/* Campos */}
+          <div className="space-y-3 pt-2">
+            <input
+              className="w-full rounded-xl border px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-black/10"
+              placeholder="Login"
+              value={login}
+              onChange={(e) => setLogin(e.target.value)}
+              autoComplete="username"
+            />
+
+            <div className="w-full rounded-xl border px-3 py-2 text-sm flex items-center gap-2 focus-within:ring-1 focus-within:ring-black/10">
+              <input
+                className="outline-none flex-1"
+                placeholder="Senha"
+                type={showPwd ? "text" : "password"}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                autoComplete="current-password"
+              />
+              <button
+                type="button"
+                onClick={() => setShowPwd((v) => !v)}
+                className="text-xs text-neutral-500 hover:text-neutral-700"
+              >
+                {showPwd ? "Ocultar" : "Mostrar"}
+              </button>
+            </div>
+
+            {err && <p className="text-xs text-red-600 text-center">{err}</p>}
+
             <button
-              type="button"
-              onClick={() => setShowPwd((v) => !v)}
-              className="text-xs text-neutral-500 hover:text-neutral-700"
+              className="w-full rounded-xl bg-black px-4 py-2 text-white text-sm font-medium disabled:opacity-60"
+              disabled={loading}
             >
-              {showPwd ? "Ocultar" : "Mostrar"}
+              {loading ? "Entrando..." : "Entrar"}
             </button>
           </div>
 
-          {/* Redes sociais */}
-          <div className="flex justify-center gap-6 pt-1">
-            <a
-              href="https://instagram.com/viasaereastrip"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center gap-1.5 text-[11px] text-neutral-500 hover:text-neutral-700"
-            >
-              <Instagram size={14} />
-              @viasaereastrip
-            </a>
+          {/* Rodapé institucional */}
+          <footer className="pt-3 text-center text-[11px] text-neutral-500 space-y-0.5">
+            <p>TradeMiles — uma empresa do grupo Vias Aéreas LTDA</p>
+            <p>CNPJ: 63.817.773/0001-85</p>
+          </footer>
+        </form>
 
-            <a
-              href="https://wa.me/5553999760707"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center gap-1.5 text-[11px] text-neutral-500 hover:text-neutral-700"
-            >
-              <MessageCircle size={14} />
-              WhatsApp
-            </a>
-          </div>
-
-          {err && (
-            <p className="text-xs text-red-600 text-center">
-              {err}
-            </p>
-          )}
-
-          <button
-            className="w-full rounded-xl bg-black px-4 py-2 text-white text-sm font-medium disabled:opacity-60"
-            disabled={loading}
+        {/* ✅ Links fora do card */}
+        <div className="pt-4 flex items-center justify-center gap-8 text-sm text-neutral-700">
+          <a
+            href="https://instagram.com/viasaereastrip"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-2 hover:text-black"
+            aria-label="Instagram @viasaereastrip"
           >
-            {loading ? "Entrando..." : "Entrar"}
-          </button>
-        </div>
+            <Instagram size={18} />
+            <span className="font-medium">@viasaereastrip</span>
+          </a>
 
-        {/* Rodapé institucional */}
-        <footer className="pt-3 text-center text-[11px] text-neutral-500 space-y-0.5">
-          <p>
-            TradeMiles — uma empresa do grupo Vias Aéreas LTDA
-          </p>
-          <p>
-            CNPJ: 63.817.773/0001-85
-          </p>
-        </footer>
-      </form>
+          <a
+            href="https://wa.me/5553999760707"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-2 hover:text-black"
+            aria-label="WhatsApp (53) 99976-0707"
+          >
+            <MessageCircle size={18} />
+            <span className="font-medium">WhatsApp</span>
+          </a>
+        </div>
+      </div>
     </main>
   );
 }
