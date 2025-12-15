@@ -7,15 +7,12 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_URL")
 }
 
 /*
   MODELOS
-  Ajuste conforme seu banco real.
-  Abaixo está um modelo mínimo compatível com o auth que você já usa.
+  Modelo mínimo compatível com seu /api/auth
 */
-
 model User {
   id           String   @id @default(uuid())
   login        String   @unique
