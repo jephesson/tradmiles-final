@@ -4,12 +4,15 @@ import { redirect } from "next/navigation";
 import LogoutButton from "@/components/LogoutButton";
 
 export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 type Sess = {
   id: string;
   login: string;
   team: string;
   role: "admin" | "staff";
+  name?: string;
+  email?: string | null;
 };
 
 function b64urlDecode(input: string) {
@@ -18,20 +21,26 @@ function b64urlDecode(input: string) {
   return Buffer.from(base64, "base64").toString("utf8");
 }
 
+function readSessionCookie(raw?: string): Sess | null {
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(b64urlDecode(raw)) as Partial<Sess>;
+    if (!parsed?.id || !parsed?.login || !parsed?.team || !parsed?.role) return null;
+    if (parsed.role !== "admin" && parsed.role !== "staff") return null;
+    return parsed as Sess;
+  } catch {
+    return null;
+  }
+}
+
 export default async function DashboardHome() {
   const store = await cookies();
   const raw = store.get("tm.session")?.value;
 
-  let session: Sess | null = null;
-  try {
-    if (raw) {
-      session = JSON.parse(b64urlDecode(raw)) as Sess;
-    }
-  } catch {
-    session = null;
-  }
+  const session = readSessionCookie(raw);
 
-  if (!session) redirect("/login");
+  // manda pro login já com next certinho
+  if (!session) redirect("/login?next=/dashboard");
 
   return (
     <div className="space-y-6">
@@ -47,19 +56,23 @@ export default async function DashboardHome() {
 
       <div className="rounded-xl border p-4">
         <div className="text-sm font-semibold mb-3">Sua sessão</div>
+
         <div className="grid gap-2 text-sm sm:grid-cols-2 lg:grid-cols-3">
           <div>
             <span className="text-slate-500">ID:</span>{" "}
             <span className="font-mono">{session.id}</span>
           </div>
+
           <div>
             <span className="text-slate-500">Login:</span>{" "}
             <span className="font-mono">{session.login}</span>
           </div>
+
           <div>
             <span className="text-slate-500">Papel:</span>{" "}
             {session.role === "admin" ? "Admin" : "Staff"}
           </div>
+
           <div className="sm:col-span-2 lg:col-span-3">
             <span className="text-slate-500">Time:</span> {session.team}
           </div>
