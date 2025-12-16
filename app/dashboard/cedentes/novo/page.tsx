@@ -29,8 +29,7 @@ function onlyDigits(v: string) {
 }
 
 function normalizeCpf(v: string) {
-  const d = onlyDigits(v).slice(0, 11);
-  return d;
+  return onlyDigits(v).slice(0, 11);
 }
 
 function makeIdentifier(nomeCompleto: string) {
@@ -42,12 +41,11 @@ function makeIdentifier(nomeCompleto: string) {
     .trim();
   const base = (cleaned.split(/\s+/)[0] || "CED").replace(/[^A-Z0-9]/g, "");
   const prefix = (base.slice(0, 3) || "CED").padEnd(3, "X");
-  // ID “amigável”, o UUID do Prisma fica como id real
   return `${prefix}-${Date.now().toString().slice(-6)}`;
 }
 
 export default function CedentesNovoPage() {
-  const [mode, setMode] = useState<"manual" | "link">("manual");
+  const [mode, setMode] = useState<"manual" | "link" | null>(null);
 
   const [form, setForm] = useState<FormState>({
     nomeCompleto: "",
@@ -71,11 +69,9 @@ export default function CedentesNovoPage() {
   const [inviteLoading, setInviteLoading] = useState(false);
   const [inviteUrl, setInviteUrl] = useState<string>("");
 
-  const identificador = useMemo(
-    () => (form.nomeCompleto.trim() ? makeIdentifier(form.nomeCompleto) : ""),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [form.nomeCompleto]
-  );
+  const identificador = useMemo(() => {
+    return form.nomeCompleto.trim() ? makeIdentifier(form.nomeCompleto) : "";
+  }, [form.nomeCompleto]);
 
   function setField<K extends keyof FormState>(key: K, value: FormState[K]) {
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -100,7 +96,7 @@ export default function CedentesNovoPage() {
         chavePix: form.chavePix.trim() || null,
         banco: form.banco.trim() || null,
 
-        // ⚠️ sem criptografia (como você pediu)
+        // sem criptografia (como você pediu)
         senhaEmailEnc: form.senhaEmail || null,
         senhaSmilesEnc: form.senhaSmiles || null,
         senhaLatamPassEnc: form.senhaLatamPass || null,
@@ -123,6 +119,7 @@ export default function CedentesNovoPage() {
       if (!json?.ok) throw new Error(json?.error || "Falha ao cadastrar.");
 
       alert("Cedente cadastrado ✅");
+
       setForm({
         nomeCompleto: "",
         dataNascimento: "",
@@ -140,15 +137,16 @@ export default function CedentesNovoPage() {
         pontosLivelo: "",
         pontosEsfera: "",
       });
-    } catch (err: any) {
-      alert(err?.message || "Erro ao cadastrar.");
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Erro ao cadastrar.";
+      alert(msg);
     } finally {
       setSaving(false);
     }
   }
 
   async function generateInvite() {
-    if (!form.nomeCompleto.trim()) return alert("Informe ao menos o nome (opcional, mas ajuda).");
+    // Nome/CPF são opcionais no convite, mas ajudam a pré-preencher
     if (form.cpf && normalizeCpf(form.cpf).length !== 11) return alert("CPF inválido (11 dígitos).");
 
     try {
@@ -168,14 +166,15 @@ export default function CedentesNovoPage() {
       const json = await res.json();
       if (!json?.ok) throw new Error(json?.error || "Falha ao gerar convite.");
 
-      setInviteUrl(json.data.url as string);
+      const url = String(json.data.url || "");
+      setInviteUrl(url);
 
-      // copia automático
       try {
-        await navigator.clipboard.writeText(json.data.url);
+        await navigator.clipboard.writeText(url);
       } catch {}
-    } catch (err: any) {
-      alert(err?.message || "Erro ao gerar convite.");
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Erro ao gerar convite.";
+      alert(msg);
     } finally {
       setInviteLoading(false);
     }
@@ -188,19 +187,27 @@ export default function CedentesNovoPage() {
         Escolha: cadastro manual (feito por você) ou gerar um link para o cedente preencher e aceitar o termo.
       </p>
 
+      {/* Só os 2 botões inicialmente */}
       <div className="mb-6 flex gap-2">
         <button
           type="button"
-          onClick={() => setMode("manual")}
+          onClick={() => {
+            setMode("manual");
+            setInviteUrl("");
+          }}
           className={`rounded-xl border px-4 py-2 text-sm ${
             mode === "manual" ? "bg-black text-white" : "hover:bg-slate-50"
           }`}
         >
           Cadastro manual
         </button>
+
         <button
           type="button"
-          onClick={() => setMode("link")}
+          onClick={() => {
+            setMode("link");
+            setInviteUrl("");
+          }}
           className={`rounded-xl border px-4 py-2 text-sm ${
             mode === "link" ? "bg-black text-white" : "hover:bg-slate-50"
           }`}
@@ -209,116 +216,119 @@ export default function CedentesNovoPage() {
         </button>
       </div>
 
-      {/* Form comum (serve pros 2 modos, mas só envia no manual) */}
-      <form onSubmit={submitManual} className="space-y-6">
-        <section className="rounded-2xl border p-4">
-          <h2 className="mb-3 font-semibold">Dados</h2>
+      {mode === null && (
+        <div className="rounded-2xl border p-6 text-sm text-slate-600">
+          Selecione uma opção acima para continuar.
+        </div>
+      )}
 
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-            <div>
-              <label className="mb-1 block text-sm">Nome completo</label>
-              <input
-                className="w-full rounded-xl border px-3 py-2"
-                value={form.nomeCompleto}
-                onChange={(e) => setField("nomeCompleto", e.target.value)}
-                placeholder="Ex.: Maria Silva"
-              />
-            </div>
-            <div>
-              <label className="mb-1 block text-sm">Data de nascimento</label>
-              <input
-                type="date"
-                className="w-full rounded-xl border px-3 py-2"
-                value={form.dataNascimento}
-                onChange={(e) => setField("dataNascimento", e.target.value)}
-              />
-            </div>
+      {/* =======================
+          CADASTRO MANUAL
+      ======================= */}
+      {mode === "manual" && (
+        <form onSubmit={submitManual} className="space-y-6">
+          <section className="rounded-2xl border p-4">
+            <h2 className="mb-3 font-semibold">Dados</h2>
 
-            <div>
-              <label className="mb-1 block text-sm">CPF</label>
-              <input
-                className="w-full rounded-xl border px-3 py-2"
-                value={form.cpf}
-                onChange={(e) => setField("cpf", normalizeCpf(e.target.value))}
-                placeholder="Somente números"
-              />
-              <div className="mt-1 text-[11px] text-slate-500">
-                Dica: esse CPF será usado para identificar e preencher o termo no convite.
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+              <div>
+                <label className="mb-1 block text-sm">Nome completo</label>
+                <input
+                  className="w-full rounded-xl border px-3 py-2"
+                  value={form.nomeCompleto}
+                  onChange={(e) => setField("nomeCompleto", e.target.value)}
+                  placeholder="Ex.: Maria Silva"
+                />
+              </div>
+
+              <div>
+                <label className="mb-1 block text-sm">Data de nascimento</label>
+                <input
+                  type="date"
+                  className="w-full rounded-xl border px-3 py-2"
+                  value={form.dataNascimento}
+                  onChange={(e) => setField("dataNascimento", e.target.value)}
+                />
+              </div>
+
+              <div>
+                <label className="mb-1 block text-sm">CPF</label>
+                <input
+                  className="w-full rounded-xl border px-3 py-2"
+                  value={form.cpf}
+                  onChange={(e) => setField("cpf", normalizeCpf(e.target.value))}
+                  placeholder="Somente números"
+                />
+              </div>
+
+              <div>
+                <label className="mb-1 block text-sm">Identificador (prévia)</label>
+                <input className="w-full rounded-xl border px-3 py-2" value={identificador} readOnly />
               </div>
             </div>
+          </section>
 
-            <div>
-              <label className="mb-1 block text-sm">Identificador (prévia)</label>
-              <input className="w-full rounded-xl border px-3 py-2" value={identificador} readOnly />
-              <div className="mt-1 text-[11px] text-slate-500">
-                No cadastro manual, o identificador final é gerado automaticamente.
+          <section className="rounded-2xl border p-4">
+            <h2 className="mb-3 font-semibold">Acessos e dados bancários</h2>
+
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+              <div>
+                <label className="mb-1 block text-sm">E-mail criado</label>
+                <input
+                  className="w-full rounded-xl border px-3 py-2"
+                  value={form.emailCriado}
+                  onChange={(e) => setField("emailCriado", e.target.value)}
+                />
+              </div>
+
+              <div>
+                <label className="mb-1 block text-sm">Senha do e-mail</label>
+                <input
+                  className="w-full rounded-xl border px-3 py-2"
+                  value={form.senhaEmail}
+                  onChange={(e) => setField("senhaEmail", e.target.value)}
+                  placeholder="(sem criptografia por enquanto)"
+                />
+              </div>
+
+              <div>
+                <label className="mb-1 block text-sm">Senha Smiles</label>
+                <input className="w-full rounded-xl border px-3 py-2" value={form.senhaSmiles} onChange={(e) => setField("senhaSmiles", e.target.value)} />
+              </div>
+              <div>
+                <label className="mb-1 block text-sm">Senha Latam Pass</label>
+                <input className="w-full rounded-xl border px-3 py-2" value={form.senhaLatamPass} onChange={(e) => setField("senhaLatamPass", e.target.value)} />
+              </div>
+              <div>
+                <label className="mb-1 block text-sm">Senha Livelo</label>
+                <input className="w-full rounded-xl border px-3 py-2" value={form.senhaLivelo} onChange={(e) => setField("senhaLivelo", e.target.value)} />
+              </div>
+              <div>
+                <label className="mb-1 block text-sm">Senha Esfera</label>
+                <input className="w-full rounded-xl border px-3 py-2" value={form.senhaEsfera} onChange={(e) => setField("senhaEsfera", e.target.value)} />
+              </div>
+
+              <div>
+                <label className="mb-1 block text-sm">Chave PIX</label>
+                <input className="w-full rounded-xl border px-3 py-2" value={form.chavePix} onChange={(e) => setField("chavePix", e.target.value)} />
+              </div>
+              <div>
+                <label className="mb-1 block text-sm">Banco</label>
+                <input className="w-full rounded-xl border px-3 py-2" value={form.banco} onChange={(e) => setField("banco", e.target.value)} />
               </div>
             </div>
-          </div>
-        </section>
+          </section>
 
-        <section className="rounded-2xl border p-4">
-          <h2 className="mb-3 font-semibold">Acessos e dados bancários</h2>
+          <section className="rounded-2xl border p-4">
+            <h2 className="mb-3 font-semibold">Pontos</h2>
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+              <FieldNumber label="Latam" value={form.pontosLatam} onChange={(v) => setField("pontosLatam", v)} />
+              <FieldNumber label="Smiles" value={form.pontosSmiles} onChange={(v) => setField("pontosSmiles", v)} />
+              <FieldNumber label="Livelo" value={form.pontosLivelo} onChange={(v) => setField("pontosLivelo", v)} />
+              <FieldNumber label="Esfera" value={form.pontosEsfera} onChange={(v) => setField("pontosEsfera", v)} />
+            </div>
+          </section>
 
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-            <div>
-              <label className="mb-1 block text-sm">E-mail criado</label>
-              <input
-                className="w-full rounded-xl border px-3 py-2"
-                value={form.emailCriado}
-                onChange={(e) => setField("emailCriado", e.target.value)}
-                placeholder="ex.: maria.silva@gmail.com"
-              />
-            </div>
-            <div>
-              <label className="mb-1 block text-sm">Senha do e-mail</label>
-              <input
-                className="w-full rounded-xl border px-3 py-2"
-                value={form.senhaEmail}
-                onChange={(e) => setField("senhaEmail", e.target.value)}
-                placeholder="(sem criptografia por enquanto)"
-              />
-            </div>
-
-            <div>
-              <label className="mb-1 block text-sm">Senha Smiles</label>
-              <input className="w-full rounded-xl border px-3 py-2" value={form.senhaSmiles} onChange={(e) => setField("senhaSmiles", e.target.value)} />
-            </div>
-            <div>
-              <label className="mb-1 block text-sm">Senha Latam Pass</label>
-              <input className="w-full rounded-xl border px-3 py-2" value={form.senhaLatamPass} onChange={(e) => setField("senhaLatamPass", e.target.value)} />
-            </div>
-            <div>
-              <label className="mb-1 block text-sm">Senha Livelo</label>
-              <input className="w-full rounded-xl border px-3 py-2" value={form.senhaLivelo} onChange={(e) => setField("senhaLivelo", e.target.value)} />
-            </div>
-            <div>
-              <label className="mb-1 block text-sm">Senha Esfera</label>
-              <input className="w-full rounded-xl border px-3 py-2" value={form.senhaEsfera} onChange={(e) => setField("senhaEsfera", e.target.value)} />
-            </div>
-
-            <div>
-              <label className="mb-1 block text-sm">Chave PIX</label>
-              <input className="w-full rounded-xl border px-3 py-2" value={form.chavePix} onChange={(e) => setField("chavePix", e.target.value)} />
-            </div>
-            <div>
-              <label className="mb-1 block text-sm">Banco</label>
-              <input className="w-full rounded-xl border px-3 py-2" value={form.banco} onChange={(e) => setField("banco", e.target.value)} />
-            </div>
-          </div>
-        </section>
-
-        <section className="rounded-2xl border p-4">
-          <h2 className="mb-3 font-semibold">Pontos</h2>
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-            <FieldNumber label="Latam" value={form.pontosLatam} onChange={(v) => setField("pontosLatam", v)} />
-            <FieldNumber label="Smiles" value={form.pontosSmiles} onChange={(v) => setField("pontosSmiles", v)} />
-            <FieldNumber label="Livelo" value={form.pontosLivelo} onChange={(v) => setField("pontosLivelo", v)} />
-            <FieldNumber label="Esfera" value={form.pontosEsfera} onChange={(v) => setField("pontosEsfera", v)} />
-          </div>
-        </section>
-
-        {mode === "manual" ? (
           <button
             type="submit"
             disabled={saving}
@@ -326,35 +336,50 @@ export default function CedentesNovoPage() {
           >
             {saving ? "Salvando..." : "Cadastrar manualmente"}
           </button>
-        ) : (
-          <div className="rounded-2xl border p-4">
-            <div className="mb-2 font-semibold">Gerar convite</div>
-            <p className="mb-3 text-sm text-slate-600">
-              Você envia o link para o cedente preencher. Ao final ele aceita o termo e o cadastro entra no sistema.
-            </p>
+        </form>
+      )}
 
-            <button
-              type="button"
-              onClick={generateInvite}
-              disabled={inviteLoading}
-              className="rounded-xl bg-black px-4 py-2 text-white hover:bg-slate-900 disabled:opacity-60"
-            >
-              {inviteLoading ? "Gerando..." : "Gerar link de convite"}
-            </button>
+      {/* =======================
+          GERAR CONVITE
+      ======================= */}
+      {mode === "link" && (
+        <div className="max-w-xl rounded-2xl border p-6 space-y-4">
+          <h2 className="text-lg font-semibold">Gerar link de convite</h2>
+          <p className="text-sm text-slate-600">
+            Clique em gerar. Depois é só copiar e enviar para o cedente preencher e aceitar o termo.
+          </p>
 
-            {inviteUrl && (
-              <div className="mt-4 rounded-xl border bg-slate-50 p-3 text-sm">
-                <div className="mb-1 font-medium">Link gerado (copiado para a área de transferência):</div>
-                <div className="break-all">{inviteUrl}</div>
+          <button
+            type="button"
+            onClick={generateInvite}
+            disabled={inviteLoading}
+            className="rounded-xl bg-black px-4 py-2 text-white hover:bg-slate-900 disabled:opacity-60"
+          >
+            {inviteLoading ? "Gerando..." : "Gerar link"}
+          </button>
+
+          {inviteUrl && (
+            <div className="rounded-xl border bg-slate-50 p-3 text-sm">
+              <div className="mb-1 font-medium">Link do convite:</div>
+
+              <div className="flex items-center gap-2">
+                <input className="flex-1 rounded-lg border px-2 py-1 text-xs" value={inviteUrl} readOnly />
+                <button
+                  type="button"
+                  onClick={() => navigator.clipboard.writeText(inviteUrl)}
+                  className="rounded-lg border px-2 py-1 text-xs hover:bg-slate-100"
+                >
+                  Copiar
+                </button>
               </div>
-            )}
-          </div>
-        )}
-      </form>
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="mt-8 rounded-2xl border p-4 text-xs text-slate-600">
         <b>⚠️ Aviso importante:</b> por enquanto estamos salvando senhas em texto no banco (como você pediu). Isso é
-        arriscado. Quando você quiser, eu troco para criptografia reversível sem mudar a experiência do cedente.
+        arriscado. Quando você quiser, dá para trocar para criptografia reversível sem mudar o fluxo.
       </div>
     </div>
   );
