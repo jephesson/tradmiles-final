@@ -31,7 +31,6 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  // Quem aprovou/reprovou cedentes
   cedentesAprovados Cedente[] @relation("CedenteApprovedBy")
 }
 
@@ -58,13 +57,11 @@ model Cedente {
   pontosLivelo Int @default(0)
   pontosEsfera Int @default(0)
 
-  // ✅ Status / revisão
   status       CedenteStatus @default(PENDING)
   reviewedAt   DateTime?
   reviewedById String?
   reviewedBy   User? @relation("CedenteApprovedBy", fields: [reviewedById], references: [id], onDelete: SetNull)
 
-  // Relações
   termAcceptances CedenteTermAcceptance[]
   invite          CedenteInvite?
 
@@ -76,21 +73,17 @@ model Cedente {
 }
 
 model CedenteInvite {
-  id String @id @default(uuid())
-
-  // ✅ token direto (vai na URL /convite/[token])
-  token String @unique
+  id        String   @id @default(uuid())
+  tokenHash String   @unique
 
   createdBy String?
   createdAt DateTime @default(now())
   expiresAt DateTime
   usedAt    DateTime?
 
-  // pré-preenchimento
   nomeHint String?
   cpfHint  String?
 
-  // ✅ vincula o convite ao cedente criado
   cedenteId String?  @unique
   cedente   Cedente? @relation(fields: [cedenteId], references: [id], onDelete: SetNull)
 

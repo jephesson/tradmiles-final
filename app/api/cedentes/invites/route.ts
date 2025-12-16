@@ -1,9 +1,14 @@
+// app/api/cedentes/invites/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import crypto from "crypto";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+function sha256(input: string) {
+  return crypto.createHash("sha256").update(input).digest("hex");
+}
 
 function getBaseUrl(req: NextRequest) {
   const envBase = process.env.NEXT_PUBLIC_APP_URL?.trim();
@@ -15,27 +20,24 @@ function getBaseUrl(req: NextRequest) {
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json().catch(() => ({}));
-
-    const nomeHint =
-      typeof body?.nomeHint === "string" ? body.nomeHint.trim() : null;
-
-    const cpfHint =
-      typeof body?.cpfHint === "string" ? body.cpfHint.trim() : null;
+    const nomeHint = typeof body?.nomeHint === "string" ? body.nomeHint.trim() : null;
+    const cpfHint = typeof body?.cpfHint === "string" ? body.cpfHint.trim() : null;
 
     const expiresInHours =
       typeof body?.expiresInHours === "number" && Number.isFinite(body.expiresInHours)
         ? Math.max(1, Math.min(24 * 14, body.expiresInHours))
         : 72;
 
-    // ✅ token aleatório (não hasheado)
-    const token = crypto.randomBytes(24).toString("hex");
+    // token cru vai no link
+    const token = crypto.randomBytes(32).toString("hex");
+    const tokenHash = sha256(token);
 
     const now = new Date();
     const expiresAt = new Date(now.getTime() + expiresInHours * 60 * 60 * 1000);
 
     await prisma.cedenteInvite.create({
       data: {
-        token,
+        tokenHash,
         createdBy: null,
         expiresAt,
         nomeHint: nomeHint || null,

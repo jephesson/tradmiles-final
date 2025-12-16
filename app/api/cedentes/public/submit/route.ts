@@ -1,9 +1,14 @@
 // app/api/cedentes/public/submit/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import crypto from "crypto";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+function sha256(input: string) {
+  return crypto.createHash("sha256").update(input).digest("hex");
+}
 
 export async function POST(req: NextRequest) {
   try {
@@ -14,11 +19,11 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: false, error: "Token ausente." }, { status: 400 });
     }
 
+    const tokenHash = sha256(token);
+
     const invite = await prisma.cedenteInvite.findUnique({
-      where: { token },
+      where: { tokenHash },
       select: {
-        id: true,
-        token: true,
         usedAt: true,
         expiresAt: true,
         nomeHint: true,
@@ -37,8 +42,6 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: false, error: "Convite expirado." }, { status: 410 });
     }
 
-    // ✅ Aqui você continua o fluxo do seu submit público.
-    // Se esse endpoint só valida e retorna ok:
     return NextResponse.json(
       {
         ok: true,
