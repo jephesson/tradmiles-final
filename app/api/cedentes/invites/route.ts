@@ -6,10 +6,6 @@ import crypto from "crypto";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-function sha256(input: string) {
-  return crypto.createHash("sha256").update(input).digest("hex");
-}
-
 function getBaseUrl(req: NextRequest) {
   const envBase = process.env.NEXT_PUBLIC_APP_URL?.trim();
   if (envBase) return envBase.replace(/\/+$/, "");
@@ -28,16 +24,14 @@ export async function POST(req: NextRequest) {
         ? Math.max(1, Math.min(24 * 14, body.expiresInHours))
         : 72;
 
-    // token cru vai no link
     const token = crypto.randomBytes(32).toString("hex");
-    const tokenHash = sha256(token);
 
     const now = new Date();
     const expiresAt = new Date(now.getTime() + expiresInHours * 60 * 60 * 1000);
 
     await prisma.cedenteInvite.create({
       data: {
-        tokenHash,
+        token,
         createdBy: null,
         expiresAt,
         nomeHint: nomeHint || null,

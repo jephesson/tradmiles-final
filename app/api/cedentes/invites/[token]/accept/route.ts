@@ -1,14 +1,9 @@
 // app/api/cedentes/invites/[token]/accept/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import crypto from "crypto";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-
-function sha256(input: string) {
-  return crypto.createHash("sha256").update(input).digest("hex");
-}
 
 function onlyDigits(v: string) {
   return (v || "").replace(/\D+/g, "").slice(0, 11);
@@ -33,65 +28,30 @@ export async function POST(
 ) {
   try {
     const { token } = await context.params;
-    const tokenHash = sha256(token);
-
     const body = await req.json().catch(() => ({}));
 
-    const nomeCompleto =
-      typeof body?.nomeCompleto === "string" ? body.nomeCompleto.trim() : "";
-
+    const nomeCompleto = typeof body?.nomeCompleto === "string" ? body.nomeCompleto.trim() : "";
     const cpf = onlyDigits(typeof body?.cpf === "string" ? body.cpf : "");
 
-    if (!nomeCompleto) {
-      return NextResponse.json(
-        { ok: false, error: "Informe o nome completo." },
-        { status: 400 }
-      );
-    }
-    if (cpf.length !== 11) {
-      return NextResponse.json({ ok: false, error: "CPF inválido." }, { status: 400 });
-    }
+    if (!nomeCompleto) return NextResponse.json({ ok: false, error: "Informe o nome completo." }, { status: 400 });
+    if (cpf.length !== 11) return NextResponse.json({ ok: false, error: "CPF inválido." }, { status: 400 });
 
     const dataNascimento =
-      typeof body?.dataNascimento === "string" && body.dataNascimento
-        ? new Date(body.dataNascimento)
-        : null;
+      typeof body?.dataNascimento === "string" && body.dataNascimento ? new Date(body.dataNascimento) : null;
 
-    const termoAceito = body?.termoAceito === true || body?.accepted === true;
-
-    const termoVersao =
-      typeof body?.termoVersao === "string" && body.termoVersao.trim()
-        ? body.termoVersao.trim()
-        : "v1";
-
-    if (!termoAceito) {
-      return NextResponse.json(
-        { ok: false, error: "Você precisa aceitar o termo para continuar." },
-        { status: 400 }
-      );
+    const accepted = body?.accepted === true;
+    if (!accepted) {
+      return NextResponse.json({ ok: false, error: "Você precisa aceitar o termo." }, { status: 400 });
     }
 
-    const ip =
-      req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
-      req.headers.get("x-real-ip") ||
-      null;
-
+    const termoVersao = typeof body?.termoVersao === "string" && body.termoVersao.trim() ? body.termoVersao.trim() : "v1";
+    const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || req.headers.get("x-real-ip") || null;
     const userAgent = req.headers.get("user-agent") || null;
 
-    const invite = await prisma.cedenteInvite.findUnique({
-      where: { tokenHash },
-      select: { expiresAt: true, usedAt: true, cedenteId: true },
-    });
-
-    if (!invite) {
-      return NextResponse.json({ ok: false, error: "Convite inválido." }, { status: 404 });
-    }
-    if (invite.usedAt) {
-      return NextResponse.json({ ok: false, error: "Convite já utilizado." }, { status: 410 });
-    }
-    if (invite.expiresAt.getTime() < Date.now()) {
-      return NextResponse.json({ ok: false, error: "Convite expirado." }, { status: 410 });
-    }
+    const invite = await prisma.cedenteInvite.findUnique({ where: { token } });
+    if (!invite) return NextResponse.json({ ok: false, error: "Convite inválido." }, { status: 404 });
+    if (invite.usedAt) return NextResponse.json({ ok: false, error: "Convite já utilizado." }, { status: 410 });
+    if (invite.expiresAt.getTime() < Date.now()) return NextResponse.json({ ok: false, error: "Convite expirado." }, { status: 410 });
 
     const created = await prisma.$transaction(async (tx) => {
       const cedente = await tx.cedente.create({
@@ -101,22 +61,15 @@ export async function POST(
           cpf,
           dataNascimento,
 
-          emailCriado:
-            typeof body?.emailCriado === "string" ? body.emailCriado.trim() || null : null,
-          chavePix:
-            typeof body?.chavePix === "string" ? body.chavePix.trim() || null : null,
+          emailCriado: typeof body?.emailCriado === "string" ? body.emailCriado.trim() || null : null,
+          chavePix: typeof body?.chavePix === "string" ? body.chavePix.trim() || null : null,
           banco: typeof body?.banco === "string" ? body.banco.trim() || null : null,
 
-          senhaEmailEnc:
-            typeof body?.senhaEmailEnc === "string" ? body.senhaEmailEnc || null : null,
-          senhaSmilesEnc:
-            typeof body?.senhaSmilesEnc === "string" ? body.senhaSmilesEnc || null : null,
-          senhaLatamPassEnc:
-            typeof body?.senhaLatamPassEnc === "string" ? body.senhaLatamPassEnc || null : null,
-          senhaLiveloEnc:
-            typeof body?.senhaLiveloEnc === "string" ? body.senhaLiveloEnc || null : null,
-          senhaEsferaEnc:
-            typeof body?.senhaEsferaEnc === "string" ? body.senhaEsferaEnc || null : null,
+          senhaEmailEnc: typeof body?.senhaEmailEnc === "string" ? body.senhaEmailEnc || null : null,
+          senhaSmilesEnc: typeof body?.senhaSmilesEnc === "string" ? body.senhaSmilesEnc || null : null,
+          senhaLatamPassEnc: typeof body?.senhaLatamPassEnc === "string" ? body.senhaLatamPassEnc || null : null,
+          senhaLiveloEnc: typeof body?.senhaLiveloEnc === "string" ? body.senhaLiveloEnc || null : null,
+          senhaEsferaEnc: typeof body?.senhaEsferaEnc === "string" ? body.senhaEsferaEnc || null : null,
 
           pontosLatam: Number(body?.pontosLatam || 0),
           pontosSmiles: Number(body?.pontosSmiles || 0),
@@ -125,28 +78,16 @@ export async function POST(
 
           status: "PENDING",
         },
-        select: {
-          id: true,
-          nomeCompleto: true,
-          cpf: true,
-          identificador: true,
-          createdAt: true,
-          status: true,
-        },
+        select: { id: true, nomeCompleto: true, cpf: true, identificador: true, createdAt: true, status: true },
       });
 
       await tx.cedenteInvite.update({
-        where: { tokenHash },
+        where: { token },
         data: { usedAt: new Date(), cedenteId: cedente.id },
       });
 
       await tx.cedenteTermAcceptance.create({
-        data: {
-          cedenteId: cedente.id,
-          termoVersao,
-          ip,
-          userAgent,
-        },
+        data: { cedenteId: cedente.id, termoVersao, ip, userAgent },
       });
 
       return cedente;
@@ -156,10 +97,7 @@ export async function POST(
   } catch (e: any) {
     const msg = e?.message || "Erro ao aceitar convite";
     if (msg.includes("Unique constraint failed") && msg.includes("cpf")) {
-      return NextResponse.json(
-        { ok: false, error: "Já existe um cedente com esse CPF." },
-        { status: 409 }
-      );
+      return NextResponse.json({ ok: false, error: "Já existe um cedente com esse CPF." }, { status: 409 });
     }
     return NextResponse.json({ ok: false, error: msg }, { status: 500 });
   }
