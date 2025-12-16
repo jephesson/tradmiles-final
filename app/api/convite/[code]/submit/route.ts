@@ -1,4 +1,3 @@
-// app/api/cedentes/invites/[token]/accept/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 
@@ -22,12 +21,9 @@ function makeIdentifier(nomeCompleto: string) {
   return `${prefix}-${Date.now().toString().slice(-6)}`;
 }
 
-export async function POST(
-  req: NextRequest,
-  context: { params: Promise<{ token: string }> }
-) {
+export async function POST(req: NextRequest, ctx: { params: Promise<{ code: string }> }) {
   try {
-    const { token } = await context.params;
+    const { code } = await ctx.params;
     const body = await req.json().catch(() => ({}));
 
     const nomeCompleto = typeof body?.nomeCompleto === "string" ? body.nomeCompleto.trim() : "";
@@ -36,22 +32,26 @@ export async function POST(
     if (!nomeCompleto) return NextResponse.json({ ok: false, error: "Informe o nome completo." }, { status: 400 });
     if (cpf.length !== 11) return NextResponse.json({ ok: false, error: "CPF inválido." }, { status: 400 });
 
+    const invite = await prisma.employeeInvite.findUnique({
+      where: { code },
+      select: { isActive: true, userId: true },
+    });
+
+    if (!invite || !invite.isActive) {
+      return NextResponse.json({ ok: false, error: "Convite inválido." }, { status: 404 });
+    }
+
     const dataNascimento =
       typeof body?.dataNascimento === "string" && body.dataNascimento ? new Date(body.dataNascimento) : null;
 
-    const accepted = body?.accepted === true;
-    if (!accepted) {
-      return NextResponse.json({ ok: false, error: "Você precisa aceitar o termo." }, { status: 400 });
+    const termoAceito = body?.termoAceito === true || body?.accepted === true;
+    const termoVersao = typeof body?.termoVersao === "string" && body.termoVersao.trim() ? body.termoVersao.trim() : "v1";
+    if (!termoAceito) {
+      return NextResponse.json({ ok: false, error: "Você precisa aceitar o termo para continuar." }, { status: 400 });
     }
 
-    const termoVersao = typeof body?.termoVersao === "string" && body.termoVersao.trim() ? body.termoVersao.trim() : "v1";
     const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || req.headers.get("x-real-ip") || null;
     const userAgent = req.headers.get("user-agent") || null;
-
-    const invite = await prisma.cedenteInvite.findUnique({ where: { token } });
-    if (!invite) return NextResponse.json({ ok: false, error: "Convite inválido." }, { status: 404 });
-    if (invite.usedAt) return NextResponse.json({ ok: false, error: "Convite já utilizado." }, { status: 410 });
-    if (invite.expiresAt.getTime() < Date.now()) return NextResponse.json({ ok: false, error: "Convite expirado." }, { status: 410 });
 
     const created = await prisma.$transaction(async (tx) => {
       const cedente = await tx.cedente.create({
@@ -60,6 +60,8 @@ export async function POST(
           nomeCompleto,
           cpf,
           dataNascimento,
+          ownerId: invite.userId,
+          status: "PENDING",
 
           emailCriado: typeof body?.emailCriado === "string" ? body.emailCriado.trim() || null : null,
           chavePix: typeof body?.chavePix === "string" ? body.chavePix.trim() || null : null,
@@ -70,20 +72,8 @@ export async function POST(
           senhaLatamPassEnc: typeof body?.senhaLatamPassEnc === "string" ? body.senhaLatamPassEnc || null : null,
           senhaLiveloEnc: typeof body?.senhaLiveloEnc === "string" ? body.senhaLiveloEnc || null : null,
           senhaEsferaEnc: typeof body?.senhaEsferaEnc === "string" ? body.senhaEsferaEnc || null : null,
-
-          pontosLatam: Number(body?.pontosLatam || 0),
-          pontosSmiles: Number(body?.pontosSmiles || 0),
-          pontosLivelo: Number(body?.pontosLivelo || 0),
-          pontosEsfera: Number(body?.pontosEsfera || 0),
-
-          status: "PENDING",
         },
-        select: { id: true, nomeCompleto: true, cpf: true, identificador: true, createdAt: true, status: true },
-      });
-
-      await tx.cedenteInvite.update({
-        where: { token },
-        data: { usedAt: new Date(), cedenteId: cedente.id },
+        select: { id: true, nomeCompleto: true, cpf: true, status: true, createdAt: true },
       });
 
       await tx.cedenteTermAcceptance.create({
@@ -93,9 +83,9 @@ export async function POST(
       return cedente;
     });
 
-    return NextResponse.json({ ok: true, data: created }, { status: 200 });
+    return NextResponse.json({ ok: true, data: created });
   } catch (e: any) {
-    const msg = e?.message || "Erro ao aceitar convite";
+    const msg = e?.message || "Erro ao enviar cadastro";
     if (msg.includes("Unique constraint failed") && msg.includes("cpf")) {
       return NextResponse.json({ ok: false, error: "Já existe um cedente com esse CPF." }, { status: 409 });
     }
