@@ -3,15 +3,11 @@ import { PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { Pool } from "pg";
 
-const globalForPrisma = globalThis as unknown as {
-  prisma?: PrismaClient;
-};
+const globalForPrisma = globalThis as unknown as { prisma?: PrismaClient };
 
 function makeClient() {
   const connectionString = process.env.DATABASE_URL;
-  if (!connectionString) {
-    throw new Error("DATABASE_URL não definida (Vercel Env Vars).");
-  }
+  if (!connectionString) throw new Error("DATABASE_URL não definida.");
 
   const pool = new Pool({ connectionString });
   const adapter = new PrismaPg(pool);

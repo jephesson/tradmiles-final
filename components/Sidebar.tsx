@@ -70,9 +70,15 @@ export default function Sidebar() {
   const [openAnalise, setOpenAnalise] = useState(isAnaliseRoute);
 
   useEffect(() => setOpenCadastro(isCadastroRoute), [isCadastroRoute]);
-  useEffect(() => setOpenGestaoPontos(isGestaoPontosRoute), [isGestaoPontosRoute]);
+  useEffect(
+    () => setOpenGestaoPontos(isGestaoPontosRoute),
+    [isGestaoPontosRoute]
+  );
 
-  useEffect(() => setOpenPontosVisualizar(isPontosVisualizarRoute), [isPontosVisualizarRoute]);
+  useEffect(
+    () => setOpenPontosVisualizar(isPontosVisualizarRoute),
+    [isPontosVisualizarRoute]
+  );
   useEffect(() => setOpenCompras(isComprasRoute), [isComprasRoute]);
   useEffect(() => setOpenVendas(isVendasRoute), [isVendasRoute]);
 
@@ -123,11 +129,19 @@ export default function Sidebar() {
       {/* Header */}
       <div className="flex items-center justify-between border-b p-4">
         <div className="flex items-center gap-3">
-          <Image src="/trademiles.png" alt="TradeMiles" width={32} height={32} />
+          <Image
+            src="/trademiles.png"
+            alt="TradeMiles"
+            width={32}
+            height={32}
+          />
           <span className="font-semibold">TradeMiles</span>
         </div>
         {session && (
-          <button onClick={doLogout} className="text-xs border px-2 py-1 rounded">
+          <button
+            onClick={doLogout}
+            className="text-xs border px-2 py-1 rounded"
+          >
             Sair
           </button>
         )}
@@ -156,9 +170,18 @@ export default function Sidebar() {
             open={openCedentes}
             onToggle={() => setOpenCedentes((v) => !v)}
           >
-            <NavLink href="/dashboard/cedentes/importar">Importar cedentes</NavLink>
+            <NavLink href="/dashboard/cedentes/importar">
+              Importar cedentes
+            </NavLink>
             <NavLink href="/dashboard/cedentes/novo">Cadastrar cedente</NavLink>
-            <NavLink href="/dashboard/cedentes/visualizar">Visualizar cedentes</NavLink>
+            <NavLink href="/dashboard/cedentes/visualizar">
+              Visualizar cedentes
+            </NavLink>
+
+            {/* ✅ Novo item: Pendentes */}
+            <NavLink href="/dashboard/cedentes/pendentes">
+              Cedentes pendentes
+            </NavLink>
           </SubAccordion>
 
           <SubAccordion
@@ -166,8 +189,12 @@ export default function Sidebar() {
             open={openFuncionarios}
             onToggle={() => setOpenFuncionarios((v) => !v)}
           >
-            <NavLink href="/dashboard/funcionarios/novo">Cadastrar funcionário</NavLink>
-            <NavLink href="/dashboard/funcionarios">Visualizar funcionários</NavLink>
+            <NavLink href="/dashboard/funcionarios/novo">
+              Cadastrar funcionário
+            </NavLink>
+            <NavLink href="/dashboard/funcionarios">
+              Visualizar funcionários
+            </NavLink>
           </SubAccordion>
 
           <SubAccordion
@@ -204,7 +231,9 @@ export default function Sidebar() {
                     onClick={() => pushWithPrograma(undefined)}
                     className={cn(
                       "px-3 py-1 text-xs rounded-full border",
-                      programa === "" ? "bg-black text-white" : "hover:bg-slate-100"
+                      programa === ""
+                        ? "bg-black text-white"
+                        : "hover:bg-slate-100"
                     )}
                   >
                     Todos
@@ -214,7 +243,9 @@ export default function Sidebar() {
                     onClick={() => pushWithPrograma("latam")}
                     className={cn(
                       "px-3 py-1 text-xs rounded-full border",
-                      programa === "latam" ? "bg-black text-white" : "hover:bg-slate-100"
+                      programa === "latam"
+                        ? "bg-black text-white"
+                        : "hover:bg-slate-100"
                     )}
                   >
                     Latam
@@ -224,7 +255,9 @@ export default function Sidebar() {
                     onClick={() => pushWithPrograma("smiles")}
                     className={cn(
                       "px-3 py-1 text-xs rounded-full border",
-                      programa === "smiles" ? "bg-black text-white" : "hover:bg-slate-100"
+                      programa === "smiles"
+                        ? "bg-black text-white"
+                        : "hover:bg-slate-100"
                     )}
                   >
                     Smiles
@@ -234,7 +267,9 @@ export default function Sidebar() {
                     onClick={() => pushWithPrograma("livelo")}
                     className={cn(
                       "px-3 py-1 text-xs rounded-full border",
-                      programa === "livelo" ? "bg-black text-white" : "hover:bg-slate-100"
+                      programa === "livelo"
+                        ? "bg-black text-white"
+                        : "hover:bg-slate-100"
                     )}
                   >
                     Livelo
@@ -244,7 +279,9 @@ export default function Sidebar() {
                     onClick={() => pushWithPrograma("esfera")}
                     className={cn(
                       "px-3 py-1 text-xs rounded-full border",
-                      programa === "esfera" ? "bg-black text-white" : "hover:bg-slate-100"
+                      programa === "esfera"
+                        ? "bg-black text-white"
+                        : "hover:bg-slate-100"
                     )}
                   >
                     Esfera
@@ -253,10 +290,18 @@ export default function Sidebar() {
               </div>
             ) : (
               <>
-                <NavLink href="/dashboard/cedentes/visualizar?programa=latam">Latam</NavLink>
-                <NavLink href="/dashboard/cedentes/visualizar?programa=smiles">Smiles</NavLink>
-                <NavLink href="/dashboard/cedentes/visualizar?programa=livelo">Livelo</NavLink>
-                <NavLink href="/dashboard/cedentes/visualizar?programa=esfera">Esfera</NavLink>
+                <NavLink href="/dashboard/cedentes/visualizar?programa=latam">
+                  Latam
+                </NavLink>
+                <NavLink href="/dashboard/cedentes/visualizar?programa=smiles">
+                  Smiles
+                </NavLink>
+                <NavLink href="/dashboard/cedentes/visualizar?programa=livelo">
+                  Livelo
+                </NavLink>
+                <NavLink href="/dashboard/cedentes/visualizar?programa=esfera">
+                  Esfera
+                </NavLink>
               </>
             )}
           </SubAccordion>
@@ -292,7 +337,9 @@ export default function Sidebar() {
           <NavLink href="/dashboard/resumo">Resumo</NavLink>
           <NavLink href="/dashboard/lucros">Lucros</NavLink>
           <NavLink href="/dashboard/comissoes">Comissões</NavLink>
-          <NavLink href="/dashboard/funcionarios/rateio?view=1">Ver rateio</NavLink>
+          <NavLink href="/dashboard/funcionarios/rateio?view=1">
+            Ver rateio
+          </NavLink>
           <button
             onClick={askRateioPasswordAndGo}
             className="w-full text-left px-3 py-2 text-sm rounded hover:bg-slate-100"
@@ -321,7 +368,13 @@ export default function Sidebar() {
 /* =========================
  * COMPONENTES AUXILIARES
  * ========================= */
-function NavLink({ href, children }: { href: string; children: React.ReactNode }) {
+function NavLink({
+  href,
+  children,
+}: {
+  href: string;
+  children: React.ReactNode;
+}) {
   const pathname = usePathname();
   const active = pathname === href || pathname.startsWith(href + "/");
 
