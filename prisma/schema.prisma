@@ -1,5 +1,4 @@
 // prisma/schema.prisma
-// https://pris.ly/d/prisma-schema
 
 generator client {
   provider   = "prisma-client-js"
@@ -10,19 +9,77 @@ datasource db {
   provider = "postgresql"
 }
 
-/*
-  MODELOS
-  Modelo mínimo compatível com seu /api/auth
-*/
+/**
+ * MODELOS
+ */
 model User {
-  id           String   @id @default(uuid())
-  login        String   @unique
+  id           String  @id @default(uuid())
+  login        String  @unique
   name         String
-  email        String?  @unique
+  email        String? @unique
   team         String
   role         String
   passwordHash String
 
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Cedente {
+  id             String    @id @default(uuid())
+  identificador  String    @unique
+  nomeCompleto   String
+  dataNascimento DateTime?
+  cpf            String    @unique
+  emailCriado    String?
+  chavePix       String?
+  banco          String?
+
+  // (por enquanto sem criptografia no app, mas mantive os campos Enc como você definiu)
+  senhaEmailEnc     String?
+  senhaSmilesEnc    String?
+  senhaLatamPassEnc String?
+  senhaLiveloEnc    String?
+  senhaEsferaEnc    String?
+
+  pontosLatam  Int @default(0)
+  pontosSmiles Int @default(0)
+  pontosLivelo Int @default(0)
+  pontosEsfera Int @default(0)
+
+  termAcceptances CedenteTermAcceptance[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("cedentes")
+}
+
+model CedenteInvite {
+  id        String    @id @default(uuid())
+  tokenHash String    @unique
+  createdBy String?
+  createdAt DateTime  @default(now())
+  expiresAt DateTime
+  usedAt    DateTime?
+
+  nomeHint String?
+  cpfHint  String?
+
+  @@index([expiresAt])
+  @@map("cedente_invites")
+}
+
+model CedenteTermAcceptance {
+  id          String   @id @default(uuid())
+  cedenteId   String
+  termoVersao String
+  ip          String?
+  userAgent   String?
+  acceptedAt  DateTime @default(now())
+
+  cedente Cedente @relation(fields: [cedenteId], references: [id], onDelete: Cascade)
+
+  @@index([cedenteId])
+  @@map("cedente_term_acceptances")
 }
