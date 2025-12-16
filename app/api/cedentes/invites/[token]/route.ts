@@ -12,10 +12,10 @@ function sha256(input: string) {
 
 export async function GET(
   _req: NextRequest,
-  context: { params: { token: string } }
+  context: { params: Promise<{ token: string }> }
 ) {
   try {
-    const { token } = context.params;
+    const { token } = await context.params; // ✅ Next 16 tipa params como Promise
     const tokenHash = sha256(token);
 
     const invite = await prisma.cedenteInvite.findUnique({
@@ -29,13 +29,22 @@ export async function GET(
     });
 
     if (!invite) {
-      return NextResponse.json({ ok: false, error: "Convite inválido." }, { status: 404 });
+      return NextResponse.json(
+        { ok: false, error: "Convite inválido." },
+        { status: 404 }
+      );
     }
     if (invite.usedAt) {
-      return NextResponse.json({ ok: false, error: "Convite já utilizado." }, { status: 410 });
+      return NextResponse.json(
+        { ok: false, error: "Convite já utilizado." },
+        { status: 410 }
+      );
     }
     if (invite.expiresAt.getTime() < Date.now()) {
-      return NextResponse.json({ ok: false, error: "Convite expirado." }, { status: 410 });
+      return NextResponse.json(
+        { ok: false, error: "Convite expirado." },
+        { status: 410 }
+      );
     }
 
     return NextResponse.json({
@@ -47,6 +56,9 @@ export async function GET(
       },
     });
   } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e?.message || "Erro" }, { status: 500 });
+    return NextResponse.json(
+      { ok: false, error: e?.message || "Erro" },
+      { status: 500 }
+    );
   }
 }
