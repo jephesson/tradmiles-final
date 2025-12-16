@@ -11,12 +11,18 @@ type Role = "admin" | "staff";
 
 const TEAM = "@vias_aereas";
 
-const sha256 = (s: string) => crypto.createHash("sha256").update(s).digest("hex");
-const norm = (s: string | null | undefined) => (s ?? "").trim().toLowerCase();
+const sha256 = (s: string) =>
+  crypto.createHash("sha256").update(s).digest("hex");
 
-// ✅ único seed: você (admin)
+const norm = (s: string | null | undefined) =>
+  (s ?? "").trim().toLowerCase();
+
+// 🔒 LOGIN NORMALIZADO (REGRA DE OURO)
+const ADMIN_LOGIN = norm("jephesson");
+
+// ✅ seed único (admin)
 const ADMIN_SEED = {
-  login: "jephesson",
+  login: ADMIN_LOGIN,
   name: "Jephesson Alex Floriano dos Santos",
   email: "jephesson@gmail.com",
   role: "admin" as const,
@@ -39,6 +45,8 @@ type ApiSetPassword = { action: "setPassword"; login: string; password: string }
 type ApiLogout = { action: "logout" };
 type ApiBody = ApiLogin | ApiSetPassword | ApiLogout;
 
+/* ===================== helpers ===================== */
+
 function noCacheHeaders() {
   return {
     "Content-Type": "application/json; charset=utf-8",
@@ -49,7 +57,6 @@ function noCacheHeaders() {
   };
 }
 
-// Base64 URL-safe
 function b64urlEncode(input: string) {
   return Buffer.from(input, "utf8")
     .toString("base64")
@@ -66,47 +73,42 @@ function setSessionCookie(res: NextResponse, session: Session) {
     team: session.team,
   };
 
-  const baseCookie = {
+  const value = b64urlEncode(JSON.stringify(payload));
+
+  res.cookies.set("tm.session", value, {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
-    sameSite: "lax" as const,
+    sameSite: "lax",
     path: "/",
-    maxAge: 60 * 60 * 8, // 8h
-  };
-
-  const value = b64urlEncode(JSON.stringify(payload));
-  const domain = process.env.COOKIE_DOMAIN?.trim();
-
-  if (domain) res.cookies.set("tm.session", value, { ...baseCookie, domain });
-  else res.cookies.set("tm.session", value, baseCookie);
+    maxAge: 60 * 60 * 8,
+  });
 }
 
 function clearSessionCookie(res: NextResponse) {
-  const base = { path: "/" as const, maxAge: 0 };
-  const domain = process.env.COOKIE_DOMAIN?.trim();
-  if (domain) res.cookies.set("tm.session", "", { ...base, domain });
-  else res.cookies.set("tm.session", "", base);
+  res.cookies.set("tm.session", "", { path: "/", maxAge: 0 });
 }
 
 function isApiBody(v: unknown): v is ApiBody {
   if (!v || typeof v !== "object") return false;
-  const action = (v as { action?: string }).action;
+  const action = (v as any).action;
   return action === "login" || action === "setPassword" || action === "logout";
 }
 
-function jsonOk(data: Record<string, unknown> = {}, init?: { status?: number }) {
-  return NextResponse.json({ ok: true, ...data }, { status: init?.status ?? 200, headers: noCacheHeaders() });
+function jsonOk(data: Record<string, unknown> = {}, status = 200) {
+  return NextResponse.json({ ok: true, ...data }, { status, headers: noCacheHeaders() });
 }
 
-function jsonFail(error: string, init?: { status?: number }) {
-  return NextResponse.json({ ok: false, error }, { status: init?.status ?? 400, headers: noCacheHeaders() });
+function jsonFail(error: string, status = 400) {
+  return NextResponse.json({ ok: false, error }, { status, headers: noCacheHeaders() });
 }
 
 function genInviteCode(login: string) {
   return `conv-${login}-${crypto.randomBytes(4).toString("hex")}`;
 }
 
-// ✅ garante que você exista no banco SEM depender de count()
+/* ===================== SEED ===================== */
+
+// ✅ SEMPRE garante admin (idempotente)
 async function ensureAdminSeeded() {
   const admin = await prisma.user.upsert({
     where: { login: ADMIN_SEED.login },
@@ -128,7 +130,7 @@ async function ensureAdminSeeded() {
     select: { id: true, login: true },
   });
 
-  // ✅ garante que o admin tenha convite
+  // ✅ garante convite
   await prisma.employeeInvite.upsert({
     where: { userId: admin.id },
     update: { isActive: true },
@@ -142,43 +144,49 @@ async function ensureAdminSeeded() {
   return admin;
 }
 
-export async function GET(): Promise<NextResponse> {
+/* ===================== handlers ===================== */
+
+export async function GET() {
   await ensureAdminSeeded();
   return jsonOk({ ping: true });
 }
 
-export async function POST(req: Request): Promise<NextResponse> {
+export async function POST(req: Request) {
   try {
     const raw = await req.json().catch(() => null);
-
-    if (!isApiBody(raw)) {
-      return jsonFail("Ação inválida", { status: 400 });
-    }
+    if (!isApiBody(raw)) return jsonFail("Ação inválida");
 
     if (raw.action === "login") {
       await ensureAdminSeeded();
 
       const login = norm(raw.login);
       const password = String(raw.password ?? "");
-      if (!login || !password) return jsonFail("Campos obrigatórios ausentes", { status: 400 });
 
-      const dbUser = await prisma.user.findUnique({ where: { login } }).catch(() => null);
-      if (!dbUser) return jsonFail("Usuário não encontrado", { status: 401 });
+      if (!login || !password) {
+        return jsonFail("Campos obrigatórios ausentes", 400);
+      }
 
-      if (dbUser.passwordHash !== sha256(password)) {
-        return jsonFail("Senha inválida", { status: 401 });
+      const user = await prisma.user.findUnique({ where: { login } });
+      if (!user) return jsonFail("Usuário não encontrado", 401);
+
+      if (user.passwordHash !== sha256(password)) {
+        return jsonFail("Senha inválida", 401);
       }
 
       const session: Session = {
-        id: dbUser.id,
-        name: dbUser.name,
-        login: dbUser.login,
-        email: dbUser.email ?? null,
-        team: dbUser.team,
-        role: dbUser.role as Role,
+        id: user.id,
+        name: user.name,
+        login: user.login,
+        email: user.email ?? null,
+        team: user.team,
+        role: user.role as Role,
       };
 
-      const res = NextResponse.json({ ok: true, data: { session } }, { headers: noCacheHeaders() });
+      const res = NextResponse.json(
+        { ok: true, data: { session } },
+        { headers: noCacheHeaders() }
+      );
+
       setSessionCookie(res, session);
       return res;
     }
@@ -188,10 +196,10 @@ export async function POST(req: Request): Promise<NextResponse> {
 
       const login = norm(raw.login);
       const password = String(raw.password ?? "");
-      if (!login || !password) return jsonFail("Campos obrigatórios ausentes", { status: 400 });
 
-      const exists = await prisma.user.findUnique({ where: { login } }).catch(() => null);
-      if (!exists) return jsonFail("Usuário não encontrado", { status: 404 });
+      if (!login || !password) {
+        return jsonFail("Campos obrigatórios ausentes", 400);
+      }
 
       await prisma.user.update({
         where: { login },
@@ -207,10 +215,9 @@ export async function POST(req: Request): Promise<NextResponse> {
       return res;
     }
 
-    return jsonFail("Ação desconhecida", { status: 400 });
+    return jsonFail("Ação desconhecida");
   } catch (err) {
-    console.error("Erro em /api/auth:", err);
-    const msg = err instanceof Error ? err.message : "Erro ao processar requisição";
-    return jsonFail(msg, { status: 500 });
+    console.error("Erro /api/auth:", err);
+    return jsonFail("Erro interno", 500);
   }
 }
