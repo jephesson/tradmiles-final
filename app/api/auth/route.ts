@@ -1,7 +1,7 @@
-// app/api/auth/route.ts
+// src/app/api/auth/route.ts
 import { NextResponse } from "next/server";
 import crypto from "node:crypto";
-import { prisma } from "@/lib/prisma";
+import { prisma } from "@/lib/prisma"; // ✅ caminho correto
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -10,24 +10,8 @@ export const revalidate = 0;
 type Role = "admin" | "staff";
 
 const TEAM = "@vias_aereas";
-
-const sha256 = (s: string) =>
-  crypto.createHash("sha256").update(s).digest("hex");
-
-const norm = (s: string | null | undefined) =>
-  (s ?? "").trim().toLowerCase();
-
-// 🔒 LOGIN NORMALIZADO (REGRA DE OURO)
-const ADMIN_LOGIN = norm("jephesson");
-
-// ✅ seed único (admin)
-const ADMIN_SEED = {
-  login: ADMIN_LOGIN,
-  name: "Jephesson Alex Floriano dos Santos",
-  email: "jephesson@gmail.com",
-  role: "admin" as const,
-  passwordHash: sha256("ufpb2010"),
-};
+const sha256 = (s: string) => crypto.createHash("sha256").update(s).digest("hex");
+const norm = (s: string | null | undefined) => (s ?? "").trim().toLowerCase();
 
 type Session = {
   id: string;
@@ -38,16 +22,50 @@ type Session = {
   role: Role;
 };
 
-type SessionCookie = Pick<Session, "id" | "login" | "role" | "team">;
-
 type ApiLogin = { action: "login"; login: string; password: string };
 type ApiSetPassword = { action: "setPassword"; login: string; password: string };
+type ApiResetSeed = { action: "resetSeed" };
 type ApiLogout = { action: "logout" };
-type ApiBody = ApiLogin | ApiSetPassword | ApiLogout;
+type ApiBody = ApiLogin | ApiSetPassword | ApiResetSeed | ApiLogout;
 
-/* ===================== helpers ===================== */
+const SEED_USERS: Array<{
+  login: string;
+  name: string;
+  email: string | null;
+  role: Role;
+  password: string;
+}> = [
+  {
+    login: "jephesson",
+    name: "Jephesson Alex Floriano dos Santos",
+    email: "jephesson@gmail.com",
+    role: "admin",
+    password: "ufpb2010",
+  },
+  {
+    login: "lucas",
+    name: "Lucas Henrique Floriano de Araújo",
+    email: "luucasaraujo97@gmail.com",
+    role: "staff",
+    password: "1234",
+  },
+  {
+    login: "paola",
+    name: "Paola Rampelotto Ziani",
+    email: "paolaziani5@gmail.com",
+    role: "staff",
+    password: "1234",
+  },
+  {
+    login: "eduarda",
+    name: "Eduarda Vargas de Freitas",
+    email: "eduarda.jeph@gmail.com",
+    role: "staff",
+    password: "1234",
+  },
+];
 
-function noCacheHeaders() {
+function noCache() {
   return {
     "Content-Type": "application/json; charset=utf-8",
     "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
@@ -57,148 +75,143 @@ function noCacheHeaders() {
   };
 }
 
-function b64urlEncode(input: string) {
-  return Buffer.from(input, "utf8")
-    .toString("base64")
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_")
-    .replace(/=+$/g, "");
-}
-
+/**
+ * Define o cookie de sessão (válido em localhost, preview e produção).
+ * - Em produção, use a env COOKIE_DOMAIN=.trademiles.com.br (ou o domínio que você quiser).
+ * - Em preview/local, não define "domain" para herdar o host atual.
+ */
 function setSessionCookie(res: NextResponse, session: Session) {
-  const payload: SessionCookie = {
-    id: session.id,
-    login: session.login,
-    role: session.role,
-    team: session.team,
-  };
-
-  const value = b64urlEncode(JSON.stringify(payload));
-
-  res.cookies.set("tm.session", value, {
+  const baseCookie = {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
-    sameSite: "lax",
+    sameSite: "lax" as const,
     path: "/",
-    maxAge: 60 * 60 * 8,
-  });
+    maxAge: 60 * 60 * 8, // 8h
+  };
+
+  const domain = process.env.COOKIE_DOMAIN?.trim();
+  if (domain) {
+    res.cookies.set("tm.session", encodeURIComponent(JSON.stringify(session)), {
+      ...baseCookie,
+      domain,
+    });
+  } else {
+    res.cookies.set("tm.session", encodeURIComponent(JSON.stringify(session)), baseCookie);
+  }
 }
 
 function clearSessionCookie(res: NextResponse) {
-  res.cookies.set("tm.session", "", { path: "/", maxAge: 0 });
+  const base = { path: "/" as const, maxAge: 0 };
+  const domain = process.env.COOKIE_DOMAIN?.trim();
+  if (domain) res.cookies.set("tm.session", "", { ...base, domain });
+  else res.cookies.set("tm.session", "", base);
 }
 
 function isApiBody(v: unknown): v is ApiBody {
   if (!v || typeof v !== "object") return false;
-  const action = (v as any).action;
-  return action === "login" || action === "setPassword" || action === "logout";
+  const action = (v as { action?: string }).action;
+  return action === "login" || action === "setPassword" || action === "resetSeed" || action === "logout";
 }
 
-function jsonOk(data: Record<string, unknown> = {}, status = 200) {
-  return NextResponse.json({ ok: true, ...data }, { status, headers: noCacheHeaders() });
+export async function GET(): Promise<NextResponse> {
+  return NextResponse.json({ ok: true }, { headers: noCache() });
 }
 
-function jsonFail(error: string, status = 400) {
-  return NextResponse.json({ ok: false, error }, { status, headers: noCacheHeaders() });
-}
-
-function genInviteCode(login: string) {
-  return `conv-${login}-${crypto.randomBytes(4).toString("hex")}`;
-}
-
-/* ===================== SEED ===================== */
-
-// ✅ SEMPRE garante admin (idempotente)
-async function ensureAdminSeeded() {
-  const admin = await prisma.user.upsert({
-    where: { login: ADMIN_SEED.login },
-    update: {
-      name: ADMIN_SEED.name,
-      email: ADMIN_SEED.email,
-      team: TEAM,
-      role: ADMIN_SEED.role,
-      passwordHash: ADMIN_SEED.passwordHash,
-    },
-    create: {
-      login: ADMIN_SEED.login,
-      name: ADMIN_SEED.name,
-      email: ADMIN_SEED.email,
-      team: TEAM,
-      role: ADMIN_SEED.role,
-      passwordHash: ADMIN_SEED.passwordHash,
-    },
-    select: { id: true, login: true },
-  });
-
-  // ✅ garante convite
-  await prisma.employeeInvite.upsert({
-    where: { userId: admin.id },
-    update: { isActive: true },
-    create: {
-      userId: admin.id,
-      code: genInviteCode(admin.login),
-      isActive: true,
-    },
-  });
-
-  return admin;
-}
-
-/* ===================== handlers ===================== */
-
-export async function GET() {
-  await ensureAdminSeeded();
-  return jsonOk({ ping: true });
-}
-
-export async function POST(req: Request) {
+export async function POST(req: Request): Promise<NextResponse> {
   try {
     const raw = await req.json().catch(() => null);
-    if (!isApiBody(raw)) return jsonFail("Ação inválida");
+    if (!isApiBody(raw)) {
+      return NextResponse.json(
+        { ok: false, error: "Ação inválida" },
+        { status: 400, headers: noCache() }
+      );
+    }
 
+    // ============ LOGIN ============
     if (raw.action === "login") {
-      await ensureAdminSeeded();
-
       const login = norm(raw.login);
       const password = String(raw.password ?? "");
-
       if (!login || !password) {
-        return jsonFail("Campos obrigatórios ausentes", 400);
+        return NextResponse.json(
+          { ok: false, error: "Campos obrigatórios ausentes" },
+          { status: 400, headers: noCache() }
+        );
       }
 
-      const user = await prisma.user.findUnique({ where: { login } });
-      if (!user) return jsonFail("Usuário não encontrado", 401);
+      const dbUser = await prisma.user.findUnique({ where: { login } }).catch(() => null);
 
-      if (user.passwordHash !== sha256(password)) {
-        return jsonFail("Senha inválida", 401);
+      // Fallback seed
+      if (!dbUser) {
+        const seedUser = SEED_USERS.find((u) => u.login === login);
+        if (!seedUser) {
+          return NextResponse.json(
+            { ok: false, error: "Usuário não encontrado" },
+            { status: 401, headers: noCache() }
+          );
+        }
+        if (sha256(password) !== sha256(seedUser.password)) {
+          return NextResponse.json(
+            { ok: false, error: "Senha inválida" },
+            { status: 401, headers: noCache() }
+          );
+        }
+
+        const session: Session = {
+          id: `seed-${seedUser.login}`,
+          name: seedUser.name,
+          login: seedUser.login,
+          email: seedUser.email,
+          team: TEAM,
+          role: seedUser.role,
+        };
+
+        const res = NextResponse.json(
+          { ok: true, data: { session, source: "seed" } },
+          { headers: noCache() }
+        );
+        setSessionCookie(res, session);
+        return res;
+      }
+
+      // Login via banco
+      if (dbUser.passwordHash !== sha256(password)) {
+        return NextResponse.json(
+          { ok: false, error: "Senha inválida" },
+          { status: 401, headers: noCache() }
+        );
       }
 
       const session: Session = {
-        id: user.id,
-        name: user.name,
-        login: user.login,
-        email: user.email ?? null,
-        team: user.team,
-        role: user.role as Role,
+        id: dbUser.id,
+        name: dbUser.name,
+        login: dbUser.login,
+        email: dbUser.email ?? null,
+        team: dbUser.team,
+        role: dbUser.role as Role,
       };
 
-      const res = NextResponse.json(
-        { ok: true, data: { session } },
-        { headers: noCacheHeaders() }
-      );
-
+      const res = NextResponse.json({ ok: true, data: { session } }, { headers: noCache() });
       setSessionCookie(res, session);
       return res;
     }
 
+    // ============ SET PASSWORD ============
     if (raw.action === "setPassword") {
-      await ensureAdminSeeded();
-
       const login = norm(raw.login);
       const password = String(raw.password ?? "");
-
       if (!login || !password) {
-        return jsonFail("Campos obrigatórios ausentes", 400);
+        return NextResponse.json(
+          { ok: false, error: "Campos obrigatórios ausentes" },
+          { status: 400, headers: noCache() }
+        );
+      }
+
+      const exists = await prisma.user.findUnique({ where: { login } });
+      if (!exists) {
+        return NextResponse.json(
+          { ok: false, error: "Usuário não encontrado" },
+          { status: 404, headers: noCache() }
+        );
       }
 
       await prisma.user.update({
@@ -206,18 +219,52 @@ export async function POST(req: Request) {
         data: { passwordHash: sha256(password) },
       });
 
-      return jsonOk({});
+      return NextResponse.json({ ok: true }, { headers: noCache() });
     }
 
+    // ============ RESET SEED ============
+    if (raw.action === "resetSeed") {
+      await prisma.$transaction(
+        SEED_USERS.map((u) =>
+          prisma.user.upsert({
+            where: { login: u.login },
+            update: {
+              name: u.name,
+              email: u.email,
+              team: TEAM,
+              role: u.role,
+              passwordHash: sha256(u.password),
+            },
+            create: {
+              login: u.login,
+              name: u.name,
+              email: u.email,
+              team: TEAM,
+              role: u.role,
+              passwordHash: sha256(u.password),
+            },
+          })
+        )
+      );
+
+      return NextResponse.json({ ok: true, message: "Seed restaurado" }, { headers: noCache() });
+    }
+
+    // ============ LOGOUT ============
     if (raw.action === "logout") {
-      const res = NextResponse.json({ ok: true }, { headers: noCacheHeaders() });
+      const res = NextResponse.json({ ok: true }, { headers: noCache() });
       clearSessionCookie(res);
       return res;
     }
 
-    return jsonFail("Ação desconhecida");
+    // fallback
+    return NextResponse.json(
+      { ok: false, error: "Ação desconhecida" },
+      { status: 400, headers: noCache() }
+    );
   } catch (err) {
-    console.error("Erro /api/auth:", err);
-    return jsonFail("Erro interno", 500);
+    console.error("Erro em /api/auth:", err);
+    const msg = err instanceof Error ? err.message : "Erro ao processar requisição";
+    return NextResponse.json({ ok: false, error: msg }, { status: 500, headers: noCache() });
   }
 }
