@@ -1,3 +1,5 @@
+// prisma/schema.prisma
+
 generator client {
   provider   = "prisma-client-js"
   engineType = "binary"
@@ -5,6 +7,9 @@ generator client {
 
 datasource db {
   provider = "postgresql"
+  // ⚠️ Se você estiver usando Prisma 7 + prisma.config.ts e seu projeto reclama de `url`,
+  // remova a linha abaixo. Se NÃO reclamar, mantenha.
+  // url      = env("DATABASE_URL")
 }
 
 /**
@@ -31,6 +36,7 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  // Quem aprovou/reprovou cedentes
   cedentesAprovados Cedente[] @relation("CedenteApprovedBy")
 }
 
@@ -57,11 +63,13 @@ model Cedente {
   pontosLivelo Int @default(0)
   pontosEsfera Int @default(0)
 
+  // ✅ Status / revisão
   status       CedenteStatus @default(PENDING)
   reviewedAt   DateTime?
   reviewedById String?
   reviewedBy   User? @relation("CedenteApprovedBy", fields: [reviewedById], references: [id], onDelete: SetNull)
 
+  // Relações
   termAcceptances CedenteTermAcceptance[]
   invite          CedenteInvite?
 
@@ -81,9 +89,11 @@ model CedenteInvite {
   expiresAt DateTime
   usedAt    DateTime?
 
+  // pré-preenchimento
   nomeHint String?
   cpfHint  String?
 
+  // ✅ vincula o convite ao cedente criado
   cedenteId String?  @unique
   cedente   Cedente? @relation(fields: [cedenteId], references: [id], onDelete: SetNull)
 
