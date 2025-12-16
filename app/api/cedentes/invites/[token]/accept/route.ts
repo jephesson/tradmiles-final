@@ -28,19 +28,23 @@ function makeIdentifier(nomeCompleto: string) {
 
 export async function POST(
   req: NextRequest,
-  context: { params: { token: string } }
+  context: { params: Promise<{ token: string }> }
 ) {
   try {
-    const { token } = context.params;
+    const { token } = await context.params; // ✅ Next 16 tipa params como Promise
     const tokenHash = sha256(token);
 
     const body = await req.json().catch(() => ({}));
 
-    const nomeCompleto = typeof body?.nomeCompleto === "string" ? body.nomeCompleto.trim() : "";
+    const nomeCompleto =
+      typeof body?.nomeCompleto === "string" ? body.nomeCompleto.trim() : "";
     const cpf = onlyDigits(typeof body?.cpf === "string" ? body.cpf : "");
 
     if (!nomeCompleto) {
-      return NextResponse.json({ ok: false, error: "Informe o nome completo." }, { status: 400 });
+      return NextResponse.json(
+        { ok: false, error: "Informe o nome completo." },
+        { status: 400 }
+      );
     }
     if (cpf.length !== 11) {
       return NextResponse.json({ ok: false, error: "CPF inválido." }, { status: 400 });
@@ -90,15 +94,26 @@ export async function POST(
           cpf,
           dataNascimento,
 
-          emailCriado: typeof body?.emailCriado === "string" ? body.emailCriado.trim() || null : null,
-          chavePix: typeof body?.chavePix === "string" ? body.chavePix.trim() || null : null,
+          emailCriado:
+            typeof body?.emailCriado === "string"
+              ? body.emailCriado.trim() || null
+              : null,
+          chavePix:
+            typeof body?.chavePix === "string" ? body.chavePix.trim() || null : null,
           banco: typeof body?.banco === "string" ? body.banco.trim() || null : null,
 
-          senhaEmailEnc: typeof body?.senhaEmailEnc === "string" ? body.senhaEmailEnc || null : null,
-          senhaSmilesEnc: typeof body?.senhaSmilesEnc === "string" ? body.senhaSmilesEnc || null : null,
-          senhaLatamPassEnc: typeof body?.senhaLatamPassEnc === "string" ? body.senhaLatamPassEnc || null : null,
-          senhaLiveloEnc: typeof body?.senhaLiveloEnc === "string" ? body.senhaLiveloEnc || null : null,
-          senhaEsferaEnc: typeof body?.senhaEsferaEnc === "string" ? body.senhaEsferaEnc || null : null,
+          senhaEmailEnc:
+            typeof body?.senhaEmailEnc === "string" ? body.senhaEmailEnc || null : null,
+          senhaSmilesEnc:
+            typeof body?.senhaSmilesEnc === "string" ? body.senhaSmilesEnc || null : null,
+          senhaLatamPassEnc:
+            typeof body?.senhaLatamPassEnc === "string"
+              ? body.senhaLatamPassEnc || null
+              : null,
+          senhaLiveloEnc:
+            typeof body?.senhaLiveloEnc === "string" ? body.senhaLiveloEnc || null : null,
+          senhaEsferaEnc:
+            typeof body?.senhaEsferaEnc === "string" ? body.senhaEsferaEnc || null : null,
 
           pontosLatam: Number(body?.pontosLatam || 0),
           pontosSmiles: Number(body?.pontosSmiles || 0),
@@ -139,7 +154,10 @@ export async function POST(
   } catch (e: any) {
     const msg = e?.message || "Erro ao aceitar convite";
     if (msg.includes("Unique constraint failed") && msg.includes("cpf")) {
-      return NextResponse.json({ ok: false, error: "Já existe um cedente com esse CPF." }, { status: 409 });
+      return NextResponse.json(
+        { ok: false, error: "Já existe um cedente com esse CPF." },
+        { status: 409 }
+      );
     }
     return NextResponse.json({ ok: false, error: msg }, { status: 500 });
   }
