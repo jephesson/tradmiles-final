@@ -30,7 +30,7 @@ export default function EditarFuncionarioPage({ params }: { params: { id: string
   async function load() {
     try {
       setLoading(true);
-      const res = await fetch(`/api/funcionarios/${id}`, { method: "GET" });
+      const res = await fetch(`/api/funcionarios/${id}`, { method: "GET", cache: "no-store" });
       const json = await res.json();
       if (!json?.ok) throw new Error(json?.error || "Erro ao carregar.");
 
@@ -39,7 +39,7 @@ export default function EditarFuncionarioPage({ params }: { params: { id: string
       setCpf(u.cpf ?? "");
       setLogin(u.login ?? "");
       setTeam(u.team ?? "Milhas");
-      setRole(u.role ?? "staff");
+      setRole((u.role ?? "staff") as any);
       setInviteCode(u.inviteCode ?? "");
     } catch (e: any) {
       alert(e?.message || "Erro");
@@ -113,7 +113,11 @@ export default function EditarFuncionarioPage({ params }: { params: { id: string
       <form onSubmit={onSubmit} className="space-y-4 rounded-2xl border p-4">
         <div>
           <label className="block text-sm mb-1">Nome completo</label>
-          <input className="w-full rounded-xl border px-3 py-2" value={name} onChange={(e) => setName(e.target.value)} />
+          <input
+            className="w-full rounded-xl border px-3 py-2"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+          />
         </div>
 
         <div>
@@ -128,17 +132,29 @@ export default function EditarFuncionarioPage({ params }: { params: { id: string
 
         <div>
           <label className="block text-sm mb-1">Login</label>
-          <input className="w-full rounded-xl border px-3 py-2" value={login} onChange={(e) => setLogin(e.target.value)} />
+          <input
+            className="w-full rounded-xl border px-3 py-2"
+            value={login}
+            onChange={(e) => setLogin(e.target.value)}
+          />
         </div>
 
         <div>
           <label className="block text-sm mb-1">Time</label>
-          <input className="w-full rounded-xl border px-3 py-2" value={team} onChange={(e) => setTeam(e.target.value)} />
+          <input
+            className="w-full rounded-xl border px-3 py-2"
+            value={team}
+            onChange={(e) => setTeam(e.target.value)}
+          />
         </div>
 
         <div>
           <label className="block text-sm mb-1">Cargo</label>
-          <select className="w-full rounded-xl border px-3 py-2" value={role} onChange={(e) => setRole(e.target.value as any)}>
+          <select
+            className="w-full rounded-xl border px-3 py-2"
+            value={role}
+            onChange={(e) => setRole(e.target.value as any)}
+          >
             <option value="staff">staff</option>
             <option value="admin">admin</option>
           </select>
@@ -158,7 +174,12 @@ export default function EditarFuncionarioPage({ params }: { params: { id: string
         <div className="rounded-2xl border p-3">
           <div className="text-sm font-semibold mb-2">Link de convite</div>
           <div className="flex gap-2">
-            <input className="w-full rounded-xl border px-3 py-2" readOnly value={inviteLink || ""} placeholder="(ainda sem link)" />
+            <input
+              className="w-full rounded-xl border px-3 py-2"
+              readOnly
+              value={inviteLink || ""}
+              placeholder="(ainda sem link)"
+            />
             <button
               type="button"
               onClick={copiarConvite}
@@ -170,7 +191,11 @@ export default function EditarFuncionarioPage({ params }: { params: { id: string
           </div>
         </div>
 
-        <button type="submit" disabled={saving} className="rounded-xl bg-black px-4 py-2 text-white disabled:opacity-60">
+        <button
+          type="submit"
+          disabled={saving}
+          className="rounded-xl bg-black px-4 py-2 text-white disabled:opacity-60"
+        >
           {saving ? "Salvando..." : "Salvar alterações"}
         </button>
       </form>

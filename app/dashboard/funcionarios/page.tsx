@@ -15,7 +15,10 @@ type FuncItem = {
 };
 
 function baseUrl() {
-  return (process.env.NEXT_PUBLIC_APP_URL || "").replace(/\/+$/, "") || "";
+  const env = (process.env.NEXT_PUBLIC_APP_URL || "").replace(/\/+$/, "");
+  if (env) return env;
+  if (typeof window !== "undefined") return window.location.origin;
+  return "";
 }
 
 export default function FuncionariosPage() {
@@ -60,6 +63,7 @@ export default function FuncionariosPage() {
         <div className="space-y-3">
           {items.map((f) => {
             const inviteUrl = f.inviteCode ? `${appBase}/convite/${f.inviteCode}` : "";
+
             return (
               <div key={f.id} className="rounded-2xl border p-4">
                 <div className="flex flex-wrap items-center justify-between gap-3">
@@ -75,17 +79,24 @@ export default function FuncionariosPage() {
                     </div>
                   </div>
 
-                  <div className="flex flex-col gap-2 min-w-[320px]">
-                    <div className="text-xs font-semibold text-slate-600">Link convite</div>
+                  <div className="flex flex-col gap-2 min-w-[360px]">
+                    <div className="flex items-center justify-between">
+                      <div className="text-xs font-semibold text-slate-600">Link convite</div>
+
+                      {/* ✅ botão editar */}
+                      <a
+                        href={`/dashboard/funcionarios/${f.id}`}
+                        className="rounded-xl border px-3 py-2 text-xs hover:bg-slate-50"
+                      >
+                        Editar
+                      </a>
+                    </div>
+
                     <div className="flex gap-2">
-                      <input
-                        className="w-full rounded-xl border px-3 py-2 text-xs"
-                        value={inviteUrl || "—"}
-                        readOnly
-                      />
+                      <input className="w-full rounded-xl border px-3 py-2 text-xs" value={inviteUrl || "—"} readOnly />
                       <button
                         type="button"
-                        className="rounded-xl border px-3 py-2 text-xs hover:bg-slate-50"
+                        className="rounded-xl border px-3 py-2 text-xs hover:bg-slate-50 disabled:opacity-60"
                         onClick={() => {
                           if (!inviteUrl) return;
                           navigator.clipboard.writeText(inviteUrl);
@@ -103,9 +114,7 @@ export default function FuncionariosPage() {
           })}
 
           {items.length === 0 && (
-            <div className="rounded-2xl border p-6 text-sm text-slate-600">
-              Nenhum funcionário cadastrado ainda.
-            </div>
+            <div className="rounded-2xl border p-6 text-sm text-slate-600">Nenhum funcionário cadastrado ainda.</div>
           )}
         </div>
       )}
