@@ -1,3 +1,5 @@
+// prisma/schema.prisma
+
 generator client {
   provider   = "prisma-client-js"
   engineType = "binary"
@@ -5,6 +7,7 @@ generator client {
 
 datasource db {
   provider = "postgresql"
+  // url      = env("DATABASE_URL") // (se você usa env, pode deixar assim)
 }
 
 enum CedenteStatus {
@@ -17,6 +20,10 @@ model User {
   id           String  @id @default(uuid())
   login        String  @unique
   name         String
+
+  // ✅ CPF do funcionário
+  cpf          String? @unique
+
   email        String? @unique
   team         String
   role         String

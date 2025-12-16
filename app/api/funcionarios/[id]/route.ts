@@ -10,7 +10,6 @@ const sha256 = (s: string) => crypto.createHash("sha256").update(s).digest("hex"
 function onlyDigits(v: string) {
   return (v || "").replace(/\D+/g, "").slice(0, 11);
 }
-
 function jsonOk(data: any, status = 200) {
   return NextResponse.json({ ok: true, data }, { status });
 }
@@ -18,10 +17,7 @@ function jsonFail(error: string, status = 400) {
   return NextResponse.json({ ok: false, error }, { status });
 }
 
-export async function GET(
-  _req: NextRequest,
-  context: { params: Promise<{ id: string }> }
-) {
+export async function GET(_req: NextRequest, context: { params: Promise<{ id: string }> }) {
   const { id } = await context.params;
 
   const user = await prisma.user.findUnique({
@@ -33,19 +29,26 @@ export async function GET(
       login: true,
       team: true,
       role: true,
-      inviteCode: true,
       createdAt: true,
+      employeeInvite: { select: { code: true } },
     },
   });
 
   if (!user) return jsonFail("Não encontrado.", 404);
-  return jsonOk(user);
+
+  return jsonOk({
+    id: user.id,
+    name: user.name,
+    cpf: user.cpf,
+    login: user.login,
+    team: user.team,
+    role: user.role,
+    inviteCode: user.employeeInvite?.code ?? null,
+    createdAt: user.createdAt,
+  });
 }
 
-export async function PUT(
-  req: NextRequest,
-  context: { params: Promise<{ id: string }> }
-) {
+export async function PUT(req: NextRequest, context: { params: Promise<{ id: string }> }) {
   const { id } = await context.params;
   const body = await req.json().catch(() => ({}));
 
@@ -59,13 +62,14 @@ export async function PUT(
   if (!name) return jsonFail("Nome obrigatório.", 400);
   if (!login) return jsonFail("Login obrigatório.", 400);
 
-  // garante unicidade de login/CPF (sem bloquear o próprio)
+  // unicidade login (exceto ele mesmo)
   const dupLogin = await prisma.user.findFirst({
     where: { login, NOT: { id } },
     select: { id: true },
   });
   if (dupLogin) return jsonFail("Já existe um usuário com esse login.", 409);
 
+  // unicidade CPF (exceto ele mesmo)
   if (cpf) {
     const dupCpf = await prisma.user.findFirst({
       where: { cpf, NOT: { id } },
@@ -97,10 +101,19 @@ export async function PUT(
       login: true,
       team: true,
       role: true,
-      inviteCode: true,
       createdAt: true,
+      employeeInvite: { select: { code: true } },
     },
   });
 
-  return jsonOk(updated);
+  return jsonOk({
+    id: updated.id,
+    name: updated.name,
+    cpf: updated.cpf,
+    login: updated.login,
+    team: updated.team,
+    role: updated.role,
+    inviteCode: updated.employeeInvite?.code ?? null,
+    createdAt: updated.createdAt,
+  });
 }
