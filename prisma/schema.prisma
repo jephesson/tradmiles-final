@@ -1,5 +1,3 @@
-// prisma/schema.prisma
-
 generator client {
   provider   = "prisma-client-js"
   engineType = "binary"
@@ -7,6 +5,7 @@ generator client {
 
 datasource db {
   provider = "postgresql"
+  url      = env("DATABASE_URL")
 }
 
 /**
@@ -37,17 +36,21 @@ model User {
   cedentesAprovados Cedente[] @relation("CedenteApprovedBy")
 }
 
+/**
+ * CEDENTE
+ */
 model Cedente {
   id             String    @id @default(uuid())
   identificador  String    @unique
   nomeCompleto   String
   dataNascimento DateTime?
   cpf            String    @unique
-  emailCriado    String?
-  chavePix       String?
-  banco          String?
 
-  // (por enquanto sem criptografia no app, mas mantive os campos Enc como você definiu)
+  emailCriado String?
+  chavePix    String?
+  banco       String?
+
+  // credenciais (como você pediu, sem criptografia por enquanto)
   senhaEmailEnc     String?
   senhaSmilesEnc    String?
   senhaLatamPassEnc String?
@@ -59,13 +62,18 @@ model Cedente {
   pontosLivelo Int @default(0)
   pontosEsfera Int @default(0)
 
-  // ✅ Status / revisão
-  status       CedenteStatus @default(APPROVED)
+  // status / revisão
+  status       CedenteStatus @default(PENDING)
   reviewedAt   DateTime?
   reviewedById String?
-  reviewedBy   User?         @relation("CedenteApprovedBy", fields: [reviewedById], references: [id], onDelete: SetNull)
+  reviewedBy   User? @relation(
+    "CedenteApprovedBy",
+    fields: [reviewedById],
+    references: [id],
+    onDelete: SetNull
+  )
 
-  // Relações
+  // relações
   termAcceptances CedenteTermAcceptance[]
   invite          CedenteInvite?
 
@@ -76,27 +84,41 @@ model Cedente {
   @@map("cedentes")
 }
 
+/**
+ * CONVITE DO CEDENTE
+ * ✅ token direto (SEM HASH)
+ */
 model CedenteInvite {
-  id        String    @id @default(uuid())
-  tokenHash String    @unique
+  id        String   @id @default(uuid())
+
+  // ✅ token público usado na URL /convite/[token]
+  token     String   @unique
+
   createdBy String?
-  createdAt DateTime  @default(now())
+  createdAt DateTime @default(now())
   expiresAt DateTime
   usedAt    DateTime?
 
-  // pré-preenchimento
+  // hints para pré-preenchimento
   nomeHint String?
   cpfHint  String?
 
-  // ✅ vincula o convite ao cedente criado
+  // vínculo com cedente criado
   cedenteId String?  @unique
-  cedente   Cedente? @relation(fields: [cedenteId], references: [id], onDelete: SetNull)
+  cedente   Cedente? @relation(
+    fields: [cedenteId],
+    references: [id],
+    onDelete: SetNull
+  )
 
   @@index([expiresAt])
   @@index([usedAt])
   @@map("cedente_invites")
 }
 
+/**
+ * ACEITE DO TERMO
+ */
 model CedenteTermAcceptance {
   id          String   @id @default(uuid())
   cedenteId   String
@@ -105,7 +127,11 @@ model CedenteTermAcceptance {
   userAgent   String?
   acceptedAt  DateTime @default(now())
 
-  cedente Cedente @relation(fields: [cedenteId], references: [id], onDelete: Cascade)
+  cedente Cedente @relation(
+    fields: [cedenteId],
+    references: [id],
+    onDelete: Cascade
+  )
 
   @@index([cedenteId])
   @@map("cedente_term_acceptances")

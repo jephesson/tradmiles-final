@@ -1,18 +1,8 @@
-// app/api/cedentes/invites/[token]/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import crypto from "crypto";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-
-function sha256(input: string) {
-  return crypto.createHash("sha256").update(input).digest("hex");
-}
-
-function isSha256Hex(s: string) {
-  return /^[a-f0-9]{64}$/i.test(s || "");
-}
 
 export async function GET(
   _req: NextRequest,
@@ -21,30 +11,15 @@ export async function GET(
   try {
     const { token } = await context.params;
 
-    const tokenHashFromRaw = sha256(token);
-    const tokenHashDirect = isSha256Hex(token) ? token : null;
-
-    const invite =
-      (await prisma.cedenteInvite.findUnique({
-        where: { tokenHash: tokenHashFromRaw },
-        select: {
-          expiresAt: true,
-          usedAt: true,
-          nomeHint: true,
-          cpfHint: true,
-        },
-      })) ||
-      (tokenHashDirect
-        ? await prisma.cedenteInvite.findUnique({
-            where: { tokenHash: tokenHashDirect },
-            select: {
-              expiresAt: true,
-              usedAt: true,
-              nomeHint: true,
-              cpfHint: true,
-            },
-          })
-        : null);
+    const invite = await prisma.cedenteInvite.findUnique({
+      where: { token },
+      select: {
+        expiresAt: true,
+        usedAt: true,
+        nomeHint: true,
+        cpfHint: true,
+      },
+    });
 
     if (!invite) {
       return NextResponse.json({ ok: false, error: "Convite inválido." }, { status: 404 });
