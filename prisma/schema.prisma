@@ -5,7 +5,6 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_URL")
 }
 
 /**
@@ -36,9 +35,6 @@ model User {
   cedentesAprovados Cedente[] @relation("CedenteApprovedBy")
 }
 
-/**
- * CEDENTE
- */
 model Cedente {
   id             String    @id @default(uuid())
   identificador  String    @unique
@@ -50,7 +46,7 @@ model Cedente {
   chavePix    String?
   banco       String?
 
-  // credenciais (como você pediu, sem criptografia por enquanto)
+  // (por enquanto sem criptografia no app)
   senhaEmailEnc     String?
   senhaSmilesEnc    String?
   senhaLatamPassEnc String?
@@ -62,18 +58,13 @@ model Cedente {
   pontosLivelo Int @default(0)
   pontosEsfera Int @default(0)
 
-  // status / revisão
+  // ✅ Status / revisão
   status       CedenteStatus @default(PENDING)
   reviewedAt   DateTime?
   reviewedById String?
-  reviewedBy   User? @relation(
-    "CedenteApprovedBy",
-    fields: [reviewedById],
-    references: [id],
-    onDelete: SetNull
-  )
+  reviewedBy   User? @relation("CedenteApprovedBy", fields: [reviewedById], references: [id], onDelete: SetNull)
 
-  // relações
+  // Relações
   termAcceptances CedenteTermAcceptance[]
   invite          CedenteInvite?
 
@@ -84,41 +75,30 @@ model Cedente {
   @@map("cedentes")
 }
 
-/**
- * CONVITE DO CEDENTE
- * ✅ token direto (SEM HASH)
- */
 model CedenteInvite {
-  id        String   @id @default(uuid())
+  id String @id @default(uuid())
 
-  // ✅ token público usado na URL /convite/[token]
-  token     String   @unique
+  // ✅ token direto (vai na URL /convite/[token])
+  token String @unique
 
   createdBy String?
   createdAt DateTime @default(now())
   expiresAt DateTime
   usedAt    DateTime?
 
-  // hints para pré-preenchimento
+  // pré-preenchimento
   nomeHint String?
   cpfHint  String?
 
-  // vínculo com cedente criado
+  // ✅ vincula o convite ao cedente criado
   cedenteId String?  @unique
-  cedente   Cedente? @relation(
-    fields: [cedenteId],
-    references: [id],
-    onDelete: SetNull
-  )
+  cedente   Cedente? @relation(fields: [cedenteId], references: [id], onDelete: SetNull)
 
   @@index([expiresAt])
   @@index([usedAt])
   @@map("cedente_invites")
 }
 
-/**
- * ACEITE DO TERMO
- */
 model CedenteTermAcceptance {
   id          String   @id @default(uuid())
   cedenteId   String
@@ -127,11 +107,7 @@ model CedenteTermAcceptance {
   userAgent   String?
   acceptedAt  DateTime @default(now())
 
-  cedente Cedente @relation(
-    fields: [cedenteId],
-    references: [id],
-    onDelete: Cascade
-  )
+  cedente Cedente @relation(fields: [cedenteId], references: [id], onDelete: Cascade)
 
   @@index([cedenteId])
   @@map("cedente_term_acceptances")
