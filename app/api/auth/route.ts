@@ -14,6 +14,15 @@ const TEAM = "@vias_aereas";
 const sha256 = (s: string) => crypto.createHash("sha256").update(s).digest("hex");
 const norm = (s: string | null | undefined) => (s ?? "").trim().toLowerCase();
 
+// ✅ único seed: você (admin)
+const ADMIN_SEED = {
+  login: "jephesson",
+  name: "Jephesson Alex Floriano dos Santos",
+  email: "jephesson@gmail.com",
+  role: "admin" as const,
+  passwordHash: sha256("ufpb2010"),
+};
+
 type Session = {
   id: string;
   name: string;
@@ -23,22 +32,12 @@ type Session = {
   role: Role;
 };
 
-// 🔒 cookie menor e mais estável
 type SessionCookie = Pick<Session, "id" | "login" | "role" | "team">;
 
 type ApiLogin = { action: "login"; login: string; password: string };
 type ApiSetPassword = { action: "setPassword"; login: string; password: string };
 type ApiLogout = { action: "logout" };
 type ApiBody = ApiLogin | ApiSetPassword | ApiLogout;
-
-// ✅ único seed: você (admin)
-const ADMIN_SEED = {
-  login: "jephesson",
-  name: "Jephesson Alex Floriano dos Santos",
-  email: "jephesson@gmail.com",
-  role: "admin" as const,
-  passwordHash: sha256("ufpb2010"),
-};
 
 function noCacheHeaders() {
   return {
@@ -96,26 +95,29 @@ function isApiBody(v: unknown): v is ApiBody {
 }
 
 function jsonOk(data: Record<string, unknown> = {}, init?: { status?: number }) {
-  return NextResponse.json(
-    { ok: true, ...data },
-    { status: init?.status ?? 200, headers: noCacheHeaders() }
-  );
+  return NextResponse.json({ ok: true, ...data }, { status: init?.status ?? 200, headers: noCacheHeaders() });
 }
 
 function jsonFail(error: string, init?: { status?: number }) {
-  return NextResponse.json(
-    { ok: false, error },
-    { status: init?.status ?? 400, headers: noCacheHeaders() }
-  );
+  return NextResponse.json({ ok: false, error }, { status: init?.status ?? 400, headers: noCacheHeaders() });
 }
 
-// ✅ garante que você exista no banco
-async function ensureAdminSeeded() {
-  const count = await prisma.user.count();
-  if (count > 0) return;
+function genInviteCode(login: string) {
+  return `conv-${login}-${crypto.randomBytes(4).toString("hex")}`;
+}
 
-  await prisma.user.create({
-    data: {
+// ✅ garante que você exista no banco SEM depender de count()
+async function ensureAdminSeeded() {
+  const admin = await prisma.user.upsert({
+    where: { login: ADMIN_SEED.login },
+    update: {
+      name: ADMIN_SEED.name,
+      email: ADMIN_SEED.email,
+      team: TEAM,
+      role: ADMIN_SEED.role,
+      passwordHash: ADMIN_SEED.passwordHash,
+    },
+    create: {
       login: ADMIN_SEED.login,
       name: ADMIN_SEED.name,
       email: ADMIN_SEED.email,
@@ -123,11 +125,24 @@ async function ensureAdminSeeded() {
       role: ADMIN_SEED.role,
       passwordHash: ADMIN_SEED.passwordHash,
     },
+    select: { id: true, login: true },
   });
+
+  // ✅ garante que o admin tenha convite
+  await prisma.employeeInvite.upsert({
+    where: { userId: admin.id },
+    update: { isActive: true },
+    create: {
+      userId: admin.id,
+      code: genInviteCode(admin.login),
+      isActive: true,
+    },
+  });
+
+  return admin;
 }
 
 export async function GET(): Promise<NextResponse> {
-  // ping + garante seed (opcional, mas ajuda)
   await ensureAdminSeeded();
   return jsonOk({ ping: true });
 }
@@ -140,13 +155,11 @@ export async function POST(req: Request): Promise<NextResponse> {
       return jsonFail("Ação inválida", { status: 400 });
     }
 
-    // ============ LOGIN ============
     if (raw.action === "login") {
       await ensureAdminSeeded();
 
       const login = norm(raw.login);
       const password = String(raw.password ?? "");
-
       if (!login || !password) return jsonFail("Campos obrigatórios ausentes", { status: 400 });
 
       const dbUser = await prisma.user.findUnique({ where: { login } }).catch(() => null);
@@ -170,7 +183,6 @@ export async function POST(req: Request): Promise<NextResponse> {
       return res;
     }
 
-    // ============ SET PASSWORD ============
     if (raw.action === "setPassword") {
       await ensureAdminSeeded();
 
@@ -189,7 +201,6 @@ export async function POST(req: Request): Promise<NextResponse> {
       return jsonOk({});
     }
 
-    // ============ LOGOUT ============
     if (raw.action === "logout") {
       const res = NextResponse.json({ ok: true }, { headers: noCacheHeaders() });
       clearSessionCookie(res);
