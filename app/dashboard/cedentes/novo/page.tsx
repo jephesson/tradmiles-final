@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 
 type FormState = {
   nomeCompleto: string;
-  dataNascimento: string; // yyyy-mm-dd
+  dataNascimento: string; // DD/MM/AAAA
   cpf: string;
 
   emailCriado: string;
@@ -30,6 +30,40 @@ function onlyDigits(v: string) {
 
 function normalizeCpf(v: string) {
   return onlyDigits(v).slice(0, 11);
+}
+
+function normalizeDateBR(v: string) {
+  // mantém só dígitos e /
+  const cleaned = (v || "").replace(/[^\d/]/g, "");
+  // auto-máscara simples dd/mm/aaaa
+  const digits = cleaned.replace(/\//g, "");
+  const d = digits.slice(0, 2);
+  const m = digits.slice(2, 4);
+  const y = digits.slice(4, 8);
+  let out = d;
+  if (digits.length > 2) out += "/" + m;
+  if (digits.length > 4) out += "/" + y;
+  return out.slice(0, 10);
+}
+
+function brToIsoDate(br: string): string | null {
+  const v = (br || "").trim();
+  if (!v) return null;
+  const parts = v.split("/");
+  if (parts.length !== 3) return null;
+  const [dd, mm, yyyy] = parts;
+  if (dd.length !== 2 || mm.length !== 2 || yyyy.length !== 4) return null;
+
+  const d = Number(dd);
+  const m = Number(mm);
+  const y = Number(yyyy);
+
+  if (!Number.isFinite(d) || !Number.isFinite(m) || !Number.isFinite(y)) return null;
+  if (y < 1900 || y > 2100) return null;
+  if (m < 1 || m > 12) return null;
+  if (d < 1 || d > 31) return null;
+
+  return `${yyyy}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
 }
 
 function makeIdentifier(nomeCompleto: string) {
@@ -83,6 +117,11 @@ export default function CedentesNovoPage() {
     if (!form.nomeCompleto.trim()) return alert("Informe o nome completo.");
     if (normalizeCpf(form.cpf).length !== 11) return alert("CPF inválido (11 dígitos).");
 
+    const isoNascimento = form.dataNascimento.trim() ? brToIsoDate(form.dataNascimento) : null;
+    if (form.dataNascimento.trim() && !isoNascimento) {
+      return alert("Data de nascimento inválida. Use DD/MM/AAAA.");
+    }
+
     try {
       setSaving(true);
 
@@ -90,7 +129,9 @@ export default function CedentesNovoPage() {
         identificador: makeIdentifier(form.nomeCompleto),
         nomeCompleto: form.nomeCompleto.trim(),
         cpf: normalizeCpf(form.cpf),
-        dataNascimento: form.dataNascimento ? form.dataNascimento : null,
+
+        // ✅ envia iso para o backend (se existir)
+        dataNascimento: isoNascimento,
 
         emailCriado: form.emailCriado.trim() || null,
         chavePix: form.chavePix.trim() || null,
@@ -145,28 +186,23 @@ export default function CedentesNovoPage() {
     }
   }
 
+  // ✅ agora puxa o link do FUNCIONÁRIO LOGADO (inviteCode do user logado)
   async function generateInvite() {
-    // Nome/CPF são opcionais no convite, mas ajudam a pré-preencher
+    // Nome/CPF opcionais aqui — link é do funcionário logado
     if (form.cpf && normalizeCpf(form.cpf).length !== 11) return alert("CPF inválido (11 dígitos).");
 
     try {
       setInviteLoading(true);
       setInviteUrl("");
 
-      const res = await fetch("/api/cedentes/invites", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          nomeHint: form.nomeCompleto.trim() || null,
-          cpfHint: form.cpf ? normalizeCpf(form.cpf) : null,
-          expiresInHours: 72,
-        }),
-      });
+      const res = await fetch("/api/me/invite", { method: "GET", cache: "no-store" });
+      const json = await res.json().catch(() => null);
+      if (!json?.ok) throw new Error(json?.error || "Falha ao buscar convite do funcionário logado.");
 
-      const json = await res.json();
-      if (!json?.ok) throw new Error(json?.error || "Falha ao gerar convite.");
+      const code = String(json.data?.inviteCode || "");
+      if (!code) throw new Error("Funcionário logado não possui inviteCode.");
 
-      const url = String(json.data.url || "");
+      const url = `${window.location.origin}/convite/${code}`;
       setInviteUrl(url);
 
       try {
@@ -187,7 +223,6 @@ export default function CedentesNovoPage() {
         Escolha: cadastro manual (feito por você) ou gerar um link para o cedente preencher e aceitar o termo.
       </p>
 
-      {/* Só os 2 botões inicialmente */}
       <div className="mb-6 flex gap-2">
         <button
           type="button"
@@ -242,12 +277,13 @@ export default function CedentesNovoPage() {
               </div>
 
               <div>
-                <label className="mb-1 block text-sm">Data de nascimento</label>
+                <label className="mb-1 block text-sm">Data de nascimento (DD/MM/AAAA)</label>
                 <input
-                  type="date"
                   className="w-full rounded-xl border px-3 py-2"
                   value={form.dataNascimento}
-                  onChange={(e) => setField("dataNascimento", e.target.value)}
+                  onChange={(e) => setField("dataNascimento", normalizeDateBR(e.target.value))}
+                  placeholder="DD/MM/AAAA"
+                  inputMode="numeric"
                 />
               </div>
 
@@ -340,13 +376,13 @@ export default function CedentesNovoPage() {
       )}
 
       {/* =======================
-          GERAR CONVITE
+          GERAR LINK (FUNCIONÁRIO LOGADO)
       ======================= */}
       {mode === "link" && (
         <div className="max-w-xl rounded-2xl border p-6 space-y-4">
           <h2 className="text-lg font-semibold">Gerar link de convite</h2>
           <p className="text-sm text-slate-600">
-            Clique em gerar. Depois é só copiar e enviar para o cedente preencher e aceitar o termo.
+            Esse link é o <b>convite do funcionário logado</b>. Copie e envie para o cedente preencher e aceitar o termo.
           </p>
 
           <button
