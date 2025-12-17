@@ -46,21 +46,12 @@ async function findUserByAny(identifier: string) {
     employeeInvite: { select: { code: true } },
   } as const;
 
-  // 1) por ID
-  const byId = await prisma.user.findUnique({
-    where: { id: key },
-    select: selectUser,
-  });
+  const byId = await prisma.user.findUnique({ where: { id: key }, select: selectUser });
   if (byId) return byId;
 
-  // 2) por login
-  const byLogin = await prisma.user.findUnique({
-    where: { login: norm(key) },
-    select: selectUser,
-  });
+  const byLogin = await prisma.user.findUnique({ where: { login: norm(key) }, select: selectUser });
   if (byLogin) return byLogin;
 
-  // 3) por inviteCode
   const byInvite = await prisma.employeeInvite.findUnique({
     where: { code: key },
     select: { user: { select: selectUser } },
@@ -90,7 +81,6 @@ export async function GET(_req: NextRequest, context: { params: any }) {
 export async function PUT(req: NextRequest, context: { params: any }) {
   const raw = await getIdFromContext(context);
 
-  // resolve o user primeiro (pra garantir que temos o user.id real)
   const current = await findUserByAny(raw);
   if (!current) return jsonFail("Não encontrado.", 404);
 
@@ -103,7 +93,11 @@ export async function PUT(req: NextRequest, context: { params: any }) {
   const login = typeof body?.login === "string" ? norm(body.login) : "";
   const team = typeof body?.team === "string" ? body.team.trim() : "@vias_aereas";
   const role: Role = body?.role === "admin" ? "admin" : "staff";
-  const password = typeof body?.password === "string" ? body.password : "";
+
+  // 🔐 campos de senha (opcionais)
+  const currentPassword = typeof body?.currentPassword === "string" ? body.currentPassword : "";
+  const newPassword = typeof body?.newPassword === "string" ? body.newPassword : "";
+  const confirmPassword = typeof body?.confirmPassword === "string" ? body.confirmPassword : "";
 
   if (!name) return jsonFail("Nome obrigatório.", 400);
   if (!login) return jsonFail("Login obrigatório.", 400);
@@ -132,9 +126,28 @@ export async function PUT(req: NextRequest, context: { params: any }) {
     cpf: cpf || null,
   };
 
-  if (password.trim()) {
-    if (password.trim().length < 6) return jsonFail("Senha deve ter pelo menos 6 caracteres.", 400);
-    data.passwordHash = sha256(password);
+  // ✅ regra: só tenta trocar senha se qualquer campo de senha vier preenchido
+  const wantsPasswordChange = Boolean(currentPassword || newPassword || confirmPassword);
+
+  if (wantsPasswordChange) {
+    if (!currentPassword) return jsonFail("Informe a senha atual.", 400);
+    if (!newPassword) return jsonFail("Informe a nova senha.", 400);
+    if (!confirmPassword) return jsonFail("Confirme a nova senha.", 400);
+    if (newPassword !== confirmPassword) return jsonFail("Nova senha e confirmação não conferem.", 400);
+    if (newPassword.trim().length < 6) return jsonFail("Nova senha deve ter pelo menos 6 caracteres.", 400);
+
+    const dbUser = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { passwordHash: true },
+    });
+
+    if (!dbUser) return jsonFail("Não encontrado.", 404);
+
+    if (dbUser.passwordHash !== sha256(currentPassword)) {
+      return jsonFail("Senha atual incorreta.", 401);
+    }
+
+    data.passwordHash = sha256(newPassword);
   }
 
   const updated = await prisma.user.update({

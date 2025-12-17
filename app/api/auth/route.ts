@@ -35,10 +35,34 @@ const SEED_USERS: Array<{
   role: Role;
   password: string;
 }> = [
-  { login: "jephesson", name: "Jephesson Alex Floriano dos Santos", email: "jephesson@gmail.com", role: "admin", password: "ufpb2010" },
-  { login: "lucas", name: "Lucas Henrique Floriano de Araújo", email: "luucasaraujo97@gmail.com", role: "staff", password: "1234" },
-  { login: "paola", name: "Paola Rampelotto Ziani", email: "paolaziani5@gmail.com", role: "staff", password: "1234" },
-  { login: "eduarda", name: "Eduarda Vargas de Freitas", email: "eduarda.jeph@gmail.com", role: "staff", password: "1234" },
+  {
+    login: "jephesson",
+    name: "Jephesson Alex Floriano dos Santos",
+    email: "jephesson@gmail.com",
+    role: "admin",
+    password: "ufpb2010",
+  },
+  {
+    login: "lucas",
+    name: "Lucas Henrique Floriano de Araújo",
+    email: "luucasaraujo97@gmail.com",
+    role: "staff",
+    password: "1234",
+  },
+  {
+    login: "paola",
+    name: "Paola Rampelotto Ziani",
+    email: "paolaziani5@gmail.com",
+    role: "staff",
+    password: "1234",
+  },
+  {
+    login: "eduarda",
+    name: "Eduarda Vargas de Freitas",
+    email: "eduarda.jeph@gmail.com",
+    role: "staff",
+    password: "1234",
+  },
 ];
 
 function noCacheHeaders() {
@@ -109,27 +133,40 @@ async function ensureInvitesForSeedUsers() {
   }
 }
 
+// ✅ IMPORTANTE: não sobrescreve senha de usuário que já existe
 async function seedUsersToDb() {
   for (const u of SEED_USERS) {
     const login = norm(u.login);
-    await prisma.user.upsert({
+
+    const existing = await prisma.user.findUnique({
       where: { login },
-      update: {
-        name: u.name,
-        email: u.email,
-        team: TEAM,
-        role: u.role,
-        passwordHash: sha256(u.password),
-      },
-      create: {
-        login,
-        name: u.name,
-        email: u.email,
-        team: TEAM,
-        role: u.role,
-        passwordHash: sha256(u.password),
-      },
+      select: { id: true },
     });
+
+    if (!existing) {
+      // primeira vez: cria com senha do seed
+      await prisma.user.create({
+        data: {
+          login,
+          name: u.name,
+          email: u.email,
+          team: TEAM,
+          role: u.role,
+          passwordHash: sha256(u.password),
+        },
+      });
+    } else {
+      // já existe: atualiza dados, mas NÃO mexe na senha
+      await prisma.user.update({
+        where: { login },
+        data: {
+          name: u.name,
+          email: u.email,
+          team: TEAM,
+          role: u.role,
+        },
+      });
+    }
   }
 
   await ensureInvitesForSeedUsers();
@@ -149,6 +186,7 @@ export async function POST(req: Request): Promise<NextResponse> {
     }
 
     if (raw.action === "resetSeed") {
+      // ✅ mantém usuários seed, mas não redefine senha se já existe
       await seedUsersToDb();
       return NextResponse.json({ ok: true, message: "Seed restaurado" }, { headers: noCacheHeaders() });
     }
@@ -159,11 +197,16 @@ export async function POST(req: Request): Promise<NextResponse> {
       const login = norm(raw.login);
       const password = String(raw.password ?? "");
       if (!login || !password) {
-        return NextResponse.json({ ok: false, error: "Campos obrigatórios ausentes" }, { status: 400, headers: noCacheHeaders() });
+        return NextResponse.json(
+          { ok: false, error: "Campos obrigatórios ausentes" },
+          { status: 400, headers: noCacheHeaders() }
+        );
       }
 
       const dbUser = await prisma.user.findUnique({ where: { login } });
-      if (!dbUser) return NextResponse.json({ ok: false, error: "Usuário não encontrado" }, { status: 401, headers: noCacheHeaders() });
+      if (!dbUser) {
+        return NextResponse.json({ ok: false, error: "Usuário não encontrado" }, { status: 401, headers: noCacheHeaders() });
+      }
 
       if (dbUser.passwordHash !== sha256(password)) {
         return NextResponse.json({ ok: false, error: "Senha inválida" }, { status: 401, headers: noCacheHeaders() });
@@ -185,7 +228,10 @@ export async function POST(req: Request): Promise<NextResponse> {
       const login = norm(raw.login);
       const password = String(raw.password ?? "");
       if (!login || !password) {
-        return NextResponse.json({ ok: false, error: "Campos obrigatórios ausentes" }, { status: 400, headers: noCacheHeaders() });
+        return NextResponse.json(
+          { ok: false, error: "Campos obrigatórios ausentes" },
+          { status: 400, headers: noCacheHeaders() }
+        );
       }
 
       await prisma.user.update({
