@@ -22,33 +22,13 @@ function noCacheHeaders() {
 }
 
 function randCode(len = 24) {
-  // url-safe
-  return crypto.randomBytes(Math.ceil(len))
+  return crypto
+    .randomBytes(Math.ceil(len))
     .toString("base64")
     .replace(/\+/g, "-")
     .replace(/\//g, "_")
     .replace(/=+$/g, "")
     .slice(0, len);
-}
-
-async function ensureInviteForUser(userId: string) {
-  const existing = await prisma.employeeInvite.findUnique({ where: { userId } }).catch(() => null);
-  if (existing) return existing;
-
-  // tenta criar com retries (colisão rara)
-  for (let i = 0; i < 5; i++) {
-    const code = randCode(28);
-    try {
-      return await prisma.employeeInvite.create({
-        data: { userId, code, isActive: true },
-      });
-    } catch (e: any) {
-      // se colidir code unique, tenta outro
-      if (String(e?.message || "").toLowerCase().includes("unique")) continue;
-      throw e;
-    }
-  }
-  throw new Error("Não foi possível gerar um código de convite único.");
 }
 
 // GET /api/funcionarios
@@ -57,33 +37,45 @@ export async function GET() {
     const users = await prisma.user.findMany({
       orderBy: { createdAt: "desc" },
       select: {
-        id: true,
+        id: true, // ✅ user.id (fundamental)
         login: true,
         name: true,
+        cpf: true,
         email: true,
         role: true,
         team: true,
         createdAt: true,
-        employeeInvite: { select: { code: true, isActive: true } },
-        _count: { select: { cedentesOwned: true } }, // ✅ certo
+        employeeInvite: {
+          select: {
+            code: true,
+            isActive: true,
+          },
+        },
+        _count: {
+          select: {
+            cedentes: true, // ✅ bate com o frontend
+          },
+        },
       },
     });
 
     const data = users.map((u) => ({
       id: u.id,
-      login: u.login,
       name: u.name,
-      email: u.email,
-      role: u.role,
+      login: u.login,
+      cpf: u.cpf,
       team: u.team,
+      role: u.role,
       createdAt: u.createdAt,
       inviteCode: u.employeeInvite?.code ?? null,
-      inviteActive: u.employeeInvite?.isActive ?? false,
-      cedentesCount: u._count.cedentesOwned,
+      _count: {
+        cedentes: u._count.cedentes,
+      },
     }));
 
     return NextResponse.json({ ok: true, data }, { headers: noCacheHeaders() });
   } catch (e: any) {
+    console.error("Erro /api/funcionarios:", e);
     return NextResponse.json(
       { ok: false, error: e?.message || "Erro ao listar funcionários" },
       { status: 500, headers: noCacheHeaders() }
@@ -92,7 +84,6 @@ export async function GET() {
 }
 
 // POST /api/funcionarios
-// body: { login, name, email?, team?, role?, password }
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json().catch(() => ({}));
@@ -102,8 +93,8 @@ export async function POST(req: NextRequest) {
     const email = typeof body?.email === "string" ? body.email.trim() : null;
     const team = typeof body?.team === "string" && body.team.trim() ? body.team.trim() : "@vias_aereas";
     const role: Role = body?.role === "admin" ? "admin" : "staff";
-
     const password = typeof body?.password === "string" ? body.password : "";
+
     if (!login || !name || !password) {
       return NextResponse.json(
         { ok: false, error: "Informe login, nome e senha." },
@@ -111,7 +102,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const exists = await prisma.user.findUnique({ where: { login } }).catch(() => null);
+    const exists = await prisma.user.findUnique({ where: { login } });
     if (exists) {
       return NextResponse.json(
         { ok: false, error: "Já existe um usuário com esse login." },
@@ -129,35 +120,31 @@ export async function POST(req: NextRequest) {
           role,
           passwordHash: sha256(password),
         },
-        select: {
-          id: true,
-          login: true,
-          name: true,
-          email: true,
-          team: true,
-          role: true,
-          createdAt: true,
-        },
       });
 
-      // cria convite único do funcionário
-      const invite = await (async () => {
-        const existing = await tx.employeeInvite.findUnique({ where: { userId: user.id } }).catch(() => null);
-        if (existing) return existing;
+      let invite = await tx.employeeInvite.findUnique({
+        where: { userId: user.id },
+      });
 
+      if (!invite) {
         for (let i = 0; i < 5; i++) {
-          const code = randCode(28);
           try {
-            return await tx.employeeInvite.create({
-              data: { userId: user.id, code, isActive: true },
+            invite = await tx.employeeInvite.create({
+              data: {
+                userId: user.id,
+                code: randCode(28),
+                isActive: true,
+              },
             });
+            break;
           } catch (e: any) {
             if (String(e?.message || "").toLowerCase().includes("unique")) continue;
             throw e;
           }
         }
-        throw new Error("Não foi possível gerar um código de convite único.");
-      })();
+      }
+
+      if (!invite) throw new Error("Não foi possível gerar convite.");
 
       return { user, invite };
     });
@@ -166,14 +153,19 @@ export async function POST(req: NextRequest) {
       {
         ok: true,
         data: {
-          ...created.user,
+          id: created.user.id,
+          name: created.user.name,
+          login: created.user.login,
+          team: created.user.team,
+          role: created.user.role,
+          createdAt: created.user.createdAt,
           inviteCode: created.invite.code,
-          inviteActive: created.invite.isActive,
         },
       },
       { status: 201, headers: noCacheHeaders() }
     );
   } catch (e: any) {
+    console.error("Erro POST /api/funcionarios:", e);
     return NextResponse.json(
       { ok: false, error: e?.message || "Erro ao criar funcionário" },
       { status: 500, headers: noCacheHeaders() }
