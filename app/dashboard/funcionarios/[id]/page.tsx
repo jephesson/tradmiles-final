@@ -31,8 +31,12 @@ export default function EditarFuncionarioPage() {
   const [login, setLogin] = useState("");
   const [team, setTeam] = useState("@vias_aereas");
   const [role, setRole] = useState<Role>("staff");
-  const [password, setPassword] = useState("");
   const [inviteCode, setInviteCode] = useState("");
+
+  // 🔐 troca de senha (3 campos)
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmNewPassword, setConfirmNewPassword] = useState("");
 
   const inviteLink = useMemo(() => {
     if (!inviteCode) return "";
@@ -87,6 +91,20 @@ export default function EditarFuncionarioPage() {
       setSaving(true);
       setError("");
 
+      // se qualquer campo de senha foi preenchido, exige os 3
+      const wantsPasswordChange =
+        Boolean(currentPassword.trim()) ||
+        Boolean(newPassword.trim()) ||
+        Boolean(confirmNewPassword.trim());
+
+      if (wantsPasswordChange) {
+        if (!currentPassword.trim()) throw new Error("Informe a senha atual.");
+        if (!newPassword.trim()) throw new Error("Informe a nova senha.");
+        if (!confirmNewPassword.trim()) throw new Error("Confirme a nova senha.");
+        if (newPassword !== confirmNewPassword) throw new Error("A confirmação da nova senha não confere.");
+        if (newPassword.trim().length < 6) throw new Error("Nova senha deve ter pelo menos 6 caracteres.");
+      }
+
       const payload: any = {
         name: name.trim(),
         cpf: onlyDigits(cpf),
@@ -95,7 +113,12 @@ export default function EditarFuncionarioPage() {
         role,
       };
 
-      if (password.trim()) payload.password = password;
+      // 🔐 manda só se estiver trocando
+      if (wantsPasswordChange) {
+        payload.currentPassword = currentPassword;
+        payload.newPassword = newPassword;
+        payload.confirmPassword = confirmNewPassword;
+      }
 
       const res = await fetch(`/api/funcionarios/${id}`, {
         method: "PUT",
@@ -130,9 +153,7 @@ export default function EditarFuncionarioPage() {
       <h1 className="text-2xl font-bold mb-4">Editar funcionário</h1>
 
       {loading && (
-        <div className="rounded-2xl border p-4 text-sm text-slate-700">
-          Carregando...
-        </div>
+        <div className="rounded-2xl border p-4 text-sm text-slate-700">Carregando...</div>
       )}
 
       {!loading && error && (
@@ -211,15 +232,42 @@ export default function EditarFuncionarioPage() {
             </select>
           </div>
 
-          <div>
-            <label className="block text-sm mb-1">Nova senha (opcional)</label>
-            <input
-              type="password"
-              className="w-full rounded-xl border px-3 py-2"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="deixe vazio para não trocar"
-            />
+          {/* 🔐 senha com confirmação */}
+          <div className="rounded-2xl border p-4 space-y-3">
+            <div className="text-sm font-semibold">Alterar senha (opcional)</div>
+
+            <div>
+              <label className="block text-sm mb-1">Senha atual</label>
+              <input
+                type="password"
+                className="w-full rounded-xl border px-3 py-2"
+                value={currentPassword}
+                onChange={(e) => setCurrentPassword(e.target.value)}
+                placeholder="Digite a senha atual"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm mb-1">Nova senha</label>
+              <input
+                type="password"
+                className="w-full rounded-xl border px-3 py-2"
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+                placeholder="Digite a nova senha"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm mb-1">Confirmar nova senha</label>
+              <input
+                type="password"
+                className="w-full rounded-xl border px-3 py-2"
+                value={confirmNewPassword}
+                onChange={(e) => setConfirmNewPassword(e.target.value)}
+                placeholder="Repita a nova senha"
+              />
+            </div>
           </div>
 
           <div className="rounded-2xl border p-3">
