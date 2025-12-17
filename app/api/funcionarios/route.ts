@@ -31,29 +31,27 @@ function randCode(len = 24) {
     .slice(0, len);
 }
 
+// =========================
 // GET /api/funcionarios
+// =========================
 export async function GET() {
   try {
     const users = await prisma.user.findMany({
       orderBy: { createdAt: "desc" },
       select: {
-        id: true, // ✅ user.id (fundamental)
+        id: true,
         login: true,
         name: true,
         cpf: true,
-        email: true,
         role: true,
         team: true,
         createdAt: true,
         employeeInvite: {
-          select: {
-            code: true,
-            isActive: true,
-          },
+          select: { code: true, isActive: true },
         },
         _count: {
           select: {
-            cedentes: true, // ✅ bate com o frontend
+            cedentesOwned: true, // ✅ NOME REAL DO PRISMA
           },
         },
       },
@@ -69,7 +67,7 @@ export async function GET() {
       createdAt: u.createdAt,
       inviteCode: u.employeeInvite?.code ?? null,
       _count: {
-        cedentes: u._count.cedentes,
+        cedentes: u._count.cedentesOwned, // ✅ ADAPTA PARA O FRONT
       },
     }));
 
@@ -83,7 +81,9 @@ export async function GET() {
   }
 }
 
+// =========================
 // POST /api/funcionarios
+// =========================
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json().catch(() => ({}));
