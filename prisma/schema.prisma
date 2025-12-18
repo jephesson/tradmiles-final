@@ -7,7 +7,7 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-  // url      = env("DATABASE_URL") // (se você usa env, pode deixar assim)
+  // url      = env("DATABASE_URL")
 }
 
 enum CedenteStatus {
@@ -21,9 +21,7 @@ model User {
   login        String  @unique
   name         String
 
-  // ✅ CPF do funcionário
   cpf          String? @unique
-
   email        String? @unique
   team         String
   role         String
@@ -32,13 +30,9 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  // quem aprovou/reprovou
   cedentesAprovados Cedente[] @relation("CedenteApprovedBy")
+  cedentesOwned     Cedente[] @relation("CedenteOwner")
 
-  // ✅ cedentes que pertencem ao funcionário (rateio)
-  cedentesOwned Cedente[] @relation("CedenteOwner")
-
-  // ✅ convite único por funcionário
   employeeInvite EmployeeInvite?
 }
 
@@ -49,6 +43,7 @@ model Cedente {
   dataNascimento DateTime?
   cpf            String    @unique
 
+  telefone   String? // ✅ NOVO (DDD + número em dígitos)
   emailCriado String?
   chavePix    String?
   banco       String?
@@ -69,7 +64,6 @@ model Cedente {
   reviewedById String?
   reviewedBy   User?         @relation("CedenteApprovedBy", fields: [reviewedById], references: [id], onDelete: SetNull)
 
-  // ✅ dono do cedente (funcionário do convite)
   ownerId String
   owner   User   @relation("CedenteOwner", fields: [ownerId], references: [id], onDelete: Restrict)
 
@@ -83,11 +77,6 @@ model Cedente {
   @@map("cedentes")
 }
 
-/**
- * ✅ Convite ÚNICO por funcionário.
- * Link público: /convite/[code]
- * Reutilizável: várias pessoas podem usar o mesmo code.
- */
 model EmployeeInvite {
   id       String  @id @default(uuid())
   userId   String  @unique

@@ -8,7 +8,16 @@ export const dynamic = "force-dynamic";
 type Ctx = { params: Promise<{ token: string }> };
 
 function onlyDigits(v: string) {
-  return (v || "").replace(/\D+/g, "").slice(0, 11);
+  return (v || "").replace(/\D+/g, "");
+}
+
+function onlyCpf(v: string) {
+  return onlyDigits(v).slice(0, 11);
+}
+
+function onlyPhone(v: string) {
+  // DDD + número (10 ou 11 dígitos)
+  return onlyDigits(v).slice(0, 11);
 }
 
 function makeIdentifier(nomeCompleto: string) {
@@ -35,13 +44,19 @@ export async function POST(req: NextRequest, ctx: Ctx) {
 
     const body = await req.json().catch(() => ({}));
 
+    // termo
     const accepted = body?.accepted === true || body?.termoAceito === true;
     if (!accepted) {
       return NextResponse.json({ ok: false, error: "Termo não aceito." }, { status: 400 });
     }
 
+    // dados mínimos
     const nomeCompleto = typeof body?.nomeCompleto === "string" ? body.nomeCompleto.trim() : "";
-    const cpf = onlyDigits(typeof body?.cpf === "string" ? body.cpf : "");
+    const cpf = onlyCpf(typeof body?.cpf === "string" ? body.cpf : "");
+    const telefone = onlyPhone(typeof body?.telefone === "string" ? body.telefone : "");
+
+    const emailCriado = typeof body?.emailCriado === "string" ? body.emailCriado.trim() : "";
+    const senhaEmailEnc = typeof body?.senhaEmailEnc === "string" ? body.senhaEmailEnc : "";
 
     if (!nomeCompleto) {
       return NextResponse.json({ ok: false, error: "Informe o nome completo." }, { status: 400 });
@@ -49,7 +64,17 @@ export async function POST(req: NextRequest, ctx: Ctx) {
     if (cpf.length !== 11) {
       return NextResponse.json({ ok: false, error: "CPF inválido (11 dígitos)." }, { status: 400 });
     }
+    if (!(telefone.length === 10 || telefone.length === 11)) {
+      return NextResponse.json({ ok: false, error: "Telefone inválido (inclua DDD)." }, { status: 400 });
+    }
+    if (!emailCriado) {
+      return NextResponse.json({ ok: false, error: "Informe o e-mail criado." }, { status: 400 });
+    }
+    if (!senhaEmailEnc) {
+      return NextResponse.json({ ok: false, error: "Informe a senha do e-mail." }, { status: 400 });
+    }
 
+    // link precisa existir no banco
     const invite = await prisma.employeeInvite.findUnique({
       where: { code },
       select: { userId: true },
@@ -59,6 +84,7 @@ export async function POST(req: NextRequest, ctx: Ctx) {
       return NextResponse.json({ ok: false, error: "Link inválido." }, { status: 404 });
     }
 
+    // data nascimento: frontend manda ISO (yyyy-mm-dd) ou null
     const dataNascimento =
       typeof body?.dataNascimento === "string" && body.dataNascimento
         ? new Date(body.dataNascimento)
@@ -71,20 +97,35 @@ export async function POST(req: NextRequest, ctx: Ctx) {
         cpf,
         dataNascimento,
 
-        ownerId: invite.userId, // ✅ vínculo automático
+        // ✅ vínculo automático pelo link do funcionário
+        ownerId: invite.userId,
+
+        // ✅ fica em "Pendentes"
         status: "PENDING",
 
-        emailCriado: typeof body?.emailCriado === "string" ? body.emailCriado.trim() || null : null,
+        // ✅ novos obrigatórios
+        telefone,
+        emailCriado,
+
+        // opcionais
         chavePix: typeof body?.chavePix === "string" ? body.chavePix.trim() || null : null,
         banco: typeof body?.banco === "string" ? body.banco.trim() || null : null,
 
-        senhaEmailEnc: typeof body?.senhaEmailEnc === "string" ? body.senhaEmailEnc || null : null,
+        // senhas (texto por enquanto)
+        senhaEmailEnc: senhaEmailEnc || null,
         senhaSmilesEnc: typeof body?.senhaSmilesEnc === "string" ? body.senhaSmilesEnc || null : null,
         senhaLatamPassEnc: typeof body?.senhaLatamPassEnc === "string" ? body.senhaLatamPassEnc || null : null,
         senhaLiveloEnc: typeof body?.senhaLiveloEnc === "string" ? body.senhaLiveloEnc || null : null,
         senhaEsferaEnc: typeof body?.senhaEsferaEnc === "string" ? body.senhaEsferaEnc || null : null,
       },
-      select: { id: true, identificador: true, nomeCompleto: true, cpf: true, status: true, createdAt: true },
+      select: {
+        id: true,
+        identificador: true,
+        nomeCompleto: true,
+        cpf: true,
+        status: true,
+        createdAt: true, // ✅ data/hora de cadastro (automático no DB)
+      },
     });
 
     return NextResponse.json({ ok: true, data: created });
