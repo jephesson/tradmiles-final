@@ -8,10 +8,10 @@ type PixTipo = "CPF" | "CNPJ" | "EMAIL" | "TELEFONE" | "ALEATORIA" | "";
 
 type FormState = {
   nomeCompleto: string;
-  dataNascimento: string;
+  dataNascimento: string; // DD/MM/AAAA
   cpf: string;
 
-  telefone: string;
+  telefone: string; // (DD) 9XXXX-XXXX
   emailCriado: string;
 
   senhaEmail: string;
@@ -102,11 +102,11 @@ function isPixOk(tipo: PixTipo, chave: string) {
 export default function ConviteCedentePage({
   params,
 }: {
-  // ✅ aceita token OU code (evita quebrar se a pasta da rota mudar)
-  params: { token?: string; code?: string };
+  // ✅ OBRIGATÓRIO bater com a pasta: app/convite/[token]/page.tsx
+  params: { token: string };
 }) {
-  // ✅ nunca deixa vazio / undefined
-  const code = useMemo(() => String(params?.token ?? params?.code ?? "").trim(), [params]);
+  // ✅ pega direto do param do Next
+  const code = String(params?.token || "").trim();
 
   const [loading, setLoading] = useState(true);
   const [responsavel, setResponsavel] = useState<Responsavel | null>(null);
@@ -142,7 +142,6 @@ export default function ConviteCedentePage({
     setForm((prev) => ({ ...prev, [key]: value }));
   }
 
-  // ✅ Carrega responsável e valida convite (sem “Link inválido” falso)
   useEffect(() => {
     let alive = true;
 
@@ -152,10 +151,9 @@ export default function ConviteCedentePage({
         setInviteError("");
         setResponsavel(null);
 
-        // ✅ se não veio código, não chama a API
         if (!code) {
           if (!alive) return;
-          setInviteError("Convite inválido (código ausente).");
+          setInviteError("Convite inválido.");
           return;
         }
 
@@ -223,9 +221,8 @@ export default function ConviteCedentePage({
         emailCriado: form.emailCriado.trim(),
 
         banco: form.banco.trim(),
-        chavePix: normalizePixChave(form.pixTipo, form.chavePix),
-
         pixTipo: form.pixTipo,
+        chavePix: normalizePixChave(form.pixTipo, form.chavePix),
         titularConfirmado: true,
 
         senhaEmailEnc: form.senhaEmail || null,
@@ -288,15 +285,11 @@ export default function ConviteCedentePage({
     <div className="mx-auto max-w-3xl p-6">
       <h1 className="text-2xl font-bold mb-1">Cadastro do cedente</h1>
 
-      {/* ✅ caixa cinza sempre aparece (mesmo se vier null, mostra "-") */}
       <div className="mb-6 rounded-xl border bg-slate-50 p-3 text-sm">
         Funcionário responsável: <b>{responsavel?.name ?? "-"}</b>
       </div>
 
       <form onSubmit={onSubmit} className="space-y-6">
-        {/* ... daqui pra baixo mantém seu JSX igual ... */}
-        {/* (não re-colei tudo pra não ficar gigante; pode manter seu layout atual) */}
-
         <section className="rounded-2xl border p-4">
           <h2 className="mb-3 font-semibold">Dados</h2>
 
@@ -325,7 +318,8 @@ export default function ConviteCedentePage({
           </div>
         </section>
 
-        {/* restante: acessos / pix / termo ... pode manter igual ao seu */}
+        {/* ✅ aqui você mantém o resto do JSX (Acessos / PIX / Termo) igual estava */}
+
         <button disabled={saving} className="rounded-xl bg-black px-4 py-2 text-white hover:bg-slate-900 disabled:opacity-60">
           {saving ? "Enviando..." : "Concluir cadastro"}
         </button>
