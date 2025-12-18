@@ -7,6 +7,8 @@ export const dynamic = "force-dynamic";
 
 type Ctx = { params: Promise<{ token: string }> };
 
+type PixTipo = "CPF" | "CNPJ" | "EMAIL" | "TELEFONE" | "ALEATORIA";
+
 function onlyDigits(v: string) {
   return (v || "").replace(/\D+/g, "");
 }
@@ -20,6 +22,24 @@ function onlyPhone(v: string) {
   return onlyDigits(v).slice(0, 11);
 }
 
+function normalizePixChave(tipo: PixTipo, v: string) {
+  const raw = (v || "").trim();
+  if (tipo === "CPF") return onlyCpf(raw);
+  if (tipo === "CNPJ") return onlyDigits(raw).slice(0, 14);
+  if (tipo === "TELEFONE") return onlyDigits(raw).slice(0, 11);
+  if (tipo === "EMAIL") return raw.toLowerCase();
+  return raw; // ALEATORIA
+}
+
+function isPixValid(tipo: PixTipo, chave: string) {
+  if (tipo === "CPF") return chave.length === 11;
+  if (tipo === "CNPJ") return chave.length === 14;
+  if (tipo === "TELEFONE") return chave.length === 10 || chave.length === 11;
+  if (tipo === "EMAIL") return chave.includes("@") && chave.includes(".");
+  // ALEATORIA: heurística mínima
+  return chave.length >= 16;
+}
+
 function makeIdentifier(nomeCompleto: string) {
   const cleaned = (nomeCompleto || "")
     .normalize("NFD")
@@ -31,6 +51,12 @@ function makeIdentifier(nomeCompleto: string) {
   const base = (cleaned.split(/\s+/)[0] || "CED").replace(/[^A-Z0-9]/g, "");
   const prefix = (base.slice(0, 3) || "CED").padEnd(3, "X");
   return `${prefix}-${Date.now().toString().slice(-6)}`;
+}
+
+function getIp(req: NextRequest) {
+  const xf = req.headers.get("x-forwarded-for");
+  if (xf) return xf.split(",")[0].trim();
+  return req.headers.get("x-real-ip") || null;
 }
 
 export async function POST(req: NextRequest, ctx: Ctx) {
@@ -74,13 +100,36 @@ export async function POST(req: NextRequest, ctx: Ctx) {
       return NextResponse.json({ ok: false, error: "Informe a senha do e-mail." }, { status: 400 });
     }
 
+    // ✅ PIX obrigatório + titularidade
+    const banco = typeof body?.banco === "string" ? body.banco.trim() : "";
+    const pixTipo = typeof body?.pixTipo === "string" ? (body.pixTipo as PixTipo) : null;
+    const chavePixRaw = typeof body?.chavePix === "string" ? body.chavePix : "";
+    const confirmoTitular = body?.titularConfirmado === true || body?.confirmoTitular === true;
+
+    if (!banco) {
+      return NextResponse.json({ ok: false, error: "Informe o banco." }, { status: 400 });
+    }
+    if (!pixTipo) {
+      return NextResponse.json({ ok: false, error: "Selecione o tipo da chave PIX." }, { status: 400 });
+    }
+    const chavePix = normalizePixChave(pixTipo, chavePixRaw);
+    if (!chavePix) {
+      return NextResponse.json({ ok: false, error: "Informe a chave PIX." }, { status: 400 });
+    }
+    if (!isPixValid(pixTipo, chavePix)) {
+      return NextResponse.json({ ok: false, error: "Chave PIX inválida para o tipo escolhido." }, { status: 400 });
+    }
+    if (!confirmoTitular) {
+      return NextResponse.json({ ok: false, error: "Você precisa confirmar que é o titular da conta/PIX." }, { status: 400 });
+    }
+
     // link precisa existir no banco
     const invite = await prisma.employeeInvite.findUnique({
       where: { code },
-      select: { userId: true },
+      select: { userId: true, isActive: true },
     });
 
-    if (!invite) {
+    if (!invite || invite.isActive === false) {
       return NextResponse.json({ ok: false, error: "Link inválido." }, { status: 404 });
     }
 
@@ -90,6 +139,11 @@ export async function POST(req: NextRequest, ctx: Ctx) {
         ? new Date(body.dataNascimento)
         : null;
 
+    const termoVersao =
+      typeof body?.termoVersao === "string" && body.termoVersao.trim()
+        ? body.termoVersao.trim()
+        : "v1";
+
     const created = await prisma.cedente.create({
       data: {
         identificador: makeIdentifier(nomeCompleto),
@@ -97,19 +151,18 @@ export async function POST(req: NextRequest, ctx: Ctx) {
         cpf,
         dataNascimento,
 
-        // ✅ vínculo automático pelo link do funcionário
         ownerId: invite.userId,
-
-        // ✅ fica em "Pendentes"
         status: "PENDING",
 
-        // ✅ novos obrigatórios
         telefone,
         emailCriado,
 
-        // opcionais
-        chavePix: typeof body?.chavePix === "string" ? body.chavePix.trim() || null : null,
-        banco: typeof body?.banco === "string" ? body.banco.trim() || null : null,
+        banco,
+        chavePix,
+
+        // (se você adicionar no Prisma, salva. Se não, comente estas 2 linhas)
+        // pixTipo: pixTipo as any,
+        // titularConfirmado: true,
 
         // senhas (texto por enquanto)
         senhaEmailEnc: senhaEmailEnc || null,
@@ -117,6 +170,15 @@ export async function POST(req: NextRequest, ctx: Ctx) {
         senhaLatamPassEnc: typeof body?.senhaLatamPassEnc === "string" ? body.senhaLatamPassEnc || null : null,
         senhaLiveloEnc: typeof body?.senhaLiveloEnc === "string" ? body.senhaLiveloEnc || null : null,
         senhaEsferaEnc: typeof body?.senhaEsferaEnc === "string" ? body.senhaEsferaEnc || null : null,
+
+        // ✅ registra o aceite do termo (você já tem essa tabela no Prisma)
+        termAcceptances: {
+          create: {
+            termoVersao,
+            ip: getIp(req),
+            userAgent: req.headers.get("user-agent") || null,
+          },
+        },
       },
       select: {
         id: true,

@@ -1,3 +1,4 @@
+// app/api/cedentes/pendentes/route.ts
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 
@@ -12,8 +13,31 @@ export async function GET() {
       id: true,
       nomeCompleto: true,
       cpf: true,
+
+      telefone: true,
       emailCriado: true,
+
+      banco: true,
+      pixTipo: true,
+      chavePix: true,
+      titularConfirmado: true,
+
+      pontosLatam: true,
+      pontosSmiles: true,
+      pontosLivelo: true,
+      pontosEsfera: true,
+
       createdAt: true,
+
+      // ✅ funcionário responsável (quem gerou o convite)
+      owner: {
+        select: {
+          id: true,
+          name: true,
+          login: true,
+          team: true,
+        },
+      },
     },
   });
 

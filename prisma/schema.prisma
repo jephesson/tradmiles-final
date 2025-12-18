@@ -16,6 +16,14 @@ enum CedenteStatus {
   REJECTED
 }
 
+enum PixTipo {
+  CPF
+  CNPJ
+  EMAIL
+  TELEFONE
+  ALEATORIA
+}
+
 model User {
   id           String  @id @default(uuid())
   login        String  @unique
@@ -30,9 +38,13 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  // quem aprovou/reprovou
   cedentesAprovados Cedente[] @relation("CedenteApprovedBy")
-  cedentesOwned     Cedente[] @relation("CedenteOwner")
 
+  // cedentes que pertencem ao funcionário (rateio / owner)
+  cedentesOwned Cedente[] @relation("CedenteOwner")
+
+  // convite único por funcionário
   employeeInvite EmployeeInvite?
 }
 
@@ -43,30 +55,40 @@ model Cedente {
   dataNascimento DateTime?
   cpf            String    @unique
 
-  telefone   String? // ✅ NOVO (DDD + número em dígitos)
+  // ✅ contato / acesso
+  telefone    String? // DDD + número (em dígitos)
   emailCriado String?
-  chavePix    String?
-  banco       String?
 
+  // ✅ pagamento (PIX)
+  banco              String?
+  pixTipo            PixTipo?
+  chavePix           String?
+  titularConfirmado  Boolean  @default(false)
+
+  // ✅ senhas (texto por enquanto)
   senhaEmailEnc     String?
   senhaSmilesEnc    String?
   senhaLatamPassEnc String?
   senhaLiveloEnc    String?
   senhaEsferaEnc    String?
 
+  // pontos
   pontosLatam  Int @default(0)
   pontosSmiles Int @default(0)
   pontosLivelo Int @default(0)
   pontosEsfera Int @default(0)
 
+  // status / auditoria de revisão
   status       CedenteStatus @default(PENDING)
   reviewedAt   DateTime?
   reviewedById String?
   reviewedBy   User?         @relation("CedenteApprovedBy", fields: [reviewedById], references: [id], onDelete: SetNull)
 
+  // ✅ dono do cedente (funcionário do convite)
   ownerId String
   owner   User   @relation("CedenteOwner", fields: [ownerId], references: [id], onDelete: Restrict)
 
+  // termo(s)
   termAcceptances CedenteTermAcceptance[]
 
   createdAt DateTime @default(now())

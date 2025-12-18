@@ -4,6 +4,8 @@ import { useEffect, useMemo, useState } from "react";
 
 type Responsavel = { id: string; name: string; login?: string | null; team?: string | null };
 
+type PixTipo = "CPF" | "CNPJ" | "EMAIL" | "TELEFONE" | "ALEATORIA" | "";
+
 type FormState = {
   nomeCompleto: string;
   dataNascimento: string; // DD/MM/AAAA
@@ -17,6 +19,12 @@ type FormState = {
   senhaLivelo: string;
   senhaLatamPass: string;
   senhaEsfera: string;
+
+  banco: string;
+  pixTipo: PixTipo;
+  chavePix: string;
+
+  confirmoTitular: boolean;
 };
 
 function onlyDigits(v: string) {
@@ -60,30 +68,52 @@ function brToIsoDate(br: string): string | null {
 }
 
 function normalizePhoneBR(v: string) {
-  // aceita 10 ou 11 dígitos (DDD + número)
   const digits = onlyDigits(v).slice(0, 11);
   const ddd = digits.slice(0, 2);
   const rest = digits.slice(2);
   if (!ddd) return "";
 
-  // 11 dígitos: 9XXXX-XXXX
   if (digits.length >= 11) {
     const p1 = rest.slice(0, 5);
     const p2 = rest.slice(5, 9);
     return `(${ddd}) ${p1}${p2 ? "-" + p2 : ""}`.trim();
   }
 
-  // 10 dígitos: XXXX-XXXX
   const p1 = rest.slice(0, 4);
   const p2 = rest.slice(4, 8);
   return `(${ddd}) ${p1}${p2 ? "-" + p2 : ""}`.trim();
 }
 
+function normalizePixChave(tipo: PixTipo, v: string) {
+  const raw = (v || "").trim();
+
+  if (!tipo) return raw;
+
+  if (tipo === "CPF") return normalizeCpf(raw);
+  if (tipo === "CNPJ") return onlyDigits(raw).slice(0, 14);
+  if (tipo === "TELEFONE") return onlyDigits(raw).slice(0, 11);
+  if (tipo === "EMAIL") return raw.toLowerCase();
+  return raw; // ALEATORIA
+}
+
+function isPixOk(tipo: PixTipo, chave: string) {
+  if (!tipo) return false;
+  const v = normalizePixChave(tipo, chave);
+
+  if (tipo === "CPF") return v.length === 11;
+  if (tipo === "CNPJ") return v.length === 14;
+  if (tipo === "TELEFONE") return v.length === 10 || v.length === 11;
+  if (tipo === "EMAIL") return v.includes("@") && v.includes(".");
+  if (tipo === "ALEATORIA") return v.length >= 16; // heurística
+  return false;
+}
+
 export default function ConviteCedentePage({ params }: { params: { token: string } }) {
-  const code = params.token; // agora é code fixo do funcionário
+  const code = params.token;
 
   const [loading, setLoading] = useState(true);
   const [responsavel, setResponsavel] = useState<Responsavel | null>(null);
+  const [inviteError, setInviteError] = useState<string>("");
 
   const [accepted, setAccepted] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -100,6 +130,10 @@ export default function ConviteCedentePage({ params }: { params: { token: string
     senhaLivelo: "",
     senhaLatamPass: "",
     senhaEsfera: "",
+    banco: "",
+    pixTipo: "",
+    chavePix: "",
+    confirmoTitular: false,
   });
 
   const cpfOk = useMemo(() => normalizeCpf(form.cpf).length === 11, [form.cpf]);
@@ -107,31 +141,36 @@ export default function ConviteCedentePage({ params }: { params: { token: string
   const phoneDigits = useMemo(() => onlyDigits(form.telefone), [form.telefone]);
   const phoneOk = useMemo(() => phoneDigits.length === 10 || phoneDigits.length === 11, [phoneDigits]);
 
+  const pixOk = useMemo(() => isPixOk(form.pixTipo, form.chavePix), [form.pixTipo, form.chavePix]);
+
   function setField<K extends keyof FormState>(key: K, value: FormState[K]) {
     setForm((prev) => ({ ...prev, [key]: value }));
   }
 
-  // GET: só para pegar o responsável (e hints se você quiser)
+  // ✅ Carrega responsável e valida convite
   useEffect(() => {
     (async () => {
       try {
         setLoading(true);
+        setInviteError("");
+
         const res = await fetch(`/api/convite/${code}`, { cache: "no-store" });
         const json = await res.json().catch(() => null);
 
-        if (json?.ok) {
-          setResponsavel(json.data?.responsavel ?? null);
-
-          // se quiser pré-preencher nome/cpf (opcional)
-          setForm((prev) => ({
-            ...prev,
-            nomeCompleto: json.data?.nomeHint ?? prev.nomeCompleto,
-            cpf: json.data?.cpfHint ?? prev.cpf,
-          }));
-        } else {
-          // mesmo se falhar, deixa cadastrar (mas vai falhar no POST se code não existir)
+        if (!json?.ok) {
           setResponsavel(null);
+          setInviteError(json?.error || "Convite inválido.");
+          return;
         }
+
+        setResponsavel(json.data?.responsavel ?? null);
+
+        // opcional: hints
+        setForm((prev) => ({
+          ...prev,
+          nomeCompleto: json.data?.nomeHint ?? prev.nomeCompleto,
+          cpf: json.data?.cpfHint ?? prev.cpf,
+        }));
       } finally {
         setLoading(false);
       }
@@ -140,6 +179,8 @@ export default function ConviteCedentePage({ params }: { params: { token: string
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
+
+    if (inviteError) return alert(inviteError);
 
     if (!form.nomeCompleto.trim()) return alert("Informe o nome completo.");
     if (!cpfOk) return alert("CPF inválido (11 dígitos).");
@@ -153,26 +194,40 @@ export default function ConviteCedentePage({ params }: { params: { token: string
     if (!form.emailCriado.trim()) return alert("Informe o e-mail criado.");
     if (!form.senhaEmail.trim()) return alert("Informe a senha do e-mail.");
 
+    if (!form.banco.trim()) return alert("Informe o banco.");
+    if (!form.pixTipo) return alert("Selecione o tipo da chave PIX.");
+    if (!form.chavePix.trim()) return alert("Informe a chave PIX.");
+    if (!pixOk) return alert("Chave PIX inválida para o tipo escolhido.");
+    if (!form.confirmoTitular) return alert("Você precisa confirmar que é o titular da conta/PIX.");
+
     if (!accepted) return alert("Você precisa aceitar o termo.");
 
     try {
       setSaving(true);
 
+      // ✅ compatível com seu route.ts atual (salva banco/chavePix/telefone/senhas)
       const payload = {
         nomeCompleto: form.nomeCompleto.trim(),
         cpf: normalizeCpf(form.cpf),
         dataNascimento: isoNascimento,
 
-        telefone: onlyDigits(form.telefone), // manda só dígitos
+        telefone: onlyDigits(form.telefone),
         emailCriado: form.emailCriado.trim(),
 
-        // mantém o padrão do backend atual
+        banco: form.banco.trim(),
+        chavePix: normalizePixChave(form.pixTipo, form.chavePix),
+
+        // se você DECIDIR salvar depois no prisma, o backend pode usar.
+        pixTipo: form.pixTipo,
+        titularConfirmado: true,
+
         senhaEmailEnc: form.senhaEmail || null,
         senhaSmilesEnc: form.senhaSmiles || null,
         senhaLiveloEnc: form.senhaLivelo || null,
         senhaLatamPassEnc: form.senhaLatamPass || null,
         senhaEsferaEnc: form.senhaEsfera || null,
 
+        termoVersao: "v1",
         accepted: true,
       };
 
@@ -194,6 +249,15 @@ export default function ConviteCedentePage({ params }: { params: { token: string
   }
 
   if (loading) return <div className="p-6">Carregando...</div>;
+
+  if (inviteError) {
+    return (
+      <div className="mx-auto max-w-3xl p-6">
+        <h1 className="text-2xl font-bold mb-2">Convite</h1>
+        <div className="rounded-2xl border p-4 text-sm text-red-600">{inviteError}</div>
+      </div>
+    );
+  }
 
   if (done) {
     return (
@@ -230,11 +294,7 @@ export default function ConviteCedentePage({ params }: { params: { token: string
           <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
             <div className="md:col-span-2">
               <label className="mb-1 block text-sm">Nome completo</label>
-              <input
-                className="w-full rounded-xl border px-3 py-2"
-                value={form.nomeCompleto}
-                onChange={(e) => setField("nomeCompleto", e.target.value)}
-              />
+              <input className="w-full rounded-xl border px-3 py-2" value={form.nomeCompleto} onChange={(e) => setField("nomeCompleto", e.target.value)} />
             </div>
 
             <div>
@@ -250,15 +310,8 @@ export default function ConviteCedentePage({ params }: { params: { token: string
 
             <div>
               <label className="mb-1 block text-sm">CPF (somente números)</label>
-              <input
-                className="w-full rounded-xl border px-3 py-2"
-                value={form.cpf}
-                onChange={(e) => setField("cpf", normalizeCpf(e.target.value))}
-                placeholder="Somente números"
-              />
-              {!cpfOk && form.cpf.length > 0 && (
-                <div className="mt-1 text-[11px] text-red-600">CPF deve ter 11 dígitos</div>
-              )}
+              <input className="w-full rounded-xl border px-3 py-2" value={form.cpf} onChange={(e) => setField("cpf", normalizeCpf(e.target.value))} placeholder="Somente números" />
+              {!cpfOk && form.cpf.length > 0 && <div className="mt-1 text-[11px] text-red-600">CPF deve ter 11 dígitos</div>}
             </div>
 
             <div className="md:col-span-2">
@@ -270,9 +323,7 @@ export default function ConviteCedentePage({ params }: { params: { token: string
                 placeholder="(11) 99999-9999"
                 inputMode="tel"
               />
-              {!phoneOk && form.telefone.length > 0 && (
-                <div className="mt-1 text-[11px] text-red-600">Telefone inválido (inclua DDD)</div>
-              )}
+              {!phoneOk && form.telefone.length > 0 && <div className="mt-1 text-[11px] text-red-600">Telefone inválido (inclua DDD)</div>}
             </div>
           </div>
         </section>
@@ -283,56 +334,92 @@ export default function ConviteCedentePage({ params }: { params: { token: string
           <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
             <div>
               <label className="mb-1 block text-sm">E-mail criado</label>
-              <input
-                className="w-full rounded-xl border px-3 py-2"
-                value={form.emailCriado}
-                onChange={(e) => setField("emailCriado", e.target.value)}
-              />
+              <input className="w-full rounded-xl border px-3 py-2" value={form.emailCriado} onChange={(e) => setField("emailCriado", e.target.value)} />
             </div>
 
             <div>
               <label className="mb-1 block text-sm">Senha do e-mail</label>
-              <input
-                className="w-full rounded-xl border px-3 py-2"
-                value={form.senhaEmail}
-                onChange={(e) => setField("senhaEmail", e.target.value)}
-              />
+              <input className="w-full rounded-xl border px-3 py-2" value={form.senhaEmail} onChange={(e) => setField("senhaEmail", e.target.value)} />
             </div>
 
             <div>
               <label className="mb-1 block text-sm">Senha Smiles</label>
-              <input
-                className="w-full rounded-xl border px-3 py-2"
-                value={form.senhaSmiles}
-                onChange={(e) => setField("senhaSmiles", e.target.value)}
-              />
+              <input className="w-full rounded-xl border px-3 py-2" value={form.senhaSmiles} onChange={(e) => setField("senhaSmiles", e.target.value)} />
             </div>
 
             <div>
               <label className="mb-1 block text-sm">Senha Livelo</label>
-              <input
-                className="w-full rounded-xl border px-3 py-2"
-                value={form.senhaLivelo}
-                onChange={(e) => setField("senhaLivelo", e.target.value)}
-              />
+              <input className="w-full rounded-xl border px-3 py-2" value={form.senhaLivelo} onChange={(e) => setField("senhaLivelo", e.target.value)} />
             </div>
 
             <div>
               <label className="mb-1 block text-sm">Senha Latam Pass</label>
-              <input
-                className="w-full rounded-xl border px-3 py-2"
-                value={form.senhaLatamPass}
-                onChange={(e) => setField("senhaLatamPass", e.target.value)}
-              />
+              <input className="w-full rounded-xl border px-3 py-2" value={form.senhaLatamPass} onChange={(e) => setField("senhaLatamPass", e.target.value)} />
             </div>
 
             <div>
               <label className="mb-1 block text-sm">Senha Esfera</label>
+              <input className="w-full rounded-xl border px-3 py-2" value={form.senhaEsfera} onChange={(e) => setField("senhaEsfera", e.target.value)} />
+            </div>
+          </div>
+        </section>
+
+        <section className="rounded-2xl border p-4">
+          <h2 className="mb-3 font-semibold">Pagamento (PIX)</h2>
+
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+            <div className="md:col-span-2">
+              <label className="mb-1 block text-sm">Banco</label>
+              <input className="w-full rounded-xl border px-3 py-2" value={form.banco} onChange={(e) => setField("banco", e.target.value)} placeholder="Ex.: Nubank, Inter, Itaú..." />
+            </div>
+
+            <div>
+              <label className="mb-1 block text-sm">Tipo da chave PIX</label>
+              <select
+                className="w-full rounded-xl border px-3 py-2"
+                value={form.pixTipo}
+                onChange={(e) => {
+                  const t = e.target.value as PixTipo;
+                  setField("pixTipo", t);
+                  // limpa a chave quando mudar tipo (evita lixo)
+                  setField("chavePix", "");
+                }}
+              >
+                <option value="">Selecione...</option>
+                <option value="CPF">CPF</option>
+                <option value="CNPJ">CNPJ</option>
+                <option value="EMAIL">E-mail</option>
+                <option value="TELEFONE">Telefone</option>
+                <option value="ALEATORIA">Aleatória</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="mb-1 block text-sm">Chave PIX</label>
               <input
                 className="w-full rounded-xl border px-3 py-2"
-                value={form.senhaEsfera}
-                onChange={(e) => setField("senhaEsfera", e.target.value)}
+                value={form.chavePix}
+                onChange={(e) => setField("chavePix", normalizePixChave(form.pixTipo, e.target.value))}
+                placeholder={
+                  form.pixTipo === "CPF"
+                    ? "Somente números"
+                    : form.pixTipo === "TELEFONE"
+                    ? "DDD + número"
+                    : form.pixTipo === "EMAIL"
+                    ? "email@exemplo.com"
+                    : form.pixTipo === "ALEATORIA"
+                    ? "Chave aleatória"
+                    : "Selecione o tipo primeiro"
+                }
               />
+              {form.chavePix.length > 0 && !pixOk && <div className="mt-1 text-[11px] text-red-600">Chave PIX inválida para o tipo selecionado</div>}
+            </div>
+
+            <div className="md:col-span-2">
+              <label className="flex items-center gap-2 text-sm">
+                <input type="checkbox" checked={form.confirmoTitular} onChange={(e) => setField("confirmoTitular", e.target.checked)} />
+                Confirmo que sou o titular da conta/PIX informado acima.
+              </label>
             </div>
           </div>
         </section>
@@ -355,10 +442,7 @@ export default function ConviteCedentePage({ params }: { params: { token: string
           </label>
         </section>
 
-        <button
-          disabled={saving}
-          className="rounded-xl bg-black px-4 py-2 text-white hover:bg-slate-900 disabled:opacity-60"
-        >
+        <button disabled={saving} className="rounded-xl bg-black px-4 py-2 text-white hover:bg-slate-900 disabled:opacity-60">
           {saving ? "Enviando..." : "Concluir cadastro"}
         </button>
       </form>
