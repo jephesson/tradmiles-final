@@ -4,26 +4,23 @@ import { prisma } from "@/lib/prisma";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function GET(
-  _req: NextRequest,
-  { params }: { params: { token: string } }
-) {
-  const token = String(params.token || "").trim();
-  if (!token) {
+type Ctx = {
+  params: Promise<{ token: string }>;
+};
+
+export async function GET(_req: NextRequest, ctx: Ctx) {
+  const { token } = await ctx.params;
+  const code = String(token || "").trim();
+
+  if (!code) {
     return NextResponse.json({ ok: false, error: "Token ausente." }, { status: 400 });
   }
 
   const invite = await prisma.employeeInvite.findUnique({
-    where: { code: token },
+    where: { code },
     select: {
       isActive: true,
-      user: {
-        select: {
-          name: true,
-          login: true,
-          team: true,
-        },
-      },
+      user: { select: { name: true } },
     },
   });
 
