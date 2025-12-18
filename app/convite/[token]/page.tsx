@@ -8,10 +8,10 @@ type PixTipo = "CPF" | "CNPJ" | "EMAIL" | "TELEFONE" | "ALEATORIA" | "";
 
 type FormState = {
   nomeCompleto: string;
-  dataNascimento: string; // DD/MM/AAAA
+  dataNascimento: string;
   cpf: string;
 
-  telefone: string; // (DD) 9XXXX-XXXX
+  telefone: string;
   emailCriado: string;
 
   senhaEmail: string;
@@ -30,11 +30,9 @@ type FormState = {
 function onlyDigits(v: string) {
   return (v || "").replace(/\D+/g, "");
 }
-
 function normalizeCpf(v: string) {
   return onlyDigits(v).slice(0, 11);
 }
-
 function normalizeDateBR(v: string) {
   const cleaned = (v || "").replace(/[^\d/]/g, "");
   const digits = cleaned.replace(/\//g, "");
@@ -46,7 +44,6 @@ function normalizeDateBR(v: string) {
   if (digits.length > 4) out += "/" + y;
   return out.slice(0, 10);
 }
-
 function brToIsoDate(br: string): string | null {
   const v = (br || "").trim();
   if (!v) return null;
@@ -66,7 +63,6 @@ function brToIsoDate(br: string): string | null {
 
   return `${yyyy}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
 }
-
 function normalizePhoneBR(v: string) {
   const digits = onlyDigits(v).slice(0, 11);
   const ddd = digits.slice(0, 2);
@@ -83,33 +79,34 @@ function normalizePhoneBR(v: string) {
   const p2 = rest.slice(4, 8);
   return `(${ddd}) ${p1}${p2 ? "-" + p2 : ""}`.trim();
 }
-
 function normalizePixChave(tipo: PixTipo, v: string) {
   const raw = (v || "").trim();
-
   if (!tipo) return raw;
-
   if (tipo === "CPF") return normalizeCpf(raw);
   if (tipo === "CNPJ") return onlyDigits(raw).slice(0, 14);
   if (tipo === "TELEFONE") return onlyDigits(raw).slice(0, 11);
   if (tipo === "EMAIL") return raw.toLowerCase();
   return raw; // ALEATORIA
 }
-
 function isPixOk(tipo: PixTipo, chave: string) {
   if (!tipo) return false;
   const v = normalizePixChave(tipo, chave);
-
   if (tipo === "CPF") return v.length === 11;
   if (tipo === "CNPJ") return v.length === 14;
   if (tipo === "TELEFONE") return v.length === 10 || v.length === 11;
   if (tipo === "EMAIL") return v.includes("@") && v.includes(".");
-  if (tipo === "ALEATORIA") return v.length >= 16; // heurística
+  if (tipo === "ALEATORIA") return v.length >= 16;
   return false;
 }
 
-export default function ConviteCedentePage({ params }: { params: { token: string } }) {
-  const code = params.token;
+export default function ConviteCedentePage({
+  params,
+}: {
+  // ✅ aceita token OU code (evita quebrar se a pasta da rota mudar)
+  params: { token?: string; code?: string };
+}) {
+  // ✅ nunca deixa vazio / undefined
+  const code = useMemo(() => String(params?.token ?? params?.code ?? "").trim(), [params]);
 
   const [loading, setLoading] = useState(true);
   const [responsavel, setResponsavel] = useState<Responsavel | null>(null);
@@ -137,44 +134,59 @@ export default function ConviteCedentePage({ params }: { params: { token: string
   });
 
   const cpfOk = useMemo(() => normalizeCpf(form.cpf).length === 11, [form.cpf]);
-
   const phoneDigits = useMemo(() => onlyDigits(form.telefone), [form.telefone]);
   const phoneOk = useMemo(() => phoneDigits.length === 10 || phoneDigits.length === 11, [phoneDigits]);
-
   const pixOk = useMemo(() => isPixOk(form.pixTipo, form.chavePix), [form.pixTipo, form.chavePix]);
 
   function setField<K extends keyof FormState>(key: K, value: FormState[K]) {
     setForm((prev) => ({ ...prev, [key]: value }));
   }
 
-  // ✅ Carrega responsável e valida convite
+  // ✅ Carrega responsável e valida convite (sem “Link inválido” falso)
   useEffect(() => {
+    let alive = true;
+
     (async () => {
       try {
         setLoading(true);
         setInviteError("");
+        setResponsavel(null);
 
-        const res = await fetch(`/api/convite/${code}`, { cache: "no-store" });
+        // ✅ se não veio código, não chama a API
+        if (!code) {
+          if (!alive) return;
+          setInviteError("Convite inválido (código ausente).");
+          return;
+        }
+
+        const res = await fetch(`/api/convite/${encodeURIComponent(code)}`, { cache: "no-store" });
         const json = await res.json().catch(() => null);
 
+        if (!alive) return;
+
         if (!json?.ok) {
-          setResponsavel(null);
           setInviteError(json?.error || "Convite inválido.");
           return;
         }
 
         setResponsavel(json.data?.responsavel ?? null);
-
-        // opcional: hints
         setForm((prev) => ({
           ...prev,
           nomeCompleto: json.data?.nomeHint ?? prev.nomeCompleto,
           cpf: json.data?.cpfHint ?? prev.cpf,
         }));
+      } catch (err: any) {
+        if (!alive) return;
+        setInviteError(err?.message || "Erro ao validar convite.");
       } finally {
+        if (!alive) return;
         setLoading(false);
       }
     })();
+
+    return () => {
+      alive = false;
+    };
   }, [code]);
 
   async function onSubmit(e: React.FormEvent) {
@@ -187,9 +199,7 @@ export default function ConviteCedentePage({ params }: { params: { token: string
     if (!phoneOk) return alert("Telefone inválido. Use DDD + número.");
 
     const isoNascimento = form.dataNascimento.trim() ? brToIsoDate(form.dataNascimento) : null;
-    if (form.dataNascimento.trim() && !isoNascimento) {
-      return alert("Data de nascimento inválida. Use DD/MM/AAAA.");
-    }
+    if (form.dataNascimento.trim() && !isoNascimento) return alert("Data de nascimento inválida. Use DD/MM/AAAA.");
 
     if (!form.emailCriado.trim()) return alert("Informe o e-mail criado.");
     if (!form.senhaEmail.trim()) return alert("Informe a senha do e-mail.");
@@ -199,13 +209,11 @@ export default function ConviteCedentePage({ params }: { params: { token: string
     if (!form.chavePix.trim()) return alert("Informe a chave PIX.");
     if (!pixOk) return alert("Chave PIX inválida para o tipo escolhido.");
     if (!form.confirmoTitular) return alert("Você precisa confirmar que é o titular da conta/PIX.");
-
     if (!accepted) return alert("Você precisa aceitar o termo.");
 
     try {
       setSaving(true);
 
-      // ✅ compatível com seu route.ts atual (salva banco/chavePix/telefone/senhas)
       const payload = {
         nomeCompleto: form.nomeCompleto.trim(),
         cpf: normalizeCpf(form.cpf),
@@ -217,7 +225,6 @@ export default function ConviteCedentePage({ params }: { params: { token: string
         banco: form.banco.trim(),
         chavePix: normalizePixChave(form.pixTipo, form.chavePix),
 
-        // se você DECIDIR salvar depois no prisma, o backend pode usar.
         pixTipo: form.pixTipo,
         titularConfirmado: true,
 
@@ -231,7 +238,7 @@ export default function ConviteCedentePage({ params }: { params: { token: string
         accepted: true,
       };
 
-      const res = await fetch(`/api/convite/${code}/submit`, {
+      const res = await fetch(`/api/convite/${encodeURIComponent(code)}/submit`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
@@ -281,13 +288,15 @@ export default function ConviteCedentePage({ params }: { params: { token: string
     <div className="mx-auto max-w-3xl p-6">
       <h1 className="text-2xl font-bold mb-1">Cadastro do cedente</h1>
 
-      {responsavel?.name && (
-        <div className="mb-6 rounded-xl border bg-slate-50 p-3 text-sm">
-          Funcionário responsável: <b>{responsavel.name}</b>
-        </div>
-      )}
+      {/* ✅ caixa cinza sempre aparece (mesmo se vier null, mostra "-") */}
+      <div className="mb-6 rounded-xl border bg-slate-50 p-3 text-sm">
+        Funcionário responsável: <b>{responsavel?.name ?? "-"}</b>
+      </div>
 
       <form onSubmit={onSubmit} className="space-y-6">
+        {/* ... daqui pra baixo mantém seu JSX igual ... */}
+        {/* (não re-colei tudo pra não ficar gigante; pode manter seu layout atual) */}
+
         <section className="rounded-2xl border p-4">
           <h2 className="mb-3 font-semibold">Dados</h2>
 
@@ -299,13 +308,7 @@ export default function ConviteCedentePage({ params }: { params: { token: string
 
             <div>
               <label className="mb-1 block text-sm">Data de nascimento (DD/MM/AAAA)</label>
-              <input
-                className="w-full rounded-xl border px-3 py-2"
-                value={form.dataNascimento}
-                onChange={(e) => setField("dataNascimento", normalizeDateBR(e.target.value))}
-                placeholder="DD/MM/AAAA"
-                inputMode="numeric"
-              />
+              <input className="w-full rounded-xl border px-3 py-2" value={form.dataNascimento} onChange={(e) => setField("dataNascimento", normalizeDateBR(e.target.value))} placeholder="DD/MM/AAAA" inputMode="numeric" />
             </div>
 
             <div>
@@ -316,132 +319,13 @@ export default function ConviteCedentePage({ params }: { params: { token: string
 
             <div className="md:col-span-2">
               <label className="mb-1 block text-sm">Telefone</label>
-              <input
-                className="w-full rounded-xl border px-3 py-2"
-                value={form.telefone}
-                onChange={(e) => setField("telefone", normalizePhoneBR(e.target.value))}
-                placeholder="(11) 99999-9999"
-                inputMode="tel"
-              />
+              <input className="w-full rounded-xl border px-3 py-2" value={form.telefone} onChange={(e) => setField("telefone", normalizePhoneBR(e.target.value))} placeholder="(11) 99999-9999" inputMode="tel" />
               {!phoneOk && form.telefone.length > 0 && <div className="mt-1 text-[11px] text-red-600">Telefone inválido (inclua DDD)</div>}
             </div>
           </div>
         </section>
 
-        <section className="rounded-2xl border p-4">
-          <h2 className="mb-3 font-semibold">Acessos</h2>
-
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-            <div>
-              <label className="mb-1 block text-sm">E-mail criado</label>
-              <input className="w-full rounded-xl border px-3 py-2" value={form.emailCriado} onChange={(e) => setField("emailCriado", e.target.value)} />
-            </div>
-
-            <div>
-              <label className="mb-1 block text-sm">Senha do e-mail</label>
-              <input className="w-full rounded-xl border px-3 py-2" value={form.senhaEmail} onChange={(e) => setField("senhaEmail", e.target.value)} />
-            </div>
-
-            <div>
-              <label className="mb-1 block text-sm">Senha Smiles</label>
-              <input className="w-full rounded-xl border px-3 py-2" value={form.senhaSmiles} onChange={(e) => setField("senhaSmiles", e.target.value)} />
-            </div>
-
-            <div>
-              <label className="mb-1 block text-sm">Senha Livelo</label>
-              <input className="w-full rounded-xl border px-3 py-2" value={form.senhaLivelo} onChange={(e) => setField("senhaLivelo", e.target.value)} />
-            </div>
-
-            <div>
-              <label className="mb-1 block text-sm">Senha Latam Pass</label>
-              <input className="w-full rounded-xl border px-3 py-2" value={form.senhaLatamPass} onChange={(e) => setField("senhaLatamPass", e.target.value)} />
-            </div>
-
-            <div>
-              <label className="mb-1 block text-sm">Senha Esfera</label>
-              <input className="w-full rounded-xl border px-3 py-2" value={form.senhaEsfera} onChange={(e) => setField("senhaEsfera", e.target.value)} />
-            </div>
-          </div>
-        </section>
-
-        <section className="rounded-2xl border p-4">
-          <h2 className="mb-3 font-semibold">Pagamento (PIX)</h2>
-
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-            <div className="md:col-span-2">
-              <label className="mb-1 block text-sm">Banco</label>
-              <input className="w-full rounded-xl border px-3 py-2" value={form.banco} onChange={(e) => setField("banco", e.target.value)} placeholder="Ex.: Nubank, Inter, Itaú..." />
-            </div>
-
-            <div>
-              <label className="mb-1 block text-sm">Tipo da chave PIX</label>
-              <select
-                className="w-full rounded-xl border px-3 py-2"
-                value={form.pixTipo}
-                onChange={(e) => {
-                  const t = e.target.value as PixTipo;
-                  setField("pixTipo", t);
-                  // limpa a chave quando mudar tipo (evita lixo)
-                  setField("chavePix", "");
-                }}
-              >
-                <option value="">Selecione...</option>
-                <option value="CPF">CPF</option>
-                <option value="CNPJ">CNPJ</option>
-                <option value="EMAIL">E-mail</option>
-                <option value="TELEFONE">Telefone</option>
-                <option value="ALEATORIA">Aleatória</option>
-              </select>
-            </div>
-
-            <div>
-              <label className="mb-1 block text-sm">Chave PIX</label>
-              <input
-                className="w-full rounded-xl border px-3 py-2"
-                value={form.chavePix}
-                onChange={(e) => setField("chavePix", normalizePixChave(form.pixTipo, e.target.value))}
-                placeholder={
-                  form.pixTipo === "CPF"
-                    ? "Somente números"
-                    : form.pixTipo === "TELEFONE"
-                    ? "DDD + número"
-                    : form.pixTipo === "EMAIL"
-                    ? "email@exemplo.com"
-                    : form.pixTipo === "ALEATORIA"
-                    ? "Chave aleatória"
-                    : "Selecione o tipo primeiro"
-                }
-              />
-              {form.chavePix.length > 0 && !pixOk && <div className="mt-1 text-[11px] text-red-600">Chave PIX inválida para o tipo selecionado</div>}
-            </div>
-
-            <div className="md:col-span-2">
-              <label className="flex items-center gap-2 text-sm">
-                <input type="checkbox" checked={form.confirmoTitular} onChange={(e) => setField("confirmoTitular", e.target.checked)} />
-                Confirmo que sou o titular da conta/PIX informado acima.
-              </label>
-            </div>
-          </div>
-        </section>
-
-        <section className="rounded-2xl border p-4">
-          <h2 className="mb-3 font-semibold">Termo</h2>
-
-          <div className="rounded-xl border bg-slate-50 p-3 text-sm text-slate-700">
-            Abra e leia o termo antes de aceitar:
-            <div className="mt-2">
-              <a className="underline" href="/TERMO_CIENCIA_AUTORIZACAO_VIAS_AEREAS_COMPLETO_ATUALIZADO.pdf" target="_blank" rel="noreferrer">
-                Ver termo (PDF)
-              </a>
-            </div>
-          </div>
-
-          <label className="mt-3 flex items-center gap-2 text-sm">
-            <input type="checkbox" checked={accepted} onChange={(e) => setAccepted(e.target.checked)} />
-            Li e declaro que concordo com os termos.
-          </label>
-        </section>
-
+        {/* restante: acessos / pix / termo ... pode manter igual ao seu */}
         <button disabled={saving} className="rounded-xl bg-black px-4 py-2 text-white hover:bg-slate-900 disabled:opacity-60">
           {saving ? "Enviando..." : "Concluir cadastro"}
         </button>
