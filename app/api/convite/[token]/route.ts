@@ -4,14 +4,19 @@ import { prisma } from "@/lib/prisma";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function GET(
-  _req: NextRequest,
-  { params }: { params: { token: string } }
-) {
-  const code = params.token?.trim();
+type Ctx = {
+  params: Promise<{ token: string }>;
+};
+
+export async function GET(_req: NextRequest, ctx: Ctx) {
+  const { token } = await ctx.params; // ✅ Next 16 quer Promise aqui
+  const code = String(token || "").trim();
 
   if (!code) {
-    return NextResponse.json({ ok: false, error: "Token ausente." }, { status: 400 });
+    return NextResponse.json(
+      { ok: false, error: "Token ausente." },
+      { status: 400 }
+    );
   }
 
   const invite = await prisma.employeeInvite.findUnique({
@@ -26,17 +31,23 @@ export async function GET(
   });
 
   if (!invite) {
-    return NextResponse.json({ ok: false, error: "Convite não encontrado." }, { status: 404 });
+    return NextResponse.json(
+      { ok: false, error: "Convite não encontrado." },
+      { status: 404 }
+    );
   }
 
   if (!invite.isActive) {
-    return NextResponse.json({ ok: false, error: "Convite inativo." }, { status: 410 });
+    return NextResponse.json(
+      { ok: false, error: "Convite inativo." },
+      { status: 410 }
+    );
   }
 
   return NextResponse.json({
     ok: true,
     data: {
-      nomeHint: invite.user.name,
+      nomeHint: invite.user?.name ?? null,
       cpfHint: null,
       responsavel: invite.user,
     },
