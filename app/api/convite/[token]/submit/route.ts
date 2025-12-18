@@ -5,8 +5,23 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 type Ctx = {
-  params: Promise<{ token: string }>;
+  params: Promise<{ token: string }> | { token: string };
 };
+
+async function getTokenFromCtx(ctx: Ctx) {
+  const p: any = (ctx as any)?.params;
+  const resolved = typeof p?.then === "function" ? await p : p;
+  return String(resolved?.token ?? "").trim();
+}
+
+function extractCodeFromToken(token: string) {
+  // se vier "conv-jephesson-aa11a695" -> "aa11a695"
+  // se vier só "aa11a695" -> "aa11a695"
+  const t = String(token || "").trim();
+  if (!t) return "";
+  const parts = t.split("-").filter(Boolean);
+  return parts.length >= 2 ? parts[parts.length - 1] : t;
+}
 
 function onlyDigits(v: string) {
   return (v || "").replace(/\D+/g, "").slice(0, 11);
@@ -27,10 +42,8 @@ function makeIdentifier(nomeCompleto: string) {
 
 export async function POST(req: NextRequest, ctx: Ctx) {
   try {
-    const { token } = await ctx.params;
-    const code = String(token || "").trim();
-
-    if (!code) {
+    const token = await getTokenFromCtx(ctx);
+    if (!token) {
       return NextResponse.json({ ok: false, error: "Token ausente." }, { status: 400 });
     }
 
@@ -53,11 +66,20 @@ export async function POST(req: NextRequest, ctx: Ctx) {
       return NextResponse.json({ ok: false, error: "CPF inválido (11 dígitos)." }, { status: 400 });
     }
 
-    // valida convite
-    const invite = await prisma.employeeInvite.findUnique({
-      where: { code },
-      select: { isActive: true, userId: true },
-    });
+    // tenta buscar convite pelo token inteiro; se não achar, tenta pelo "code" extraído
+    const extracted = extractCodeFromToken(token);
+
+    const invite =
+      (await prisma.employeeInvite.findUnique({
+        where: { code: token },
+        select: { isActive: true, userId: true, code: true },
+      })) ??
+      (extracted && extracted !== token
+        ? await prisma.employeeInvite.findUnique({
+            where: { code: extracted },
+            select: { isActive: true, userId: true, code: true },
+          })
+        : null);
 
     if (!invite) {
       return NextResponse.json({ ok: false, error: "Convite inválido." }, { status: 404 });
@@ -73,15 +95,16 @@ export async function POST(req: NextRequest, ctx: Ctx) {
 
     const created = await prisma.cedente.create({
       data: {
-        identificador: makeIdentifier(nomeCompleto), // ✅ REQUIRED pelo schema
+        identificador: makeIdentifier(nomeCompleto), // REQUIRED
         nomeCompleto,
         cpf,
         dataNascimento,
 
+        // ESSA é a regra do "quem indicou":
         ownerId: invite.userId,
         status: "PENDING",
 
-        // opcionais (se existirem no schema, ok; se não existirem, REMOVA)
+        // opcionais (se existirem no seu schema)
         emailCriado: typeof body?.emailCriado === "string" ? body.emailCriado.trim() || null : null,
         chavePix: typeof body?.chavePix === "string" ? body.chavePix.trim() || null : null,
         banco: typeof body?.banco === "string" ? body.banco.trim() || null : null,
@@ -95,8 +118,13 @@ export async function POST(req: NextRequest, ctx: Ctx) {
       select: { id: true, identificador: true, nomeCompleto: true, cpf: true, status: true, createdAt: true },
     });
 
+    // IMPORTANTE: não desativa o convite (pra permitir múltiplos usos)
     return NextResponse.json({ ok: true, data: created });
   } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e?.message || "Erro ao finalizar cadastro." }, { status: 500 });
+    const msg = e?.message || "Erro ao finalizar cadastro.";
+    if (msg.includes("Unique constraint failed") && msg.includes("cpf")) {
+      return NextResponse.json({ ok: false, error: "Já existe um cedente com esse CPF." }, { status: 409 });
+    }
+    return NextResponse.json({ ok: false, error: msg }, { status: 500 });
   }
 }
