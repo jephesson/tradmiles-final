@@ -1,23 +1,50 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { makeInviteCodeFromName } from "@/lib/inviteCode";
+import crypto from "node:crypto";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-export async function POST(_: Request, { params }: { params: { id: string } }) {
+function slugify(s: string) {
+  return (s || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9\s-]/g, "")
+    .replace(/\s+/g, "-")
+    .replace(/-+/g, "-");
+}
+
+function makeInviteCodeFromName(fullName: string) {
+  const parts = fullName.trim().split(/\s+/).filter(Boolean);
+  const first = parts[0] || "user";
+  const second = parts[1] || "convite";
+  const base = slugify(`${first}-${second}`);
+  const suffix = crypto.randomBytes(2).toString("hex");
+  return `${base}-${suffix}`;
+}
+
+export async function POST(
+  _req: NextRequest,
+  context: { params: Promise<{ id: string }> }
+) {
+  const { id } = await context.params; // 👈 AQUI É A CHAVE
+
   const user = await prisma.user.findUnique({
-    where: { id: params.id },
+    where: { id },
     select: { id: true, name: true },
   });
 
   if (!user) {
-    return NextResponse.json({ ok: false, error: "Funcionário não encontrado." }, { status: 404 });
+    return NextResponse.json(
+      { ok: false, error: "Funcionário não encontrado." },
+      { status: 404 }
+    );
   }
 
-  // tenta evitar colisão de code (unique)
-  for (let i = 0; i < 8; i++) {
+  for (let i = 0; i < 10; i++) {
     const code = makeInviteCodeFromName(user.name);
 
     try {
@@ -30,12 +57,17 @@ export async function POST(_: Request, { params }: { params: { id: string } }) {
 
       return NextResponse.json({ ok: true, code: invite.code });
     } catch (e: any) {
-      // P2002 = unique constraint (colisão de code). tenta novamente.
-      if (e?.code === "P2002") continue;
-      console.error("POST /api/funcionarios/[id]/invite error:", e);
-      return NextResponse.json({ ok: false, error: "Erro ao gerar convite." }, { status: 500 });
+      if (e?.code === "P2002") continue; // colisão de code
+      console.error("Erro gerar convite:", e);
+      return NextResponse.json(
+        { ok: false, error: "Erro ao gerar convite." },
+        { status: 500 }
+      );
     }
   }
 
-  return NextResponse.json({ ok: false, error: "Não foi possível gerar um código único." }, { status: 500 });
+  return NextResponse.json(
+    { ok: false, error: "Falha ao gerar um código único." },
+    { status: 500 }
+  );
 }
