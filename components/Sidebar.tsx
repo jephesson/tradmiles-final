@@ -174,9 +174,104 @@ export default function Sidebar() {
               Importar cedentes
             </NavLink>
             <NavLink href="/dashboard/cedentes/novo">Cadastrar cedente</NavLink>
-            <NavLink href="/dashboard/cedentes/visualizar">
-              Visualizar cedentes
-            </NavLink>
+
+            {/* ✅ Ajuste pedido: "Visualizar cedentes" com opções */}
+            {pathname.startsWith("/dashboard/cedentes/visualizar") ? (
+              <div className="pl-2 pr-2 pb-1">
+                <NavLink href="/dashboard/cedentes/visualizar">
+                  Visualizar cedentes
+                </NavLink>
+
+                <div className="pl-2 mt-2">
+                  <div className="flex flex-wrap gap-1">
+                    <button
+                      type="button"
+                      onClick={() => pushWithPrograma(undefined)}
+                      className={cn(
+                        "px-3 py-1 text-xs rounded-full border",
+                        programa === ""
+                          ? "bg-black text-white"
+                          : "hover:bg-slate-100"
+                      )}
+                    >
+                      Todos
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => pushWithPrograma("latam")}
+                      className={cn(
+                        "px-3 py-1 text-xs rounded-full border",
+                        programa === "latam"
+                          ? "bg-black text-white"
+                          : "hover:bg-slate-100"
+                      )}
+                    >
+                      Latam
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => pushWithPrograma("smiles")}
+                      className={cn(
+                        "px-3 py-1 text-xs rounded-full border",
+                        programa === "smiles"
+                          ? "bg-black text-white"
+                          : "hover:bg-slate-100"
+                      )}
+                    >
+                      Smiles
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => pushWithPrograma("livelo")}
+                      className={cn(
+                        "px-3 py-1 text-xs rounded-full border",
+                        programa === "livelo"
+                          ? "bg-black text-white"
+                          : "hover:bg-slate-100"
+                      )}
+                    >
+                      Livelo
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => pushWithPrograma("esfera")}
+                      className={cn(
+                        "px-3 py-1 text-xs rounded-full border",
+                        programa === "esfera"
+                          ? "bg-black text-white"
+                          : "hover:bg-slate-100"
+                      )}
+                    >
+                      Esfera
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <>
+                <NavLink href="/dashboard/cedentes/visualizar">
+                  Visualizar cedentes
+                </NavLink>
+
+                <div className="pl-4 space-y-1">
+                  <NavLink href="/dashboard/cedentes/visualizar">
+                    Todos
+                  </NavLink>
+                  <NavLink href="/dashboard/cedentes/visualizar?programa=latam">
+                    Latam
+                  </NavLink>
+                  <NavLink href="/dashboard/cedentes/visualizar?programa=smiles">
+                    Smiles
+                  </NavLink>
+                  <NavLink href="/dashboard/cedentes/visualizar?programa=livelo">
+                    Livelo
+                  </NavLink>
+                  <NavLink href="/dashboard/cedentes/visualizar?programa=esfera">
+                    Esfera
+                  </NavLink>
+                </div>
+              </>
+            )}
 
             {/* ✅ Novo item: Pendentes */}
             <NavLink href="/dashboard/cedentes/pendentes">
