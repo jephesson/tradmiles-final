@@ -106,9 +106,13 @@ async function createCedenteWithRetry(tx: any, data: any, retries = 6) {
   throw lastErr || new Error("Falha ao gerar identificador único.");
 }
 
-export async function POST(req: NextRequest, { params }: { params: { code: string } }) {
+// ✅ Next 16: params é Promise
+export async function POST(
+  req: NextRequest,
+  { params }: { params: Promise<{ code: string }> }
+) {
   try {
-    const { code } = params;
+    const { code } = await params;
     const body = await req.json().catch(() => ({} as any));
 
     // ✅ valida convite
