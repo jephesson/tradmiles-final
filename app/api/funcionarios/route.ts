@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 type Role = "admin" | "staff";
 
@@ -21,6 +22,21 @@ function noCacheHeaders() {
   };
 }
 
+function onlyDigits(v: string) {
+  return (v || "").replace(/\D+/g, "").slice(0, 11);
+}
+
+function slugifyId(v: string) {
+  return (v || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9. _-]/g, "")
+    .replace(/\s+/g, ".")
+    .replace(/-+/g, "-");
+}
+
 // =========================
 // GET /api/funcionarios
 // =========================
@@ -33,6 +49,7 @@ export async function GET() {
         login: true,
         name: true,
         cpf: true,
+        employeeId: true, // ✅
         role: true,
         team: true,
         createdAt: true,
@@ -46,6 +63,7 @@ export async function GET() {
       name: u.name,
       login: u.login,
       cpf: u.cpf,
+      employeeId: u.employeeId ?? null,
       team: u.team,
       role: u.role,
       createdAt: u.createdAt,
@@ -73,6 +91,10 @@ export async function POST(req: NextRequest) {
 
     const login = norm(body?.login);
     const name = typeof body?.name === "string" ? body.name.trim() : "";
+    const cpf = typeof body?.cpf === "string" ? onlyDigits(body.cpf) : "";
+    const employeeIdRaw = typeof body?.employeeId === "string" ? body.employeeId.trim() : "";
+    const employeeId = slugifyId(employeeIdRaw);
+
     const email = typeof body?.email === "string" ? body.email.trim() : null;
     const team = typeof body?.team === "string" && body.team.trim() ? body.team.trim() : "@vias_aereas";
     const role: Role = body?.role === "admin" ? "admin" : "staff";
@@ -85,6 +107,20 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    if (!employeeId) {
+      return NextResponse.json(
+        { ok: false, error: "Informe o ID do funcionário (ex: eduarda.freitas)." },
+        { status: 400, headers: noCacheHeaders() }
+      );
+    }
+
+    if (password.trim().length < 6) {
+      return NextResponse.json(
+        { ok: false, error: "Senha deve ter pelo menos 6 caracteres." },
+        { status: 400, headers: noCacheHeaders() }
+      );
+    }
+
     const exists = await prisma.user.findUnique({ where: { login } });
     if (exists) {
       return NextResponse.json(
@@ -93,10 +129,13 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // se employeeId for @unique no prisma, já vai garantir; mas tratamos erro também
     const user = await prisma.user.create({
       data: {
         login,
         name,
+        cpf: cpf ? cpf : null,
+        employeeId, // ✅
         email,
         team,
         role,
@@ -106,6 +145,8 @@ export async function POST(req: NextRequest) {
         id: true,
         name: true,
         login: true,
+        cpf: true,
+        employeeId: true,
         team: true,
         role: true,
         createdAt: true,
@@ -124,6 +165,17 @@ export async function POST(req: NextRequest) {
     );
   } catch (e: any) {
     console.error("Erro POST /api/funcionarios:", e);
+
+    // erro de unique
+    if (e?.code === "P2002") {
+      const target = Array.isArray(e?.meta?.target) ? e.meta.target.join(", ") : String(e?.meta?.target || "");
+      const msg =
+        target.includes("employeeId") ? "Esse ID já está em uso." :
+        target.includes("login") ? "Esse login já está em uso." :
+        "Campo único já está em uso.";
+      return NextResponse.json({ ok: false, error: msg }, { status: 409, headers: noCacheHeaders() });
+    }
+
     return NextResponse.json(
       { ok: false, error: e?.message || "Erro ao criar funcionário" },
       { status: 500, headers: noCacheHeaders() }

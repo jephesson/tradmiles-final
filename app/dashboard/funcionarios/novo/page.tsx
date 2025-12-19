@@ -6,6 +6,17 @@ function onlyDigits(v: string) {
   return (v || "").replace(/\D+/g, "").slice(0, 11);
 }
 
+function slugifyId(v: string) {
+  return (v || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9. _-]/g, "")
+    .replace(/\s+/g, ".")
+    .replace(/-+/g, "-");
+}
+
 function baseUrl() {
   const env = (process.env.NEXT_PUBLIC_APP_URL || "").replace(/\/+$/, "");
   if (env) return env;
@@ -17,10 +28,10 @@ export default function NovoFuncionarioPage() {
   const [saving, setSaving] = useState(false);
 
   const [name, setName] = useState("");
+  const [employeeId, setEmployeeId] = useState(""); // ✅ NOVO: ID (primeiro.ultimo)
   const [cpf, setCpf] = useState("");
   const [login, setLogin] = useState("");
 
-  // ✅ time automático
   const TEAM_FIXED = "@vias_aereas";
   const [team] = useState(TEAM_FIXED);
 
@@ -51,13 +62,15 @@ export default function NovoFuncionarioPage() {
 
       const payload = {
         name: name.trim(),
+        employeeId: slugifyId(employeeId), // ✅
         cpf: onlyDigits(cpf),
         login: login.trim().toLowerCase(),
-        team, // ✅ sempre @vias_aereas
+        team,
         password,
       };
 
       if (!payload.name) throw new Error("Nome obrigatório.");
+      if (!payload.employeeId) throw new Error("ID obrigatório (ex: eduarda.freitas).");
       if (!payload.login) throw new Error("Login obrigatório.");
       if (!payload.password || payload.password.trim().length < 6) {
         throw new Error("Senha deve ter pelo menos 6 caracteres.");
@@ -72,13 +85,8 @@ export default function NovoFuncionarioPage() {
       const json = await res.json();
       if (!json?.ok) throw new Error(json?.error || "Erro ao cadastrar.");
 
-      // ✅ pega convite retornado pela API
       setInviteCode(json?.data?.inviteCode ?? "");
-
       alert("Funcionário criado ✅");
-
-      // Se quiser manter o comportamento antigo (ir pra lista), descomenta:
-      // window.location.href = "/dashboard/funcionarios";
     } catch (e: any) {
       alert(e?.message || "Erro");
     } finally {
@@ -93,11 +101,21 @@ export default function NovoFuncionarioPage() {
       <form onSubmit={onSubmit} className="space-y-4 rounded-2xl border p-4">
         <div>
           <label className="block text-sm mb-1">Nome completo</label>
+          <input className="w-full rounded-xl border px-3 py-2" value={name} onChange={(e) => setName(e.target.value)} />
+        </div>
+
+        {/* ✅ NOVO: ID */}
+        <div>
+          <label className="block text-sm mb-1">ID do funcionário (primeiro.ultimo)</label>
           <input
             className="w-full rounded-xl border px-3 py-2"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
+            value={employeeId}
+            onChange={(e) => setEmployeeId(slugifyId(e.target.value))}
+            placeholder="ex: eduarda.freitas"
           />
+          <div className="text-xs text-slate-500 mt-1">
+            Esse ID será usado para vincular cedentes e para gerar o link “bonito”.
+          </div>
         </div>
 
         <div>
@@ -112,24 +130,12 @@ export default function NovoFuncionarioPage() {
 
         <div>
           <label className="block text-sm mb-1">Login</label>
-          <input
-            className="w-full rounded-xl border px-3 py-2"
-            value={login}
-            onChange={(e) => setLogin(e.target.value)}
-          />
+          <input className="w-full rounded-xl border px-3 py-2" value={login} onChange={(e) => setLogin(e.target.value)} />
         </div>
 
-        {/* ✅ Time fixo */}
         <div>
           <label className="block text-sm mb-1">Time</label>
-          <input
-            className="w-full rounded-xl border px-3 py-2 bg-slate-50"
-            value={team}
-            readOnly
-          />
-          <div className="text-xs text-slate-500 mt-1">
-            Time é fixo como <span className="font-semibold">@vias_aereas</span>.
-          </div>
+          <input className="w-full rounded-xl border px-3 py-2 bg-slate-50" value={team} readOnly />
         </div>
 
         <div>
@@ -164,21 +170,12 @@ export default function NovoFuncionarioPage() {
           </div>
         </div>
 
-        <button
-          type="submit"
-          disabled={saving}
-          className="rounded-xl bg-black px-4 py-2 text-white disabled:opacity-60"
-        >
+        <button type="submit" disabled={saving} className="rounded-xl bg-black px-4 py-2 text-white disabled:opacity-60">
           {saving ? "Salvando..." : "Cadastrar funcionário"}
         </button>
 
-        {/* opcional: depois de criar, mostrar botão pra ir pra lista */}
         {inviteCode && (
-          <button
-            type="button"
-            className="rounded-xl border px-4 py-2 w-full"
-            onClick={() => (window.location.href = "/dashboard/funcionarios")}
-          >
+          <button type="button" className="rounded-xl border px-4 py-2 w-full" onClick={() => (window.location.href = "/dashboard/funcionarios")}>
             Ir para funcionários
           </button>
         )}

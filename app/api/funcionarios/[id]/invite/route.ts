@@ -1,6 +1,6 @@
+// app/api/funcionarios/[id]/invite/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import crypto from "node:crypto";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -17,20 +17,25 @@ function slugify(s: string) {
     .replace(/-+/g, "-");
 }
 
-function makeInviteCodeFromName(fullName: string) {
+function baseCodeFromName(fullName: string) {
   const parts = fullName.trim().split(/\s+/).filter(Boolean);
   const first = parts[0] || "user";
   const second = parts[1] || "convite";
-  const base = slugify(`${first}-${second}`);
-  const suffix = crypto.randomBytes(2).toString("hex");
-  return `${base}-${suffix}`;
+  return slugify(`${first}-${second}`);
 }
 
-export async function POST(
-  _req: NextRequest,
-  context: { params: Promise<{ id: string }> }
-) {
-  const { id } = await context.params; // 👈 AQUI É A CHAVE
+async function makeUniqueCode(base: string) {
+  // tenta base, depois base-2, base-3...
+  for (let n = 0; n < 50; n++) {
+    const code = n === 0 ? base : `${base}-${n + 1}`;
+    const exists = await prisma.employeeInvite.findUnique({ where: { code } });
+    if (!exists) return code;
+  }
+  throw new Error("Não foi possível gerar um código único.");
+}
+
+export async function POST(_req: NextRequest, context: { params: Promise<{ id: string }> }) {
+  const { id } = await context.params;
 
   const user = await prisma.user.findUnique({
     where: { id },
@@ -38,36 +43,23 @@ export async function POST(
   });
 
   if (!user) {
-    return NextResponse.json(
-      { ok: false, error: "Funcionário não encontrado." },
-      { status: 404 }
-    );
+    return NextResponse.json({ ok: false, error: "Funcionário não encontrado." }, { status: 404 });
   }
 
-  for (let i = 0; i < 10; i++) {
-    const code = makeInviteCodeFromName(user.name);
+  try {
+    const base = baseCodeFromName(user.name);
+    const code = await makeUniqueCode(base);
 
-    try {
-      const invite = await prisma.employeeInvite.upsert({
-        where: { userId: user.id },
-        update: { code, isActive: true },
-        create: { userId: user.id, code, isActive: true },
-        select: { code: true },
-      });
+    const invite = await prisma.employeeInvite.upsert({
+      where: { userId: user.id },
+      update: { code, isActive: true },
+      create: { userId: user.id, code, isActive: true },
+      select: { code: true },
+    });
 
-      return NextResponse.json({ ok: true, code: invite.code });
-    } catch (e: any) {
-      if (e?.code === "P2002") continue; // colisão de code
-      console.error("Erro gerar convite:", e);
-      return NextResponse.json(
-        { ok: false, error: "Erro ao gerar convite." },
-        { status: 500 }
-      );
-    }
+    return NextResponse.json({ ok: true, code: invite.code });
+  } catch (e: any) {
+    console.error("Erro gerar convite:", e);
+    return NextResponse.json({ ok: false, error: e?.message || "Erro ao gerar convite." }, { status: 500 });
   }
-
-  return NextResponse.json(
-    { ok: false, error: "Falha ao gerar um código único." },
-    { status: 500 }
-  );
 }
