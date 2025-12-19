@@ -32,7 +32,7 @@ export async function GET(_req: NextRequest, context: { params: Promise<{ code: 
             id: true,
             name: true,
             login: true,
-            employeeId: true,
+            employeeId: true, // ⚠️ precisa existir no schema (User)
             team: true,
             role: true,
           },
@@ -59,7 +59,7 @@ export async function GET(_req: NextRequest, context: { params: Promise<{ code: 
             id: invite.user.id,
             name: invite.user.name,
             login: invite.user.login,
-            employeeId: invite.user.employeeId,
+            employeeId: invite.user.employeeId ?? null,
             team: invite.user.team,
             role: invite.user.role,
           },

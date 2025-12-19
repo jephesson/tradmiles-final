@@ -49,7 +49,9 @@ function brToIsoDate(br: string): string | null {
   const [dd, mm, yyyy] = parts;
   if (dd.length !== 2 || mm.length !== 2 || yyyy.length !== 4) return null;
 
-  const d = Number(dd), m = Number(mm), y = Number(yyyy);
+  const d = Number(dd);
+  const m = Number(mm);
+  const y = Number(yyyy);
   if (!Number.isFinite(d) || !Number.isFinite(m) || !Number.isFinite(y)) return null;
   if (y < 1900 || y > 2100) return null;
   if (m < 1 || m > 12) return null;
@@ -76,6 +78,8 @@ type InviteResp = {
   data?: {
     inviteId: string;
     code: string;
+    uses: number;
+    lastUsedAt: string | null;
     responsavel: {
       id: string;
       name: string;
@@ -86,6 +90,81 @@ type InviteResp = {
     };
   };
 };
+
+type Responsavel = NonNullable<InviteResp["data"]>["responsavel"];
+
+const TERMO_VERSAO = "v1-2025-12";
+const TERMO_TEXTO = `TERMO DE CIÊNCIA E AUTORIZAÇÃO – VIAS AÉREAS
+
+Este Termo tem por finalidade registrar a ciência expressa e autorização do TITULAR da conta para participação nas operações de compra e venda de milhas realizadas pela VIAS AÉREAS VIAGENS E TURISMO LTDA, inscrita no CNPJ sob nº 63.817.773/0001-85.
+
+1. OBJETO E FUNCIONAMENTO DAS OPERAÇÕES
+A Vias Aéreas atua na intermediação de passagens aéreas emitidas por meio dos programas de fidelidade Livelo, LATAM Pass e Smiles.
+Para viabilizar operações com margem de lucro, podem ser necessárias as seguintes etapas:
+• Adesão a clubes de pontos/milhas (Livelo, LATAM Pass e Smiles);
+• Aquisição de pontos e milhas com recursos próprios da Vias Aéreas;
+• Transferências internas de pontos;
+• Emissão de passagens aéreas;
+• Comercialização dessas passagens em balcões especializados de milhas.
+
+2. DO INVESTIMENTO E AUSÊNCIA DE PREJUÍZO AO CEDENTE
+Todo o capital investido nas operações é exclusivamente da Vias Aéreas. O TITULAR declara ciência de que:
+• Não realiza qualquer pagamento, PIX, transferência ou investimento;
+• Não assume risco financeiro;
+• Não sofre prejuízo patrimonial;
+• Não possui responsabilidade por atrasos, cancelamentos ou falhas operacionais.
+
+3. DO PAGAMENTO AO TITULAR
+Os valores pagos ao TITULAR correspondem à antecipação de lucro pela utilização da conta nos programas de fidelidade.
+O pagamento:
+• Será realizado exclusivamente ao TITULAR da conta;
+• Será feito via PIX em conta bancária de mesma titularidade;
+• Não será realizado pagamento em conta de terceiros.
+
+4. DA AQUISIÇÃO DE PONTOS
+O TITULAR declara ciência de que a aquisição de pontos e milhas realizada pela Vias Aéreas não gera qualquer dívida, obrigação financeira ou responsabilidade tributária ao TITULAR.
+
+5. DAS VALIDAÇÕES DE IDENTIDADE E DOCUMENTAÇÃO
+O TITULAR declara ciência de que as plataformas Livelo, LATAM Pass e Smiles poderão, a qualquer tempo, solicitar validações adicionais de identidade, conforme suas políticas internas, incluindo, sem se limitar a:
+• Documento oficial de identificação com foto (RG ou CNH) emitido há menos de 10 (dez) anos;
+• Comprovante de residência atualizado;
+• Selfie para conferência facial;
+• Biometria facial;
+• Envio de códigos por SMS;
+• Confirmações por ligação telefônica ou aplicativos oficiais.
+O TITULAR compromete-se a fornecer tais validações sempre que solicitado, de forma tempestiva e verdadeira, ciente de que a negativa, omissão ou recusa poderá resultar em bloqueio ou suspensão da conta junto às plataformas.
+
+6. DA PROTEÇÃO E TRATAMENTO DE DADOS
+Os dados pessoais fornecidos pelo TITULAR serão armazenados em ambiente seguro, em banco de dados protegido (OneDrive corporativo da Vias Aéreas).
+O TITULAR poderá solicitar, a qualquer momento, a exclusão definitiva e irrevogável de seus dados. Ciente, contudo, de que:
+• A exclusão inviabiliza novo ingresso;
+• Não será permitida nova indicação;
+• O vínculo operacional será encerrado permanentemente.
+
+7. DA INDICAÇÃO DE NOVOS CEDENTES
+Para unificação de novos cedentes, poderá ser pago o valor de R$ 20,00 (vinte reais) por indicação válida.
+Caso o cedente indicado descumpra o presente termo e gere prejuízo à Vias Aéreas, o TITULAR que realizou a indicação ficará impossibilitado de realizar novas indicações.
+
+8. DA RESCISÃO E DAS CONSEQUÊNCIAS DA NEGATIVA DE VALIDAÇÃO
+Este termo poderá ser rescindido a qualquer momento por qualquer das partes.
+Caso o TITULAR opte por não prosseguir com as operações, a Vias Aéreas poderá apenas consumir os pontos e milhas já adquiridos, a fim de evitar prejuízo financeiro.
+A negativa injustificada, omissão ou recusa no fornecimento das validações descritas neste termo poderá resultar em:
+• Bloqueio ou suspensão da conta do TITULAR;
+• Cancelamento de operações em andamento;
+• Prejuízo financeiro direto à Vias Aéreas.
+Nessas hipóteses, o TITULAR declara ciência de que seus dados serão removidos do banco de dados e ficará impedido de futuras negociações.
+
+9. DO IMPOSTO DE RENDA
+Os valores eventualmente recebidos pelo TITULAR possuem caráter eventual, não configurando vínculo empregatício.
+Cabe ao TITULAR avaliar eventual obrigação de declaração à Receita Federal.
+
+10. DA VERACIDADE E CIÊNCIA EXPRESSA
+Para fins de verificação pública e transparência, o TITULAR poderá consultar o perfil oficial da empresa no Instagram: @viasaereastrip.
+Ao manifestar concordância, o TITULAR declara que:
+• Leu integralmente este termo;
+• Compreendeu seu funcionamento;
+• Não sofreu indução, erro ou coação;
+• Autoriza expressamente a utilização de sua conta conforme descrito.`;
 
 export default function ConviteClient({ code }: { code: string }) {
   const [form, setForm] = useState<FormState>({
@@ -108,7 +187,9 @@ export default function ConviteClient({ code }: { code: string }) {
 
   const [loadingInvite, setLoadingInvite] = useState(true);
   const [inviteError, setInviteError] = useState("");
-  const [responsavel, setResponsavel] = useState<InviteResp["data"]["responsavel"] | null>(null);
+  const [responsavel, setResponsavel] = useState<Responsavel | null>(null);
+
+  const [termoAceito, setTermoAceito] = useState(false);
 
   const [saving, setSaving] = useState(false);
 
@@ -128,7 +209,8 @@ export default function ConviteClient({ code }: { code: string }) {
       const json: InviteResp = await res.json();
 
       if (!json?.ok) throw new Error(json?.error || "Convite inválido.");
-      setResponsavel(json.data!.responsavel);
+      if (!json.data?.responsavel) throw new Error("Convite inválido.");
+      setResponsavel(json.data.responsavel);
     } catch (e: any) {
       setInviteError(e?.message || "Erro ao carregar convite.");
       setResponsavel(null);
@@ -149,6 +231,11 @@ export default function ConviteClient({ code }: { code: string }) {
     if (!form.nomeCompleto.trim()) return alert("Informe o nome completo.");
     if (normalizeCpf(form.cpf).length !== 11) return alert("CPF inválido (11 dígitos).");
 
+    // ✅ banco + pix obrigatórios (pagamento só ao titular)
+    if (!form.banco.trim()) return alert("Informe o banco (pagamento apenas ao titular).");
+    if (!form.chavePix.trim()) return alert("Informe a chave PIX do titular.");
+    if (!termoAceito) return alert("Você precisa ler e aceitar o termo para continuar.");
+
     const isoNascimento = form.dataNascimento.trim() ? brToIsoDate(form.dataNascimento) : null;
     if (form.dataNascimento.trim() && !isoNascimento) {
       return alert("Data de nascimento inválida. Use DD/MM/AAAA.");
@@ -164,8 +251,8 @@ export default function ConviteClient({ code }: { code: string }) {
         dataNascimento: isoNascimento,
 
         emailCriado: form.emailCriado.trim() || null,
-        banco: form.banco.trim() || null,
-        chavePix: form.chavePix.trim() || null,
+        banco: form.banco.trim(),
+        chavePix: form.chavePix.trim(),
 
         // (como você pediu: texto)
         senhaEmailEnc: form.senhaEmail || null,
@@ -178,6 +265,11 @@ export default function ConviteClient({ code }: { code: string }) {
         pontosSmiles: Number(form.pontosSmiles || 0),
         pontosLivelo: Number(form.pontosLivelo || 0),
         pontosEsfera: Number(form.pontosEsfera || 0),
+
+        // ✅ termo
+        termoAceito: true,
+        termoVersao: TERMO_VERSAO,
+        titularConfirmado: true,
       };
 
       const res = await fetch(`/api/convites/${encodeURIComponent(code)}/cedentes`, {
@@ -208,6 +300,7 @@ export default function ConviteClient({ code }: { code: string }) {
         pontosLivelo: "",
         pontosEsfera: "",
       });
+      setTermoAceito(false);
     } catch (e: any) {
       alert(e?.message || "Erro ao enviar.");
     } finally {
@@ -228,10 +321,7 @@ export default function ConviteClient({ code }: { code: string }) {
       <div className="p-6 max-w-2xl">
         <h1 className="text-2xl font-bold mb-2">Convite inválido</h1>
         <p className="text-sm text-red-600">{inviteError || "Esse link não é válido ou está inativo."}</p>
-        <button
-          className="mt-4 rounded-xl border px-4 py-2 text-sm hover:bg-slate-50"
-          onClick={loadInvite}
-        >
+        <button className="mt-4 rounded-xl border px-4 py-2 text-sm hover:bg-slate-50" onClick={loadInvite}>
           Tentar novamente
         </button>
       </div>
@@ -248,12 +338,30 @@ export default function ConviteClient({ code }: { code: string }) {
 
       <div className="mb-6 rounded-2xl border p-4">
         <div className="text-sm font-semibold">Responsável</div>
-        <div className="text-sm text-slate-600">
-          {responsavelLabel}
+        <div className="text-sm text-slate-600">{responsavelLabel}</div>
+        <div className="text-xs text-slate-500 mt-1">(No caso: quem forneceu o link de indicação)</div>
+      </div>
+
+      {/* ✅ TERMO + ACEITE */}
+      <div className="mb-6 rounded-2xl border p-4 space-y-3">
+        <div className="text-sm font-semibold">Termo de ciência e autorização</div>
+        <div className="text-xs text-slate-500">Versão: {TERMO_VERSAO}</div>
+
+        <div className="rounded-xl border bg-slate-50 p-3 text-xs whitespace-pre-wrap leading-relaxed max-h-[320px] overflow-auto">
+          {TERMO_TEXTO}
         </div>
-        <div className="text-xs text-slate-500 mt-1">
-          (No caso: quem forneceu o link de indicação)
-        </div>
+
+        <label className="flex items-start gap-2 text-sm">
+          <input
+            type="checkbox"
+            className="mt-1"
+            checked={termoAceito}
+            onChange={(e) => setTermoAceito(e.target.checked)}
+          />
+          <span>
+            Li e estou ciente do termo acima, e <b>autorizo expressamente</b> a utilização da minha conta conforme descrito.
+          </span>
+        </label>
       </div>
 
       <form onSubmit={onSubmit} className="space-y-6">
@@ -323,28 +431,61 @@ export default function ConviteClient({ code }: { code: string }) {
 
             <div>
               <label className="mb-1 block text-sm">Senha Smiles</label>
-              <input className="w-full rounded-xl border px-3 py-2" value={form.senhaSmiles} onChange={(e) => setField("senhaSmiles", e.target.value)} />
-            </div>
-            <div>
-              <label className="mb-1 block text-sm">Senha Latam Pass</label>
-              <input className="w-full rounded-xl border px-3 py-2" value={form.senhaLatamPass} onChange={(e) => setField("senhaLatamPass", e.target.value)} />
-            </div>
-            <div>
-              <label className="mb-1 block text-sm">Senha Livelo</label>
-              <input className="w-full rounded-xl border px-3 py-2" value={form.senhaLivelo} onChange={(e) => setField("senhaLivelo", e.target.value)} />
-            </div>
-            <div>
-              <label className="mb-1 block text-sm">Senha Esfera</label>
-              <input className="w-full rounded-xl border px-3 py-2" value={form.senhaEsfera} onChange={(e) => setField("senhaEsfera", e.target.value)} />
+              <input
+                className="w-full rounded-xl border px-3 py-2"
+                value={form.senhaSmiles}
+                onChange={(e) => setField("senhaSmiles", e.target.value)}
+              />
             </div>
 
             <div>
-              <label className="mb-1 block text-sm">Chave PIX</label>
-              <input className="w-full rounded-xl border px-3 py-2" value={form.chavePix} onChange={(e) => setField("chavePix", e.target.value)} />
+              <label className="mb-1 block text-sm">Senha Latam Pass</label>
+              <input
+                className="w-full rounded-xl border px-3 py-2"
+                value={form.senhaLatamPass}
+                onChange={(e) => setField("senhaLatamPass", e.target.value)}
+              />
             </div>
+
+            <div>
+              <label className="mb-1 block text-sm">Senha Livelo</label>
+              <input
+                className="w-full rounded-xl border px-3 py-2"
+                value={form.senhaLivelo}
+                onChange={(e) => setField("senhaLivelo", e.target.value)}
+              />
+            </div>
+
+            <div>
+              <label className="mb-1 block text-sm">Senha Esfera</label>
+              <input
+                className="w-full rounded-xl border px-3 py-2"
+                value={form.senhaEsfera}
+                onChange={(e) => setField("senhaEsfera", e.target.value)}
+              />
+            </div>
+
+            <div>
+              <label className="mb-1 block text-sm">Chave PIX (do titular)</label>
+              <input
+                className="w-full rounded-xl border px-3 py-2"
+                value={form.chavePix}
+                onChange={(e) => setField("chavePix", e.target.value)}
+                placeholder="CPF / e-mail / telefone / aleatória"
+              />
+              <div className="text-[11px] text-slate-500 mt-1">
+                Pagamento <b>somente ao titular</b>. Não será realizado pagamento em conta de terceiros.
+              </div>
+            </div>
+
             <div>
               <label className="mb-1 block text-sm">Banco</label>
-              <input className="w-full rounded-xl border px-3 py-2" value={form.banco} onChange={(e) => setField("banco", e.target.value)} />
+              <input
+                className="w-full rounded-xl border px-3 py-2"
+                value={form.banco}
+                onChange={(e) => setField("banco", e.target.value)}
+                placeholder="Ex.: Nubank, Inter..."
+              />
             </div>
           </div>
         </section>
