@@ -9,6 +9,9 @@ type FormState = {
   dataNascimento: string; // DD/MM/AAAA
   cpf: string;
 
+  // ✅ ADICIONADO
+  telefone: string;
+
   emailCriado: string;
   senhaEmail: string;
 
@@ -33,6 +36,12 @@ function onlyDigits(v: string) {
 function normalizeCpf(v: string) {
   return onlyDigits(v).slice(0, 11);
 }
+
+// ✅ ADICIONADO (Brasil: normalmente 10 ou 11 dígitos com DDD)
+function normalizeTelefone(v: string) {
+  return onlyDigits(v).slice(0, 11);
+}
+
 function normalizeDateBR(v: string) {
   const cleaned = (v || "").replace(/[^\d/]/g, "");
   const digits = cleaned.replace(/\//g, "");
@@ -168,6 +177,10 @@ export default function ConviteClient({ code }: { code: string }) {
     nomeCompleto: "",
     dataNascimento: "",
     cpf: "",
+
+    // ✅ ADICIONADO
+    telefone: "",
+
     emailCriado: "",
     senhaEmail: "",
     senhaSmiles: "",
@@ -224,6 +237,11 @@ export default function ConviteClient({ code }: { code: string }) {
     if (!form.nomeCompleto.trim()) return alert("Informe o nome completo.");
     if (normalizeCpf(form.cpf).length !== 11) return alert("CPF inválido (11 dígitos).");
 
+    // ✅ ADICIONADO (telefone obrigatório)
+    const tel = normalizeTelefone(form.telefone);
+    if (!tel) return alert("Informe o telefone.");
+    if (!(tel.length === 10 || tel.length === 11)) return alert("Telefone inválido (DDD + número).");
+
     if (!form.banco.trim()) return alert("Informe o banco (pagamento apenas ao titular).");
     if (!form.pixTipo) return alert("Informe o tipo da chave PIX.");
     if (!form.chavePix.trim()) return alert("Informe a chave PIX do titular.");
@@ -241,6 +259,9 @@ export default function ConviteClient({ code }: { code: string }) {
         nomeCompleto: form.nomeCompleto.trim(),
         cpf: normalizeCpf(form.cpf),
         dataNascimento: isoNascimento,
+
+        // ✅ ADICIONADO
+        telefone: tel,
 
         emailCriado: form.emailCriado.trim() || null,
 
@@ -279,6 +300,10 @@ export default function ConviteClient({ code }: { code: string }) {
         nomeCompleto: "",
         dataNascimento: "",
         cpf: "",
+
+        // ✅ ADICIONADO
+        telefone: "",
+
         emailCriado: "",
         senhaEmail: "",
         senhaSmiles: "",
@@ -393,6 +418,18 @@ export default function ConviteClient({ code }: { code: string }) {
                   value={form.cpf}
                   onChange={(e) => setField("cpf", normalizeCpf(e.target.value))}
                   placeholder="Somente números"
+                />
+              </div>
+
+              {/* ✅ ADICIONADO */}
+              <div>
+                <label className="mb-1 block text-sm">Telefone</label>
+                <input
+                  className="w-full rounded-xl border px-3 py-2"
+                  value={form.telefone}
+                  onChange={(e) => setField("telefone", normalizeTelefone(e.target.value))}
+                  placeholder="DDD + número (somente números)"
+                  inputMode="numeric"
                 />
               </div>
             </div>
