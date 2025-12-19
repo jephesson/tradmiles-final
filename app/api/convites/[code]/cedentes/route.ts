@@ -1,3 +1,4 @@
+// app/api/convites/[code]/cedentes/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 
@@ -31,13 +32,20 @@ function safeIsoDateToDate(v: unknown): Date | null {
   if (!v) return null;
   const s = String(v).trim();
   if (!s) return null;
-  const d = new Date(s); // esperado: YYYY-MM-DD
+  const d = new Date(s); // esperado: YYYY-MM-DD (ou ISO)
   if (Number.isNaN(d.getTime())) return null;
   return d;
 }
 
 // se vier pixTipo, valida contra seu enum Prisma (PixTipo)
-const PIX_TIPOS = new Set(["CPF", "CNPJ", "EMAIL", "TELEFONE", "ALEATORIA"]);
+const PIX_TIPOS = new Set(["CPF", "CNPJ", "EMAIL", "TELEFONE", "ALEATORIA"] as const);
+
+function normalizeString(v: unknown, max = 255): string | null {
+  if (v === null || v === undefined) return null;
+  const s = String(v).trim();
+  if (!s) return null;
+  return s.length > max ? s.slice(0, max) : s;
+}
 
 // ✅ gera identificador interno (não expor no frontend)
 function makeIdentifier(nomeCompleto: string) {
@@ -51,13 +59,12 @@ function makeIdentifier(nomeCompleto: string) {
   const first = (cleaned.split(/\s+/)[0] || "CED").replace(/[^A-Z0-9]/g, "");
   const prefix = (first.slice(0, 3) || "CED").padEnd(3, "X");
 
-  // sufixo melhor que timestamp puro: mistura tempo + random p/ reduzir colisão
   const time = Date.now().toString().slice(-6);
   const rnd = Math.floor(Math.random() * 9000 + 1000); // 4 dígitos
-  return `${prefix}-${time}${rnd}`; // ex: MAR-1234567890
+  return `${prefix}-${time}${rnd}`;
 }
 
-async function createCedenteWithRetry(tx: any, data: any, retries = 5) {
+async function createCedenteWithRetry(tx: any, data: any, retries = 6) {
   let lastErr: any = null;
 
   for (let i = 0; i < retries; i++) {
@@ -84,14 +91,14 @@ async function createCedenteWithRetry(tx: any, data: any, retries = 5) {
     } catch (e: any) {
       lastErr = e;
 
-      // Se colidir em identificador (ou outro unique), tenta de novo.
-      // CPF duplicado não adianta retry, então estoura.
+      // Se colidir em unique (identificador etc.), tenta de novo.
+      // CPF duplicado não adianta retry.
       if (e?.code === "P2002") {
-        const target = Array.isArray(e?.meta?.target) ? e.meta.target.join(",") : String(e?.meta?.target || "");
-        // se for CPF (ou algo que não resolve com retry), joga fora
-        if (target.includes("cpf")) throw e;
+        const target = Array.isArray(e?.meta?.target)
+          ? e.meta.target.join(",")
+          : String(e?.meta?.target || "");
 
-        // caso seja identificador (ou desconhecido), tenta novamente
+        if (target.includes("cpf")) throw e;
         continue;
       }
 
@@ -102,10 +109,17 @@ async function createCedenteWithRetry(tx: any, data: any, retries = 5) {
   throw lastErr || new Error("Falha ao gerar identificador único.");
 }
 
-export async function POST(req: NextRequest, context: { params: Promise<{ code: string }> }) {
+/**
+ * ✅ AJUSTES IMPORTANTES:
+ * 1) params NÃO é Promise no Next Route Handler
+ * 2) telefone: valida/obriga (pra não mandar null e quebrar se teu Prisma exige)
+ * 3) pixTipo: se vier inválido, rejeita (pra evitar erro de enum)
+ * 4) normaliza strings e protege payload
+ */
+export async function POST(req: NextRequest, { params }: { params: { code: string } }) {
   try {
-    const { code } = await context.params;
-    const body = await req.json().catch(() => ({}));
+    const { code } = params;
+    const body = await req.json().catch(() => ({} as any));
 
     // ✅ valida convite
     const invite = await prisma.employeeInvite.findUnique({
@@ -134,7 +148,7 @@ export async function POST(req: NextRequest, context: { params: Promise<{ code: 
       );
     }
 
-    // ✅ valida campos mínimos
+    // ✅ campos mínimos
     const nomeCompleto = String(body?.nomeCompleto || "").trim();
     const cpf = onlyDigits(String(body?.cpf || "")).slice(0, 11);
 
@@ -148,6 +162,16 @@ export async function POST(req: NextRequest, context: { params: Promise<{ code: 
     if (!cpf || cpf.length !== 11) {
       return NextResponse.json(
         { ok: false, error: "CPF inválido (11 dígitos)." },
+        { status: 400, headers: noCacheHeaders() }
+      );
+    }
+
+    // ✅ telefone (evita null e o erro do Prisma se for obrigatório)
+    // Se no teu Prisma telefone for opcional, ainda assim é bom manter obrigatório no onboarding.
+    const telefone = normalizeString(body?.telefone, 30);
+    if (!telefone) {
+      return NextResponse.json(
+        { ok: false, error: "Informe o telefone." },
         { status: 400, headers: noCacheHeaders() }
       );
     }
@@ -169,9 +193,15 @@ export async function POST(req: NextRequest, context: { params: Promise<{ code: 
       );
     }
 
-    // pixTipo opcional, mas se vier precisa ser válido
+    // ✅ pixTipo (opcional) — mas se vier, tem que ser válido
     const pixTipoRaw = body?.pixTipo ? String(body.pixTipo).trim().toUpperCase() : null;
-    const pixTipo = pixTipoRaw && PIX_TIPOS.has(pixTipoRaw) ? pixTipoRaw : null;
+    if (pixTipoRaw && !PIX_TIPOS.has(pixTipoRaw as any)) {
+      return NextResponse.json(
+        { ok: false, error: "Tipo PIX inválido." },
+        { status: 400, headers: noCacheHeaders() }
+      );
+    }
+    const pixTipo = pixTipoRaw ? (pixTipoRaw as any) : null;
 
     const ip = getClientIp(req);
     const userAgent = req.headers.get("user-agent");
@@ -181,11 +211,11 @@ export async function POST(req: NextRequest, context: { params: Promise<{ code: 
       cpf,
       dataNascimento: safeIsoDateToDate(body?.dataNascimento),
 
-      telefone: body?.telefone ? String(body.telefone) : null,
-      emailCriado: body?.emailCriado ? String(body.emailCriado) : null,
+      telefone,
+      emailCriado: normalizeString(body?.emailCriado, 120),
 
       banco,
-      pixTipo: pixTipo as any, // Prisma enum PixTipo
+      pixTipo, // Prisma enum PixTipo (ou null se opcional no schema)
       chavePix,
       titularConfirmado: true,
 

@@ -1,6 +1,7 @@
 // app/api/cedentes/[id]/review/route.ts
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { getSession } from "@/lib/auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -11,33 +12,37 @@ function asInt(v: unknown) {
   return Math.trunc(n);
 }
 
-export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }) {
+export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await ctx.params;
     const body = await req.json().catch(() => ({}));
 
-    const action = String(body?.action || "");
+    const action = String(body?.action || "").toUpperCase();
     if (action !== "APPROVE" && action !== "REJECT") {
       return NextResponse.json({ ok: false, error: "Ação inválida" }, { status: 400 });
     }
 
     const status = action === "APPROVE" ? "APPROVED" : "REJECTED";
 
-    // ✅ pontos que vocês preenchem na validação (opcional, mas recomendado)
-    const pontosLatam = asInt(body?.pontosLatam);
-    const pontosSmiles = asInt(body?.pontosSmiles);
-    const pontosLivelo = asInt(body?.pontosLivelo);
-    const pontosEsfera = asInt(body?.pontosEsfera);
+    // ✅ pontos vêm em body.points (igual teu frontend manda)
+    const p = body?.points || {};
+    const pontosLatam = asInt(p?.pontosLatam);
+    const pontosSmiles = asInt(p?.pontosSmiles);
+    const pontosLivelo = asInt(p?.pontosLivelo);
+    const pontosEsfera = asInt(p?.pontosEsfera);
 
-    // TODO: quando tiver auth server-side, preencher com o user logado
-    const reviewedById: string | null = null;
+    // ✅ pega user logado para registrar quem revisou
+    const session = await getSession();
+    if (!session?.id) {
+      return NextResponse.json({ ok: false, error: "Não autenticado" }, { status: 401 });
+    }
 
     const updated = await prisma.cedente.update({
       where: { id },
       data: {
-        status,
+        status: status as any,
         reviewedAt: new Date(),
-        reviewedById,
+        reviewedById: session.id,
         ...(action === "APPROVE"
           ? { pontosLatam, pontosSmiles, pontosLivelo, pontosEsfera }
           : {}),
@@ -52,6 +57,9 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
 
     return NextResponse.json({ ok: true, data: updated });
   } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e?.message || "Erro ao revisar" }, { status: 500 });
+    return NextResponse.json(
+      { ok: false, error: e?.message || "Erro ao revisar" },
+      { status: 500 }
+    );
   }
 }

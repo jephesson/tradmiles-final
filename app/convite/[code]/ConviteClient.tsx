@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from "react";
 
+type PixTipo = "CPF" | "CNPJ" | "EMAIL" | "TELEFONE" | "ALEATORIA" | "";
+
 type FormState = {
   nomeCompleto: string;
   dataNascimento: string; // DD/MM/AAAA
@@ -17,6 +19,7 @@ type FormState = {
 
   chavePix: string;
   banco: string;
+  pixTipo: PixTipo;
 
   pontosLatam: number | "";
   pontosSmiles: number | "";
@@ -82,6 +85,12 @@ type InviteResp = {
 type Responsavel = NonNullable<InviteResp["data"]>["responsavel"];
 
 const TERMO_VERSAO = "v1-2025-12";
+
+/**
+ * ✅ TERMO COMPLETO (texto integral)
+ * - fica no client só pra exibir pro cedente
+ * - a prova/registro fica no backend com termoVersao + ip + userAgent
+ */
 const TERMO_TEXTO = `TERMO DE CIÊNCIA E AUTORIZAÇÃO – VIAS AÉREAS
 
 Este Termo tem por finalidade registrar a ciência expressa e autorização do TITULAR da conta para participação nas operações de compra e venda de milhas realizadas pela VIAS AÉREAS VIAGENS E TURISMO LTDA, inscrita no CNPJ sob nº 63.817.773/0001-85.
@@ -167,6 +176,7 @@ export default function ConviteClient({ code }: { code: string }) {
     senhaEsfera: "",
     chavePix: "",
     banco: "",
+    pixTipo: "",
     pontosLatam: "",
     pontosSmiles: "",
     pontosLivelo: "",
@@ -215,6 +225,7 @@ export default function ConviteClient({ code }: { code: string }) {
     if (normalizeCpf(form.cpf).length !== 11) return alert("CPF inválido (11 dígitos).");
 
     if (!form.banco.trim()) return alert("Informe o banco (pagamento apenas ao titular).");
+    if (!form.pixTipo) return alert("Informe o tipo da chave PIX.");
     if (!form.chavePix.trim()) return alert("Informe a chave PIX do titular.");
     if (!termoAceito) return alert("Você precisa ler e aceitar o termo para continuar.");
 
@@ -227,13 +238,14 @@ export default function ConviteClient({ code }: { code: string }) {
       setSaving(true);
 
       const payload = {
-        // ✅ identificador fica no backend (não mostrar no frontend)
         nomeCompleto: form.nomeCompleto.trim(),
         cpf: normalizeCpf(form.cpf),
         dataNascimento: isoNascimento,
 
         emailCriado: form.emailCriado.trim() || null,
+
         banco: form.banco.trim(),
+        pixTipo: form.pixTipo,
         chavePix: form.chavePix.trim(),
 
         senhaEmailEnc: form.senhaEmail || null,
@@ -275,6 +287,7 @@ export default function ConviteClient({ code }: { code: string }) {
         senhaEsfera: "",
         chavePix: "",
         banco: "",
+        pixTipo: "",
         pontosLatam: "",
         pontosSmiles: "",
         pontosLivelo: "",
@@ -441,6 +454,22 @@ export default function ConviteClient({ code }: { code: string }) {
                   value={form.senhaEsfera}
                   onChange={(e) => setField("senhaEsfera", e.target.value)}
                 />
+              </div>
+
+              <div>
+                <label className="mb-1 block text-sm">Tipo de chave PIX</label>
+                <select
+                  className="w-full rounded-xl border px-3 py-2 bg-white"
+                  value={form.pixTipo}
+                  onChange={(e) => setField("pixTipo", e.target.value as PixTipo)}
+                >
+                  <option value="">Selecione</option>
+                  <option value="CPF">CPF</option>
+                  <option value="CNPJ">CNPJ</option>
+                  <option value="EMAIL">E-mail</option>
+                  <option value="TELEFONE">Telefone</option>
+                  <option value="ALEATORIA">Aleatória</option>
+                </select>
               </div>
 
               <div>

@@ -5,6 +5,7 @@ generator client {
 
 datasource db {
   provider = "postgresql"
+  // Prisma 7+: NÃO coloque url aqui se você usa prisma.config.ts
 }
 
 enum CedenteStatus {
@@ -37,9 +38,13 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  cedentesAprovados Cedente[] @relation("CedenteApprovedBy")
-  cedentesOwned     Cedente[] @relation("CedenteOwner")
+  // Cedentes em que o usuário é o "responsável" (owner)
+  cedentesOwned Cedente[] @relation("CedenteOwner")
 
+  // Cedentes que ele revisou (aprovou/reprovou)
+  cedentesReviewed Cedente[] @relation("CedenteReviewedBy")
+
+  // Um convite por usuário (no teu fluxo)
   employeeInvite EmployeeInvite?
 
   @@index([team])
@@ -68,18 +73,19 @@ model EmployeeInvite {
 }
 
 model Cedente {
-  id             String    @id @default(uuid())
-  identificador  String    @unique
+  id            String @id @default(uuid())
+  identificador String @unique
+
   nomeCompleto   String
   dataNascimento DateTime?
-  cpf            String    @unique
+  cpf            String @unique
 
   telefone    String?
   emailCriado String?
 
-  banco       String
-  pixTipo     PixTipo
-  chavePix    String
+  banco             String
+  pixTipo           PixTipo
+  chavePix          String
   titularConfirmado Boolean @default(true)
 
   senhaEmailEnc     String?
@@ -93,10 +99,11 @@ model Cedente {
   pontosLivelo Int @default(0)
   pontosEsfera Int @default(0)
 
-  status       CedenteStatus @default(PENDING)
-  reviewedAt   DateTime?
+  status     CedenteStatus @default(PENDING)
+  reviewedAt DateTime?
+
   reviewedById String?
-  reviewedBy   User? @relation("CedenteApprovedBy", fields: [reviewedById], references: [id], onDelete: SetNull)
+  reviewedBy   User? @relation("CedenteReviewedBy", fields: [reviewedById], references: [id], onDelete: SetNull)
 
   ownerId String
   owner   User @relation("CedenteOwner", fields: [ownerId], references: [id], onDelete: Restrict)
