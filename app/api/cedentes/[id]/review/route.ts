@@ -1,7 +1,7 @@
 // app/api/cedentes/[id]/review/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { getSession } from "@/lib/auth";
+import { auth } from "@/auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -31,9 +31,11 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     const pontosLivelo = asInt(p?.pontosLivelo);
     const pontosEsfera = asInt(p?.pontosEsfera);
 
-    // ✅ pega user logado para registrar quem revisou
-    const session = await getSession();
-    if (!session?.id) {
+    // ✅ pega user logado (server-side) para registrar quem revisou
+    const session = await auth();
+    const userId = session?.user?.id;
+
+    if (!userId) {
       return NextResponse.json({ ok: false, error: "Não autenticado" }, { status: 401 });
     }
 
@@ -42,7 +44,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
       data: {
         status: status as any,
         reviewedAt: new Date(),
-        reviewedById: session.id,
+        reviewedById: userId,
         ...(action === "APPROVE"
           ? { pontosLatam, pontosSmiles, pontosLivelo, pontosEsfera }
           : {}),
@@ -57,9 +59,6 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
 
     return NextResponse.json({ ok: true, data: updated });
   } catch (e: any) {
-    return NextResponse.json(
-      { ok: false, error: e?.message || "Erro ao revisar" },
-      { status: 500 }
-    );
+    return NextResponse.json({ ok: false, error: e?.message || "Erro ao revisar" }, { status: 500 });
   }
 }
