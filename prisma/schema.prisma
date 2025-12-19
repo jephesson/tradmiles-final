@@ -1,5 +1,3 @@
-// prisma/schema.prisma
-
 generator client {
   provider   = "prisma-client-js"
   engineType = "binary"
@@ -7,7 +5,6 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-  // url      = env("DATABASE_URL")
 }
 
 enum CedenteStatus {
@@ -38,14 +35,30 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  // quem aprovou/reprovou
   cedentesAprovados Cedente[] @relation("CedenteApprovedBy")
+  cedentesOwned     Cedente[] @relation("CedenteOwner")
 
-  // cedentes que pertencem ao funcionário (rateio / owner)
-  cedentesOwned Cedente[] @relation("CedenteOwner")
-
-  // convite único por funcionário
   employeeInvite EmployeeInvite?
+
+  @@map("users")
+}
+
+model EmployeeInvite {
+  id       String  @id @default(uuid())
+  userId   String  @unique
+  code     String  @unique
+
+  isActive Boolean @default(true)
+  uses       Int      @default(0)
+  lastUsedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  cedentes Cedente[]
+
+  @@map("employee_invites")
 }
 
 model Cedente {
@@ -55,40 +68,36 @@ model Cedente {
   dataNascimento DateTime?
   cpf            String    @unique
 
-  // ✅ contato / acesso
-  telefone    String? // DDD + número (em dígitos)
+  telefone    String?
   emailCriado String?
 
-  // ✅ pagamento (PIX)
-  banco              String?
-  pixTipo            PixTipo?
-  chavePix           String?
-  titularConfirmado  Boolean  @default(false)
+  banco             String?
+  pixTipo           PixTipo?
+  chavePix          String?
+  titularConfirmado Boolean @default(false)
 
-  // ✅ senhas (texto por enquanto)
   senhaEmailEnc     String?
   senhaSmilesEnc    String?
   senhaLatamPassEnc String?
   senhaLiveloEnc    String?
   senhaEsferaEnc    String?
 
-  // pontos
   pontosLatam  Int @default(0)
   pontosSmiles Int @default(0)
   pontosLivelo Int @default(0)
   pontosEsfera Int @default(0)
 
-  // status / auditoria de revisão
   status       CedenteStatus @default(PENDING)
   reviewedAt   DateTime?
   reviewedById String?
-  reviewedBy   User?         @relation("CedenteApprovedBy", fields: [reviewedById], references: [id], onDelete: SetNull)
+  reviewedBy   User? @relation("CedenteApprovedBy", fields: [reviewedById], references: [id], onDelete: SetNull)
 
-  // ✅ dono do cedente (funcionário do convite)
   ownerId String
-  owner   User   @relation("CedenteOwner", fields: [ownerId], references: [id], onDelete: Restrict)
+  owner   User @relation("CedenteOwner", fields: [ownerId], references: [id], onDelete: Restrict)
 
-  // termo(s)
+  inviteId String?
+  invite   EmployeeInvite? @relation(fields: [inviteId], references: [id], onDelete: SetNull)
+
   termAcceptances CedenteTermAcceptance[]
 
   createdAt DateTime @default(now())
@@ -96,21 +105,8 @@ model Cedente {
 
   @@index([status])
   @@index([ownerId])
+  @@index([inviteId])
   @@map("cedentes")
-}
-
-model EmployeeInvite {
-  id       String  @id @default(uuid())
-  userId   String  @unique
-  code     String  @unique
-  isActive Boolean @default(true)
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@map("employee_invites")
 }
 
 model CedenteTermAcceptance {
