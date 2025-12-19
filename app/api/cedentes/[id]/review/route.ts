@@ -1,8 +1,7 @@
 // app/api/cedentes/[id]/review/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
+import { getSessionServer } from "@/lib/auth-server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -13,20 +12,14 @@ function asInt(v: unknown) {
   return Math.trunc(n);
 }
 
-export async function POST(
-  req: NextRequest,
-  ctx: { params: Promise<{ id: string }> }
-) {
+export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await ctx.params;
     const body = await req.json().catch(() => ({}));
 
     const action = String(body?.action || "").toUpperCase();
     if (action !== "APPROVE" && action !== "REJECT") {
-      return NextResponse.json(
-        { ok: false, error: "Ação inválida" },
-        { status: 400 }
-      );
+      return NextResponse.json({ ok: false, error: "Ação inválida" }, { status: 400 });
     }
 
     const status = action === "APPROVE" ? "APPROVED" : "REJECTED";
@@ -37,15 +30,10 @@ export async function POST(
     const pontosLivelo = asInt(p?.pontosLivelo);
     const pontosEsfera = asInt(p?.pontosEsfera);
 
-    // ✅ SESSION SERVER-SIDE (correto)
-    const session = await getServerSession(authOptions);
-    const userId = session?.user?.id;
-
-    if (!userId) {
-      return NextResponse.json(
-        { ok: false, error: "Não autenticado" },
-        { status: 401 }
-      );
+    // ✅ sessão server-side via cookie tm.session
+    const session = await getSessionServer();
+    if (!session?.id) {
+      return NextResponse.json({ ok: false, error: "Não autenticado" }, { status: 401 });
     }
 
     const updated = await prisma.cedente.update({
@@ -53,7 +41,7 @@ export async function POST(
       data: {
         status: status as any,
         reviewedAt: new Date(),
-        reviewedById: userId,
+        reviewedById: session.id,
         ...(action === "APPROVE"
           ? { pontosLatam, pontosSmiles, pontosLivelo, pontosEsfera }
           : {}),
@@ -68,9 +56,6 @@ export async function POST(
 
     return NextResponse.json({ ok: true, data: updated });
   } catch (e: any) {
-    return NextResponse.json(
-      { ok: false, error: e?.message || "Erro ao revisar" },
-      { status: 500 }
-    );
+    return NextResponse.json({ ok: false, error: e?.message || "Erro ao revisar" }, { status: 500 });
   }
 }
