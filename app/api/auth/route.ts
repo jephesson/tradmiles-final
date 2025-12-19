@@ -1,4 +1,3 @@
-// src/app/api/auth/route.ts
 import { NextResponse } from "next/server";
 import crypto from "node:crypto";
 import { prisma } from "@/lib/prisma";
@@ -13,7 +12,7 @@ const TEAM = "@vias_aereas";
 const sha256 = (s: string) => crypto.createHash("sha256").update(s).digest("hex");
 const norm = (s: string | null | undefined) => (s ?? "").trim().toLowerCase();
 
-// ✅ cookie pequeno (o app quase certamente espera isso)
+// ✅ cookie pequeno
 type SessionCookie = {
   id: string;
   login: string;
@@ -27,7 +26,7 @@ type ApiResetSeed = { action: "resetSeed" };
 type ApiLogout = { action: "logout" };
 type ApiBody = ApiLogin | ApiSetPassword | ApiResetSeed | ApiLogout;
 
-// ✅ seed REAL (vai pro banco)
+// ✅ seed REAL (vai pro banco) — apenas usuários
 const SEED_USERS: Array<{
   login: string;
   name: string;
@@ -113,26 +112,6 @@ function isApiBody(v: unknown): v is ApiBody {
   return action === "login" || action === "setPassword" || action === "resetSeed" || action === "logout";
 }
 
-function genInviteCode(login: string) {
-  return `conv-${login}-${crypto.randomBytes(4).toString("hex")}`;
-}
-
-async function ensureInvitesForSeedUsers() {
-  // cria convite pra quem existir no banco e ainda não tiver
-  const users = await prisma.user.findMany({
-    where: { login: { in: SEED_USERS.map((u) => norm(u.login)) } },
-    select: { id: true, login: true },
-  });
-
-  for (const u of users) {
-    await prisma.employeeInvite.upsert({
-      where: { userId: u.id },
-      update: { isActive: true },
-      create: { userId: u.id, code: genInviteCode(u.login), isActive: true },
-    });
-  }
-}
-
 // ✅ IMPORTANTE: não sobrescreve senha de usuário que já existe
 async function seedUsersToDb() {
   for (const u of SEED_USERS) {
@@ -168,8 +147,6 @@ async function seedUsersToDb() {
       });
     }
   }
-
-  await ensureInvitesForSeedUsers();
 }
 
 export async function GET(): Promise<NextResponse> {
@@ -186,13 +163,12 @@ export async function POST(req: Request): Promise<NextResponse> {
     }
 
     if (raw.action === "resetSeed") {
-      // ✅ mantém usuários seed, mas não redefine senha se já existe
       await seedUsersToDb();
       return NextResponse.json({ ok: true, message: "Seed restaurado" }, { headers: noCacheHeaders() });
     }
 
     if (raw.action === "login") {
-      await seedUsersToDb(); // garante que existe no DB
+      await seedUsersToDb();
 
       const login = norm(raw.login);
       const password = String(raw.password ?? "");
@@ -205,7 +181,10 @@ export async function POST(req: Request): Promise<NextResponse> {
 
       const dbUser = await prisma.user.findUnique({ where: { login } });
       if (!dbUser) {
-        return NextResponse.json({ ok: false, error: "Usuário não encontrado" }, { status: 401, headers: noCacheHeaders() });
+        return NextResponse.json(
+          { ok: false, error: "Usuário não encontrado" },
+          { status: 401, headers: noCacheHeaders() }
+        );
       }
 
       if (dbUser.passwordHash !== sha256(password)) {

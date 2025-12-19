@@ -21,16 +21,6 @@ function noCacheHeaders() {
   };
 }
 
-function randCode(len = 24) {
-  return crypto
-    .randomBytes(Math.ceil(len))
-    .toString("base64")
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_")
-    .replace(/=+$/g, "")
-    .slice(0, len);
-}
-
 // =========================
 // GET /api/funcionarios
 // =========================
@@ -46,14 +36,8 @@ export async function GET() {
         role: true,
         team: true,
         createdAt: true,
-        employeeInvite: {
-          select: { code: true, isActive: true },
-        },
-        _count: {
-          select: {
-            cedentesOwned: true, // ✅ NOME REAL DO PRISMA
-          },
-        },
+        employeeInvite: { select: { code: true, isActive: true } },
+        _count: { select: { cedentesOwned: true } },
       },
     });
 
@@ -66,9 +50,7 @@ export async function GET() {
       role: u.role,
       createdAt: u.createdAt,
       inviteCode: u.employeeInvite?.code ?? null,
-      _count: {
-        cedentes: u._count.cedentesOwned, // ✅ ADAPTA PARA O FRONT
-      },
+      _count: { cedentes: u._count.cedentesOwned },
     }));
 
     return NextResponse.json({ ok: true, data }, { headers: noCacheHeaders() });
@@ -83,6 +65,7 @@ export async function GET() {
 
 // =========================
 // POST /api/funcionarios
+// (CRIA SÓ O USUÁRIO - SEM CONVITE)
 // =========================
 export async function POST(req: NextRequest) {
   try {
@@ -110,56 +93,31 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const created = await prisma.$transaction(async (tx) => {
-      const user = await tx.user.create({
-        data: {
-          login,
-          name,
-          email,
-          team,
-          role,
-          passwordHash: sha256(password),
-        },
-      });
-
-      let invite = await tx.employeeInvite.findUnique({
-        where: { userId: user.id },
-      });
-
-      if (!invite) {
-        for (let i = 0; i < 5; i++) {
-          try {
-            invite = await tx.employeeInvite.create({
-              data: {
-                userId: user.id,
-                code: randCode(28),
-                isActive: true,
-              },
-            });
-            break;
-          } catch (e: any) {
-            if (String(e?.message || "").toLowerCase().includes("unique")) continue;
-            throw e;
-          }
-        }
-      }
-
-      if (!invite) throw new Error("Não foi possível gerar convite.");
-
-      return { user, invite };
+    const user = await prisma.user.create({
+      data: {
+        login,
+        name,
+        email,
+        team,
+        role,
+        passwordHash: sha256(password),
+      },
+      select: {
+        id: true,
+        name: true,
+        login: true,
+        team: true,
+        role: true,
+        createdAt: true,
+      },
     });
 
     return NextResponse.json(
       {
         ok: true,
         data: {
-          id: created.user.id,
-          name: created.user.name,
-          login: created.user.login,
-          team: created.user.team,
-          role: created.user.role,
-          createdAt: created.user.createdAt,
-          inviteCode: created.invite.code,
+          ...user,
+          inviteCode: null, // ✅ convite só no editar
         },
       },
       { status: 201, headers: noCacheHeaders() }
