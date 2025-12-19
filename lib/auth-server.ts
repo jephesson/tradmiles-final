@@ -19,7 +19,8 @@ function b64urlDecode(input: string) {
 
 export async function getSessionServer(): Promise<Session | null> {
   try {
-    const raw = cookies().get("tm.session")?.value;
+    const jar = await cookies(); // ✅ Next 16: cookies() pode ser Promise
+    const raw = jar.get("tm.session")?.value;
     if (!raw) return null;
 
     const json = b64urlDecode(raw);
