@@ -37,7 +37,6 @@ function safeIsoDateToDate(v: unknown): Date | null {
   return d;
 }
 
-// se vier pixTipo, valida contra seu enum Prisma (PixTipo)
 const PIX_TIPOS = new Set(["CPF", "CNPJ", "EMAIL", "TELEFONE", "ALEATORIA"] as const);
 
 function normalizeString(v: unknown, max = 255): string | null {
@@ -91,14 +90,12 @@ async function createCedenteWithRetry(tx: any, data: any, retries = 6) {
     } catch (e: any) {
       lastErr = e;
 
-      // Se colidir em unique (identificador etc.), tenta de novo.
-      // CPF duplicado não adianta retry.
       if (e?.code === "P2002") {
         const target = Array.isArray(e?.meta?.target)
           ? e.meta.target.join(",")
           : String(e?.meta?.target || "");
 
-        if (target.includes("cpf")) throw e;
+        if (target.includes("cpf")) throw e; // CPF duplicado não adianta retry
         continue;
       }
 
@@ -109,13 +106,6 @@ async function createCedenteWithRetry(tx: any, data: any, retries = 6) {
   throw lastErr || new Error("Falha ao gerar identificador único.");
 }
 
-/**
- * ✅ AJUSTES IMPORTANTES:
- * 1) params NÃO é Promise no Next Route Handler
- * 2) telefone: valida/obriga (pra não mandar null e quebrar se teu Prisma exige)
- * 3) pixTipo: se vier inválido, rejeita (pra evitar erro de enum)
- * 4) normaliza strings e protege payload
- */
 export async function POST(req: NextRequest, { params }: { params: { code: string } }) {
   try {
     const { code } = params;
@@ -124,11 +114,7 @@ export async function POST(req: NextRequest, { params }: { params: { code: strin
     // ✅ valida convite
     const invite = await prisma.employeeInvite.findUnique({
       where: { code },
-      select: {
-        id: true,
-        isActive: true,
-        userId: true,
-      },
+      select: { id: true, isActive: true, userId: true },
     });
 
     if (!invite || !invite.isActive) {
@@ -158,7 +144,6 @@ export async function POST(req: NextRequest, { params }: { params: { code: strin
         { status: 400, headers: noCacheHeaders() }
       );
     }
-
     if (!cpf || cpf.length !== 11) {
       return NextResponse.json(
         { ok: false, error: "CPF inválido (11 dígitos)." },
@@ -166,8 +151,7 @@ export async function POST(req: NextRequest, { params }: { params: { code: strin
       );
     }
 
-    // ✅ telefone (evita null e o erro do Prisma se for obrigatório)
-    // Se no teu Prisma telefone for opcional, ainda assim é bom manter obrigatório no onboarding.
+    // ✅ telefone (onboarding obrigatório)
     const telefone = normalizeString(body?.telefone, 30);
     if (!telefone) {
       return NextResponse.json(
@@ -176,7 +160,7 @@ export async function POST(req: NextRequest, { params }: { params: { code: strin
       );
     }
 
-    // ✅ pagamento só no titular: banco + pix obrigatórios
+    // ✅ banco/PIX obrigatórios
     const banco = String(body?.banco || "").trim();
     const chavePix = String(body?.chavePix || "").trim();
 
@@ -193,15 +177,21 @@ export async function POST(req: NextRequest, { params }: { params: { code: strin
       );
     }
 
-    // ✅ pixTipo (opcional) — mas se vier, tem que ser válido
+    // ✅ pixTipo obrigatório (pq no Prisma é PixTipo sem ?)
     const pixTipoRaw = body?.pixTipo ? String(body.pixTipo).trim().toUpperCase() : null;
-    if (pixTipoRaw && !PIX_TIPOS.has(pixTipoRaw as any)) {
+    if (!pixTipoRaw) {
+      return NextResponse.json(
+        { ok: false, error: "Informe o tipo da chave PIX." },
+        { status: 400, headers: noCacheHeaders() }
+      );
+    }
+    if (!PIX_TIPOS.has(pixTipoRaw as any)) {
       return NextResponse.json(
         { ok: false, error: "Tipo PIX inválido." },
         { status: 400, headers: noCacheHeaders() }
       );
     }
-    const pixTipo = pixTipoRaw ? (pixTipoRaw as any) : null;
+    const pixTipo = pixTipoRaw as any;
 
     const ip = getClientIp(req);
     const userAgent = req.headers.get("user-agent");
@@ -215,11 +205,11 @@ export async function POST(req: NextRequest, { params }: { params: { code: strin
       emailCriado: normalizeString(body?.emailCriado, 120),
 
       banco,
-      pixTipo, // Prisma enum PixTipo (ou null se opcional no schema)
+      pixTipo,
       chavePix,
       titularConfirmado: true,
 
-      // (como você pediu: texto no banco por enquanto)
+      // (texto no banco por enquanto)
       senhaEmailEnc: body?.senhaEmailEnc ?? null,
       senhaSmilesEnc: body?.senhaSmilesEnc ?? null,
       senhaLatamPassEnc: body?.senhaLatamPassEnc ?? null,
@@ -235,7 +225,6 @@ export async function POST(req: NextRequest, { params }: { params: { code: strin
       inviteId: invite.id,
     };
 
-    // ✅ cria cedente + termo + atualiza convite (transação)
     const created = await prisma.$transaction(async (tx) => {
       const cedente = await createCedenteWithRetry(tx, baseCedenteData, 6);
 
@@ -250,16 +239,16 @@ export async function POST(req: NextRequest, { params }: { params: { code: strin
 
       await tx.employeeInvite.update({
         where: { id: invite.id },
-        data: {
-          uses: { increment: 1 },
-          lastUsedAt: new Date(),
-        },
+        data: { uses: { increment: 1 }, lastUsedAt: new Date() },
       });
 
       return cedente;
     });
 
-    return NextResponse.json({ ok: true, data: created }, { status: 201, headers: noCacheHeaders() });
+    return NextResponse.json(
+      { ok: true, data: created },
+      { status: 201, headers: noCacheHeaders() }
+    );
   } catch (e: any) {
     console.error("Erro POST /api/convites/[code]/cedentes:", e);
 
