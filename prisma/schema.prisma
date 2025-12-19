@@ -22,9 +22,12 @@ enum PixTipo {
 }
 
 model User {
-  id           String  @id @default(uuid())
-  login        String  @unique
-  name         String
+  id    String @id @default(uuid())
+  login String @unique
+  name  String
+
+  // ✅ novo campo: identificador do funcionário (ex: eduarda.freitas)
+  employeeId String? @unique
 
   cpf          String? @unique
   email        String? @unique
@@ -44,12 +47,12 @@ model User {
 }
 
 model EmployeeInvite {
-  id       String  @id @default(uuid())
-  userId   String  @unique
-  code     String  @unique
+  id     String @id @default(uuid())
+  userId String @unique
+  code   String @unique
 
-  isActive Boolean @default(true)
-  uses       Int      @default(0)
+  isActive   Boolean   @default(true)
+  uses       Int       @default(0)
   lastUsedAt DateTime?
 
   createdAt DateTime @default(now())
@@ -74,7 +77,7 @@ model Cedente {
   banco             String?
   pixTipo           PixTipo?
   chavePix          String?
-  titularConfirmado Boolean @default(false)
+  titularConfirmado Boolean  @default(false)
 
   senhaEmailEnc     String?
   senhaSmilesEnc    String?
@@ -90,10 +93,10 @@ model Cedente {
   status       CedenteStatus @default(PENDING)
   reviewedAt   DateTime?
   reviewedById String?
-  reviewedBy   User? @relation("CedenteApprovedBy", fields: [reviewedById], references: [id], onDelete: SetNull)
+  reviewedBy   User?         @relation("CedenteApprovedBy", fields: [reviewedById], references: [id], onDelete: SetNull)
 
   ownerId String
-  owner   User @relation("CedenteOwner", fields: [ownerId], references: [id], onDelete: Restrict)
+  owner   User   @relation("CedenteOwner", fields: [ownerId], references: [id], onDelete: Restrict)
 
   inviteId String?
   invite   EmployeeInvite? @relation(fields: [inviteId], references: [id], onDelete: SetNull)
