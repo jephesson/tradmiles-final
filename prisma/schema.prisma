@@ -26,7 +26,6 @@ model User {
   login String @unique
   name  String
 
-  // ✅ identificador do funcionário (ex: eduarda.freitas)
   employeeId String? @unique
 
   cpf          String? @unique
@@ -78,10 +77,10 @@ model Cedente {
   telefone    String?
   emailCriado String?
 
-  banco             String?
-  pixTipo           PixTipo?
-  chavePix          String?
-  titularConfirmado Boolean @default(false)
+  banco       String
+  pixTipo     PixTipo
+  chavePix    String
+  titularConfirmado Boolean @default(true)
 
   senhaEmailEnc     String?
   senhaSmilesEnc    String?

@@ -20,7 +20,6 @@ function onlyDigits(v: string) {
 }
 
 function getClientIp(req: NextRequest) {
-  // Vercel/Proxy geralmente manda x-forwarded-for (lista)
   const xff = req.headers.get("x-forwarded-for");
   if (xff) return xff.split(",")[0].trim();
   const xr = req.headers.get("x-real-ip");
@@ -32,14 +31,76 @@ function safeIsoDateToDate(v: unknown): Date | null {
   if (!v) return null;
   const s = String(v).trim();
   if (!s) return null;
-  // esperado: YYYY-MM-DD
-  const d = new Date(s);
+  const d = new Date(s); // esperado: YYYY-MM-DD
   if (Number.isNaN(d.getTime())) return null;
   return d;
 }
 
 // se vier pixTipo, valida contra seu enum Prisma (PixTipo)
 const PIX_TIPOS = new Set(["CPF", "CNPJ", "EMAIL", "TELEFONE", "ALEATORIA"]);
+
+// ✅ gera identificador interno (não expor no frontend)
+function makeIdentifier(nomeCompleto: string) {
+  const cleaned = (nomeCompleto || "")
+    .normalize("NFD")
+    .replace(/\p{Diacritic}+/gu, "")
+    .toUpperCase()
+    .replace(/[^\p{L}\p{N}\s']/gu, " ")
+    .trim();
+
+  const first = (cleaned.split(/\s+/)[0] || "CED").replace(/[^A-Z0-9]/g, "");
+  const prefix = (first.slice(0, 3) || "CED").padEnd(3, "X");
+
+  // sufixo melhor que timestamp puro: mistura tempo + random p/ reduzir colisão
+  const time = Date.now().toString().slice(-6);
+  const rnd = Math.floor(Math.random() * 9000 + 1000); // 4 dígitos
+  return `${prefix}-${time}${rnd}`; // ex: MAR-1234567890
+}
+
+async function createCedenteWithRetry(tx: any, data: any, retries = 5) {
+  let lastErr: any = null;
+
+  for (let i = 0; i < retries; i++) {
+    try {
+      const identificador = makeIdentifier(data.nomeCompleto);
+
+      const cedente = await tx.cedente.create({
+        data: {
+          ...data,
+          identificador,
+        },
+        select: {
+          id: true,
+          identificador: true,
+          nomeCompleto: true,
+          cpf: true,
+          ownerId: true,
+          inviteId: true,
+          createdAt: true,
+        },
+      });
+
+      return cedente;
+    } catch (e: any) {
+      lastErr = e;
+
+      // Se colidir em identificador (ou outro unique), tenta de novo.
+      // CPF duplicado não adianta retry, então estoura.
+      if (e?.code === "P2002") {
+        const target = Array.isArray(e?.meta?.target) ? e.meta.target.join(",") : String(e?.meta?.target || "");
+        // se for CPF (ou algo que não resolve com retry), joga fora
+        if (target.includes("cpf")) throw e;
+
+        // caso seja identificador (ou desconhecido), tenta novamente
+        continue;
+      }
+
+      throw e;
+    }
+  }
+
+  throw lastErr || new Error("Falha ao gerar identificador único.");
+}
 
 export async function POST(req: NextRequest, context: { params: Promise<{ code: string }> }) {
   try {
@@ -76,7 +137,6 @@ export async function POST(req: NextRequest, context: { params: Promise<{ code: 
     // ✅ valida campos mínimos
     const nomeCompleto = String(body?.nomeCompleto || "").trim();
     const cpf = onlyDigits(String(body?.cpf || "")).slice(0, 11);
-    const identificador = String(body?.identificador || "").trim();
 
     if (!nomeCompleto) {
       return NextResponse.json(
@@ -88,13 +148,6 @@ export async function POST(req: NextRequest, context: { params: Promise<{ code: 
     if (!cpf || cpf.length !== 11) {
       return NextResponse.json(
         { ok: false, error: "CPF inválido (11 dígitos)." },
-        { status: 400, headers: noCacheHeaders() }
-      );
-    }
-
-    if (!identificador) {
-      return NextResponse.json(
-        { ok: false, error: "Identificador é obrigatório." },
         { status: 400, headers: noCacheHeaders() }
       );
     }
@@ -123,52 +176,39 @@ export async function POST(req: NextRequest, context: { params: Promise<{ code: 
     const ip = getClientIp(req);
     const userAgent = req.headers.get("user-agent");
 
+    const baseCedenteData = {
+      nomeCompleto,
+      cpf,
+      dataNascimento: safeIsoDateToDate(body?.dataNascimento),
+
+      telefone: body?.telefone ? String(body.telefone) : null,
+      emailCriado: body?.emailCriado ? String(body.emailCriado) : null,
+
+      banco,
+      pixTipo: pixTipo as any, // Prisma enum PixTipo
+      chavePix,
+      titularConfirmado: true,
+
+      // (como você pediu: texto no banco por enquanto)
+      senhaEmailEnc: body?.senhaEmailEnc ?? null,
+      senhaSmilesEnc: body?.senhaSmilesEnc ?? null,
+      senhaLatamPassEnc: body?.senhaLatamPassEnc ?? null,
+      senhaLiveloEnc: body?.senhaLiveloEnc ?? null,
+      senhaEsferaEnc: body?.senhaEsferaEnc ?? null,
+
+      pontosLatam: Number(body?.pontosLatam || 0),
+      pontosSmiles: Number(body?.pontosSmiles || 0),
+      pontosLivelo: Number(body?.pontosLivelo || 0),
+      pontosEsfera: Number(body?.pontosEsfera || 0),
+
+      ownerId: invite.userId,
+      inviteId: invite.id,
+    };
+
     // ✅ cria cedente + termo + atualiza convite (transação)
     const created = await prisma.$transaction(async (tx) => {
-      const cedente = await tx.cedente.create({
-        data: {
-          identificador,
-          nomeCompleto,
-          cpf,
+      const cedente = await createCedenteWithRetry(tx, baseCedenteData, 6);
 
-          dataNascimento: safeIsoDateToDate(body?.dataNascimento),
-
-          telefone: body?.telefone ? String(body.telefone) : null,
-          emailCriado: body?.emailCriado ? String(body.emailCriado) : null,
-
-          banco, // obrigatório
-          pixTipo: pixTipo as any, // Prisma enum PixTipo
-          chavePix, // obrigatório
-          titularConfirmado: true, // ✅ força true porque aceitou o termo e informou banco/pix
-
-          // (como você pediu: texto no banco por enquanto)
-          senhaEmailEnc: body?.senhaEmailEnc ?? null,
-          senhaSmilesEnc: body?.senhaSmilesEnc ?? null,
-          senhaLatamPassEnc: body?.senhaLatamPassEnc ?? null,
-          senhaLiveloEnc: body?.senhaLiveloEnc ?? null,
-          senhaEsferaEnc: body?.senhaEsferaEnc ?? null,
-
-          pontosLatam: Number(body?.pontosLatam || 0),
-          pontosSmiles: Number(body?.pontosSmiles || 0),
-          pontosLivelo: Number(body?.pontosLivelo || 0),
-          pontosEsfera: Number(body?.pontosEsfera || 0),
-
-          // ✅ vínculo automático
-          ownerId: invite.userId,
-          inviteId: invite.id,
-        },
-        select: {
-          id: true,
-          identificador: true,
-          nomeCompleto: true,
-          cpf: true,
-          ownerId: true,
-          inviteId: true,
-          createdAt: true,
-        },
-      });
-
-      // ✅ registra aceite do termo
       await tx.cedenteTermAcceptance.create({
         data: {
           cedenteId: cedente.id,
@@ -178,7 +218,6 @@ export async function POST(req: NextRequest, context: { params: Promise<{ code: 
         },
       });
 
-      // ✅ contador do convite
       await tx.employeeInvite.update({
         where: { id: invite.id },
         data: {
@@ -194,9 +233,7 @@ export async function POST(req: NextRequest, context: { params: Promise<{ code: 
   } catch (e: any) {
     console.error("Erro POST /api/convites/[code]/cedentes:", e);
 
-    // Prisma unique (CPF/identificador duplicado)
     if (e?.code === "P2002") {
-      // normalmente e.meta.target vem com o campo, mas nem sempre
       return NextResponse.json(
         { ok: false, error: "Já existe um cadastro com esses dados (CPF ou identificador)." },
         { status: 409, headers: noCacheHeaders() }
