@@ -4,26 +4,37 @@ import bcrypt from "bcryptjs";
 import { getServerSession } from "next-auth";
 
 export async function POST(req: Request) {
-  const { password } = await req.json();
-  const session = await getServerSession();
+  try {
+    const session = await getServerSession();
 
-  if (!session?.user?.id) {
-    return NextResponse.json({ ok: false }, { status: 401 });
+    // ✅ Basta estar logado
+    if (!session?.user) {
+      return NextResponse.json({ ok: false }, { status: 401 });
+    }
+
+    const { password } = await req.json();
+
+    if (!password) {
+      return NextResponse.json({ ok: false }, { status: 400 });
+    }
+
+    // ⚠️ Ajuste o campo conforme seu schema
+    const user = await prisma.user.findFirst({
+      where: { email: session.user.email ?? "" },
+      select: { passwordHash: true },
+    });
+
+    if (!user?.passwordHash) {
+      return NextResponse.json({ ok: false }, { status: 401 });
+    }
+
+    const ok = await bcrypt.compare(password, user.passwordHash);
+
+    return NextResponse.json({ ok });
+  } catch (e) {
+    return NextResponse.json(
+      { ok: false, error: "Erro ao confirmar senha" },
+      { status: 500 }
+    );
   }
-
-  const user = await prisma.user.findUnique({
-    where: { id: session.user.id },
-  });
-
-  if (!user) {
-    return NextResponse.json({ ok: false }, { status: 404 });
-  }
-
-  const ok = await bcrypt.compare(password, user.passwordHash);
-
-  if (!ok) {
-    return NextResponse.json({ ok: false, error: "Senha inválida" }, { status: 403 });
-  }
-
-  return NextResponse.json({ ok: true });
 }
