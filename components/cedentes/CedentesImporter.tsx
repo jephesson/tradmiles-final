@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import * as XLSX from "xlsx";
 
 /* =======================
@@ -16,14 +16,20 @@ type Funcionario = {
 type ImportedCedente = {
   nomeCompleto: string;
   cpf: string;
+
   telefone?: string;
   dataNascimento?: string;
-  email?: string;
+  emailCriado?: string;
 
-  senhaLatam?: string;
+  senhaEmail?: string;
   senhaSmiles?: string;
+  senhaLatamPass?: string;
   senhaLivelo?: string;
   senhaEsfera?: string;
+
+  banco?: string;
+  pixTipo?: "CPF" | "CNPJ" | "EMAIL" | "TELEFONE" | "ALEATORIA";
+  chavePix?: string;
 
   responsavelRef?: string; // vindo do Excel
   ownerId?: string | null;
@@ -49,6 +55,18 @@ function firstName(v?: string) {
   return norm(v).split(" ")[0] || "";
 }
 
+// Pega valor por múltiplos nomes possíveis de coluna
+function pick(r: Record<string, any>, keys: string[]) {
+  for (const k of keys) {
+    if (r[k] !== undefined && r[k] !== null && String(r[k]).trim() !== "") return r[k];
+  }
+  return "";
+}
+
+function asStr(v: any) {
+  return String(v ?? "").trim();
+}
+
 /* =======================
    Componente
 ======================= */
@@ -57,34 +75,25 @@ export default function CedentesImporter() {
   const [funcionarios, setFuncionarios] = useState<Funcionario[]>([]);
   const [loading, setLoading] = useState(false);
 
-  // Upload UX
-  const fileRef = useRef<HTMLInputElement>(null);
   const [fileName, setFileName] = useState<string>("");
+  const [sheetNames, setSheetNames] = useState<string[]>([]);
+  const [selectedSheet, setSelectedSheet] = useState<string>("");
+  const [rawPreviewKeys, setRawPreviewKeys] = useState<string[]>([]);
+  const [lastParseMsg, setLastParseMsg] = useState<string>("");
+
+  // guarda workbook em memória pra trocar de aba sem reenviar arquivo
+  const [wb, setWb] = useState<XLSX.WorkBook | null>(null);
 
   /* =======================
      Carregar funcionários
   ======================= */
   useEffect(() => {
-    let alive = true;
-
     fetch("/api/funcionarios", { cache: "no-store" })
       .then((r) => r.json())
       .then((j) => {
-        if (!alive) return;
-        if (j?.ok && Array.isArray(j.data)) {
-          setFuncionarios(j.data);
-        } else {
-          console.error("Resposta inesperada /api/funcionarios:", j);
-        }
+        if (j?.ok && Array.isArray(j.data)) setFuncionarios(j.data);
       })
-      .catch(() => {
-        if (!alive) return;
-        alert("Erro ao carregar funcionários.");
-      });
-
-    return () => {
-      alive = false;
-    };
+      .catch(() => alert("Erro ao carregar funcionários."));
   }, []);
 
   /* =======================
@@ -97,87 +106,137 @@ export default function CedentesImporter() {
     return (
       funcionarios.find((f) => norm(f.login) === r) ||
       funcionarios.find((f) => norm(f.employeeId || "") === r) ||
-      funcionarios.find((f) => firstName(f.name) === r)
+      funcionarios.find((f) => firstName(f.name) === r) ||
+      funcionarios.find((f) => norm(f.name) === r)
     );
   }
 
   /* =======================
-     Parse Excel
+     Parse de uma aba
   ======================= */
-  function parseExcel(file: File) {
+  function parseSheet(workbook: XLSX.WorkBook, sheetName: string) {
+    const ws = workbook.Sheets[sheetName];
+    if (!ws) {
+      setRows([]);
+      setLastParseMsg("Aba não encontrada no arquivo.");
+      return;
+    }
+
+    const json = XLSX.utils.sheet_to_json<Record<string, any>>(ws, {
+      defval: "",
+      raw: false,
+    });
+
+    // mostra as chaves detectadas da primeira linha (ajuda MUITO debug)
+    const keys = json[0] ? Object.keys(json[0]) : [];
+    setRawPreviewKeys(keys);
+
+    const parsed: ImportedCedente[] = json
+      .map((r) => {
+        // Nomes comuns (ajusta aqui se quiser)
+        const nome = asStr(
+          pick(r, ["Nome", "nome", "Nome Completo", "nomeCompleto", "NOME", "CEDENTE", "Cedente"])
+        );
+
+        const cpfRaw = asStr(
+          pick(r, ["CPF", "Cpf", "cpf", "Documento", "DOCUMENTO", "CPF Cedente", "CPF do Cedente"])
+        );
+        const cpf = onlyDigits(cpfRaw);
+
+        const responsavelRef = asStr(
+          pick(r, ["Responsável", "Responsavel", "responsavel", "Owner", "Dono", "Funcionário", "Funcionario"])
+        );
+
+        const matched = matchResponsavel(responsavelRef);
+
+        const telefone = asStr(pick(r, ["Telefone", "telefone", "Celular", "WhatsApp", "Fone"]));
+        const dataNasc = asStr(pick(r, ["Nascimento", "Data Nascimento", "dataNascimento", "Dt Nasc"]));
+
+        // no teu prisma o campo é emailCriado (não "email")
+        const emailCriado = asStr(pick(r, ["Email", "E-mail", "email", "emailCriado", "Email Criado"]));
+
+        return {
+          nomeCompleto: nome,
+          cpf,
+          telefone: telefone || undefined,
+          dataNascimento: dataNasc || undefined,
+          emailCriado: emailCriado || undefined,
+
+          senhaEmail: asStr(pick(r, ["Senha Email", "senhaEmail", "Senha do Email"])) || undefined,
+          senhaLatamPass: asStr(pick(r, ["Senha Latam", "Senha LATAM", "senhaLatamPass", "Senha LatamPass"])) || undefined,
+          senhaSmiles: asStr(pick(r, ["Senha Smiles", "senhaSmiles"])) || undefined,
+          senhaLivelo: asStr(pick(r, ["Senha Livelo", "senhaLivelo"])) || undefined,
+          senhaEsfera: asStr(pick(r, ["Senha Esfera", "senhaEsfera"])) || undefined,
+
+          banco: asStr(pick(r, ["Banco", "banco"])) || undefined,
+          pixTipo: (asStr(pick(r, ["PixTipo", "pixTipo", "Tipo Pix", "TipoPix"])) as any) || undefined,
+          chavePix: asStr(pick(r, ["ChavePix", "chavePix", "Chave Pix", "PIX"])) || undefined,
+
+          responsavelRef: responsavelRef || undefined,
+          ownerId: matched?.id ?? null,
+          ownerName: matched?.name ?? null,
+        };
+      })
+      // mantém regra: só importa se tiver nome e cpf
+      .filter((r) => r.nomeCompleto && r.cpf);
+
+    setRows(parsed);
+
+    if (!json.length) {
+      setLastParseMsg("A aba está vazia (nenhuma linha encontrada).");
+      return;
+    }
+
+    if (!parsed.length) {
+      setLastParseMsg(
+        "Não consegui montar nenhuma linha para importação. Provável: ABA errada ou nomes de colunas diferentes. Veja as colunas detectadas abaixo."
+      );
+      return;
+    }
+
+    setLastParseMsg(`✅ ${parsed.length} linhas prontas para importar (aba: ${sheetName}).`);
+  }
+
+  /* =======================
+     Upload Excel
+  ======================= */
+  function handleFile(file: File) {
+    setFileName(file.name);
+    setRows([]);
+    setLastParseMsg("");
+
     const reader = new FileReader();
 
     reader.onload = (e) => {
       const data = new Uint8Array(e.target?.result as ArrayBuffer);
-      const wb = XLSX.read(data, { type: "array" });
+      const workbook = XLSX.read(data, { type: "array" });
 
-      const ws = wb.Sheets[wb.SheetNames[0]];
-      const json = XLSX.utils.sheet_to_json<Record<string, any>>(ws, {
-        defval: "",
-      });
+      setWb(workbook);
 
-      const parsed: ImportedCedente[] = json
-        .map((r) => {
-          const responsavelRef = r["Responsável"] || r["Responsavel"] || r["responsavel"];
+      const names = workbook.SheetNames || [];
+      setSheetNames(names);
 
-          const matched = matchResponsavel(responsavelRef);
+      const defaultSheet = names[0] || "";
+      setSelectedSheet(defaultSheet);
 
-          const nomeCompleto = String(r["Nome"] || r["nome"] || r["NOME"] || "").trim();
-          const cpf = onlyDigits(String(r["CPF"] || r["cpf"] || r["Cpf"] || ""));
+      if (!defaultSheet) {
+        setLastParseMsg("Arquivo sem abas válidas.");
+        return;
+      }
 
-          const telefone = String(r["Telefone"] || r["telefone"] || "").trim();
-          const dataNascimento = String(r["Nascimento"] || r["Data Nascimento"] || r["dataNascimento"] || "").trim();
-          const email = String(r["Email"] || r["email"] || "").trim();
-
-          const senhaLatam = String(r["Senha Latam"] || r["Senha LATAM"] || r["senhaLatam"] || "").trim();
-          const senhaSmiles = String(r["Senha Smiles"] || r["senhaSmiles"] || "").trim();
-          const senhaLivelo = String(r["Senha Livelo"] || r["senhaLivelo"] || "").trim();
-          const senhaEsfera = String(r["Senha Esfera"] || r["senhaEsfera"] || "").trim();
-
-          return {
-            nomeCompleto,
-            cpf,
-
-            telefone: telefone || undefined,
-            dataNascimento: dataNascimento || undefined,
-            email: email || undefined,
-
-            senhaLatam: senhaLatam || undefined,
-            senhaSmiles: senhaSmiles || undefined,
-            senhaLivelo: senhaLivelo || undefined,
-            senhaEsfera: senhaEsfera || undefined,
-
-            responsavelRef: responsavelRef ? String(responsavelRef) : undefined,
-            ownerId: matched?.id ?? null,
-            ownerName: matched?.name ?? null,
-          };
-        })
-        .filter((r) => r.nomeCompleto && r.cpf);
-
-      setRows(parsed);
+      // parse inicial na primeira aba, mas agora você pode trocar
+      parseSheet(workbook, defaultSheet);
     };
 
     reader.readAsArrayBuffer(file);
   }
 
-  /* =======================
-     Se funcionários chegarem depois do excel, tenta casar automaticamente
-     (sem sobrescrever escolhas manuais)
-  ======================= */
-  useEffect(() => {
-    if (!rows.length) return;
-    if (!funcionarios.length) return;
-
-    setRows((prev) =>
-      prev.map((r) => {
-        if (r.ownerId) return r; // não mexe no que já está casado/manual
-        const matched = matchResponsavel(r.responsavelRef);
-        if (!matched) return r;
-        return { ...r, ownerId: matched.id, ownerName: matched.name };
-      })
-    );
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [funcionarios.length]);
+  function onChangeSheet(sheet: string) {
+    setSelectedSheet(sheet);
+    setRows([]);
+    setLastParseMsg("");
+    if (wb) parseSheet(wb, sheet);
+  }
 
   /* =======================
      Pendências
@@ -190,10 +249,6 @@ export default function CedentesImporter() {
   async function importar() {
     if (!rows.length) {
       alert("Nada para importar.");
-      return;
-    }
-    if (pendentes > 0) {
-      alert("Selecione os responsáveis pendentes antes de importar.");
       return;
     }
 
@@ -210,8 +265,8 @@ export default function CedentesImporter() {
 
       alert(`✅ Importados ${json.data.count} cedentes`);
       setRows([]);
-      setFileName("");
-      if (fileRef.current) fileRef.current.value = "";
+      setLastParseMsg("");
+      setRawPreviewKeys([]);
     } catch (e: any) {
       alert(e.message);
     } finally {
@@ -229,60 +284,71 @@ export default function CedentesImporter() {
         <p className="text-sm text-slate-600">Contas já usadas → aprovadas automaticamente</p>
       </div>
 
-      {/* UPLOAD: input escondido + botão */}
+      {/* Botão file bonito */}
       <div className="space-y-2">
-        <input
-          ref={fileRef}
-          type="file"
-          accept=".xlsx,.xls"
-          className="hidden"
-          onChange={(e) => {
-            const file = e.target.files?.[0];
-            if (!file) return;
-            setFileName(file.name);
-            parseExcel(file);
-          }}
-        />
+        <label className="inline-flex cursor-pointer items-center gap-2 rounded-xl bg-black px-4 py-2 text-white hover:bg-gray-800">
+          <span>📄 Escolher arquivo Excel</span>
+          <input
+            type="file"
+            accept=".xlsx,.xls"
+            className="hidden"
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              if (f) handleFile(f);
+            }}
+          />
+        </label>
 
-        <button
-          type="button"
-          onClick={() => fileRef.current?.click()}
-          className="inline-flex items-center gap-2 rounded-xl bg-black px-5 py-3 text-white font-medium hover:bg-gray-800 transition"
-        >
-          📄 Escolher arquivo Excel
-        </button>
-
-        <div className="text-sm text-slate-600">
-          {fileName ? (
-            <>
-              Arquivo selecionado: <b>{fileName}</b>
-            </>
-          ) : (
-            "Nenhum arquivo selecionado"
-          )}
-        </div>
-
-        {!funcionarios.length && (
-          <div className="text-xs text-slate-500">
-            Carregando funcionários… (se não casar automático agora, você seleciona manual e importa do mesmo jeito)
+        {fileName ? (
+          <div className="text-sm text-slate-600">
+            Arquivo selecionado: <b>{fileName}</b>
           </div>
-        )}
+        ) : null}
       </div>
 
+      {/* Seletor de aba */}
+      {sheetNames.length > 0 && (
+        <div className="flex flex-col gap-2">
+          <div className="text-sm font-medium">Escolha a aba do Excel</div>
+          <select
+            className="w-full max-w-md rounded-xl border px-3 py-2 text-sm"
+            value={selectedSheet}
+            onChange={(e) => onChangeSheet(e.target.value)}
+          >
+            {sheetNames.map((s) => (
+              <option key={s} value={s}>
+                {s}
+              </option>
+            ))}
+          </select>
+
+          {lastParseMsg ? (
+            <div className="text-sm text-slate-700">{lastParseMsg}</div>
+          ) : null}
+
+          {/* Debug de colunas detectadas */}
+          {rawPreviewKeys.length > 0 && (
+            <div className="rounded-xl border bg-slate-50 p-3 text-xs text-slate-700">
+              <div className="font-semibold mb-1">Colunas detectadas (primeira linha):</div>
+              <div className="flex flex-wrap gap-2">
+                {rawPreviewKeys.slice(0, 40).map((k) => (
+                  <span key={k} className="rounded-full border bg-white px-2 py-1">
+                    {k}
+                  </span>
+                ))}
+                {rawPreviewKeys.length > 40 ? <span>…</span> : null}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Tabela */}
       {rows.length > 0 && (
         <>
-          <div className="flex flex-wrap items-center gap-3 text-sm">
-            <span className="rounded-full bg-slate-100 px-3 py-1">
-              Total: <b>{rows.length}</b>
-            </span>
-            <span className={`rounded-full px-3 py-1 ${pendentes ? "bg-yellow-100" : "bg-green-100"}`}>
-              Pendentes: <b>{pendentes}</b>
-            </span>
-          </div>
-
           {pendentes > 0 && (
             <div className="rounded-xl border border-yellow-300 bg-yellow-50 p-3 text-sm">
-              ⚠️ <b>{pendentes}</b> cedente(s) sem responsável. Selecione manualmente na tabela e depois importe.
+              ⚠️ {pendentes} cedente(s) sem responsável. Selecione manualmente antes de importar.
             </div>
           )}
 
@@ -302,34 +368,17 @@ export default function CedentesImporter() {
                     <td className="px-3 py-2">{r.cpf}</td>
                     <td className="px-3 py-2">
                       {r.ownerId ? (
-                        <span className="inline-flex items-center gap-2">
-                          <span className="font-medium">{r.ownerName}</span>
-                          <button
-                            type="button"
-                            className="text-xs underline text-slate-600 hover:text-slate-900"
-                            onClick={() => {
-                              setRows((prev) =>
-                                prev.map((x, idx) =>
-                                  idx === i ? { ...x, ownerId: null, ownerName: null } : x
-                                )
-                              );
-                            }}
-                          >
-                            trocar
-                          </button>
-                        </span>
+                        r.ownerName
                       ) : (
                         <select
-                          className="rounded border px-2 py-1 text-xs bg-white"
+                          className="rounded border px-2 py-1 text-xs"
                           value={r.ownerId ?? ""}
                           onChange={(e) => {
                             const id = e.target.value || null;
                             const f = funcionarios.find((x) => x.id === id);
                             setRows((prev) =>
                               prev.map((x, idx) =>
-                                idx === i
-                                  ? { ...x, ownerId: id, ownerName: f?.name ?? null }
-                                  : x
+                                idx === i ? { ...x, ownerId: id, ownerName: f?.name ?? null } : x
                               )
                             );
                           }}
