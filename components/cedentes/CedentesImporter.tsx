@@ -38,6 +38,26 @@ type ImportedCedente = {
   ownerName?: string | null;
 };
 
+type ColumnMap = {
+  nomeCompleto?: string;
+  cpf?: string;
+  telefone?: string;
+  dataNascimento?: string;
+  emailCriado?: string;
+
+  responsavel?: string;
+
+  banco?: string;
+  pixTipo?: string;
+  chavePix?: string;
+
+  senhaEmail?: string;
+  senhaLatamPass?: string;
+  senhaSmiles?: string;
+  senhaLivelo?: string;
+  senhaEsfera?: string;
+};
+
 /* =======================
    Utils
 ======================= */
@@ -57,15 +77,6 @@ function firstName(v?: string) {
   return norm(v).split(" ")[0] || "";
 }
 
-// Pega valor por múltiplos nomes possíveis de coluna
-function pick(r: Record<string, any>, keys: string[]) {
-  for (const k of keys) {
-    const val = r?.[k];
-    if (val !== undefined && val !== null && String(val).trim() !== "") return val;
-  }
-  return "";
-}
-
 function asStr(v: any) {
   return String(v ?? "").trim();
 }
@@ -80,11 +91,52 @@ function normPixTipo(v: string): PixTipo | undefined {
   if (x === "telefone" || x === "celular" || x === "fone" || x === "phone") return "TELEFONE";
   if (x === "aleatoria" || x === "aleatorio" || x === "random") return "ALEATORIA";
 
-  // se já vier exatamente igual ao enum
   const upper = asStr(v).toUpperCase() as PixTipo;
   if (["CPF", "CNPJ", "EMAIL", "TELEFONE", "ALEATORIA"].includes(upper)) return upper;
 
   return undefined;
+}
+
+/* =======================
+   Defaults de mapeamento
+   (tenta acertar sozinho quando detectar colunas parecidas)
+======================= */
+function guessColumnMap(keys: string[]): ColumnMap {
+  const nkeys = keys.map((k) => ({ raw: k, n: norm(k).replace(/\s+/g, "") }));
+
+  const find = (candidates: string[]) => {
+    const cand = candidates.map((c) => norm(c).replace(/\s+/g, ""));
+    const exact = nkeys.find((k) => cand.includes(k.n));
+    if (exact) return exact.raw;
+
+    // fallback: contém palavras-chave
+    const contains = (needle: string) => nkeys.find((k) => k.n.includes(needle))?.raw;
+    for (const c of cand) {
+      const got = contains(c);
+      if (got) return got;
+    }
+    return undefined;
+  };
+
+  return {
+    nomeCompleto: find(["nome", "nomecompleto", "cedente", "titular"]),
+    cpf: find(["cpf", "documento", "cpfdocedente"]),
+    telefone: find(["telefone", "celular", "whatsapp", "fone"]),
+    dataNascimento: find(["datanascimento", "nascimento", "dtnasc"]),
+    emailCriado: find(["email", "e-mail", "emailcriado"]),
+
+    responsavel: find(["responsavel", "responsável", "owner", "dono", "funcionario", "funcionário", "pertence"]),
+
+    banco: find(["banco"]),
+    pixTipo: find(["pixtipo", "tipopix"]),
+    chavePix: find(["chavepix", "pix", "chavepixcpf"]),
+
+    senhaEmail: find(["senhaemail", "senha do email", "senhadoemail"]),
+    senhaLatamPass: find(["senhalatam", "senhalatampass", "senha latam", "senha latam pass"]),
+    senhaSmiles: find(["senhasmiles", "senha smiles"]),
+    senhaLivelo: find(["senhalivelo", "senha livelo"]),
+    senhaEsfera: find(["senhaesfera", "senha esfera"]),
+  };
 }
 
 /* =======================
@@ -106,6 +158,34 @@ export default function CedentesImporter() {
 
   // guarda workbook em memória pra trocar de aba sem reenviar arquivo
   const [wb, setWb] = useState<XLSX.WorkBook | null>(null);
+
+  // NOVO: mapeamento de colunas (por aba)
+  const [columnMap, setColumnMap] = useState<ColumnMap>({});
+
+  const fieldDefs = useMemo(
+    () =>
+      [
+        { key: "nomeCompleto", label: "Nome completo", required: true },
+        { key: "cpf", label: "CPF", required: true },
+
+        { key: "telefone", label: "Telefone" },
+        { key: "dataNascimento", label: "Data de nascimento" },
+        { key: "emailCriado", label: "Email criado" },
+
+        { key: "responsavel", label: "Responsável (ref no Excel)" },
+
+        { key: "banco", label: "Banco" },
+        { key: "pixTipo", label: "Tipo de Pix" },
+        { key: "chavePix", label: "Chave Pix" },
+
+        { key: "senhaEmail", label: "Senha do Email" },
+        { key: "senhaLatamPass", label: "Senha LATAM Pass" },
+        { key: "senhaSmiles", label: "Senha Smiles" },
+        { key: "senhaLivelo", label: "Senha Livelo" },
+        { key: "senhaEsfera", label: "Senha Esfera" },
+      ] as const,
+    []
+  );
 
   /* =======================
      Carregar funcionários
@@ -135,9 +215,76 @@ export default function CedentesImporter() {
   }
 
   /* =======================
-     Parse de uma aba
+     Parse usando mapeamento
   ======================= */
-  function parseSheet(workbook: XLSX.WorkBook, sheetName: string) {
+  function parseJsonWithMap(json: Record<string, any>[], map: ColumnMap, sheetName: string) {
+    if (!json.length) {
+      setRows([]);
+      setLastParseMsg("⚠️ A aba está vazia (nenhuma linha encontrada).");
+      return;
+    }
+
+    const get = (r: Record<string, any>, col?: string) => (col ? asStr(r?.[col]) : "");
+
+    const parsed: ImportedCedente[] = json
+      .map((r) => {
+        const nome = get(r, map.nomeCompleto);
+        const cpf = onlyDigits(get(r, map.cpf));
+
+        const responsavelRef = get(r, map.responsavel);
+        const matched = matchResponsavel(responsavelRef);
+
+        const telefone = get(r, map.telefone);
+        const dataNasc = get(r, map.dataNascimento);
+        const emailCriado = get(r, map.emailCriado);
+
+        const banco = get(r, map.banco);
+        const pixTipoRaw = get(r, map.pixTipo);
+        const chavePix = get(r, map.chavePix);
+
+        return {
+          nomeCompleto: nome,
+          cpf,
+
+          telefone: telefone || undefined,
+          dataNascimento: dataNasc || undefined,
+          emailCriado: emailCriado || undefined,
+
+          senhaEmail: get(r, map.senhaEmail) || undefined,
+          senhaLatamPass: get(r, map.senhaLatamPass) || undefined,
+          senhaSmiles: get(r, map.senhaSmiles) || undefined,
+          senhaLivelo: get(r, map.senhaLivelo) || undefined,
+          senhaEsfera: get(r, map.senhaEsfera) || undefined,
+
+          banco: banco || undefined,
+          pixTipo: normPixTipo(pixTipoRaw),
+          chavePix: chavePix || undefined,
+
+          responsavelRef: responsavelRef || undefined,
+          ownerId: matched?.id ?? null,
+          ownerName: matched?.name ?? null,
+        };
+      })
+      .filter((r) => r.nomeCompleto && r.cpf);
+
+    setRows(parsed);
+
+    if (!parsed.length) {
+      setLastParseMsg(
+        "⚠️ Não consegui montar nenhuma linha para importação.\n" +
+          "Provável: mapeamento errado (Nome/CPF).\n" +
+          "Ajuste o mapeamento acima e clique em “Reprocessar”."
+      );
+      return;
+    }
+
+    setLastParseMsg(`✅ ${parsed.length} linhas prontas para importar (aba: ${sheetName}).`);
+  }
+
+  /* =======================
+     Parse de uma aba (detecta colunas, sugere mapa e processa)
+  ======================= */
+  function parseSheet(workbook: XLSX.WorkBook, sheetName: string, keepExistingMap = false) {
     try {
       const ws = workbook.Sheets[sheetName];
       if (!ws) {
@@ -161,68 +308,13 @@ export default function CedentesImporter() {
         return;
       }
 
-      const parsed: ImportedCedente[] = json
-        .map((r) => {
-          const nome = asStr(
-            pick(r, ["Nome", "nome", "Nome Completo", "nomeCompleto", "NOME", "CEDENTE", "Cedente"])
-          );
+      // Se não quiser manter o mapa atual, tenta adivinhar e setar um default
+      const guessed = guessColumnMap(keys);
+      const mapToUse = keepExistingMap ? columnMap : guessed;
 
-          const cpfRaw = asStr(
-            pick(r, ["CPF", "Cpf", "cpf", "Documento", "DOCUMENTO", "CPF Cedente", "CPF do Cedente"])
-          );
-          const cpf = onlyDigits(cpfRaw);
+      if (!keepExistingMap) setColumnMap(guessed);
 
-          const responsavelRef = asStr(
-            pick(r, ["Responsável", "Responsavel", "responsavel", "Owner", "Dono", "Funcionário", "Funcionario"])
-          );
-          const matched = matchResponsavel(responsavelRef);
-
-          const telefone = asStr(pick(r, ["Telefone", "telefone", "Celular", "WhatsApp", "Fone"]));
-          const dataNasc = asStr(pick(r, ["Nascimento", "Data Nascimento", "dataNascimento", "Dt Nasc"]));
-
-          const emailCriado = asStr(pick(r, ["Email", "E-mail", "email", "emailCriado", "Email Criado"]));
-
-          const banco = asStr(pick(r, ["Banco", "banco"]));
-          const pixTipoRaw = asStr(pick(r, ["PixTipo", "pixTipo", "Tipo Pix", "TipoPix"]));
-          const chavePix = asStr(pick(r, ["ChavePix", "chavePix", "Chave Pix", "PIX"]));
-
-          return {
-            nomeCompleto: nome,
-            cpf,
-
-            telefone: telefone || undefined,
-            dataNascimento: dataNasc || undefined,
-            emailCriado: emailCriado || undefined,
-
-            senhaEmail: asStr(pick(r, ["Senha Email", "senhaEmail", "Senha do Email"])) || undefined,
-            senhaLatamPass:
-              asStr(pick(r, ["Senha Latam", "Senha LATAM", "senhaLatamPass", "Senha LatamPass"])) || undefined,
-            senhaSmiles: asStr(pick(r, ["Senha Smiles", "senhaSmiles"])) || undefined,
-            senhaLivelo: asStr(pick(r, ["Senha Livelo", "senhaLivelo"])) || undefined,
-            senhaEsfera: asStr(pick(r, ["Senha Esfera", "senhaEsfera"])) || undefined,
-
-            banco: banco || undefined,
-            pixTipo: normPixTipo(pixTipoRaw),
-            chavePix: chavePix || undefined,
-
-            responsavelRef: responsavelRef || undefined,
-            ownerId: matched?.id ?? null,
-            ownerName: matched?.name ?? null,
-          };
-        })
-        .filter((r) => r.nomeCompleto && r.cpf);
-
-      setRows(parsed);
-
-      if (!parsed.length) {
-        setLastParseMsg(
-          "⚠️ Não consegui montar nenhuma linha para importação. Provável: aba errada ou nomes de colunas diferentes.\n" +
-            "Confira as colunas detectadas logo abaixo."
-        );
-        return;
-      }
-
-      setLastParseMsg(`✅ ${parsed.length} linhas prontas para importar (aba: ${sheetName}).`);
+      parseJsonWithMap(json, mapToUse, sheetName);
     } catch (err: any) {
       console.error("[PARSE SHEET ERROR]", err);
       setRows([]);
@@ -244,6 +336,7 @@ export default function CedentesImporter() {
     setSheetNames([]);
     setSelectedSheet("");
     setWb(null);
+    setColumnMap({});
     setParsing(true);
 
     const reader = new FileReader();
@@ -260,7 +353,6 @@ export default function CedentesImporter() {
 
         const data = new Uint8Array(result as ArrayBuffer);
 
-        // Aqui costuma falhar quando Excel é protegido/senha ou formato estranho
         const workbook = XLSX.read(data, { type: "array" });
 
         const names = workbook.SheetNames || [];
@@ -294,13 +386,25 @@ export default function CedentesImporter() {
     setSelectedSheet(sheet);
     setRows([]);
     setLastParseMsg("");
+    setRawPreviewKeys([]);
+    setColumnMap({});
     if (wb) parseSheet(wb, sheet);
+  }
+
+  function reprocessar() {
+    if (!wb || !selectedSheet) return;
+    // mantém o mapa escolhido pelo usuário
+    parseSheet(wb, selectedSheet, true);
   }
 
   /* =======================
      Pendências
   ======================= */
   const pendentes = useMemo(() => rows.filter((r) => !r.ownerId).length, [rows]);
+
+  const mapHasEssentials = useMemo(() => {
+    return Boolean(columnMap.nomeCompleto && columnMap.cpf);
+  }, [columnMap]);
 
   /* =======================
      Importar
@@ -330,6 +434,7 @@ export default function CedentesImporter() {
       setRawPreviewKeys([]);
       setLastParseMsg("");
       setWb(null);
+      setColumnMap({});
 
       // permite escolher o mesmo arquivo novamente
       if (inputRef.current) inputRef.current.value = "";
@@ -384,7 +489,7 @@ export default function CedentesImporter() {
 
       {/* Seletor de aba */}
       {sheetNames.length > 0 && (
-        <div className="flex flex-col gap-2">
+        <div className="flex flex-col gap-3">
           <div className="text-sm font-medium">Escolha a aba do Excel</div>
           <select
             className="w-full max-w-md rounded-xl border px-3 py-2 text-sm"
@@ -410,6 +515,66 @@ export default function CedentesImporter() {
                 ))}
                 {rawPreviewKeys.length > 60 ? <span>…</span> : null}
               </div>
+            </div>
+          )}
+
+          {/* NOVO: Mapeamento de colunas */}
+          {rawPreviewKeys.length > 0 && (
+            <div className="rounded-xl border bg-white p-4 space-y-3">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <div className="font-semibold text-sm">Mapeamento de colunas</div>
+                  <div className="text-xs text-slate-600">
+                    Escolha quais colunas do Excel viram cada campo do sistema. (Obrigatório: Nome + CPF)
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={reprocessar}
+                  className="rounded-lg border px-3 py-2 text-xs hover:bg-slate-50"
+                  disabled={!wb || !selectedSheet || rawPreviewKeys.length === 0}
+                >
+                  🔄 Reprocessar
+                </button>
+              </div>
+
+              <div className="grid gap-3 md:grid-cols-2">
+                {fieldDefs.map((f) => {
+                  const value = (columnMap as any)[f.key] ?? "";
+                  return (
+                    <div key={f.key} className="flex items-center gap-3">
+                      <div className="w-44 text-xs">
+                        {f.label} {f.required ? <span className="text-red-600">*</span> : null}
+                      </div>
+
+                      <select
+                        className="flex-1 rounded border px-2 py-1 text-xs"
+                        value={value}
+                        onChange={(e) =>
+                          setColumnMap((prev) => ({
+                            ...prev,
+                            [f.key]: e.target.value || undefined,
+                          }))
+                        }
+                      >
+                        <option value="">— Não usar —</option>
+                        {rawPreviewKeys.map((col) => (
+                          <option key={col} value={col}>
+                            {col}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {!mapHasEssentials ? (
+                <div className="text-xs text-red-700">
+                  ⚠️ Selecione pelo menos <b>Nome completo</b> e <b>CPF</b> para conseguir importar.
+                </div>
+              ) : null}
             </div>
           )}
         </div>
@@ -472,10 +637,16 @@ export default function CedentesImporter() {
 
           <button
             onClick={importar}
-            disabled={loading || pendentes > 0}
+            disabled={loading || pendentes > 0 || !mapHasEssentials}
             className="rounded-xl bg-black px-5 py-2 text-white disabled:opacity-50"
           >
-            {pendentes > 0 ? `Faltam ${pendentes} responsáveis` : loading ? "Importando..." : "Importar todos"}
+            {!mapHasEssentials
+              ? "Selecione Nome e CPF"
+              : pendentes > 0
+              ? `Faltam ${pendentes} responsáveis`
+              : loading
+              ? "Importando..."
+              : "Importar todos"}
           </button>
         </>
       )}
