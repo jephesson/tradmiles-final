@@ -7,6 +7,9 @@ type FormState = {
   dataNascimento: string; // DD/MM/AAAA
   cpf: string;
 
+  // ✅ ADICIONADO (obrigatório)
+  telefone: string;
+
   emailCriado: string;
   senhaEmail: string;
 
@@ -15,6 +18,7 @@ type FormState = {
   senhaLivelo: string;
   senhaEsfera: string;
 
+  // ✅ PIX (obrigatório: banco + chavePix)
   chavePix: string;
   banco: string;
 
@@ -25,10 +29,15 @@ type FormState = {
 };
 
 function onlyDigits(v: string) {
-  return v.replace(/\D+/g, "");
+  return (v || "").replace(/\D+/g, "");
 }
 
 function normalizeCpf(v: string) {
+  return onlyDigits(v).slice(0, 11);
+}
+
+// ✅ ADICIONADO (Brasil: normalmente 10 ou 11 dígitos com DDD)
+function normalizeTelefone(v: string) {
   return onlyDigits(v).slice(0, 11);
 }
 
@@ -58,7 +67,8 @@ function brToIsoDate(br: string): string | null {
   const m = Number(mm);
   const y = Number(yyyy);
 
-  if (!Number.isFinite(d) || !Number.isFinite(m) || !Number.isFinite(y)) return null;
+  if (!Number.isFinite(d) || !Number.isFinite(m) || !Number.isFinite(y))
+    return null;
   if (y < 1900 || y > 2100) return null;
   if (m < 1 || m > 12) return null;
   if (d < 1 || d > 31) return null;
@@ -85,6 +95,10 @@ export default function CedentesNovoPage() {
     nomeCompleto: "",
     dataNascimento: "",
     cpf: "",
+
+    // ✅ ADICIONADO
+    telefone: "",
+
     emailCriado: "",
     senhaEmail: "",
     senhaSmiles: "",
@@ -115,12 +129,27 @@ export default function CedentesNovoPage() {
     e.preventDefault();
 
     if (!form.nomeCompleto.trim()) return alert("Informe o nome completo.");
-    if (normalizeCpf(form.cpf).length !== 11) return alert("CPF inválido (11 dígitos).");
+    if (normalizeCpf(form.cpf).length !== 11)
+      return alert("CPF inválido (11 dígitos).");
 
-    const isoNascimento = form.dataNascimento.trim() ? brToIsoDate(form.dataNascimento) : null;
+    // ✅ telefone obrigatório (igual convite)
+    const tel = normalizeTelefone(form.telefone);
+    if (!tel) return alert("Informe o telefone.");
+    if (!(tel.length === 10 || tel.length === 11))
+      return alert("Telefone inválido (DDD + número).");
+
+    const isoNascimento = form.dataNascimento.trim()
+      ? brToIsoDate(form.dataNascimento)
+      : null;
     if (form.dataNascimento.trim() && !isoNascimento) {
       return alert("Data de nascimento inválida. Use DD/MM/AAAA.");
     }
+
+    // ✅ PIX obrigatório (igual regra do convite: pagar só ao titular)
+    if (!form.banco.trim())
+      return alert("Informe o banco (pagamento apenas ao titular).");
+    if (!form.chavePix.trim())
+      return alert("Informe a chave PIX do titular.");
 
     try {
       setSaving(true);
@@ -130,12 +159,17 @@ export default function CedentesNovoPage() {
         nomeCompleto: form.nomeCompleto.trim(),
         cpf: normalizeCpf(form.cpf),
 
+        // ✅ ADICIONADO
+        telefone: tel,
+
         // ✅ envia iso para o backend (se existir)
         dataNascimento: isoNascimento,
 
         emailCriado: form.emailCriado.trim() || null,
-        chavePix: form.chavePix.trim() || null,
-        banco: form.banco.trim() || null,
+
+        // ✅ agora obrigatórios
+        chavePix: form.chavePix.trim(),
+        banco: form.banco.trim(),
 
         // sem criptografia (como você pediu)
         senhaEmailEnc: form.senhaEmail || null,
@@ -165,6 +199,10 @@ export default function CedentesNovoPage() {
         nomeCompleto: "",
         dataNascimento: "",
         cpf: "",
+
+        // ✅ reset
+        telefone: "",
+
         emailCriado: "",
         senhaEmail: "",
         senhaSmiles: "",
@@ -186,18 +224,25 @@ export default function CedentesNovoPage() {
     }
   }
 
-  // ✅ agora puxa o link do FUNCIONÁRIO LOGADO (inviteCode do user logado)
+  // ✅ puxa o link do FUNCIONÁRIO LOGADO (inviteCode do user logado)
   async function generateInvite() {
-    // Nome/CPF opcionais aqui — link é do funcionário logado
-    if (form.cpf && normalizeCpf(form.cpf).length !== 11) return alert("CPF inválido (11 dígitos).");
+    // CPF opcional aqui — link é do funcionário logado
+    if (form.cpf && normalizeCpf(form.cpf).length !== 11)
+      return alert("CPF inválido (11 dígitos).");
 
     try {
       setInviteLoading(true);
       setInviteUrl("");
 
-      const res = await fetch("/api/me/invite", { method: "GET", cache: "no-store" });
+      const res = await fetch("/api/me/invite", {
+        method: "GET",
+        cache: "no-store",
+      });
       const json = await res.json().catch(() => null);
-      if (!json?.ok) throw new Error(json?.error || "Falha ao buscar convite do funcionário logado.");
+      if (!json?.ok)
+        throw new Error(
+          json?.error || "Falha ao buscar convite do funcionário logado."
+        );
 
       const code = String(json.data?.inviteCode || "");
       if (!code) throw new Error("Funcionário logado não possui inviteCode.");
@@ -220,7 +265,8 @@ export default function CedentesNovoPage() {
     <div className="max-w-3xl">
       <h1 className="mb-2 text-2xl font-bold">Cadastrar cedente</h1>
       <p className="mb-6 text-sm text-slate-600">
-        Escolha: cadastro manual (feito por você) ou gerar um link para o cedente preencher e aceitar o termo.
+        Escolha: cadastro manual (feito por você) ou gerar um link para o cedente
+        preencher e aceitar o termo.
       </p>
 
       <div className="mb-6 flex gap-2">
@@ -277,11 +323,15 @@ export default function CedentesNovoPage() {
               </div>
 
               <div>
-                <label className="mb-1 block text-sm">Data de nascimento (DD/MM/AAAA)</label>
+                <label className="mb-1 block text-sm">
+                  Data de nascimento (DD/MM/AAAA)
+                </label>
                 <input
                   className="w-full rounded-xl border px-3 py-2"
                   value={form.dataNascimento}
-                  onChange={(e) => setField("dataNascimento", normalizeDateBR(e.target.value))}
+                  onChange={(e) =>
+                    setField("dataNascimento", normalizeDateBR(e.target.value))
+                  }
                   placeholder="DD/MM/AAAA"
                   inputMode="numeric"
                 />
@@ -297,9 +347,27 @@ export default function CedentesNovoPage() {
                 />
               </div>
 
+              {/* ✅ ADICIONADO: telefone */}
+              <div>
+                <label className="mb-1 block text-sm">Telefone</label>
+                <input
+                  className="w-full rounded-xl border px-3 py-2"
+                  value={form.telefone}
+                  onChange={(e) =>
+                    setField("telefone", normalizeTelefone(e.target.value))
+                  }
+                  placeholder="DDD + número (somente números)"
+                  inputMode="numeric"
+                />
+              </div>
+
               <div>
                 <label className="mb-1 block text-sm">Identificador (prévia)</label>
-                <input className="w-full rounded-xl border px-3 py-2" value={identificador} readOnly />
+                <input
+                  className="w-full rounded-xl border px-3 py-2"
+                  value={identificador}
+                  readOnly
+                />
               </div>
             </div>
           </section>
@@ -329,28 +397,59 @@ export default function CedentesNovoPage() {
 
               <div>
                 <label className="mb-1 block text-sm">Senha Smiles</label>
-                <input className="w-full rounded-xl border px-3 py-2" value={form.senhaSmiles} onChange={(e) => setField("senhaSmiles", e.target.value)} />
+                <input
+                  className="w-full rounded-xl border px-3 py-2"
+                  value={form.senhaSmiles}
+                  onChange={(e) => setField("senhaSmiles", e.target.value)}
+                />
               </div>
+
               <div>
                 <label className="mb-1 block text-sm">Senha Latam Pass</label>
-                <input className="w-full rounded-xl border px-3 py-2" value={form.senhaLatamPass} onChange={(e) => setField("senhaLatamPass", e.target.value)} />
+                <input
+                  className="w-full rounded-xl border px-3 py-2"
+                  value={form.senhaLatamPass}
+                  onChange={(e) => setField("senhaLatamPass", e.target.value)}
+                />
               </div>
+
               <div>
                 <label className="mb-1 block text-sm">Senha Livelo</label>
-                <input className="w-full rounded-xl border px-3 py-2" value={form.senhaLivelo} onChange={(e) => setField("senhaLivelo", e.target.value)} />
+                <input
+                  className="w-full rounded-xl border px-3 py-2"
+                  value={form.senhaLivelo}
+                  onChange={(e) => setField("senhaLivelo", e.target.value)}
+                />
               </div>
+
               <div>
                 <label className="mb-1 block text-sm">Senha Esfera</label>
-                <input className="w-full rounded-xl border px-3 py-2" value={form.senhaEsfera} onChange={(e) => setField("senhaEsfera", e.target.value)} />
+                <input
+                  className="w-full rounded-xl border px-3 py-2"
+                  value={form.senhaEsfera}
+                  onChange={(e) => setField("senhaEsfera", e.target.value)}
+                />
               </div>
 
               <div>
                 <label className="mb-1 block text-sm">Chave PIX</label>
-                <input className="w-full rounded-xl border px-3 py-2" value={form.chavePix} onChange={(e) => setField("chavePix", e.target.value)} />
+                <input
+                  className="w-full rounded-xl border px-3 py-2"
+                  value={form.chavePix}
+                  onChange={(e) => setField("chavePix", e.target.value)}
+                />
+                <div className="text-[11px] text-slate-500 mt-1">
+                  Pagamento <b>somente ao titular</b>.
+                </div>
               </div>
+
               <div>
                 <label className="mb-1 block text-sm">Banco</label>
-                <input className="w-full rounded-xl border px-3 py-2" value={form.banco} onChange={(e) => setField("banco", e.target.value)} />
+                <input
+                  className="w-full rounded-xl border px-3 py-2"
+                  value={form.banco}
+                  onChange={(e) => setField("banco", e.target.value)}
+                />
               </div>
             </div>
           </section>
@@ -358,10 +457,26 @@ export default function CedentesNovoPage() {
           <section className="rounded-2xl border p-4">
             <h2 className="mb-3 font-semibold">Pontos</h2>
             <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-              <FieldNumber label="Latam" value={form.pontosLatam} onChange={(v) => setField("pontosLatam", v)} />
-              <FieldNumber label="Smiles" value={form.pontosSmiles} onChange={(v) => setField("pontosSmiles", v)} />
-              <FieldNumber label="Livelo" value={form.pontosLivelo} onChange={(v) => setField("pontosLivelo", v)} />
-              <FieldNumber label="Esfera" value={form.pontosEsfera} onChange={(v) => setField("pontosEsfera", v)} />
+              <FieldNumber
+                label="Latam"
+                value={form.pontosLatam}
+                onChange={(v) => setField("pontosLatam", v)}
+              />
+              <FieldNumber
+                label="Smiles"
+                value={form.pontosSmiles}
+                onChange={(v) => setField("pontosSmiles", v)}
+              />
+              <FieldNumber
+                label="Livelo"
+                value={form.pontosLivelo}
+                onChange={(v) => setField("pontosLivelo", v)}
+              />
+              <FieldNumber
+                label="Esfera"
+                value={form.pontosEsfera}
+                onChange={(v) => setField("pontosEsfera", v)}
+              />
             </div>
           </section>
 
@@ -382,7 +497,8 @@ export default function CedentesNovoPage() {
         <div className="max-w-xl rounded-2xl border p-6 space-y-4">
           <h2 className="text-lg font-semibold">Gerar link de convite</h2>
           <p className="text-sm text-slate-600">
-            Esse link é o <b>convite do funcionário logado</b>. Copie e envie para o cedente preencher e aceitar o termo.
+            Esse link é o <b>convite do funcionário logado</b>. Copie e envie para
+            o cedente preencher e aceitar o termo.
           </p>
 
           <button
@@ -399,7 +515,11 @@ export default function CedentesNovoPage() {
               <div className="mb-1 font-medium">Link do convite:</div>
 
               <div className="flex items-center gap-2">
-                <input className="flex-1 rounded-lg border px-2 py-1 text-xs" value={inviteUrl} readOnly />
+                <input
+                  className="flex-1 rounded-lg border px-2 py-1 text-xs"
+                  value={inviteUrl}
+                  readOnly
+                />
                 <button
                   type="button"
                   onClick={() => navigator.clipboard.writeText(inviteUrl)}
@@ -414,8 +534,9 @@ export default function CedentesNovoPage() {
       )}
 
       <div className="mt-8 rounded-2xl border p-4 text-xs text-slate-600">
-        <b>⚠️ Aviso importante:</b> por enquanto estamos salvando senhas em texto no banco (como você pediu). Isso é
-        arriscado. Quando você quiser, dá para trocar para criptografia reversível sem mudar o fluxo.
+        <b>⚠️ Aviso importante:</b> por enquanto estamos salvando senhas em texto
+        no banco (como você pediu). Isso é arriscado. Quando você quiser, dá para
+        trocar para criptografia reversível sem mudar o fluxo.
       </div>
     </div>
   );
