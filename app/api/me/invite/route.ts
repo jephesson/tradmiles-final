@@ -1,12 +1,13 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { getSession } from "@/lib/auth";
+import { getServerSessionUser } from "@/lib/auth/server";
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
   try {
-    const session = await getSession();
+    // ✅ SERVER-SAFE (não usa getSession() client)
+    const session = await getServerSessionUser();
 
     if (!session?.id) {
       return NextResponse.json(
