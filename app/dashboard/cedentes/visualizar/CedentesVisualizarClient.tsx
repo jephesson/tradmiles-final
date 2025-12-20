@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 
 type Row = {
   id: string;
@@ -24,6 +25,8 @@ function fmtInt(n: number) {
 }
 
 export default function CedentesVisualizarClient() {
+  const router = useRouter();
+
   const [rows, setRows] = useState<Row[]>([]);
   const [loading, setLoading] = useState(true);
   const [q, setQ] = useState("");
@@ -133,19 +136,35 @@ export default function CedentesVisualizarClient() {
                   <Th className="text-right">Esfera</Th>
                 </tr>
               </thead>
+
               <tbody>
                 {filtered.map((r) => (
-                  <tr key={r.id} className="border-t hover:bg-slate-50/60">
+                  <tr
+                    key={r.id}
+                    className="border-t hover:bg-slate-50/60 cursor-pointer"
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => router.push(`/dashboard/cedentes/${r.id}`)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        router.push(`/dashboard/cedentes/${r.id}`);
+                      }
+                    }}
+                    title="Abrir detalhes do cedente"
+                  >
                     <td className="px-4 py-3">
                       <div className="font-medium">{r.nomeCompleto}</div>
                       <div className="text-xs text-slate-500">
                         {r.identificador} • CPF: {r.cpf}
                       </div>
                     </td>
+
                     <td className="px-4 py-3">
                       <div className="font-medium">{r.owner?.name || "-"}</div>
                       <div className="text-xs text-slate-500">@{r.owner?.login || "-"}</div>
                     </td>
+
                     <TdRight>{fmtInt(r.pontosLatam)}</TdRight>
                     <TdRight>{fmtInt(r.pontosSmiles)}</TdRight>
                     <TdRight>{fmtInt(r.pontosLivelo)}</TdRight>
@@ -162,7 +181,11 @@ export default function CedentesVisualizarClient() {
 }
 
 function Th({ children, className = "" }: { children: React.ReactNode; className?: string }) {
-  return <th className={`px-4 py-3 text-xs font-semibold uppercase tracking-wide text-slate-600 ${className}`}>{children}</th>;
+  return (
+    <th className={`px-4 py-3 text-xs font-semibold uppercase tracking-wide text-slate-600 ${className}`}>
+      {children}
+    </th>
+  );
 }
 
 function TdRight({ children }: { children: React.ReactNode }) {
