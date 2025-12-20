@@ -1,4 +1,4 @@
-import CedentesImporter from "@/components/CedentesImporter";
+import CedentesImporter from "@/components/cedentes/CedentesImporter";
 
 export const metadata = {
   title: "Importar cedentes • TradeMiles",
@@ -6,7 +6,7 @@ export const metadata = {
 
 export default function ImportarCedentesPage() {
   return (
-    <div className="p-6">
+    <div className="p-6 max-w-7xl mx-auto">
       <CedentesImporter />
     </div>
   );

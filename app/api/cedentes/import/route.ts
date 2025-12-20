@@ -1,24 +1,22 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { getServerSessionUser } from "@/lib/auth/server";
 
 export async function POST(req: Request) {
   try {
-    const session = await getServerSessionUser();
-    if (!session?.id) {
-      return NextResponse.json({ ok: false, error: "Não autenticado" }, { status: 401 });
-    }
+    const body = await req.json();
+    const rows = Array.isArray(body?.rows) ? body.rows : [];
 
-    const { rows } = await req.json();
-
-    if (!Array.isArray(rows) || rows.length === 0) {
-      return NextResponse.json({ ok: false, error: "Dados inválidos" }, { status: 400 });
+    if (!rows.length) {
+      return NextResponse.json(
+        { ok: false, error: "Nenhum dado para importar" },
+        { status: 400 }
+      );
     }
 
     let count = 0;
 
     for (const r of rows) {
-      if (!r.nomeCompleto) continue;
+      if (!r?.nomeCompleto) continue;
 
       await prisma.cedente.create({
         data: {
@@ -33,8 +31,7 @@ export async function POST(req: Request) {
           senhaLivelo: r.senhaLivelo || null,
           senhaEsfera: r.senhaEsfera || null,
 
-          status: "APPROVED",
-          ownerId: session.id,
+          status: "APPROVED", // 👉 aprovados direto
         },
       });
 
@@ -46,8 +43,9 @@ export async function POST(req: Request) {
       data: { count },
     });
   } catch (e: any) {
+    console.error("[IMPORT CEDENTES]", e);
     return NextResponse.json(
-      { ok: false, error: e.message || "Erro ao importar" },
+      { ok: false, error: "Erro ao importar cedentes" },
       { status: 500 }
     );
   }
