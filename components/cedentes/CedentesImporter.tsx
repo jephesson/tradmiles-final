@@ -58,6 +58,9 @@ type ColumnMap = {
   senhaEsfera?: string;
 };
 
+// ✅ FIX: typing do required (opcional)
+type FieldDef = { key: keyof ColumnMap; label: string; required?: boolean };
+
 /* =======================
    Utils
 ======================= */
@@ -162,28 +165,28 @@ export default function CedentesImporter() {
   // NOVO: mapeamento de colunas (por aba)
   const [columnMap, setColumnMap] = useState<ColumnMap>({});
 
-  const fieldDefs = useMemo(
-    () =>
-      [
-        { key: "nomeCompleto", label: "Nome completo", required: true },
-        { key: "cpf", label: "CPF", required: true },
+  // ✅ FIX: tipado com FieldDef[] (required opcional)
+  const fieldDefs = useMemo<FieldDef[]>(
+    () => [
+      { key: "nomeCompleto", label: "Nome completo", required: true },
+      { key: "cpf", label: "CPF", required: true },
 
-        { key: "telefone", label: "Telefone" },
-        { key: "dataNascimento", label: "Data de nascimento" },
-        { key: "emailCriado", label: "Email criado" },
+      { key: "telefone", label: "Telefone" },
+      { key: "dataNascimento", label: "Data de nascimento" },
+      { key: "emailCriado", label: "Email criado" },
 
-        { key: "responsavel", label: "Responsável (ref no Excel)" },
+      { key: "responsavel", label: "Responsável (ref no Excel)" },
 
-        { key: "banco", label: "Banco" },
-        { key: "pixTipo", label: "Tipo de Pix" },
-        { key: "chavePix", label: "Chave Pix" },
+      { key: "banco", label: "Banco" },
+      { key: "pixTipo", label: "Tipo de Pix" },
+      { key: "chavePix", label: "Chave Pix" },
 
-        { key: "senhaEmail", label: "Senha do Email" },
-        { key: "senhaLatamPass", label: "Senha LATAM Pass" },
-        { key: "senhaSmiles", label: "Senha Smiles" },
-        { key: "senhaLivelo", label: "Senha Livelo" },
-        { key: "senhaEsfera", label: "Senha Esfera" },
-      ] as const,
+      { key: "senhaEmail", label: "Senha do Email" },
+      { key: "senhaLatamPass", label: "Senha LATAM Pass" },
+      { key: "senhaSmiles", label: "Senha Smiles" },
+      { key: "senhaLivelo", label: "Senha Livelo" },
+      { key: "senhaEsfera", label: "Senha Esfera" },
+    ],
     []
   );
 
@@ -308,7 +311,6 @@ export default function CedentesImporter() {
         return;
       }
 
-      // Se não quiser manter o mapa atual, tenta adivinhar e setar um default
       const guessed = guessColumnMap(keys);
       const mapToUse = keepExistingMap ? columnMap : guessed;
 
@@ -393,7 +395,6 @@ export default function CedentesImporter() {
 
   function reprocessar() {
     if (!wb || !selectedSheet) return;
-    // mantém o mapa escolhido pelo usuário
     parseSheet(wb, selectedSheet, true);
   }
 
@@ -436,7 +437,6 @@ export default function CedentesImporter() {
       setWb(null);
       setColumnMap({});
 
-      // permite escolher o mesmo arquivo novamente
       if (inputRef.current) inputRef.current.value = "";
     } catch (e: any) {
       alert(e.message);
@@ -518,7 +518,7 @@ export default function CedentesImporter() {
             </div>
           )}
 
-          {/* NOVO: Mapeamento de colunas */}
+          {/* Mapeamento de colunas */}
           {rawPreviewKeys.length > 0 && (
             <div className="rounded-xl border bg-white p-4 space-y-3">
               <div className="flex items-center justify-between gap-3">
@@ -543,7 +543,7 @@ export default function CedentesImporter() {
                 {fieldDefs.map((f) => {
                   const value = (columnMap as any)[f.key] ?? "";
                   return (
-                    <div key={f.key} className="flex items-center gap-3">
+                    <div key={String(f.key)} className="flex items-center gap-3">
                       <div className="w-44 text-xs">
                         {f.label} {f.required ? <span className="text-red-600">*</span> : null}
                       </div>
