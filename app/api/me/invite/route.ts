@@ -21,19 +21,6 @@ function b64urlDecode(input: string) {
   return Buffer.from(b64 + pad, "base64").toString("utf8");
 }
 
-function readSessionCookie(): SessionCookie | null {
-  try {
-    const raw = cookies().get("tm.session")?.value;
-    if (!raw) return null;
-    const json = b64urlDecode(raw);
-    const data = JSON.parse(json) as Partial<SessionCookie>;
-    if (!data?.id || !data?.login) return null;
-    return data as SessionCookie;
-  } catch {
-    return null;
-  }
-}
-
 function noCacheHeaders() {
   return {
     "Content-Type": "application/json; charset=utf-8",
@@ -44,9 +31,25 @@ function noCacheHeaders() {
   };
 }
 
+async function readSessionCookie(): Promise<SessionCookie | null> {
+  try {
+    const cookieStore = await cookies(); // ✅ Next 16: cookies() é async
+    const raw = cookieStore.get("tm.session")?.value;
+    if (!raw) return null;
+
+    const json = b64urlDecode(raw);
+    const data = JSON.parse(json) as Partial<SessionCookie>;
+    if (!data?.id || !data?.login) return null;
+
+    return data as SessionCookie;
+  } catch {
+    return null;
+  }
+}
+
 export async function GET() {
   try {
-    const session = readSessionCookie();
+    const session = await readSessionCookie();
 
     if (!session?.id) {
       return NextResponse.json(
@@ -55,7 +58,6 @@ export async function GET() {
       );
     }
 
-    // 🔎 Convite do funcionário logado
     const invite = await prisma.employeeInvite.findUnique({
       where: { userId: session.id },
       select: {
@@ -67,7 +69,6 @@ export async function GET() {
       },
     });
 
-    // ❌ Não existe -> orientar criação
     if (!invite) {
       return NextResponse.json(
         {
@@ -91,7 +92,7 @@ export async function GET() {
         ok: true,
         data: {
           inviteId: invite.id,
-          inviteCode: invite.code, // ✅ o frontend usa isso
+          inviteCode: invite.code,
           uses: invite.uses,
           lastUsedAt: invite.lastUsedAt,
         },
