@@ -24,6 +24,12 @@ function fmtInt(n: number) {
   }
 }
 
+function maskCpf(cpf: string) {
+  const v = String(cpf || "").replace(/\D+/g, "");
+  if (v.length !== 11) return cpf || "-";
+  return `***.***.${v.slice(6, 9)}-${v.slice(9, 11)}`;
+}
+
 export default function CedentesVisualizarClient() {
   const router = useRouter();
 
@@ -53,6 +59,7 @@ export default function CedentesVisualizarClient() {
   const filtered = useMemo(() => {
     const s = (q || "").trim().toLowerCase();
     if (!s) return rows;
+
     return rows.filter((r) => {
       return (
         r.nomeCompleto.toLowerCase().includes(s) ||
@@ -141,9 +148,13 @@ export default function CedentesVisualizarClient() {
                 {filtered.map((r) => (
                   <tr
                     key={r.id}
-                    className="border-t hover:bg-slate-50/60 cursor-pointer"
+                    className="border-t hover:bg-slate-50/60 cursor-pointer focus:outline-none focus:ring-2 focus:ring-black/20"
                     role="button"
                     tabIndex={0}
+                    onMouseDown={(e) => {
+                      // evita navegação quando o cara só selecionou texto
+                      if (window.getSelection()?.toString()) e.preventDefault();
+                    }}
                     onClick={() => router.push(`/dashboard/cedentes/${r.id}`)}
                     onKeyDown={(e) => {
                       if (e.key === "Enter" || e.key === " ") {
@@ -156,7 +167,7 @@ export default function CedentesVisualizarClient() {
                     <td className="px-4 py-3">
                       <div className="font-medium">{r.nomeCompleto}</div>
                       <div className="text-xs text-slate-500">
-                        {r.identificador} • CPF: {r.cpf}
+                        {r.identificador} • CPF: {maskCpf(r.cpf)}
                       </div>
                     </td>
 
