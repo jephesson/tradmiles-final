@@ -16,26 +16,24 @@ export async function POST(req: Request) {
     let count = 0;
 
     for (const r of rows) {
-      if (!r?.nomeCompleto) continue;
+      if (!r?.nomeCompleto || !r?.cpf) continue; // 👈 CPF obrigatório
 
       await prisma.cedente.create({
         data: {
           nomeCompleto: String(r.nomeCompleto).trim(),
 
-          cpf: r.cpf ? String(r.cpf) : null,
-          telefone: r.telefone ? String(r.telefone) : null,
+          cpf: String(r.cpf).replace(/\D+/g, ""), // 👈 SEM null
+          telefone: r.telefone ? String(r.telefone) : "", // se for string no schema
           dataNascimento: r.dataNascimento
             ? new Date(r.dataNascimento)
             : null,
-
-          // ❌ REMOVIDO: email (não existe no model Cedente)
 
           senhaLatam: r.senhaLatam || null,
           senhaSmiles: r.senhaSmiles || null,
           senhaLivelo: r.senhaLivelo || null,
           senhaEsfera: r.senhaEsfera || null,
 
-          status: "APPROVED", // aprovados direto
+          status: "APPROVED",
         },
       });
 
