@@ -69,6 +69,13 @@ export default function Sidebar() {
   const [openLucros, setOpenLucros] = useState(isLucrosRoute);
   const [openAnalise, setOpenAnalise] = useState(isAnaliseRoute);
 
+  // ✅ NOVO: sub-accordion "Visualizar cedentes" dentro do Cadastro > Cedentes
+  const isCadastroVisualizarCedentesRoute = pathname.startsWith(
+    "/dashboard/cedentes/visualizar"
+  );
+  const [openCadastroVisualizarCedentes, setOpenCadastroVisualizarCedentes] =
+    useState(isCadastroVisualizarCedentesRoute);
+
   useEffect(() => setOpenCadastro(isCadastroRoute), [isCadastroRoute]);
   useEffect(
     () => setOpenGestaoPontos(isGestaoPontosRoute),
@@ -81,6 +88,11 @@ export default function Sidebar() {
   );
   useEffect(() => setOpenCompras(isComprasRoute), [isComprasRoute]);
   useEffect(() => setOpenVendas(isVendasRoute), [isVendasRoute]);
+
+  // ✅ mantém aberto automaticamente quando estiver na rota
+  useEffect(() => {
+    setOpenCadastroVisualizarCedentes(isCadastroVisualizarCedentesRoute);
+  }, [isCadastroVisualizarCedentesRoute]);
 
   /* =========================
    * FILTRO (VISUALIZAR PONTOS)
@@ -174,29 +186,43 @@ export default function Sidebar() {
               Importar cedentes
             </NavLink>
             <NavLink href="/dashboard/cedentes/novo">Cadastrar cedente</NavLink>
-            <NavLink href="/dashboard/cedentes/visualizar">
-              Visualizar cedentes
-            </NavLink>
 
-            {/* ✅ Ajuste pedido: "Visualizar cedentes" como “rolamento” (SubAccordion) + itens em negrito */}
+            {/* ✅ AQUI: mantém o “formato do primeiro” (accordion igual aos outros) */}
             <SubAccordion
               title="Visualizar cedentes"
-              open={openPontosVisualizar}
-              onToggle={() => setOpenPontosVisualizar((v) => !v)}
+              open={openCadastroVisualizarCedentes}
+              onToggle={() => setOpenCadastroVisualizarCedentes((v) => !v)}
             >
-              <NavLinkBold href="/dashboard/cedentes/visualizar">Todos</NavLinkBold>
-              <NavLinkBold href="/dashboard/cedentes/visualizar?programa=latam">
+              <NavLink
+                href="/dashboard/cedentes/visualizar"
+                className="font-semibold"
+              >
+                Todos
+              </NavLink>
+              <NavLink
+                href="/dashboard/cedentes/visualizar?programa=latam"
+                className="font-semibold"
+              >
                 Latam
-              </NavLinkBold>
-              <NavLinkBold href="/dashboard/cedentes/visualizar?programa=smiles">
+              </NavLink>
+              <NavLink
+                href="/dashboard/cedentes/visualizar?programa=smiles"
+                className="font-semibold"
+              >
                 Smiles
-              </NavLinkBold>
-              <NavLinkBold href="/dashboard/cedentes/visualizar?programa=livelo">
+              </NavLink>
+              <NavLink
+                href="/dashboard/cedentes/visualizar?programa=livelo"
+                className="font-semibold"
+              >
                 Livelo
-              </NavLinkBold>
-              <NavLinkBold href="/dashboard/cedentes/visualizar?programa=esfera">
+              </NavLink>
+              <NavLink
+                href="/dashboard/cedentes/visualizar?programa=esfera"
+                className="font-semibold"
+              >
                 Esfera
-              </NavLinkBold>
+              </NavLink>
             </SubAccordion>
 
             {/* ✅ Novo item: Pendentes */}
@@ -392,9 +418,11 @@ export default function Sidebar() {
 function NavLink({
   href,
   children,
+  className,
 }: {
   href: string;
   children: React.ReactNode;
+  className?: string;
 }) {
   const pathname = usePathname();
   const active = pathname === href || pathname.startsWith(href + "/");
@@ -404,39 +432,8 @@ function NavLink({
       href={href}
       className={cn(
         "block rounded-lg px-3 py-2 text-sm",
-        active ? "bg-black text-white" : "hover:bg-slate-100"
-      )}
-    >
-      {children}
-    </Link>
-  );
-}
-
-function NavLinkBold({
-  href,
-  children,
-}: {
-  href: string;
-  children: React.ReactNode;
-}) {
-  const pathname = usePathname();
-  const search = useSearchParams();
-  const active = pathname === href || pathname.startsWith(href + "/");
-
-  // mantém o “active” coerente com o filtro por querystring
-  const qs = search?.toString() || "";
-  const isSameQuery = href.includes("?")
-    ? qs === href.split("?")[1]
-    : qs === "";
-
-  const isActive = active && isSameQuery;
-
-  return (
-    <Link
-      href={href}
-      className={cn(
-        "block rounded-lg px-3 py-2 text-sm font-bold",
-        isActive ? "bg-black text-white" : "hover:bg-slate-100"
+        active ? "bg-black text-white" : "hover:bg-slate-100",
+        className
       )}
     >
       {children}
