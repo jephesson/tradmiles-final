@@ -1,29 +1,95 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import * as XLSX from "xlsx";
+
+/* =======================
+   Tipos
+======================= */
+type Funcionario = {
+  id: string;
+  name: string;
+  login: string;
+  employeeId?: string | null;
+};
 
 type ImportedCedente = {
   nomeCompleto: string;
-  cpf?: string;
+  cpf: string;
   telefone?: string;
   dataNascimento?: string;
   email?: string;
+
   senhaLatam?: string;
   senhaSmiles?: string;
   senhaLivelo?: string;
   senhaEsfera?: string;
-  responsavelRef?: string;
+
+  responsavelRef?: string; // vindo do Excel
+  ownerId?: string | null;
+  ownerName?: string | null;
 };
 
+/* =======================
+   Utils
+======================= */
+function norm(v?: string) {
+  return (v || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
+}
+
+function onlyDigits(v?: string) {
+  return (v || "").replace(/\D+/g, "");
+}
+
+function firstName(v?: string) {
+  return norm(v).split(" ")[0] || "";
+}
+
+/* =======================
+   Componente
+======================= */
 export default function CedentesImporter() {
   const [rows, setRows] = useState<ImportedCedente[]>([]);
+  const [funcionarios, setFuncionarios] = useState<Funcionario[]>([]);
   const [loading, setLoading] = useState(false);
 
-  function normalize(v?: string) {
-    return (v || "").trim();
+  /* =======================
+     Carregar funcionários
+  ======================= */
+  useEffect(() => {
+    fetch("/api/funcionarios", { cache: "no-store" })
+      .then((r) => r.json())
+      .then((j) => {
+        if (j?.ok && Array.isArray(j.data)) {
+          setFuncionarios(j.data);
+        }
+      })
+      .catch(() => {
+        alert("Erro ao carregar funcionários.");
+      });
+  }, []);
+
+  /* =======================
+     Match automático
+  ======================= */
+  function matchResponsavel(ref?: string): Funcionario | undefined {
+    if (!ref) return undefined;
+    const r = norm(ref);
+
+    return (
+      funcionarios.find((f) => norm(f.login) === r) ||
+      funcionarios.find((f) => norm(f.employeeId || "") === r) ||
+      funcionarios.find((f) => firstName(f.name) === r)
+    );
   }
 
+  /* =======================
+     Parse Excel
+  ======================= */
   function parseExcel(file: File) {
     const reader = new FileReader();
 
@@ -31,37 +97,55 @@ export default function CedentesImporter() {
       const data = new Uint8Array(e.target?.result as ArrayBuffer);
       const wb = XLSX.read(data, { type: "array" });
 
-      const sheetName = wb.SheetNames[0];
-      const ws = wb.Sheets[sheetName];
-      const json = XLSX.utils.sheet_to_json<Record<string, any>>(ws, { defval: "" });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const json = XLSX.utils.sheet_to_json<Record<string, any>>(ws, {
+        defval: "",
+      });
 
-      const parsed: ImportedCedente[] = json.map((r) => ({
-        nomeCompleto: normalize(r["Nome"] || r["nome"]),
-        cpf: normalize(r["CPF"]),
-        telefone: normalize(r["Telefone"]),
-        dataNascimento: normalize(r["Nascimento"]),
-        email: normalize(r["Email"]),
-        senhaLatam: normalize(r["Senha Latam"]),
-        senhaSmiles: normalize(r["Senha Smiles"]),
-        senhaLivelo: normalize(r["Senha Livelo"]),
-        senhaEsfera: normalize(r["Senha Esfera"]),
-        responsavelRef: normalize(r["Responsável"]),
-      }));
+      const parsed: ImportedCedente[] = json
+        .map((r) => {
+          const responsavelRef = r["Responsável"] || r["Responsavel"];
 
-      setRows(parsed.filter((r) => r.nomeCompleto));
+          const matched = matchResponsavel(responsavelRef);
+
+          return {
+            nomeCompleto: String(r["Nome"] || r["nome"] || "").trim(),
+            cpf: onlyDigits(r["CPF"]),
+            telefone: String(r["Telefone"] || "").trim() || undefined,
+            dataNascimento: String(r["Nascimento"] || "").trim() || undefined,
+            email: String(r["Email"] || "").trim() || undefined,
+
+            senhaLatam: String(r["Senha Latam"] || "").trim() || undefined,
+            senhaSmiles: String(r["Senha Smiles"] || "").trim() || undefined,
+            senhaLivelo: String(r["Senha Livelo"] || "").trim() || undefined,
+            senhaEsfera: String(r["Senha Esfera"] || "").trim() || undefined,
+
+            responsavelRef: responsavelRef ? String(responsavelRef) : undefined,
+            ownerId: matched?.id ?? null,
+            ownerName: matched?.name ?? null,
+          };
+        })
+        .filter((r) => r.nomeCompleto && r.cpf);
+
+      setRows(parsed);
     };
 
     reader.readAsArrayBuffer(file);
   }
 
+  /* =======================
+     Pendências
+  ======================= */
+  const pendentes = useMemo(
+    () => rows.filter((r) => !r.ownerId).length,
+    [rows]
+  );
+
+  /* =======================
+     Importar
+  ======================= */
   async function importar() {
-    if (!rows.length) {
-      alert("Nada para importar.");
-      return;
-    }
-
     setLoading(true);
-
     try {
       const res = await fetch("/api/cedentes/import", {
         method: "POST",
@@ -70,10 +154,9 @@ export default function CedentesImporter() {
       });
 
       const json = await res.json();
+      if (!json?.ok) throw new Error(json.error || "Erro ao importar");
 
-      if (!json.ok) throw new Error(json.error || "Erro ao importar");
-
-      alert(`Importados ${json.data.count} cedentes ✅`);
+      alert(`✅ Importados ${json.data.count} cedentes`);
       setRows([]);
     } catch (e: any) {
       alert(e.message);
@@ -82,12 +165,15 @@ export default function CedentesImporter() {
     }
   }
 
+  /* =======================
+     UI
+  ======================= */
   return (
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold">Importar Cedentes</h1>
         <p className="text-sm text-slate-600">
-          Importação direta de contas já usadas (aprovadas automaticamente).
+          Contas já usadas → aprovadas automaticamente
         </p>
       </div>
 
@@ -99,13 +185,16 @@ export default function CedentesImporter() {
 
       {rows.length > 0 && (
         <>
-          <div className="text-sm text-slate-600">
-            {rows.length} cedentes prontos para importação
-          </div>
+          {pendentes > 0 && (
+            <div className="rounded-xl border border-yellow-300 bg-yellow-50 p-3 text-sm">
+              ⚠️ {pendentes} cedente(s) sem responsável. Selecione manualmente
+              antes de importar.
+            </div>
+          )}
 
-          <div className="max-h-72 overflow-auto border rounded-xl">
+          <div className="max-h-96 overflow-auto rounded-xl border">
             <table className="w-full text-sm">
-              <thead className="bg-slate-50 sticky top-0">
+              <thead className="sticky top-0 bg-slate-50">
                 <tr>
                   <th className="px-3 py-2 text-left">Nome</th>
                   <th className="px-3 py-2">CPF</th>
@@ -114,10 +203,48 @@ export default function CedentesImporter() {
               </thead>
               <tbody>
                 {rows.map((r, i) => (
-                  <tr key={i} className="border-t">
+                  <tr
+                    key={i}
+                    className={`border-t ${
+                      !r.ownerId ? "bg-yellow-50" : ""
+                    }`}
+                  >
                     <td className="px-3 py-2">{r.nomeCompleto}</td>
-                    <td className="px-3 py-2">{r.cpf || "-"}</td>
-                    <td className="px-3 py-2">{r.responsavelRef || "-"}</td>
+                    <td className="px-3 py-2">{r.cpf}</td>
+                    <td className="px-3 py-2">
+                      {r.ownerId ? (
+                        r.ownerName
+                      ) : (
+                        <select
+                          className="rounded border px-2 py-1 text-xs"
+                          value={r.ownerId ?? ""}
+                          onChange={(e) => {
+                            const id = e.target.value || null;
+                            const f = funcionarios.find(
+                              (x) => x.id === id
+                            );
+                            setRows((prev) =>
+                              prev.map((x, idx) =>
+                                idx === i
+                                  ? {
+                                      ...x,
+                                      ownerId: id,
+                                      ownerName: f?.name ?? null,
+                                    }
+                                  : x
+                              )
+                            );
+                          }}
+                        >
+                          <option value="">Selecionar</option>
+                          {funcionarios.map((f) => (
+                            <option key={f.id} value={f.id}>
+                              {f.name} ({f.login})
+                            </option>
+                          ))}
+                        </select>
+                      )}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -126,10 +253,14 @@ export default function CedentesImporter() {
 
           <button
             onClick={importar}
-            disabled={loading}
-            className="rounded-xl bg-black px-5 py-2 text-white hover:bg-gray-800"
+            disabled={loading || pendentes > 0}
+            className="rounded-xl bg-black px-5 py-2 text-white disabled:opacity-50"
           >
-            {loading ? "Importando..." : "Importar cedentes"}
+            {pendentes > 0
+              ? `Faltam ${pendentes} responsáveis`
+              : loading
+              ? "Importando..."
+              : "Importar todos"}
           </button>
         </>
       )}
