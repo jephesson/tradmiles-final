@@ -2,6 +2,9 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { PixTipo, CedenteStatus } from "@prisma/client";
 
+/* =======================
+   Tipos
+======================= */
 type ImportRow = {
   identificador?: string;
   nomeCompleto?: string;
@@ -15,7 +18,7 @@ type ImportRow = {
   pixTipo?: keyof typeof PixTipo | PixTipo | null;
   chavePix?: string | null;
 
-  // Senhas (vamos salvar nos campos *Enc* do teu schema)
+  // Senhas
   senhaEmail?: string | null;
   senhaSmiles?: string | null;
   senhaLatamPass?: string | null;
@@ -28,10 +31,13 @@ type ImportRow = {
   pontosLivelo?: number | string | null;
   pontosEsfera?: number | string | null;
 
-  // Responsável (OBRIGATÓRIO no schema)
+  // Responsável
   ownerId?: string;
 };
 
+/* =======================
+   Utils
+======================= */
 function onlyDigits(v: unknown) {
   return String(v ?? "").replace(/\D+/g, "");
 }
@@ -51,20 +57,14 @@ function parseDateSafe(v: unknown): Date | null {
   const s = String(v).trim();
   if (!s) return null;
 
-  // aceita "YYYY-MM-DD" ou ISO
   const iso = new Date(s);
   if (!isNaN(iso.getTime())) return iso;
 
-  // tenta "DD/MM/AAAA"
   const m = s.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
   if (m) {
-    const dd = Number(m[1]);
-    const mm = Number(m[2]);
-    const yyyy = Number(m[3]);
-    const d = new Date(Date.UTC(yyyy, mm - 1, dd));
+    const d = new Date(Date.UTC(+m[3], +m[2] - 1, +m[1]));
     return isNaN(d.getTime()) ? null : d;
   }
-
   return null;
 }
 
@@ -83,21 +83,18 @@ function makeIdentifier(nome: string, index: number) {
     .trim();
 
   const first = cleaned.split(/\s+/)[0] || "CED";
-  const prefix = (first.replace(/[^A-Z0-9]/g, "").slice(0, 3) || "CED").padEnd(3, "X");
+  const prefix = first.replace(/[^A-Z0-9]/g, "").slice(0, 3).padEnd(3, "X");
   return `${prefix}-${String(index + 1).padStart(3, "0")}`;
 }
 
-/**
- * IMPORTANTE:
- * Seus campos são "*Enc". Aqui eu vou salvar o valor "como veio"
- * (sem criptografar) só pra buildar e funcionar.
- * Depois a gente troca por encrypt de verdade.
- */
 function asEnc(v: unknown): string | null {
   const s = String(v ?? "").trim();
   return s ? s : null;
 }
 
+/* =======================
+   POST
+======================= */
 export async function POST(req: Request) {
   try {
     const body = await req.json().catch(() => null);
@@ -116,7 +113,6 @@ export async function POST(req: Request) {
       const nomeCompleto = String(r?.nomeCompleto ?? "").trim();
       const cpf = onlyDigits(r?.cpf);
 
-      // obrigatórios (se faltar, pula)
       if (!nomeCompleto) {
         errors.push({ i, reason: "nomeCompleto vazio" });
         continue;
@@ -126,40 +122,34 @@ export async function POST(req: Request) {
         continue;
       }
 
-      // ownerId é obrigatório no teu schema
       const ownerId = String(r?.ownerId ?? "").trim();
       if (!ownerId) {
-        errors.push({ i, reason: "ownerId ausente (responsável obrigatório)" });
+        errors.push({ i, reason: "ownerId ausente" });
         continue;
       }
 
-      // identificador obrigatório e unique
-      const identificador = String(r?.identificador ?? "").trim() || makeIdentifier(nomeCompleto, i);
-
-      const banco = String(r?.banco ?? "").trim() || "PENDENTE";
-      const pixTipo = normalizePixTipo(r?.pixTipo);
-      const chavePix = String(r?.chavePix ?? "").trim() || "PENDENTE";
-
-      const dataNascimento = parseDateSafe(r?.dataNascimento);
+      const identificador =
+        String(r?.identificador ?? "").trim() || makeIdentifier(nomeCompleto, i);
 
       try {
-        await prisma.cedente.create({
-          data: {
-            identificador,
+        await prisma.cedente.upsert({
+          where: { cpf },
 
+          create: {
+            identificador,
             nomeCompleto,
             cpf,
-            dataNascimento,
+            dataNascimento: parseDateSafe(r?.dataNascimento),
 
             telefone: r?.telefone ? String(r.telefone).trim() : null,
             emailCriado: r?.emailCriado ? String(r.emailCriado).trim() : null,
 
-            banco,
-            pixTipo,
-            chavePix,
+            banco: String(r?.banco ?? "").trim() || "PENDENTE",
+            pixTipo: normalizePixTipo(r?.pixTipo),
+            chavePix: String(r?.chavePix ?? "").trim() || "PENDENTE",
+
             titularConfirmado: true,
 
-            // campos *Enc*
             senhaEmailEnc: asEnc(r?.senhaEmail),
             senhaSmilesEnc: asEnc(r?.senhaSmiles),
             senhaLatamPassEnc: asEnc(r?.senhaLatamPass),
@@ -172,6 +162,30 @@ export async function POST(req: Request) {
             pontosEsfera: parseIntSafe(r?.pontosEsfera),
 
             status: CedenteStatus.APPROVED,
+            ownerId,
+          },
+
+          update: {
+            nomeCompleto,
+            dataNascimento: r?.dataNascimento ? parseDateSafe(r.dataNascimento) : undefined,
+
+            telefone: r?.telefone ? String(r.telefone).trim() : undefined,
+            emailCriado: r?.emailCriado ? String(r.emailCriado).trim() : undefined,
+
+            banco: r?.banco ? String(r.banco).trim() : undefined,
+            pixTipo: r?.pixTipo ? normalizePixTipo(r.pixTipo) : undefined,
+            chavePix: r?.chavePix ? String(r.chavePix).trim() : undefined,
+
+            senhaEmailEnc: r?.senhaEmail ? asEnc(r.senhaEmail) : undefined,
+            senhaSmilesEnc: r?.senhaSmiles ? asEnc(r.senhaSmiles) : undefined,
+            senhaLatamPassEnc: r?.senhaLatamPass ? asEnc(r.senhaLatamPass) : undefined,
+            senhaLiveloEnc: r?.senhaLivelo ? asEnc(r.senhaLivelo) : undefined,
+            senhaEsferaEnc: r?.senhaEsfera ? asEnc(r.senhaEsfera) : undefined,
+
+            pontosLatam: r?.pontosLatam != null ? parseIntSafe(r.pontosLatam) : undefined,
+            pontosSmiles: r?.pontosSmiles != null ? parseIntSafe(r.pontosSmiles) : undefined,
+            pontosLivelo: r?.pontosLivelo != null ? parseIntSafe(r.pontosLivelo) : undefined,
+            pontosEsfera: r?.pontosEsfera != null ? parseIntSafe(r.pontosEsfera) : undefined,
 
             ownerId,
           },
@@ -179,14 +193,17 @@ export async function POST(req: Request) {
 
         count++;
       } catch (e: any) {
-        // erro comum: unique cpf/identificador
-        errors.push({ i, reason: e?.code ? `${e.code}` : "falha ao criar (provável duplicata)" });
+        errors.push({ i, reason: e?.code || "erro ao salvar" });
       }
     }
 
     return NextResponse.json({
       ok: true,
-      data: { count, skipped: rows.length - count, errors: errors.slice(0, 50) },
+      data: {
+        count,
+        skipped: rows.length - count,
+        errors: errors.slice(0, 50),
+      },
     });
   } catch (e) {
     console.error("[IMPORT CEDENTES]", e);
