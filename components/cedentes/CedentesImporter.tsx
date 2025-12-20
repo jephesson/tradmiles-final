@@ -33,6 +33,12 @@ type ImportedCedente = {
   pixTipo?: PixTipo;
   chavePix?: string;
 
+  // ✅ NOVO: pontos por programa
+  pontosLatam: number;
+  pontosSmiles: number;
+  pontosLivelo: number;
+  pontosEsfera: number;
+
   responsavelRef?: string; // vindo do Excel
   ownerId?: string | null;
   ownerName?: string | null;
@@ -41,6 +47,7 @@ type ImportedCedente = {
 type ColumnMap = {
   nomeCompleto?: string;
   cpf?: string;
+
   telefone?: string;
   dataNascimento?: string;
   emailCriado?: string;
@@ -56,10 +63,23 @@ type ColumnMap = {
   senhaSmiles?: string;
   senhaLivelo?: string;
   senhaEsfera?: string;
+
+  // ✅ NOVO: pontos por programa (coluna que contém número)
+  pontosLatam?: string;
+  pontosSmiles?: string;
+  pontosLivelo?: string;
+  pontosEsfera?: string;
 };
 
-// ✅ FIX: typing do required (opcional)
+// typing do required (opcional)
 type FieldDef = { key: keyof ColumnMap; label: string; required?: boolean };
+
+type ExtraSheetCfg = {
+  id: string;
+  sheetName: string;
+  columnMap: ColumnMap;
+  rawPreviewKeys: string[];
+};
 
 /* =======================
    Utils
@@ -84,6 +104,22 @@ function asStr(v: any) {
   return String(v ?? "").trim();
 }
 
+function toNumber(v: any) {
+  const s = asStr(v);
+  if (!s) return 0;
+
+  // pega números com separador BR/US
+  // ex: "12.345", "12,345", "12.345,00"
+  const cleaned = s
+    .replace(/\s/g, "")
+    .replace(/\./g, "")
+    .replace(/,/g, ".")
+    .replace(/[^\d.]/g, "");
+
+  const n = Number(cleaned);
+  return Number.isFinite(n) ? Math.floor(n) : 0;
+}
+
 function normPixTipo(v: string): PixTipo | undefined {
   const x = norm(v).replace(/\s+/g, "");
   if (!x) return undefined;
@@ -100,9 +136,12 @@ function normPixTipo(v: string): PixTipo | undefined {
   return undefined;
 }
 
+function uid() {
+  return Math.random().toString(36).slice(2, 10);
+}
+
 /* =======================
-   Defaults de mapeamento
-   (tenta acertar sozinho quando detectar colunas parecidas)
+   Guess map
 ======================= */
 function guessColumnMap(keys: string[]): ColumnMap {
   const nkeys = keys.map((k) => ({ raw: k, n: norm(k).replace(/\s+/g, "") }));
@@ -112,7 +151,6 @@ function guessColumnMap(keys: string[]): ColumnMap {
     const exact = nkeys.find((k) => cand.includes(k.n));
     if (exact) return exact.raw;
 
-    // fallback: contém palavras-chave
     const contains = (needle: string) => nkeys.find((k) => k.n.includes(needle))?.raw;
     for (const c of cand) {
       const got = contains(c);
@@ -124,6 +162,7 @@ function guessColumnMap(keys: string[]): ColumnMap {
   return {
     nomeCompleto: find(["nome", "nomecompleto", "cedente", "titular"]),
     cpf: find(["cpf", "documento", "cpfdocedente"]),
+
     telefone: find(["telefone", "celular", "whatsapp", "fone"]),
     dataNascimento: find(["datanascimento", "nascimento", "dtnasc"]),
     emailCriado: find(["email", "e-mail", "emailcriado"]),
@@ -134,12 +173,30 @@ function guessColumnMap(keys: string[]): ColumnMap {
     pixTipo: find(["pixtipo", "tipopix"]),
     chavePix: find(["chavepix", "pix", "chavepixcpf"]),
 
-    senhaEmail: find(["senhaemail", "senha do email", "senhadoemail"]),
+    senhaEmail: find(["senhaemail", "senhadoemail", "senha do email"]),
     senhaLatamPass: find(["senhalatam", "senhalatampass", "senha latam", "senha latam pass"]),
     senhaSmiles: find(["senhasmiles", "senha smiles"]),
     senhaLivelo: find(["senhalivelo", "senha livelo"]),
     senhaEsfera: find(["senhaesfera", "senha esfera"]),
+
+    // ✅ pontos
+    pontosLatam: find(["pontoslatam", "latam", "latampass", "pontos latam", "pontos latam pass"]),
+    pontosSmiles: find(["pontossmiles", "smiles", "pontos smiles"]),
+    pontosLivelo: find(["pontoslivelo", "livelo", "pontos livelo"]),
+    pontosEsfera: find(["pontosesfera", "esfera", "pontos esfera"]),
   };
+}
+
+/* =======================
+   Lê uma sheet em JSON
+======================= */
+function sheetToJson(workbook: XLSX.WorkBook, sheetName: string) {
+  const ws = workbook.Sheets[sheetName];
+  if (!ws) return { json: [] as Record<string, any>[], keys: [] as string[] };
+
+  const json = XLSX.utils.sheet_to_json<Record<string, any>>(ws, { defval: "", raw: false });
+  const keys = json[0] ? Object.keys(json[0]) : [];
+  return { json, keys };
 }
 
 /* =======================
@@ -154,28 +211,43 @@ export default function CedentesImporter() {
   const [parsing, setParsing] = useState(false);
 
   const [fileName, setFileName] = useState<string>("");
-  const [sheetNames, setSheetNames] = useState<string[]>([]);
-  const [selectedSheet, setSelectedSheet] = useState<string>("");
-  const [rawPreviewKeys, setRawPreviewKeys] = useState<string[]>([]);
-  const [lastParseMsg, setLastParseMsg] = useState<string>("");
 
-  // guarda workbook em memória pra trocar de aba sem reenviar arquivo
+  const [sheetNames, setSheetNames] = useState<string[]>([]);
   const [wb, setWb] = useState<XLSX.WorkBook | null>(null);
 
-  // NOVO: mapeamento de colunas (por aba)
-  const [columnMap, setColumnMap] = useState<ColumnMap>({});
+  // ✅ Base
+  const [baseSheet, setBaseSheet] = useState<string>("");
+  const [baseKeys, setBaseKeys] = useState<string[]>([]);
+  const [baseMap, setBaseMap] = useState<ColumnMap>({});
 
-  // ✅ FIX: tipado com FieldDef[] (required opcional)
-  const fieldDefs = useMemo<FieldDef[]>(
+  // ✅ Extras (várias abas)
+  const [extras, setExtras] = useState<ExtraSheetCfg[]>([]);
+
+  const [lastParseMsg, setLastParseMsg] = useState<string>("");
+
+  const fieldDefsBase = useMemo<FieldDef[]>(
     () => [
       { key: "nomeCompleto", label: "Nome completo", required: true },
       { key: "cpf", label: "CPF", required: true },
+      { key: "responsavel", label: "Responsável (ref no Excel)" },
+
+      // pontos também pode vir na base
+      { key: "pontosLatam", label: "Pontos LATAM" },
+      { key: "pontosSmiles", label: "Pontos Smiles" },
+      { key: "pontosLivelo", label: "Pontos Livelo" },
+      { key: "pontosEsfera", label: "Pontos Esfera" },
+    ],
+    []
+  );
+
+  const fieldDefsExtras = useMemo<FieldDef[]>(
+    () => [
+      // extras não precisam repetir Nome/CPF, mas podem (merge pelo CPF sempre)
+      { key: "cpf", label: "CPF (para cruzar)", required: true },
 
       { key: "telefone", label: "Telefone" },
       { key: "dataNascimento", label: "Data de nascimento" },
       { key: "emailCriado", label: "Email criado" },
-
-      { key: "responsavel", label: "Responsável (ref no Excel)" },
 
       { key: "banco", label: "Banco" },
       { key: "pixTipo", label: "Tipo de Pix" },
@@ -186,6 +258,12 @@ export default function CedentesImporter() {
       { key: "senhaSmiles", label: "Senha Smiles" },
       { key: "senhaLivelo", label: "Senha Livelo" },
       { key: "senhaEsfera", label: "Senha Esfera" },
+
+      // ✅ pontos
+      { key: "pontosLatam", label: "Pontos LATAM" },
+      { key: "pontosSmiles", label: "Pontos Smiles" },
+      { key: "pontosLivelo", label: "Pontos Livelo" },
+      { key: "pontosEsfera", label: "Pontos Esfera" },
     ],
     []
   );
@@ -202,9 +280,6 @@ export default function CedentesImporter() {
       .catch(() => setLastParseMsg("❌ Erro ao carregar funcionários."));
   }, []);
 
-  /* =======================
-     Match automático
-  ======================= */
   function matchResponsavel(ref?: string): Funcionario | undefined {
     if (!ref) return undefined;
     const r = norm(ref);
@@ -218,127 +293,184 @@ export default function CedentesImporter() {
   }
 
   /* =======================
-     Parse usando mapeamento
+     Construir índice por CPF (para extras)
   ======================= */
-  function parseJsonWithMap(json: Record<string, any>[], map: ColumnMap, sheetName: string) {
-    if (!json.length) {
-      setRows([]);
-      setLastParseMsg("⚠️ A aba está vazia (nenhuma linha encontrada).");
+  function buildIndexByCpf(json: Record<string, any>[], map: ColumnMap) {
+    const idx = new Map<string, Record<string, any>>();
+
+    const cpfCol = map.cpf;
+    if (!cpfCol) return idx;
+
+    for (const r of json) {
+      const cpf = onlyDigits(asStr(r?.[cpfCol]));
+      if (!cpf) continue;
+      // se duplicado, fica com o último (ok)
+      idx.set(cpf, r);
+    }
+    return idx;
+  }
+
+  /* =======================
+     Merge geral (base + extras)
+  ======================= */
+  function reprocessAll() {
+    if (!wb || !baseSheet) return;
+
+    setLastParseMsg("");
+    setRows([]);
+
+    // --- Base
+    const base = sheetToJson(wb, baseSheet);
+    const baseJson = base.json;
+
+    const baseCpfCol = baseMap.cpf;
+    const baseNomeCol = baseMap.nomeCompleto;
+
+    if (!baseCpfCol || !baseNomeCol) {
+      setLastParseMsg("⚠️ Na aba base, selecione pelo menos Nome completo e CPF.");
       return;
     }
 
-    const get = (r: Record<string, any>, col?: string) => (col ? asStr(r?.[col]) : "");
+    const getB = (r: Record<string, any>, col?: string) => (col ? asStr(r?.[col]) : "");
 
-    const parsed: ImportedCedente[] = json
+    // monta rows base com pontos default 0
+    const baseRows: ImportedCedente[] = baseJson
       .map((r) => {
-        const nome = get(r, map.nomeCompleto);
-        const cpf = onlyDigits(get(r, map.cpf));
+        const cpf = onlyDigits(getB(r, baseCpfCol));
+        const nome = getB(r, baseNomeCol);
 
-        const responsavelRef = get(r, map.responsavel);
+        if (!cpf || !nome) return null;
+
+        const responsavelRef = getB(r, baseMap.responsavel);
         const matched = matchResponsavel(responsavelRef);
 
-        const telefone = get(r, map.telefone);
-        const dataNasc = get(r, map.dataNascimento);
-        const emailCriado = get(r, map.emailCriado);
-
-        const banco = get(r, map.banco);
-        const pixTipoRaw = get(r, map.pixTipo);
-        const chavePix = get(r, map.chavePix);
+        // pontos base (se tiver)
+        const pLatam = toNumber(getB(r, baseMap.pontosLatam));
+        const pSmiles = toNumber(getB(r, baseMap.pontosSmiles));
+        const pLivelo = toNumber(getB(r, baseMap.pontosLivelo));
+        const pEsfera = toNumber(getB(r, baseMap.pontosEsfera));
 
         return {
           nomeCompleto: nome,
           cpf,
 
-          telefone: telefone || undefined,
-          dataNascimento: dataNasc || undefined,
-          emailCriado: emailCriado || undefined,
+          telefone: undefined,
+          dataNascimento: undefined,
+          emailCriado: undefined,
 
-          senhaEmail: get(r, map.senhaEmail) || undefined,
-          senhaLatamPass: get(r, map.senhaLatamPass) || undefined,
-          senhaSmiles: get(r, map.senhaSmiles) || undefined,
-          senhaLivelo: get(r, map.senhaLivelo) || undefined,
-          senhaEsfera: get(r, map.senhaEsfera) || undefined,
+          senhaEmail: undefined,
+          senhaSmiles: undefined,
+          senhaLatamPass: undefined,
+          senhaLivelo: undefined,
+          senhaEsfera: undefined,
 
-          banco: banco || undefined,
-          pixTipo: normPixTipo(pixTipoRaw),
-          chavePix: chavePix || undefined,
+          banco: undefined,
+          pixTipo: undefined,
+          chavePix: undefined,
+
+          pontosLatam: pLatam || 0,
+          pontosSmiles: pSmiles || 0,
+          pontosLivelo: pLivelo || 0,
+          pontosEsfera: pEsfera || 0,
 
           responsavelRef: responsavelRef || undefined,
           ownerId: matched?.id ?? null,
           ownerName: matched?.name ?? null,
-        };
+        } as ImportedCedente;
       })
-      .filter((r) => r.nomeCompleto && r.cpf);
+      .filter(Boolean) as ImportedCedente[];
 
-    setRows(parsed);
-
-    if (!parsed.length) {
+    if (!baseRows.length) {
       setLastParseMsg(
-        "⚠️ Não consegui montar nenhuma linha para importação.\n" +
-          "Provável: mapeamento errado (Nome/CPF).\n" +
-          "Ajuste o mapeamento acima e clique em “Reprocessar”."
+        "⚠️ Não consegui montar nenhuma linha a partir da aba base.\n" +
+          "Confira se Nome e CPF estão mapeados corretamente."
       );
       return;
     }
 
-    setLastParseMsg(`✅ ${parsed.length} linhas prontas para importar (aba: ${sheetName}).`);
+    // --- Extras: cria índices por CPF
+    const extraIndexes = extras.map((ex) => {
+      const { json } = sheetToJson(wb, ex.sheetName);
+      return { ex, idx: buildIndexByCpf(json, ex.columnMap) };
+    });
+
+    // --- Merge: para cada row, tenta preencher campos vazios + pontos
+    const merged = baseRows.map((row) => {
+      let out = { ...row };
+
+      for (const pack of extraIndexes) {
+        const r = pack.idx.get(row.cpf);
+        if (!r) continue;
+
+        const m = pack.ex.columnMap;
+        const getE = (col?: string) => (col ? asStr(r?.[col]) : "");
+
+        // strings: só preenche se estiver vazio
+        const fillIfEmpty = (key: keyof ImportedCedente, val?: string) => {
+          const cur = (out as any)[key];
+          if ((cur === undefined || cur === null || cur === "") && val) (out as any)[key] = val;
+        };
+
+        fillIfEmpty("telefone", getE(m.telefone) || undefined);
+        fillIfEmpty("dataNascimento", getE(m.dataNascimento) || undefined);
+        fillIfEmpty("emailCriado", getE(m.emailCriado) || undefined);
+
+        fillIfEmpty("banco", getE(m.banco) || undefined);
+        const pixTipoRaw = getE(m.pixTipo);
+        if (!out.pixTipo) out.pixTipo = normPixTipo(pixTipoRaw);
+        fillIfEmpty("chavePix", getE(m.chavePix) || undefined);
+
+        fillIfEmpty("senhaEmail", getE(m.senhaEmail) || undefined);
+        fillIfEmpty("senhaLatamPass", getE(m.senhaLatamPass) || undefined);
+        fillIfEmpty("senhaSmiles", getE(m.senhaSmiles) || undefined);
+        fillIfEmpty("senhaLivelo", getE(m.senhaLivelo) || undefined);
+        fillIfEmpty("senhaEsfera", getE(m.senhaEsfera) || undefined);
+
+        // pontos: soma/override? aqui vou fazer "se extra tiver valor > 0, substitui"
+        const pLatam = toNumber(getE(m.pontosLatam));
+        const pSmiles = toNumber(getE(m.pontosSmiles));
+        const pLivelo = toNumber(getE(m.pontosLivelo));
+        const pEsfera = toNumber(getE(m.pontosEsfera));
+
+        if (pLatam > 0) out.pontosLatam = pLatam;
+        if (pSmiles > 0) out.pontosSmiles = pSmiles;
+        if (pLivelo > 0) out.pontosLivelo = pLivelo;
+        if (pEsfera > 0) out.pontosEsfera = pEsfera;
+      }
+
+      // garante 0
+      out.pontosLatam = out.pontosLatam || 0;
+      out.pontosSmiles = out.pontosSmiles || 0;
+      out.pontosLivelo = out.pontosLivelo || 0;
+      out.pontosEsfera = out.pontosEsfera || 0;
+
+      return out;
+    });
+
+    setRows(merged);
+
+    const pend = merged.filter((r) => !r.ownerId).length;
+    setLastParseMsg(
+      `✅ ${merged.length} linhas prontas (Base: ${baseSheet} + ${extras.length} aba(s) extra).` +
+        (pend ? `\n⚠️ ${pend} sem responsável.` : "")
+    );
   }
 
   /* =======================
-     Parse de uma aba (detecta colunas, sugere mapa e processa)
-  ======================= */
-  function parseSheet(workbook: XLSX.WorkBook, sheetName: string, keepExistingMap = false) {
-    try {
-      const ws = workbook.Sheets[sheetName];
-      if (!ws) {
-        setRows([]);
-        setRawPreviewKeys([]);
-        setLastParseMsg("❌ Aba não encontrada no arquivo.");
-        return;
-      }
-
-      const json = XLSX.utils.sheet_to_json<Record<string, any>>(ws, {
-        defval: "",
-        raw: false,
-      });
-
-      const keys = json[0] ? Object.keys(json[0]) : [];
-      setRawPreviewKeys(keys);
-
-      if (!json.length) {
-        setRows([]);
-        setLastParseMsg("⚠️ A aba está vazia (nenhuma linha encontrada).");
-        return;
-      }
-
-      const guessed = guessColumnMap(keys);
-      const mapToUse = keepExistingMap ? columnMap : guessed;
-
-      if (!keepExistingMap) setColumnMap(guessed);
-
-      parseJsonWithMap(json, mapToUse, sheetName);
-    } catch (err: any) {
-      console.error("[PARSE SHEET ERROR]", err);
-      setRows([]);
-      setLastParseMsg(
-        "❌ Erro ao ler a aba. Possível arquivo protegido/senha ou formato diferente.\n" +
-          `Detalhe: ${String(err?.message || err || "")}`
-      );
-    }
-  }
-
-  /* =======================
-     Upload Excel (com try/catch + status)
+     Upload Excel
   ======================= */
   function handleFile(file: File) {
     setFileName(file.name);
     setRows([]);
     setLastParseMsg("");
-    setRawPreviewKeys([]);
     setSheetNames([]);
-    setSelectedSheet("");
     setWb(null);
-    setColumnMap({});
+
+    setBaseSheet("");
+    setBaseKeys([]);
+    setBaseMap({});
+    setExtras([]);
+
     setParsing(true);
 
     const reader = new FileReader();
@@ -354,7 +486,6 @@ export default function CedentesImporter() {
         if (!result) throw new Error("Arquivo vazio no FileReader");
 
         const data = new Uint8Array(result as ArrayBuffer);
-
         const workbook = XLSX.read(data, { type: "array" });
 
         const names = workbook.SheetNames || [];
@@ -363,16 +494,23 @@ export default function CedentesImporter() {
         setWb(workbook);
         setSheetNames(names);
 
-        const defaultSheet = names[0];
-        setSelectedSheet(defaultSheet);
+        // default: primeira aba como base
+        const def = names[0];
+        setBaseSheet(def);
 
-        parseSheet(workbook, defaultSheet);
+        const { keys } = sheetToJson(workbook, def);
+        setBaseKeys(keys);
+
+        const guessed = guessColumnMap(keys);
+        setBaseMap(guessed);
 
         setParsing(false);
+
+        // já processa
+        setTimeout(() => reprocessAll(), 0);
       } catch (err: any) {
         console.error("[XLSX READ ERROR]", err);
         setParsing(false);
-
         setLastParseMsg(
           "❌ Não consegui interpretar esse Excel.\n" +
             "Possíveis causas: arquivo protegido por senha, formato diferente, ou exportação incomum.\n" +
@@ -384,37 +522,108 @@ export default function CedentesImporter() {
     reader.readAsArrayBuffer(file);
   }
 
-  function onChangeSheet(sheet: string) {
-    setSelectedSheet(sheet);
+  function onChangeBaseSheet(sheet: string) {
+    if (!wb) return;
+
+    setBaseSheet(sheet);
+    const { keys } = sheetToJson(wb, sheet);
+    setBaseKeys(keys);
+
+    const guessed = guessColumnMap(keys);
+    setBaseMap(guessed);
+
     setRows([]);
     setLastParseMsg("");
-    setRawPreviewKeys([]);
-    setColumnMap({});
-    if (wb) parseSheet(wb, sheet);
+    setTimeout(() => reprocessAll(), 0);
   }
 
-  function reprocessar() {
-    if (!wb || !selectedSheet) return;
-    parseSheet(wb, selectedSheet, true);
+  function addExtraSheet() {
+    if (!wb) return;
+    const available = sheetNames.filter((s) => s !== baseSheet && !extras.some((e) => e.sheetName === s));
+    if (!available.length) return;
+
+    const s = available[0];
+    const { keys } = sheetToJson(wb, s);
+
+    const guessed = guessColumnMap(keys);
+
+    const ex: ExtraSheetCfg = {
+      id: uid(),
+      sheetName: s,
+      rawPreviewKeys: keys,
+      // em extras, CPF é obrigatório pro merge -> tenta garantir
+      columnMap: {
+        ...guessed,
+        cpf: guessed.cpf ?? findCpfCandidate(keys),
+      },
+    };
+
+    setExtras((prev) => [...prev, ex]);
+    setTimeout(() => reprocessAll(), 0);
+  }
+
+  function removeExtra(id: string) {
+    setExtras((prev) => prev.filter((x) => x.id !== id));
+    setTimeout(() => reprocessAll(), 0);
+  }
+
+  function changeExtraSheet(id: string, sheetName: string) {
+    if (!wb) return;
+
+    const { keys } = sheetToJson(wb, sheetName);
+    const guessed = guessColumnMap(keys);
+
+    setExtras((prev) =>
+      prev.map((x) =>
+        x.id === id
+          ? {
+              ...x,
+              sheetName,
+              rawPreviewKeys: keys,
+              columnMap: {
+                ...guessed,
+                cpf: guessed.cpf ?? findCpfCandidate(keys),
+              },
+            }
+          : x
+      )
+    );
+
+    setTimeout(() => reprocessAll(), 0);
+  }
+
+  function setExtraMapField(id: string, key: keyof ColumnMap, value?: string) {
+    setExtras((prev) =>
+      prev.map((x) => (x.id === id ? { ...x, columnMap: { ...x.columnMap, [key]: value } } : x))
+    );
+  }
+
+  function setBaseMapField(key: keyof ColumnMap, value?: string) {
+    setBaseMap((prev) => ({ ...prev, [key]: value }));
+  }
+
+  function findCpfCandidate(keys: string[]) {
+    // tenta achar alguma coluna com "cpf"
+    const k = keys.find((x) => norm(x).replace(/\s/g, "").includes("cpf"));
+    return k;
   }
 
   /* =======================
-     Pendências
+     Pendências / validações
   ======================= */
   const pendentes = useMemo(() => rows.filter((r) => !r.ownerId).length, [rows]);
 
-  const mapHasEssentials = useMemo(() => {
-    return Boolean(columnMap.nomeCompleto && columnMap.cpf);
-  }, [columnMap]);
+  const baseOk = useMemo(() => Boolean(baseMap.nomeCompleto && baseMap.cpf), [baseMap]);
+
+  const extrasOk = useMemo(() => extras.every((e) => Boolean(e.columnMap.cpf)), [extras]);
 
   /* =======================
      Importar
   ======================= */
   async function importar() {
-    if (!rows.length) {
-      alert("Nada para importar.");
-      return;
-    }
+    if (!rows.length) return alert("Nada para importar.");
+    if (!baseOk) return alert("Na aba base, selecione Nome e CPF.");
+    if (!extrasOk) return alert("Em todas as abas extras, selecione a coluna CPF (para cruzar).");
 
     setLoading(true);
     try {
@@ -428,14 +637,19 @@ export default function CedentesImporter() {
       if (!json?.ok) throw new Error(json.error || "Erro ao importar");
 
       alert(`✅ Importados ${json.data.count} cedentes`);
+
+      // reset
       setRows([]);
       setFileName("");
       setSheetNames([]);
-      setSelectedSheet("");
-      setRawPreviewKeys([]);
-      setLastParseMsg("");
       setWb(null);
-      setColumnMap({});
+
+      setBaseSheet("");
+      setBaseKeys([]);
+      setBaseMap({});
+      setExtras([]);
+
+      setLastParseMsg("");
 
       if (inputRef.current) inputRef.current.value = "";
     } catch (e: any) {
@@ -451,11 +665,13 @@ export default function CedentesImporter() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold">Importar Cedentes</h1>
-        <p className="text-sm text-slate-600">Contas já usadas → aprovadas automaticamente</p>
+        <h1 className="text-2xl font-bold">Importar Cedentes (Multi-abas)</h1>
+        <p className="text-sm text-slate-600">
+          Aba base traz Nome + CPF. Abas extras cruzam pelo CPF e completam os dados. Pontos ausentes → 0.
+        </p>
       </div>
 
-      {/* Botão file bonito */}
+      {/* Upload */}
       <div className="space-y-2">
         <button
           type="button"
@@ -487,100 +703,176 @@ export default function CedentesImporter() {
         {lastParseMsg ? <div className="whitespace-pre-line text-sm text-slate-700">{lastParseMsg}</div> : null}
       </div>
 
-      {/* Seletor de aba */}
+      {/* Base */}
       {sheetNames.length > 0 && (
-        <div className="flex flex-col gap-3">
-          <div className="text-sm font-medium">Escolha a aba do Excel</div>
-          <select
-            className="w-full max-w-md rounded-xl border px-3 py-2 text-sm"
-            value={selectedSheet}
-            onChange={(e) => onChangeSheet(e.target.value)}
-          >
-            {sheetNames.map((s) => (
-              <option key={s} value={s}>
-                {s}
-              </option>
-            ))}
-          </select>
+        <div className="rounded-xl border bg-white p-4 space-y-4">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <div className="font-semibold text-sm">Aba Base (Nome + CPF)</div>
+              <div className="text-xs text-slate-600">Essa aba é a lista principal de cedentes.</div>
+            </div>
 
-          {/* Debug de colunas detectadas */}
-          {rawPreviewKeys.length > 0 && (
-            <div className="rounded-xl border bg-slate-50 p-3 text-xs text-slate-700">
-              <div className="mb-1 font-semibold">Colunas detectadas (primeira linha):</div>
-              <div className="flex flex-wrap gap-2">
-                {rawPreviewKeys.slice(0, 60).map((k) => (
-                  <span key={k} className="rounded-full border bg-white px-2 py-1">
-                    {k}
-                  </span>
-                ))}
-                {rawPreviewKeys.length > 60 ? <span>…</span> : null}
-              </div>
+            <button
+              type="button"
+              onClick={reprocessAll}
+              className="rounded-lg border px-3 py-2 text-xs hover:bg-slate-50"
+              disabled={!wb || !baseSheet}
+            >
+              🔄 Reprocessar tudo
+            </button>
+          </div>
+
+          <div className="flex flex-col gap-2">
+            <div className="text-xs font-medium">Escolha a aba base</div>
+            <select
+              className="w-full max-w-md rounded-xl border px-3 py-2 text-sm"
+              value={baseSheet}
+              onChange={(e) => onChangeBaseSheet(e.target.value)}
+            >
+              {sheetNames.map((s) => (
+                <option key={s} value={s}>
+                  {s}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {baseKeys.length > 0 && (
+            <div className="grid gap-3 md:grid-cols-2">
+              {fieldDefsBase.map((f) => {
+                const value = (baseMap as any)[f.key] ?? "";
+                return (
+                  <div key={String(f.key)} className="flex items-center gap-3">
+                    <div className="w-44 text-xs">
+                      {f.label} {f.required ? <span className="text-red-600">*</span> : null}
+                    </div>
+
+                    <select
+                      className="flex-1 rounded border px-2 py-1 text-xs"
+                      value={value}
+                      onChange={(e) => setBaseMapField(f.key, e.target.value || undefined)}
+                    >
+                      <option value="">— Não usar —</option>
+                      {baseKeys.map((col) => (
+                        <option key={col} value={col}>
+                          {col}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                );
+              })}
             </div>
           )}
 
-          {/* Mapeamento de colunas */}
-          {rawPreviewKeys.length > 0 && (
-            <div className="rounded-xl border bg-white p-4 space-y-3">
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <div className="font-semibold text-sm">Mapeamento de colunas</div>
-                  <div className="text-xs text-slate-600">
-                    Escolha quais colunas do Excel viram cada campo do sistema. (Obrigatório: Nome + CPF)
-                  </div>
-                </div>
+          {!baseOk ? (
+            <div className="text-xs text-red-700">
+              ⚠️ Na aba base, selecione <b>Nome completo</b> e <b>CPF</b>.
+            </div>
+          ) : null}
+        </div>
+      )}
 
-                <button
-                  type="button"
-                  onClick={reprocessar}
-                  className="rounded-lg border px-3 py-2 text-xs hover:bg-slate-50"
-                  disabled={!wb || !selectedSheet || rawPreviewKeys.length === 0}
-                >
-                  🔄 Reprocessar
-                </button>
+      {/* Extras */}
+      {sheetNames.length > 0 && (
+        <div className="rounded-xl border bg-white p-4 space-y-4">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <div className="font-semibold text-sm">Abas Complementares (merge por CPF)</div>
+              <div className="text-xs text-slate-600">
+                Adicione quantas abas quiser. Cada aba precisa ter uma coluna CPF para cruzar.
               </div>
+            </div>
 
-              <div className="grid gap-3 md:grid-cols-2">
-                {fieldDefs.map((f) => {
-                  const value = (columnMap as any)[f.key] ?? "";
-                  return (
-                    <div key={String(f.key)} className="flex items-center gap-3">
-                      <div className="w-44 text-xs">
-                        {f.label} {f.required ? <span className="text-red-600">*</span> : null}
-                      </div>
+            <button
+              type="button"
+              onClick={addExtraSheet}
+              className="rounded-lg bg-black px-3 py-2 text-xs text-white hover:bg-gray-800"
+              disabled={!wb}
+            >
+              ➕ Adicionar aba extra
+            </button>
+          </div>
 
-                      <select
-                        className="flex-1 rounded border px-2 py-1 text-xs"
-                        value={value}
-                        onChange={(e) =>
-                          setColumnMap((prev) => ({
-                            ...prev,
-                            [f.key]: e.target.value || undefined,
-                          }))
-                        }
+          {extras.length === 0 ? (
+            <div className="text-xs text-slate-600">Nenhuma aba extra adicionada.</div>
+          ) : (
+            <div className="space-y-4">
+              {extras.map((ex) => {
+                const available = sheetNames.filter(
+                  (s) => s !== baseSheet && (!extras.some((e) => e.sheetName === s) || s === ex.sheetName)
+                );
+
+                const cpfOk = Boolean(ex.columnMap.cpf);
+
+                return (
+                  <div key={ex.id} className="rounded-xl border p-4 space-y-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="text-sm font-semibold">Aba extra</div>
+                      <button
+                        type="button"
+                        onClick={() => removeExtra(ex.id)}
+                        className="rounded-lg border px-3 py-2 text-xs hover:bg-slate-50"
                       >
-                        <option value="">— Não usar —</option>
-                        {rawPreviewKeys.map((col) => (
-                          <option key={col} value={col}>
-                            {col}
+                        Remover
+                      </button>
+                    </div>
+
+                    <div className="flex flex-col gap-2">
+                      <div className="text-xs font-medium">Escolha a aba</div>
+                      <select
+                        className="w-full max-w-md rounded-xl border px-3 py-2 text-sm"
+                        value={ex.sheetName}
+                        onChange={(e) => changeExtraSheet(ex.id, e.target.value)}
+                      >
+                        {available.map((s) => (
+                          <option key={s} value={s}>
+                            {s}
                           </option>
                         ))}
                       </select>
                     </div>
-                  );
-                })}
-              </div>
 
-              {!mapHasEssentials ? (
-                <div className="text-xs text-red-700">
-                  ⚠️ Selecione pelo menos <b>Nome completo</b> e <b>CPF</b> para conseguir importar.
-                </div>
-              ) : null}
+                    {ex.rawPreviewKeys.length > 0 && (
+                      <div className="grid gap-3 md:grid-cols-2">
+                        {fieldDefsExtras.map((f) => {
+                          const value = (ex.columnMap as any)[f.key] ?? "";
+                          return (
+                            <div key={String(f.key)} className="flex items-center gap-3">
+                              <div className="w-44 text-xs">
+                                {f.label} {f.required ? <span className="text-red-600">*</span> : null}
+                              </div>
+
+                              <select
+                                className="flex-1 rounded border px-2 py-1 text-xs"
+                                value={value}
+                                onChange={(e) => setExtraMapField(ex.id, f.key, e.target.value || undefined)}
+                              >
+                                <option value="">— Não usar —</option>
+                                {ex.rawPreviewKeys.map((col) => (
+                                  <option key={col} value={col}>
+                                    {col}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+
+                    {!cpfOk ? (
+                      <div className="text-xs text-red-700">⚠️ Selecione a coluna <b>CPF</b> nessa aba (para cruzar).</div>
+                    ) : null}
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>
       )}
 
-      {/* Tabela */}
+      {/* Tabela preview */}
       {rows.length > 0 && (
         <>
           {pendentes > 0 && (
@@ -596,6 +888,10 @@ export default function CedentesImporter() {
                   <th className="px-3 py-2 text-left">Nome</th>
                   <th className="px-3 py-2">CPF</th>
                   <th className="px-3 py-2">Responsável</th>
+                  <th className="px-3 py-2">LATAM</th>
+                  <th className="px-3 py-2">Smiles</th>
+                  <th className="px-3 py-2">Livelo</th>
+                  <th className="px-3 py-2">Esfera</th>
                 </tr>
               </thead>
               <tbody>
@@ -629,6 +925,10 @@ export default function CedentesImporter() {
                         </select>
                       )}
                     </td>
+                    <td className="px-3 py-2">{r.pontosLatam ?? 0}</td>
+                    <td className="px-3 py-2">{r.pontosSmiles ?? 0}</td>
+                    <td className="px-3 py-2">{r.pontosLivelo ?? 0}</td>
+                    <td className="px-3 py-2">{r.pontosEsfera ?? 0}</td>
                   </tr>
                 ))}
               </tbody>
@@ -637,11 +937,13 @@ export default function CedentesImporter() {
 
           <button
             onClick={importar}
-            disabled={loading || pendentes > 0 || !mapHasEssentials}
+            disabled={loading || pendentes > 0 || !baseOk || !extrasOk}
             className="rounded-xl bg-black px-5 py-2 text-white disabled:opacity-50"
           >
-            {!mapHasEssentials
-              ? "Selecione Nome e CPF"
+            {!baseOk
+              ? "Selecione Nome e CPF (Base)"
+              : !extrasOk
+              ? "Selecione CPF em todas as abas extras"
               : pendentes > 0
               ? `Faltam ${pendentes} responsáveis`
               : loading
