@@ -16,13 +16,7 @@ type Row = {
   owner: { id: string; name: string; login: string };
 };
 
-type SortKey =
-  | "nome"
-  | "latam"
-  | "smiles"
-  | "livelo"
-  | "esfera";
-
+type SortKey = "nome" | "latam" | "smiles" | "livelo" | "esfera";
 type SortDir = "asc" | "desc";
 
 function fmtInt(n: number) {
@@ -40,6 +34,9 @@ export default function CedentesVisualizarClient() {
 
   const [rows, setRows] = useState<Row[]>([]);
   const [loading, setLoading] = useState(true);
+
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+
   const [q, setQ] = useState("");
   const [ownerFilter, setOwnerFilter] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("nome");
@@ -52,9 +49,11 @@ export default function CedentesVisualizarClient() {
       const json = await res.json();
       if (!json?.ok) throw new Error(json?.error);
       setRows(json.data);
+      setSelected(new Set());
     } catch (e: any) {
       alert(e?.message || "Erro ao carregar.");
       setRows([]);
+      setSelected(new Set());
     } finally {
       setLoading(false);
     }
@@ -64,11 +63,87 @@ export default function CedentesVisualizarClient() {
     load();
   }, []);
 
+  /* =======================
+     Seleção
+  ======================= */
+  function toggleOne(id: string) {
+    setSelected((prev) => {
+      const n = new Set(prev);
+      n.has(id) ? n.delete(id) : n.add(id);
+      return n;
+    });
+  }
+
+  function toggleAll(ids: string[]) {
+    setSelected((prev) => {
+      if (ids.length === 0) return new Set();
+      if (prev.size === ids.length) return new Set();
+      return new Set(ids);
+    });
+  }
+
+  /* =======================
+     Delete
+  ======================= */
+  async function confirmPassword(): Promise<boolean> {
+    const password = prompt("Digite sua senha para confirmar:");
+    if (!password) return false;
+
+    const res = await fetch("/api/auth/confirm-password", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ password }),
+    });
+
+    const json = await res.json().catch(() => null);
+    if (!json?.ok) {
+      alert("Senha inválida.");
+      return false;
+    }
+    return true;
+  }
+
+  async function deleteSelected() {
+    if (!selected.size) return;
+
+    if (!confirm(`Apagar ${selected.size} cedente(s) selecionado(s)?`)) return;
+    if (!(await confirmPassword())) return;
+
+    const res = await fetch("/api/cedentes/delete", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ids: Array.from(selected) }),
+    });
+
+    const json = await res.json().catch(() => null);
+    if (!json?.ok) {
+      alert(json?.error || "Erro ao apagar selecionados.");
+      return;
+    }
+
+    await load();
+  }
+
+  async function deleteAll() {
+    if (!confirm("Isso vai apagar TODOS os cedentes. Continuar?")) return;
+    if (!(await confirmPassword())) return;
+
+    const res = await fetch("/api/cedentes/delete-all", { method: "POST" });
+    const json = await res.json().catch(() => null);
+    if (!json?.ok) {
+      alert(json?.error || "Erro ao apagar todos.");
+      return;
+    }
+
+    await load();
+  }
+
+  /* =======================
+     Filtros / ordenação
+  ======================= */
   const owners = useMemo(() => {
     const map = new Map<string, string>();
-    rows.forEach((r) => {
-      if (r.owner?.id) map.set(r.owner.id, r.owner.name);
-    });
+    rows.forEach((r) => r.owner?.id && map.set(r.owner.id, r.owner.name));
     return Array.from(map.entries());
   }, [rows]);
 
@@ -78,14 +153,13 @@ export default function CedentesVisualizarClient() {
     return rows
       .filter((r) => {
         if (ownerFilter && r.owner?.id !== ownerFilter) return false;
-
         if (!s) return true;
 
         return (
           r.nomeCompleto.toLowerCase().includes(s) ||
           r.identificador.toLowerCase().includes(s) ||
-          r.cpf.includes(s) ||
-          r.owner?.name.toLowerCase().includes(s)
+          String(r.cpf || "").includes(s) ||
+          r.owner?.name?.toLowerCase().includes(s)
         );
       })
       .sort((a, b) => {
@@ -123,7 +197,7 @@ export default function CedentesVisualizarClient() {
 
   function toggleSort(key: SortKey) {
     if (key === sortKey) {
-      setSortDir(sortDir === "asc" ? "desc" : "asc");
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
     } else {
       setSortKey(key);
       setSortDir(key === "nome" ? "asc" : "desc");
@@ -133,9 +207,12 @@ export default function CedentesVisualizarClient() {
   const arrow = (key: SortKey) =>
     sortKey === key ? (sortDir === "asc" ? " ↑" : " ↓") : "";
 
+  /* =======================
+     UI
+  ======================= */
   return (
     <div className="max-w-6xl">
-      <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold">Cedentes • Todos</h1>
           <p className="text-sm text-slate-600">
@@ -144,9 +221,29 @@ export default function CedentesVisualizarClient() {
         </div>
 
         <div className="flex flex-wrap gap-2">
+          {selected.size > 0 && (
+            <button
+              onClick={deleteSelected}
+              className="rounded-xl bg-red-600 px-4 py-2 text-sm text-white"
+              disabled={loading}
+              title="Apagar somente os marcados"
+            >
+              🗑️ Apagar selecionados ({selected.size})
+            </button>
+          )}
+
+          <button
+            onClick={deleteAll}
+            className="rounded-xl border border-red-600 px-4 py-2 text-sm text-red-600"
+            disabled={loading || rows.length === 0}
+            title="Apagar todos os cedentes (perigoso)"
+          >
+            🧨 Apagar todos
+          </button>
+
           <input
             className="rounded-xl border px-3 py-2 text-sm"
-            placeholder="Buscar por nome, CPF..."
+            placeholder="Buscar..."
             value={q}
             onChange={(e) => setQ(e.target.value)}
           />
@@ -167,6 +264,7 @@ export default function CedentesVisualizarClient() {
           <button
             onClick={load}
             className="rounded-xl border px-4 py-2 text-sm hover:bg-slate-50"
+            disabled={loading}
           >
             Atualizar
           </button>
@@ -174,35 +272,53 @@ export default function CedentesVisualizarClient() {
       </div>
 
       <div className="rounded-2xl border overflow-hidden">
-        <table className="min-w-[980px] w-full text-sm">
+        <table className="min-w-[1060px] w-full text-sm">
           <thead className="bg-slate-50">
             <tr>
-              <Th onClick={() => toggleSort("nome")}>
-                Nome{arrow("nome")}
-              </Th>
+              <th className="px-4 py-3">
+                <input
+                  type="checkbox"
+                  checked={filtered.length > 0 && selected.size === filtered.length}
+                  onChange={() => toggleAll(filtered.map((r) => r.id))}
+                  disabled={filtered.length === 0}
+                  title="Selecionar todos filtrados"
+                />
+              </th>
+
+              <Th onClick={() => toggleSort("nome")}>Nome{arrow("nome")}</Th>
               <Th>Responsável</Th>
-              <ThRight onClick={() => toggleSort("latam")}>
-                LATAM{arrow("latam")}
-              </ThRight>
-              <ThRight onClick={() => toggleSort("smiles")}>
-                SMILES{arrow("smiles")}
-              </ThRight>
-              <ThRight onClick={() => toggleSort("livelo")}>
-                LIVELO{arrow("livelo")}
-              </ThRight>
-              <ThRight onClick={() => toggleSort("esfera")}>
-                ESFERA{arrow("esfera")}
-              </ThRight>
+
+              <ThRight onClick={() => toggleSort("latam")}>LATAM{arrow("latam")}</ThRight>
+              <ThRight onClick={() => toggleSort("smiles")}>SMILES{arrow("smiles")}</ThRight>
+              <ThRight onClick={() => toggleSort("livelo")}>LIVELO{arrow("livelo")}</ThRight>
+              <ThRight onClick={() => toggleSort("esfera")}>ESFERA{arrow("esfera")}</ThRight>
+
+              <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wide text-slate-600 text-right">
+                Ações
+              </th>
             </tr>
           </thead>
 
           <tbody>
+            {!loading && filtered.length === 0 && (
+              <tr>
+                <td colSpan={8} className="px-6 py-10 text-center text-sm text-slate-500">
+                  Nenhum cedente encontrado.
+                </td>
+              </tr>
+            )}
+
             {filtered.map((r) => (
-              <tr
-                key={r.id}
-                className="border-t hover:bg-slate-50 cursor-pointer"
-                onClick={() => router.push(`/dashboard/cedentes/${r.id}`)}
-              >
+              <tr key={r.id} className="border-t hover:bg-slate-50">
+                <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
+                  <input
+                    type="checkbox"
+                    checked={selected.has(r.id)}
+                    onChange={() => toggleOne(r.id)}
+                    title="Selecionar"
+                  />
+                </td>
+
                 <td className="px-4 py-3">
                   <div className="font-medium">{r.nomeCompleto}</div>
                   <div className="text-xs text-slate-500">
@@ -212,20 +328,45 @@ export default function CedentesVisualizarClient() {
 
                 <td className="px-4 py-3">
                   <div className="font-medium">{r.owner?.name}</div>
-                  <div className="text-xs text-slate-500">
-                    @{r.owner?.login}
-                  </div>
+                  <div className="text-xs text-slate-500">@{r.owner?.login}</div>
                 </td>
 
                 <TdRight>{fmtInt(r.pontosLatam)}</TdRight>
                 <TdRight>{fmtInt(r.pontosSmiles)}</TdRight>
                 <TdRight>{fmtInt(r.pontosLivelo)}</TdRight>
                 <TdRight>{fmtInt(r.pontosEsfera)}</TdRight>
+
+                <td className="px-4 py-3 text-right" onClick={(e) => e.stopPropagation()}>
+                  <div className="flex justify-end gap-2">
+                    <button
+                      type="button"
+                      className="rounded-lg border px-3 py-1 text-xs hover:bg-slate-50"
+                      onClick={() => router.push(`/dashboard/cedentes/${r.id}`)}
+                    >
+                      Ver
+                    </button>
+
+                    <button
+                      type="button"
+                      className="rounded-lg border px-3 py-1 text-xs hover:bg-slate-50"
+                      onClick={() => router.push(`/dashboard/cedentes/${r.id}?edit=1`)}
+                      title="Abrir detalhe em modo edição (a gente vai implementar)"
+                    >
+                      Editar
+                    </button>
+                  </div>
+                </td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
+
+      {loading && (
+        <div className="mt-4 text-sm text-slate-500">
+          Carregando…
+        </div>
+      )}
     </div>
   );
 }

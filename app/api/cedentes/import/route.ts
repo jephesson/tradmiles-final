@@ -42,11 +42,91 @@ function onlyDigits(v: unknown) {
   return String(v ?? "").replace(/\D+/g, "");
 }
 
-function parseIntSafe(v: unknown) {
-  if (typeof v === "number" && Number.isFinite(v)) return Math.max(0, Math.trunc(v));
-  const s = String(v ?? "").trim();
-  if (!s) return 0;
-  const digits = s.replace(/[^\d]/g, "");
+/**
+ * ✅ Parser robusto de pontos (BACKEND)
+ * Aceita:
+ *  - "9380"
+ *  - "9.380"
+ *  - "9,380"
+ *  - "9.380,00"
+ *  - "9,380.00"
+ *  - number 9.38  -> 9380  (caso XLSX)
+ */
+function parsePontosSafe(v: unknown): number {
+  // number
+  if (typeof v === "number" && Number.isFinite(v)) {
+    if (Number.isInteger(v)) return Math.max(0, v);
+
+    // caso clássico XLSX: 9.380 -> 9.38
+    if (v > 0 && v < 1000) {
+      const t = v * 1000;
+      if (Math.abs(t - Math.round(t)) < 1e-6) {
+        return Math.max(0, Math.round(t));
+      }
+    }
+
+    return Math.max(0, Math.floor(v));
+  }
+
+  const s0 = String(v ?? "").trim();
+  if (!s0) return 0;
+
+  let s = s0.replace(/\s/g, "").replace(/[R$\u00A0]/g, "");
+
+  // BR milhar: 1.234.567
+  if (/^\d{1,3}(\.\d{3})+$/.test(s)) {
+    return Math.max(0, parseInt(s.replace(/\./g, ""), 10));
+  }
+
+  // US milhar: 1,234,567
+  if (/^\d{1,3}(,\d{3})+$/.test(s)) {
+    return Math.max(0, parseInt(s.replace(/,/g, ""), 10));
+  }
+
+  const lastDot = s.lastIndexOf(".");
+  const lastComma = s.lastIndexOf(",");
+
+  // tem os dois → decide decimal pelo último
+  if (lastDot >= 0 && lastComma >= 0) {
+    const commaIsDecimal = lastComma > lastDot;
+
+    if (commaIsDecimal) {
+      // BR: 1.234,56
+      s = s.replace(/\./g, "").replace(/,/g, ".");
+    } else {
+      // US: 1,234.56
+      s = s.replace(/,/g, "");
+    }
+
+    const n = Number(s.replace(/[^\d.]/g, ""));
+    return Number.isFinite(n) ? Math.max(0, Math.floor(n)) : 0;
+  }
+
+  // só ponto
+  if (lastDot >= 0) {
+    if (/^\d{1,3}\.\d{3}$/.test(s)) {
+      return Math.max(0, parseInt(s.replace(".", ""), 10));
+    }
+
+    const n = Number(s.replace(/[^\d.]/g, ""));
+    if (Number.isFinite(n) && n > 0 && n < 1000) {
+      const t = n * 1000;
+      if (Math.abs(t - Math.round(t)) < 1e-6) return Math.round(t);
+    }
+    return Number.isFinite(n) ? Math.max(0, Math.floor(n)) : 0;
+  }
+
+  // só vírgula
+  if (lastComma >= 0) {
+    if (/^\d{1,3},\d{3}$/.test(s)) {
+      return Math.max(0, parseInt(s.replace(",", ""), 10));
+    }
+    const n = Number(s.replace(/[^\d,]/g, "").replace(/,/g, "."));
+    return Number.isFinite(n) ? Math.max(0, Math.floor(n)) : 0;
+  }
+
+  // fallback: só dígitos
+  const digits = s.replace(/\D+/g, "");
   return digits ? Math.max(0, parseInt(digits, 10)) : 0;
 }
 
@@ -156,10 +236,10 @@ export async function POST(req: Request) {
             senhaLiveloEnc: asEnc(r?.senhaLivelo),
             senhaEsferaEnc: asEnc(r?.senhaEsfera),
 
-            pontosLatam: parseIntSafe(r?.pontosLatam),
-            pontosSmiles: parseIntSafe(r?.pontosSmiles),
-            pontosLivelo: parseIntSafe(r?.pontosLivelo),
-            pontosEsfera: parseIntSafe(r?.pontosEsfera),
+            pontosLatam: parsePontosSafe(r?.pontosLatam),
+            pontosSmiles: parsePontosSafe(r?.pontosSmiles),
+            pontosLivelo: parsePontosSafe(r?.pontosLivelo),
+            pontosEsfera: parsePontosSafe(r?.pontosEsfera),
 
             status: CedenteStatus.APPROVED,
             ownerId,
@@ -182,10 +262,10 @@ export async function POST(req: Request) {
             senhaLiveloEnc: r?.senhaLivelo ? asEnc(r.senhaLivelo) : undefined,
             senhaEsferaEnc: r?.senhaEsfera ? asEnc(r.senhaEsfera) : undefined,
 
-            pontosLatam: r?.pontosLatam != null ? parseIntSafe(r.pontosLatam) : undefined,
-            pontosSmiles: r?.pontosSmiles != null ? parseIntSafe(r.pontosSmiles) : undefined,
-            pontosLivelo: r?.pontosLivelo != null ? parseIntSafe(r.pontosLivelo) : undefined,
-            pontosEsfera: r?.pontosEsfera != null ? parseIntSafe(r.pontosEsfera) : undefined,
+            pontosLatam: r?.pontosLatam != null ? parsePontosSafe(r.pontosLatam) : undefined,
+            pontosSmiles: r?.pontosSmiles != null ? parsePontosSafe(r.pontosSmiles) : undefined,
+            pontosLivelo: r?.pontosLivelo != null ? parsePontosSafe(r.pontosLivelo) : undefined,
+            pontosEsfera: r?.pontosEsfera != null ? parsePontosSafe(r.pontosEsfera) : undefined,
 
             ownerId,
           },

@@ -33,7 +33,7 @@ type ImportedCedente = {
   pixTipo?: PixTipo;
   chavePix?: string;
 
-  // ✅ NOVO: pontos por programa
+  // ✅ pontos por programa
   pontosLatam: number;
   pontosSmiles: number;
   pontosLivelo: number;
@@ -64,14 +64,13 @@ type ColumnMap = {
   senhaLivelo?: string;
   senhaEsfera?: string;
 
-  // ✅ NOVO: pontos por programa (coluna que contém número)
+  // ✅ pontos por programa (coluna que contém número)
   pontosLatam?: string;
   pontosSmiles?: string;
   pontosLivelo?: string;
   pontosEsfera?: string;
 };
 
-// typing do required (opcional)
 type FieldDef = { key: keyof ColumnMap; label: string; required?: boolean };
 
 type ExtraSheetCfg = {
@@ -104,22 +103,6 @@ function asStr(v: any) {
   return String(v ?? "").trim();
 }
 
-function toNumber(v: any) {
-  const s = asStr(v);
-  if (!s) return 0;
-
-  // pega números com separador BR/US
-  // ex: "12.345", "12,345", "12.345,00"
-  const cleaned = s
-    .replace(/\s/g, "")
-    .replace(/\./g, "")
-    .replace(/,/g, ".")
-    .replace(/[^\d.]/g, "");
-
-  const n = Number(cleaned);
-  return Number.isFinite(n) ? Math.floor(n) : 0;
-}
-
 function normPixTipo(v: string): PixTipo | undefined {
   const x = norm(v).replace(/\s+/g, "");
   if (!x) return undefined;
@@ -138,6 +121,96 @@ function normPixTipo(v: string): PixTipo | undefined {
 
 function uid() {
   return Math.random().toString(36).slice(2, 10);
+}
+
+/**
+ * ✅ Parse robusto de pontos:
+ * - aceita: "9380", "9.380", "9,380", "9.380,00", "9,380.00"
+ * - se vier number 9.38 por causa do XLSX, tenta detectar e virar 9380
+ */
+function parsePontos(v: any): number {
+  // number
+  if (typeof v === "number" && Number.isFinite(v)) {
+    const n = v;
+    if (Number.isInteger(n)) return Math.max(0, n);
+
+    // caso típico: "9.380" (texto) -> XLSX converteu pra 9.38
+    // pontos nunca deveriam ter decimais, então:
+    // se n < 1000 e n*1000 fica inteiro, assume milhar
+    const times1000 = n * 1000;
+    if (n > 0 && n < 1000 && Math.abs(times1000 - Math.round(times1000)) < 1e-6) {
+      return Math.max(0, Math.round(times1000));
+    }
+
+    // fallback
+    return Math.max(0, Math.floor(n));
+  }
+
+  const s0 = asStr(v);
+  if (!s0) return 0;
+
+  // remove espaços e símbolos
+  let s = s0.replace(/\s/g, "").replace(/[R$\u00A0]/g, "");
+
+  // padrão BR milhar: 9.380 ou 1.234.567
+  if (/^\d{1,3}(\.\d{3})+$/.test(s)) {
+    return Math.max(0, parseInt(s.replace(/\./g, ""), 10));
+  }
+
+  // padrão US milhar: 9,380 ou 1,234,567
+  if (/^\d{1,3}(,\d{3})+$/.test(s)) {
+    return Math.max(0, parseInt(s.replace(/,/g, ""), 10));
+  }
+
+  // se tem os dois, decide decimal pelo último separador
+  const lastDot = s.lastIndexOf(".");
+  const lastComma = s.lastIndexOf(",");
+
+  if (lastDot >= 0 && lastComma >= 0) {
+    const commaIsDecimal = lastComma > lastDot;
+
+    if (commaIsDecimal) {
+      // BR: 1.234,56
+      s = s.replace(/\./g, "").replace(/,/g, ".");
+    } else {
+      // US: 1,234.56
+      s = s.replace(/,/g, "");
+    }
+    const n = Number(s.replace(/[^\d.]/g, ""));
+    return Number.isFinite(n) ? Math.max(0, Math.floor(n)) : 0;
+  }
+
+  // só ponto
+  if (lastDot >= 0) {
+    // se parece "9.380" (3 casas) e inteiro pequeno, assume milhar
+    if (/^\d{1,3}\.\d{3}$/.test(s)) {
+      return Math.max(0, parseInt(s.replace(".", ""), 10));
+    }
+    // decimal comum
+    const n = Number(s.replace(/[^\d.]/g, ""));
+    // se virou 9.38 e faz sentido virar 9380 (mesma heurística)
+    if (Number.isFinite(n) && n > 0 && n < 1000) {
+      const t = n * 1000;
+      if (Math.abs(t - Math.round(t)) < 1e-6) return Math.max(0, Math.round(t));
+    }
+    return Number.isFinite(n) ? Math.max(0, Math.floor(n)) : 0;
+  }
+
+  // só vírgula
+  if (lastComma >= 0) {
+    // se parece "9,380" pode ser milhar (US) ou decimal (BR) — regra:
+    // se tem 3 dígitos depois da vírgula, assume milhar
+    if (/^\d{1,3},\d{3}$/.test(s)) {
+      return Math.max(0, parseInt(s.replace(",", ""), 10));
+    }
+    // senão trata como decimal BR
+    const n = Number(s.replace(/[^\d,]/g, "").replace(/,/g, "."));
+    return Number.isFinite(n) ? Math.max(0, Math.floor(n)) : 0;
+  }
+
+  // só dígitos
+  const digits = s.replace(/\D+/g, "");
+  return digits ? Math.max(0, parseInt(digits, 10)) : 0;
 }
 
 /* =======================
@@ -194,7 +267,8 @@ function sheetToJson(workbook: XLSX.WorkBook, sheetName: string) {
   const ws = workbook.Sheets[sheetName];
   if (!ws) return { json: [] as Record<string, any>[], keys: [] as string[] };
 
-  const json = XLSX.utils.sheet_to_json<Record<string, any>>(ws, { defval: "", raw: false });
+  // ✅ CRÍTICO: raw:true evita "9.380" virar 9.38
+  const json = XLSX.utils.sheet_to_json<Record<string, any>>(ws, { defval: "", raw: true });
   const keys = json[0] ? Object.keys(json[0]) : [];
   return { json, keys };
 }
@@ -215,12 +289,12 @@ export default function CedentesImporter() {
   const [sheetNames, setSheetNames] = useState<string[]>([]);
   const [wb, setWb] = useState<XLSX.WorkBook | null>(null);
 
-  // ✅ Base
+  // Base
   const [baseSheet, setBaseSheet] = useState<string>("");
   const [baseKeys, setBaseKeys] = useState<string[]>([]);
   const [baseMap, setBaseMap] = useState<ColumnMap>({});
 
-  // ✅ Extras (várias abas)
+  // Extras
   const [extras, setExtras] = useState<ExtraSheetCfg[]>([]);
 
   const [lastParseMsg, setLastParseMsg] = useState<string>("");
@@ -231,7 +305,6 @@ export default function CedentesImporter() {
       { key: "cpf", label: "CPF", required: true },
       { key: "responsavel", label: "Responsável (ref no Excel)" },
 
-      // pontos também pode vir na base
       { key: "pontosLatam", label: "Pontos LATAM" },
       { key: "pontosSmiles", label: "Pontos Smiles" },
       { key: "pontosLivelo", label: "Pontos Livelo" },
@@ -242,7 +315,6 @@ export default function CedentesImporter() {
 
   const fieldDefsExtras = useMemo<FieldDef[]>(
     () => [
-      // extras não precisam repetir Nome/CPF, mas podem (merge pelo CPF sempre)
       { key: "cpf", label: "CPF (para cruzar)", required: true },
 
       { key: "telefone", label: "Telefone" },
@@ -259,7 +331,6 @@ export default function CedentesImporter() {
       { key: "senhaLivelo", label: "Senha Livelo" },
       { key: "senhaEsfera", label: "Senha Esfera" },
 
-      // ✅ pontos
       { key: "pontosLatam", label: "Pontos LATAM" },
       { key: "pontosSmiles", label: "Pontos Smiles" },
       { key: "pontosLivelo", label: "Pontos Livelo" },
@@ -292,19 +363,14 @@ export default function CedentesImporter() {
     );
   }
 
-  /* =======================
-     Construir índice por CPF (para extras)
-  ======================= */
   function buildIndexByCpf(json: Record<string, any>[], map: ColumnMap) {
     const idx = new Map<string, Record<string, any>>();
-
     const cpfCol = map.cpf;
     if (!cpfCol) return idx;
 
     for (const r of json) {
       const cpf = onlyDigits(asStr(r?.[cpfCol]));
       if (!cpf) continue;
-      // se duplicado, fica com o último (ok)
       idx.set(cpf, r);
     }
     return idx;
@@ -319,7 +385,6 @@ export default function CedentesImporter() {
     setLastParseMsg("");
     setRows([]);
 
-    // --- Base
     const base = sheetToJson(wb, baseSheet);
     const baseJson = base.json;
 
@@ -331,24 +396,21 @@ export default function CedentesImporter() {
       return;
     }
 
-    const getB = (r: Record<string, any>, col?: string) => (col ? asStr(r?.[col]) : "");
+    const getB = (r: Record<string, any>, col?: string) => (col ? r?.[col] : "");
 
-    // monta rows base com pontos default 0
     const baseRows: ImportedCedente[] = baseJson
       .map((r) => {
-        const cpf = onlyDigits(getB(r, baseCpfCol));
-        const nome = getB(r, baseNomeCol);
-
+        const cpf = onlyDigits(asStr(getB(r, baseCpfCol)));
+        const nome = asStr(getB(r, baseNomeCol));
         if (!cpf || !nome) return null;
 
-        const responsavelRef = getB(r, baseMap.responsavel);
+        const responsavelRef = asStr(getB(r, baseMap.responsavel));
         const matched = matchResponsavel(responsavelRef);
 
-        // pontos base (se tiver)
-        const pLatam = toNumber(getB(r, baseMap.pontosLatam));
-        const pSmiles = toNumber(getB(r, baseMap.pontosSmiles));
-        const pLivelo = toNumber(getB(r, baseMap.pontosLivelo));
-        const pEsfera = toNumber(getB(r, baseMap.pontosEsfera));
+        const pLatam = parsePontos(getB(r, baseMap.pontosLatam));
+        const pSmiles = parsePontos(getB(r, baseMap.pontosSmiles));
+        const pLivelo = parsePontos(getB(r, baseMap.pontosLivelo));
+        const pEsfera = parsePontos(getB(r, baseMap.pontosEsfera));
 
         return {
           nomeCompleto: nome,
@@ -388,13 +450,11 @@ export default function CedentesImporter() {
       return;
     }
 
-    // --- Extras: cria índices por CPF
     const extraIndexes = extras.map((ex) => {
       const { json } = sheetToJson(wb, ex.sheetName);
       return { ex, idx: buildIndexByCpf(json, ex.columnMap) };
     });
 
-    // --- Merge: para cada row, tenta preencher campos vazios + pontos
     const merged = baseRows.map((row) => {
       let out = { ...row };
 
@@ -403,34 +463,35 @@ export default function CedentesImporter() {
         if (!r) continue;
 
         const m = pack.ex.columnMap;
-        const getE = (col?: string) => (col ? asStr(r?.[col]) : "");
+        const getE = (col?: string) => (col ? r?.[col] : "");
 
-        // strings: só preenche se estiver vazio
         const fillIfEmpty = (key: keyof ImportedCedente, val?: string) => {
           const cur = (out as any)[key];
           if ((cur === undefined || cur === null || cur === "") && val) (out as any)[key] = val;
         };
 
-        fillIfEmpty("telefone", getE(m.telefone) || undefined);
-        fillIfEmpty("dataNascimento", getE(m.dataNascimento) || undefined);
-        fillIfEmpty("emailCriado", getE(m.emailCriado) || undefined);
+        fillIfEmpty("telefone", asStr(getE(m.telefone)) || undefined);
+        fillIfEmpty("dataNascimento", asStr(getE(m.dataNascimento)) || undefined);
+        fillIfEmpty("emailCriado", asStr(getE(m.emailCriado)) || undefined);
 
-        fillIfEmpty("banco", getE(m.banco) || undefined);
-        const pixTipoRaw = getE(m.pixTipo);
+        fillIfEmpty("banco", asStr(getE(m.banco)) || undefined);
+
+        const pixTipoRaw = asStr(getE(m.pixTipo));
         if (!out.pixTipo) out.pixTipo = normPixTipo(pixTipoRaw);
-        fillIfEmpty("chavePix", getE(m.chavePix) || undefined);
 
-        fillIfEmpty("senhaEmail", getE(m.senhaEmail) || undefined);
-        fillIfEmpty("senhaLatamPass", getE(m.senhaLatamPass) || undefined);
-        fillIfEmpty("senhaSmiles", getE(m.senhaSmiles) || undefined);
-        fillIfEmpty("senhaLivelo", getE(m.senhaLivelo) || undefined);
-        fillIfEmpty("senhaEsfera", getE(m.senhaEsfera) || undefined);
+        fillIfEmpty("chavePix", asStr(getE(m.chavePix)) || undefined);
 
-        // pontos: soma/override? aqui vou fazer "se extra tiver valor > 0, substitui"
-        const pLatam = toNumber(getE(m.pontosLatam));
-        const pSmiles = toNumber(getE(m.pontosSmiles));
-        const pLivelo = toNumber(getE(m.pontosLivelo));
-        const pEsfera = toNumber(getE(m.pontosEsfera));
+        fillIfEmpty("senhaEmail", asStr(getE(m.senhaEmail)) || undefined);
+        fillIfEmpty("senhaLatamPass", asStr(getE(m.senhaLatamPass)) || undefined);
+        fillIfEmpty("senhaSmiles", asStr(getE(m.senhaSmiles)) || undefined);
+        fillIfEmpty("senhaLivelo", asStr(getE(m.senhaLivelo)) || undefined);
+        fillIfEmpty("senhaEsfera", asStr(getE(m.senhaEsfera)) || undefined);
+
+        // pontos: se extra tiver >0, substitui
+        const pLatam = parsePontos(getE(m.pontosLatam));
+        const pSmiles = parsePontos(getE(m.pontosSmiles));
+        const pLivelo = parsePontos(getE(m.pontosLivelo));
+        const pEsfera = parsePontos(getE(m.pontosEsfera));
 
         if (pLatam > 0) out.pontosLatam = pLatam;
         if (pSmiles > 0) out.pontosSmiles = pSmiles;
@@ -438,7 +499,6 @@ export default function CedentesImporter() {
         if (pEsfera > 0) out.pontosEsfera = pEsfera;
       }
 
-      // garante 0
       out.pontosLatam = out.pontosLatam || 0;
       out.pontosSmiles = out.pontosSmiles || 0;
       out.pontosLivelo = out.pontosLivelo || 0;
@@ -494,7 +554,6 @@ export default function CedentesImporter() {
         setWb(workbook);
         setSheetNames(names);
 
-        // default: primeira aba como base
         const def = names[0];
         setBaseSheet(def);
 
@@ -505,8 +564,6 @@ export default function CedentesImporter() {
         setBaseMap(guessed);
 
         setParsing(false);
-
-        // já processa
         setTimeout(() => reprocessAll(), 0);
       } catch (err: any) {
         console.error("[XLSX READ ERROR]", err);
@@ -537,6 +594,11 @@ export default function CedentesImporter() {
     setTimeout(() => reprocessAll(), 0);
   }
 
+  function findCpfCandidate(keys: string[]) {
+    const k = keys.find((x) => norm(x).replace(/\s/g, "").includes("cpf"));
+    return k;
+  }
+
   function addExtraSheet() {
     if (!wb) return;
     const available = sheetNames.filter((s) => s !== baseSheet && !extras.some((e) => e.sheetName === s));
@@ -551,7 +613,6 @@ export default function CedentesImporter() {
       id: uid(),
       sheetName: s,
       rawPreviewKeys: keys,
-      // em extras, CPF é obrigatório pro merge -> tenta garantir
       columnMap: {
         ...guessed,
         cpf: guessed.cpf ?? findCpfCandidate(keys),
@@ -602,12 +663,6 @@ export default function CedentesImporter() {
     setBaseMap((prev) => ({ ...prev, [key]: value }));
   }
 
-  function findCpfCandidate(keys: string[]) {
-    // tenta achar alguma coluna com "cpf"
-    const k = keys.find((x) => norm(x).replace(/\s/g, "").includes("cpf"));
-    return k;
-  }
-
   /* =======================
      Pendências / validações
   ======================= */
@@ -638,7 +693,6 @@ export default function CedentesImporter() {
 
       alert(`✅ Importados ${json.data.count} cedentes`);
 
-      // reset
       setRows([]);
       setFileName("");
       setSheetNames([]);
@@ -862,7 +916,9 @@ export default function CedentesImporter() {
                     )}
 
                     {!cpfOk ? (
-                      <div className="text-xs text-red-700">⚠️ Selecione a coluna <b>CPF</b> nessa aba (para cruzar).</div>
+                      <div className="text-xs text-red-700">
+                        ⚠️ Selecione a coluna <b>CPF</b> nessa aba (para cruzar).
+                      </div>
                     ) : null}
                   </div>
                 );
