@@ -16,12 +16,17 @@ type Row = {
   owner: { id: string; name: string; login: string };
 };
 
+type SortKey =
+  | "nome"
+  | "latam"
+  | "smiles"
+  | "livelo"
+  | "esfera";
+
+type SortDir = "asc" | "desc";
+
 function fmtInt(n: number) {
-  try {
-    return new Intl.NumberFormat("pt-BR").format(n || 0);
-  } catch {
-    return String(n || 0);
-  }
+  return new Intl.NumberFormat("pt-BR").format(n || 0);
 }
 
 function maskCpf(cpf: string) {
@@ -36,14 +41,17 @@ export default function CedentesVisualizarClient() {
   const [rows, setRows] = useState<Row[]>([]);
   const [loading, setLoading] = useState(true);
   const [q, setQ] = useState("");
+  const [ownerFilter, setOwnerFilter] = useState("");
+  const [sortKey, setSortKey] = useState<SortKey>("nome");
+  const [sortDir, setSortDir] = useState<SortDir>("asc");
 
   async function load() {
     setLoading(true);
     try {
       const res = await fetch("/api/cedentes/approved", { cache: "no-store" });
-      const json = await res.json().catch(() => null);
-      if (!json?.ok) throw new Error(json?.error || "Falha ao carregar cedentes.");
-      setRows(json.data as Row[]);
+      const json = await res.json();
+      if (!json?.ok) throw new Error(json?.error);
+      setRows(json.data);
     } catch (e: any) {
       alert(e?.message || "Erro ao carregar.");
       setRows([]);
@@ -56,144 +64,201 @@ export default function CedentesVisualizarClient() {
     load();
   }, []);
 
-  const filtered = useMemo(() => {
-    const s = (q || "").trim().toLowerCase();
-    if (!s) return rows;
-
-    return rows.filter((r) => {
-      return (
-        r.nomeCompleto.toLowerCase().includes(s) ||
-        (r.owner?.name || "").toLowerCase().includes(s) ||
-        (r.owner?.login || "").toLowerCase().includes(s) ||
-        (r.cpf || "").includes(s) ||
-        (r.identificador || "").toLowerCase().includes(s)
-      );
+  const owners = useMemo(() => {
+    const map = new Map<string, string>();
+    rows.forEach((r) => {
+      if (r.owner?.id) map.set(r.owner.id, r.owner.name);
     });
-  }, [rows, q]);
+    return Array.from(map.entries());
+  }, [rows]);
 
-  const totals = useMemo(() => {
-    return filtered.reduce(
-      (acc, r) => {
-        acc.latam += r.pontosLatam || 0;
-        acc.smiles += r.pontosSmiles || 0;
-        acc.livelo += r.pontosLivelo || 0;
-        acc.esfera += r.pontosEsfera || 0;
-        return acc;
-      },
-      { latam: 0, smiles: 0, livelo: 0, esfera: 0 }
-    );
-  }, [filtered]);
+  const filtered = useMemo(() => {
+    const s = q.trim().toLowerCase();
+
+    return rows
+      .filter((r) => {
+        if (ownerFilter && r.owner?.id !== ownerFilter) return false;
+
+        if (!s) return true;
+
+        return (
+          r.nomeCompleto.toLowerCase().includes(s) ||
+          r.identificador.toLowerCase().includes(s) ||
+          r.cpf.includes(s) ||
+          r.owner?.name.toLowerCase().includes(s)
+        );
+      })
+      .sort((a, b) => {
+        let va: number | string = "";
+        let vb: number | string = "";
+
+        switch (sortKey) {
+          case "nome":
+            va = a.nomeCompleto.toLowerCase();
+            vb = b.nomeCompleto.toLowerCase();
+            break;
+          case "latam":
+            va = a.pontosLatam;
+            vb = b.pontosLatam;
+            break;
+          case "smiles":
+            va = a.pontosSmiles;
+            vb = b.pontosSmiles;
+            break;
+          case "livelo":
+            va = a.pontosLivelo;
+            vb = b.pontosLivelo;
+            break;
+          case "esfera":
+            va = a.pontosEsfera;
+            vb = b.pontosEsfera;
+            break;
+        }
+
+        if (va < vb) return sortDir === "asc" ? -1 : 1;
+        if (va > vb) return sortDir === "asc" ? 1 : -1;
+        return 0;
+      });
+  }, [rows, q, ownerFilter, sortKey, sortDir]);
+
+  function toggleSort(key: SortKey) {
+    if (key === sortKey) {
+      setSortDir(sortDir === "asc" ? "desc" : "asc");
+    } else {
+      setSortKey(key);
+      setSortDir(key === "nome" ? "asc" : "desc");
+    }
+  }
+
+  const arrow = (key: SortKey) =>
+    sortKey === key ? (sortDir === "asc" ? " ↑" : " ↓") : "";
 
   return (
     <div className="max-w-6xl">
-      <div className="mb-4 flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
+      <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
         <div>
           <h1 className="text-2xl font-bold">Cedentes • Todos</h1>
           <p className="text-sm text-slate-600">
-            Lista de cedentes <b>aprovados</b> com pontos e responsável.
+            Cedentes aprovados com pontos e responsável
           </p>
         </div>
 
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <input
-            className="w-full md:w-80 rounded-xl border px-3 py-2 text-sm"
-            placeholder="Buscar por nome, CPF, responsável..."
+            className="rounded-xl border px-3 py-2 text-sm"
+            placeholder="Buscar por nome, CPF..."
             value={q}
             onChange={(e) => setQ(e.target.value)}
           />
+
+          <select
+            className="rounded-xl border px-3 py-2 text-sm"
+            value={ownerFilter}
+            onChange={(e) => setOwnerFilter(e.target.value)}
+          >
+            <option value="">Todos responsáveis</option>
+            {owners.map(([id, name]) => (
+              <option key={id} value={id}>
+                {name}
+              </option>
+            ))}
+          </select>
+
           <button
             onClick={load}
             className="rounded-xl border px-4 py-2 text-sm hover:bg-slate-50"
-            type="button"
           >
             Atualizar
           </button>
         </div>
       </div>
 
-      <div className="mb-4 grid grid-cols-1 gap-3 md:grid-cols-4">
-        <Stat title="Latam" value={fmtInt(totals.latam)} />
-        <Stat title="Smiles" value={fmtInt(totals.smiles)} />
-        <Stat title="Livelo" value={fmtInt(totals.livelo)} />
-        <Stat title="Esfera" value={fmtInt(totals.esfera)} />
-      </div>
-
       <div className="rounded-2xl border overflow-hidden">
-        <div className="flex items-center justify-between border-b px-4 py-3">
-          <div className="text-sm font-medium">
-            {loading ? "Carregando..." : `${filtered.length} cedente(s) aprovado(s)`}
-          </div>
-          <div className="text-xs text-slate-500">Somente APPROVED</div>
-        </div>
+        <table className="min-w-[980px] w-full text-sm">
+          <thead className="bg-slate-50">
+            <tr>
+              <Th onClick={() => toggleSort("nome")}>
+                Nome{arrow("nome")}
+              </Th>
+              <Th>Responsável</Th>
+              <ThRight onClick={() => toggleSort("latam")}>
+                LATAM{arrow("latam")}
+              </ThRight>
+              <ThRight onClick={() => toggleSort("smiles")}>
+                SMILES{arrow("smiles")}
+              </ThRight>
+              <ThRight onClick={() => toggleSort("livelo")}>
+                LIVELO{arrow("livelo")}
+              </ThRight>
+              <ThRight onClick={() => toggleSort("esfera")}>
+                ESFERA{arrow("esfera")}
+              </ThRight>
+            </tr>
+          </thead>
 
-        {loading ? (
-          <div className="p-6 text-sm text-slate-600">Carregando lista…</div>
-        ) : filtered.length === 0 ? (
-          <div className="p-6 text-sm text-slate-600">Nenhum cedente aprovado encontrado.</div>
-        ) : (
-          <div className="w-full overflow-auto">
-            <table className="min-w-[980px] w-full text-sm">
-              <thead className="bg-slate-50">
-                <tr className="text-left">
-                  <Th>Nome</Th>
-                  <Th>Responsável</Th>
-                  <Th className="text-right">Latam</Th>
-                  <Th className="text-right">Smiles</Th>
-                  <Th className="text-right">Livelo</Th>
-                  <Th className="text-right">Esfera</Th>
-                </tr>
-              </thead>
+          <tbody>
+            {filtered.map((r) => (
+              <tr
+                key={r.id}
+                className="border-t hover:bg-slate-50 cursor-pointer"
+                onClick={() => router.push(`/dashboard/cedentes/${r.id}`)}
+              >
+                <td className="px-4 py-3">
+                  <div className="font-medium">{r.nomeCompleto}</div>
+                  <div className="text-xs text-slate-500">
+                    {r.identificador} • CPF: {maskCpf(r.cpf)}
+                  </div>
+                </td>
 
-              <tbody>
-                {filtered.map((r) => (
-                  <tr
-                    key={r.id}
-                    className="border-t hover:bg-slate-50/60 cursor-pointer focus:outline-none focus:ring-2 focus:ring-black/20"
-                    role="button"
-                    tabIndex={0}
-                    onMouseDown={(e) => {
-                      // evita navegação quando o cara só selecionou texto
-                      if (window.getSelection()?.toString()) e.preventDefault();
-                    }}
-                    onClick={() => router.push(`/dashboard/cedentes/${r.id}`)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" || e.key === " ") {
-                        e.preventDefault();
-                        router.push(`/dashboard/cedentes/${r.id}`);
-                      }
-                    }}
-                    title="Abrir detalhes do cedente"
-                  >
-                    <td className="px-4 py-3">
-                      <div className="font-medium">{r.nomeCompleto}</div>
-                      <div className="text-xs text-slate-500">
-                        {r.identificador} • CPF: {maskCpf(r.cpf)}
-                      </div>
-                    </td>
+                <td className="px-4 py-3">
+                  <div className="font-medium">{r.owner?.name}</div>
+                  <div className="text-xs text-slate-500">
+                    @{r.owner?.login}
+                  </div>
+                </td>
 
-                    <td className="px-4 py-3">
-                      <div className="font-medium">{r.owner?.name || "-"}</div>
-                      <div className="text-xs text-slate-500">@{r.owner?.login || "-"}</div>
-                    </td>
-
-                    <TdRight>{fmtInt(r.pontosLatam)}</TdRight>
-                    <TdRight>{fmtInt(r.pontosSmiles)}</TdRight>
-                    <TdRight>{fmtInt(r.pontosLivelo)}</TdRight>
-                    <TdRight>{fmtInt(r.pontosEsfera)}</TdRight>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
+                <TdRight>{fmtInt(r.pontosLatam)}</TdRight>
+                <TdRight>{fmtInt(r.pontosSmiles)}</TdRight>
+                <TdRight>{fmtInt(r.pontosLivelo)}</TdRight>
+                <TdRight>{fmtInt(r.pontosEsfera)}</TdRight>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
     </div>
   );
 }
 
-function Th({ children, className = "" }: { children: React.ReactNode; className?: string }) {
+function Th({
+  children,
+  onClick,
+}: {
+  children: React.ReactNode;
+  onClick?: () => void;
+}) {
   return (
-    <th className={`px-4 py-3 text-xs font-semibold uppercase tracking-wide text-slate-600 ${className}`}>
+    <th
+      onClick={onClick}
+      className="px-4 py-3 text-xs font-semibold uppercase tracking-wide text-slate-600 cursor-pointer select-none"
+    >
+      {children}
+    </th>
+  );
+}
+
+function ThRight({
+  children,
+  onClick,
+}: {
+  children: React.ReactNode;
+  onClick?: () => void;
+}) {
+  return (
+    <th
+      onClick={onClick}
+      className="px-4 py-3 text-xs font-semibold uppercase tracking-wide text-slate-600 text-right cursor-pointer select-none"
+    >
       {children}
     </th>
   );
@@ -201,13 +266,4 @@ function Th({ children, className = "" }: { children: React.ReactNode; className
 
 function TdRight({ children }: { children: React.ReactNode }) {
   return <td className="px-4 py-3 text-right tabular-nums">{children}</td>;
-}
-
-function Stat({ title, value }: { title: string; value: string }) {
-  return (
-    <div className="rounded-2xl border p-4">
-      <div className="text-xs uppercase tracking-wide text-slate-500">{title}</div>
-      <div className="mt-1 text-xl font-bold tabular-nums">{value}</div>
-    </div>
-  );
 }
