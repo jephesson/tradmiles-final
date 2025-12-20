@@ -69,7 +69,7 @@ export default function Sidebar() {
   const [openLucros, setOpenLucros] = useState(isLucrosRoute);
   const [openAnalise, setOpenAnalise] = useState(isAnaliseRoute);
 
-  // ✅ NOVO: sub-accordion "Visualizar cedentes" dentro do Cadastro > Cedentes
+  // ✅ sub-accordion "Visualizar cedentes" dentro do Cadastro > Cedentes
   const isCadastroVisualizarCedentesRoute = pathname.startsWith(
     "/dashboard/cedentes/visualizar"
   );
@@ -187,11 +187,13 @@ export default function Sidebar() {
             </NavLink>
             <NavLink href="/dashboard/cedentes/novo">Cadastrar cedente</NavLink>
 
-            {/* ✅ AQUI: mantém o “formato do primeiro” (accordion igual aos outros) */}
+            {/* ✅ Agora "Visualizar cedentes" com MESMA aparência dos NavLink */}
             <SubAccordion
               title="Visualizar cedentes"
               open={openCadastroVisualizarCedentes}
               onToggle={() => setOpenCadastroVisualizarCedentes((v) => !v)}
+              variant="nav"
+              active={isCadastroVisualizarCedentesRoute}
             >
               <NavLink
                 href="/dashboard/cedentes/visualizar"
@@ -476,22 +478,36 @@ function SubAccordion({
   open,
   onToggle,
   children,
+  variant = "default",
+  active,
 }: {
   title: string;
   open: boolean;
   onToggle: () => void;
   children: React.ReactNode;
+  variant?: "default" | "nav";
+  active?: boolean;
 }) {
+  const isNav = variant === "nav";
+
   return (
     <>
       <button
         onClick={onToggle}
-        className="w-full flex justify-between items-center px-3 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded"
+        className={cn(
+          isNav
+            ? cn(
+                "w-full flex justify-between items-center rounded-lg px-3 py-2 text-sm",
+                active ? "bg-black text-white" : "hover:bg-slate-100"
+              )
+            : "w-full flex justify-between items-center px-3 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded"
+        )}
       >
         <span>{title}</span>
-        <span>{open ? "−" : "+"}</span>
+        <span>{open ? (isNav ? "▾" : "−") : isNav ? "▸" : "+"}</span>
       </button>
-      {open && <div className="pl-4 space-y-1">{children}</div>}
+
+      {open && <div className={isNav ? "pl-4 space-y-1" : "pl-4 space-y-1"}>{children}</div>}
     </>
   );
 }
