@@ -20,18 +20,22 @@ export async function POST(req: Request) {
 
       await prisma.cedente.create({
         data: {
-          nomeCompleto: r.nomeCompleto,
-          cpf: r.cpf || null,
-          telefone: r.telefone || null,
-          dataNascimento: r.dataNascimento || null,
-          email: r.email || null,
+          nomeCompleto: String(r.nomeCompleto).trim(),
+
+          cpf: r.cpf ? String(r.cpf) : null,
+          telefone: r.telefone ? String(r.telefone) : null,
+          dataNascimento: r.dataNascimento
+            ? new Date(r.dataNascimento)
+            : null,
+
+          // ❌ REMOVIDO: email (não existe no model Cedente)
 
           senhaLatam: r.senhaLatam || null,
           senhaSmiles: r.senhaSmiles || null,
           senhaLivelo: r.senhaLivelo || null,
           senhaEsfera: r.senhaEsfera || null,
 
-          status: "APPROVED", // 👉 aprovados direto
+          status: "APPROVED", // aprovados direto
         },
       });
 
@@ -42,7 +46,7 @@ export async function POST(req: Request) {
       ok: true,
       data: { count },
     });
-  } catch (e: any) {
+  } catch (e) {
     console.error("[IMPORT CEDENTES]", e);
     return NextResponse.json(
       { ok: false, error: "Erro ao importar cedentes" },
