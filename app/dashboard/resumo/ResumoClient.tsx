@@ -28,7 +28,6 @@ function toCentsFromInput(s: string) {
 }
 
 function centsToRateInput(cents: number) {
-  // 2000 -> "20,00"
   const v = (Number(cents || 0) / 100).toFixed(2);
   return v.replace(".", ",");
 }
@@ -36,9 +35,17 @@ function centsToRateInput(cents: number) {
 export default function CedentesResumoClient() {
   const [loading, setLoading] = useState(false);
 
-  const [points, setPoints] = useState<Points>({ latam: 0, smiles: 0, livelo: 0, esfera: 0 });
+  const [points, setPoints] = useState<Points>({
+    latam: 0,
+    smiles: 0,
+    livelo: 0,
+    esfera: 0,
+  });
   const [snapshots, setSnapshots] = useState<Snapshot[]>([]);
   const [cashInput, setCashInput] = useState<string>("");
+
+  // ✅ dívidas em aberto (saldo total) vindo do backend
+  const [debtsOpenCents, setDebtsOpenCents] = useState<number>(0);
 
   // valores do milheiro (R$/1000)
   const [rateLatam, setRateLatam] = useState("20,00");
@@ -70,6 +77,9 @@ export default function CedentesResumoClient() {
         setRateLivelo(centsToRateInput(rates.liveloRateCents));
         setRateEsfera(centsToRateInput(rates.esferaRateCents));
       }
+
+      // ✅ dívidas em aberto
+      setDebtsOpenCents(Number(j.data.debtsOpenCents || 0));
 
       setDidLoad(true);
     } catch (e: any) {
@@ -125,7 +135,11 @@ export default function CedentesResumoClient() {
     const vEsferaCents = Math.round(milEsfera * rEsfera * 100);
 
     const cashCents = toCentsFromInput(cashInput);
-    const totalCents = vLatamCents + vSmilesCents + vLiveloCents + vEsferaCents + cashCents;
+
+    const totalGrossCents =
+      vLatamCents + vSmilesCents + vLiveloCents + vEsferaCents + cashCents;
+
+    const totalNetCents = totalGrossCents - (debtsOpenCents || 0);
 
     return {
       milLatam,
@@ -137,9 +151,18 @@ export default function CedentesResumoClient() {
       vLiveloCents,
       vEsferaCents,
       cashCents,
-      totalCents,
+      totalGrossCents,
+      totalNetCents,
     };
-  }, [points, rateLatam, rateSmiles, rateLivelo, rateEsfera, cashInput]);
+  }, [
+    points,
+    rateLatam,
+    rateSmiles,
+    rateLivelo,
+    rateEsfera,
+    cashInput,
+    debtsOpenCents,
+  ]);
 
   async function salvarCaixaHoje() {
     try {
@@ -163,7 +186,7 @@ export default function CedentesResumoClient() {
         <div>
           <h1 className="text-2xl font-bold">Resumo</h1>
           <p className="text-sm text-slate-600">
-            Patrimônio estimado: milhas (por milheiro) + caixa (Inter).
+            Patrimônio estimado: milhas (por milheiro) + caixa (Inter) − dívidas em aberto.
           </p>
         </div>
 
@@ -182,10 +205,18 @@ export default function CedentesResumoClient() {
           <div className="font-semibold">Milhas atuais</div>
 
           <div className="text-sm grid grid-cols-2 gap-2">
-            <div>LATAM: <b>{fmtInt(points.latam)}</b></div>
-            <div>Smiles: <b>{fmtInt(points.smiles)}</b></div>
-            <div>Livelo: <b>{fmtInt(points.livelo)}</b></div>
-            <div>Esfera: <b>{fmtInt(points.esfera)}</b></div>
+            <div>
+              LATAM: <b>{fmtInt(points.latam)}</b>
+            </div>
+            <div>
+              Smiles: <b>{fmtInt(points.smiles)}</b>
+            </div>
+            <div>
+              Livelo: <b>{fmtInt(points.livelo)}</b>
+            </div>
+            <div>
+              Esfera: <b>{fmtInt(points.esfera)}</b>
+            </div>
           </div>
 
           <div className="text-xs text-slate-600">
@@ -242,19 +273,35 @@ export default function CedentesResumoClient() {
         <div className="grid gap-3 md:grid-cols-2">
           <div className="flex items-center gap-3">
             <div className="w-40 text-xs text-slate-600">LATAM</div>
-            <input className="flex-1 rounded-xl border px-3 py-2 text-sm" value={rateLatam} onChange={(e) => setRateLatam(e.target.value)} />
+            <input
+              className="flex-1 rounded-xl border px-3 py-2 text-sm"
+              value={rateLatam}
+              onChange={(e) => setRateLatam(e.target.value)}
+            />
           </div>
           <div className="flex items-center gap-3">
             <div className="w-40 text-xs text-slate-600">Smiles</div>
-            <input className="flex-1 rounded-xl border px-3 py-2 text-sm" value={rateSmiles} onChange={(e) => setRateSmiles(e.target.value)} />
+            <input
+              className="flex-1 rounded-xl border px-3 py-2 text-sm"
+              value={rateSmiles}
+              onChange={(e) => setRateSmiles(e.target.value)}
+            />
           </div>
           <div className="flex items-center gap-3">
             <div className="w-40 text-xs text-slate-600">Livelo</div>
-            <input className="flex-1 rounded-xl border px-3 py-2 text-sm" value={rateLivelo} onChange={(e) => setRateLivelo(e.target.value)} />
+            <input
+              className="flex-1 rounded-xl border px-3 py-2 text-sm"
+              value={rateLivelo}
+              onChange={(e) => setRateLivelo(e.target.value)}
+            />
           </div>
           <div className="flex items-center gap-3">
             <div className="w-40 text-xs text-slate-600">Esfera</div>
-            <input className="flex-1 rounded-xl border px-3 py-2 text-sm" value={rateEsfera} onChange={(e) => setRateEsfera(e.target.value)} />
+            <input
+              className="flex-1 rounded-xl border px-3 py-2 text-sm"
+              value={rateEsfera}
+              onChange={(e) => setRateEsfera(e.target.value)}
+            />
           </div>
         </div>
 
@@ -262,32 +309,52 @@ export default function CedentesResumoClient() {
           <div className="rounded-xl border p-3">
             <div className="text-xs text-slate-600">LATAM</div>
             <div className="text-sm">
-              Milheiros: <b>{fmtInt(calc.milLatam)}</b> • Valor: <b>{fmtMoneyBR(calc.vLatamCents)}</b>
+              Milheiros: <b>{fmtInt(calc.milLatam)}</b> • Valor:{" "}
+              <b>{fmtMoneyBR(calc.vLatamCents)}</b>
             </div>
           </div>
           <div className="rounded-xl border p-3">
             <div className="text-xs text-slate-600">Smiles</div>
             <div className="text-sm">
-              Milheiros: <b>{fmtInt(calc.milSmiles)}</b> • Valor: <b>{fmtMoneyBR(calc.vSmilesCents)}</b>
+              Milheiros: <b>{fmtInt(calc.milSmiles)}</b> • Valor:{" "}
+              <b>{fmtMoneyBR(calc.vSmilesCents)}</b>
             </div>
           </div>
           <div className="rounded-xl border p-3">
             <div className="text-xs text-slate-600">Livelo</div>
             <div className="text-sm">
-              Milheiros: <b>{fmtInt(calc.milLivelo)}</b> • Valor: <b>{fmtMoneyBR(calc.vLiveloCents)}</b>
+              Milheiros: <b>{fmtInt(calc.milLivelo)}</b> • Valor:{" "}
+              <b>{fmtMoneyBR(calc.vLiveloCents)}</b>
             </div>
           </div>
           <div className="rounded-xl border p-3">
             <div className="text-xs text-slate-600">Esfera</div>
             <div className="text-sm">
-              Milheiros: <b>{fmtInt(calc.milEsfera)}</b> • Valor: <b>{fmtMoneyBR(calc.vEsferaCents)}</b>
+              Milheiros: <b>{fmtInt(calc.milEsfera)}</b> • Valor:{" "}
+              <b>{fmtMoneyBR(calc.vEsferaCents)}</b>
             </div>
           </div>
         </div>
 
-        <div className="rounded-2xl border bg-slate-50 p-4">
-          <div className="text-xs text-slate-600">TOTAL (milhas + caixa)</div>
-          <div className="text-2xl font-bold">{fmtMoneyBR(calc.totalCents)}</div>
+        {/* Totais */}
+        <div className="grid gap-3 md:grid-cols-3">
+          <div className="rounded-2xl border bg-slate-50 p-4">
+            <div className="text-xs text-slate-600">TOTAL BRUTO (milhas + caixa)</div>
+            <div className="text-xl font-bold">{fmtMoneyBR(calc.totalGrossCents)}</div>
+          </div>
+
+          <div className="rounded-2xl border bg-slate-50 p-4">
+            <div className="text-xs text-slate-600">DÍVIDAS EM ABERTO</div>
+            <div className="text-xl font-bold">-{fmtMoneyBR(debtsOpenCents)}</div>
+            <div className="text-xs text-slate-500 mt-1">
+              (saldo total das dívidas OPEN)
+            </div>
+          </div>
+
+          <div className="rounded-2xl border bg-black p-4 text-white">
+            <div className="text-xs opacity-80">TOTAL LÍQUIDO</div>
+            <div className="text-2xl font-bold">{fmtMoneyBR(calc.totalNetCents)}</div>
+          </div>
         </div>
       </div>
 

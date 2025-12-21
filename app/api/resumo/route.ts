@@ -42,12 +42,30 @@ export async function GET() {
       },
     });
 
+    // histórico do caixa
     const snapshots = await prisma.cashSnapshot.findMany({
       orderBy: { date: "desc" },
       take: 60,
     });
 
     const latest = snapshots[0] ?? null;
+
+    // ✅ saldo total das dívidas em aberto (OPEN): total - pagamentos
+    const openDebts = await prisma.debt.findMany({
+      where: { status: "OPEN" },
+      select: {
+        totalCents: true,
+        payments: {
+          select: { amountCents: true },
+        },
+      },
+    });
+
+    const debtsOpenCents = openDebts.reduce((sum, d) => {
+      const paid = d.payments.reduce((a, p) => a + safeInt(p.amountCents), 0);
+      const bal = Math.max(0, safeInt(d.totalCents) - paid);
+      return sum + bal;
+    }, 0);
 
     return NextResponse.json(
       {
@@ -61,6 +79,7 @@ export async function GET() {
             date: s.date.toISOString(),
             cashCents: s.cashCents,
           })),
+          debtsOpenCents, // ✅ novo
         },
       },
       { status: 200 }
