@@ -35,16 +35,18 @@ export default function Sidebar() {
   const isGestaoPontosRoute =
     isPontosVisualizarRoute || isComprasRoute || isVendasRoute;
 
+  // ✅ Resumo saiu daqui
   const isLucrosRoute =
     pathname.startsWith("/dashboard/lucros") ||
-    pathname.startsWith("/dashboard/resumo") ||
     pathname.startsWith("/dashboard/comissoes") ||
     pathname.startsWith("/dashboard/funcionarios/rateio");
 
+  // ✅ Resumo entrou aqui
   const isAnaliseRoute =
     pathname.startsWith("/dashboard/analise") ||
     pathname.startsWith("/dashboard/dividas") ||
-    pathname.startsWith("/dashboard/cpf");
+    pathname.startsWith("/dashboard/cpf") ||
+    pathname.startsWith("/dashboard/resumo");
 
   /* =========================
    * ACCORDIONS
@@ -93,6 +95,10 @@ export default function Sidebar() {
   useEffect(() => {
     setOpenCadastroVisualizarCedentes(isCadastroVisualizarCedentesRoute);
   }, [isCadastroVisualizarCedentesRoute]);
+
+  // ✅ mantém aberto quando rota muda
+  useEffect(() => setOpenLucros(isLucrosRoute), [isLucrosRoute]);
+  useEffect(() => setOpenAnalise(isAnaliseRoute), [isAnaliseRoute]);
 
   /* =========================
    * FILTRO (VISUALIZAR PONTOS)
@@ -383,7 +389,6 @@ export default function Sidebar() {
           onToggle={() => setOpenLucros((v) => !v)}
           active={isLucrosRoute}
         >
-          <NavLink href="/dashboard/resumo">Resumo</NavLink>
           <NavLink href="/dashboard/lucros">Lucros</NavLink>
           <NavLink href="/dashboard/comissoes">Comissões</NavLink>
           <NavLink href="/dashboard/funcionarios/rateio?view=1">
@@ -404,6 +409,8 @@ export default function Sidebar() {
           onToggle={() => setOpenAnalise((v) => !v)}
           active={isAnaliseRoute}
         >
+          {/* ✅ Resumo agora fica aqui */}
+          <NavLink href="/dashboard/resumo">Resumo</NavLink>
           <NavLink href="/dashboard/analise">Análise geral</NavLink>
           <NavLink href="/dashboard/cpf">Contador CPF</NavLink>
           <NavLink href="/dashboard/cpf/importar">Importar CPF</NavLink>
@@ -507,7 +514,11 @@ function SubAccordion({
         <span>{open ? (isNav ? "▾" : "−") : isNav ? "▸" : "+"}</span>
       </button>
 
-      {open && <div className={isNav ? "pl-4 space-y-1" : "pl-4 space-y-1"}>{children}</div>}
+      {open && (
+        <div className={isNav ? "pl-4 space-y-1" : "pl-4 space-y-1"}>
+          {children}
+        </div>
+      )}
     </>
   );
 }
