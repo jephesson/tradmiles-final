@@ -53,7 +53,8 @@ export default function Sidebar() {
    * ========================= */
   const [openCadastro, setOpenCadastro] = useState(isCadastroRoute);
   const [openCedentes, setOpenCedentes] = useState(
-    pathname.startsWith("/dashboard/cedentes")
+    pathname.startsWith("/dashboard/cedentes") ||
+      pathname.startsWith("/dashboard/bloqueios")
   );
   const [openFuncionarios, setOpenFuncionarios] = useState(
     pathname.startsWith("/dashboard/funcionarios")
@@ -237,6 +238,9 @@ export default function Sidebar() {
             <NavLink href="/dashboard/cedentes/pendentes">
               Cedentes pendentes
             </NavLink>
+
+            {/* ✅ NOVO item: Bloqueios (dentro de Cadastro > Cedentes) */}
+            <NavLink href="/dashboard/bloqueios">Contas bloqueadas</NavLink>
           </SubAccordion>
 
           <SubAccordion
