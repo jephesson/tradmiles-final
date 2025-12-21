@@ -5,6 +5,15 @@ import { prisma } from "@/lib/prisma";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+function toCentsFromInput(s: any) {
+  // aceita "1.234,56" | "1234,56" | "1234.56"
+  const cleaned = String(s ?? "").trim();
+  if (!cleaned) return 0;
+  const normalized = cleaned.replace(/\./g, "").replace(",", ".");
+  const n = Number(normalized);
+  return Number.isFinite(n) ? Math.round(n * 100) : 0;
+}
+
 function safeInt(v: any) {
   const n = Number(v);
   return Number.isFinite(n) ? Math.trunc(n) : 0;
@@ -16,28 +25,25 @@ export async function GET() {
       orderBy: { createdAt: "desc" },
       include: {
         payments: { orderBy: { paidAt: "desc" } },
-        createdBy: { select: { id: true, name: true, login: true } },
       },
     });
 
     const data = debts.map((d) => {
-      const paid = d.payments.reduce((a, p) => a + (p.amountCents || 0), 0);
-      const remaining = Math.max(0, (d.totalCents || 0) - paid);
+      const paidCents = d.payments.reduce((a, p) => a + safeInt(p.amountCents), 0);
+      const balanceCents = Math.max(0, safeInt(d.totalCents) - paidCents);
 
       return {
         id: d.id,
         title: d.title,
         description: d.description,
-        totalCents: d.totalCents,
+        totalCents: safeInt(d.totalCents),
+        paidCents,
+        balanceCents,
         status: d.status,
         createdAt: d.createdAt.toISOString(),
-        updatedAt: d.updatedAt.toISOString(),
-        createdBy: d.createdBy ? { id: d.createdBy.id, name: d.createdBy.name, login: d.createdBy.login } : null,
-        paidCents: paid,
-        remainingCents: remaining,
         payments: d.payments.map((p) => ({
           id: p.id,
-          amountCents: p.amountCents,
+          amountCents: safeInt(p.amountCents),
           note: p.note,
           paidAt: p.paidAt.toISOString(),
         })),
@@ -47,38 +53,46 @@ export async function GET() {
     return NextResponse.json({ ok: true, data }, { status: 200 });
   } catch (e: any) {
     console.error(e);
-    return NextResponse.json({ ok: false, error: e?.message || "Erro ao listar dívidas." }, { status: 500 });
+    return NextResponse.json(
+      { ok: false, error: e?.message || "Erro ao carregar dívidas." },
+      { status: 500 }
+    );
   }
 }
 
-export async function POST(req: NextRequest) {
+export async function POST(request: NextRequest) {
   try {
-    const body = await req.json().catch(() => ({} as any));
+    const body = await request.json().catch(() => ({} as any));
 
-    const title = String(body?.title || "").trim();
-    const description = String(body?.description || "").trim() || null;
-    const totalCents = safeInt(body?.totalCents);
+    const title = String(body?.title ?? "").trim();
+    const description = String(body?.description ?? "").trim() || null;
 
-    if (!title) return NextResponse.json({ ok: false, error: "Informe title." }, { status: 400 });
-    if (!totalCents || totalCents <= 0)
-      return NextResponse.json({ ok: false, error: "Informe totalCents > 0." }, { status: 400 });
+    // ✅ teu frontend manda "total" (string). Aqui converto para centavos.
+    const totalCents = toCentsFromInput(body?.total);
 
-    // createdById opcional (se você quiser preencher depois com session)
-    const createdById = body?.createdById ? String(body.createdById) : null;
+    if (!title) {
+      return NextResponse.json({ ok: false, error: "Informe a descrição/título." }, { status: 400 });
+    }
+    if (totalCents <= 0) {
+      return NextResponse.json({ ok: false, error: "Valor inválido." }, { status: 400 });
+    }
 
-    const debt = await prisma.debt.create({
+    const created = await prisma.debt.create({
       data: {
         title,
         description,
         totalCents,
         status: "OPEN",
-        createdById: createdById || undefined,
       },
+      select: { id: true },
     });
 
-    return NextResponse.json({ ok: true, data: { id: debt.id } }, { status: 201 });
+    return NextResponse.json({ ok: true, data: created }, { status: 201 });
   } catch (e: any) {
     console.error(e);
-    return NextResponse.json({ ok: false, error: e?.message || "Erro ao criar dívida." }, { status: 500 });
+    return NextResponse.json(
+      { ok: false, error: e?.message || "Erro ao criar dívida." },
+      { status: 500 }
+    );
   }
 }
