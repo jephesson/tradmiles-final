@@ -43,21 +43,27 @@ function onlyDigits(v: unknown) {
 }
 
 /**
+ * ✅ Normalização segura de CPF
+ * - remove pontos/espaços
+ * - completa com zero à esquerda se vier com 10 dígitos
+ */
+function normalizeCpfSafe(v: unknown): string {
+  let cpf = onlyDigits(v);
+
+  if (cpf.length === 10) {
+    cpf = "0" + cpf;
+  }
+
+  return cpf;
+}
+
+/**
  * ✅ Parser robusto de pontos (BACKEND)
- * Aceita:
- *  - "9380"
- *  - "9.380"
- *  - "9,380"
- *  - "9.380,00"
- *  - "9,380.00"
- *  - number 9.38  -> 9380  (caso XLSX)
  */
 function parsePontosSafe(v: unknown): number {
-  // number
   if (typeof v === "number" && Number.isFinite(v)) {
     if (Number.isInteger(v)) return Math.max(0, v);
 
-    // caso clássico XLSX: 9.380 -> 9.38
     if (v > 0 && v < 1000) {
       const t = v * 1000;
       if (Math.abs(t - Math.round(t)) < 1e-6) {
@@ -73,12 +79,10 @@ function parsePontosSafe(v: unknown): number {
 
   let s = s0.replace(/\s/g, "").replace(/[R$\u00A0]/g, "");
 
-  // BR milhar: 1.234.567
   if (/^\d{1,3}(\.\d{3})+$/.test(s)) {
     return Math.max(0, parseInt(s.replace(/\./g, ""), 10));
   }
 
-  // US milhar: 1,234,567
   if (/^\d{1,3}(,\d{3})+$/.test(s)) {
     return Math.max(0, parseInt(s.replace(/,/g, ""), 10));
   }
@@ -86,15 +90,12 @@ function parsePontosSafe(v: unknown): number {
   const lastDot = s.lastIndexOf(".");
   const lastComma = s.lastIndexOf(",");
 
-  // tem os dois → decide decimal pelo último
   if (lastDot >= 0 && lastComma >= 0) {
     const commaIsDecimal = lastComma > lastDot;
 
     if (commaIsDecimal) {
-      // BR: 1.234,56
       s = s.replace(/\./g, "").replace(/,/g, ".");
     } else {
-      // US: 1,234.56
       s = s.replace(/,/g, "");
     }
 
@@ -102,7 +103,6 @@ function parsePontosSafe(v: unknown): number {
     return Number.isFinite(n) ? Math.max(0, Math.floor(n)) : 0;
   }
 
-  // só ponto
   if (lastDot >= 0) {
     if (/^\d{1,3}\.\d{3}$/.test(s)) {
       return Math.max(0, parseInt(s.replace(".", ""), 10));
@@ -116,7 +116,6 @@ function parsePontosSafe(v: unknown): number {
     return Number.isFinite(n) ? Math.max(0, Math.floor(n)) : 0;
   }
 
-  // só vírgula
   if (lastComma >= 0) {
     if (/^\d{1,3},\d{3}$/.test(s)) {
       return Math.max(0, parseInt(s.replace(",", ""), 10));
@@ -125,7 +124,6 @@ function parsePontosSafe(v: unknown): number {
     return Number.isFinite(n) ? Math.max(0, Math.floor(n)) : 0;
   }
 
-  // fallback: só dígitos
   const digits = s.replace(/\D+/g, "");
   return digits ? Math.max(0, parseInt(digits, 10)) : 0;
 }
@@ -181,7 +179,10 @@ export async function POST(req: Request) {
     const rows: ImportRow[] = Array.isArray(body?.rows) ? body.rows : [];
 
     if (!rows.length) {
-      return NextResponse.json({ ok: false, error: "Nenhum dado para importar" }, { status: 400 });
+      return NextResponse.json(
+        { ok: false, error: "Nenhum dado para importar" },
+        { status: 400 }
+      );
     }
 
     let count = 0;
@@ -191,15 +192,15 @@ export async function POST(req: Request) {
       const r = rows[i];
 
       const nomeCompleto = String(r?.nomeCompleto ?? "").trim();
-      const cpf = onlyDigits(r?.cpf);
+      const cpf = normalizeCpfSafe(r?.cpf);
 
       if (!nomeCompleto) {
         errors.push({ i, reason: "nomeCompleto vazio" });
         continue;
       }
+
       if (cpf.length !== 11) {
-        errors.push({ i, reason: "cpf inválido" });
-        continue;
+        errors.push({ i, reason: "cpf inválido (ajustado para importação)" });
       }
 
       const ownerId = String(r?.ownerId ?? "").trim();
@@ -247,25 +248,47 @@ export async function POST(req: Request) {
 
           update: {
             nomeCompleto,
-            dataNascimento: r?.dataNascimento ? parseDateSafe(r.dataNascimento) : undefined,
+            dataNascimento: r?.dataNascimento
+              ? parseDateSafe(r.dataNascimento)
+              : undefined,
 
             telefone: r?.telefone ? String(r.telefone).trim() : undefined,
-            emailCriado: r?.emailCriado ? String(r.emailCriado).trim() : undefined,
+            emailCriado: r?.emailCriado
+              ? String(r.emailCriado).trim()
+              : undefined,
 
             banco: r?.banco ? String(r.banco).trim() : undefined,
-            pixTipo: r?.pixTipo ? normalizePixTipo(r.pixTipo) : undefined,
-            chavePix: r?.chavePix ? String(r.chavePix).trim() : undefined,
+            pixTipo: r?.pixTipo
+              ? normalizePixTipo(r.pixTipo)
+              : undefined,
+            chavePix: r?.chavePix
+              ? String(r.chavePix).trim()
+              : undefined,
 
             senhaEmailEnc: r?.senhaEmail ? asEnc(r.senhaEmail) : undefined,
             senhaSmilesEnc: r?.senhaSmiles ? asEnc(r.senhaSmiles) : undefined,
-            senhaLatamPassEnc: r?.senhaLatamPass ? asEnc(r.senhaLatamPass) : undefined,
+            senhaLatamPassEnc: r?.senhaLatamPass
+              ? asEnc(r.senhaLatamPass)
+              : undefined,
             senhaLiveloEnc: r?.senhaLivelo ? asEnc(r.senhaLivelo) : undefined,
             senhaEsferaEnc: r?.senhaEsfera ? asEnc(r.senhaEsfera) : undefined,
 
-            pontosLatam: r?.pontosLatam != null ? parsePontosSafe(r.pontosLatam) : undefined,
-            pontosSmiles: r?.pontosSmiles != null ? parsePontosSafe(r.pontosSmiles) : undefined,
-            pontosLivelo: r?.pontosLivelo != null ? parsePontosSafe(r.pontosLivelo) : undefined,
-            pontosEsfera: r?.pontosEsfera != null ? parsePontosSafe(r.pontosEsfera) : undefined,
+            pontosLatam:
+              r?.pontosLatam != null
+                ? parsePontosSafe(r.pontosLatam)
+                : undefined,
+            pontosSmiles:
+              r?.pontosSmiles != null
+                ? parsePontosSafe(r.pontosSmiles)
+                : undefined,
+            pontosLivelo:
+              r?.pontosLivelo != null
+                ? parsePontosSafe(r.pontosLivelo)
+                : undefined,
+            pontosEsfera:
+              r?.pontosEsfera != null
+                ? parsePontosSafe(r.pontosEsfera)
+                : undefined,
 
             ownerId,
           },
@@ -287,6 +310,9 @@ export async function POST(req: Request) {
     });
   } catch (e) {
     console.error("[IMPORT CEDENTES]", e);
-    return NextResponse.json({ ok: false, error: "Erro ao importar cedentes" }, { status: 500 });
+    return NextResponse.json(
+      { ok: false, error: "Erro ao importar cedentes" },
+      { status: 500 }
+    );
   }
 }
