@@ -76,16 +76,25 @@ type ExtraSheetCfg = {
   sheetName: string;
   columnMap: ColumnMap;
   rawPreviewKeys: string[];
+  nameMatchThreshold?: number; // ✅ 0..1 (default 0.90)
 };
 
 type ExtraPack = {
   ex: ExtraSheetCfg;
-  idx: Map<string, Record<string, any>>;
+
+  // match exato
+  idx: Map<string, Record<string, any>>; // cpf -> row
   dup: Map<string, number>; // cpf -> nº ocorrências extras (além do 1º)
+
+  // match aproximado (nome)
+  idxName: Map<string, Record<string, any>[]>; // nameKey -> rows
+
   totalRows: number;
   uniqueCpfs: number;
   dupTotal: number;
-  matched: number;
+
+  matchedCpf: number;
+  matchedName: number;
   unmatched: number;
 };
 
@@ -100,6 +109,10 @@ function norm(v?: string) {
     .trim();
 }
 
+function asStr(v: any) {
+  return String(v ?? "").trim();
+}
+
 function onlyDigits(v?: string) {
   return (v || "").replace(/\D+/g, "");
 }
@@ -108,41 +121,39 @@ function firstName(v?: string) {
   return norm(v).split(" ")[0] || "";
 }
 
-function asStr(v: any) {
-  return String(v ?? "").trim();
-}
-
-/** ✅ CPF sempre 11 dígitos (se vier com 10, prefixa 0) */
+/** ✅ CPF robusto (pega number e notação científica do Excel) */
 function normalizeCpf11(v: any): string {
-  let cpf = onlyDigits(asStr(v));
+  if (v == null) return "";
+
+  // number puro (XLSX costuma entregar assim)
+  if (typeof v === "number" && Number.isFinite(v)) {
+    const s = Math.trunc(v).toString();
+    return s.length === 10 ? "0" + s : s;
+  }
+
+  let s = String(v).trim();
+  if (!s) return "";
+
+  // notação científica (ex: 1.2345678901E+10)
+  if (/[eE]/.test(s)) {
+    const n = Number(s);
+    if (Number.isFinite(n)) {
+      const fixed = Math.trunc(n).toString();
+      return fixed.length === 10 ? "0" + fixed : fixed;
+    }
+  }
+
+  let cpf = s.replace(/\D+/g, "");
   if (!cpf) return "";
   if (cpf.length === 10) cpf = "0" + cpf;
   return cpf;
-}
-
-function normPixTipo(v: string): PixTipo | undefined {
-  const x = norm(v).replace(/\s+/g, "");
-  if (!x) return undefined;
-
-  if (x === "cpf") return "CPF";
-  if (x === "cnpj") return "CNPJ";
-  if (x === "email" || x === "e-mail" || x === "mail") return "EMAIL";
-  if (x === "telefone" || x === "celular" || x === "fone" || x === "phone") return "TELEFONE";
-  if (x === "aleatoria" || x === "aleatorio" || x === "random") return "ALEATORIA";
-
-  const upper = asStr(v).toUpperCase() as PixTipo;
-  if (["CPF", "CNPJ", "EMAIL", "TELEFONE", "ALEATORIA"].includes(upper)) return upper;
-
-  return undefined;
 }
 
 function uid() {
   return Math.random().toString(36).slice(2, 10);
 }
 
-/**
- * ✅ Parse robusto de pontos
- */
+/** ✅ Parse robusto de pontos */
 function parsePontos(v: any): number {
   if (typeof v === "number" && Number.isFinite(v)) {
     const n = v;
@@ -195,6 +206,86 @@ function parsePontos(v: any): number {
   return digits ? Math.max(0, parseInt(digits, 10)) : 0;
 }
 
+function normPixTipo(v: string): PixTipo | undefined {
+  const x = norm(v).replace(/\s+/g, "");
+  if (!x) return undefined;
+
+  if (x === "cpf") return "CPF";
+  if (x === "cnpj") return "CNPJ";
+  if (x === "email" || x === "e-mail" || x === "mail") return "EMAIL";
+  if (x === "telefone" || x === "celular" || x === "fone" || x === "phone") return "TELEFONE";
+  if (x === "aleatoria" || x === "aleatorio" || x === "random") return "ALEATORIA";
+
+  const upper = asStr(v).toUpperCase() as PixTipo;
+  if (["CPF", "CNPJ", "EMAIL", "TELEFONE", "ALEATORIA"].includes(upper)) return upper;
+
+  return undefined;
+}
+
+/* =======================
+   Fuzzy match (Nome)
+   ✅ Jaro-Winkler 0..1
+======================= */
+function jaroWinkler(a0: string, b0: string): number {
+  const a = norm(a0);
+  const b = norm(b0);
+  if (!a || !b) return 0;
+  if (a === b) return 1;
+
+  const al = a.length;
+  const bl = b.length;
+  const matchDist = Math.floor(Math.max(al, bl) / 2) - 1;
+
+  const aMatches = new Array(al).fill(false);
+  const bMatches = new Array(bl).fill(false);
+
+  let matches = 0;
+  for (let i = 0; i < al; i++) {
+    const start = Math.max(0, i - matchDist);
+    const end = Math.min(i + matchDist + 1, bl);
+    for (let j = start; j < end; j++) {
+      if (bMatches[j]) continue;
+      if (a[i] !== b[j]) continue;
+      aMatches[i] = true;
+      bMatches[j] = true;
+      matches++;
+      break;
+    }
+  }
+  if (!matches) return 0;
+
+  let t = 0;
+  let k = 0;
+  for (let i = 0; i < al; i++) {
+    if (!aMatches[i]) continue;
+    while (!bMatches[k]) k++;
+    if (a[i] !== b[k]) t++;
+    k++;
+  }
+  const transpositions = t / 2;
+
+  const jaro =
+    (matches / al + matches / bl + (matches - transpositions) / matches) / 3;
+
+  // Winkler boost
+  let prefix = 0;
+  const maxPrefix = 4;
+  for (let i = 0; i < Math.min(maxPrefix, al, bl); i++) {
+    if (a[i] === b[i]) prefix++;
+    else break;
+  }
+
+  const p = 0.1;
+  return jaro + prefix * p * (1 - jaro);
+}
+
+function nameKey90(nome: string) {
+  const parts = norm(nome).split(/\s+/).filter(Boolean);
+  if (!parts.length) return "";
+  if (parts.length === 1) return parts[0];
+  return `${parts[0]}|${parts[parts.length - 1]}`; // first|last
+}
+
 /* =======================
    Guess map
 ======================= */
@@ -243,38 +334,56 @@ function guessColumnMap(keys: string[]): ColumnMap {
 
 /* =======================
    Lê uma sheet em JSON
+   ✅ raw:false reduz alguns bugs (datas/textos)
 ======================= */
 function sheetToJson(workbook: XLSX.WorkBook, sheetName: string) {
   const ws = workbook.Sheets[sheetName];
   if (!ws) return { json: [] as Record<string, any>[], keys: [] as string[] };
 
-  const json = XLSX.utils.sheet_to_json<Record<string, any>>(ws, { defval: "", raw: true });
+  const json = XLSX.utils.sheet_to_json<Record<string, any>>(ws, { defval: "", raw: false });
   const keys = json[0] ? Object.keys(json[0]) : [];
   return { json, keys };
 }
 
 /* =======================
-   Index por CPF (com duplicatas)
+   Index por CPF + Nome (com duplicatas)
 ======================= */
-function buildIndexByCpfWithDup(json: Record<string, any>[], map: ColumnMap) {
+function buildIndexByCpfAndName(json: Record<string, any>[], map: ColumnMap) {
   const idx = new Map<string, Record<string, any>>();
   const dup = new Map<string, number>(); // cpf -> extras além do primeiro
+
+  const idxName = new Map<string, Record<string, any>[]>();
+
   const cpfCol = map.cpf;
-  if (!cpfCol) return { idx, dup, totalRows: json.length, uniqueCpfs: 0, dupTotal: 0 };
+  const nomeCol = map.nomeCompleto;
 
   for (const r of json) {
-    const cpf = normalizeCpf11(r?.[cpfCol]);
-    if (!cpf) continue;
-
-    if (idx.has(cpf)) {
-      dup.set(cpf, (dup.get(cpf) || 0) + 1);
-      continue; // mantém o 1º (evita ficar variando)
+    // ---- CPF index ----
+    if (cpfCol) {
+      const cpf = normalizeCpf11(r?.[cpfCol]);
+      if (cpf) {
+        if (idx.has(cpf)) {
+          dup.set(cpf, (dup.get(cpf) || 0) + 1);
+        } else {
+          idx.set(cpf, r);
+        }
+      }
     }
-    idx.set(cpf, r);
+
+    // ---- Nome index (para fallback) ----
+    if (nomeCol) {
+      const nome = asStr(r?.[nomeCol]);
+      const k = nameKey90(nome);
+      if (k) {
+        const arr = idxName.get(k) || [];
+        arr.push(r);
+        idxName.set(k, arr);
+      }
+    }
   }
 
   const dupTotal = Array.from(dup.values()).reduce((a, b) => a + b, 0);
-  return { idx, dup, totalRows: json.length, uniqueCpfs: idx.size, dupTotal };
+  return { idx, dup, idxName, totalRows: json.length, uniqueCpfs: idx.size, dupTotal };
 }
 
 /* =======================
@@ -319,6 +428,8 @@ export default function CedentesImporter() {
   const fieldDefsExtras = useMemo<FieldDef[]>(
     () => [
       { key: "cpf", label: "CPF (para cruzar)", required: true },
+
+      { key: "nomeCompleto", label: "Nome (fallback 90%)" },
 
       { key: "telefone", label: "Telefone" },
       { key: "dataNascimento", label: "Data de nascimento" },
@@ -368,7 +479,7 @@ export default function CedentesImporter() {
 
   /* =======================
      Merge geral (base + extras)
-  ======================= */
+======================= */
   function reprocessAll() {
     if (!wb || !baseSheet) return;
 
@@ -460,37 +571,71 @@ export default function CedentesImporter() {
     // ---- extras packs + stats ----
     const extraPacks: ExtraPack[] = extras.map((ex) => {
       const { json } = sheetToJson(wb, ex.sheetName);
-      const built = buildIndexByCpfWithDup(json, ex.columnMap);
+      const built = buildIndexByCpfAndName(json, ex.columnMap);
 
       return {
         ex,
         idx: built.idx,
         dup: built.dup,
+        idxName: built.idxName,
         totalRows: built.totalRows,
         uniqueCpfs: built.uniqueCpfs,
         dupTotal: built.dupTotal,
-        matched: 0,
+        matchedCpf: 0,
+        matchedName: 0,
         unmatched: 0,
       };
     });
-
-    // match/unmatch por extra com baseRows
-    for (const row of baseRows) {
-      for (const pack of extraPacks) {
-        if (pack.idx.has(row.cpf)) pack.matched++;
-        else pack.unmatched++;
-      }
-    }
 
     // ---- merge ----
     const merged = baseRows.map((row) => {
       let out = { ...row };
 
       for (const pack of extraPacks) {
-        const r = pack.idx.get(row.cpf);
-        if (!r) continue;
-
         const m = pack.ex.columnMap;
+        const threshold = typeof pack.ex.nameMatchThreshold === "number" ? pack.ex.nameMatchThreshold : 0.9;
+
+        // 1) tenta CPF (exato)
+        let r = pack.idx.get(row.cpf);
+        let matchedBy: "cpf" | "name" | null = r ? "cpf" : null;
+
+        // 2) fallback por NOME (~90%) se não achou CPF
+        if (!r) {
+          const baseNome = out.nomeCompleto;
+          const k = nameKey90(baseNome);
+          const candidates = k ? pack.idxName.get(k) || [] : [];
+
+          if (candidates.length && m.nomeCompleto) {
+            let best: { row: Record<string, any>; score: number } | null = null;
+
+            // limita para evitar custos altos em planilhas gigantes
+            const limit = Math.min(candidates.length, 30);
+
+            for (let i = 0; i < limit; i++) {
+              const cand = candidates[i];
+              const candNome = asStr(cand?.[m.nomeCompleto]);
+              const score = jaroWinkler(baseNome, candNome);
+
+              if (!best || score > best.score) best = { row: cand, score };
+              if (best.score >= 0.97) break; // bem alto, pode parar cedo
+            }
+
+            if (best && best.score >= threshold) {
+              r = best.row;
+              matchedBy = "name";
+            }
+          }
+        }
+
+        // stats por pack
+        if (!r) {
+          pack.unmatched++;
+          continue;
+        } else {
+          if (matchedBy === "cpf") pack.matchedCpf++;
+          else if (matchedBy === "name") pack.matchedName++;
+        }
+
         const getE = (col?: string) => (col ? r?.[col] : "");
 
         const fillIfEmpty = (key: keyof ImportedCedente, val?: string) => {
@@ -546,7 +691,8 @@ export default function CedentesImporter() {
           extraPacks
             .map((p) => {
               const d = p.dupTotal ? ` | dup: ${p.dupTotal}` : "";
-              return `• ${p.ex.sheetName}: total ${p.totalRows}, únicos ${p.uniqueCpfs}${d} | match ${p.matched} | sem match ${p.unmatched}`;
+              const thr = typeof p.ex.nameMatchThreshold === "number" ? p.ex.nameMatchThreshold : 0.9;
+              return `• ${p.ex.sheetName}: total ${p.totalRows}, únicos CPF ${p.uniqueCpfs}${d} | match CPF ${p.matchedCpf} | match Nome>=${thr} ${p.matchedName} | sem match ${p.unmatched}`;
             })
             .join("\n");
 
@@ -656,6 +802,7 @@ export default function CedentesImporter() {
       id: uid(),
       sheetName: s,
       rawPreviewKeys: keys,
+      nameMatchThreshold: 0.9, // ✅ default 90%
       columnMap: {
         ...guessed,
         cpf: guessed.cpf ?? findCpfCandidate(keys),
@@ -715,7 +862,6 @@ export default function CedentesImporter() {
 
   /* =======================
      Importar
-     ✅ não trava se ownerId vazio (você ajusta depois)
   ======================= */
   async function importar() {
     if (!rows.length) return alert("Nada para importar.");
@@ -763,7 +909,7 @@ export default function CedentesImporter() {
       <div>
         <h1 className="text-2xl font-bold">Importar Cedentes (Multi-abas)</h1>
         <p className="text-sm text-slate-600">
-          Aba base traz Nome + CPF. Abas extras cruzam pelo CPF e completam os dados. Dados faltantes ficam em branco.
+          Aba base traz Nome + CPF. Abas extras cruzam por CPF e, se falhar, tentam match por Nome (≈90%).
         </p>
       </div>
 
@@ -876,7 +1022,7 @@ export default function CedentesImporter() {
             <div>
               <div className="font-semibold text-sm">Abas Complementares (merge por CPF)</div>
               <div className="text-xs text-slate-600">
-                Adicione quantas abas quiser. Cada aba precisa ter uma coluna CPF para cruzar.
+                Se CPF falhar, tenta por <b>Nome</b> (first+last) com similaridade ~90% (Jaro-Winkler).
               </div>
             </div>
 
@@ -927,6 +1073,27 @@ export default function CedentesImporter() {
                           </option>
                         ))}
                       </select>
+                    </div>
+
+                    {/* threshold */}
+                    <div className="flex items-center gap-3">
+                      <div className="w-44 text-xs">Match por Nome (>=)</div>
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0.75"
+                        max="0.99"
+                        className="w-28 rounded border px-2 py-1 text-xs"
+                        value={ex.nameMatchThreshold ?? 0.9}
+                        onChange={(e) => {
+                          const v = Number(e.target.value);
+                          setExtras((prev) =>
+                            prev.map((x) => (x.id === ex.id ? { ...x, nameMatchThreshold: v } : x))
+                          );
+                          setTimeout(() => reprocessAll(), 0);
+                        }}
+                      />
+                      <div className="text-xs text-slate-500">ex: 0.90 (padrão)</div>
                     </div>
 
                     {ex.rawPreviewKeys.length > 0 && (
