@@ -10,28 +10,29 @@ function startOfDayUTC(date = new Date()) {
   return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
 }
 
-function toCents(v: any) {
-  // aceita "1234,56" ou "1234.56" ou número
-  if (typeof v === "number" && Number.isFinite(v)) return Math.round(v * 100);
-  const s = String(v ?? "").trim();
-  if (!s) return 0;
-  const normalized = s.replace(/\./g, "").replace(",", ".");
-  const n = Number(normalized);
-  return Number.isFinite(n) ? Math.round(n * 100) : 0;
+function toInt(v: any) {
+  const n = Number(v);
+  return Number.isFinite(n) ? Math.trunc(n) : 0;
 }
 
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json().catch(() => ({}));
-    const cashCents = toCents(body?.cash);
+
+    // Agora o endpoint grava o HISTÓRICO DO TOTAL (principalmente o líquido).
+    // Espera centavos (Int) vindo do front:
+    // { totalBruto: number, totalDividas: number, totalLiquido: number }
+    const totalBruto = toInt(body?.totalBruto);
+    const totalDividas = toInt(body?.totalDividas);
+    const totalLiquido = toInt(body?.totalLiquido);
 
     const date = startOfDayUTC(new Date());
 
     const upserted = await prisma.cashSnapshot.upsert({
       where: { date },
-      create: { date, cashCents },
-      update: { cashCents },
-      select: { id: true, date: true, cashCents: true },
+      create: { date, totalBruto, totalDividas, totalLiquido },
+      update: { totalBruto, totalDividas, totalLiquido },
+      select: { id: true, date: true, totalBruto: true, totalDividas: true, totalLiquido: true },
     });
 
     return NextResponse.json(
@@ -40,7 +41,9 @@ export async function POST(req: NextRequest) {
         data: {
           id: upserted.id,
           date: upserted.date.toISOString(),
-          cashCents: upserted.cashCents,
+          totalBruto: upserted.totalBruto,
+          totalDividas: upserted.totalDividas,
+          totalLiquido: upserted.totalLiquido,
         },
       },
       { status: 200 }
@@ -48,7 +51,7 @@ export async function POST(req: NextRequest) {
   } catch (e: any) {
     console.error(e);
     return NextResponse.json(
-      { ok: false, error: e?.message || "Erro ao salvar caixa." },
+      { ok: false, error: e?.message || "Erro ao salvar histórico." },
       { status: 500 }
     );
   }
