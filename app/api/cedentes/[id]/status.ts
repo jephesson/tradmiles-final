@@ -42,6 +42,7 @@ function normalizePixTipo(v: unknown): PixTipo {
   return PixTipo.CPF;
 }
 
+// "" -> null (para campos nullable)
 function asTrimOrNull(v: unknown): string | null {
   if (v === undefined) return null;
   const s = String(v ?? "").trim();
@@ -100,8 +101,8 @@ export async function GET(_req: NextRequest, { params }: Ctx) {
         ownerId: true,
         owner: { select: { id: true, name: true, login: true } },
 
-        reviewedById: true, // se existir no schema
-        inviteId: true, // se existir no schema
+        reviewedById: true,
+        inviteId: true,
 
         createdAt: true,
         updatedAt: true,
@@ -153,10 +154,17 @@ export async function PUT(req: NextRequest, { params }: Ctx) {
         // se não quiser permitir atualizar cpf, pode remover esse campo
         cpf: cpfBody && cpfBody.length === 11 ? cpfBody : undefined,
 
-        dataNascimento: body?.dataNascimento !== undefined ? parseDateSafe(body.dataNascimento) : undefined,
+        dataNascimento:
+          body?.dataNascimento !== undefined ? parseDateSafe(body.dataNascimento) : undefined,
 
-        // "" limpa -> null
-        telefone: body?.telefone === "" ? null : body?.telefone !== undefined ? String(body.telefone).trim() : undefined,
+        // "" limpa -> null (campos nullable)
+        telefone:
+          body?.telefone === ""
+            ? null
+            : body?.telefone !== undefined
+            ? String(body.telefone).trim()
+            : undefined,
+
         emailCriado:
           body?.emailCriado === ""
             ? null
@@ -164,11 +172,20 @@ export async function PUT(req: NextRequest, { params }: Ctx) {
             ? String(body.emailCriado).trim()
             : undefined,
 
-        banco: body?.banco === "" ? null : body?.banco !== undefined ? String(body.banco).trim() : undefined,
+        // ✅ banco/chavePix: NÃO podem ser null se o schema for String (não-null)
+        // "" -> undefined (não atualiza)
+        banco:
+          body?.banco === ""
+            ? undefined
+            : body?.banco !== undefined
+            ? String(body.banco).trim()
+            : undefined,
+
         pixTipo: body?.pixTipo !== undefined ? normalizePixTipo(body.pixTipo) : undefined,
+
         chavePix:
           body?.chavePix === ""
-            ? null
+            ? undefined
             : body?.chavePix !== undefined
             ? String(body.chavePix).trim()
             : undefined,
@@ -176,17 +193,22 @@ export async function PUT(req: NextRequest, { params }: Ctx) {
         titularConfirmado:
           typeof body?.titularConfirmado === "boolean" ? body.titularConfirmado : undefined,
 
-        // ✅ SENHAS (SEM ENC) — "" limpa -> null
+        // ✅ SENHAS (SEM ENC) — "" limpa -> null (campos nullable)
         senhaEmail: body?.senhaEmail !== undefined ? asTrimOrNull(body.senhaEmail) : undefined,
         senhaSmiles: body?.senhaSmiles !== undefined ? asTrimOrNull(body.senhaSmiles) : undefined,
-        senhaLatamPass: body?.senhaLatamPass !== undefined ? asTrimOrNull(body.senhaLatamPass) : undefined,
+        senhaLatamPass:
+          body?.senhaLatamPass !== undefined ? asTrimOrNull(body.senhaLatamPass) : undefined,
         senhaLivelo: body?.senhaLivelo !== undefined ? asTrimOrNull(body.senhaLivelo) : undefined,
         senhaEsfera: body?.senhaEsfera !== undefined ? asTrimOrNull(body.senhaEsfera) : undefined,
 
-        pontosLatam: body?.pontosLatam !== undefined ? Math.max(0, Math.floor(numSafe(body.pontosLatam))) : undefined,
-        pontosSmiles: body?.pontosSmiles !== undefined ? Math.max(0, Math.floor(numSafe(body.pontosSmiles))) : undefined,
-        pontosLivelo: body?.pontosLivelo !== undefined ? Math.max(0, Math.floor(numSafe(body.pontosLivelo))) : undefined,
-        pontosEsfera: body?.pontosEsfera !== undefined ? Math.max(0, Math.floor(numSafe(body.pontosEsfera))) : undefined,
+        pontosLatam:
+          body?.pontosLatam !== undefined ? Math.max(0, Math.floor(numSafe(body.pontosLatam))) : undefined,
+        pontosSmiles:
+          body?.pontosSmiles !== undefined ? Math.max(0, Math.floor(numSafe(body.pontosSmiles))) : undefined,
+        pontosLivelo:
+          body?.pontosLivelo !== undefined ? Math.max(0, Math.floor(numSafe(body.pontosLivelo))) : undefined,
+        pontosEsfera:
+          body?.pontosEsfera !== undefined ? Math.max(0, Math.floor(numSafe(body.pontosEsfera))) : undefined,
 
         status: body?.status ? (String(body.status) as CedenteStatus) : undefined,
 
