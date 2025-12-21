@@ -83,40 +83,32 @@ export default function CedentesVisualizarClient() {
   }
 
   /* =======================
-     Delete
+     Delete (com senha do LOGIN)
+     - Agora a senha vai junto no body
+     - NÃO usa mais /api/auth/confirm-password
   ======================= */
-  async function confirmPassword(): Promise<boolean> {
-    const password = prompt("Digite sua senha para confirmar:");
-    if (!password) return false;
-
-    const res = await fetch("/api/auth/confirm-password", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ password }),
-    });
-
-    const json = await res.json().catch(() => null);
-    if (!json?.ok) {
-      alert("Senha inválida.");
-      return false;
-    }
-    return true;
+  async function askPassword(): Promise<string | null> {
+    const password = prompt("Digite sua senha do login para confirmar:");
+    const v = (password ?? "").trim();
+    return v ? v : null;
   }
 
   async function deleteSelected() {
     if (!selected.size) return;
 
     if (!confirm(`Apagar ${selected.size} cedente(s) selecionado(s)?`)) return;
-    if (!(await confirmPassword())) return;
+
+    const password = await askPassword();
+    if (!password) return;
 
     const res = await fetch("/api/cedentes/delete", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ids: Array.from(selected) }),
+      body: JSON.stringify({ ids: Array.from(selected), password }),
     });
 
     const json = await res.json().catch(() => null);
-    if (!json?.ok) {
+    if (!res.ok || !json?.ok) {
       alert(json?.error || "Erro ao apagar selecionados.");
       return;
     }
@@ -126,11 +118,18 @@ export default function CedentesVisualizarClient() {
 
   async function deleteAll() {
     if (!confirm("Isso vai apagar TODOS os cedentes. Continuar?")) return;
-    if (!(await confirmPassword())) return;
 
-    const res = await fetch("/api/cedentes/delete-all", { method: "POST" });
+    const password = await askPassword();
+    if (!password) return;
+
+    const res = await fetch("/api/cedentes/delete-all", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ password }),
+    });
+
     const json = await res.json().catch(() => null);
-    if (!json?.ok) {
+    if (!res.ok || !json?.ok) {
       alert(json?.error || "Erro ao apagar todos.");
       return;
     }
@@ -362,11 +361,7 @@ export default function CedentesVisualizarClient() {
         </table>
       </div>
 
-      {loading && (
-        <div className="mt-4 text-sm text-slate-500">
-          Carregando…
-        </div>
-      )}
+      {loading && <div className="mt-4 text-sm text-slate-500">Carregando…</div>}
     </div>
   );
 }
