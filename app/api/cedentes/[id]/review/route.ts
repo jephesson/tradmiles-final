@@ -12,17 +12,26 @@ function asInt(v: unknown) {
   return Math.trunc(n);
 }
 
-export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
-  try {
-    const { id } = await ctx.params;
-    const body = await req.json().catch(() => ({}));
+type Ctx = { params: { id: string } };
 
+export async function POST(req: NextRequest, { params }: Ctx) {
+  try {
+    const { id } = params;
+    if (!id) {
+      return NextResponse.json({ ok: false, error: "ID ausente" }, { status: 400 });
+    }
+
+    const body = await req.json().catch(() => ({}));
     const action = String(body?.action || "").toUpperCase();
+
     if (action !== "APPROVE" && action !== "REJECT") {
       return NextResponse.json({ ok: false, error: "Ação inválida" }, { status: 400 });
     }
 
-    const status = action === "APPROVE" ? "APPROVED" : "REJECTED";
+    const session = await getSessionServer();
+    if (!session?.id) {
+      return NextResponse.json({ ok: false, error: "Não autenticado" }, { status: 401 });
+    }
 
     const p = body?.points || {};
     const pontosLatam = asInt(p?.pontosLatam);
@@ -30,18 +39,17 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     const pontosLivelo = asInt(p?.pontosLivelo);
     const pontosEsfera = asInt(p?.pontosEsfera);
 
-    // ✅ sessão server-side via cookie tm.session
-    const session = await getSessionServer();
-    if (!session?.id) {
-      return NextResponse.json({ ok: false, error: "Não autenticado" }, { status: 401 });
-    }
+    // ✅ sem any (se seu campo status for enum/string, isso compila ok)
+    const status = action === "APPROVE" ? "APPROVED" : "REJECTED";
 
     const updated = await prisma.cedente.update({
       where: { id },
       data: {
-        status: status as any,
+        status,
         reviewedAt: new Date(),
         reviewedById: session.id,
+
+        // ✅ só atualiza pontos quando aprovar (não zera no REJECT)
         ...(action === "APPROVE"
           ? { pontosLatam, pontosSmiles, pontosLivelo, pontosEsfera }
           : {}),
@@ -56,6 +64,9 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
 
     return NextResponse.json({ ok: true, data: updated });
   } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e?.message || "Erro ao revisar" }, { status: 500 });
+    return NextResponse.json(
+      { ok: false, error: e?.message || "Erro ao revisar" },
+      { status: 500 }
+    );
   }
 }

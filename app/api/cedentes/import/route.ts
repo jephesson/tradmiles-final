@@ -170,6 +170,18 @@ function asPlain(v: unknown): string | null {
   return s ? s : null;
 }
 
+/* ✅ NOVO: no CREATE, se faltar dado textual -> "PREENCHER" */
+function asFillText(v: unknown): string {
+  const s = String(v ?? "").trim();
+  return s ? s : "PREENCHER";
+}
+
+/* ✅ NOVO: no CREATE, se faltar dado textual opcional -> null (ou PREENCHER dependendo do campo) */
+function asFillNullable(v: unknown): string | null {
+  const s = String(v ?? "").trim();
+  return s ? s : null;
+}
+
 /* =======================
    POST
 ======================= */
@@ -223,22 +235,24 @@ export async function POST(req: Request) {
             cpf,
             dataNascimento: parseDateSafe(r?.dataNascimento),
 
-            telefone: r?.telefone ? String(r.telefone).trim() : null,
-            emailCriado: r?.emailCriado ? String(r.emailCriado).trim() : null,
+            // ✅ se faltar dado -> "PREENCHER"
+            telefone: asFillText(r?.telefone),
+            emailCriado: asFillText(r?.emailCriado),
 
-            banco: String(r?.banco ?? "").trim() || "PENDENTE",
+            banco: asFillText(r?.banco),
             pixTipo: normalizePixTipo(r?.pixTipo),
-            chavePix: String(r?.chavePix ?? "").trim() || "PENDENTE",
+            chavePix: asFillText(r?.chavePix),
 
             titularConfirmado: true,
 
-            // ✅ SENHAS (SEM ENC)
-            senhaEmail: asPlain(r?.senhaEmail),
-            senhaSmiles: asPlain(r?.senhaSmiles),
-            senhaLatamPass: asPlain(r?.senhaLatamPass),
-            senhaLivelo: asPlain(r?.senhaLivelo),
-            senhaEsfera: asPlain(r?.senhaEsfera),
+            // ✅ SENHAS (SEM ENC) — se faltar -> "PREENCHER"
+            senhaEmail: asFillText(r?.senhaEmail),
+            senhaSmiles: asFillText(r?.senhaSmiles),
+            senhaLatamPass: asFillText(r?.senhaLatamPass),
+            senhaLivelo: asFillText(r?.senhaLivelo),
+            senhaEsfera: asFillText(r?.senhaEsfera),
 
+            // ✅ PONTOS — se faltar -> 0 (parse já faz)
             pontosLatam: parsePontosSafe(r?.pontosLatam),
             pontosSmiles: parsePontosSafe(r?.pontosSmiles),
             pontosLivelo: parsePontosSafe(r?.pontosLivelo),
