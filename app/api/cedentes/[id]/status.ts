@@ -1,11 +1,57 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { PixTipo, CedenteStatus } from "@prisma/client";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 type Ctx = { params: { id: string } };
+
+function onlyDigits(v: unknown) {
+  return String(v ?? "").replace(/\D+/g, "");
+}
+
+function normalizeCpfSafe(v: unknown): string {
+  let cpf = onlyDigits(v);
+  if (cpf.length === 10) cpf = "0" + cpf;
+  return cpf;
+}
+
+function parseDateSafe(v: unknown): Date | null {
+  if (!v) return null;
+  if (v instanceof Date && !isNaN(v.getTime())) return v;
+
+  const s = String(v).trim();
+  if (!s) return null;
+
+  const iso = new Date(s);
+  if (!isNaN(iso.getTime())) return iso;
+
+  const m = s.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  if (m) {
+    const d = new Date(Date.UTC(+m[3], +m[2] - 1, +m[1]));
+    return isNaN(d.getTime()) ? null : d;
+  }
+  return null;
+}
+
+function normalizePixTipo(v: unknown): PixTipo {
+  const s = String(v ?? "").trim().toUpperCase();
+  if (s in PixTipo) return PixTipo[s as keyof typeof PixTipo];
+  return PixTipo.CPF;
+}
+
+function asTrimOrNull(v: unknown): string | null {
+  if (v === undefined) return null;
+  const s = String(v ?? "").trim();
+  return s ? s : null;
+}
+
+function numSafe(v: unknown): number {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : 0;
+}
 
 /* =======================
    GET – buscar cedente
@@ -20,16 +66,50 @@ export async function GET(_req: NextRequest, { params }: Ctx) {
 
     const cedente = await prisma.cedente.findUnique({
       where: { id },
-      include: {
+      select: {
+        id: true,
+        identificador: true,
+
+        nomeCompleto: true,
+        dataNascimento: true,
+        cpf: true,
+
+        telefone: true,
+        emailCriado: true,
+
+        banco: true,
+        pixTipo: true,
+        chavePix: true,
+        titularConfirmado: true,
+
+        // ✅ SENHAS (SEM ENC)
+        senhaEmail: true,
+        senhaSmiles: true,
+        senhaLatamPass: true,
+        senhaLivelo: true,
+        senhaEsfera: true,
+
+        pontosLatam: true,
+        pontosSmiles: true,
+        pontosLivelo: true,
+        pontosEsfera: true,
+
+        status: true,
+        reviewedAt: true,
+
+        ownerId: true,
         owner: { select: { id: true, name: true, login: true } },
+
+        reviewedById: true, // se existir no schema
+        inviteId: true, // se existir no schema
+
+        createdAt: true,
+        updatedAt: true,
       },
     });
 
     if (!cedente) {
-      return NextResponse.json(
-        { ok: false, error: "Cedente não encontrado." },
-        { status: 404 }
-      );
+      return NextResponse.json({ ok: false, error: "Cedente não encontrado." }, { status: 404 });
     }
 
     return NextResponse.json({ ok: true, data: cedente });
@@ -50,44 +130,67 @@ export async function PUT(req: NextRequest, { params }: Ctx) {
     const body = await req.json().catch(() => null);
 
     if (!id || !body) {
-      return NextResponse.json(
-        { ok: false, error: "Dados inválidos." },
-        { status: 400 }
-      );
+      return NextResponse.json({ ok: false, error: "Dados inválidos." }, { status: 400 });
     }
 
-    const cedente = await prisma.cedente.findUnique({ where: { id } });
-    if (!cedente) {
-      return NextResponse.json(
-        { ok: false, error: "Cedente não encontrado." },
-        { status: 404 }
-      );
+    const exists = await prisma.cedente.findUnique({ where: { id }, select: { id: true } });
+    if (!exists) {
+      return NextResponse.json({ ok: false, error: "Cedente não encontrado." }, { status: 404 });
     }
+
+    const cpfBody = body?.cpf ? normalizeCpfSafe(body.cpf) : undefined;
+
+    // ownerId pode vir vazio -> null (pra ajustar manualmente depois)
+    const ownerId =
+      body?.ownerId === "" || body?.ownerId == null ? null : String(body.ownerId).trim() || null;
 
     const updated = await prisma.cedente.update({
       where: { id },
       data: {
-        nomeCompleto: body.nomeCompleto,
-        telefone: body.telefone,
-        emailCriado: body.emailCriado,
-        dataNascimento: body.dataNascimento
-          ? new Date(body.dataNascimento)
-          : null,
+        identificador: body?.identificador ? String(body.identificador).trim() : undefined,
+        nomeCompleto: body?.nomeCompleto ? String(body.nomeCompleto).trim() : undefined,
 
-        banco: body.banco,
-        pixTipo: body.pixTipo,
-        chavePix: body.chavePix,
+        // se não quiser permitir atualizar cpf, pode remover esse campo
+        cpf: cpfBody && cpfBody.length === 11 ? cpfBody : undefined,
 
-        senhaEmailEnc: body.senhaEmailEnc,
-        senhaSmilesEnc: body.senhaSmilesEnc,
-        senhaLatamPassEnc: body.senhaLatamPassEnc,
-        senhaLiveloEnc: body.senhaLiveloEnc,
-        senhaEsferaEnc: body.senhaEsferaEnc,
+        dataNascimento: body?.dataNascimento !== undefined ? parseDateSafe(body.dataNascimento) : undefined,
 
-        pontosLatam: Number(body.pontosLatam) || 0,
-        pontosSmiles: Number(body.pontosSmiles) || 0,
-        pontosLivelo: Number(body.pontosLivelo) || 0,
-        pontosEsfera: Number(body.pontosEsfera) || 0,
+        // "" limpa -> null
+        telefone: body?.telefone === "" ? null : body?.telefone !== undefined ? String(body.telefone).trim() : undefined,
+        emailCriado:
+          body?.emailCriado === ""
+            ? null
+            : body?.emailCriado !== undefined
+            ? String(body.emailCriado).trim()
+            : undefined,
+
+        banco: body?.banco === "" ? null : body?.banco !== undefined ? String(body.banco).trim() : undefined,
+        pixTipo: body?.pixTipo !== undefined ? normalizePixTipo(body.pixTipo) : undefined,
+        chavePix:
+          body?.chavePix === ""
+            ? null
+            : body?.chavePix !== undefined
+            ? String(body.chavePix).trim()
+            : undefined,
+
+        titularConfirmado:
+          typeof body?.titularConfirmado === "boolean" ? body.titularConfirmado : undefined,
+
+        // ✅ SENHAS (SEM ENC) — "" limpa -> null
+        senhaEmail: body?.senhaEmail !== undefined ? asTrimOrNull(body.senhaEmail) : undefined,
+        senhaSmiles: body?.senhaSmiles !== undefined ? asTrimOrNull(body.senhaSmiles) : undefined,
+        senhaLatamPass: body?.senhaLatamPass !== undefined ? asTrimOrNull(body.senhaLatamPass) : undefined,
+        senhaLivelo: body?.senhaLivelo !== undefined ? asTrimOrNull(body.senhaLivelo) : undefined,
+        senhaEsfera: body?.senhaEsfera !== undefined ? asTrimOrNull(body.senhaEsfera) : undefined,
+
+        pontosLatam: body?.pontosLatam !== undefined ? Math.max(0, Math.floor(numSafe(body.pontosLatam))) : undefined,
+        pontosSmiles: body?.pontosSmiles !== undefined ? Math.max(0, Math.floor(numSafe(body.pontosSmiles))) : undefined,
+        pontosLivelo: body?.pontosLivelo !== undefined ? Math.max(0, Math.floor(numSafe(body.pontosLivelo))) : undefined,
+        pontosEsfera: body?.pontosEsfera !== undefined ? Math.max(0, Math.floor(numSafe(body.pontosEsfera))) : undefined,
+
+        status: body?.status ? (String(body.status) as CedenteStatus) : undefined,
+
+        ownerId,
       },
     });
 
@@ -112,9 +215,7 @@ export async function DELETE(_req: NextRequest, { params }: Ctx) {
       return NextResponse.json({ ok: false, error: "ID ausente." }, { status: 400 });
     }
 
-    await prisma.cedente.delete({
-      where: { id },
-    });
+    await prisma.cedente.delete({ where: { id } });
 
     return NextResponse.json({ ok: true });
   } catch (e: any) {
