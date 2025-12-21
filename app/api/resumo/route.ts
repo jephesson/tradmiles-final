@@ -42,10 +42,18 @@ export async function GET() {
       },
     });
 
-    // histórico do caixa
+    // histórico do TOTAL (bruto/dividas/liquido)
     const snapshots = await prisma.cashSnapshot.findMany({
       orderBy: { date: "desc" },
       take: 60,
+      select: {
+        id: true,
+        date: true,
+        totalBruto: true,
+        totalDividas: true,
+        totalLiquido: true,
+        createdAt: true,
+      },
     });
 
     const latest = snapshots[0] ?? null;
@@ -73,13 +81,21 @@ export async function GET() {
         data: {
           points,
           ratesCents: settings,
-          latestCashCents: latest?.cashCents ?? 0,
+
+          // ✅ antes era latestCashCents / cashCents
+          // ✅ agora é histórico do total líquido
+          latestTotalLiquidoCents: latest?.totalLiquido ?? 0,
+
+          // ✅ snapshots agora devolve bruto/dividas/liquido
           snapshots: snapshots.map((s) => ({
             id: s.id,
             date: s.date.toISOString(),
-            cashCents: s.cashCents,
+            totalBruto: safeInt(s.totalBruto),
+            totalDividas: safeInt(s.totalDividas),
+            totalLiquido: safeInt(s.totalLiquido),
           })),
-          debtsOpenCents, // ✅ novo
+
+          debtsOpenCents, // ✅ mantém
         },
       },
       { status: 200 }

@@ -131,7 +131,8 @@ export default function CedentesResumoClient() {
       setPoints(j.data.points);
       setSnapshots(j.data.snapshots);
 
-      const latestCents = Number(j.data.latestCashCents || 0);
+      // ✅ AJUSTE: backend agora devolve latestTotalLiquidoCents (não existe mais latestCashCents)
+      const latestCents = Number(j.data.latestTotalLiquidoCents || 0);
       setCashInput(String((latestCents / 100).toFixed(2)).replace(".", ","));
 
       const rates = j.data.ratesCents;
@@ -400,7 +401,6 @@ export default function CedentesResumoClient() {
               <thead className="sticky top-0 bg-slate-50">
                 <tr>
                   <th className="px-3 py-2 text-left">Dia</th>
-                  {/* ✅ AJUSTE: agora mostra total líquido */}
                   <th className="px-3 py-2 text-right">Total líquido</th>
                 </tr>
               </thead>
@@ -408,7 +408,6 @@ export default function CedentesResumoClient() {
                 {snapshots.map((s) => (
                   <tr key={s.id} className="border-t">
                     <td className="px-3 py-2">{dateBR(s.date)}</td>
-                    {/* ✅ AJUSTE: agora usa totalLiquido */}
                     <td className="px-3 py-2 text-right">{fmtMoneyBR(s.totalLiquido)}</td>
                   </tr>
                 ))}
