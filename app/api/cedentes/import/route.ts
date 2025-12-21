@@ -18,7 +18,7 @@ type ImportRow = {
   pixTipo?: keyof typeof PixTipo | PixTipo | null;
   chavePix?: string | null;
 
-  // Senhas
+  // Senhas (agora SEM ENC)
   senhaEmail?: string | null;
   senhaSmiles?: string | null;
   senhaLatamPass?: string | null;
@@ -165,7 +165,7 @@ function makeIdentifier(nome: string, index: number) {
   return `${prefix}-${String(index + 1).padStart(3, "0")}`;
 }
 
-function asEnc(v: unknown): string | null {
+function asPlain(v: unknown): string | null {
   const s = String(v ?? "").trim();
   return s ? s : null;
 }
@@ -200,6 +200,7 @@ export async function POST(req: Request) {
       }
 
       if (cpf.length !== 11) {
+        // não bloqueia, só registra
         errors.push({ i, reason: "cpf inválido (ajustado para importação)" });
       }
 
@@ -231,11 +232,12 @@ export async function POST(req: Request) {
 
             titularConfirmado: true,
 
-            senhaEmailEnc: asEnc(r?.senhaEmail),
-            senhaSmilesEnc: asEnc(r?.senhaSmiles),
-            senhaLatamPassEnc: asEnc(r?.senhaLatamPass),
-            senhaLiveloEnc: asEnc(r?.senhaLivelo),
-            senhaEsferaEnc: asEnc(r?.senhaEsfera),
+            // ✅ SENHAS (SEM ENC)
+            senhaEmail: asPlain(r?.senhaEmail),
+            senhaSmiles: asPlain(r?.senhaSmiles),
+            senhaLatamPass: asPlain(r?.senhaLatamPass),
+            senhaLivelo: asPlain(r?.senhaLivelo),
+            senhaEsfera: asPlain(r?.senhaEsfera),
 
             pontosLatam: parsePontosSafe(r?.pontosLatam),
             pontosSmiles: parsePontosSafe(r?.pontosSmiles),
@@ -248,47 +250,26 @@ export async function POST(req: Request) {
 
           update: {
             nomeCompleto,
-            dataNascimento: r?.dataNascimento
-              ? parseDateSafe(r.dataNascimento)
-              : undefined,
+            dataNascimento: r?.dataNascimento ? parseDateSafe(r.dataNascimento) : undefined,
 
             telefone: r?.telefone ? String(r.telefone).trim() : undefined,
-            emailCriado: r?.emailCriado
-              ? String(r.emailCriado).trim()
-              : undefined,
+            emailCriado: r?.emailCriado ? String(r.emailCriado).trim() : undefined,
 
             banco: r?.banco ? String(r.banco).trim() : undefined,
-            pixTipo: r?.pixTipo
-              ? normalizePixTipo(r.pixTipo)
-              : undefined,
-            chavePix: r?.chavePix
-              ? String(r.chavePix).trim()
-              : undefined,
+            pixTipo: r?.pixTipo ? normalizePixTipo(r.pixTipo) : undefined,
+            chavePix: r?.chavePix ? String(r.chavePix).trim() : undefined,
 
-            senhaEmailEnc: r?.senhaEmail ? asEnc(r.senhaEmail) : undefined,
-            senhaSmilesEnc: r?.senhaSmiles ? asEnc(r.senhaSmiles) : undefined,
-            senhaLatamPassEnc: r?.senhaLatamPass
-              ? asEnc(r.senhaLatamPass)
-              : undefined,
-            senhaLiveloEnc: r?.senhaLivelo ? asEnc(r.senhaLivelo) : undefined,
-            senhaEsferaEnc: r?.senhaEsfera ? asEnc(r.senhaEsfera) : undefined,
+            // ✅ SENHAS (SEM ENC)
+            senhaEmail: r?.senhaEmail ? asPlain(r.senhaEmail) : undefined,
+            senhaSmiles: r?.senhaSmiles ? asPlain(r.senhaSmiles) : undefined,
+            senhaLatamPass: r?.senhaLatamPass ? asPlain(r.senhaLatamPass) : undefined,
+            senhaLivelo: r?.senhaLivelo ? asPlain(r.senhaLivelo) : undefined,
+            senhaEsfera: r?.senhaEsfera ? asPlain(r.senhaEsfera) : undefined,
 
-            pontosLatam:
-              r?.pontosLatam != null
-                ? parsePontosSafe(r.pontosLatam)
-                : undefined,
-            pontosSmiles:
-              r?.pontosSmiles != null
-                ? parsePontosSafe(r.pontosSmiles)
-                : undefined,
-            pontosLivelo:
-              r?.pontosLivelo != null
-                ? parsePontosSafe(r.pontosLivelo)
-                : undefined,
-            pontosEsfera:
-              r?.pontosEsfera != null
-                ? parsePontosSafe(r.pontosEsfera)
-                : undefined,
+            pontosLatam: r?.pontosLatam != null ? parsePontosSafe(r.pontosLatam) : undefined,
+            pontosSmiles: r?.pontosSmiles != null ? parsePontosSafe(r.pontosSmiles) : undefined,
+            pontosLivelo: r?.pontosLivelo != null ? parsePontosSafe(r.pontosLivelo) : undefined,
+            pontosEsfera: r?.pontosEsfera != null ? parsePontosSafe(r.pontosEsfera) : undefined,
 
             ownerId,
           },

@@ -88,11 +88,11 @@ model Cedente {
   chavePix          String
   titularConfirmado Boolean @default(true)
 
-  senhaEmailEnc     String?
-  senhaSmilesEnc    String?
-  senhaLatamPassEnc String?
-  senhaLiveloEnc    String?
-  senhaEsferaEnc    String?
+  senhaEmail     String?
+  senhaSmiles    String?
+  senhaLatamPass String?
+  senhaLivelo    String?
+  senhaEsfera    String?
 
   pontosLatam  Int @default(0)
   pontosSmiles Int @default(0)

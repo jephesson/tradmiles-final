@@ -33,13 +33,12 @@ type ImportedCedente = {
   pixTipo?: PixTipo;
   chavePix?: string;
 
-  // ✅ pontos por programa
   pontosLatam: number;
   pontosSmiles: number;
   pontosLivelo: number;
   pontosEsfera: number;
 
-  responsavelRef?: string; // vindo do Excel
+  responsavelRef?: string;
   ownerId?: string | null;
   ownerName?: string | null;
 };
@@ -64,7 +63,6 @@ type ColumnMap = {
   senhaLivelo?: string;
   senhaEsfera?: string;
 
-  // ✅ pontos por programa (coluna que contém número)
   pontosLatam?: string;
   pontosSmiles?: string;
   pontosLivelo?: string;
@@ -78,6 +76,17 @@ type ExtraSheetCfg = {
   sheetName: string;
   columnMap: ColumnMap;
   rawPreviewKeys: string[];
+};
+
+type ExtraPack = {
+  ex: ExtraSheetCfg;
+  idx: Map<string, Record<string, any>>;
+  dup: Map<string, number>; // cpf -> nº ocorrências extras (além do 1º)
+  totalRows: number;
+  uniqueCpfs: number;
+  dupTotal: number;
+  matched: number;
+  unmatched: number;
 };
 
 /* =======================
@@ -103,6 +112,14 @@ function asStr(v: any) {
   return String(v ?? "").trim();
 }
 
+/** ✅ CPF sempre 11 dígitos (se vier com 10, prefixa 0) */
+function normalizeCpf11(v: any): string {
+  let cpf = onlyDigits(asStr(v));
+  if (!cpf) return "";
+  if (cpf.length === 10) cpf = "0" + cpf;
+  return cpf;
+}
+
 function normPixTipo(v: string): PixTipo | undefined {
   const x = norm(v).replace(/\s+/g, "");
   if (!x) return undefined;
@@ -124,71 +141,43 @@ function uid() {
 }
 
 /**
- * ✅ Parse robusto de pontos:
- * - aceita: "9380", "9.380", "9,380", "9.380,00", "9,380.00"
- * - se vier number 9.38 por causa do XLSX, tenta detectar e virar 9380
+ * ✅ Parse robusto de pontos
  */
 function parsePontos(v: any): number {
-  // number
   if (typeof v === "number" && Number.isFinite(v)) {
     const n = v;
     if (Number.isInteger(n)) return Math.max(0, n);
 
-    // caso típico: "9.380" (texto) -> XLSX converteu pra 9.38
-    // pontos nunca deveriam ter decimais, então:
-    // se n < 1000 e n*1000 fica inteiro, assume milhar
     const times1000 = n * 1000;
     if (n > 0 && n < 1000 && Math.abs(times1000 - Math.round(times1000)) < 1e-6) {
       return Math.max(0, Math.round(times1000));
     }
-
-    // fallback
     return Math.max(0, Math.floor(n));
   }
 
   const s0 = asStr(v);
   if (!s0) return 0;
 
-  // remove espaços e símbolos
   let s = s0.replace(/\s/g, "").replace(/[R$\u00A0]/g, "");
 
-  // padrão BR milhar: 9.380 ou 1.234.567
-  if (/^\d{1,3}(\.\d{3})+$/.test(s)) {
-    return Math.max(0, parseInt(s.replace(/\./g, ""), 10));
-  }
+  if (/^\d{1,3}(\.\d{3})+$/.test(s)) return Math.max(0, parseInt(s.replace(/\./g, ""), 10));
+  if (/^\d{1,3}(,\d{3})+$/.test(s)) return Math.max(0, parseInt(s.replace(/,/g, ""), 10));
 
-  // padrão US milhar: 9,380 ou 1,234,567
-  if (/^\d{1,3}(,\d{3})+$/.test(s)) {
-    return Math.max(0, parseInt(s.replace(/,/g, ""), 10));
-  }
-
-  // se tem os dois, decide decimal pelo último separador
   const lastDot = s.lastIndexOf(".");
   const lastComma = s.lastIndexOf(",");
 
   if (lastDot >= 0 && lastComma >= 0) {
     const commaIsDecimal = lastComma > lastDot;
+    if (commaIsDecimal) s = s.replace(/\./g, "").replace(/,/g, ".");
+    else s = s.replace(/,/g, "");
 
-    if (commaIsDecimal) {
-      // BR: 1.234,56
-      s = s.replace(/\./g, "").replace(/,/g, ".");
-    } else {
-      // US: 1,234.56
-      s = s.replace(/,/g, "");
-    }
     const n = Number(s.replace(/[^\d.]/g, ""));
     return Number.isFinite(n) ? Math.max(0, Math.floor(n)) : 0;
   }
 
-  // só ponto
   if (lastDot >= 0) {
-    // se parece "9.380" (3 casas) e inteiro pequeno, assume milhar
-    if (/^\d{1,3}\.\d{3}$/.test(s)) {
-      return Math.max(0, parseInt(s.replace(".", ""), 10));
-    }
-    // decimal comum
+    if (/^\d{1,3}\.\d{3}$/.test(s)) return Math.max(0, parseInt(s.replace(".", ""), 10));
     const n = Number(s.replace(/[^\d.]/g, ""));
-    // se virou 9.38 e faz sentido virar 9380 (mesma heurística)
     if (Number.isFinite(n) && n > 0 && n < 1000) {
       const t = n * 1000;
       if (Math.abs(t - Math.round(t)) < 1e-6) return Math.max(0, Math.round(t));
@@ -196,19 +185,12 @@ function parsePontos(v: any): number {
     return Number.isFinite(n) ? Math.max(0, Math.floor(n)) : 0;
   }
 
-  // só vírgula
   if (lastComma >= 0) {
-    // se parece "9,380" pode ser milhar (US) ou decimal (BR) — regra:
-    // se tem 3 dígitos depois da vírgula, assume milhar
-    if (/^\d{1,3},\d{3}$/.test(s)) {
-      return Math.max(0, parseInt(s.replace(",", ""), 10));
-    }
-    // senão trata como decimal BR
+    if (/^\d{1,3},\d{3}$/.test(s)) return Math.max(0, parseInt(s.replace(",", ""), 10));
     const n = Number(s.replace(/[^\d,]/g, "").replace(/,/g, "."));
     return Number.isFinite(n) ? Math.max(0, Math.floor(n)) : 0;
   }
 
-  // só dígitos
   const digits = s.replace(/\D+/g, "");
   return digits ? Math.max(0, parseInt(digits, 10)) : 0;
 }
@@ -252,7 +234,6 @@ function guessColumnMap(keys: string[]): ColumnMap {
     senhaLivelo: find(["senhalivelo", "senha livelo"]),
     senhaEsfera: find(["senhaesfera", "senha esfera"]),
 
-    // ✅ pontos
     pontosLatam: find(["pontoslatam", "latam", "latampass", "pontos latam", "pontos latam pass"]),
     pontosSmiles: find(["pontossmiles", "smiles", "pontos smiles"]),
     pontosLivelo: find(["pontoslivelo", "livelo", "pontos livelo"]),
@@ -267,10 +248,33 @@ function sheetToJson(workbook: XLSX.WorkBook, sheetName: string) {
   const ws = workbook.Sheets[sheetName];
   if (!ws) return { json: [] as Record<string, any>[], keys: [] as string[] };
 
-  // ✅ CRÍTICO: raw:true evita "9.380" virar 9.38
   const json = XLSX.utils.sheet_to_json<Record<string, any>>(ws, { defval: "", raw: true });
   const keys = json[0] ? Object.keys(json[0]) : [];
   return { json, keys };
+}
+
+/* =======================
+   Index por CPF (com duplicatas)
+======================= */
+function buildIndexByCpfWithDup(json: Record<string, any>[], map: ColumnMap) {
+  const idx = new Map<string, Record<string, any>>();
+  const dup = new Map<string, number>(); // cpf -> extras além do primeiro
+  const cpfCol = map.cpf;
+  if (!cpfCol) return { idx, dup, totalRows: json.length, uniqueCpfs: 0, dupTotal: 0 };
+
+  for (const r of json) {
+    const cpf = normalizeCpf11(r?.[cpfCol]);
+    if (!cpf) continue;
+
+    if (idx.has(cpf)) {
+      dup.set(cpf, (dup.get(cpf) || 0) + 1);
+      continue; // mantém o 1º (evita ficar variando)
+    }
+    idx.set(cpf, r);
+  }
+
+  const dupTotal = Array.from(dup.values()).reduce((a, b) => a + b, 0);
+  return { idx, dup, totalRows: json.length, uniqueCpfs: idx.size, dupTotal };
 }
 
 /* =======================
@@ -296,7 +300,6 @@ export default function CedentesImporter() {
 
   // Extras
   const [extras, setExtras] = useState<ExtraSheetCfg[]>([]);
-
   const [lastParseMsg, setLastParseMsg] = useState<string>("");
 
   const fieldDefsBase = useMemo<FieldDef[]>(
@@ -363,19 +366,6 @@ export default function CedentesImporter() {
     );
   }
 
-  function buildIndexByCpf(json: Record<string, any>[], map: ColumnMap) {
-    const idx = new Map<string, Record<string, any>>();
-    const cpfCol = map.cpf;
-    if (!cpfCol) return idx;
-
-    for (const r of json) {
-      const cpf = onlyDigits(asStr(r?.[cpfCol]));
-      if (!cpf) continue;
-      idx.set(cpf, r);
-    }
-    return idx;
-  }
-
   /* =======================
      Merge geral (base + extras)
   ======================= */
@@ -398,9 +388,26 @@ export default function CedentesImporter() {
 
     const getB = (r: Record<string, any>, col?: string) => (col ? r?.[col] : "");
 
+    // ---- stats base (duplicatas/unique) ----
+    const baseSeen = new Set<string>();
+    const baseDup = new Map<string, number>();
+    let baseCpfEmpty = 0;
+
+    for (const r of baseJson) {
+      const cpf = normalizeCpf11(getB(r, baseCpfCol));
+      if (!cpf) {
+        baseCpfEmpty++;
+        continue;
+      }
+      if (baseSeen.has(cpf)) baseDup.set(cpf, (baseDup.get(cpf) || 0) + 1);
+      else baseSeen.add(cpf);
+    }
+    const baseDupTotal = Array.from(baseDup.values()).reduce((a, b) => a + b, 0);
+
+    // ---- baseRows ----
     const baseRows: ImportedCedente[] = baseJson
       .map((r) => {
-        const cpf = onlyDigits(asStr(getB(r, baseCpfCol)));
+        const cpf = normalizeCpf11(getB(r, baseCpfCol));
         const nome = asStr(getB(r, baseNomeCol));
         if (!cpf || !nome) return null;
 
@@ -450,15 +457,36 @@ export default function CedentesImporter() {
       return;
     }
 
-    const extraIndexes = extras.map((ex) => {
+    // ---- extras packs + stats ----
+    const extraPacks: ExtraPack[] = extras.map((ex) => {
       const { json } = sheetToJson(wb, ex.sheetName);
-      return { ex, idx: buildIndexByCpf(json, ex.columnMap) };
+      const built = buildIndexByCpfWithDup(json, ex.columnMap);
+
+      return {
+        ex,
+        idx: built.idx,
+        dup: built.dup,
+        totalRows: built.totalRows,
+        uniqueCpfs: built.uniqueCpfs,
+        dupTotal: built.dupTotal,
+        matched: 0,
+        unmatched: 0,
+      };
     });
 
+    // match/unmatch por extra com baseRows
+    for (const row of baseRows) {
+      for (const pack of extraPacks) {
+        if (pack.idx.has(row.cpf)) pack.matched++;
+        else pack.unmatched++;
+      }
+    }
+
+    // ---- merge ----
     const merged = baseRows.map((row) => {
       let out = { ...row };
 
-      for (const pack of extraIndexes) {
+      for (const pack of extraPacks) {
         const r = pack.idx.get(row.cpf);
         if (!r) continue;
 
@@ -487,7 +515,6 @@ export default function CedentesImporter() {
         fillIfEmpty("senhaLivelo", asStr(getE(m.senhaLivelo)) || undefined);
         fillIfEmpty("senhaEsfera", asStr(getE(m.senhaEsfera)) || undefined);
 
-        // pontos: se extra tiver >0, substitui
         const pLatam = parsePontos(getE(m.pontosLatam));
         const pSmiles = parsePontos(getE(m.pontosSmiles));
         const pLivelo = parsePontos(getE(m.pontosLivelo));
@@ -509,11 +536,28 @@ export default function CedentesImporter() {
 
     setRows(merged);
 
+    // ---- mensagem detalhada ----
     const pend = merged.filter((r) => !r.ownerId).length;
-    setLastParseMsg(
-      `✅ ${merged.length} linhas prontas (Base: ${baseSheet} + ${extras.length} aba(s) extra).` +
-        (pend ? `\n⚠️ ${pend} sem responsável.` : "")
-    );
+
+    const extraLines =
+      extraPacks.length === 0
+        ? ""
+        : "\n\n📌 Match por aba extra:\n" +
+          extraPacks
+            .map((p) => {
+              const d = p.dupTotal ? ` | dup: ${p.dupTotal}` : "";
+              return `• ${p.ex.sheetName}: total ${p.totalRows}, únicos ${p.uniqueCpfs}${d} | match ${p.matched} | sem match ${p.unmatched}`;
+            })
+            .join("\n");
+
+    const baseLine =
+      `✅ ${merged.length} linhas prontas (Base: ${baseSheet} + ${extras.length} aba(s) extra).\n` +
+      `Base: total ${baseJson.length}, CPFs válidos/únicos ${baseSeen.size}` +
+      (baseDupTotal ? ` | dup: ${baseDupTotal}` : "") +
+      (baseCpfEmpty ? ` | cpf vazio: ${baseCpfEmpty}` : "") +
+      (pend ? `\n⚠️ ${pend} sem responsável (pode ajustar manualmente antes de importar).` : "");
+
+    setLastParseMsg(baseLine + extraLines);
   }
 
   /* =======================
@@ -606,7 +650,6 @@ export default function CedentesImporter() {
 
     const s = available[0];
     const { keys } = sheetToJson(wb, s);
-
     const guessed = guessColumnMap(keys);
 
     const ex: ExtraSheetCfg = {
@@ -667,13 +710,12 @@ export default function CedentesImporter() {
      Pendências / validações
   ======================= */
   const pendentes = useMemo(() => rows.filter((r) => !r.ownerId).length, [rows]);
-
   const baseOk = useMemo(() => Boolean(baseMap.nomeCompleto && baseMap.cpf), [baseMap]);
-
   const extrasOk = useMemo(() => extras.every((e) => Boolean(e.columnMap.cpf)), [extras]);
 
   /* =======================
      Importar
+     ✅ não trava se ownerId vazio (você ajusta depois)
   ======================= */
   async function importar() {
     if (!rows.length) return alert("Nada para importar.");
@@ -691,7 +733,7 @@ export default function CedentesImporter() {
       const json = await res.json();
       if (!json?.ok) throw new Error(json.error || "Erro ao importar");
 
-      alert(`✅ Importados ${json.data.count} cedentes`);
+      alert(`✅ Importados ${json.data.count} cedentes\nPulados: ${json.data.skipped}`);
 
       setRows([]);
       setFileName("");
@@ -721,7 +763,7 @@ export default function CedentesImporter() {
       <div>
         <h1 className="text-2xl font-bold">Importar Cedentes (Multi-abas)</h1>
         <p className="text-sm text-slate-600">
-          Aba base traz Nome + CPF. Abas extras cruzam pelo CPF e completam os dados. Pontos ausentes → 0.
+          Aba base traz Nome + CPF. Abas extras cruzam pelo CPF e completam os dados. Dados faltantes ficam em branco.
         </p>
       </div>
 
@@ -933,7 +975,7 @@ export default function CedentesImporter() {
         <>
           {pendentes > 0 && (
             <div className="rounded-xl border border-yellow-300 bg-yellow-50 p-3 text-sm">
-              ⚠️ {pendentes} cedente(s) sem responsável. Selecione manualmente antes de importar.
+              ⚠️ {pendentes} cedente(s) sem responsável. Pode importar assim e ajustar depois na edição.
             </div>
           )}
 
@@ -966,9 +1008,7 @@ export default function CedentesImporter() {
                             const id = e.target.value || null;
                             const f = funcionarios.find((x) => x.id === id);
                             setRows((prev) =>
-                              prev.map((x, idx) =>
-                                idx === i ? { ...x, ownerId: id, ownerName: f?.name ?? null } : x
-                              )
+                              prev.map((x, idx) => (idx === i ? { ...x, ownerId: id, ownerName: f?.name ?? null } : x))
                             );
                           }}
                         >
@@ -993,15 +1033,13 @@ export default function CedentesImporter() {
 
           <button
             onClick={importar}
-            disabled={loading || pendentes > 0 || !baseOk || !extrasOk}
+            disabled={loading || !baseOk || !extrasOk}
             className="rounded-xl bg-black px-5 py-2 text-white disabled:opacity-50"
           >
             {!baseOk
               ? "Selecione Nome e CPF (Base)"
               : !extrasOk
               ? "Selecione CPF em todas as abas extras"
-              : pendentes > 0
-              ? `Faltam ${pendentes} responsáveis`
               : loading
               ? "Importando..."
               : "Importar todos"}
