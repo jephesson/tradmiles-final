@@ -1,16 +1,13 @@
-import { NextResponse } from "next/server";
+// app/api/dividas/route.ts
+import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { getSession } from "@/lib/auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-function toCentsBR(v: any): number {
-  const s = String(v ?? "").trim();
-  if (!s) return 0;
-  const normalized = s.replace(/\./g, "").replace(",", ".");
-  const n = Number(normalized);
-  return Number.isFinite(n) ? Math.round(n * 100) : 0;
+function safeInt(v: any) {
+  const n = Number(v);
+  return Number.isFinite(n) ? Math.trunc(n) : 0;
 }
 
 export async function GET() {
@@ -19,12 +16,14 @@ export async function GET() {
       orderBy: { createdAt: "desc" },
       include: {
         payments: { orderBy: { paidAt: "desc" } },
+        createdBy: { select: { id: true, name: true, login: true } },
       },
     });
 
     const data = debts.map((d) => {
-      const paid = d.payments.reduce((acc, p) => acc + (p.amountCents || 0), 0);
-      const balance = Math.max(0, (d.totalCents || 0) - paid);
+      const paid = d.payments.reduce((a, p) => a + (p.amountCents || 0), 0);
+      const remaining = Math.max(0, (d.totalCents || 0) - paid);
+
       return {
         id: d.id,
         title: d.title,
@@ -33,8 +32,9 @@ export async function GET() {
         status: d.status,
         createdAt: d.createdAt.toISOString(),
         updatedAt: d.updatedAt.toISOString(),
+        createdBy: d.createdBy ? { id: d.createdBy.id, name: d.createdBy.name, login: d.createdBy.login } : null,
         paidCents: paid,
-        balanceCents: balance,
+        remainingCents: remaining,
         payments: d.payments.map((p) => ({
           id: p.id,
           amountCents: p.amountCents,
@@ -47,30 +47,38 @@ export async function GET() {
     return NextResponse.json({ ok: true, data }, { status: 200 });
   } catch (e: any) {
     console.error(e);
-    return NextResponse.json({ ok: false, error: e?.message || "Erro ao listar dívidas" }, { status: 500 });
+    return NextResponse.json({ ok: false, error: e?.message || "Erro ao listar dívidas." }, { status: 500 });
   }
 }
 
-export async function POST(req: Request) {
+export async function POST(req: NextRequest) {
   try {
-    const body = await req.json();
-    const title = String(body?.title ?? "").trim();
-    const description = String(body?.description ?? "").trim() || null;
-    const totalCents = toCentsBR(body?.total);
+    const body = await req.json().catch(() => ({} as any));
 
-    if (!title) return NextResponse.json({ ok: false, error: "Informe a descrição/título." }, { status: 400 });
-    if (totalCents <= 0) return NextResponse.json({ ok: false, error: "Valor inválido." }, { status: 400 });
+    const title = String(body?.title || "").trim();
+    const description = String(body?.description || "").trim() || null;
+    const totalCents = safeInt(body?.totalCents);
 
-    const session = getSession?.(); // se existir no teu projeto
-    const createdById = session?.id ?? null;
+    if (!title) return NextResponse.json({ ok: false, error: "Informe title." }, { status: 400 });
+    if (!totalCents || totalCents <= 0)
+      return NextResponse.json({ ok: false, error: "Informe totalCents > 0." }, { status: 400 });
+
+    // createdById opcional (se você quiser preencher depois com session)
+    const createdById = body?.createdById ? String(body.createdById) : null;
 
     const debt = await prisma.debt.create({
-      data: { title, description, totalCents, createdById },
+      data: {
+        title,
+        description,
+        totalCents,
+        status: "OPEN",
+        createdById: createdById || undefined,
+      },
     });
 
     return NextResponse.json({ ok: true, data: { id: debt.id } }, { status: 201 });
   } catch (e: any) {
     console.error(e);
-    return NextResponse.json({ ok: false, error: e?.message || "Erro ao criar dívida" }, { status: 500 });
+    return NextResponse.json({ ok: false, error: e?.message || "Erro ao criar dívida." }, { status: 500 });
   }
 }
