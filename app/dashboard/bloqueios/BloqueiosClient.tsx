@@ -2,7 +2,18 @@
 
 import { useEffect, useMemo, useState } from "react";
 
-type CedenteOpt = { id: string; nomeCompleto: string; cpf: string; identificador: string };
+type CedenteOpt = {
+  id: string;
+  nomeCompleto: string;
+  cpf: string;
+  identificador: string;
+
+  // ✅ pontos para preview
+  pontosLatam: number;
+  pontosSmiles: number;
+  pontosLivelo: number;
+  pontosEsfera: number;
+};
 
 type Observation = { id: string; text: string; createdAt: string };
 
@@ -30,6 +41,10 @@ function dateTimeBR(iso: string) {
 }
 function dateBR(iso: string) {
   return new Date(iso).toLocaleDateString("pt-BR");
+}
+
+function cn(...xs: Array<string | false | undefined | null>) {
+  return xs.filter(Boolean).join(" ");
 }
 
 export default function BloqueiosClient() {
@@ -71,6 +86,21 @@ export default function BloqueiosClient() {
   useEffect(() => {
     loadAll();
   }, []);
+
+  // ✅ Cedente selecionado + preview dos 4 programas
+  const selectedCedente = useMemo(() => {
+    return cedentes.find((c) => c.id === cedenteId) || null;
+  }, [cedentes, cedenteId]);
+
+  const preview = useMemo(() => {
+    if (!selectedCedente) return { latam: 0, smiles: 0, livelo: 0, esfera: 0 };
+    return {
+      latam: selectedCedente.pontosLatam || 0,
+      smiles: selectedCedente.pontosSmiles || 0,
+      livelo: selectedCedente.pontosLivelo || 0,
+      esfera: selectedCedente.pontosEsfera || 0,
+    };
+  }, [selectedCedente]);
 
   const totals = useMemo(() => {
     const open = rows.filter((r) => r.status === "OPEN");
@@ -186,6 +216,41 @@ export default function BloqueiosClient() {
                 </option>
               ))}
             </select>
+
+            {/* ✅ PREVIEW dos pontos das 4 CIAs */}
+            {selectedCedente && (
+              <div className="mt-2 rounded-xl border bg-slate-50 p-3">
+                <div className="text-xs font-semibold text-slate-700 mb-2">
+                  Prévia de pontos (todas as CIAs)
+                </div>
+
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                  <div className={cn("rounded-lg border bg-white p-2", program === "LATAM" && "border-black")}>
+                    <div className="text-[11px] text-slate-600">LATAM</div>
+                    <div className="font-semibold tabular-nums">{fmtInt(preview.latam)}</div>
+                  </div>
+
+                  <div className={cn("rounded-lg border bg-white p-2", program === "SMILES" && "border-black")}>
+                    <div className="text-[11px] text-slate-600">SMILES</div>
+                    <div className="font-semibold tabular-nums">{fmtInt(preview.smiles)}</div>
+                  </div>
+
+                  <div className={cn("rounded-lg border bg-white p-2", program === "LIVELO" && "border-black")}>
+                    <div className="text-[11px] text-slate-600">LIVELO</div>
+                    <div className="font-semibold tabular-nums">{fmtInt(preview.livelo)}</div>
+                  </div>
+
+                  <div className={cn("rounded-lg border bg-white p-2", program === "ESFERA" && "border-black")}>
+                    <div className="text-[11px] text-slate-600">ESFERA</div>
+                    <div className="font-semibold tabular-nums">{fmtInt(preview.esfera)}</div>
+                  </div>
+                </div>
+
+                <div className="mt-2 text-xs text-slate-600">
+                  * Ao clicar em <b>Adicionar</b>, será bloqueado somente o programa selecionado acima.
+                </div>
+              </div>
+            )}
           </label>
 
           <label className="space-y-1">
