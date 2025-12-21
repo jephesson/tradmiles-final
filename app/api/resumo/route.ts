@@ -29,9 +29,22 @@ export async function GET() {
       esfera: safeInt(agg._sum.pontosEsfera),
     };
 
+    // ✅ rates (milheiro) salvo (config única)
+    const settings = await prisma.settings.upsert({
+      where: { key: "default" },
+      create: { key: "default" },
+      update: {},
+      select: {
+        latamRateCents: true,
+        smilesRateCents: true,
+        liveloRateCents: true,
+        esferaRateCents: true,
+      },
+    });
+
     const snapshots = await prisma.cashSnapshot.findMany({
       orderBy: { date: "desc" },
-      take: 60, // últimos 60 dias (ajuste se quiser)
+      take: 60,
     });
 
     const latest = snapshots[0] ?? null;
@@ -41,6 +54,7 @@ export async function GET() {
         ok: true,
         data: {
           points,
+          ratesCents: settings,
           latestCashCents: latest?.cashCents ?? 0,
           snapshots: snapshots.map((s) => ({
             id: s.id,

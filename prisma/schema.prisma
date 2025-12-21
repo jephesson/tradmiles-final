@@ -146,3 +146,16 @@ model CashSnapshot {
   updatedAt DateTime @updatedAt
 }
 
+model Settings {
+  id             String   @id @default(cuid())
+  key            String   @unique
+
+  latamRateCents Int      @default(2000) // R$20,00 por milheiro
+  smilesRateCents Int     @default(1800)
+  liveloRateCents Int     @default(2200)
+  esferaRateCents Int     @default(1700)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
