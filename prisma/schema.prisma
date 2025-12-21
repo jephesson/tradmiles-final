@@ -169,11 +169,16 @@ model CedenteTermAcceptance {
 }
 
 model CashSnapshot {
-  id        String   @id @default(cuid())
-  date      DateTime @unique // salva “o dia” (00:00) em UTC ou normalizado
-  cashCents Int      @default(0)
+  id           String   @id @default(cuid())
+  date         DateTime @unique
+
+  totalBruto   Int      // em centavos
+  totalDividas Int      // em centavos
+  totalLiquido Int      // em centavos
+
   createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+
+  @@map("cash_snapshots")
 }
 
 model Settings {
@@ -286,3 +291,5 @@ model BlockObservation {
   @@index([createdAt])
   @@map("block_observations")
 }
+
+

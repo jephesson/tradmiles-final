@@ -3,7 +3,15 @@
 import { useEffect, useMemo, useState } from "react";
 
 type Points = { latam: number; smiles: number; livelo: number; esfera: number };
-type Snapshot = { id: string; date: string; cashCents: number };
+
+// ✅ AJUSTE: snapshot agora guarda histórico do TOTAL (bruto/dividas/liquido)
+type Snapshot = {
+  id: string;
+  date: string;
+  totalBruto: number;
+  totalDividas: number;
+  totalLiquido: number;
+};
 
 function fmtMoneyBR(cents: number) {
   const v = (cents || 0) / 100;
@@ -80,7 +88,11 @@ function StatCard({
         {value}
       </div>
       {hint ? (
-        <div className={tone === "dark" ? "text-xs opacity-70 mt-1" : "text-xs text-slate-500 mt-1"}>
+        <div
+          className={
+            tone === "dark" ? "text-xs opacity-70 mt-1" : "text-xs text-slate-500 mt-1"
+          }
+        >
           {hint}
         </div>
       ) : null}
@@ -206,17 +218,22 @@ export default function CedentesResumoClient() {
     };
   }, [points, rateLatam, rateSmiles, rateLivelo, rateEsfera, cashInput, debtsOpenCents]);
 
+  // ✅ AJUSTE: agora “Salvar caixa de hoje” grava o snapshot do TOTAL LÍQUIDO (e bruto/dividas)
   async function salvarCaixaHoje() {
     try {
-      const res = await fetch("/api/caixa", {
+      const res = await fetch("/api/resumo/snapshot", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ cash: cashInput }),
+        body: JSON.stringify({
+          totalBruto: calc.totalGrossCents,
+          totalDividas: debtsOpenCents,
+          totalLiquido: calc.totalNetCents,
+        }),
       });
       const j = await res.json();
-      if (!j?.ok) throw new Error(j?.error || "Erro ao salvar caixa");
+      if (!j?.ok) throw new Error(j?.error || "Erro ao salvar snapshot");
       await load();
-      alert("✅ Caixa de hoje salvo!");
+      alert("✅ Snapshot do dia salvo!");
     } catch (e: any) {
       alert(e.message);
     }
@@ -248,10 +265,18 @@ export default function CedentesResumoClient() {
           <div className="font-semibold">Milhas atuais</div>
 
           <div className="grid gap-2 sm:grid-cols-2 text-sm">
-            <div>LATAM: <b>{fmtInt(points.latam)}</b></div>
-            <div>Smiles: <b>{fmtInt(points.smiles)}</b></div>
-            <div>Livelo: <b>{fmtInt(points.livelo)}</b></div>
-            <div>Esfera: <b>{fmtInt(points.esfera)}</b></div>
+            <div>
+              LATAM: <b>{fmtInt(points.latam)}</b>
+            </div>
+            <div>
+              Smiles: <b>{fmtInt(points.smiles)}</b>
+            </div>
+            <div>
+              Livelo: <b>{fmtInt(points.livelo)}</b>
+            </div>
+            <div>
+              Esfera: <b>{fmtInt(points.esfera)}</b>
+            </div>
           </div>
 
           <div className="text-xs text-slate-600">
@@ -318,25 +343,29 @@ export default function CedentesResumoClient() {
           <div className="rounded-xl border p-3">
             <div className="text-xs text-slate-600">LATAM</div>
             <div className="text-sm">
-              Milheiros: <b>{fmtInt(calc.milLatam)}</b> • Valor: <b>{fmtMoneyBR(calc.vLatamCents)}</b>
+              Milheiros: <b>{fmtInt(calc.milLatam)}</b> • Valor:{" "}
+              <b>{fmtMoneyBR(calc.vLatamCents)}</b>
             </div>
           </div>
           <div className="rounded-xl border p-3">
             <div className="text-xs text-slate-600">Smiles</div>
             <div className="text-sm">
-              Milheiros: <b>{fmtInt(calc.milSmiles)}</b> • Valor: <b>{fmtMoneyBR(calc.vSmilesCents)}</b>
+              Milheiros: <b>{fmtInt(calc.milSmiles)}</b> • Valor:{" "}
+              <b>{fmtMoneyBR(calc.vSmilesCents)}</b>
             </div>
           </div>
           <div className="rounded-xl border p-3">
             <div className="text-xs text-slate-600">Livelo</div>
             <div className="text-sm">
-              Milheiros: <b>{fmtInt(calc.milLivelo)}</b> • Valor: <b>{fmtMoneyBR(calc.vLiveloCents)}</b>
+              Milheiros: <b>{fmtInt(calc.milLivelo)}</b> • Valor:{" "}
+              <b>{fmtMoneyBR(calc.vLiveloCents)}</b>
             </div>
           </div>
           <div className="rounded-xl border p-3">
             <div className="text-xs text-slate-600">Esfera</div>
             <div className="text-sm">
-              Milheiros: <b>{fmtInt(calc.milEsfera)}</b> • Valor: <b>{fmtMoneyBR(calc.vEsferaCents)}</b>
+              Milheiros: <b>{fmtInt(calc.milEsfera)}</b> • Valor:{" "}
+              <b>{fmtMoneyBR(calc.vEsferaCents)}</b>
             </div>
           </div>
         </div>
@@ -355,11 +384,7 @@ export default function CedentesResumoClient() {
             tone="danger"
           />
 
-          <StatCard
-            label="TOTAL LÍQUIDO"
-            value={fmtMoneyBR(calc.totalNetCents)}
-            tone="dark"
-          />
+          <StatCard label="TOTAL LÍQUIDO" value={fmtMoneyBR(calc.totalNetCents)} tone="dark" />
         </div>
       </div>
 
@@ -375,14 +400,16 @@ export default function CedentesResumoClient() {
               <thead className="sticky top-0 bg-slate-50">
                 <tr>
                   <th className="px-3 py-2 text-left">Dia</th>
-                  <th className="px-3 py-2 text-right">Caixa</th>
+                  {/* ✅ AJUSTE: agora mostra total líquido */}
+                  <th className="px-3 py-2 text-right">Total líquido</th>
                 </tr>
               </thead>
               <tbody>
                 {snapshots.map((s) => (
                   <tr key={s.id} className="border-t">
                     <td className="px-3 py-2">{dateBR(s.date)}</td>
-                    <td className="px-3 py-2 text-right">{fmtMoneyBR(s.cashCents)}</td>
+                    {/* ✅ AJUSTE: agora usa totalLiquido */}
+                    <td className="px-3 py-2 text-right">{fmtMoneyBR(s.totalLiquido)}</td>
                   </tr>
                 ))}
               </tbody>
