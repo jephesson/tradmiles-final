@@ -9,16 +9,13 @@ function fmtMoneyBR(cents: number) {
   const v = (cents || 0) / 100;
   return v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
-
 function fmtInt(n: number) {
   return new Intl.NumberFormat("pt-BR").format(n || 0);
 }
-
 function dateBR(iso: string) {
   const d = new Date(iso);
   return d.toLocaleDateString("pt-BR");
 }
-
 function toCentsFromInput(s: string) {
   const cleaned = (s || "").trim();
   if (!cleaned) return 0;
@@ -26,10 +23,69 @@ function toCentsFromInput(s: string) {
   const n = Number(normalized);
   return Number.isFinite(n) ? Math.round(n * 100) : 0;
 }
-
 function centsToRateInput(cents: number) {
   const v = (Number(cents || 0) / 100).toFixed(2);
   return v.replace(".", ",");
+}
+
+function Input({
+  label,
+  value,
+  onChange,
+  placeholder,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  placeholder?: string;
+}) {
+  return (
+    <label className="space-y-1">
+      <div className="text-xs text-slate-600">{label}</div>
+      <input
+        className="w-full rounded-xl border px-3 py-2 text-sm"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+      />
+    </label>
+  );
+}
+
+function StatCard({
+  label,
+  value,
+  hint,
+  tone = "default",
+}: {
+  label: string;
+  value: string;
+  hint?: string;
+  tone?: "default" | "danger" | "dark";
+}) {
+  const base = "rounded-2xl border p-4";
+  const cls =
+    tone === "dark"
+      ? `${base} bg-black text-white`
+      : tone === "danger"
+      ? `${base} bg-slate-50`
+      : `${base} bg-slate-50`;
+
+  return (
+    <div className={cls}>
+      <div className={tone === "dark" ? "text-xs opacity-80" : "text-xs text-slate-600"}>
+        {label}
+      </div>
+      <div className={tone === "dark" ? "text-2xl font-bold" : "text-xl font-bold"}>
+        {value}
+      </div>
+      {hint ? (
+        <div className={tone === "dark" ? "text-xs opacity-70 mt-1" : "text-xs text-slate-500 mt-1"}>
+          {hint}
+        </div>
+      ) : null}
+    </div>
+  );
 }
 
 export default function CedentesResumoClient() {
@@ -44,10 +100,8 @@ export default function CedentesResumoClient() {
   const [snapshots, setSnapshots] = useState<Snapshot[]>([]);
   const [cashInput, setCashInput] = useState<string>("");
 
-  // ✅ dívidas em aberto (saldo total) vindo do backend
   const [debtsOpenCents, setDebtsOpenCents] = useState<number>(0);
 
-  // valores do milheiro (R$/1000)
   const [rateLatam, setRateLatam] = useState("20,00");
   const [rateSmiles, setRateSmiles] = useState("18,00");
   const [rateLivelo, setRateLivelo] = useState("22,00");
@@ -65,11 +119,9 @@ export default function CedentesResumoClient() {
       setPoints(j.data.points);
       setSnapshots(j.data.snapshots);
 
-      // caixa do dia (latest)
       const latestCents = Number(j.data.latestCashCents || 0);
       setCashInput(String((latestCents / 100).toFixed(2)).replace(".", ","));
 
-      // ✅ rates salvos
       const rates = j.data.ratesCents;
       if (rates) {
         setRateLatam(centsToRateInput(rates.latamRateCents));
@@ -78,7 +130,6 @@ export default function CedentesResumoClient() {
         setRateEsfera(centsToRateInput(rates.esferaRateCents));
       }
 
-      // ✅ dívidas em aberto
       setDebtsOpenCents(Number(j.data.debtsOpenCents || 0));
 
       setDidLoad(true);
@@ -108,7 +159,6 @@ export default function CedentesResumoClient() {
     if (!j?.ok) throw new Error(j?.error || "Erro ao salvar milheiros");
   }
 
-  // ✅ autosave dos rates (debounce)
   useEffect(() => {
     if (!didLoad) return;
     const t = setTimeout(() => {
@@ -154,15 +204,7 @@ export default function CedentesResumoClient() {
       totalGrossCents,
       totalNetCents,
     };
-  }, [
-    points,
-    rateLatam,
-    rateSmiles,
-    rateLivelo,
-    rateEsfera,
-    cashInput,
-    debtsOpenCents,
-  ]);
+  }, [points, rateLatam, rateSmiles, rateLivelo, rateEsfera, cashInput, debtsOpenCents]);
 
   async function salvarCaixaHoje() {
     try {
@@ -182,6 +224,7 @@ export default function CedentesResumoClient() {
 
   return (
     <div className="space-y-6">
+      {/* Header */}
       <div className="flex items-start justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold">Resumo</h1>
@@ -199,24 +242,16 @@ export default function CedentesResumoClient() {
         </button>
       </div>
 
-      {/* Cards */}
-      <div className="grid gap-4 md:grid-cols-2">
-        <div className="rounded-2xl border bg-white p-4 space-y-3">
+      {/* Cards topo */}
+      <div className="grid gap-4 lg:grid-cols-3">
+        <div className="rounded-2xl border bg-white p-4 space-y-3 lg:col-span-2">
           <div className="font-semibold">Milhas atuais</div>
 
-          <div className="text-sm grid grid-cols-2 gap-2">
-            <div>
-              LATAM: <b>{fmtInt(points.latam)}</b>
-            </div>
-            <div>
-              Smiles: <b>{fmtInt(points.smiles)}</b>
-            </div>
-            <div>
-              Livelo: <b>{fmtInt(points.livelo)}</b>
-            </div>
-            <div>
-              Esfera: <b>{fmtInt(points.esfera)}</b>
-            </div>
+          <div className="grid gap-2 sm:grid-cols-2 text-sm">
+            <div>LATAM: <b>{fmtInt(points.latam)}</b></div>
+            <div>Smiles: <b>{fmtInt(points.smiles)}</b></div>
+            <div>Livelo: <b>{fmtInt(points.livelo)}</b></div>
+            <div>Esfera: <b>{fmtInt(points.esfera)}</b></div>
           </div>
 
           <div className="text-xs text-slate-600">
@@ -227,19 +262,16 @@ export default function CedentesResumoClient() {
         <div className="rounded-2xl border bg-white p-4 space-y-3">
           <div className="font-semibold">Caixa (Inter)</div>
 
-          <div className="flex items-center gap-3">
-            <div className="w-40 text-xs text-slate-600">Saldo atual (R$)</div>
-            <input
-              value={cashInput}
-              onChange={(e) => setCashInput(e.target.value)}
-              className="flex-1 rounded-xl border px-3 py-2 text-sm"
-              placeholder="Ex: 12345,67"
-            />
-          </div>
+          <Input
+            label="Saldo atual (R$)"
+            value={cashInput}
+            onChange={setCashInput}
+            placeholder="Ex: 12345,67"
+          />
 
           <button
             onClick={salvarCaixaHoje}
-            className="rounded-xl bg-black px-4 py-2 text-white text-sm hover:bg-gray-800"
+            className="w-full rounded-xl bg-black px-4 py-2 text-white text-sm hover:bg-gray-800"
           >
             Salvar caixa de hoje
           </button>
@@ -250,10 +282,13 @@ export default function CedentesResumoClient() {
         </div>
       </div>
 
-      {/* Rates + valores */}
+      {/* Milheiro */}
       <div className="rounded-2xl border bg-white p-4 space-y-4">
         <div className="flex items-center justify-between gap-3">
-          <div className="font-semibold">Valor do milheiro (R$/1000)</div>
+          <div>
+            <div className="font-semibold">Valor do milheiro</div>
+            <div className="text-xs text-slate-600">R$/1000</div>
+          </div>
 
           <button
             onClick={async () => {
@@ -270,91 +305,61 @@ export default function CedentesResumoClient() {
           </button>
         </div>
 
-        <div className="grid gap-3 md:grid-cols-2">
-          <div className="flex items-center gap-3">
-            <div className="w-40 text-xs text-slate-600">LATAM</div>
-            <input
-              className="flex-1 rounded-xl border px-3 py-2 text-sm"
-              value={rateLatam}
-              onChange={(e) => setRateLatam(e.target.value)}
-            />
-          </div>
-          <div className="flex items-center gap-3">
-            <div className="w-40 text-xs text-slate-600">Smiles</div>
-            <input
-              className="flex-1 rounded-xl border px-3 py-2 text-sm"
-              value={rateSmiles}
-              onChange={(e) => setRateSmiles(e.target.value)}
-            />
-          </div>
-          <div className="flex items-center gap-3">
-            <div className="w-40 text-xs text-slate-600">Livelo</div>
-            <input
-              className="flex-1 rounded-xl border px-3 py-2 text-sm"
-              value={rateLivelo}
-              onChange={(e) => setRateLivelo(e.target.value)}
-            />
-          </div>
-          <div className="flex items-center gap-3">
-            <div className="w-40 text-xs text-slate-600">Esfera</div>
-            <input
-              className="flex-1 rounded-xl border px-3 py-2 text-sm"
-              value={rateEsfera}
-              onChange={(e) => setRateEsfera(e.target.value)}
-            />
-          </div>
+        {/* Inputs bonitos */}
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Input label="LATAM" value={rateLatam} onChange={setRateLatam} />
+          <Input label="Smiles" value={rateSmiles} onChange={setRateSmiles} />
+          <Input label="Livelo" value={rateLivelo} onChange={setRateLivelo} />
+          <Input label="Esfera" value={rateEsfera} onChange={setRateEsfera} />
         </div>
 
-        <div className="grid gap-3 md:grid-cols-2">
+        {/* Valores */}
+        <div className="grid gap-3 sm:grid-cols-2">
           <div className="rounded-xl border p-3">
             <div className="text-xs text-slate-600">LATAM</div>
             <div className="text-sm">
-              Milheiros: <b>{fmtInt(calc.milLatam)}</b> • Valor:{" "}
-              <b>{fmtMoneyBR(calc.vLatamCents)}</b>
+              Milheiros: <b>{fmtInt(calc.milLatam)}</b> • Valor: <b>{fmtMoneyBR(calc.vLatamCents)}</b>
             </div>
           </div>
           <div className="rounded-xl border p-3">
             <div className="text-xs text-slate-600">Smiles</div>
             <div className="text-sm">
-              Milheiros: <b>{fmtInt(calc.milSmiles)}</b> • Valor:{" "}
-              <b>{fmtMoneyBR(calc.vSmilesCents)}</b>
+              Milheiros: <b>{fmtInt(calc.milSmiles)}</b> • Valor: <b>{fmtMoneyBR(calc.vSmilesCents)}</b>
             </div>
           </div>
           <div className="rounded-xl border p-3">
             <div className="text-xs text-slate-600">Livelo</div>
             <div className="text-sm">
-              Milheiros: <b>{fmtInt(calc.milLivelo)}</b> • Valor:{" "}
-              <b>{fmtMoneyBR(calc.vLiveloCents)}</b>
+              Milheiros: <b>{fmtInt(calc.milLivelo)}</b> • Valor: <b>{fmtMoneyBR(calc.vLiveloCents)}</b>
             </div>
           </div>
           <div className="rounded-xl border p-3">
             <div className="text-xs text-slate-600">Esfera</div>
             <div className="text-sm">
-              Milheiros: <b>{fmtInt(calc.milEsfera)}</b> • Valor:{" "}
-              <b>{fmtMoneyBR(calc.vEsferaCents)}</b>
+              Milheiros: <b>{fmtInt(calc.milEsfera)}</b> • Valor: <b>{fmtMoneyBR(calc.vEsferaCents)}</b>
             </div>
           </div>
         </div>
 
         {/* Totais */}
         <div className="grid gap-3 md:grid-cols-3">
-          <div className="rounded-2xl border bg-slate-50 p-4">
-            <div className="text-xs text-slate-600">TOTAL BRUTO (milhas + caixa)</div>
-            <div className="text-xl font-bold">{fmtMoneyBR(calc.totalGrossCents)}</div>
-          </div>
+          <StatCard
+            label="TOTAL BRUTO (milhas + caixa)"
+            value={fmtMoneyBR(calc.totalGrossCents)}
+          />
 
-          <div className="rounded-2xl border bg-slate-50 p-4">
-            <div className="text-xs text-slate-600">DÍVIDAS EM ABERTO</div>
-            <div className="text-xl font-bold">-{fmtMoneyBR(debtsOpenCents)}</div>
-            <div className="text-xs text-slate-500 mt-1">
-              (saldo total das dívidas OPEN)
-            </div>
-          </div>
+          <StatCard
+            label="DÍVIDAS EM ABERTO"
+            value={`-${fmtMoneyBR(debtsOpenCents)}`}
+            hint="saldo total das dívidas OPEN"
+            tone="danger"
+          />
 
-          <div className="rounded-2xl border bg-black p-4 text-white">
-            <div className="text-xs opacity-80">TOTAL LÍQUIDO</div>
-            <div className="text-2xl font-bold">{fmtMoneyBR(calc.totalNetCents)}</div>
-          </div>
+          <StatCard
+            label="TOTAL LÍQUIDO"
+            value={fmtMoneyBR(calc.totalNetCents)}
+            tone="dark"
+          />
         </div>
       </div>
 
