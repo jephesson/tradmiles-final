@@ -44,6 +44,9 @@ model User {
   // Cedentes que ele revisou (aprovou/reprovou)
   cedentesReviewed Cedente[] @relation("CedenteReviewedBy")
 
+  // ✅ Dívidas criadas por este usuário (lado oposto de Debt.createdBy)
+  debtsCreated Debt[]
+
   // Um convite por usuário (no teu fluxo)
   employeeInvite EmployeeInvite?
 
@@ -78,7 +81,7 @@ model Cedente {
 
   nomeCompleto   String
   dataNascimento DateTime?
-  cpf            String @unique
+  cpf            String    @unique
 
   telefone    String?
   emailCriado String?
@@ -103,10 +106,10 @@ model Cedente {
   reviewedAt DateTime?
 
   reviewedById String?
-  reviewedBy   User? @relation("CedenteReviewedBy", fields: [reviewedById], references: [id], onDelete: SetNull)
+  reviewedBy   User?   @relation("CedenteReviewedBy", fields: [reviewedById], references: [id], onDelete: SetNull)
 
   ownerId String
-  owner   User @relation("CedenteOwner", fields: [ownerId], references: [id], onDelete: Restrict)
+  owner   User   @relation("CedenteOwner", fields: [ownerId], references: [id], onDelete: Restrict)
 
   inviteId String?
   invite   EmployeeInvite? @relation(fields: [inviteId], references: [id], onDelete: SetNull)
@@ -147,13 +150,13 @@ model CashSnapshot {
 }
 
 model Settings {
-  id             String   @id @default(cuid())
-  key            String   @unique
+  id  String @id @default(cuid())
+  key String @unique
 
-  latamRateCents Int      @default(2000) // R$20,00 por milheiro
-  smilesRateCents Int     @default(1800)
-  liveloRateCents Int     @default(2200)
-  esferaRateCents Int     @default(1700)
+  latamRateCents  Int @default(2000) // R$20,00 por milheiro
+  smilesRateCents Int @default(1800)
+  liveloRateCents Int @default(2200)
+  esferaRateCents Int @default(1700)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -167,16 +170,16 @@ enum DebtStatus {
 
 model Debt {
   id          String     @id @default(cuid())
-  title       String     // descrição curta (ex: "Cartão Nubank", "123milhas", etc.)
-  description String?    // opcional (detalhes)
-  totalCents  Int        // valor total da dívida em centavos
+  title       String // descrição curta (ex: "Cartão Nubank", "123milhas", etc.)
+  description String? // opcional (detalhes)
+  totalCents  Int // valor total da dívida em centavos
   status      DebtStatus @default(OPEN)
 
   // quem criou (opcional, mas útil)
   createdById String?
-  createdBy   User?      @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  createdBy   User?   @relation(fields: [createdById], references: [id], onDelete: SetNull)
 
-  payments    DebtPayment[]
+  payments DebtPayment[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -187,13 +190,13 @@ model Debt {
 }
 
 model DebtPayment {
-  id       String   @id @default(cuid())
-  debtId   String
-  amountCents Int   // pagamento em centavos
-  note     String?  // opcional (ex: "pix", "boleto", "parcial", etc.)
-  paidAt   DateTime @default(now()) // data/hora do pagamento (auto)
+  id          String   @id @default(cuid())
+  debtId      String
+  amountCents Int // pagamento em centavos
+  note        String? // opcional (ex: "pix", "boleto", "parcial", etc.)
+  paidAt      DateTime @default(now()) // data/hora do pagamento (auto)
 
-  debt     Debt     @relation(fields: [debtId], references: [id], onDelete: Cascade)
+  debt Debt @relation(fields: [debtId], references: [id], onDelete: Cascade)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -202,5 +205,3 @@ model DebtPayment {
   @@index([paidAt])
   @@map("debt_payments")
 }
-
-
