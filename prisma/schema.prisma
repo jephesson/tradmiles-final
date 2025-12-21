@@ -159,3 +159,48 @@ model Settings {
   updatedAt DateTime @updatedAt
 }
 
+enum DebtStatus {
+  OPEN
+  PAID
+  CANCELED
+}
+
+model Debt {
+  id          String     @id @default(cuid())
+  title       String     // descrição curta (ex: "Cartão Nubank", "123milhas", etc.)
+  description String?    // opcional (detalhes)
+  totalCents  Int        // valor total da dívida em centavos
+  status      DebtStatus @default(OPEN)
+
+  // quem criou (opcional, mas útil)
+  createdById String?
+  createdBy   User?      @relation(fields: [createdById], references: [id], onDelete: SetNull)
+
+  payments    DebtPayment[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status])
+  @@index([createdAt])
+  @@map("debts")
+}
+
+model DebtPayment {
+  id       String   @id @default(cuid())
+  debtId   String
+  amountCents Int   // pagamento em centavos
+  note     String?  // opcional (ex: "pix", "boleto", "parcial", etc.)
+  paidAt   DateTime @default(now()) // data/hora do pagamento (auto)
+
+  debt     Debt     @relation(fields: [debtId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([debtId])
+  @@index([paidAt])
+  @@map("debt_payments")
+}
+
+
