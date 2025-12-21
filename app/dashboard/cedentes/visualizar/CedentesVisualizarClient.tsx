@@ -3,6 +3,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
+type Program = "LATAM" | "SMILES" | "LIVELO" | "ESFERA";
+
 type Row = {
   id: string;
   identificador: string;
@@ -14,6 +16,9 @@ type Row = {
   pontosEsfera: number;
   createdAt: string;
   owner: { id: string; name: string; login: string };
+
+  // ✅ vem da API
+  blockedPrograms?: Program[];
 };
 
 type SortKey = "nome" | "latam" | "smiles" | "livelo" | "esfera";
@@ -27,6 +32,14 @@ function maskCpf(cpf: string) {
   const v = String(cpf || "").replace(/\D+/g, "");
   if (v.length !== 11) return cpf || "-";
   return `***.***.${v.slice(6, 9)}-${v.slice(9, 11)}`;
+}
+
+function cn(...xs: Array<string | false | undefined | null>) {
+  return xs.filter(Boolean).join(" ");
+}
+
+function isBlocked(r: Row, program: Program) {
+  return (r.blockedPrograms || []).includes(program);
 }
 
 export default function CedentesVisualizarClient() {
@@ -84,8 +97,6 @@ export default function CedentesVisualizarClient() {
 
   /* =======================
      Delete (com senha do LOGIN)
-     - Agora a senha vai junto no body
-     - NÃO usa mais /api/auth/confirm-password
   ======================= */
   async function askPassword(): Promise<string | null> {
     const password = prompt("Digite sua senha do login para confirmar:");
@@ -214,9 +225,7 @@ export default function CedentesVisualizarClient() {
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold">Cedentes • Todos</h1>
-          <p className="text-sm text-slate-600">
-            Cedentes aprovados com pontos e responsável
-          </p>
+          <p className="text-sm text-slate-600">Cedentes aprovados com pontos e responsável</p>
         </div>
 
         <div className="flex flex-wrap gap-2">
@@ -307,56 +316,80 @@ export default function CedentesVisualizarClient() {
               </tr>
             )}
 
-            {filtered.map((r) => (
-              <tr key={r.id} className="border-t hover:bg-slate-50">
-                <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
-                  <input
-                    type="checkbox"
-                    checked={selected.has(r.id)}
-                    onChange={() => toggleOne(r.id)}
-                    title="Selecionar"
-                  />
-                </td>
+            {filtered.map((r) => {
+              const hasAnyBlock = (r.blockedPrograms || []).length > 0;
 
-                <td className="px-4 py-3">
-                  <div className="font-medium">{r.nomeCompleto}</div>
-                  <div className="text-xs text-slate-500">
-                    {r.identificador} • CPF: {maskCpf(r.cpf)}
-                  </div>
-                </td>
+              return (
+                <tr key={r.id} className="border-t hover:bg-slate-50">
+                  <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
+                    <input
+                      type="checkbox"
+                      checked={selected.has(r.id)}
+                      onChange={() => toggleOne(r.id)}
+                      title="Selecionar"
+                    />
+                  </td>
 
-                <td className="px-4 py-3">
-                  <div className="font-medium">{r.owner?.name}</div>
-                  <div className="text-xs text-slate-500">@{r.owner?.login}</div>
-                </td>
-
-                <TdRight>{fmtInt(r.pontosLatam)}</TdRight>
-                <TdRight>{fmtInt(r.pontosSmiles)}</TdRight>
-                <TdRight>{fmtInt(r.pontosLivelo)}</TdRight>
-                <TdRight>{fmtInt(r.pontosEsfera)}</TdRight>
-
-                <td className="px-4 py-3 text-right" onClick={(e) => e.stopPropagation()}>
-                  <div className="flex justify-end gap-2">
-                    <button
-                      type="button"
-                      className="rounded-lg border px-3 py-1 text-xs hover:bg-slate-50"
-                      onClick={() => router.push(`/dashboard/cedentes/${r.id}`)}
+                  <td className="px-4 py-3">
+                    <div
+                      className={cn(
+                        "font-medium",
+                        hasAnyBlock && "text-red-600"
+                      )}
+                      title={hasAnyBlock ? `Bloqueado: ${(r.blockedPrograms || []).join(", ")}` : undefined}
                     >
-                      Ver
-                    </button>
+                      {r.nomeCompleto}
+                    </div>
 
-                    <button
-                      type="button"
-                      className="rounded-lg border px-3 py-1 text-xs hover:bg-slate-50"
-                      onClick={() => router.push(`/dashboard/cedentes/${r.id}?edit=1`)}
-                      title="Abrir detalhe em modo edição (a gente vai implementar)"
-                    >
-                      Editar
-                    </button>
-                  </div>
-                </td>
-              </tr>
-            ))}
+                    <div className="text-xs text-slate-500">
+                      {r.identificador} • CPF: {maskCpf(r.cpf)}
+                    </div>
+                  </td>
+
+                  <td className="px-4 py-3">
+                    <div className="font-medium">{r.owner?.name}</div>
+                    <div className="text-xs text-slate-500">@{r.owner?.login}</div>
+                  </td>
+
+                  <TdRight className={isBlocked(r, "LATAM") ? "text-red-600 font-semibold" : ""}>
+                    {fmtInt(r.pontosLatam)}
+                  </TdRight>
+
+                  <TdRight className={isBlocked(r, "SMILES") ? "text-red-600 font-semibold" : ""}>
+                    {fmtInt(r.pontosSmiles)}
+                  </TdRight>
+
+                  <TdRight className={isBlocked(r, "LIVELO") ? "text-red-600 font-semibold" : ""}>
+                    {fmtInt(r.pontosLivelo)}
+                  </TdRight>
+
+                  <TdRight className={isBlocked(r, "ESFERA") ? "text-red-600 font-semibold" : ""}>
+                    {fmtInt(r.pontosEsfera)}
+                  </TdRight>
+
+                  <td className="px-4 py-3 text-right" onClick={(e) => e.stopPropagation()}>
+                    <div className="flex justify-end gap-2">
+                      <button
+                        type="button"
+                        className="rounded-lg border px-3 py-1 text-xs hover:bg-slate-50"
+                        onClick={() => router.push(`/dashboard/cedentes/${r.id}`)}
+                      >
+                        Ver
+                      </button>
+
+                      <button
+                        type="button"
+                        className="rounded-lg border px-3 py-1 text-xs hover:bg-slate-50"
+                        onClick={() => router.push(`/dashboard/cedentes/${r.id}?edit=1`)}
+                        title="Abrir detalhe em modo edição (a gente vai implementar)"
+                      >
+                        Editar
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
@@ -400,6 +433,12 @@ function ThRight({
   );
 }
 
-function TdRight({ children }: { children: React.ReactNode }) {
-  return <td className="px-4 py-3 text-right tabular-nums">{children}</td>;
+function TdRight({
+  children,
+  className,
+}: {
+  children: React.ReactNode;
+  className?: string;
+}) {
+  return <td className={cn("px-4 py-3 text-right tabular-nums", className)}>{children}</td>;
 }

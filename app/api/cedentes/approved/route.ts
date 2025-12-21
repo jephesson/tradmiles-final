@@ -33,10 +33,30 @@ export async function GET() {
         owner: {
           select: { id: true, name: true, login: true },
         },
+
+        // ✅ pega bloqueios em aberto e devolve os programas
+        blockedAccounts: {
+          where: { status: "OPEN" },
+          select: { program: true },
+        },
       },
     });
 
-    return NextResponse.json({ ok: true, data: rows }, { headers: noCacheHeaders() });
+    const data = rows.map((r) => ({
+      id: r.id,
+      identificador: r.identificador,
+      nomeCompleto: r.nomeCompleto,
+      cpf: r.cpf,
+      pontosLatam: r.pontosLatam,
+      pontosSmiles: r.pontosSmiles,
+      pontosLivelo: r.pontosLivelo,
+      pontosEsfera: r.pontosEsfera,
+      createdAt: r.createdAt.toISOString(),
+      owner: r.owner,
+      blockedPrograms: (r.blockedAccounts || []).map((b) => b.program), // ["LATAM","SMILES"...]
+    }));
+
+    return NextResponse.json({ ok: true, data }, { headers: noCacheHeaders() });
   } catch (e: any) {
     return NextResponse.json(
       { ok: false, error: e?.message || "Erro ao listar cedentes aprovados." },
