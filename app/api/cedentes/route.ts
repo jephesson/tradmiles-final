@@ -2,15 +2,42 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
+import { PixTipo, CedenteStatus } from "@prisma/client";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-function onlyDigits(v: string) {
+function onlyDigits11(v: string) {
   return (v || "").replace(/\D+/g, "").slice(0, 11);
 }
 
-const PIX_TIPOS = new Set(["CPF", "CNPJ", "EMAIL", "TELEFONE", "ALEATORIA"]);
+const PIX_TIPOS = new Set<keyof typeof PixTipo>([
+  "CPF",
+  "CNPJ",
+  "EMAIL",
+  "TELEFONE",
+  "ALEATORIA",
+]);
+
+function asTrimOrNull(v: unknown): string | null {
+  if (typeof v !== "string") return null;
+  const s = v.trim();
+  return s ? s : null;
+}
+
+function asIntNonNeg(v: unknown): number {
+  const n = typeof v === "number" ? v : Number(v);
+  if (!Number.isFinite(n)) return 0;
+  return Math.max(0, Math.trunc(n));
+}
+
+function parseDateOrNull(v: unknown): Date | null {
+  if (typeof v !== "string") return null;
+  const s = v.trim();
+  if (!s) return null;
+  const d = new Date(s);
+  return isNaN(d.getTime()) ? null : d;
+}
 
 export async function POST(req: NextRequest) {
   try {
@@ -19,7 +46,7 @@ export async function POST(req: NextRequest) {
     const nomeCompleto =
       typeof body?.nomeCompleto === "string" ? body.nomeCompleto.trim() : "";
 
-    const cpf = onlyDigits(typeof body?.cpf === "string" ? body.cpf : "");
+    const cpf = onlyDigits11(typeof body?.cpf === "string" ? body.cpf : "");
 
     if (!nomeCompleto) {
       return NextResponse.json(
@@ -35,9 +62,8 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 🔐 owner obrigatório
-    let ownerId =
-      typeof body?.ownerId === "string" ? body.ownerId.trim() : "";
+    // 🔐 owner obrigatório (tenta usar sessão se não vier no body)
+    let ownerId = typeof body?.ownerId === "string" ? body.ownerId.trim() : "";
 
     if (!ownerId) {
       const session = await getSession();
@@ -51,103 +77,82 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 📅 data nascimento
-    const dataNascimento =
-      typeof body?.dataNascimento === "string" && body.dataNascimento
-        ? new Date(body.dataNascimento)
-        : null;
+    // 📅 dataNascimento
+    const dataNascimento = parseDateOrNull(body?.dataNascimento);
 
-    // 📌 status
-    const status =
-      body?.status === "APPROVED" ||
-      body?.status === "REJECTED" ||
-      body?.status === "PENDING"
-        ? body.status
-        : "PENDING";
+    // 📌 status (default PENDING)
+    const statusRaw =
+      typeof body?.status === "string" ? body.status.trim().toUpperCase() : "";
 
-    // 💰 pixTipo — OBRIGATÓRIO (OPÇÃO B)
+    const status: CedenteStatus =
+      statusRaw === "APPROVED" || statusRaw === "REJECTED" || statusRaw === "PENDING"
+        ? (statusRaw as CedenteStatus)
+        : CedenteStatus.PENDING;
+
+    // 💰 pixTipo — obrigatório
     const pixTipoRaw =
-      typeof body?.pixTipo === "string"
-        ? body.pixTipo.trim().toUpperCase()
-        : "";
+      typeof body?.pixTipo === "string" ? body.pixTipo.trim().toUpperCase() : "";
 
-    if (!PIX_TIPOS.has(pixTipoRaw)) {
+    if (!PIX_TIPOS.has(pixTipoRaw as keyof typeof PixTipo)) {
       return NextResponse.json(
         {
           ok: false,
-          error:
-            "pixTipo inválido. Use: CPF, CNPJ, EMAIL, TELEFONE ou ALEATORIA.",
+          error: "pixTipo inválido. Use: CPF, CNPJ, EMAIL, TELEFONE ou ALEATORIA.",
         },
         { status: 400 }
       );
     }
 
-    // 🧾 banco + pix obrigatórios
-    const banco =
-      typeof body?.banco === "string" ? body.banco.trim() : "";
-    const chavePix =
-      typeof body?.chavePix === "string" ? body.chavePix.trim() : "";
+    const pixTipo = PixTipo[pixTipoRaw as keyof typeof PixTipo];
+
+    // 🧾 banco + chavePix obrigatórios
+    const banco = typeof body?.banco === "string" ? body.banco.trim() : "";
+    const chavePix = typeof body?.chavePix === "string" ? body.chavePix.trim() : "";
 
     if (!banco || !chavePix) {
       return NextResponse.json(
         {
           ok: false,
-          error:
-            "Banco e chave PIX são obrigatórios (pagamento somente ao titular).",
+          error: "Banco e chave PIX são obrigatórios (pagamento somente ao titular).",
         },
         { status: 400 }
       );
     }
 
+    const identificador =
+      (typeof body?.identificador === "string" ? body.identificador.trim() : "") ||
+      `CED-${Date.now().toString().slice(-6)}`;
+
     const cedente = await prisma.cedente.create({
       data: {
-        identificador:
-          String(body?.identificador || "").trim() ||
-          `CED-${Date.now().toString().slice(-6)}`,
-
+        identificador,
         nomeCompleto,
         cpf,
         dataNascimento,
 
-        emailCriado:
-          typeof body?.emailCriado === "string"
-            ? body.emailCriado.trim() || null
-            : null,
+        telefone: asTrimOrNull(body?.telefone),
+        emailCriado: asTrimOrNull(body?.emailCriado),
 
         banco,
         chavePix,
-        pixTipo: pixTipoRaw as any,
+        pixTipo,
         titularConfirmado: true,
 
-        senhaEmailEnc:
-          typeof body?.senhaEmailEnc === "string"
-            ? body.senhaEmailEnc || null
-            : null,
-        senhaSmilesEnc:
-          typeof body?.senhaSmilesEnc === "string"
-            ? body.senhaSmilesEnc || null
-            : null,
-        senhaLatamPassEnc:
-          typeof body?.senhaLatamPassEnc === "string"
-            ? body.senhaLatamPassEnc || null
-            : null,
-        senhaLiveloEnc:
-          typeof body?.senhaLiveloEnc === "string"
-            ? body.senhaLiveloEnc || null
-            : null,
-        senhaEsferaEnc:
-          typeof body?.senhaEsferaEnc === "string"
-            ? body.senhaEsferaEnc || null
-            : null,
+        // ✅ SENHAS (SEM ENC)
+        senhaEmail: asTrimOrNull(body?.senhaEmail),
+        senhaSmiles: asTrimOrNull(body?.senhaSmiles),
+        senhaLatamPass: asTrimOrNull(body?.senhaLatamPass),
+        senhaLivelo: asTrimOrNull(body?.senhaLivelo),
+        senhaEsfera: asTrimOrNull(body?.senhaEsfera),
 
-        pontosLatam: Number(body?.pontosLatam || 0),
-        pontosSmiles: Number(body?.pontosSmiles || 0),
-        pontosLivelo: Number(body?.pontosLivelo || 0),
-        pontosEsfera: Number(body?.pontosEsfera || 0),
+        pontosLatam: asIntNonNeg(body?.pontosLatam),
+        pontosSmiles: asIntNonNeg(body?.pontosSmiles),
+        pontosLivelo: asIntNonNeg(body?.pontosLivelo),
+        pontosEsfera: asIntNonNeg(body?.pontosEsfera),
 
         status,
 
-        // ✅ RELAÇÃO CORRETA (Prisma 7)
+        // ✅ relação
         owner: {
           connect: { id: ownerId },
         },
