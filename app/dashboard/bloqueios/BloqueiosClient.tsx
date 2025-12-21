@@ -23,6 +23,7 @@ type BlockRow = {
   program: "LATAM" | "SMILES" | "LIVELO" | "ESFERA";
   note?: string | null;
   estimatedUnlockAt?: string | null;
+  resolvedAt?: string | null;
   createdAt: string;
   cedente: { id: string; nomeCompleto: string; cpf: string; identificador: string };
   pointsBlocked: number;
@@ -31,7 +32,10 @@ type BlockRow = {
 };
 
 function fmtMoney(cents: number) {
-  return ((cents || 0) / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+  return ((cents || 0) / 100).toLocaleString("pt-BR", {
+    style: "currency",
+    currency: "BRL",
+  });
 }
 function fmtInt(n: number) {
   return new Intl.NumberFormat("pt-BR").format(n || 0);
@@ -45,6 +49,65 @@ function dateBR(iso: string) {
 
 function cn(...xs: Array<string | false | undefined | null>) {
   return xs.filter(Boolean).join(" ");
+}
+
+// diferença em dias (inteiro) entre hoje e uma data (ISO)
+function daysUntil(iso: string) {
+  const target = new Date(iso);
+  const now = new Date();
+
+  const t0 = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  const d0 = new Date(target.getFullYear(), target.getMonth(), target.getDate()).getTime();
+
+  return Math.round((d0 - t0) / (1000 * 60 * 60 * 24));
+}
+
+function statusBadge(b: BlockRow) {
+  // se já finalizou
+  if (b.status === "UNBLOCKED") {
+    return {
+      label: "Desbloqueado",
+      cls: "bg-emerald-50 border-emerald-200 text-emerald-700",
+    };
+  }
+  if (b.status === "CANCELED") {
+    return {
+      label: "Cancelado",
+      cls: "bg-slate-50 border-slate-200 text-slate-700",
+    };
+  }
+
+  // OPEN:
+  if (!b.estimatedUnlockAt) {
+    return {
+      label: "Em aberto",
+      cls: "bg-yellow-50 border-yellow-200 text-yellow-800",
+    };
+  }
+
+  const d = daysUntil(b.estimatedUnlockAt);
+
+  // chegou no dia ou passou
+  if (d <= 0) {
+    return {
+      label: "Dia do desbloqueio",
+      cls: "bg-emerald-50 border-emerald-200 text-emerald-700",
+    };
+  }
+
+  // faltando até 7 dias
+  if (d <= 7) {
+    return {
+      label: `Faltam ${d} dia(s)`,
+      cls: "bg-blue-50 border-blue-200 text-blue-700",
+    };
+  }
+
+  // normal
+  return {
+    label: "Em aberto",
+    cls: "bg-yellow-50 border-yellow-200 text-yellow-800",
+  };
 }
 
 export default function BloqueiosClient() {
@@ -154,6 +217,29 @@ export default function BloqueiosClient() {
       if (!j?.ok) throw new Error(j?.error || "Erro ao adicionar observação");
 
       setObsText((p) => ({ ...p, [blockId]: "" }));
+      await loadAll();
+    } catch (e: any) {
+      alert(e.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  // ✅ desbloqueio manual (não automático)
+  async function markUnblocked(blockId: string) {
+    if (!confirm("Marcar este bloqueio como DESBLOQUEADO?")) return;
+
+    setLoading(true);
+    try {
+      const res = await fetch(`/api/bloqueios/${blockId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "UNBLOCKED" }),
+      });
+
+      const j = await res.json().catch(() => null);
+      if (!res.ok || !j?.ok) throw new Error(j?.error || "Erro ao atualizar status.");
+
       await loadAll();
     } catch (e: any) {
       alert(e.message);
@@ -302,84 +388,104 @@ export default function BloqueiosClient() {
         <div className="text-sm text-slate-600">Nenhum bloqueio cadastrado ainda.</div>
       ) : (
         <div className="space-y-4">
-          {rows.map((b) => (
-            <div key={b.id} className="rounded-2xl border bg-white p-4 space-y-3">
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <div className="text-lg font-semibold">
-                    {b.cedente.nomeCompleto} • {b.program}{" "}
-                    <span
-                      className={`text-xs px-2 py-1 rounded-full border ${
-                        b.status === "OPEN" ? "bg-yellow-50" : "bg-emerald-50"
-                      }`}
-                    >
-                      {b.status === "OPEN" ? "Em aberto" : b.status}
-                    </span>
-                  </div>
-                  <div className="text-xs text-slate-500">
-                    {b.cedente.identificador} • Criado em {dateTimeBR(b.createdAt)}
-                    {b.estimatedUnlockAt ? ` • Previsão: ${dateBR(b.estimatedUnlockAt)}` : ""}
-                  </div>
-                  {b.note ? <div className="text-sm text-slate-700 mt-1">{b.note}</div> : null}
-                </div>
+          {rows.map((b) => {
+            const badge = statusBadge(b);
 
-                <div className="text-right">
-                  <div className="text-xs text-slate-600">Bloqueado</div>
-                  <div className="font-semibold">{fmtInt(b.pointsBlocked)} pts</div>
-                  <div className="text-sm font-semibold">{fmtMoney(b.valueBlockedCents)}</div>
-                </div>
-              </div>
+            return (
+              <div key={b.id} className="rounded-2xl border bg-white p-4 space-y-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="text-lg font-semibold flex flex-wrap items-center gap-2">
+                      <span>
+                        {b.cedente.nomeCompleto} • {b.program}
+                      </span>
 
-              {/* Add obs */}
-              {b.status === "OPEN" && (
-                <div className="rounded-xl border bg-slate-50 p-3 space-y-2">
-                  <div className="text-sm font-semibold">Adicionar observação / protocolo</div>
-                  <div className="grid gap-2 md:grid-cols-4">
-                    <input
-                      className="md:col-span-3 rounded-xl border px-3 py-2 text-sm"
-                      placeholder="Ex: protocolo 12345, resposta da CIA, reenvio documentos..."
-                      value={obsText[b.id] ?? ""}
-                      onChange={(e) => setObsText((p) => ({ ...p, [b.id]: e.target.value }))}
-                    />
-                    <button
-                      onClick={() => addObs(b.id)}
-                      className="rounded-xl bg-black px-4 py-2 text-white text-sm hover:bg-gray-800"
-                      disabled={loading}
-                    >
-                      Registrar
-                    </button>
+                      <span className={cn("text-xs px-2 py-1 rounded-full border", badge.cls)}>
+                        {badge.label}
+                      </span>
+                    </div>
+
+                    <div className="text-xs text-slate-500">
+                      {b.cedente.identificador} • Criado em {dateTimeBR(b.createdAt)}
+                      {b.estimatedUnlockAt ? ` • Previsão: ${dateBR(b.estimatedUnlockAt)}` : ""}
+                      {b.resolvedAt ? ` • Resolvido: ${dateBR(b.resolvedAt)}` : ""}
+                    </div>
+
+                    {b.note ? <div className="text-sm text-slate-700 mt-1">{b.note}</div> : null}
+                  </div>
+
+                  <div className="text-right space-y-2">
+                    <div>
+                      <div className="text-xs text-slate-600">Bloqueado</div>
+                      <div className="font-semibold">{fmtInt(b.pointsBlocked)} pts</div>
+                      <div className="text-sm font-semibold">{fmtMoney(b.valueBlockedCents)}</div>
+                    </div>
+
+                    {/* ✅ Botão manual */}
+                    {b.status === "OPEN" && (
+                      <button
+                        onClick={() => markUnblocked(b.id)}
+                        className="rounded-xl bg-emerald-600 px-4 py-2 text-white text-sm hover:bg-emerald-700"
+                        disabled={loading}
+                        title="Marcar como desbloqueado (manual)"
+                      >
+                        Marcar como desbloqueado
+                      </button>
+                    )}
                   </div>
                 </div>
-              )}
 
-              {/* Histórico */}
-              <div className="space-y-2">
-                <div className="text-sm font-semibold">Histórico</div>
-                {b.observations.length === 0 ? (
-                  <div className="text-sm text-slate-600">Nenhuma atualização registrada.</div>
-                ) : (
-                  <div className="max-h-56 overflow-auto rounded-xl border">
-                    <table className="w-full text-sm">
-                      <thead className="sticky top-0 bg-slate-50">
-                        <tr>
-                          <th className="px-3 py-2 text-left">Data/hora</th>
-                          <th className="px-3 py-2 text-left">Observação</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {b.observations.map((o) => (
-                          <tr key={o.id} className="border-t">
-                            <td className="px-3 py-2 whitespace-nowrap">{dateTimeBR(o.createdAt)}</td>
-                            <td className="px-3 py-2">{o.text}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                {/* Add obs */}
+                {b.status === "OPEN" && (
+                  <div className="rounded-xl border bg-slate-50 p-3 space-y-2">
+                    <div className="text-sm font-semibold">Adicionar observação / protocolo</div>
+                    <div className="grid gap-2 md:grid-cols-4">
+                      <input
+                        className="md:col-span-3 rounded-xl border px-3 py-2 text-sm"
+                        placeholder="Ex: protocolo 12345, resposta da CIA, reenvio documentos..."
+                        value={obsText[b.id] ?? ""}
+                        onChange={(e) => setObsText((p) => ({ ...p, [b.id]: e.target.value }))}
+                      />
+                      <button
+                        onClick={() => addObs(b.id)}
+                        className="rounded-xl bg-black px-4 py-2 text-white text-sm hover:bg-gray-800"
+                        disabled={loading}
+                      >
+                        Registrar
+                      </button>
+                    </div>
                   </div>
                 )}
+
+                {/* Histórico */}
+                <div className="space-y-2">
+                  <div className="text-sm font-semibold">Histórico</div>
+                  {b.observations.length === 0 ? (
+                    <div className="text-sm text-slate-600">Nenhuma atualização registrada.</div>
+                  ) : (
+                    <div className="max-h-56 overflow-auto rounded-xl border">
+                      <table className="w-full text-sm">
+                        <thead className="sticky top-0 bg-slate-50">
+                          <tr>
+                            <th className="px-3 py-2 text-left">Data/hora</th>
+                            <th className="px-3 py-2 text-left">Observação</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {b.observations.map((o) => (
+                            <tr key={o.id} className="border-t">
+                              <td className="px-3 py-2 whitespace-nowrap">{dateTimeBR(o.createdAt)}</td>
+                              <td className="px-3 py-2">{o.text}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>
