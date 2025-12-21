@@ -1,0 +1,61 @@
+// app/api/resumo/route.ts
+import { NextResponse } from "next/server";
+import { prisma } from "@/lib/prisma";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
+function safeInt(v: any) {
+  const n = Number(v);
+  return Number.isFinite(n) ? Math.trunc(n) : 0;
+}
+
+export async function GET() {
+  try {
+    // soma pontos de TODOS cedentes
+    const agg = await prisma.cedente.aggregate({
+      _sum: {
+        pontosLatam: true,
+        pontosSmiles: true,
+        pontosLivelo: true,
+        pontosEsfera: true,
+      },
+    });
+
+    const points = {
+      latam: safeInt(agg._sum.pontosLatam),
+      smiles: safeInt(agg._sum.pontosSmiles),
+      livelo: safeInt(agg._sum.pontosLivelo),
+      esfera: safeInt(agg._sum.pontosEsfera),
+    };
+
+    const snapshots = await prisma.cashSnapshot.findMany({
+      orderBy: { date: "desc" },
+      take: 60, // últimos 60 dias (ajuste se quiser)
+    });
+
+    const latest = snapshots[0] ?? null;
+
+    return NextResponse.json(
+      {
+        ok: true,
+        data: {
+          points,
+          latestCashCents: latest?.cashCents ?? 0,
+          snapshots: snapshots.map((s) => ({
+            id: s.id,
+            date: s.date.toISOString(),
+            cashCents: s.cashCents,
+          })),
+        },
+      },
+      { status: 200 }
+    );
+  } catch (e: any) {
+    console.error(e);
+    return NextResponse.json(
+      { ok: false, error: e?.message || "Erro ao carregar resumo." },
+      { status: 500 }
+    );
+  }
+}
