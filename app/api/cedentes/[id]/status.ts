@@ -44,7 +44,6 @@ function normalizePixTipo(v: unknown): PixTipo {
 
 // "" -> null (para campos nullable)
 function asTrimOrNull(v: unknown): string | null {
-  if (v === undefined) return null;
   const s = String(v ?? "").trim();
   return s ? s : null;
 }
@@ -110,7 +109,10 @@ export async function GET(_req: NextRequest, { params }: Ctx) {
     });
 
     if (!cedente) {
-      return NextResponse.json({ ok: false, error: "Cedente não encontrado." }, { status: 404 });
+      return NextResponse.json(
+        { ok: false, error: "Cedente não encontrado." },
+        { status: 404 }
+      );
     }
 
     return NextResponse.json({ ok: true, data: cedente });
@@ -134,16 +136,27 @@ export async function PUT(req: NextRequest, { params }: Ctx) {
       return NextResponse.json({ ok: false, error: "Dados inválidos." }, { status: 400 });
     }
 
-    const exists = await prisma.cedente.findUnique({ where: { id }, select: { id: true } });
+    const exists = await prisma.cedente.findUnique({
+      where: { id },
+      select: { id: true },
+    });
     if (!exists) {
-      return NextResponse.json({ ok: false, error: "Cedente não encontrado." }, { status: 404 });
+      return NextResponse.json(
+        { ok: false, error: "Cedente não encontrado." },
+        { status: 404 }
+      );
+    }
+
+    // ✅ ownerId 100% obrigatório (SEM null)
+    const ownerId = String(body?.ownerId ?? "").trim();
+    if (!ownerId) {
+      return NextResponse.json(
+        { ok: false, error: "ownerId é obrigatório." },
+        { status: 400 }
+      );
     }
 
     const cpfBody = body?.cpf ? normalizeCpfSafe(body.cpf) : undefined;
-
-    // ownerId pode vir vazio -> null (pra ajustar manualmente depois)
-    const ownerId =
-      body?.ownerId === "" || body?.ownerId == null ? null : String(body.ownerId).trim() || null;
 
     const updated = await prisma.cedente.update({
       where: { id },
@@ -157,7 +170,7 @@ export async function PUT(req: NextRequest, { params }: Ctx) {
         dataNascimento:
           body?.dataNascimento !== undefined ? parseDateSafe(body.dataNascimento) : undefined,
 
-        // "" limpa -> null (campos nullable)
+        // "" limpa -> null (nullable)
         telefone:
           body?.telefone === ""
             ? null
@@ -172,8 +185,7 @@ export async function PUT(req: NextRequest, { params }: Ctx) {
             ? String(body.emailCriado).trim()
             : undefined,
 
-        // ✅ banco/chavePix: NÃO podem ser null se o schema for String (não-null)
-        // "" -> undefined (não atualiza)
+        // se banco/chavePix forem String (não-null) no schema: não mande null
         banco:
           body?.banco === ""
             ? undefined
@@ -193,7 +205,7 @@ export async function PUT(req: NextRequest, { params }: Ctx) {
         titularConfirmado:
           typeof body?.titularConfirmado === "boolean" ? body.titularConfirmado : undefined,
 
-        // ✅ SENHAS (SEM ENC) — "" limpa -> null (campos nullable)
+        // ✅ SENHAS (SEM ENC) — "" limpa -> null (nullable)
         senhaEmail: body?.senhaEmail !== undefined ? asTrimOrNull(body.senhaEmail) : undefined,
         senhaSmiles: body?.senhaSmiles !== undefined ? asTrimOrNull(body.senhaSmiles) : undefined,
         senhaLatamPass:
@@ -202,16 +214,25 @@ export async function PUT(req: NextRequest, { params }: Ctx) {
         senhaEsfera: body?.senhaEsfera !== undefined ? asTrimOrNull(body.senhaEsfera) : undefined,
 
         pontosLatam:
-          body?.pontosLatam !== undefined ? Math.max(0, Math.floor(numSafe(body.pontosLatam))) : undefined,
+          body?.pontosLatam !== undefined
+            ? Math.max(0, Math.floor(numSafe(body.pontosLatam)))
+            : undefined,
         pontosSmiles:
-          body?.pontosSmiles !== undefined ? Math.max(0, Math.floor(numSafe(body.pontosSmiles))) : undefined,
+          body?.pontosSmiles !== undefined
+            ? Math.max(0, Math.floor(numSafe(body.pontosSmiles)))
+            : undefined,
         pontosLivelo:
-          body?.pontosLivelo !== undefined ? Math.max(0, Math.floor(numSafe(body.pontosLivelo))) : undefined,
+          body?.pontosLivelo !== undefined
+            ? Math.max(0, Math.floor(numSafe(body.pontosLivelo)))
+            : undefined,
         pontosEsfera:
-          body?.pontosEsfera !== undefined ? Math.max(0, Math.floor(numSafe(body.pontosEsfera))) : undefined,
+          body?.pontosEsfera !== undefined
+            ? Math.max(0, Math.floor(numSafe(body.pontosEsfera)))
+            : undefined,
 
         status: body?.status ? (String(body.status) as CedenteStatus) : undefined,
 
+        // ✅ sempre string (obrigatório)
         ownerId,
       },
     });
