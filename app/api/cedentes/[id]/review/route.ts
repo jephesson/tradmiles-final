@@ -12,11 +12,12 @@ function asInt(v: unknown) {
   return Math.trunc(n);
 }
 
-type Ctx = { params: { id: string } };
+// ✅ Next 16 no build do Vercel está exigindo params como Promise
+type Ctx = { params: Promise<{ id: string }> };
 
-export async function POST(req: NextRequest, { params }: Ctx) {
+export async function POST(req: NextRequest, ctx: Ctx) {
   try {
-    const { id } = params;
+    const { id } = await ctx.params;
     if (!id) {
       return NextResponse.json({ ok: false, error: "ID ausente" }, { status: 400 });
     }
@@ -39,7 +40,7 @@ export async function POST(req: NextRequest, { params }: Ctx) {
     const pontosLivelo = asInt(p?.pontosLivelo);
     const pontosEsfera = asInt(p?.pontosEsfera);
 
-    // ✅ sem any (se seu campo status for enum/string, isso compila ok)
+    // ✅ sem any
     const status = action === "APPROVE" ? "APPROVED" : "REJECTED";
 
     const updated = await prisma.cedente.update({
@@ -48,8 +49,6 @@ export async function POST(req: NextRequest, { params }: Ctx) {
         status,
         reviewedAt: new Date(),
         reviewedById: session.id,
-
-        // ✅ só atualiza pontos quando aprovar (não zera no REJECT)
         ...(action === "APPROVE"
           ? { pontosLatam, pontosSmiles, pontosLivelo, pontosEsfera }
           : {}),
