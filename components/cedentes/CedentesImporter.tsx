@@ -1077,7 +1077,7 @@ export default function CedentesImporter() {
 
                     {/* threshold */}
                     <div className="flex items-center gap-3">
-                      <div className="w-44 text-xs">Match por Nome (>=)</div>
+                      <div className="w-44 text-xs">Match por Nome (&gt;=)</div>
                       <input
                         type="number"
                         step="0.01"
