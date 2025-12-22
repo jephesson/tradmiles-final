@@ -1,13 +1,12 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function POST(req: Request) {
+export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-
     const { cedenteId, note } = body;
 
     if (!cedenteId) {
@@ -29,7 +28,10 @@ export async function POST(req: Request) {
       },
     });
 
-    return NextResponse.json({ ok: true, data: purchase });
+    return NextResponse.json(
+      { ok: true, data: purchase },
+      { status: 201 }
+    );
   } catch (e: any) {
     console.error(e);
     return NextResponse.json(
