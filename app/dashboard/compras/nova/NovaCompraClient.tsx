@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 type Cedente = {
   id: string;
@@ -10,6 +10,7 @@ type Cedente = {
 export default function NovaCompraClient() {
   const [cedentes, setCedentes] = useState<Cedente[]>([]);
   const [cedenteId, setCedenteId] = useState("");
+  const [busca, setBusca] = useState("");
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
@@ -22,6 +23,17 @@ export default function NovaCompraClient() {
       })
       .catch(console.error);
   }, []);
+
+  // 🔤 ordena + filtra conforme digita
+  const cedentesFiltrados = useMemo(() => {
+    return cedentes
+      .filter((c) =>
+        c.nomeCompleto.toLowerCase().includes(busca.toLowerCase())
+      )
+      .sort((a, b) =>
+        a.nomeCompleto.localeCompare(b.nomeCompleto, "pt-BR")
+      );
+  }, [cedentes, busca]);
 
   async function criarCompra() {
     if (!cedenteId) {
@@ -49,16 +61,25 @@ export default function NovaCompraClient() {
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 max-w-md">
       <h1 className="text-2xl font-bold">Nova compra</h1>
 
+      {/* 🔎 Busca */}
+      <input
+        className="border rounded-xl px-3 py-2 w-full"
+        placeholder="Buscar cedente..."
+        value={busca}
+        onChange={(e) => setBusca(e.target.value)}
+      />
+
+      {/* 🔽 Select ordenado */}
       <select
-        className="border rounded-xl px-3 py-2"
+        className="border rounded-xl px-3 py-2 w-full"
         value={cedenteId}
         onChange={(e) => setCedenteId(e.target.value)}
       >
         <option value="">Selecione o cedente</option>
-        {cedentes.map((c) => (
+        {cedentesFiltrados.map((c) => (
           <option key={c.id} value={c.id}>
             {c.nomeCompleto}
           </option>
