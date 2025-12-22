@@ -143,6 +143,9 @@ model Cedente {
   // ✅ Bloqueios vinculados a este cedente
   blockedAccounts BlockedAccount[]
 
+  // ✅ Compras vinculadas a este cedente
+  purchases Purchase[]
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -299,4 +302,95 @@ model BlockObservation {
   @@index([blockedId])
   @@index([createdAt])
   @@map("block_observations")
+}
+
+/**
+ * =========================
+ * COMPRAS
+ * =========================
+ */
+enum PurchaseStatus {
+  OPEN
+  CLOSED
+  CANCELED
+}
+
+enum PurchaseItemType {
+  CLUB // assinatura
+  POINTS_BUY // compra de pontos
+  TRANSFER // transferencia (livelo/esfera -> latam/smiles)
+  ADJUSTMENT // ajuste manual de pontos (corrigir saldo)
+  EXTRA_COST // custos extras
+}
+
+enum PurchaseItemStatus {
+  PENDING
+  RELEASED
+  CANCELED
+}
+
+enum TransferMode {
+  FULL_POINTS // transfere usando pontos do programa origem
+  POINTS_PLUS_CASH // pontos + dinheiro
+}
+
+model Purchase {
+  id        String         @id @default(cuid())
+  cedenteId String
+  status    PurchaseStatus @default(OPEN)
+
+  // valores “macro” que entram no custo total
+  cedentePayCents      Int @default(0) // quanto será pago ao cedente
+  vendorCommissionBps  Int @default(100) // 1% = 100 bps (basis points)
+  extraPoints          Int @default(0) // pontos extras (se precisar)
+  extraPointsCostCents Int @default(0) // custo desses pontos extras
+
+  note String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  cedente Cedente        @relation(fields: [cedenteId], references: [id], onDelete: Cascade)
+  items   PurchaseItem[]
+
+  @@index([cedenteId])
+  @@index([status])
+  @@map("purchases")
+}
+
+model PurchaseItem {
+  id         String             @id @default(cuid())
+  purchaseId String
+  type       PurchaseItemType
+  status     PurchaseItemStatus @default(PENDING)
+
+  programFrom LoyaltyProgram? // para transferências
+  programTo   LoyaltyProgram? // para transferências
+
+  // pontos
+  pointsBase  Int     @default(0) // pontos “base” (comprados / transferidos / ajustados)
+  bonusMode   String? // "PERCENT" | "TOTAL" (string simples pra não criar enum extra)
+  bonusValue  Int? // percent (ex 30) OU total bônus (ex 30000), depende do bonusMode
+  pointsFinal Int     @default(0) // pontos finais após bônus (calculado e salvo)
+
+  // dinheiro
+  amountCents  Int           @default(0) // custo do item (assinatura / compra / taxa / cash)
+  transferMode TransferMode? // FULL_POINTS / POINTS_PLUS_CASH (se type = TRANSFER)
+
+  // se for POINTS_PLUS_CASH: quantos pontos debitou do origem (ex: 1000) + cash
+  pointsDebitedFromOrigin Int @default(0)
+
+  // metadados úteis
+  title   String
+  details String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  purchase Purchase @relation(fields: [purchaseId], references: [id], onDelete: Cascade)
+
+  @@index([purchaseId])
+  @@index([type])
+  @@index([status])
+  @@map("purchase_items")
 }
