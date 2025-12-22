@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 
 export const runtime = "nodejs";
@@ -30,7 +30,6 @@ function programToField(program: ProgramKey) {
 
 // Calcula deltas (quanto soma/subtrai) nos saldos do cedente
 function computeDelta(item: any) {
-  // deltas por programa
   const delta: Record<ProgramKey, number> = {
     LATAM: 0,
     SMILES: 0,
@@ -52,12 +51,10 @@ function computeDelta(item: any) {
   const pointsFinal = safeInt(item.pointsFinal);
   const pointsDebitedFromOrigin = safeInt(item.pointsDebitedFromOrigin);
 
-  // Regras:
   // CLUB / EXTRA_COST: não mexe em pontos
   if (type === "CLUB" || type === "EXTRA_COST") return delta;
 
   // POINTS_BUY: soma pontos no programa destino
-  // -> usar pointsFinal se tiver, senão pointsBase
   if (type === "POINTS_BUY") {
     if (!programTo) return delta;
     const add = pointsFinal > 0 ? pointsFinal : pointsBase;
@@ -69,8 +66,6 @@ function computeDelta(item: any) {
   if (type === "TRANSFER") {
     if (!programFrom || !programTo) return delta;
 
-    // Debita: se POINTS_PLUS_CASH -> pointsDebitedFromOrigin (ex: 1000)
-    // senão -> pointsBase (ex: 100000)
     const debit =
       item.transferMode === "POINTS_PLUS_CASH"
         ? pointsDebitedFromOrigin
@@ -83,25 +78,21 @@ function computeDelta(item: any) {
     return delta;
   }
 
-  // ADJUSTMENT: ajuste manual (corrigir saldo)
-  // Aqui vamos tratar como: pointsBase = delta (+/-)
-  // programTo define qual saldo corrige
+  // ADJUSTMENT: ajuste manual
   if (type === "ADJUSTMENT") {
     if (!programTo) return delta;
-    delta[programTo] += pointsBase; // pode ser negativo se você mandar -5000
+    delta[programTo] += pointsBase; // pode ser negativo
     return delta;
   }
 
   return delta;
 }
 
-export async function POST(
-  _req: Request,
-  { params }: { params: { id: string; itemId: string } }
-) {
+type Ctx = { params: Promise<{ id: string; itemId: string }> };
+
+export async function POST(_req: NextRequest, { params }: Ctx) {
   try {
-    const purchaseId = params.id;
-    const itemId = params.itemId;
+    const { id: purchaseId, itemId } = await params;
 
     // buscamos item + compra + cedenteId
     const item = await prisma.purchaseItem.findFirst({
@@ -128,7 +119,6 @@ export async function POST(
     }
 
     if (item.status === "RELEASED") {
-      // idempotente
       return NextResponse.json({ ok: true, data: { alreadyReleased: true } });
     }
 
@@ -148,14 +138,12 @@ export async function POST(
     const fieldEsfera = programToField("ESFERA");
 
     const result = await prisma.$transaction(async (tx) => {
-      // marca item como RELEASED
       const updatedItem = await tx.purchaseItem.update({
         where: { id: itemId },
         data: { status: "RELEASED" },
         select: { id: true, status: true },
       });
 
-      // lê saldos atuais do cedente (para clamp)
       const ced = await tx.cedente.findUnique({
         where: { id: cedenteId },
         select: {
@@ -169,7 +157,6 @@ export async function POST(
 
       if (!ced) throw new Error("Cedente não encontrado.");
 
-      // aplica deltas com clamp
       const novoLatam = clamp0(ced.pontosLatam + delta.LATAM);
       const novoSmiles = clamp0(ced.pontosSmiles + delta.SMILES);
       const novoLivelo = clamp0(ced.pontosLivelo + delta.LIVELO);
