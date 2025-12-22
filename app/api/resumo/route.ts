@@ -9,6 +9,10 @@ function safeInt(v: any) {
   const n = Number(v);
   return Number.isFinite(n) ? Math.trunc(n) : 0;
 }
+function toIntOrNull(v: any) {
+  const n = Number(v);
+  return Number.isFinite(n) ? Math.trunc(n) : null;
+}
 
 export async function GET() {
   try {
@@ -29,7 +33,7 @@ export async function GET() {
       esfera: safeInt(agg._sum.pontosEsfera),
     };
 
-    // ✅ rates (milheiro) salvo (config única)
+    // rates (milheiro) salvo (config única)
     const settings = await prisma.settings.upsert({
       where: { key: "default" },
       create: { key: "default" },
@@ -42,13 +46,14 @@ export async function GET() {
       },
     });
 
-    // histórico do TOTAL (bruto/dividas/liquido)
+    // histórico (bruto/dividas/liquido + cashCents)
     const snapshots = await prisma.cashSnapshot.findMany({
       orderBy: { date: "desc" },
       take: 60,
       select: {
         id: true,
         date: true,
+        cashCents: true,
         totalBruto: true,
         totalDividas: true,
         totalLiquido: true,
@@ -58,14 +63,12 @@ export async function GET() {
 
     const latest = snapshots[0] ?? null;
 
-    // ✅ saldo total das dívidas em aberto (OPEN): total - pagamentos
+    // saldo total das dívidas em aberto (OPEN): total - pagamentos
     const openDebts = await prisma.debt.findMany({
       where: { status: "OPEN" },
       select: {
         totalCents: true,
-        payments: {
-          select: { amountCents: true },
-        },
+        payments: { select: { amountCents: true } },
       },
     });
 
@@ -82,20 +85,23 @@ export async function GET() {
           points,
           ratesCents: settings,
 
-          // ✅ antes era latestCashCents / cashCents
-          // ✅ agora é histórico do total líquido
+          // ✅ caixa “gravado” (pra preencher o input)
+          latestCashCents: latest?.cashCents ?? 0,
+
+          // ✅ total líquido do último snapshot (se quiser usar)
           latestTotalLiquidoCents: latest?.totalLiquido ?? 0,
 
-          // ✅ snapshots agora devolve bruto/dividas/liquido
+          // ✅ histórico completo
           snapshots: snapshots.map((s) => ({
             id: s.id,
             date: s.date.toISOString(),
+            cashCents: safeInt(s.cashCents),
             totalBruto: safeInt(s.totalBruto),
             totalDividas: safeInt(s.totalDividas),
             totalLiquido: safeInt(s.totalLiquido),
           })),
 
-          debtsOpenCents, // ✅ mantém
+          debtsOpenCents,
         },
       },
       { status: 200 }
@@ -104,6 +110,62 @@ export async function GET() {
     console.error(e);
     return NextResponse.json(
       { ok: false, error: e?.message || "Erro ao carregar resumo." },
+      { status: 500 }
+    );
+  }
+}
+
+export async function POST(req: Request) {
+  try {
+    const body = await req.json();
+
+    // ✅ Aceita 2 formatos:
+    // (novo) cashCents, totalBruto, totalDividas, totalLiquido
+    // (antigo) totalBrutoCents, totalDividasCents, totalLiquidoCents
+    const cashCents = toIntOrNull(body.cashCents ?? body.caixaCents ?? 0);
+
+    const totalBrutoCents = toIntOrNull(body.totalBruto ?? body.totalBrutoCents);
+    const totalDividasCents = toIntOrNull(body.totalDividas ?? body.totalDividasCents);
+    const totalLiquidoCents = toIntOrNull(body.totalLiquido ?? body.totalLiquidoCents);
+
+    if (
+      cashCents == null ||
+      totalBrutoCents == null ||
+      totalDividasCents == null ||
+      totalLiquidoCents == null
+    ) {
+      return NextResponse.json(
+        { ok: false, error: "Valores inválidos." },
+        { status: 400 }
+      );
+    }
+
+    // 📅 usa o dia atual (00:00)
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    await prisma.cashSnapshot.upsert({
+      where: { date: today },
+      create: {
+        date: today,
+        cashCents,
+        totalBruto: totalBrutoCents,
+        totalDividas: totalDividasCents,
+        totalLiquido: totalLiquidoCents,
+      },
+      update: {
+        cashCents,
+        totalBruto: totalBrutoCents,
+        totalDividas: totalDividasCents,
+        totalLiquido: totalLiquidoCents,
+      },
+    });
+
+    return NextResponse.json({ ok: true });
+  } catch (e: any) {
+    console.error(e);
+    return NextResponse.json(
+      { ok: false, error: e?.message || "Erro ao salvar histórico." },
       { status: 500 }
     );
   }

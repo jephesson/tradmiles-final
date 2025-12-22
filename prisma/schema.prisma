@@ -168,16 +168,25 @@ model CedenteTermAcceptance {
   @@map("cedente_term_acceptances")
 }
 
+/**
+ * =========================
+ * SNAPSHOT (CAIXA + TOTAIS)
+ * =========================
+ */
 model CashSnapshot {
-  id           String   @id @default(cuid())
-  date         DateTime @unique
+  id   String   @id @default(cuid())
+  date DateTime @unique
 
-  totalBruto   Int      // em centavos
-  totalDividas Int      // em centavos
-  totalLiquido Int      // em centavos
+  cashCents Int @default(0) // ✅ caixa (Inter) em centavos
+
+  totalBruto   Int // em centavos
+  totalDividas Int // em centavos
+  totalLiquido Int // em centavos
 
   createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
+  @@index([date])
   @@map("cash_snapshots")
 }
 
@@ -291,5 +300,3 @@ model BlockObservation {
   @@index([createdAt])
   @@map("block_observations")
 }
-
-

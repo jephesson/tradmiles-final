@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 
 type Points = { latam: number; smiles: number; livelo: number; esfera: number };
 
-// ✅ AJUSTE: snapshot agora guarda histórico do TOTAL (bruto/dividas/liquido)
+// ✅ snapshot guarda bruto/dividas/liquido (e o caixa vem separado do backend)
 type Snapshot = {
   id: string;
   date: string;
@@ -88,11 +88,7 @@ function StatCard({
         {value}
       </div>
       {hint ? (
-        <div
-          className={
-            tone === "dark" ? "text-xs opacity-70 mt-1" : "text-xs text-slate-500 mt-1"
-          }
-        >
+        <div className={tone === "dark" ? "text-xs opacity-70 mt-1" : "text-xs text-slate-500 mt-1"}>
           {hint}
         </div>
       ) : null}
@@ -109,6 +105,7 @@ export default function CedentesResumoClient() {
     livelo: 0,
     esfera: 0,
   });
+
   const [snapshots, setSnapshots] = useState<Snapshot[]>([]);
   const [cashInput, setCashInput] = useState<string>("");
 
@@ -131,9 +128,10 @@ export default function CedentesResumoClient() {
       setPoints(j.data.points);
       setSnapshots(j.data.snapshots);
 
-      // ✅ AJUSTE: backend agora devolve latestTotalLiquidoCents (não existe mais latestCashCents)
-      const latestCents = Number(j.data.latestTotalLiquidoCents || 0);
-      setCashInput(String((latestCents / 100).toFixed(2)).replace(".", ","));
+      // ✅ AQUI É O PULO DO GATO:
+      // o input do Caixa deve vir do CASH (não do total líquido)
+      const latestCashCents = Number(j.data.latestCashCents ?? 0);
+      setCashInput(String((latestCashCents / 100).toFixed(2)).replace(".", ","));
 
       const rates = j.data.ratesCents;
       if (rates) {
@@ -219,18 +217,20 @@ export default function CedentesResumoClient() {
     };
   }, [points, rateLatam, rateSmiles, rateLivelo, rateEsfera, cashInput, debtsOpenCents]);
 
-  // ✅ AJUSTE: agora “Salvar caixa de hoje” grava o snapshot do TOTAL LÍQUIDO (e bruto/dividas)
+  // ✅ AGORA SALVA O CAIXA + TOTAIS (e o input não reseta mais)
   async function salvarCaixaHoje() {
     try {
       const res = await fetch("/api/resumo/snapshot", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          totalBruto: calc.totalGrossCents,
-          totalDividas: debtsOpenCents,
-          totalLiquido: calc.totalNetCents,
+          cashCents: calc.cashCents,                 // ✅ grava o caixa
+          totalBrutoCents: calc.totalGrossCents,     // ✅ bruto
+          totalDividasCents: debtsOpenCents,         // ✅ dívidas
+          totalLiquidoCents: calc.totalNetCents,     // ✅ líquido
         }),
       });
+
       const j = await res.json();
       if (!j?.ok) throw new Error(j?.error || "Erro ao salvar snapshot");
       await load();
@@ -344,47 +344,38 @@ export default function CedentesResumoClient() {
           <div className="rounded-xl border p-3">
             <div className="text-xs text-slate-600">LATAM</div>
             <div className="text-sm">
-              Milheiros: <b>{fmtInt(calc.milLatam)}</b> • Valor:{" "}
-              <b>{fmtMoneyBR(calc.vLatamCents)}</b>
+              Milheiros: <b>{fmtInt(calc.milLatam)}</b> • Valor: <b>{fmtMoneyBR(calc.vLatamCents)}</b>
             </div>
           </div>
           <div className="rounded-xl border p-3">
             <div className="text-xs text-slate-600">Smiles</div>
             <div className="text-sm">
-              Milheiros: <b>{fmtInt(calc.milSmiles)}</b> • Valor:{" "}
-              <b>{fmtMoneyBR(calc.vSmilesCents)}</b>
+              Milheiros: <b>{fmtInt(calc.milSmiles)}</b> • Valor: <b>{fmtMoneyBR(calc.vSmilesCents)}</b>
             </div>
           </div>
           <div className="rounded-xl border p-3">
             <div className="text-xs text-slate-600">Livelo</div>
             <div className="text-sm">
-              Milheiros: <b>{fmtInt(calc.milLivelo)}</b> • Valor:{" "}
-              <b>{fmtMoneyBR(calc.vLiveloCents)}</b>
+              Milheiros: <b>{fmtInt(calc.milLivelo)}</b> • Valor: <b>{fmtMoneyBR(calc.vLiveloCents)}</b>
             </div>
           </div>
           <div className="rounded-xl border p-3">
             <div className="text-xs text-slate-600">Esfera</div>
             <div className="text-sm">
-              Milheiros: <b>{fmtInt(calc.milEsfera)}</b> • Valor:{" "}
-              <b>{fmtMoneyBR(calc.vEsferaCents)}</b>
+              Milheiros: <b>{fmtInt(calc.milEsfera)}</b> • Valor: <b>{fmtMoneyBR(calc.vEsferaCents)}</b>
             </div>
           </div>
         </div>
 
         {/* Totais */}
         <div className="grid gap-3 md:grid-cols-3">
-          <StatCard
-            label="TOTAL BRUTO (milhas + caixa)"
-            value={fmtMoneyBR(calc.totalGrossCents)}
-          />
-
+          <StatCard label="TOTAL BRUTO (milhas + caixa)" value={fmtMoneyBR(calc.totalGrossCents)} />
           <StatCard
             label="DÍVIDAS EM ABERTO"
             value={`-${fmtMoneyBR(debtsOpenCents)}`}
             hint="saldo total das dívidas OPEN"
             tone="danger"
           />
-
           <StatCard label="TOTAL LÍQUIDO" value={fmtMoneyBR(calc.totalNetCents)} tone="dark" />
         </div>
       </div>
