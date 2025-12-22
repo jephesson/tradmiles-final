@@ -1,9 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
-import { LoyaltyProgram } from "@prisma/client";
+import { prisma, LoyaltyProgram } from "@prisma/client";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+type Ctx = {
+  params: Promise<{
+    id: string;
+    itemId: string;
+  }>;
+};
 
 function field(program: LoyaltyProgram) {
   return {
@@ -14,12 +20,9 @@ function field(program: LoyaltyProgram) {
   }[program];
 }
 
-export async function POST(
-  _req: NextRequest,
-  { params }: { params: { id: string; itemId: string } }
-) {
+export async function POST(_req: NextRequest, { params }: Ctx) {
   try {
-    const { id, itemId } = params;
+    const { id, itemId } = await params;
 
     const result = await prisma.$transaction(async (tx) => {
       const item = await tx.purchaseItem.findUnique({
@@ -45,61 +48,49 @@ export async function POST(
 
       const updates: Record<string, number> = {};
 
-      /* =====================
-         COMPRA DE PONTOS
-      ===================== */
+      // COMPRA DE PONTOS
       if (item.type === "POINTS_BUY" && item.programTo) {
         const f = field(item.programTo);
         updates[f] = (cedente as any)[f] + item.pointsFinal;
       }
 
-      /* =====================
-         TRANSFERÊNCIA
-      ===================== */
+      // TRANSFERÊNCIA
       if (item.type === "TRANSFER" && item.programFrom && item.programTo) {
         const debit =
           item.transferMode === "POINTS_PLUS_CASH"
             ? item.pointsDebitedFromOrigin
             : item.pointsBase;
 
-        const fromField = field(item.programFrom);
-        const toField = field(item.programTo);
+        const from = field(item.programFrom);
+        const to = field(item.programTo);
 
-        if ((cedente as any)[fromField] < debit) {
+        if ((cedente as any)[from] < debit) {
           throw new Error("Saldo insuficiente para transferência.");
         }
 
-        updates[fromField] = (cedente as any)[fromField] - debit;
-        updates[toField] = (cedente as any)[toField] + item.pointsFinal;
+        updates[from] = (cedente as any)[from] - debit;
+        updates[to] = (cedente as any)[to] + item.pointsFinal;
       }
 
-      /* =====================
-         AJUSTE MANUAL
-      ===================== */
+      // AJUSTE
       if (item.type === "ADJUSTMENT" && item.programTo) {
         const f = field(item.programTo);
         const novo = (cedente as any)[f] + item.pointsBase;
-
-        if (novo < 0) {
-          throw new Error("Saldo não pode ficar negativo.");
-        }
-
+        if (novo < 0) throw new Error("Saldo não pode ficar negativo.");
         updates[f] = novo;
       }
 
-      if (Object.keys(updates).length > 0) {
+      if (Object.keys(updates).length) {
         await tx.cedente.update({
           where: { id: cedente.id },
           data: updates,
         });
       }
 
-      const updatedItem = await tx.purchaseItem.update({
+      return tx.purchaseItem.update({
         where: { id: item.id },
         data: { status: "RELEASED" },
       });
-
-      return updatedItem;
     });
 
     return NextResponse.json({ ok: true, data: result });
