@@ -1,19 +1,26 @@
 // app/api/purchases/[id]/route.ts
 import { prisma } from "@/lib/prisma";
+import { NextRequest } from "next/server";
 
 function bad(msg: string, status = 400) {
   return new Response(msg, { status });
 }
 
-export async function GET(_: Request, ctx: { params: { id: string } }) {
-  const id = ctx.params.id;
+type Ctx = { params: Promise<{ id: string }> };
+
+export async function GET(_: NextRequest, { params }: Ctx) {
+  const { id } = await params;
+
   const row = await prisma.purchase.findUnique({
     where: { id },
     include: {
-      cedente: { select: { id: true, nomeCompleto: true, cpf: true, identificador: true } },
+      cedente: {
+        select: { id: true, nomeCompleto: true, cpf: true, identificador: true },
+      },
       items: true,
     },
   });
+
   if (!row) return bad("Compra não encontrada.", 404);
   return Response.json(row);
 }
@@ -23,8 +30,8 @@ type PatchBody = {
   note?: string | null;
 };
 
-export async function PATCH(req: Request, ctx: { params: { id: string } }) {
-  const id = ctx.params.id;
+export async function PATCH(req: NextRequest, { params }: Ctx) {
+  const { id } = await params;
   const body = (await req.json()) as PatchBody;
 
   const updated = await prisma.purchase.update({
