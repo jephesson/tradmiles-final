@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma, LoyaltyProgram } from "@prisma/client";
+import { prisma } from "@/lib/prisma";
+import type { LoyaltyProgram } from "@prisma/client";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -40,6 +41,13 @@ export async function POST(_req: NextRequest, { params }: Ctx) {
 
       const cedente = await tx.cedente.findUnique({
         where: { id: item.purchase.cedenteId },
+        select: {
+          id: true,
+          pontosLatam: true,
+          pontosSmiles: true,
+          pontosLivelo: true,
+          pontosEsfera: true,
+        },
       });
 
       if (!cedente) {
@@ -51,7 +59,8 @@ export async function POST(_req: NextRequest, { params }: Ctx) {
       // COMPRA DE PONTOS
       if (item.type === "POINTS_BUY" && item.programTo) {
         const f = field(item.programTo);
-        updates[f] = (cedente as any)[f] + item.pointsFinal;
+        const add = item.pointsFinal || item.pointsBase || 0;
+        updates[f] = (cedente as any)[f] + add;
       }
 
       // TRANSFERÊNCIA
@@ -68,14 +77,16 @@ export async function POST(_req: NextRequest, { params }: Ctx) {
           throw new Error("Saldo insuficiente para transferência.");
         }
 
+        const credit = item.pointsFinal || item.pointsBase || 0;
+
         updates[from] = (cedente as any)[from] - debit;
-        updates[to] = (cedente as any)[to] + item.pointsFinal;
+        updates[to] = (cedente as any)[to] + credit;
       }
 
       // AJUSTE
       if (item.type === "ADJUSTMENT" && item.programTo) {
         const f = field(item.programTo);
-        const novo = (cedente as any)[f] + item.pointsBase;
+        const novo = (cedente as any)[f] + (item.pointsBase || 0);
         if (novo < 0) throw new Error("Saldo não pode ficar negativo.");
         updates[f] = novo;
       }
@@ -83,7 +94,7 @@ export async function POST(_req: NextRequest, { params }: Ctx) {
       if (Object.keys(updates).length) {
         await tx.cedente.update({
           where: { id: cedente.id },
-          data: updates,
+          data: updates as any, // <- porque o Record<string, number> é dinâmico
         });
       }
 
@@ -93,10 +104,10 @@ export async function POST(_req: NextRequest, { params }: Ctx) {
       });
     });
 
-    return NextResponse.json({ ok: true, data: result });
+    return NextResponse.json({ ok: true, data: result }, { status: 200 });
   } catch (e: any) {
     return NextResponse.json(
-      { ok: false, error: e.message || "Erro ao liberar item." },
+      { ok: false, error: e?.message || "Erro ao liberar item." },
       { status: 400 }
     );
   }
