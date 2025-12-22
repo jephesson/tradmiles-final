@@ -1,14 +1,14 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function POST(
-  req: Request,
-  { params }: { params: { id: string } }
-) {
+type Ctx = { params: Promise<{ id: string }> };
+
+export async function POST(req: NextRequest, { params }: Ctx) {
   try {
+    const { id } = await params;
     const body = await req.json();
 
     const {
@@ -35,7 +35,7 @@ export async function POST(
 
     const item = await prisma.purchaseItem.create({
       data: {
-        purchaseId: params.id,
+        purchaseId: id,
         type,
         title,
         programFrom,
@@ -51,7 +51,7 @@ export async function POST(
       },
     });
 
-    return NextResponse.json({ ok: true, data: item });
+    return NextResponse.json({ ok: true, data: item }, { status: 200 });
   } catch (e: any) {
     console.error(e);
     return NextResponse.json(
