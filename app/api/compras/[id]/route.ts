@@ -1,16 +1,17 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function GET(
-  _: Request,
-  { params }: { params: { id: string } }
-) {
+type Ctx = { params: Promise<{ id: string }> };
+
+export async function GET(_req: NextRequest, { params }: Ctx) {
   try {
+    const { id } = await params;
+
     const purchase = await prisma.purchase.findUnique({
-      where: { id: params.id },
+      where: { id },
       include: {
         cedente: {
           select: { id: true, nomeCompleto: true },
@@ -28,7 +29,7 @@ export async function GET(
       );
     }
 
-    return NextResponse.json({ ok: true, data: purchase });
+    return NextResponse.json({ ok: true, data: purchase }, { status: 200 });
   } catch (e: any) {
     console.error(e);
     return NextResponse.json(
