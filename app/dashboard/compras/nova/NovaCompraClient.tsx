@@ -13,15 +13,21 @@ export default function NovaCompraClient() {
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    fetch("/api/cedentes")
+    fetch("/api/cedentes/approved", { cache: "no-store" })
       .then((r) => r.json())
       .then((j) => {
-        if (j?.ok) setCedentes(j.data);
-      });
+        if (j?.ok && Array.isArray(j.data)) {
+          setCedentes(j.data);
+        }
+      })
+      .catch(console.error);
   }, []);
 
   async function criarCompra() {
-    if (!cedenteId) return alert("Selecione um cedente");
+    if (!cedenteId) {
+      alert("Selecione um cedente");
+      return;
+    }
 
     setLoading(true);
     try {
