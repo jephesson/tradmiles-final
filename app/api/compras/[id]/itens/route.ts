@@ -1,67 +1,63 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
-function calcPointsFinal(
-  base: number,
-  bonusMode?: string | null,
-  bonusValue?: number | null
-) {
-  if (!bonusMode || !bonusValue) return base;
+type Ctx = {
+  params: Promise<{ id: string }>;
+};
 
-  if (bonusMode === "PERCENT") {
-    return Math.floor(base * (1 + bonusValue / 100));
-  }
-
-  if (bonusMode === "TOTAL") {
-    return base + bonusValue;
-  }
-
-  return base;
-}
-
-export async function POST(
-  req: Request,
-  { params }: { params: { id: string } }
-) {
+export async function POST(req: NextRequest, { params }: Ctx) {
   try {
+    const { id } = await params; // 👈 OBRIGATÓRIO no Next 16
     const body = await req.json();
 
-    const pointsBase = body.pointsBase ?? 0;
-    const pointsFinal = calcPointsFinal(
+    const {
+      type,
+      title,
+      programFrom,
+      programTo,
       pointsBase,
-      body.bonusMode,
-      body.bonusValue
-    );
+      bonusMode,
+      bonusValue,
+      pointsFinal,
+      amountCents,
+      transferMode,
+      pointsDebitedFromOrigin,
+      details,
+    } = body;
+
+    if (!type || !title) {
+      return NextResponse.json(
+        { ok: false, error: "Tipo e título são obrigatórios." },
+        { status: 400 }
+      );
+    }
 
     const item = await prisma.purchaseItem.create({
       data: {
-        purchaseId: params.id,
-        type: body.type,
-        title: body.title,
-
-        programFrom: body.programFrom ?? null,
-        programTo: body.programTo ?? null,
-
-        pointsBase,
-        bonusMode: body.bonusMode ?? null,
-        bonusValue: body.bonusValue ?? null,
-        pointsFinal,
-
-        amountCents: body.amountCents ?? 0,
-        transferMode: body.transferMode ?? null,
-        pointsDebitedFromOrigin: body.pointsDebitedFromOrigin ?? 0,
-
-        details: body.details ?? null,
-        status: "PENDING",
+        purchaseId: id,
+        type,
+        title,
+        programFrom,
+        programTo,
+        pointsBase: pointsBase || 0,
+        bonusMode,
+        bonusValue,
+        pointsFinal: pointsFinal || 0,
+        amountCents: amountCents || 0,
+        transferMode,
+        pointsDebitedFromOrigin: pointsDebitedFromOrigin || 0,
+        details,
       },
     });
 
     return NextResponse.json({ ok: true, data: item });
   } catch (e: any) {
+    console.error(e);
     return NextResponse.json(
-      { ok: false, error: e.message },
+      { ok: false, error: e?.message || "Erro ao criar item." },
       { status: 500 }
     );
   }
