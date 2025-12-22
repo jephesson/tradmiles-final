@@ -1,17 +1,15 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 
 export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
 
-export async function POST(req: NextRequest) {
+export async function POST(req: Request) {
   try {
-    const body = await req.json();
-    const { cedenteId, note } = body;
+    const { cedenteId } = await req.json();
 
     if (!cedenteId) {
       return NextResponse.json(
-        { ok: false, error: "Cedente é obrigatório." },
+        { ok: false, error: "Cedente obrigatório." },
         { status: 400 }
       );
     }
@@ -19,23 +17,15 @@ export async function POST(req: NextRequest) {
     const purchase = await prisma.purchase.create({
       data: {
         cedenteId,
-        note: note || null,
+        status: "OPEN",
       },
-      select: {
-        id: true,
-        status: true,
-        createdAt: true,
-      },
+      select: { id: true },
     });
 
-    return NextResponse.json(
-      { ok: true, data: purchase },
-      { status: 201 }
-    );
+    return NextResponse.json({ ok: true, data: purchase });
   } catch (e: any) {
-    console.error(e);
     return NextResponse.json(
-      { ok: false, error: e?.message || "Erro ao criar compra." },
+      { ok: false, error: e.message },
       { status: 500 }
     );
   }

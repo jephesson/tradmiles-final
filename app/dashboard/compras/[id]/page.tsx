@@ -1,5 +1,5 @@
-import CompraDetalheClient from "./CompraDetalheClient";
+import CompraClient from "./CompraClient";
 
 export default function Page({ params }: { params: { id: string } }) {
-  return <CompraDetalheClient purchaseId={params.id} />;
+  return <CompraClient purchaseId={params.id} />;
 }
