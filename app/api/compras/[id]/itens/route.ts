@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { NextRequest } from "next/server";
+import { LoyaltyProgram, PurchaseItemType, TransferMode } from "@prisma/client";
 
 export const dynamic = "force-dynamic";
 
@@ -8,6 +9,10 @@ function json(data: any, status = 200) {
     status,
     headers: { "Content-Type": "application/json" },
   });
+}
+
+function isEnumValue<T extends Record<string, string>>(enm: T, v: string) {
+  return (Object.values(enm) as string[]).includes(v);
 }
 
 function calcPointsFinal(
@@ -38,12 +43,27 @@ export async function POST(
   const { id: purchaseId } = await ctx.params;
   const body = await req.json().catch(() => null);
 
-  const type = body?.type as string | undefined;
+  // ===== type (enum) =====
+  const typeRaw = String(body?.type || "").trim();
+  const type = isEnumValue(PurchaseItemType, typeRaw)
+    ? (typeRaw as PurchaseItemType)
+    : null;
+
   const title = String(body?.title || "").trim();
 
-  if (!type) return json({ ok: false, error: "type é obrigatório." }, 400);
+  if (!type) {
+    return json(
+      {
+        ok: false,
+        error:
+          "type inválido. Use: CLUB, POINTS_BUY, TRANSFER, ADJUSTMENT, EXTRA_COST.",
+      },
+      400
+    );
+  }
   if (!title) return json({ ok: false, error: "title é obrigatório." }, 400);
 
+  // garante compra OPEN
   const compra = await prisma.purchase.findUnique({
     where: { id: purchaseId },
     select: { id: true, status: true },
@@ -53,6 +73,7 @@ export async function POST(
   if (compra.status !== "OPEN")
     return json({ ok: false, error: "Compra não está OPEN." }, 400);
 
+  // ===== pontos / dinheiro =====
   const pointsBase = Math.trunc(Number(body?.pointsBase || 0));
   const bonusMode = body?.bonusMode ? String(body.bonusMode) : null;
   const bonusValue =
@@ -61,10 +82,23 @@ export async function POST(
 
   const amountCents = Math.trunc(Number(body?.amountCents || 0));
 
-  const programFrom = body?.programFrom ?? null;
-  const programTo = body?.programTo ?? null;
+  // ===== enums de transferência =====
+  const pfRaw = String(body?.programFrom ?? "").trim();
+  const ptRaw = String(body?.programTo ?? "").trim();
+  const tmRaw = String(body?.transferMode ?? "").trim();
 
-  const transferMode = body?.transferMode ?? null;
+  const programFrom = pfRaw && isEnumValue(LoyaltyProgram, pfRaw)
+    ? (pfRaw as LoyaltyProgram)
+    : null;
+
+  const programTo = ptRaw && isEnumValue(LoyaltyProgram, ptRaw)
+    ? (ptRaw as LoyaltyProgram)
+    : null;
+
+  const transferMode = tmRaw && isEnumValue(TransferMode, tmRaw)
+    ? (tmRaw as TransferMode)
+    : null;
+
   const pointsDebitedFromOrigin = Math.trunc(
     Number(body?.pointsDebitedFromOrigin || 0)
   );
@@ -91,6 +125,7 @@ export async function POST(
     }
   }
 
+  // cria item
   const item = await prisma.purchaseItem.create({
     data: {
       purchaseId,
