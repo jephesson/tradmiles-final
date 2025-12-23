@@ -21,7 +21,7 @@ function calcPointsFinal(
   bonusValue?: number | null
 ) {
   const base = Math.max(0, Math.trunc(pointsBase || 0));
-  if (!bonusMode || !bonusValue) return base;
+  if (!bonusMode || bonusValue == null) return base;
 
   if (bonusMode === "PERCENT") {
     const pct = Math.max(0, Number(bonusValue));
@@ -50,7 +50,6 @@ export async function POST(
     : null;
 
   const title = String(body?.title || "").trim();
-
   if (!type) {
     return json(
       {
@@ -87,17 +86,18 @@ export async function POST(
   const ptRaw = String(body?.programTo ?? "").trim();
   const tmRaw = String(body?.transferMode ?? "").trim();
 
-  const programFrom = pfRaw && isEnumValue(LoyaltyProgram, pfRaw)
-    ? (pfRaw as LoyaltyProgram)
-    : null;
+  const programFrom =
+    pfRaw && isEnumValue(LoyaltyProgram, pfRaw)
+      ? (pfRaw as LoyaltyProgram)
+      : null;
 
-  const programTo = ptRaw && isEnumValue(LoyaltyProgram, ptRaw)
-    ? (ptRaw as LoyaltyProgram)
-    : null;
+  const programTo =
+    ptRaw && isEnumValue(LoyaltyProgram, ptRaw)
+      ? (ptRaw as LoyaltyProgram)
+      : null;
 
-  const transferMode = tmRaw && isEnumValue(TransferMode, tmRaw)
-    ? (tmRaw as TransferMode)
-    : null;
+  const transferMode =
+    tmRaw && isEnumValue(TransferMode, tmRaw) ? (tmRaw as TransferMode) : null;
 
   const pointsDebitedFromOrigin = Math.trunc(
     Number(body?.pointsDebitedFromOrigin || 0)
@@ -123,9 +123,11 @@ export async function POST(
         400
       );
     }
+  } else {
+    // se não for TRANSFER, ignora campos de transferência (evita lixo)
+    // (não precisa bloquear, só não salva)
   }
 
-  // cria item
   const item = await prisma.purchaseItem.create({
     data: {
       purchaseId,
@@ -133,8 +135,8 @@ export async function POST(
       title,
       details: body?.details ? String(body.details) : null,
 
-      programFrom,
-      programTo,
+      programFrom: type === "TRANSFER" ? programFrom : null,
+      programTo: type === "TRANSFER" ? programTo : null,
 
       pointsBase,
       bonusMode,
@@ -142,8 +144,8 @@ export async function POST(
       pointsFinal,
 
       amountCents,
-      transferMode,
-      pointsDebitedFromOrigin,
+      transferMode: type === "TRANSFER" ? transferMode : null,
+      pointsDebitedFromOrigin: type === "TRANSFER" ? pointsDebitedFromOrigin : 0,
     },
     select: {
       id: true,

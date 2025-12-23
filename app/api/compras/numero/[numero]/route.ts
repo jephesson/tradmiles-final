@@ -16,8 +16,11 @@ export async function GET(
 ) {
   const { numero } = await ctx.params;
 
+  const n = String(numero || "").trim().toUpperCase();
+  if (!n) return json({ ok: false, error: "numero inválido." }, 400);
+
   const compra = await prisma.purchase.findUnique({
-    where: { numero }, // ✅ aqui é o numero (ID00001)
+    where: { numero: n },
     select: {
       id: true,
       numero: true,

@@ -335,15 +335,11 @@ enum TransferMode {
 }
 
 model Purchase {
-  id        String @id @default(cuid())
-
-  // ✅ ID humano sequencial (1,2,3...) — você mostra como ID00001
-  numero    Int    @unique @default(autoincrement())
-
+  id        String         @id @default(cuid())
+  numero    String         @unique // "ID00001"
   cedenteId String
   status    PurchaseStatus @default(OPEN)
 
-  // valores “macro” que entram no custo total
   cedentePayCents      Int @default(0)
   vendorCommissionBps  Int @default(100)
   extraPoints          Int @default(0)
@@ -399,3 +395,13 @@ model PurchaseItem {
   @@index([status])
   @@map("purchase_items")
 }
+
+model Counter {
+  key   String @id
+  value Int    @default(0)
+
+  updatedAt DateTime @updatedAt
+
+  @@map("counters")
+}
+
