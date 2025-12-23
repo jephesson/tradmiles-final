@@ -7,8 +7,8 @@ type TipoItem = "CLUB" | "POINTS_BUY" | "TRANSFER" | "ADJUSTMENT" | "EXTRA_COST"
 type TransferMode = "FULL_POINTS" | "POINTS_PLUS_CASH";
 
 type Compra = {
-  id: string;
-  numero: number;
+  id: string; // cuid do prisma
+  numero: string; // "ID00001"
   status: "OPEN" | "CLOSED" | "CANCELED";
   createdAt: string;
   cedente: {
@@ -60,8 +60,8 @@ function fmtInt(n: number) {
   return new Intl.NumberFormat("pt-BR").format(n || 0);
 }
 
-function compraIdFmt(numero: number) {
-  return `ID${String(numero).padStart(5, "0")}`;
+function compraIdFmt(numero: string) {
+  return numero || "-";
 }
 
 function toCents(input: string) {
@@ -72,20 +72,16 @@ function toCents(input: string) {
   return Math.trunc(v * 100);
 }
 
-function num(input: string) {
-  const v = Number((input || "").replace(/\D+/g, ""));
-  return isFinite(v) ? v : 0;
-}
-
 export default function Compra({ id }: { id: string }) {
   const [compra, setCompra] = useState<Compra | null>(null);
   const [loading, setLoading] = useState(true);
 
   // modo de operação
   const [modo, setModo] = useState<"CIA" | "BANCO_CIA">("CIA");
-  const [cia, setCia] = useState<Programa>("LATAM"); // destino quando CIA
-  const [banco, setBanco] = useState<Programa>("LIVELO"); // origem quando BANCO_CIA
-  const [cia2, setCia2] = useState<Programa>("LATAM"); // destino quando BANCO_CIA
+  const [cia, setCia] = useState<"LATAM" | "SMILES">("LATAM"); // destino quando CIA
+
+  const [banco, setBanco] = useState<"LIVELO" | "ESFERA">("LIVELO"); // origem quando BANCO_CIA
+  const [cia2, setCia2] = useState<"LATAM" | "SMILES">("LATAM"); // destino quando BANCO_CIA
 
   // formulário de item (genérico)
   const [tipo, setTipo] = useState<TipoItem>("POINTS_BUY");
@@ -104,9 +100,10 @@ export default function Compra({ id }: { id: string }) {
   async function carregar() {
     setLoading(true);
     try {
-      const res = await fetch(`/api/compras/${id}`, { cache: "no-store" });
-      const json = await res.json();
-      if (!json?.ok) throw new Error(json?.error || "Falha ao carregar compra.");
+      // ✅ id aqui é o NUMERO (ID00001)
+      const res = await fetch(`/api/compras/numero/${id}`, { cache: "no-store" });
+      const json = await res.json().catch(() => null);
+      if (!res.ok || !json?.ok) throw new Error(json?.error || "Falha ao carregar compra.");
       setCompra(json.compra);
     } catch (e: any) {
       alert(e?.message || "Erro ao carregar compra.");
@@ -118,7 +115,13 @@ export default function Compra({ id }: { id: string }) {
 
   useEffect(() => {
     carregar();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
+
+  // ✅ Se o modo for CIA, não pode deixar TRANSFER selecionado
+  useEffect(() => {
+    if (modo === "CIA" && tipo === "TRANSFER") setTipo("POINTS_BUY");
+  }, [modo, tipo]);
 
   // pontos “prévia” por programa
   const pontos = useMemo(() => {
@@ -134,8 +137,8 @@ export default function Compra({ id }: { id: string }) {
 
   // “programas ativos” (1 ou 2) conforme modo
   const programasAtivos = useMemo(() => {
-    if (modo === "CIA") return { programFrom: null as Programa | null, programTo: cia };
-    return { programFrom: banco, programTo: cia2 };
+    if (modo === "CIA") return { programFrom: null as Programa | null, programTo: cia as Programa };
+    return { programFrom: banco as Programa, programTo: cia2 as Programa };
   }, [modo, cia, banco, cia2]);
 
   const pontosPrevistos = useMemo(() => {
@@ -155,8 +158,14 @@ export default function Compra({ id }: { id: string }) {
   async function adicionarItem() {
     if (!compra) return;
 
+    // validações mínimas
     const pointsBase = Math.trunc(Number(pontosConfirmados || 0));
     const amountCents = toCents(valor);
+
+    if (tipo === "TRANSFER" && modo !== "BANCO_CIA") {
+      alert("Transferência só faz sentido no modo Banco + CIA.");
+      return;
+    }
 
     // título default se vazio
     const titleFinal =
@@ -231,9 +240,12 @@ export default function Compra({ id }: { id: string }) {
   }
 
   async function removerItem(itemId: string) {
+    if (!compra) return;
     if (!confirm("Remover este item do carrinho?")) return;
+
     try {
-      const res = await fetch(`/api/compras/itens/${itemId}`, { method: "DELETE" });
+      // ✅ delete no caminho correto (item dentro da compra)
+      const res = await fetch(`/api/compras/${compra.id}/itens/${itemId}`, { method: "DELETE" });
       const json = await res.json().catch(() => null);
       if (!res.ok || !json?.ok) {
         alert(json?.error || "Erro ao remover item.");
@@ -276,20 +288,12 @@ export default function Compra({ id }: { id: string }) {
 
         <div className="flex flex-wrap items-center gap-3">
           <label className="flex items-center gap-2 text-sm">
-            <input
-              type="radio"
-              checked={modo === "CIA"}
-              onChange={() => setModo("CIA")}
-            />
+            <input type="radio" checked={modo === "CIA"} onChange={() => setModo("CIA")} />
             Só CIA (LATAM ou SMILES)
           </label>
 
           <label className="flex items-center gap-2 text-sm">
-            <input
-              type="radio"
-              checked={modo === "BANCO_CIA"}
-              onChange={() => setModo("BANCO_CIA")}
-            />
+            <input type="radio" checked={modo === "BANCO_CIA"} onChange={() => setModo("BANCO_CIA")} />
             Banco + CIA (LIVELO/ESFERA → LATAM/SMILES)
           </label>
         </div>
@@ -297,7 +301,11 @@ export default function Compra({ id }: { id: string }) {
         {modo === "CIA" ? (
           <div className="flex flex-wrap items-center gap-3">
             <div className="text-sm text-slate-600">CIA:</div>
-            <select className="rounded-xl border px-3 py-2 text-sm" value={cia} onChange={(e) => setCia(e.target.value as Programa)}>
+            <select
+              className="rounded-xl border px-3 py-2 text-sm"
+              value={cia}
+              onChange={(e) => setCia(e.target.value as any)}
+            >
               <option value="LATAM">LATAM</option>
               <option value="SMILES">SMILES</option>
             </select>
@@ -310,13 +318,21 @@ export default function Compra({ id }: { id: string }) {
         ) : (
           <div className="flex flex-wrap items-center gap-3">
             <div className="text-sm text-slate-600">Banco (origem):</div>
-            <select className="rounded-xl border px-3 py-2 text-sm" value={banco} onChange={(e) => setBanco(e.target.value as Programa)}>
+            <select
+              className="rounded-xl border px-3 py-2 text-sm"
+              value={banco}
+              onChange={(e) => setBanco(e.target.value as any)}
+            >
               <option value="LIVELO">LIVELO</option>
               <option value="ESFERA">ESFERA</option>
             </select>
 
             <div className="text-sm text-slate-600">CIA (destino):</div>
-            <select className="rounded-xl border px-3 py-2 text-sm" value={cia2} onChange={(e) => setCia2(e.target.value as Programa)}>
+            <select
+              className="rounded-xl border px-3 py-2 text-sm"
+              value={cia2}
+              onChange={(e) => setCia2(e.target.value as any)}
+            >
               <option value="LATAM">LATAM</option>
               <option value="SMILES">SMILES</option>
             </select>
@@ -336,10 +352,14 @@ export default function Compra({ id }: { id: string }) {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <div>
             <div className="text-xs text-slate-500">Tipo</div>
-            <select className="w-full rounded-xl border px-3 py-2 text-sm" value={tipo} onChange={(e) => setTipo(e.target.value as TipoItem)}>
+            <select
+              className="w-full rounded-xl border px-3 py-2 text-sm"
+              value={tipo}
+              onChange={(e) => setTipo(e.target.value as TipoItem)}
+            >
               <option value="CLUB">Clube</option>
               <option value="POINTS_BUY">Compra de pontos</option>
-              <option value="TRANSFER">Transferência</option>
+              {modo === "BANCO_CIA" && <option value="TRANSFER">Transferência</option>}
               <option value="EXTRA_COST">Custo extra</option>
               <option value="ADJUSTMENT">Ajuste manual</option>
             </select>
@@ -347,16 +367,26 @@ export default function Compra({ id }: { id: string }) {
 
           <div>
             <div className="text-xs text-slate-500">Título (opcional)</div>
-            <input className="w-full rounded-xl border px-3 py-2 text-sm" value={titulo} onChange={(e) => setTitulo(e.target.value)} placeholder="Ex: Clube 10k, Transfer 30%, Taxa..." />
+            <input
+              className="w-full rounded-xl border px-3 py-2 text-sm"
+              value={titulo}
+              onChange={(e) => setTitulo(e.target.value)}
+              placeholder="Ex: Clube 10k, Transfer 30%, Taxa..."
+            />
           </div>
 
           <div className="md:col-span-2">
             <div className="text-xs text-slate-500">Detalhes (opcional)</div>
-            <input className="w-full rounded-xl border px-3 py-2 text-sm" value={detalhes} onChange={(e) => setDetalhes(e.target.value)} placeholder="Observações do item..." />
+            <input
+              className="w-full rounded-xl border px-3 py-2 text-sm"
+              value={detalhes}
+              onChange={(e) => setDetalhes(e.target.value)}
+              placeholder="Observações do item..."
+            />
           </div>
         </div>
 
-        {/* Confirmação/edição de pontos */}
+        {/* Pontos */}
         <div className="rounded-xl border p-3 space-y-2">
           <div className="text-sm font-medium">Pontos</div>
 
@@ -388,7 +418,11 @@ export default function Compra({ id }: { id: string }) {
 
             <div>
               <div className="text-xs text-slate-500">Bônus</div>
-              <select className="w-full rounded-xl border px-3 py-2 text-sm" value={modoBonus} onChange={(e) => setModoBonus(e.target.value as any)}>
+              <select
+                className="w-full rounded-xl border px-3 py-2 text-sm"
+                value={modoBonus}
+                onChange={(e) => setModoBonus(e.target.value as any)}
+              >
                 <option value="NENHUM">Sem bônus</option>
                 <option value="PERCENT">% (percentual)</option>
                 <option value="TOTAL">Total (pontos bônus)</option>
@@ -427,13 +461,17 @@ export default function Compra({ id }: { id: string }) {
               <div className="text-sm font-medium">Transferência</div>
 
               <div className="text-xs text-slate-500">
-                Origem: <b>{programasAtivos.programFrom || "—"}</b> → Destino: <b>{programasAtivos.programTo}</b>
+                Origem: <b>{programasAtivos.programFrom}</b> → Destino: <b>{programasAtivos.programTo}</b>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                 <div>
                   <div className="text-xs text-slate-500">Modo</div>
-                  <select className="w-full rounded-xl border px-3 py-2 text-sm" value={transferMode} onChange={(e) => setTransferMode(e.target.value as TransferMode)}>
+                  <select
+                    className="w-full rounded-xl border px-3 py-2 text-sm"
+                    value={transferMode}
+                    onChange={(e) => setTransferMode(e.target.value as TransferMode)}
+                  >
                     <option value="FULL_POINTS">Só pontos</option>
                     <option value="POINTS_PLUS_CASH">Pontos + dinheiro</option>
                   </select>
@@ -477,9 +515,7 @@ export default function Compra({ id }: { id: string }) {
               />
             </div>
 
-            <div className="text-xs text-slate-500 flex items-end">
-              (Se não tiver valor em dinheiro, deixe vazio/0)
-            </div>
+            <div className="text-xs text-slate-500 flex items-end">(Se não tiver valor em dinheiro, deixe vazio/0)</div>
           </div>
         )}
 
