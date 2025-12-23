@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { NextRequest } from "next/server";
 
 export const dynamic = "force-dynamic";
 
@@ -9,7 +10,11 @@ function json(data: any, status = 200) {
   });
 }
 
-function calcPointsFinal(pointsBase: number, bonusMode?: string | null, bonusValue?: number | null) {
+function calcPointsFinal(
+  pointsBase: number,
+  bonusMode?: string | null,
+  bonusValue?: number | null
+) {
   const base = Math.max(0, Math.trunc(pointsBase || 0));
   if (!bonusMode || !bonusValue) return base;
 
@@ -17,43 +22,58 @@ function calcPointsFinal(pointsBase: number, bonusMode?: string | null, bonusVal
     const pct = Math.max(0, Number(bonusValue));
     return Math.trunc(base * (1 + pct / 100));
   }
+
   if (bonusMode === "TOTAL") {
     const bonus = Math.max(0, Math.trunc(Number(bonusValue)));
     return base + bonus;
   }
+
   return base;
 }
 
-export async function PATCH(req: Request, ctx: { params: { itemId: string } }) {
-  const itemId = ctx.params.itemId;
+export async function PATCH(
+  req: NextRequest,
+  ctx: { params: Promise<{ id: string; itemId: string }> }
+) {
+  const { id: purchaseId, itemId } = await ctx.params;
   const body = await req.json().catch(() => null);
 
-  const item = await prisma.purchaseItem.findUnique({
+  // garante que item pertence à compra e compra está OPEN
+  const existing = await prisma.purchaseItem.findUnique({
     where: { id: itemId },
-    select: { id: true, purchaseId: true, purchase: { select: { status: true } } },
+    select: {
+      id: true,
+      purchaseId: true,
+      pointsBase: true,
+      bonusMode: true,
+      bonusValue: true,
+      purchase: { select: { status: true } },
+    },
   });
-  if (!item) return json({ ok: false, error: "Item não encontrado." }, 404);
-  if (item.purchase.status !== "OPEN") return json({ ok: false, error: "Compra não está OPEN." }, 400);
 
-  const pointsBase = body?.pointsBase == null ? undefined : Math.trunc(Number(body.pointsBase));
+  if (!existing) return json({ ok: false, error: "Item não encontrado." }, 404);
+  if (existing.purchaseId !== purchaseId)
+    return json({ ok: false, error: "Item não pertence a esta compra." }, 400);
+  if (existing.purchase.status !== "OPEN")
+    return json({ ok: false, error: "Compra não está OPEN." }, 400);
+
+  const pointsBase =
+    body?.pointsBase == null ? undefined : Math.trunc(Number(body.pointsBase));
   const bonusMode = body?.bonusMode == null ? undefined : String(body.bonusMode);
-  const bonusValue = body?.bonusValue == null ? undefined : Math.trunc(Number(body.bonusValue));
-  const amountCents = body?.amountCents == null ? undefined : Math.trunc(Number(body.amountCents));
+  const bonusValue =
+    body?.bonusValue == null ? undefined : Math.trunc(Number(body.bonusValue));
+  const amountCents =
+    body?.amountCents == null ? undefined : Math.trunc(Number(body.amountCents));
   const pointsDebitedFromOrigin =
-    body?.pointsDebitedFromOrigin == null ? undefined : Math.trunc(Number(body.pointsDebitedFromOrigin));
+    body?.pointsDebitedFromOrigin == null
+      ? undefined
+      : Math.trunc(Number(body.pointsDebitedFromOrigin));
 
-  // recalcula pointsFinal se mexeu em pontos/bonus
   let pointsFinal: number | undefined = undefined;
   if (pointsBase != null || bonusMode != null || bonusValue != null) {
-    const current = await prisma.purchaseItem.findUnique({
-      where: { id: itemId },
-      select: { pointsBase: true, bonusMode: true, bonusValue: true },
-    });
-
-    const pb = pointsBase ?? current!.pointsBase;
-    const bm = bonusMode ?? current!.bonusMode;
-    const bv = bonusValue ?? current!.bonusValue;
-
+    const pb = pointsBase ?? existing.pointsBase;
+    const bm = bonusMode ?? existing.bonusMode;
+    const bv = bonusValue ?? existing.bonusValue;
     pointsFinal = calcPointsFinal(pb, bm, bv);
   }
 
@@ -93,15 +113,26 @@ export async function PATCH(req: Request, ctx: { params: { itemId: string } }) {
   return json({ ok: true, item: updated });
 }
 
-export async function DELETE(_: Request, ctx: { params: { itemId: string } }) {
-  const itemId = ctx.params.itemId;
+export async function DELETE(
+  _req: NextRequest,
+  ctx: { params: Promise<{ id: string; itemId: string }> }
+) {
+  const { id: purchaseId, itemId } = await ctx.params;
 
-  const item = await prisma.purchaseItem.findUnique({
+  const existing = await prisma.purchaseItem.findUnique({
     where: { id: itemId },
-    select: { id: true, purchase: { select: { status: true } } },
+    select: {
+      id: true,
+      purchaseId: true,
+      purchase: { select: { status: true } },
+    },
   });
-  if (!item) return json({ ok: false, error: "Item não encontrado." }, 404);
-  if (item.purchase.status !== "OPEN") return json({ ok: false, error: "Compra não está OPEN." }, 400);
+
+  if (!existing) return json({ ok: false, error: "Item não encontrado." }, 404);
+  if (existing.purchaseId !== purchaseId)
+    return json({ ok: false, error: "Item não pertence a esta compra." }, 400);
+  if (existing.purchase.status !== "OPEN")
+    return json({ ok: false, error: "Compra não está OPEN." }, 400);
 
   await prisma.purchaseItem.delete({ where: { id: itemId } });
   return json({ ok: true });
