@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { NextRequest } from "next/server";
 
 export const dynamic = "force-dynamic";
 
@@ -9,7 +10,11 @@ function json(data: any, status = 200) {
   });
 }
 
-function calcPointsFinal(pointsBase: number, bonusMode?: string | null, bonusValue?: number | null) {
+function calcPointsFinal(
+  pointsBase: number,
+  bonusMode?: string | null,
+  bonusValue?: number | null
+) {
   const base = Math.max(0, Math.trunc(pointsBase || 0));
   if (!bonusMode || !bonusValue) return base;
 
@@ -26,8 +31,11 @@ function calcPointsFinal(pointsBase: number, bonusMode?: string | null, bonusVal
   return base;
 }
 
-export async function POST(req: Request, ctx: { params: { id: string } }) {
-  const purchaseId = ctx.params.id;
+export async function POST(
+  req: NextRequest,
+  ctx: { params: Promise<{ id: string }> }
+) {
+  const { id: purchaseId } = await ctx.params;
   const body = await req.json().catch(() => null);
 
   const type = body?.type as string | undefined;
@@ -40,12 +48,15 @@ export async function POST(req: Request, ctx: { params: { id: string } }) {
     where: { id: purchaseId },
     select: { id: true, status: true },
   });
+
   if (!compra) return json({ ok: false, error: "Compra não encontrada." }, 404);
-  if (compra.status !== "OPEN") return json({ ok: false, error: "Compra não está OPEN." }, 400);
+  if (compra.status !== "OPEN")
+    return json({ ok: false, error: "Compra não está OPEN." }, 400);
 
   const pointsBase = Math.trunc(Number(body?.pointsBase || 0));
-  const bonusMode = (body?.bonusMode ? String(body.bonusMode) : null) as string | null;
-  const bonusValue = body?.bonusValue == null ? null : Math.trunc(Number(body.bonusValue));
+  const bonusMode = body?.bonusMode ? String(body.bonusMode) : null;
+  const bonusValue =
+    body?.bonusValue == null ? null : Math.trunc(Number(body.bonusValue));
   const pointsFinal = calcPointsFinal(pointsBase, bonusMode, bonusValue);
 
   const amountCents = Math.trunc(Number(body?.amountCents || 0));
@@ -54,18 +65,29 @@ export async function POST(req: Request, ctx: { params: { id: string } }) {
   const programTo = body?.programTo ?? null;
 
   const transferMode = body?.transferMode ?? null;
-  const pointsDebitedFromOrigin = Math.trunc(Number(body?.pointsDebitedFromOrigin || 0));
+  const pointsDebitedFromOrigin = Math.trunc(
+    Number(body?.pointsDebitedFromOrigin || 0)
+  );
 
   // validações básicas para TRANSFER
   if (type === "TRANSFER") {
     if (!programFrom || !programTo) {
-      return json({ ok: false, error: "TRANSFER precisa programFrom e programTo." }, 400);
+      return json(
+        { ok: false, error: "TRANSFER precisa programFrom e programTo." },
+        400
+      );
     }
     if (!transferMode) {
-      return json({ ok: false, error: "TRANSFER precisa transferMode." }, 400);
+      return json(
+        { ok: false, error: "TRANSFER precisa transferMode." },
+        400
+      );
     }
     if (transferMode === "POINTS_PLUS_CASH" && amountCents <= 0) {
-      return json({ ok: false, error: "Pontos+dinheiro exige amountCents > 0." }, 400);
+      return json(
+        { ok: false, error: "Pontos+dinheiro exige amountCents > 0." },
+        400
+      );
     }
   }
 
