@@ -27,15 +27,15 @@ export async function POST(req: Request) {
     return json({ ok: false, error: "Cedente não encontrado." }, 404);
   }
 
-  // cria a compra (id = cuid() pelo schema)
+  // cria a compra (id = cuid + numero sequencial autoincrement)
   const compra = await prisma.purchase.create({
     data: {
       cedenteId,
       status: "OPEN",
-      // defaults do schema já preenchem o resto
     },
     select: {
       id: true,
+      numero: true, // ✅ ID humano sequencial
       status: true,
       cedenteId: true,
       createdAt: true,

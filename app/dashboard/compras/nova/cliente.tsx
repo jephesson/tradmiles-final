@@ -38,6 +38,10 @@ function cn(...xs: Array<string | false | undefined | null>) {
   return xs.filter(Boolean).join(" ");
 }
 
+function compraIdFmt(numero: number) {
+  return `ID${String(numero).padStart(5, "0")}`;
+}
+
 export default function NovaCompra() {
   const [cedentes, setCedentes] = useState<Cedente[]>([]);
   const [carregando, setCarregando] = useState(true);
@@ -46,7 +50,12 @@ export default function NovaCompra() {
   const [cedenteId, setCedenteId] = useState<string>("");
 
   const [criando, setCriando] = useState(false);
+
+  // ✅ id técnico (cuid) pra URL
   const [compraId, setCompraId] = useState<string>("");
+
+  // ✅ número sequencial humano
+  const [compraNumero, setCompraNumero] = useState<number | null>(null);
 
   async function carregarCedentes() {
     setCarregando(true);
@@ -89,9 +98,9 @@ export default function NovaCompra() {
 
   async function criarCompra() {
     if (!selecionado) return;
+
     setCriando(true);
     try {
-      // ✅ agora é /api/compras
       const res = await fetch("/api/compras", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -100,20 +109,21 @@ export default function NovaCompra() {
 
       const json = await res.json().catch(() => null);
 
-      // ✅ padrão { ok: true } igual suas outras APIs
       if (!res.ok || !json?.ok) {
         alert(json?.error || "Não foi possível criar a compra.");
         return;
       }
 
-      // ✅ retorno { compra: { id } }
       const id = json?.compra?.id as string | undefined;
-      if (!id) {
-        alert("Compra criada, mas não recebi o ID.");
+      const numero = json?.compra?.numero as number | undefined;
+
+      if (!id || !numero) {
+        alert("Compra criada, mas não recebi ID/número.");
         return;
       }
 
       setCompraId(id);
+      setCompraNumero(numero);
     } catch {
       alert("Erro de rede ao criar a compra.");
     } finally {
@@ -168,7 +178,10 @@ export default function NovaCompra() {
                       type="button"
                       onClick={() => {
                         setCedenteId(c.id);
-                        setCompraId(""); // se trocar cedente, zera a compra criada
+
+                        // ✅ se trocar cedente, zera compra criada
+                        setCompraId("");
+                        setCompraNumero(null);
                       }}
                       className={cn(
                         "w-full p-3 text-left hover:bg-slate-50",
@@ -177,14 +190,21 @@ export default function NovaCompra() {
                     >
                       <div className="flex items-center justify-between gap-3">
                         <div className="min-w-0">
-                          <div className={cn("truncate text-sm font-medium", temBloqueio && "text-red-600")}>
+                          <div
+                            className={cn(
+                              "truncate text-sm font-medium",
+                              temBloqueio && "text-red-600"
+                            )}
+                          >
                             {c.nomeCompleto}
                           </div>
                           <div className="truncate text-xs text-slate-500">
                             {c.identificador} • {cpfFmt(c.cpf)} • Resp: {c.owner?.name}
                           </div>
                         </div>
-                        <div className="text-xs text-slate-400">{ativo ? "Selecionado" : "Selecionar"}</div>
+                        <div className="text-xs text-slate-400">
+                          {ativo ? "Selecionado" : "Selecionar"}
+                        </div>
                       </div>
                     </button>
                   </li>
@@ -241,11 +261,11 @@ export default function NovaCompra() {
             {criando ? "Criando..." : "Criar compra"}
           </button>
 
-          {compraId && (
+          {compraId && compraNumero != null && (
             <>
               <div className="rounded-xl border px-3 py-2 text-sm">
                 <span className="text-slate-500">ID: </span>
-                <span className="font-semibold">{compraId}</span>
+                <span className="font-semibold">{compraIdFmt(compraNumero)}</span>
               </div>
 
               <Link
@@ -259,7 +279,7 @@ export default function NovaCompra() {
         </div>
 
         <p className="mt-2 text-xs text-slate-500">
-          O ID é gerado automaticamente pelo Prisma (cuid).
+          Agora o ID exibido é sequencial (ID00001, ID00002...). A URL usa o id técnico.
         </p>
       </div>
     </div>

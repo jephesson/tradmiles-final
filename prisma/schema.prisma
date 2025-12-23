@@ -335,15 +335,19 @@ enum TransferMode {
 }
 
 model Purchase {
-  id        String         @id @default(cuid())
+  id        String @id @default(cuid())
+
+  // ✅ ID humano sequencial (1,2,3...) — você mostra como ID00001
+  numero    Int    @unique @default(autoincrement())
+
   cedenteId String
   status    PurchaseStatus @default(OPEN)
 
   // valores “macro” que entram no custo total
-  cedentePayCents      Int @default(0) // quanto será pago ao cedente
-  vendorCommissionBps  Int @default(100) // 1% = 100 bps (basis points)
-  extraPoints          Int @default(0) // pontos extras (se precisar)
-  extraPointsCostCents Int @default(0) // custo desses pontos extras
+  cedentePayCents      Int @default(0)
+  vendorCommissionBps  Int @default(100)
+  extraPoints          Int @default(0)
+  extraPointsCostCents Int @default(0)
 
   note String?
 
@@ -357,6 +361,7 @@ model Purchase {
   @@index([status])
   @@map("purchases")
 }
+
 
 model PurchaseItem {
   id         String             @id @default(cuid())
