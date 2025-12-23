@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { NextRequest } from "next/server";
 
 export const dynamic = "force-dynamic";
 
@@ -9,8 +10,11 @@ function json(data: any, status = 200) {
   });
 }
 
-export async function GET(_: Request, ctx: { params: { id: string } }) {
-  const id = ctx.params.id;
+export async function GET(
+  _req: NextRequest,
+  ctx: { params: Promise<{ id: string }> }
+) {
+  const { id } = await ctx.params;
 
   const compra = await prisma.purchase.findUnique({
     where: { id },
