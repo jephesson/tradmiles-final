@@ -38,10 +38,6 @@ function cn(...xs: Array<string | false | undefined | null>) {
   return xs.filter(Boolean).join(" ");
 }
 
-function compraIdFmt(numero: number) {
-  return `ID${String(numero).padStart(5, "0")}`;
-}
-
 export default function NovaCompra() {
   const [cedentes, setCedentes] = useState<Cedente[]>([]);
   const [carregando, setCarregando] = useState(true);
@@ -54,14 +50,14 @@ export default function NovaCompra() {
   // ✅ id técnico (cuid) pra URL
   const [compraId, setCompraId] = useState<string>("");
 
-  // ✅ número sequencial humano
-  const [compraNumero, setCompraNumero] = useState<number | null>(null);
+  // ✅ número humano já vem como string: "ID00001"
+  const [compraNumero, setCompraNumero] = useState<string | null>(null);
 
   async function carregarCedentes() {
     setCarregando(true);
     try {
       const res = await fetch("/api/cedentes/approved", { cache: "no-store" });
-      const json = await res.json();
+      const json = await res.json().catch(() => null);
       if (!json?.ok) throw new Error(json?.error || "Falha ao carregar.");
       setCedentes(json.data || []);
     } catch (e: any) {
@@ -115,7 +111,7 @@ export default function NovaCompra() {
       }
 
       const id = json?.compra?.id as string | undefined;
-      const numero = json?.compra?.numero as number | undefined;
+      const numero = json?.compra?.numero as string | undefined; // ✅ string "ID00002"
 
       if (!id || !numero) {
         alert("Compra criada, mas não recebi ID/número.");
@@ -220,7 +216,9 @@ export default function NovaCompra() {
         <h2 className="text-sm font-semibold">Prévia de pontos</h2>
 
         {!selecionado ? (
-          <div className="mt-3 text-sm text-slate-500">Selecione um cedente para ver os pontos.</div>
+          <div className="mt-3 text-sm text-slate-500">
+            Selecione um cedente para ver os pontos.
+          </div>
         ) : (
           <div className="mt-3 grid grid-cols-2 gap-3">
             <Box titulo="LATAM" valor={ptsFmt(selecionado.pontosLatam)} />
@@ -232,7 +230,8 @@ export default function NovaCompra() {
               <div className="text-xs text-slate-500">Cedente</div>
               <div className="text-sm font-medium">{selecionado.nomeCompleto}</div>
               <div className="text-xs text-slate-500">
-                {selecionado.identificador} • {cpfFmt(selecionado.cpf)} • Resp: {selecionado.owner?.name}
+                {selecionado.identificador} • {cpfFmt(selecionado.cpf)} • Resp:{" "}
+                {selecionado.owner?.name}
               </div>
 
               {(selecionado.blockedPrograms || []).length > 0 && (
@@ -255,17 +254,19 @@ export default function NovaCompra() {
             disabled={!podeCriar}
             className={cn(
               "rounded-xl px-4 py-2 text-sm font-medium",
-              podeCriar ? "bg-black text-white" : "bg-slate-200 text-slate-500 cursor-not-allowed"
+              podeCriar
+                ? "bg-black text-white"
+                : "bg-slate-200 text-slate-500 cursor-not-allowed"
             )}
           >
             {criando ? "Criando..." : "Criar compra"}
           </button>
 
-          {compraId && compraNumero != null && (
+          {compraId && compraNumero && (
             <>
               <div className="rounded-xl border px-3 py-2 text-sm">
                 <span className="text-slate-500">ID: </span>
-                <span className="font-semibold">{compraIdFmt(compraNumero)}</span>
+                <span className="font-semibold">{compraNumero}</span>
               </div>
 
               <Link

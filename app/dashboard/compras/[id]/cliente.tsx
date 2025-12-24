@@ -7,7 +7,7 @@ type TipoItem = "CLUB" | "POINTS_BUY" | "TRANSFER" | "ADJUSTMENT" | "EXTRA_COST"
 type TransferMode = "FULL_POINTS" | "POINTS_PLUS_CASH";
 
 type Compra = {
-  id: string; // cuid do prisma
+  id: string; // cuid do prisma (id técnico)
   numero: string; // "ID00001"
   status: "OPEN" | "CLOSED" | "CANCELED";
   createdAt: string;
@@ -91,19 +91,23 @@ export default function Compra({ id }: { id: string }) {
   const [pontosConfirmados, setPontosConfirmados] = useState(""); // pointsBase
   const [bonusPct, setBonusPct] = useState(""); // PERCENT
   const [bonusTotal, setBonusTotal] = useState(""); // TOTAL
-  const [modoBonus, setModoBonus] = useState<"NENHUM" | "PERCENT" | "TOTAL">("NENHUM");
+  const [modoBonus, setModoBonus] = useState<"NENHUM" | "PERCENT" | "TOTAL">(
+    "NENHUM"
+  );
 
   const [valor, setValor] = useState(""); // amount
-  const [transferMode, setTransferMode] = useState<TransferMode>("FULL_POINTS");
+  const [transferMode, setTransferMode] =
+    useState<TransferMode>("FULL_POINTS");
   const [pontosDebitoOrigem, setPontosDebitoOrigem] = useState(""); // pointsDebitedFromOrigin
 
   async function carregar() {
     setLoading(true);
     try {
-      // ✅ id aqui é o NUMERO (ID00001)
-      const res = await fetch(`/api/compras/numero/${id}`, { cache: "no-store" });
+      // ✅ id aqui é o ID TÉCNICO (cuid) que vem da URL /dashboard/compras/[id]
+      const res = await fetch(`/api/compras/${id}`, { cache: "no-store" });
       const json = await res.json().catch(() => null);
-      if (!res.ok || !json?.ok) throw new Error(json?.error || "Falha ao carregar compra.");
+      if (!res.ok || !json?.ok)
+        throw new Error(json?.error || "Falha ao carregar compra.");
       setCompra(json.compra);
     } catch (e: any) {
       alert(e?.message || "Erro ao carregar compra.");
@@ -137,7 +141,8 @@ export default function Compra({ id }: { id: string }) {
 
   // “programas ativos” (1 ou 2) conforme modo
   const programasAtivos = useMemo(() => {
-    if (modo === "CIA") return { programFrom: null as Programa | null, programTo: cia as Programa };
+    if (modo === "CIA")
+      return { programFrom: null as Programa | null, programTo: cia as Programa };
     return { programFrom: banco as Programa, programTo: cia2 as Programa };
   }, [modo, cia, banco, cia2]);
 
@@ -151,7 +156,10 @@ export default function Compra({ id }: { id: string }) {
   const totais = useMemo(() => {
     const items = compra?.items || [];
     const totalCents = items.reduce((acc, it) => acc + (it.amountCents || 0), 0);
-    const totalPontosFinal = items.reduce((acc, it) => acc + (it.pointsFinal || 0), 0);
+    const totalPontosFinal = items.reduce(
+      (acc, it) => acc + (it.pointsFinal || 0),
+      0
+    );
     return { totalCents, totalPontosFinal };
   }, [compra]);
 
@@ -206,7 +214,9 @@ export default function Compra({ id }: { id: string }) {
       payload.programFrom = programasAtivos.programFrom;
       payload.programTo = programasAtivos.programTo;
       payload.transferMode = transferMode;
-      payload.pointsDebitedFromOrigin = Math.trunc(Number(pontosDebitoOrigem || 0));
+      payload.pointsDebitedFromOrigin = Math.trunc(
+        Number(pontosDebitoOrigem || 0)
+      );
     }
 
     try {
@@ -245,7 +255,9 @@ export default function Compra({ id }: { id: string }) {
 
     try {
       // ✅ delete no caminho correto (item dentro da compra)
-      const res = await fetch(`/api/compras/${compra.id}/itens/${itemId}`, { method: "DELETE" });
+      const res = await fetch(`/api/compras/${compra.id}/itens/${itemId}`, {
+        method: "DELETE",
+      });
       const json = await res.json().catch(() => null);
       if (!res.ok || !json?.ok) {
         alert(json?.error || "Erro ao remover item.");
@@ -258,7 +270,8 @@ export default function Compra({ id }: { id: string }) {
   }
 
   if (loading) return <div className="text-sm text-slate-500">Carregando…</div>;
-  if (!compra) return <div className="text-sm text-red-600">Compra não encontrada.</div>;
+  if (!compra)
+    return <div className="text-sm text-red-600">Compra não encontrada.</div>;
 
   return (
     <div className="max-w-6xl space-y-6">
@@ -267,10 +280,13 @@ export default function Compra({ id }: { id: string }) {
         <div>
           <h1 className="text-2xl font-bold">
             Compra {compraIdFmt(compra.numero)}{" "}
-            <span className="text-sm font-normal text-slate-500">({compra.status})</span>
+            <span className="text-sm font-normal text-slate-500">
+              ({compra.status})
+            </span>
           </h1>
           <div className="text-sm text-slate-600">
-            Cedente: <span className="font-medium">{compra.cedente.nomeCompleto}</span> •{" "}
+            Cedente:{" "}
+            <span className="font-medium">{compra.cedente.nomeCompleto}</span> •{" "}
             {compra.cedente.identificador}
           </div>
         </div>
@@ -278,7 +294,9 @@ export default function Compra({ id }: { id: string }) {
         <div className="rounded-xl border px-3 py-2 text-sm">
           <div className="text-xs text-slate-500">Totais do carrinho</div>
           <div className="font-semibold">{fmtMoney(totais.totalCents)}</div>
-          <div className="text-xs text-slate-500">Pontos finais: {fmtInt(totais.totalPontosFinal)}</div>
+          <div className="text-xs text-slate-500">
+            Pontos finais: {fmtInt(totais.totalPontosFinal)}
+          </div>
         </div>
       </div>
 
@@ -288,12 +306,20 @@ export default function Compra({ id }: { id: string }) {
 
         <div className="flex flex-wrap items-center gap-3">
           <label className="flex items-center gap-2 text-sm">
-            <input type="radio" checked={modo === "CIA"} onChange={() => setModo("CIA")} />
+            <input
+              type="radio"
+              checked={modo === "CIA"}
+              onChange={() => setModo("CIA")}
+            />
             Só CIA (LATAM ou SMILES)
           </label>
 
           <label className="flex items-center gap-2 text-sm">
-            <input type="radio" checked={modo === "BANCO_CIA"} onChange={() => setModo("BANCO_CIA")} />
+            <input
+              type="radio"
+              checked={modo === "BANCO_CIA"}
+              onChange={() => setModo("BANCO_CIA")}
+            />
             Banco + CIA (LIVELO/ESFERA → LATAM/SMILES)
           </label>
         </div>
@@ -391,7 +417,9 @@ export default function Compra({ id }: { id: string }) {
           <div className="text-sm font-medium">Pontos</div>
 
           <div className="flex flex-wrap items-center gap-2 text-sm">
-            <span className="text-slate-600">Prévia do saldo no programa selecionado:</span>
+            <span className="text-slate-600">
+              Prévia do saldo no programa selecionado:
+            </span>
             <span className="font-semibold">{fmtInt(pontosPrevistos)}</span>
 
             <button
@@ -406,12 +434,16 @@ export default function Compra({ id }: { id: string }) {
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
             <div>
-              <div className="text-xs text-slate-500">Quantidade confirmada (editável)</div>
+              <div className="text-xs text-slate-500">
+                Quantidade confirmada (editável)
+              </div>
               <input
                 className="w-full rounded-xl border px-3 py-2 text-sm"
                 inputMode="numeric"
                 value={pontosConfirmados}
-                onChange={(e) => setPontosConfirmados(e.target.value.replace(/[^\d]/g, ""))}
+                onChange={(e) =>
+                  setPontosConfirmados(e.target.value.replace(/[^\d]/g, ""))
+                }
                 placeholder="Ex: 50000"
               />
             </div>
@@ -436,7 +468,9 @@ export default function Compra({ id }: { id: string }) {
                   className="w-full rounded-xl border px-3 py-2 text-sm"
                   inputMode="numeric"
                   value={bonusPct}
-                  onChange={(e) => setBonusPct(e.target.value.replace(/[^\d]/g, ""))}
+                  onChange={(e) =>
+                    setBonusPct(e.target.value.replace(/[^\d]/g, ""))
+                  }
                   placeholder="30"
                 />
               </div>
@@ -447,7 +481,9 @@ export default function Compra({ id }: { id: string }) {
                   className="w-full rounded-xl border px-3 py-2 text-sm"
                   inputMode="numeric"
                   value={bonusTotal}
-                  onChange={(e) => setBonusTotal(e.target.value.replace(/[^\d]/g, ""))}
+                  onChange={(e) =>
+                    setBonusTotal(e.target.value.replace(/[^\d]/g, ""))
+                  }
                   placeholder="30000"
                 />
               </div>
@@ -461,7 +497,8 @@ export default function Compra({ id }: { id: string }) {
               <div className="text-sm font-medium">Transferência</div>
 
               <div className="text-xs text-slate-500">
-                Origem: <b>{programasAtivos.programFrom}</b> → Destino: <b>{programasAtivos.programTo}</b>
+                Origem: <b>{programasAtivos.programFrom}</b> → Destino:{" "}
+                <b>{programasAtivos.programTo}</b>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
@@ -478,18 +515,24 @@ export default function Compra({ id }: { id: string }) {
                 </div>
 
                 <div>
-                  <div className="text-xs text-slate-500">Pontos debitados da origem (se aplicável)</div>
+                  <div className="text-xs text-slate-500">
+                    Pontos debitados da origem (se aplicável)
+                  </div>
                   <input
                     className="w-full rounded-xl border px-3 py-2 text-sm"
                     inputMode="numeric"
                     value={pontosDebitoOrigem}
-                    onChange={(e) => setPontosDebitoOrigem(e.target.value.replace(/[^\d]/g, ""))}
+                    onChange={(e) =>
+                      setPontosDebitoOrigem(e.target.value.replace(/[^\d]/g, ""))
+                    }
                     placeholder="Ex: 1000"
                   />
                 </div>
 
                 <div>
-                  <div className="text-xs text-slate-500">Custo (R$) (se Pontos + dinheiro)</div>
+                  <div className="text-xs text-slate-500">
+                    Custo (R$) (se Pontos + dinheiro)
+                  </div>
                   <input
                     className="w-full rounded-xl border px-3 py-2 text-sm"
                     value={valor}
@@ -515,7 +558,9 @@ export default function Compra({ id }: { id: string }) {
               />
             </div>
 
-            <div className="text-xs text-slate-500 flex items-end">(Se não tiver valor em dinheiro, deixe vazio/0)</div>
+            <div className="text-xs text-slate-500 flex items-end">
+              (Se não tiver valor em dinheiro, deixe vazio/0)
+            </div>
           </div>
         )}
 
@@ -537,29 +582,45 @@ export default function Compra({ id }: { id: string }) {
         ) : (
           <div className="mt-3 space-y-2">
             {compra.items.map((it) => (
-              <div key={it.id} className="rounded-xl border p-3 flex flex-wrap items-center justify-between gap-3">
+              <div
+                key={it.id}
+                className="rounded-xl border p-3 flex flex-wrap items-center justify-between gap-3"
+              >
                 <div className="min-w-0">
                   <div className="text-sm font-semibold truncate">
-                    {it.title} <span className="text-xs font-normal text-slate-500">({it.type})</span>
+                    {it.title}{" "}
+                    <span className="text-xs font-normal text-slate-500">
+                      ({it.type})
+                    </span>
                   </div>
 
                   <div className="text-xs text-slate-500">
-                    Pontos: {fmtInt(it.pointsBase)} → final: <b>{fmtInt(it.pointsFinal)}</b>
-                    {it.bonusMode === "PERCENT" && it.bonusValue != null && <> • bônus: {it.bonusValue}%</>}
-                    {it.bonusMode === "TOTAL" && it.bonusValue != null && <> • bônus: +{fmtInt(it.bonusValue)}</>}
+                    Pontos: {fmtInt(it.pointsBase)} → final:{" "}
+                    <b>{fmtInt(it.pointsFinal)}</b>
+                    {it.bonusMode === "PERCENT" && it.bonusValue != null && (
+                      <> • bônus: {it.bonusValue}%</>
+                    )}
+                    {it.bonusMode === "TOTAL" && it.bonusValue != null && (
+                      <> • bônus: +{fmtInt(it.bonusValue)}</>
+                    )}
                   </div>
 
                   {it.type === "TRANSFER" && (
                     <div className="text-xs text-slate-500">
-                      {it.programFrom} → {it.programTo} • modo: {it.transferMode} • débito origem: {fmtInt(it.pointsDebitedFromOrigin)}
+                      {it.programFrom} → {it.programTo} • modo: {it.transferMode} •
+                      débito origem: {fmtInt(it.pointsDebitedFromOrigin)}
                     </div>
                   )}
 
-                  {it.details && <div className="text-xs text-slate-500">{it.details}</div>}
+                  {it.details && (
+                    <div className="text-xs text-slate-500">{it.details}</div>
+                  )}
                 </div>
 
                 <div className="text-right">
-                  <div className="text-sm font-semibold">{fmtMoney(it.amountCents)}</div>
+                  <div className="text-sm font-semibold">
+                    {fmtMoney(it.amountCents)}
+                  </div>
                   <button
                     className="mt-1 rounded-lg border px-3 py-1 text-xs hover:bg-slate-50"
                     onClick={() => removerItem(it.id)}
@@ -575,7 +636,8 @@ export default function Compra({ id }: { id: string }) {
 
         <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
           <div className="text-sm text-slate-600">
-            Total: <b>{fmtMoney(totais.totalCents)}</b> • Pontos finais: <b>{fmtInt(totais.totalPontosFinal)}</b>
+            Total: <b>{fmtMoney(totais.totalCents)}</b> • Pontos finais:{" "}
+            <b>{fmtInt(totais.totalPontosFinal)}</b>
           </div>
         </div>
       </div>
