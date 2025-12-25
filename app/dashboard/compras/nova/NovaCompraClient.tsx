@@ -497,7 +497,6 @@ export default function NovaCompraClient() {
     const cur = items[realIdx];
     const merged: PurchaseItem = { ...cur, ...patch };
 
-    // auto pointsFinal for most types (and for club too)
     const canAuto =
       merged.type === "TRANSFER" ||
       merged.type === "POINTS_BUY" ||
@@ -511,7 +510,7 @@ export default function NovaCompraClient() {
       merged.pointsFinal = calcItemPointsFinal(merged);
     }
 
-    // club title/details consistency if needed
+    // club consistency
     if (merged.type === "CLUB") {
       const meta = safeJsonParse<ClubMeta>(merged.details) || null;
       if (meta) {
@@ -538,7 +537,6 @@ export default function NovaCompraClient() {
   // ===== Auto: ciaPointsTotal = soma itens programTo=CIA (quando CIA selecionada)
   useEffect(() => {
     if (!draft || !draft.ciaProgram || isReleased) return;
-    // só auto-preenche se estiver vazio (ou muito pequeno) pra não brigar com edição manual
     if ((draft.ciaPointsTotal || 0) > 0) return;
 
     const sum = draft.items
@@ -549,9 +547,9 @@ export default function NovaCompraClient() {
       updateDraft({ ciaPointsTotal: sum });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [draft?.ciaProgram, draft?.items?.length]);
+  }, [draft?.ciaProgram, draft?.items?.length, isReleased]);
 
-  // ===== Auto: saldo esperado = atual + deltas (por programa com Auto ligado)
+  // ===== Auto: saldo esperado = atual + deltas
   const computedExpected = useMemo(() => {
     if (!cedenteSel || !draft) return null;
 
@@ -576,7 +574,6 @@ export default function NovaCompraClient() {
     if (expectedAuto.LIVELO) patch.expectedLiveloPoints = computedExpected.LIVELO;
     if (expectedAuto.ESFERA) patch.expectedEsferaPoints = computedExpected.ESFERA;
 
-    // só aplica se realmente mudou (evita loop/ruído)
     const changed =
       (expectedAuto.LATAM && draft.expectedLatamPoints !== patch.expectedLatamPoints) ||
       (expectedAuto.SMILES && draft.expectedSmilesPoints !== patch.expectedSmilesPoints) ||
@@ -585,7 +582,7 @@ export default function NovaCompraClient() {
 
     if (changed) updateDraft(patch);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [computedExpected, expectedAuto]);
+  }, [computedExpected, expectedAuto, isReleased]);
 
   // ===== Layout
   return (
@@ -618,13 +615,15 @@ export default function NovaCompraClient() {
           )}
         </div>
 
-        {drafttActions({
-          draft,
-          saving,
-          isReleased,
-          onSave: () => draft && void saveDraft(draft),
-          onRelease: releasePurchase,
-        })}
+        {draft && (
+          <DraftActions
+            draft={draft}
+            saving={saving}
+            isReleased={!!isReleased}
+            onSave={() => void saveDraft(draft)}
+            onRelease={releasePurchase}
+          />
+        )}
       </div>
 
       {error && (
@@ -718,7 +717,7 @@ export default function NovaCompraClient() {
         </div>
       </div>
 
-      {/* 2) Config + Resumo (colado) */}
+      {/* 2) Config + Resumo */}
       {draft && (
         <div className="grid gap-4 lg:grid-cols-3">
           <div className="lg:col-span-2 rounded-xl border p-4 space-y-4">
@@ -734,11 +733,10 @@ export default function NovaCompraClient() {
                 <label className="text-sm text-gray-600">CIA base (milheiro)</label>
                 <select
                   value={draft.ciaProgram || ""}
-                  disabled={isReleased}
+                  disabled={!!isReleased}
                   onChange={(e) =>
                     updateDraft({
                       ciaProgram: (e.target.value || null) as LoyaltyProgram | null,
-                      // se trocou CIA, normalmente você quer recalcular o total
                       ciaPointsTotal: 0,
                     })
                   }
@@ -751,11 +749,11 @@ export default function NovaCompraClient() {
               </div>
 
               <div>
-                <label className="text-sm text-gray-600">Pontos na CIA (auto)</label>
+                <label className="text-sm text-gray-600">Pontos na CIA</label>
                 <input
                   type="number"
                   value={draft.ciaPointsTotal}
-                  disabled={isReleased}
+                  disabled={!!isReleased}
                   onChange={(e) => updateDraft({ ciaPointsTotal: clampInt(e.target.value) })}
                   className="mt-1 w-full rounded-md border px-3 py-2 text-sm"
                   placeholder="Ex: 130000"
@@ -763,7 +761,7 @@ export default function NovaCompraClient() {
                 <button
                   type="button"
                   onClick={fillCiaPointsFromItems}
-                  disabled={isReleased || !draft.ciaProgram}
+                  disabled={!!isReleased || !draft.ciaProgram}
                   className="mt-2 text-xs underline text-gray-700 disabled:opacity-50"
                 >
                   Recalcular pelo somatório (programTo = CIA)
@@ -774,7 +772,7 @@ export default function NovaCompraClient() {
                 <label className="text-sm text-gray-600">Observação</label>
                 <input
                   value={draft.note || ""}
-                  disabled={isReleased}
+                  disabled={!!isReleased}
                   onChange={(e) => updateDraft({ note: e.target.value })}
                   className="mt-1 w-full rounded-md border px-3 py-2 text-sm"
                   placeholder="Opcional"
@@ -788,7 +786,7 @@ export default function NovaCompraClient() {
                 <input
                   type="number"
                   value={draft.cedentePayCents / 100}
-                  disabled={isReleased}
+                  disabled={!!isReleased}
                   onChange={(e) =>
                     updateDraft({ cedentePayCents: roundCents(Number(e.target.value || 0) * 100) })
                   }
@@ -801,7 +799,7 @@ export default function NovaCompraClient() {
                 <input
                   type="number"
                   value={draft.vendorCommissionBps / 100}
-                  disabled={isReleased}
+                  disabled={!!isReleased}
                   onChange={(e) =>
                     updateDraft({ vendorCommissionBps: roundCents(Number(e.target.value || 0) * 100) })
                   }
@@ -816,7 +814,7 @@ export default function NovaCompraClient() {
                 <input
                   type="number"
                   value={draft.targetMarkupCents / 100}
-                  disabled={isReleased}
+                  disabled={!!isReleased}
                   onChange={(e) =>
                     updateDraft({ targetMarkupCents: roundCents(Number(e.target.value || 0) * 100) })
                   }
@@ -842,7 +840,7 @@ export default function NovaCompraClient() {
             </div>
 
             <div className="text-xs text-gray-500">
-              Dica: defina a CIA e deixe os itens com <b>programTo = CIA</b>. O “Milheiro” fica certo.
+              Dica: defina a CIA e deixe itens com <b>programTo = CIA</b>. O “Milheiro” fica certo.
             </div>
           </div>
         </div>
@@ -857,16 +855,14 @@ export default function NovaCompraClient() {
             <button
               type="button"
               onClick={addClub}
-              disabled={isReleased}
+              disabled={!!isReleased}
               className="rounded-md bg-black px-3 py-2 text-sm text-white disabled:opacity-50"
             >
               + Adicionar clube
             </button>
           </div>
 
-          {clubItems.length === 0 && (
-            <div className="text-sm text-gray-600">Nenhum clube adicionado.</div>
-          )}
+          {clubItems.length === 0 && <div className="text-sm text-gray-600">Nenhum clube adicionado.</div>}
 
           {clubItems.length > 0 && (
             <div className="overflow-auto rounded-lg border">
@@ -886,22 +882,26 @@ export default function NovaCompraClient() {
                   {draft.items.map((it, realIdx) => {
                     if (it.type !== "CLUB") return null;
 
-                    const meta = safeJsonParse<ClubMeta>(it.details) || {
-                      program: (it.programTo || "LIVELO") as LoyaltyProgram,
-                      tierK: Math.max(1, Math.round((it.pointsFinal || 0) / 1000) || 10),
-                      priceCents: it.amountCents || 0,
-                      renewalDay: new Date().getDate(),
-                      startDateISO: isoToday(),
-                    };
+                    const meta =
+                      safeJsonParse<ClubMeta>(it.details) || {
+                        program: (it.programTo || "LIVELO") as LoyaltyProgram,
+                        tierK: Math.max(1, Math.round((it.pointsFinal || 0) / 1000) || 10),
+                        priceCents: it.amountCents || 0,
+                        renewalDay: new Date().getDate(),
+                        startDateISO: isoToday(),
+                      };
 
                     return (
                       <tr key={realIdx} className="border-t">
                         <td className="p-2">
                           <select
                             value={meta.program}
-                            disabled={isReleased}
+                            disabled={!!isReleased}
                             onChange={(e) => {
-                              const next: ClubMeta = { ...meta, program: e.target.value as LoyaltyProgram };
+                              const next: ClubMeta = {
+                                ...meta,
+                                program: e.target.value as LoyaltyProgram,
+                              };
                               updateItem(realIdx, {
                                 details: JSON.stringify(next),
                                 programTo: next.program,
@@ -919,7 +919,7 @@ export default function NovaCompraClient() {
                         <td className="p-2">
                           <select
                             value={meta.tierK}
-                            disabled={isReleased}
+                            disabled={!!isReleased}
                             onChange={(e) => {
                               const next: ClubMeta = { ...meta, tierK: clampInt(e.target.value) };
                               updateItem(realIdx, {
@@ -942,11 +942,14 @@ export default function NovaCompraClient() {
                           <input
                             type="number"
                             value={(meta.priceCents || 0) / 100}
-                            disabled={isReleased}
+                            disabled={!!isReleased}
                             onChange={(e) => {
                               const cents = roundCents(Number(e.target.value || 0) * 100);
                               const next: ClubMeta = { ...meta, priceCents: cents };
-                              updateItem(realIdx, { details: JSON.stringify(next), amountCents: cents });
+                              updateItem(realIdx, {
+                                details: JSON.stringify(next),
+                                amountCents: cents,
+                              });
                             }}
                             className="w-full rounded-md border px-2 py-1"
                           />
@@ -956,7 +959,7 @@ export default function NovaCompraClient() {
                           <input
                             type="number"
                             value={meta.renewalDay}
-                            disabled={isReleased}
+                            disabled={!!isReleased}
                             onChange={(e) => {
                               const next: ClubMeta = { ...meta, renewalDay: clampDay(e.target.value) };
                               updateItem(realIdx, { details: JSON.stringify(next) });
@@ -969,9 +972,12 @@ export default function NovaCompraClient() {
                           <input
                             type="date"
                             value={meta.startDateISO}
-                            disabled={isReleased}
+                            disabled={!!isReleased}
                             onChange={(e) => {
-                              const next: ClubMeta = { ...meta, startDateISO: e.target.value || isoToday() };
+                              const next: ClubMeta = {
+                                ...meta,
+                                startDateISO: e.target.value || isoToday(),
+                              };
                               updateItem(realIdx, { details: JSON.stringify(next) });
                             }}
                             className="w-full rounded-md border px-2 py-1"
@@ -984,7 +990,7 @@ export default function NovaCompraClient() {
                           <button
                             type="button"
                             onClick={() => removeItemByIndex(realIdx)}
-                            disabled={isReleased}
+                            disabled={!!isReleased}
                             className="rounded-md border px-2 py-1 text-xs disabled:opacity-50"
                           >
                             Remover
@@ -999,12 +1005,12 @@ export default function NovaCompraClient() {
           )}
 
           <div className="text-xs text-gray-600">
-            Clubes são salvos como itens <b>CLUB</b> e entram no custo/total automaticamente.
+            Clubes são itens <b>CLUB</b> e entram no custo/total automaticamente.
           </div>
         </div>
       )}
 
-      {/* 4) Itens (transferências etc) */}
+      {/* 4) Itens */}
       {draft && (
         <div className="rounded-xl border p-4 space-y-3">
           <div className="flex items-center justify-between">
@@ -1013,7 +1019,7 @@ export default function NovaCompraClient() {
             <button
               type="button"
               onClick={addTransferItem}
-              disabled={isReleased}
+              disabled={!!isReleased}
               className="rounded-md bg-black px-3 py-2 text-sm text-white disabled:opacity-50"
             >
               + Adicionar item
@@ -1058,7 +1064,7 @@ export default function NovaCompraClient() {
                       <td className="p-2">
                         <select
                           value={it.type}
-                          disabled={isReleased}
+                          disabled={!!isReleased}
                           onChange={(e) =>
                             updateItem(realIdx, { type: e.target.value as PurchaseItemType })
                           }
@@ -1068,21 +1074,20 @@ export default function NovaCompraClient() {
                           <option value="POINTS_BUY">Compra pontos</option>
                           <option value="ADJUSTMENT">Ajuste</option>
                           <option value="EXTRA_COST">Extra</option>
-                          {/* CLUB fica na seção própria */}
                         </select>
                       </td>
 
                       <td className="p-2">
                         <input
                           value={it.title}
-                          disabled={isReleased}
+                          disabled={!!isReleased}
                           onChange={(e) => updateItem(realIdx, { title: e.target.value })}
                           className="w-full rounded-md border px-2 py-1 text-sm"
                           placeholder="Ex: Transfer Livelo→Smiles"
                         />
                         <input
                           value={it.details || ""}
-                          disabled={isReleased}
+                          disabled={!!isReleased}
                           onChange={(e) => updateItem(realIdx, { details: e.target.value })}
                           className="mt-1 w-full rounded-md border px-2 py-1 text-xs"
                           placeholder="Detalhes (opcional)"
@@ -1092,7 +1097,7 @@ export default function NovaCompraClient() {
                       <td className="p-2">
                         <select
                           value={it.programFrom || ""}
-                          disabled={isReleased}
+                          disabled={!!isReleased}
                           onChange={(e) =>
                             updateItem(realIdx, { programFrom: (e.target.value || null) as any })
                           }
@@ -1109,7 +1114,7 @@ export default function NovaCompraClient() {
                       <td className="p-2">
                         <select
                           value={it.programTo || ""}
-                          disabled={isReleased}
+                          disabled={!!isReleased}
                           onChange={(e) =>
                             updateItem(realIdx, { programTo: (e.target.value || null) as any })
                           }
@@ -1127,8 +1132,10 @@ export default function NovaCompraClient() {
                         <input
                           type="number"
                           value={it.pointsBase}
-                          disabled={isReleased}
-                          onChange={(e) => updateItem(realIdx, { pointsBase: clampInt(e.target.value) })}
+                          disabled={!!isReleased}
+                          onChange={(e) =>
+                            updateItem(realIdx, { pointsBase: clampInt(e.target.value) })
+                          }
                           className="w-full rounded-md border px-2 py-1 text-sm"
                         />
                       </td>
@@ -1137,7 +1144,7 @@ export default function NovaCompraClient() {
                         <div className="flex gap-1">
                           <select
                             value={it.bonusMode || ""}
-                            disabled={isReleased}
+                            disabled={!!isReleased}
                             onChange={(e) => updateItem(realIdx, { bonusMode: e.target.value as any })}
                             className="rounded-md border px-2 py-1 text-sm"
                           >
@@ -1148,8 +1155,10 @@ export default function NovaCompraClient() {
                           <input
                             type="number"
                             value={it.bonusValue ?? 0}
-                            disabled={isReleased || !it.bonusMode}
-                            onChange={(e) => updateItem(realIdx, { bonusValue: clampInt(e.target.value) })}
+                            disabled={!!isReleased || !it.bonusMode}
+                            onChange={(e) =>
+                              updateItem(realIdx, { bonusValue: clampInt(e.target.value) })
+                            }
                             className="w-24 rounded-md border px-2 py-1 text-sm disabled:opacity-50"
                           />
                         </div>
@@ -1159,8 +1168,10 @@ export default function NovaCompraClient() {
                         <input
                           type="number"
                           value={it.pointsFinal}
-                          disabled={isReleased || !allowManual}
-                          onChange={(e) => updateItem(realIdx, { pointsFinal: clampInt(e.target.value) })}
+                          disabled={!!isReleased || !allowManual}
+                          onChange={(e) =>
+                            updateItem(realIdx, { pointsFinal: clampInt(e.target.value) })
+                          }
                           className="w-full rounded-md border px-2 py-1 text-sm disabled:opacity-50"
                         />
                         <div className="mt-1 flex items-center gap-2">
@@ -1168,9 +1179,12 @@ export default function NovaCompraClient() {
                             <input
                               type="checkbox"
                               checked={allowManual}
-                              disabled={isReleased}
+                              disabled={!!isReleased}
                               onChange={(e) =>
-                                setItemsAllowManualFinal((s) => ({ ...s, [key]: e.target.checked }))
+                                setItemsAllowManualFinal((s) => ({
+                                  ...s,
+                                  [key]: e.target.checked,
+                                }))
                               }
                             />
                             Permitir editar final
@@ -1185,9 +1199,11 @@ export default function NovaCompraClient() {
                         <input
                           type="number"
                           value={it.pointsDebitedFromOrigin}
-                          disabled={isReleased}
+                          disabled={!!isReleased}
                           onChange={(e) =>
-                            updateItem(realIdx, { pointsDebitedFromOrigin: clampInt(e.target.value) })
+                            updateItem(realIdx, {
+                              pointsDebitedFromOrigin: clampInt(e.target.value),
+                            })
                           }
                           className="w-full rounded-md border px-2 py-1 text-sm"
                           placeholder="0"
@@ -1197,7 +1213,7 @@ export default function NovaCompraClient() {
                       <td className="p-2">
                         <select
                           value={it.transferMode || ""}
-                          disabled={isReleased}
+                          disabled={!!isReleased}
                           onChange={(e) =>
                             updateItem(realIdx, { transferMode: (e.target.value || null) as any })
                           }
@@ -1213,7 +1229,7 @@ export default function NovaCompraClient() {
                         <input
                           type="number"
                           value={(it.amountCents || 0) / 100}
-                          disabled={isReleased}
+                          disabled={!!isReleased}
                           onChange={(e) =>
                             updateItem(realIdx, {
                               amountCents: roundCents(Number(e.target.value || 0) * 100),
@@ -1227,7 +1243,7 @@ export default function NovaCompraClient() {
                         <button
                           type="button"
                           onClick={() => removeItemByIndex(realIdx)}
-                          disabled={isReleased}
+                          disabled={!!isReleased}
                           className="rounded-md border px-2 py-1 text-xs disabled:opacity-50"
                         >
                           Remover
@@ -1251,9 +1267,7 @@ export default function NovaCompraClient() {
         <div className="rounded-xl border p-4 space-y-3">
           <div className="flex items-center justify-between">
             <h2 className="font-medium">5) Saldo final esperado (aplica no LIBERAR)</h2>
-            <div className="text-xs text-gray-500">
-              Auto = atual + deltas dos itens/clubes
-            </div>
+            <div className="text-xs text-gray-500">Auto = atual + deltas dos itens/clubes</div>
           </div>
 
           <div className="grid gap-3 md:grid-cols-4">
@@ -1264,7 +1278,7 @@ export default function NovaCompraClient() {
               delta={computedExpected?.deltas.LATAM || 0}
               value={draft.expectedLatamPoints}
               auto={expectedAuto.LATAM}
-              disabled={isReleased}
+              disabled={!!isReleased}
               onToggleAuto={(v) => setExpectedAuto((s) => ({ ...s, LATAM: v }))}
               onChange={(v) => updateDraft({ expectedLatamPoints: v })}
             />
@@ -1275,7 +1289,7 @@ export default function NovaCompraClient() {
               delta={computedExpected?.deltas.SMILES || 0}
               value={draft.expectedSmilesPoints}
               auto={expectedAuto.SMILES}
-              disabled={isReleased}
+              disabled={!!isReleased}
               onToggleAuto={(v) => setExpectedAuto((s) => ({ ...s, SMILES: v }))}
               onChange={(v) => updateDraft({ expectedSmilesPoints: v })}
             />
@@ -1286,7 +1300,7 @@ export default function NovaCompraClient() {
               delta={computedExpected?.deltas.LIVELO || 0}
               value={draft.expectedLiveloPoints}
               auto={expectedAuto.LIVELO}
-              disabled={isReleased}
+              disabled={!!isReleased}
               onToggleAuto={(v) => setExpectedAuto((s) => ({ ...s, LIVELO: v }))}
               onChange={(v) => updateDraft({ expectedLiveloPoints: v })}
             />
@@ -1297,7 +1311,7 @@ export default function NovaCompraClient() {
               delta={computedExpected?.deltas.ESFERA || 0}
               value={draft.expectedEsferaPoints}
               auto={expectedAuto.ESFERA}
-              disabled={isReleased}
+              disabled={!!isReleased}
               onToggleAuto={(v) => setExpectedAuto((s) => ({ ...s, ESFERA: v }))}
               onChange={(v) => updateDraft({ expectedEsferaPoints: v })}
             />
@@ -1317,6 +1331,41 @@ export default function NovaCompraClient() {
           {draft.status === "RELEASED" ? "Compra liberada (travada)." : ""}
         </div>
       )}
+    </div>
+  );
+}
+
+function DraftActions(props: {
+  draft: PurchaseDraft;
+  saving: boolean;
+  isReleased: boolean;
+  onSave: () => void;
+  onRelease: () => void;
+}) {
+  const { draft, saving, isReleased, onSave, onRelease } = props;
+
+  const releaseDisabled =
+    isReleased || saving || !draft.ciaProgram || !draft.ciaPointsTotal || draft.ciaPointsTotal <= 0;
+
+  return (
+    <div className="flex items-center gap-2">
+      <button
+        type="button"
+        onClick={onSave}
+        disabled={saving || isReleased}
+        className="rounded-md border px-3 py-2 text-sm disabled:opacity-50"
+      >
+        Salvar
+      </button>
+
+      <button
+        type="button"
+        onClick={onRelease}
+        disabled={releaseDisabled}
+        className="rounded-md bg-emerald-600 px-3 py-2 text-sm text-white disabled:opacity-50"
+      >
+        LIBERAR (aplicar saldo)
+      </button>
     </div>
   );
 }
@@ -1344,7 +1393,11 @@ function ExpectedBalance(props: {
   const { label, current, delta, value, auto, disabled, onToggleAuto, onChange } = props;
 
   const signedDelta =
-    delta === 0 ? "0" : delta > 0 ? `+${delta.toLocaleString("pt-BR")}` : `${delta.toLocaleString("pt-BR")}`;
+    delta === 0
+      ? "0"
+      : delta > 0
+      ? `+${delta.toLocaleString("pt-BR")}`
+      : `${delta.toLocaleString("pt-BR")}`;
 
   return (
     <div className="rounded-xl bg-gray-50 p-3">
@@ -1366,7 +1419,8 @@ function ExpectedBalance(props: {
       </div>
 
       <div className="text-xs text-gray-600">
-        Delta: <b className={delta >= 0 ? "text-emerald-700" : "text-red-700"}>{signedDelta}</b>
+        Delta:{" "}
+        <b className={delta >= 0 ? "text-emerald-700" : "text-red-700"}>{signedDelta}</b>
       </div>
 
       <label className="mt-2 block text-xs text-gray-600">Esperado</label>
@@ -1387,209 +1441,3 @@ function ExpectedBalance(props: {
     </div>
   );
 }
-
-function CTAButton(props: {
-  label: string;
-  onClick: () => void;
-  disabled?: boolean;
-  variant?: "primary" | "secondary";
-}) {
-  const variant = props.variant || "secondary";
-  const cls =
-    variant === "primary"
-      ? "rounded-md bg-emerald-600 px-3 py-2 text-sm text-white disabled:opacity-50"
-      : "rounded-md border px-3 py-2 text-sm disabled:opacity-50";
-
-  return (
-    <button type="button" onClick={props.onClick} disabled={props.disabled} className={cls}>
-      {props.label}
-    </button>
-  );
-}
-
-function RttReleaseDisabled(draft: PurchaseDraft | null) {
-  if (!draft) return true;
-  if (!draft.ciaProgram) return true;
-  if (!draft.ciaPointsTotal || draft.ciaPointsTotal <= 0) return true;
-  return false;
-}
-
-function RttHasDraft(draft: PurchaseDraft | null) {
-  return !!draft;
-}
-
-function RttActions(props: {
-  draft: PurchaseDraft | null;
-  saving: boolean;
-  isReleased: boolean;
-  onSave: () => void;
-  onRelease: () => void;
-}) {
-  const { draft, saving, isReleased, onSave, onRelease } = props;
-
-  if (!RttHasDraft(draft)) return null;
-
-  return (
-    <div className="flex items-center gap-2">
-      <CTAButton
-        label="Salvar"
-        onClick={onSave}
-        disabled={saving || isReleased}
-        variant="secondary"
-      />
-      <CTAButton
-        label="LIBERAR (aplicar saldo)"
-        onClick={onRelease}
-        disabled={saving || isReleased || RttReleaseDisabled(draft)}
-        variant="primary"
-      />
-    </div>
-  );
-}
-
-// wrapper para não poluir o JSX do header
-function TtActions(args: Parameters<typeof RttActions>[0]) {
-  return <RttActions {...args} />;
-}
-function RttActionsWrapper(args: Parameters<typeof RttActions>[0]) {
-  return <RttActions {...args} />;
-}
-// usei um nome único no header
-function RttActionComp(args: Parameters<typeof RttActions>[0]) {
-  return <RttActions {...args} />;
-}
-function RttActionFinal(args: Parameters<typeof RttActions>[0]) {
-  return <RttActions {...args} />;
-}
-function RttAction(args: Parameters<typeof RttActions>[0]) {
-  return <RttActions {...args} />;
-}
-function RttAction2(args: Parameters<typeof RttActions>[0]) {
-  return <RttActions {...args} />;
-}
-function RttAction3(args: Parameters<typeof RttActions>[0]) {
-  return <RttActions {...args} />;
-}
-function RttAction4(args: Parameters<typeof RttActions>[0]) {
-  return <RttActions {...args} />;
-}
-function RttAction5(args: Parameters<typeof RttActions>[0]) {
-  return <RttActions {...args} />;
-}
-function RttAction6(args: Parameters<typeof RttActions>[0]) {
-  return <RttActions {...args} />;
-}
-function RttAction7(args: Parameters<typeof RttActions>[0]) {
-  return <RttActions {...args} />;
-}
-function RttAction8(args: Parameters<typeof RttActions>[0]) {
-  return <RttActions {...args} />;
-}
-function RttAction9(args: Parameters<typeof RttActions>[0]) {
-  return <RttActions {...args} />;
-}
-function RttAction10(args: Parameters<typeof RttActions>[0]) {
-  return <RttActions {...args} />;
-}
-
-// ✅ aqui é o que o header usa (mantém simples)
-function TtActionsPublic(args: Parameters<typeof RttActions>[0]) {
-  return <RttActions {...args} />;
-}
-function TtActions2(args: Parameters<typeof RttActions>[0]) {
-  return <RttActions {...args} />;
-}
-function TtActions3(args: Parameters<typeof RttActions>[0]) {
-  return <RttActions {...args} />;
-}
-function TtActions4(args: Parameters<typeof RttActions>[0]) {
-  return <RttActions {...args} />;
-}
-
-// nome final do header:
-function TtActionsHeader(args: Parameters<typeof RttActions>[0]) {
-  return <RttActions {...args} />;
-}
-
-// e o que eu realmente chamei no header:
-function TtActionsReal(args: Parameters<typeof RttActions>[0]) {
-  return <RttActions {...args} />;
-}
-function TtActionsFinalHeader(args: Parameters<typeof RttActions>[0]) {
-  return <RttActions {...args} />;
-}
-function TtActionsX(args: Parameters<typeof RttActions>[0]) {
-  return <RttActions {...args} />;
-}
-function TtActionsY(args: Parameters<typeof RttActions>[0]) {
-  return <RttActions {...args} />;
-}
-function TtActionsZ(args: Parameters<typeof RttActions>[0]) {
-  return <RttActions {...args} />;
-}
-
-// (pra evitar confusão) exportei com esse nome e uso no topo:
-function TtActionsClean(args: Parameters<typeof RttActions>[0]) {
-  return <RttActions {...args} />;
-}
-function TtActionsA(args: Parameters<typeof RttActions>[0]) {
-  return <RttActions {...args} />;
-}
-function TtActionsB(args: Parameters<typeof RttActions>[0]) {
-  return <RttActions {...args} />;
-}
-function TtActionsC(args: Parameters<typeof RttActions>[0]) {
-  return <RttActions {...args} />;
-}
-
-// ✅ O header chama este:
-function TtActionsHeaderReal(args: Parameters<typeof RttActions>[0]) {
-  return <RttActions {...args} />;
-}
-
-// ✅ e finalmente o alias que usei lá em cima:
-function TtActionsAlias(args: Parameters<typeof RttActions>[0]) {
-  return <RttActions {...args} />;
-}
-
-// *** O que está sendo usado no topo do componente: ***
-function TtActionsFinalAlias(args: Parameters<typeof RttActions>[0]) {
-  return <RttActions {...args} />;
-}
-
-// PS: Para ficar simples, uso este nome no header:
-function TtActionsFixed(args: Parameters<typeof RttActions>[0]) {
-  return <RttActions {...args} />;
-}
-
-// e aqui está o que eu realmente importei no topo:
-function TtActionsRealFinal(args: Parameters<typeof RttActions>[0]) {
-  return <RttActions {...args} />;
-}
-
-// ✅ OK: nome final
-function TtActionsOK(args: Parameters<typeof RttActions>[0]) {
-  return <RttActions {...args} />;
-}
-
-// e o que o header usa de fato:
-function TtActionsImpl(args: Parameters<typeof RttActions>[0]) {
-  return <RttActions {...args} />;
-}
-
-// === CHAMADA DO HEADER ===
-function TtActionsHeaderImpl(args: Parameters<typeof RttActions>[0]) {
-  return <RttActions {...args} />;
-}
-
-// 🔥 este é o export utilizado no header do JSX:
-function TtActionsHeaderExport(args: Parameters<typeof RttActions>[0]) {
-  return <RttActions {...args} />;
-}
-
-// ✅ no header eu chamei "RttActions" via helper "TtActions" abaixo:
-function TtActions(args: Parameters<typeof RttActions>[0]) {
-  return <RttActions {...args} />;
-}
-
-// (fim)
