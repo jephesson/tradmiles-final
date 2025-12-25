@@ -1,74 +1,86 @@
 import { prisma } from "@/lib/prisma";
-import { NextRequest } from "next/server";
+import { ok, badRequest, notFound, serverError } from "@/lib/api";
+import { recomputeCompra } from "@/lib/compras";
 
 export const dynamic = "force-dynamic";
 
-function json(data: any, status = 200) {
-  return new Response(JSON.stringify(data), {
-    status,
-    headers: { "Content-Type": "application/json" },
-  });
+export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> }) {
+  try {
+    const { id } = await ctx.params;
+    if (!id) return badRequest("id é obrigatório.");
+
+    const compra = await prisma.purchase.findUnique({
+      where: { id },
+      include: {
+        cedente: true,
+        items: true,
+      },
+    });
+
+    if (!compra) return notFound("Compra não encontrada.");
+    return ok({ compra });
+  } catch (e: any) {
+    return serverError("Falha ao buscar compra.", { detail: e?.message });
+  }
 }
 
-export async function GET(
-  _req: NextRequest,
-  ctx: { params: Promise<{ id: string }> }
-) {
-  const { id } = await ctx.params;
+export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }> }) {
+  try {
+    const { id } = await ctx.params;
+    if (!id) return badRequest("id é obrigatório.");
 
-  const compra = await prisma.purchase.findUnique({
-    where: { id },
-    select: {
-      id: true,
-      numero: true,
-      status: true,
-      note: true,
-      createdAt: true,
-      cedentePayCents: true,
-      vendorCommissionBps: true,
-      extraPoints: true,
-      extraPointsCostCents: true,
-      cedente: {
-        select: {
-          id: true,
-          identificador: true,
-          nomeCompleto: true,
-          cpf: true,
-          pontosLatam: true,
-          pontosSmiles: true,
-          pontosLivelo: true,
-          pontosEsfera: true,
-          blockedAccounts: {
-            where: { status: "OPEN" },
-            select: { program: true, status: true },
-          },
-          owner: { select: { id: true, name: true, login: true } },
-        },
+    const body = await req.json().catch(() => null);
+    if (!body) return badRequest("JSON inválido.");
+
+    const exists = await prisma.purchase.findUnique({ where: { id }, select: { id: true } });
+    if (!exists) return notFound("Compra não encontrada.");
+
+    await prisma.purchase.update({
+      where: { id },
+      data: {
+        // venda
+        ciaAerea: body.ciaAerea === undefined ? undefined : body.ciaAerea,
+        pontosCiaTotal: body.pontosCiaTotal === undefined ? undefined : Number(body.pontosCiaTotal || 0),
+
+        // custos/meta
+        cedentePayCents: body.cedentePayCents === undefined ? undefined : Number(body.cedentePayCents || 0),
+        vendorCommissionBps: body.vendorCommissionBps === undefined ? undefined : Number(body.vendorCommissionBps),
+        metaMarkupCents: body.metaMarkupCents === undefined ? undefined : Number(body.metaMarkupCents),
+
+        // observação
+        observacao: body.observacao === undefined ? undefined : (body.observacao ? String(body.observacao) : null),
+
+        // status (se quiser permitir)
+        status: body.status === undefined ? undefined : body.status,
       },
-      items: {
-        orderBy: { createdAt: "asc" },
-        select: {
-          id: true,
-          type: true,
-          status: true,
-          title: true,
-          details: true,
-          programFrom: true,
-          programTo: true,
-          pointsBase: true,
-          bonusMode: true,
-          bonusValue: true,
-          pointsFinal: true,
-          amountCents: true,
-          transferMode: true,
-          pointsDebitedFromOrigin: true,
-          createdAt: true,
-        },
-      },
-    },
-  });
+    });
 
-  if (!compra) return json({ ok: false, error: "Compra não encontrada." }, 404);
+    await recomputeCompra(id);
 
-  return json({ ok: true, compra });
+    const compra = await prisma.purchase.findUnique({
+      where: { id },
+      include: { cedente: true, items: true },
+    });
+
+    return ok({ compra });
+  } catch (e: any) {
+    return serverError("Falha ao atualizar compra.", { detail: e?.message });
+  }
+}
+
+export async function DELETE(_req: Request, ctx: { params: Promise<{ id: string }> }) {
+  try {
+    const { id } = await ctx.params;
+    if (!id) return badRequest("id é obrigatório.");
+
+    const compra = await prisma.purchase.update({
+      where: { id },
+      data: { status: "CANCELED" },
+      include: { items: true },
+    });
+
+    return ok({ compra });
+  } catch (e: any) {
+    return serverError("Falha ao cancelar compra.", { detail: e?.message });
+  }
 }

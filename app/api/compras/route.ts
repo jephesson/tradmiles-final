@@ -1,61 +1,79 @@
 import { prisma } from "@/lib/prisma";
+import { ok, badRequest, serverError } from "@/lib/api";
+import { nextNumeroCompra } from "@/lib/compraNumero";
+import { recomputeCompra } from "@/lib/compras";
 
 export const dynamic = "force-dynamic";
 
-function json(data: any, status = 200) {
-  return new Response(JSON.stringify(data), {
-    status,
-    headers: { "Content-Type": "application/json" },
-  });
+export async function GET(req: Request) {
+  try {
+    const { searchParams } = new URL(req.url);
+    const cedenteId = searchParams.get("cedenteId") || undefined;
+    const status = searchParams.get("status") || undefined;
+    const take = Math.min(Number(searchParams.get("take") || 50), 200);
+    const skip = Number(searchParams.get("skip") || 0);
+
+    const compras = await prisma.purchase.findMany({
+      where: {
+        ...(cedenteId ? { cedenteId } : {}),
+        ...(status ? { status: status as any } : {}),
+      },
+      orderBy: { createdAt: "desc" },
+      take,
+      skip,
+      include: {
+        cedente: { select: { id: true, nomeCompleto: true, cpf: true, identificador: true } },
+        items: true,
+      },
+    });
+
+    return ok({ compras });
+  } catch (e: any) {
+    return serverError("Falha ao listar compras.", { detail: e?.message });
+  }
 }
 
 export async function POST(req: Request) {
-  const body = await req.json().catch(() => null);
-  const cedenteId = String(body?.cedenteId || "").trim();
-
-  if (!cedenteId) {
-    return json({ ok: false, error: "cedenteId é obrigatório." }, 400);
-  }
-
-  // garante cedente
-  const cedente = await prisma.cedente.findUnique({
-    where: { id: cedenteId },
-    select: { id: true },
-  });
-
-  if (!cedente) {
-    return json({ ok: false, error: "Cedente não encontrado." }, 404);
-  }
-
   try {
-    const compra = await prisma.$transaction(async (tx) => {
-      // 🔢 incrementa contador
-      const counter = await tx.counter.upsert({
-        where: { key: "purchase" },
-        update: { value: { increment: 1 } },
-        create: { key: "purchase", value: 1 },
-      });
+    const body = await req.json().catch(() => null);
+    if (!body) return badRequest("JSON inválido.");
 
-      const numero = `ID${String(counter.value).padStart(5, "0")}`;
+    const cedenteId = String(body.cedenteId || "");
+    if (!cedenteId) return badRequest("cedenteId é obrigatório.");
 
-      return tx.purchase.create({
-        data: {
-          cedenteId,
-          numero,
-          status: "OPEN",
-        },
-        select: {
-          id: true,
-          numero: true,
-          status: true,
-          createdAt: true,
-        },
-      });
+    const numero = await nextNumeroCompra();
+
+    const compra = await prisma.purchase.create({
+      data: {
+        numero,
+        cedenteId,
+        status: "OPEN",
+
+        // venda (opcional)
+        ciaAerea: body.ciaAerea ?? null,
+        pontosCiaTotal: Number(body.pontosCiaTotal || 0),
+
+        // custos (opcional)
+        cedentePayCents: Number(body.cedentePayCents || 0),
+        vendorCommissionBps: Number(body.vendorCommissionBps ?? 100),
+
+        // meta (opcional)
+        metaMarkupCents: Number(body.metaMarkupCents ?? 150),
+
+        observacao: body.observacao ? String(body.observacao) : null,
+      },
+      include: { items: true },
     });
 
-    return json({ ok: true, compra }, 201);
-  } catch (err) {
-    console.error("ERRO CREATE PURCHASE:", err);
-    return json({ ok: false, error: "Falha ao criar compra." }, 500);
+    await recomputeCompra(compra.id);
+
+    const compraFinal = await prisma.purchase.findUnique({
+      where: { id: compra.id },
+      include: { items: true, cedente: true },
+    });
+
+    return ok({ compra: compraFinal }, 201);
+  } catch (e: any) {
+    return serverError("Falha ao criar compra.", { detail: e?.message });
   }
 }

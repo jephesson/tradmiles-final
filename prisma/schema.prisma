@@ -24,7 +24,7 @@ enum PixTipo {
 
 /**
  * =========================
- * BLOQUEIOS
+ * BLOQUEIOS / PROGRAMAS
  * =========================
  */
 enum LoyaltyProgram {
@@ -70,6 +70,9 @@ model User {
 
   // ✅ Observações de bloqueio criadas por este usuário (lado oposto de BlockObservation.createdBy)
   blockedObsCreated BlockObservation[] @relation("BlockedObsCreatedBy")
+
+  // ✅ Compras liberadas por este usuário (lado inverso de Purchase.liberadoPor)
+  comprasLiberadas Purchase[] @relation("CompraLiberadaPor")
 
   // Um convite por usuário (no teu fluxo)
   employeeInvite EmployeeInvite?
@@ -214,12 +217,11 @@ enum DebtStatus {
 
 model Debt {
   id          String     @id @default(cuid())
-  title       String // descrição curta (ex: "Cartão Nubank", "123milhas", etc.)
-  description String? // opcional (detalhes)
-  totalCents  Int // valor total da dívida em centavos
+  title       String
+  description String?
+  totalCents  Int
   status      DebtStatus @default(OPEN)
 
-  // quem criou (opcional, mas útil)
   createdById String?
   createdBy   User?   @relation(fields: [createdById], references: [id], onDelete: SetNull)
 
@@ -236,9 +238,9 @@ model Debt {
 model DebtPayment {
   id          String   @id @default(cuid())
   debtId      String
-  amountCents Int // pagamento em centavos
-  note        String? // opcional (ex: "pix", "boleto", "parcial", etc.)
-  paidAt      DateTime @default(now()) // data/hora do pagamento (auto)
+  amountCents Int
+  note        String?
+  paidAt      DateTime @default(now())
 
   debt Debt @relation(fields: [debtId], references: [id], onDelete: Cascade)
 
@@ -263,13 +265,12 @@ model BlockedAccount {
   status    BlockStatus    @default(OPEN)
 
   note              String?
-  estimatedUnlockAt DateTime? // previsão de desbloqueio
+  estimatedUnlockAt DateTime?
 
   createdById String?
   createdBy   User?   @relation("BlockedCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
 
-  resolvedAt DateTime?
-
+  resolvedAt   DateTime?
   observations BlockObservation[]
 
   createdAt DateTime @default(now())
@@ -277,7 +278,6 @@ model BlockedAccount {
 
   cedente Cedente @relation(fields: [cedenteId], references: [id], onDelete: Cascade)
 
-  // impede duplicar mais de 1 bloqueio OPEN do mesmo programa no mesmo cedente
   @@unique([cedenteId, program, status], map: "uniq_open_block_per_program")
   @@index([cedenteId])
   @@index([program])
@@ -306,7 +306,7 @@ model BlockObservation {
 
 /**
  * =========================
- * COMPRAS
+ * COMPRAS (NOVA COMPLETA)
  * =========================
  */
 enum PurchaseStatus {
@@ -316,11 +316,11 @@ enum PurchaseStatus {
 }
 
 enum PurchaseItemType {
-  CLUB // assinatura
-  POINTS_BUY // compra de pontos
-  TRANSFER // transferencia (livelo/esfera -> latam/smiles)
-  ADJUSTMENT // ajuste manual de pontos (corrigir saldo)
-  EXTRA_COST // custos extras
+  CLUB
+  POINTS_BUY
+  TRANSFER
+  ADJUSTMENT
+  EXTRA_COST
 }
 
 enum PurchaseItemStatus {
@@ -330,22 +330,80 @@ enum PurchaseItemStatus {
 }
 
 enum TransferMode {
-  FULL_POINTS // transfere usando pontos do programa origem
-  POINTS_PLUS_CASH // pontos + dinheiro
+  FULL_POINTS
+  POINTS_PLUS_CASH
 }
 
 model Purchase {
   id        String         @id @default(cuid())
-  numero    String         @unique // "ID00001"
+  numero    String         @unique // ID00001
   cedenteId String
   status    PurchaseStatus @default(OPEN)
 
-  cedentePayCents      Int @default(0)
-  vendorCommissionBps  Int @default(100)
-  extraPoints          Int @default(0)
-  extraPointsCostCents Int @default(0)
+  /**
+   * =========================
+   * DEFINIÇÃO DA VENDA
+   * =========================
+   */
+  ciaAerea       LoyaltyProgram?
+  pontosCiaTotal Int             @default(0)
 
-  note String?
+  /**
+   * =========================
+   * CUSTOS
+   * =========================
+   */
+  cedentePayCents     Int @default(0)
+  vendorCommissionBps Int @default(100)
+
+  subtotalCents Int @default(0)
+  comissaoCents Int @default(0)
+  totalCents    Int @default(0)
+
+  /**
+   * =========================
+   * MILHEIRO / META
+   * =========================
+   */
+  custoMilheiroCents Int @default(0)
+  metaMarkupCents    Int @default(150)
+  metaMilheiroCents  Int @default(0)
+
+  /**
+   * =========================
+   * SALDO PREVISTO (ANTES DE LIBERAR)
+   * =========================
+   */
+  saldoPrevistoLatam  Int?
+  saldoPrevistoSmiles Int?
+  saldoPrevistoLivelo Int?
+  saldoPrevistoEsfera Int?
+
+  /**
+   * =========================
+   * SALDO APLICADO (APÓS LIBERAÇÃO)
+   * =========================
+   */
+  saldoAplicadoLatam  Int?
+  saldoAplicadoSmiles Int?
+  saldoAplicadoLivelo Int?
+  saldoAplicadoEsfera Int?
+
+  /**
+   * =========================
+   * CONTROLE DE LIBERAÇÃO
+   * =========================
+   */
+  liberadoEm    DateTime?
+  liberadoPorId String?
+  liberadoPor   User?     @relation("CompraLiberadaPor", fields: [liberadoPorId], references: [id], onDelete: SetNull)
+
+  /**
+   * =========================
+   * OBSERVAÇÃO
+   * =========================
+   */
+  observacao String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -355,9 +413,9 @@ model Purchase {
 
   @@index([cedenteId])
   @@index([status])
+  @@index([ciaAerea])
   @@map("purchases")
 }
-
 
 model PurchaseItem {
   id         String             @id @default(cuid())
@@ -365,23 +423,21 @@ model PurchaseItem {
   type       PurchaseItemType
   status     PurchaseItemStatus @default(PENDING)
 
-  programFrom LoyaltyProgram? // para transferências
-  programTo   LoyaltyProgram? // para transferências
+  programFrom LoyaltyProgram?
+  programTo   LoyaltyProgram?
 
   // pontos
-  pointsBase  Int     @default(0) // pontos “base” (comprados / transferidos / ajustados)
-  bonusMode   String? // "PERCENT" | "TOTAL" (string simples pra não criar enum extra)
-  bonusValue  Int? // percent (ex 30) OU total bônus (ex 30000), depende do bonusMode
-  pointsFinal Int     @default(0) // pontos finais após bônus (calculado e salvo)
+  pointsBase  Int     @default(0)
+  bonusMode   String?
+  bonusValue  Int?
+  pointsFinal Int     @default(0)
 
   // dinheiro
-  amountCents  Int           @default(0) // custo do item (assinatura / compra / taxa / cash)
-  transferMode TransferMode? // FULL_POINTS / POINTS_PLUS_CASH (se type = TRANSFER)
+  amountCents  Int           @default(0)
+  transferMode TransferMode?
 
-  // se for POINTS_PLUS_CASH: quantos pontos debitou do origem (ex: 1000) + cash
   pointsDebitedFromOrigin Int @default(0)
 
-  // metadados úteis
   title   String
   details String?
 
@@ -404,4 +460,3 @@ model Counter {
 
   @@map("counters")
 }
-

@@ -1,170 +1,75 @@
 import { prisma } from "@/lib/prisma";
-import { NextRequest } from "next/server";
-import { LoyaltyProgram, PurchaseItemType, TransferMode } from "@prisma/client";
+import { ok, badRequest, notFound, serverError } from "@/lib/api";
+import { recomputeCompra } from "@/lib/compras";
 
 export const dynamic = "force-dynamic";
 
-function json(data: any, status = 200) {
-  return new Response(JSON.stringify(data), {
-    status,
-    headers: { "Content-Type": "application/json" },
-  });
-}
+export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> }) {
+  try {
+    const { id } = await ctx.params;
+    if (!id) return badRequest("id é obrigatório.");
 
-function isEnumValue<T extends Record<string, string>>(enm: T, v: string) {
-  return (Object.values(enm) as string[]).includes(v);
-}
+    const compra = await prisma.purchase.findUnique({
+      where: { id },
+      select: { id: true },
+    });
+    if (!compra) return notFound("Compra não encontrada.");
 
-function calcPointsFinal(
-  pointsBase: number,
-  bonusMode?: string | null,
-  bonusValue?: number | null
-) {
-  const base = Math.max(0, Math.trunc(pointsBase || 0));
-  if (!bonusMode || bonusValue == null) return base;
+    const itens = await prisma.purchaseItem.findMany({
+      where: { purchaseId: id },
+      orderBy: { createdAt: "asc" },
+    });
 
-  if (bonusMode === "PERCENT") {
-    const pct = Math.max(0, Number(bonusValue));
-    return Math.trunc(base * (1 + pct / 100));
+    return ok({ itens });
+  } catch (e: any) {
+    return serverError("Falha ao listar itens.", { detail: e?.message });
   }
-
-  if (bonusMode === "TOTAL") {
-    const bonus = Math.max(0, Math.trunc(Number(bonusValue)));
-    return base + bonus;
-  }
-
-  return base;
 }
 
-export async function POST(
-  req: NextRequest,
-  ctx: { params: Promise<{ id: string }> }
-) {
-  const { id: purchaseId } = await ctx.params;
-  const body = await req.json().catch(() => null);
+export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }) {
+  try {
+    const { id } = await ctx.params;
+    if (!id) return badRequest("id é obrigatório.");
 
-  // ===== type (enum) =====
-  const typeRaw = String(body?.type || "").trim();
-  const type = isEnumValue(PurchaseItemType, typeRaw)
-    ? (typeRaw as PurchaseItemType)
-    : null;
+    const body = await req.json().catch(() => null);
+    if (!body) return badRequest("JSON inválido.");
 
-  const title = String(body?.title || "").trim();
-  if (!type) {
-    return json(
-      {
-        ok: false,
-        error:
-          "type inválido. Use: CLUB, POINTS_BUY, TRANSFER, ADJUSTMENT, EXTRA_COST.",
+    const compra = await prisma.purchase.findUnique({ where: { id }, select: { id: true, status: true } });
+    if (!compra) return notFound("Compra não encontrada.");
+    if (compra.status !== "OPEN") return badRequest("Só pode adicionar itens com a compra em OPEN.");
+
+    const type = body.type;
+    const title = String(body.title || "").trim();
+    if (!type) return badRequest("type é obrigatório.");
+    if (!title) return badRequest("title é obrigatório.");
+
+    const item = await prisma.purchaseItem.create({
+      data: {
+        purchaseId: id,
+        type,
+        status: body.status ?? "PENDING",
+
+        programFrom: body.programFrom ?? null,
+        programTo: body.programTo ?? null,
+
+        pointsBase: Number(body.pointsBase || 0),
+        bonusMode: body.bonusMode ?? null,
+        bonusValue: body.bonusValue === undefined ? null : Number(body.bonusValue),
+        pointsFinal: Number(body.pointsFinal || 0),
+
+        amountCents: Number(body.amountCents || 0),
+        transferMode: body.transferMode ?? null,
+        pointsDebitedFromOrigin: Number(body.pointsDebitedFromOrigin || 0),
+
+        title,
+        details: body.details ? String(body.details) : null,
       },
-      400
-    );
+    });
+
+    await recomputeCompra(id);
+
+    return ok({ item }, 201);
+  } catch (e: any) {
+    return serverError("Falha ao criar item.", { detail: e?.message });
   }
-  if (!title) return json({ ok: false, error: "title é obrigatório." }, 400);
-
-  // garante compra OPEN
-  const compra = await prisma.purchase.findUnique({
-    where: { id: purchaseId },
-    select: { id: true, status: true },
-  });
-
-  if (!compra) return json({ ok: false, error: "Compra não encontrada." }, 404);
-  if (compra.status !== "OPEN")
-    return json({ ok: false, error: "Compra não está OPEN." }, 400);
-
-  // ===== pontos / dinheiro =====
-  const pointsBase = Math.trunc(Number(body?.pointsBase || 0));
-  const bonusMode = body?.bonusMode ? String(body.bonusMode) : null;
-  const bonusValue =
-    body?.bonusValue == null ? null : Math.trunc(Number(body.bonusValue));
-  const pointsFinal = calcPointsFinal(pointsBase, bonusMode, bonusValue);
-
-  const amountCents = Math.trunc(Number(body?.amountCents || 0));
-
-  // ===== enums de transferência =====
-  const pfRaw = String(body?.programFrom ?? "").trim();
-  const ptRaw = String(body?.programTo ?? "").trim();
-  const tmRaw = String(body?.transferMode ?? "").trim();
-
-  const programFrom =
-    pfRaw && isEnumValue(LoyaltyProgram, pfRaw)
-      ? (pfRaw as LoyaltyProgram)
-      : null;
-
-  const programTo =
-    ptRaw && isEnumValue(LoyaltyProgram, ptRaw)
-      ? (ptRaw as LoyaltyProgram)
-      : null;
-
-  const transferMode =
-    tmRaw && isEnumValue(TransferMode, tmRaw) ? (tmRaw as TransferMode) : null;
-
-  const pointsDebitedFromOrigin = Math.trunc(
-    Number(body?.pointsDebitedFromOrigin || 0)
-  );
-
-  // validações básicas para TRANSFER
-  if (type === "TRANSFER") {
-    if (!programFrom || !programTo) {
-      return json(
-        { ok: false, error: "TRANSFER precisa programFrom e programTo." },
-        400
-      );
-    }
-    if (!transferMode) {
-      return json(
-        { ok: false, error: "TRANSFER precisa transferMode." },
-        400
-      );
-    }
-    if (transferMode === "POINTS_PLUS_CASH" && amountCents <= 0) {
-      return json(
-        { ok: false, error: "Pontos+dinheiro exige amountCents > 0." },
-        400
-      );
-    }
-  } else {
-    // se não for TRANSFER, ignora campos de transferência (evita lixo)
-    // (não precisa bloquear, só não salva)
-  }
-
-  const item = await prisma.purchaseItem.create({
-    data: {
-      purchaseId,
-      type,
-      title,
-      details: body?.details ? String(body.details) : null,
-
-      programFrom: type === "TRANSFER" ? programFrom : null,
-      programTo: type === "TRANSFER" ? programTo : null,
-
-      pointsBase,
-      bonusMode,
-      bonusValue,
-      pointsFinal,
-
-      amountCents,
-      transferMode: type === "TRANSFER" ? transferMode : null,
-      pointsDebitedFromOrigin: type === "TRANSFER" ? pointsDebitedFromOrigin : 0,
-    },
-    select: {
-      id: true,
-      type: true,
-      status: true,
-      title: true,
-      details: true,
-      programFrom: true,
-      programTo: true,
-      pointsBase: true,
-      bonusMode: true,
-      bonusValue: true,
-      pointsFinal: true,
-      amountCents: true,
-      transferMode: true,
-      pointsDebitedFromOrigin: true,
-      createdAt: true,
-    },
-  });
-
-  return json({ ok: true, item }, 201);
 }
