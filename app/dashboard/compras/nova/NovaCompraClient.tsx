@@ -234,7 +234,6 @@ export default function NovaCompraClient({
 }: {
   purchaseId?: string;
 }) {
-
   // ===== Cedentes
   const [query, setQuery] = useState("");
   const [allCedentes, setAllCedentes] = useState<Cedente[]>([]);
@@ -248,7 +247,9 @@ export default function NovaCompraClient({
   const saveTimer = useRef<number | null>(null);
 
   // ===== UI helpers
-  const [itemsAllowManualFinal, setItemsAllowManualFinal] = useState<Record<string, boolean>>({});
+  const [itemsAllowManualFinal, setItemsAllowManualFinal] = useState<
+    Record<string, boolean>
+  >({});
   const [expectedAuto, setExpectedAuto] = useState<Record<LoyaltyProgram, boolean>>({
     LATAM: true,
     SMILES: true,
@@ -257,30 +258,30 @@ export default function NovaCompraClient({
   });
 
   // ===== load compra existente (modo edição)
-useEffect(() => {
-  if (!purchaseId) return;
+  useEffect(() => {
+    if (!purchaseId) return;
 
-  (async () => {
-    try {
-      setSaving(true);
+    (async () => {
+      try {
+        setSaving(true);
 
-      const out = await api<{
-        compra: PurchaseDraft;
-        cedente: Cedente;
-      }>(`/api/compras/${purchaseId}`);
+        const out = await api<{
+          compra: PurchaseDraft;
+          cedente: Cedente;
+        }>(`/api/compras/${purchaseId}`);
 
-      const p = out.compra;
+        const p = out.compra;
 
-      const totals = computeTotals(p);
-      setDraft({ ...p, ...totals });
-      setCedenteSel(out.cedente);
-    } catch (e: any) {
-      setError(e?.message || "Falha ao carregar compra.");
-    } finally {
-      setSaving(false);
-    }
-  })();
-}, [purchaseId]);
+        const totals = computeTotals(p);
+        setDraft({ ...p, ...totals });
+        setCedenteSel(out.cedente);
+      } catch (e: any) {
+        setError(e?.message || "Falha ao carregar compra.");
+      } finally {
+        setSaving(false);
+      }
+    })();
+  }, [purchaseId]);
 
   // ===== load cedentes
   useEffect(() => {
@@ -289,7 +290,9 @@ useEffect(() => {
     const load = async () => {
       setLoadingCed(true);
       try {
-        const out = await api<{ ok: true; data: Cedente[] }>(`/api/cedentes/approved`);
+        const out = await api<{ ok: true; data: Cedente[] }>(
+          `/api/cedentes/approved`
+        );
         if (!alive) return;
         setAllCedentes(Array.isArray(out?.data) ? out.data : []);
       } catch (e: any) {
@@ -426,7 +429,8 @@ useEffect(() => {
       const session = (await import("@/lib/auth")).getSession();
       const userId = (session as any)?.user?.id || (session as any)?.id || "";
 
-      if (!userId) throw new Error("Sessão inválida: não encontrei userId para liberar.");
+      if (!userId)
+        throw new Error("Sessão inválida: não encontrei userId para liberar.");
 
       const out = await api<{ ok: true; compra: PurchaseDraft }>(
         `/api/compras/${draft.id}/release`,
@@ -617,10 +621,14 @@ useEffect(() => {
     if (expectedAuto.ESFERA) patch.expectedEsferaPoints = computedExpected.ESFERA;
 
     const changed =
-      (expectedAuto.LATAM && draft.expectedLatamPoints !== patch.expectedLatamPoints) ||
-      (expectedAuto.SMILES && draft.expectedSmilesPoints !== patch.expectedSmilesPoints) ||
-      (expectedAuto.LIVELO && draft.expectedLiveloPoints !== patch.expectedLiveloPoints) ||
-      (expectedAuto.ESFERA && draft.expectedEsferaPoints !== patch.expectedEsferaPoints);
+      (expectedAuto.LATAM &&
+        draft.expectedLatamPoints !== patch.expectedLatamPoints) ||
+      (expectedAuto.SMILES &&
+        draft.expectedSmilesPoints !== patch.expectedSmilesPoints) ||
+      (expectedAuto.LIVELO &&
+        draft.expectedLiveloPoints !== patch.expectedLiveloPoints) ||
+      (expectedAuto.ESFERA &&
+        draft.expectedEsferaPoints !== patch.expectedEsferaPoints);
 
     if (changed) updateDraft(patch);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -636,20 +644,23 @@ useEffect(() => {
           <p className="text-sm text-gray-600">
             Crie a compra em rascunho e só aplique no saldo ao <b>LIBERAR</b>.
           </p>
+
           {draft && (
             <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-gray-600">
               <span className="rounded-full border px-2 py-1">
                 Compra: <span className="font-mono">{draft.numero}</span>
               </span>
+
               <span
                 className={`rounded-full border px-2 py-1 ${
-                  draft.status === "RELEASED"
+                  draft.status === "CLOSED"
                     ? "bg-emerald-50 border-emerald-200 text-emerald-700"
                     : "bg-gray-50"
                 }`}
               >
                 Status: <span className="font-mono">{draft.status}</span>
               </span>
+
               <span className="rounded-full border px-2 py-1">
                 Autosave: {saving ? "salvando…" : "ativo"}
               </span>
@@ -693,12 +704,19 @@ useEffect(() => {
             />
 
             {loadingCed && (
-              <div className="mt-1 text-xs text-gray-500">Carregando cedentes aprovados…</div>
+              <div className="mt-1 text-xs text-gray-500">
+                Carregando cedentes aprovados…
+              </div>
             )}
 
-            {!draft && query.trim().length >= 2 && cedentes.length === 0 && !loadingCed && (
-              <div className="mt-2 text-xs text-gray-500">Nenhum cedente encontrado.</div>
-            )}
+            {!draft &&
+              query.trim().length >= 2 &&
+              cedentes.length === 0 &&
+              !loadingCed && (
+                <div className="mt-2 text-xs text-gray-500">
+                  Nenhum cedente encontrado.
+                </div>
+              )}
 
             {!draft && cedentes.length > 0 && (
               <div className="mt-2 max-h-56 overflow-auto rounded-md border">
@@ -739,8 +757,9 @@ useEffect(() => {
                   CPF {cedenteSel.cpf} · {cedenteSel.identificador}
                 </div>
                 <div className="text-xs text-gray-500">
-                  Saldos atuais: LATAM {cedenteSel.pontosLatam} · SMILES {cedenteSel.pontosSmiles} ·
-                  LIVELO {cedenteSel.pontosLivelo} · ESFERA {cedenteSel.pontosEsfera}
+                  Saldos atuais: LATAM {cedenteSel.pontosLatam} · SMILES{" "}
+                  {cedenteSel.pontosSmiles} · LIVELO {cedenteSel.pontosLivelo} ·
+                  ESFERA {cedenteSel.pontosEsfera}
                 </div>
               </div>
             )}
@@ -830,7 +849,9 @@ useEffect(() => {
                   value={draft.cedentePayCents / 100}
                   disabled={!!isReleased}
                   onChange={(e) =>
-                    updateDraft({ cedentePayCents: roundCents(Number(e.target.value || 0) * 100) })
+                    updateDraft({
+                      cedentePayCents: roundCents(Number(e.target.value || 0) * 100),
+                    })
                   }
                   className="mt-1 w-full rounded-md border px-3 py-2 text-sm"
                 />
@@ -843,12 +864,16 @@ useEffect(() => {
                   value={draft.vendorCommissionBps / 100}
                   disabled={!!isReleased}
                   onChange={(e) =>
-                    updateDraft({ vendorCommissionBps: roundCents(Number(e.target.value || 0) * 100) })
+                    updateDraft({
+                      vendorCommissionBps: roundCents(Number(e.target.value || 0) * 100),
+                    })
                   }
                   className="mt-1 w-full rounded-md border px-3 py-2 text-sm"
                   placeholder="1 = 1%"
                 />
-                <div className="mt-1 text-xs text-gray-500">Interno em bps. Use 1 para 1%.</div>
+                <div className="mt-1 text-xs text-gray-500">
+                  Interno em bps. Use 1 para 1%.
+                </div>
               </div>
 
               <div>
@@ -858,7 +883,9 @@ useEffect(() => {
                   value={draft.targetMarkupCents / 100}
                   disabled={!!isReleased}
                   onChange={(e) =>
-                    updateDraft({ targetMarkupCents: roundCents(Number(e.target.value || 0) * 100) })
+                    updateDraft({
+                      targetMarkupCents: roundCents(Number(e.target.value || 0) * 100),
+                    })
                   }
                   className="mt-1 w-full rounded-md border px-3 py-2 text-sm"
                   placeholder="1.50"
@@ -904,7 +931,9 @@ useEffect(() => {
             </button>
           </div>
 
-          {clubItems.length === 0 && <div className="text-sm text-gray-600">Nenhum clube adicionado.</div>}
+          {clubItems.length === 0 && (
+            <div className="text-sm text-gray-600">Nenhum clube adicionado.</div>
+          )}
 
           {clubItems.length > 0 && (
             <div className="overflow-auto rounded-lg border">
@@ -1175,9 +1204,7 @@ useEffect(() => {
                           type="number"
                           value={it.pointsBase}
                           disabled={!!isReleased}
-                          onChange={(e) =>
-                            updateItem(realIdx, { pointsBase: clampInt(e.target.value) })
-                          }
+                          onChange={(e) => updateItem(realIdx, { pointsBase: clampInt(e.target.value) })}
                           className="w-full rounded-md border px-2 py-1 text-sm"
                         />
                       </td>
@@ -1198,9 +1225,7 @@ useEffect(() => {
                             type="number"
                             value={it.bonusValue ?? 0}
                             disabled={!!isReleased || !it.bonusMode}
-                            onChange={(e) =>
-                              updateItem(realIdx, { bonusValue: clampInt(e.target.value) })
-                            }
+                            onChange={(e) => updateItem(realIdx, { bonusValue: clampInt(e.target.value) })}
                             className="w-24 rounded-md border px-2 py-1 text-sm disabled:opacity-50"
                           />
                         </div>
@@ -1211,9 +1236,7 @@ useEffect(() => {
                           type="number"
                           value={it.pointsFinal}
                           disabled={!!isReleased || !allowManual}
-                          onChange={(e) =>
-                            updateItem(realIdx, { pointsFinal: clampInt(e.target.value) })
-                          }
+                          onChange={(e) => updateItem(realIdx, { pointsFinal: clampInt(e.target.value) })}
                           className="w-full rounded-md border px-2 py-1 text-sm disabled:opacity-50"
                         />
                         <div className="mt-1 flex items-center gap-2">
@@ -1243,9 +1266,7 @@ useEffect(() => {
                           value={it.pointsDebitedFromOrigin}
                           disabled={!!isReleased}
                           onChange={(e) =>
-                            updateItem(realIdx, {
-                              pointsDebitedFromOrigin: clampInt(e.target.value),
-                            })
+                            updateItem(realIdx, { pointsDebitedFromOrigin: clampInt(e.target.value) })
                           }
                           className="w-full rounded-md border px-2 py-1 text-sm"
                           placeholder="0"
@@ -1273,9 +1294,7 @@ useEffect(() => {
                           value={(it.amountCents || 0) / 100}
                           disabled={!!isReleased}
                           onChange={(e) =>
-                            updateItem(realIdx, {
-                              amountCents: roundCents(Number(e.target.value || 0) * 100),
-                            })
+                            updateItem(realIdx, { amountCents: roundCents(Number(e.target.value || 0) * 100) })
                           }
                           className="w-full rounded-md border px-2 py-1 text-sm"
                         />
@@ -1360,7 +1379,7 @@ useEffect(() => {
           </div>
 
           <div className="text-xs text-gray-600">
-            Ao clicar em <b>LIBERAR</b>, os pontos do cedente serão atualizados para <b>esses saldos</b>
+            Ao clicar em <b>LIBERAR</b>, os pontos do cedente serão atualizados para <b>esses saldos</b>{" "}
             e a compra entra no rateio.
           </div>
         </div>
@@ -1370,7 +1389,7 @@ useEffect(() => {
       {draft && (
         <div className="text-xs text-gray-500">
           {saving ? "Salvando…" : "Autosave ativo (~0,65s ao editar)."}{" "}
-          {draft.status === "RELEASED" ? "Compra liberada (travada)." : ""}
+          {draft.status === "CLOSED" ? "Compra liberada (travada)." : ""}
         </div>
       )}
     </div>
@@ -1435,11 +1454,7 @@ function ExpectedBalance(props: {
   const { label, current, delta, value, auto, disabled, onToggleAuto, onChange } = props;
 
   const signedDelta =
-    delta === 0
-      ? "0"
-      : delta > 0
-      ? `+${delta.toLocaleString("pt-BR")}`
-      : `${delta.toLocaleString("pt-BR")}`;
+    delta === 0 ? "0" : delta > 0 ? `+${delta.toLocaleString("pt-BR")}` : `${delta.toLocaleString("pt-BR")}`;
 
   return (
     <div className="rounded-xl bg-gray-50 p-3">
@@ -1476,7 +1491,7 @@ function ExpectedBalance(props: {
           const n = Number(raw);
           onChange(Number.isFinite(n) ? Math.trunc(n) : 0);
         }}
-        className="mt-1 w-full rounded-md border px-2 py-2 text-sm disabled:opacity-50"
+        className="mt-1 w-full rounded-md border px-2 py-2 text-sm disabled:opacity-opacity-50"
         placeholder="Ex: 150000"
       />
       {auto && <div className="mt-1 text-[11px] text-gray-500">Calculado automaticamente.</div>}
