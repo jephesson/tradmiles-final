@@ -15,7 +15,8 @@ type Cedente = {
   pontosEsfera: number;
 };
 
-type PurchaseStatus = "DRAFT" | "READY" | "RELEASED" | "CANCELED";
+// ✅ inclui OPEN (backend cria como OPEN)
+type PurchaseStatus = "OPEN" | "DRAFT" | "READY" | "RELEASED" | "CANCELED";
 
 type PurchaseItemType =
   | "CLUB"
@@ -251,12 +252,13 @@ export default function NovaCompraClient() {
     setError(null);
     setSaving(true);
     try {
-      const out = await api<{ ok: true; purchase: PurchaseDraft }>(`/api/purchases`, {
+      // ✅ rota corrigida + chave de retorno corrigida
+      const out = await api<{ ok: true; compra: PurchaseDraft }>(`/api/compras`, {
         method: "POST",
         body: JSON.stringify({ cedenteId: cedenteSel.id }),
       });
 
-      const p = out.purchase;
+      const p = out.compra;
 
       // defaults esperado = saldos atuais
       p.expectedLatamPoints ??= cedenteSel.pontosLatam ?? 0;
@@ -292,7 +294,8 @@ export default function NovaCompraClient() {
 
       setDraft(payload);
 
-      await api<{ ok: true }>(`/api/purchases/${d.id}`, {
+      // ✅ rota corrigida
+      await api<{ ok: true }>(`/api/compras/${d.id}`, {
         method: "PATCH",
         body: JSON.stringify({
           ciaProgram: payload.ciaProgram,
@@ -332,12 +335,13 @@ export default function NovaCompraClient() {
     try {
       await saveDraft(draft);
 
-      const out = await api<{ ok: true; purchase: PurchaseDraft }>(
-        `/api/purchases/${draft.id}/release`,
+      // ✅ rota corrigida + chave de retorno corrigida
+      const out = await api<{ ok: true; compra: PurchaseDraft }>(
+        `/api/compras/${draft.id}/release`,
         { method: "POST", body: JSON.stringify({}) }
       );
 
-      setDraft(out.purchase);
+      setDraft(out.compra);
     } catch (e: any) {
       setError(e?.message || "Falha ao liberar.");
     } finally {
@@ -392,7 +396,11 @@ export default function NovaCompraClient() {
     const merged: PurchaseItem = { ...cur, ...patch };
 
     const autoFinal = calcItemPointsFinal(merged);
-    if (merged.type === "TRANSFER" || merged.type === "POINTS_BUY" || merged.type === "ADJUSTMENT") {
+    if (
+      merged.type === "TRANSFER" ||
+      merged.type === "POINTS_BUY" ||
+      merged.type === "ADJUSTMENT"
+    ) {
       merged.pointsFinal = autoFinal;
     }
 
@@ -443,7 +451,9 @@ export default function NovaCompraClient() {
             />
 
             {loadingCed && (
-              <div className="mt-1 text-xs text-gray-500">Carregando cedentes aprovados...</div>
+              <div className="mt-1 text-xs text-gray-500">
+                Carregando cedentes aprovados...
+              </div>
             )}
 
             {!draft && query.trim().length >= 2 && cedentes.length === 0 && !loadingCed && (
@@ -486,8 +496,9 @@ export default function NovaCompraClient() {
                   CPF {cedenteSel.cpf} · {cedenteSel.identificador}
                 </div>
                 <div className="text-xs text-gray-500">
-                  Saldos atuais: LATAM {cedenteSel.pontosLatam} · SMILES {cedenteSel.pontosSmiles} ·
-                  LIVELO {cedenteSel.pontosLivelo} · ESFERA {cedenteSel.pontosEsfera}
+                  Saldos atuais: LATAM {cedenteSel.pontosLatam} · SMILES{" "}
+                  {cedenteSel.pontosSmiles} · LIVELO {cedenteSel.pontosLivelo} ·
+                  ESFERA {cedenteSel.pontosEsfera}
                 </div>
               </div>
             )}
@@ -876,8 +887,8 @@ export default function NovaCompraClient() {
           </div>
 
           <div className="text-xs text-gray-600">
-            Dica: use <b>programTo = LATAM/SMILES</b> nos itens que geram pontos na CIA. Depois clique em
-            “Sugerir pelo somatório” pra preencher o total.
+            Dica: use <b>programTo = LATAM/SMILES</b> nos itens que geram pontos na CIA. Depois clique
+            em “Sugerir pelo somatório” pra preencher o total.
           </div>
         </div>
       )}
@@ -921,8 +932,9 @@ export default function NovaCompraClient() {
           </div>
 
           <div className="text-xs text-gray-600">
-            Esses valores são o “como tem que ficar”. Quando você clicar em <b>LIBERAR</b>, o sistema vai
-            atualizar os pontos do cedente para exatamente esses saldos (e a compra entra no rateio).
+            Esses valores são o “como tem que ficar”. Quando você clicar em <b>LIBERAR</b>, o sistema
+            vai atualizar os pontos do cedente para exatamente esses saldos (e a compra entra no
+            rateio).
           </div>
         </div>
       )}
