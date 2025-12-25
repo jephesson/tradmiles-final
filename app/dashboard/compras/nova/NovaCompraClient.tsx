@@ -229,7 +229,12 @@ const PROGRAM_LABEL: Record<LoyaltyProgram, string> = {
 
 const CLUB_TIERS = [1, 2, 3, 5, 7, 10, 12, 15, 20];
 
-export default function NovaCompraClient() {
+export default function NovaCompraClient({
+  purchaseId,
+}: {
+  purchaseId?: string;
+}) {
+
   // ===== Cedentes
   const [query, setQuery] = useState("");
   const [allCedentes, setAllCedentes] = useState<Cedente[]>([]);
@@ -250,6 +255,32 @@ export default function NovaCompraClient() {
     LIVELO: true,
     ESFERA: true,
   });
+
+  // ===== load compra existente (modo edição)
+useEffect(() => {
+  if (!purchaseId) return;
+
+  (async () => {
+    try {
+      setSaving(true);
+
+      const out = await api<{
+        compra: PurchaseDraft;
+        cedente: Cedente;
+      }>(`/api/compras/${purchaseId}`);
+
+      const p = out.compra;
+
+      const totals = computeTotals(p);
+      setDraft({ ...p, ...totals });
+      setCedenteSel(out.cedente);
+    } catch (e: any) {
+      setError(e?.message || "Falha ao carregar compra.");
+    } finally {
+      setSaving(false);
+    }
+  })();
+}, [purchaseId]);
 
   // ===== load cedentes
   useEffect(() => {

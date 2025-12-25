@@ -1,12 +1,11 @@
-export const dynamic = "force-dynamic";
-
 import NovaCompraClient from "../nova/NovaCompraClient";
 
-export default async function Page({
+export const dynamic = "force-dynamic";
+
+export default function Page({
   params,
 }: {
-  params: Promise<{ id: string }>;
+  params: { id: string };
 }) {
-  const { id } = await params;
-  return <NovaCompraClient purchaseId={id} />;
+  return <NovaCompraClient purchaseId={params.id} />;
 }
