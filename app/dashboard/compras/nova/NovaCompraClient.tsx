@@ -77,10 +77,6 @@ type PurchaseDraft = {
   items: PurchaseItem[];
 };
 
-function onlyDigits(v: string) {
-  return (v || "").replace(/\D+/g, "");
-}
-
 function fmtMoneyBR(cents: number) {
   const v = (cents || 0) / 100;
   return v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -90,6 +86,10 @@ function clampInt(n: any) {
   const x = Number(n);
   if (!Number.isFinite(x)) return 0;
   return Math.trunc(x);
+}
+
+function roundCents(n: number) {
+  return Math.round(n);
 }
 
 function calcItemPointsFinal(item: PurchaseItem) {
@@ -107,15 +107,10 @@ function calcItemPointsFinal(item: PurchaseItem) {
 
   if (mode === "TOTAL") {
     const total = Math.max(0, clampInt(val));
-    // se TOTAL = bônus total, soma
     return base + total;
   }
 
   return base;
-}
-
-function roundCents(n: number) {
-  return Math.round(n);
 }
 
 function computeTotals(d: PurchaseDraft) {
@@ -140,40 +135,12 @@ function computeTotals(d: PurchaseDraft) {
   };
 }
 
-function programLabel(p: LoyaltyProgram) {
-  switch (p) {
-    case "LATAM":
-      return "LATAM";
-    case "SMILES":
-      return "Smiles";
-    case "LIVELO":
-      return "Livelo";
-    case "ESFERA":
-      return "Esfera";
-  }
-}
-
-function itemTypeLabel(t: PurchaseItemType) {
-  switch (t) {
-    case "CLUB":
-      return "Clube";
-    case "POINTS_BUY":
-      return "Compra de pontos";
-    case "TRANSFER":
-      return "Transferência";
-    case "ADJUSTMENT":
-      return "Ajuste";
-    case "EXTRA_COST":
-      return "Custo extra";
-  }
-}
-
 /**
- * ✅ api() corrigida:
- * - cache: "no-store"
- * - credentials: "include" (garante cookie/sessão)
- * - lê text primeiro (debug melhor em caso de HTML/redirect)
- * - aceita ok:false mesmo com HTTP 200 (se teu backend usar isso)
+ * api() robusta:
+ * - cache no-store
+ * - credentials include (cookie/sessão)
+ * - lê text antes (se vier HTML/redirect)
+ * - respeita ok:false
  */
 async function api<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await fetch(url, {
@@ -193,17 +160,28 @@ async function api<T>(url: string, init?: RequestInit): Promise<T> {
 
   if (!res.ok || data?.ok === false) {
     console.error("API FAIL:", url, res.status, data);
-    const msg = data?.error || `Erro ${res.status}`;
-    throw new Error(msg);
+    throw new Error(data?.error || `Erro ${res.status}`);
   }
 
   return data as T;
 }
 
+function norm(v?: string) {
+  return (v || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
+}
+
+function onlyDigits(v?: string) {
+  return (v || "").replace(/\D+/g, "");
+}
+
 export default function NovaCompraClient() {
-  // ===== Cedente search
+  // ===== Cedentes (carrega 1x pela MESMA rota do visualizar)
   const [query, setQuery] = useState("");
-  const [cedentes, setCedentes] = useState<Cedente[]>([]);
+  const [allCedentes, setAllCedentes] = useState<Cedente[]>([]);
   const [cedenteSel, setCedenteSel] = useState<Cedente | null>(null);
   const [loadingCed, setLoadingCed] = useState(false);
 
@@ -214,44 +192,58 @@ export default function NovaCompraClient() {
 
   const saveTimer = useRef<number | null>(null);
 
-  // ===== ✅ Search cedentes (corrigido)
+  // ✅ carrega cedentes aprovados (igual Visualizar)
   useEffect(() => {
     let alive = true;
 
-    const run = async () => {
-      const q = query.trim();
-
-      if (q.length < 2) {
-        if (alive) setCedentes([]);
-        return;
-      }
-
+    const load = async () => {
       setLoadingCed(true);
-
       try {
-        // ✅ aceita retorno em { cedentes } OU { data }
-        const out = await api<any>(`/api/cedentes?query=${encodeURIComponent(q)}`);
-
-        console.log("RETORNO /api/cedentes:", out);
-
-        const list = (out?.cedentes ?? out?.data ?? []) as Cedente[];
-
+        const out = await api<{ ok: true; data: Cedente[] }>(`/api/cedentes/approved`);
         if (!alive) return;
-        setCedentes(Array.isArray(list) ? list : []);
-      } catch (e) {
-        console.error("Falha buscando cedentes:", e);
+        setAllCedentes(Array.isArray(out?.data) ? out.data : []);
+      } catch (e: any) {
+        console.error("Falha ao carregar cedentes aprovados:", e);
         if (!alive) return;
-        setCedentes([]);
+        setAllCedentes([]);
       } finally {
         if (alive) setLoadingCed(false);
       }
     };
 
-    run();
+    load();
     return () => {
       alive = false;
     };
-  }, [query]);
+  }, []);
+
+  // ✅ filtra no front (mesmo estilo do Visualizar)
+  const cedentes = useMemo(() => {
+    const s = norm(query);
+    if (s.length < 2) return [];
+
+    const dig = onlyDigits(query);
+
+    return allCedentes
+      .filter((c) => {
+        const nome = norm(c.nomeCompleto);
+        const ident = norm(c.identificador);
+        const cpfDig = onlyDigits(c.cpf);
+
+        if (dig.length >= 2) {
+          // se usuário digitou número, tenta bater CPF/ID também
+          return (
+            cpfDig.includes(dig) ||
+            onlyDigits(c.identificador).includes(dig) ||
+            nome.includes(s) ||
+            ident.includes(s)
+          );
+        }
+
+        return nome.includes(s) || ident.includes(s) || cpfDig.includes(s);
+      })
+      .slice(0, 30); // evita lista gigante
+  }, [allCedentes, query]);
 
   // ===== Create purchase (generate ID)
   async function createDraft() {
@@ -266,7 +258,7 @@ export default function NovaCompraClient() {
 
       const p = out.purchase;
 
-      // se backend não setar, a gente setta aqui e salva depois
+      // defaults esperado = saldos atuais
       p.expectedLatamPoints ??= cedenteSel.pontosLatam ?? 0;
       p.expectedSmilesPoints ??= cedenteSel.pontosSmiles ?? 0;
       p.expectedLiveloPoints ??= cedenteSel.pontosLivelo ?? 0;
@@ -400,11 +392,7 @@ export default function NovaCompraClient() {
     const merged: PurchaseItem = { ...cur, ...patch };
 
     const autoFinal = calcItemPointsFinal(merged);
-    if (
-      merged.type === "TRANSFER" ||
-      merged.type === "POINTS_BUY" ||
-      merged.type === "ADJUSTMENT"
-    ) {
+    if (merged.type === "TRANSFER" || merged.type === "POINTS_BUY" || merged.type === "ADJUSTMENT") {
       merged.pointsFinal = autoFinal;
     }
 
@@ -453,7 +441,14 @@ export default function NovaCompraClient() {
               placeholder="Nome, CPF, identificador..."
               disabled={!!draft}
             />
-            {loadingCed && <div className="mt-1 text-xs text-gray-500">Buscando...</div>}
+
+            {loadingCed && (
+              <div className="mt-1 text-xs text-gray-500">Carregando cedentes aprovados...</div>
+            )}
+
+            {!draft && query.trim().length >= 2 && cedentes.length === 0 && !loadingCed && (
+              <div className="mt-2 text-xs text-gray-500">Nenhum cedente encontrado.</div>
+            )}
 
             {!draft && cedentes.length > 0 && (
               <div className="mt-2 max-h-56 overflow-auto rounded-md border">
@@ -611,6 +606,7 @@ export default function NovaCompraClient() {
                 className="mt-1 w-full rounded-md border px-3 py-2 text-sm"
               />
             </div>
+
             <div>
               <label className="text-sm text-gray-600">Comissão vendedor</label>
               <input
@@ -625,6 +621,7 @@ export default function NovaCompraClient() {
               />
               <div className="mt-1 text-xs text-gray-500">Use 1 para 1% (interno em bps).</div>
             </div>
+
             <div>
               <label className="text-sm text-gray-600">Markup meta (R$/milheiro)</label>
               <input
@@ -638,6 +635,7 @@ export default function NovaCompraClient() {
                 placeholder="1.50"
               />
             </div>
+
             <div className="rounded-md bg-gray-50 p-3">
               <div className="text-xs text-gray-600">Resumo (cálculo)</div>
               <div className="mt-1 text-sm">
@@ -710,7 +708,9 @@ export default function NovaCompraClient() {
                       <select
                         value={it.type}
                         disabled={isReleased}
-                        onChange={(e) => updateItem(idx, { type: e.target.value as PurchaseItemType })}
+                        onChange={(e) =>
+                          updateItem(idx, { type: e.target.value as PurchaseItemType })
+                        }
                         className="w-full rounded-md border px-2 py-1 text-sm"
                       >
                         <option value="TRANSFER">Transferência</option>
@@ -742,7 +742,9 @@ export default function NovaCompraClient() {
                       <select
                         value={it.programFrom || ""}
                         disabled={isReleased}
-                        onChange={(e) => updateItem(idx, { programFrom: (e.target.value || null) as any })}
+                        onChange={(e) =>
+                          updateItem(idx, { programFrom: (e.target.value || null) as any })
+                        }
                         className="w-full rounded-md border px-2 py-1 text-sm"
                       >
                         <option value="">—</option>
@@ -757,7 +759,9 @@ export default function NovaCompraClient() {
                       <select
                         value={it.programTo || ""}
                         disabled={isReleased}
-                        onChange={(e) => updateItem(idx, { programTo: (e.target.value || null) as any })}
+                        onChange={(e) =>
+                          updateItem(idx, { programTo: (e.target.value || null) as any })
+                        }
                         className="w-full rounded-md border px-2 py-1 text-sm"
                       >
                         <option value="">—</option>
@@ -830,7 +834,9 @@ export default function NovaCompraClient() {
                       <select
                         value={it.transferMode || ""}
                         disabled={isReleased}
-                        onChange={(e) => updateItem(idx, { transferMode: (e.target.value || null) as any })}
+                        onChange={(e) =>
+                          updateItem(idx, { transferMode: (e.target.value || null) as any })
+                        }
                         className="w-full rounded-md border px-2 py-1 text-sm"
                       >
                         <option value="">—</option>
@@ -845,7 +851,9 @@ export default function NovaCompraClient() {
                         value={(it.amountCents || 0) / 100}
                         disabled={isReleased}
                         onChange={(e) =>
-                          updateItem(idx, { amountCents: roundCents(Number(e.target.value || 0) * 100) })
+                          updateItem(idx, {
+                            amountCents: roundCents(Number(e.target.value || 0) * 100),
+                          })
                         }
                         className="w-full rounded-md border px-2 py-1 text-sm"
                       />
