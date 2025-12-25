@@ -2,8 +2,9 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import { getSession } from "@/lib/auth";
 
-type PurchaseStatus = "OPEN" | "DRAFT" | "READY" | "RELEASED" | "CANCELED";
+type PurchaseStatus = "OPEN" | "DRAFT" | "READY" | "CLOSED" | "CANCELED";
 type LoyaltyProgram = "LATAM" | "SMILES" | "LIVELO" | "ESFERA";
 
 type PurchaseRow = {
@@ -62,13 +63,13 @@ const STATUS_LABEL: Record<PurchaseStatus, string> = {
   OPEN: "Aberta",
   DRAFT: "Rascunho",
   READY: "Pronta",
-  RELEASED: "Liberada",
+  CLOSED: "Liberada",
   CANCELED: "Cancelada",
 };
 
 function StatusPill({ status }: { status: PurchaseStatus }) {
   const cls =
-    status === "RELEASED"
+    status === "CLOSED"
       ? "bg-emerald-50 border-emerald-200 text-emerald-700"
       : status === "CANCELED"
       ? "bg-red-50 border-red-200 text-red-700"
@@ -99,9 +100,11 @@ export default function ComprasClient() {
     try {
       const qs = new URLSearchParams();
       if (status) qs.set("status", status);
-      if (q.trim()) qs.set("q", q.trim());
-      const out = await api<{ ok: true; data: PurchaseRow[] }>(`/api/compras?${qs.toString()}`);
-      setRows(Array.isArray(out.data) ? out.data : []);
+      if (q.trim()) qs.set("q", q.trim()); // se tua API ainda não filtra por q, ok — não quebra
+      const out = await api<{ ok: true; compras: PurchaseRow[] }>(
+        `/api/compras?${qs.toString()}`
+      );
+      setRows(Array.isArray(out.compras) ? out.compras : []);
     } catch (e: any) {
       setErr(e?.message || "Falha ao carregar compras.");
       setRows([]);
@@ -116,7 +119,6 @@ export default function ComprasClient() {
   }, []);
 
   const filtered = useMemo(() => {
-    // a API já filtra por q/status, mas aqui segura caso você queira client-side também
     return rows;
   }, [rows]);
 
@@ -124,10 +126,21 @@ export default function ComprasClient() {
     const ok = window.confirm("Liberar esta compra? Isso vai aplicar saldo e travar a compra.");
     if (!ok) return;
 
+    const session = getSession();
+    const userId = (session as any)?.user?.id || (session as any)?.id || "";
+
+    if (!userId) {
+      setErr("Sessão inválida: não encontrei userId para liberar a compra.");
+      return;
+    }
+
     setBusyId(id);
     setErr(null);
     try {
-      await api<{ ok: true }>(`/api/compras/${id}/release`, { method: "POST", body: "{}" });
+      await api<{ ok: true }>(`/api/compras/${id}/release`, {
+        method: "POST",
+        body: JSON.stringify({ userId }),
+      });
       await load();
     } catch (e: any) {
       setErr(e?.message || "Falha ao liberar.");
@@ -137,13 +150,15 @@ export default function ComprasClient() {
   }
 
   async function onCancel(id: string) {
-    const ok = window.confirm("Cancelar esta compra? (não deve alterar saldo se ainda não foi liberada)");
+    const ok = window.confirm(
+      "Cancelar esta compra? (não deve alterar saldo se ainda não foi liberada)"
+    );
     if (!ok) return;
 
     setBusyId(id);
     setErr(null);
     try {
-      await api<{ ok: true }>(`/api/compras/${id}/cancel`, { method: "POST", body: "{}" });
+      await api<{ ok: true }>(`/api/compras/${id}`, { method: "DELETE" });
       await load();
     } catch (e: any) {
       setErr(e?.message || "Falha ao cancelar.");
@@ -157,9 +172,7 @@ export default function ComprasClient() {
       <div className="flex items-start justify-between gap-4">
         <div>
           <h1 className="text-xl font-semibold">Compras</h1>
-          <p className="text-sm text-gray-600">
-            Visualize, edite, libere ou cancele compras.
-          </p>
+          <p className="text-sm text-gray-600">Visualize, edite, libere ou cancele compras.</p>
         </div>
 
         <Link
@@ -194,7 +207,7 @@ export default function ComprasClient() {
               <option value="OPEN">Aberta</option>
               <option value="DRAFT">Rascunho</option>
               <option value="READY">Pronta</option>
-              <option value="RELEASED">Liberada</option>
+              <option value="CLOSED">Liberada</option>
               <option value="CANCELED">Cancelada</option>
             </select>
           </div>
@@ -257,7 +270,7 @@ export default function ComprasClient() {
 
             {filtered.map((r) => {
               const isBusy = busyId === r.id;
-              const isReleased = r.status === "RELEASED";
+              const isReleased = r.status === "CLOSED";
               const isCanceled = r.status === "CANCELED";
 
               return (

@@ -15,7 +15,7 @@ type Cedente = {
   pontosEsfera: number;
 };
 
-type PurchaseStatus = "OPEN" | "DRAFT" | "READY" | "RELEASED" | "CANCELED";
+type PurchaseStatus = "OPEN" | "DRAFT" | "READY" | "CLOSED" | "CANCELED";
 
 type PurchaseItemType =
   | "CLUB"
@@ -417,12 +417,23 @@ useEffect(() => {
     if (!draft) return;
     setError(null);
     setSaving(true);
+
     try {
+      // garante que salvou tudo antes de liberar
       await saveDraft(draft);
+
+      // pega userId da sessão (ajuste se teu auth tiver outro formato)
+      const session = (await import("@/lib/auth")).getSession();
+      const userId = (session as any)?.user?.id || (session as any)?.id || "";
+
+      if (!userId) throw new Error("Sessão inválida: não encontrei userId para liberar.");
 
       const out = await api<{ ok: true; compra: PurchaseDraft }>(
         `/api/compras/${draft.id}/release`,
-        { method: "POST", body: JSON.stringify({}) }
+        {
+          method: "POST",
+          body: JSON.stringify({ userId }),
+        }
       );
 
       setDraft(out.compra);
@@ -433,7 +444,7 @@ useEffect(() => {
     }
   }
 
-  const isReleased = draft?.status === "RELEASED";
+  const isReleased = draft?.status === "CLOSED";
 
   const totals = useMemo(() => {
     if (!draft) return null;
