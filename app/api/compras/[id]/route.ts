@@ -5,9 +5,9 @@ import { recomputeCompra } from "@/lib/compras";
 export const dynamic = "force-dynamic";
 
 /**
- * Map DB -> UI (front)
- * DB: ciaAerea, pontosCiaTotal, metaMarkupCents, observacao
- * UI: ciaProgram, ciaPointsTotal, targetMarkupCents, note
+ * =========================
+ * MAP DB -> UI
+ * =========================
  */
 function mapDbToUi(compra: any) {
   return {
@@ -24,27 +24,28 @@ function mapDbToUi(compra: any) {
     vendorCommissionBps: Number(compra.vendorCommissionBps || 0),
     targetMarkupCents: Number(compra.metaMarkupCents || 0),
 
-    subtotalCostCents: Number(compra.subtotalCostCents || 0),
-    vendorCommissionCents: Number(compra.vendorCommissionCents || 0),
-    totalCostCents: Number(compra.totalCostCents || 0),
+    subtotalCostCents: Number(compra.subtotalCents || 0),
+    vendorCommissionCents: Number(compra.comissaoCents || 0),
+    totalCostCents: Number(compra.totalCents || 0),
 
-    costPerKiloCents: Number(compra.costPerKiloCents || 0),
-    targetPerKiloCents: Number(compra.targetPerKiloCents || 0),
+    costPerKiloCents: Number(compra.custoMilheiroCents || 0),
+    targetPerKiloCents: Number(compra.metaMilheiroCents || 0),
 
-    expectedLatamPoints: compra.expectedLatamPoints ?? null,
-    expectedSmilesPoints: compra.expectedSmilesPoints ?? null,
-    expectedLiveloPoints: compra.expectedLiveloPoints ?? null,
-    expectedEsferaPoints: compra.expectedEsferaPoints ?? null,
+    // 👇 UI usa expected*, DB usa saldoPrevisto*
+    expectedLatamPoints: compra.saldoPrevistoLatam ?? null,
+    expectedSmilesPoints: compra.saldoPrevistoSmiles ?? null,
+    expectedLiveloPoints: compra.saldoPrevistoLivelo ?? null,
+    expectedEsferaPoints: compra.saldoPrevistoEsfera ?? null,
 
     note: compra.observacao ?? null,
-
     items: Array.isArray(compra.items) ? compra.items : [],
   };
 }
 
 /**
- * Itens: o front manda os campos exatamente como abaixo
- * vamos persistir com deleteMany + create
+ * =========================
+ * MAP ITEM CREATE
+ * =========================
  */
 function mapItemCreate(it: any) {
   return {
@@ -67,6 +68,11 @@ function mapItemCreate(it: any) {
   };
 }
 
+/**
+ * =========================
+ * GET
+ * =========================
+ */
 export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await ctx.params;
@@ -98,6 +104,11 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
   }
 }
 
+/**
+ * =========================
+ * PATCH
+ * =========================
+ */
 export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await ctx.params;
@@ -109,54 +120,63 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
     const exists = await prisma.purchase.findUnique({ where: { id }, select: { id: true } });
     if (!exists) return notFound("Compra não encontrada.");
 
-    // payload do front
     const items = Array.isArray(body.items) ? body.items : null;
 
     await prisma.purchase.update({
       where: { id },
       data: {
-        // UI -> DB
-        ciaAerea: body.ciaProgram === undefined ? undefined : (body.ciaProgram || null),
+        ciaAerea: body.ciaProgram === undefined ? undefined : body.ciaProgram,
         pontosCiaTotal:
           body.ciaPointsTotal === undefined ? undefined : Number(body.ciaPointsTotal || 0),
 
         cedentePayCents:
           body.cedentePayCents === undefined ? undefined : Number(body.cedentePayCents || 0),
         vendorCommissionBps:
-          body.vendorCommissionBps === undefined ? undefined : Number(body.vendorCommissionBps || 0),
+          body.vendorCommissionBps === undefined
+            ? undefined
+            : Number(body.vendorCommissionBps || 0),
+
         metaMarkupCents:
-          body.targetMarkupCents === undefined ? undefined : Number(body.targetMarkupCents || 0),
+          body.targetMarkupCents === undefined
+            ? undefined
+            : Number(body.targetMarkupCents || 0),
 
         observacao:
-          body.note === undefined ? undefined : (body.note ? String(body.note) : null),
+          body.note === undefined ? undefined : body.note ? String(body.note) : null,
 
-        expectedLatamPoints:
+        // 👇 SALDO PREVISTO (nomes do Prisma)
+        saldoPrevistoLatam:
           body.expectedLatamPoints === undefined ? undefined : body.expectedLatamPoints,
-        expectedSmilesPoints:
+        saldoPrevistoSmiles:
           body.expectedSmilesPoints === undefined ? undefined : body.expectedSmilesPoints,
-        expectedLiveloPoints:
+        saldoPrevistoLivelo:
           body.expectedLiveloPoints === undefined ? undefined : body.expectedLiveloPoints,
-        expectedEsferaPoints:
+        saldoPrevistoEsfera:
           body.expectedEsferaPoints === undefined ? undefined : body.expectedEsferaPoints,
 
-        // totais (front calcula)
-        subtotalCostCents:
-          body.subtotalCostCents === undefined ? undefined : Number(body.subtotalCostCents || 0),
-        vendorCommissionCents:
+        // totais
+        subtotalCents:
+          body.subtotalCostCents === undefined
+            ? undefined
+            : Number(body.subtotalCostCents || 0),
+        comissaoCents:
           body.vendorCommissionCents === undefined
             ? undefined
             : Number(body.vendorCommissionCents || 0),
-        totalCostCents:
+        totalCents:
           body.totalCostCents === undefined ? undefined : Number(body.totalCostCents || 0),
-        costPerKiloCents:
-          body.costPerKiloCents === undefined ? undefined : Number(body.costPerKiloCents || 0),
-        targetPerKiloCents:
-          body.targetPerKiloCents === undefined ? undefined : Number(body.targetPerKiloCents || 0),
 
-        // status (se quiser permitir)
+        custoMilheiroCents:
+          body.costPerKiloCents === undefined
+            ? undefined
+            : Number(body.costPerKiloCents || 0),
+        metaMilheiroCents:
+          body.targetPerKiloCents === undefined
+            ? undefined
+            : Number(body.targetPerKiloCents || 0),
+
         status: body.status === undefined ? undefined : body.status,
 
-        // itens (se vierem no payload)
         ...(items
           ? {
               items: {
@@ -166,7 +186,6 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
             }
           : {}),
       },
-      include: { cedente: true, items: true },
     });
 
     await recomputeCompra(id);
@@ -196,6 +215,11 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
   }
 }
 
+/**
+ * =========================
+ * DELETE (CANCELAR)
+ * =========================
+ */
 export async function DELETE(_req: Request, ctx: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await ctx.params;
