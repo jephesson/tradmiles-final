@@ -7,9 +7,6 @@ import { useEffect, useState } from "react";
 import { cn } from "@/lib/cn";
 import { getSession, signOut } from "@/lib/auth";
 
-const RATEIO_FLAG = "TM_RATEIO_OK";
-const RATEIO_PWD = process.env.NEXT_PUBLIC_RATEIO_PWD?.trim() || "ufpb2010";
-
 export default function Sidebar() {
   const pathname = usePathname();
   const router = useRouter();
@@ -35,11 +32,10 @@ export default function Sidebar() {
   const isGestaoPontosRoute =
     isPontosVisualizarRoute || isComprasRoute || isVendasRoute;
 
-  // ✅ Resumo saiu daqui
+  // ✅ Lucros/Comissões (sem rateio)
   const isLucrosRoute =
     pathname.startsWith("/dashboard/lucros") ||
-    pathname.startsWith("/dashboard/comissoes") ||
-    pathname.startsWith("/dashboard/funcionarios/rateio");
+    pathname.startsWith("/dashboard/comissoes");
 
   // ✅ Resumo entrou aqui
   const isAnaliseRoute =
@@ -47,6 +43,16 @@ export default function Sidebar() {
     pathname.startsWith("/dashboard/dividas") ||
     pathname.startsWith("/dashboard/cpf") ||
     pathname.startsWith("/dashboard/resumo");
+
+  // ✅ Rotas de comissões (subitens)
+  const isComissoesCedentesRoute = pathname.startsWith(
+    "/dashboard/comissoes/cedentes"
+  );
+  const isComissoesFuncionariosRoute = pathname.startsWith(
+    "/dashboard/comissoes/funcionarios"
+  );
+  const isComissoesSubRoute =
+    isComissoesCedentesRoute || isComissoesFuncionariosRoute;
 
   /* =========================
    * ACCORDIONS
@@ -79,6 +85,9 @@ export default function Sidebar() {
   const [openCadastroVisualizarCedentes, setOpenCadastroVisualizarCedentes] =
     useState(isCadastroVisualizarCedentesRoute);
 
+  // ✅ SubAccordion Comissões dentro de Lucros & Comissões
+  const [openComissoes, setOpenComissoes] = useState(isComissoesSubRoute);
+
   useEffect(() => setOpenCadastro(isCadastroRoute), [isCadastroRoute]);
   useEffect(
     () => setOpenGestaoPontos(isGestaoPontosRoute),
@@ -92,14 +101,14 @@ export default function Sidebar() {
   useEffect(() => setOpenCompras(isComprasRoute), [isComprasRoute]);
   useEffect(() => setOpenVendas(isVendasRoute), [isVendasRoute]);
 
-  // ✅ mantém aberto automaticamente quando estiver na rota
   useEffect(() => {
     setOpenCadastroVisualizarCedentes(isCadastroVisualizarCedentesRoute);
   }, [isCadastroVisualizarCedentesRoute]);
 
-  // ✅ mantém aberto quando rota muda
   useEffect(() => setOpenLucros(isLucrosRoute), [isLucrosRoute]);
   useEffect(() => setOpenAnalise(isAnaliseRoute), [isAnaliseRoute]);
+
+  useEffect(() => setOpenComissoes(isComissoesSubRoute), [isComissoesSubRoute]);
 
   /* =========================
    * FILTRO (VISUALIZAR PONTOS)
@@ -116,25 +125,8 @@ export default function Sidebar() {
   }
 
   /* =========================
-   * RATEIO
+   * LOGOUT
    * ========================= */
-  function askRateioPasswordAndGo() {
-    if (sessionStorage.getItem(RATEIO_FLAG) === "1") {
-      router.push("/dashboard/funcionarios/rateio");
-      return;
-    }
-
-    const input = window.prompt("Digite a senha para editar o rateio:");
-    if (!input) return;
-
-    if (input === RATEIO_PWD) {
-      sessionStorage.setItem(RATEIO_FLAG, "1");
-      router.push("/dashboard/funcionarios/rateio");
-    } else {
-      alert("Senha incorreta.");
-    }
-  }
-
   function doLogout() {
     signOut();
     router.replace("/login");
@@ -194,7 +186,6 @@ export default function Sidebar() {
             </NavLink>
             <NavLink href="/dashboard/cedentes/novo">Cadastrar cedente</NavLink>
 
-            {/* ✅ Agora "Visualizar cedentes" com MESMA aparência dos NavLink */}
             <SubAccordion
               title="Visualizar cedentes"
               open={openCadastroVisualizarCedentes}
@@ -234,12 +225,10 @@ export default function Sidebar() {
               </NavLink>
             </SubAccordion>
 
-            {/* ✅ Novo item: Pendentes */}
             <NavLink href="/dashboard/cedentes/pendentes">
               Cedentes pendentes
             </NavLink>
 
-            {/* ✅ NOVO item: Bloqueios (dentro de Cadastro > Cedentes) */}
             <NavLink href="/dashboard/bloqueios">Contas bloqueadas</NavLink>
           </SubAccordion>
 
@@ -273,7 +262,6 @@ export default function Sidebar() {
           onToggle={() => setOpenGestaoPontos((v) => !v)}
           active={isGestaoPontosRoute}
         >
-          {/* Visualizar pontos */}
           <SubAccordion
             title="Visualizar pontos"
             open={openPontosVisualizar}
@@ -281,7 +269,6 @@ export default function Sidebar() {
           >
             <NavLink href="/dashboard/cedentes/visualizar">Todos</NavLink>
 
-            {/* botões de filtro */}
             {isPontosVisualizarRoute ? (
               <div className="pl-2 pr-2 pb-1">
                 <div className="flex flex-wrap gap-1">
@@ -365,7 +352,6 @@ export default function Sidebar() {
             )}
           </SubAccordion>
 
-          {/* Compras */}
           <SubAccordion
             title="Compras"
             open={openCompras}
@@ -375,7 +361,6 @@ export default function Sidebar() {
             <NavLink href="/dashboard/compras">Visualizar compras</NavLink>
           </SubAccordion>
 
-          {/* Vendas */}
           <SubAccordion
             title="Vendas"
             open={openVendas}
@@ -394,16 +379,18 @@ export default function Sidebar() {
           active={isLucrosRoute}
         >
           <NavLink href="/dashboard/lucros">Lucros</NavLink>
-          <NavLink href="/dashboard/comissoes">Comissões</NavLink>
-          <NavLink href="/dashboard/funcionarios/rateio?view=1">
-            Ver rateio
-          </NavLink>
-          <button
-            onClick={askRateioPasswordAndGo}
-            className="w-full text-left px-3 py-2 text-sm rounded hover:bg-slate-100"
+
+          {/* ✅ Comissões vira submenu */}
+          <SubAccordion
+            title="Comissões"
+            open={openComissoes}
+            onToggle={() => setOpenComissoes((v) => !v)}
+            variant="nav"
+            active={pathname.startsWith("/dashboard/comissoes")}
           >
-            Editar rateio (senha)
-          </button>
+            <NavLink href="/dashboard/comissoes/cedentes">Cedentes</NavLink>
+            <NavLink href="/dashboard/comissoes/funcionarios">Funcionários</NavLink>
+          </SubAccordion>
         </Accordion>
 
         {/* ================= ANÁLISE ================= */}
@@ -413,7 +400,6 @@ export default function Sidebar() {
           onToggle={() => setOpenAnalise((v) => !v)}
           active={isAnaliseRoute}
         >
-          {/* ✅ Resumo agora fica aqui */}
           <NavLink href="/dashboard/resumo">Resumo</NavLink>
           <NavLink href="/dashboard/analise">Análise geral</NavLink>
           <NavLink href="/dashboard/cpf">Contador CPF</NavLink>
