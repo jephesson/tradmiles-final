@@ -1,8 +1,8 @@
-// app/dashboard/clientes/novo/page.tsx
-import ClienteNovoClient from "./ClienteNovoClient";
+// app/dashboard/clientes/page.tsx
+import ClientesClient from "./ClientesClient";
 
 export const dynamic = "force-dynamic";
 
 export default function Page() {
-  return <ClienteNovoClient />;
+  return <ClientesClient />;
 }
