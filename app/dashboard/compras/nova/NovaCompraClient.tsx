@@ -150,7 +150,6 @@ function pointsForMilheiro(d: PurchaseDraft) {
 }
 
 function computeTotals(d: PurchaseDraft) {
-  // ✅ DEFENSIVO: nunca quebra se items vier undefined
   const itemsArr = Array.isArray(d.items) ? d.items : [];
   const itemsCost = itemsArr.reduce((acc, it) => acc + (it.amountCents || 0), 0);
 
@@ -246,7 +245,10 @@ function normalizeItem(it: any): PurchaseItem {
 
     pointsBase: clampInt(it?.pointsBase),
     bonusMode: (it?.bonusMode ?? "") as any,
-    bonusValue: it?.bonusValue === null || it?.bonusValue === undefined ? 0 : clampInt(it?.bonusValue),
+    bonusValue:
+      it?.bonusValue === null || it?.bonusValue === undefined
+        ? 0
+        : clampInt(it?.bonusValue),
     pointsFinal: clampInt(it?.pointsFinal),
 
     transferMode: (it?.transferMode ?? null) as any,
@@ -411,7 +413,6 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
         body: JSON.stringify({ cedenteId: cedenteSel.id }),
       });
 
-      // ✅ NORMALIZA AQUI (morre o reduce undefined)
       const p = normalizeDraft(out.compra, cedenteSel);
       const totals = computeTotals(p);
 
@@ -434,7 +435,6 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
     const d0 = nextDraft || draft;
     if (!d0) return;
 
-    // ✅ sempre com items array
     const d = normalizeDraft(d0, cedenteSel);
 
     setError(null);
@@ -968,8 +968,14 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
                             value={meta.program}
                             disabled={!!isReleased}
                             onChange={(e) => {
-                              const next: ClubMeta = { ...meta, program: e.target.value as LoyaltyProgram };
-                              updateItem(realIdx, { details: JSON.stringify(next), programTo: next.program });
+                              const next: ClubMeta = {
+                                ...meta,
+                                program: e.target.value as LoyaltyProgram,
+                              };
+                              updateItem(realIdx, {
+                                details: JSON.stringify(next),
+                                programTo: next.program,
+                              });
                             }}
                             className="w-full rounded-md border px-2 py-1"
                           >
@@ -1010,7 +1016,10 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
                             onChange={(e) => {
                               const cents = roundCents(Number(e.target.value || 0) * 100);
                               const next: ClubMeta = { ...meta, priceCents: cents };
-                              updateItem(realIdx, { details: JSON.stringify(next), amountCents: cents });
+                              updateItem(realIdx, {
+                                details: JSON.stringify(next),
+                                amountCents: cents,
+                              });
                             }}
                             className="w-full rounded-md border px-2 py-1"
                           />
@@ -1022,7 +1031,10 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
                             value={meta.renewalDay}
                             disabled={!!isReleased}
                             onChange={(e) => {
-                              const next: ClubMeta = { ...meta, renewalDay: clampDay(e.target.value) };
+                              const next: ClubMeta = {
+                                ...meta,
+                                renewalDay: clampDay(e.target.value),
+                              };
                               updateItem(realIdx, { details: JSON.stringify(next) });
                             }}
                             className="w-full rounded-md border px-2 py-1"
@@ -1035,7 +1047,10 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
                             value={meta.startDateISO}
                             disabled={!!isReleased}
                             onChange={(e) => {
-                              const next: ClubMeta = { ...meta, startDateISO: e.target.value || isoToday() };
+                              const next: ClubMeta = {
+                                ...meta,
+                                startDateISO: e.target.value || isoToday(),
+                              };
                               updateItem(realIdx, { details: JSON.stringify(next) });
                             }}
                             className="w-full rounded-md border px-2 py-1"
@@ -1068,11 +1083,16 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
         </div>
       )}
 
-      {/* 4) Itens */}
+      {/* 4) Itens (NOVO LAYOUT PROFISSIONAL) */}
       {draft && (
         <div className="rounded-xl border p-4 space-y-3">
-          <div className="flex items-center justify-between">
-            <h2 className="font-medium">4) Itens (pontos + custos)</h2>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <h2 className="font-medium">4) Itens (pontos + custos)</h2>
+              <div className="text-xs text-gray-500">
+                Layout em cartões (não corta texto). Em telas grandes, fica bem alinhado.
+              </div>
+            </div>
 
             <button
               type="button"
@@ -1084,218 +1104,37 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
             </button>
           </div>
 
-          <div className="overflow-auto rounded-lg border">
-            <table className="min-w-[1200px] w-full text-sm">
-              <thead className="bg-gray-50">
-                <tr className="text-left">
-                  <th className="p-2">Tipo</th>
-                  <th className="p-2">Título</th>
-                  <th className="p-2">De</th>
-                  <th className="p-2">Para</th>
-                  <th className="p-2">Base</th>
-                  <th className="p-2">Bônus</th>
-                  <th className="p-2">Final (auto)</th>
-                  <th className="p-2">Debitado origem</th>
-                  <th className="p-2">Modo</th>
-                  <th className="p-2">Custo (R$)</th>
-                  <th className="p-2"></th>
-                </tr>
-              </thead>
+          {otherItems.length === 0 && (
+            <div className="rounded-lg border bg-gray-50 p-3 text-sm text-gray-600">
+              Sem itens ainda.
+            </div>
+          )}
 
-              <tbody>
-                {otherItems.length === 0 && (
-                  <tr>
-                    <td colSpan={11} className="p-3 text-gray-500">
-                      Sem itens ainda.
-                    </td>
-                  </tr>
-                )}
+          {otherItems.length > 0 && (
+            <div className="space-y-3">
+              {(draft.items ?? []).map((it, realIdx) => {
+                if (it.type === "CLUB") return null;
 
-                {(draft.items ?? []).map((it, realIdx) => {
-                  if (it.type === "CLUB") return null;
+                const key = makeKey(it, realIdx);
+                const allowManual = !!itemsAllowManualFinal[key];
 
-                  const key = makeKey(it, realIdx);
-                  const allowManual = !!itemsAllowManualFinal[key];
-
-                  return (
-                    <tr key={key} className="border-t">
-                      <td className="p-2">
-                        <select
-                          value={it.type}
-                          disabled={!!isReleased}
-                          onChange={(e) =>
-                            updateItem(realIdx, { type: e.target.value as PurchaseItemType })
-                          }
-                          className="w-full rounded-md border px-2 py-1 text-sm"
-                        >
-                          <option value="TRANSFER">Transferência</option>
-                          <option value="POINTS_BUY">Compra pontos</option>
-                          <option value="ADJUSTMENT">Ajuste</option>
-                          <option value="EXTRA_COST">Extra</option>
-                        </select>
-                      </td>
-
-                      <td className="p-2">
-                        <input
-                          value={it.title}
-                          disabled={!!isReleased}
-                          onChange={(e) => updateItem(realIdx, { title: e.target.value })}
-                          className="w-full rounded-md border px-2 py-1 text-sm"
-                          placeholder="Ex: Transfer Livelo→Smiles"
-                        />
-                        <input
-                          value={it.details || ""}
-                          disabled={!!isReleased}
-                          onChange={(e) => updateItem(realIdx, { details: e.target.value })}
-                          className="mt-1 w-full rounded-md border px-2 py-1 text-xs"
-                          placeholder="Detalhes (opcional)"
-                        />
-                      </td>
-
-                      <td className="p-2">
-                        <select
-                          value={it.programFrom || ""}
-                          disabled={!!isReleased}
-                          onChange={(e) => updateItem(realIdx, { programFrom: (e.target.value || null) as any })}
-                          className="w-full rounded-md border px-2 py-1 text-sm"
-                        >
-                          <option value="">—</option>
-                          <option value="LATAM">LATAM</option>
-                          <option value="SMILES">SMILES</option>
-                          <option value="LIVELO">LIVELO</option>
-                          <option value="ESFERA">ESFERA</option>
-                        </select>
-                      </td>
-
-                      <td className="p-2">
-                        <select
-                          value={it.programTo || ""}
-                          disabled={!!isReleased}
-                          onChange={(e) => updateItem(realIdx, { programTo: (e.target.value || null) as any })}
-                          className="w-full rounded-md border px-2 py-1 text-sm"
-                        >
-                          <option value="">—</option>
-                          <option value="LATAM">LATAM</option>
-                          <option value="SMILES">SMILES</option>
-                          <option value="LIVELO">LIVELO</option>
-                          <option value="ESFERA">ESFERA</option>
-                        </select>
-                      </td>
-
-                      <td className="p-2">
-                        <input
-                          type="number"
-                          value={it.pointsBase}
-                          disabled={!!isReleased}
-                          onChange={(e) => updateItem(realIdx, { pointsBase: clampInt(e.target.value) })}
-                          className="w-full rounded-md border px-2 py-1 text-sm"
-                        />
-                      </td>
-
-                      <td className="p-2">
-                        <div className="flex gap-1">
-                          <select
-                            value={it.bonusMode || ""}
-                            disabled={!!isReleased}
-                            onChange={(e) => updateItem(realIdx, { bonusMode: e.target.value as any })}
-                            className="rounded-md border px-2 py-1 text-sm"
-                          >
-                            <option value="">—</option>
-                            <option value="PERCENT">%</option>
-                            <option value="TOTAL">+Pts</option>
-                          </select>
-                          <input
-                            type="number"
-                            value={it.bonusValue ?? 0}
-                            disabled={!!isReleased || !it.bonusMode}
-                            onChange={(e) => updateItem(realIdx, { bonusValue: clampInt(e.target.value) })}
-                            className="w-24 rounded-md border px-2 py-1 text-sm disabled:opacity-50"
-                          />
-                        </div>
-                      </td>
-
-                      <td className="p-2">
-                        <input
-                          type="number"
-                          value={it.pointsFinal}
-                          disabled={!!isReleased || !allowManual}
-                          onChange={(e) => updateItem(realIdx, { pointsFinal: clampInt(e.target.value) })}
-                          className="w-full rounded-md border px-2 py-1 text-sm disabled:opacity-50"
-                        />
-                        <div className="mt-1 flex items-center gap-2">
-                          <label className="text-[11px] text-gray-600 flex items-center gap-2">
-                            <input
-                              type="checkbox"
-                              checked={allowManual}
-                              disabled={!!isReleased}
-                              onChange={(e) =>
-                                setItemsAllowManualFinal((s) => ({ ...s, [key]: e.target.checked }))
-                              }
-                            />
-                            Permitir editar final
-                          </label>
-                          {!allowManual && (
-                            <span className="text-[11px] text-gray-500">auto (base + bônus)</span>
-                          )}
-                        </div>
-                      </td>
-
-                      <td className="p-2">
-                        <input
-                          type="number"
-                          value={it.pointsDebitedFromOrigin}
-                          disabled={!!isReleased}
-                          onChange={(e) =>
-                            updateItem(realIdx, { pointsDebitedFromOrigin: clampInt(e.target.value) })
-                          }
-                          className="w-full rounded-md border px-2 py-1 text-sm"
-                          placeholder="0"
-                        />
-                      </td>
-
-                      <td className="p-2">
-                        <select
-                          value={it.transferMode || ""}
-                          disabled={!!isReleased}
-                          onChange={(e) =>
-                            updateItem(realIdx, { transferMode: (e.target.value || null) as any })
-                          }
-                          className="w-full rounded-md border px-2 py-1 text-sm"
-                        >
-                          <option value="">—</option>
-                          <option value="FULL_POINTS">Só pontos</option>
-                          <option value="POINTS_PLUS_CASH">Pontos + dinheiro</option>
-                        </select>
-                      </td>
-
-                      <td className="p-2">
-                        <input
-                          type="number"
-                          value={(it.amountCents || 0) / 100}
-                          disabled={!!isReleased}
-                          onChange={(e) =>
-                            updateItem(realIdx, { amountCents: roundCents(Number(e.target.value || 0) * 100) })
-                          }
-                          className="w-full rounded-md border px-2 py-1 text-sm"
-                        />
-                      </td>
-
-                      <td className="p-2">
-                        <button
-                          type="button"
-                          onClick={() => removeItemByIndex(realIdx)}
-                          disabled={!!isReleased}
-                          className="rounded-md border px-2 py-1 text-xs disabled:opacity-50"
-                        >
-                          Remover
-                        </button>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+                return (
+                  <ItemCard
+                    key={key}
+                    it={it}
+                    realIdx={realIdx}
+                    allowManual={allowManual}
+                    isReleased={!!isReleased}
+                    onUpdateItem={updateItem}
+                    onRemoveItem={removeItemByIndex}
+                    onToggleAllowManual={(v) =>
+                      setItemsAllowManualFinal((s) => ({ ...s, [key]: v }))
+                    }
+                  />
+                );
+              })}
+            </div>
+          )}
 
           <div className="text-xs text-gray-600">
             Para o milheiro: o cálculo usa o <b>Esperado</b> da CIA (LATAM/Smiles).
@@ -1352,7 +1191,9 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
               <div className="mt-1 text-sm font-semibold">
                 {fmtMoneyBR(totals?.costPerKiloCents || 0)}
               </div>
-              <div className="mt-1 text-xs text-gray-500">(usa o <b>Esperado</b> da CIA)</div>
+              <div className="mt-1 text-xs text-gray-500">
+                (usa o <b>Esperado</b> da CIA)
+              </div>
             </div>
           </div>
 
@@ -1478,7 +1319,11 @@ function ExpectedBalance(props: {
   const { label, current, delta, value, auto, disabled, onToggleAuto, onChange } = props;
 
   const signedDelta =
-    delta === 0 ? "0" : delta > 0 ? `+${delta.toLocaleString("pt-BR")}` : `${delta.toLocaleString("pt-BR")}`;
+    delta === 0
+      ? "0"
+      : delta > 0
+      ? `+${delta.toLocaleString("pt-BR")}`
+      : `${delta.toLocaleString("pt-BR")}`;
 
   return (
     <div className="rounded-xl bg-gray-50 p-3">
@@ -1519,6 +1364,255 @@ function ExpectedBalance(props: {
         placeholder="Ex: 150000"
       />
       {auto && <div className="mt-1 text-[11px] text-gray-500">Calculado automaticamente.</div>}
+    </div>
+  );
+}
+
+/* =========================
+   NOVO: ItemCard (Etapa 4)
+   ========================= */
+function ItemCard(props: {
+  it: PurchaseItem;
+  realIdx: number;
+  allowManual: boolean;
+  isReleased: boolean;
+  onUpdateItem: (realIdx: number, patch: Partial<PurchaseItem>) => void;
+  onRemoveItem: (realIdx: number) => void;
+  onToggleAllowManual: (v: boolean) => void;
+}) {
+  const { it, realIdx, allowManual, isReleased, onUpdateItem, onRemoveItem, onToggleAllowManual } =
+    props;
+
+  return (
+    <div className="rounded-xl border bg-white p-4">
+      {/* Header */}
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-[220px]">
+          <label className="text-[11px] text-gray-600">Tipo</label>
+          <select
+            value={it.type}
+            disabled={isReleased}
+            onChange={(e) => onUpdateItem(realIdx, { type: e.target.value as PurchaseItemType })}
+            className="mt-1 w-full rounded-md border px-3 py-2 text-sm"
+          >
+            <option value="TRANSFER">Transferência</option>
+            <option value="POINTS_BUY">Compra pontos</option>
+            <option value="ADJUSTMENT">Ajuste</option>
+            <option value="EXTRA_COST">Extra</option>
+          </select>
+        </div>
+
+        <div className="flex-1 min-w-[280px]">
+          <label className="text-[11px] text-gray-600">Título</label>
+          <input
+            value={it.title}
+            disabled={isReleased}
+            onChange={(e) => onUpdateItem(realIdx, { title: e.target.value })}
+            className="mt-1 w-full rounded-md border px-3 py-2 text-sm"
+            placeholder="Ex: Transfer Livelo→Smiles"
+          />
+
+          <label className="mt-2 block text-[11px] text-gray-600">Detalhes (opcional)</label>
+          <input
+            value={it.details || ""}
+            disabled={isReleased}
+            onChange={(e) => onUpdateItem(realIdx, { details: e.target.value })}
+            className="mt-1 w-full rounded-md border px-3 py-2 text-sm"
+            placeholder="Ex: Campanha 80%, ID do pedido, observações..."
+          />
+        </div>
+
+        <div className="min-w-[200px]">
+          <label className="text-[11px] text-gray-600">Custo (R$)</label>
+          <input
+            type="number"
+            value={(it.amountCents || 0) / 100}
+            disabled={isReleased}
+            onChange={(e) =>
+              onUpdateItem(realIdx, { amountCents: roundCents(Number(e.target.value || 0) * 100) })
+            }
+            className="mt-1 w-full rounded-md border px-3 py-2 text-sm"
+          />
+
+          <div className="mt-2 flex justify-end">
+            <button
+              type="button"
+              onClick={() => onRemoveItem(realIdx)}
+              disabled={isReleased}
+              className="rounded-md border px-3 py-2 text-sm disabled:opacity-50"
+            >
+              Remover
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div className="my-4 h-px bg-gray-100" />
+
+      {/* Body grid */}
+      <div className="grid gap-3 md:grid-cols-12">
+        {/* De */}
+        <div className="md:col-span-3">
+          <label className="text-[11px] text-gray-600">De (origem)</label>
+          <select
+            value={it.programFrom || ""}
+            disabled={isReleased}
+            onChange={(e) =>
+              onUpdateItem(realIdx, { programFrom: (e.target.value || null) as any })
+            }
+            className="mt-1 w-full rounded-md border px-3 py-2 text-sm"
+          >
+            <option value="">—</option>
+            <option value="LATAM">LATAM</option>
+            <option value="SMILES">SMILES</option>
+            <option value="LIVELO">LIVELO</option>
+            <option value="ESFERA">ESFERA</option>
+          </select>
+        </div>
+
+        {/* Para */}
+        <div className="md:col-span-3">
+          <label className="text-[11px] text-gray-600">Para (destino)</label>
+          <select
+            value={it.programTo || ""}
+            disabled={isReleased}
+            onChange={(e) => onUpdateItem(realIdx, { programTo: (e.target.value || null) as any })}
+            className="mt-1 w-full rounded-md border px-3 py-2 text-sm"
+          >
+            <option value="">—</option>
+            <option value="LATAM">LATAM</option>
+            <option value="SMILES">SMILES</option>
+            <option value="LIVELO">LIVELO</option>
+            <option value="ESFERA">ESFERA</option>
+          </select>
+        </div>
+
+        {/* Base */}
+        <div className="md:col-span-2">
+          <label className="text-[11px] text-gray-600">Pontos base</label>
+          <input
+            type="number"
+            value={it.pointsBase}
+            disabled={isReleased}
+            onChange={(e) => onUpdateItem(realIdx, { pointsBase: clampInt(e.target.value) })}
+            className="mt-1 w-full rounded-md border px-3 py-2 text-sm font-mono"
+          />
+        </div>
+
+        {/* Bônus */}
+        <div className="md:col-span-4">
+          <label className="text-[11px] text-gray-600">Bônus</label>
+          <div className="mt-1 flex gap-2">
+            <select
+              value={it.bonusMode || ""}
+              disabled={isReleased}
+              onChange={(e) => onUpdateItem(realIdx, { bonusMode: e.target.value as any })}
+              className="w-[120px] rounded-md border px-3 py-2 text-sm"
+            >
+              <option value="">—</option>
+              <option value="PERCENT">%</option>
+              <option value="TOTAL">+Pts</option>
+            </select>
+
+            <input
+              type="number"
+              value={it.bonusValue ?? 0}
+              disabled={isReleased || !it.bonusMode}
+              onChange={(e) => onUpdateItem(realIdx, { bonusValue: clampInt(e.target.value) })}
+              className="flex-1 rounded-md border px-3 py-2 text-sm font-mono disabled:opacity-50"
+              placeholder="0"
+            />
+          </div>
+          <div className="mt-1 text-[11px] text-gray-500">
+            % calcula em cima da base · +Pts soma fixo
+          </div>
+        </div>
+
+        {/* Final */}
+        <div className="md:col-span-4">
+          <label className="text-[11px] text-gray-600">Pontos final</label>
+          <input
+            type="number"
+            value={it.pointsFinal}
+            disabled={isReleased || !allowManual}
+            onChange={(e) => onUpdateItem(realIdx, { pointsFinal: clampInt(e.target.value) })}
+            className="mt-1 w-full rounded-md border px-3 py-2 text-sm font-mono disabled:opacity-50"
+          />
+
+          <div className="mt-2 flex flex-wrap items-center gap-3">
+            <label className="text-[11px] text-gray-700 flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={allowManual}
+                disabled={isReleased}
+                onChange={(e) => onToggleAllowManual(e.target.checked)}
+              />
+              Permitir editar final
+            </label>
+
+            {!allowManual && (
+              <span className="text-[11px] text-gray-500">auto (base + bônus)</span>
+            )}
+          </div>
+        </div>
+
+        {/* Debitado origem */}
+        <div className="md:col-span-4">
+          <label className="text-[11px] text-gray-600">Debitado na origem</label>
+          <input
+            type="number"
+            value={it.pointsDebitedFromOrigin}
+            disabled={isReleased}
+            onChange={(e) =>
+              onUpdateItem(realIdx, { pointsDebitedFromOrigin: clampInt(e.target.value) })
+            }
+            className="mt-1 w-full rounded-md border px-3 py-2 text-sm font-mono"
+            placeholder="0"
+          />
+          <div className="mt-1 text-[11px] text-gray-500">
+            Se o destino recebe e a origem perde, preencha aqui.
+          </div>
+        </div>
+
+        {/* Modo */}
+        <div className="md:col-span-4">
+          <label className="text-[11px] text-gray-600">Modo</label>
+          <select
+            value={it.transferMode || ""}
+            disabled={isReleased}
+            onChange={(e) => onUpdateItem(realIdx, { transferMode: (e.target.value || null) as any })}
+            className="mt-1 w-full rounded-md border px-3 py-2 text-sm"
+          >
+            <option value="">—</option>
+            <option value="FULL_POINTS">Só pontos</option>
+            <option value="POINTS_PLUS_CASH">Pontos + dinheiro</option>
+          </select>
+          <div className="mt-1 text-[11px] text-gray-500">
+            Use para registrar a forma do resgate/transferência.
+          </div>
+        </div>
+
+        {/* Quick summary */}
+        <div className="md:col-span-4">
+          <label className="text-[11px] text-gray-600">Resumo rápido</label>
+          <div className="mt-1 rounded-md border bg-gray-50 px-3 py-2 text-sm">
+            <div className="flex items-center justify-between">
+              <span className="text-gray-600">Final</span>
+              <span className="font-mono font-semibold">
+                {clampInt(it.pointsFinal).toLocaleString("pt-BR")}
+              </span>
+            </div>
+            <div className="mt-1 flex items-center justify-between">
+              <span className="text-gray-600">Custo</span>
+              <span className="font-semibold">{fmtMoneyBR(it.amountCents || 0)}</span>
+            </div>
+            <div className="mt-1 text-[11px] text-gray-500">
+              {it.programFrom ? PROGRAM_LABEL[it.programFrom] : "—"} →{" "}
+              {it.programTo ? PROGRAM_LABEL[it.programTo] : "—"}
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
