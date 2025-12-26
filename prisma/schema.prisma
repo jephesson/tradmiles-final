@@ -84,6 +84,9 @@ model User {
   cedenteCommissionsGenerated CedenteCommission[] @relation("CedenteCommissionGeneratedBy")
   cedenteCommissionsPaid      CedenteCommission[] @relation("CedenteCommissionPaidBy")
 
+  // ✅ CLIENTES criados por este usuário (lado inverso de Cliente.createdBy)
+  clientesCreated Cliente[] @relation("ClienteCreatedBy")
+
   // Um convite por usuário (no teu fluxo)
   employeeInvite EmployeeInvite?
 
@@ -118,7 +121,7 @@ model Cedente {
 
   nomeCompleto   String
   dataNascimento DateTime?
-  cpf            String @unique
+  cpf            String    @unique
 
   telefone    String?
   emailCriado String?
@@ -143,10 +146,10 @@ model Cedente {
   reviewedAt DateTime?
 
   reviewedById String?
-  reviewedBy   User? @relation("CedenteReviewedBy", fields: [reviewedById], references: [id], onDelete: SetNull)
+  reviewedBy   User?   @relation("CedenteReviewedBy", fields: [reviewedById], references: [id], onDelete: SetNull)
 
   ownerId String
-  owner   User @relation("CedenteOwner", fields: [ownerId], references: [id], onDelete: Restrict)
+  owner   User   @relation("CedenteOwner", fields: [ownerId], references: [id], onDelete: Restrict)
 
   inviteId String?
   invite   EmployeeInvite? @relation(fields: [inviteId], references: [id], onDelete: SetNull)
@@ -236,7 +239,7 @@ model Debt {
   status      DebtStatus @default(OPEN)
 
   createdById String?
-  createdBy   User? @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  createdBy   User?   @relation(fields: [createdById], references: [id], onDelete: SetNull)
 
   payments DebtPayment[]
 
@@ -275,13 +278,13 @@ model BlockedAccount {
 
   cedenteId String
   program   LoyaltyProgram
-  status    BlockStatus @default(OPEN)
+  status    BlockStatus    @default(OPEN)
 
   note              String?
   estimatedUnlockAt DateTime?
 
   createdById String?
-  createdBy   User? @relation("BlockedCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  createdBy   User?   @relation("BlockedCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
 
   resolvedAt   DateTime?
   observations BlockObservation[]
@@ -305,7 +308,7 @@ model BlockObservation {
   text      String
 
   createdById String?
-  createdBy   User? @relation("BlockedObsCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  createdBy   User?   @relation("BlockedObsCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -409,7 +412,7 @@ model Purchase {
    */
   liberadoEm    DateTime?
   liberadoPorId String?
-  liberadoPor   User? @relation("CompraLiberadaPor", fields: [liberadoPorId], references: [id], onDelete: SetNull)
+  liberadoPor   User?     @relation("CompraLiberadaPor", fields: [liberadoPorId], references: [id], onDelete: SetNull)
 
   /**
    * =========================
@@ -484,7 +487,7 @@ model CedenteCommission {
   cedente   Cedente @relation(fields: [cedenteId], references: [id], onDelete: Cascade)
 
   // 1:1 opcional com Purchase (um Purchase pode gerar no máximo 1 comissão)
-  purchaseId String? @unique
+  purchaseId String?   @unique
   purchase   Purchase? @relation("PurchaseCedenteCommission", fields: [purchaseId], references: [id], onDelete: SetNull)
 
   amountCents Int
@@ -492,11 +495,11 @@ model CedenteCommission {
 
   generatedAt   DateTime @default(now())
   generatedById String?
-  generatedBy   User? @relation("CedenteCommissionGeneratedBy", fields: [generatedById], references: [id], onDelete: SetNull)
+  generatedBy   User?    @relation("CedenteCommissionGeneratedBy", fields: [generatedById], references: [id], onDelete: SetNull)
 
   paidAt   DateTime?
   paidById String?
-  paidBy   User? @relation("CedenteCommissionPaidBy", fields: [paidById], references: [id], onDelete: SetNull)
+  paidBy   User?     @relation("CedenteCommissionPaidBy", fields: [paidById], references: [id], onDelete: SetNull)
 
   note String?
 
@@ -506,4 +509,40 @@ model CedenteCommission {
   @@index([cedenteId, status, generatedAt])
   @@index([paidAt])
   @@map("cedente_commissions")
+}
+
+enum ClienteTipo {
+  PESSOA
+  EMPRESA
+}
+
+enum ClienteOrigem {
+  BALCAO_MILHAS
+  PARTICULAR
+  SITE
+  OUTROS
+}
+
+model Cliente {
+  id            String @id @default(cuid())
+  identificador String @unique // CL00001
+
+  tipo ClienteTipo @default(PESSOA)
+  nome String
+
+  cpfCnpj  String?
+  telefone String?
+
+  origem          ClienteOrigem
+  origemDescricao String?
+
+  createdById String?
+  createdBy   User?   @relation("ClienteCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([origem])
+  @@index([createdAt])
+  @@map("clientes")
 }
