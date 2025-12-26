@@ -22,9 +22,7 @@ export async function POST(
     // ✅ sessão vem do cookie (server)
     const session = await getSessionServer();
     const userId = String(session?.id || "");
-    if (!userId) {
-      return badRequest("Sessão inválida: faça login novamente.");
-    }
+    if (!userId) return badRequest("Sessão inválida: faça login novamente.");
 
     // body pode ser vazio
     const body = await req.json().catch(() => ({} as any));
@@ -35,58 +33,68 @@ export async function POST(
       include: { cedente: true },
     });
     if (!compraBase) return notFound("Compra não encontrada.");
-    if (compraBase.status !== "OPEN")
+    if (compraBase.status !== "OPEN") {
       return badRequest("Só pode liberar compra OPEN.");
+    }
 
     // 2) recompute antes de aplicar
     await recomputeCompra(id);
 
-    // 3) recarrega
+    // 3) recarrega (garante valores atualizados)
     const compra = await prisma.purchase.findUnique({
       where: { id },
       include: { cedente: true },
     });
     if (!compra) return notFound("Compra não encontrada (pós-recompute).");
-    if (compra.status !== "OPEN")
+    if (compra.status !== "OPEN") {
       return badRequest("Só pode liberar compra OPEN.");
+    }
+    if (!compra.cedente) return badRequest("Cedente não encontrado na compra.");
 
     // 4) define saldos aplicados (preferência: body > saldoPrevisto* > saldo atual)
     const applied = {
       latam: clampPts(
         body?.saldosAplicados?.latam ??
           compra.saldoPrevistoLatam ??
-          compra.cedente?.pontosLatam ??
+          compra.cedente.pontosLatam ??
           0
       ),
       smiles: clampPts(
         body?.saldosAplicados?.smiles ??
           compra.saldoPrevistoSmiles ??
-          compra.cedente?.pontosSmiles ??
+          compra.cedente.pontosSmiles ??
           0
       ),
       livelo: clampPts(
         body?.saldosAplicados?.livelo ??
           compra.saldoPrevistoLivelo ??
-          compra.cedente?.pontosLivelo ??
+          compra.cedente.pontosLivelo ??
           0
       ),
       esfera: clampPts(
         body?.saldosAplicados?.esfera ??
           compra.saldoPrevistoEsfera ??
-          compra.cedente?.pontosEsfera ??
+          compra.cedente.pontosEsfera ??
           0
       ),
     };
 
-    // 5) transação: aplica saldo no cedente + fecha compra
-    const updated = await prisma.$transaction(async (tx) => {
-      const stillOpen = await tx.purchase.findUnique({ where: { id } });
-      if (!stillOpen) throw new Error("Compra não encontrada.");
-      if (stillOpen.status !== "OPEN")
-        throw new Error("Compra já não está OPEN (possível dupla liberação).");
+    // 5) transação: aplica saldo no cedente + fecha compra + libera itens + gera comissão
+    const result = await prisma.$transaction(async (tx) => {
+      const stillOpen = await tx.purchase.findUnique({
+        where: { id },
+        include: { cedente: true },
+      });
 
+      if (!stillOpen) throw new Error("Compra não encontrada.");
+      if (stillOpen.status !== "OPEN") {
+        throw new Error("Compra já não está OPEN (possível dupla liberação).");
+      }
+      if (!stillOpen.cedente) throw new Error("Cedente não encontrado na compra.");
+
+      // aplica saldos no cedente
       await tx.cedente.update({
-        where: { id: compra.cedenteId },
+        where: { id: stillOpen.cedenteId },
         data: {
           pontosLatam: applied.latam,
           pontosSmiles: applied.smiles,
@@ -95,14 +103,20 @@ export async function POST(
         },
       });
 
-      const p = await tx.purchase.update({
+      // libera itens pendentes
+      await tx.purchaseItem.updateMany({
+        where: { purchaseId: id, status: "PENDING" },
+        data: { status: "RELEASED" },
+      });
+
+      // fecha compra + registra saldos aplicados + auditoria
+      const closedPurchase = await tx.purchase.update({
         where: { id },
         data: {
           liberadoEm: new Date(),
           liberadoPorId: userId,
           status: "CLOSED",
 
-          // registra os saldos aplicados
           saldoAplicadoLatam: applied.latam,
           saldoAplicadoSmiles: applied.smiles,
           saldoAplicadoLivelo: applied.livelo,
@@ -111,10 +125,37 @@ export async function POST(
         include: { items: true, cedente: true, liberadoPor: true },
       });
 
-      return p;
+      // gera/atualiza comissão do cedente (se tiver valor)
+      let commission: any = null;
+      const amountCents = Number(closedPurchase.cedentePayCents || 0);
+
+      if (amountCents > 0) {
+        commission = await tx.cedenteCommission.upsert({
+          where: { purchaseId: closedPurchase.id },
+          create: {
+            cedenteId: closedPurchase.cedenteId,
+            purchaseId: closedPurchase.id,
+            amountCents,
+            status: "PENDING",
+            generatedById: userId,
+            // generatedAt default(now())
+          },
+          update: {
+            amountCents,
+            status: "PENDING",
+            generatedById: userId,
+            // (opcional) se quiser “regerar” data:
+            // generatedAt: new Date(),
+            paidAt: null,
+            paidById: null,
+          },
+        });
+      }
+
+      return { compra: closedPurchase, commission };
     });
 
-    return ok({ compra: updated });
+    return ok(result);
   } catch (e: any) {
     return serverError("Falha ao liberar compra.", { detail: e?.message });
   }

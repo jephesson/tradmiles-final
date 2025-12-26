@@ -40,6 +40,12 @@ enum BlockStatus {
   CANCELED
 }
 
+enum CedenteCommissionStatus {
+  PENDING
+  PAID
+  CANCELED
+}
+
 model User {
   id    String @id @default(uuid())
   login String @unique
@@ -73,6 +79,10 @@ model User {
 
   // ✅ Compras liberadas por este usuário (lado inverso de Purchase.liberadoPor)
   comprasLiberadas Purchase[] @relation("CompraLiberadaPor")
+
+  // ✅ Comissões de cedente (geradas / pagas)
+  cedenteCommissionsGenerated CedenteCommission[] @relation("CedenteCommissionGeneratedBy")
+  cedenteCommissionsPaid      CedenteCommission[] @relation("CedenteCommissionPaidBy")
 
   // Um convite por usuário (no teu fluxo)
   employeeInvite EmployeeInvite?
@@ -108,7 +118,7 @@ model Cedente {
 
   nomeCompleto   String
   dataNascimento DateTime?
-  cpf            String    @unique
+  cpf            String @unique
 
   telefone    String?
   emailCriado String?
@@ -133,10 +143,10 @@ model Cedente {
   reviewedAt DateTime?
 
   reviewedById String?
-  reviewedBy   User?   @relation("CedenteReviewedBy", fields: [reviewedById], references: [id], onDelete: SetNull)
+  reviewedBy   User? @relation("CedenteReviewedBy", fields: [reviewedById], references: [id], onDelete: SetNull)
 
   ownerId String
-  owner   User   @relation("CedenteOwner", fields: [ownerId], references: [id], onDelete: Restrict)
+  owner   User @relation("CedenteOwner", fields: [ownerId], references: [id], onDelete: Restrict)
 
   inviteId String?
   invite   EmployeeInvite? @relation(fields: [inviteId], references: [id], onDelete: SetNull)
@@ -148,6 +158,9 @@ model Cedente {
 
   // ✅ Compras vinculadas a este cedente
   purchases Purchase[]
+
+  // ✅ Comissões do cedente
+  cedenteCommissions CedenteCommission[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -223,7 +236,7 @@ model Debt {
   status      DebtStatus @default(OPEN)
 
   createdById String?
-  createdBy   User?   @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  createdBy   User? @relation(fields: [createdById], references: [id], onDelete: SetNull)
 
   payments DebtPayment[]
 
@@ -262,13 +275,13 @@ model BlockedAccount {
 
   cedenteId String
   program   LoyaltyProgram
-  status    BlockStatus    @default(OPEN)
+  status    BlockStatus @default(OPEN)
 
   note              String?
   estimatedUnlockAt DateTime?
 
   createdById String?
-  createdBy   User?   @relation("BlockedCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  createdBy   User? @relation("BlockedCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
 
   resolvedAt   DateTime?
   observations BlockObservation[]
@@ -292,7 +305,7 @@ model BlockObservation {
   text      String
 
   createdById String?
-  createdBy   User?   @relation("BlockedObsCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  createdBy   User? @relation("BlockedObsCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -396,7 +409,7 @@ model Purchase {
    */
   liberadoEm    DateTime?
   liberadoPorId String?
-  liberadoPor   User?     @relation("CompraLiberadaPor", fields: [liberadoPorId], references: [id], onDelete: SetNull)
+  liberadoPor   User? @relation("CompraLiberadaPor", fields: [liberadoPorId], references: [id], onDelete: SetNull)
 
   /**
    * =========================
@@ -410,6 +423,9 @@ model Purchase {
 
   cedente Cedente        @relation(fields: [cedenteId], references: [id], onDelete: Cascade)
   items   PurchaseItem[]
+
+  // ✅ AJUSTE: lado inverso 1:1 com CedenteCommission
+  cedenteCommission CedenteCommission? @relation("PurchaseCedenteCommission")
 
   @@index([cedenteId])
   @@index([status])
@@ -459,4 +475,35 @@ model Counter {
   updatedAt DateTime @updatedAt
 
   @@map("counters")
+}
+
+model CedenteCommission {
+  id String @id @default(cuid())
+
+  cedenteId String
+  cedente   Cedente @relation(fields: [cedenteId], references: [id], onDelete: Cascade)
+
+  // 1:1 opcional com Purchase (um Purchase pode gerar no máximo 1 comissão)
+  purchaseId String? @unique
+  purchase   Purchase? @relation("PurchaseCedenteCommission", fields: [purchaseId], references: [id], onDelete: SetNull)
+
+  amountCents Int
+  status      CedenteCommissionStatus @default(PENDING)
+
+  generatedAt   DateTime @default(now())
+  generatedById String?
+  generatedBy   User? @relation("CedenteCommissionGeneratedBy", fields: [generatedById], references: [id], onDelete: SetNull)
+
+  paidAt   DateTime?
+  paidById String?
+  paidBy   User? @relation("CedenteCommissionPaidBy", fields: [paidById], references: [id], onDelete: SetNull)
+
+  note String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([cedenteId, status, generatedAt])
+  @@index([paidAt])
+  @@map("cedente_commissions")
 }
