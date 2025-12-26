@@ -37,12 +37,14 @@ export default function Sidebar() {
     pathname.startsWith("/dashboard/lucros") ||
     pathname.startsWith("/dashboard/comissoes");
 
-  // ✅ Resumo entrou aqui
-  const isAnaliseRoute =
-    pathname.startsWith("/dashboard/analise") ||
-    pathname.startsWith("/dashboard/dividas") ||
-    pathname.startsWith("/dashboard/cpf") ||
-    pathname.startsWith("/dashboard/resumo");
+  // ✅ ANÁLISE agora é só Resumo
+  const isAnaliseRoute = pathname.startsWith("/dashboard/resumo");
+
+  // ✅ FINANCEIRO (Dívidas fora de Análise)
+  const isFinanceiroRoute = pathname.startsWith("/dashboard/dividas");
+
+  // ✅ GESTOR DE EMISSÕES (novo)
+  const isGestorEmissoesRoute = pathname.startsWith("/dashboard/emissoes");
 
   // ✅ Rotas de comissões (subitens)
   const isComissoesCedentesRoute = pathname.startsWith(
@@ -76,7 +78,16 @@ export default function Sidebar() {
   const [openVendas, setOpenVendas] = useState(isVendasRoute);
 
   const [openLucros, setOpenLucros] = useState(isLucrosRoute);
+
+  // ✅ Análise agora só Resumo
   const [openAnalise, setOpenAnalise] = useState(isAnaliseRoute);
+
+  // ✅ Financeiro
+  const [openFinanceiro, setOpenFinanceiro] = useState(isFinanceiroRoute);
+
+  // ✅ Gestor de emissões
+  const [openGestorEmissoes, setOpenGestorEmissoes] =
+    useState(isGestorEmissoesRoute);
 
   // ✅ sub-accordion "Visualizar cedentes" dentro do Cadastro > Cedentes
   const isCadastroVisualizarCedentesRoute = pathname.startsWith(
@@ -106,7 +117,18 @@ export default function Sidebar() {
   }, [isCadastroVisualizarCedentesRoute]);
 
   useEffect(() => setOpenLucros(isLucrosRoute), [isLucrosRoute]);
+
+  // ✅ Análise só Resumo
   useEffect(() => setOpenAnalise(isAnaliseRoute), [isAnaliseRoute]);
+
+  // ✅ Financeiro
+  useEffect(() => setOpenFinanceiro(isFinanceiroRoute), [isFinanceiroRoute]);
+
+  // ✅ Gestor de emissões
+  useEffect(
+    () => setOpenGestorEmissoes(isGestorEmissoesRoute),
+    [isGestorEmissoesRoute]
+  );
 
   useEffect(() => setOpenComissoes(isComissoesSubRoute), [isComissoesSubRoute]);
 
@@ -389,7 +411,9 @@ export default function Sidebar() {
             active={pathname.startsWith("/dashboard/comissoes")}
           >
             <NavLink href="/dashboard/comissoes/cedentes">Cedentes</NavLink>
-            <NavLink href="/dashboard/comissoes/funcionarios">Funcionários</NavLink>
+            <NavLink href="/dashboard/comissoes/funcionarios">
+              Funcionários
+            </NavLink>
           </SubAccordion>
         </Accordion>
 
@@ -401,10 +425,33 @@ export default function Sidebar() {
           active={isAnaliseRoute}
         >
           <NavLink href="/dashboard/resumo">Resumo</NavLink>
-          <NavLink href="/dashboard/analise">Análise geral</NavLink>
-          <NavLink href="/dashboard/cpf">Contador CPF</NavLink>
-          <NavLink href="/dashboard/cpf/importar">Importar CPF</NavLink>
+
+          {/* REMOVIDOS da sidebar:
+              - /dashboard/analise (Análise geral)
+              - /dashboard/cpf (Contador CPF)
+              - /dashboard/cpf/importar (Importar CPF)
+              - /dashboard/dividas (Dívidas) -> agora em Financeiro
+          */}
+        </Accordion>
+
+        {/* ================= FINANCEIRO ================= */}
+        <Accordion
+          title="Financeiro"
+          open={openFinanceiro}
+          onToggle={() => setOpenFinanceiro((v) => !v)}
+          active={isFinanceiroRoute}
+        >
           <NavLink href="/dashboard/dividas">Dívidas</NavLink>
+        </Accordion>
+
+        {/* ================= GESTOR DE EMISSÕES ================= */}
+        <Accordion
+          title="Gestor de emissões"
+          open={openGestorEmissoes}
+          onToggle={() => setOpenGestorEmissoes((v) => !v)}
+          active={isGestorEmissoesRoute}
+        >
+          <NavLink href="/dashboard/emissoes">Emissões por cedente</NavLink>
         </Accordion>
       </nav>
     </aside>
