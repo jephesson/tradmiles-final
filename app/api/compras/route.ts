@@ -5,13 +5,49 @@ import { recomputeCompra } from "@/lib/compras";
 
 export const dynamic = "force-dynamic";
 
+function asInt(n: any, fallback = 0) {
+  const x = Number(n);
+  return Number.isFinite(x) ? Math.trunc(x) : fallback;
+}
+
+/**
+ * Normaliza uma "purchase" do Prisma para o shape esperado pelo ComprasClient
+ * (compat com campos antigos/novos)
+ */
+function toPurchaseRow(p: any) {
+  return {
+    id: p.id,
+    numero: p.numero,
+    status: p.status,
+    createdAt: p.createdAt, // Date -> JSON vira ISO automaticamente
+
+    // compat: pode existir com nomes antigos
+    ciaProgram: p.ciaProgram ?? p.ciaAerea ?? null,
+    ciaPointsTotal: asInt(p.ciaPointsTotal ?? p.pontosCiaTotal ?? 0),
+
+    // totals (compat com nomes diferentes)
+    totalCostCents: asInt(p.totalCostCents ?? p.totalCost ?? p.totalCents ?? 0),
+
+    cedente: p.cedente
+      ? {
+          id: p.cedente.id,
+          nomeCompleto: p.cedente.nomeCompleto,
+          cpf: p.cedente.cpf,
+          identificador: p.cedente.identificador,
+        }
+      : null,
+  };
+}
+
 export async function GET(req: Request) {
   try {
     const { searchParams } = new URL(req.url);
+
     const cedenteId = searchParams.get("cedenteId") || undefined;
     const status = searchParams.get("status") || undefined;
-    const take = Math.min(Number(searchParams.get("take") || 50), 200);
-    const skip = Number(searchParams.get("skip") || 0);
+
+    const take = Math.min(asInt(searchParams.get("take") || 50, 50), 200);
+    const skip = Math.max(0, asInt(searchParams.get("skip") || 0, 0));
 
     const compras = await prisma.purchase.findMany({
       where: {
@@ -22,12 +58,21 @@ export async function GET(req: Request) {
       take,
       skip,
       include: {
-        cedente: { select: { id: true, nomeCompleto: true, cpf: true, identificador: true } },
-        items: true,
+        cedente: {
+          select: {
+            id: true,
+            nomeCompleto: true,
+            cpf: true,
+            identificador: true,
+          },
+        },
+        // ✅ listagem não precisa de items; deixa leve
+        // items: true,
       },
     });
 
-    return ok({ compras });
+    const comprasOut = compras.map((p) => toPurchaseRow(p));
+    return ok({ compras: comprasOut });
   } catch (e: any) {
     return serverError("Falha ao listar compras.", { detail: e?.message });
   }
@@ -43,36 +88,71 @@ export async function POST(req: Request) {
 
     const numero = await nextNumeroCompra();
 
+    // ✅ compat: aceitar nomes antigos e novos
+    const ciaProgram = body.ciaProgram ?? body.ciaAerea ?? null;
+    const ciaPointsTotal = asInt(body.ciaPointsTotal ?? body.pontosCiaTotal ?? 0);
+
+    const cedentePayCents = asInt(body.cedentePayCents ?? 0);
+    const vendorCommissionBps = asInt(body.vendorCommissionBps ?? 100);
+    const metaMarkupCents = asInt(body.metaMarkupCents ?? body.targetMarkupCents ?? 150);
+
+    const observacao =
+      body.observacao != null
+        ? String(body.observacao)
+        : body.note != null
+        ? String(body.note)
+        : null;
+
     const compra = await prisma.purchase.create({
       data: {
         numero,
         cedenteId,
         status: "OPEN",
 
-        // venda (opcional)
-        ciaAerea: body.ciaAerea ?? null,
-        pontosCiaTotal: Number(body.pontosCiaTotal || 0),
+        // ✅ salva nos campos do teu schema atual (pelos teus nomes atuais)
+        ciaAerea: ciaProgram,
+        pontosCiaTotal: ciaPointsTotal,
 
-        // custos (opcional)
-        cedentePayCents: Number(body.cedentePayCents || 0),
-        vendorCommissionBps: Number(body.vendorCommissionBps ?? 100),
+        cedentePayCents,
+        vendorCommissionBps,
+        metaMarkupCents,
 
-        // meta (opcional)
-        metaMarkupCents: Number(body.metaMarkupCents ?? 150),
-
-        observacao: body.observacao ? String(body.observacao) : null,
+        observacao,
       },
-      include: { items: true },
+      include: {
+        cedente: {
+          select: {
+            id: true,
+            nomeCompleto: true,
+            cpf: true,
+            identificador: true,
+          },
+        },
+      },
     });
 
+    // ✅ garante totais atualizados
     await recomputeCompra(compra.id);
 
+    // ✅ busca final (já com totais recalculados)
     const compraFinal = await prisma.purchase.findUnique({
       where: { id: compra.id },
-      include: { items: true, cedente: true },
+      include: {
+        cedente: {
+          select: {
+            id: true,
+            nomeCompleto: true,
+            cpf: true,
+            identificador: true,
+          },
+        },
+      },
     });
 
-    return ok({ compra: compraFinal }, 201);
+    if (!compraFinal) return serverError("Falha ao carregar compra criada.");
+
+    // ✅ devolve no shape do frontend (CompraRow)
+    return ok({ compra: toPurchaseRow(compraFinal) }, 201);
   } catch (e: any) {
     return serverError("Falha ao criar compra.", { detail: e?.message });
   }

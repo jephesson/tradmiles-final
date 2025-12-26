@@ -6,6 +6,35 @@ import { useEffect, useMemo, useState } from "react";
 type PurchaseStatus = "OPEN" | "DRAFT" | "READY" | "CLOSED" | "CANCELED";
 type LoyaltyProgram = "LATAM" | "SMILES" | "LIVELO" | "ESFERA";
 
+/**
+ * ✅ Compat: o backend pode devolver nomes diferentes dependendo do schema
+ * então deixamos como "any shape" e normalizamos.
+ */
+type PurchaseRowRaw = {
+  id: string;
+  numero: string;
+  status: PurchaseStatus;
+  createdAt: string;
+
+  // nomes possíveis (schema antigo/novo)
+  ciaProgram?: LoyaltyProgram | null;
+  ciaAerea?: LoyaltyProgram | null;
+
+  ciaPointsTotal?: number;
+  pontosCiaTotal?: number;
+
+  totalCostCents?: number;
+  totalCost?: number;
+  totalCents?: number;
+
+  cedente?: {
+    id: string;
+    nomeCompleto: string;
+    cpf: string;
+    identificador: string;
+  } | null;
+};
+
 type PurchaseRow = {
   id: string;
   numero: string;
@@ -24,6 +53,27 @@ type PurchaseRow = {
     identificador: string;
   } | null;
 };
+
+function asInt(v: any, fallback = 0) {
+  const n = Number(v);
+  return Number.isFinite(n) ? Math.trunc(n) : fallback;
+}
+
+function normalizeRow(r: PurchaseRowRaw): PurchaseRow {
+  return {
+    id: r.id,
+    numero: r.numero,
+    status: r.status,
+    createdAt: r.createdAt,
+
+    ciaProgram: (r.ciaProgram ?? r.ciaAerea ?? null) as any,
+    ciaPointsTotal: asInt((r.ciaPointsTotal ?? r.pontosCiaTotal ?? 0) as any),
+
+    totalCostCents: asInt((r.totalCostCents ?? r.totalCost ?? r.totalCents ?? 0) as any),
+
+    cedente: r.cedente ?? null,
+  };
+}
 
 function fmtMoneyBR(cents: number) {
   const v = (cents || 0) / 100;
@@ -113,10 +163,13 @@ export default function ComprasClient() {
       if (status) qs.set("status", status);
       if (q.trim()) qs.set("q", q.trim());
 
-      const out = await api<{ ok: true; compras: PurchaseRow[] }>(
+      // ✅ compat: recebe raw e normaliza
+      const out = await api<{ ok: true; compras: PurchaseRowRaw[] }>(
         `/api/compras?${qs.toString()}`
       );
-      setRows(Array.isArray(out.compras) ? out.compras : []);
+
+      const list = Array.isArray(out.compras) ? out.compras : [];
+      setRows(list.map(normalizeRow));
     } catch (e: any) {
       setErr(e?.message || "Falha ao carregar compras.");
       setRows([]);
@@ -130,7 +183,6 @@ export default function ComprasClient() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ✅ Filtro local como fallback (se API não filtrar por "q")
   const filtered = useMemo(() => {
     const needle = norm(q);
     const dig = onlyDigits(q);
@@ -154,18 +206,14 @@ export default function ComprasClient() {
         .join(" ")
         .toLowerCase();
 
-      // busca por dígitos ajuda CPF/ID
       if (dig.length >= 2) {
         const hayDigits = onlyDigits(hay);
         if (hayDigits.includes(dig)) return true;
       }
-
       return norm(hay).includes(needle);
     });
   }, [rows, q, status]);
 
-  // ✅ Ajuste: usa /liberar (mesma rota do NovaCompraClient)
-  // ✅ Melhor prática: não precisa mandar userId — backend pega da sessão
   async function onRelease(id: string) {
     const ok = window.confirm(
       "Liberar esta compra? Isso vai aplicar saldo e travar a compra."
@@ -187,8 +235,6 @@ export default function ComprasClient() {
     }
   }
 
-  // ✅ Preferível: endpoint de cancelar (não DELETE)
-  // Se tua API atual é DELETE, troca o endpoint abaixo.
   async function onCancel(id: string) {
     const ok = window.confirm(
       "Cancelar esta compra? (não deve alterar saldo se ainda não foi liberada)"
@@ -198,12 +244,7 @@ export default function ComprasClient() {
     setBusyId(id);
     setErr(null);
     try {
-      // Se você já tem /cancelar:
       await api<{ ok: true }>(`/api/compras/${id}/cancelar`, { method: "POST" });
-
-      // Se ainda não tem, e tua API atual cancela no DELETE, use:
-      // await api<{ ok: true }>(`/api/compras/${id}`, { method: "DELETE" });
-
       await load({ silent: true });
     } catch (e: any) {
       setErr(e?.message || "Falha ao cancelar.");
@@ -230,7 +271,6 @@ export default function ComprasClient() {
         </Link>
       </div>
 
-      {/* Filtros */}
       <div className="rounded-xl border p-4">
         <div className="grid gap-3 md:grid-cols-3">
           <div>
@@ -291,7 +331,6 @@ export default function ComprasClient() {
         </div>
       )}
 
-      {/* Tabela */}
       <div className="overflow-auto rounded-xl border">
         <table className="min-w-[1100px] w-full text-sm">
           <thead className="bg-gray-50">
@@ -335,9 +374,7 @@ export default function ComprasClient() {
                   <td className="p-3">
                     {r.cedente ? (
                       <div className="space-y-0.5">
-                        <div className="font-medium">
-                          {r.cedente.nomeCompleto}
-                        </div>
+                        <div className="font-medium">{r.cedente.nomeCompleto}</div>
                         <div className="text-xs text-gray-500">
                           CPF {r.cedente.cpf} · {r.cedente.identificador}
                         </div>
@@ -348,15 +385,10 @@ export default function ComprasClient() {
                   </td>
 
                   <td className="p-3">{r.ciaProgram || "—"}</td>
-
                   <td className="p-3">
                     {(r.ciaPointsTotal || 0).toLocaleString("pt-BR")}
                   </td>
-
-                  <td className="p-3 font-medium">
-                    {fmtMoneyBR(r.totalCostCents || 0)}
-                  </td>
-
+                  <td className="p-3 font-medium">{fmtMoneyBR(r.totalCostCents || 0)}</td>
                   <td className="p-3">{fmtDateBR(r.createdAt)}</td>
 
                   <td className="p-3">
@@ -410,12 +442,6 @@ export default function ComprasClient() {
 
       <div className="text-xs text-gray-500">
         Dica: “Editar” abre a compra pelo ID. “Liberar” aplica saldo e trava.
-      </div>
-
-      {/* Nota curta de compat */}
-      <div className="text-[11px] text-gray-400">
-        Obs: se você ainda não tem <span className="font-mono">/cancelar</span>,
-        troque para o <span className="font-mono">DELETE</span> como estava antes.
       </div>
     </div>
   );
