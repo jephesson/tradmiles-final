@@ -31,7 +31,7 @@ function mapDbToUi(compra: any) {
     costPerKiloCents: Number(compra.custoMilheiroCents || 0),
     targetPerKiloCents: Number(compra.metaMilheiroCents || 0),
 
-    // 👇 UI usa expected*, DB usa saldoPrevisto*
+    // UI usa expected*, DB usa saldoPrevisto*
     expectedLatamPoints: compra.saldoPrevistoLatam ?? null,
     expectedSmilesPoints: compra.saldoPrevistoSmiles ?? null,
     expectedLiveloPoints: compra.saldoPrevistoLivelo ?? null,
@@ -117,7 +117,10 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
     const body = await req.json().catch(() => null);
     if (!body) return badRequest("JSON inválido.");
 
-    const exists = await prisma.purchase.findUnique({ where: { id }, select: { id: true } });
+    const exists = await prisma.purchase.findUnique({
+      where: { id },
+      select: { id: true },
+    });
     if (!exists) return notFound("Compra não encontrada.");
 
     const items = Array.isArray(body.items) ? body.items : null;
@@ -131,6 +134,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
 
         cedentePayCents:
           body.cedentePayCents === undefined ? undefined : Number(body.cedentePayCents || 0),
+
         vendorCommissionBps:
           body.vendorCommissionBps === undefined
             ? undefined
@@ -141,10 +145,9 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
             ? undefined
             : Number(body.targetMarkupCents || 0),
 
-        observacao:
-          body.note === undefined ? undefined : body.note ? String(body.note) : null,
+        observacao: body.note === undefined ? undefined : body.note ? String(body.note) : null,
 
-        // 👇 SALDO PREVISTO (nomes do Prisma)
+        // SALDO PREVISTO (nomes do Prisma)
         saldoPrevistoLatam:
           body.expectedLatamPoints === undefined ? undefined : body.expectedLatamPoints,
         saldoPrevistoSmiles:
@@ -209,7 +212,8 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
       },
     });
 
-    return ok({ compra: mapDbToUi(compraFinal), cedente: compraFinal?.cedente });
+    if (!compraFinal) return notFound("Compra não encontrada.");
+    return ok({ compra: mapDbToUi(compraFinal), cedente: compraFinal.cedente });
   } catch (e: any) {
     return serverError("Falha ao atualizar compra.", { detail: e?.message });
   }
@@ -225,13 +229,32 @@ export async function DELETE(_req: Request, ctx: { params: Promise<{ id: string 
     const { id } = await ctx.params;
     if (!id) return badRequest("id é obrigatório.");
 
-    const compra = await prisma.purchase.update({
+    const compra = await prisma.purchase.findUnique({
+      where: { id },
+      select: { id: true, status: true },
+    });
+    if (!compra) return notFound("Compra não encontrada.");
+
+    // não cancela liberada
+    if (compra.status === "CLOSED") {
+      return badRequest("Compra liberada não pode ser cancelada.");
+    }
+
+    // idempotente
+    if (compra.status === "CANCELED") {
+      return ok({ ok: true });
+    }
+
+    const updated = await prisma.purchase.update({
       where: { id },
       data: { status: "CANCELED" },
       include: { items: true },
     });
 
-    return ok({ compra });
+    // mantém consistência de totais/snapshot se você usa isso em algum lugar
+    await recomputeCompra(id);
+
+    return ok({ compra: updated });
   } catch (e: any) {
     return serverError("Falha ao cancelar compra.", { detail: e?.message });
   }

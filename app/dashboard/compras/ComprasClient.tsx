@@ -69,7 +69,9 @@ function normalizeRow(r: PurchaseRowRaw): PurchaseRow {
     ciaProgram: (r.ciaProgram ?? r.ciaAerea ?? null) as any,
     ciaPointsTotal: asInt((r.ciaPointsTotal ?? r.pontosCiaTotal ?? 0) as any),
 
-    totalCostCents: asInt((r.totalCostCents ?? r.totalCost ?? r.totalCents ?? 0) as any),
+    totalCostCents: asInt(
+      (r.totalCostCents ?? r.totalCost ?? r.totalCents ?? 0) as any
+    ),
 
     cedente: r.cedente ?? null,
   };
@@ -163,7 +165,6 @@ export default function ComprasClient() {
       if (status) qs.set("status", status);
       if (q.trim()) qs.set("q", q.trim());
 
-      // ✅ compat: recebe raw e normaliza
       const out = await api<{ ok: true; compras: PurchaseRowRaw[] }>(
         `/api/compras?${qs.toString()}`
       );
@@ -215,10 +216,10 @@ export default function ComprasClient() {
   }, [rows, q, status]);
 
   async function onRelease(id: string) {
-    const ok = window.confirm(
+    const okConfirm = window.confirm(
       "Liberar esta compra? Isso vai aplicar saldo e travar a compra."
     );
-    if (!ok) return;
+    if (!okConfirm) return;
 
     setBusyId(id);
     setErr(null);
@@ -235,16 +236,31 @@ export default function ComprasClient() {
     }
   }
 
+  // ✅ AJUSTE: fallback automático
+  // 1) tenta POST /cancelar (se você criar essa rota)
+  // 2) se der 404/405 -> usa DELETE /api/compras/:id (seu backend atual)
   async function onCancel(id: string) {
-    const ok = window.confirm(
+    const okConfirm = window.confirm(
       "Cancelar esta compra? (não deve alterar saldo se ainda não foi liberada)"
     );
-    if (!ok) return;
+    if (!okConfirm) return;
 
     setBusyId(id);
     setErr(null);
+
     try {
-      await api<{ ok: true }>(`/api/compras/${id}/cancelar`, { method: "POST" });
+      try {
+        await api<{ ok: true }>(`/api/compras/${id}/cancelar`, { method: "POST" });
+      } catch (e: any) {
+        const msg = String(e?.message || "");
+        const isMethodOrRoute = msg.includes("Erro 404") || msg.includes("Erro 405");
+
+        if (!isMethodOrRoute) throw e;
+
+        // ✅ backend atual (o que você mostrou): DELETE no /api/compras/:id
+        await api<{ ok: true }>(`/api/compras/${id}`, { method: "DELETE" });
+      }
+
       await load({ silent: true });
     } catch (e: any) {
       setErr(e?.message || "Falha ao cancelar.");
