@@ -54,7 +54,7 @@ type PurchaseDraft = {
   cedenteId: string;
 
   ciaProgram: LoyaltyProgram | null; // LATAM/SMILES
-  ciaPointsTotal: number; // mantido por compatibilidade, mas o milheiro usa o "Esperado" da CIA
+  ciaPointsTotal: number; // compat (milheiro usa "Esperado" da CIA)
 
   cedentePayCents: number;
   vendorCommissionBps: number; // 100 = 1%
@@ -141,15 +141,17 @@ function calcItemPointsFinal(item: PurchaseItem) {
 }
 
 /**
- * ✅ NOVO: pontos usados para calcular o milheiro
- * - Se ciaProgram = LATAM => usa expectedLatamPoints (editável via Auto do card)
- * - Se ciaProgram = SMILES => usa expectedSmilesPoints (editável via Auto do card)
- * - fallback: ciaPointsTotal (compat)
+ * pontos usados para calcular o milheiro
+ * - LATAM => expectedLatamPoints
+ * - SMILES => expectedSmilesPoints
+ * - fallback: ciaPointsTotal
  */
 function pointsForMilheiro(d: PurchaseDraft) {
   const cia = d.ciaProgram;
-  if (cia === "LATAM") return clampInt(d.expectedLatamPoints ?? d.ciaPointsTotal ?? 0);
-  if (cia === "SMILES") return clampInt(d.expectedSmilesPoints ?? d.ciaPointsTotal ?? 0);
+  if (cia === "LATAM")
+    return clampInt(d.expectedLatamPoints ?? d.ciaPointsTotal ?? 0);
+  if (cia === "SMILES")
+    return clampInt(d.expectedSmilesPoints ?? d.ciaPointsTotal ?? 0);
   return clampInt(d.ciaPointsTotal ?? 0);
 }
 
@@ -157,10 +159,11 @@ function computeTotals(d: PurchaseDraft) {
   const itemsCost = d.items.reduce((acc, it) => acc + (it.amountCents || 0), 0);
   const subtotal = itemsCost + (d.cedentePayCents || 0);
 
-  const vendor = roundCents((subtotal * (d.vendorCommissionBps || 0)) / 10000);
+  const vendor = roundCents(
+    (subtotal * (d.vendorCommissionBps || 0)) / 10000
+  );
   const total = subtotal + vendor;
 
-  // ✅ ALTERADO: milheiro usa o "Esperado" da CIA (LATAM/Smiles)
   const pts = Math.max(0, pointsForMilheiro(d));
   const denom = pts / 1000;
 
@@ -288,8 +291,8 @@ export default function NovaCompraClient({
         }>(`/api/compras/${purchaseId}`);
 
         const p = out.compra;
-
         const totals = computeTotals(p);
+
         setDraft({ ...p, ...totals });
         setCedenteSel(out.cedente);
       } catch (e: any) {
@@ -324,6 +327,7 @@ export default function NovaCompraClient({
     load();
     return () => {
       alive = false;
+      if (saveTimer.current) window.clearTimeout(saveTimer.current);
     };
   }, []);
 
@@ -359,6 +363,7 @@ export default function NovaCompraClient({
     if (!cedenteSel) return;
     setError(null);
     setSaving(true);
+
     try {
       const out = await api<{ ok: true; compra: PurchaseDraft }>(`/api/compras`, {
         method: "POST",
@@ -373,8 +378,7 @@ export default function NovaCompraClient({
       p.expectedEsferaPoints ??= cedenteSel.pontosEsfera ?? 0;
 
       const totals = computeTotals(p);
-      const next = { ...p, ...totals };
-      setDraft(next);
+      setDraft({ ...p, ...totals });
     } catch (e: any) {
       setError(e?.message || "Falha ao criar compra.");
     } finally {
@@ -389,11 +393,13 @@ export default function NovaCompraClient({
     }, 650);
   }
 
-  async function saveDraft(nextDraft?: PurchaseDraft) {
+  async function saveDraft(nextDraft?: PurchaseDraft, silent?: boolean) {
     const d = nextDraft || draft;
     if (!d) return;
+
     setError(null);
-    setSaving(true);
+    if (!silent) setSaving(true);
+
     try {
       const totals = computeTotals(d);
       const payload = { ...d, ...totals };
@@ -429,35 +435,39 @@ export default function NovaCompraClient({
     } catch (e: any) {
       setError(e?.message || "Falha ao salvar.");
     } finally {
-      setSaving(false);
+      if (!silent) setSaving(false);
     }
   }
 
+  // ✅ ALTERADO: libera sem pegar userId no client (server pega da sessão/cookie)
   async function releasePurchase() {
     if (!draft) return;
     setError(null);
     setSaving(true);
 
     try {
-      // garante que salvou tudo antes de liberar
-      await saveDraft(draft);
-
-      // pega userId da sessão (ajuste se teu auth tiver outro formato)
-      const session = (await import("@/lib/auth")).getSession();
-      const userId = (session as any)?.user?.id || (session as any)?.id || "";
-
-      if (!userId)
-        throw new Error("Sessão inválida: não encontrei userId para liberar.");
+      // garante que salvou tudo antes de liberar (sem piscar saving)
+      await saveDraft(draft, true);
 
       const out = await api<{ ok: true; compra: PurchaseDraft }>(
-        `/api/compras/${draft.id}/release`,
+        `/api/compras/${draft.id}/liberar`,
         {
           method: "POST",
-          body: JSON.stringify({ userId }),
+          body: JSON.stringify({
+            // opcional: ainda pode “forçar” o saldo aplicado
+            saldosAplicados: {
+              latam: draft.expectedLatamPoints ?? undefined,
+              smiles: draft.expectedSmilesPoints ?? undefined,
+              livelo: draft.expectedLiveloPoints ?? undefined,
+              esfera: draft.expectedEsferaPoints ?? undefined,
+            },
+          }),
         }
       );
 
-      setDraft(out.compra);
+      const p2 = out.compra;
+      const totals2 = computeTotals(p2);
+      setDraft({ ...p2, ...totals2 });
     } catch (e: any) {
       setError(e?.message || "Falha ao liberar.");
     } finally {
@@ -589,16 +599,7 @@ export default function NovaCompraClient({
     updateDraft({ items });
   }
 
-  // (mantido: caso você ainda queira um número legado/compat no draft)
-  function fillCiaPointsFromItems() {
-    if (!draft || !draft.ciaProgram) return;
-    const sum = draft.items
-      .filter((it) => it.programTo === draft.ciaProgram)
-      .reduce((acc, it) => acc + (it.pointsFinal || 0), 0);
-    updateDraft({ ciaPointsTotal: sum });
-  }
-
-  // ===== Auto: ciaPointsTotal = soma itens programTo=CIA (mantido)
+  // Auto: ciaPointsTotal = soma itens programTo=CIA (mantido)
   useEffect(() => {
     if (!draft || !draft.ciaProgram || isReleased) return;
     if ((draft.ciaPointsTotal || 0) > 0) return;
@@ -607,13 +608,11 @@ export default function NovaCompraClient({
       .filter((it) => it.programTo === draft.ciaProgram)
       .reduce((acc, it) => acc + (it.pointsFinal || 0), 0);
 
-    if (sum > 0) {
-      updateDraft({ ciaPointsTotal: sum });
-    }
+    if (sum > 0) updateDraft({ ciaPointsTotal: sum });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [draft?.ciaProgram, draft?.items?.length, isReleased]);
 
-  // ===== Auto: saldo esperado = atual + deltas
+  // Auto: saldo esperado = atual + deltas
   const computedExpected = useMemo(() => {
     if (!cedenteSel || !draft) return null;
 
@@ -639,10 +638,14 @@ export default function NovaCompraClient({
     if (expectedAuto.ESFERA) patch.expectedEsferaPoints = computedExpected.ESFERA;
 
     const changed =
-      (expectedAuto.LATAM && draft.expectedLatamPoints !== patch.expectedLatamPoints) ||
-      (expectedAuto.SMILES && draft.expectedSmilesPoints !== patch.expectedSmilesPoints) ||
-      (expectedAuto.LIVELO && draft.expectedLiveloPoints !== patch.expectedLiveloPoints) ||
-      (expectedAuto.ESFERA && draft.expectedEsferaPoints !== patch.expectedEsferaPoints);
+      (expectedAuto.LATAM &&
+        draft.expectedLatamPoints !== patch.expectedLatamPoints) ||
+      (expectedAuto.SMILES &&
+        draft.expectedSmilesPoints !== patch.expectedSmilesPoints) ||
+      (expectedAuto.LIVELO &&
+        draft.expectedLiveloPoints !== patch.expectedLiveloPoints) ||
+      (expectedAuto.ESFERA &&
+        draft.expectedEsferaPoints !== patch.expectedEsferaPoints);
 
     if (changed) updateDraft(patch);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -703,7 +706,9 @@ export default function NovaCompraClient({
       <div className="rounded-xl border p-4 space-y-3">
         <div className="flex items-center justify-between">
           <h2 className="font-medium">1) Cedente</h2>
-          <span className="text-xs text-gray-500">Selecione e gere o ID único</span>
+          <span className="text-xs text-gray-500">
+            Selecione e gere o ID único
+          </span>
         </div>
 
         <div className="grid gap-3 md:grid-cols-2">
@@ -723,9 +728,14 @@ export default function NovaCompraClient({
               </div>
             )}
 
-            {!draft && query.trim().length >= 2 && cedentes.length === 0 && !loadingCed && (
-              <div className="mt-2 text-xs text-gray-500">Nenhum cedente encontrado.</div>
-            )}
+            {!draft &&
+              query.trim().length >= 2 &&
+              cedentes.length === 0 &&
+              !loadingCed && (
+                <div className="mt-2 text-xs text-gray-500">
+                  Nenhum cedente encontrado.
+                </div>
+              )}
 
             {!draft && cedentes.length > 0 && (
               <div className="mt-2 max-h-56 overflow-auto rounded-md border">
@@ -820,7 +830,9 @@ export default function NovaCompraClient({
                   disabled={!!isReleased}
                   onChange={(e) =>
                     updateDraft({
-                      cedentePayCents: roundCents(Number(e.target.value || 0) * 100),
+                      cedentePayCents: roundCents(
+                        Number(e.target.value || 0) * 100
+                      ),
                     })
                   }
                   className="mt-1 w-full rounded-md border px-3 py-2 text-sm"
@@ -828,14 +840,18 @@ export default function NovaCompraClient({
               </div>
 
               <div>
-                <label className="text-sm text-gray-600">Comissão vendedor (%)</label>
+                <label className="text-sm text-gray-600">
+                  Comissão vendedor (%)
+                </label>
                 <input
                   type="number"
                   value={draft.vendorCommissionBps / 100}
                   disabled={!!isReleased}
                   onChange={(e) =>
                     updateDraft({
-                      vendorCommissionBps: roundCents(Number(e.target.value || 0) * 100),
+                      vendorCommissionBps: roundCents(
+                        Number(e.target.value || 0) * 100
+                      ),
                     })
                   }
                   className="mt-1 w-full rounded-md border px-3 py-2 text-sm"
@@ -856,7 +872,9 @@ export default function NovaCompraClient({
                   disabled={!!isReleased}
                   onChange={(e) =>
                     updateDraft({
-                      targetMarkupCents: roundCents(Number(e.target.value || 0) * 100),
+                      targetMarkupCents: roundCents(
+                        Number(e.target.value || 0) * 100
+                      ),
                     })
                   }
                   className="mt-1 w-full rounded-md border px-3 py-2 text-sm"
@@ -871,18 +889,37 @@ export default function NovaCompraClient({
             <div className="text-sm font-medium">Resumo</div>
 
             <div className="rounded-lg bg-gray-50 p-3 text-sm space-y-1">
-              <Row label="Subtotal" value={fmtMoneyBR(totals?.subtotalCostCents || 0)} />
-              <Row label="Comissão" value={fmtMoneyBR(totals?.vendorCommissionCents || 0)} />
+              <Row
+                label="Subtotal"
+                value={fmtMoneyBR(totals?.subtotalCostCents || 0)}
+              />
+              <Row
+                label="Comissão"
+                value={fmtMoneyBR(totals?.vendorCommissionCents || 0)}
+              />
               <div className="h-px bg-gray-200 my-2" />
-              <Row label="Total" value={fmtMoneyBR(totals?.totalCostCents || 0)} bold />
+              <Row
+                label="Total"
+                value={fmtMoneyBR(totals?.totalCostCents || 0)}
+                bold
+              />
               <div className="h-px bg-gray-200 my-2" />
-              <Row label="Milheiro" value={fmtMoneyBR(totals?.costPerKiloCents || 0)} bold />
-              <Row label="Meta" value={fmtMoneyBR(totals?.targetPerKiloCents || 0)} bold />
+              <Row
+                label="Milheiro"
+                value={fmtMoneyBR(totals?.costPerKiloCents || 0)}
+                bold
+              />
+              <Row
+                label="Meta"
+                value={fmtMoneyBR(totals?.targetPerKiloCents || 0)}
+                bold
+              />
             </div>
 
             <div className="text-xs text-gray-500">
-              Dica: selecione a CIA na etapa 5. O milheiro usa o <b>Esperado</b> da CIA
-              (LATAM/Smiles). Se precisar, desmarque <b>Auto</b> no card e edite.
+              Dica: selecione a CIA na etapa 5. O milheiro usa o <b>Esperado</b>{" "}
+              da CIA (LATAM/Smiles). Se precisar, desmarque <b>Auto</b> no card e
+              edite.
             </div>
           </div>
         </div>
@@ -929,7 +966,11 @@ export default function NovaCompraClient({
                     const meta =
                       safeJsonParse<ClubMeta>(it.details) || {
                         program: (it.programTo || "LIVELO") as LoyaltyProgram,
-                        tierK: Math.max(1, Math.round((it.pointsFinal || 0) / 1000) || 10),
+                        tierK:
+                          Math.max(
+                            1,
+                            Math.round((it.pointsFinal || 0) / 1000) || 10
+                          ) || 10,
                         priceCents: it.amountCents || 0,
                         renewalDay: new Date().getDate(),
                         startDateISO: isoToday(),
@@ -991,7 +1032,9 @@ export default function NovaCompraClient({
                             value={(meta.priceCents || 0) / 100}
                             disabled={!!isReleased}
                             onChange={(e) => {
-                              const cents = roundCents(Number(e.target.value || 0) * 100);
+                              const cents = roundCents(
+                                Number(e.target.value || 0) * 100
+                              );
                               const next: ClubMeta = { ...meta, priceCents: cents };
                               updateItem(realIdx, {
                                 details: JSON.stringify(next),
@@ -1012,7 +1055,9 @@ export default function NovaCompraClient({
                                 ...meta,
                                 renewalDay: clampDay(e.target.value),
                               };
-                              updateItem(realIdx, { details: JSON.stringify(next) });
+                              updateItem(realIdx, {
+                                details: JSON.stringify(next),
+                              });
                             }}
                             className="w-full rounded-md border px-2 py-1"
                           />
@@ -1028,7 +1073,9 @@ export default function NovaCompraClient({
                                 ...meta,
                                 startDateISO: e.target.value || isoToday(),
                               };
-                              updateItem(realIdx, { details: JSON.stringify(next) });
+                              updateItem(realIdx, {
+                                details: JSON.stringify(next),
+                              });
                             }}
                             className="w-full rounded-md border px-2 py-1"
                           />
@@ -1140,7 +1187,9 @@ export default function NovaCompraClient({
                         <input
                           value={it.details || ""}
                           disabled={!!isReleased}
-                          onChange={(e) => updateItem(realIdx, { details: e.target.value })}
+                          onChange={(e) =>
+                            updateItem(realIdx, { details: e.target.value })
+                          }
                           className="mt-1 w-full rounded-md border px-2 py-1 text-xs"
                           placeholder="Detalhes (opcional)"
                         />
@@ -1319,8 +1368,7 @@ export default function NovaCompraClient({
           </div>
 
           <div className="text-xs text-gray-600">
-            Para o milheiro: o cálculo usa o <b>Esperado</b> da CIA (LATAM/Smiles). Se
-            quiser que seja automático, mantenha <b>Auto</b> ligado no card do programa.
+            Para o milheiro: o cálculo usa o <b>Esperado</b> da CIA (LATAM/Smiles).
           </div>
         </div>
       )}
@@ -1335,7 +1383,6 @@ export default function NovaCompraClient({
             </div>
           </div>
 
-          {/* ✅ ALTERADO: milheiro usa Esperado (LATAM/Smiles) */}
           <div className="grid gap-3 md:grid-cols-3">
             <div>
               <label className="text-sm text-gray-600">CIA base (milheiro)</label>
@@ -1355,8 +1402,7 @@ export default function NovaCompraClient({
               </select>
 
               <div className="mt-2 text-xs text-gray-500">
-                O milheiro usa o <b>Esperado</b> da CIA selecionada. Para ajustar manual,
-                desmarque <b>Auto</b> no card e edite o esperado.
+                O milheiro usa o <b>Esperado</b> da CIA selecionada.
               </div>
             </div>
 
@@ -1460,9 +1506,7 @@ function DraftActions(props: {
 }) {
   const { draft, saving, isReleased, onSave, onRelease } = props;
 
-  // ✅ ALTERADO: liberar exige pontos do milheiro (Esperado da CIA) > 0
   const ptsMilheiro = pointsForMilheiro(draft);
-
   const releaseDisabled =
     isReleased || saving || !draft.ciaProgram || !ptsMilheiro || ptsMilheiro <= 0;
 
@@ -1560,7 +1604,9 @@ function ExpectedBalance(props: {
         placeholder="Ex: 150000"
       />
       {auto && (
-        <div className="mt-1 text-[11px] text-gray-500">Calculado automaticamente.</div>
+        <div className="mt-1 text-[11px] text-gray-500">
+          Calculado automaticamente.
+        </div>
       )}
     </div>
   );
