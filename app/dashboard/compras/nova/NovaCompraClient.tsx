@@ -250,7 +250,9 @@ export default function NovaCompraClient({
   const [itemsAllowManualFinal, setItemsAllowManualFinal] = useState<
     Record<string, boolean>
   >({});
-  const [expectedAuto, setExpectedAuto] = useState<Record<LoyaltyProgram, boolean>>({
+  const [expectedAuto, setExpectedAuto] = useState<
+    Record<LoyaltyProgram, boolean>
+  >({
     LATAM: true,
     SMILES: true,
     LIVELO: true,
@@ -563,7 +565,9 @@ export default function NovaCompraClient({
         merged.title = `Clube ${PROGRAM_LABEL[meta.program]} ${meta.tierK}k`;
         merged.programTo = meta.program;
         merged.pointsBase = meta.tierK * 1000;
-        merged.pointsFinal = allowManual ? merged.pointsFinal : meta.tierK * 1000;
+        merged.pointsFinal = allowManual
+          ? merged.pointsFinal
+          : meta.tierK * 1000;
         merged.amountCents = meta.priceCents;
       }
     }
@@ -616,9 +620,12 @@ export default function NovaCompraClient({
     const patch: Partial<PurchaseDraft> = {};
 
     if (expectedAuto.LATAM) patch.expectedLatamPoints = computedExpected.LATAM;
-    if (expectedAuto.SMILES) patch.expectedSmilesPoints = computedExpected.SMILES;
-    if (expectedAuto.LIVELO) patch.expectedLiveloPoints = computedExpected.LIVELO;
-    if (expectedAuto.ESFERA) patch.expectedEsferaPoints = computedExpected.ESFERA;
+    if (expectedAuto.SMILES)
+      patch.expectedSmilesPoints = computedExpected.SMILES;
+    if (expectedAuto.LIVELO)
+      patch.expectedLiveloPoints = computedExpected.LIVELO;
+    if (expectedAuto.ESFERA)
+      patch.expectedEsferaPoints = computedExpected.ESFERA;
 
     const changed =
       (expectedAuto.LATAM &&
@@ -689,7 +696,9 @@ export default function NovaCompraClient({
       <div className="rounded-xl border p-4 space-y-3">
         <div className="flex items-center justify-between">
           <h2 className="font-medium">1) Cedente</h2>
-          <span className="text-xs text-gray-500">Selecione e gere o ID único</span>
+          <span className="text-xs text-gray-500">
+            Selecione e gere o ID único
+          </span>
         </div>
 
         <div className="grid gap-3 md:grid-cols-2">
@@ -748,7 +757,9 @@ export default function NovaCompraClient({
           <div className="rounded-xl bg-gray-50 p-4">
             <div className="text-sm font-medium">Selecionado</div>
 
-            {!cedenteSel && <div className="text-sm text-gray-600">Nenhum.</div>}
+            {!cedenteSel && (
+              <div className="text-sm text-gray-600">Nenhum.</div>
+            )}
 
             {cedenteSel && (
               <div className="text-sm text-gray-700 space-y-1">
@@ -785,51 +796,13 @@ export default function NovaCompraClient({
             <div className="flex items-center justify-between">
               <h2 className="font-medium">2) Configuração</h2>
               <div className="text-xs text-gray-500">
-                Ajustes gerais da compra (milheiro, comissão, taxa, etc.)
+                Ajustes gerais da compra (comissão, taxa, etc.)
               </div>
             </div>
 
+            {/* ✅ ALTERAÇÃO: aqui fica SÓ observação (sem CIA e sem pontos) */}
             <div className="grid gap-3 md:grid-cols-3">
-              <div>
-                <label className="text-sm text-gray-600">CIA base (milheiro)</label>
-                <select
-                  value={draft.ciaProgram || ""}
-                  disabled={!!isReleased}
-                  onChange={(e) =>
-                    updateDraft({
-                      ciaProgram: (e.target.value || null) as LoyaltyProgram | null,
-                      ciaPointsTotal: 0,
-                    })
-                  }
-                  className="mt-1 w-full rounded-md border px-3 py-2 text-sm"
-                >
-                  <option value="">Selecione…</option>
-                  <option value="LATAM">LATAM</option>
-                  <option value="SMILES">Smiles</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="text-sm text-gray-600">Pontos na CIA</label>
-                <input
-                  type="number"
-                  value={draft.ciaPointsTotal}
-                  disabled={!!isReleased}
-                  onChange={(e) => updateDraft({ ciaPointsTotal: clampInt(e.target.value) })}
-                  className="mt-1 w-full rounded-md border px-3 py-2 text-sm"
-                  placeholder="Ex: 130000"
-                />
-                <button
-                  type="button"
-                  onClick={fillCiaPointsFromItems}
-                  disabled={!!isReleased || !draft.ciaProgram}
-                  className="mt-2 text-xs underline text-gray-700 disabled:opacity-50"
-                >
-                  Recalcular pelo somatório (programTo = CIA)
-                </button>
-              </div>
-
-              <div>
+              <div className="md:col-span-3">
                 <label className="text-sm text-gray-600">Observação</label>
                 <input
                   value={draft.note || ""}
@@ -858,7 +831,9 @@ export default function NovaCompraClient({
               </div>
 
               <div>
-                <label className="text-sm text-gray-600">Comissão vendedor (%)</label>
+                <label className="text-sm text-gray-600">
+                  Comissão vendedor (%)
+                </label>
                 <input
                   type="number"
                   value={draft.vendorCommissionBps / 100}
@@ -877,7 +852,9 @@ export default function NovaCompraClient({
               </div>
 
               <div>
-                <label className="text-sm text-gray-600">Markup meta (R$/milheiro)</label>
+                <label className="text-sm text-gray-600">
+                  Markup meta (R$/milheiro)
+                </label>
                 <input
                   type="number"
                   value={draft.targetMarkupCents / 100}
@@ -899,17 +876,32 @@ export default function NovaCompraClient({
             <div className="text-sm font-medium">Resumo</div>
 
             <div className="rounded-lg bg-gray-50 p-3 text-sm space-y-1">
-              <Row label="Subtotal" value={fmtMoneyBR(totals?.subtotalCostCents || 0)} />
-              <Row label="Comissão" value={fmtMoneyBR(totals?.vendorCommissionCents || 0)} />
+              <Row
+                label="Subtotal"
+                value={fmtMoneyBR(totals?.subtotalCostCents || 0)}
+              />
+              <Row
+                label="Comissão"
+                value={fmtMoneyBR(totals?.vendorCommissionCents || 0)}
+              />
               <div className="h-px bg-gray-200 my-2" />
               <Row label="Total" value={fmtMoneyBR(totals?.totalCostCents || 0)} bold />
               <div className="h-px bg-gray-200 my-2" />
-              <Row label="Milheiro" value={fmtMoneyBR(totals?.costPerKiloCents || 0)} bold />
-              <Row label="Meta" value={fmtMoneyBR(totals?.targetPerKiloCents || 0)} bold />
+              <Row
+                label="Milheiro"
+                value={fmtMoneyBR(totals?.costPerKiloCents || 0)}
+                bold
+              />
+              <Row
+                label="Meta"
+                value={fmtMoneyBR(totals?.targetPerKiloCents || 0)}
+                bold
+              />
             </div>
 
             <div className="text-xs text-gray-500">
-              Dica: defina a CIA e deixe itens com <b>programTo = CIA</b>. O “Milheiro” fica certo.
+              Dica: selecione a CIA na etapa 5 e deixe itens com{" "}
+              <b>programTo = CIA</b>. O “Milheiro” fica certo.
             </div>
           </div>
         </div>
@@ -932,7 +924,9 @@ export default function NovaCompraClient({
           </div>
 
           {clubItems.length === 0 && (
-            <div className="text-sm text-gray-600">Nenhum clube adicionado.</div>
+            <div className="text-sm text-gray-600">
+              Nenhum clube adicionado.
+            </div>
           )}
 
           {clubItems.length > 0 && (
@@ -956,7 +950,8 @@ export default function NovaCompraClient({
                     const meta =
                       safeJsonParse<ClubMeta>(it.details) || {
                         program: (it.programTo || "LIVELO") as LoyaltyProgram,
-                        tierK: Math.max(1, Math.round((it.pointsFinal || 0) / 1000) || 10),
+                        tierK:
+                          Math.max(1, Math.round((it.pointsFinal || 0) / 1000) || 10),
                         priceCents: it.amountCents || 0,
                         renewalDay: new Date().getDate(),
                         startDateISO: isoToday(),
@@ -992,7 +987,10 @@ export default function NovaCompraClient({
                             value={meta.tierK}
                             disabled={!!isReleased}
                             onChange={(e) => {
-                              const next: ClubMeta = { ...meta, tierK: clampInt(e.target.value) };
+                              const next: ClubMeta = {
+                                ...meta,
+                                tierK: clampInt(e.target.value),
+                              };
                               updateItem(realIdx, {
                                 details: JSON.stringify(next),
                                 pointsBase: next.tierK * 1000,
@@ -1015,7 +1013,9 @@ export default function NovaCompraClient({
                             value={(meta.priceCents || 0) / 100}
                             disabled={!!isReleased}
                             onChange={(e) => {
-                              const cents = roundCents(Number(e.target.value || 0) * 100);
+                              const cents = roundCents(
+                                Number(e.target.value || 0) * 100
+                              );
                               const next: ClubMeta = { ...meta, priceCents: cents };
                               updateItem(realIdx, {
                                 details: JSON.stringify(next),
@@ -1032,7 +1032,10 @@ export default function NovaCompraClient({
                             value={meta.renewalDay}
                             disabled={!!isReleased}
                             onChange={(e) => {
-                              const next: ClubMeta = { ...meta, renewalDay: clampDay(e.target.value) };
+                              const next: ClubMeta = {
+                                ...meta,
+                                renewalDay: clampDay(e.target.value),
+                              };
                               updateItem(realIdx, { details: JSON.stringify(next) });
                             }}
                             className="w-full rounded-md border px-2 py-1"
@@ -1137,7 +1140,9 @@ export default function NovaCompraClient({
                           value={it.type}
                           disabled={!!isReleased}
                           onChange={(e) =>
-                            updateItem(realIdx, { type: e.target.value as PurchaseItemType })
+                            updateItem(realIdx, {
+                              type: e.target.value as PurchaseItemType,
+                            })
                           }
                           className="w-full rounded-md border px-2 py-1 text-sm"
                         >
@@ -1159,7 +1164,9 @@ export default function NovaCompraClient({
                         <input
                           value={it.details || ""}
                           disabled={!!isReleased}
-                          onChange={(e) => updateItem(realIdx, { details: e.target.value })}
+                          onChange={(e) =>
+                            updateItem(realIdx, { details: e.target.value })
+                          }
                           className="mt-1 w-full rounded-md border px-2 py-1 text-xs"
                           placeholder="Detalhes (opcional)"
                         />
@@ -1170,7 +1177,9 @@ export default function NovaCompraClient({
                           value={it.programFrom || ""}
                           disabled={!!isReleased}
                           onChange={(e) =>
-                            updateItem(realIdx, { programFrom: (e.target.value || null) as any })
+                            updateItem(realIdx, {
+                              programFrom: (e.target.value || null) as any,
+                            })
                           }
                           className="w-full rounded-md border px-2 py-1 text-sm"
                         >
@@ -1187,7 +1196,9 @@ export default function NovaCompraClient({
                           value={it.programTo || ""}
                           disabled={!!isReleased}
                           onChange={(e) =>
-                            updateItem(realIdx, { programTo: (e.target.value || null) as any })
+                            updateItem(realIdx, {
+                              programTo: (e.target.value || null) as any,
+                            })
                           }
                           className="w-full rounded-md border px-2 py-1 text-sm"
                         >
@@ -1204,7 +1215,11 @@ export default function NovaCompraClient({
                           type="number"
                           value={it.pointsBase}
                           disabled={!!isReleased}
-                          onChange={(e) => updateItem(realIdx, { pointsBase: clampInt(e.target.value) })}
+                          onChange={(e) =>
+                            updateItem(realIdx, {
+                              pointsBase: clampInt(e.target.value),
+                            })
+                          }
                           className="w-full rounded-md border px-2 py-1 text-sm"
                         />
                       </td>
@@ -1214,7 +1229,11 @@ export default function NovaCompraClient({
                           <select
                             value={it.bonusMode || ""}
                             disabled={!!isReleased}
-                            onChange={(e) => updateItem(realIdx, { bonusMode: e.target.value as any })}
+                            onChange={(e) =>
+                              updateItem(realIdx, {
+                                bonusMode: e.target.value as any,
+                              })
+                            }
                             className="rounded-md border px-2 py-1 text-sm"
                           >
                             <option value="">—</option>
@@ -1225,7 +1244,11 @@ export default function NovaCompraClient({
                             type="number"
                             value={it.bonusValue ?? 0}
                             disabled={!!isReleased || !it.bonusMode}
-                            onChange={(e) => updateItem(realIdx, { bonusValue: clampInt(e.target.value) })}
+                            onChange={(e) =>
+                              updateItem(realIdx, {
+                                bonusValue: clampInt(e.target.value),
+                              })
+                            }
                             className="w-24 rounded-md border px-2 py-1 text-sm disabled:opacity-50"
                           />
                         </div>
@@ -1236,7 +1259,11 @@ export default function NovaCompraClient({
                           type="number"
                           value={it.pointsFinal}
                           disabled={!!isReleased || !allowManual}
-                          onChange={(e) => updateItem(realIdx, { pointsFinal: clampInt(e.target.value) })}
+                          onChange={(e) =>
+                            updateItem(realIdx, {
+                              pointsFinal: clampInt(e.target.value),
+                            })
+                          }
                           className="w-full rounded-md border px-2 py-1 text-sm disabled:opacity-50"
                         />
                         <div className="mt-1 flex items-center gap-2">
@@ -1255,7 +1282,9 @@ export default function NovaCompraClient({
                             Permitir editar final
                           </label>
                           {!allowManual && (
-                            <span className="text-[11px] text-gray-500">auto (base + bônus)</span>
+                            <span className="text-[11px] text-gray-500">
+                              auto (base + bônus)
+                            </span>
                           )}
                         </div>
                       </td>
@@ -1266,7 +1295,9 @@ export default function NovaCompraClient({
                           value={it.pointsDebitedFromOrigin}
                           disabled={!!isReleased}
                           onChange={(e) =>
-                            updateItem(realIdx, { pointsDebitedFromOrigin: clampInt(e.target.value) })
+                            updateItem(realIdx, {
+                              pointsDebitedFromOrigin: clampInt(e.target.value),
+                            })
                           }
                           className="w-full rounded-md border px-2 py-1 text-sm"
                           placeholder="0"
@@ -1278,7 +1309,9 @@ export default function NovaCompraClient({
                           value={it.transferMode || ""}
                           disabled={!!isReleased}
                           onChange={(e) =>
-                            updateItem(realIdx, { transferMode: (e.target.value || null) as any })
+                            updateItem(realIdx, {
+                              transferMode: (e.target.value || null) as any,
+                            })
                           }
                           className="w-full rounded-md border px-2 py-1 text-sm"
                         >
@@ -1294,7 +1327,9 @@ export default function NovaCompraClient({
                           value={(it.amountCents || 0) / 100}
                           disabled={!!isReleased}
                           onChange={(e) =>
-                            updateItem(realIdx, { amountCents: roundCents(Number(e.target.value || 0) * 100) })
+                            updateItem(realIdx, {
+                              amountCents: roundCents(Number(e.target.value || 0) * 100),
+                            })
                           }
                           className="w-full rounded-md border px-2 py-1 text-sm"
                         />
@@ -1318,17 +1353,76 @@ export default function NovaCompraClient({
           </div>
 
           <div className="text-xs text-gray-600">
-            Para o milheiro: itens que geram pontos na CIA devem ter <b>programTo = LATAM/SMILES</b>.
+            Para o milheiro: itens que geram pontos na CIA devem ter{" "}
+            <b>programTo = LATAM/SMILES</b>.
           </div>
         </div>
       )}
 
-      {/* 5) Saldo esperado */}
+      {/* 5) Saldo esperado + CIA/Pontos */}
       {draft && cedenteSel && (
         <div className="rounded-xl border p-4 space-y-3">
           <div className="flex items-center justify-between">
-            <h2 className="font-medium">5) Saldo final esperado (aplica no LIBERAR)</h2>
-            <div className="text-xs text-gray-500">Auto = atual + deltas dos itens/clubes</div>
+            <h2 className="font-medium">
+              5) Saldo final esperado (aplica no LIBERAR)
+            </h2>
+            <div className="text-xs text-gray-500">
+              Auto = atual + deltas dos itens/clubes
+            </div>
+          </div>
+
+          {/* ✅ ALTERAÇÃO: CIA base + Pontos na CIA agora aqui */}
+          <div className="grid gap-3 md:grid-cols-3">
+            <div>
+              <label className="text-sm text-gray-600">CIA base (milheiro)</label>
+              <select
+                value={draft.ciaProgram || ""}
+                disabled={!!isReleased}
+                onChange={(e) =>
+                  updateDraft({
+                    ciaProgram: (e.target.value || null) as LoyaltyProgram | null,
+                    ciaPointsTotal: 0,
+                  })
+                }
+                className="mt-1 w-full rounded-md border px-3 py-2 text-sm"
+              >
+                <option value="">Selecione…</option>
+                <option value="LATAM">LATAM</option>
+                <option value="SMILES">Smiles</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="text-sm text-gray-600">Pontos na CIA</label>
+              <input
+                type="number"
+                value={draft.ciaPointsTotal}
+                disabled={!!isReleased}
+                onChange={(e) =>
+                  updateDraft({ ciaPointsTotal: clampInt(e.target.value) })
+                }
+                className="mt-1 w-full rounded-md border px-3 py-2 text-sm"
+                placeholder="Ex: 130000"
+              />
+              <button
+                type="button"
+                onClick={fillCiaPointsFromItems}
+                disabled={!!isReleased || !draft.ciaProgram}
+                className="mt-2 text-xs underline text-gray-700 disabled:opacity-50"
+              >
+                Recalcular pelo somatório (programTo = CIA)
+              </button>
+            </div>
+
+            <div className="rounded-lg bg-gray-50 p-3">
+              <div className="text-xs text-gray-600">Milheiro (pela CIA)</div>
+              <div className="mt-1 text-sm font-semibold">
+                {fmtMoneyBR(totals?.costPerKiloCents || 0)}
+              </div>
+              <div className="mt-1 text-xs text-gray-500">
+                (usa “Pontos na CIA” para calcular)
+              </div>
+            </div>
           </div>
 
           <div className="grid gap-3 md:grid-cols-4">
@@ -1379,8 +1473,8 @@ export default function NovaCompraClient({
           </div>
 
           <div className="text-xs text-gray-600">
-            Ao clicar em <b>LIBERAR</b>, os pontos do cedente serão atualizados para <b>esses saldos</b>{" "}
-            e a compra entra no rateio.
+            Ao clicar em <b>LIBERAR</b>, os pontos do cedente serão atualizados para{" "}
+            <b>esses saldos</b> e a compra entra no rateio.
           </div>
         </div>
       )}
@@ -1406,7 +1500,11 @@ function DraftActions(props: {
   const { draft, saving, isReleased, onSave, onRelease } = props;
 
   const releaseDisabled =
-    isReleased || saving || !draft.ciaProgram || !draft.ciaPointsTotal || draft.ciaPointsTotal <= 0;
+    isReleased ||
+    saving ||
+    !draft.ciaProgram ||
+    !draft.ciaPointsTotal ||
+    draft.ciaPointsTotal <= 0;
 
   return (
     <div className="flex items-center gap-2">
@@ -1451,10 +1549,15 @@ function ExpectedBalance(props: {
   onToggleAuto: (v: boolean) => void;
   onChange: (v: number | null) => void;
 }) {
-  const { label, current, delta, value, auto, disabled, onToggleAuto, onChange } = props;
+  const { label, current, delta, value, auto, disabled, onToggleAuto, onChange } =
+    props;
 
   const signedDelta =
-    delta === 0 ? "0" : delta > 0 ? `+${delta.toLocaleString("pt-BR")}` : `${delta.toLocaleString("pt-BR")}`;
+    delta === 0
+      ? "0"
+      : delta > 0
+      ? `+${delta.toLocaleString("pt-BR")}`
+      : `${delta.toLocaleString("pt-BR")}`;
 
   return (
     <div className="rounded-xl bg-gray-50 p-3">
@@ -1477,7 +1580,9 @@ function ExpectedBalance(props: {
 
       <div className="text-xs text-gray-600">
         Delta:{" "}
-        <b className={delta >= 0 ? "text-emerald-700" : "text-red-700"}>{signedDelta}</b>
+        <b className={delta >= 0 ? "text-emerald-700" : "text-red-700"}>
+          {signedDelta}
+        </b>
       </div>
 
       <label className="mt-2 block text-xs text-gray-600">Esperado</label>
@@ -1491,10 +1596,14 @@ function ExpectedBalance(props: {
           const n = Number(raw);
           onChange(Number.isFinite(n) ? Math.trunc(n) : 0);
         }}
-        className="mt-1 w-full rounded-md border px-2 py-2 text-sm disabled:opacity-opacity-50"
+        className="mt-1 w-full rounded-md border px-2 py-2 text-sm disabled:opacity-50"
         placeholder="Ex: 150000"
       />
-      {auto && <div className="mt-1 text-[11px] text-gray-500">Calculado automaticamente.</div>}
+      {auto && (
+        <div className="mt-1 text-[11px] text-gray-500">
+          Calculado automaticamente.
+        </div>
+      )}
     </div>
   );
 }
