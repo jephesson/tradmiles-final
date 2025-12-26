@@ -78,6 +78,13 @@ export async function GET() {
       return sum + bal;
     }, 0);
 
+    // ✅ comissões pendentes de cedentes
+    const pendingAgg = await prisma.cedenteCommission.aggregate({
+      where: { status: "PENDING" },
+      _sum: { amountCents: true },
+    });
+    const pendingCedenteCommissionsCents = safeInt(pendingAgg._sum.amountCents);
+
     return NextResponse.json(
       {
         ok: true,
@@ -102,6 +109,9 @@ export async function GET() {
           })),
 
           debtsOpenCents,
+
+          // ✅ novo campo pro front
+          pendingCedenteCommissionsCents,
         },
       },
       { status: 200 }
