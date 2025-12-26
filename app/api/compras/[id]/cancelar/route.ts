@@ -1,35 +1,34 @@
 import { prisma } from "@/lib/prisma";
-import { ok, badRequest, serverError } from "@/lib/api";
+import { ok, badRequest, notFound, serverError } from "@/lib/api";
+import { recomputeCompra } from "@/lib/compras";
+import { NextRequest } from "next/server";
 
 export const dynamic = "force-dynamic";
 
-export async function POST(
-  _req: Request,
-  { params }: { params: { id: string } }
-) {
+export async function POST(_req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   try {
-    const id = String(params.id || "");
-    if (!id) return badRequest("id inválido.");
+    const { id } = await ctx.params;
+    if (!id) return badRequest("id é obrigatório.");
 
-    const compra = await prisma.purchase.findUnique({
+    const exists = await prisma.purchase.findUnique({
       where: { id },
       select: { id: true, status: true },
     });
-    if (!compra) return badRequest("Compra não encontrada.");
+    if (!exists) return notFound("Compra não encontrada.");
 
-    if (compra.status === "CLOSED") {
-      return badRequest("Compra liberada não pode ser cancelada.");
-    }
-    if (compra.status === "CANCELED") {
-      return ok({ ok: true }); // idempotente
-    }
+    // (opcional) se quiser impedir cancelar compra liberada:
+    // if (exists.status === "CLOSED") return badRequest("Compra já liberada não pode ser cancelada.");
 
-    await prisma.purchase.update({
+    const compra = await prisma.purchase.update({
       where: { id },
       data: { status: "CANCELED" },
+      include: { items: true },
     });
 
-    return ok({ ok: true });
+    // mantém consistência dos totais/saldos calculados
+    await recomputeCompra(id);
+
+    return ok({ compra });
   } catch (e: any) {
     return serverError("Falha ao cancelar compra.", { detail: e?.message });
   }
