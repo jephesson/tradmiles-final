@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 
 function toCentsFromInput(s: string) {
@@ -9,24 +9,33 @@ function toCentsFromInput(s: string) {
   return Number.isFinite(n) ? Math.round(n * 100) : 0;
 }
 
-export async function POST(req: Request, ctx: { params: { id: string } }) {
+export async function POST(
+  req: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
   try {
-    const receivableId = ctx.params.id;
+    const { id: receivableId } = await params;
     const body = await req.json();
 
     const amountStr = String(body?.amount || "").trim();
     const note = String(body?.note || "").trim() || null;
 
     const amountCents = toCentsFromInput(amountStr);
-    if (amountCents <= 0)
+    if (amountCents <= 0) {
       return NextResponse.json({ ok: false, error: "Valor inválido" }, { status: 400 });
+    }
 
-    const receivable = await prisma.receivable.findUnique({ where: { id: receivableId } });
-    if (!receivable)
+    const receivable = await prisma.receivable.findUnique({
+      where: { id: receivableId },
+    });
+
+    if (!receivable) {
       return NextResponse.json({ ok: false, error: "Recebimento não encontrado" }, { status: 404 });
+    }
 
-    if (receivable.status === "CANCELED")
+    if (receivable.status === "CANCELED") {
       return NextResponse.json({ ok: false, error: "Recebimento cancelado" }, { status: 400 });
+    }
 
     const nextReceived = (receivable.receivedCents || 0) + amountCents;
     const nextBalance = Math.max(0, (receivable.totalCents || 0) - nextReceived);
@@ -51,6 +60,9 @@ export async function POST(req: Request, ctx: { params: { id: string } }) {
 
     return NextResponse.json({ ok: true, data: created });
   } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e.message || "Erro" }, { status: 500 });
+    return NextResponse.json(
+      { ok: false, error: e?.message || "Erro" },
+      { status: 500 }
+    );
   }
 }
