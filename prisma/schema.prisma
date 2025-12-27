@@ -546,3 +546,32 @@ model Cliente {
   @@index([createdAt])
   @@map("clientes")
 }
+
+enum ReceivableStatus {
+  OPEN
+  RECEIVED
+  CANCELED
+}
+
+model Receivable {
+  id           String           @id @default(cuid())
+  title        String
+  description  String?
+  totalCents   Int
+  receivedCents Int            @default(0)
+  balanceCents Int
+  status       ReceivableStatus @default(OPEN)
+  createdAt    DateTime         @default(now())
+
+  receipts     Receipt[]
+}
+
+model Receipt {
+  id           String      @id @default(cuid())
+  receivableId String
+  receivable   Receivable  @relation(fields: [receivableId], references: [id], onDelete: Cascade)
+
+  amountCents  Int
+  note         String?
+  receivedAt   DateTime    @default(now())
+}
