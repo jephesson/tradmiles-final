@@ -40,8 +40,10 @@ export default function Sidebar() {
   // ✅ ANÁLISE agora é só Resumo
   const isAnaliseRoute = pathname.startsWith("/dashboard/resumo");
 
-  // ✅ FINANCEIRO (Dívidas fora de Análise)
-  const isFinanceiroRoute = pathname.startsWith("/dashboard/dividas");
+  // ✅ FINANCEIRO
+  const isDividasRoute = pathname.startsWith("/dashboard/dividas");
+  const isRecebimentosRoute = pathname.startsWith("/dashboard/recebimentos");
+  const isFinanceiroRoute = isDividasRoute || isRecebimentosRoute;
 
   // ✅ GESTOR DE EMISSÕES (novo)
   const isGestorEmissoesRoute = pathname.startsWith("/dashboard/emissoes");
@@ -442,6 +444,7 @@ export default function Sidebar() {
           active={isFinanceiroRoute}
         >
           <NavLink href="/dashboard/dividas">Dívidas</NavLink>
+          <NavLink href="/dashboard/recebimentos">Recebimentos</NavLink>
         </Accordion>
 
         {/* ================= GESTOR DE EMISSÕES ================= */}
