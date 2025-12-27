@@ -81,14 +81,24 @@ function StatCard({
 
   return (
     <div className={cls}>
-      <div className={tone === "dark" ? "text-xs opacity-80" : "text-xs text-slate-600"}>
+      <div
+        className={
+          tone === "dark" ? "text-xs opacity-80" : "text-xs text-slate-600"
+        }
+      >
         {label}
       </div>
       <div className={tone === "dark" ? "text-2xl font-bold" : "text-xl font-bold"}>
         {value}
       </div>
       {hint ? (
-        <div className={tone === "dark" ? "text-xs opacity-70 mt-1" : "text-xs text-slate-500 mt-1"}>
+        <div
+          className={
+            tone === "dark"
+              ? "text-xs opacity-70 mt-1"
+              : "text-xs text-slate-500 mt-1"
+          }
+        >
           {hint}
         </div>
       ) : null}
@@ -114,6 +124,9 @@ export default function CedentesResumoClient() {
   // ✅ novo: comissões pendentes (cedentes)
   const [pendingCedenteCommissionsCents, setPendingCedenteCommissionsCents] =
     useState<number>(0);
+
+  // ✅ novo: recebimentos em aberto (A RECEBER)
+  const [receivablesOpenCents, setReceivablesOpenCents] = useState<number>(0);
 
   const [rateLatam, setRateLatam] = useState("20,00");
   const [rateSmiles, setRateSmiles] = useState("18,00");
@@ -150,6 +163,9 @@ export default function CedentesResumoClient() {
       setPendingCedenteCommissionsCents(
         Number(j.data.pendingCedenteCommissionsCents || 0)
       );
+
+      // ✅ recebimentos em aberto
+      setReceivablesOpenCents(Number(j.data.receivablesOpenCents || 0));
 
       setDidLoad(true);
     } catch (e: any) {
@@ -204,11 +220,18 @@ export default function CedentesResumoClient() {
     const vEsferaCents = Math.round(milEsfera * rEsfera * 100);
 
     const cashCents = toCentsFromInput(cashInput);
+    const receivableCents = Number(receivablesOpenCents || 0);
 
+    // ✅ BRUTO agora inclui A RECEBER
     const totalGrossCents =
-      vLatamCents + vSmilesCents + vLiveloCents + vEsferaCents + cashCents;
+      vLatamCents +
+      vSmilesCents +
+      vLiveloCents +
+      vEsferaCents +
+      cashCents +
+      receivableCents;
 
-    // ✅ teu líquido "oficial" (o que você salva no snapshot)
+    // ✅ teu líquido "oficial" (o que você salva no snapshot) continua: bruto - dívidas
     const totalNetCents = totalGrossCents - (debtsOpenCents || 0);
 
     // ✅ líquido “referência” após comissões (não mexe no snapshot)
@@ -225,6 +248,7 @@ export default function CedentesResumoClient() {
       vLiveloCents,
       vEsferaCents,
       cashCents,
+      receivableCents,
       totalGrossCents,
       totalNetCents,
       totalAfterCommissionsCents,
@@ -238,6 +262,7 @@ export default function CedentesResumoClient() {
     cashInput,
     debtsOpenCents,
     pendingCedenteCommissionsCents,
+    receivablesOpenCents,
   ]);
 
   async function salvarCaixaHoje() {
@@ -269,10 +294,8 @@ export default function CedentesResumoClient() {
         <div>
           <h1 className="text-2xl font-bold">Resumo</h1>
           <p className="text-sm text-slate-600">
-            Patrimônio estimado: milhas (por milheiro) + caixa (Inter) − dívidas.{" "}
-            <span className="text-slate-500">
-              (Comissões pendentes exibidas à parte)
-            </span>
+            Patrimônio estimado: milhas (por milheiro) + caixa (Inter) + a receber − dívidas.{" "}
+            <span className="text-slate-500">(Comissões pendentes exibidas à parte)</span>
           </p>
         </div>
 
@@ -433,10 +456,15 @@ export default function CedentesResumoClient() {
         </div>
 
         {/* Totais */}
-        <div className="grid gap-3 md:grid-cols-4">
+        <div className="grid gap-3 md:grid-cols-5">
           <StatCard
-            label="TOTAL BRUTO (milhas + caixa)"
+            label="TOTAL BRUTO (milhas + caixa + a receber)"
             value={fmtMoneyBR(calc.totalGrossCents)}
+          />
+          <StatCard
+            label="A RECEBER (aberto)"
+            value={`+${fmtMoneyBR(calc.receivableCents)}`}
+            hint="saldo total OPEN em recebimentos"
           />
           <StatCard
             label="DÍVIDAS EM ABERTO"
@@ -453,14 +481,13 @@ export default function CedentesResumoClient() {
           <StatCard
             label="LÍQUIDO (referência)"
             value={fmtMoneyBR(calc.totalAfterCommissionsCents)}
-            hint="bruto − dívidas − comissões pendentes"
+            hint="(milhas+caixa+a receber) − dívidas − comissões"
             tone="dark"
           />
         </div>
 
         <div className="text-xs text-slate-600">
-          * O snapshot diário continua salvando <b>bruto − dívidas</b>. Esse “líquido (referência)” é só
-          um indicador.
+          * O snapshot diário continua salvando <b>bruto − dívidas</b>. Esse “líquido (referência)” é só um indicador.
         </div>
       </div>
 

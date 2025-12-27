@@ -85,6 +85,13 @@ export async function GET() {
     });
     const pendingCedenteCommissionsCents = safeInt(pendingAgg._sum.amountCents);
 
+    // ✅ A RECEBER (recebimentos em aberto): soma do saldo balanceCents dos OPEN
+    const receivablesAgg = await prisma.receivable.aggregate({
+      where: { status: "OPEN" },
+      _sum: { balanceCents: true },
+    });
+    const receivablesOpenCents = safeInt(receivablesAgg._sum.balanceCents);
+
     return NextResponse.json(
       {
         ok: true,
@@ -112,6 +119,9 @@ export async function GET() {
 
           // ✅ novo campo pro front
           pendingCedenteCommissionsCents,
+
+          // ✅ novo campo: total a receber (OPEN)
+          receivablesOpenCents,
         },
       },
       { status: 200 }
