@@ -165,6 +165,9 @@ model Cedente {
   // ✅ Comissões do cedente
   cedenteCommissions CedenteCommission[]
 
+  // ✅ Contagem CPF / emissões (novo)
+  emissions EmissionEvent[]
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -554,24 +557,59 @@ enum ReceivableStatus {
 }
 
 model Receivable {
-  id           String           @id @default(cuid())
-  title        String
-  description  String?
-  totalCents   Int
-  receivedCents Int            @default(0)
-  balanceCents Int
-  status       ReceivableStatus @default(OPEN)
-  createdAt    DateTime         @default(now())
+  id            String           @id @default(cuid())
+  title         String
+  description   String?
+  totalCents    Int
+  receivedCents Int              @default(0)
+  balanceCents  Int
+  status        ReceivableStatus @default(OPEN)
+  createdAt     DateTime         @default(now())
 
-  receipts     Receipt[]
+  receipts Receipt[]
 }
 
 model Receipt {
-  id           String      @id @default(cuid())
+  id           String     @id @default(cuid())
   receivableId String
-  receivable   Receivable  @relation(fields: [receivableId], references: [id], onDelete: Cascade)
+  receivable   Receivable @relation(fields: [receivableId], references: [id], onDelete: Cascade)
 
-  amountCents  Int
-  note         String?
-  receivedAt   DateTime    @default(now())
+  amountCents Int
+  note        String?
+  receivedAt  DateTime @default(now())
+}
+
+/**
+ * =========================
+ * CONTAGEM CPF (EMISSÕES)
+ * =========================
+ */
+enum EmissionSource {
+  SALE
+  MANUAL
+  ADJUSTMENT
+}
+
+model EmissionEvent {
+  id String @id @default(cuid())
+
+  cedenteId String
+  cedente   Cedente @relation(fields: [cedenteId], references: [id], onDelete: Cascade)
+
+  program         LoyaltyProgram
+  passengersCount Int            @default(1)
+
+  // data da emissão/venda
+  issuedAt DateTime
+
+  // origem do lançamento
+  source EmissionSource @default(SALE)
+
+  note String?
+
+  createdAt DateTime @default(now())
+
+  @@index([cedenteId, program, issuedAt])
+  @@index([program, issuedAt])
+  @@map("emission_events")
 }
