@@ -2,7 +2,12 @@
 
 import Link from "next/link";
 import Image from "next/image";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import {
+  usePathname,
+  useRouter,
+  useSearchParams,
+  type ReadonlyURLSearchParams,
+} from "next/navigation";
 import { useEffect, useState } from "react";
 import { cn } from "@/lib/cn";
 import { getSession, signOut } from "@/lib/auth";
@@ -45,7 +50,7 @@ export default function Sidebar() {
   const isRecebimentosRoute = pathname.startsWith("/dashboard/recebimentos");
   const isFinanceiroRoute = isDividasRoute || isRecebimentosRoute;
 
-  // ✅ GESTOR DE EMISSÕES (novo)
+  // ✅ GESTOR DE EMISSÕES
   const isGestorEmissoesRoute = pathname.startsWith("/dashboard/emissoes");
 
   // ✅ Rotas de comissões (subitens)
@@ -57,6 +62,13 @@ export default function Sidebar() {
   );
   const isComissoesSubRoute =
     isComissoesCedentesRoute || isComissoesFuncionariosRoute;
+
+  // ✅ Rotas / queries do submenu "Emissões por cedente"
+  const isEmissoesBasePath = pathname === "/dashboard/emissoes";
+  const programaEmissoes = (search?.get("programa") || "").toLowerCase();
+  const isEmissoesUltimas = isEmissoesBasePath && programaEmissoes === "";
+  const isEmissoesLatam = isEmissoesBasePath && programaEmissoes === "latam";
+  const isEmissoesSmiles = isEmissoesBasePath && programaEmissoes === "smiles";
 
   /* =========================
    * ACCORDIONS
@@ -101,12 +113,17 @@ export default function Sidebar() {
   // ✅ SubAccordion Comissões dentro de Lucros & Comissões
   const [openComissoes, setOpenComissoes] = useState(isComissoesSubRoute);
 
+  // ✅ SubAccordion "Emissões por cedente" dentro do Gestor de emissões
+  const [openEmissoesPorCedente, setOpenEmissoesPorCedente] = useState(
+    isGestorEmissoesRoute
+  );
+
   useEffect(() => setOpenCadastro(isCadastroRoute), [isCadastroRoute]);
+
   useEffect(
     () => setOpenGestaoPontos(isGestaoPontosRoute),
     [isGestaoPontosRoute]
   );
-
   useEffect(
     () => setOpenPontosVisualizar(isPontosVisualizarRoute),
     [isPontosVisualizarRoute]
@@ -133,6 +150,11 @@ export default function Sidebar() {
   );
 
   useEffect(() => setOpenComissoes(isComissoesSubRoute), [isComissoesSubRoute]);
+
+  // ✅ Emissões por cedente (abre automaticamente quando estiver em /dashboard/emissoes)
+  useEffect(() => {
+    setOpenEmissoesPorCedente(isGestorEmissoesRoute);
+  }, [isGestorEmissoesRoute]);
 
   /* =========================
    * FILTRO (VISUALIZAR PONTOS)
@@ -164,12 +186,7 @@ export default function Sidebar() {
       {/* Header */}
       <div className="flex items-center justify-between border-b p-4">
         <div className="flex items-center gap-3">
-          <Image
-            src="/trademiles.png"
-            alt="TradeMiles"
-            width={32}
-            height={32}
-          />
+          <Image src="/trademiles.png" alt="TradeMiles" width={32} height={32} />
           <span className="font-semibold">TradeMiles</span>
         </div>
         {session && (
@@ -404,7 +421,6 @@ export default function Sidebar() {
         >
           <NavLink href="/dashboard/lucros">Lucros</NavLink>
 
-          {/* ✅ Comissões vira submenu */}
           <SubAccordion
             title="Comissões"
             open={openComissoes}
@@ -427,13 +443,6 @@ export default function Sidebar() {
           active={isAnaliseRoute}
         >
           <NavLink href="/dashboard/resumo">Resumo</NavLink>
-
-          {/* REMOVIDOS da sidebar:
-              - /dashboard/analise (Análise geral)
-              - /dashboard/cpf (Contador CPF)
-              - /dashboard/cpf/importar (Importar CPF)
-              - /dashboard/dividas (Dívidas) -> agora em Financeiro
-          */}
         </Accordion>
 
         {/* ================= FINANCEIRO ================= */}
@@ -454,7 +463,29 @@ export default function Sidebar() {
           onToggle={() => setOpenGestorEmissoes((v) => !v)}
           active={isGestorEmissoesRoute}
         >
-          <NavLink href="/dashboard/emissoes">Emissões por cedente</NavLink>
+          <SubAccordion
+            title="Emissões por cedente"
+            open={openEmissoesPorCedente}
+            onToggle={() => setOpenEmissoesPorCedente((v) => !v)}
+            variant="nav"
+            active={isGestorEmissoesRoute}
+          >
+            <NavLink href="/dashboard/emissoes" className="font-semibold">
+              Últimas emissões
+            </NavLink>
+            <NavLink
+              href="/dashboard/emissoes?programa=latam"
+              className="font-semibold"
+            >
+              Latam
+            </NavLink>
+            <NavLink
+              href="/dashboard/emissoes?programa=smiles"
+              className="font-semibold"
+            >
+              Smiles
+            </NavLink>
+          </SubAccordion>
         </Accordion>
       </nav>
     </aside>
@@ -464,6 +495,22 @@ export default function Sidebar() {
 /* =========================
  * COMPONENTES AUXILIARES
  * ========================= */
+
+function paramsEqual(current: ReadonlyURLSearchParams | null, hrefQuery: string) {
+  const a = new URLSearchParams(current?.toString() || "");
+  const b = new URLSearchParams(hrefQuery || "");
+
+  const aEntries = Array.from(a.entries()).sort();
+  const bEntries = Array.from(b.entries()).sort();
+  if (aEntries.length !== bEntries.length) return false;
+
+  for (let i = 0; i < aEntries.length; i++) {
+    if (aEntries[i][0] !== bEntries[i][0]) return false;
+    if (aEntries[i][1] !== bEntries[i][1]) return false;
+  }
+  return true;
+}
+
 function NavLink({
   href,
   children,
@@ -474,7 +521,14 @@ function NavLink({
   className?: string;
 }) {
   const pathname = usePathname();
-  const active = pathname === href || pathname.startsWith(href + "/");
+  const search = useSearchParams();
+
+  const [hrefPath, hrefQuery = ""] = href.split("?");
+  const hasQuery = href.includes("?");
+
+  const active = hasQuery
+    ? pathname === hrefPath && paramsEqual(search, hrefQuery)
+    : pathname === href || pathname.startsWith(href + "/");
 
   return (
     <Link
@@ -554,11 +608,7 @@ function SubAccordion({
         <span>{open ? (isNav ? "▾" : "−") : isNav ? "▸" : "+"}</span>
       </button>
 
-      {open && (
-        <div className={isNav ? "pl-4 space-y-1" : "pl-4 space-y-1"}>
-          {children}
-        </div>
-      )}
+      {open && <div className="pl-4 space-y-1">{children}</div>}
     </>
   );
 }
