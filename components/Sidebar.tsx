@@ -53,6 +53,14 @@ export default function Sidebar() {
   // ✅ GESTOR DE EMISSÕES
   const isGestorEmissoesRoute = pathname.startsWith("/dashboard/emissoes");
 
+  // ✅ IMPORTAÇÕES (fora do Gestor de emissões)
+  const isImportacoesRoute = pathname.startsWith("/dashboard/importacoes");
+  const isImportacoesEmissoesLatamRoute = pathname.startsWith(
+    "/dashboard/emissoes/import-latam"
+  );
+  const isImportacoesEmissoesRoute = isImportacoesEmissoesLatamRoute;
+  const isImportacoesEmissoesSubRoute = isImportacoesEmissoesRoute;
+
   // ✅ Rotas de comissões (subitens)
   const isComissoesCedentesRoute = pathname.startsWith(
     "/dashboard/comissoes/cedentes"
@@ -103,6 +111,15 @@ export default function Sidebar() {
   const [openGestorEmissoes, setOpenGestorEmissoes] =
     useState(isGestorEmissoesRoute);
 
+  // ✅ Importações (accordion principal, fora do gestor)
+  const [openImportacoes, setOpenImportacoes] = useState(
+    isImportacoesRoute || isImportacoesEmissoesLatamRoute
+  );
+  // ✅ Importações > Emissões
+  const [openImportacoesEmissoes, setOpenImportacoesEmissoes] = useState(
+    isImportacoesEmissoesSubRoute
+  );
+
   // ✅ sub-accordion "Visualizar cedentes" dentro do Cadastro > Cedentes
   const isCadastroVisualizarCedentesRoute = pathname.startsWith(
     "/dashboard/cedentes/visualizar"
@@ -148,6 +165,15 @@ export default function Sidebar() {
     () => setOpenGestorEmissoes(isGestorEmissoesRoute),
     [isGestorEmissoesRoute]
   );
+
+  // ✅ Importações: abre quando estiver em uma rota de importação
+  useEffect(() => {
+    setOpenImportacoes(isImportacoesRoute || isImportacoesEmissoesLatamRoute);
+  }, [isImportacoesRoute, isImportacoesEmissoesLatamRoute]);
+
+  useEffect(() => {
+    setOpenImportacoesEmissoes(isImportacoesEmissoesSubRoute);
+  }, [isImportacoesEmissoesSubRoute]);
 
   useEffect(() => setOpenComissoes(isComissoesSubRoute), [isComissoesSubRoute]);
 
@@ -456,6 +482,29 @@ export default function Sidebar() {
           <NavLink href="/dashboard/recebimentos">Recebimentos</NavLink>
         </Accordion>
 
+        {/* ================= IMPORTAÇÕES (FORA DO GESTOR) ================= */}
+        <Accordion
+          title="Importações"
+          open={openImportacoes}
+          onToggle={() => setOpenImportacoes((v) => !v)}
+          active={isImportacoesRoute || isImportacoesEmissoesLatamRoute}
+        >
+          <SubAccordion
+            title="Emissões"
+            open={openImportacoesEmissoes}
+            onToggle={() => setOpenImportacoesEmissoes((v) => !v)}
+            variant="nav"
+            active={isImportacoesEmissoesLatamRoute}
+          >
+            <NavLink
+              href="/dashboard/emissoes/import-latam"
+              className="font-semibold"
+            >
+              Latam
+            </NavLink>
+          </SubAccordion>
+        </Accordion>
+
         {/* ================= GESTOR DE EMISSÕES ================= */}
         <Accordion
           title="Gestor de emissões"
@@ -496,7 +545,10 @@ export default function Sidebar() {
  * COMPONENTES AUXILIARES
  * ========================= */
 
-function paramsEqual(current: ReadonlyURLSearchParams | null, hrefQuery: string) {
+function paramsEqual(
+  current: ReadonlyURLSearchParams | null,
+  hrefQuery: string
+) {
   const a = new URLSearchParams(current?.toString() || "");
   const b = new URLSearchParams(hrefQuery || "");
 
