@@ -24,7 +24,7 @@ type PanelApiResp = {
     cedenteId: string;
     total: number;
     manual: number; // vem da API, mas não exibimos
-    renewEndOfMonth: number; // vem da API, mas não exibimos
+    renewEndOfMonth: number; // vem da API, mas não exibimos (só no card total)
     perMonth: Record<string, number>;
   }>;
   totals: { total: number; manual: number; renewEndOfMonth: number };
@@ -194,6 +194,19 @@ export default function PainelEmissoesClient({
     return Math.max(1, ...rowsMerged.map((r) => Number(r.total || 0)));
   }, [rowsMerged]);
 
+  // ✅ NOVO: total que renova no mês corrente (CPFs / passageiros)
+  const renewThisMonthTotal = useMemo(() => {
+    if (!panel) return 0;
+
+    // preferido: já vem pronto do backend
+    const t = Number(panel.totals?.renewEndOfMonth);
+    if (Number.isFinite(t)) return t;
+
+    // fallback: soma a coluna do mês de renovação (mês-12) na tabela
+    const key = panel.renewMonthKey;
+    return panel.rows.reduce((acc, r) => acc + Number(r.perMonth?.[key] || 0), 0);
+  }, [panel]);
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -240,16 +253,24 @@ export default function PainelEmissoesClient({
         </div>
       </div>
 
-      {/* Top summary (SEM Manual e SEM Renova) */}
-      <div className="grid gap-3 md:grid-cols-2">
+      {/* ✅ Top summary (agora com 3 cards) */}
+      <div className="grid gap-3 md:grid-cols-3">
         <CardStat
           label="Cedentes"
           value={cedentesLoading ? "…" : fmtInt(cedentes.length)}
         />
+
         <CardStat
           label="Total (janela do painel)"
           value={panel ? fmtInt(panel.totals.total) : "—"}
           strong
+        />
+
+        <CardStat
+          label="Renovam no mês corrente"
+          value={panel ? fmtInt(renewThisMonthTotal) : "—"}
+          tone="rose"
+          sub={panel ? `Base: ${panel.renewMonthKey}` : undefined}
         />
       </div>
 
@@ -411,17 +432,27 @@ function CardStat({
   label,
   value,
   strong,
+  tone,
+  sub,
 }: {
   label: string;
   value: string;
   strong?: boolean;
+  tone?: "default" | "rose";
+  sub?: string;
 }) {
+  const toneCls =
+    tone === "rose"
+      ? "border-rose-200 bg-rose-50"
+      : "border-zinc-200 bg-white";
+
   return (
-    <div className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
+    <div className={cn("rounded-2xl border p-4 shadow-sm", toneCls)}>
       <div className="text-xs text-zinc-500">{label}</div>
       <div className={cn("mt-1 text-xl", strong && "font-semibold")}>
         {value}
       </div>
+      {sub ? <div className="mt-1 text-[11px] text-zinc-500">{sub}</div> : null}
     </div>
   );
 }
