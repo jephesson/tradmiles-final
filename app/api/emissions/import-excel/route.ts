@@ -21,7 +21,7 @@ function normName(s: string) {
     .trim();
 }
 
-// Similaridade por Dice (bigrams). Simples e bom pro “90%”
+// Similaridade Dice (bigrams)
 function diceSimilarity(a: string, b: string) {
   const A = normName(a);
   const B = normName(b);
@@ -53,8 +53,8 @@ function diceSimilarity(a: string, b: string) {
 }
 
 /** =========================
- *  PARSE DE MÊS (linha 2)
- *  Aceita: "dez/24", "jan/25", "jan/25 (at)", "jan/2025", etc.
+ *  PARSE DE MÊS
+ *  Aceita: "dez/24", "jan/25", "jan/25 (at)", "jan/2025"
  *  ========================= */
 
 const monthMap: Record<string, number> = {
@@ -73,13 +73,11 @@ const monthMap: Record<string, number> = {
 };
 
 function parseMonthHeaderToLastDayUTC(headerRaw: any): Date | null {
-  const s = String(headerRaw ?? "").trim().toLowerCase();
-  if (!s) return null;
+  const s0 = String(headerRaw ?? "").trim().toLowerCase();
+  if (!s0) return null;
 
-  // remove coisas tipo "(at)" e espaços extras
-  const cleaned = s.replace(/\(.*?\)/g, "").replace(/\s+/g, " ").trim();
+  const cleaned = s0.replace(/\(.*?\)/g, "").replace(/\s+/g, " ").trim();
 
-  // tenta "dez/24" ou "dez/2024"
   const m = cleaned.match(/^([a-zç]{3})\/(\d{2}|\d{4})$/i);
   if (!m) return null;
 
@@ -91,23 +89,12 @@ function parseMonthHeaderToLastDayUTC(headerRaw: any): Date | null {
   if (!Number.isFinite(year)) return null;
   if (year < 100) year = 2000 + year;
 
-  // último dia do mês em UTC: dia 0 do mês seguinte
-  const lastDay = new Date(Date.UTC(year, mon + 1, 0, 23, 59, 59, 999));
-  return lastDay;
+  return new Date(Date.UTC(year, mon + 1, 0, 23, 59, 59, 999));
 }
 
 /** =========================
  *  UTIL
  *  ========================= */
-
-function parseProgram(v: any): LoyaltyProgram | null {
-  const s = String(v || "").trim().toUpperCase();
-  if (s === "LATAM") return LoyaltyProgram.LATAM;
-  if (s === "SMILES") return LoyaltyProgram.SMILES;
-  if (s === "LIVELO") return LoyaltyProgram.LIVELO;
-  if (s === "ESFERA") return LoyaltyProgram.ESFERA;
-  return null;
-}
 
 function toIntOrZero(v: any) {
   if (typeof v === "number") return Number.isFinite(v) ? Math.trunc(v) : 0;
@@ -116,174 +103,223 @@ function toIntOrZero(v: any) {
   return Number.isFinite(n) ? Math.trunc(n) : 0;
 }
 
+// "A" => 0, "D" => 3, "AA" => 26
+function colLettersToIdx(col: string) {
+  const s = String(col || "").trim().toUpperCase();
+  if (!/^[A-Z]+$/.test(s)) return NaN;
+  let n = 0;
+  for (let i = 0; i < s.length; i++) {
+    n = n * 26 + (s.charCodeAt(i) - 64);
+  }
+  return n - 1;
+}
+
 type MonthCol = { colIdx: number; dateLastDayUTC: Date; label: string };
 
 export async function POST(req: NextRequest) {
-  const session = await getSession();
-  if (!session?.id) {
-    return NextResponse.json({ ok: false, error: "Não autenticado." }, { status: 401 });
-  }
+  try {
+    const session = await getSession();
+    if (!session?.id) {
+      return NextResponse.json({ ok: false, error: "Não autenticado." }, { status: 401 });
+    }
 
-  // FormData: file, sheetName(opcional), programa, threshold(opcional), dryRun(opcional)
-  const form = await req.formData();
-  const file = form.get("file") as File | null;
-  const sheetName = String(form.get("sheetName") || "").trim(); // ex: "Contagem CPF"
-  const programa = parseProgram(form.get("programa"));
-  const threshold = Math.max(0, Math.min(1, Number(form.get("threshold") ?? 0.9)));
-  const dryRun = String(form.get("dryRun") || "false").toLowerCase() === "true";
+    const form = await req.formData();
+    const file = form.get("file") as File | null;
 
-  if (!file) return NextResponse.json({ ok: false, error: "Arquivo .xlsx é obrigatório (field: file)." }, { status: 400 });
-  if (!programa) return NextResponse.json({ ok: false, error: "programa inválido." }, { status: 400 });
+    const sheetName = String(form.get("sheetName") || "").trim(); // opcional
+    const headerRow = Math.max(1, Number(form.get("headerRow") || 2)); // 1-based
+    const dataStartRow = Math.max(1, Number(form.get("dataStartRow") || 3)); // 1-based
+    const nameCol = String(form.get("nameCol") || "A").trim();
+    const monthStartCol = String(form.get("monthStartCol") || "D").trim();
+    const monthEndCol = String(form.get("monthEndCol") || "Q").trim();
 
-  const buf = Buffer.from(await file.arrayBuffer());
-  const wb = XLSX.read(buf, { type: "buffer" });
+    const threshold = Math.max(0, Math.min(1, Number(form.get("threshold") ?? 0.9)));
+    const dryRun = String(form.get("dryRun") || "true").toLowerCase() === "true";
 
-  const targetSheetName = sheetName || wb.SheetNames[0];
-  const ws = wb.Sheets[targetSheetName];
-  if (!ws) {
-    return NextResponse.json(
-      { ok: false, error: `Aba não encontrada: ${targetSheetName}. Abas disponíveis: ${wb.SheetNames.join(", ")}` },
-      { status: 400 }
-    );
-  }
+    if (!file) {
+      return NextResponse.json(
+        { ok: false, error: 'Arquivo .xlsx é obrigatório (field: "file").' },
+        { status: 400 }
+      );
+    }
 
-  // Lê a planilha como matriz (rows/cols)
-  const rows: any[][] = XLSX.utils.sheet_to_json(ws, { header: 1, raw: true, defval: "" });
+    const nameColIdx = colLettersToIdx(nameCol);
+    const startIdx = colLettersToIdx(monthStartCol);
+    const endIdx = colLettersToIdx(monthEndCol);
 
-  // Esperado:
-  // Linha 2 (index 1) tem meses em D..Q
-  // Linha 3+ (index 2+) tem Nome em A (col 0) e números em D..Q
-  const headerRow = rows[1];
-  if (!headerRow || headerRow.length < 4) {
-    return NextResponse.json({ ok: false, error: "Linha 2 (cabeçalho de meses) não encontrada ou inválida." }, { status: 400 });
-  }
+    if (![nameColIdx, startIdx, endIdx].every(Number.isFinite)) {
+      return NextResponse.json(
+        { ok: false, error: "Colunas inválidas. Use letras: A, D, Q, AA..." },
+        { status: 400 }
+      );
+    }
+    const monthFrom = Math.min(startIdx, endIdx);
+    const monthTo = Math.max(startIdx, endIdx);
 
-  // Monta colunas de meses: D..Q => colIdx 3..16 (ajuste se você mudar)
-  const monthCols: MonthCol[] = [];
-  for (let colIdx = 3; colIdx <= 16; colIdx++) {
-    const label = String(headerRow[colIdx] ?? "").trim();
-    const d = parseMonthHeaderToLastDayUTC(label);
-    if (d) monthCols.push({ colIdx, dateLastDayUTC: d, label });
-  }
-  if (monthCols.length === 0) {
-    return NextResponse.json({ ok: false, error: "Não consegui interpretar nenhum mês na linha 2 (D..Q)." }, { status: 400 });
-  }
+    const buf = Buffer.from(await file.arrayBuffer());
+    const wb = XLSX.read(buf, { type: "buffer" });
 
-  // Carrega cedentes aprovados desse programa (ou todos — aqui vou pegar todos)
-  const cedentes = await prisma.cedente.findMany({
-    select: { id: true, identificador: true, nomeCompleto: true, cpf: true },
-  });
+    const targetSheetName = sheetName || wb.SheetNames[0];
+    const ws = wb.Sheets[targetSheetName];
+    if (!ws) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: `Aba não encontrada: ${targetSheetName}. Abas disponíveis: ${wb.SheetNames.join(", ")}`,
+        },
+        { status: 400 }
+      );
+    }
 
-  // Index por nome normalizado (ajuda um pouco)
-  const cedentesNorm = cedentes.map((c) => ({
-    ...c,
-    nomeNorm: normName(c.nomeCompleto),
-  }));
+    const rows: any[][] = XLSX.utils.sheet_to_json(ws, { header: 1, raw: true, defval: "" });
 
-  const unmatched: Array<{ excelName: string; bestScore: number; best?: { id: string; nomeCompleto: string; identificador: string } }> = [];
-  const plannedEvents: Array<{
-    cedenteId: string;
-    issuedAt: Date;
-    passengersCount: number;
-    note: string | null;
-  }> = [];
+    const headerIdx = headerRow - 1;
+    const dataIdx = dataStartRow - 1;
 
-  // Percorre linhas a partir da 3
-  for (let r = 2; r < rows.length; r++) {
-    const row = rows[r];
-    if (!row) continue;
+    const header = rows[headerIdx];
+    if (!header) {
+      return NextResponse.json(
+        { ok: false, error: `Linha do cabeçalho (${headerRow}) não existe na aba.` },
+        { status: 400 }
+      );
+    }
 
-    const excelName = String(row[0] ?? "").trim();
-    if (!excelName) continue;
+    // Detecta meses no range escolhido
+    const monthCols: MonthCol[] = [];
+    for (let colIdx = monthFrom; colIdx <= monthTo; colIdx++) {
+      const label = String(header[colIdx] ?? "").trim();
+      const d = parseMonthHeaderToLastDayUTC(label);
+      if (d) monthCols.push({ colIdx, dateLastDayUTC: d, label });
+    }
+    if (monthCols.length === 0) {
+      return NextResponse.json(
+        { ok: false, error: `Não consegui interpretar nenhum mês na linha ${headerRow} entre ${monthStartCol}..${monthEndCol}.` },
+        { status: 400 }
+      );
+    }
 
-    // acha o melhor match
-    let bestScore = 0;
-    let best: (typeof cedentesNorm)[number] | null = null;
+    // ✅ LATAM fixo
+    const program = LoyaltyProgram.LATAM;
 
-    for (const c of cedentesNorm) {
-      // um “atalho”: se contém o primeiro nome + último nome, aumenta chance
-      const s = diceSimilarity(excelName, c.nomeCompleto);
-      if (s > bestScore) {
-        bestScore = s;
-        best = c;
+    const cedentes = await prisma.cedente.findMany({
+      select: { id: true, identificador: true, nomeCompleto: true, cpf: true },
+    });
+
+    const cedentesNorm = cedentes.map((c) => ({ ...c, nomeNorm: normName(c.nomeCompleto) }));
+
+    const unmatched: Array<{
+      excelName: string;
+      bestScore: number;
+      best?: { id: string; nomeCompleto: string; identificador: string };
+    }> = [];
+
+    const plannedEvents: Array<{
+      cedenteId: string;
+      issuedAt: Date;
+      passengersCount: number;
+      note: string | null;
+    }> = [];
+
+    for (let r = dataIdx; r < rows.length; r++) {
+      const row = rows[r];
+      if (!row) continue;
+
+      const excelName = String(row[nameColIdx] ?? "").trim();
+      if (!excelName) continue;
+
+      let bestScore = 0;
+      let best: (typeof cedentesNorm)[number] | null = null;
+
+      for (const c of cedentesNorm) {
+        const s = diceSimilarity(excelName, c.nomeCompleto);
+        if (s > bestScore) {
+          bestScore = s;
+          best = c;
+        }
+      }
+
+      if (!best || bestScore < threshold) {
+        unmatched.push({
+          excelName,
+          bestScore,
+          best: best ? { id: best.id, nomeCompleto: best.nomeCompleto, identificador: best.identificador } : undefined,
+        });
+        continue;
+      }
+
+      for (const mc of monthCols) {
+        const qty = toIntOrZero(row[mc.colIdx]);
+        if (qty <= 0) continue;
+
+        plannedEvents.push({
+          cedenteId: best.id,
+          issuedAt: mc.dateLastDayUTC,
+          passengersCount: qty,
+          note: `Import Excel (${targetSheetName}) — ${mc.label} — nomeExcel="${excelName}" — score=${bestScore.toFixed(3)}`,
+        });
       }
     }
 
-    if (!best || bestScore < threshold) {
-      unmatched.push({
-        excelName,
-        bestScore,
-        best: best
-          ? { id: best.id, nomeCompleto: best.nomeCompleto, identificador: best.identificador }
-          : undefined,
+    if (dryRun) {
+      return NextResponse.json({
+        ok: true,
+        dryRun: true,
+        sheet: targetSheetName,
+        program,
+        threshold,
+        config: {
+          headerRow,
+          dataStartRow,
+          nameCol,
+          monthStartCol,
+          monthEndCol,
+        },
+        monthsDetected: monthCols.map((m) => ({
+          colIdx: m.colIdx,
+          label: m.label,
+          issuedAt: m.dateLastDayUTC.toISOString(),
+        })),
+        plannedCount: plannedEvents.length,
+        unmatchedCount: unmatched.length,
+        unmatched: unmatched.slice(0, 50),
+        samplePlanned: plannedEvents.slice(0, 50).map((e) => ({ ...e, issuedAt: e.issuedAt.toISOString() })),
       });
-      continue;
     }
 
-    // para cada mês, cria evento se houver valor
-    for (const mc of monthCols) {
-      const qty = toIntOrZero(row[mc.colIdx]);
-      if (qty <= 0) continue;
+    const inserted = await prisma.$transaction(async (tx) => {
+      const res = await Promise.all(
+        plannedEvents.map((e) =>
+          tx.emissionEvent.create({
+            data: {
+              cedenteId: e.cedenteId,
+              program,
+              passengersCount: e.passengersCount,
+              issuedAt: e.issuedAt,
+              source: "MANUAL" as any, // se criar IMPORT, troque aqui
+              note: e.note,
+            },
+            select: { id: true },
+          })
+        )
+      );
+      return res.length;
+    });
 
-      plannedEvents.push({
-        cedenteId: best.id,
-        issuedAt: mc.dateLastDayUTC,
-        passengersCount: qty,
-        note: `Import Excel (${targetSheetName}) — ${mc.label} — nomeExcel="${excelName}" — score=${bestScore.toFixed(3)}`,
-      });
-    }
-  }
-
-  // Se for dryRun, não grava
-  if (dryRun) {
     return NextResponse.json({
       ok: true,
-      dryRun: true,
+      dryRun: false,
       sheet: targetSheetName,
-      program: programa,
+      program,
       threshold,
-      monthsDetected: monthCols.map((m) => ({ colIdx: m.colIdx, label: m.label, issuedAt: m.dateLastDayUTC.toISOString() })),
-      plannedCount: plannedEvents.length,
+      inserted,
       unmatchedCount: unmatched.length,
       unmatched: unmatched.slice(0, 50),
-      samplePlanned: plannedEvents.slice(0, 50).map((e) => ({
-        ...e,
-        issuedAt: e.issuedAt.toISOString(),
-      })),
     });
-  }
-
-  // Grava tudo em transação
-  // Observação: aqui estou usando source "MANUAL" porque seu enum atual tem MANUAL.
-  // Se você criar EmissionSource.IMPORT, troque aqui.
-  const created = await prisma.$transaction(async (tx) => {
-    // Se quiser evitar duplicar importações: você pode deletar “mesmo cedente/programa/issuedAt” antes, ou fazer upsert.
-    // Aqui vou apenas inserir (simples).
-    const res = await Promise.all(
-      plannedEvents.map((e) =>
-        tx.emissionEvent.create({
-          data: {
-            cedenteId: e.cedenteId,
-            program: programa,
-            passengersCount: e.passengersCount,
-            issuedAt: e.issuedAt,
-            source: "MANUAL" as any,
-            note: e.note,
-          },
-          select: { id: true },
-        })
-      )
+  } catch (err: any) {
+    console.error("IMPORT EXCEL ERROR:", err);
+    return NextResponse.json(
+      { ok: false, error: err?.message || "Erro inesperado ao importar" },
+      { status: 500 }
     );
-    return res.length;
-  });
-
-  return NextResponse.json({
-    ok: true,
-    sheet: targetSheetName,
-    program: programa,
-    threshold,
-    inserted: created,
-    unmatchedCount: unmatched.length,
-    unmatched: unmatched.slice(0, 50),
-  });
+  }
 }

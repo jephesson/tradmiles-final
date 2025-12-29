@@ -2,63 +2,88 @@
 
 import { useMemo, useState } from "react";
 
-type DryRunResp = {
-  ok: boolean;
-  dryRun?: boolean;
-  sheet?: string;
-  program?: string;
-  threshold?: number;
-  monthsDetected?: Array<{ colIdx: number; label: string; issuedAt: string }>;
-  plannedCount?: number;
-  unmatchedCount?: number;
-  unmatched?: Array<{
-    excelName: string;
-    bestScore: number;
-    best?: { id: string; nomeCompleto: string; identificador: string };
-  }>;
-  samplePlanned?: Array<{
-    cedenteId: string;
-    issuedAt: string;
-    passengersCount: number;
-    note: string | null;
-  }>;
-  inserted?: number;
-  error?: string;
-};
+type DryRunResp =
+  | {
+      ok: true;
+      dryRun: true;
+      sheet: string;
+      threshold: number;
+      config: {
+        headerRow: number;
+        dataStartRow: number;
+        nameCol: string;
+        monthStartCol: string;
+        monthEndCol: string;
+      };
+      monthsDetected: Array<{ colIdx: number; label: string; issuedAt: string }>;
+      plannedCount: number;
+      unmatchedCount: number;
+      unmatched: Array<{
+        excelName: string;
+        bestScore: number;
+        best?: { id: string; nomeCompleto: string; identificador: string };
+      }>;
+      samplePlanned: Array<{
+        cedenteId: string;
+        issuedAt: string;
+        passengersCount: number;
+        note: string | null;
+      }>;
+    }
+  | { ok: false; error: string };
+
+type ImportResp =
+  | {
+      ok: true;
+      dryRun: false;
+      sheet: string;
+      threshold: number;
+      inserted: number;
+      unmatchedCount: number;
+      unmatched: any[];
+    }
+  | { ok: false; error: string };
 
 function cn(...xs: Array<string | false | null | undefined>) {
   return xs.filter(Boolean).join(" ");
 }
 
-function fmtDateBR(iso: string) {
-  try {
-    return new Date(iso).toLocaleDateString("pt-BR");
-  } catch {
-    return iso;
-  }
-}
-
 export default function ImportLatamClient() {
   const [file, setFile] = useState<File | null>(null);
+
   const [sheetName, setSheetName] = useState<string>("Contagem CPF");
+
+  const [headerRow, setHeaderRow] = useState<number>(2);
+  const [dataStartRow, setDataStartRow] = useState<number>(3);
+
+  const [nameCol, setNameCol] = useState<string>("A");
+  const [monthStartCol, setMonthStartCol] = useState<string>("D");
+  const [monthEndCol, setMonthEndCol] = useState<string>("Q");
+
   const [threshold, setThreshold] = useState<number>(0.9);
 
   const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState<DryRunResp | null>(null);
+  const [result, setResult] = useState<DryRunResp | ImportResp | null>(null);
 
-  const canRun = useMemo(() => !!file && !loading, [file, loading]);
+  const canRun = useMemo(() => !!file, [file]);
 
-  async function callImport(dryRun: boolean) {
+  async function postImport(dryRun: boolean) {
     if (!file) return alert("Selecione um arquivo .xlsx");
+
     setLoading(true);
     setResult(null);
 
     try {
       const fd = new FormData();
       fd.append("file", file);
-      fd.append("programa", "LATAM"); // fixo
-      fd.append("sheetName", sheetName?.trim() || "");
-      fd.append("threshold", String(threshold || 0.9));
+
+      if (sheetName.trim()) fd.append("sheetName", sheetName.trim());
+      fd.append("headerRow", String(headerRow));
+      fd.append("dataStartRow", String(dataStartRow));
+      fd.append("nameCol", nameCol.trim());
+      fd.append("monthStartCol", monthStartCol.trim());
+      fd.append("monthEndCol", monthEndCol.trim());
+      fd.append("threshold", String(threshold));
       fd.append("dryRun", dryRun ? "true" : "false");
 
       const res = await fetch("/api/emissions/import-excel", {
@@ -67,14 +92,14 @@ export default function ImportLatamClient() {
         cache: "no-store",
       });
 
-      const json = (await res.json().catch(() => ({}))) as DryRunResp;
+      const json = (await res.json().catch(() => ({}))) as any;
       if (!res.ok || json?.ok === false) {
         throw new Error(json?.error || "Falha ao importar.");
       }
 
       setResult(json);
     } catch (e: any) {
-      setResult({ ok: false, error: e?.message || "Erro ao importar." });
+      setResult({ ok: false, error: e?.message || "Erro" });
       alert(e?.message || "Erro ao importar");
     } finally {
       setLoading(false);
@@ -83,61 +108,106 @@ export default function ImportLatamClient() {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Importar emissões — LATAM</h1>
-          <p className="text-sm text-zinc-500">
-            Converte a planilha “contagem por mês” em lançamentos. Cada mês vira um evento no <b>último dia do mês</b>.
-          </p>
-        </div>
+      <div>
+        <h1 className="text-2xl font-semibold tracking-tight">Importar emissões — LATAM</h1>
+        <p className="text-sm text-zinc-500">
+          Converte uma planilha por mês/coluna em eventos (data = último dia do mês).
+        </p>
       </div>
 
-      {/* Card Upload */}
       <div className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
         <h2 className="mb-3 text-base font-semibold">Arquivo Excel</h2>
 
-        <div className="grid gap-3 md:grid-cols-6">
-          <div className="md:col-span-3">
+        <div className="grid gap-3 md:grid-cols-12">
+          <div className="md:col-span-6">
             <label className="mb-1 block text-xs text-zinc-600">Selecionar .xlsx</label>
             <input
               type="file"
-              accept=".xlsx,.xls"
+              accept=".xlsx"
               onChange={(e) => setFile(e.target.files?.[0] || null)}
-              className="block w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm shadow-sm outline-none focus:border-zinc-300"
+              className="block w-full text-sm"
             />
-            <div className="mt-1 text-xs text-zinc-500">
-              {file ? (
-                <>
-                  <span className="font-medium text-zinc-700">{file.name}</span>{" "}
-                  <span className="text-zinc-500">({Math.round(file.size / 1024)} KB)</span>
-                </>
-              ) : (
-                "Nenhum arquivo selecionado."
-              )}
-            </div>
+            {file ? (
+              <div className="mt-1 text-xs text-zinc-500">
+                {file.name} ({Math.round(file.size / 1024)} KB)
+              </div>
+            ) : null}
           </div>
 
-          <div className="md:col-span-2">
+          <div className="md:col-span-6">
             <label className="mb-1 block text-xs text-zinc-600">Aba (sheet)</label>
             <input
               value={sheetName}
               onChange={(e) => setSheetName(e.target.value)}
-              placeholder="Contagem CPF"
+              placeholder="Deixe em branco para usar a primeira aba"
               className="h-10 w-full rounded-xl border border-zinc-200 bg-white px-3 text-sm shadow-sm outline-none focus:border-zinc-300"
             />
             <div className="mt-1 text-xs text-zinc-500">
-              Deixe em branco para usar a primeira aba do arquivo.
+              Dica: se deixar em branco, usa a primeira aba do arquivo.
             </div>
           </div>
 
-          <div className="md:col-span-1">
+          <div className="md:col-span-3">
+            <label className="mb-1 block text-xs text-zinc-600">Linha mês/ano</label>
+            <input
+              type="number"
+              min={1}
+              value={headerRow}
+              onChange={(e) => setHeaderRow(Number(e.target.value))}
+              className="h-10 w-full rounded-xl border border-zinc-200 bg-white px-3 text-sm shadow-sm outline-none focus:border-zinc-300"
+            />
+            <div className="mt-1 text-xs text-zinc-500">Ex.: 2</div>
+          </div>
+
+          <div className="md:col-span-3">
+            <label className="mb-1 block text-xs text-zinc-600">Linha inicial dos dados</label>
+            <input
+              type="number"
+              min={1}
+              value={dataStartRow}
+              onChange={(e) => setDataStartRow(Number(e.target.value))}
+              className="h-10 w-full rounded-xl border border-zinc-200 bg-white px-3 text-sm shadow-sm outline-none focus:border-zinc-300"
+            />
+            <div className="mt-1 text-xs text-zinc-500">Ex.: 3</div>
+          </div>
+
+          <div className="md:col-span-2">
+            <label className="mb-1 block text-xs text-zinc-600">Coluna Nome</label>
+            <input
+              value={nameCol}
+              onChange={(e) => setNameCol(e.target.value)}
+              placeholder="A"
+              className="h-10 w-full rounded-xl border border-zinc-200 bg-white px-3 text-sm shadow-sm outline-none focus:border-zinc-300"
+            />
+          </div>
+
+          <div className="md:col-span-2">
+            <label className="mb-1 block text-xs text-zinc-600">Meses: de</label>
+            <input
+              value={monthStartCol}
+              onChange={(e) => setMonthStartCol(e.target.value)}
+              placeholder="D"
+              className="h-10 w-full rounded-xl border border-zinc-200 bg-white px-3 text-sm shadow-sm outline-none focus:border-zinc-300"
+            />
+          </div>
+
+          <div className="md:col-span-2">
+            <label className="mb-1 block text-xs text-zinc-600">Meses: até</label>
+            <input
+              value={monthEndCol}
+              onChange={(e) => setMonthEndCol(e.target.value)}
+              placeholder="Q"
+              className="h-10 w-full rounded-xl border border-zinc-200 bg-white px-3 text-sm shadow-sm outline-none focus:border-zinc-300"
+            />
+          </div>
+
+          <div className="md:col-span-2">
             <label className="mb-1 block text-xs text-zinc-600">Match</label>
             <input
               type="number"
-              min={0.5}
+              step="0.01"
+              min={0}
               max={1}
-              step={0.01}
               value={threshold}
               onChange={(e) => setThreshold(Number(e.target.value))}
               className="h-10 w-full rounded-xl border border-zinc-200 bg-white px-3 text-sm shadow-sm outline-none focus:border-zinc-300"
@@ -145,221 +215,192 @@ export default function ImportLatamClient() {
             <div className="mt-1 text-xs text-zinc-500">Sugestão: 0.90</div>
           </div>
 
-          <div className="md:col-span-6 flex flex-wrap gap-2">
+          <div className="md:col-span-12 flex flex-wrap gap-2">
             <button
-              disabled={!canRun}
-              onClick={() => callImport(true)}
+              disabled={!canRun || loading}
+              onClick={() => postImport(true)}
               className={cn(
-                "h-10 rounded-xl border px-4 text-sm font-medium shadow-sm",
-                canRun
-                  ? "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50"
-                  : "border-zinc-200 bg-zinc-100 text-zinc-400"
+                "h-10 rounded-xl border border-zinc-200 bg-white px-4 text-sm font-medium text-zinc-800 shadow-sm hover:bg-zinc-50",
+                (!canRun || loading) && "opacity-60 cursor-not-allowed"
               )}
             >
-              {loading ? "Processando…" : "Pré-visualizar (dry-run)"}
+              {loading ? "Processando..." : "Dry-run (validar)"}
             </button>
 
             <button
-              disabled={!canRun}
-              onClick={() => {
-                if (!confirm("Importar e GRAVAR no banco? (isso cria lançamentos)")) return;
-                callImport(false);
-              }}
+              disabled={!canRun || loading}
+              onClick={() => postImport(false)}
               className={cn(
-                "h-10 rounded-xl px-4 text-sm font-medium text-white shadow-sm",
-                canRun ? "bg-zinc-900 hover:bg-zinc-800" : "bg-zinc-300"
+                "h-10 rounded-xl bg-zinc-900 px-4 text-sm font-medium text-white shadow-sm hover:bg-zinc-800",
+                (!canRun || loading) && "opacity-60 cursor-not-allowed"
               )}
             >
-              {loading ? "Processando…" : "Importar (gravar)"}
+              {loading ? "Processando..." : "Importar e gravar"}
             </button>
 
-            <div className="ml-auto text-xs text-zinc-500 self-center">
-              Endpoint:{" "}
-              <span className="rounded bg-zinc-100 px-1 py-0.5">/api/emissions/import-excel</span>
-            </div>
+            <span className="ml-auto text-xs text-zinc-500 self-center">
+              Endpoint: <span className="rounded bg-zinc-100 px-1 py-0.5">/api/emissions/import-excel</span>
+            </span>
           </div>
         </div>
       </div>
 
-      {/* Result */}
       <div className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
         <div className="mb-2 flex items-center justify-between">
           <h2 className="text-base font-semibold">Resultado</h2>
-          {loading ? <span className="text-xs text-zinc-500">Carregando…</span> : null}
+          {result && "ok" in result ? (
+            <span className={cn("text-xs", (result as any).ok ? "text-emerald-700" : "text-red-700")}>
+              {(result as any).ok ? "OK" : "ERRO"}
+            </span>
+          ) : null}
         </div>
 
         {!result ? (
           <div className="text-sm text-zinc-600">
             Rode um <b>dry-run</b> para validar meses detectados e matches antes de gravar.
           </div>
-        ) : result.ok === false ? (
-          <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">
-            {result.error || "Erro."}
-          </div>
+        ) : (result as any).ok === false ? (
+          <div className="text-sm text-red-700">{(result as any).error}</div>
+        ) : (result as any).dryRun ? (
+          <DryRunView data={result as DryRunResp & { ok: true; dryRun: true }} />
         ) : (
-          <div className="space-y-4">
-            {/* Summary */}
-            <div className="grid gap-3 md:grid-cols-4">
-              <Stat label="Programa" value={String(result.program || "LATAM")} />
-              <Stat label="Aba" value={String(result.sheet || "—")} />
-              <Stat label="Threshold" value={String(result.threshold ?? threshold)} />
-              <Stat
-                label={result.dryRun ? "Planejado" : "Inserido"}
-                value={String(result.dryRun ? result.plannedCount ?? 0 : result.inserted ?? 0)}
-                strong
-              />
-            </div>
-
-            {/* Months */}
-            <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-3">
-              <div className="mb-2 text-xs font-medium text-zinc-700">Meses detectados (linha 2 / colunas D..Q)</div>
-              {result.monthsDetected?.length ? (
-                <div className="flex flex-wrap gap-2">
-                  {result.monthsDetected.map((m, i) => (
-                    <span
-                      key={i}
-                      className="rounded-full border border-zinc-200 bg-white px-2 py-1 text-xs text-zinc-700"
-                      title={m.issuedAt}
-                    >
-                      {m.label} → {fmtDateBR(m.issuedAt)}
-                    </span>
-                  ))}
-                </div>
-              ) : (
-                <div className="text-sm text-zinc-600">Nenhum mês detectado.</div>
-              )}
-            </div>
-
-            {/* Unmatched */}
-            <div className="rounded-xl border border-zinc-200 bg-white">
-              <div className="flex items-center justify-between border-b border-zinc-200 p-3">
-                <div>
-                  <div className="text-sm font-semibold">Não encontrados</div>
-                  <div className="text-xs text-zinc-500">
-                    Linhas cujo nome do Excel não bateu com nenhum cedente acima do threshold.
-                  </div>
-                </div>
-                <span className="text-xs text-zinc-600">
-                  {result.unmatchedCount ?? result.unmatched?.length ?? 0}
-                </span>
-              </div>
-
-              {(result.unmatched?.length || 0) === 0 ? (
-                <div className="p-3 text-sm text-zinc-600">Nenhum. ✅</div>
-              ) : (
-                <div className="max-h-[320px] overflow-auto">
-                  {result.unmatched!.map((u, idx) => (
-                    <div
-                      key={idx}
-                      className={cn(
-                        "grid grid-cols-1 gap-2 border-b border-zinc-100 p-3 md:grid-cols-3"
-                      )}
-                    >
-                      <div className="min-w-0">
-                        <div className="text-xs text-zinc-500">Nome (Excel)</div>
-                        <div className="truncate text-sm font-medium text-zinc-800">{u.excelName}</div>
-                      </div>
-
-                      <div>
-                        <div className="text-xs text-zinc-500">Melhor sugestão</div>
-                        <div className="text-sm text-zinc-800">
-                          {u.best ? (
-                            <>
-                              <span className="font-medium">{u.best.identificador}</span>{" "}
-                              <span className="text-zinc-500">—</span>{" "}
-                              <span>{u.best.nomeCompleto}</span>
-                            </>
-                          ) : (
-                            "—"
-                          )}
-                        </div>
-                      </div>
-
-                      <div className="md:text-right">
-                        <div className="text-xs text-zinc-500">Score</div>
-                        <div className="text-sm font-medium text-zinc-800">
-                          {(u.bestScore ?? 0).toFixed(3)}
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            {/* Sample planned */}
-            {result.dryRun ? (
-              <div className="rounded-xl border border-zinc-200 bg-white">
-                <div className="border-b border-zinc-200 p-3">
-                  <div className="text-sm font-semibold">Amostra de lançamentos</div>
-                  <div className="text-xs text-zinc-500">
-                    Primeiros 50 eventos planejados (apenas para conferência).
-                  </div>
-                </div>
-
-                {(result.samplePlanned?.length || 0) === 0 ? (
-                  <div className="p-3 text-sm text-zinc-600">Nenhum evento planejado.</div>
-                ) : (
-                  <div className="overflow-auto">
-                    <table className="w-full min-w-[860px] border-separate border-spacing-0">
-                      <thead>
-                        <tr className="text-left text-xs text-zinc-500">
-                          <th className="border-b border-zinc-200 p-2">CedenteId</th>
-                          <th className="border-b border-zinc-200 p-2">Data (último dia)</th>
-                          <th className="border-b border-zinc-200 p-2">Pax</th>
-                          <th className="border-b border-zinc-200 p-2">Obs</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {result.samplePlanned!.map((r, i) => (
-                          <tr key={i} className="text-sm">
-                            <td className="border-b border-zinc-100 p-2 font-mono text-xs text-zinc-700">
-                              {r.cedenteId}
-                            </td>
-                            <td className="border-b border-zinc-100 p-2">{fmtDateBR(r.issuedAt)}</td>
-                            <td className="border-b border-zinc-100 p-2 font-medium">{r.passengersCount}</td>
-                            <td className="border-b border-zinc-100 p-2 text-zinc-700">
-                              {r.note || "—"}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-              </div>
-            ) : (
-              <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800">
-                Importação concluída. Se você quiser evitar duplicidade numa segunda importação,
-                eu ajusto a API para fazer <b>upsert</b> por mês/cedente.
-              </div>
-            )}
-          </div>
+          <ImportView data={result as ImportResp & { ok: true; dryRun: false }} />
         )}
       </div>
 
-      {/* Footer note */}
       <div className="text-xs text-zinc-500">
-        Dica: rode <b>dry-run</b> primeiro para ver “não encontrados”. Ajuste o threshold se necessário
-        (ex.: 0.85) só se você confia no seu padrão de nomes.
+        Dica: se você confiar no padrão de nomes, pode baixar o threshold (ex.: 0.85). Se tiver muitos homônimos,
+        mantenha 0.90+.
       </div>
     </div>
   );
 }
 
-function Stat({
+function DryRunView({ data }: { data: DryRunResp & { ok: true; dryRun: true } }) {
+  return (
+    <div className="space-y-3">
+      <div className="grid gap-3 md:grid-cols-4">
+        <Kpi label="Aba" value={data.sheet} />
+        <Kpi label="Meses detectados" value={String(data.monthsDetected.length)} />
+        <Kpi label="Planejados" value={String(data.plannedCount)} strong />
+        <Kpi label="Não encontrados" value={String(data.unmatchedCount)} warn={data.unmatchedCount > 0} />
+      </div>
+
+      <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-3 text-sm">
+        <div className="text-xs text-zinc-500 mb-1">Config</div>
+        <div className="flex flex-wrap gap-2">
+          <Badge>headerRow: {data.config.headerRow}</Badge>
+          <Badge>dataStartRow: {data.config.dataStartRow}</Badge>
+          <Badge>nameCol: {data.config.nameCol}</Badge>
+          <Badge>months: {data.config.monthStartCol}..{data.config.monthEndCol}</Badge>
+          <Badge>threshold: {data.threshold}</Badge>
+        </div>
+      </div>
+
+      <div>
+        <div className="text-xs text-zinc-500 mb-1">Meses detectados</div>
+        <div className="flex flex-wrap gap-2">
+          {data.monthsDetected.map((m, i) => (
+            <Badge key={i}>
+              {m.label} → {new Date(m.issuedAt).toLocaleDateString("pt-BR")}
+            </Badge>
+          ))}
+        </div>
+      </div>
+
+      <div className="grid gap-3 md:grid-cols-2">
+        <div className="rounded-xl border border-zinc-200 p-3">
+          <div className="text-xs text-zinc-500 mb-2">Amostra planejada</div>
+          {data.samplePlanned.length === 0 ? (
+            <div className="text-sm text-zinc-600">Nada planejado (tudo zero ou sem match).</div>
+          ) : (
+            <ul className="space-y-1 text-sm">
+              {data.samplePlanned.slice(0, 10).map((x, i) => (
+                <li key={i} className="flex justify-between gap-2">
+                  <span className="truncate">{x.cedenteId.slice(0, 8)}…</span>
+                  <span className="text-zinc-600">
+                    {new Date(x.issuedAt).toLocaleDateString("pt-BR")} • {x.passengersCount} pax
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+
+        <div className="rounded-xl border border-zinc-200 p-3">
+          <div className="text-xs text-zinc-500 mb-2">Não encontrados (top 10)</div>
+          {data.unmatched.length === 0 ? (
+            <div className="text-sm text-zinc-600">Nenhum. ✅</div>
+          ) : (
+            <ul className="space-y-1 text-sm">
+              {data.unmatched.slice(0, 10).map((u, i) => (
+                <li key={i} className="flex flex-col gap-0.5">
+                  <div className="font-medium truncate">{u.excelName}</div>
+                  <div className="text-xs text-zinc-600">
+                    melhor score: {u.bestScore.toFixed(3)}{" "}
+                    {u.best ? `• sugestão: ${u.best.identificador} — ${u.best.nomeCompleto}` : ""}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ImportView({ data }: { data: ImportResp & { ok: true; dryRun: false } }) {
+  return (
+    <div className="space-y-3">
+      <div className="grid gap-3 md:grid-cols-4">
+        <Kpi label="Aba" value={data.sheet} />
+        <Kpi label="Inseridos" value={String(data.inserted)} strong />
+        <Kpi label="Não encontrados" value={String(data.unmatchedCount)} warn={data.unmatchedCount > 0} />
+        <Kpi label="Threshold" value={String(data.threshold)} />
+      </div>
+
+      {data.unmatchedCount > 0 ? (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+          Existem nomes não encontrados. Rode um dry-run com threshold menor (ex.: 0.85) ou corrija nomes na planilha.
+        </div>
+      ) : (
+        <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900">
+          Importação concluída. ✅
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Kpi({
   label,
   value,
   strong,
+  warn,
 }: {
   label: string;
   value: string;
   strong?: boolean;
+  warn?: boolean;
 }) {
   return (
-    <div className="rounded-xl border border-zinc-200 bg-white p-3">
+    <div
+      className={cn(
+        "rounded-xl border p-3",
+        warn ? "border-amber-200 bg-amber-50" : "border-zinc-200 bg-white"
+      )}
+    >
       <div className="text-xs text-zinc-500">{label}</div>
       <div className={cn("text-lg", strong && "font-semibold")}>{value}</div>
     </div>
+  );
+}
+
+function Badge({ children }: { children: React.ReactNode }) {
+  return (
+    <span className="inline-flex items-center rounded-full border border-zinc-200 bg-white px-2 py-0.5 text-xs text-zinc-700">
+      {children}
+    </span>
   );
 }
