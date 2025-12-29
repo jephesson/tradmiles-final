@@ -75,7 +75,6 @@ const monthMap: Record<string, number> = {
 };
 
 function lastDayUTC(year: number, mon: number) {
-  // último dia do mês em UTC (dia 0 do mês seguinte)
   return new Date(Date.UTC(year, mon + 1, 0, 23, 59, 59, 999));
 }
 
@@ -89,23 +88,21 @@ function parseMonthHeaderToLastDayUTC(headerRaw: any): Date | null {
 
   // 2) Se vier como número (serial Excel)
   if (typeof headerRaw === "number" && Number.isFinite(headerRaw)) {
-    // XLSX.SSF.parse_date_code entende serial do Excel
     const dc = XLSX.SSF.parse_date_code(headerRaw);
     if (dc && dc.y && dc.m) {
       const y = Number(dc.y);
-      const m = Number(dc.m) - 1; // dc.m é 1..12
+      const m = Number(dc.m) - 1;
       if (Number.isFinite(y) && Number.isFinite(m) && m >= 0 && m <= 11) {
         return lastDayUTC(y, m);
       }
     }
-    // se não conseguiu, cai para string abaixo
   }
 
-  // 3) String (pode estar formatada "dez/24" ou pode ser "01/12/2024")
+  // 3) String
   const s0 = String(headerRaw ?? "").trim().toLowerCase();
   if (!s0) return null;
 
-  // Tenta achar "dez/24" mesmo que esteja dentro de "(dez/24)" ou junto com data
+  // procura "dez/24" mesmo dentro de "01/12/2024 (dez/24)"
   const mm = s0.match(/([a-zç]{3})\/(\d{2}|\d{4})/i);
   if (mm) {
     const monStr = mm[1].slice(0, 3);
@@ -119,41 +116,24 @@ function parseMonthHeaderToLastDayUTC(headerRaw: any): Date | null {
     return lastDayUTC(year, mon);
   }
 
-  // Remove coisas entre parênteses e normaliza espaços
   const cleaned = s0.replace(/\(.*?\)/g, "").replace(/\s+/g, " ").trim();
 
-  // Tenta DD/MM/AAAA (ex.: 01/12/2024)
+  // DD/MM/AAAA
   const br = cleaned.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
   if (br) {
-    const day = Number(br[1]);
     const mon = Number(br[2]) - 1;
     const year = Number(br[3]);
-    if (
-      Number.isFinite(day) &&
-      Number.isFinite(mon) &&
-      Number.isFinite(year) &&
-      year >= 1900 &&
-      mon >= 0 &&
-      mon <= 11
-    ) {
+    if (Number.isFinite(mon) && Number.isFinite(year) && year >= 1900 && mon >= 0 && mon <= 11) {
       return lastDayUTC(year, mon);
     }
   }
 
-  // Tenta YYYY-MM-DD (só por garantia)
+  // YYYY-MM-DD
   const iso = cleaned.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
   if (iso) {
-    const year = Number(iso[1]);
     const mon = Number(iso[2]) - 1;
-    const day = Number(iso[3]);
-    if (
-      Number.isFinite(day) &&
-      Number.isFinite(mon) &&
-      Number.isFinite(year) &&
-      year >= 1900 &&
-      mon >= 0 &&
-      mon <= 11
-    ) {
+    const year = Number(iso[1]);
+    if (Number.isFinite(mon) && Number.isFinite(year) && year >= 1900 && mon >= 0 && mon <= 11) {
       return lastDayUTC(year, mon);
     }
   }
@@ -256,7 +236,7 @@ export async function POST(req: NextRequest) {
     // Detecta meses no range escolhido
     const monthCols: MonthCol[] = [];
     for (let colIdx = monthFrom; colIdx <= monthTo; colIdx++) {
-      const label = header[colIdx]; // <-- mantém raw (pode ser número/date)
+      const label = header[colIdx]; // raw (pode ser número/date)
       const d = parseMonthHeaderToLastDayUTC(label);
       if (d) monthCols.push({ colIdx, dateLastDayUTC: d, label: String(label ?? "").trim() });
     }
@@ -311,7 +291,9 @@ export async function POST(req: NextRequest) {
         unmatched.push({
           excelName,
           bestScore,
-          best: best ? { id: best.id, nomeCompleto: best.nomeCompleto, identificador: best.identificador } : undefined,
+          best: best
+            ? { id: best.id, nomeCompleto: best.nomeCompleto, identificador: best.identificador }
+            : undefined,
         });
         continue;
       }
@@ -324,7 +306,9 @@ export async function POST(req: NextRequest) {
           cedenteId: best.id,
           issuedAt: mc.dateLastDayUTC, // ✅ sempre último dia do mês
           passengersCount: qty,
-          note: `Import Excel (${targetSheetName}) — ${mc.label} — nomeExcel="${excelName}" — score=${bestScore.toFixed(3)}`,
+          note: `Import Excel (${targetSheetName}) — ${mc.label} — nomeExcel="${excelName}" — score=${bestScore.toFixed(
+            3
+          )}`,
         });
       }
     }
@@ -355,24 +339,27 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    const inserted = await prisma.$transaction(async (tx) => {
-      const res = await Promise.all(
-        plannedEvents.map((e) =>
-          tx.emissionEvent.create({
-            data: {
-              cedenteId: e.cedenteId,
-              program,
-              passengersCount: e.passengersCount,
-              issuedAt: e.issuedAt, // ✅ último dia do mês
-              source: "MANUAL" as any, // se criar IMPORT, troque aqui
-              note: e.note,
-            },
-            select: { id: true },
-          })
-        )
-      );
-      return res.length;
-    });
+    // ✅ FIX: insert em lote (evita timeout de transaction)
+    const BATCH_SIZE = 500;
+    let inserted = 0;
+
+    for (let i = 0; i < plannedEvents.length; i += BATCH_SIZE) {
+      const batch = plannedEvents.slice(i, i + BATCH_SIZE);
+
+      const res = await prisma.emissionEvent.createMany({
+        data: batch.map((e) => ({
+          cedenteId: e.cedenteId,
+          program,
+          passengersCount: e.passengersCount,
+          issuedAt: e.issuedAt, // ✅ último dia do mês
+          source: "MANUAL" as any,
+          note: e.note,
+        })),
+        skipDuplicates: false,
+      });
+
+      inserted += res.count;
+    }
 
     return NextResponse.json({
       ok: true,
@@ -386,9 +373,6 @@ export async function POST(req: NextRequest) {
     });
   } catch (err: any) {
     console.error("IMPORT EXCEL ERROR:", err);
-    return NextResponse.json(
-      { ok: false, error: err?.message || "Erro inesperado ao importar" },
-      { status: 500 }
-    );
+    return NextResponse.json({ ok: false, error: err?.message || "Erro inesperado ao importar" }, { status: 500 });
   }
 }
