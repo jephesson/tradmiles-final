@@ -50,9 +50,6 @@ export default function Sidebar() {
   const isRecebimentosRoute = pathname.startsWith("/dashboard/recebimentos");
   const isFinanceiroRoute = isDividasRoute || isRecebimentosRoute;
 
-  // ✅ GESTOR DE EMISSÕES
-  const isGestorEmissoesRoute = pathname.startsWith("/dashboard/emissoes");
-
   // ✅ IMPORTAÇÕES (fora do Gestor de emissões)
   const isImportacoesRoute = pathname.startsWith("/dashboard/importacoes");
   const isImportacoesEmissoesLatamRoute = pathname.startsWith(
@@ -60,6 +57,15 @@ export default function Sidebar() {
   );
   const isImportacoesEmissoesRoute = isImportacoesEmissoesLatamRoute;
   const isImportacoesEmissoesSubRoute = isImportacoesEmissoesRoute;
+
+  // ✅ Painel de Emissões (novo)
+  const isPainelEmissoesRoute = pathname.startsWith("/dashboard/painel-emissoes");
+
+  // ✅ GESTOR DE EMISSÕES (exclui importação)
+  const isEmissoesRoute =
+    pathname.startsWith("/dashboard/emissoes") && !isImportacoesEmissoesLatamRoute;
+
+  const isGestorEmissoesRoute = isEmissoesRoute || isPainelEmissoesRoute;
 
   // ✅ Rotas de comissões (subitens)
   const isComissoesCedentesRoute = pathname.startsWith(
@@ -77,6 +83,12 @@ export default function Sidebar() {
   const isEmissoesUltimas = isEmissoesBasePath && programaEmissoes === "";
   const isEmissoesLatam = isEmissoesBasePath && programaEmissoes === "latam";
   const isEmissoesSmiles = isEmissoesBasePath && programaEmissoes === "smiles";
+
+  // ✅ Rotas / queries do submenu "Painel de Emissões"
+  const isPainelBasePath = pathname === "/dashboard/painel-emissoes";
+  const programaPainel = (search?.get("programa") || "").toLowerCase();
+  const isPainelLatam =
+    isPainelBasePath && (programaPainel === "" || programaPainel === "latam");
 
   /* =========================
    * ACCORDIONS
@@ -132,7 +144,12 @@ export default function Sidebar() {
 
   // ✅ SubAccordion "Emissões por cedente" dentro do Gestor de emissões
   const [openEmissoesPorCedente, setOpenEmissoesPorCedente] = useState(
-    isGestorEmissoesRoute
+    isEmissoesRoute
+  );
+
+  // ✅ SubAccordion "Painel de Emissões" dentro do Gestor de emissões
+  const [openPainelEmissoes, setOpenPainelEmissoes] = useState(
+    isPainelEmissoesRoute
   );
 
   useEffect(() => setOpenCadastro(isCadastroRoute), [isCadastroRoute]);
@@ -177,10 +194,15 @@ export default function Sidebar() {
 
   useEffect(() => setOpenComissoes(isComissoesSubRoute), [isComissoesSubRoute]);
 
-  // ✅ Emissões por cedente (abre automaticamente quando estiver em /dashboard/emissoes)
+  // ✅ Emissões por cedente (abre automaticamente quando estiver em /dashboard/emissoes, exclui import)
   useEffect(() => {
-    setOpenEmissoesPorCedente(isGestorEmissoesRoute);
-  }, [isGestorEmissoesRoute]);
+    setOpenEmissoesPorCedente(isEmissoesRoute);
+  }, [isEmissoesRoute]);
+
+  // ✅ Painel de emissões (abre automaticamente quando estiver em /dashboard/painel-emissoes)
+  useEffect(() => {
+    setOpenPainelEmissoes(isPainelEmissoesRoute);
+  }, [isPainelEmissoesRoute]);
 
   /* =========================
    * FILTRO (VISUALIZAR PONTOS)
@@ -512,12 +534,13 @@ export default function Sidebar() {
           onToggle={() => setOpenGestorEmissoes((v) => !v)}
           active={isGestorEmissoesRoute}
         >
+          {/* Emissões por cedente */}
           <SubAccordion
             title="Emissões por cedente"
             open={openEmissoesPorCedente}
             onToggle={() => setOpenEmissoesPorCedente((v) => !v)}
             variant="nav"
-            active={isGestorEmissoesRoute}
+            active={isEmissoesRoute}
           >
             <NavLink href="/dashboard/emissoes" className="font-semibold">
               Últimas emissões
@@ -533,6 +556,22 @@ export default function Sidebar() {
               className="font-semibold"
             >
               Smiles
+            </NavLink>
+          </SubAccordion>
+
+          {/* ✅ Painel de Emissões (novo) */}
+          <SubAccordion
+            title="Painel de Emissões"
+            open={openPainelEmissoes}
+            onToggle={() => setOpenPainelEmissoes((v) => !v)}
+            variant="nav"
+            active={isPainelEmissoesRoute}
+          >
+            <NavLink
+              href="/dashboard/painel-emissoes?programa=latam"
+              className={cn("font-semibold", isPainelLatam && "bg-black text-white")}
+            >
+              Latam
             </NavLink>
           </SubAccordion>
         </Accordion>
