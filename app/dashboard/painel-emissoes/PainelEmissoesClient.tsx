@@ -158,6 +158,7 @@ export default function PainelEmissoesClient({
 
   const rowsMerged = useMemo(() => {
     if (!panel) return [];
+
     const list = panel.rows.map((r) => {
       const c = cedenteById.get(r.cedenteId);
       return {
@@ -180,12 +181,20 @@ export default function PainelEmissoesClient({
           );
         });
 
-    // ordena por total desc, depois nome
-    filtered.sort(
-      (a, b) =>
-        b.total - a.total ||
-        String(a.nomeCompleto).localeCompare(String(b.nomeCompleto))
-    );
+    // ✅ ORDEM ALFABÉTICA (A→Z), ignorando acentos; desempata por identificador e depois por total
+    filtered.sort((a, b) => {
+      const na = String(a.nomeCompleto || "");
+      const nb = String(b.nomeCompleto || "");
+      const byName = na.localeCompare(nb, "pt-BR", { sensitivity: "base" });
+      if (byName) return byName;
+
+      const ia = String(a.identificador || "");
+      const ib = String(b.identificador || "");
+      const byIdent = ia.localeCompare(ib, "pt-BR", { sensitivity: "base" });
+      if (byIdent) return byIdent;
+
+      return (b.total || 0) - (a.total || 0);
+    });
 
     return filtered;
   }, [panel, cedenteById, q]);
@@ -194,7 +203,7 @@ export default function PainelEmissoesClient({
     return Math.max(1, ...rowsMerged.map((r) => Number(r.total || 0)));
   }, [rowsMerged]);
 
-  // ✅ NOVO: total que renova no mês corrente (CPFs / passageiros)
+  // ✅ total que renova no mês corrente (CPFs / passageiros)
   const renewThisMonthTotal = useMemo(() => {
     if (!panel) return 0;
 
@@ -204,7 +213,10 @@ export default function PainelEmissoesClient({
 
     // fallback: soma a coluna do mês de renovação (mês-12) na tabela
     const key = panel.renewMonthKey;
-    return panel.rows.reduce((acc, r) => acc + Number(r.perMonth?.[key] || 0), 0);
+    return panel.rows.reduce(
+      (acc, r) => acc + Number(r.perMonth?.[key] || 0),
+      0
+    );
   }, [panel]);
 
   return (
@@ -253,7 +265,7 @@ export default function PainelEmissoesClient({
         </div>
       </div>
 
-      {/* ✅ Top summary (agora com 3 cards) */}
+      {/* Top summary (3 cards) */}
       <div className="grid gap-3 md:grid-cols-3">
         <CardStat
           label="Cedentes"
