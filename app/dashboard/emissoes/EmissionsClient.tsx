@@ -328,23 +328,15 @@ export default function EmissionsClient({
   }
 
   /** =========================
-   *  ✅ ZERAR / LIMPAR (DELETE /api/emissions)
+   *  ✅ ZERAR / LIMPAR (DELETE /api/emissions) — SEM SENHA
+   *  agora só manda confirm: true
    *  ========================= */
-  function askPassword(): string | null {
-    const pwd = prompt("Digite a senha para confirmar:");
-    if (pwd == null) return null;
-    const s = pwd.trim();
-    if (!s) return null;
-    return s;
-  }
-
   async function clearSelected() {
     if (!cedenteId) return alert("Selecione um cedente.");
     if (selectedIdList.length === 0) return alert("Selecione ao menos 1 lançamento.");
 
-    if (!confirm(`Apagar ${selectedIdList.length} lançamento(s) selecionado(s)?`)) return;
-    const password = askPassword();
-    if (!password) return;
+    if (!confirm(`Tem certeza que deseja apagar ${selectedIdList.length} lançamento(s) selecionado(s)?`))
+      return;
 
     try {
       const res = await fetch("/api/emissions", {
@@ -352,8 +344,8 @@ export default function EmissionsClient({
         headers: { "Content-Type": "application/json" },
         cache: "no-store",
         body: JSON.stringify({
+          confirm: true,
           scope: "SELECTED",
-          password,
           ids: selectedIdList,
           // opcionalmente restringe (segurança extra)
           cedenteId,
@@ -372,10 +364,8 @@ export default function EmissionsClient({
 
   async function clearCedenteAll() {
     if (!cedenteId) return alert("Selecione um cedente.");
-    if (!confirm("Tem certeza que deseja apagar TODOS os lançamentos deste cedente (no programa atual)?")) return;
-
-    const password = askPassword();
-    if (!password) return;
+    if (!confirm("Tem certeza que deseja apagar TODOS os lançamentos deste cedente (no programa atual)?"))
+      return;
 
     try {
       const res = await fetch("/api/emissions", {
@@ -383,8 +373,8 @@ export default function EmissionsClient({
         headers: { "Content-Type": "application/json" },
         cache: "no-store",
         body: JSON.stringify({
+          confirm: true,
           scope: "CEDENTE",
-          password,
           cedenteId,
           programa: program, // apaga só do programa atual; remova esta linha se quiser apagar de todos os programas
         }),
@@ -401,11 +391,12 @@ export default function EmissionsClient({
 
   async function clearAllProgram() {
     // ✅ apaga tudo DO PROGRAMA (todos cedentes)
-    if (!confirm(`Tem certeza que deseja apagar TODOS os lançamentos do programa ${program.toUpperCase()} (todos os cedentes)?`))
+    if (
+      !confirm(
+        `Tem certeza que deseja apagar TODOS os lançamentos do programa ${program.toUpperCase()} (todos os cedentes)?`
+      )
+    )
       return;
-
-    const password = askPassword();
-    if (!password) return;
 
     try {
       const res = await fetch("/api/emissions", {
@@ -413,9 +404,10 @@ export default function EmissionsClient({
         headers: { "Content-Type": "application/json" },
         cache: "no-store",
         body: JSON.stringify({
+          confirm: true,
           scope: "ALL",
-          password,
           programa: program, // filtro -> não precisa confirmAll
+          // confirmAll: true, // (opcional) não é necessário quando há filtro
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -580,9 +572,7 @@ export default function EmissionsClient({
               <div className="text-sm font-medium">
                 {fmtDateBR(usage.windowStart)} → {fmtDateBR(usage.windowEnd)}
               </div>
-              <div className="mt-1 text-xs text-zinc-500">
-                Baseado na data selecionada ({issuedDate})
-              </div>
+              <div className="mt-1 text-xs text-zinc-500">Baseado na data selecionada ({issuedDate})</div>
             </div>
           </div>
         ) : (
@@ -629,7 +619,7 @@ export default function EmissionsClient({
         </div>
 
         <div className="mt-2 text-xs text-zinc-500">
-          * Vai pedir confirmação + senha. “Zerar cedente” apaga apenas do programa atual.
+          * Vai pedir apenas confirmação. “Zerar cedente” apaga apenas do programa atual.
         </div>
       </div>
 
@@ -726,9 +716,7 @@ export default function EmissionsClient({
                         />
                       </td>
 
-                      <td className="border-b border-zinc-100 p-2 font-medium">
-                        {fmtDateBR(r.issuedAt)}
-                      </td>
+                      <td className="border-b border-zinc-100 p-2 font-medium">{fmtDateBR(r.issuedAt)}</td>
 
                       <td className="border-b border-zinc-100 p-2">
                         {isEditing ? (
@@ -762,9 +750,7 @@ export default function EmissionsClient({
                         )}
                       </td>
 
-                      <td className="border-b border-zinc-100 p-2 text-zinc-600">
-                        {fmtDateBR(r.createdAt)}
-                      </td>
+                      <td className="border-b border-zinc-100 p-2 text-zinc-600">{fmtDateBR(r.createdAt)}</td>
 
                       <td className="border-b border-zinc-100 p-2">
                         <div className="flex justify-end gap-2">

@@ -87,10 +87,7 @@ async function getPasswordHashForSession(session: any): Promise<string | null> {
         },
       });
 
-      const hash =
-        row?.passwordHash ||
-        row?.password_hash ||
-        null;
+      const hash = row?.passwordHash || row?.password_hash || null;
 
       if (hash && typeof hash === "string") return hash;
 
@@ -286,14 +283,17 @@ export async function POST(req: NextRequest) {
 }
 
 /** =========================
- *  DELETE — ZERAR / LIMPAR (com senha do usuário logado)
+ *  DELETE — ZERAR / LIMPAR (SEM SENHA; APENAS CONFIRMAÇÃO)
  *  body:
- *   - password: string (senha digitada)
+ *   - confirm: true  ✅ obrigatório
  *   - scope: "CEDENTE" | "ALL" | "SELECTED"
  *   - cedenteId?: string
  *   - programa?: "latam" | "smiles" | ...
  *   - ids?: string[]
  *   - confirmAll?: boolean (obrigatório se ALL sem filtro)
+ *
+ *  (OBS: campos de senha foram mantidos por compatibilidade,
+ *   mas NÃO são mais validados.)
  *  ========================= */
 export async function DELETE(req: NextRequest) {
   try {
@@ -304,15 +304,26 @@ export async function DELETE(req: NextRequest) {
 
     const body = await req.json().catch(() => ({}));
 
+    // ✅ agora é só confirmação explícita
+    if (body?.confirm !== true) {
+      return NextResponse.json(
+        { ok: false, error: "Confirmação obrigatória para apagar dados." },
+        { status: 400 }
+      );
+    }
+
     const scope = String(body?.scope || "").trim().toUpperCase(); // CEDENTE | ALL | SELECTED
     const password = String(body?.password || "");
 
-    // ✅ valida a senha do usuário logado
-    try {
-      await assertReauthByPassword(session, password);
-    } catch (e: any) {
-      return NextResponse.json({ ok: false, error: e?.message || "Senha inválida." }, { status: 403 });
-    }
+    // Mantém compatibilidade (front antigo pode mandar password), mas não usa mais
+    void password;
+
+    // ✅ valida a senha do usuário logado (DESATIVADO)
+    // try {
+    //   await assertReauthByPassword(session, password);
+    // } catch (e: any) {
+    //   return NextResponse.json({ ok: false, error: e?.message || "Senha inválida." }, { status: 403 });
+    // }
 
     const cedenteId = String(body?.cedenteId || "").trim();
     const programa = parseProgram(body?.programa || body?.program);
