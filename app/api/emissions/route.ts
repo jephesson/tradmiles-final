@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSessionServer as getSession } from "@/lib/auth-server";
 import { LoyaltyProgram, EmissionSource } from "@prisma/client";
-import crypto from "crypto";
+import bcrypt from "bcryptjs";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -37,7 +37,9 @@ function endOfYearUTC(d: Date) {
   return new Date(Date.UTC(d.getUTCFullYear(), 11, 31, 23, 59, 59, 999));
 }
 function endOfDayUTC(d: Date) {
-  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), 23, 59, 59, 999));
+  return new Date(
+    Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), 23, 59, 59, 999)
+  );
 }
 function addDaysUTC(d: Date, days: number) {
   return new Date(d.getTime() + days * 24 * 60 * 60 * 1000);
@@ -50,15 +52,67 @@ function programLimit(p: LoyaltyProgram) {
 }
 
 /** =========================
- *  SENHA (server-side)
+ *  AUTH: validar senha do usuário logado
  *  ========================= */
-const CLEAR_COUNTER_PWD = (process.env.CLEAR_COUNTER_PWD || "").trim();
+async function getPasswordHashForSession(session: any): Promise<string | null> {
+  // Tentamos modelos comuns sem “quebrar” TS usando prisma as any
+  const candidates = [
+    { model: "user", where: (s: any) => ({ id: s.id }) },
+    { model: "users", where: (s: any) => ({ id: s.id }) },
 
-function safeEq(a: string, b: string) {
-  const A = Buffer.from(String(a ?? ""));
-  const B = Buffer.from(String(b ?? ""));
-  if (A.length !== B.length) return false;
-  return crypto.timingSafeEqual(A, B);
+    { model: "funcionario", where: (s: any) => ({ id: s.id }) },
+    { model: "funcionarios", where: (s: any) => ({ id: s.id }) },
+
+    { model: "staff", where: (s: any) => ({ id: s.id }) },
+    { model: "account", where: (s: any) => ({ id: s.id }) },
+
+    // fallback por login (caso o id da sessão não seja o mesmo id do model)
+    { model: "user", where: (s: any) => ({ login: s.login }) },
+    { model: "funcionario", where: (s: any) => ({ login: s.login }) },
+    { model: "staff", where: (s: any) => ({ login: s.login }) },
+    { model: "account", where: (s: any) => ({ login: s.login }) },
+  ];
+
+  for (const c of candidates) {
+    const m = (prisma as any)[c.model];
+    if (!m?.findUnique) continue;
+
+    try {
+      const row = await m.findUnique({
+        where: c.where(session),
+        select: {
+          passwordHash: true,
+          password_hash: true,
+          password: true, // se você guardou em campo diferente (não recomendado)
+        },
+      });
+
+      const hash =
+        row?.passwordHash ||
+        row?.password_hash ||
+        null;
+
+      if (hash && typeof hash === "string") return hash;
+
+      // ⚠️ fallback MUITO permissivo (só pra não travar caso seu /api/auth use "password" hashed)
+      if (row?.password && typeof row.password === "string") return row.password;
+    } catch {
+      // ignora e tenta o próximo model
+    }
+  }
+
+  return null;
+}
+
+async function assertReauthByPassword(session: any, typedPassword: string) {
+  const pwd = String(typedPassword || "");
+  if (!pwd.trim()) throw new Error("Senha obrigatória.");
+
+  const hash = await getPasswordHashForSession(session);
+  if (!hash) throw new Error("Não foi possível validar senha (hash não encontrado).");
+
+  const ok = await bcrypt.compare(pwd, hash);
+  if (!ok) throw new Error("Senha inválida.");
 }
 
 /** =========================
@@ -100,7 +154,14 @@ export async function GET(req: NextRequest) {
       } else if (programa === LoyaltyProgram.LATAM) {
         windowEnd = endOfDayUTC(issuedDate);
         windowStart = addDaysUTC(
-          new Date(Date.UTC(issuedDate.getUTCFullYear(), issuedDate.getUTCMonth(), issuedDate.getUTCDate(), 0, 0, 0, 0)),
+          new Date(
+            Date.UTC(
+              issuedDate.getUTCFullYear(),
+              issuedDate.getUTCMonth(),
+              issuedDate.getUTCDate(),
+              0, 0, 0, 0
+            )
+          ),
           -364
         );
       } else {
@@ -225,8 +286,14 @@ export async function POST(req: NextRequest) {
 }
 
 /** =========================
- *  DELETE (novo) — ZERAR / LIMPAR
- *  scope: CEDENTE | ALL | SELECTED
+ *  DELETE — ZERAR / LIMPAR (com senha do usuário logado)
+ *  body:
+ *   - password: string (senha digitada)
+ *   - scope: "CEDENTE" | "ALL" | "SELECTED"
+ *   - cedenteId?: string
+ *   - programa?: "latam" | "smiles" | ...
+ *   - ids?: string[]
+ *   - confirmAll?: boolean (obrigatório se ALL sem filtro)
  *  ========================= */
 export async function DELETE(req: NextRequest) {
   try {
@@ -235,20 +302,16 @@ export async function DELETE(req: NextRequest) {
       return NextResponse.json({ ok: false, error: "Não autenticado." }, { status: 401 });
     }
 
-    if (!CLEAR_COUNTER_PWD) {
-      return NextResponse.json(
-        { ok: false, error: "CLEAR_COUNTER_PWD não configurada no servidor." },
-        { status: 500 }
-      );
-    }
-
     const body = await req.json().catch(() => ({}));
 
     const scope = String(body?.scope || "").trim().toUpperCase(); // CEDENTE | ALL | SELECTED
     const password = String(body?.password || "");
 
-    if (!safeEq(password, CLEAR_COUNTER_PWD)) {
-      return NextResponse.json({ ok: false, error: "Senha inválida." }, { status: 403 });
+    // ✅ valida a senha do usuário logado
+    try {
+      await assertReauthByPassword(session, password);
+    } catch (e: any) {
+      return NextResponse.json({ ok: false, error: e?.message || "Senha inválida." }, { status: 403 });
     }
 
     const cedenteId = String(body?.cedenteId || "").trim();
@@ -256,14 +319,17 @@ export async function DELETE(req: NextRequest) {
     const idsRaw = body?.ids;
     const confirmAll = body?.confirmAll === true;
 
-    // Monta where base (opcionalmente filtrado)
+    // base where (filtros opcionais)
     const baseWhere: any = {};
     if (cedenteId) baseWhere.cedenteId = cedenteId;
     if (programa) baseWhere.program = programa;
 
     if (scope === "CEDENTE") {
       if (!cedenteId) {
-        return NextResponse.json({ ok: false, error: "scope=CEDENTE exige cedenteId." }, { status: 400 });
+        return NextResponse.json(
+          { ok: false, error: "scope=CEDENTE exige cedenteId." },
+          { status: 400 }
+        );
       }
       const del = await prisma.emissionEvent.deleteMany({ where: baseWhere });
       return NextResponse.json({
@@ -276,13 +342,18 @@ export async function DELETE(req: NextRequest) {
     }
 
     if (scope === "SELECTED") {
-      const ids = Array.isArray(idsRaw) ? idsRaw.map((x) => String(x)).filter(Boolean) : [];
+      const ids = Array.isArray(idsRaw)
+        ? idsRaw.map((x) => String(x)).filter(Boolean)
+        : [];
+
       if (ids.length === 0) {
-        return NextResponse.json({ ok: false, error: "scope=SELECTED exige ids: string[] (não vazio)." }, { status: 400 });
+        return NextResponse.json(
+          { ok: false, error: "scope=SELECTED exige ids: string[] (não vazio)." },
+          { status: 400 }
+        );
       }
 
       const delWhere: any = { id: { in: ids } };
-      // se o front quiser restringir por cedente/programa, respeita
       if (cedenteId) delWhere.cedenteId = cedenteId;
       if (programa) delWhere.program = programa;
 
@@ -298,7 +369,6 @@ export async function DELETE(req: NextRequest) {
     }
 
     if (scope === "ALL") {
-      // proteção: se não tem filtro nenhum, exige confirmAll=true
       const hasAnyFilter = Boolean(cedenteId) || Boolean(programa);
       if (!hasAnyFilter && !confirmAll) {
         return NextResponse.json(
@@ -307,7 +377,7 @@ export async function DELETE(req: NextRequest) {
         );
       }
 
-      const del = await prisma.emissionEvent.deleteMany({ where: baseWhere }); // se baseWhere vazio, apaga tudo (confirmAll protege)
+      const del = await prisma.emissionEvent.deleteMany({ where: baseWhere });
 
       return NextResponse.json({
         ok: true,
