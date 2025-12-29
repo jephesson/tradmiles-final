@@ -1,18 +1,25 @@
+// app/dashboard/emissoes/painel-emissoes/page.tsx
+
 import PainelEmissoesClient from "./PainelEmissoesClient";
 
+export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export default function Page({
-  searchParams,
-}: {
-  searchParams: Record<string, string | string[] | undefined>;
-}) {
-  const programaRaw = searchParams?.programa;
-  const programa = Array.isArray(programaRaw) ? programaRaw[0] : programaRaw;
+type SP = Record<string, string | string[] | undefined>;
 
-  return (
-    <div className="p-6">
-      <PainelEmissoesClient initialProgram={(programa || "latam").toLowerCase()} />
-    </div>
-  );
+function getOne(sp: SP, key: string) {
+  const v = sp[key];
+  return Array.isArray(v) ? v[0] || "" : v || "";
+}
+
+function normalizeProgram(v: string) {
+  const p = String(v || "").toLowerCase().trim();
+  return p === "latam" || p === "smiles" || p === "livelo" || p === "esfera"
+    ? p
+    : "latam";
+}
+
+export default function Page({ searchParams }: { searchParams: SP }) {
+  const program = normalizeProgram(getOne(searchParams, "programa"));
+  return <PainelEmissoesClient initialProgram={program} />;
 }
