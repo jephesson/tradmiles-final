@@ -55,6 +55,8 @@ function diceSimilarity(a: string, b: string) {
 /** =========================
  *  PARSE DE MÊS
  *  Aceita: "dez/24", "jan/25", "jan/25 (at)", "jan/2025"
+ *  Aceita também: DATA em Excel (serial), Date, "01/12/2024"
+ *  E SEMPRE retorna o ÚLTIMO DIA do mês (UTC)
  *  ========================= */
 
 const monthMap: Record<string, number> = {
@@ -72,24 +74,91 @@ const monthMap: Record<string, number> = {
   dez: 11,
 };
 
+function lastDayUTC(year: number, mon: number) {
+  // último dia do mês em UTC (dia 0 do mês seguinte)
+  return new Date(Date.UTC(year, mon + 1, 0, 23, 59, 59, 999));
+}
+
 function parseMonthHeaderToLastDayUTC(headerRaw: any): Date | null {
+  // 1) Se já vier como Date
+  if (headerRaw instanceof Date && !isNaN(headerRaw.getTime())) {
+    const y = headerRaw.getUTCFullYear();
+    const m = headerRaw.getUTCMonth();
+    return lastDayUTC(y, m);
+  }
+
+  // 2) Se vier como número (serial Excel)
+  if (typeof headerRaw === "number" && Number.isFinite(headerRaw)) {
+    // XLSX.SSF.parse_date_code entende serial do Excel
+    const dc = XLSX.SSF.parse_date_code(headerRaw);
+    if (dc && dc.y && dc.m) {
+      const y = Number(dc.y);
+      const m = Number(dc.m) - 1; // dc.m é 1..12
+      if (Number.isFinite(y) && Number.isFinite(m) && m >= 0 && m <= 11) {
+        return lastDayUTC(y, m);
+      }
+    }
+    // se não conseguiu, cai para string abaixo
+  }
+
+  // 3) String (pode estar formatada "dez/24" ou pode ser "01/12/2024")
   const s0 = String(headerRaw ?? "").trim().toLowerCase();
   if (!s0) return null;
 
+  // Tenta achar "dez/24" mesmo que esteja dentro de "(dez/24)" ou junto com data
+  const mm = s0.match(/([a-zç]{3})\/(\d{2}|\d{4})/i);
+  if (mm) {
+    const monStr = mm[1].slice(0, 3);
+    const mon = monthMap[monStr];
+    if (mon === undefined) return null;
+
+    let year = Number(mm[2]);
+    if (!Number.isFinite(year)) return null;
+    if (year < 100) year = 2000 + year;
+
+    return lastDayUTC(year, mon);
+  }
+
+  // Remove coisas entre parênteses e normaliza espaços
   const cleaned = s0.replace(/\(.*?\)/g, "").replace(/\s+/g, " ").trim();
 
-  const m = cleaned.match(/^([a-zç]{3})\/(\d{2}|\d{4})$/i);
-  if (!m) return null;
+  // Tenta DD/MM/AAAA (ex.: 01/12/2024)
+  const br = cleaned.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (br) {
+    const day = Number(br[1]);
+    const mon = Number(br[2]) - 1;
+    const year = Number(br[3]);
+    if (
+      Number.isFinite(day) &&
+      Number.isFinite(mon) &&
+      Number.isFinite(year) &&
+      year >= 1900 &&
+      mon >= 0 &&
+      mon <= 11
+    ) {
+      return lastDayUTC(year, mon);
+    }
+  }
 
-  const monStr = m[1].slice(0, 3);
-  const mon = monthMap[monStr];
-  if (mon === undefined) return null;
+  // Tenta YYYY-MM-DD (só por garantia)
+  const iso = cleaned.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+  if (iso) {
+    const year = Number(iso[1]);
+    const mon = Number(iso[2]) - 1;
+    const day = Number(iso[3]);
+    if (
+      Number.isFinite(day) &&
+      Number.isFinite(mon) &&
+      Number.isFinite(year) &&
+      year >= 1900 &&
+      mon >= 0 &&
+      mon <= 11
+    ) {
+      return lastDayUTC(year, mon);
+    }
+  }
 
-  let year = Number(m[2]);
-  if (!Number.isFinite(year)) return null;
-  if (year < 100) year = 2000 + year;
-
-  return new Date(Date.UTC(year, mon + 1, 0, 23, 59, 59, 999));
+  return null;
 }
 
 /** =========================
@@ -187,9 +256,9 @@ export async function POST(req: NextRequest) {
     // Detecta meses no range escolhido
     const monthCols: MonthCol[] = [];
     for (let colIdx = monthFrom; colIdx <= monthTo; colIdx++) {
-      const label = String(header[colIdx] ?? "").trim();
+      const label = header[colIdx]; // <-- mantém raw (pode ser número/date)
       const d = parseMonthHeaderToLastDayUTC(label);
-      if (d) monthCols.push({ colIdx, dateLastDayUTC: d, label });
+      if (d) monthCols.push({ colIdx, dateLastDayUTC: d, label: String(label ?? "").trim() });
     }
     if (monthCols.length === 0) {
       return NextResponse.json(
@@ -253,7 +322,7 @@ export async function POST(req: NextRequest) {
 
         plannedEvents.push({
           cedenteId: best.id,
-          issuedAt: mc.dateLastDayUTC,
+          issuedAt: mc.dateLastDayUTC, // ✅ sempre último dia do mês
           passengersCount: qty,
           note: `Import Excel (${targetSheetName}) — ${mc.label} — nomeExcel="${excelName}" — score=${bestScore.toFixed(3)}`,
         });
@@ -294,7 +363,7 @@ export async function POST(req: NextRequest) {
               cedenteId: e.cedenteId,
               program,
               passengersCount: e.passengersCount,
-              issuedAt: e.issuedAt,
+              issuedAt: e.issuedAt, // ✅ último dia do mês
               source: "MANUAL" as any, // se criar IMPORT, troque aqui
               note: e.note,
             },
