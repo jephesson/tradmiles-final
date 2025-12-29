@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSessionServer as getSession } from "@/lib/auth-server";
 import { LoyaltyProgram, EmissionSource } from "@prisma/client";
+import crypto from "crypto";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -48,6 +49,21 @@ function programLimit(p: LoyaltyProgram) {
   return 999999;
 }
 
+/** =========================
+ *  SENHA (server-side)
+ *  ========================= */
+const CLEAR_COUNTER_PWD = (process.env.CLEAR_COUNTER_PWD || "").trim();
+
+function safeEq(a: string, b: string) {
+  const A = Buffer.from(String(a ?? ""));
+  const B = Buffer.from(String(b ?? ""));
+  if (A.length !== B.length) return false;
+  return crypto.timingSafeEqual(A, B);
+}
+
+/** =========================
+ *  GET (inalterado)
+ *  ========================= */
 export async function GET(req: NextRequest) {
   try {
     const session = await getSession();
@@ -141,13 +157,13 @@ export async function GET(req: NextRequest) {
     );
   } catch (err: any) {
     console.error("EMISSIONS GET ERROR:", err);
-    return NextResponse.json(
-      { ok: false, error: err?.message || "Erro inesperado" },
-      { status: 500 }
-    );
+    return NextResponse.json({ ok: false, error: err?.message || "Erro inesperado" }, { status: 500 });
   }
 }
 
+/** =========================
+ *  POST (inalterado)
+ *  ========================= */
 export async function POST(req: NextRequest) {
   try {
     const session = await getSession();
@@ -204,9 +220,110 @@ export async function POST(req: NextRequest) {
     );
   } catch (err: any) {
     console.error("EMISSIONS POST ERROR:", err);
+    return NextResponse.json({ ok: false, error: err?.message || "Erro inesperado" }, { status: 500 });
+  }
+}
+
+/** =========================
+ *  DELETE (novo) — ZERAR / LIMPAR
+ *  scope: CEDENTE | ALL | SELECTED
+ *  ========================= */
+export async function DELETE(req: NextRequest) {
+  try {
+    const session = await getSession();
+    if (!session?.id) {
+      return NextResponse.json({ ok: false, error: "Não autenticado." }, { status: 401 });
+    }
+
+    if (!CLEAR_COUNTER_PWD) {
+      return NextResponse.json(
+        { ok: false, error: "CLEAR_COUNTER_PWD não configurada no servidor." },
+        { status: 500 }
+      );
+    }
+
+    const body = await req.json().catch(() => ({}));
+
+    const scope = String(body?.scope || "").trim().toUpperCase(); // CEDENTE | ALL | SELECTED
+    const password = String(body?.password || "");
+
+    if (!safeEq(password, CLEAR_COUNTER_PWD)) {
+      return NextResponse.json({ ok: false, error: "Senha inválida." }, { status: 403 });
+    }
+
+    const cedenteId = String(body?.cedenteId || "").trim();
+    const programa = parseProgram(body?.programa || body?.program);
+    const idsRaw = body?.ids;
+    const confirmAll = body?.confirmAll === true;
+
+    // Monta where base (opcionalmente filtrado)
+    const baseWhere: any = {};
+    if (cedenteId) baseWhere.cedenteId = cedenteId;
+    if (programa) baseWhere.program = programa;
+
+    if (scope === "CEDENTE") {
+      if (!cedenteId) {
+        return NextResponse.json({ ok: false, error: "scope=CEDENTE exige cedenteId." }, { status: 400 });
+      }
+      const del = await prisma.emissionEvent.deleteMany({ where: baseWhere });
+      return NextResponse.json({
+        ok: true,
+        scope: "CEDENTE",
+        deleted: del.count,
+        cedenteId,
+        program: programa || null,
+      });
+    }
+
+    if (scope === "SELECTED") {
+      const ids = Array.isArray(idsRaw) ? idsRaw.map((x) => String(x)).filter(Boolean) : [];
+      if (ids.length === 0) {
+        return NextResponse.json({ ok: false, error: "scope=SELECTED exige ids: string[] (não vazio)." }, { status: 400 });
+      }
+
+      const delWhere: any = { id: { in: ids } };
+      // se o front quiser restringir por cedente/programa, respeita
+      if (cedenteId) delWhere.cedenteId = cedenteId;
+      if (programa) delWhere.program = programa;
+
+      const del = await prisma.emissionEvent.deleteMany({ where: delWhere });
+
+      return NextResponse.json({
+        ok: true,
+        scope: "SELECTED",
+        deleted: del.count,
+        cedenteId: cedenteId || null,
+        program: programa || null,
+      });
+    }
+
+    if (scope === "ALL") {
+      // proteção: se não tem filtro nenhum, exige confirmAll=true
+      const hasAnyFilter = Boolean(cedenteId) || Boolean(programa);
+      if (!hasAnyFilter && !confirmAll) {
+        return NextResponse.json(
+          { ok: false, error: 'scope=ALL sem filtros exige "confirmAll": true.' },
+          { status: 400 }
+        );
+      }
+
+      const del = await prisma.emissionEvent.deleteMany({ where: baseWhere }); // se baseWhere vazio, apaga tudo (confirmAll protege)
+
+      return NextResponse.json({
+        ok: true,
+        scope: "ALL",
+        deleted: del.count,
+        cedenteId: cedenteId || null,
+        program: programa || null,
+      });
+    }
+
     return NextResponse.json(
-      { ok: false, error: err?.message || "Erro inesperado" },
-      { status: 500 }
+      { ok: false, error: 'scope inválido. Use "CEDENTE", "ALL" ou "SELECTED".' },
+      { status: 400 }
     );
+  } catch (err: any) {
+    console.error("EMISSIONS DELETE ERROR:", err);
+    return NextResponse.json({ ok: false, error: err?.message || "Erro inesperado" }, { status: 500 });
   }
 }

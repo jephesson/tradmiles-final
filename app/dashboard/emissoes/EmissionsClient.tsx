@@ -100,6 +100,17 @@ export default function EmissionsClient({
   const [editPassengers, setEditPassengers] = useState<number>(1);
   const [editNote, setEditNote] = useState<string>("");
 
+  // ✅ seleção (para apagar selecionados)
+  const [selectedIds, setSelectedIds] = useState<Record<string, boolean>>({});
+  const selectedCount = useMemo(
+    () => Object.values(selectedIds).filter(Boolean).length,
+    [selectedIds]
+  );
+  const selectedIdList = useMemo(
+    () => Object.entries(selectedIds).filter(([, v]) => v).map(([k]) => k),
+    [selectedIds]
+  );
+
   function syncUrl(next: { programa?: string; cedenteId?: string }) {
     const params = new URLSearchParams(sp?.toString());
     if (next.programa != null) params.set("programa", next.programa);
@@ -195,6 +206,7 @@ export default function EmissionsClient({
   async function loadList() {
     if (!cedenteId) {
       setRows([]);
+      setSelectedIds({});
       return;
     }
     setListLoading(true);
@@ -207,9 +219,19 @@ export default function EmissionsClient({
       );
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error || "Falha ao carregar lista");
-      setRows(Array.isArray(data) ? data : []);
+      const nextRows = Array.isArray(data) ? data : [];
+      setRows(nextRows);
+
+      // ✅ remove seleções que não existem mais
+      setSelectedIds((prev) => {
+        const allowed = new Set(nextRows.map((r: EmissionEventRow) => r.id));
+        const out: Record<string, boolean> = {};
+        for (const [k, v] of Object.entries(prev)) if (v && allowed.has(k)) out[k] = true;
+        return out;
+      });
     } catch (e: any) {
       setRows([]);
+      setSelectedIds({});
       alert(e?.message || "Erro ao carregar lista");
     } finally {
       setListLoading(false);
@@ -304,6 +326,121 @@ export default function EmissionsClient({
       alert(e?.message || "Erro ao salvar");
     }
   }
+
+  /** =========================
+   *  ✅ ZERAR / LIMPAR (DELETE /api/emissions)
+   *  ========================= */
+  function askPassword(): string | null {
+    const pwd = prompt("Digite a senha para confirmar:");
+    if (pwd == null) return null;
+    const s = pwd.trim();
+    if (!s) return null;
+    return s;
+  }
+
+  async function clearSelected() {
+    if (!cedenteId) return alert("Selecione um cedente.");
+    if (selectedIdList.length === 0) return alert("Selecione ao menos 1 lançamento.");
+
+    if (!confirm(`Apagar ${selectedIdList.length} lançamento(s) selecionado(s)?`)) return;
+    const password = askPassword();
+    if (!password) return;
+
+    try {
+      const res = await fetch("/api/emissions", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        cache: "no-store",
+        body: JSON.stringify({
+          scope: "SELECTED",
+          password,
+          ids: selectedIdList,
+          // opcionalmente restringe (segurança extra)
+          cedenteId,
+          programa: program,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data?.ok) throw new Error(data?.error || "Falha ao apagar selecionados.");
+      setSelectedIds({});
+      await refreshAll();
+      alert(`Apagados: ${data.deleted ?? 0}`);
+    } catch (e: any) {
+      alert(e?.message || "Erro ao apagar selecionados.");
+    }
+  }
+
+  async function clearCedenteAll() {
+    if (!cedenteId) return alert("Selecione um cedente.");
+    if (!confirm("Tem certeza que deseja apagar TODOS os lançamentos deste cedente (no programa atual)?")) return;
+
+    const password = askPassword();
+    if (!password) return;
+
+    try {
+      const res = await fetch("/api/emissions", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        cache: "no-store",
+        body: JSON.stringify({
+          scope: "CEDENTE",
+          password,
+          cedenteId,
+          programa: program, // apaga só do programa atual; remova esta linha se quiser apagar de todos os programas
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data?.ok) throw new Error(data?.error || "Falha ao apagar do cedente.");
+      setSelectedIds({});
+      await refreshAll();
+      alert(`Apagados: ${data.deleted ?? 0}`);
+    } catch (e: any) {
+      alert(e?.message || "Erro ao apagar do cedente.");
+    }
+  }
+
+  async function clearAllProgram() {
+    // ✅ apaga tudo DO PROGRAMA (todos cedentes)
+    if (!confirm(`Tem certeza que deseja apagar TODOS os lançamentos do programa ${program.toUpperCase()} (todos os cedentes)?`))
+      return;
+
+    const password = askPassword();
+    if (!password) return;
+
+    try {
+      const res = await fetch("/api/emissions", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        cache: "no-store",
+        body: JSON.stringify({
+          scope: "ALL",
+          password,
+          programa: program, // filtro -> não precisa confirmAll
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data?.ok) throw new Error(data?.error || "Falha ao apagar tudo do programa.");
+      setSelectedIds({});
+      await refreshAll();
+      alert(`Apagados: ${data.deleted ?? 0}`);
+    } catch (e: any) {
+      alert(e?.message || "Erro ao apagar tudo do programa.");
+    }
+  }
+
+  function toggleRow(id: string, value?: boolean) {
+    setSelectedIds((prev) => ({ ...prev, [id]: value ?? !prev[id] }));
+  }
+  function toggleAllVisible(checked: boolean) {
+    setSelectedIds((prev) => {
+      const out = { ...prev };
+      for (const r of rows) out[r.id] = checked;
+      return out;
+    });
+  }
+
+  const allVisibleSelected = rows.length > 0 && rows.every((r) => selectedIds[r.id]);
+  const someVisibleSelected = rows.some((r) => selectedIds[r.id]);
 
   return (
     <div className="space-y-6">
@@ -437,12 +574,7 @@ export default function EmissionsClient({
           <div className="grid gap-3 md:grid-cols-4">
             <Stat label="Limite" value={String(usage.limit)} />
             <Stat label="Usado" value={String(usage.used)} />
-            <Stat
-              label="Restante"
-              value={String(usage.remaining)}
-              strong
-              warn={usage.remaining <= 3}
-            />
+            <Stat label="Restante" value={String(usage.remaining)} strong warn={usage.remaining <= 3} />
             <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-3">
               <div className="text-xs text-zinc-500">Janela</div>
               <div className="text-sm font-medium">
@@ -456,6 +588,49 @@ export default function EmissionsClient({
         ) : (
           <div className="text-sm text-zinc-600">Sem dados (verifique API de emissões).</div>
         )}
+
+        {/* ✅ Ações de zerar/limpar */}
+        <div className="mt-4 flex flex-wrap gap-2">
+          <button
+            onClick={clearCedenteAll}
+            disabled={!cedenteId}
+            className={cn(
+              "h-9 rounded-xl border px-3 text-sm shadow-sm",
+              !cedenteId
+                ? "cursor-not-allowed border-zinc-200 bg-zinc-100 text-zinc-400"
+                : "border-red-200 bg-white text-red-700 hover:bg-red-50"
+            )}
+            title="Apaga todos os lançamentos deste cedente (no programa atual)"
+          >
+            Zerar cedente (programa)
+          </button>
+
+          <button
+            onClick={clearAllProgram}
+            className="h-9 rounded-xl border border-red-200 bg-white px-3 text-sm text-red-700 shadow-sm hover:bg-red-50"
+            title="Apaga todos os lançamentos do programa atual (todos os cedentes)"
+          >
+            Zerar programa (todos)
+          </button>
+
+          <button
+            onClick={clearSelected}
+            disabled={!cedenteId || selectedCount === 0}
+            className={cn(
+              "h-9 rounded-xl border px-3 text-sm shadow-sm",
+              !cedenteId || selectedCount === 0
+                ? "cursor-not-allowed border-zinc-200 bg-zinc-100 text-zinc-400"
+                : "border-red-200 bg-white text-red-700 hover:bg-red-50"
+            )}
+            title="Apaga apenas os lançamentos selecionados"
+          >
+            Apagar selecionados {selectedCount ? `(${selectedCount})` : ""}
+          </button>
+        </div>
+
+        <div className="mt-2 text-xs text-zinc-500">
+          * Vai pedir confirmação + senha. “Zerar cedente” apaga apenas do programa atual.
+        </div>
       </div>
 
       {/* Create */}
@@ -515,9 +690,20 @@ export default function EmissionsClient({
           <div className="text-sm text-zinc-600">Nenhum lançamento ainda.</div>
         ) : (
           <div className="overflow-auto">
-            <table className="w-full min-w-[880px] border-separate border-spacing-0">
+            <table className="w-full min-w-[980px] border-separate border-spacing-0">
               <thead>
                 <tr className="text-left text-xs text-zinc-500">
+                  <th className="border-b border-zinc-200 p-2">
+                    <input
+                      type="checkbox"
+                      checked={allVisibleSelected}
+                      ref={(el) => {
+                        if (el) el.indeterminate = !allVisibleSelected && someVisibleSelected;
+                      }}
+                      onChange={(e) => toggleAllVisible(e.target.checked)}
+                      title="Selecionar todos os visíveis"
+                    />
+                  </th>
                   <th className="border-b border-zinc-200 p-2">Data emissão</th>
                   <th className="border-b border-zinc-200 p-2">Pax</th>
                   <th className="border-b border-zinc-200 p-2">Origem</th>
@@ -529,8 +715,17 @@ export default function EmissionsClient({
               <tbody>
                 {rows.map((r) => {
                   const isEditing = editingId === r.id;
+                  const checked = Boolean(selectedIds[r.id]);
                   return (
                     <tr key={r.id} className="text-sm">
+                      <td className="border-b border-zinc-100 p-2">
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={(e) => toggleRow(r.id, e.target.checked)}
+                        />
+                      </td>
+
                       <td className="border-b border-zinc-100 p-2 font-medium">
                         {fmtDateBR(r.issuedAt)}
                       </td>
@@ -611,6 +806,12 @@ export default function EmissionsClient({
                 })}
               </tbody>
             </table>
+
+            {selectedCount > 0 ? (
+              <div className="mt-2 text-xs text-zinc-500">
+                Selecionados: <span className="font-medium text-zinc-700">{selectedCount}</span>
+              </div>
+            ) : null}
           </div>
         )}
       </div>
@@ -637,7 +838,12 @@ function Stat({
   warn?: boolean;
 }) {
   return (
-    <div className={cn("rounded-xl border p-3", warn ? "border-amber-200 bg-amber-50" : "border-zinc-200 bg-white")}>
+    <div
+      className={cn(
+        "rounded-xl border p-3",
+        warn ? "border-amber-200 bg-amber-50" : "border-zinc-200 bg-white"
+      )}
+    >
       <div className="text-xs text-zinc-500">{label}</div>
       <div className={cn("text-lg", strong && "font-semibold")}>{value}</div>
     </div>
