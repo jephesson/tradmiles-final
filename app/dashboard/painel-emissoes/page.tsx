@@ -1,4 +1,4 @@
-// app/dashboard/emissoes/painel-emissoes/page.tsx
+// app/dashboard/painel-emissoes/page.tsx
 
 import PainelEmissoesClient from "./PainelEmissoesClient";
 

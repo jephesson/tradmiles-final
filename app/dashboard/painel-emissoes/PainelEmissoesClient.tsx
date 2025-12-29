@@ -23,8 +23,8 @@ type PanelApiResp = {
   rows: Array<{
     cedenteId: string;
     total: number;
-    manual: number;
-    renewEndOfMonth: number;
+    manual: number; // vem da API, mas não exibimos
+    renewEndOfMonth: number; // vem da API, mas não exibimos
     perMonth: Record<string, number>;
   }>;
   totals: { total: number; manual: number; renewEndOfMonth: number };
@@ -35,7 +35,11 @@ function cn(...xs: Array<string | false | null | undefined>) {
 }
 
 const PROGRAMS: Array<{ key: ProgramKey; label: string; hint: string }> = [
-  { key: "latam", label: "LATAM", hint: "Janela por meses (painel) + renovação mês-12" },
+  {
+    key: "latam",
+    label: "LATAM",
+    hint: "Janela por meses (painel) + renovação mês-12",
+  },
   { key: "smiles", label: "Smiles", hint: "Reset anual (painel por meses)" },
   { key: "livelo", label: "Livelo", hint: "Sem regra (por enquanto)" },
   { key: "esfera", label: "Esfera", hint: "Sem regra (por enquanto)" },
@@ -46,13 +50,19 @@ function fmtInt(n: number) {
   return v.toLocaleString("pt-BR");
 }
 
-export default function PainelEmissoesClient({ initialProgram }: { initialProgram: string }) {
+export default function PainelEmissoesClient({
+  initialProgram,
+}: {
+  initialProgram: string;
+}) {
   const router = useRouter();
   const sp = useSearchParams();
 
   const [program, setProgram] = useState<ProgramKey>(() => {
     const p = String(initialProgram || "latam").toLowerCase();
-    return (["latam", "smiles", "livelo", "esfera"].includes(p) ? p : "latam") as ProgramKey;
+    return (["latam", "smiles", "livelo", "esfera"].includes(p)
+      ? p
+      : "latam") as ProgramKey;
   });
 
   // cedentes
@@ -67,7 +77,9 @@ export default function PainelEmissoesClient({ initialProgram }: { initialProgra
   function syncUrl(next: { programa?: string }) {
     const params = new URLSearchParams(sp?.toString());
     if (next.programa != null) params.set("programa", next.programa);
-    router.replace(`/dashboard/painel-emissoes?${params.toString()}`, { scroll: false });
+    router.replace(`/dashboard/painel-emissoes?${params.toString()}`, {
+      scroll: false,
+    });
   }
 
   useEffect(() => {
@@ -80,7 +92,9 @@ export default function PainelEmissoesClient({ initialProgram }: { initialProgra
     try {
       const res = await fetch("/api/cedentes/approved", { cache: "no-store" });
       const json: ApprovedResp = await res.json().catch(() => ({} as any));
-      if (!res.ok || !json?.ok) throw new Error(json?.error || "Falha ao carregar cedentes.");
+      if (!res.ok || !json?.ok)
+        throw new Error(json?.error || "Falha ao carregar cedentes.");
+
       const data = Array.isArray(json.data) ? json.data : [];
       setCedentes(
         data.map((r: any) => ({
@@ -113,7 +127,8 @@ export default function PainelEmissoesClient({ initialProgram }: { initialProgra
         }),
       });
       const data = (await res.json().catch(() => null)) as any;
-      if (!res.ok || !data?.ok) throw new Error(data?.error || "Falha ao carregar painel");
+      if (!res.ok || !data?.ok)
+        throw new Error(data?.error || "Falha ao carregar painel");
       setPanel(data as PanelApiResp);
     } catch (e: any) {
       setPanel(null);
@@ -166,7 +181,11 @@ export default function PainelEmissoesClient({ initialProgram }: { initialProgra
         });
 
     // ordena por total desc, depois nome
-    filtered.sort((a, b) => (b.total - a.total) || String(a.nomeCompleto).localeCompare(String(b.nomeCompleto)));
+    filtered.sort(
+      (a, b) =>
+        b.total - a.total ||
+        String(a.nomeCompleto).localeCompare(String(b.nomeCompleto))
+    );
 
     return filtered;
   }, [panel, cedenteById, q]);
@@ -181,9 +200,12 @@ export default function PainelEmissoesClient({ initialProgram }: { initialProgra
       <div className="flex flex-col gap-2">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
-            <h1 className="text-2xl font-semibold tracking-tight">Painel de Emissões</h1>
+            <h1 className="text-2xl font-semibold tracking-tight">
+              Painel de Emissões
+            </h1>
             <p className="text-sm text-zinc-500">
-              Visão mensal por cedente (estilo planilha) + destaque do mês atual + renovação no fim do mês.
+              Visão mensal por cedente (estilo planilha) + destaque do mês atual
+              + coluna de renovação (mês-12) em vermelho claro.
             </p>
           </div>
 
@@ -218,8 +240,8 @@ export default function PainelEmissoesClient({ initialProgram }: { initialProgra
         </div>
       </div>
 
-      {/* Top summary */}
-      <div className="grid gap-3 md:grid-cols-4">
+      {/* Top summary (SEM Manual e SEM Renova) */}
+      <div className="grid gap-3 md:grid-cols-2">
         <CardStat
           label="Cedentes"
           value={cedentesLoading ? "…" : fmtInt(cedentes.length)}
@@ -229,22 +251,15 @@ export default function PainelEmissoesClient({ initialProgram }: { initialProgra
           value={panel ? fmtInt(panel.totals.total) : "—"}
           strong
         />
-        <CardStat
-          label="Manual"
-          value={panel ? fmtInt(panel.totals.manual) : "—"}
-        />
-        <CardStat
-          label="Renovam no fim do mês"
-          value={panel ? fmtInt(panel.totals.renewEndOfMonth) : "—"}
-          warn={program === "latam"}
-        />
       </div>
 
       {/* Filtro */}
       <div className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
         <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
           <div className="md:w-[520px]">
-            <label className="mb-1 block text-xs text-zinc-600">Buscar (nome / CPF / identificador)</label>
+            <label className="mb-1 block text-xs text-zinc-600">
+              Buscar (nome / CPF / identificador)
+            </label>
             <input
               value={q}
               onChange={(e) => setQ(e.target.value)}
@@ -256,13 +271,13 @@ export default function PainelEmissoesClient({ initialProgram }: { initialProgra
           <div className="text-xs text-zinc-500">
             {panel ? (
               <>
-                Mês atual em verde: <span className="rounded bg-emerald-100 px-1 py-0.5"> {panel.currentMonthKey} </span>
-                {program === "latam" ? (
-                  <>
-                    {" "}• Renovação baseada em:{" "}
-                    <span className="rounded bg-zinc-100 px-1 py-0.5">{panel.renewMonthKey}</span>
-                  </>
-                ) : null}
+                Mês atual em{" "}
+                <span className="rounded bg-emerald-100 px-1 py-0.5">
+                  verde
+                </span>{" "}
+                ({panel.currentMonthKey}) • Renovação (mês-12) em{" "}
+                <span className="rounded bg-rose-100 px-1 py-0.5">vermelho</span>{" "}
+                ({panel.renewMonthKey})
               </>
             ) : (
               "Carregando painel…"
@@ -276,30 +291,38 @@ export default function PainelEmissoesClient({ initialProgram }: { initialProgra
         <div className="mb-3 flex items-center justify-between">
           <h2 className="text-base font-semibold">Contagem (por mês)</h2>
           <div className="text-xs text-zinc-500">
-            {panelLoading ? "Carregando…" : panel ? `${rowsMerged.length} linhas` : "—"}
+            {panelLoading
+              ? "Carregando…"
+              : panel
+              ? `${rowsMerged.length} linhas`
+              : "—"}
           </div>
         </div>
 
         {!panel ? (
-          <div className="text-sm text-zinc-600">Sem dados (verifique /api/emissions/panel).</div>
+          <div className="text-sm text-zinc-600">
+            Sem dados (verifique /api/emissions/panel).
+          </div>
         ) : (
           <div className="overflow-auto">
             <table className="w-full min-w-[1200px] border-separate border-spacing-0">
               <thead>
                 <tr className="text-left text-xs text-zinc-500">
-                  <th className="sticky left-0 z-10 border-b border-zinc-200 bg-white p-2">Nome</th>
-                  <th className="border-b border-zinc-200 p-2">Emissão Total</th>
-                  <th className="border-b border-zinc-200 p-2">Manual</th>
-                  <th className="border-b border-zinc-200 p-2">Renova (fim do mês)</th>
+                  {/* Sticky: Nome + Total junto */}
+                  <th className="sticky left-0 z-20 border-b border-zinc-200 bg-white p-2">
+                    Cedente (Total)
+                  </th>
 
                   {panel.months.map((m) => {
                     const isCurrent = m.key === panel.currentMonthKey;
+                    const isRenew = m.key === panel.renewMonthKey;
                     return (
                       <th
                         key={m.key}
                         className={cn(
                           "border-b border-zinc-200 p-2 text-center",
-                          isCurrent && "bg-emerald-100"
+                          isCurrent && "bg-emerald-100",
+                          !isCurrent && isRenew && "bg-rose-100"
                         )}
                         title={m.key}
                       >
@@ -307,65 +330,66 @@ export default function PainelEmissoesClient({ initialProgram }: { initialProgra
                       </th>
                     );
                   })}
-
-                  <th className="border-b border-zinc-200 p-2">CPF</th>
-                  <th className="border-b border-zinc-200 p-2">ID</th>
                 </tr>
               </thead>
 
               <tbody>
                 {rowsMerged.map((r) => {
-                  const barPct = Math.max(0, Math.min(100, (Number(r.total || 0) / maxTotal) * 100));
+                  const barPct = Math.max(
+                    0,
+                    Math.min(100, (Number(r.total || 0) / maxTotal) * 100)
+                  );
+
                   return (
                     <tr key={r.cedenteId} className="text-sm">
-                      {/* Nome sticky */}
+                      {/* Sticky: Nome + Total */}
                       <td className="sticky left-0 z-10 border-b border-zinc-100 bg-white p-2">
-                        <div className="min-w-[320px]">
-                          <div className="truncate font-medium">{r.nomeCompleto}</div>
-                          <div className="truncate text-xs text-zinc-500">{r.identificador}</div>
-                        </div>
-                      </td>
+                        <div className="min-w-[360px]">
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <div className="truncate font-medium">
+                                {r.nomeCompleto}
+                              </div>
+                              <div className="truncate text-xs text-zinc-500">
+                                {r.identificador}
+                              </div>
+                            </div>
 
-                      {/* Total com databar */}
-                      <td className="border-b border-zinc-100 p-2">
-                        <div className="relative h-7 rounded-md border border-zinc-200 bg-white">
-                          <div
-                            className="absolute inset-y-0 left-0 rounded-md bg-red-200"
-                            style={{ width: `${barPct}%` }}
-                          />
-                          <div className="relative z-10 flex h-full items-center justify-center text-xs font-semibold text-zinc-900">
-                            {fmtInt(r.total)}
+                            {/* databar do total colado no nome */}
+                            <div className="shrink-0 w-[110px]">
+                              <div className="relative h-7 rounded-md border border-zinc-200 bg-white">
+                                <div
+                                  className="absolute inset-y-0 left-0 rounded-md bg-red-200"
+                                  style={{ width: `${barPct}%` }}
+                                />
+                                <div className="relative z-10 flex h-full items-center justify-center text-xs font-semibold text-zinc-900">
+                                  {fmtInt(r.total)}
+                                </div>
+                              </div>
+                            </div>
                           </div>
                         </div>
                       </td>
 
-                      <td className="border-b border-zinc-100 p-2 text-center">{fmtInt(r.manual)}</td>
-
-                      <td className={cn(
-                        "border-b border-zinc-100 p-2 text-center",
-                        program === "latam" && r.renewEndOfMonth > 0 && "bg-amber-50"
-                      )}>
-                        {fmtInt(r.renewEndOfMonth)}
-                      </td>
-
+                      {/* Meses */}
                       {panel.months.map((m) => {
                         const v = Number(r.perMonth?.[m.key] || 0);
                         const isCurrent = m.key === panel.currentMonthKey;
+                        const isRenew = m.key === panel.renewMonthKey;
+
                         return (
                           <td
                             key={m.key}
                             className={cn(
                               "border-b border-zinc-100 p-2 text-center",
-                              isCurrent && "bg-emerald-100"
+                              isCurrent && "bg-emerald-100",
+                              !isCurrent && isRenew && "bg-rose-50"
                             )}
                           >
                             {v > 0 ? fmtInt(v) : ""}
                           </td>
                         );
                       })}
-
-                      <td className="border-b border-zinc-100 p-2 text-xs text-zinc-600">{r.cpf || "—"}</td>
-                      <td className="border-b border-zinc-100 p-2 text-xs text-zinc-500">{r.cedenteId.slice(0, 8)}…</td>
                     </tr>
                   );
                 })}
@@ -375,7 +399,8 @@ export default function PainelEmissoesClient({ initialProgram }: { initialProgra
         )}
 
         <div className="mt-3 text-xs text-zinc-500">
-          * Mês atual em verde. “Renova (fim do mês)” (LATAM) usa o mês <b>mês-12</b> (igual sua lógica por colunas).
+          * Mês atual em verde. Coluna de renovação (LATAM) = mês-12 (
+          <b>{panel?.renewMonthKey || "—"}</b>) em vermelho claro.
         </div>
       </div>
     </div>
@@ -386,20 +411,17 @@ function CardStat({
   label,
   value,
   strong,
-  warn,
 }: {
   label: string;
   value: string;
   strong?: boolean;
-  warn?: boolean;
 }) {
   return (
-    <div className={cn(
-      "rounded-2xl border p-4 shadow-sm",
-      warn ? "border-amber-200 bg-amber-50" : "border-zinc-200 bg-white"
-    )}>
+    <div className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
       <div className="text-xs text-zinc-500">{label}</div>
-      <div className={cn("mt-1 text-xl", strong && "font-semibold")}>{value}</div>
+      <div className={cn("mt-1 text-xl", strong && "font-semibold")}>
+        {value}
+      </div>
     </div>
   );
 }
