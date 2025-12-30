@@ -22,6 +22,8 @@ type Row = {
   passageirosDisponiveisAno: number;
 };
 
+type SortBy = "aprovado" | "esperado";
+
 function fmtInt(n: number) {
   return (n || 0).toLocaleString("pt-BR");
 }
@@ -38,6 +40,9 @@ export default function CedentesVisualizarLatamClient() {
 
   const [q, setQ] = useState("");
   const [ownerId, setOwnerId] = useState("");
+
+  // ✅ novo: ordenação
+  const [sortBy, setSortBy] = useState<SortBy>("aprovado");
 
   async function load() {
     setLoading(true);
@@ -83,6 +88,23 @@ export default function CedentesVisualizarLatamClient() {
     );
   }, [rows]);
 
+  // ✅ novo: ordena maior -> menor (aprovado ou esperado)
+  const sortedRows = useMemo(() => {
+    const list = [...rows];
+    list.sort((a, b) => {
+      const av =
+        sortBy === "aprovado" ? a.latamAprovado : a.latamTotalEsperado;
+      const bv =
+        sortBy === "aprovado" ? b.latamAprovado : b.latamTotalEsperado;
+
+      if (bv !== av) return bv - av; // desc
+
+      // desempate: nome
+      return a.nomeCompleto.localeCompare(b.nomeCompleto, "pt-BR");
+    });
+    return list;
+  }, [rows, sortBy]);
+
   return (
     <div className="p-6">
       {/* Header */}
@@ -90,7 +112,8 @@ export default function CedentesVisualizarLatamClient() {
         <div>
           <h1 className="text-2xl font-semibold">Cedentes • Latam</h1>
           <p className="text-sm text-slate-500">
-            Pontos aprovados, pendentes, total esperado e passageiros disponíveis (ano).
+            Pontos aprovados, pendentes, total esperado e passageiros disponíveis
+            (ano).
           </p>
         </div>
 
@@ -128,6 +151,17 @@ export default function CedentesVisualizarLatamClient() {
             </option>
           ))}
         </select>
+
+        {/* ✅ novo: ordenação */}
+        <select
+          value={sortBy}
+          onChange={(e) => setSortBy(e.target.value as SortBy)}
+          className="border rounded-lg px-3 py-2 text-sm min-w-[240px]"
+          title="Ordenar do maior para o menor"
+        >
+          <option value="aprovado">Ordenar: LATAM (aprovado) ↓</option>
+          <option value="esperado">Ordenar: TOTAL esperado ↓</option>
+        </select>
       </div>
 
       {/* Tabela */}
@@ -136,18 +170,32 @@ export default function CedentesVisualizarLatamClient() {
           <table className="w-full text-sm">
             <thead className="bg-slate-50 border-b">
               <tr className="text-slate-600">
-                <th className="text-left font-semibold px-4 py-3 w-[380px]">NOME</th>
-                <th className="text-left font-semibold px-4 py-3 w-[260px]">RESPONSÁVEL</th>
-                <th className="text-right font-semibold px-4 py-3 w-[140px]">LATAM</th>
-                <th className="text-right font-semibold px-4 py-3 w-[160px]">PENDENTES</th>
-                <th className="text-right font-semibold px-4 py-3 w-[180px]">TOTAL ESPERADO</th>
-                <th className="text-right font-semibold px-4 py-3 w-[190px]">PASSAGEIROS DISP.</th>
-                <th className="text-right font-semibold px-4 py-3 w-[140px]">AÇÕES</th>
+                <th className="text-left font-semibold px-4 py-3 w-[380px]">
+                  NOME
+                </th>
+                <th className="text-left font-semibold px-4 py-3 w-[260px]">
+                  RESPONSÁVEL
+                </th>
+                <th className="text-right font-semibold px-4 py-3 w-[140px]">
+                  LATAM
+                </th>
+                <th className="text-right font-semibold px-4 py-3 w-[160px]">
+                  PENDENTES
+                </th>
+                <th className="text-right font-semibold px-4 py-3 w-[180px]">
+                  TOTAL ESPERADO
+                </th>
+                <th className="text-right font-semibold px-4 py-3 w-[190px]">
+                  PASSAGEIROS DISP.
+                </th>
+                <th className="text-right font-semibold px-4 py-3 w-[140px]">
+                  AÇÕES
+                </th>
               </tr>
             </thead>
 
             <tbody>
-              {rows.length === 0 && !loading ? (
+              {sortedRows.length === 0 && !loading ? (
                 <tr>
                   <td className="px-4 py-6 text-slate-500" colSpan={7}>
                     Nenhum resultado.
@@ -155,7 +203,7 @@ export default function CedentesVisualizarLatamClient() {
                 </tr>
               ) : null}
 
-              {rows.map((r) => (
+              {sortedRows.map((r) => (
                 <tr key={r.id} className="border-b last:border-b-0">
                   <td className="px-4 py-3">
                     <div className="font-medium">{r.nomeCompleto}</div>
