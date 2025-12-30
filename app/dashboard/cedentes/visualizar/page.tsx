@@ -3,14 +3,21 @@ export const dynamic = "force-dynamic";
 import CedentesVisualizarClient from "./CedentesVisualizarClient";
 import CedentesVisualizarLatamClient from "./CedentesVisualizarLatamClient";
 
-export default function Page({
+type SearchParams = { [key: string]: string | string[] | undefined };
+
+export default async function Page({
   searchParams,
 }: {
-  searchParams?: { programa?: string };
+  searchParams: Promise<SearchParams>;
 }) {
-  const p = (searchParams?.programa || "").toLowerCase();
+  const sp = await searchParams;
 
-  if (p === "latam") return <CedentesVisualizarLatamClient />;
+  const programaRaw = Array.isArray(sp.programa) ? sp.programa[0] : sp.programa;
+  const p = (programaRaw || "").toLowerCase();
+
+  if (p === "latam") {
+    return <CedentesVisualizarLatamClient />;
+  }
 
   return <CedentesVisualizarClient />;
 }
