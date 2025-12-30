@@ -82,7 +82,11 @@ async function api<T>(url: string, init?: RequestInit): Promise<T> {
 
 export default function NovaVendaClient() {
   const session = getSession();
-  const user = session?.user;
+
+  // ✅ FIX: Session não tem `.user` — usa o próprio session como fonte de id/name/login
+  const user: UserLite | null = session
+    ? { id: (session as any).id, name: (session as any).name, login: (session as any).login }
+    : null;
 
   // 1) input principal
   const [program, setProgram] = useState<Program>("LATAM");
@@ -205,9 +209,14 @@ export default function NovaVendaClient() {
   useEffect(() => {
     const t = setTimeout(async () => {
       const q = clienteQ.trim();
-      if (q.length < 2) { setClientes([]); return; }
+      if (q.length < 2) {
+        setClientes([]);
+        return;
+      }
       try {
-        const out = await api<{ ok: true; clientes: ClienteLite[] }>(`/api/clientes/search?q=${encodeURIComponent(q)}`);
+        const out = await api<{ ok: true; clientes: ClienteLite[] }>(
+          `/api/clientes/search?q=${encodeURIComponent(q)}`
+        );
         setClientes(out.clientes || []);
       } catch {
         setClientes([]);
@@ -219,7 +228,11 @@ export default function NovaVendaClient() {
   // quando escolhe cedente -> carrega compras OPEN daquele cedente
   useEffect(() => {
     (async () => {
-      if (!sel?.cedente?.id) { setCompras([]); setPurchaseId(""); return; }
+      if (!sel?.cedente?.id) {
+        setCompras([]);
+        setPurchaseId("");
+        return;
+      }
       try {
         const out = await api<{ ok: true; compras: CompraOpen[] }>(`/api/compras/open?cedenteId=${sel.cedente.id}`);
         setCompras(out.compras || []);
@@ -274,9 +287,7 @@ export default function NovaVendaClient() {
       <div className="flex items-start justify-between gap-4">
         <div>
           <h1 className="text-2xl font-semibold">Nova venda</h1>
-          <p className="text-sm text-slate-500">
-            Informe pontos + CIA + passageiros. O sistema sugere o melhor cedente.
-          </p>
+          <p className="text-sm text-slate-500">Informe pontos + CIA + passageiros. O sistema sugere o melhor cedente.</p>
         </div>
 
         <div className="flex gap-2">
@@ -296,8 +307,11 @@ export default function NovaVendaClient() {
         <div className="mt-4 grid gap-4 md:grid-cols-3">
           <label className="space-y-1">
             <div className="text-xs text-slate-600">CIA / Programa</div>
-            <select className="w-full rounded-xl border px-3 py-2 text-sm bg-white"
-              value={program} onChange={(e) => setProgram(e.target.value as Program)}>
+            <select
+              className="w-full rounded-xl border px-3 py-2 text-sm bg-white"
+              value={program}
+              onChange={(e) => setProgram(e.target.value as Program)}
+            >
               <option value="LATAM">LATAM</option>
               <option value="SMILES">SMILES</option>
               <option value="LIVELO">LIVELO</option>
@@ -307,14 +321,23 @@ export default function NovaVendaClient() {
 
           <label className="space-y-1">
             <div className="text-xs text-slate-600">Pontos</div>
-            <input className="w-full rounded-xl border px-3 py-2 text-sm font-mono"
-              value={pointsStr} onChange={(e) => onChangePoints(e.target.value)} placeholder="Ex: 100.000" />
+            <input
+              className="w-full rounded-xl border px-3 py-2 text-sm font-mono"
+              value={pointsStr}
+              onChange={(e) => onChangePoints(e.target.value)}
+              placeholder="Ex: 100.000"
+            />
           </label>
 
           <label className="space-y-1">
             <div className="text-xs text-slate-600">Passageiros</div>
-            <input type="number" min={1} className="w-full rounded-xl border px-3 py-2 text-sm font-mono"
-              value={passengers} onChange={(e) => setPassengers(Math.max(1, clampInt(e.target.value)))} />
+            <input
+              type="number"
+              min={1}
+              className="w-full rounded-xl border px-3 py-2 text-sm font-mono"
+              value={passengers}
+              onChange={(e) => setPassengers(Math.max(1, clampInt(e.target.value)))}
+            />
           </label>
         </div>
 
@@ -350,15 +373,21 @@ export default function NovaVendaClient() {
             </thead>
             <tbody>
               {suggestions.length === 0 && !loadingSug ? (
-                <tr><td colSpan={7} className="px-4 py-8 text-slate-500">Informe pontos e passageiros para ver sugestões.</td></tr>
+                <tr>
+                  <td colSpan={7} className="px-4 py-8 text-slate-500">
+                    Informe pontos e passageiros para ver sugestões.
+                  </td>
+                </tr>
               ) : null}
 
               {suggestions.map((s) => {
                 const selected = sel?.cedente.id === s.cedente.id;
                 const badge =
-                  s.priorityLabel === "MAX" ? "bg-emerald-50 border-emerald-200 text-emerald-700"
-                  : s.priorityLabel === "BAIXA" ? "bg-slate-100 text-slate-600"
-                  : "bg-amber-50 border-amber-200 text-amber-700";
+                  s.priorityLabel === "MAX"
+                    ? "bg-emerald-50 border-emerald-200 text-emerald-700"
+                    : s.priorityLabel === "BAIXA"
+                      ? "bg-slate-100 text-slate-600"
+                      : "bg-amber-50 border-amber-200 text-amber-700";
 
                 return (
                   <tr key={s.cedente.id} className={cn("border-b last:border-b-0", selected ? "bg-slate-50" : "")}>
@@ -378,7 +407,10 @@ export default function NovaVendaClient() {
                     <td className="px-4 py-3 text-right tabular-nums">{fmtInt(s.pts)}</td>
                     <td className="px-4 py-3 text-right tabular-nums">
                       {fmtInt(s.availablePassengersYear)}
-                      <span className="text-xs text-slate-500"> (usados {fmtInt(s.usedPassengersYear)}/{fmtInt(s.paxLimit)})</span>
+                      <span className="text-xs text-slate-500">
+                        {" "}
+                        (usados {fmtInt(s.usedPassengersYear)}/{fmtInt(s.paxLimit)})
+                      </span>
                     </td>
                     <td className="px-4 py-3 text-right tabular-nums">{fmtInt(s.leftoverPoints)}</td>
                     <td className="px-4 py-3">
@@ -403,7 +435,11 @@ export default function NovaVendaClient() {
               })}
 
               {loadingSug ? (
-                <tr><td colSpan={7} className="px-4 py-8 text-slate-500">Carregando...</td></tr>
+                <tr>
+                  <td colSpan={7} className="px-4 py-8 text-slate-500">
+                    Carregando...
+                  </td>
+                </tr>
               ) : null}
             </tbody>
           </table>
@@ -420,8 +456,12 @@ export default function NovaVendaClient() {
               <div className="mt-4 grid gap-4 md:grid-cols-2">
                 <label className="space-y-1">
                   <div className="text-xs text-slate-600">Data</div>
-                  <input type="date" className="w-full rounded-xl border px-3 py-2 text-sm"
-                    value={dateISO} onChange={(e) => setDateISO(e.target.value)} />
+                  <input
+                    type="date"
+                    className="w-full rounded-xl border px-3 py-2 text-sm"
+                    value={dateISO}
+                    onChange={(e) => setDateISO(e.target.value)}
+                  />
                 </label>
 
                 <div className="space-y-1">
@@ -434,14 +474,21 @@ export default function NovaVendaClient() {
                 <div className="md:col-span-2 grid gap-2 md:grid-cols-2">
                   <label className="space-y-1">
                     <div className="text-xs text-slate-600">Buscar cliente</div>
-                    <input className="w-full rounded-xl border px-3 py-2 text-sm"
-                      value={clienteQ} onChange={(e) => setClienteQ(e.target.value)} placeholder="Nome / CPF/CNPJ / telefone..." />
+                    <input
+                      className="w-full rounded-xl border px-3 py-2 text-sm"
+                      value={clienteQ}
+                      onChange={(e) => setClienteQ(e.target.value)}
+                      placeholder="Nome / CPF/CNPJ / telefone..."
+                    />
                   </label>
 
                   <label className="space-y-1">
                     <div className="text-xs text-slate-600">Selecionar cliente</div>
-                    <select className="w-full rounded-xl border px-3 py-2 text-sm bg-white"
-                      value={clienteId} onChange={(e) => setClienteId(e.target.value)}>
+                    <select
+                      className="w-full rounded-xl border px-3 py-2 text-sm bg-white"
+                      value={clienteId}
+                      onChange={(e) => setClienteId(e.target.value)}
+                    >
                       <option value="">Selecione...</option>
                       {clientes.map((c) => (
                         <option key={c.id} value={c.id}>
@@ -454,8 +501,11 @@ export default function NovaVendaClient() {
 
                 <label className="space-y-1 md:col-span-2">
                   <div className="text-xs text-slate-600">Compra OPEN (do cedente)</div>
-                  <select className="w-full rounded-xl border px-3 py-2 text-sm bg-white"
-                    value={purchaseId} onChange={(e) => setPurchaseId(e.target.value)}>
+                  <select
+                    className="w-full rounded-xl border px-3 py-2 text-sm bg-white"
+                    value={purchaseId}
+                    onChange={(e) => setPurchaseId(e.target.value)}
+                  >
                     <option value="">Selecione...</option>
                     {compras.map((c) => (
                       <option key={c.id} value={c.id}>
@@ -470,14 +520,22 @@ export default function NovaVendaClient() {
 
                 <label className="space-y-1">
                   <div className="text-xs text-slate-600">Milheiro (R$)</div>
-                  <input className="w-full rounded-xl border px-3 py-2 text-sm font-mono"
-                    value={milheiroStr} onChange={(e) => setMilheiroStr(e.target.value)} placeholder="Ex: 25,50" />
+                  <input
+                    className="w-full rounded-xl border px-3 py-2 text-sm font-mono"
+                    value={milheiroStr}
+                    onChange={(e) => setMilheiroStr(e.target.value)}
+                    placeholder="Ex: 25,50"
+                  />
                 </label>
 
                 <label className="space-y-1">
                   <div className="text-xs text-slate-600">Taxa de embarque (R$)</div>
-                  <input className="w-full rounded-xl border px-3 py-2 text-sm font-mono"
-                    value={embarqueStr} onChange={(e) => setEmbarqueStr(e.target.value)} placeholder="Ex: 78,34" />
+                  <input
+                    className="w-full rounded-xl border px-3 py-2 text-sm font-mono"
+                    value={embarqueStr}
+                    onChange={(e) => setEmbarqueStr(e.target.value)}
+                    placeholder="Ex: 78,34"
+                  />
                 </label>
 
                 <label className="space-y-1">
@@ -501,7 +559,9 @@ export default function NovaVendaClient() {
                     >
                       <option value="">Selecione...</option>
                       {users.map((u) => (
-                        <option key={u.id} value={u.id}>{u.name} (@{u.login})</option>
+                        <option key={u.id} value={u.id}>
+                          {u.name} (@{u.login})
+                        </option>
                       ))}
                     </select>
                   ) : null}
@@ -520,8 +580,12 @@ export default function NovaVendaClient() {
 
                 <label className="space-y-1">
                   <div className="text-xs text-slate-600">Localizador</div>
-                  <input className="w-full rounded-xl border px-3 py-2 text-sm font-mono"
-                    value={locator} onChange={(e) => setLocator(e.target.value)} placeholder="Opcional" />
+                  <input
+                    className="w-full rounded-xl border px-3 py-2 text-sm font-mono"
+                    value={locator}
+                    onChange={(e) => setLocator(e.target.value)}
+                    placeholder="Opcional"
+                  />
                 </label>
               </div>
             </div>
@@ -532,27 +596,46 @@ export default function NovaVendaClient() {
             <div className="font-medium">Resumo</div>
 
             <div className="rounded-xl bg-slate-50 p-4 text-sm space-y-1">
-              <div className="flex justify-between"><span className="text-slate-600">Pontos</span><b>{fmtInt(points)}</b></div>
-              <div className="flex justify-between"><span className="text-slate-600">PAX</span><b>{fmtInt(passengers)}</b></div>
+              <div className="flex justify-between">
+                <span className="text-slate-600">Pontos</span>
+                <b>{fmtInt(points)}</b>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-600">PAX</span>
+                <b>{fmtInt(passengers)}</b>
+              </div>
               <div className="h-px bg-slate-200 my-2" />
 
-              <div className="flex justify-between"><span className="text-slate-600">Valor pontos</span><b>{fmtMoneyBR(pointsValueCents)}</b></div>
-              <div className="flex justify-between"><span className="text-slate-600">Taxa embarque</span><b>{fmtMoneyBR(embarqueFeeCents)}</b></div>
+              <div className="flex justify-between">
+                <span className="text-slate-600">Valor pontos</span>
+                <b>{fmtMoneyBR(pointsValueCents)}</b>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-600">Taxa embarque</span>
+                <b>{fmtMoneyBR(embarqueFeeCents)}</b>
+              </div>
               <div className="h-px bg-slate-200 my-2" />
-              <div className="flex justify-between"><span className="text-slate-600">Total</span><b>{fmtMoneyBR(totalCents)}</b></div>
+              <div className="flex justify-between">
+                <span className="text-slate-600">Total</span>
+                <b>{fmtMoneyBR(totalCents)}</b>
+              </div>
 
               <div className="h-px bg-slate-200 my-2" />
-              <div className="flex justify-between"><span className="text-slate-600">Comissão (1%)</span><b>{fmtMoneyBR(commissionCents)}</b></div>
+              <div className="flex justify-between">
+                <span className="text-slate-600">Comissão (1%)</span>
+                <b>{fmtMoneyBR(commissionCents)}</b>
+              </div>
               <div className="flex justify-between">
                 <span className="text-slate-600">Meta (compra)</span>
                 <b>{metaMilheiroCents ? fmtMoneyBR(metaMilheiroCents) : "—"}</b>
               </div>
-              <div className="flex justify-between"><span className="text-slate-600">Bônus (30%)</span><b>{fmtMoneyBR(bonusCents)}</b></div>
+              <div className="flex justify-between">
+                <span className="text-slate-600">Bônus (30%)</span>
+                <b>{fmtMoneyBR(bonusCents)}</b>
+              </div>
             </div>
 
-            <div className="text-xs text-slate-500">
-              Comissão ignora taxa. Bônus = 30% do excedente acima da meta.
-            </div>
+            <div className="text-xs text-slate-500">Comissão ignora taxa. Bônus = 30% do excedente acima da meta.</div>
           </div>
         </div>
       )}
