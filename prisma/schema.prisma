@@ -22,6 +22,12 @@ enum PixTipo {
   ALEATORIA
 }
 
+enum SalePaymentStatus {
+  PENDING
+  PAID
+  CANCELED
+}
+
 /**
  * =========================
  * BLOQUEIOS / PROGRAMAS
@@ -86,6 +92,9 @@ model User {
 
   // ✅ CLIENTES criados por este usuário (lado inverso de Cliente.createdBy)
   clientesCreated Cliente[] @relation("ClienteCreatedBy")
+
+  // ✅ Vendas feitas por este usuário
+  salesSold Sale[] @relation("SaleSeller")
 
   // Um convite por usuário (no teu fluxo)
   employeeInvite EmployeeInvite?
@@ -167,6 +176,9 @@ model Cedente {
 
   // ✅ Contagem CPF / emissões (novo)
   emissions EmissionEvent[]
+
+  // ✅ Vendas vinculadas a este cedente
+  sales Sale[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -430,6 +442,9 @@ model Purchase {
   cedente Cedente        @relation(fields: [cedenteId], references: [id], onDelete: Cascade)
   items   PurchaseItem[]
 
+  // ✅ Vendas vinculadas a esta compra (se você vincular venda à compra)
+  sales Sale[]
+
   // ✅ AJUSTE: lado inverso 1:1 com CedenteCommission
   cedenteCommission CedenteCommission? @relation("PurchaseCedenteCommission")
 
@@ -542,6 +557,9 @@ model Cliente {
   createdById String?
   createdBy   User?   @relation("ClienteCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
 
+  // ✅ Vendas vinculadas a este cliente
+  sales Sale[]
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -567,6 +585,8 @@ model Receivable {
   createdAt     DateTime         @default(now())
 
   receipts Receipt[]
+
+  sale Sale? @relation("SaleReceivable")
 }
 
 model Receipt {
@@ -612,4 +632,57 @@ model EmissionEvent {
   @@index([cedenteId, program, issuedAt])
   @@index([program, issuedAt])
   @@map("emission_events")
+}
+
+model Sale {
+  id     String @id @default(cuid())
+  numero String @unique // VE00001
+
+  date DateTime
+
+  program    LoyaltyProgram
+  points     Int
+  passengers Int
+
+  milheiroCents     Int
+  embarqueFeeCents  Int @default(0)
+  pointsValueCents  Int @default(0)
+  totalCents        Int @default(0)
+
+  // comissão/bonus (pra usar depois no módulo de comissão)
+  commissionCents   Int @default(0) // 1% do valor dos pontos (sem taxa)
+  bonusCents        Int @default(0) // 30% do excedente acima da meta
+  metaMilheiroCents Int @default(0) // snapshot da meta no momento da venda
+
+  feeCardLabel String?
+  locator      String?
+
+  paymentStatus SalePaymentStatus @default(PENDING)
+  paidAt        DateTime?
+
+  // relações
+  cedenteId String
+  cedente   Cedente @relation(fields: [cedenteId], references: [id], onDelete: Restrict)
+
+  clienteId String
+  cliente   Cliente @relation(fields: [clienteId], references: [id], onDelete: Restrict)
+
+  purchaseId String?
+  purchase   Purchase? @relation(fields: [purchaseId], references: [id], onDelete: SetNull)
+
+  sellerId String?
+  seller   User? @relation("SaleSeller", fields: [sellerId], references: [id], onDelete: SetNull)
+
+  receivableId String? @unique
+  receivable   Receivable? @relation("SaleReceivable", fields: [receivableId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([program, date])
+  @@index([paymentStatus])
+  @@index([cedenteId])
+  @@index([clienteId])
+  @@index([purchaseId])
+  @@map("sales")
 }
