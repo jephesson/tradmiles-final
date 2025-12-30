@@ -12,6 +12,12 @@ import { useEffect, useState } from "react";
 import { cn } from "@/lib/cn";
 import { getSession, signOut } from "@/lib/auth";
 
+const STRICT_NOQUERY_ACTIVE_PATHS = new Set<string>([
+  "/dashboard/cedentes/visualizar",
+  "/dashboard/emissoes",
+  "/dashboard/painel-emissoes",
+]);
+
 export default function Sidebar() {
   const pathname = usePathname();
   const router = useRouter();
@@ -21,15 +27,17 @@ export default function Sidebar() {
   /* =========================
    * ROTAS
    * ========================= */
-  const isCadastroRoute =
-    pathname.startsWith("/dashboard/cedentes") ||
-    pathname.startsWith("/dashboard/clientes") ||
-    pathname.startsWith("/dashboard/funcionarios") ||
-    pathname.startsWith("/dashboard/bloqueios");
 
   const isPontosVisualizarRoute = pathname.startsWith(
     "/dashboard/cedentes/visualizar"
   );
+
+  // ✅ Cadastro NÃO deve “pegar” Visualizar cedentes (pra não duplicar com Gestão de pontos)
+  const isCadastroRoute =
+    (pathname.startsWith("/dashboard/cedentes") && !isPontosVisualizarRoute) ||
+    pathname.startsWith("/dashboard/clientes") ||
+    pathname.startsWith("/dashboard/funcionarios") ||
+    pathname.startsWith("/dashboard/bloqueios");
 
   const isComprasRoute = pathname.startsWith("/dashboard/compras");
   const isVendasRoute = pathname.startsWith("/dashboard/vendas");
@@ -63,7 +71,8 @@ export default function Sidebar() {
 
   // ✅ GESTOR DE EMISSÕES (exclui importação)
   const isEmissoesRoute =
-    pathname.startsWith("/dashboard/emissoes") && !isImportacoesEmissoesLatamRoute;
+    pathname.startsWith("/dashboard/emissoes") &&
+    !isImportacoesEmissoesLatamRoute;
 
   const isGestorEmissoesRoute = isEmissoesRoute || isPainelEmissoesRoute;
 
@@ -94,10 +103,13 @@ export default function Sidebar() {
    * ACCORDIONS
    * ========================= */
   const [openCadastro, setOpenCadastro] = useState(isCadastroRoute);
+
+  // ✅ Cedentes (no Cadastro) não abre em Visualizar cedentes
   const [openCedentes, setOpenCedentes] = useState(
-    pathname.startsWith("/dashboard/cedentes") ||
+    (pathname.startsWith("/dashboard/cedentes") && !isPontosVisualizarRoute) ||
       pathname.startsWith("/dashboard/bloqueios")
   );
+
   const [openFuncionarios, setOpenFuncionarios] = useState(
     pathname.startsWith("/dashboard/funcionarios")
   );
@@ -132,13 +144,6 @@ export default function Sidebar() {
     isImportacoesEmissoesSubRoute
   );
 
-  // ✅ sub-accordion "Visualizar cedentes" dentro do Cadastro > Cedentes
-  const isCadastroVisualizarCedentesRoute = pathname.startsWith(
-    "/dashboard/cedentes/visualizar"
-  );
-  const [openCadastroVisualizarCedentes, setOpenCadastroVisualizarCedentes] =
-    useState(isCadastroVisualizarCedentesRoute);
-
   // ✅ SubAccordion Comissões dentro de Lucros & Comissões
   const [openComissoes, setOpenComissoes] = useState(isComissoesSubRoute);
 
@@ -164,10 +169,6 @@ export default function Sidebar() {
   );
   useEffect(() => setOpenCompras(isComprasRoute), [isComprasRoute]);
   useEffect(() => setOpenVendas(isVendasRoute), [isVendasRoute]);
-
-  useEffect(() => {
-    setOpenCadastroVisualizarCedentes(isCadastroVisualizarCedentesRoute);
-  }, [isCadastroVisualizarCedentesRoute]);
 
   useEffect(() => setOpenLucros(isLucrosRoute), [isLucrosRoute]);
 
@@ -275,44 +276,7 @@ export default function Sidebar() {
             </NavLink>
             <NavLink href="/dashboard/cedentes/novo">Cadastrar cedente</NavLink>
 
-            <SubAccordion
-              title="Visualizar cedentes"
-              open={openCadastroVisualizarCedentes}
-              onToggle={() => setOpenCadastroVisualizarCedentes((v) => !v)}
-              variant="nav"
-              active={isCadastroVisualizarCedentesRoute}
-            >
-              <NavLink
-                href="/dashboard/cedentes/visualizar"
-                className="font-semibold"
-              >
-                Todos
-              </NavLink>
-              <NavLink
-                href="/dashboard/cedentes/visualizar?programa=latam"
-                className="font-semibold"
-              >
-                Latam
-              </NavLink>
-              <NavLink
-                href="/dashboard/cedentes/visualizar?programa=smiles"
-                className="font-semibold"
-              >
-                Smiles
-              </NavLink>
-              <NavLink
-                href="/dashboard/cedentes/visualizar?programa=livelo"
-                className="font-semibold"
-              >
-                Livelo
-              </NavLink>
-              <NavLink
-                href="/dashboard/cedentes/visualizar?programa=esfera"
-                className="font-semibold"
-              >
-                Esfera
-              </NavLink>
-            </SubAccordion>
+            {/* ✅ REMOVIDO: Visualizar cedentes (pra não duplicar com Gestão de pontos) */}
 
             <NavLink href="/dashboard/cedentes/pendentes">
               Cedentes pendentes
@@ -356,7 +320,13 @@ export default function Sidebar() {
             open={openPontosVisualizar}
             onToggle={() => setOpenPontosVisualizar((v) => !v)}
           >
+            {/* ✅ Mantém o Todos como está */}
             <NavLink href="/dashboard/cedentes/visualizar">Todos</NavLink>
+
+            {/* ✅ Acrescenta o Latam */}
+            <NavLink href="/dashboard/cedentes/visualizar?programa=latam">
+              Latam
+            </NavLink>
 
             {isPontosVisualizarRoute ? (
               <div className="pl-2 pr-2 pb-1">
@@ -425,9 +395,6 @@ export default function Sidebar() {
               </div>
             ) : (
               <>
-                <NavLink href="/dashboard/cedentes/visualizar?programa=latam">
-                  Latam
-                </NavLink>
                 <NavLink href="/dashboard/cedentes/visualizar?programa=smiles">
                   Smiles
                 </NavLink>
@@ -569,7 +536,10 @@ export default function Sidebar() {
           >
             <NavLink
               href="/dashboard/painel-emissoes?programa=latam"
-              className={cn("font-semibold", isPainelLatam && "bg-black text-white")}
+              className={cn(
+                "font-semibold",
+                isPainelLatam && "bg-black text-white"
+              )}
             >
               Latam
             </NavLink>
@@ -616,10 +586,16 @@ function NavLink({
 
   const [hrefPath, hrefQuery = ""] = href.split("?");
   const hasQuery = href.includes("?");
+  const currentQuery = search?.toString() || "";
 
   const active = hasQuery
     ? pathname === hrefPath && paramsEqual(search, hrefQuery)
-    : pathname === href || pathname.startsWith(href + "/");
+    : // ✅ evita marcar "Todos" como ativo quando houver query (?programa=...)
+      !(
+        STRICT_NOQUERY_ACTIVE_PATHS.has(hrefPath) &&
+        pathname === hrefPath &&
+        currentQuery
+      ) && (pathname === href || pathname.startsWith(href + "/"));
 
   return (
     <Link
