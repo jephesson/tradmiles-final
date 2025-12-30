@@ -1,7 +1,7 @@
-import { redirect } from "next/navigation";
-import CedentesVisualizarClient from "./CedentesVisualizarClient";
-
 export const dynamic = "force-dynamic";
+
+import CedentesVisualizarClient from "./CedentesVisualizarClient";
+import CedentesVisualizarLatamClient from "./CedentesVisualizarLatamClient";
 
 export default function Page({
   searchParams,
@@ -10,11 +10,7 @@ export default function Page({
 }) {
   const p = (searchParams?.programa || "").toLowerCase();
 
-  // Se vier ?programa=latam, manda pra rota dedicada
-  if (p === "latam") {
-    redirect("/dashboard/cedentes/visualizar/latam");
-  }
+  if (p === "latam") return <CedentesVisualizarLatamClient />;
 
-  // Default: Todos
   return <CedentesVisualizarClient />;
 }
