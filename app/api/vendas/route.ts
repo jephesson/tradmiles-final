@@ -67,7 +67,9 @@ export async function GET() {
 
 export async function POST(req: Request) {
   const session = getSession();
-  const userId = session?.user?.id || null;
+
+  // ✅ FIX: Session não tem "user" no teu tipo, então pega direto o id
+  const userId = session?.id ?? null;
 
   if (!userId) {
     return NextResponse.json({ ok: false, error: "Não autenticado" }, { status: 401 });
