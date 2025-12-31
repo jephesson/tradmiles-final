@@ -1,5 +1,52 @@
+// app/dashboard/vendas/nova/page.tsx
+import { cookies } from "next/headers";
+import { redirect } from "next/navigation";
 import NovaVendaClient from "./NovaVendaClient";
 
-export default function Page() {
-  return <NovaVendaClient />;
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
+type Sess = {
+  id: string;
+  login: string;
+  team: string;
+  role: "admin" | "staff";
+  name?: string;
+  email?: string | null;
+};
+
+function b64urlDecode(input: string) {
+  const pad = input.length % 4 === 0 ? "" : "=".repeat(4 - (input.length % 4));
+  const base64 = (input + pad).replace(/-/g, "+").replace(/_/g, "/");
+  return Buffer.from(base64, "base64").toString("utf8");
+}
+
+function readSessionCookie(raw?: string): Sess | null {
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(b64urlDecode(raw)) as Partial<Sess>;
+    if (!parsed?.id || !parsed?.login || !parsed?.team || !parsed?.role) return null;
+    if (parsed.role !== "admin" && parsed.role !== "staff") return null;
+    return parsed as Sess;
+  } catch {
+    return null;
+  }
+}
+
+export default async function Page() {
+  const store = await cookies();
+  const raw = store.get("tm.session")?.value;
+
+  const session = readSessionCookie(raw);
+  if (!session) redirect("/login?next=/dashboard/vendas/nova");
+
+  return (
+    <NovaVendaClient
+      initialMe={{
+        id: session.id,
+        login: session.login,
+        name: session.name || session.login,
+      }}
+    />
+  );
 }

@@ -99,14 +99,17 @@ type FuncItem = {
   _count?: { cedentes: number };
 };
 
-export default function NovaVendaClient() {
+export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) {
   const detailsRef = useRef<HTMLDivElement | null>(null);
 
-  // ✅ tenta usar getSession, mas também faz fallback mais tolerante
-  const [me, setMe] = useState<UserLite | null>(null);
+  // ✅ agora vem do SERVER (cookie tm.session)
+  const [me, setMe] = useState<UserLite | null>(initialMe);
 
+  // ✅ fallback opcional (só tenta se por algum motivo initialMe não veio)
   useEffect(() => {
-    // 1) localStorage (mais comum)
+    if (me?.id) return;
+
+    // 1) localStorage (se existir)
     try {
       const raw = localStorage.getItem("auth_session");
       if (raw) {
@@ -121,16 +124,16 @@ export default function NovaVendaClient() {
       }
     } catch {}
 
-    // 2) tenta getSession() (caso o local esteja ok)
+    // 2) tenta getSession()
     try {
       const s = getSession();
-      if (s?.id && s?.login) {
+      if ((s as any)?.id && (s as any)?.login) {
         setMe({ id: (s as any).id, login: (s as any).login, name: (s as any).name || (s as any).login });
         return;
       }
     } catch {}
 
-    // 3) fallback: tenta endpoint /api/auth (se ele retornar session)
+    // 3) fallback: /api/auth (se existir)
     (async () => {
       try {
         const out = await api<any>("/api/auth");
@@ -142,7 +145,7 @@ export default function NovaVendaClient() {
         // ignora
       }
     })();
-  }, []);
+  }, [me?.id]);
 
   // 1) input principal
   const [program, setProgram] = useState<Program>("LATAM");
@@ -215,7 +218,6 @@ export default function NovaVendaClient() {
 
   function selectSuggestion(s: Suggestion) {
     setSel(s);
-    // ✅ ao selecionar, some a tabela e rola pros detalhes
     setTimeout(() => {
       detailsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
     }, 60);
@@ -230,7 +232,6 @@ export default function NovaVendaClient() {
   // ✅ carrega funcionários cadastrados (preferência: /api/funcionarios)
   useEffect(() => {
     (async () => {
-      // 1) /api/funcionarios (tua tela já usa)
       try {
         const res = await fetch("/api/funcionarios", { cache: "no-store", credentials: "include" });
         const json = await res.json().catch(() => ({}));
@@ -245,7 +246,6 @@ export default function NovaVendaClient() {
         }
       } catch {}
 
-      // 2) fallback antigo: /api/users/simple
       try {
         const out = await api<{ ok: true; users: UserLite[] }>("/api/users/simple");
         setUsers(out.users || []);
@@ -284,7 +284,6 @@ export default function NovaVendaClient() {
         const list = out.suggestions || [];
         setSuggestions(list);
 
-        // ✅ se mudou entrada e o selecionado não existe mais, limpa
         if (sel?.cedente?.id && !list.some((x) => x.cedente.id === sel.cedente.id)) {
           clearSelection();
         }
@@ -309,9 +308,7 @@ export default function NovaVendaClient() {
         return;
       }
       try {
-        const out = await api<{ ok: true; clientes: ClienteLite[] }>(
-          `/api/clientes/search?q=${encodeURIComponent(q)}`
-        );
+        const out = await api<{ ok: true; clientes: ClienteLite[] }>(`/api/clientes/search?q=${encodeURIComponent(q)}`);
         setClientes(out.clientes || []);
       } catch {
         setClientes([]);
@@ -353,7 +350,6 @@ export default function NovaVendaClient() {
     if (points <= 0 || passengers <= 0) return alert("Pontos/Passageiros inválidos.");
     if (milheiroCents <= 0) return alert("Milheiro inválido.");
 
-    // ✅ se estiver MANUAL, exige label
     if (feeCardPreset === "MANUAL" && !feeCardLabel) return alert("Informe o nome do cartão (manual).");
 
     const payload = {
@@ -379,19 +375,12 @@ export default function NovaVendaClient() {
     }
   }
 
-  // ✅ lista visível: só 10 por padrão. Se tiver busca, mostra até 10 do filtro.
   const filteredSuggestions = useMemo(() => {
     const q = normStr(cedenteQ);
     if (!q) return suggestions;
 
     return suggestions.filter((s) => {
-      const hay = [
-        s.cedente.nomeCompleto,
-        s.cedente.identificador,
-        s.cedente.cpf,
-        s.cedente.owner?.name,
-        s.cedente.owner?.login,
-      ]
+      const hay = [s.cedente.nomeCompleto, s.cedente.identificador, s.cedente.cpf, s.cedente.owner?.name, s.cedente.owner?.login]
         .map(normStr)
         .join(" | ");
       return hay.includes(q);
@@ -490,7 +479,6 @@ export default function NovaVendaClient() {
           <div className="text-xs text-slate-500">{countLabel}</div>
         </div>
 
-        {/* ✅ SELECIONADO: some a tabela totalmente */}
         {sel ? (
           <div className="p-5">
             <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
@@ -546,7 +534,6 @@ export default function NovaVendaClient() {
           </div>
         ) : (
           <>
-            {/* ✅ Não selecionado: mostra busca + apenas 10 */}
             <div className="p-5 border-b">
               <div className="grid gap-3 md:grid-cols-3 md:items-end">
                 <label className="space-y-1 md:col-span-2">
@@ -665,7 +652,7 @@ export default function NovaVendaClient() {
         )}
       </div>
 
-      {/* 3) Detalhes da venda (só aparece depois do cedente) */}
+      {/* 3) Detalhes */}
       {sel && (
         <div ref={detailsRef} className="grid gap-4 lg:grid-cols-3">
           <div className="lg:col-span-2 space-y-4">
