@@ -87,13 +87,62 @@ async function api<T>(url: string, init?: RequestInit): Promise<T> {
   return j as T;
 }
 
-export default function NovaVendaClient() {
-  const session = getSession();
+type FuncItem = {
+  id: string;
+  name: string;
+  login: string;
+  cpf?: string | null;
+  team?: string;
+  role?: string;
+  inviteCode?: string | null;
+  createdAt?: string;
+  _count?: { cedentes: number };
+};
 
-  // ✅ FIX: Session não tem `.user` — usa o próprio session como fonte de id/name/login
-  const user: UserLite | null = session
-    ? { id: (session as any).id, name: (session as any).name, login: (session as any).login }
-    : null;
+export default function NovaVendaClient() {
+  const detailsRef = useRef<HTMLDivElement | null>(null);
+
+  // ✅ tenta usar getSession, mas também faz fallback mais tolerante
+  const [me, setMe] = useState<UserLite | null>(null);
+
+  useEffect(() => {
+    // 1) localStorage (mais comum)
+    try {
+      const raw = localStorage.getItem("auth_session");
+      if (raw) {
+        const s = JSON.parse(raw);
+        const id = s?.id;
+        const login = s?.login;
+        const name = s?.name;
+        if (id && login) {
+          setMe({ id, login, name: name || login });
+          return;
+        }
+      }
+    } catch {}
+
+    // 2) tenta getSession() (caso o local esteja ok)
+    try {
+      const s = getSession();
+      if (s?.id && s?.login) {
+        setMe({ id: (s as any).id, login: (s as any).login, name: (s as any).name || (s as any).login });
+        return;
+      }
+    } catch {}
+
+    // 3) fallback: tenta endpoint /api/auth (se ele retornar session)
+    (async () => {
+      try {
+        const out = await api<any>("/api/auth");
+        const sess = out?.data?.session || out?.session || out?.data?.user || out?.user || null;
+        if (sess?.id && sess?.login) {
+          setMe({ id: sess.id, login: sess.login, name: sess.name || sess.login });
+        }
+      } catch {
+        // ignora
+      }
+    })();
+  }, []);
 
   // 1) input principal
   const [program, setProgram] = useState<Program>("LATAM");
@@ -118,11 +167,13 @@ export default function NovaVendaClient() {
   const [compras, setCompras] = useState<CompraOpen[]>([]);
   const [purchaseId, setPurchaseId] = useState("");
 
-  // funcionários (para cartão)
+  // ✅ funcionários (para cartão)
   const [users, setUsers] = useState<UserLite[]>([]);
-  const [feeCardLabel, setFeeCardLabel] = useState("");
-  const [feeCardMode, setFeeCardMode] = useState<"SELF" | "USER" | "VIAS" | "MANUAL">("SELF");
-  const [feeCardUserId, setFeeCardUserId] = useState("");
+
+  // ✅ cartão da taxa (dropdown único)
+  // SELF | VIAS | USER:<id> | MANUAL
+  const [feeCardPreset, setFeeCardPreset] = useState<string>("SELF");
+  const [feeCardManual, setFeeCardManual] = useState<string>("");
 
   // campos venda
   const [dateISO, setDateISO] = useState(isoToday());
@@ -140,7 +191,6 @@ export default function NovaVendaClient() {
   }, [points, milheiroCents]);
 
   const totalCents = useMemo(() => pointsValueCents + embarqueFeeCents, [pointsValueCents, embarqueFeeCents]);
-
   const commissionCents = useMemo(() => Math.round(pointsValueCents * 0.01), [pointsValueCents]);
 
   const compraSel = useMemo(() => compras.find((c) => c.id === purchaseId) || null, [compras, purchaseId]);
@@ -154,8 +204,6 @@ export default function NovaVendaClient() {
     const diffTotal = Math.round(denom * diff);
     return Math.round(diffTotal * 0.3);
   }, [milheiroCents, metaMilheiroCents, points]);
-
-  const detailsRef = useRef<HTMLDivElement | null>(null);
 
   function badgeClass(priorityLabel: Suggestion["priorityLabel"]) {
     return priorityLabel === "MAX"
@@ -179,9 +227,25 @@ export default function NovaVendaClient() {
     setPurchaseId("");
   }
 
-  // load users (cartão)
+  // ✅ carrega funcionários cadastrados (preferência: /api/funcionarios)
   useEffect(() => {
     (async () => {
+      // 1) /api/funcionarios (tua tela já usa)
+      try {
+        const res = await fetch("/api/funcionarios", { cache: "no-store", credentials: "include" });
+        const json = await res.json().catch(() => ({}));
+        if (json?.ok) {
+          const data: FuncItem[] = json?.data || [];
+          setUsers(
+            (data || [])
+              .filter((x) => x?.id && x?.name && x?.login)
+              .map((x) => ({ id: x.id, name: x.name, login: x.login }))
+          );
+          return;
+        }
+      } catch {}
+
+      // 2) fallback antigo: /api/users/simple
       try {
         const out = await api<{ ok: true; users: UserLite[] }>("/api/users/simple");
         setUsers(out.users || []);
@@ -191,29 +255,18 @@ export default function NovaVendaClient() {
     })();
   }, []);
 
-  // default card label
-  useEffect(() => {
-    if (!user?.name) return;
-    if (!feeCardLabel) setFeeCardLabel(`Cartão ${user.name}`);
-  }, [user?.name]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // aplica modo do cartão
-  useEffect(() => {
-    if (feeCardMode === "SELF") {
-      setFeeCardLabel(user?.name ? `Cartão ${user.name}` : "Cartão do vendedor");
-      return;
+  // ✅ label final do cartão (vai no payload)
+  const feeCardLabel = useMemo(() => {
+    if (feeCardPreset === "VIAS") return "Cartão Vias Aéreas";
+    if (feeCardPreset === "MANUAL") return (feeCardManual || "").trim() || "";
+    if (feeCardPreset.startsWith("USER:")) {
+      const id = feeCardPreset.slice("USER:".length);
+      const u = users.find((x) => x.id === id);
+      return u ? `Cartão ${u.name}` : "";
     }
-    if (feeCardMode === "VIAS") {
-      setFeeCardLabel("Cartão Vias Aéreas");
-      return;
-    }
-    if (feeCardMode === "USER") {
-      const u = users.find((x) => x.id === feeCardUserId);
-      setFeeCardLabel(u ? `Cartão ${u.name}` : "");
-      return;
-    }
-    // MANUAL: mantém
-  }, [feeCardMode, feeCardUserId, users, user?.name]);
+    // SELF
+    return me?.name ? `Cartão ${me.name}` : "Cartão do vendedor";
+  }, [feeCardPreset, feeCardManual, users, me?.name]);
 
   // sugestões (debounce)
   useEffect(() => {
@@ -242,6 +295,7 @@ export default function NovaVendaClient() {
         setLoadingSug(false);
       }
     }, 250);
+
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [program, points, passengers]);
@@ -299,6 +353,9 @@ export default function NovaVendaClient() {
     if (points <= 0 || passengers <= 0) return alert("Pontos/Passageiros inválidos.");
     if (milheiroCents <= 0) return alert("Milheiro inválido.");
 
+    // ✅ se estiver MANUAL, exige label
+    if (feeCardPreset === "MANUAL" && !feeCardLabel) return alert("Informe o nome do cartão (manual).");
+
     const payload = {
       program,
       points,
@@ -309,7 +366,7 @@ export default function NovaVendaClient() {
       date: dateISO,
       milheiroCents,
       embarqueFeeCents,
-      feeCardLabel: feeCardLabel?.trim() || null,
+      feeCardLabel: feeCardLabel || null,
       locator: locator?.trim() || null,
     };
 
@@ -351,6 +408,10 @@ export default function NovaVendaClient() {
     if (q) return `${Math.min(10, filteredSuggestions.length)} de ${filteredSuggestions.length} (busca)`;
     return `${Math.min(10, suggestions.length)} de ${suggestions.length}`;
   }, [loadingSug, sel, cedenteQ, suggestions.length, filteredSuggestions.length]);
+
+  const selfLabel = useMemo(() => {
+    return me?.name ? `Meu cartão (${me.name})` : "Meu cartão";
+  }, [me?.name]);
 
   return (
     <div className="p-6 space-y-6">
@@ -445,8 +506,7 @@ export default function NovaVendaClient() {
                     PTS: <b className="tabular-nums">{fmtInt(sel.pts)}</b>
                   </span>
                   <span className="rounded-full border bg-white px-2 py-1">
-                    PAX disp.:{" "}
-                    <b className="tabular-nums">{fmtInt(sel.availablePassengersYear)}</b>{" "}
+                    PAX disp.: <b className="tabular-nums">{fmtInt(sel.availablePassengersYear)}</b>{" "}
                     <span className="text-slate-500">
                       (usados {fmtInt(sel.usedPassengersYear)}/{fmtInt(sel.paxLimit)})
                     </span>
@@ -626,7 +686,7 @@ export default function NovaVendaClient() {
                 <div className="space-y-1">
                   <div className="text-xs text-slate-600">Vendedor</div>
                   <div className="rounded-xl border px-3 py-2 text-sm bg-slate-50">
-                    {user?.name ? `${user.name} (@${user.login})` : "—"}
+                    {me?.name ? `${me.name} (@${me.login})` : "—"}
                   </div>
                 </div>
 
@@ -701,35 +761,25 @@ export default function NovaVendaClient() {
                   <div className="text-xs text-slate-600">Cartão da taxa</div>
                   <select
                     className="w-full rounded-xl border px-3 py-2 text-sm bg-white"
-                    value={feeCardMode}
-                    onChange={(e) => setFeeCardMode(e.target.value as any)}
+                    value={feeCardPreset}
+                    onChange={(e) => setFeeCardPreset(e.target.value)}
                   >
-                    <option value="SELF">Meu cartão</option>
-                    <option value="USER">Cartão de funcionário</option>
-                    <option value="VIAS">Cartão Vias Aéreas</option>
+                    <option value="SELF">{selfLabel}</option>
+                    <option value="VIAS">Vias Aéreas</option>
+                    {users.length ? <option disabled>────────────</option> : null}
+                    {users.map((u) => (
+                      <option key={u.id} value={`USER:${u.id}`}>
+                        {u.name} (@{u.login})
+                      </option>
+                    ))}
                     <option value="MANUAL">Manual</option>
                   </select>
 
-                  {feeCardMode === "USER" ? (
-                    <select
-                      className="mt-2 w-full rounded-xl border px-3 py-2 text-sm bg-white"
-                      value={feeCardUserId}
-                      onChange={(e) => setFeeCardUserId(e.target.value)}
-                    >
-                      <option value="">Selecione...</option>
-                      {users.map((u) => (
-                        <option key={u.id} value={u.id}>
-                          {u.name} (@{u.login})
-                        </option>
-                      ))}
-                    </select>
-                  ) : null}
-
-                  {feeCardMode === "MANUAL" ? (
+                  {feeCardPreset === "MANUAL" ? (
                     <input
                       className="mt-2 w-full rounded-xl border px-3 py-2 text-sm"
-                      value={feeCardLabel}
-                      onChange={(e) => setFeeCardLabel(e.target.value)}
+                      value={feeCardManual}
+                      onChange={(e) => setFeeCardManual(e.target.value)}
                       placeholder="Ex: Cartão Inter PJ"
                     />
                   ) : (
