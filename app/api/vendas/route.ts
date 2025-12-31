@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { cookies } from "next/headers";
 import { prisma } from "@/lib/prisma";
 import {
   calcBonusCents,
@@ -11,13 +12,49 @@ import {
   startOfYear,
   endOfYearExclusive,
 } from "../_helpers/sales";
-import { getSession } from "@/lib/auth";
 
 type Program = "LATAM" | "SMILES" | "LIVELO" | "ESFERA";
 
+type Sess = {
+  id: string;
+  login: string;
+  team: string;
+  role: "admin" | "staff";
+  name?: string;
+  email?: string | null;
+};
+
+function b64urlDecode(input: string) {
+  const pad = input.length % 4 === 0 ? "" : "=".repeat(4 - (input.length % 4));
+  const base64 = (input + pad).replace(/-/g, "+").replace(/_/g, "/");
+  return Buffer.from(base64, "base64").toString("utf8");
+}
+
+function readSessionCookie(raw?: string): Sess | null {
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(b64urlDecode(raw)) as Partial<Sess>;
+    if (!parsed?.id || !parsed?.login || !parsed?.team || !parsed?.role) return null;
+    if (parsed.role !== "admin" && parsed.role !== "staff") return null;
+    return parsed as Sess;
+  } catch {
+    return null;
+  }
+}
+
+async function getServerSession(): Promise<Sess | null> {
+  const store = await cookies();
+  const raw = store.get("tm.session")?.value;
+  return readSessionCookie(raw);
+}
+
+function isPurchaseNumero(v: string) {
+  // ajuste se seu padrão mudar
+  return /^ID\d{5}$/i.test(v.trim());
+}
+
 async function nextCounter(key: string) {
-  // padrão com tabela Counter
-  const c = await prisma.counter.upsert({
+  await prisma.counter.upsert({
     where: { key },
     create: { key, value: 0 },
     update: {},
@@ -55,7 +92,7 @@ export async function GET() {
       metaMilheiroCents: true,
       cliente: { select: { id: true, identificador: true, nome: true } },
       cedente: { select: { id: true, identificador: true, nomeCompleto: true } },
-      purchase: { select: { id: true, numero: true } },
+      purchase: { select: { id: true, numero: true } }, // aqui já te dá o ID00018
       seller: { select: { id: true, name: true, login: true } },
       createdAt: true,
     },
@@ -66,9 +103,8 @@ export async function GET() {
 }
 
 export async function POST(req: Request) {
-  const session = getSession();
-
-  // ✅ FIX: Session não tem "user" no teu tipo, então pega direto o id
+  // ✅ seller automático pelo cookie tm.session (server-side)
+  const session = await getServerSession();
   const userId = session?.id ?? null;
 
   if (!userId) {
@@ -85,7 +121,10 @@ export async function POST(req: Request) {
 
   const cedenteId = String(body.cedenteId || "");
   const clienteId = String(body.clienteId || "");
-  const purchaseId = body.purchaseId ? String(body.purchaseId) : null;
+
+  // ✅ aceita tanto purchaseId (cuid) quanto "ID00018"
+  const purchaseKey =
+    String(body.purchaseNumero || body.purchaseId || "").trim();
 
   const feeCardLabel = body.feeCardLabel ? String(body.feeCardLabel) : null;
   const locator = body.locator ? String(body.locator) : null;
@@ -97,6 +136,9 @@ export async function POST(req: Request) {
   }
   if (!cedenteId || !clienteId) {
     return NextResponse.json({ ok: false, error: "Cedente/Cliente obrigatório" }, { status: 400 });
+  }
+  if (!purchaseKey) {
+    return NextResponse.json({ ok: false, error: "Compra (ID) obrigatória" }, { status: 400 });
   }
   if (points <= 0 || passengers <= 0) {
     return NextResponse.json({ ok: false, error: "Pontos/Passageiros inválidos" }, { status: 400 });
@@ -147,18 +189,24 @@ export async function POST(req: Request) {
       const availablePts = clampInt((ced as any)[field]);
       if (availablePts < points) throw new Error("Pontos insuficientes.");
 
-      // compra OPEN (meta)
-      let metaMilheiroCents = 0;
-      if (purchaseId) {
-        const p = await tx.purchase.findUnique({
-          where: { id: purchaseId },
-          select: { id: true, cedenteId: true, status: true, metaMilheiroCents: true },
-        });
-        if (!p) throw new Error("Compra não encontrada.");
-        if (p.status !== "OPEN") throw new Error("Compra não está OPEN.");
-        if (p.cedenteId !== cedenteId) throw new Error("Compra não pertence ao cedente selecionado.");
-        metaMilheiroCents = clampInt(p.metaMilheiroCents);
-      }
+      // ✅ resolve purchase: por numero (ID00018) OU por id (cuid)
+      const purchase =
+        isPurchaseNumero(purchaseKey)
+          ? await tx.purchase.findFirst({
+              where: { numero: purchaseKey.toUpperCase(), cedenteId },
+              select: { id: true, cedenteId: true, status: true, metaMilheiroCents: true },
+            })
+          : await tx.purchase.findUnique({
+              where: { id: purchaseKey },
+              select: { id: true, cedenteId: true, status: true, metaMilheiroCents: true },
+            });
+
+      if (!purchase) throw new Error("Compra não encontrada.");
+      if (purchase.status !== "OPEN") throw new Error("Compra não está OPEN.");
+      if (purchase.cedenteId !== cedenteId) throw new Error("Compra não pertence ao cedente selecionado.");
+
+      const purchaseIdReal = purchase.id; // ✅ FK real
+      const metaMilheiroCents = clampInt(purchase.metaMilheiroCents);
 
       const pointsValueCents = calcPointsValueCents(points, milheiroCents);
       const totalCents = pointsValueCents + embarqueFeeCents;
@@ -170,7 +218,6 @@ export async function POST(req: Request) {
       const n = await nextCounter("SALE");
       const numero = formatSaleNumber(n);
 
-      // receivable
       const cliente = await tx.cliente.findUnique({
         where: { id: clienteId },
         select: { nome: true },
@@ -188,7 +235,6 @@ export async function POST(req: Request) {
         },
       });
 
-      // cria sale
       const sale = await tx.sale.create({
         data: {
           numero,
@@ -208,8 +254,8 @@ export async function POST(req: Request) {
           paymentStatus: "PENDING",
           cedenteId,
           clienteId,
-          purchaseId,
-          sellerId: userId,
+          purchaseId: purchaseIdReal, // ✅ sempre salva FK correta
+          sellerId: userId, // ✅ automático
           receivableId: receivable.id,
         },
         select: { id: true, numero: true },
@@ -224,7 +270,6 @@ export async function POST(req: Request) {
         data: decData,
       });
 
-      // registra emissão (contagem anual)
       await tx.emissionEvent.create({
         data: {
           cedenteId,
@@ -241,6 +286,9 @@ export async function POST(req: Request) {
 
     return NextResponse.json({ ok: true, sale: result });
   } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e?.message || "Erro ao criar venda" }, { status: 400 });
+    return NextResponse.json(
+      { ok: false, error: e?.message || "Erro ao criar venda" },
+      { status: 400 }
+    );
   }
 }

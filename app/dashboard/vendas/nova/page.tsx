@@ -1,18 +1,15 @@
-// app/dashboard/vendas/nova/page.tsx
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import NovaVendaClient from "./NovaVendaClient";
 
-export const dynamic = "force-dynamic";
-export const revalidate = 0;
+type UserLite = { id: string; name: string; login: string };
 
 type Sess = {
   id: string;
   login: string;
+  name?: string;
   team: string;
   role: "admin" | "staff";
-  name?: string;
-  email?: string | null;
 };
 
 function b64urlDecode(input: string) {
@@ -26,7 +23,6 @@ function readSessionCookie(raw?: string): Sess | null {
   try {
     const parsed = JSON.parse(b64urlDecode(raw)) as Partial<Sess>;
     if (!parsed?.id || !parsed?.login || !parsed?.team || !parsed?.role) return null;
-    if (parsed.role !== "admin" && parsed.role !== "staff") return null;
     return parsed as Sess;
   } catch {
     return null;
@@ -36,17 +32,17 @@ function readSessionCookie(raw?: string): Sess | null {
 export default async function Page() {
   const store = await cookies();
   const raw = store.get("tm.session")?.value;
+  const sess = readSessionCookie(raw);
 
-  const session = readSessionCookie(raw);
-  if (!session) redirect("/login?next=/dashboard/vendas/nova");
+  if (!sess?.id || !sess?.login) {
+    redirect("/login");
+  }
 
-  return (
-    <NovaVendaClient
-      initialMe={{
-        id: session.id,
-        login: session.login,
-        name: session.name || session.login,
-      }}
-    />
-  );
+  const initialMe: UserLite = {
+    id: sess.id,
+    login: sess.login,
+    name: sess.name || sess.login,
+  };
+
+  return <NovaVendaClient initialMe={initialMe} />;
 }

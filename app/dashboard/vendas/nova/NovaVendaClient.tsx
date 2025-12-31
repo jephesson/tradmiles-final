@@ -34,7 +34,7 @@ type ClienteLite = {
 
 type CompraOpen = {
   id: string;
-  numero: string;
+  numero: string; // ✅ ID00018
   status: "OPEN";
   ciaAerea: Program | null;
   metaMilheiroCents: number;
@@ -168,7 +168,7 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
 
   // compras OPEN do cedente selecionado
   const [compras, setCompras] = useState<CompraOpen[]>([]);
-  const [purchaseId, setPurchaseId] = useState("");
+  const [purchaseNumero, setPurchaseNumero] = useState(""); // ✅ agora guarda ID00018
 
   // ✅ funcionários (para cartão)
   const [users, setUsers] = useState<UserLite[]>([]);
@@ -196,7 +196,12 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
   const totalCents = useMemo(() => pointsValueCents + embarqueFeeCents, [pointsValueCents, embarqueFeeCents]);
   const commissionCents = useMemo(() => Math.round(pointsValueCents * 0.01), [pointsValueCents]);
 
-  const compraSel = useMemo(() => compras.find((c) => c.id === purchaseId) || null, [compras, purchaseId]);
+  // ✅ agora encontra pela compra.numero (ID00018)
+  const compraSel = useMemo(
+    () => compras.find((c) => c.numero === purchaseNumero) || null,
+    [compras, purchaseNumero]
+  );
+
   const metaMilheiroCents = compraSel?.metaMilheiroCents || 0;
 
   const bonusCents = useMemo(() => {
@@ -226,7 +231,7 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
   function clearSelection() {
     setSel(null);
     setCompras([]);
-    setPurchaseId("");
+    setPurchaseNumero(""); // ✅ limpa ID00018 selecionado
   }
 
   // ✅ carrega funcionários cadastrados (preferência: /api/funcionarios)
@@ -322,16 +327,16 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
     (async () => {
       if (!sel?.cedente?.id) {
         setCompras([]);
-        setPurchaseId("");
+        setPurchaseNumero("");
         return;
       }
       try {
         const out = await api<{ ok: true; compras: CompraOpen[] }>(`/api/compras/open?cedenteId=${sel.cedente.id}`);
         setCompras(out.compras || []);
-        setPurchaseId("");
+        setPurchaseNumero("");
       } catch {
         setCompras([]);
-        setPurchaseId("");
+        setPurchaseNumero("");
       }
     })();
   }, [sel?.cedente?.id]);
@@ -346,7 +351,7 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
   async function salvarVenda() {
     if (!sel?.eligible) return alert("Selecione um cedente elegível.");
     if (!clienteId) return alert("Selecione um cliente.");
-    if (!purchaseId) return alert("Selecione a compra OPEN (ID).");
+    if (!purchaseNumero) return alert("Selecione a compra OPEN (ID00018).");
     if (points <= 0 || passengers <= 0) return alert("Pontos/Passageiros inválidos.");
     if (milheiroCents <= 0) return alert("Milheiro inválido.");
 
@@ -358,7 +363,7 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
       passengers,
       cedenteId: sel.cedente.id,
       clienteId,
-      purchaseId,
+      purchaseNumero, // ✅ envia o ID00018
       date: dateISO,
       milheiroCents,
       embarqueFeeCents,
@@ -709,12 +714,12 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
                   <div className="text-xs text-slate-600">Compra OPEN (do cedente)</div>
                   <select
                     className="w-full rounded-xl border px-3 py-2 text-sm bg-white"
-                    value={purchaseId}
-                    onChange={(e) => setPurchaseId(e.target.value)}
+                    value={purchaseNumero}
+                    onChange={(e) => setPurchaseNumero(e.target.value)}
                   >
                     <option value="">Selecione...</option>
                     {compras.map((c) => (
-                      <option key={c.id} value={c.id}>
+                      <option key={c.id} value={c.numero}>
                         {c.numero} • meta {((c.metaMilheiroCents || 0) / 100).toFixed(2).replace(".", ",")}
                       </option>
                     ))}
