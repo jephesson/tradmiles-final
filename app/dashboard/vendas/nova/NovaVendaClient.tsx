@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { cn } from "@/lib/cn";
 import { getSession } from "@/lib/auth";
 
@@ -68,6 +68,13 @@ function isoToday() {
   const dd = String(d.getDate()).padStart(2, "0");
   return `${yyyy}-${mm}-${dd}`;
 }
+function normStr(v?: string) {
+  return (v || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
+}
 async function api<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await fetch(url, {
     ...init,
@@ -76,7 +83,7 @@ async function api<T>(url: string, init?: RequestInit): Promise<T> {
     headers: { "Content-Type": "application/json", ...(init?.headers || {}) },
   });
   const j = await res.json().catch(() => ({}));
-  if (!res.ok || j?.ok === false) throw new Error(j?.error || `Erro ${res.status}`);
+  if (!res.ok || (j as any)?.ok === false) throw new Error((j as any)?.error || `Erro ${res.status}`);
   return j as T;
 }
 
@@ -98,6 +105,9 @@ export default function NovaVendaClient() {
   const [loadingSug, setLoadingSug] = useState(false);
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
   const [sel, setSel] = useState<Suggestion | null>(null);
+
+  // ✅ busca cedente (filtra dentro das sugestões retornadas)
+  const [cedenteQ, setCedenteQ] = useState("");
 
   // cliente
   const [clienteQ, setClienteQ] = useState("");
@@ -145,6 +155,30 @@ export default function NovaVendaClient() {
     return Math.round(diffTotal * 0.3);
   }, [milheiroCents, metaMilheiroCents, points]);
 
+  const detailsRef = useRef<HTMLDivElement | null>(null);
+
+  function badgeClass(priorityLabel: Suggestion["priorityLabel"]) {
+    return priorityLabel === "MAX"
+      ? "bg-emerald-50 border-emerald-200 text-emerald-700"
+      : priorityLabel === "BAIXA"
+        ? "bg-slate-100 border-slate-200 text-slate-600"
+        : "bg-amber-50 border-amber-200 text-amber-700";
+  }
+
+  function selectSuggestion(s: Suggestion) {
+    setSel(s);
+    // ✅ ao selecionar, some a tabela e rola pros detalhes
+    setTimeout(() => {
+      detailsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 60);
+  }
+
+  function clearSelection() {
+    setSel(null);
+    setCompras([]);
+    setPurchaseId("");
+  }
+
   // load users (cartão)
   useEffect(() => {
     (async () => {
@@ -161,7 +195,7 @@ export default function NovaVendaClient() {
   useEffect(() => {
     if (!user?.name) return;
     if (!feeCardLabel) setFeeCardLabel(`Cartão ${user.name}`);
-  }, [user?.name]);
+  }, [user?.name]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // aplica modo do cartão
   useEffect(() => {
@@ -194,7 +228,13 @@ export default function NovaVendaClient() {
         const out = await api<{ ok: true; suggestions: Suggestion[] }>(
           `/api/vendas/sugestoes?program=${program}&points=${points}&passengers=${passengers}`
         );
-        setSuggestions(out.suggestions || []);
+        const list = out.suggestions || [];
+        setSuggestions(list);
+
+        // ✅ se mudou entrada e o selecionado não existe mais, limpa
+        if (sel?.cedente?.id && !list.some((x) => x.cedente.id === sel.cedente.id)) {
+          clearSelection();
+        }
       } catch {
         setSuggestions([]);
         setSel(null);
@@ -203,6 +243,7 @@ export default function NovaVendaClient() {
       }
     }, 250);
     return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [program, points, passengers]);
 
   // cliente search (debounce)
@@ -281,6 +322,36 @@ export default function NovaVendaClient() {
     }
   }
 
+  // ✅ lista visível: só 10 por padrão. Se tiver busca, mostra até 10 do filtro.
+  const filteredSuggestions = useMemo(() => {
+    const q = normStr(cedenteQ);
+    if (!q) return suggestions;
+
+    return suggestions.filter((s) => {
+      const hay = [
+        s.cedente.nomeCompleto,
+        s.cedente.identificador,
+        s.cedente.cpf,
+        s.cedente.owner?.name,
+        s.cedente.owner?.login,
+      ]
+        .map(normStr)
+        .join(" | ");
+      return hay.includes(q);
+    });
+  }, [suggestions, cedenteQ]);
+
+  const visibleSuggestions = useMemo(() => filteredSuggestions.slice(0, 10), [filteredSuggestions]);
+
+  const countLabel = useMemo(() => {
+    if (loadingSug) return "Calculando...";
+    if (sel) return "Selecionado";
+    const q = normStr(cedenteQ);
+    if (!suggestions.length) return "0 resultados";
+    if (q) return `${Math.min(10, filteredSuggestions.length)} de ${filteredSuggestions.length} (busca)`;
+    return `${Math.min(10, suggestions.length)} de ${suggestions.length}`;
+  }, [loadingSug, sel, cedenteQ, suggestions.length, filteredSuggestions.length]);
+
   return (
     <div className="p-6 space-y-6">
       {/* Header */}
@@ -355,100 +426,188 @@ export default function NovaVendaClient() {
               Prioridade: sobrar &lt; 2k (MAX) • sobrar 3-10k (BAIXA) • acima de 10k, sobrar menos primeiro.
             </div>
           </div>
-          <div className="text-xs text-slate-500">{loadingSug ? "Calculando..." : `${suggestions.length} resultados`}</div>
+          <div className="text-xs text-slate-500">{countLabel}</div>
         </div>
 
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="bg-slate-50 border-b">
-              <tr className="text-slate-600">
-                <th className="text-left font-semibold px-4 py-3 w-[360px]">CEDENTE</th>
-                <th className="text-left font-semibold px-4 py-3 w-[220px]">RESPONSÁVEL</th>
-                <th className="text-right font-semibold px-4 py-3 w-[140px]">PTS</th>
-                <th className="text-right font-semibold px-4 py-3 w-[220px]">PAX DISP. (ano)</th>
-                <th className="text-right font-semibold px-4 py-3 w-[140px]">SOBRA</th>
-                <th className="text-left font-semibold px-4 py-3 w-[140px]">PRIOR.</th>
-                <th className="text-right font-semibold px-4 py-3 w-[120px]"></th>
-              </tr>
-            </thead>
-            <tbody>
-              {suggestions.length === 0 && !loadingSug ? (
-                <tr>
-                  <td colSpan={7} className="px-4 py-8 text-slate-500">
-                    Informe pontos e passageiros para ver sugestões.
-                  </td>
-                </tr>
-              ) : null}
+        {/* ✅ SELECIONADO: some a tabela totalmente */}
+        {sel ? (
+          <div className="p-5">
+            <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+              <div className="space-y-1">
+                <div className="text-xs text-slate-500">Cedente selecionado</div>
+                <div className="text-base font-semibold">{sel.cedente.nomeCompleto}</div>
+                <div className="text-xs text-slate-500">
+                  {sel.cedente.identificador} • Resp.: <b>{sel.cedente.owner.name}</b> (@{sel.cedente.owner.login})
+                </div>
 
-              {suggestions.map((s) => {
-                const selected = sel?.cedente.id === s.cedente.id;
-                const badge =
-                  s.priorityLabel === "MAX"
-                    ? "bg-emerald-50 border-emerald-200 text-emerald-700"
-                    : s.priorityLabel === "BAIXA"
-                      ? "bg-slate-100 text-slate-600"
-                      : "bg-amber-50 border-amber-200 text-amber-700";
+                <div className="mt-2 flex flex-wrap gap-2 text-xs">
+                  <span className="rounded-full border bg-white px-2 py-1">
+                    PTS: <b className="tabular-nums">{fmtInt(sel.pts)}</b>
+                  </span>
+                  <span className="rounded-full border bg-white px-2 py-1">
+                    PAX disp.:{" "}
+                    <b className="tabular-nums">{fmtInt(sel.availablePassengersYear)}</b>{" "}
+                    <span className="text-slate-500">
+                      (usados {fmtInt(sel.usedPassengersYear)}/{fmtInt(sel.paxLimit)})
+                    </span>
+                  </span>
+                  <span className="rounded-full border bg-white px-2 py-1">
+                    Sobra: <b className="tabular-nums">{fmtInt(sel.leftoverPoints)}</b>
+                  </span>
+                  <span className={cn("rounded-full border px-2 py-1", badgeClass(sel.priorityLabel))}>
+                    {sel.priorityLabel}
+                  </span>
+                </div>
 
-                return (
-                  <tr key={s.cedente.id} className={cn("border-b last:border-b-0", selected ? "bg-slate-50" : "")}>
-                    <td className="px-4 py-3">
-                      <div className="font-medium">{s.cedente.nomeCompleto}</div>
-                      <div className="text-xs text-slate-500">{s.cedente.identificador}</div>
-                      {s.alerts.includes("PASSAGEIROS_ESTOURADOS_COM_PONTOS") ? (
-                        <div className="mt-1 text-[11px] text-rose-600">
-                          Alerta: limite anual estoura e ainda sobraria &gt; 3.000 pts.
-                        </div>
-                      ) : null}
-                    </td>
-                    <td className="px-4 py-3">
-                      <div className="font-medium">{s.cedente.owner.name}</div>
-                      <div className="text-xs text-slate-500">@{s.cedente.owner.login}</div>
-                    </td>
-                    <td className="px-4 py-3 text-right tabular-nums">{fmtInt(s.pts)}</td>
-                    <td className="px-4 py-3 text-right tabular-nums">
-                      {fmtInt(s.availablePassengersYear)}
-                      <span className="text-xs text-slate-500">
-                        {" "}
-                        (usados {fmtInt(s.usedPassengersYear)}/{fmtInt(s.paxLimit)})
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-right tabular-nums">{fmtInt(s.leftoverPoints)}</td>
-                    <td className="px-4 py-3">
-                      <span className={cn("inline-flex rounded-full border px-2 py-1 text-xs", badge)}>
-                        {s.priorityLabel}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-right">
-                      <button
-                        disabled={!s.eligible}
-                        onClick={() => setSel(s)}
-                        className={cn(
-                          "rounded-xl border px-3 py-1.5 text-sm",
-                          s.eligible ? "hover:bg-slate-50" : "opacity-40 cursor-not-allowed"
-                        )}
-                      >
-                        {selected ? "Selecionado" : "Usar"}
-                      </button>
-                    </td>
+                {sel.alerts.includes("PASSAGEIROS_ESTOURADOS_COM_PONTOS") ? (
+                  <div className="mt-2 text-[11px] text-rose-600">
+                    Alerta: limite anual estoura e ainda sobraria &gt; 3.000 pts.
+                  </div>
+                ) : null}
+              </div>
+
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => detailsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}
+                  className="rounded-xl border px-3 py-2 text-sm hover:bg-slate-50"
+                >
+                  Ir para dados
+                </button>
+                <button
+                  type="button"
+                  onClick={clearSelection}
+                  className="rounded-xl border px-3 py-2 text-sm hover:bg-slate-50"
+                >
+                  Trocar cedente
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <>
+            {/* ✅ Não selecionado: mostra busca + apenas 10 */}
+            <div className="p-5 border-b">
+              <div className="grid gap-3 md:grid-cols-3 md:items-end">
+                <label className="space-y-1 md:col-span-2">
+                  <div className="text-xs text-slate-600">Pesquisar cedente (nome, ID, CPF, responsável)</div>
+                  <input
+                    className="w-full rounded-xl border px-3 py-2 text-sm"
+                    value={cedenteQ}
+                    onChange={(e) => setCedenteQ(e.target.value)}
+                    placeholder="Ex: Rayssa / RAY-212 / Lucas / 123..."
+                  />
+                </label>
+
+                <button
+                  type="button"
+                  onClick={() => setCedenteQ("")}
+                  className="rounded-xl border px-3 py-2 text-sm hover:bg-slate-50"
+                >
+                  Limpar busca
+                </button>
+              </div>
+
+              <div className="mt-2 text-xs text-slate-500">
+                Mostrando no máximo <b>10</b>. Para achar alguém específico, use a busca acima.
+              </div>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-slate-50 border-b">
+                  <tr className="text-slate-600">
+                    <th className="text-left font-semibold px-4 py-3 w-[360px]">CEDENTE</th>
+                    <th className="text-left font-semibold px-4 py-3 w-[220px]">RESPONSÁVEL</th>
+                    <th className="text-right font-semibold px-4 py-3 w-[140px]">PTS</th>
+                    <th className="text-right font-semibold px-4 py-3 w-[220px]">PAX DISP. (ano)</th>
+                    <th className="text-right font-semibold px-4 py-3 w-[140px]">SOBRA</th>
+                    <th className="text-left font-semibold px-4 py-3 w-[140px]">PRIOR.</th>
+                    <th className="text-right font-semibold px-4 py-3 w-[120px]"></th>
                   </tr>
-                );
-              })}
+                </thead>
+                <tbody>
+                  {!loadingSug && suggestions.length === 0 ? (
+                    <tr>
+                      <td colSpan={7} className="px-4 py-8 text-slate-500">
+                        Informe pontos e passageiros para ver sugestões.
+                      </td>
+                    </tr>
+                  ) : null}
 
-              {loadingSug ? (
-                <tr>
-                  <td colSpan={7} className="px-4 py-8 text-slate-500">
-                    Carregando...
-                  </td>
-                </tr>
-              ) : null}
-            </tbody>
-          </table>
-        </div>
+                  {!loadingSug && suggestions.length > 0 && visibleSuggestions.length === 0 ? (
+                    <tr>
+                      <td colSpan={7} className="px-4 py-8 text-slate-500">
+                        Nenhum cedente encontrado para essa busca.
+                      </td>
+                    </tr>
+                  ) : null}
+
+                  {visibleSuggestions.map((s) => {
+                    const badge = badgeClass(s.priorityLabel);
+
+                    return (
+                      <tr key={s.cedente.id} className="border-b last:border-b-0">
+                        <td className="px-4 py-3">
+                          <div className="font-medium">{s.cedente.nomeCompleto}</div>
+                          <div className="text-xs text-slate-500">{s.cedente.identificador}</div>
+                          {s.alerts.includes("PASSAGEIROS_ESTOURADOS_COM_PONTOS") ? (
+                            <div className="mt-1 text-[11px] text-rose-600">
+                              Alerta: limite anual estoura e ainda sobraria &gt; 3.000 pts.
+                            </div>
+                          ) : null}
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="font-medium">{s.cedente.owner.name}</div>
+                          <div className="text-xs text-slate-500">@{s.cedente.owner.login}</div>
+                        </td>
+                        <td className="px-4 py-3 text-right tabular-nums">{fmtInt(s.pts)}</td>
+                        <td className="px-4 py-3 text-right tabular-nums">
+                          {fmtInt(s.availablePassengersYear)}
+                          <span className="text-xs text-slate-500">
+                            {" "}
+                            (usados {fmtInt(s.usedPassengersYear)}/{fmtInt(s.paxLimit)})
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-right tabular-nums">{fmtInt(s.leftoverPoints)}</td>
+                        <td className="px-4 py-3">
+                          <span className={cn("inline-flex rounded-full border px-2 py-1 text-xs", badge)}>
+                            {s.priorityLabel}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-right">
+                          <button
+                            disabled={!s.eligible}
+                            onClick={() => selectSuggestion(s)}
+                            className={cn(
+                              "rounded-xl border px-3 py-1.5 text-sm",
+                              s.eligible ? "hover:bg-slate-50" : "opacity-40 cursor-not-allowed"
+                            )}
+                          >
+                            Usar
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+
+                  {loadingSug ? (
+                    <tr>
+                      <td colSpan={7} className="px-4 py-8 text-slate-500">
+                        Carregando...
+                      </td>
+                    </tr>
+                  ) : null}
+                </tbody>
+              </table>
+            </div>
+          </>
+        )}
       </div>
 
       {/* 3) Detalhes da venda (só aparece depois do cedente) */}
       {sel && (
-        <div className="grid gap-4 lg:grid-cols-3">
+        <div ref={detailsRef} className="grid gap-4 lg:grid-cols-3">
           <div className="lg:col-span-2 space-y-4">
             <div className="rounded-2xl border bg-white p-5">
               <div className="font-medium">3) Cliente + Compra OPEN + Dados</div>
