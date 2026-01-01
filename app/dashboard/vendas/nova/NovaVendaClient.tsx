@@ -351,7 +351,7 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [program, points, passengers]);
 
-  // ✅ cliente search + "recentes" quando vazio
+  // ✅ cliente search (corrigido p/ aceitar formatos diferentes de retorno)
   useEffect(() => {
     const ac = new AbortController();
     const t = setTimeout(async () => {
@@ -361,16 +361,21 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
       const q = clienteQ.trim();
       setClientesError("");
 
+      // ✅ se você não quiser “recentes”, pode trocar por: if (q.length < 2) { setClientes([]); return; }
+      const isRecent = q.length < 2;
+
       setLoadingClientes(true);
       try {
-        // ✅ se vazio/curto, pede "recent=1" (últimos 20)
-        const url =
-          q.length >= 2
-            ? `/api/clientes/search?q=${encodeURIComponent(q)}`
-            : `/api/clientes/search?recent=1`;
+        const url = isRecent
+          ? `/api/clientes/search?recent=1`
+          : `/api/clientes/search?q=${encodeURIComponent(q)}`;
 
         const out = await api<any>(url, { signal: ac.signal } as any);
 
+        // ✅ aceita:
+        // { ok:true, clientes:[...] }
+        // { ok:true, data:{ clientes:[...] } }
+        // { ok:true, data:{ data:{ clientes:[...] } } }
         const list: ClienteLite[] =
           out?.clientes ||
           out?.data?.clientes ||
@@ -381,7 +386,11 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
       } catch (e: any) {
         if (e?.name !== "AbortError") {
           setClientes([]);
-          setClientesError(e?.message || "Erro ao buscar clientes.");
+
+          // ✅ se for “recentes” e o backend não suportar, só ignora (não mostra erro vermelho)
+          if (!isRecent) {
+            setClientesError(e?.message || "Erro ao buscar clientes.");
+          }
         }
       } finally {
         if (!ac.signal.aborted) setLoadingClientes(false);
@@ -420,9 +429,7 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
         body: JSON.stringify(payload),
       });
 
-      const created: ClienteLite | null =
-        out?.data?.cliente || out?.cliente || null;
-
+      const created: ClienteLite | null = out?.data?.cliente || out?.cliente || null;
       if (!created?.id) throw new Error("Cliente criado, mas resposta inválida.");
 
       setClienteId(created.id);
@@ -577,7 +584,10 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
           <button
             onClick={salvarVenda}
             disabled={!canSave}
-            className={cn("rounded-xl px-4 py-2 text-sm text-white", canSave ? "bg-black hover:bg-gray-800" : "bg-slate-300 cursor-not-allowed")}
+            className={cn(
+              "rounded-xl px-4 py-2 text-sm text-white",
+              canSave ? "bg-black hover:bg-gray-800" : "bg-slate-300 cursor-not-allowed"
+            )}
           >
             Salvar venda
           </button>
@@ -591,7 +601,11 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
         <div className="mt-4 grid gap-4 md:grid-cols-3">
           <label className="space-y-1">
             <div className="text-xs text-slate-600">CIA / Programa</div>
-            <select className="w-full rounded-xl border px-3 py-2 text-sm bg-white" value={program} onChange={(e) => setProgram(e.target.value as Program)}>
+            <select
+              className="w-full rounded-xl border px-3 py-2 text-sm bg-white"
+              value={program}
+              onChange={(e) => setProgram(e.target.value as Program)}
+            >
               <option value="LATAM">LATAM</option>
               <option value="SMILES">SMILES</option>
               <option value="LIVELO">LIVELO</option>
@@ -601,7 +615,12 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
 
           <label className="space-y-1">
             <div className="text-xs text-slate-600">Pontos</div>
-            <input className="w-full rounded-xl border px-3 py-2 text-sm font-mono" value={pointsStr} onChange={(e) => onChangePoints(e.target.value)} placeholder="Ex: 100.000" />
+            <input
+              className="w-full rounded-xl border px-3 py-2 text-sm font-mono"
+              value={pointsStr}
+              onChange={(e) => onChangePoints(e.target.value)}
+              placeholder="Ex: 100.000"
+            />
           </label>
 
           <label className="space-y-1">
@@ -626,7 +645,9 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
         <div className="flex items-center justify-between p-5 border-b">
           <div>
             <div className="font-medium">2) Cedentes sugeridos</div>
-            <div className="text-xs text-slate-500">Prioridade: sobrar &lt; 2k (MAX) • sobrar 3-10k (BAIXA) • acima de 10k, sobrar menos primeiro.</div>
+            <div className="text-xs text-slate-500">
+              Prioridade: sobrar &lt; 2k (MAX) • sobrar 3-10k (BAIXA) • acima de 10k, sobrar menos primeiro.
+            </div>
           </div>
           <div className="text-xs text-slate-500">{countLabel}</div>
         </div>
@@ -658,7 +679,9 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
                 </div>
 
                 {sel.alerts.includes("PASSAGEIROS_ESTOURADOS_COM_PONTOS") ? (
-                  <div className="mt-2 text-[11px] text-rose-600">Alerta: limite anual estoura e ainda sobraria &gt; 3.000 pts.</div>
+                  <div className="mt-2 text-[11px] text-rose-600">
+                    Alerta: limite anual estoura e ainda sobraria &gt; 3.000 pts.
+                  </div>
                 ) : null}
               </div>
 
@@ -739,7 +762,9 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
                           <div className="font-medium">{s.cedente.nomeCompleto}</div>
                           <div className="text-xs text-slate-500">{s.cedente.identificador}</div>
                           {s.alerts.includes("PASSAGEIROS_ESTOURADOS_COM_PONTOS") ? (
-                            <div className="mt-1 text-[11px] text-rose-600">Alerta: limite anual estoura e ainda sobraria &gt; 3.000 pts.</div>
+                            <div className="mt-1 text-[11px] text-rose-600">
+                              Alerta: limite anual estoura e ainda sobraria &gt; 3.000 pts.
+                            </div>
                           ) : null}
                         </td>
                         <td className="px-4 py-3">
@@ -762,7 +787,10 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
                           <button
                             disabled={!s.eligible}
                             onClick={() => selectSuggestion(s)}
-                            className={cn("rounded-xl border px-3 py-1.5 text-sm", s.eligible ? "hover:bg-slate-50" : "opacity-40 cursor-not-allowed")}
+                            className={cn(
+                              "rounded-xl border px-3 py-1.5 text-sm",
+                              s.eligible ? "hover:bg-slate-50" : "opacity-40 cursor-not-allowed"
+                            )}
                           >
                             Usar
                           </button>
@@ -795,7 +823,12 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
               <div className="mt-4 grid gap-4 md:grid-cols-2">
                 <label className="space-y-1">
                   <div className="text-xs text-slate-600">Data</div>
-                  <input type="date" className="w-full rounded-xl border px-3 py-2 text-sm" value={dateISO} onChange={(e) => setDateISO(e.target.value)} />
+                  <input
+                    type="date"
+                    className="w-full rounded-xl border px-3 py-2 text-sm"
+                    value={dateISO}
+                    onChange={(e) => setDateISO(e.target.value)}
+                  />
                 </label>
 
                 <div className="space-y-1">
@@ -815,7 +848,6 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
                     {loadingClientes ? <div className="text-[11px] text-slate-500">Buscando...</div> : null}
                     {clientesError ? <div className="text-[11px] text-rose-600">{clientesError}</div> : null}
 
-                    {/* ✅ quando não achar, oferece cadastro */}
                     {!loadingClientes && clienteQ.trim().length >= 2 && clientes.length === 0 ? (
                       <div className="text-[11px] text-slate-600">
                         Nenhum cliente encontrado.{" "}
@@ -833,9 +865,8 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
                       </div>
                     ) : null}
 
-                    {/* ✅ quando vazio, mostra que são recentes */}
                     {!loadingClientes && clienteQ.trim().length < 2 && clientes.length > 0 ? (
-                      <div className="text-[11px] text-slate-500">Mostrando últimos 20 clientes cadastrados.</div>
+                      <div className="text-[11px] text-slate-500">Mostrando últimos clientes cadastrados.</div>
                     ) : null}
                   </label>
 
@@ -843,7 +874,11 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
                     <div className="text-xs text-slate-600">Selecionar cliente</div>
 
                     <div className="flex gap-2">
-                      <select className="flex-1 rounded-xl border px-3 py-2 text-sm bg-white" value={clienteId} onChange={(e) => setClienteId(e.target.value)}>
+                      <select
+                        className="flex-1 rounded-xl border px-3 py-2 text-sm bg-white"
+                        value={clienteId}
+                        onChange={(e) => setClienteId(e.target.value)}
+                      >
                         <option value="">Selecione...</option>
                         {clientes.map((c) => (
                           <option key={c.id} value={c.id}>
@@ -884,22 +919,38 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
                       </option>
                     ))}
                   </select>
-                  <div className="text-[11px] text-slate-500 mt-1">A venda só deixa salvar se a compra estiver LIBERADA (status CLOSED) e for do mesmo cedente.</div>
+                  <div className="text-[11px] text-slate-500 mt-1">
+                    A venda só deixa salvar se a compra estiver LIBERADA (status CLOSED) e for do mesmo cedente.
+                  </div>
                 </label>
 
                 <label className="space-y-1">
                   <div className="text-xs text-slate-600">Milheiro (R$)</div>
-                  <input className="w-full rounded-xl border px-3 py-2 text-sm font-mono" value={milheiroStr} onChange={(e) => setMilheiroStr(e.target.value)} placeholder="Ex: 25,50" />
+                  <input
+                    className="w-full rounded-xl border px-3 py-2 text-sm font-mono"
+                    value={milheiroStr}
+                    onChange={(e) => setMilheiroStr(e.target.value)}
+                    placeholder="Ex: 25,50"
+                  />
                 </label>
 
                 <label className="space-y-1">
                   <div className="text-xs text-slate-600">Taxa de embarque (R$)</div>
-                  <input className="w-full rounded-xl border px-3 py-2 text-sm font-mono" value={embarqueStr} onChange={(e) => setEmbarqueStr(e.target.value)} placeholder="Ex: 78,34" />
+                  <input
+                    className="w-full rounded-xl border px-3 py-2 text-sm font-mono"
+                    value={embarqueStr}
+                    onChange={(e) => setEmbarqueStr(e.target.value)}
+                    placeholder="Ex: 78,34"
+                  />
                 </label>
 
                 <label className="space-y-1">
                   <div className="text-xs text-slate-600">Cartão da taxa</div>
-                  <select className="w-full rounded-xl border px-3 py-2 text-sm bg-white" value={feeCardPreset} onChange={(e) => setFeeCardPreset(e.target.value)}>
+                  <select
+                    className="w-full rounded-xl border px-3 py-2 text-sm bg-white"
+                    value={feeCardPreset}
+                    onChange={(e) => setFeeCardPreset(e.target.value)}
+                  >
                     <option value="SELF">{selfLabel}</option>
                     <option value="VIAS">Vias Aéreas</option>
                     {users.length ? <option disabled>────────────</option> : null}
@@ -912,7 +963,12 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
                   </select>
 
                   {feeCardPreset === "MANUAL" ? (
-                    <input className="mt-2 w-full rounded-xl border px-3 py-2 text-sm" value={feeCardManual} onChange={(e) => setFeeCardManual(e.target.value)} placeholder="Ex: Cartão Inter PJ" />
+                    <input
+                      className="mt-2 w-full rounded-xl border px-3 py-2 text-sm"
+                      value={feeCardManual}
+                      onChange={(e) => setFeeCardManual(e.target.value)}
+                      placeholder="Ex: Cartão Inter PJ"
+                    />
                   ) : (
                     <div className="mt-2 text-xs text-slate-500">Selecionado: {feeCardLabel || "—"}</div>
                   )}
@@ -920,7 +976,12 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
 
                 <label className="space-y-1">
                   <div className="text-xs text-slate-600">Localizador</div>
-                  <input className="w-full rounded-xl border px-3 py-2 text-sm font-mono" value={locator} onChange={(e) => setLocator(e.target.value)} placeholder="Opcional" />
+                  <input
+                    className="w-full rounded-xl border px-3 py-2 text-sm font-mono"
+                    value={locator}
+                    onChange={(e) => setLocator(e.target.value)}
+                    placeholder="Opcional"
+                  />
                 </label>
               </div>
             </div>
@@ -984,7 +1045,11 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
                 <div className="text-lg font-semibold">Cadastrar cliente</div>
                 <div className="text-xs text-slate-500">Cadastro rápido sem sair da venda.</div>
               </div>
-              <button type="button" onClick={() => setClienteModalOpen(false)} className="rounded-lg border px-2 py-1 text-sm hover:bg-slate-50">
+              <button
+                type="button"
+                onClick={() => setClienteModalOpen(false)}
+                className="rounded-lg border px-2 py-1 text-sm hover:bg-slate-50"
+              >
                 ✕
               </button>
             </div>
@@ -1069,7 +1134,10 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
                 type="button"
                 disabled={creatingCliente}
                 onClick={criarClienteRapido}
-                className={cn("rounded-xl px-4 py-2 text-sm text-white", creatingCliente ? "bg-slate-400 cursor-not-allowed" : "bg-black hover:bg-gray-800")}
+                className={cn(
+                  "rounded-xl px-4 py-2 text-sm text-white",
+                  creatingCliente ? "bg-slate-400 cursor-not-allowed" : "bg-black hover:bg-gray-800"
+                )}
               >
                 {creatingCliente ? "Cadastrando..." : "Cadastrar"}
               </button>
