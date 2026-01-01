@@ -2,7 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { ok, badRequest, serverError } from "@/lib/api";
 import { nextNumeroCompra } from "@/lib/compraNumero";
 import { recomputeCompra } from "@/lib/compras";
-import { Prisma } from "@prisma/client";
+import { Prisma, LoyaltyProgram } from "@prisma/client";
 
 export const dynamic = "force-dynamic";
 
@@ -49,6 +49,18 @@ function digitsOnly(s: string) {
   return s.replace(/\D+/g, "");
 }
 
+function normalizeEnumQ(q: string): LoyaltyProgram | null {
+  const up = (q || "").trim().toUpperCase();
+
+  // atalhos comuns (se tu digitar "GOL", ele vira SMILES)
+  if (up === "GOL") return "SMILES";
+
+  if (up === "LATAM" || up === "SMILES" || up === "LIVELO" || up === "ESFERA") {
+    return up as LoyaltyProgram;
+  }
+  return null;
+}
+
 export async function GET(req: Request) {
   try {
     const { searchParams } = new URL(req.url);
@@ -63,45 +75,31 @@ export async function GET(req: Request) {
     const skip = Math.max(0, asInt(searchParams.get("skip") || 0, 0));
 
     const qDigits = q ? digitsOnly(q) : "";
+    const qProgram = q ? normalizeEnumQ(q) : null;
 
-    // ✅ where base (não muda nada do que já existia)
+    // ✅ where base
     const where: Prisma.PurchaseWhereInput = {
       ...(cedenteId ? { cedenteId } : {}),
       ...(status ? { status: status as any } : {}),
     };
 
-    // ✅ filtro de busca (aditivo; se não tiver q, nada muda)
+    // ✅ filtro de busca (aditivo)
     if (q) {
-      // busca por numero/id/cia e também por cedente (nome/cpf/identificador)
       const or: Prisma.PurchaseWhereInput[] = [
         { numero: { contains: q, mode: "insensitive" } },
         { id: { contains: q, mode: "insensitive" } },
-        { ciaAerea: { contains: q, mode: "insensitive" } },
-        { ciaProgram: { contains: q, mode: "insensitive" } },
-        {
-          cedente: {
-            is: { nomeCompleto: { contains: q, mode: "insensitive" } },
-          },
-        },
-        {
-          cedente: {
-            is: { identificador: { contains: q, mode: "insensitive" } },
-          },
-        },
+
+        // ✅ ciaAerea é ENUM -> só equals quando q bater com um enum válido
+        ...(qProgram ? [{ ciaAerea: { equals: qProgram } }] : []),
+
+        // cedente (relacionamento)
+        { cedente: { is: { nomeCompleto: { contains: q, mode: "insensitive" } } } },
+        { cedente: { is: { identificador: { contains: q, mode: "insensitive" } } } },
       ];
 
-      // se tiver dígitos, tenta CPF/ID por contains também
       if (qDigits.length >= 2) {
-        or.push({
-          cedente: {
-            is: { cpf: { contains: qDigits } },
-          },
-        });
-        or.push({
-          cedente: {
-            is: { identificador: { contains: qDigits, mode: "insensitive" } },
-          },
-        });
+        or.push({ cedente: { is: { cpf: { contains: qDigits } } } });
+        or.push({ cedente: { is: { identificador: { contains: qDigits, mode: "insensitive" } } } });
       }
 
       where.OR = or;
@@ -121,8 +119,6 @@ export async function GET(req: Request) {
             identificador: true,
           },
         },
-        // ✅ listagem não precisa de items; deixa leve
-        // items: true,
       },
     });
 
@@ -144,7 +140,14 @@ export async function POST(req: Request) {
     const numero = await nextNumeroCompra();
 
     // ✅ compat: aceitar nomes antigos e novos
-    const ciaProgram = body.ciaProgram ?? body.ciaAerea ?? null;
+    const rawProgram = body.ciaProgram ?? body.ciaAerea ?? null;
+    const ciaAerea = rawProgram ? normalizeEnumQ(String(rawProgram)) : null;
+
+    // se vier algo inválido, melhor bloquear (pra não explodir no Prisma)
+    if (rawProgram && !ciaAerea) {
+      return badRequest("Programa/Cia inválido. Use: LATAM, SMILES, LIVELO, ESFERA.");
+    }
+
     const ciaPointsTotal = asInt(body.ciaPointsTotal ?? body.pontosCiaTotal ?? 0);
 
     const cedentePayCents = asInt(body.cedentePayCents ?? 0);
@@ -155,8 +158,8 @@ export async function POST(req: Request) {
       body.observacao != null
         ? String(body.observacao)
         : body.note != null
-        ? String(body.note)
-        : null;
+          ? String(body.note)
+          : null;
 
     const compra = await prisma.purchase.create({
       data: {
@@ -164,8 +167,8 @@ export async function POST(req: Request) {
         cedenteId,
         status: "OPEN", // ✅ OPEN = pendente (ainda não liberada)
 
-        // ✅ salva nos campos do teu schema atual (pelos teus nomes atuais)
-        ciaAerea: ciaProgram,
+        // ✅ schema atual
+        ciaAerea,
         pontosCiaTotal: ciaPointsTotal,
 
         cedentePayCents,
@@ -189,7 +192,6 @@ export async function POST(req: Request) {
     // ✅ garante totais atualizados
     await recomputeCompra(compra.id);
 
-    // ✅ busca final (já com totais recalculados)
     const compraFinal = await prisma.purchase.findUnique({
       where: { id: compra.id },
       include: {
@@ -206,7 +208,6 @@ export async function POST(req: Request) {
 
     if (!compraFinal) return serverError("Falha ao carregar compra criada.");
 
-    // ✅ devolve no shape do frontend (CompraRow)
     return ok({ compra: toPurchaseRow(compraFinal) }, 201);
   } catch (e: any) {
     return serverError("Falha ao criar compra.", { detail: e?.message });
