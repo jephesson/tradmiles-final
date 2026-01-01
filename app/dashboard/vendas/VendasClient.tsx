@@ -10,11 +10,21 @@ function fmtMoneyBR(cents: number) {
 function fmtInt(n: number) {
   return (n || 0).toLocaleString("pt-BR");
 }
-function fmtDateBR(iso: string) {
-  if (!iso) return "—";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "—";
-  return d.toLocaleDateString("pt-BR");
+
+// ✅ evita “voltar 1 dia” quando vier ISO em UTC
+function fmtDateBR(v: string) {
+  if (!v) return "—";
+  const s = String(v).trim();
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(s);
+  if (m) {
+    const y = Number(m[1]);
+    const mm = Number(m[2]);
+    const d = Number(m[3]);
+    return new Date(y, mm - 1, d).toLocaleDateString("pt-BR");
+  }
+  const dt = new Date(s);
+  if (Number.isNaN(dt.getTime())) return "—";
+  return dt.toLocaleDateString("pt-BR");
 }
 
 async function api<T>(url: string, init?: RequestInit): Promise<T> {
@@ -44,10 +54,8 @@ type SaleRow = {
 
   cliente: { id: string; identificador: string; nome: string };
 
-  // ✅ NOVO: cedente (precisa vir do backend; se não vier, aparece "—")
   cedente?: { id: string; identificador: string; nomeCompleto: string } | null;
 
-  // ✅ opcional: se você já estiver usando Receivable no backend
   receivable?: {
     id: string;
     totalCents: number;
@@ -59,14 +67,13 @@ type SaleRow = {
   createdAt: string;
 };
 
+type StatusFilter = "ALL" | "PENDING" | "PAID" | "CANCELED";
+
 function pendingCentsOfSale(r: SaleRow) {
   if (r.paymentStatus === "PAID") return 0;
   if (r.paymentStatus === "CANCELED") return 0;
 
-  // se vier Receivable, usa o balanceCents (mais correto)
   if (typeof r.receivable?.balanceCents === "number") return Math.max(0, r.receivable.balanceCents);
-
-  // fallback: pendente = total
   return Math.max(0, r.totalCents || 0);
 }
 
@@ -74,6 +81,11 @@ export default function VendasClient() {
   const [loading, setLoading] = useState(false);
   const [rows, setRows] = useState<SaleRow[]>([]);
   const [q, setQ] = useState("");
+
+  // ✅ filtros novos
+  const [clientId, setClientId] = useState<string>("ALL");
+  const [status, setStatus] = useState<StatusFilter>("ALL");
+
   const [updatingId, setUpdatingId] = useState<string | null>(null);
 
   async function load() {
@@ -92,19 +104,47 @@ export default function VendasClient() {
     load();
   }, []);
 
+  const clients = useMemo(() => {
+    const map = new Map<string, { id: string; nome: string; identificador: string }>();
+    for (const r of rows) {
+      if (r?.cliente?.id && !map.has(r.cliente.id)) {
+        map.set(r.cliente.id, {
+          id: r.cliente.id,
+          nome: r.cliente.nome || "—",
+          identificador: r.cliente.identificador || "—",
+        });
+      }
+    }
+    return Array.from(map.values()).sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"));
+  }, [rows]);
+
+  const selectedClient = useMemo(() => {
+    if (!clientId || clientId === "ALL") return null;
+    return clients.find((c) => c.id === clientId) || null;
+  }, [clients, clientId]);
+
   const filtered = useMemo(() => {
     const s = (q || "").trim().toLowerCase();
-    if (!s) return rows;
 
     return rows.filter((r) => {
+      // 1) filtro cliente
+      if (clientId !== "ALL" && r.cliente?.id !== clientId) return false;
+
+      // 2) filtro status
+      if (status !== "ALL" && r.paymentStatus !== status) return false;
+
+      // 3) busca livre
+      if (!s) return true;
+
       const ced = (r.cedente?.nomeCompleto || "").toLowerCase();
       const cedId = (r.cedente?.identificador || "").toLowerCase();
       const cliente = (r.cliente?.nome || "").toLowerCase();
       const num = (r.numero || "").toLowerCase();
       const loc = (r.locator || "").toLowerCase();
+
       return num.includes(s) || cliente.includes(s) || loc.includes(s) || ced.includes(s) || cedId.includes(s);
     });
-  }, [rows, q]);
+  }, [rows, q, clientId, status]);
 
   const totals = useMemo(() => {
     let totalGeral = 0;
@@ -124,17 +164,18 @@ export default function VendasClient() {
 
   async function togglePago(r: SaleRow) {
     if (updatingId) return;
+    if (r.paymentStatus === "CANCELED") return;
 
-    const next = r.paymentStatus === "PAID" ? "PENDING" : "PAID";
+    const next: "PENDING" | "PAID" = r.paymentStatus === "PAID" ? "PENDING" : "PAID";
 
     setUpdatingId(r.id);
     try {
       await api<{ ok: true }>("/api/vendas/status", {
         method: "PATCH",
-        body: JSON.stringify({ saleId: r.id, paymentStatus: next }),
+        // ✅ mando os dois nomes (status e paymentStatus) pra ser compatível
+        body: JSON.stringify({ saleId: r.id, status: next, paymentStatus: next }),
       });
 
-      // atualiza UI sem recarregar
       setRows((prev) =>
         prev.map((x) =>
           x.id === r.id
@@ -172,12 +213,21 @@ export default function VendasClient() {
     return r.paymentStatus === "PAID" ? "Pago" : r.paymentStatus === "CANCELED" ? "Cancelado" : "Pendente";
   }
 
+  function chip(active: boolean) {
+    return cn(
+      "rounded-full border px-3 py-1.5 text-xs",
+      active ? "bg-black text-white border-black" : "bg-white text-slate-700 hover:bg-slate-50"
+    );
+  }
+
+  const headerSuffix = selectedClient ? ` • ${selectedClient.nome}` : "";
+
   return (
     <div className="p-6 space-y-4">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-semibold">Vendas</h1>
-          <p className="text-sm text-slate-500">Painel com status e valores pendentes de recebimento.</p>
+          <h1 className="text-2xl font-semibold">Vendas{headerSuffix}</h1>
+          <p className="text-sm text-slate-500">Filtre por cliente e status para ver pendências e pagamentos.</p>
         </div>
 
         <div className="flex gap-2">
@@ -193,6 +243,64 @@ export default function VendasClient() {
         </div>
       </div>
 
+      {/* filtros */}
+      <div className="flex flex-wrap items-center gap-3">
+        {/* cliente */}
+        <div className="flex items-center gap-2">
+          <div className="text-xs text-slate-500">Cliente</div>
+          <select
+            value={clientId}
+            onChange={(e) => setClientId(e.target.value)}
+            className="border rounded-xl px-3 py-2 text-sm min-w-[320px] bg-white"
+          >
+            <option value="ALL">Todos os clientes</option>
+            {clients.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.nome} ({c.identificador})
+              </option>
+            ))}
+          </select>
+        </div>
+
+        {/* status */}
+        <div className="flex items-center gap-2">
+          <div className="text-xs text-slate-500">Status</div>
+          <button className={chip(status === "ALL")} onClick={() => setStatus("ALL")}>
+            Todos
+          </button>
+          <button className={chip(status === "PENDING")} onClick={() => setStatus("PENDING")}>
+            Pendentes
+          </button>
+          <button className={chip(status === "PAID")} onClick={() => setStatus("PAID")}>
+            Pagos
+          </button>
+          <button className={chip(status === "CANCELED")} onClick={() => setStatus("CANCELED")}>
+            Cancelados
+          </button>
+        </div>
+
+        {/* busca */}
+        <input
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          placeholder="Buscar por cliente / número / localizador / cedente..."
+          className="border rounded-xl px-3 py-2 text-sm w-[520px]"
+        />
+
+        {(clientId !== "ALL" || status !== "ALL" || q.trim()) && (
+          <button
+            className="rounded-xl border px-3 py-2 text-sm hover:bg-slate-50"
+            onClick={() => {
+              setClientId("ALL");
+              setStatus("ALL");
+              setQ("");
+            }}
+          >
+            Limpar filtros
+          </button>
+        )}
+      </div>
+
       {/* resumo */}
       <div className="grid gap-3 md:grid-cols-4">
         <div className="rounded-2xl border bg-white p-4">
@@ -201,28 +309,21 @@ export default function VendasClient() {
         </div>
 
         <div className="rounded-2xl border bg-white p-4">
-          <div className="text-xs text-slate-500">Total vendido</div>
+          <div className="text-xs text-slate-500">{selectedClient ? "Total no filtro (cliente)" : "Total no filtro"}</div>
           <div className="text-lg font-semibold">{fmtMoneyBR(totals.totalGeral)}</div>
         </div>
 
         <div className="rounded-2xl border bg-white p-4">
-          <div className="text-xs text-slate-500">Total pendente a receber</div>
+          <div className="text-xs text-slate-500">
+            {selectedClient ? "Total pendente a receber (cliente)" : "Total pendente a receber"}
+          </div>
           <div className="text-lg font-semibold">{fmtMoneyBR(totals.totalPend)}</div>
         </div>
 
         <div className="rounded-2xl border bg-white p-4">
-          <div className="text-xs text-slate-500">Total pago</div>
+          <div className="text-xs text-slate-500">{selectedClient ? "Total pago (cliente)" : "Total pago"}</div>
           <div className="text-lg font-semibold">{fmtMoneyBR(totals.totalPago)}</div>
         </div>
-      </div>
-
-      <div className="flex flex-wrap items-center gap-2">
-        <input
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-          placeholder="Buscar por cliente / número / localizador / cedente..."
-          className="border rounded-xl px-3 py-2 text-sm w-[520px]"
-        />
       </div>
 
       <div className="rounded-2xl border bg-white overflow-hidden">
