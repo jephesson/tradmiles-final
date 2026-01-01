@@ -14,9 +14,7 @@ import {
   endOfYearExclusive,
 } from "../_helpers/sales";
 
-// ✅ necessário por causa do Buffer()
 export const runtime = "nodejs";
-// opcional (mas recomendado) para evitar qualquer cache inesperado
 export const dynamic = "force-dynamic";
 
 type Program = "LATAM" | "SMILES" | "LIVELO" | "ESFERA";
@@ -48,7 +46,6 @@ function readSessionCookie(raw?: string): Sess | null {
   }
 }
 
-// ✅ Next 16: cookies() retorna Promise
 async function getServerSession(): Promise<Sess | null> {
   const store = await cookies();
   const raw = store.get("tm.session")?.value;
@@ -59,7 +56,6 @@ function isPurchaseNumero(v: string) {
   return /^ID\d{5}$/i.test((v || "").trim());
 }
 
-// ✅ parse local para YYYY-MM-DD (evita “voltar 1 dia”)
 function parseDateISOToLocal(v?: any): Date {
   const s = String(v || "").trim();
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
@@ -70,7 +66,6 @@ function parseDateISOToLocal(v?: any): Date {
   return new Date(y, mm - 1, d);
 }
 
-// ✅ contador com tx
 async function nextCounter(tx: Prisma.TransactionClient, key: string) {
   await tx.counter.upsert({
     where: { key },
@@ -88,7 +83,6 @@ async function nextCounter(tx: Prisma.TransactionClient, key: string) {
   return updated.value;
 }
 
-// ✅ resolve cedenteId por UUID ou identificador
 async function resolveCedenteId(tx: Prisma.TransactionClient, cedenteKey: string) {
   const key = (cedenteKey || "").trim();
   if (!key) return null;
@@ -102,6 +96,11 @@ async function resolveCedenteId(tx: Prisma.TransactionClient, cedenteKey: string
 }
 
 export async function GET() {
+  const session = await getServerSession();
+  if (!session?.id) {
+    return NextResponse.json({ ok: false, error: "Não autenticado" }, { status: 401 });
+  }
+
   const sales = await prisma.sale.findMany({
     orderBy: { createdAt: "desc" },
     select: {
@@ -116,15 +115,29 @@ export async function GET() {
       pointsValueCents: true,
       totalCents: true,
       paymentStatus: true,
+      paidAt: true, // ✅ ADD
       locator: true,
       feeCardLabel: true,
       commissionCents: true,
       bonusCents: true,
       metaMilheiroCents: true,
+
       cliente: { select: { id: true, identificador: true, nome: true } },
       cedente: { select: { id: true, identificador: true, nomeCompleto: true } },
-      purchase: { select: { id: true, numero: true } }, // ✅ aqui já vem o ID000xx pra mostrar na tela
+      purchase: { select: { id: true, numero: true } },
       seller: { select: { id: true, name: true, login: true } },
+
+      receivable: {
+        // ✅ ADD (pra pendente de recebimento)
+        select: {
+          id: true,
+          totalCents: true,
+          receivedCents: true,
+          balanceCents: true,
+          status: true,
+        },
+      },
+
       createdAt: true,
     },
     take: 200,
@@ -149,11 +162,8 @@ export async function POST(req: Request) {
   const milheiroCents = clampInt(body.milheiroCents);
   const embarqueFeeCents = clampInt(body.embarqueFeeCents);
 
-  // pode ser UUID ou identificador
   const cedenteKey = String(body.cedenteId || "").trim();
   const clienteId = String(body.clienteId || "").trim();
-
-  // ID00018 ou cuid
   const purchaseKey = String(body.purchaseNumero || body.purchaseId || "").trim();
 
   const feeCardLabel = body.feeCardLabel ? String(body.feeCardLabel) : null;
@@ -183,18 +193,15 @@ export async function POST(req: Request) {
 
   try {
     const result = await prisma.$transaction(async (tx) => {
-      // ✅ resolve cedenteId real
       const cedenteId = await resolveCedenteId(tx, cedenteKey);
       if (!cedenteId) throw new Error("Cedente não encontrado.");
 
-      // bloqueio?
       const hasBlock = await tx.blockedAccount.findFirst({
         where: { cedenteId, program, status: "OPEN" },
         select: { id: true },
       });
       if (hasBlock) throw new Error("Conta bloqueada para este programa.");
 
-      // cedente
       const ced = await tx.cedente.findUnique({
         where: { id: cedenteId },
         select: {
@@ -209,7 +216,6 @@ export async function POST(req: Request) {
       if (!ced) throw new Error("Cedente não encontrado.");
       if (ced.status !== "APPROVED") throw new Error("Cedente não aprovado.");
 
-      // passageiros usados no ano
       const usedAgg = await tx.emissionEvent.aggregate({
         where: { cedenteId, program, issuedAt: { gte: yearStart, lt: yearEnd } },
         _sum: { passengersCount: true },
@@ -218,12 +224,10 @@ export async function POST(req: Request) {
       const availablePax = Math.max(0, paxLimit - used);
       if (availablePax < passengers) throw new Error("Passageiros insuficientes no ano.");
 
-      // pontos disponíveis
       const field = pointsField(program) as keyof typeof ced;
       const availablePts = clampInt((ced as any)[field]);
       if (availablePts < points) throw new Error("Pontos insuficientes.");
 
-      // resolve purchase por numero (ID00018) ou id (cuid)
       const purchase = isPurchaseNumero(purchaseKey)
         ? await tx.purchase.findFirst({
             where: { numero: purchaseKey.toUpperCase(), cedenteId },
@@ -235,13 +239,8 @@ export async function POST(req: Request) {
           });
 
       if (!purchase) throw new Error("Compra não encontrada.");
-
-      // ✅ CORRETO: venda só pode usar compra LIBERADA (CLOSED)
       if (purchase.status !== "CLOSED") throw new Error("Compra não está LIBERADA.");
-
-      if (purchase.cedenteId !== cedenteId) {
-        throw new Error("Compra não pertence ao cedente selecionado.");
-      }
+      if (purchase.cedenteId !== cedenteId) throw new Error("Compra não pertence ao cedente selecionado.");
 
       const purchaseIdReal = purchase.id;
       const metaMilheiroCents = clampInt(purchase.metaMilheiroCents);
@@ -252,7 +251,6 @@ export async function POST(req: Request) {
       const commissionCents = calcCommissionCents(pointsValueCents);
       const bonusCents = calcBonusCents(points, milheiroCents, metaMilheiroCents);
 
-      // número sequencial
       const n = await nextCounter(tx, "SALE");
       const numero = formatSaleNumber(n);
 
@@ -299,7 +297,6 @@ export async function POST(req: Request) {
         select: { id: true, numero: true },
       });
 
-      // debita pontos do cedente
       const decData: any = {};
       decData[field] = { decrement: points };
 
