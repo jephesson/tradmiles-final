@@ -14,6 +14,11 @@ import {
   endOfYearExclusive,
 } from "../_helpers/sales";
 
+// ✅ necessário por causa do Buffer()
+export const runtime = "nodejs";
+// opcional (mas recomendado) para evitar qualquer cache inesperado
+export const dynamic = "force-dynamic";
+
 type Program = "LATAM" | "SMILES" | "LIVELO" | "ESFERA";
 
 type Sess = {
@@ -43,14 +48,15 @@ function readSessionCookie(raw?: string): Sess | null {
   }
 }
 
+// ✅ Next 16: cookies() retorna Promise
 async function getServerSession(): Promise<Sess | null> {
-  const store = cookies();
+  const store = await cookies();
   const raw = store.get("tm.session")?.value;
   return readSessionCookie(raw);
 }
 
 function isPurchaseNumero(v: string) {
-  return /^ID\d{5}$/i.test(v.trim());
+  return /^ID\d{5}$/i.test((v || "").trim());
 }
 
 // ✅ parse local para YYYY-MM-DD (evita “voltar 1 dia”)
@@ -64,7 +70,7 @@ function parseDateISOToLocal(v?: any): Date {
   return new Date(y, mm - 1, d);
 }
 
-// ✅ dentro do $transaction, use tx!
+// ✅ contador com tx
 async function nextCounter(tx: Prisma.TransactionClient, key: string) {
   await tx.counter.upsert({
     where: { key },
@@ -85,10 +91,13 @@ async function nextCounter(tx: Prisma.TransactionClient, key: string) {
 // ✅ resolve cedenteId por UUID ou identificador
 async function resolveCedenteId(tx: Prisma.TransactionClient, cedenteKey: string) {
   const key = (cedenteKey || "").trim();
+  if (!key) return null;
+
   const ced = await tx.cedente.findFirst({
     where: { OR: [{ id: key }, { identificador: key }] },
     select: { id: true },
   });
+
   return ced?.id ?? null;
 }
 
@@ -140,10 +149,12 @@ export async function POST(req: Request) {
   const milheiroCents = clampInt(body.milheiroCents);
   const embarqueFeeCents = clampInt(body.embarqueFeeCents);
 
-  const cedenteKey = String(body.cedenteId || "").trim(); // pode ser UUID ou identificador
+  // pode ser UUID ou identificador
+  const cedenteKey = String(body.cedenteId || "").trim();
   const clienteId = String(body.clienteId || "").trim();
 
-  const purchaseKey = String(body.purchaseNumero || body.purchaseId || "").trim(); // ID00018 ou cuid
+  // ID00018 ou cuid
+  const purchaseKey = String(body.purchaseNumero || body.purchaseId || "").trim();
 
   const feeCardLabel = body.feeCardLabel ? String(body.feeCardLabel) : null;
   const locator = body.locator ? String(body.locator) : null;
@@ -213,16 +224,15 @@ export async function POST(req: Request) {
       if (availablePts < points) throw new Error("Pontos insuficientes.");
 
       // resolve purchase por numero (ID00018) ou id (cuid)
-      const purchase =
-        isPurchaseNumero(purchaseKey)
-          ? await tx.purchase.findFirst({
-              where: { numero: purchaseKey.toUpperCase(), cedenteId },
-              select: { id: true, cedenteId: true, status: true, metaMilheiroCents: true },
-            })
-          : await tx.purchase.findUnique({
-              where: { id: purchaseKey },
-              select: { id: true, cedenteId: true, status: true, metaMilheiroCents: true },
-            });
+      const purchase = isPurchaseNumero(purchaseKey)
+        ? await tx.purchase.findFirst({
+            where: { numero: purchaseKey.toUpperCase(), cedenteId },
+            select: { id: true, cedenteId: true, status: true, metaMilheiroCents: true },
+          })
+        : await tx.purchase.findUnique({
+            where: { id: purchaseKey },
+            select: { id: true, cedenteId: true, status: true, metaMilheiroCents: true },
+          });
 
       if (!purchase) throw new Error("Compra não encontrada.");
       if (purchase.status !== "OPEN") throw new Error("Compra não está OPEN.");
@@ -237,7 +247,7 @@ export async function POST(req: Request) {
       const commissionCents = calcCommissionCents(pointsValueCents);
       const bonusCents = calcBonusCents(points, milheiroCents, metaMilheiroCents);
 
-      // ✅ contador com tx
+      // número sequencial
       const n = await nextCounter(tx, "SALE");
       const numero = formatSaleNumber(n);
 
@@ -309,9 +319,6 @@ export async function POST(req: Request) {
 
     return NextResponse.json({ ok: true, sale: result });
   } catch (e: any) {
-    return NextResponse.json(
-      { ok: false, error: e?.message || "Erro ao criar venda" },
-      { status: 400 }
-    );
+    return NextResponse.json({ ok: false, error: e?.message || "Erro ao criar venda" }, { status: 400 });
   }
 }
