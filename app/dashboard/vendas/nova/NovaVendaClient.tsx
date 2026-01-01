@@ -44,6 +44,9 @@ type CompraLiberada = {
 
 type UserLite = { id: string; name: string; login: string };
 
+type ClienteTipo = "PESSOA" | "EMPRESA";
+type ClienteOrigem = "BALCAO_MILHAS" | "PARTICULAR" | "SITE" | "OUTROS";
+
 function clampInt(v: any) {
   const n = Number(v);
   if (!Number.isFinite(n)) return 0;
@@ -74,6 +77,9 @@ function normStr(v?: string) {
     .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase()
     .trim();
+}
+function onlyDigits(v: any) {
+  return String(v ?? "").replace(/\D+/g, "");
 }
 
 async function api<T>(url: string, init?: RequestInit): Promise<T> {
@@ -168,6 +174,28 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
   const [clientes, setClientes] = useState<ClienteLite[]>([]);
   const [clienteId, setClienteId] = useState("");
   const [loadingClientes, setLoadingClientes] = useState(false);
+  const [clientesError, setClientesError] = useState<string>("");
+
+  // ✅ modal "cadastro rápido"
+  const [clienteModalOpen, setClienteModalOpen] = useState(false);
+  const [creatingCliente, setCreatingCliente] = useState(false);
+  const [createClienteError, setCreateClienteError] = useState<string>("");
+
+  const [novoCliente, setNovoCliente] = useState<{
+    tipo: ClienteTipo;
+    nome: string;
+    cpfCnpj: string;
+    telefone: string;
+    origem: ClienteOrigem;
+    origemDescricao: string;
+  }>({
+    tipo: "PESSOA",
+    nome: "",
+    cpfCnpj: "",
+    telefone: "",
+    origem: "BALCAO_MILHAS",
+    origemDescricao: "",
+  });
 
   // ✅ compras LIBERADAS (CLOSED) do cedente selecionado
   const [compras, setCompras] = useState<CompraLiberada[]>([]);
@@ -201,10 +229,7 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
   const commissionCents = useMemo(() => Math.round(pointsValueCents * 0.01), [pointsValueCents]);
 
   // encontra pela compra.numero (ID00018)
-  const compraSel = useMemo(
-    () => compras.find((c) => c.numero === purchaseNumero) || null,
-    [compras, purchaseNumero]
-  );
+  const compraSel = useMemo(() => compras.find((c) => c.numero === purchaseNumero) || null, [compras, purchaseNumero]);
 
   const metaMilheiroCents = compraSel?.metaMilheiroCents || 0;
 
@@ -221,8 +246,8 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
     return priorityLabel === "MAX"
       ? "bg-emerald-50 border-emerald-200 text-emerald-700"
       : priorityLabel === "BAIXA"
-        ? "bg-slate-100 border-slate-200 text-slate-600"
-        : "bg-amber-50 border-amber-200 text-amber-700";
+      ? "bg-slate-100 border-slate-200 text-slate-600"
+      : "bg-amber-50 border-amber-200 text-amber-700";
   }
 
   function selectSuggestion(s: Suggestion) {
@@ -236,6 +261,11 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
     setSel(null);
     setCompras([]);
     setPurchaseNumero("");
+    // opcional: reseta cliente para evitar “cliente antigo” em nova seleção
+    setClienteId("");
+    setClienteQ("");
+    setClientes([]);
+    setClientesError("");
   }
 
   // carrega funcionários (preferência: /api/funcionarios)
@@ -321,24 +351,38 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [program, points, passengers]);
 
-  // cliente search (debounce + abort)
+  // ✅ cliente search + "recentes" quando vazio
   useEffect(() => {
     const ac = new AbortController();
     const t = setTimeout(async () => {
+      // só faz sentido buscar cliente quando já está na etapa 3 (sel escolhido)
+      if (!sel?.cedente?.id) return;
+
       const q = clienteQ.trim();
-      if (q.length < 2) {
-        setClientes([]);
-        setLoadingClientes(false);
-        return;
-      }
+      setClientesError("");
 
       setLoadingClientes(true);
       try {
-        const url = `/api/clientes/search?q=${encodeURIComponent(q)}`;
-        const out = await api<{ ok: true; clientes: ClienteLite[] }>(url, { signal: ac.signal } as any);
-        setClientes(out.clientes || []);
+        // ✅ se vazio/curto, pede "recent=1" (últimos 20)
+        const url =
+          q.length >= 2
+            ? `/api/clientes/search?q=${encodeURIComponent(q)}`
+            : `/api/clientes/search?recent=1`;
+
+        const out = await api<any>(url, { signal: ac.signal } as any);
+
+        const list: ClienteLite[] =
+          out?.clientes ||
+          out?.data?.clientes ||
+          out?.data?.data?.clientes ||
+          [];
+
+        setClientes(Array.isArray(list) ? list : []);
       } catch (e: any) {
-        if (e?.name !== "AbortError") setClientes([]);
+        if (e?.name !== "AbortError") {
+          setClientes([]);
+          setClientesError(e?.message || "Erro ao buscar clientes.");
+        }
       } finally {
         if (!ac.signal.aborted) setLoadingClientes(false);
       }
@@ -348,7 +392,62 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
       ac.abort();
       clearTimeout(t);
     };
-  }, [clienteQ]);
+  }, [clienteQ, sel?.cedente?.id]);
+
+  async function criarClienteRapido() {
+    setCreateClienteError("");
+
+    const nome = (novoCliente.nome || "").trim();
+    if (!nome) return setCreateClienteError("Informe o nome do cliente.");
+
+    if (novoCliente.origem === "OUTROS" && !novoCliente.origemDescricao.trim()) {
+      return setCreateClienteError("Em 'Outros', descreva a origem.");
+    }
+
+    setCreatingCliente(true);
+    try {
+      const payload = {
+        tipo: novoCliente.tipo,
+        nome,
+        cpfCnpj: novoCliente.cpfCnpj ? onlyDigits(novoCliente.cpfCnpj) : null,
+        telefone: novoCliente.telefone ? onlyDigits(novoCliente.telefone) : null,
+        origem: novoCliente.origem,
+        origemDescricao: novoCliente.origem === "OUTROS" ? novoCliente.origemDescricao.trim() : null,
+      };
+
+      const out = await api<any>("/api/clientes", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      });
+
+      const created: ClienteLite | null =
+        out?.data?.cliente || out?.cliente || null;
+
+      if (!created?.id) throw new Error("Cliente criado, mas resposta inválida.");
+
+      setClienteId(created.id);
+      setClienteQ(created.nome || nome);
+
+      setClientes((prev) => {
+        const exists = prev.some((x) => x.id === created.id);
+        return exists ? prev : [created, ...prev].slice(0, 20);
+      });
+
+      setClienteModalOpen(false);
+      setNovoCliente({
+        tipo: "PESSOA",
+        nome: "",
+        cpfCnpj: "",
+        telefone: "",
+        origem: "BALCAO_MILHAS",
+        origemDescricao: "",
+      });
+    } catch (e: any) {
+      setCreateClienteError(e?.message || "Falha ao criar cliente.");
+    } finally {
+      setCreatingCliente(false);
+    }
+  }
 
   // ✅ quando escolhe cedente -> carrega compras LIBERADAS (CLOSED) daquele cedente
   useEffect(() => {
@@ -397,7 +496,7 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
     if (!sel?.eligible) return false;
     if (!clienteId) return false;
     if (!purchaseNumero) return false;
-    if (!compraSel) return false; // ✅ garante que achou no array
+    if (!compraSel) return false;
     if (points <= 0 || passengers <= 0) return false;
     if (milheiroCents <= 0) return false;
     if (feeCardPreset === "MANUAL" && !feeCardLabel) return false;
@@ -417,9 +516,9 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
       program,
       points,
       passengers,
-      cedenteId: sel.cedente.id, // pode ser UUID ou identificador (backend resolve)
+      cedenteId: sel.cedente.id,
       clienteId,
-      purchaseNumero, // ID00018
+      purchaseNumero,
       date: dateISO,
       milheiroCents,
       embarqueFeeCents,
@@ -714,18 +813,57 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
                       placeholder="Nome / CPF/CNPJ / telefone..."
                     />
                     {loadingClientes ? <div className="text-[11px] text-slate-500">Buscando...</div> : null}
+                    {clientesError ? <div className="text-[11px] text-rose-600">{clientesError}</div> : null}
+
+                    {/* ✅ quando não achar, oferece cadastro */}
+                    {!loadingClientes && clienteQ.trim().length >= 2 && clientes.length === 0 ? (
+                      <div className="text-[11px] text-slate-600">
+                        Nenhum cliente encontrado.{" "}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setCreateClienteError("");
+                            setNovoCliente((p) => ({ ...p, nome: clienteQ.trim() }));
+                            setClienteModalOpen(true);
+                          }}
+                          className="underline"
+                        >
+                          Cadastrar agora
+                        </button>
+                      </div>
+                    ) : null}
+
+                    {/* ✅ quando vazio, mostra que são recentes */}
+                    {!loadingClientes && clienteQ.trim().length < 2 && clientes.length > 0 ? (
+                      <div className="text-[11px] text-slate-500">Mostrando últimos 20 clientes cadastrados.</div>
+                    ) : null}
                   </label>
 
                   <label className="space-y-1">
                     <div className="text-xs text-slate-600">Selecionar cliente</div>
-                    <select className="w-full rounded-xl border px-3 py-2 text-sm bg-white" value={clienteId} onChange={(e) => setClienteId(e.target.value)}>
-                      <option value="">Selecione...</option>
-                      {clientes.map((c) => (
-                        <option key={c.id} value={c.id}>
-                          {c.nome} ({c.identificador})
-                        </option>
-                      ))}
-                    </select>
+
+                    <div className="flex gap-2">
+                      <select className="flex-1 rounded-xl border px-3 py-2 text-sm bg-white" value={clienteId} onChange={(e) => setClienteId(e.target.value)}>
+                        <option value="">Selecione...</option>
+                        {clientes.map((c) => (
+                          <option key={c.id} value={c.id}>
+                            {c.nome} ({c.identificador})
+                          </option>
+                        ))}
+                      </select>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setCreateClienteError("");
+                          setNovoCliente((p) => ({ ...p, nome: clienteQ.trim() }));
+                          setClienteModalOpen(true);
+                        }}
+                        className="rounded-xl border px-3 py-2 text-sm hover:bg-slate-50"
+                      >
+                        Novo
+                      </button>
+                    </div>
                   </label>
                 </div>
 
@@ -836,6 +974,109 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
           </div>
         </div>
       )}
+
+      {/* ✅ MODAL CADASTRO RÁPIDO */}
+      {clienteModalOpen ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-lg rounded-2xl bg-white border p-5">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <div className="text-lg font-semibold">Cadastrar cliente</div>
+                <div className="text-xs text-slate-500">Cadastro rápido sem sair da venda.</div>
+              </div>
+              <button type="button" onClick={() => setClienteModalOpen(false)} className="rounded-lg border px-2 py-1 text-sm hover:bg-slate-50">
+                ✕
+              </button>
+            </div>
+
+            <div className="mt-4 grid gap-3 md:grid-cols-2">
+              <label className="space-y-1">
+                <div className="text-xs text-slate-600">Tipo</div>
+                <select
+                  className="w-full rounded-xl border px-3 py-2 text-sm bg-white"
+                  value={novoCliente.tipo}
+                  onChange={(e) => setNovoCliente((p) => ({ ...p, tipo: e.target.value as ClienteTipo }))}
+                >
+                  <option value="PESSOA">Pessoa</option>
+                  <option value="EMPRESA">Empresa</option>
+                </select>
+              </label>
+
+              <label className="space-y-1 md:col-span-2">
+                <div className="text-xs text-slate-600">Nome</div>
+                <input
+                  className="w-full rounded-xl border px-3 py-2 text-sm"
+                  value={novoCliente.nome}
+                  onChange={(e) => setNovoCliente((p) => ({ ...p, nome: e.target.value }))}
+                  placeholder="Nome do cliente / empresa"
+                />
+              </label>
+
+              <label className="space-y-1">
+                <div className="text-xs text-slate-600">CPF/CNPJ (opcional)</div>
+                <input
+                  className="w-full rounded-xl border px-3 py-2 text-sm"
+                  value={novoCliente.cpfCnpj}
+                  onChange={(e) => setNovoCliente((p) => ({ ...p, cpfCnpj: e.target.value }))}
+                  placeholder="Somente números ou com máscara"
+                />
+              </label>
+
+              <label className="space-y-1">
+                <div className="text-xs text-slate-600">Telefone (opcional)</div>
+                <input
+                  className="w-full rounded-xl border px-3 py-2 text-sm"
+                  value={novoCliente.telefone}
+                  onChange={(e) => setNovoCliente((p) => ({ ...p, telefone: e.target.value }))}
+                  placeholder="Somente números ou com máscara"
+                />
+              </label>
+
+              <label className="space-y-1 md:col-span-2">
+                <div className="text-xs text-slate-600">Origem</div>
+                <select
+                  className="w-full rounded-xl border px-3 py-2 text-sm bg-white"
+                  value={novoCliente.origem}
+                  onChange={(e) => setNovoCliente((p) => ({ ...p, origem: e.target.value as ClienteOrigem }))}
+                >
+                  <option value="BALCAO_MILHAS">Balcão Milhas</option>
+                  <option value="PARTICULAR">Particular</option>
+                  <option value="SITE">Site</option>
+                  <option value="OUTROS">Outros</option>
+                </select>
+              </label>
+
+              {novoCliente.origem === "OUTROS" ? (
+                <label className="space-y-1 md:col-span-2">
+                  <div className="text-xs text-slate-600">Descreva a origem</div>
+                  <input
+                    className="w-full rounded-xl border px-3 py-2 text-sm"
+                    value={novoCliente.origemDescricao}
+                    onChange={(e) => setNovoCliente((p) => ({ ...p, origemDescricao: e.target.value }))}
+                    placeholder="Ex: Indicação, Instagram, etc."
+                  />
+                </label>
+              ) : null}
+            </div>
+
+            {createClienteError ? <div className="mt-3 text-sm text-rose-600">{createClienteError}</div> : null}
+
+            <div className="mt-5 flex justify-end gap-2">
+              <button type="button" onClick={() => setClienteModalOpen(false)} className="rounded-xl border px-4 py-2 text-sm hover:bg-slate-50">
+                Cancelar
+              </button>
+              <button
+                type="button"
+                disabled={creatingCliente}
+                onClick={criarClienteRapido}
+                className={cn("rounded-xl px-4 py-2 text-sm text-white", creatingCliente ? "bg-slate-400 cursor-not-allowed" : "bg-black hover:bg-gray-800")}
+              >
+                {creatingCliente ? "Cadastrando..." : "Cadastrar"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
