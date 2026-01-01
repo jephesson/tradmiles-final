@@ -6,7 +6,6 @@ import { cn } from "@/lib/cn";
 import { getSession } from "@/lib/auth";
 
 type Program = "LATAM" | "SMILES" | "LIVELO" | "ESFERA";
-
 type Owner = { id: string; name: string; login: string };
 
 type Suggestion = {
@@ -176,6 +175,9 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
   const [loadingClientes, setLoadingClientes] = useState(false);
   const [clientesError, setClientesError] = useState<string>("");
 
+  // ✅ âncora: sempre manter o selecionado no dropdown
+  const [selectedCliente, setSelectedCliente] = useState<ClienteLite | null>(null);
+
   // ✅ modal "cadastro rápido"
   const [clienteModalOpen, setClienteModalOpen] = useState(false);
   const [creatingCliente, setCreatingCliente] = useState(false);
@@ -261,10 +263,11 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
     setSel(null);
     setCompras([]);
     setPurchaseNumero("");
-    // opcional: reseta cliente para evitar “cliente antigo” em nova seleção
+
     setClienteId("");
     setClienteQ("");
     setClientes([]);
+    setSelectedCliente(null);
     setClientesError("");
   }
 
@@ -329,7 +332,6 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
         const list = out.suggestions || [];
         setSuggestions(list);
 
-        // se já tinha selecionado e ele sumiu mesmo, limpa
         if (sel?.cedente?.id && !list.some((x) => x.cedente.id === sel.cedente.id)) {
           clearSelection();
         }
@@ -351,17 +353,25 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [program, points, passengers]);
 
-  // ✅ cliente search (corrigido p/ aceitar formatos diferentes de retorno)
+  // ✅ mantém selectedCliente em sync quando escolhe no select
+  useEffect(() => {
+    if (!clienteId) {
+      setSelectedCliente(null);
+      return;
+    }
+    const found = clientes.find((c) => c.id === clienteId);
+    if (found) setSelectedCliente(found);
+  }, [clienteId, clientes]);
+
+  // ✅ cliente search (agora garantindo que o selecionado nunca some da lista)
   useEffect(() => {
     const ac = new AbortController();
     const t = setTimeout(async () => {
-      // só faz sentido buscar cliente quando já está na etapa 3 (sel escolhido)
       if (!sel?.cedente?.id) return;
 
       const q = clienteQ.trim();
       setClientesError("");
 
-      // ✅ se você não quiser “recentes”, pode trocar por: if (q.length < 2) { setClientes([]); return; }
       const isRecent = q.length < 2;
 
       setLoadingClientes(true);
@@ -372,22 +382,26 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
 
         const out = await api<any>(url, { signal: ac.signal } as any);
 
-        // ✅ aceita:
-        // { ok:true, clientes:[...] }
-        // { ok:true, data:{ clientes:[...] } }
-        // { ok:true, data:{ data:{ clientes:[...] } } }
-        const list: ClienteLite[] =
+        let list: ClienteLite[] =
           out?.clientes ||
           out?.data?.clientes ||
           out?.data?.data?.clientes ||
           [];
 
-        setClientes(Array.isArray(list) ? list : []);
+        if (!Array.isArray(list)) list = [];
+
+        // ✅ âncora do selecionado: se o backend não retornou, mantém mesmo assim
+        if (selectedCliente?.id && !list.some((x) => x.id === selectedCliente.id)) {
+          list = [selectedCliente, ...list];
+        }
+
+        setClientes(list);
       } catch (e: any) {
         if (e?.name !== "AbortError") {
-          setClientes([]);
+          // se falhou, ainda tenta manter o selecionado visível
+          const fallback = selectedCliente ? [selectedCliente] : [];
+          setClientes(fallback);
 
-          // ✅ se for “recentes” e o backend não suportar, só ignora (não mostra erro vermelho)
           if (!isRecent) {
             setClientesError(e?.message || "Erro ao buscar clientes.");
           }
@@ -401,7 +415,7 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
       ac.abort();
       clearTimeout(t);
     };
-  }, [clienteQ, sel?.cedente?.id]);
+  }, [clienteQ, sel?.cedente?.id, selectedCliente?.id]);
 
   async function criarClienteRapido() {
     setCreateClienteError("");
@@ -429,15 +443,33 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
         body: JSON.stringify(payload),
       });
 
-      const created: ClienteLite | null = out?.data?.cliente || out?.cliente || null;
-      if (!created?.id) throw new Error("Cliente criado, mas resposta inválida.");
+      const raw = out?.data?.cliente || out?.cliente || null;
+      if (!raw?.id) throw new Error("Cliente criado, mas resposta inválida.");
+
+      // ✅ normaliza pra ClienteLite (pra não quebrar se o backend mudar nomes)
+      const created: ClienteLite = {
+        id: String(raw.id),
+        identificador: String(raw.identificador || raw.code || raw.ident || "—"),
+        nome: String(raw.nome || raw.name || nome),
+        cpfCnpj: raw.cpfCnpj ?? null,
+        telefone: raw.telefone ?? null,
+      };
 
       setClienteId(created.id);
-      setClienteQ(created.nome || nome);
+      setSelectedCliente(created);
+
+      // importante: manter o texto no input e a lista com o cliente novo
+      setClienteQ(created.nome);
 
       setClientes((prev) => {
         const exists = prev.some((x) => x.id === created.id);
-        return exists ? prev : [created, ...prev].slice(0, 20);
+        const next = exists ? prev : [created, ...prev];
+        // garante que ele esteja no começo
+        const dedup = [
+          created,
+          ...next.filter((x) => x.id !== created.id),
+        ].slice(0, 20);
+        return dedup;
       });
 
       setClienteModalOpen(false);
@@ -476,7 +508,6 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
         const list = out.compras || [];
         setCompras(list);
 
-        // se só tem 1 compra LIBERADA, auto seleciona
         if (list.length === 1) setPurchaseNumero(list[0].numero);
         else setPurchaseNumero("");
       } catch (e: any) {
@@ -833,7 +864,9 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
 
                 <div className="space-y-1">
                   <div className="text-xs text-slate-600">Vendedor</div>
-                  <div className="rounded-xl border px-3 py-2 text-sm bg-slate-50">{me?.name ? `${me.name} (@${me.login})` : "—"}</div>
+                  <div className="rounded-xl border px-3 py-2 text-sm bg-slate-50">
+                    {me?.name ? `${me.name} (@${me.login})` : "—"}
+                  </div>
                 </div>
 
                 <div className="md:col-span-2 grid gap-2 md:grid-cols-2">
@@ -882,7 +915,7 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
                         <option value="">Selecione...</option>
                         {clientes.map((c) => (
                           <option key={c.id} value={c.id}>
-                            {c.nome} ({c.identificador})
+                            {c.nome} ({c.identificador || "—"})
                           </option>
                         ))}
                       </select>
@@ -899,6 +932,12 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
                         Novo
                       </button>
                     </div>
+
+                    {selectedCliente?.id ? (
+                      <div className="mt-1 text-[11px] text-slate-500">
+                        Selecionado: <b>{selectedCliente.nome}</b> ({selectedCliente.identificador || "—"})
+                      </div>
+                    ) : null}
                   </label>
                 </div>
 
@@ -1127,7 +1166,11 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
             {createClienteError ? <div className="mt-3 text-sm text-rose-600">{createClienteError}</div> : null}
 
             <div className="mt-5 flex justify-end gap-2">
-              <button type="button" onClick={() => setClienteModalOpen(false)} className="rounded-xl border px-4 py-2 text-sm hover:bg-slate-50">
+              <button
+                type="button"
+                onClick={() => setClienteModalOpen(false)}
+                className="rounded-xl border px-4 py-2 text-sm hover:bg-slate-50"
+              >
                 Cancelar
               </button>
               <button
