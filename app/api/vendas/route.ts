@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { prisma } from "@/lib/prisma";
+import { Prisma } from "@prisma/client";
 import {
   calcBonusCents,
   calcCommissionCents,
@@ -43,31 +44,52 @@ function readSessionCookie(raw?: string): Sess | null {
 }
 
 async function getServerSession(): Promise<Sess | null> {
-  const store = await cookies();
+  const store = cookies();
   const raw = store.get("tm.session")?.value;
   return readSessionCookie(raw);
 }
 
 function isPurchaseNumero(v: string) {
-  // ajuste se seu padrão mudar
   return /^ID\d{5}$/i.test(v.trim());
 }
 
-async function nextCounter(key: string) {
-  await prisma.counter.upsert({
+// ✅ parse local para YYYY-MM-DD (evita “voltar 1 dia”)
+function parseDateISOToLocal(v?: any): Date {
+  const s = String(v || "").trim();
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
+  if (!m) return new Date();
+  const y = Number(m[1]);
+  const mm = Number(m[2]);
+  const d = Number(m[3]);
+  return new Date(y, mm - 1, d);
+}
+
+// ✅ dentro do $transaction, use tx!
+async function nextCounter(tx: Prisma.TransactionClient, key: string) {
+  await tx.counter.upsert({
     where: { key },
     create: { key, value: 0 },
     update: {},
     select: { key: true, value: true },
   });
 
-  const updated = await prisma.counter.update({
+  const updated = await tx.counter.update({
     where: { key },
     data: { value: { increment: 1 } },
     select: { value: true },
   });
 
   return updated.value;
+}
+
+// ✅ resolve cedenteId por UUID ou identificador
+async function resolveCedenteId(tx: Prisma.TransactionClient, cedenteKey: string) {
+  const key = (cedenteKey || "").trim();
+  const ced = await tx.cedente.findFirst({
+    where: { OR: [{ id: key }, { identificador: key }] },
+    select: { id: true },
+  });
+  return ced?.id ?? null;
 }
 
 export async function GET() {
@@ -92,7 +114,7 @@ export async function GET() {
       metaMilheiroCents: true,
       cliente: { select: { id: true, identificador: true, nome: true } },
       cedente: { select: { id: true, identificador: true, nomeCompleto: true } },
-      purchase: { select: { id: true, numero: true } }, // aqui já te dá o ID00018
+      purchase: { select: { id: true, numero: true } },
       seller: { select: { id: true, name: true, login: true } },
       createdAt: true,
     },
@@ -103,7 +125,6 @@ export async function GET() {
 }
 
 export async function POST(req: Request) {
-  // ✅ seller automático pelo cookie tm.session (server-side)
   const session = await getServerSession();
   const userId = session?.id ?? null;
 
@@ -119,22 +140,20 @@ export async function POST(req: Request) {
   const milheiroCents = clampInt(body.milheiroCents);
   const embarqueFeeCents = clampInt(body.embarqueFeeCents);
 
-  const cedenteId = String(body.cedenteId || "");
-  const clienteId = String(body.clienteId || "");
+  const cedenteKey = String(body.cedenteId || "").trim(); // pode ser UUID ou identificador
+  const clienteId = String(body.clienteId || "").trim();
 
-  // ✅ aceita tanto purchaseId (cuid) quanto "ID00018"
-  const purchaseKey =
-    String(body.purchaseNumero || body.purchaseId || "").trim();
+  const purchaseKey = String(body.purchaseNumero || body.purchaseId || "").trim(); // ID00018 ou cuid
 
   const feeCardLabel = body.feeCardLabel ? String(body.feeCardLabel) : null;
   const locator = body.locator ? String(body.locator) : null;
 
-  const date = body.date ? new Date(body.date) : new Date();
+  const date = parseDateISOToLocal(body.date);
 
   if (!["LATAM", "SMILES", "LIVELO", "ESFERA"].includes(program)) {
     return NextResponse.json({ ok: false, error: "Programa inválido" }, { status: 400 });
   }
-  if (!cedenteId || !clienteId) {
+  if (!cedenteKey || !clienteId) {
     return NextResponse.json({ ok: false, error: "Cedente/Cliente obrigatório" }, { status: 400 });
   }
   if (!purchaseKey) {
@@ -153,6 +172,10 @@ export async function POST(req: Request) {
 
   try {
     const result = await prisma.$transaction(async (tx) => {
+      // ✅ resolve cedenteId real
+      const cedenteId = await resolveCedenteId(tx, cedenteKey);
+      if (!cedenteId) throw new Error("Cedente não encontrado.");
+
       // bloqueio?
       const hasBlock = await tx.blockedAccount.findFirst({
         where: { cedenteId, program, status: "OPEN" },
@@ -189,7 +212,7 @@ export async function POST(req: Request) {
       const availablePts = clampInt((ced as any)[field]);
       if (availablePts < points) throw new Error("Pontos insuficientes.");
 
-      // ✅ resolve purchase: por numero (ID00018) OU por id (cuid)
+      // resolve purchase por numero (ID00018) ou id (cuid)
       const purchase =
         isPurchaseNumero(purchaseKey)
           ? await tx.purchase.findFirst({
@@ -205,7 +228,7 @@ export async function POST(req: Request) {
       if (purchase.status !== "OPEN") throw new Error("Compra não está OPEN.");
       if (purchase.cedenteId !== cedenteId) throw new Error("Compra não pertence ao cedente selecionado.");
 
-      const purchaseIdReal = purchase.id; // ✅ FK real
+      const purchaseIdReal = purchase.id;
       const metaMilheiroCents = clampInt(purchase.metaMilheiroCents);
 
       const pointsValueCents = calcPointsValueCents(points, milheiroCents);
@@ -214,8 +237,8 @@ export async function POST(req: Request) {
       const commissionCents = calcCommissionCents(pointsValueCents);
       const bonusCents = calcBonusCents(points, milheiroCents, metaMilheiroCents);
 
-      // número sequencial
-      const n = await nextCounter("SALE");
+      // ✅ contador com tx
+      const n = await nextCounter(tx, "SALE");
       const numero = formatSaleNumber(n);
 
       const cliente = await tx.cliente.findUnique({
@@ -254,8 +277,8 @@ export async function POST(req: Request) {
           paymentStatus: "PENDING",
           cedenteId,
           clienteId,
-          purchaseId: purchaseIdReal, // ✅ sempre salva FK correta
-          sellerId: userId, // ✅ automático
+          purchaseId: purchaseIdReal,
+          sellerId: userId,
           receivableId: receivable.id,
         },
         select: { id: true, numero: true },

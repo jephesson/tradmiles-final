@@ -34,7 +34,7 @@ type ClienteLite = {
 
 type CompraOpen = {
   id: string;
-  numero: string; // ✅ ID00018
+  numero: string; // ID00018
   status: "OPEN";
   ciaAerea: Program | null;
   metaMilheiroCents: number;
@@ -75,6 +75,7 @@ function normStr(v?: string) {
     .toLowerCase()
     .trim();
 }
+
 async function api<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await fetch(url, {
     ...init,
@@ -157,23 +158,26 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
   const [loadingSug, setLoadingSug] = useState(false);
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
   const [sel, setSel] = useState<Suggestion | null>(null);
+  const [sugError, setSugError] = useState<string>("");
 
-  // ✅ busca cedente (filtra dentro das sugestões retornadas)
+  // busca cedente
   const [cedenteQ, setCedenteQ] = useState("");
 
   // cliente
   const [clienteQ, setClienteQ] = useState("");
   const [clientes, setClientes] = useState<ClienteLite[]>([]);
   const [clienteId, setClienteId] = useState("");
+  const [loadingClientes, setLoadingClientes] = useState(false);
 
   // compras OPEN do cedente selecionado
   const [compras, setCompras] = useState<CompraOpen[]>([]);
-  const [purchaseNumero, setPurchaseNumero] = useState(""); // ✅ agora guarda ID00018
+  const [purchaseNumero, setPurchaseNumero] = useState(""); // guarda ID00018
+  const [loadingCompras, setLoadingCompras] = useState(false);
 
-  // ✅ funcionários (para cartão)
+  // funcionários (para cartão)
   const [users, setUsers] = useState<UserLite[]>([]);
 
-  // ✅ cartão da taxa (dropdown único)
+  // cartão da taxa (dropdown único)
   // SELF | VIAS | USER:<id> | MANUAL
   const [feeCardPreset, setFeeCardPreset] = useState<string>("SELF");
   const [feeCardManual, setFeeCardManual] = useState<string>("");
@@ -196,11 +200,8 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
   const totalCents = useMemo(() => pointsValueCents + embarqueFeeCents, [pointsValueCents, embarqueFeeCents]);
   const commissionCents = useMemo(() => Math.round(pointsValueCents * 0.01), [pointsValueCents]);
 
-  // ✅ agora encontra pela compra.numero (ID00018)
-  const compraSel = useMemo(
-    () => compras.find((c) => c.numero === purchaseNumero) || null,
-    [compras, purchaseNumero]
-  );
+  // encontra pela compra.numero (ID00018)
+  const compraSel = useMemo(() => compras.find((c) => c.numero === purchaseNumero) || null, [compras, purchaseNumero]);
 
   const metaMilheiroCents = compraSel?.metaMilheiroCents || 0;
 
@@ -231,10 +232,10 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
   function clearSelection() {
     setSel(null);
     setCompras([]);
-    setPurchaseNumero(""); // ✅ limpa ID00018 selecionado
+    setPurchaseNumero("");
   }
 
-  // ✅ carrega funcionários cadastrados (preferência: /api/funcionarios)
+  // carrega funcionários (preferência: /api/funcionarios)
   useEffect(() => {
     (async () => {
       try {
@@ -260,7 +261,7 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
     })();
   }, []);
 
-  // ✅ label final do cartão (vai no payload)
+  // label final do cartão (vai no payload)
   const feeCardLabel = useMemo(() => {
     if (feeCardPreset === "VIAS") return "Cartão Vias Aéreas";
     if (feeCardPreset === "MANUAL") return (feeCardManual || "").trim() || "";
@@ -269,76 +270,116 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
       const u = users.find((x) => x.id === id);
       return u ? `Cartão ${u.name}` : "";
     }
-    // SELF
     return me?.name ? `Cartão ${me.name}` : "Cartão do vendedor";
   }, [feeCardPreset, feeCardManual, users, me?.name]);
 
-  // sugestões (debounce)
+  // sugestões (debounce + abort)
   useEffect(() => {
+    const ac = new AbortController();
+
     const t = setTimeout(async () => {
+      setSugError("");
+
       if (points <= 0 || passengers <= 0) {
         setSuggestions([]);
         setSel(null);
         return;
       }
+
       setLoadingSug(true);
       try {
-        const out = await api<{ ok: true; suggestions: Suggestion[] }>(
-          `/api/vendas/sugestoes?program=${program}&points=${points}&passengers=${passengers}`
-        );
+        const url = `/api/vendas/sugestoes?program=${encodeURIComponent(program)}&points=${encodeURIComponent(
+          String(points)
+        )}&passengers=${encodeURIComponent(String(passengers))}`;
+
+        const out = await api<{ ok: true; suggestions: Suggestion[] }>(url, { signal: ac.signal } as any);
         const list = out.suggestions || [];
         setSuggestions(list);
 
+        // se já tinha selecionado e ele sumiu mesmo, limpa
         if (sel?.cedente?.id && !list.some((x) => x.cedente.id === sel.cedente.id)) {
           clearSelection();
         }
-      } catch {
-        setSuggestions([]);
-        setSel(null);
+      } catch (e: any) {
+        if (e?.name !== "AbortError") {
+          setSuggestions([]);
+          setSel(null);
+          setSugError(e?.message || "Erro ao carregar sugestões");
+        }
       } finally {
-        setLoadingSug(false);
+        if (!ac.signal.aborted) setLoadingSug(false);
       }
     }, 250);
 
-    return () => clearTimeout(t);
+    return () => {
+      ac.abort();
+      clearTimeout(t);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [program, points, passengers]);
 
-  // cliente search (debounce)
+  // cliente search (debounce + abort)
   useEffect(() => {
+    const ac = new AbortController();
     const t = setTimeout(async () => {
       const q = clienteQ.trim();
       if (q.length < 2) {
         setClientes([]);
+        setLoadingClientes(false);
         return;
       }
+
+      setLoadingClientes(true);
       try {
-        const out = await api<{ ok: true; clientes: ClienteLite[] }>(`/api/clientes/search?q=${encodeURIComponent(q)}`);
+        const url = `/api/clientes/search?q=${encodeURIComponent(q)}`;
+        const out = await api<{ ok: true; clientes: ClienteLite[] }>(url, { signal: ac.signal } as any);
         setClientes(out.clientes || []);
-      } catch {
-        setClientes([]);
+      } catch (e: any) {
+        if (e?.name !== "AbortError") setClientes([]);
+      } finally {
+        if (!ac.signal.aborted) setLoadingClientes(false);
       }
     }, 250);
-    return () => clearTimeout(t);
+
+    return () => {
+      ac.abort();
+      clearTimeout(t);
+    };
   }, [clienteQ]);
 
   // quando escolhe cedente -> carrega compras OPEN daquele cedente
   useEffect(() => {
+    const ac = new AbortController();
+
     (async () => {
       if (!sel?.cedente?.id) {
         setCompras([]);
         setPurchaseNumero("");
+        setLoadingCompras(false);
         return;
       }
+
+      setLoadingCompras(true);
       try {
-        const out = await api<{ ok: true; compras: CompraOpen[] }>(`/api/compras/open?cedenteId=${sel.cedente.id}`);
-        setCompras(out.compras || []);
-        setPurchaseNumero("");
-      } catch {
-        setCompras([]);
-        setPurchaseNumero("");
+        const url = `/api/compras/open?cedenteId=${encodeURIComponent(sel.cedente.id)}`;
+        const out = await api<{ ok: true; compras: CompraOpen[] }>(url, { signal: ac.signal } as any);
+        const list = out.compras || [];
+        setCompras(list);
+
+        // se só tem 1 compra OPEN, auto seleciona
+        if (list.length === 1) setPurchaseNumero(list[0].numero);
+        else setPurchaseNumero("");
+      } catch (e: any) {
+        if (e?.name !== "AbortError") {
+          setCompras([]);
+          setPurchaseNumero("");
+        }
+      } finally {
+        if (!ac.signal.aborted) setLoadingCompras(false);
       }
     })();
+
+    return () => ac.abort();
   }, [sel?.cedente?.id]);
 
   function onChangePoints(v: string) {
@@ -348,22 +389,32 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
     setPointsStr(n.toLocaleString("pt-BR"));
   }
 
+  const canSave = useMemo(() => {
+    if (!sel?.eligible) return false;
+    if (!clienteId) return false;
+    if (!purchaseNumero) return false;
+    if (points <= 0 || passengers <= 0) return false;
+    if (milheiroCents <= 0) return false;
+    if (feeCardPreset === "MANUAL" && !feeCardLabel) return false;
+    return true;
+  }, [sel?.eligible, clienteId, purchaseNumero, points, passengers, milheiroCents, feeCardPreset, feeCardLabel]);
+
   async function salvarVenda() {
+    // mantém os alerts só como UX, mas o botão já fica desabilitado
     if (!sel?.eligible) return alert("Selecione um cedente elegível.");
     if (!clienteId) return alert("Selecione um cliente.");
     if (!purchaseNumero) return alert("Selecione a compra OPEN (ID00018).");
     if (points <= 0 || passengers <= 0) return alert("Pontos/Passageiros inválidos.");
     if (milheiroCents <= 0) return alert("Milheiro inválido.");
-
     if (feeCardPreset === "MANUAL" && !feeCardLabel) return alert("Informe o nome do cartão (manual).");
 
     const payload = {
       program,
       points,
       passengers,
-      cedenteId: sel.cedente.id,
+      cedenteId: sel.cedente.id, // pode ser UUID ou identificador (backend resolve)
       clienteId,
-      purchaseNumero, // ✅ envia o ID00018
+      purchaseNumero, // ID00018
       date: dateISO,
       milheiroCents,
       embarqueFeeCents,
@@ -385,7 +436,13 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
     if (!q) return suggestions;
 
     return suggestions.filter((s) => {
-      const hay = [s.cedente.nomeCompleto, s.cedente.identificador, s.cedente.cpf, s.cedente.owner?.name, s.cedente.owner?.login]
+      const hay = [
+        s.cedente.nomeCompleto,
+        s.cedente.identificador,
+        s.cedente.cpf,
+        s.cedente.owner?.name,
+        s.cedente.owner?.login,
+      ]
         .map(normStr)
         .join(" | ");
       return hay.includes(q);
@@ -403,9 +460,7 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
     return `${Math.min(10, suggestions.length)} de ${suggestions.length}`;
   }, [loadingSug, sel, cedenteQ, suggestions.length, filteredSuggestions.length]);
 
-  const selfLabel = useMemo(() => {
-    return me?.name ? `Meu cartão (${me.name})` : "Meu cartão";
-  }, [me?.name]);
+  const selfLabel = useMemo(() => (me?.name ? `Meu cartão (${me.name})` : "Meu cartão"), [me?.name]);
 
   return (
     <div className="p-6 space-y-6">
@@ -414,13 +469,21 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
         <div>
           <h1 className="text-2xl font-semibold">Nova venda</h1>
           <p className="text-sm text-slate-500">Informe pontos + CIA + passageiros. O sistema sugere o melhor cedente.</p>
+          {sugError ? <div className="mt-2 text-xs text-rose-600">{sugError}</div> : null}
         </div>
 
         <div className="flex gap-2">
           <Link href="/dashboard/vendas" className="rounded-xl border px-4 py-2 text-sm hover:bg-slate-50">
             Voltar
           </Link>
-          <button onClick={salvarVenda} className="rounded-xl bg-black px-4 py-2 text-sm text-white hover:bg-gray-800">
+          <button
+            onClick={salvarVenda}
+            disabled={!canSave}
+            className={cn(
+              "rounded-xl px-4 py-2 text-sm text-white",
+              canSave ? "bg-black hover:bg-gray-800" : "bg-slate-300 cursor-not-allowed"
+            )}
+          >
             Salvar venda
           </button>
         </div>
@@ -527,11 +590,7 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
                 >
                   Ir para dados
                 </button>
-                <button
-                  type="button"
-                  onClick={clearSelection}
-                  className="rounded-xl border px-3 py-2 text-sm hover:bg-slate-50"
-                >
+                <button type="button" onClick={clearSelection} className="rounded-xl border px-3 py-2 text-sm hover:bg-slate-50">
                   Trocar cedente
                 </button>
               </div>
@@ -551,11 +610,7 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
                   />
                 </label>
 
-                <button
-                  type="button"
-                  onClick={() => setCedenteQ("")}
-                  className="rounded-xl border px-3 py-2 text-sm hover:bg-slate-50"
-                >
+                <button type="button" onClick={() => setCedenteQ("")} className="rounded-xl border px-3 py-2 text-sm hover:bg-slate-50">
                   Limpar busca
                 </button>
               </div>
@@ -691,6 +746,7 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
                       onChange={(e) => setClienteQ(e.target.value)}
                       placeholder="Nome / CPF/CNPJ / telefone..."
                     />
+                    {loadingClientes ? <div className="text-[11px] text-slate-500">Buscando...</div> : null}
                   </label>
 
                   <label className="space-y-1">
@@ -716,8 +772,9 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
                     className="w-full rounded-xl border px-3 py-2 text-sm bg-white"
                     value={purchaseNumero}
                     onChange={(e) => setPurchaseNumero(e.target.value)}
+                    disabled={loadingCompras}
                   >
-                    <option value="">Selecione...</option>
+                    <option value="">{loadingCompras ? "Carregando compras..." : "Selecione..."}</option>
                     {compras.map((c) => (
                       <option key={c.id} value={c.numero}>
                         {c.numero} • meta {((c.metaMilheiroCents || 0) / 100).toFixed(2).replace(".", ",")}
