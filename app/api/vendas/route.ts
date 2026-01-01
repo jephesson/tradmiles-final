@@ -123,7 +123,7 @@ export async function GET() {
       metaMilheiroCents: true,
       cliente: { select: { id: true, identificador: true, nome: true } },
       cedente: { select: { id: true, identificador: true, nomeCompleto: true } },
-      purchase: { select: { id: true, numero: true } },
+      purchase: { select: { id: true, numero: true } }, // ✅ aqui já vem o ID000xx pra mostrar na tela
       seller: { select: { id: true, name: true, login: true } },
       createdAt: true,
     },
@@ -235,8 +235,13 @@ export async function POST(req: Request) {
           });
 
       if (!purchase) throw new Error("Compra não encontrada.");
-      if (purchase.status !== "OPEN") throw new Error("Compra não está OPEN.");
-      if (purchase.cedenteId !== cedenteId) throw new Error("Compra não pertence ao cedente selecionado.");
+
+      // ✅ CORRETO: venda só pode usar compra LIBERADA (CLOSED)
+      if (purchase.status !== "CLOSED") throw new Error("Compra não está LIBERADA.");
+
+      if (purchase.cedenteId !== cedenteId) {
+        throw new Error("Compra não pertence ao cedente selecionado.");
+      }
 
       const purchaseIdReal = purchase.id;
       const metaMilheiroCents = clampInt(purchase.metaMilheiroCents);

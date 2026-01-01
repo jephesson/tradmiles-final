@@ -32,10 +32,10 @@ type ClienteLite = {
   telefone: string | null;
 };
 
-type CompraOpen = {
+type CompraLiberada = {
   id: string;
   numero: string; // ID00018
-  status: "OPEN";
+  status: "CLOSED";
   ciaAerea: Program | null;
   metaMilheiroCents: number;
   custoMilheiroCents: number;
@@ -169,8 +169,8 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
   const [clienteId, setClienteId] = useState("");
   const [loadingClientes, setLoadingClientes] = useState(false);
 
-  // compras OPEN do cedente selecionado
-  const [compras, setCompras] = useState<CompraOpen[]>([]);
+  // ✅ compras LIBERADAS (CLOSED) do cedente selecionado
+  const [compras, setCompras] = useState<CompraLiberada[]>([]);
   const [purchaseNumero, setPurchaseNumero] = useState(""); // guarda ID00018
   const [loadingCompras, setLoadingCompras] = useState(false);
 
@@ -201,7 +201,10 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
   const commissionCents = useMemo(() => Math.round(pointsValueCents * 0.01), [pointsValueCents]);
 
   // encontra pela compra.numero (ID00018)
-  const compraSel = useMemo(() => compras.find((c) => c.numero === purchaseNumero) || null, [compras, purchaseNumero]);
+  const compraSel = useMemo(
+    () => compras.find((c) => c.numero === purchaseNumero) || null,
+    [compras, purchaseNumero]
+  );
 
   const metaMilheiroCents = compraSel?.metaMilheiroCents || 0;
 
@@ -347,7 +350,7 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
     };
   }, [clienteQ]);
 
-  // quando escolhe cedente -> carrega compras OPEN daquele cedente
+  // ✅ quando escolhe cedente -> carrega compras LIBERADAS (CLOSED) daquele cedente
   useEffect(() => {
     const ac = new AbortController();
 
@@ -361,12 +364,13 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
 
       setLoadingCompras(true);
       try {
-        const url = `/api/compras/open?cedenteId=${encodeURIComponent(sel.cedente.id)}`;
-        const out = await api<{ ok: true; compras: CompraOpen[] }>(url, { signal: ac.signal } as any);
+        const url = `/api/compras/liberadas?cedenteId=${encodeURIComponent(sel.cedente.id)}`;
+        const out = await api<{ ok: true; compras: CompraLiberada[] }>(url, { signal: ac.signal } as any);
+
         const list = out.compras || [];
         setCompras(list);
 
-        // se só tem 1 compra OPEN, auto seleciona
+        // se só tem 1 compra LIBERADA, auto seleciona
         if (list.length === 1) setPurchaseNumero(list[0].numero);
         else setPurchaseNumero("");
       } catch (e: any) {
@@ -393,17 +397,18 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
     if (!sel?.eligible) return false;
     if (!clienteId) return false;
     if (!purchaseNumero) return false;
+    if (!compraSel) return false; // ✅ garante que achou no array
     if (points <= 0 || passengers <= 0) return false;
     if (milheiroCents <= 0) return false;
     if (feeCardPreset === "MANUAL" && !feeCardLabel) return false;
     return true;
-  }, [sel?.eligible, clienteId, purchaseNumero, points, passengers, milheiroCents, feeCardPreset, feeCardLabel]);
+  }, [sel?.eligible, clienteId, purchaseNumero, compraSel, points, passengers, milheiroCents, feeCardPreset, feeCardLabel]);
 
   async function salvarVenda() {
-    // mantém os alerts só como UX, mas o botão já fica desabilitado
     if (!sel?.eligible) return alert("Selecione um cedente elegível.");
     if (!clienteId) return alert("Selecione um cliente.");
-    if (!purchaseNumero) return alert("Selecione a compra OPEN (ID00018).");
+    if (!purchaseNumero) return alert("Selecione a compra LIBERADA (ID00018).");
+    if (!compraSel) return alert("Compra selecionada inválida.");
     if (points <= 0 || passengers <= 0) return alert("Pontos/Passageiros inválidos.");
     if (milheiroCents <= 0) return alert("Milheiro inválido.");
     if (feeCardPreset === "MANUAL" && !feeCardLabel) return alert("Informe o nome do cartão (manual).");
@@ -436,13 +441,7 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
     if (!q) return suggestions;
 
     return suggestions.filter((s) => {
-      const hay = [
-        s.cedente.nomeCompleto,
-        s.cedente.identificador,
-        s.cedente.cpf,
-        s.cedente.owner?.name,
-        s.cedente.owner?.login,
-      ]
+      const hay = [s.cedente.nomeCompleto, s.cedente.identificador, s.cedente.cpf, s.cedente.owner?.name, s.cedente.owner?.login]
         .map(normStr)
         .join(" | ");
       return hay.includes(q);
@@ -479,10 +478,7 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
           <button
             onClick={salvarVenda}
             disabled={!canSave}
-            className={cn(
-              "rounded-xl px-4 py-2 text-sm text-white",
-              canSave ? "bg-black hover:bg-gray-800" : "bg-slate-300 cursor-not-allowed"
-            )}
+            className={cn("rounded-xl px-4 py-2 text-sm text-white", canSave ? "bg-black hover:bg-gray-800" : "bg-slate-300 cursor-not-allowed")}
           >
             Salvar venda
           </button>
@@ -496,11 +492,7 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
         <div className="mt-4 grid gap-4 md:grid-cols-3">
           <label className="space-y-1">
             <div className="text-xs text-slate-600">CIA / Programa</div>
-            <select
-              className="w-full rounded-xl border px-3 py-2 text-sm bg-white"
-              value={program}
-              onChange={(e) => setProgram(e.target.value as Program)}
-            >
+            <select className="w-full rounded-xl border px-3 py-2 text-sm bg-white" value={program} onChange={(e) => setProgram(e.target.value as Program)}>
               <option value="LATAM">LATAM</option>
               <option value="SMILES">SMILES</option>
               <option value="LIVELO">LIVELO</option>
@@ -510,12 +502,7 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
 
           <label className="space-y-1">
             <div className="text-xs text-slate-600">Pontos</div>
-            <input
-              className="w-full rounded-xl border px-3 py-2 text-sm font-mono"
-              value={pointsStr}
-              onChange={(e) => onChangePoints(e.target.value)}
-              placeholder="Ex: 100.000"
-            />
+            <input className="w-full rounded-xl border px-3 py-2 text-sm font-mono" value={pointsStr} onChange={(e) => onChangePoints(e.target.value)} placeholder="Ex: 100.000" />
           </label>
 
           <label className="space-y-1">
@@ -540,9 +527,7 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
         <div className="flex items-center justify-between p-5 border-b">
           <div>
             <div className="font-medium">2) Cedentes sugeridos</div>
-            <div className="text-xs text-slate-500">
-              Prioridade: sobrar &lt; 2k (MAX) • sobrar 3-10k (BAIXA) • acima de 10k, sobrar menos primeiro.
-            </div>
+            <div className="text-xs text-slate-500">Prioridade: sobrar &lt; 2k (MAX) • sobrar 3-10k (BAIXA) • acima de 10k, sobrar menos primeiro.</div>
           </div>
           <div className="text-xs text-slate-500">{countLabel}</div>
         </div>
@@ -570,15 +555,11 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
                   <span className="rounded-full border bg-white px-2 py-1">
                     Sobra: <b className="tabular-nums">{fmtInt(sel.leftoverPoints)}</b>
                   </span>
-                  <span className={cn("rounded-full border px-2 py-1", badgeClass(sel.priorityLabel))}>
-                    {sel.priorityLabel}
-                  </span>
+                  <span className={cn("rounded-full border px-2 py-1", badgeClass(sel.priorityLabel))}>{sel.priorityLabel}</span>
                 </div>
 
                 {sel.alerts.includes("PASSAGEIROS_ESTOURADOS_COM_PONTOS") ? (
-                  <div className="mt-2 text-[11px] text-rose-600">
-                    Alerta: limite anual estoura e ainda sobraria &gt; 3.000 pts.
-                  </div>
+                  <div className="mt-2 text-[11px] text-rose-600">Alerta: limite anual estoura e ainda sobraria &gt; 3.000 pts.</div>
                 ) : null}
               </div>
 
@@ -659,9 +640,7 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
                           <div className="font-medium">{s.cedente.nomeCompleto}</div>
                           <div className="text-xs text-slate-500">{s.cedente.identificador}</div>
                           {s.alerts.includes("PASSAGEIROS_ESTOURADOS_COM_PONTOS") ? (
-                            <div className="mt-1 text-[11px] text-rose-600">
-                              Alerta: limite anual estoura e ainda sobraria &gt; 3.000 pts.
-                            </div>
+                            <div className="mt-1 text-[11px] text-rose-600">Alerta: limite anual estoura e ainda sobraria &gt; 3.000 pts.</div>
                           ) : null}
                         </td>
                         <td className="px-4 py-3">
@@ -678,18 +657,13 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
                         </td>
                         <td className="px-4 py-3 text-right tabular-nums">{fmtInt(s.leftoverPoints)}</td>
                         <td className="px-4 py-3">
-                          <span className={cn("inline-flex rounded-full border px-2 py-1 text-xs", badge)}>
-                            {s.priorityLabel}
-                          </span>
+                          <span className={cn("inline-flex rounded-full border px-2 py-1 text-xs", badge)}>{s.priorityLabel}</span>
                         </td>
                         <td className="px-4 py-3 text-right">
                           <button
                             disabled={!s.eligible}
                             onClick={() => selectSuggestion(s)}
-                            className={cn(
-                              "rounded-xl border px-3 py-1.5 text-sm",
-                              s.eligible ? "hover:bg-slate-50" : "opacity-40 cursor-not-allowed"
-                            )}
+                            className={cn("rounded-xl border px-3 py-1.5 text-sm", s.eligible ? "hover:bg-slate-50" : "opacity-40 cursor-not-allowed")}
                           >
                             Usar
                           </button>
@@ -717,24 +691,17 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
         <div ref={detailsRef} className="grid gap-4 lg:grid-cols-3">
           <div className="lg:col-span-2 space-y-4">
             <div className="rounded-2xl border bg-white p-5">
-              <div className="font-medium">3) Cliente + Compra OPEN + Dados</div>
+              <div className="font-medium">3) Cliente + Compra LIBERADA + Dados</div>
 
               <div className="mt-4 grid gap-4 md:grid-cols-2">
                 <label className="space-y-1">
                   <div className="text-xs text-slate-600">Data</div>
-                  <input
-                    type="date"
-                    className="w-full rounded-xl border px-3 py-2 text-sm"
-                    value={dateISO}
-                    onChange={(e) => setDateISO(e.target.value)}
-                  />
+                  <input type="date" className="w-full rounded-xl border px-3 py-2 text-sm" value={dateISO} onChange={(e) => setDateISO(e.target.value)} />
                 </label>
 
                 <div className="space-y-1">
                   <div className="text-xs text-slate-600">Vendedor</div>
-                  <div className="rounded-xl border px-3 py-2 text-sm bg-slate-50">
-                    {me?.name ? `${me.name} (@${me.login})` : "—"}
-                  </div>
+                  <div className="rounded-xl border px-3 py-2 text-sm bg-slate-50">{me?.name ? `${me.name} (@${me.login})` : "—"}</div>
                 </div>
 
                 <div className="md:col-span-2 grid gap-2 md:grid-cols-2">
@@ -751,11 +718,7 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
 
                   <label className="space-y-1">
                     <div className="text-xs text-slate-600">Selecionar cliente</div>
-                    <select
-                      className="w-full rounded-xl border px-3 py-2 text-sm bg-white"
-                      value={clienteId}
-                      onChange={(e) => setClienteId(e.target.value)}
-                    >
+                    <select className="w-full rounded-xl border px-3 py-2 text-sm bg-white" value={clienteId} onChange={(e) => setClienteId(e.target.value)}>
                       <option value="">Selecione...</option>
                       {clientes.map((c) => (
                         <option key={c.id} value={c.id}>
@@ -767,52 +730,38 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
                 </div>
 
                 <label className="space-y-1 md:col-span-2">
-                  <div className="text-xs text-slate-600">Compra OPEN (do cedente)</div>
+                  <div className="text-xs text-slate-600">Compra LIBERADA (do cedente)</div>
                   <select
                     className="w-full rounded-xl border px-3 py-2 text-sm bg-white"
                     value={purchaseNumero}
                     onChange={(e) => setPurchaseNumero(e.target.value)}
                     disabled={loadingCompras}
                   >
-                    <option value="">{loadingCompras ? "Carregando compras..." : "Selecione..."}</option>
+                    <option value="">
+                      {loadingCompras ? "Carregando compras liberadas..." : compras.length ? "Selecione..." : "Nenhuma compra liberada"}
+                    </option>
                     {compras.map((c) => (
                       <option key={c.id} value={c.numero}>
                         {c.numero} • meta {((c.metaMilheiroCents || 0) / 100).toFixed(2).replace(".", ",")}
                       </option>
                     ))}
                   </select>
-                  <div className="text-[11px] text-slate-500 mt-1">
-                    A venda só deixa salvar se a compra estiver OPEN e for do mesmo cedente.
-                  </div>
+                  <div className="text-[11px] text-slate-500 mt-1">A venda só deixa salvar se a compra estiver LIBERADA (status CLOSED) e for do mesmo cedente.</div>
                 </label>
 
                 <label className="space-y-1">
                   <div className="text-xs text-slate-600">Milheiro (R$)</div>
-                  <input
-                    className="w-full rounded-xl border px-3 py-2 text-sm font-mono"
-                    value={milheiroStr}
-                    onChange={(e) => setMilheiroStr(e.target.value)}
-                    placeholder="Ex: 25,50"
-                  />
+                  <input className="w-full rounded-xl border px-3 py-2 text-sm font-mono" value={milheiroStr} onChange={(e) => setMilheiroStr(e.target.value)} placeholder="Ex: 25,50" />
                 </label>
 
                 <label className="space-y-1">
                   <div className="text-xs text-slate-600">Taxa de embarque (R$)</div>
-                  <input
-                    className="w-full rounded-xl border px-3 py-2 text-sm font-mono"
-                    value={embarqueStr}
-                    onChange={(e) => setEmbarqueStr(e.target.value)}
-                    placeholder="Ex: 78,34"
-                  />
+                  <input className="w-full rounded-xl border px-3 py-2 text-sm font-mono" value={embarqueStr} onChange={(e) => setEmbarqueStr(e.target.value)} placeholder="Ex: 78,34" />
                 </label>
 
                 <label className="space-y-1">
                   <div className="text-xs text-slate-600">Cartão da taxa</div>
-                  <select
-                    className="w-full rounded-xl border px-3 py-2 text-sm bg-white"
-                    value={feeCardPreset}
-                    onChange={(e) => setFeeCardPreset(e.target.value)}
-                  >
+                  <select className="w-full rounded-xl border px-3 py-2 text-sm bg-white" value={feeCardPreset} onChange={(e) => setFeeCardPreset(e.target.value)}>
                     <option value="SELF">{selfLabel}</option>
                     <option value="VIAS">Vias Aéreas</option>
                     {users.length ? <option disabled>────────────</option> : null}
@@ -825,12 +774,7 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
                   </select>
 
                   {feeCardPreset === "MANUAL" ? (
-                    <input
-                      className="mt-2 w-full rounded-xl border px-3 py-2 text-sm"
-                      value={feeCardManual}
-                      onChange={(e) => setFeeCardManual(e.target.value)}
-                      placeholder="Ex: Cartão Inter PJ"
-                    />
+                    <input className="mt-2 w-full rounded-xl border px-3 py-2 text-sm" value={feeCardManual} onChange={(e) => setFeeCardManual(e.target.value)} placeholder="Ex: Cartão Inter PJ" />
                   ) : (
                     <div className="mt-2 text-xs text-slate-500">Selecionado: {feeCardLabel || "—"}</div>
                   )}
@@ -838,12 +782,7 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
 
                 <label className="space-y-1">
                   <div className="text-xs text-slate-600">Localizador</div>
-                  <input
-                    className="w-full rounded-xl border px-3 py-2 text-sm font-mono"
-                    value={locator}
-                    onChange={(e) => setLocator(e.target.value)}
-                    placeholder="Opcional"
-                  />
+                  <input className="w-full rounded-xl border px-3 py-2 text-sm font-mono" value={locator} onChange={(e) => setLocator(e.target.value)} placeholder="Opcional" />
                 </label>
               </div>
             </div>

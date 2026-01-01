@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { ok, badRequest, serverError } from "@/lib/api";
 import { nextNumeroCompra } from "@/lib/compraNumero";
 import { recomputeCompra } from "@/lib/compras";
+import { Prisma } from "@prisma/client";
 
 export const dynamic = "force-dynamic";
 
@@ -39,6 +40,15 @@ function toPurchaseRow(p: any) {
   };
 }
 
+function normQ(v?: string | null) {
+  const s = String(v || "").trim();
+  return s.length ? s : "";
+}
+
+function digitsOnly(s: string) {
+  return s.replace(/\D+/g, "");
+}
+
 export async function GET(req: Request) {
   try {
     const { searchParams } = new URL(req.url);
@@ -46,14 +56,59 @@ export async function GET(req: Request) {
     const cedenteId = searchParams.get("cedenteId") || undefined;
     const status = searchParams.get("status") || undefined;
 
+    // ✅ NOVO: busca do frontend (?q=...)
+    const q = normQ(searchParams.get("q"));
+
     const take = Math.min(asInt(searchParams.get("take") || 50, 50), 200);
     const skip = Math.max(0, asInt(searchParams.get("skip") || 0, 0));
 
+    const qDigits = q ? digitsOnly(q) : "";
+
+    // ✅ where base (não muda nada do que já existia)
+    const where: Prisma.PurchaseWhereInput = {
+      ...(cedenteId ? { cedenteId } : {}),
+      ...(status ? { status: status as any } : {}),
+    };
+
+    // ✅ filtro de busca (aditivo; se não tiver q, nada muda)
+    if (q) {
+      // busca por numero/id/cia e também por cedente (nome/cpf/identificador)
+      const or: Prisma.PurchaseWhereInput[] = [
+        { numero: { contains: q, mode: "insensitive" } },
+        { id: { contains: q, mode: "insensitive" } },
+        { ciaAerea: { contains: q, mode: "insensitive" } },
+        { ciaProgram: { contains: q, mode: "insensitive" } },
+        {
+          cedente: {
+            is: { nomeCompleto: { contains: q, mode: "insensitive" } },
+          },
+        },
+        {
+          cedente: {
+            is: { identificador: { contains: q, mode: "insensitive" } },
+          },
+        },
+      ];
+
+      // se tiver dígitos, tenta CPF/ID por contains também
+      if (qDigits.length >= 2) {
+        or.push({
+          cedente: {
+            is: { cpf: { contains: qDigits } },
+          },
+        });
+        or.push({
+          cedente: {
+            is: { identificador: { contains: qDigits, mode: "insensitive" } },
+          },
+        });
+      }
+
+      where.OR = or;
+    }
+
     const compras = await prisma.purchase.findMany({
-      where: {
-        ...(cedenteId ? { cedenteId } : {}),
-        ...(status ? { status: status as any } : {}),
-      },
+      where,
       orderBy: { createdAt: "desc" },
       take,
       skip,
@@ -107,7 +162,7 @@ export async function POST(req: Request) {
       data: {
         numero,
         cedenteId,
-        status: "OPEN",
+        status: "OPEN", // ✅ OPEN = pendente (ainda não liberada)
 
         // ✅ salva nos campos do teu schema atual (pelos teus nomes atuais)
         ciaAerea: ciaProgram,
