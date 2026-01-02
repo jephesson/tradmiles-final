@@ -8,7 +8,7 @@ import {
   useSearchParams,
   type ReadonlyURLSearchParams,
 } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { cn } from "@/lib/cn";
 import { getSession, signOut } from "@/lib/auth";
 
@@ -67,7 +67,9 @@ export default function Sidebar() {
   const isImportacoesEmissoesSubRoute = isImportacoesEmissoesRoute;
 
   // ✅ Painel de Emissões (novo)
-  const isPainelEmissoesRoute = pathname.startsWith("/dashboard/painel-emissoes");
+  const isPainelEmissoesRoute = pathname.startsWith(
+    "/dashboard/painel-emissoes"
+  );
 
   // ✅ GESTOR DE EMISSÕES (exclui importação)
   const isEmissoesRoute =
@@ -235,7 +237,12 @@ export default function Sidebar() {
       {/* Header */}
       <div className="flex items-center justify-between border-b p-4">
         <div className="flex items-center gap-3">
-          <Image src="/trademiles.png" alt="TradeMiles" width={32} height={32} />
+          <Image
+            src="/trademiles.png"
+            alt="TradeMiles"
+            width={32}
+            height={32}
+          />
           <span className="font-semibold">TradeMiles</span>
         </div>
         {session && (
@@ -423,7 +430,19 @@ export default function Sidebar() {
             onToggle={() => setOpenVendas((v) => !v)}
           >
             <NavLink href="/dashboard/vendas/nova">Efetuar venda</NavLink>
-            <NavLink href="/dashboard/vendas">Painel de vendas</NavLink>
+
+            {/* ✅ IMPORTANTE: exact para não ficar ativo em /dashboard/vendas/* */}
+            <NavLink href="/dashboard/vendas" exact>
+              Painel de vendas
+            </NavLink>
+
+            {/* ✅ NOVO: Compras a finalizar / finalizadas (histórico) */}
+            <NavLink href="/dashboard/vendas/compras-a-finalizar">
+              Compras a finalizar
+            </NavLink>
+            <NavLink href="/dashboard/vendas/compras-finalizadas">
+              Compras finalizadas
+            </NavLink>
           </SubAccordion>
         </Accordion>
 
@@ -576,10 +595,12 @@ function NavLink({
   href,
   children,
   className,
+  exact = false,
 }: {
   href: string;
-  children: React.ReactNode;
+  children: ReactNode;
   className?: string;
+  exact?: boolean;
 }) {
   const pathname = usePathname();
   const search = useSearchParams();
@@ -590,6 +611,8 @@ function NavLink({
 
   const active = hasQuery
     ? pathname === hrefPath && paramsEqual(search, hrefQuery)
+    : exact
+    ? pathname === hrefPath
     : // ✅ evita marcar "Todos" como ativo quando houver query (?programa=...)
       !(
         STRICT_NOQUERY_ACTIVE_PATHS.has(hrefPath) &&
@@ -622,7 +645,7 @@ function Accordion({
   open: boolean;
   onToggle: () => void;
   active?: boolean;
-  children: React.ReactNode;
+  children: ReactNode;
 }) {
   return (
     <>
@@ -652,7 +675,7 @@ function SubAccordion({
   title: string;
   open: boolean;
   onToggle: () => void;
-  children: React.ReactNode;
+  children: ReactNode;
   variant?: "default" | "nav";
   active?: boolean;
 }) {

@@ -86,6 +86,9 @@ model User {
   // ✅ Compras liberadas por este usuário (lado inverso de Purchase.liberadoPor)
   comprasLiberadas Purchase[] @relation("CompraLiberadaPor")
 
+  // ✅ NOVO: compras finalizadas por este usuário (rateio/lucro)
+  comprasFinalizadas Purchase[] @relation("PurchaseFinalizedBy")
+
   // ✅ Comissões de cedente (geradas / pagas)
   cedenteCommissionsGenerated CedenteCommission[] @relation("CedenteCommissionGeneratedBy")
   cedenteCommissionsPaid      CedenteCommission[] @relation("CedenteCommissionPaidBy")
@@ -130,7 +133,7 @@ model Cedente {
 
   nomeCompleto   String
   dataNascimento DateTime?
-  cpf            String    @unique
+  cpf            String   @unique
 
   telefone    String?
   emailCriado String?
@@ -155,10 +158,10 @@ model Cedente {
   reviewedAt DateTime?
 
   reviewedById String?
-  reviewedBy   User?   @relation("CedenteReviewedBy", fields: [reviewedById], references: [id], onDelete: SetNull)
+  reviewedBy   User? @relation("CedenteReviewedBy", fields: [reviewedById], references: [id], onDelete: SetNull)
 
   ownerId String
-  owner   User   @relation("CedenteOwner", fields: [ownerId], references: [id], onDelete: Restrict)
+  owner   User @relation("CedenteOwner", fields: [ownerId], references: [id], onDelete: Restrict)
 
   inviteId String?
   invite   EmployeeInvite? @relation(fields: [inviteId], references: [id], onDelete: SetNull)
@@ -216,9 +219,9 @@ model CashSnapshot {
 
   cashCents Int @default(0) // ✅ caixa (Inter) em centavos
 
-  totalBruto   Int // em centavos
-  totalDividas Int // em centavos
-  totalLiquido Int // em centavos
+  totalBruto   Int
+  totalDividas Int
+  totalLiquido Int
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -231,7 +234,7 @@ model Settings {
   id  String @id @default(cuid())
   key String @unique
 
-  latamRateCents  Int @default(2000) // R$20,00 por milheiro
+  latamRateCents  Int @default(2000)
   smilesRateCents Int @default(1800)
   liveloRateCents Int @default(2200)
   esferaRateCents Int @default(1700)
@@ -254,7 +257,7 @@ model Debt {
   status      DebtStatus @default(OPEN)
 
   createdById String?
-  createdBy   User?   @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  createdBy   User? @relation(fields: [createdById], references: [id], onDelete: SetNull)
 
   payments DebtPayment[]
 
@@ -299,7 +302,7 @@ model BlockedAccount {
   estimatedUnlockAt DateTime?
 
   createdById String?
-  createdBy   User?   @relation("BlockedCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  createdBy   User? @relation("BlockedCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
 
   resolvedAt   DateTime?
   observations BlockObservation[]
@@ -323,7 +326,7 @@ model BlockObservation {
   text      String
 
   createdById String?
-  createdBy   User?   @relation("BlockedObsCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  createdBy   User? @relation("BlockedObsCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -427,7 +430,23 @@ model Purchase {
    */
   liberadoEm    DateTime?
   liberadoPorId String?
-  liberadoPor   User?     @relation("CompraLiberadaPor", fields: [liberadoPorId], references: [id], onDelete: SetNull)
+  liberadoPor   User? @relation("CompraLiberadaPor", fields: [liberadoPorId], references: [id], onDelete: SetNull)
+
+  /**
+   * =========================
+   * FINALIZAÇÃO (RATEIO/LUCRO)
+   * =========================
+   */
+  finalizedAt   DateTime?
+  finalizedById String?
+  finalizedBy   User? @relation("PurchaseFinalizedBy", fields: [finalizedById], references: [id], onDelete: SetNull)
+
+  // snapshots consolidados do ID no momento da finalização
+  finalSalesCents       Int?
+  finalProfitCents      Int?
+  finalSoldPoints       Int?
+  finalPax              Int?
+  finalAvgMilheiroCents Int?
 
   /**
    * =========================
@@ -439,10 +458,10 @@ model Purchase {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  cedente Cedente        @relation(fields: [cedenteId], references: [id], onDelete: Cascade)
+  cedente Cedente @relation(fields: [cedenteId], references: [id], onDelete: Cascade)
   items   PurchaseItem[]
 
-  // ✅ Vendas vinculadas a esta compra (se você vincular venda à compra)
+  // ✅ Vendas vinculadas a esta compra
   sales Sale[]
 
   // ✅ AJUSTE: lado inverso 1:1 com CedenteCommission
@@ -451,6 +470,11 @@ model Purchase {
   @@index([cedenteId])
   @@index([status])
   @@index([ciaAerea])
+
+  // ✅ NOVOS ÍNDICES p/ listagem de finalização/histórico
+  @@index([finalizedAt])
+  @@index([finalizedById])
+
   @@map("purchases")
 }
 
@@ -504,7 +528,7 @@ model CedenteCommission {
   cedenteId String
   cedente   Cedente @relation(fields: [cedenteId], references: [id], onDelete: Cascade)
 
-  // 1:1 opcional com Purchase (um Purchase pode gerar no máximo 1 comissão)
+  // 1:1 opcional com Purchase
   purchaseId String?   @unique
   purchase   Purchase? @relation("PurchaseCedenteCommission", fields: [purchaseId], references: [id], onDelete: SetNull)
 
@@ -513,11 +537,11 @@ model CedenteCommission {
 
   generatedAt   DateTime @default(now())
   generatedById String?
-  generatedBy   User?    @relation("CedenteCommissionGeneratedBy", fields: [generatedById], references: [id], onDelete: SetNull)
+  generatedBy   User? @relation("CedenteCommissionGeneratedBy", fields: [generatedById], references: [id], onDelete: SetNull)
 
   paidAt   DateTime?
   paidById String?
-  paidBy   User?     @relation("CedenteCommissionPaidBy", fields: [paidById], references: [id], onDelete: SetNull)
+  paidBy   User? @relation("CedenteCommissionPaidBy", fields: [paidById], references: [id], onDelete: SetNull)
 
   note String?
 
@@ -555,7 +579,7 @@ model Cliente {
   origemDescricao String?
 
   createdById String?
-  createdBy   User?   @relation("ClienteCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  createdBy   User? @relation("ClienteCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
 
   // ✅ Vendas vinculadas a este cliente
   sales Sale[]
@@ -617,12 +641,10 @@ model EmissionEvent {
   cedente   Cedente @relation(fields: [cedenteId], references: [id], onDelete: Cascade)
 
   program         LoyaltyProgram
-  passengersCount Int            @default(1)
+  passengersCount Int @default(1)
 
-  // data da emissão/venda
   issuedAt DateTime
 
-  // origem do lançamento
   source EmissionSource @default(SALE)
 
   note String?
@@ -644,15 +666,14 @@ model Sale {
   points     Int
   passengers Int
 
-  milheiroCents     Int
-  embarqueFeeCents  Int @default(0)
-  pointsValueCents  Int @default(0)
-  totalCents        Int @default(0)
+  milheiroCents    Int
+  embarqueFeeCents Int @default(0)
+  pointsValueCents Int @default(0)
+  totalCents       Int @default(0)
 
-  // comissão/bonus (pra usar depois no módulo de comissão)
-  commissionCents   Int @default(0) // 1% do valor dos pontos (sem taxa)
-  bonusCents        Int @default(0) // 30% do excedente acima da meta
-  metaMilheiroCents Int @default(0) // snapshot da meta no momento da venda
+  commissionCents   Int @default(0)
+  bonusCents        Int @default(0)
+  metaMilheiroCents Int @default(0)
 
   feeCardLabel String?
   locator      String?
@@ -660,7 +681,6 @@ model Sale {
   paymentStatus SalePaymentStatus @default(PENDING)
   paidAt        DateTime?
 
-  // relações
   cedenteId String
   cedente   Cedente @relation(fields: [cedenteId], references: [id], onDelete: Restrict)
 
