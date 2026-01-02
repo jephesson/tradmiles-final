@@ -36,10 +36,15 @@ type OutSale = {
   program: string;
   points: number;
   passengers: number;
-  totalCents: number;
+  totalCents: number; // ✅ valor da venda
   locator: string | null;
   paymentStatus: string;
 };
+
+function safeInt(v: any, fb = 0) {
+  const n = Number(v);
+  return Number.isFinite(n) ? Math.trunc(n) : fb;
+}
 
 export async function GET(req: Request) {
   const session = await getServerSession();
@@ -51,9 +56,8 @@ export async function GET(req: Request) {
   const q = (url.searchParams.get("q") || "").trim();
   const onlyWithSales = url.searchParams.get("onlyWithSales") === "1";
 
-  // base: compras LIBERADAS (CLOSED) do mesmo time
   const whereBase: any = {
-    status: "CLOSED",
+    status: "CLOSED", // compra LIBERADA
     cedente: { owner: { team: session.team } },
   };
 
@@ -67,8 +71,7 @@ export async function GET(req: Request) {
     ];
   }
 
-  // ✅ Se você ainda não criou migration das colunas finalized*, essa query pode quebrar.
-  // Fazemos fallback (e avisamos) para não ficar “vazio”.
+  // ✅ fallback caso ainda não tenha as colunas finalized*
   let needsMigration = false;
 
   const selectPurchase = {
@@ -76,6 +79,11 @@ export async function GET(req: Request) {
     numero: true,
     totalCents: true,
     createdAt: true,
+
+    // ✅ projeções
+    pontosCiaTotal: true,
+    metaMilheiroCents: true,
+
     cedente: {
       select: {
         id: true,
@@ -90,6 +98,8 @@ export async function GET(req: Request) {
     id: string;
     numero: string;
     totalCents: number;
+    pontosCiaTotal: number;
+    metaMilheiroCents: number;
     createdAt: Date;
     cedente: { id: string; nomeCompleto: string; cpf: string; identificador: string };
   }> = [];
@@ -114,6 +124,7 @@ export async function GET(req: Request) {
     return NextResponse.json({ ok: true, rows: [], needsMigration });
   }
 
+  // ✅ lista de vendas por compra (pra expandir)
   const sales = await prisma.sale.findMany({
     where: {
       purchaseId: { in: ids },
@@ -127,7 +138,7 @@ export async function GET(req: Request) {
       program: true,
       points: true,
       passengers: true,
-      totalCents: true,
+      totalCents: true, // ✅ valor da venda
       locator: true,
       paymentStatus: true,
       purchaseId: true,
@@ -143,15 +154,16 @@ export async function GET(req: Request) {
       numero: s.numero,
       date: s.date.toISOString(),
       program: String(s.program),
-      points: s.points,
-      passengers: s.passengers,
-      totalCents: s.totalCents,
+      points: safeInt(s.points),
+      passengers: safeInt(s.passengers),
+      totalCents: safeInt(s.totalCents), // ✅
       locator: s.locator ?? null,
       paymentStatus: String(s.paymentStatus),
     });
     byPurchase.set(s.purchaseId, list);
   }
 
+  // ✅ agregados (pra cards/linha resumo)
   const sums = await prisma.sale.groupBy({
     by: ["purchaseId"],
     where: {
@@ -202,21 +214,58 @@ export async function GET(req: Request) {
       lastSaleAt: null,
     };
 
+    const purchaseTotalCents = safeInt(p.totalCents, 0);
+    const pointsTotal = safeInt(p.pontosCiaTotal, 0);
+    const metaMilheiroCents = safeInt(p.metaMilheiroCents, 0);
+
+    const soldPoints = safeInt(agg.soldPoints, 0);
+    const remainingPoints = Math.max(pointsTotal - soldPoints, 0);
+
+    // ✅ milheiro médio baseado no "valor das milhas" (pointsValueCents)
     const avgMilheiroCents =
-      agg.soldPoints > 0 ? Math.round((agg.pointsValueCents * 1000) / agg.soldPoints) : 0;
+      soldPoints > 0
+        ? Math.round((safeInt(agg.pointsValueCents, 0) * 1000) / soldPoints)
+        : null;
+
+    const salesTotalCents = safeInt(agg.salesTotalCents, 0);
+
+    // ✅ projeções:
+    const projectedRevenueAvgCents =
+      avgMilheiroCents == null
+        ? null
+        : salesTotalCents + Math.round((remainingPoints * avgMilheiroCents) / 1000);
+
+    const projectedProfitAvgCents =
+      projectedRevenueAvgCents == null ? null : projectedRevenueAvgCents - purchaseTotalCents;
+
+    const projectedRevenueMetaCents =
+      salesTotalCents + Math.round((remainingPoints * metaMilheiroCents) / 1000);
+
+    const projectedProfitMetaCents = projectedRevenueMetaCents - purchaseTotalCents;
 
     return {
       purchaseId: p.id,
       numero: p.numero,
       cedente: p.cedente,
-      purchaseTotalCents: p.totalCents ?? 0,
-      salesTotalCents: agg.salesTotalCents,
-      saldoCents: (agg.salesTotalCents ?? 0) - (p.totalCents ?? 0),
-      pax: agg.pax,
-      soldPoints: agg.soldPoints,
+
+      purchaseTotalCents,
+      salesTotalCents,
+      saldoCents: salesTotalCents - purchaseTotalCents,
+
+      pax: safeInt(agg.pax, 0),
+      soldPoints,
+      pointsTotal,
+      remainingPoints,
+
       avgMilheiroCents,
-      salesCount: agg.salesCount,
+      metaMilheiroCents,
+
+      projectedProfitAvgCents,  // ✅
+      projectedProfitMetaCents, // ✅
+
+      salesCount: safeInt(agg.salesCount, 0),
       lastSaleAt: agg.lastSaleAt,
+
       sales: byPurchase.get(p.id) || [],
     };
   });

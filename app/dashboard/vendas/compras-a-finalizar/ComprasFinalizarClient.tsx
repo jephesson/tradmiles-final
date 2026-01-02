@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 
 type Row = {
   purchaseId: string;
@@ -13,7 +13,17 @@ type Row = {
 
   pax: number;
   soldPoints: number;
-  avgMilheiroCents: number;
+
+  // pode vir null no novo backend (quando ainda não tem vendas)
+  avgMilheiroCents: number | null;
+
+  // ✅ novos campos (podem ou não vir do backend)
+  pointsTotal?: number; // pontosCiaTotal
+  remainingPoints?: number;
+  metaMilheiroCents?: number;
+
+  projectedProfitAvgCents?: number | null;
+  projectedProfitMetaCents?: number | null;
 
   salesCount: number;
   lastSaleAt: string | null;
@@ -41,6 +51,67 @@ function fmtInt(n: number) {
 function fmtDateBR(iso: string) {
   const d = new Date(iso);
   return Number.isNaN(d.getTime()) ? iso : d.toLocaleString("pt-BR");
+}
+
+function n(v: any, fb = 0) {
+  const x = Number(v);
+  return Number.isFinite(x) ? Math.trunc(x) : fb;
+}
+function nOrNull(v: any): number | null {
+  if (v === null || v === undefined) return null;
+  const x = Number(v);
+  return Number.isFinite(x) ? Math.trunc(x) : null;
+}
+
+function computeRow(r: Row) {
+  // backend novo pode mandar pronto:
+  const projectedProfitAvgCents = ("projectedProfitAvgCents" in r ? (r.projectedProfitAvgCents ?? null) : null) as
+    | number
+    | null;
+
+  const projectedProfitMetaCents = ("projectedProfitMetaCents" in r ? (r.projectedProfitMetaCents ?? null) : null) as
+    | number
+    | null;
+
+  // se backend mandar remainingPoints, beleza; senão tenta calcular se tiver pointsTotal
+  const pointsTotal = n((r as any).pointsTotal, n((r as any).pontosCiaTotal, 0));
+  const remainingPoints =
+    typeof (r as any).remainingPoints === "number"
+      ? n((r as any).remainingPoints, 0)
+      : pointsTotal > 0
+      ? Math.max(pointsTotal - n(r.soldPoints, 0), 0)
+      : null;
+
+  const avgMilheiroCents = nOrNull((r as any).avgMilheiroCents);
+  const metaMilheiroCents = n((r as any).metaMilheiroCents, 0);
+
+  // fallback: calcula projeções no client se backend não mandou
+  const calcProjectedAvg =
+    projectedProfitAvgCents !== null
+      ? projectedProfitAvgCents
+      : remainingPoints != null && avgMilheiroCents != null && avgMilheiroCents > 0
+      ? r.salesTotalCents +
+        Math.round((remainingPoints * avgMilheiroCents) / 1000) -
+        (r.purchaseTotalCents || 0)
+      : null;
+
+  const calcProjectedMeta =
+    projectedProfitMetaCents !== null
+      ? projectedProfitMetaCents
+      : remainingPoints != null && metaMilheiroCents > 0
+      ? r.salesTotalCents +
+        Math.round((remainingPoints * metaMilheiroCents) / 1000) -
+        (r.purchaseTotalCents || 0)
+      : null;
+
+  return {
+    remainingPoints,
+    pointsTotal: pointsTotal || null,
+    avgMilheiroCents,
+    metaMilheiroCents: metaMilheiroCents || null,
+    projectedProfitAvgCents: calcProjectedAvg,
+    projectedProfitMetaCents: calcProjectedMeta,
+  };
 }
 
 async function api<T>(url: string, init?: RequestInit): Promise<T> {
@@ -178,7 +249,7 @@ export default function ComprasFinalizarClient() {
       {needsMigration && (
         <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
           ⚠️ Parece que as colunas de finalização ainda não foram migradas no banco (finalizedAt/final*).
-          Rode uma migration pra isso (abaixo te deixo os comandos).
+          Rode uma migration pra isso.
         </div>
       )}
 
@@ -245,9 +316,11 @@ export default function ComprasFinalizarClient() {
               const isOpen = Boolean(open[r.purchaseId]);
               const isBusy = busyId === r.purchaseId;
 
+              const c = computeRow(r);
+
               return (
-                <>
-                  <tr key={r.purchaseId} className="border-t">
+                <Fragment key={r.purchaseId}>
+                  <tr className="border-t">
                     <td className="p-3">{idx + 1}</td>
 
                     <td className="p-3">
@@ -270,9 +343,7 @@ export default function ComprasFinalizarClient() {
 
                     <td className="p-3">
                       <div className="font-medium">{fmtInt(r.pax)}</div>
-                      <div className="text-xs text-gray-500">
-                        {fmtInt(r.salesCount)} venda(s)
-                      </div>
+                      <div className="text-xs text-gray-500">{fmtInt(r.salesCount)} venda(s)</div>
                     </td>
 
                     <td className="p-3 font-medium">{fmtMoneyBR(r.saldoCents)}</td>
@@ -303,15 +374,39 @@ export default function ComprasFinalizarClient() {
                   {isOpen && (
                     <tr className="border-t bg-slate-50">
                       <td colSpan={6} className="p-3">
-                        <div className="text-xs text-gray-600 mb-2">
-                          Compras: <b>{fmtMoneyBR(r.purchaseTotalCents)}</b> · Vendas:{" "}
-                          <b>{fmtMoneyBR(r.salesTotalCents)}</b> · Milheiro médio:{" "}
-                          <b>{fmtMoneyBR(r.avgMilheiroCents)}</b> · Última venda:{" "}
-                          <b>{r.lastSaleAt ? fmtDateBR(r.lastSaleAt) : "—"}</b>
+                        <div className="text-xs text-gray-700 mb-2 flex flex-wrap gap-x-3 gap-y-1">
+                          <span>
+                            Compras: <b>{fmtMoneyBR(r.purchaseTotalCents)}</b>
+                          </span>
+                          <span>
+                            Vendas: <b>{fmtMoneyBR(r.salesTotalCents)}</b>
+                          </span>
+                          <span>
+                            Milheiro médio:{" "}
+                            <b>{c.avgMilheiroCents == null ? "—" : fmtMoneyBR(c.avgMilheiroCents)}</b>
+                          </span>
+
+                          <span title="Lucro se o restante for vendido pelo milheiro médio já vendido">
+                            Lucro previsto (média):{" "}
+                            <b>{c.projectedProfitAvgCents == null ? "—" : fmtMoneyBR(c.projectedProfitAvgCents)}</b>
+                          </span>
+
+                          <span title="Lucro se o restante for vendido pela metaMilheiro">
+                            Lucro previsto (meta):{" "}
+                            <b>{c.projectedProfitMetaCents == null ? "—" : fmtMoneyBR(c.projectedProfitMetaCents)}</b>
+                          </span>
+
+                          <span>
+                            Restante: <b>{c.remainingPoints == null ? "—" : fmtInt(c.remainingPoints)} pts</b>
+                          </span>
+
+                          <span>
+                            Última venda: <b>{r.lastSaleAt ? fmtDateBR(r.lastSaleAt) : "—"}</b>
+                          </span>
                         </div>
 
                         <div className="overflow-auto rounded-lg border bg-white">
-                          <table className="min-w-[900px] w-full text-xs">
+                          <table className="min-w-[950px] w-full text-xs">
                             <thead className="bg-gray-50">
                               <tr className="text-left">
                                 <th className="p-2">Venda</th>
@@ -319,11 +414,12 @@ export default function ComprasFinalizarClient() {
                                 <th className="p-2">Programa</th>
                                 <th className="p-2">Pts</th>
                                 <th className="p-2">Pax</th>
-                                <th className="p-2">Total</th>
+                                <th className="p-2">Valor</th>
                                 <th className="p-2">Locator</th>
                                 <th className="p-2">Status</th>
                               </tr>
                             </thead>
+
                             <tbody>
                               {r.sales.length === 0 ? (
                                 <tr>
@@ -339,7 +435,7 @@ export default function ComprasFinalizarClient() {
                                     <td className="p-2">{s.program}</td>
                                     <td className="p-2">{fmtInt(s.points)}</td>
                                     <td className="p-2">{fmtInt(s.passengers)}</td>
-                                    <td className="p-2">{fmtMoneyBR(s.totalCents)}</td>
+                                    <td className="p-2 font-medium">{fmtMoneyBR(s.totalCents)}</td>
                                     <td className="p-2">{s.locator || "—"}</td>
                                     <td className="p-2">{s.paymentStatus}</td>
                                   </tr>
@@ -351,7 +447,7 @@ export default function ComprasFinalizarClient() {
                       </td>
                     </tr>
                   )}
-                </>
+                </Fragment>
               );
             })}
 
