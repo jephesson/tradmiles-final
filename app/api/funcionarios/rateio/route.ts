@@ -42,6 +42,16 @@ function toBps(percent: any) {
   return Math.round(p * 100); // 2 casas -> bps
 }
 
+type PutBody = {
+  ownerId?: string;
+  items?: Array<{
+    payeeId?: string;
+    percent?: number | string;
+  }>;
+};
+
+type RateioItemNorm = { payeeId: string; bps: number };
+
 export async function GET() {
   const session = await getServerSession();
   if (!session?.id) {
@@ -78,8 +88,16 @@ export async function GET() {
     },
   });
 
-  const shareMap = new Map<string, { payeeId: string; bps: number; payee: { id: string; name: string; login: string } }[]>();
-  for (const s of shares) shareMap.set(String(s.ownerId), s.items.map((it) => ({ payeeId: it.payeeId, bps: it.bps, payee: it.payee })));
+  const shareMap = new Map<
+    string,
+    { payeeId: string; bps: number; payee: { id: string; name: string; login: string } }[]
+  >();
+  for (const s of shares) {
+    shareMap.set(
+      String(s.ownerId),
+      s.items.map((it) => ({ payeeId: it.payeeId, bps: it.bps, payee: it.payee }))
+    );
+  }
 
   const rows = users.map((u) => {
     const items = shareMap.get(u.id) || [
@@ -106,7 +124,7 @@ export async function PUT(req: Request) {
     return NextResponse.json({ ok: false, error: "Não autenticado" }, { status: 401 });
   }
 
-  const body = await req.json().catch(() => ({}));
+  const body = (await req.json().catch(() => ({}))) as PutBody;
 
   const ownerId = String(body.ownerId || "").trim();
   const itemsRaw = Array.isArray(body.items) ? body.items : [];
@@ -124,12 +142,12 @@ export async function PUT(req: Request) {
   }
 
   // normaliza itens (percent -> bps)
-  const items = itemsRaw
-    .map((it: any) => ({
+  const items: RateioItemNorm[] = itemsRaw
+    .map((it): RateioItemNorm => ({
       payeeId: String(it?.payeeId || "").trim(),
       bps: toBps(it?.percent),
     }))
-    .filter((it: any) => it.payeeId && it.bps >= 0);
+    .filter((it) => it.payeeId.length > 0 && it.bps >= 0);
 
   if (items.length === 0) {
     return NextResponse.json({ ok: false, error: "Informe pelo menos 1 destinatário" }, { status: 400 });
