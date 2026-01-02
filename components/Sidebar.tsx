@@ -161,6 +161,22 @@ export default function Sidebar() {
 
   useEffect(() => setOpenCadastro(isCadastroRoute), [isCadastroRoute]);
 
+  // ✅ mantém subaccordions do Cadastro coerentes com a rota atual
+  useEffect(() => {
+    setOpenCedentes(
+      (pathname.startsWith("/dashboard/cedentes") && !isPontosVisualizarRoute) ||
+        pathname.startsWith("/dashboard/bloqueios")
+    );
+  }, [pathname, isPontosVisualizarRoute]);
+
+  useEffect(() => {
+    setOpenFuncionarios(pathname.startsWith("/dashboard/funcionarios"));
+  }, [pathname]);
+
+  useEffect(() => {
+    setOpenClientes(pathname.startsWith("/dashboard/clientes"));
+  }, [pathname]);
+
   useEffect(
     () => setOpenGestaoPontos(isGestaoPontosRoute),
     [isGestaoPontosRoute]
@@ -300,8 +316,15 @@ export default function Sidebar() {
             <NavLink href="/dashboard/funcionarios/novo">
               Cadastrar funcionário
             </NavLink>
-            <NavLink href="/dashboard/funcionarios">
+
+            {/* ✅ exact pra não ficar ativo em /dashboard/funcionarios/* */}
+            <NavLink href="/dashboard/funcionarios" exact>
               Visualizar funcionários
+            </NavLink>
+
+            {/* ✅ NOVO: base percentual do rateio do lucro */}
+            <NavLink href="/dashboard/funcionarios/rateio">
+              Rateio do lucro
             </NavLink>
           </SubAccordion>
 
@@ -311,7 +334,11 @@ export default function Sidebar() {
             onToggle={() => setOpenClientes((v) => !v)}
           >
             <NavLink href="/dashboard/clientes/novo">Cadastrar cliente</NavLink>
-            <NavLink href="/dashboard/clientes">Visualizar clientes</NavLink>
+
+            {/* ✅ exact pra não ficar ativo em /dashboard/clientes/* */}
+            <NavLink href="/dashboard/clientes" exact>
+              Visualizar clientes
+            </NavLink>
           </SubAccordion>
         </Accordion>
 
@@ -421,7 +448,11 @@ export default function Sidebar() {
             onToggle={() => setOpenCompras((v) => !v)}
           >
             <NavLink href="/dashboard/compras/nova">Efetuar compra</NavLink>
-            <NavLink href="/dashboard/compras">Visualizar compras</NavLink>
+
+            {/* ✅ exact pra não ficar ativo em /dashboard/compras/* */}
+            <NavLink href="/dashboard/compras" exact>
+              Visualizar compras
+            </NavLink>
           </SubAccordion>
 
           <SubAccordion
