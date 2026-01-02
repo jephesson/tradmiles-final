@@ -133,7 +133,7 @@ model Cedente {
 
   nomeCompleto   String
   dataNascimento DateTime?
-  cpf            String   @unique
+  cpf            String @unique
 
   telefone    String?
   emailCriado String?
@@ -296,7 +296,7 @@ model BlockedAccount {
 
   cedenteId String
   program   LoyaltyProgram
-  status    BlockStatus    @default(OPEN)
+  status    BlockStatus @default(OPEN)
 
   note              String?
   estimatedUnlockAt DateTime?
@@ -369,8 +369,8 @@ enum TransferMode {
 }
 
 model Purchase {
-  id        String         @id @default(cuid())
-  numero    String         @unique // ID00001
+  id        String @id @default(cuid())
+  numero    String @unique // ID00001
   cedenteId String
   status    PurchaseStatus @default(OPEN)
 
@@ -380,7 +380,7 @@ model Purchase {
    * =========================
    */
   ciaAerea       LoyaltyProgram?
-  pontosCiaTotal Int             @default(0)
+  pontosCiaTotal Int @default(0)
 
   /**
    * =========================
@@ -464,22 +464,19 @@ model Purchase {
   // ✅ Vendas vinculadas a esta compra
   sales Sale[]
 
-  // ✅ AJUSTE: lado inverso 1:1 com CedenteCommission
+  // ✅ lado inverso 1:1 com CedenteCommission
   cedenteCommission CedenteCommission? @relation("PurchaseCedenteCommission")
 
   @@index([cedenteId])
   @@index([status])
   @@index([ciaAerea])
-
-  // ✅ NOVOS ÍNDICES p/ listagem de finalização/histórico
   @@index([finalizedAt])
   @@index([finalizedById])
-
   @@map("purchases")
 }
 
 model PurchaseItem {
-  id         String             @id @default(cuid())
+  id         String @id @default(cuid())
   purchaseId String
   type       PurchaseItemType
   status     PurchaseItemStatus @default(PENDING)
@@ -488,13 +485,13 @@ model PurchaseItem {
   programTo   LoyaltyProgram?
 
   // pontos
-  pointsBase  Int     @default(0)
+  pointsBase  Int @default(0)
   bonusMode   String?
   bonusValue  Int?
-  pointsFinal Int     @default(0)
+  pointsFinal Int @default(0)
 
   // dinheiro
-  amountCents  Int           @default(0)
+  amountCents  Int @default(0)
   transferMode TransferMode?
 
   pointsDebitedFromOrigin Int @default(0)
@@ -529,7 +526,7 @@ model CedenteCommission {
   cedente   Cedente @relation(fields: [cedenteId], references: [id], onDelete: Cascade)
 
   // 1:1 opcional com Purchase
-  purchaseId String?   @unique
+  purchaseId String? @unique
   purchase   Purchase? @relation("PurchaseCedenteCommission", fields: [purchaseId], references: [id], onDelete: SetNull)
 
   amountCents Int
@@ -599,14 +596,14 @@ enum ReceivableStatus {
 }
 
 model Receivable {
-  id            String           @id @default(cuid())
+  id            String @id @default(cuid())
   title         String
   description   String?
   totalCents    Int
-  receivedCents Int              @default(0)
+  receivedCents Int @default(0)
   balanceCents  Int
   status        ReceivableStatus @default(OPEN)
-  createdAt     DateTime         @default(now())
+  createdAt     DateTime @default(now())
 
   receipts Receipt[]
 
@@ -614,7 +611,7 @@ model Receivable {
 }
 
 model Receipt {
-  id           String     @id @default(cuid())
+  id           String @id @default(cuid())
   receivableId String
   receivable   Receivable @relation(fields: [receivableId], references: [id], onDelete: Cascade)
 
