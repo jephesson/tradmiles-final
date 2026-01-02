@@ -257,7 +257,7 @@ model Settings {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  @@map("Settings") // ✅ ajuste: tabela real no banco
+  @@map("settings") // ✅ FIX: tabela real (lowercase)
 }
 
 /**
@@ -465,13 +465,6 @@ model Purchase {
 
   /**
    * ✅ SNAPSHOTS CONSOLIDADOS DO ID NO MOMENTO DA FINALIZAÇÃO
-   * Convenções:
-   * - finalSalesCents            = TOTAL COBRADO (com taxas)
-   * - finalSalesPointsValueCents = SOMENTE MILHAS (sem taxas)
-   * - finalSalesTaxesCents       = TAXAS (diferença)
-   * - finalProfitBrutoCents      = LUCRO sem taxas (antes do bônus)
-   * - finalBonusCents            = bônus total (ex.: 30% excedente acima da meta)
-   * - finalProfitCents           = LUCRO LÍQUIDO sem taxas (já desconta bônus)
    */
   finalSalesCents            Int?
   finalSalesPointsValueCents Int?
@@ -669,7 +662,7 @@ model Receivable {
 
   @@index([status])
   @@index([createdAt])
-  @@map("Receivable") // ✅ ajuste: tabela real no banco
+  @@map("receivables") // ✅ FIX: tabela real (lowercase)
 }
 
 model Receipt {
@@ -686,7 +679,7 @@ model Receipt {
 
   @@index([receivableId])
   @@index([receivedAt])
-  @@map("Receipt") // ✅ ajuste: tabela real no banco
+  @@map("Receipt") // ⚠️ se sua tabela for lowercase, troque pra "receipts"
 }
 
 /**
