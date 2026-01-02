@@ -45,31 +45,32 @@ export async function PATCH(req: Request) {
     const out = await prisma.$transaction(async (tx) => {
       const purchase = await tx.purchase.findUnique({
         where: { id: purchaseId },
-        // ✅ REMOVIDO: points (não existe no model Purchase)
         select: {
           id: true,
           numero: true,
           status: true,
+          pontosCiaTotal: true, // ✅ era points
           totalCents: true,
           metaMilheiroCents: true,
           finalizedAt: true,
+          cedente: { select: { owner: { select: { team: true } } } },
         },
       });
 
       if (!purchase) throw new Error("Compra não encontrada.");
+      if (purchase.cedente?.owner?.team !== session.team) throw new Error("Sem permissão.");
       if (purchase.status !== "CLOSED") throw new Error("Compra não está LIBERADA.");
       if (purchase.finalizedAt) throw new Error("Compra já foi finalizada.");
 
-      // ✅ "vendas liberadas" = não canceladas (se quiser só pagas, troque para paymentStatus: "PAID")
       const agg = await tx.sale.aggregate({
         where: { purchaseId, paymentStatus: { not: "CANCELED" } },
         _sum: { points: true, passengers: true, totalCents: true, pointsValueCents: true },
       });
 
-      const soldPoints = agg._sum.points || 0;
-      const pax = agg._sum.passengers || 0;
-      const salesTotalCents = agg._sum.totalCents || 0;
-      const pointsValueCents = agg._sum.pointsValueCents || 0;
+      const soldPoints = agg._sum.points ?? 0;
+      const pax = agg._sum.passengers ?? 0;
+      const salesTotalCents = agg._sum.totalCents ?? 0;
+      const pointsValueCents = agg._sum.pointsValueCents ?? 0;
 
       const avgMilheiroCents =
         soldPoints > 0 ? Math.round((pointsValueCents * 1000) / soldPoints) : 0;
@@ -87,7 +88,16 @@ export async function PATCH(req: Request) {
           finalPax: pax,
           finalAvgMilheiroCents: avgMilheiroCents,
         },
-        select: { id: true, numero: true, finalizedAt: true, finalProfitCents: true },
+        select: {
+          id: true,
+          numero: true,
+          finalizedAt: true,
+          finalProfitCents: true,
+          finalSalesCents: true,
+          finalSoldPoints: true,
+          finalPax: true,
+          finalAvgMilheiroCents: true,
+        },
       });
 
       return updated;
@@ -95,6 +105,9 @@ export async function PATCH(req: Request) {
 
     return NextResponse.json({ ok: true, purchase: out });
   } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e?.message || "Erro ao finalizar" }, { status: 400 });
+    return NextResponse.json(
+      { ok: false, error: e?.message || "Erro ao finalizar" },
+      { status: 400 }
+    );
   }
 }

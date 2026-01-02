@@ -1,404 +1,369 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { cn } from "@/lib/cn";
+
+type Row = {
+  purchaseId: string;
+  numero: string;
+  cedente: { id: string; nomeCompleto: string; cpf: string; identificador: string } | null;
+
+  purchaseTotalCents: number;
+  salesTotalCents: number;
+  saldoCents: number;
+
+  pax: number;
+  soldPoints: number;
+  avgMilheiroCents: number;
+
+  salesCount: number;
+  lastSaleAt: string | null;
+
+  sales: Array<{
+    id: string;
+    numero: string;
+    date: string;
+    program: string;
+    points: number;
+    passengers: number;
+    totalCents: number;
+    locator: string | null;
+    paymentStatus: string;
+  }>;
+};
 
 function fmtMoneyBR(cents: number) {
-  return ((cents || 0) / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+  const v = (cents || 0) / 100;
+  return v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
 function fmtInt(n: number) {
   return (n || 0).toLocaleString("pt-BR");
 }
-function fmtDateBR(iso: any) {
-  if (!iso) return "—";
+function fmtDateBR(iso: string) {
   const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "—";
-  return d.toLocaleString("pt-BR");
+  return Number.isNaN(d.getTime()) ? iso : d.toLocaleString("pt-BR");
 }
 
 async function api<T>(url: string, init?: RequestInit): Promise<T> {
-  const r = await fetch(url, {
+  const res = await fetch(url, {
+    ...init,
     cache: "no-store",
     credentials: "include",
     headers: { "Content-Type": "application/json", ...(init?.headers || {}) },
-    ...init,
   });
-  const j = await r.json().catch(() => ({}));
-  if (!r.ok || (j as any)?.ok === false) throw new Error((j as any)?.error || `Erro ${r.status}`);
-  return j as T;
+
+  const text = await res.text().catch(() => "");
+  let data: any = {};
+  try {
+    data = text ? JSON.parse(text) : {};
+  } catch {
+    data = { raw: text };
+  }
+
+  if (!res.ok || data?.ok === false) {
+    throw new Error(data?.error || `Erro ${res.status}`);
+  }
+  return data as T;
 }
 
-type PurchaseResume = {
-  id: string;
-  numero: string;
-  status: string;
-  points: number;
-  totalCents: number;
-  metaMilheiroCents: number;
-  createdAt: string;
-
-  cedente: { id: string; identificador: string; nomeCompleto: string; cpf?: string | null };
-
-  soldPoints: number;
-  soldPax: number;
-  salesTotalCents: number;
-
-  remainingPoints: number;
-  avgMilheiroCents: number;
-  saldoCents: number;
-
-  previewLucroMetaCents: number;
-  previewLucroAvgCents: number;
-};
-
-type SaleItem = {
-  id: string;
-  numero: string;
-  date: string;
-  program: string;
-  points: number;
-  passengers: number;
-  totalCents: number;
-  paymentStatus: "PENDING" | "PAID" | "CANCELED";
-  locator: string | null;
-  cliente: { id: string; identificador: string; nome: string };
-  createdAt: string;
-};
-
 export default function ComprasFinalizarClient() {
-  const [loading, setLoading] = useState(false);
-  const [rows, setRows] = useState<PurchaseResume[]>([]);
+  const [rows, setRows] = useState<Row[]>([]);
   const [q, setQ] = useState("");
-  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
-  const [details, setDetails] = useState<Record<string, { sales: SaleItem[] }>>({});
+  const [loading, setLoading] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const [needsMigration, setNeedsMigration] = useState(false);
 
-  async function load() {
-    setLoading(true);
+  const [open, setOpen] = useState<Record<string, boolean>>({});
+
+  async function load(opts?: { silent?: boolean }) {
+    if (!opts?.silent) setLoading(true);
+    setErr(null);
+
     try {
-      const out = await api<{ ok: true; purchases: PurchaseResume[] }>("/api/vendas/compras-finalizar");
-      setRows(out.purchases || []);
-    } catch {
+      const qs = new URLSearchParams();
+      if (q.trim()) qs.set("q", q.trim());
+
+      const out = await api<{ ok: true; rows: Row[]; needsMigration?: boolean }>(
+        `/api/vendas/compras-a-finalizar?${qs.toString()}`
+      );
+
+      setRows(Array.isArray(out.rows) ? out.rows : []);
+      setNeedsMigration(Boolean(out.needsMigration));
+    } catch (e: any) {
+      setErr(e?.message || "Falha ao carregar.");
       setRows([]);
     } finally {
-      setLoading(false);
+      if (!opts?.silent) setLoading(false);
     }
   }
 
   useEffect(() => {
-    load();
+    void load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const filtered = useMemo(() => {
-    const s = (q || "").trim().toLowerCase();
-    if (!s) return rows;
+    const needle = q.trim().toLowerCase();
+    if (!needle) return rows;
+
     return rows.filter((r) => {
-      const ced = (r.cedente?.nomeCompleto || "").toLowerCase();
-      const cedId = (r.cedente?.identificador || "").toLowerCase();
-      const id = (r.numero || "").toLowerCase();
-      return ced.includes(s) || cedId.includes(s) || id.includes(s);
+      const hay = [
+        r.numero,
+        r.purchaseId,
+        r.cedente?.nomeCompleto || "",
+        r.cedente?.cpf || "",
+        r.cedente?.identificador || "",
+      ]
+        .join(" ")
+        .toLowerCase();
+
+      return hay.includes(needle);
     });
   }, [rows, q]);
 
   const totals = useMemo(() => {
-    let somaSaldo = 0;
-    let somaVendas = 0;
-    let somaCompras = 0;
+    let compras = 0;
+    let vendas = 0;
+    let saldo = 0;
     for (const r of filtered) {
-      somaSaldo += r.saldoCents || 0;
-      somaVendas += r.salesTotalCents || 0;
-      somaCompras += r.totalCents || 0;
+      compras += r.purchaseTotalCents || 0;
+      vendas += r.salesTotalCents || 0;
+      saldo += r.saldoCents || 0;
     }
-    return { somaSaldo, somaVendas, somaCompras, count: filtered.length };
+    return { ids: filtered.length, compras, vendas, saldo };
   }, [filtered]);
 
-  async function toggleExpand(purchaseId: string) {
-    setExpanded((p) => ({ ...p, [purchaseId]: !p[purchaseId] }));
-
-    // lazy load
-    if (!details[purchaseId]) {
-      try {
-        const out = await api<{ ok: true; sales: SaleItem[] }>(`/api/vendas/compras-finalizar/${purchaseId}`);
-        setDetails((p) => ({ ...p, [purchaseId]: { sales: out.sales || [] } }));
-      } catch {
-        setDetails((p) => ({ ...p, [purchaseId]: { sales: [] } }));
-      }
-    }
-  }
-
-  async function finalize(purchaseId: string) {
-    if (busyId) return;
-    const ok = confirm("Finalizar este ID? Isso vai consolidar o lucro e marcar como pronto para rateio.");
+  async function onFinalizar(purchaseId: string) {
+    const ok = window.confirm("Finalizar esta compra? Isso grava os totais e trava como finalizada.");
     if (!ok) return;
 
     setBusyId(purchaseId);
+    setErr(null);
+
     try {
-      await api<{ ok: true }>(`/api/vendas/compras-finalizar/finalize`, {
+      await api<{ ok: true }>(`/api/vendas/compras-finalizar`, {
         method: "PATCH",
         body: JSON.stringify({ purchaseId }),
       });
-      await load(); // remove da lista (vai para “finalizadas” depois)
+
+      await load({ silent: true });
+      alert("Compra finalizada.");
     } catch (e: any) {
-      alert(e?.message || "Falha ao finalizar.");
+      setErr(e?.message || "Falha ao finalizar.");
     } finally {
       setBusyId(null);
     }
   }
 
   return (
-    <div className="p-6 space-y-4">
+    <div className="space-y-5">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-semibold">Compras a finalizar</h1>
-          <p className="text-sm text-slate-500">
-            Agrupa por ID (compra LIBERADA). Mostra saldo e prévias de lucro. Expanda para ver histórico das vendas.
+          <h1 className="text-xl font-semibold">Compras a finalizar</h1>
+          <p className="text-sm text-gray-600">
+            Agrupa por ID (compra LIBERADA). Mostra saldo e prévias. Expanda para ver histórico das vendas.
           </p>
         </div>
 
         <button
-          onClick={load}
-          className={cn("rounded-xl border px-4 py-2 text-sm", loading ? "opacity-60" : "hover:bg-slate-50")}
+          type="button"
+          onClick={() => void load()}
+          className="rounded-md border px-3 py-2 text-sm hover:bg-slate-50"
+          disabled={loading}
         >
           {loading ? "Atualizando..." : "Atualizar"}
         </button>
       </div>
 
-      {/* resumo básico */}
+      {needsMigration && (
+        <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+          ⚠️ Parece que as colunas de finalização ainda não foram migradas no banco (finalizedAt/final*).
+          Rode uma migration pra isso (abaixo te deixo os comandos).
+        </div>
+      )}
+
       <div className="grid gap-3 md:grid-cols-4">
-        <div className="rounded-2xl border bg-white p-4">
-          <div className="text-xs text-slate-500">IDs no filtro</div>
-          <div className="text-lg font-semibold">{fmtInt(totals.count)}</div>
+        <div className="rounded-xl border p-4">
+          <div className="text-xs text-gray-500">IDs no filtro</div>
+          <div className="mt-1 text-xl font-semibold">{fmtInt(totals.ids)}</div>
         </div>
 
-        <div className="rounded-2xl border bg-white p-4">
-          <div className="text-xs text-slate-500">Soma compras</div>
-          <div className="text-lg font-semibold">{fmtMoneyBR(totals.somaCompras)}</div>
+        <div className="rounded-xl border p-4">
+          <div className="text-xs text-gray-500">Soma compras</div>
+          <div className="mt-1 text-xl font-semibold">{fmtMoneyBR(totals.compras)}</div>
         </div>
 
-        <div className="rounded-2xl border bg-white p-4">
-          <div className="text-xs text-slate-500">Soma vendas</div>
-          <div className="text-lg font-semibold">{fmtMoneyBR(totals.somaVendas)}</div>
+        <div className="rounded-xl border p-4">
+          <div className="text-xs text-gray-500">Soma vendas</div>
+          <div className="mt-1 text-xl font-semibold">{fmtMoneyBR(totals.vendas)}</div>
         </div>
 
-        <div className="rounded-2xl border bg-white p-4">
-          <div className="text-xs text-slate-500">Saldo (Vendas − Compras)</div>
-          <div className={cn("text-lg font-semibold", totals.somaSaldo >= 0 ? "text-emerald-700" : "text-rose-700")}>
-            {fmtMoneyBR(totals.somaSaldo)}
-          </div>
+        <div className="rounded-xl border p-4">
+          <div className="text-xs text-gray-500">Saldo (Vendas − Compras)</div>
+          <div className="mt-1 text-xl font-semibold">{fmtMoneyBR(totals.saldo)}</div>
         </div>
       </div>
 
-      <div className="flex flex-wrap items-center gap-2">
+      <div className="rounded-xl border p-4">
         <input
           value={q}
           onChange={(e) => setQ(e.target.value)}
+          className="w-full rounded-md border px-3 py-2 text-sm"
           placeholder="Buscar por cedente / ID..."
-          className="border rounded-xl px-3 py-2 text-sm w-[520px]"
         />
       </div>
 
-      <div className="rounded-2xl border bg-white overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="bg-slate-50 border-b">
-              <tr className="text-slate-600">
-                <th className="text-left font-semibold px-4 py-3 w-[80px]">#</th>
-                <th className="text-left font-semibold px-4 py-3 w-[340px]">Cedente</th>
-                <th className="text-left font-semibold px-4 py-3 w-[140px]">ID</th>
-                <th className="text-right font-semibold px-4 py-3 w-[140px]">Pax (ID)</th>
-                <th className="text-right font-semibold px-4 py-3 w-[160px]">Saldo</th>
-                <th className="text-right font-semibold px-4 py-3 w-[180px]">Ações</th>
+      {err && (
+        <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+          {err}
+        </div>
+      )}
+
+      <div className="overflow-auto rounded-xl border">
+        <table className="min-w-[1100px] w-full text-sm">
+          <thead className="bg-gray-50">
+            <tr className="text-left">
+              <th className="p-3">#</th>
+              <th className="p-3">Cedente</th>
+              <th className="p-3">ID</th>
+              <th className="p-3">Pax (ID)</th>
+              <th className="p-3">Saldo</th>
+              <th className="p-3 text-right">Ações</th>
+            </tr>
+          </thead>
+
+          <tbody>
+            {filtered.length === 0 && !loading && (
+              <tr>
+                <td colSpan={6} className="p-4 text-gray-500">
+                  Nenhum resultado.
+                </td>
               </tr>
-            </thead>
+            )}
 
-            <tbody>
-              {filtered.length === 0 && !loading ? (
-                <tr>
-                  <td colSpan={6} className="px-4 py-8 text-slate-500">
-                    Nenhum resultado.
-                  </td>
-                </tr>
-              ) : null}
+            {filtered.map((r, idx) => {
+              const isOpen = Boolean(open[r.purchaseId]);
+              const isBusy = busyId === r.purchaseId;
 
-              {filtered.map((r, idx) => {
-                const isOpen = !!expanded[r.id];
-                return (
-                  <tbody key={r.id} className="border-b last:border-b-0">
-                    <tr>
-                      <td className="px-4 py-3 text-slate-500">{idx + 1}</td>
+              return (
+                <>
+                  <tr key={r.purchaseId} className="border-t">
+                    <td className="p-3">{idx + 1}</td>
 
-                      <td className="px-4 py-3">
-                        <div className="font-medium">{r.cedente?.nomeCompleto || "—"}</div>
-                        <div className="text-xs text-slate-500">
-                          ID: {r.cedente?.identificador || "—"} {r.cedente?.cpf ? `• CPF: ${r.cedente.cpf}` : ""}
+                    <td className="p-3">
+                      {r.cedente ? (
+                        <div className="space-y-0.5">
+                          <div className="font-medium">{r.cedente.nomeCompleto}</div>
+                          <div className="text-xs text-gray-500">
+                            CPF {r.cedente.cpf} · {r.cedente.identificador}
+                          </div>
                         </div>
-                      </td>
+                      ) : (
+                        <span className="text-gray-500">—</span>
+                      )}
+                    </td>
 
-                      <td className="px-4 py-3 font-mono">
-                        {r.numero}
-                        <div className="text-xs text-slate-500">LIBERADA</div>
-                      </td>
+                    <td className="p-3">
+                      <div className="font-mono">{r.numero}</div>
+                      <div className="text-xs text-gray-500">{r.purchaseId}</div>
+                    </td>
 
-                      <td className="px-4 py-3 text-right tabular-nums">{fmtInt(r.soldPax)}</td>
+                    <td className="p-3">
+                      <div className="font-medium">{fmtInt(r.pax)}</div>
+                      <div className="text-xs text-gray-500">
+                        {fmtInt(r.salesCount)} venda(s)
+                      </div>
+                    </td>
 
-                      <td className={cn("px-4 py-3 text-right font-semibold", r.saldoCents >= 0 ? "text-emerald-700" : "text-rose-700")}>
-                        {fmtMoneyBR(r.saldoCents)}
-                      </td>
+                    <td className="p-3 font-medium">{fmtMoneyBR(r.saldoCents)}</td>
 
-                      <td className="px-4 py-3 text-right">
-                        <div className="flex justify-end gap-2">
-                          <button
-                            onClick={() => toggleExpand(r.id)}
-                            className="rounded-xl border px-3 py-1.5 text-sm hover:bg-slate-50"
-                          >
-                            {isOpen ? "Fechar" : "Ver"}
-                          </button>
+                    <td className="p-3">
+                      <div className="flex items-center justify-end gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setOpen((m) => ({ ...m, [r.purchaseId]: !isOpen }))}
+                          className="rounded-md border px-2 py-1 text-xs"
+                        >
+                          {isOpen ? "Fechar" : "Ver"}
+                        </button>
 
-                          <button
-                            onClick={() => finalize(r.id)}
-                            disabled={busyId === r.id}
-                            className={cn(
-                              "rounded-xl bg-black px-3 py-1.5 text-sm text-white hover:bg-gray-800",
-                              busyId === r.id && "opacity-60 cursor-not-allowed"
-                            )}
-                          >
-                            {busyId === r.id ? "Finalizando..." : "Finalizar"}
-                          </button>
+                        <button
+                          type="button"
+                          onClick={() => void onFinalizar(r.purchaseId)}
+                          disabled={isBusy}
+                          className="rounded-md bg-black px-2 py-1 text-xs text-white disabled:opacity-50"
+                          title="Finaliza e grava os totais"
+                        >
+                          {isBusy ? "..." : "Finalizar"}
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+
+                  {isOpen && (
+                    <tr className="border-t bg-slate-50">
+                      <td colSpan={6} className="p-3">
+                        <div className="text-xs text-gray-600 mb-2">
+                          Compras: <b>{fmtMoneyBR(r.purchaseTotalCents)}</b> · Vendas:{" "}
+                          <b>{fmtMoneyBR(r.salesTotalCents)}</b> · Milheiro médio:{" "}
+                          <b>{fmtMoneyBR(r.avgMilheiroCents)}</b> · Última venda:{" "}
+                          <b>{r.lastSaleAt ? fmtDateBR(r.lastSaleAt) : "—"}</b>
+                        </div>
+
+                        <div className="overflow-auto rounded-lg border bg-white">
+                          <table className="min-w-[900px] w-full text-xs">
+                            <thead className="bg-gray-50">
+                              <tr className="text-left">
+                                <th className="p-2">Venda</th>
+                                <th className="p-2">Data</th>
+                                <th className="p-2">Programa</th>
+                                <th className="p-2">Pts</th>
+                                <th className="p-2">Pax</th>
+                                <th className="p-2">Total</th>
+                                <th className="p-2">Locator</th>
+                                <th className="p-2">Status</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {r.sales.length === 0 ? (
+                                <tr>
+                                  <td colSpan={8} className="p-3 text-gray-500">
+                                    Sem vendas vinculadas a este ID.
+                                  </td>
+                                </tr>
+                              ) : (
+                                r.sales.map((s) => (
+                                  <tr key={s.id} className="border-t">
+                                    <td className="p-2 font-mono">{s.numero}</td>
+                                    <td className="p-2">{fmtDateBR(s.date)}</td>
+                                    <td className="p-2">{s.program}</td>
+                                    <td className="p-2">{fmtInt(s.points)}</td>
+                                    <td className="p-2">{fmtInt(s.passengers)}</td>
+                                    <td className="p-2">{fmtMoneyBR(s.totalCents)}</td>
+                                    <td className="p-2">{s.locator || "—"}</td>
+                                    <td className="p-2">{s.paymentStatus}</td>
+                                  </tr>
+                                ))
+                              )}
+                            </tbody>
+                          </table>
                         </div>
                       </td>
                     </tr>
+                  )}
+                </>
+              );
+            })}
 
-                    {/* EXPAND */}
-                    {isOpen ? (
-                      <tr>
-                        <td colSpan={6} className="px-4 pb-4">
-                          <div className="mt-2 rounded-2xl border bg-slate-50 p-4 space-y-4">
-                            <div className="grid gap-3 md:grid-cols-4">
-                              <div className="rounded-xl border bg-white p-3">
-                                <div className="text-xs text-slate-500">Compra (custo)</div>
-                                <div className="text-base font-semibold">{fmtMoneyBR(r.totalCents)}</div>
-                              </div>
-
-                              <div className="rounded-xl border bg-white p-3">
-                                <div className="text-xs text-slate-500">Vendido (até agora)</div>
-                                <div className="text-base font-semibold">{fmtMoneyBR(r.salesTotalCents)}</div>
-                              </div>
-
-                              <div className="rounded-xl border bg-white p-3">
-                                <div className="text-xs text-slate-500">Pontos vendidos / restantes</div>
-                                <div className="text-base font-semibold">
-                                  {fmtInt(r.soldPoints)} / {fmtInt(r.remainingPoints)}
-                                </div>
-                              </div>
-
-                              <div className="rounded-xl border bg-white p-3">
-                                <div className="text-xs text-slate-500">Milheiro médio (vendas)</div>
-                                <div className="text-base font-semibold">{fmtMoneyBR(r.avgMilheiroCents)}</div>
-                                <div className="text-[11px] text-slate-500">Meta: {fmtMoneyBR(r.metaMilheiroCents)}</div>
-                              </div>
-                            </div>
-
-                            <div className="grid gap-3 md:grid-cols-3">
-                              <div className="rounded-xl border bg-white p-3">
-                                <div className="text-xs text-slate-500">Lucro atual (Vendas − Compras)</div>
-                                <div className={cn("text-base font-semibold", r.saldoCents >= 0 ? "text-emerald-700" : "text-rose-700")}>
-                                  {fmtMoneyBR(r.saldoCents)}
-                                </div>
-                              </div>
-
-                              <div className="rounded-xl border bg-white p-3">
-                                <div className="text-xs text-slate-500">Prévia lucro se vender tudo (META)</div>
-                                <div className={cn("text-base font-semibold", r.previewLucroMetaCents >= 0 ? "text-emerald-700" : "text-rose-700")}>
-                                  {fmtMoneyBR(r.previewLucroMetaCents)}
-                                </div>
-                              </div>
-
-                              <div className="rounded-xl border bg-white p-3">
-                                <div className="text-xs text-slate-500">Prévia lucro se vender tudo (MÉDIA)</div>
-                                <div className={cn("text-base font-semibold", r.previewLucroAvgCents >= 0 ? "text-emerald-700" : "text-rose-700")}>
-                                  {fmtMoneyBR(r.previewLucroAvgCents)}
-                                </div>
-                              </div>
-                            </div>
-
-                            <div className="rounded-xl border bg-white overflow-hidden">
-                              <div className="px-3 py-2 border-b bg-slate-50 text-xs text-slate-600">
-                                Histórico de vendas deste ID
-                              </div>
-
-                              <div className="overflow-x-auto">
-                                <table className="w-full text-sm">
-                                  <thead className="bg-white border-b">
-                                    <tr className="text-slate-600">
-                                      <th className="text-left font-semibold px-3 py-2 w-[140px]">Data</th>
-                                      <th className="text-left font-semibold px-3 py-2 w-[260px]">Cliente</th>
-                                      <th className="text-right font-semibold px-3 py-2 w-[140px]">Pontos</th>
-                                      <th className="text-right font-semibold px-3 py-2 w-[90px]">Pax</th>
-                                      <th className="text-right font-semibold px-3 py-2 w-[160px]">Total</th>
-                                      <th className="text-left font-semibold px-3 py-2 w-[120px]">Status</th>
-                                      <th className="text-left font-semibold px-3 py-2 w-[120px]">Loc</th>
-                                    </tr>
-                                  </thead>
-                                  <tbody>
-                                    {(details[r.id]?.sales || []).length === 0 ? (
-                                      <tr>
-                                        <td colSpan={7} className="px-3 py-4 text-slate-500">
-                                          Nenhuma venda encontrada (ou carregando).
-                                        </td>
-                                      </tr>
-                                    ) : null}
-
-                                    {(details[r.id]?.sales || []).map((s) => (
-                                      <tr key={s.id} className="border-b last:border-b-0">
-                                        <td className="px-3 py-2">{fmtDateBR(s.date)}</td>
-                                        <td className="px-3 py-2">
-                                          <div className="font-medium">{s.cliente?.nome || "—"}</div>
-                                          <div className="text-xs text-slate-500">{s.cliente?.identificador || "—"}</div>
-                                        </td>
-                                        <td className="px-3 py-2 text-right tabular-nums">{fmtInt(s.points)}</td>
-                                        <td className="px-3 py-2 text-right tabular-nums">{fmtInt(s.passengers)}</td>
-                                        <td className="px-3 py-2 text-right font-semibold">{fmtMoneyBR(s.totalCents)}</td>
-                                        <td className="px-3 py-2">
-                                          <span
-                                            className={cn(
-                                              "inline-flex rounded-full border px-2 py-1 text-xs",
-                                              s.paymentStatus === "PAID"
-                                                ? "bg-emerald-50 border-emerald-200 text-emerald-700"
-                                                : "bg-amber-50 border-amber-200 text-amber-700"
-                                            )}
-                                          >
-                                            {s.paymentStatus === "PAID" ? "Pago" : "Pendente"}
-                                          </span>
-                                        </td>
-                                        <td className="px-3 py-2 font-mono text-xs">{s.locator || "—"}</td>
-                                      </tr>
-                                    ))}
-                                  </tbody>
-                                </table>
-                              </div>
-                            </div>
-
-                            <div className="text-[11px] text-slate-500">
-                              Observação: “Saldo” = (∑ totalCents das vendas não canceladas) − (purchase.totalCents).
-                            </div>
-                          </div>
-                        </td>
-                      </tr>
-                    ) : null}
-                  </tbody>
-                );
-              })}
-
-              {loading ? (
-                <tr>
-                  <td colSpan={6} className="px-4 py-8 text-slate-500">
-                    Carregando...
-                  </td>
-                </tr>
-              ) : null}
-            </tbody>
-          </table>
-        </div>
+            {loading && (
+              <tr>
+                <td colSpan={6} className="p-4 text-gray-500">
+                  Carregando...
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
       </div>
     </div>
   );
