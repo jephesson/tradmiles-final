@@ -9,7 +9,7 @@ ALTER TABLE "Receipt" ADD COLUMN     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT C
 ADD COLUMN     "updatedAt" TIMESTAMP(3) NOT NULL;
 
 -- AlterTable
-ALTER TABLE "Receivable" ADD COLUMN     "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP;
+ALTER TABLE "receivables" ADD COLUMN     "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP;
 
 -- AlterTable
 ALTER TABLE "purchases" ADD COLUMN     "finalBonusCents" INTEGER,
@@ -25,7 +25,7 @@ CREATE INDEX "Receipt_receivableId_idx" ON "Receipt"("receivableId");
 CREATE INDEX "Receipt_receivedAt_idx" ON "Receipt"("receivedAt");
 
 -- CreateIndex
-CREATE INDEX "Receivable_status_idx" ON "Receivable"("status");
+CREATE INDEX "receivables_status_idx" ON "receivables"("status");
 
 -- CreateIndex
-CREATE INDEX "Receivable_createdAt_idx" ON "Receivable"("createdAt");
+CREATE INDEX "receivables_createdAt_idx" ON "receivables"("createdAt");
