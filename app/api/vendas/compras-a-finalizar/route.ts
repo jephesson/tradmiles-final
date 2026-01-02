@@ -12,6 +12,7 @@ function b64urlDecode(input: string) {
   const base64 = (input + pad).replace(/-/g, "+").replace(/_/g, "/");
   return Buffer.from(base64, "base64").toString("utf8");
 }
+
 function readSessionCookie(raw?: string): Sess | null {
   if (!raw) return null;
   try {
@@ -23,8 +24,9 @@ function readSessionCookie(raw?: string): Sess | null {
     return null;
   }
 }
+
 async function getServerSession(): Promise<Sess | null> {
-  const store = await cookies(); // Next 16
+  const store = await cookies(); // Next 16 (await ok mesmo se sync)
   const raw = store.get("tm.session")?.value;
   return readSessionCookie(raw);
 }
@@ -130,8 +132,12 @@ export async function GET(req: Request) {
     return NextResponse.json({ ok: true, rows: [], needsMigration });
   }
 
-  // ✅ lista de vendas por compra (pra expandir)
-  // IMPORTANTE: traz pointsValueCents (sem taxa)
+  /**
+   * ✅ lista de vendas por compra (pra expandir)
+   * IMPORTANTE:
+   * - pointsValueCents (sem taxa)
+   * - fallback: se pointsValueCents vier 0 nos dados antigos, assume = totalCents (taxas = 0)
+   */
   const sales = await prisma.sale.findMany({
     where: {
       purchaseId: { in: ids },
@@ -145,8 +151,8 @@ export async function GET(req: Request) {
       program: true,
       points: true,
       passengers: true,
-      totalCents: true,       // com taxa
-      pointsValueCents: true, // ✅ sem taxa
+      totalCents: true,
+      pointsValueCents: true,
       locator: true,
       paymentStatus: true,
       purchaseId: true,
@@ -156,6 +162,14 @@ export async function GET(req: Request) {
   const byPurchase = new Map<string, OutSale[]>();
   for (const s of sales) {
     if (!s.purchaseId) continue;
+
+    const totalCents = safeInt(s.totalCents, 0);
+    let pvCents = safeInt((s as any).pointsValueCents, 0);
+
+    // ✅ compatibilidade com backend antigo:
+    // se não tem pointsValueCents, trata como "sem taxa" = total
+    if (pvCents <= 0 && totalCents > 0) pvCents = totalCents;
+
     const list = byPurchase.get(s.purchaseId) || [];
     list.push({
       id: s.id,
@@ -165,8 +179,8 @@ export async function GET(req: Request) {
       points: safeInt(s.points),
       passengers: safeInt(s.passengers),
 
-      totalCents: safeInt(s.totalCents),                 // com taxa
-      pointsValueCents: safeInt((s as any).pointsValueCents, 0), // ✅ sem taxa
+      totalCents,        // com taxa (se tiver)
+      pointsValueCents: pvCents, // ✅ sem taxa (ou fallback)
 
       locator: s.locator ?? null,
       paymentStatus: String(s.paymentStatus),
@@ -174,7 +188,12 @@ export async function GET(req: Request) {
     byPurchase.set(s.purchaseId, list);
   }
 
-  // ✅ agregados (pra cards/linha resumo)
+  /**
+   * ✅ agregados (pra cards/linha resumo)
+   * - totalCents = caixa (com taxa)
+   * - pointsValueCents = milhas (sem taxa)
+   * - fallback: se sum(pointsValueCents)=0 e totalCents>0, assume "sem taxa" = total (taxas=0)
+   */
   const sums = await prisma.sale.groupBy({
     by: ["purchaseId"],
     where: {
@@ -184,11 +203,7 @@ export async function GET(req: Request) {
     _sum: {
       points: true,
       passengers: true,
-
-      // total cobrado (pode ter taxa)
       totalCents: true,
-
-      // ✅ só milhas (sem taxa)
       pointsValueCents: true,
     },
     _count: { _all: true },
@@ -201,9 +216,9 @@ export async function GET(req: Request) {
       soldPoints: number;
       pax: number;
 
-      salesTotalCents: number;        // com taxa
-      salesPointsValueCents: number;  // ✅ sem taxa
-      salesTaxesCents: number;        // diferença (taxas)
+      salesTotalCents: number;       // com taxa
+      salesPointsValueCents: number; // sem taxa (ou fallback)
+      salesTaxesCents: number;       // diferença
 
       salesCount: number;
       lastSaleAt: string | null;
@@ -213,7 +228,11 @@ export async function GET(req: Request) {
   for (const g of sums) {
     const pid = String(g.purchaseId || "");
     const totalCents = safeInt(g._sum.totalCents, 0);
-    const ptsCents = safeInt(g._sum.pointsValueCents, 0);
+    let ptsCents = safeInt(g._sum.pointsValueCents, 0);
+
+    // ✅ compatibilidade com backend antigo
+    if (ptsCents <= 0 && totalCents > 0) ptsCents = totalCents;
+
     const taxes = Math.max(totalCents - ptsCents, 0);
 
     sumMap.set(pid, {
@@ -247,17 +266,17 @@ export async function GET(req: Request) {
     const soldPoints = safeInt(agg.soldPoints, 0);
     const remainingPoints = Math.max(pointsTotal - soldPoints, 0);
 
-    // ✅ milheiro médio baseado no "valor das milhas" (sem taxa)
-    const avgMilheiroCents =
-      soldPoints > 0
-        ? Math.round((safeInt(agg.salesPointsValueCents, 0) * 1000) / soldPoints)
-        : null;
-
-    const salesTotalCents = safeInt(agg.salesTotalCents, 0);               // com taxa
-    const salesPointsValueCents = safeInt(agg.salesPointsValueCents, 0);   // ✅ sem taxa
+    const salesTotalCents = safeInt(agg.salesTotalCents, 0);             // com taxa
+    const salesPointsValueCents = safeInt(agg.salesPointsValueCents, 0); // sem taxa
     const salesTaxesCents = safeInt(agg.salesTaxesCents, 0);
 
-    // ✅ projeções SEM taxa:
+    // ✅ milheiro médio baseado no "valor das milhas" (sem taxa)
+    const avgMilheiroCents =
+      soldPoints > 0 && salesPointsValueCents > 0
+        ? Math.round((salesPointsValueCents * 1000) / soldPoints)
+        : null;
+
+    // ✅ projeções SEM taxa
     const projectedRevenueAvgCents =
       avgMilheiroCents == null
         ? null
@@ -278,10 +297,10 @@ export async function GET(req: Request) {
 
       purchaseTotalCents,
 
-      // ✅ mantém os dois (pra UI mostrar caixa e lucro corretamente)
-      salesTotalCents,          // com taxa (caixa)
-      salesPointsValueCents,    // ✅ sem taxa (lucro/milheiro)
-      salesTaxesCents,          // taxas
+      // ✅ duas visões (pra UI)
+      salesTotalCents,        // com taxa (caixa)
+      salesPointsValueCents,  // sem taxa (lucro/milheiro)
+      salesTaxesCents,        // taxas
 
       // ✅ saldo = lucro (sem taxa)
       saldoCents: salesPointsValueCents - purchaseTotalCents,

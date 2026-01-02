@@ -8,6 +8,11 @@ datasource db {
   // Prisma 7+: NÃO coloque url aqui se você usa prisma.config.ts
 }
 
+/**
+ * =========================
+ * ENUMS BÁSICOS
+ * =========================
+ */
 enum CedenteStatus {
   PENDING
   APPROVED
@@ -52,6 +57,11 @@ enum CedenteCommissionStatus {
   CANCELED
 }
 
+/**
+ * =========================
+ * USERS / LOGIN / CONVITES
+ * =========================
+ */
 model User {
   id    String @id @default(uuid())
   login String @unique
@@ -74,32 +84,32 @@ model User {
   // Cedentes que ele revisou (aprovou/reprovou)
   cedentesReviewed Cedente[] @relation("CedenteReviewedBy")
 
-  // ✅ Dívidas criadas por este usuário (lado oposto de Debt.createdBy)
+  // Dívidas criadas por este usuário
   debtsCreated Debt[]
 
-  // ✅ Bloqueios criados por este usuário (lado oposto de BlockedAccount.createdBy)
+  // Bloqueios criados por este usuário
   blockedCreated BlockedAccount[] @relation("BlockedCreatedBy")
 
-  // ✅ Observações de bloqueio criadas por este usuário (lado oposto de BlockObservation.createdBy)
+  // Observações de bloqueio criadas por este usuário
   blockedObsCreated BlockObservation[] @relation("BlockedObsCreatedBy")
 
-  // ✅ Compras liberadas por este usuário (lado inverso de Purchase.liberadoPor)
+  // Compras liberadas por este usuário
   comprasLiberadas Purchase[] @relation("CompraLiberadaPor")
 
-  // ✅ NOVO: compras finalizadas por este usuário (rateio/lucro)
+  // Compras finalizadas por este usuário
   comprasFinalizadas Purchase[] @relation("PurchaseFinalizedBy")
 
-  // ✅ Comissões de cedente (geradas / pagas)
+  // Comissões de cedente (geradas / pagas)
   cedenteCommissionsGenerated CedenteCommission[] @relation("CedenteCommissionGeneratedBy")
   cedenteCommissionsPaid      CedenteCommission[] @relation("CedenteCommissionPaidBy")
 
-  // ✅ CLIENTES criados por este usuário (lado inverso de Cliente.createdBy)
+  // Clientes criados por este usuário
   clientesCreated Cliente[] @relation("ClienteCreatedBy")
 
-  // ✅ Vendas feitas por este usuário
+  // Vendas feitas por este usuário
   salesSold Sale[] @relation("SaleSeller")
 
-  // Um convite por usuário (no teu fluxo)
+  // Um convite por usuário
   employeeInvite EmployeeInvite?
 
   @@index([team])
@@ -127,13 +137,18 @@ model EmployeeInvite {
   @@map("employee_invites")
 }
 
+/**
+ * =========================
+ * CEDENTES
+ * =========================
+ */
 model Cedente {
   id            String @id @default(uuid())
   identificador String @unique
 
   nomeCompleto   String
   dataNascimento DateTime?
-  cpf            String @unique
+  cpf            String    @unique
 
   telefone    String?
   emailCriado String?
@@ -158,29 +173,29 @@ model Cedente {
   reviewedAt DateTime?
 
   reviewedById String?
-  reviewedBy   User? @relation("CedenteReviewedBy", fields: [reviewedById], references: [id], onDelete: SetNull)
+  reviewedBy   User?   @relation("CedenteReviewedBy", fields: [reviewedById], references: [id], onDelete: SetNull)
 
   ownerId String
-  owner   User @relation("CedenteOwner", fields: [ownerId], references: [id], onDelete: Restrict)
+  owner   User   @relation("CedenteOwner", fields: [ownerId], references: [id], onDelete: Restrict)
 
   inviteId String?
   invite   EmployeeInvite? @relation(fields: [inviteId], references: [id], onDelete: SetNull)
 
   termAcceptances CedenteTermAcceptance[]
 
-  // ✅ Bloqueios vinculados a este cedente
+  // Bloqueios vinculados a este cedente
   blockedAccounts BlockedAccount[]
 
-  // ✅ Compras vinculadas a este cedente
+  // Compras vinculadas a este cedente
   purchases Purchase[]
 
-  // ✅ Comissões do cedente
+  // Comissões do cedente
   cedenteCommissions CedenteCommission[]
 
-  // ✅ Contagem CPF / emissões (novo)
+  // Contagem CPF / emissões
   emissions EmissionEvent[]
 
-  // ✅ Vendas vinculadas a este cedente
+  // Vendas vinculadas a este cedente
   sales Sale[]
 
   createdAt DateTime @default(now())
@@ -217,7 +232,7 @@ model CashSnapshot {
   id   String   @id @default(cuid())
   date DateTime @unique
 
-  cashCents Int @default(0) // ✅ caixa (Inter) em centavos
+  cashCents Int @default(0) // caixa (Inter) em centavos
 
   totalBruto   Int
   totalDividas Int
@@ -241,8 +256,15 @@ model Settings {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@map("Settings") // ✅ ajuste: tabela real no banco
 }
 
+/**
+ * =========================
+ * DÍVIDAS
+ * =========================
+ */
 enum DebtStatus {
   OPEN
   PAID
@@ -257,7 +279,7 @@ model Debt {
   status      DebtStatus @default(OPEN)
 
   createdById String?
-  createdBy   User? @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  createdBy   User?   @relation(fields: [createdById], references: [id], onDelete: SetNull)
 
   payments DebtPayment[]
 
@@ -288,7 +310,7 @@ model DebtPayment {
 
 /**
  * =========================
- * MODELS BLOQUEIOS
+ * BLOQUEIOS
  * =========================
  */
 model BlockedAccount {
@@ -296,13 +318,13 @@ model BlockedAccount {
 
   cedenteId String
   program   LoyaltyProgram
-  status    BlockStatus @default(OPEN)
+  status    BlockStatus    @default(OPEN)
 
   note              String?
   estimatedUnlockAt DateTime?
 
   createdById String?
-  createdBy   User? @relation("BlockedCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  createdBy   User?   @relation("BlockedCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
 
   resolvedAt   DateTime?
   observations BlockObservation[]
@@ -326,7 +348,7 @@ model BlockObservation {
   text      String
 
   createdById String?
-  createdBy   User? @relation("BlockedObsCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  createdBy   User?   @relation("BlockedObsCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -340,7 +362,7 @@ model BlockObservation {
 
 /**
  * =========================
- * COMPRAS (NOVA COMPLETA)
+ * COMPRAS
  * =========================
  */
 enum PurchaseStatus {
@@ -369,8 +391,8 @@ enum TransferMode {
 }
 
 model Purchase {
-  id        String @id @default(cuid())
-  numero    String @unique // ID00001
+  id        String         @id @default(cuid())
+  numero    String         @unique // ID00001
   cedenteId String
   status    PurchaseStatus @default(OPEN)
 
@@ -380,7 +402,7 @@ model Purchase {
    * =========================
    */
   ciaAerea       LoyaltyProgram?
-  pontosCiaTotal Int @default(0)
+  pontosCiaTotal Int             @default(0)
 
   /**
    * =========================
@@ -430,7 +452,7 @@ model Purchase {
    */
   liberadoEm    DateTime?
   liberadoPorId String?
-  liberadoPor   User? @relation("CompraLiberadaPor", fields: [liberadoPorId], references: [id], onDelete: SetNull)
+  liberadoPor   User?     @relation("CompraLiberadaPor", fields: [liberadoPorId], references: [id], onDelete: SetNull)
 
   /**
    * =========================
@@ -439,14 +461,32 @@ model Purchase {
    */
   finalizedAt   DateTime?
   finalizedById String?
-  finalizedBy   User? @relation("PurchaseFinalizedBy", fields: [finalizedById], references: [id], onDelete: SetNull)
+  finalizedBy   User?     @relation("PurchaseFinalizedBy", fields: [finalizedById], references: [id], onDelete: SetNull)
 
-  // snapshots consolidados do ID no momento da finalização
-  finalSalesCents       Int?
+  /**
+   * ✅ SNAPSHOTS CONSOLIDADOS DO ID NO MOMENTO DA FINALIZAÇÃO
+   * Convenções:
+   * - finalSalesCents            = TOTAL COBRADO (com taxas)
+   * - finalSalesPointsValueCents = SOMENTE MILHAS (sem taxas)
+   * - finalSalesTaxesCents       = TAXAS (diferença)
+   * - finalProfitBrutoCents      = LUCRO sem taxas (antes do bônus)
+   * - finalBonusCents            = bônus total (ex.: 30% excedente acima da meta)
+   * - finalProfitCents           = LUCRO LÍQUIDO sem taxas (já desconta bônus)
+   */
+  finalSalesCents            Int?
+  finalSalesPointsValueCents Int?
+  finalSalesTaxesCents       Int?
+
+  finalProfitBrutoCents Int?
+  finalBonusCents       Int?
   finalProfitCents      Int?
+
   finalSoldPoints       Int?
   finalPax              Int?
   finalAvgMilheiroCents Int?
+
+  // opcional: útil pra auditoria/relatórios
+  finalRemainingPoints Int?
 
   /**
    * =========================
@@ -458,13 +498,13 @@ model Purchase {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  cedente Cedente @relation(fields: [cedenteId], references: [id], onDelete: Cascade)
+  cedente Cedente        @relation(fields: [cedenteId], references: [id], onDelete: Cascade)
   items   PurchaseItem[]
 
-  // ✅ Vendas vinculadas a esta compra
+  // Vendas vinculadas a esta compra
   sales Sale[]
 
-  // ✅ lado inverso 1:1 com CedenteCommission
+  // lado inverso 1:1 com CedenteCommission
   cedenteCommission CedenteCommission? @relation("PurchaseCedenteCommission")
 
   @@index([cedenteId])
@@ -476,7 +516,7 @@ model Purchase {
 }
 
 model PurchaseItem {
-  id         String @id @default(cuid())
+  id         String             @id @default(cuid())
   purchaseId String
   type       PurchaseItemType
   status     PurchaseItemStatus @default(PENDING)
@@ -485,13 +525,13 @@ model PurchaseItem {
   programTo   LoyaltyProgram?
 
   // pontos
-  pointsBase  Int @default(0)
+  pointsBase  Int     @default(0)
   bonusMode   String?
   bonusValue  Int?
-  pointsFinal Int @default(0)
+  pointsFinal Int     @default(0)
 
   // dinheiro
-  amountCents  Int @default(0)
+  amountCents  Int           @default(0)
   transferMode TransferMode?
 
   pointsDebitedFromOrigin Int @default(0)
@@ -519,6 +559,11 @@ model Counter {
   @@map("counters")
 }
 
+/**
+ * =========================
+ * COMISSÃO DO CEDENTE
+ * =========================
+ */
 model CedenteCommission {
   id String @id @default(cuid())
 
@@ -526,7 +571,7 @@ model CedenteCommission {
   cedente   Cedente @relation(fields: [cedenteId], references: [id], onDelete: Cascade)
 
   // 1:1 opcional com Purchase
-  purchaseId String? @unique
+  purchaseId String?   @unique
   purchase   Purchase? @relation("PurchaseCedenteCommission", fields: [purchaseId], references: [id], onDelete: SetNull)
 
   amountCents Int
@@ -534,11 +579,11 @@ model CedenteCommission {
 
   generatedAt   DateTime @default(now())
   generatedById String?
-  generatedBy   User? @relation("CedenteCommissionGeneratedBy", fields: [generatedById], references: [id], onDelete: SetNull)
+  generatedBy   User?    @relation("CedenteCommissionGeneratedBy", fields: [generatedById], references: [id], onDelete: SetNull)
 
   paidAt   DateTime?
   paidById String?
-  paidBy   User? @relation("CedenteCommissionPaidBy", fields: [paidById], references: [id], onDelete: SetNull)
+  paidBy   User?     @relation("CedenteCommissionPaidBy", fields: [paidById], references: [id], onDelete: SetNull)
 
   note String?
 
@@ -550,6 +595,11 @@ model CedenteCommission {
   @@map("cedente_commissions")
 }
 
+/**
+ * =========================
+ * CLIENTES
+ * =========================
+ */
 enum ClienteTipo {
   PESSOA
   EMPRESA
@@ -576,9 +626,9 @@ model Cliente {
   origemDescricao String?
 
   createdById String?
-  createdBy   User? @relation("ClienteCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  createdBy   User?   @relation("ClienteCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
 
-  // ✅ Vendas vinculadas a este cliente
+  // Vendas vinculadas a este cliente
   sales Sale[]
 
   createdAt DateTime @default(now())
@@ -589,6 +639,11 @@ model Cliente {
   @@map("clientes")
 }
 
+/**
+ * =========================
+ * RECEBÍVEIS (CONTAS A RECEBER)
+ * =========================
+ */
 enum ReceivableStatus {
   OPEN
   RECEIVED
@@ -596,28 +651,42 @@ enum ReceivableStatus {
 }
 
 model Receivable {
-  id            String @id @default(cuid())
+  id            String           @id @default(cuid())
   title         String
   description   String?
   totalCents    Int
-  receivedCents Int @default(0)
+  receivedCents Int              @default(0)
   balanceCents  Int
   status        ReceivableStatus @default(OPEN)
-  createdAt     DateTime @default(now())
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
 
   receipts Receipt[]
 
+  // lado inverso do Sale.receivable (FK está em Sale.receivableId)
   sale Sale? @relation("SaleReceivable")
+
+  @@index([status])
+  @@index([createdAt])
+  @@map("Receivable") // ✅ ajuste: tabela real no banco
 }
 
 model Receipt {
-  id           String @id @default(cuid())
+  id           String     @id @default(cuid())
   receivableId String
   receivable   Receivable @relation(fields: [receivableId], references: [id], onDelete: Cascade)
 
   amountCents Int
   note        String?
   receivedAt  DateTime @default(now())
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([receivableId])
+  @@index([receivedAt])
+  @@map("Receipt") // ✅ ajuste: tabela real no banco
 }
 
 /**
@@ -638,11 +707,10 @@ model EmissionEvent {
   cedente   Cedente @relation(fields: [cedenteId], references: [id], onDelete: Cascade)
 
   program         LoyaltyProgram
-  passengersCount Int @default(1)
+  passengersCount Int            @default(1)
 
   issuedAt DateTime
-
-  source EmissionSource @default(SALE)
+  source   EmissionSource @default(SALE)
 
   note String?
 
@@ -653,6 +721,11 @@ model EmissionEvent {
   @@map("emission_events")
 }
 
+/**
+ * =========================
+ * VENDAS
+ * =========================
+ */
 model Sale {
   id     String @id @default(cuid())
   numero String @unique // VE00001
@@ -663,13 +736,25 @@ model Sale {
   points     Int
   passengers Int
 
-  milheiroCents    Int
-  embarqueFeeCents Int @default(0)
-  pointsValueCents Int @default(0)
-  totalCents       Int @default(0)
+  // centavos por 1000 pontos (SEM taxa)
+  milheiroCents Int
 
-  commissionCents   Int @default(0)
-  bonusCents        Int @default(0)
+  // taxas (ex.: embarque) separadas
+  embarqueFeeCents Int @default(0)
+
+  // somente milhas (SEM taxa)
+  pointsValueCents Int @default(0)
+
+  // total cobrado (milhas + taxas)
+  totalCents Int @default(0)
+
+  // comissão / bônus
+  commissionCents Int @default(0)
+
+  // bônus pago (ex.: 30% excedente acima da meta)
+  bonusCents Int @default(0)
+
+  // meta usada no momento da venda (pra auditabilidade)
   metaMilheiroCents Int @default(0)
 
   feeCardLabel String?
@@ -688,9 +773,9 @@ model Sale {
   purchase   Purchase? @relation(fields: [purchaseId], references: [id], onDelete: SetNull)
 
   sellerId String?
-  seller   User? @relation("SaleSeller", fields: [sellerId], references: [id], onDelete: SetNull)
+  seller   User?   @relation("SaleSeller", fields: [sellerId], references: [id], onDelete: SetNull)
 
-  receivableId String? @unique
+  receivableId String?     @unique
   receivable   Receivable? @relation("SaleReceivable", fields: [receivableId], references: [id], onDelete: SetNull)
 
   createdAt DateTime @default(now())

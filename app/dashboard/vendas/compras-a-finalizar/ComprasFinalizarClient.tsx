@@ -18,7 +18,7 @@ type Row = {
   /** ✅ soma das taxas (diferença) */
   salesTaxesCents?: number;
 
-  /** ✅ saldo/lucro (SEM taxa) */
+  /** ✅ saldo/lucro (SEM taxa) — BRUTO (antes do bônus) */
   saldoCents: number;
 
   pax: number;
@@ -91,6 +91,26 @@ function milheiroFromSale(points: number, pointsValueCents?: number, totalCentsF
   return Math.round((cents * 1000) / pts); // centavos por 1000 pontos
 }
 
+/**
+ * ✅ Bônus = 30% do excedente acima da meta (apenas sobre valor das milhas, SEM taxa).
+ * - points: pontos vendidos
+ * - milheiroCents: milheiro efetivo (centavos por 1000) sem taxa
+ * - metaMilheiroCents: meta da compra
+ */
+function bonus30FromSale(points: number, milheiroCents: number | null, metaMilheiroCents: number): number {
+  const pts = Number(points || 0);
+  const mil = Number(milheiroCents || 0);
+  const meta = Number(metaMilheiroCents || 0);
+  if (!pts || !mil || !meta) return 0;
+
+  const diff = mil - meta;
+  if (diff <= 0) return 0;
+
+  // excedente (centavos) = (pts/1000) * (mil - meta)
+  const excedenteCents = Math.round((pts * diff) / 1000);
+  return Math.round(excedenteCents * 0.3);
+}
+
 function computeRow(r: Row) {
   // ✅ base SEM taxa (preferencial)
   const salesPointsValueCents = n(
@@ -105,15 +125,6 @@ function computeRow(r: Row) {
       ? n((r as any).salesTaxesCents, 0)
       : Math.max(salesTotalCents - salesPointsValueCents, 0);
 
-  // backend novo pode mandar pronto:
-  const projectedProfitAvgCents = (
-    "projectedProfitAvgCents" in r ? (r.projectedProfitAvgCents ?? null) : null
-  ) as number | null;
-
-  const projectedProfitMetaCents = (
-    "projectedProfitMetaCents" in r ? (r.projectedProfitMetaCents ?? null) : null
-  ) as number | null;
-
   // se backend mandar remainingPoints, beleza; senão tenta calcular se tiver pointsTotal
   const pointsTotal = n((r as any).pointsTotal, n((r as any).pontosCiaTotal, 0));
   const remainingPoints =
@@ -124,37 +135,76 @@ function computeRow(r: Row) {
       : null;
 
   const avgMilheiroCents = nOrNull((r as any).avgMilheiroCents);
-  const metaMilheiroCents = n((r as any).metaMilheiroCents, 0);
+  const metaMilheiroCentsRaw = n((r as any).metaMilheiroCents, 0);
 
-  // ✅ fallback: projeções SEM taxa (usa salesPointsValueCents)
-  const calcProjectedAvg =
-    projectedProfitAvgCents !== null
-      ? projectedProfitAvgCents
+  // ✅ saldo BRUTO (sem taxa) do backend (fallback se faltar)
+  const saldoBrutoCents = n((r as any).saldoCents, salesPointsValueCents - (r.purchaseTotalCents || 0));
+
+  // ✅ bônus já pago nas vendas (somatório por venda, usando milheiro real sem taxa)
+  const bonusPaidCents = (r.sales || []).reduce((acc, s) => {
+    const pv = n((s as any).pointsValueCents, 0);
+    const mil = milheiroFromSale(s.points, pv > 0 ? pv : undefined, s.totalCents);
+    return acc + bonus30FromSale(s.points, mil, metaMilheiroCentsRaw);
+  }, 0);
+
+  // ✅ saldo LÍQUIDO (lucro sem taxa - bônus)
+  const netSaldoCents = saldoBrutoCents - bonusPaidCents;
+
+  // ✅ projeções: sempre entregar como líquido (desconta bônus já pago e bônus futuro estimado)
+  const projectedProfitAvgCentsBackend = (
+    "projectedProfitAvgCents" in r ? (r.projectedProfitAvgCents ?? null) : null
+  ) as number | null;
+
+  const projectedProfitMetaCentsBackend = (
+    "projectedProfitMetaCents" in r ? (r.projectedProfitMetaCents ?? null) : null
+  ) as number | null;
+
+  // bruto calculado (fallback) — SEM taxa
+  const calcProjectedAvgBruto =
+    projectedProfitAvgCentsBackend !== null
+      ? projectedProfitAvgCentsBackend
       : remainingPoints != null && avgMilheiroCents != null && avgMilheiroCents > 0
-      ? salesPointsValueCents +
-        Math.round((remainingPoints * avgMilheiroCents) / 1000) -
-        (r.purchaseTotalCents || 0)
+      ? salesPointsValueCents + Math.round((remainingPoints * avgMilheiroCents) / 1000) - (r.purchaseTotalCents || 0)
       : null;
 
-  const calcProjectedMeta =
-    projectedProfitMetaCents !== null
-      ? projectedProfitMetaCents
-      : remainingPoints != null && metaMilheiroCents > 0
-      ? salesPointsValueCents +
-        Math.round((remainingPoints * metaMilheiroCents) / 1000) -
-        (r.purchaseTotalCents || 0)
+  const calcProjectedMetaBruto =
+    projectedProfitMetaCentsBackend !== null
+      ? projectedProfitMetaCentsBackend
+      : remainingPoints != null && metaMilheiroCentsRaw > 0
+      ? salesPointsValueCents + Math.round((remainingPoints * metaMilheiroCentsRaw) / 1000) - (r.purchaseTotalCents || 0)
       : null;
+
+  // bônus futuro (se vender o restante a um dado milheiro)
+  const futureBonusAvg =
+    remainingPoints != null && avgMilheiroCents != null && avgMilheiroCents > 0
+      ? bonus30FromSale(remainingPoints, avgMilheiroCents, metaMilheiroCentsRaw)
+      : 0;
+
+  // na meta, excedente = 0
+  const futureBonusMeta = 0;
+
+  // líquido = bruto - bônus já pago - bônus futuro
+  const projectedNetAvg = calcProjectedAvgBruto == null ? null : calcProjectedAvgBruto - bonusPaidCents - futureBonusAvg;
+  const projectedNetMeta = calcProjectedMetaBruto == null ? null : calcProjectedMetaBruto - bonusPaidCents - futureBonusMeta;
 
   return {
     salesTotalCents,
     salesPointsValueCents,
     salesTaxesCents,
+
     remainingPoints,
     pointsTotal: pointsTotal || null,
+
     avgMilheiroCents,
-    metaMilheiroCents: metaMilheiroCents || null,
-    projectedProfitAvgCents: calcProjectedAvg,
-    projectedProfitMetaCents: calcProjectedMeta,
+    metaMilheiroCents: metaMilheiroCentsRaw || null,
+
+    saldoBrutoCents,
+    bonusPaidCents,
+    netSaldoCents,
+
+    // ✅ agora são LÍQUIDOS (já desconta bônus)
+    projectedProfitAvgCents: projectedNetAvg,
+    projectedProfitMetaCents: projectedNetMeta,
   };
 }
 
@@ -243,15 +293,21 @@ export default function ComprasFinalizarClient() {
     let vendasTotal = 0; // com taxa
     let vendasMilhas = 0; // sem taxa
 
-    let saldo = 0; // lucro sem taxa
+    let saldoLiquido = 0; // lucro sem taxa - bônus
+    let bonusPago = 0;
 
     for (const r of filtered) {
+      const c = computeRow(r);
+
       compras += r.purchaseTotalCents || 0;
-      vendasTotal += r.salesTotalCents || 0;
-      vendasMilhas += n((r as any).salesPointsValueCents, r.salesTotalCents || 0);
-      saldo += r.saldoCents || 0;
+      vendasTotal += c.salesTotalCents || 0;
+      vendasMilhas += c.salesPointsValueCents || 0;
+
+      bonusPago += c.bonusPaidCents || 0;
+      saldoLiquido += c.netSaldoCents || 0;
     }
-    return { ids: filtered.length, compras, vendasTotal, vendasMilhas, saldo };
+
+    return { ids: filtered.length, compras, vendasTotal, vendasMilhas, saldoLiquido, bonusPago };
   }, [filtered]);
 
   async function onFinalizar(purchaseId: string) {
@@ -282,7 +338,7 @@ export default function ComprasFinalizarClient() {
         <div>
           <h1 className="text-xl font-semibold">Compras a finalizar</h1>
           <p className="text-sm text-gray-600">
-            Agrupa por ID (compra LIBERADA). Mostra saldo e prévias (lucro sem taxa). Expanda para ver histórico.
+            Agrupa por ID (compra LIBERADA). Mostra valores SEM taxa. O saldo aqui é <b>líquido</b> (desconta bônus 30% do excedente).
           </p>
         </div>
 
@@ -321,8 +377,9 @@ export default function ComprasFinalizarClient() {
         </div>
 
         <div className="rounded-xl border p-4">
-          <div className="text-xs text-gray-500">Saldo (lucro sem taxa)</div>
-          <div className="mt-1 text-xl font-semibold">{fmtMoneyBR(totals.saldo)}</div>
+          <div className="text-xs text-gray-500">Saldo líquido (sem taxa)</div>
+          <div className="mt-1 text-xl font-semibold">{fmtMoneyBR(totals.saldoLiquido)}</div>
+          <div className="mt-1 text-xs text-gray-500">Bônus pago: {fmtMoneyBR(totals.bonusPago)}</div>
         </div>
       </div>
 
@@ -397,7 +454,8 @@ export default function ComprasFinalizarClient() {
                       <div className="text-xs text-gray-500">{fmtInt(r.salesCount)} venda(s)</div>
                     </td>
 
-                    <td className="p-3 font-medium">{fmtMoneyBR(r.saldoCents)}</td>
+                    {/* ✅ agora mostra líquido */}
+                    <td className="p-3 font-medium">{fmtMoneyBR(c.netSaldoCents)}</td>
 
                     <td className="p-3">
                       <div className="flex items-center justify-end gap-2">
@@ -442,17 +500,32 @@ export default function ComprasFinalizarClient() {
                             Total cobrado: <b>{fmtMoneyBR(c.salesTotalCents)}</b>
                           </span>
 
-                          <span title="Milheiro médio SEM taxa">
-                            Milheiro médio:{" "}
-                            <b>{c.avgMilheiroCents == null ? "—" : fmtMoneyBR(c.avgMilheiroCents)}</b>
+                          <span title="Meta do milheiro (da compra)">
+                            Meta milheiro: <b>{c.metaMilheiroCents == null ? "—" : fmtMoneyBR(c.metaMilheiroCents)}</b>
                           </span>
 
-                          <span title="Lucro se o restante for vendido pelo milheiro médio (SEM taxa)">
+                          <span title="Milheiro médio SEM taxa">
+                            Milheiro médio: <b>{c.avgMilheiroCents == null ? "—" : fmtMoneyBR(c.avgMilheiroCents)}</b>
+                          </span>
+
+                          <span title="Bônus pago (30% do excedente acima da meta)">
+                            Bônus pago: <b>{fmtMoneyBR(c.bonusPaidCents)}</b>
+                          </span>
+
+                          <span title="Saldo BRUTO (sem taxa), antes do bônus">
+                            Saldo bruto: <b>{fmtMoneyBR(c.saldoBrutoCents)}</b>
+                          </span>
+
+                          <span title="Saldo LÍQUIDO (sem taxa), já descontando bônus">
+                            Saldo líquido: <b>{fmtMoneyBR(c.netSaldoCents)}</b>
+                          </span>
+
+                          <span title="Lucro previsto LÍQUIDO (desconta bônus já pago e bônus futuro estimado)">
                             Lucro previsto (média):{" "}
                             <b>{c.projectedProfitAvgCents == null ? "—" : fmtMoneyBR(c.projectedProfitAvgCents)}</b>
                           </span>
 
-                          <span title="Lucro se o restante for vendido pela metaMilheiro (SEM taxa)">
+                          <span title="Lucro previsto LÍQUIDO (na meta não tem bônus futuro)">
                             Lucro previsto (meta):{" "}
                             <b>{c.projectedProfitMetaCents == null ? "—" : fmtMoneyBR(c.projectedProfitMetaCents)}</b>
                           </span>
@@ -467,7 +540,7 @@ export default function ComprasFinalizarClient() {
                         </div>
 
                         <div className="overflow-auto rounded-lg border bg-white">
-                          <table className="min-w-[1200px] w-full text-xs">
+                          <table className="min-w-[1300px] w-full text-xs">
                             <thead className="bg-gray-50">
                               <tr className="text-left">
                                 <th className="p-2">Venda</th>
@@ -479,6 +552,7 @@ export default function ComprasFinalizarClient() {
                                 <th className="p-2">Valor (c/ taxa)</th>
                                 <th className="p-2">Milhas (s/ taxa)</th>
                                 <th className="p-2">Milheiro (s/ taxa)</th>
+                                <th className="p-2">Bônus (30%)</th>
 
                                 <th className="p-2">Locator</th>
                                 <th className="p-2">Status</th>
@@ -488,7 +562,7 @@ export default function ComprasFinalizarClient() {
                             <tbody>
                               {r.sales.length === 0 ? (
                                 <tr>
-                                  <td colSpan={10} className="p-3 text-gray-500">
+                                  <td colSpan={11} className="p-3 text-gray-500">
                                     Sem vendas vinculadas a este ID.
                                   </td>
                                 </tr>
@@ -496,6 +570,9 @@ export default function ComprasFinalizarClient() {
                                 r.sales.map((s) => {
                                   const pv = n((s as any).pointsValueCents, 0);
                                   const mil = milheiroFromSale(s.points, pv > 0 ? pv : undefined, s.totalCents);
+
+                                  const meta = n((r as any).metaMilheiroCents, 0);
+                                  const bonus = bonus30FromSale(s.points, mil, meta);
 
                                   return (
                                     <tr key={s.id} className="border-t">
@@ -508,6 +585,7 @@ export default function ComprasFinalizarClient() {
                                       <td className="p-2 font-medium">{fmtMoneyBR(s.totalCents)}</td>
                                       <td className="p-2">{pv > 0 ? fmtMoneyBR(pv) : "—"}</td>
                                       <td className="p-2">{mil == null ? "—" : fmtMoneyBR(mil)}</td>
+                                      <td className="p-2">{bonus > 0 ? fmtMoneyBR(bonus) : "—"}</td>
 
                                       <td className="p-2">{s.locator || "—"}</td>
                                       <td className="p-2">{s.paymentStatus}</td>
