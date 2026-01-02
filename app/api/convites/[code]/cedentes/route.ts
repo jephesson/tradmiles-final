@@ -32,7 +32,9 @@ function safeIsoDateToDate(v: unknown): Date | null {
   if (!v) return null;
   const s = String(v).trim();
   if (!s) return null;
-  const d = new Date(s); // esperado: YYYY-MM-DD (ou ISO)
+
+  // esperado: YYYY-MM-DD (ou ISO)
+  const d = new Date(s);
   if (Number.isNaN(d.getTime())) return null;
   return d;
 }
@@ -44,6 +46,13 @@ function normalizeString(v: unknown, max = 255): string | null {
   const s = String(v).trim();
   if (!s) return null;
   return s.length > max ? s.slice(0, max) : s;
+}
+
+function normalizeInt(v: unknown, def = 0) {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return def;
+  const i = Math.trunc(n);
+  return i < 0 ? 0 : i;
 }
 
 // ✅ gera identificador interno (não expor no frontend)
@@ -95,7 +104,10 @@ async function createCedenteWithRetry(tx: any, data: any, retries = 6) {
           ? e.meta.target.join(",")
           : String(e?.meta?.target || "");
 
-        if (target.includes("cpf")) throw e; // CPF duplicado não adianta retry
+        // CPF duplicado não adianta retry
+        if (target.includes("cpf")) throw e;
+
+        // identificador (ou outro unique) -> tenta de novo
         continue;
       }
 
@@ -155,11 +167,17 @@ export async function POST(
       );
     }
 
-    // ✅ telefone (onboarding obrigatório)
-    const telefone = normalizeString(body?.telefone, 30);
-    if (!telefone) {
+    // ✅ telefone (obrigatório no onboarding)
+    const telefoneDigits = onlyDigits(String(body?.telefone || "")).slice(0, 11);
+    if (!telefoneDigits) {
       return NextResponse.json(
         { ok: false, error: "Informe o telefone." },
+        { status: 400, headers: noCacheHeaders() }
+      );
+    }
+    if (!(telefoneDigits.length === 10 || telefoneDigits.length === 11)) {
+      return NextResponse.json(
+        { ok: false, error: "Telefone inválido (DDD + número)." },
         { status: 400, headers: noCacheHeaders() }
       );
     }
@@ -181,7 +199,7 @@ export async function POST(
       );
     }
 
-    // ✅ pixTipo obrigatório (pq no Prisma é PixTipo sem ?)
+    // ✅ pixTipo obrigatório (Prisma: PixTipo sem ?)
     const pixTipoRaw = body?.pixTipo ? String(body.pixTipo).trim().toUpperCase() : null;
     if (!pixTipoRaw) {
       return NextResponse.json(
@@ -200,12 +218,24 @@ export async function POST(
     const ip = getClientIp(req);
     const userAgent = req.headers.get("user-agent");
 
+    /**
+     * ✅ AJUSTE DEFINITIVO:
+     * - Prisma Cedente tem: senhaEmail/senhaSmiles/senhaLatamPass/senhaLivelo/senhaEsfera
+     * - Frontend manda: senhaEmailEnc etc
+     * Então: aceitamos ambos e salvamos nos campos corretos.
+     */
+    const senhaEmail = normalizeString(body?.senhaEmailEnc ?? body?.senhaEmail, 255);
+    const senhaSmiles = normalizeString(body?.senhaSmilesEnc ?? body?.senhaSmiles, 255);
+    const senhaLatamPass = normalizeString(body?.senhaLatamPassEnc ?? body?.senhaLatamPass, 255);
+    const senhaLivelo = normalizeString(body?.senhaLiveloEnc ?? body?.senhaLivelo, 255);
+    const senhaEsfera = normalizeString(body?.senhaEsferaEnc ?? body?.senhaEsfera, 255);
+
     const baseCedenteData = {
       nomeCompleto,
       cpf,
       dataNascimento: safeIsoDateToDate(body?.dataNascimento),
 
-      telefone,
+      telefone: telefoneDigits,
       emailCriado: normalizeString(body?.emailCriado, 120),
 
       banco,
@@ -213,17 +243,17 @@ export async function POST(
       chavePix,
       titularConfirmado: true,
 
-      // (texto no banco por enquanto)
-      senhaEmailEnc: body?.senhaEmailEnc ?? null,
-      senhaSmilesEnc: body?.senhaSmilesEnc ?? null,
-      senhaLatamPassEnc: body?.senhaLatamPassEnc ?? null,
-      senhaLiveloEnc: body?.senhaLiveloEnc ?? null,
-      senhaEsferaEnc: body?.senhaEsferaEnc ?? null,
+      // ✅ campos reais do Prisma
+      senhaEmail,
+      senhaSmiles,
+      senhaLatamPass,
+      senhaLivelo,
+      senhaEsfera,
 
-      pontosLatam: Number(body?.pontosLatam || 0),
-      pontosSmiles: Number(body?.pontosSmiles || 0),
-      pontosLivelo: Number(body?.pontosLivelo || 0),
-      pontosEsfera: Number(body?.pontosEsfera || 0),
+      pontosLatam: normalizeInt(body?.pontosLatam, 0),
+      pontosSmiles: normalizeInt(body?.pontosSmiles, 0),
+      pontosLivelo: normalizeInt(body?.pontosLivelo, 0),
+      pontosEsfera: normalizeInt(body?.pontosEsfera, 0),
 
       ownerId: invite.userId,
       inviteId: invite.id,
