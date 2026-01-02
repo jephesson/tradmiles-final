@@ -63,15 +63,23 @@ function nOrNull(v: any): number | null {
   return Number.isFinite(x) ? Math.trunc(x) : null;
 }
 
+function milheiroFromSale(points: number, totalCents: number): number | null {
+  const pts = Number(points || 0);
+  const cents = Number(totalCents || 0);
+  if (!Number.isFinite(pts) || !Number.isFinite(cents) || pts <= 0) return null;
+  // R$/1.000 pts em CENTAVOS
+  return Math.round((cents * 1000) / pts);
+}
+
 function computeRow(r: Row) {
   // backend novo pode mandar pronto:
-  const projectedProfitAvgCents = ("projectedProfitAvgCents" in r ? (r.projectedProfitAvgCents ?? null) : null) as
-    | number
-    | null;
+  const projectedProfitAvgCents = (
+    "projectedProfitAvgCents" in r ? (r.projectedProfitAvgCents ?? null) : null
+  ) as number | null;
 
-  const projectedProfitMetaCents = ("projectedProfitMetaCents" in r ? (r.projectedProfitMetaCents ?? null) : null) as
-    | number
-    | null;
+  const projectedProfitMetaCents = (
+    "projectedProfitMetaCents" in r ? (r.projectedProfitMetaCents ?? null) : null
+  ) as number | null;
 
   // se backend mandar remainingPoints, beleza; senão tenta calcular se tiver pointsTotal
   const pointsTotal = n((r as any).pointsTotal, n((r as any).pontosCiaTotal, 0));
@@ -205,7 +213,9 @@ export default function ComprasFinalizarClient() {
   }, [filtered]);
 
   async function onFinalizar(purchaseId: string) {
-    const ok = window.confirm("Finalizar esta compra? Isso grava os totais e trava como finalizada.");
+    const ok = window.confirm(
+      "Finalizar esta compra? Isso grava os totais e trava como finalizada."
+    );
     if (!ok) return;
 
     setBusyId(purchaseId);
@@ -388,12 +398,16 @@ export default function ComprasFinalizarClient() {
 
                           <span title="Lucro se o restante for vendido pelo milheiro médio já vendido">
                             Lucro previsto (média):{" "}
-                            <b>{c.projectedProfitAvgCents == null ? "—" : fmtMoneyBR(c.projectedProfitAvgCents)}</b>
+                            <b>
+                              {c.projectedProfitAvgCents == null ? "—" : fmtMoneyBR(c.projectedProfitAvgCents)}
+                            </b>
                           </span>
 
                           <span title="Lucro se o restante for vendido pela metaMilheiro">
                             Lucro previsto (meta):{" "}
-                            <b>{c.projectedProfitMetaCents == null ? "—" : fmtMoneyBR(c.projectedProfitMetaCents)}</b>
+                            <b>
+                              {c.projectedProfitMetaCents == null ? "—" : fmtMoneyBR(c.projectedProfitMetaCents)}
+                            </b>
                           </span>
 
                           <span>
@@ -406,7 +420,7 @@ export default function ComprasFinalizarClient() {
                         </div>
 
                         <div className="overflow-auto rounded-lg border bg-white">
-                          <table className="min-w-[950px] w-full text-xs">
+                          <table className="min-w-[1050px] w-full text-xs">
                             <thead className="bg-gray-50">
                               <tr className="text-left">
                                 <th className="p-2">Venda</th>
@@ -415,6 +429,7 @@ export default function ComprasFinalizarClient() {
                                 <th className="p-2">Pts</th>
                                 <th className="p-2">Pax</th>
                                 <th className="p-2">Valor</th>
+                                <th className="p-2">Milheiro</th>
                                 <th className="p-2">Locator</th>
                                 <th className="p-2">Status</th>
                               </tr>
@@ -423,23 +438,27 @@ export default function ComprasFinalizarClient() {
                             <tbody>
                               {r.sales.length === 0 ? (
                                 <tr>
-                                  <td colSpan={8} className="p-3 text-gray-500">
+                                  <td colSpan={9} className="p-3 text-gray-500">
                                     Sem vendas vinculadas a este ID.
                                   </td>
                                 </tr>
                               ) : (
-                                r.sales.map((s) => (
-                                  <tr key={s.id} className="border-t">
-                                    <td className="p-2 font-mono">{s.numero}</td>
-                                    <td className="p-2">{fmtDateBR(s.date)}</td>
-                                    <td className="p-2">{s.program}</td>
-                                    <td className="p-2">{fmtInt(s.points)}</td>
-                                    <td className="p-2">{fmtInt(s.passengers)}</td>
-                                    <td className="p-2 font-medium">{fmtMoneyBR(s.totalCents)}</td>
-                                    <td className="p-2">{s.locator || "—"}</td>
-                                    <td className="p-2">{s.paymentStatus}</td>
-                                  </tr>
-                                ))
+                                r.sales.map((s) => {
+                                  const mil = milheiroFromSale(s.points, s.totalCents);
+                                  return (
+                                    <tr key={s.id} className="border-t">
+                                      <td className="p-2 font-mono">{s.numero}</td>
+                                      <td className="p-2">{fmtDateBR(s.date)}</td>
+                                      <td className="p-2">{s.program}</td>
+                                      <td className="p-2">{fmtInt(s.points)}</td>
+                                      <td className="p-2">{fmtInt(s.passengers)}</td>
+                                      <td className="p-2 font-medium">{fmtMoneyBR(s.totalCents)}</td>
+                                      <td className="p-2">{mil == null ? "—" : fmtMoneyBR(mil)}</td>
+                                      <td className="p-2">{s.locator || "—"}</td>
+                                      <td className="p-2">{s.paymentStatus}</td>
+                                    </tr>
+                                  );
+                                })
                               )}
                             </tbody>
                           </table>
