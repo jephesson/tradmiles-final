@@ -31,17 +31,16 @@ async function getServerSession(): Promise<Sess | null> {
   return readSessionCookie(raw);
 }
 
-export async function PATCH(
-  req: Request,
-  ctx: { params: Promise<{ purchaseId: string }> } // Next 16
-) {
+type Ctx = { params: { purchaseId: string } | Promise<{ purchaseId: string }> };
+
+export async function PATCH(req: Request, ctx: Ctx) {
   const session = await getServerSession();
   if (!session?.id) {
     return NextResponse.json({ ok: false, error: "Não autenticado" }, { status: 401 });
   }
 
-  const { purchaseId } = await ctx.params;
-  const id = String(purchaseId || "").trim();
+  const params = await Promise.resolve(ctx.params);
+  const id = String(params?.purchaseId || "").trim();
   if (!id) {
     return NextResponse.json({ ok: false, error: "purchaseId obrigatório" }, { status: 400 });
   }
@@ -54,10 +53,10 @@ export async function PATCH(
           id: true,
           numero: true,
           status: true,
-          pontosCiaTotal: true,     // ✅ era points
+          pontosCiaTotal: true, // ✅ era points (não existe no Purchase)
           totalCents: true,
           metaMilheiroCents: true,
-          finalizedAt: true,        // ✅ existe após ajuste no prisma
+          finalizedAt: true,
         },
       });
 

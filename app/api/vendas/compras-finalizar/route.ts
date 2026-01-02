@@ -5,12 +5,7 @@ import { prisma } from "@/lib/prisma";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-type Sess = {
-  id: string;
-  login: string;
-  team: string;
-  role: "admin" | "staff";
-};
+type Sess = { id: string; login: string; team: string; role: "admin" | "staff" };
 
 function b64urlDecode(input: string) {
   const pad = input.length % 4 === 0 ? "" : "=".repeat(4 - (input.length % 4));
@@ -34,97 +29,72 @@ async function getServerSession(): Promise<Sess | null> {
   return readSessionCookie(raw);
 }
 
-function roundDiv(a: number, b: number) {
-  if (!b) return 0;
-  return Math.round(a / b);
-}
-function centsFromMilheiro(points: number, milheiroCents: number) {
-  // points / 1000 * milheiro
-  return Math.round((points * milheiroCents) / 1000);
-}
-
-export async function GET() {
+export async function PATCH(req: Request) {
   const session = await getServerSession();
   if (!session?.id) {
     return NextResponse.json({ ok: false, error: "Não autenticado" }, { status: 401 });
   }
 
-  // ✅ Somente compras LIBERADAS
-  const purchases = await prisma.purchase.findMany({
-    where: { status: "CLOSED", finalizedAt: null },
-    orderBy: { createdAt: "desc" },
-    take: 200,
-    select: {
-      id: true,
-      numero: true,
-      status: true,
-      points: true,
-      totalCents: true,
-      metaMilheiroCents: true,
-      createdAt: true,
-      finalizedAt: true,
-      cedente: { select: { id: true, identificador: true, nomeCompleto: true, cpf: true } },
-    },
-  });
+  const body = await req.json().catch(() => ({}));
+  const purchaseId = String(body.purchaseId || "").trim();
+  if (!purchaseId) {
+    return NextResponse.json({ ok: false, error: "purchaseId obrigatório" }, { status: 400 });
+  }
 
-  const ids = purchases.map((p) => p.id);
-  if (ids.length === 0) return NextResponse.json({ ok: true, purchases: [] });
+  try {
+    const out = await prisma.$transaction(async (tx) => {
+      const purchase = await tx.purchase.findUnique({
+        where: { id: purchaseId },
+        // ✅ REMOVIDO: points (não existe no model Purchase)
+        select: {
+          id: true,
+          numero: true,
+          status: true,
+          totalCents: true,
+          metaMilheiroCents: true,
+          finalizedAt: true,
+        },
+      });
 
-  // agrega vendas por purchaseId (ignora vendas CANCELADAS)
-  const salesAgg = await prisma.sale.groupBy({
-    by: ["purchaseId"],
-    where: { purchaseId: { in: ids }, paymentStatus: { not: "CANCELED" } },
-    _sum: { points: true, passengers: true, totalCents: true, pointsValueCents: true },
-  });
+      if (!purchase) throw new Error("Compra não encontrada.");
+      if (purchase.status !== "CLOSED") throw new Error("Compra não está LIBERADA.");
+      if (purchase.finalizedAt) throw new Error("Compra já foi finalizada.");
 
-  const aggMap = new Map(
-    salesAgg.map((a) => [
-      a.purchaseId!,
-      {
-        soldPoints: a._sum.points || 0,
-        soldPax: a._sum.passengers || 0,
-        salesTotalCents: a._sum.totalCents || 0,
-        pointsValueCents: a._sum.pointsValueCents || 0,
-      },
-    ])
-  );
+      // ✅ "vendas liberadas" = não canceladas (se quiser só pagas, troque para paymentStatus: "PAID")
+      const agg = await tx.sale.aggregate({
+        where: { purchaseId, paymentStatus: { not: "CANCELED" } },
+        _sum: { points: true, passengers: true, totalCents: true, pointsValueCents: true },
+      });
 
-  const out = purchases.map((p) => {
-    const a = aggMap.get(p.id) || { soldPoints: 0, soldPax: 0, salesTotalCents: 0, pointsValueCents: 0 };
+      const soldPoints = agg._sum.points || 0;
+      const pax = agg._sum.passengers || 0;
+      const salesTotalCents = agg._sum.totalCents || 0;
+      const pointsValueCents = agg._sum.pointsValueCents || 0;
 
-    const avgMilheiroCents = a.soldPoints > 0 ? Math.round((a.pointsValueCents * 1000) / a.soldPoints) : 0;
-    const remainingPoints = Math.max(0, (p.points || 0) - a.soldPoints);
+      const avgMilheiroCents =
+        soldPoints > 0 ? Math.round((pointsValueCents * 1000) / soldPoints) : 0;
 
-    const lucroAtualCents = (a.salesTotalCents || 0) - (p.totalCents || 0);
+      const profitCents = salesTotalCents - (purchase.totalCents || 0);
 
-    const prevMetaRevenueCents = centsFromMilheiro(remainingPoints, p.metaMilheiroCents || 0);
-    const prevAvgRevenueCents = centsFromMilheiro(remainingPoints, avgMilheiroCents || 0);
+      const updated = await tx.purchase.update({
+        where: { id: purchaseId },
+        data: {
+          finalizedAt: new Date(),
+          finalizedById: session.id,
+          finalSalesCents: salesTotalCents,
+          finalProfitCents: profitCents,
+          finalSoldPoints: soldPoints,
+          finalPax: pax,
+          finalAvgMilheiroCents: avgMilheiroCents,
+        },
+        select: { id: true, numero: true, finalizedAt: true, finalProfitCents: true },
+      });
 
-    const prevLucroMetaCents = (a.salesTotalCents || 0) + prevMetaRevenueCents - (p.totalCents || 0);
-    const prevLucroAvgCents = (a.salesTotalCents || 0) + prevAvgRevenueCents - (p.totalCents || 0);
+      return updated;
+    });
 
-    return {
-      id: p.id,
-      numero: p.numero,
-      status: p.status,
-      points: p.points || 0,
-      totalCents: p.totalCents || 0,
-      metaMilheiroCents: p.metaMilheiroCents || 0,
-      createdAt: p.createdAt,
-      cedente: p.cedente,
-
-      soldPoints: a.soldPoints,
-      soldPax: a.soldPax,
-      salesTotalCents: a.salesTotalCents,
-
-      remainingPoints,
-      avgMilheiroCents,
-      saldoCents: lucroAtualCents,
-
-      previewLucroMetaCents: prevLucroMetaCents,
-      previewLucroAvgCents: prevLucroAvgCents,
-    };
-  });
-
-  return NextResponse.json({ ok: true, purchases: out });
+    return NextResponse.json({ ok: true, purchase: out });
+  } catch (e: any) {
+    return NextResponse.json({ ok: false, error: e?.message || "Erro ao finalizar" }, { status: 400 });
+  }
 }
