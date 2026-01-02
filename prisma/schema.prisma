@@ -109,6 +109,14 @@ model User {
   // Vendas feitas por este usuário
   salesSold Sale[] @relation("SaleSeller")
 
+  /**
+   * =========================
+   * RATEIO (BASE PERCENTUAL)
+   * =========================
+   */
+  profitSharesOwned ProfitShare[]     @relation("ProfitShareOwner")
+  profitShareAsPayee ProfitShareItem[] @relation("ProfitSharePayee")
+
   // Um convite por usuário
   employeeInvite EmployeeInvite?
 
@@ -139,6 +147,53 @@ model EmployeeInvite {
 
 /**
  * =========================
+ * RATEIO (BASE PERCENTUAL)
+ * =========================
+ * Regras:
+ * - Para cada "owner" (funcionário dono dos cedentes), existe 1 configuração por team
+ * - Os itens somam 100% (10000 bps)
+ * - Depois essa base será usada para ratear lucro líquido
+ */
+model ProfitShare {
+  id      String @id @default(cuid())
+  team    String
+  ownerId String
+
+  isActive Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  owner User @relation("ProfitShareOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  items ProfitShareItem[]
+
+  @@unique([team, ownerId])
+  @@index([team])
+  @@index([ownerId])
+  @@map("profit_shares")
+}
+
+model ProfitShareItem {
+  id      String @id @default(cuid())
+  shareId String
+  payeeId String
+
+  // Basis points (10000 = 100.00%)
+  bps Int
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  share ProfitShare @relation(fields: [shareId], references: [id], onDelete: Cascade)
+  payee User       @relation("ProfitSharePayee", fields: [payeeId], references: [id], onDelete: Cascade)
+
+  @@unique([shareId, payeeId])
+  @@index([payeeId])
+  @@map("profit_share_items")
+}
+
+/**
+ * =========================
  * CEDENTES
  * =========================
  */
@@ -148,7 +203,7 @@ model Cedente {
 
   nomeCompleto   String
   dataNascimento DateTime?
-  cpf            String    @unique
+  cpf            String @unique
 
   telefone    String?
   emailCriado String?
@@ -173,10 +228,10 @@ model Cedente {
   reviewedAt DateTime?
 
   reviewedById String?
-  reviewedBy   User?   @relation("CedenteReviewedBy", fields: [reviewedById], references: [id], onDelete: SetNull)
+  reviewedBy   User? @relation("CedenteReviewedBy", fields: [reviewedById], references: [id], onDelete: SetNull)
 
   ownerId String
-  owner   User   @relation("CedenteOwner", fields: [ownerId], references: [id], onDelete: Restrict)
+  owner   User @relation("CedenteOwner", fields: [ownerId], references: [id], onDelete: Restrict)
 
   inviteId String?
   invite   EmployeeInvite? @relation(fields: [inviteId], references: [id], onDelete: SetNull)
@@ -279,7 +334,7 @@ model Debt {
   status      DebtStatus @default(OPEN)
 
   createdById String?
-  createdBy   User?   @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  createdBy   User? @relation(fields: [createdById], references: [id], onDelete: SetNull)
 
   payments DebtPayment[]
 
@@ -318,13 +373,13 @@ model BlockedAccount {
 
   cedenteId String
   program   LoyaltyProgram
-  status    BlockStatus    @default(OPEN)
+  status    BlockStatus @default(OPEN)
 
   note              String?
   estimatedUnlockAt DateTime?
 
   createdById String?
-  createdBy   User?   @relation("BlockedCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  createdBy   User? @relation("BlockedCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
 
   resolvedAt   DateTime?
   observations BlockObservation[]
@@ -348,7 +403,7 @@ model BlockObservation {
   text      String
 
   createdById String?
-  createdBy   User?   @relation("BlockedObsCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  createdBy   User? @relation("BlockedObsCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -452,7 +507,7 @@ model Purchase {
    */
   liberadoEm    DateTime?
   liberadoPorId String?
-  liberadoPor   User?     @relation("CompraLiberadaPor", fields: [liberadoPorId], references: [id], onDelete: SetNull)
+  liberadoPor   User? @relation("CompraLiberadaPor", fields: [liberadoPorId], references: [id], onDelete: SetNull)
 
   /**
    * =========================
@@ -461,7 +516,7 @@ model Purchase {
    */
   finalizedAt   DateTime?
   finalizedById String?
-  finalizedBy   User?     @relation("PurchaseFinalizedBy", fields: [finalizedById], references: [id], onDelete: SetNull)
+  finalizedBy   User? @relation("PurchaseFinalizedBy", fields: [finalizedById], references: [id], onDelete: SetNull)
 
   /**
    * ✅ SNAPSHOTS CONSOLIDADOS DO ID NO MOMENTO DA FINALIZAÇÃO
@@ -572,11 +627,11 @@ model CedenteCommission {
 
   generatedAt   DateTime @default(now())
   generatedById String?
-  generatedBy   User?    @relation("CedenteCommissionGeneratedBy", fields: [generatedById], references: [id], onDelete: SetNull)
+  generatedBy   User? @relation("CedenteCommissionGeneratedBy", fields: [generatedById], references: [id], onDelete: SetNull)
 
   paidAt   DateTime?
   paidById String?
-  paidBy   User?     @relation("CedenteCommissionPaidBy", fields: [paidById], references: [id], onDelete: SetNull)
+  paidBy   User? @relation("CedenteCommissionPaidBy", fields: [paidById], references: [id], onDelete: SetNull)
 
   note String?
 
@@ -619,7 +674,7 @@ model Cliente {
   origemDescricao String?
 
   createdById String?
-  createdBy   User?   @relation("ClienteCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  createdBy   User? @relation("ClienteCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
 
   // Vendas vinculadas a este cliente
   sales Sale[]
@@ -766,7 +821,7 @@ model Sale {
   purchase   Purchase? @relation(fields: [purchaseId], references: [id], onDelete: SetNull)
 
   sellerId String?
-  seller   User?   @relation("SaleSeller", fields: [sellerId], references: [id], onDelete: SetNull)
+  seller   User? @relation("SaleSeller", fields: [sellerId], references: [id], onDelete: SetNull)
 
   receivableId String?     @unique
   receivable   Receivable? @relation("SaleReceivable", fields: [receivableId], references: [id], onDelete: SetNull)
