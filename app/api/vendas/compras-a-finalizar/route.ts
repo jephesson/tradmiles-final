@@ -36,7 +36,13 @@ type OutSale = {
   program: string;
   points: number;
   passengers: number;
-  totalCents: number; // ✅ valor da venda
+
+  // ✅ total cobrado do cliente (pode incluir taxa)
+  totalCents: number;
+
+  // ✅ SOMENTE valor das milhas (SEM taxa) — usado para milheiro e lucro
+  pointsValueCents: number;
+
   locator: string | null;
   paymentStatus: string;
 };
@@ -125,6 +131,7 @@ export async function GET(req: Request) {
   }
 
   // ✅ lista de vendas por compra (pra expandir)
+  // IMPORTANTE: traz pointsValueCents (sem taxa)
   const sales = await prisma.sale.findMany({
     where: {
       purchaseId: { in: ids },
@@ -138,7 +145,8 @@ export async function GET(req: Request) {
       program: true,
       points: true,
       passengers: true,
-      totalCents: true, // ✅ valor da venda
+      totalCents: true,       // com taxa
+      pointsValueCents: true, // ✅ sem taxa
       locator: true,
       paymentStatus: true,
       purchaseId: true,
@@ -156,7 +164,10 @@ export async function GET(req: Request) {
       program: String(s.program),
       points: safeInt(s.points),
       passengers: safeInt(s.passengers),
-      totalCents: safeInt(s.totalCents), // ✅
+
+      totalCents: safeInt(s.totalCents),                 // com taxa
+      pointsValueCents: safeInt((s as any).pointsValueCents, 0), // ✅ sem taxa
+
       locator: s.locator ?? null,
       paymentStatus: String(s.paymentStatus),
     });
@@ -173,7 +184,11 @@ export async function GET(req: Request) {
     _sum: {
       points: true,
       passengers: true,
+
+      // total cobrado (pode ter taxa)
       totalCents: true,
+
+      // ✅ só milhas (sem taxa)
       pointsValueCents: true,
     },
     _count: { _all: true },
@@ -185,8 +200,11 @@ export async function GET(req: Request) {
     {
       soldPoints: number;
       pax: number;
-      salesTotalCents: number;
-      pointsValueCents: number;
+
+      salesTotalCents: number;        // com taxa
+      salesPointsValueCents: number;  // ✅ sem taxa
+      salesTaxesCents: number;        // diferença (taxas)
+
       salesCount: number;
       lastSaleAt: string | null;
     }
@@ -194,12 +212,19 @@ export async function GET(req: Request) {
 
   for (const g of sums) {
     const pid = String(g.purchaseId || "");
+    const totalCents = safeInt(g._sum.totalCents, 0);
+    const ptsCents = safeInt(g._sum.pointsValueCents, 0);
+    const taxes = Math.max(totalCents - ptsCents, 0);
+
     sumMap.set(pid, {
-      soldPoints: g._sum.points ?? 0,
-      pax: g._sum.passengers ?? 0,
-      salesTotalCents: g._sum.totalCents ?? 0,
-      pointsValueCents: g._sum.pointsValueCents ?? 0,
-      salesCount: g._count._all ?? 0,
+      soldPoints: safeInt(g._sum.points, 0),
+      pax: safeInt(g._sum.passengers, 0),
+
+      salesTotalCents: totalCents,
+      salesPointsValueCents: ptsCents,
+      salesTaxesCents: taxes,
+
+      salesCount: safeInt(g._count._all, 0),
       lastSaleAt: g._max.date ? new Date(g._max.date as any).toISOString() : null,
     });
   }
@@ -209,7 +234,8 @@ export async function GET(req: Request) {
       soldPoints: 0,
       pax: 0,
       salesTotalCents: 0,
-      pointsValueCents: 0,
+      salesPointsValueCents: 0,
+      salesTaxesCents: 0,
       salesCount: 0,
       lastSaleAt: null,
     };
@@ -221,25 +247,27 @@ export async function GET(req: Request) {
     const soldPoints = safeInt(agg.soldPoints, 0);
     const remainingPoints = Math.max(pointsTotal - soldPoints, 0);
 
-    // ✅ milheiro médio baseado no "valor das milhas" (pointsValueCents)
+    // ✅ milheiro médio baseado no "valor das milhas" (sem taxa)
     const avgMilheiroCents =
       soldPoints > 0
-        ? Math.round((safeInt(agg.pointsValueCents, 0) * 1000) / soldPoints)
+        ? Math.round((safeInt(agg.salesPointsValueCents, 0) * 1000) / soldPoints)
         : null;
 
-    const salesTotalCents = safeInt(agg.salesTotalCents, 0);
+    const salesTotalCents = safeInt(agg.salesTotalCents, 0);               // com taxa
+    const salesPointsValueCents = safeInt(agg.salesPointsValueCents, 0);   // ✅ sem taxa
+    const salesTaxesCents = safeInt(agg.salesTaxesCents, 0);
 
-    // ✅ projeções:
+    // ✅ projeções SEM taxa:
     const projectedRevenueAvgCents =
       avgMilheiroCents == null
         ? null
-        : salesTotalCents + Math.round((remainingPoints * avgMilheiroCents) / 1000);
+        : salesPointsValueCents + Math.round((remainingPoints * avgMilheiroCents) / 1000);
 
     const projectedProfitAvgCents =
       projectedRevenueAvgCents == null ? null : projectedRevenueAvgCents - purchaseTotalCents;
 
     const projectedRevenueMetaCents =
-      salesTotalCents + Math.round((remainingPoints * metaMilheiroCents) / 1000);
+      salesPointsValueCents + Math.round((remainingPoints * metaMilheiroCents) / 1000);
 
     const projectedProfitMetaCents = projectedRevenueMetaCents - purchaseTotalCents;
 
@@ -249,8 +277,14 @@ export async function GET(req: Request) {
       cedente: p.cedente,
 
       purchaseTotalCents,
-      salesTotalCents,
-      saldoCents: salesTotalCents - purchaseTotalCents,
+
+      // ✅ mantém os dois (pra UI mostrar caixa e lucro corretamente)
+      salesTotalCents,          // com taxa (caixa)
+      salesPointsValueCents,    // ✅ sem taxa (lucro/milheiro)
+      salesTaxesCents,          // taxas
+
+      // ✅ saldo = lucro (sem taxa)
+      saldoCents: salesPointsValueCents - purchaseTotalCents,
 
       pax: safeInt(agg.pax, 0),
       soldPoints,
@@ -260,8 +294,8 @@ export async function GET(req: Request) {
       avgMilheiroCents,
       metaMilheiroCents,
 
-      projectedProfitAvgCents,  // ✅
-      projectedProfitMetaCents, // ✅
+      projectedProfitAvgCents,
+      projectedProfitMetaCents,
 
       salesCount: safeInt(agg.salesCount, 0),
       lastSaleAt: agg.lastSaleAt,

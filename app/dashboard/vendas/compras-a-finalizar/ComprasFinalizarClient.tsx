@@ -8,16 +8,25 @@ type Row = {
   cedente: { id: string; nomeCompleto: string; cpf: string; identificador: string } | null;
 
   purchaseTotalCents: number;
+
+  /** ✅ total cobrado (pode ter taxa) */
   salesTotalCents: number;
+
+  /** ✅ valor das milhas (SEM taxa) */
+  salesPointsValueCents?: number;
+
+  /** ✅ soma das taxas (diferença) */
+  salesTaxesCents?: number;
+
+  /** ✅ saldo/lucro (SEM taxa) */
   saldoCents: number;
 
   pax: number;
   soldPoints: number;
 
-  // pode vir null no novo backend (quando ainda não tem vendas)
+  /** ✅ milheiro médio SEM taxa */
   avgMilheiroCents: number | null;
 
-  // ✅ novos campos (podem ou não vir do backend)
   pointsTotal?: number; // pontosCiaTotal
   remainingPoints?: number;
   metaMilheiroCents?: number;
@@ -35,7 +44,13 @@ type Row = {
     program: string;
     points: number;
     passengers: number;
+
+    /** ✅ total cobrado (com taxa) */
     totalCents: number;
+
+    /** ✅ valor das milhas (SEM taxa) */
+    pointsValueCents?: number;
+
     locator: string | null;
     paymentStatus: string;
   }>;
@@ -63,15 +78,33 @@ function nOrNull(v: any): number | null {
   return Number.isFinite(x) ? Math.trunc(x) : null;
 }
 
-function milheiroFromSale(points: number, totalCents: number): number | null {
+/**
+ * ✅ Milheiro SEM taxa.
+ * Usa pointsValueCents (milhas) quando disponível; senão, cai no total (para compatibilidade).
+ */
+function milheiroFromSale(points: number, pointsValueCents?: number, totalCentsFallback?: number): number | null {
   const pts = Number(points || 0);
-  const cents = Number(totalCents || 0);
-  if (!Number.isFinite(pts) || !Number.isFinite(cents) || pts <= 0) return null;
-  // R$/1.000 pts em CENTAVOS
-  return Math.round((cents * 1000) / pts);
+  const cents =
+    Number(pointsValueCents ?? 0) > 0 ? Number(pointsValueCents || 0) : Number(totalCentsFallback || 0);
+
+  if (!Number.isFinite(pts) || !Number.isFinite(cents) || pts <= 0 || cents <= 0) return null;
+  return Math.round((cents * 1000) / pts); // centavos por 1000 pontos
 }
 
 function computeRow(r: Row) {
+  // ✅ base SEM taxa (preferencial)
+  const salesPointsValueCents = n(
+    (r as any).salesPointsValueCents,
+    // fallback: se backend antigo, cai no salesTotalCents
+    n((r as any).salesTotalCents, 0)
+  );
+
+  const salesTotalCents = n((r as any).salesTotalCents, 0);
+  const salesTaxesCents =
+    typeof (r as any).salesTaxesCents === "number"
+      ? n((r as any).salesTaxesCents, 0)
+      : Math.max(salesTotalCents - salesPointsValueCents, 0);
+
   // backend novo pode mandar pronto:
   const projectedProfitAvgCents = (
     "projectedProfitAvgCents" in r ? (r.projectedProfitAvgCents ?? null) : null
@@ -93,12 +126,12 @@ function computeRow(r: Row) {
   const avgMilheiroCents = nOrNull((r as any).avgMilheiroCents);
   const metaMilheiroCents = n((r as any).metaMilheiroCents, 0);
 
-  // fallback: calcula projeções no client se backend não mandou
+  // ✅ fallback: projeções SEM taxa (usa salesPointsValueCents)
   const calcProjectedAvg =
     projectedProfitAvgCents !== null
       ? projectedProfitAvgCents
       : remainingPoints != null && avgMilheiroCents != null && avgMilheiroCents > 0
-      ? r.salesTotalCents +
+      ? salesPointsValueCents +
         Math.round((remainingPoints * avgMilheiroCents) / 1000) -
         (r.purchaseTotalCents || 0)
       : null;
@@ -107,12 +140,15 @@ function computeRow(r: Row) {
     projectedProfitMetaCents !== null
       ? projectedProfitMetaCents
       : remainingPoints != null && metaMilheiroCents > 0
-      ? r.salesTotalCents +
+      ? salesPointsValueCents +
         Math.round((remainingPoints * metaMilheiroCents) / 1000) -
         (r.purchaseTotalCents || 0)
       : null;
 
   return {
+    salesTotalCents,
+    salesPointsValueCents,
+    salesTaxesCents,
     remainingPoints,
     pointsTotal: pointsTotal || null,
     avgMilheiroCents,
@@ -202,20 +238,24 @@ export default function ComprasFinalizarClient() {
 
   const totals = useMemo(() => {
     let compras = 0;
-    let vendas = 0;
-    let saldo = 0;
+
+    // ✅ duas visões:
+    let vendasTotal = 0; // com taxa
+    let vendasMilhas = 0; // sem taxa
+
+    let saldo = 0; // lucro sem taxa
+
     for (const r of filtered) {
       compras += r.purchaseTotalCents || 0;
-      vendas += r.salesTotalCents || 0;
+      vendasTotal += r.salesTotalCents || 0;
+      vendasMilhas += n((r as any).salesPointsValueCents, r.salesTotalCents || 0);
       saldo += r.saldoCents || 0;
     }
-    return { ids: filtered.length, compras, vendas, saldo };
+    return { ids: filtered.length, compras, vendasTotal, vendasMilhas, saldo };
   }, [filtered]);
 
   async function onFinalizar(purchaseId: string) {
-    const ok = window.confirm(
-      "Finalizar esta compra? Isso grava os totais e trava como finalizada."
-    );
+    const ok = window.confirm("Finalizar esta compra? Isso grava os totais e trava como finalizada.");
     if (!ok) return;
 
     setBusyId(purchaseId);
@@ -242,7 +282,7 @@ export default function ComprasFinalizarClient() {
         <div>
           <h1 className="text-xl font-semibold">Compras a finalizar</h1>
           <p className="text-sm text-gray-600">
-            Agrupa por ID (compra LIBERADA). Mostra saldo e prévias. Expanda para ver histórico das vendas.
+            Agrupa por ID (compra LIBERADA). Mostra saldo e prévias (lucro sem taxa). Expanda para ver histórico.
           </p>
         </div>
 
@@ -275,12 +315,13 @@ export default function ComprasFinalizarClient() {
         </div>
 
         <div className="rounded-xl border p-4">
-          <div className="text-xs text-gray-500">Soma vendas</div>
-          <div className="mt-1 text-xl font-semibold">{fmtMoneyBR(totals.vendas)}</div>
+          <div className="text-xs text-gray-500">Soma vendas (milhas)</div>
+          <div className="mt-1 text-xl font-semibold">{fmtMoneyBR(totals.vendasMilhas)}</div>
+          <div className="mt-1 text-xs text-gray-500">Total cobrado: {fmtMoneyBR(totals.vendasTotal)}</div>
         </div>
 
         <div className="rounded-xl border p-4">
-          <div className="text-xs text-gray-500">Saldo (Vendas − Compras)</div>
+          <div className="text-xs text-gray-500">Saldo (lucro sem taxa)</div>
           <div className="mt-1 text-xl font-semibold">{fmtMoneyBR(totals.saldo)}</div>
         </div>
       </div>
@@ -388,26 +429,32 @@ export default function ComprasFinalizarClient() {
                           <span>
                             Compras: <b>{fmtMoneyBR(r.purchaseTotalCents)}</b>
                           </span>
-                          <span>
-                            Vendas: <b>{fmtMoneyBR(r.salesTotalCents)}</b>
+
+                          <span title="Somente valor das milhas (SEM taxa de embarque)">
+                            Vendas (milhas): <b>{fmtMoneyBR(c.salesPointsValueCents)}</b>
                           </span>
-                          <span>
+
+                          <span title="Taxas de embarque (diferença entre total cobrado e milhas)">
+                            Taxas: <b>{fmtMoneyBR(c.salesTaxesCents)}</b>
+                          </span>
+
+                          <span title="Total cobrado do cliente (inclui taxas)">
+                            Total cobrado: <b>{fmtMoneyBR(c.salesTotalCents)}</b>
+                          </span>
+
+                          <span title="Milheiro médio SEM taxa">
                             Milheiro médio:{" "}
                             <b>{c.avgMilheiroCents == null ? "—" : fmtMoneyBR(c.avgMilheiroCents)}</b>
                           </span>
 
-                          <span title="Lucro se o restante for vendido pelo milheiro médio já vendido">
+                          <span title="Lucro se o restante for vendido pelo milheiro médio (SEM taxa)">
                             Lucro previsto (média):{" "}
-                            <b>
-                              {c.projectedProfitAvgCents == null ? "—" : fmtMoneyBR(c.projectedProfitAvgCents)}
-                            </b>
+                            <b>{c.projectedProfitAvgCents == null ? "—" : fmtMoneyBR(c.projectedProfitAvgCents)}</b>
                           </span>
 
-                          <span title="Lucro se o restante for vendido pela metaMilheiro">
+                          <span title="Lucro se o restante for vendido pela metaMilheiro (SEM taxa)">
                             Lucro previsto (meta):{" "}
-                            <b>
-                              {c.projectedProfitMetaCents == null ? "—" : fmtMoneyBR(c.projectedProfitMetaCents)}
-                            </b>
+                            <b>{c.projectedProfitMetaCents == null ? "—" : fmtMoneyBR(c.projectedProfitMetaCents)}</b>
                           </span>
 
                           <span>
@@ -420,7 +467,7 @@ export default function ComprasFinalizarClient() {
                         </div>
 
                         <div className="overflow-auto rounded-lg border bg-white">
-                          <table className="min-w-[1050px] w-full text-xs">
+                          <table className="min-w-[1200px] w-full text-xs">
                             <thead className="bg-gray-50">
                               <tr className="text-left">
                                 <th className="p-2">Venda</th>
@@ -428,8 +475,11 @@ export default function ComprasFinalizarClient() {
                                 <th className="p-2">Programa</th>
                                 <th className="p-2">Pts</th>
                                 <th className="p-2">Pax</th>
-                                <th className="p-2">Valor</th>
-                                <th className="p-2">Milheiro</th>
+
+                                <th className="p-2">Valor (c/ taxa)</th>
+                                <th className="p-2">Milhas (s/ taxa)</th>
+                                <th className="p-2">Milheiro (s/ taxa)</th>
+
                                 <th className="p-2">Locator</th>
                                 <th className="p-2">Status</th>
                               </tr>
@@ -438,13 +488,15 @@ export default function ComprasFinalizarClient() {
                             <tbody>
                               {r.sales.length === 0 ? (
                                 <tr>
-                                  <td colSpan={9} className="p-3 text-gray-500">
+                                  <td colSpan={10} className="p-3 text-gray-500">
                                     Sem vendas vinculadas a este ID.
                                   </td>
                                 </tr>
                               ) : (
                                 r.sales.map((s) => {
-                                  const mil = milheiroFromSale(s.points, s.totalCents);
+                                  const pv = n((s as any).pointsValueCents, 0);
+                                  const mil = milheiroFromSale(s.points, pv > 0 ? pv : undefined, s.totalCents);
+
                                   return (
                                     <tr key={s.id} className="border-t">
                                       <td className="p-2 font-mono">{s.numero}</td>
@@ -452,8 +504,11 @@ export default function ComprasFinalizarClient() {
                                       <td className="p-2">{s.program}</td>
                                       <td className="p-2">{fmtInt(s.points)}</td>
                                       <td className="p-2">{fmtInt(s.passengers)}</td>
+
                                       <td className="p-2 font-medium">{fmtMoneyBR(s.totalCents)}</td>
+                                      <td className="p-2">{pv > 0 ? fmtMoneyBR(pv) : "—"}</td>
                                       <td className="p-2">{mil == null ? "—" : fmtMoneyBR(mil)}</td>
+
                                       <td className="p-2">{s.locator || "—"}</td>
                                       <td className="p-2">{s.paymentStatus}</td>
                                     </tr>
