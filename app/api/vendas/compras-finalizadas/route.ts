@@ -5,14 +5,7 @@ import { prisma } from "@/lib/prisma";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-type Sess = {
-  id: string;
-  login: string;
-  team: string;
-  role: "admin" | "staff";
-  name?: string;
-  email?: string | null;
-};
+type Sess = { id: string; login: string; team: string; role: "admin" | "staff" };
 
 function b64urlDecode(input: string) {
   const pad = input.length % 4 === 0 ? "" : "=".repeat(4 - (input.length % 4));
@@ -38,6 +31,31 @@ async function getServerSession(): Promise<Sess | null> {
   return readSessionCookie(raw);
 }
 
+function safeInt(v: any, fb = 0) {
+  const n = Number(v);
+  return Number.isFinite(n) ? Math.trunc(n) : fb;
+}
+
+function milheiroFrom(points: number, pointsValueCents: number) {
+  const pts = safeInt(points, 0);
+  const cents = safeInt(pointsValueCents, 0);
+  if (!pts || !cents) return 0;
+  return Math.round((cents * 1000) / pts); // centavos por 1000
+}
+
+function bonus30(points: number, milheiroCents: number, metaMilheiroCents: number) {
+  const pts = safeInt(points, 0);
+  const mil = safeInt(milheiroCents, 0);
+  const meta = safeInt(metaMilheiroCents, 0);
+  if (!pts || !mil || !meta) return 0;
+
+  const diff = mil - meta;
+  if (diff <= 0) return 0;
+
+  const excedenteCents = Math.round((pts * diff) / 1000);
+  return Math.round(excedenteCents * 0.3);
+}
+
 function clampTake(v: any, fallback = 200) {
   const n = Number(v);
   if (!Number.isFinite(n)) return fallback;
@@ -54,12 +72,9 @@ export async function GET(req: Request) {
   const q = (url.searchParams.get("q") || "").trim();
   const take = clampTake(url.searchParams.get("take"), 200);
 
-  // filtros opcionais (YYYY-MM-DD)
-  const from = (url.searchParams.get("from") || "").trim();
-  const to = (url.searchParams.get("to") || "").trim();
-
   const where: any = {
     finalizedAt: { not: null },
+    cedente: { owner: { team: session.team } },
   };
 
   if (q) {
@@ -70,63 +85,160 @@ export async function GET(req: Request) {
     ];
   }
 
-  if (from) {
-    const d = new Date(from);
-    if (!Number.isNaN(d.getTime())) {
-      where.finalizedAt = { ...(where.finalizedAt || {}), gte: d };
-    }
-  }
-  if (to) {
-    const d = new Date(to);
-    if (!Number.isNaN(d.getTime())) {
-      // endExclusive (to + 1 dia)
-      const end = new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1);
-      where.finalizedAt = { ...(where.finalizedAt || {}), lt: end };
-    }
-  }
-
   const purchases = await prisma.purchase.findMany({
     where,
     orderBy: { finalizedAt: "desc" },
+    take,
     select: {
       id: true,
       numero: true,
       status: true,
-
       ciaAerea: true,
       pontosCiaTotal: true,
-
-      // snapshots finais
-      finalSalesCents: true,
-      finalSalesPointsValueCents: true,
-      finalSalesTaxesCents: true,
-
-      finalProfitBrutoCents: true,
-      finalBonusCents: true,
-      finalProfitCents: true,
-
-      finalSoldPoints: true,
-      finalPax: true,
-      finalAvgMilheiroCents: true,
-      finalRemainingPoints: true,
+      metaMilheiroCents: true,
+      totalCents: true,
 
       finalizedAt: true,
       finalizedBy: { select: { id: true, name: true, login: true } },
-
       cedente: { select: { id: true, identificador: true, nomeCompleto: true } },
-
-      _count: { select: { sales: true } },
-      sales: {
-        take: 1,
-        orderBy: { date: "desc" },
-        select: { date: true, totalCents: true, points: true, passengers: true },
-      },
 
       createdAt: true,
       updatedAt: true,
     },
-    take,
   });
 
-  return NextResponse.json({ ok: true, purchases });
+  const ids = purchases.map((p) => p.id);
+  if (ids.length === 0) return NextResponse.json({ ok: true, purchases: [] });
+
+  // ✅ puxa vendas pra calcular igual compras-a-finalizar
+  const sales = await prisma.sale.findMany({
+    where: {
+      purchaseId: { in: ids },
+      paymentStatus: { not: "CANCELED" },
+    },
+    select: {
+      purchaseId: true,
+      points: true,
+      passengers: true,
+      totalCents: true,
+      pointsValueCents: true,
+      embarqueFeeCents: true,
+    },
+  });
+
+  const agg = new Map<
+    string,
+    {
+      soldPoints: number;
+      pax: number;
+
+      salesTotalCents: number;
+      salesPointsValueCents: number;
+      salesTaxesCents: number;
+
+      bonusCents: number;
+    }
+  >();
+
+  for (const s of sales) {
+    const pid = String(s.purchaseId || "");
+    if (!pid) continue;
+
+    const totalCents = safeInt(s.totalCents, 0);
+    const feeCents = safeInt(s.embarqueFeeCents, 0);
+    let pvCents = safeInt((s as any).pointsValueCents, 0);
+
+    // ✅ regra correta (SEM taxa): se não veio pv, tenta total-fee
+    if (pvCents <= 0 && totalCents > 0) {
+      const cand = Math.max(totalCents - feeCents, 0);
+      pvCents = cand > 0 ? cand : totalCents;
+    }
+
+    const taxes = Math.max(totalCents - pvCents, 0);
+
+    const cur = agg.get(pid) || {
+      soldPoints: 0,
+      pax: 0,
+      salesTotalCents: 0,
+      salesPointsValueCents: 0,
+      salesTaxesCents: 0,
+      bonusCents: 0,
+    };
+
+    cur.soldPoints += safeInt(s.points, 0);
+    cur.pax += safeInt(s.passengers, 0);
+
+    cur.salesTotalCents += totalCents;
+    cur.salesPointsValueCents += pvCents;
+    cur.salesTaxesCents += taxes;
+
+    // bônus depende da meta da compra → calcula depois (precisa da meta)
+    agg.set(pid, cur);
+  }
+
+  // aplica bônus por compra (precisa meta)
+  const byId = new Map(purchases.map((p) => [p.id, p]));
+  for (const s of sales) {
+    const pid = String(s.purchaseId || "");
+    if (!pid) continue;
+
+    const p = byId.get(pid);
+    if (!p) continue;
+
+    const totalCents = safeInt(s.totalCents, 0);
+    const feeCents = safeInt(s.embarqueFeeCents, 0);
+    let pvCents = safeInt((s as any).pointsValueCents, 0);
+    if (pvCents <= 0 && totalCents > 0) {
+      const cand = Math.max(totalCents - feeCents, 0);
+      pvCents = cand > 0 ? cand : totalCents;
+    }
+
+    const mil = milheiroFrom(safeInt(s.points, 0), pvCents);
+    const b = bonus30(safeInt(s.points, 0), mil, safeInt(p.metaMilheiroCents, 0));
+
+    const cur = agg.get(pid);
+    if (cur) cur.bonusCents += b;
+  }
+
+  const out = purchases.map((p) => {
+    const a = agg.get(p.id) || {
+      soldPoints: 0,
+      pax: 0,
+      salesTotalCents: 0,
+      salesPointsValueCents: 0,
+      salesTaxesCents: 0,
+      bonusCents: 0,
+    };
+
+    const purchaseTotalCents = safeInt(p.totalCents, 0);
+
+    const profitBruto = a.salesPointsValueCents - purchaseTotalCents; // ✅ sem taxa
+    const profitLiquido = profitBruto - a.bonusCents; // ✅ sem taxa - bônus
+
+    const avgMilheiro =
+      a.soldPoints > 0 && a.salesPointsValueCents > 0 ? Math.round((a.salesPointsValueCents * 1000) / a.soldPoints) : null;
+
+    const remaining =
+      safeInt(p.pontosCiaTotal, 0) > 0 ? Math.max(safeInt(p.pontosCiaTotal, 0) - a.soldPoints, 0) : null;
+
+    return {
+      ...p,
+
+      // ✅ devolve nos mesmos nomes que sua UI usa
+      finalSalesCents: a.salesTotalCents,
+      finalSalesPointsValueCents: a.salesPointsValueCents,
+      finalSalesTaxesCents: a.salesTaxesCents,
+
+      finalProfitBrutoCents: profitBruto,
+      finalBonusCents: a.bonusCents,
+      finalProfitCents: profitLiquido,
+
+      finalSoldPoints: a.soldPoints,
+      finalPax: a.pax,
+      finalAvgMilheiroCents: avgMilheiro,
+      finalRemainingPoints: remaining,
+    };
+  });
+
+  return NextResponse.json({ ok: true, purchases: out });
 }
