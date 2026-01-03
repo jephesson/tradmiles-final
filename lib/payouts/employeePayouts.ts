@@ -6,7 +6,6 @@ type SessionLike = { userId: string; team: string; role?: string };
 const TZ_OFFSET = "-03:00"; // Recife
 
 export function dayBounds(date: string) {
-  // date: YYYY-MM-DD
   const start = new Date(`${date}T00:00:00.000${TZ_OFFSET}`);
   const end = new Date(`${date}T00:00:00.000${TZ_OFFSET}`);
   end.setDate(end.getDate() + 1);
@@ -52,7 +51,7 @@ function profitForSaleCents(args: {
   costMilheiroCents: number;
 }) {
   const { points, saleMilheiroCents, costMilheiroCents } = args;
-  const diff = (saleMilheiroCents ?? 0) - (costMilheiroCents ?? 0); // cents / 1000
+  const diff = (saleMilheiroCents ?? 0) - (costMilheiroCents ?? 0);
   return Math.round((diff * (points ?? 0)) / 1000);
 }
 
@@ -93,19 +92,19 @@ function splitByBps(pool: number, items: Array<{ payeeId: string; bps: number }>
   return out;
 }
 
-/** ✅ fallback: calcula PV (valor pontos sem taxa) */
+/** fallback PV (valor pontos sem taxa) */
 function pointsValueCentsFallback(points: number, milheiroCents: number) {
   const denom = (points ?? 0) / 1000;
   if (denom <= 0) return 0;
   return Math.round(denom * (milheiroCents ?? 0));
 }
 
-/** ✅ fallback: comissão 1% do PV */
+/** fallback comissão 1% do PV */
 function commission1Fallback(pointsValueCents: number) {
   return Math.round((pointsValueCents ?? 0) * 0.01);
 }
 
-/** ✅ fallback: bônus 30% do excedente acima da meta (por ponto) */
+/** fallback bônus 30% do excedente acima da meta */
 function bonusFallback(args: {
   points: number;
   milheiroCents: number;
@@ -125,16 +124,50 @@ function bonusFallback(args: {
   return Math.round(diffTotal * 0.3);
 }
 
+/**
+ * ✅ helpers pra lidar com "default 0" do Prisma
+ * - se o campo veio 0 mas points>0, a gente considera "não calculado" e usa fallback
+ */
+function choosePv(points: number, pvDb: number, milheiroCents: number) {
+  if ((pvDb ?? 0) > 0) return pvDb;
+  if ((points ?? 0) > 0) return pointsValueCentsFallback(points, milheiroCents);
+  return 0;
+}
+
+function chooseC1(points: number, c1Db: number, pv: number) {
+  if ((c1Db ?? 0) > 0) return c1Db;
+  if ((points ?? 0) > 0 && (pv ?? 0) > 0) return commission1Fallback(pv);
+  return 0;
+}
+
+function chooseC2(points: number, c2Db: number, milheiroCents: number, metaMilheiroCents: number | null | undefined) {
+  // se veio >0 do banco, usa. Se veio 0, tenta recalcular (e se não tiver excedente, vai dar 0 mesmo)
+  if ((c2Db ?? 0) > 0) return c2Db;
+  if ((points ?? 0) > 0) {
+    return bonusFallback({ points, milheiroCents, metaMilheiroCents });
+  }
+  return 0;
+}
+
+function chooseCostMilheiro(program: LoyaltyProgram, costDb: number, settings: Settings | null) {
+  if ((costDb ?? 0) > 0) return costDb;
+  return costFromSettings(program, settings);
+}
+
+function chooseMetaMilheiro(metaSaleOrPurchase: number | null | undefined) {
+  const v = Number(metaSaleOrPurchase ?? 0);
+  return v > 0 ? v : 0;
+}
+
 export async function computeEmployeePayoutDay(session: SessionLike, date: string) {
   const { start, end } = dayBounds(date);
   const settings = await prisma.settings.findFirst({});
 
-  // ✅ vendas do dia (PENDING + PAID contam; só ignora CANCELED)
   const sales = await prisma.sale.findMany({
     where: {
       date: { gte: start, lt: end },
       cedente: { owner: { team: session.team } },
-      paymentStatus: { not: "CANCELED" }, // ✅ regra: só exclui cancelado
+      paymentStatus: { not: "CANCELED" },
     },
     select: {
       id: true,
@@ -144,9 +177,13 @@ export async function computeEmployeePayoutDay(session: SessionLike, date: strin
       milheiroCents: true,
       embarqueFeeCents: true,
 
+      // ⚠️ esses são default 0 no schema
       commissionCents: true,
       bonusCents: true,
       pointsValueCents: true,
+
+      // ✅ pega meta também (melhor pra bônus)
+      metaMilheiroCents: true,
 
       sellerId: true,
       purchase: { select: { custoMilheiroCents: true, metaMilheiroCents: true } },
@@ -191,28 +228,25 @@ export async function computeEmployeePayoutDay(session: SessionLike, date: strin
   for (const s of sales) {
     const sellerId = s.sellerId ?? null;
 
-    // ✅ PV (sem taxa)
-    const pv = s.pointsValueCents ?? pointsValueCentsFallback(s.points, s.milheiroCents);
+    // ✅ PV: se veio 0 do banco, calcula
+    const pv = choosePv(s.points, s.pointsValueCents, s.milheiroCents);
 
-    // ✅ comissão 1%
-    const c1 = s.commissionCents ?? commission1Fallback(pv);
+    // ✅ comissão 1: se veio 0 do banco, calcula 1% do PV
+    const c1 = chooseC1(s.points, s.commissionCents, pv);
 
-    // ✅ bônus (ou do banco, ou fallback usando meta da compra)
-    const c2 =
-      s.bonusCents ??
-      bonusFallback({
-        points: s.points,
-        milheiroCents: s.milheiroCents,
-        metaMilheiroCents: s.purchase?.metaMilheiroCents,
-      });
+    // ✅ meta pro bônus: prioriza meta da SALE (se existir), senão compra
+    const meta = chooseMetaMilheiro((s.metaMilheiroCents ?? 0) > 0 ? s.metaMilheiroCents : s.purchase?.metaMilheiroCents);
+
+    // ✅ bônus: se veio 0 do banco, tenta recalcular com meta
+    const c2 = chooseC2(s.points, s.bonusCents, s.milheiroCents, meta);
 
     const fee = s.embarqueFeeCents ?? 0;
 
-    // ✅ comissão + reembolso taxa -> seller (mesmo pendente)
+    // ✅ comissão + reembolso taxa -> seller
     if (sellerId) {
       const a = ensure(sellerId);
-      a.commission1Cents += c1 ?? 0;
-      a.commission2Cents += c2 ?? 0;
+      a.commission1Cents += c1;
+      a.commission2Cents += c2;
       a.feeCents += fee;
       a.salesCount += 1;
     }
@@ -232,7 +266,8 @@ export async function computeEmployeePayoutDay(session: SessionLike, date: strin
 
     if (!share?.items?.length) continue;
 
-    const costMilheiro = s.purchase?.custoMilheiroCents ?? costFromSettings(s.program, settings);
+    // ✅ custo milheiro: se compra veio 0, cai no Settings (pra não inflar lucro)
+    const costMilheiro = chooseCostMilheiro(s.program, s.purchase?.custoMilheiroCents ?? 0, settings);
 
     const profit = profitForSaleCents({
       points: s.points,
@@ -241,7 +276,7 @@ export async function computeEmployeePayoutDay(session: SessionLike, date: strin
     });
 
     // ✅ pool do rateio: lucro - comissão - bônus
-    const pool = Math.max(0, profit - (c1 ?? 0) - (c2 ?? 0));
+    const pool = Math.max(0, profit - c1 - c2);
     if (pool <= 0) continue;
 
     const splits = splitByBps(pool, share.items);
@@ -253,7 +288,6 @@ export async function computeEmployeePayoutDay(session: SessionLike, date: strin
 
   const userIds = Object.keys(byUser);
 
-  // limpa pendentes sem movimento (pra não sobrar “lixo”)
   await prisma.employeePayout.deleteMany({
     where: {
       team: session.team,
@@ -265,10 +299,10 @@ export async function computeEmployeePayoutDay(session: SessionLike, date: strin
 
   for (const userId of userIds) {
     const a = byUser[userId];
-    const gross = (a.commission1Cents ?? 0) + (a.commission2Cents ?? 0) + (a.rateioCents ?? 0);
+    const gross = a.commission1Cents + a.commission2Cents + a.rateioCents;
 
     const tax = tax8(gross);
-    const net = gross - tax + (a.feeCents ?? 0);
+    const net = gross - tax + a.feeCents;
 
     await prisma.employeePayout.upsert({
       where: { team_date_userId: { team: session.team, date, userId } },
@@ -277,30 +311,29 @@ export async function computeEmployeePayoutDay(session: SessionLike, date: strin
         date,
         userId,
         grossProfitCents: gross,
-        tax7Cents: tax, // 8% (nome histórico)
-        feeCents: a.feeCents ?? 0,
+        tax7Cents: tax,
+        feeCents: a.feeCents,
         netPayCents: net,
         breakdown: {
-          commission1Cents: a.commission1Cents ?? 0,
-          commission2Cents: a.commission2Cents ?? 0,
-          commission3RateioCents: a.rateioCents ?? 0,
-          salesCount: a.salesCount ?? 0,
+          commission1Cents: a.commission1Cents,
+          commission2Cents: a.commission2Cents,
+          commission3RateioCents: a.rateioCents,
+          salesCount: a.salesCount,
           taxPercent: 8,
         },
       },
       update: {
         grossProfitCents: gross,
         tax7Cents: tax,
-        feeCents: a.feeCents ?? 0,
+        feeCents: a.feeCents,
         netPayCents: net,
         breakdown: {
-          commission1Cents: a.commission1Cents ?? 0,
-          commission2Cents: a.commission2Cents ?? 0,
-          commission3RateioCents: a.rateioCents ?? 0,
-          salesCount: a.salesCount ?? 0,
+          commission1Cents: a.commission1Cents,
+          commission2Cents: a.commission2Cents,
+          commission3RateioCents: a.rateioCents,
+          salesCount: a.salesCount,
           taxPercent: 8,
         },
-        // não mexe em paidAt/paidById aqui
       },
     });
   }

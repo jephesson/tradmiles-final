@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 type UserLite = { id: string; name: string; login: string };
 type PaidByLite = { id: string; name: string } | null;
@@ -65,7 +65,7 @@ function fmtDateBR(iso: string) {
   const [y, m, d] = iso.split("-");
   return `${d}/${m}/${y}`;
 }
-function todayISORecife() {
+function todayISORecifeNow() {
   const d = new Date();
   const parts = new Intl.DateTimeFormat("en-CA", {
     timeZone: "America/Recife",
@@ -80,21 +80,27 @@ function todayISORecife() {
     }, {});
   return `${parts.year}-${parts.month}-${parts.day}`;
 }
-function monthISORecife() {
-  return todayISORecife().slice(0, 7);
+function monthISORecifeNow() {
+  return todayISORecifeNow().slice(0, 7);
 }
 
-/** ✅ garante cookie/session + mensagens melhores */
-async function apiGet<T>(url: string): Promise<T> {
+async function safeJson(res: Response) {
+  try {
+    return await res.json();
+  } catch {
+    return null;
+  }
+}
+
+/** ✅ GET com cookie + abort + erros melhores */
+async function apiGet<T>(url: string, signal?: AbortSignal): Promise<T> {
   const res = await fetch(url, {
     cache: "no-store",
     credentials: "include",
+    signal,
   });
 
-  let json: any = null;
-  try {
-    json = await res.json();
-  } catch {}
+  const json: any = await safeJson(res);
 
   if (!res.ok || !json?.ok) {
     const msg =
@@ -108,20 +114,18 @@ async function apiGet<T>(url: string): Promise<T> {
   return json as T;
 }
 
-/** ✅ garante cookie/session + mensagens melhores */
-async function apiPost<T>(url: string, body: any): Promise<T> {
+/** ✅ POST com cookie + abort + erros melhores */
+async function apiPost<T>(url: string, body: any, signal?: AbortSignal): Promise<T> {
   const res = await fetch(url, {
     method: "POST",
     cache: "no-store",
     credentials: "include",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
+    signal,
   });
 
-  let json: any = null;
-  try {
-    json = await res.json();
-  } catch {}
+  const json: any = await safeJson(res);
 
   if (!res.ok || !json?.ok) {
     const msg =
@@ -136,40 +140,55 @@ async function apiPost<T>(url: string, body: any): Promise<T> {
 }
 
 export default function ComissoesFuncionariosPage() {
-  const [date, setDate] = useState<string>(() => todayISORecife());
+  const [date, setDate] = useState<string>(() => todayISORecifeNow());
   const [day, setDay] = useState<DayResponse | null>(null);
+
   const [loadingDay, setLoadingDay] = useState(false);
   const [computing, setComputing] = useState(false);
+
   const [toast, setToast] = useState<{ title: string; desc?: string } | null>(null);
+
+  // erros visíveis (não mascarar como “sem dados”)
+  const [dayError, setDayError] = useState<string | null>(null);
 
   // modal histórico
   const [historyOpen, setHistoryOpen] = useState(false);
   const [historyUser, setHistoryUser] = useState<UserLite | null>(null);
-  const [historyMonth, setHistoryMonth] = useState<string>(() => monthISORecife());
+  const [historyMonth, setHistoryMonth] = useState<string>(() => monthISORecifeNow());
   const [history, setHistory] = useState<UserMonthResponse | null>(null);
   const [loadingHistory, setLoadingHistory] = useState(false);
 
-  const today = useMemo(() => todayISORecife(), []);
+  // hoje “vivo” (se virar o dia com a tela aberta, atualiza)
+  const [today, setToday] = useState(() => todayISORecifeNow());
+  useEffect(() => {
+    const t = setInterval(() => setToday(todayISORecifeNow()), 30_000);
+    return () => clearInterval(t);
+  }, []);
 
-  const canPayThisDay = useMemo(() => {
-    return date < today;
-  }, [date, today]);
+  const canPayThisDay = useMemo(() => date < today, [date, today]);
+
+  // abort controllers pra evitar race
+  const dayAbortRef = useRef<AbortController | null>(null);
+  const historyAbortRef = useRef<AbortController | null>(null);
 
   async function loadDay(d = date) {
     setLoadingDay(true);
+    setDayError(null);
+
+    dayAbortRef.current?.abort();
+    const ac = new AbortController();
+    dayAbortRef.current = ac;
+
     try {
       const data = await apiGet<DayResponse>(
-        `/api/payouts/funcionarios/day?date=${encodeURIComponent(d)}`
+        `/api/payouts/funcionarios/day?date=${encodeURIComponent(d)}`,
+        ac.signal
       );
       setDay(data);
     } catch (e: any) {
-      setDay({
-        ok: true,
-        date: d,
-        rows: [],
-        totals: { gross: 0, tax: 0, fee: 0, net: 0, paid: 0, pending: 0 },
-      });
-      setToast({ title: "Sem dados ainda", desc: e?.message || String(e) });
+      if (e?.name === "AbortError") return;
+      setDay(null);
+      setDayError(e?.message || String(e));
     } finally {
       setLoadingDay(false);
     }
@@ -178,7 +197,8 @@ export default function ComissoesFuncionariosPage() {
   async function computeDay(d = date) {
     setComputing(true);
     try {
-      await apiPost(`/api/payouts/funcionarios/compute`, { date: d });
+      const ac = new AbortController();
+      await apiPost(`/api/payouts/funcionarios/compute`, { date: d }, ac.signal);
       setToast({ title: "Dia computado", desc: `Atualizado: ${fmtDateBR(d)}` });
       await loadDay(d);
     } catch (e: any) {
@@ -203,14 +223,21 @@ export default function ComissoesFuncionariosPage() {
 
   async function loadHistory(userId: string, month: string) {
     setLoadingHistory(true);
+
+    historyAbortRef.current?.abort();
+    const ac = new AbortController();
+    historyAbortRef.current = ac;
+
     try {
       const data = await apiGet<UserMonthResponse>(
         `/api/payouts/funcionarios/user?userId=${encodeURIComponent(userId)}&month=${encodeURIComponent(
           month
-        )}`
+        )}`,
+        ac.signal
       );
       setHistory(data);
     } catch (e: any) {
+      if (e?.name === "AbortError") return;
       setHistory(null);
       setToast({ title: "Erro no histórico", desc: e?.message || String(e) });
     } finally {
@@ -219,11 +246,12 @@ export default function ComissoesFuncionariosPage() {
   }
 
   function openHistory(u: UserLite) {
-    const m = monthISORecife();
+    const m = monthISORecifeNow();
     setHistoryUser(u);
     setHistoryMonth(m);
     setHistoryOpen(true);
-    queueMicrotask(() => loadHistory(u.id, m));
+    setHistory(null);
+    loadHistory(u.id, m);
   }
 
   async function exportDayExcel() {
@@ -237,6 +265,7 @@ export default function ComissoesFuncionariosPage() {
           Dia: r.date,
           Funcionario: r.user.name,
           Login: r.user.login,
+          "Qtd Vendas": b?.salesCount ?? 0,
           "Comissão 1 (R$)": (b?.commission1Cents ?? 0) / 100,
           "Comissão 2 (R$)": (b?.commission2Cents ?? 0) / 100,
           "Comissão 3 / Rateio (R$)": (b?.commission3RateioCents ?? 0) / 100,
@@ -266,6 +295,7 @@ export default function ComissoesFuncionariosPage() {
         const b = r.breakdown;
         return {
           Dia: r.date,
+          "Qtd Vendas": b?.salesCount ?? 0,
           "Comissão 1 (R$)": (b?.commission1Cents ?? 0) / 100,
           "Comissão 2 (R$)": (b?.commission2Cents ?? 0) / 100,
           "Comissão 3 / Rateio (R$)": (b?.commission3RateioCents ?? 0) / 100,
@@ -337,6 +367,14 @@ export default function ComissoesFuncionariosPage() {
         </div>
       </div>
 
+      {/* ✅ erro visível (pra não parecer “sem comissão”) */}
+      {dayError && (
+        <div className="rounded-2xl border bg-amber-50 p-3 text-sm text-amber-800">
+          <b>Não foi possível carregar o dia.</b>
+          <div className="text-xs opacity-80">{dayError}</div>
+        </div>
+      )}
+
       <div className="grid grid-cols-2 gap-2 md:grid-cols-6">
         <KPI label="Bruto" value={fmtMoneyBR(day?.totals.gross || 0)} />
         <KPI label="Imposto (8%)" value={fmtMoneyBR(day?.totals.tax || 0)} />
@@ -352,6 +390,7 @@ export default function ComissoesFuncionariosPage() {
             <thead className="bg-neutral-50 text-xs text-neutral-600">
               <tr>
                 <th className="px-4 py-3">Funcionário</th>
+                <th className="px-4 py-3">Vendas</th>
                 <th className="px-4 py-3">Comissão 1</th>
                 <th className="px-4 py-3">Comissão 2</th>
                 <th className="px-4 py-3">Comissão 3 (Rateio)</th>
@@ -374,6 +413,7 @@ export default function ComissoesFuncionariosPage() {
                       <div className="text-xs text-neutral-500">{r.user.login}</div>
                     </td>
 
+                    <td className="px-4 py-3">{b?.salesCount ?? 0}</td>
                     <td className="px-4 py-3">{fmtMoneyBR(b?.commission1Cents ?? 0)}</td>
                     <td className="px-4 py-3">{fmtMoneyBR(b?.commission2Cents ?? 0)}</td>
                     <td className="px-4 py-3">{fmtMoneyBR(b?.commission3RateioCents ?? 0)}</td>
@@ -424,9 +464,9 @@ export default function ComissoesFuncionariosPage() {
                 );
               })}
 
-              {!day?.rows?.length && (
+              {!day?.rows?.length && !dayError && (
                 <tr>
-                  <td className="px-4 py-8 text-center text-sm text-neutral-500" colSpan={9}>
+                  <td className="px-4 py-8 text-center text-sm text-neutral-500" colSpan={10}>
                     Nenhuma comissão encontrada para {fmtDateBR(date)}. Use “Computar dia”.
                   </td>
                 </tr>
@@ -470,7 +510,7 @@ export default function ComissoesFuncionariosPage() {
                 </div>
 
                 <button
-                  onClick={() => loadHistory(historyUser.id, historyMonth)}
+                  onClick={() => historyUser && loadHistory(historyUser.id, historyMonth)}
                   disabled={loadingHistory}
                   className="h-10 rounded-xl bg-black px-4 text-sm text-white hover:opacity-90 disabled:opacity-50"
                 >
@@ -501,6 +541,7 @@ export default function ComissoesFuncionariosPage() {
                     <thead className="bg-neutral-50 text-xs text-neutral-600">
                       <tr>
                         <th className="px-4 py-3">Dia</th>
+                        <th className="px-4 py-3">Vendas</th>
                         <th className="px-4 py-3">C1</th>
                         <th className="px-4 py-3">C2</th>
                         <th className="px-4 py-3">C3</th>
@@ -516,6 +557,7 @@ export default function ComissoesFuncionariosPage() {
                         return (
                           <tr key={r.id} className="border-t">
                             <td className="px-4 py-3">{fmtDateBR(r.date)}</td>
+                            <td className="px-4 py-3">{b?.salesCount ?? 0}</td>
                             <td className="px-4 py-3">{fmtMoneyBR(b?.commission1Cents ?? 0)}</td>
                             <td className="px-4 py-3">{fmtMoneyBR(b?.commission2Cents ?? 0)}</td>
                             <td className="px-4 py-3">{fmtMoneyBR(b?.commission3RateioCents ?? 0)}</td>
@@ -539,7 +581,7 @@ export default function ComissoesFuncionariosPage() {
 
                       {!history?.days?.length && (
                         <tr>
-                          <td className="px-4 py-8 text-center text-sm text-neutral-500" colSpan={8}>
+                          <td className="px-4 py-8 text-center text-sm text-neutral-500" colSpan={9}>
                             Sem histórico para {historyMonth}.
                           </td>
                         </tr>

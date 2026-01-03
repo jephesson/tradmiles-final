@@ -4,19 +4,18 @@ import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/auth/session-server";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
 type SessionLike = { userId: string; team: string };
 
 function toSessionLike(session: any): SessionLike {
-  const userId = String(session?.userId ?? session?.user?.id ?? "");
+  const userId = String(session?.userId ?? session?.id ?? session?.user?.id ?? "");
   const team = String(session?.team ?? session?.user?.team ?? "");
   return { userId, team };
 }
 
 async function getSessionCompat(req: Request) {
-  // Compatível com:
-  // - requireSession()
-  // - requireSession(req)
+  // compatível com requireSession(req) ou requireSession()
   try {
     return await (requireSession as any)(req);
   } catch {
@@ -36,8 +35,11 @@ export async function GET(req: Request) {
     const url = new URL(req.url);
     const date = String(url.searchParams.get("date") || "").slice(0, 10);
 
-    if (!date) {
-      return NextResponse.json({ ok: false, error: "date obrigatório (YYYY-MM-DD)" }, { status: 400 });
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      return NextResponse.json(
+        { ok: false, error: "date obrigatório (YYYY-MM-DD)" },
+        { status: 400 }
+      );
     }
 
     const rows = await prisma.employeePayout.findMany({
@@ -62,7 +64,9 @@ export async function GET(req: Request) {
       { gross: 0, tax: 0, fee: 0, net: 0, paid: 0, pending: 0 }
     );
 
-    return NextResponse.json({ ok: true, date, rows, totals });
+    const res = NextResponse.json({ ok: true, date, rows, totals });
+    res.headers.set("Cache-Control", "no-store, max-age=0");
+    return res;
   } catch (e: any) {
     const msg = e?.message === "UNAUTHENTICATED" ? "Não autenticado" : e?.message || String(e);
     const status = e?.message === "UNAUTHENTICATED" ? 401 : 500;

@@ -4,11 +4,12 @@ import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/auth/session-server";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
 type SessionLike = { userId: string; team: string };
 
 function toSessionLike(session: any): SessionLike {
-  const userId = String(session?.userId ?? session?.user?.id ?? "");
+  const userId = String(session?.userId ?? session?.id ?? session?.user?.id ?? "");
   const team = String(session?.team ?? session?.user?.team ?? "");
   return { userId, team };
 }
@@ -24,6 +25,10 @@ async function getSessionCompat(req: Request) {
   }
 }
 
+function isUuid(v: string) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v);
+}
+
 export async function GET(req: Request) {
   try {
     const sessionRaw = await getSessionCompat(req);
@@ -34,8 +39,8 @@ export async function GET(req: Request) {
     }
 
     const url = new URL(req.url);
-    const userId = String(url.searchParams.get("userId") || "");
-    const month = String(url.searchParams.get("month") || ""); // YYYY-MM
+    const userId = String(url.searchParams.get("userId") || "").trim();
+    const month = String(url.searchParams.get("month") || "").trim(); // YYYY-MM
 
     if (!userId || !month) {
       return NextResponse.json(
@@ -44,13 +49,15 @@ export async function GET(req: Request) {
       );
     }
 
+    // valida userId (opcional, mas evita lixo)
+    if (!isUuid(userId)) {
+      return NextResponse.json({ ok: false, error: "userId inválido" }, { status: 400 });
+    }
+
     // sanitiza month pra evitar lixo tipo "2026-01-xx"
     const m = month.slice(0, 7);
     if (!/^\d{4}-\d{2}$/.test(m)) {
-      return NextResponse.json(
-        { ok: false, error: "month inválido. Use YYYY-MM" },
-        { status: 400 }
-      );
+      return NextResponse.json({ ok: false, error: "month inválido. Use YYYY-MM" }, { status: 400 });
     }
 
     const days = await prisma.employeePayout.findMany({
@@ -75,7 +82,9 @@ export async function GET(req: Request) {
       { gross: 0, tax: 0, fee: 0, net: 0, paid: 0, pending: 0 }
     );
 
-    return NextResponse.json({ ok: true, userId, month: m, totals, days });
+    const res = NextResponse.json({ ok: true, userId, month: m, totals, days });
+    res.headers.set("Cache-Control", "no-store, max-age=0");
+    return res;
   } catch (e: any) {
     const msg = e?.message === "UNAUTHENTICATED" ? "Não autenticado" : e?.message || String(e);
     const status = e?.message === "UNAUTHENTICATED" ? 401 : 500;
