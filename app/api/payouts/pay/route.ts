@@ -1,80 +1,62 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 
-function dateOnlyBR(dateStr: string) {
-  // salva sempre como 00:00 no -03 pra bater com o que você grava no banco
-  return new Date(`${dateStr}T00:00:00.000-03:00`);
-}
-
-function todayISO_BR() {
-  // YYYY-MM-DD no fuso BR (evita pagar "hoje" antes de fechar o dia)
-  return new Intl.DateTimeFormat("en-CA", {
-    timeZone: "America/Sao_Paulo",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).format(new Date());
+function parseISODateToUTC0(dateStr: string) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateStr);
+  if (!m) return null;
+  const y = Number(m[1]);
+  const mo = Number(m[2]);
+  const d = Number(m[3]);
+  return new Date(Date.UTC(y, mo - 1, d, 0, 0, 0, 0));
 }
 
 export async function POST(req: Request) {
-  const body = await req.json();
+  try {
+    const body = await req.json().catch(() => ({}));
 
-  const dateStr: string = body.date; // YYYY-MM-DD
-  const userId: string = body.userId; // funcionário que vai receber
-  const paidById: string = body.paidById; // quem pagou (admin)
+    const userId = String(body?.userId || "").trim();
+    const dateStr = String(body?.date || "").trim();
+    const status = String(body?.status || "").trim(); // "PAID" | "PENDING"
+    const paidById = body?.paidById ? String(body.paidById).trim() : null;
 
-  if (!dateStr) return NextResponse.json({ error: "date obrigatório (YYYY-MM-DD)" }, { status: 400 });
-  if (!userId) return NextResponse.json({ error: "userId obrigatório" }, { status: 400 });
-  if (!paidById) return NextResponse.json({ error: "paidById obrigatório" }, { status: 400 });
+    if (!userId || !dateStr || !status) {
+      return NextResponse.json(
+        { ok: false, error: "userId, date e status obrigatórios" },
+        { status: 400 }
+      );
+    }
 
-  // ✅ regra: não pode pagar o dia de hoje (só quando fecha)
-  const today = todayISO_BR();
-  if (dateStr === today) {
-    return NextResponse.json({ error: "Não pode pagar o dia de hoje. Pague somente após fechar o dia." }, { status: 400 });
+    const dateOnly = parseISODateToUTC0(dateStr);
+    if (!dateOnly) {
+      return NextResponse.json({ ok: false, error: "date inválido. Use YYYY-MM-DD" }, { status: 400 });
+    }
+
+    if (status !== "PAID" && status !== "PENDING") {
+      return NextResponse.json({ ok: false, error: "status deve ser PAID ou PENDING" }, { status: 400 });
+    }
+
+    const where = { date_userId: { date: dateOnly, userId } }; // ✅ UNIQUE CORRETA
+
+    const data =
+      status === "PAID"
+        ? {
+            paidById: paidById || userId, // se não mandar, marca como o próprio (ajusta se tu preferir)
+            paidAt: new Date(),
+          }
+        : {
+            paidById: null,
+            // paidAt: não mexe (evita problema se não for nullable)
+          };
+
+    const updated = await prisma.employeePayout.update({ where, data });
+
+    return NextResponse.json({
+      ok: true,
+      userId,
+      date: dateStr,
+      status: updated.paidById ? "PAID" : "PENDING",
+    });
+  } catch (e: any) {
+    return NextResponse.json({ ok: false, error: e?.message || "Erro interno" }, { status: 500 });
   }
-  if (dateStr > today) {
-    return NextResponse.json({ error: "Não pode pagar data futura." }, { status: 400 });
-  }
-
-  const date = dateOnlyBR(dateStr);
-
-  // ✅ encontra pelo unique composto do Prisma Client: date_userId
-  const existing = await prisma.employeePayout.findUnique({
-    where: { date_userId: { date, userId } },
-    select: { id: true, paidById: true },
-  });
-
-  if (!existing) {
-    return NextResponse.json({ error: "Payout não encontrado para esse dia/usuário. Rode o compute antes." }, { status: 404 });
-  }
-
-  // ✅ não some com pendentes: só marca como pago quando você pedir
-  if (existing.paidById) {
-    return NextResponse.json({ ok: true, alreadyPaid: true });
-  }
-
-  const updated = await prisma.employeePayout.update({
-    where: { date_userId: { date, userId } },
-    data: {
-      paidAt: new Date(),
-      paidById,
-    },
-    select: {
-      id: true,
-      date: true,
-      userId: true,
-      grossProfitCents: true,
-      tax7Cents: true,
-      feeCents: true,
-      netPayCents: true,
-      breakdown: true,
-      paidAt: true,
-      paidById: true,
-    },
-  });
-
-  return NextResponse.json({
-    ok: true,
-    payout: { ...updated, status: updated.paidById ? "PAID" : "PENDING" },
-  });
 }

@@ -2,68 +2,78 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 
 function monthRange(month: string) {
-  const [y, m] = month.split("-").map(Number);
-  if (!y || !m || m < 1 || m > 12) throw new Error("month inválido (use YYYY-MM)");
-  const start = new Date(y, m - 1, 1);
-  const end = new Date(y, m, 1);
+  const m = /^(\d{4})-(\d{2})$/.exec(month);
+  if (!m) return null;
+
+  const y = Number(m[1]);
+  const mo = Number(m[2]);
+
+  // UTC pra não dar shift bizarro em produção
+  const start = new Date(Date.UTC(y, mo - 1, 1, 0, 0, 0, 0));
+  const end = new Date(Date.UTC(y, mo, 1, 0, 0, 0, 0));
   return { start, end };
 }
 
-function statusOf(p: { paidById: string | null; paidAt: Date }) {
-  // paidAt sempre existe (default now), então a referência correta é paidById
-  return p.paidById ? "PAID" : "PENDING";
-}
-
 export async function GET(req: Request) {
-  const { searchParams } = new URL(req.url);
-  const userId = searchParams.get("userId");
-  const month = searchParams.get("month");
-
-  if (!userId || !month) {
-    return NextResponse.json(
-      { ok: false, error: "userId e month obrigatórios" },
-      { status: 400 }
-    );
-  }
-
-  let start: Date, end: Date;
   try {
-    ({ start, end } = monthRange(month));
+    const { searchParams } = new URL(req.url);
+    const userId = searchParams.get("userId");
+    const month = searchParams.get("month");
+
+    if (!userId || !month) {
+      return NextResponse.json(
+        { ok: false, error: "userId e month obrigatórios" },
+        { status: 400 }
+      );
+    }
+
+    const range = monthRange(month);
+    if (!range) {
+      return NextResponse.json(
+        { ok: false, error: "month inválido. Use YYYY-MM" },
+        { status: 400 }
+      );
+    }
+
+    const { start, end } = range;
+
+    const days = await prisma.employeePayout.findMany({
+      where: { userId, date: { gte: start, lt: end } },
+      orderBy: [{ date: "desc" }],
+    });
+
+    const totals = days.reduce(
+      (acc, r) => {
+        const gross = r.grossProfitCents || 0;
+        const tax7 = r.tax7Cents || 0;
+        const fee = r.feeCents || 0;
+        const net = r.netPayCents || 0;
+
+        acc.gross += gross;
+        acc.tax7 += tax7;
+        acc.fee += fee;
+        acc.net += net;
+
+        const isPaid = !!r.paidById; // ✅ status derivado
+        if (isPaid) acc.paid += net;
+        else acc.pending += net;
+
+        return acc;
+      },
+      { gross: 0, tax7: 0, fee: 0, net: 0, paid: 0, pending: 0 }
+    );
+
+    // ✅ devolve "status" só para o frontend, sem precisar existir no Prisma
+    const daysOut = days.map((d) => ({
+      ...d,
+      status: d.paidById ? ("PAID" as const) : ("PENDING" as const),
+    }));
+
+    return NextResponse.json({ ok: true, userId, month, totals, days: daysOut });
   } catch (e: any) {
     return NextResponse.json(
-      { ok: false, error: e?.message || "month inválido" },
-      { status: 400 }
+      { ok: false, error: e?.message || "Erro interno" },
+      { status: 500 }
     );
   }
-
-  const rawDays = await prisma.employeePayout.findMany({
-    where: { userId, date: { gte: start, lt: end } },
-    orderBy: [{ date: "desc" }],
-    include: {
-      paidBy: { select: { id: true, name: true } },
-      user: { select: { id: true, name: true, login: true } },
-    },
-  });
-
-  const days = rawDays.map((r) => ({
-    ...r,
-    status: statusOf(r),
-  }));
-
-  const totals = days.reduce(
-    (acc, r) => {
-      acc.gross += r.grossProfitCents || 0;
-      acc.tax7 += r.tax7Cents || 0;
-      acc.fee += r.feeCents || 0;
-      acc.net += r.netPayCents || 0;
-
-      if (r.status === "PAID") acc.paid += r.netPayCents || 0;
-      if (r.status === "PENDING") acc.pending += r.netPayCents || 0;
-
-      return acc;
-    },
-    { gross: 0, tax7: 0, fee: 0, net: 0, paid: 0, pending: 0 }
-  );
-
-  return NextResponse.json({ ok: true, userId, month, totals, days });
 }
