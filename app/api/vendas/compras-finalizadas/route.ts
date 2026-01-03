@@ -117,13 +117,20 @@ export async function GET(req: Request) {
   });
 
   const ids = purchases.map((p) => p.id);
-  const numeros = purchases.map((p) => p.numero).filter(Boolean);
+
+  // ✅ AJUSTE MÍNIMO: trim no numero (evita "ID00001 " não casar com sale.purchaseId)
+  const numeros = purchases
+    .map((p) => String(p.numero || "").trim())
+    .filter(Boolean);
 
   if (ids.length === 0) return NextResponse.json({ ok: true, purchases: [] });
 
   // ✅ mapa: numero -> id (pra casar sale.purchaseId = "ID00018" com Purchase.id)
+  // ✅ AJUSTE MÍNIMO: trim no numero antes do toUpperCase
   const idByNumeroUpper = new Map<string, string>(
-    purchases.map((p) => [String(p.numero || "").toUpperCase(), p.id])
+    purchases
+      .map((p) => [String(p.numero || "").trim().toUpperCase(), p.id] as const)
+      .filter(([k]) => !!k)
   );
 
   // ✅ cobre case diferente (id00018 vs ID00018)
@@ -290,7 +297,9 @@ export async function GET(req: Request) {
         : null;
 
     const listSales = salesByPurchase.get(p.id) || [];
-    const salesCount = a.salesCount || listSales.length;
+
+    // ✅ AJUSTE MÍNIMO: count vem da lista (fonte da verdade)
+    const salesCount = listSales.length;
 
     return {
       ...p,
