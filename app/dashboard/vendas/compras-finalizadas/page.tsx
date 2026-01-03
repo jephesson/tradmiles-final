@@ -274,7 +274,11 @@ export default function ComprasFinalizadasPage() {
               value={q}
               onChange={(e) => setQ(e.target.value)}
             />
-            <button className="rounded-xl border px-4 py-2 text-sm hover:bg-slate-50" onClick={load} disabled={loading}>
+            <button
+              className="rounded-xl border px-4 py-2 text-sm hover:bg-slate-50"
+              onClick={load}
+              disabled={loading}
+            >
               {loading ? "Carregando..." : "Atualizar"}
             </button>
           </div>
@@ -297,13 +301,13 @@ export default function ComprasFinalizadasPage() {
         </div>
 
         <div className="overflow-auto">
-          <table className="min-w-[1180px] w-full text-sm">
+          <table className="min-w-[1100px] w-full text-sm">
             <thead>
               <tr className="border-b text-left text-slate-500">
                 <th className="py-2 pr-3">ID</th>
                 <th className="py-2 pr-3">Cedente</th>
                 <th className="py-2 pr-3">CIA</th>
-                <th className="py-2 pr-3">Vendas</th>
+                {/* ✅ removido: Vendas */}
                 <th className="py-2 pr-3">Pontos</th>
                 <th className="py-2 pr-3">PAX</th>
                 <th className="py-2 pr-3">Total</th>
@@ -320,20 +324,21 @@ export default function ComprasFinalizadasPage() {
             <tbody>
               {loading ? (
                 <tr>
-                  <td className="py-3 text-slate-600" colSpan={14}>
+                  <td className="py-3 text-slate-600" colSpan={13}>
                     Carregando...
                   </td>
                 </tr>
               ) : rows.length === 0 ? (
                 <tr>
-                  <td className="py-3 text-slate-600" colSpan={14}>
+                  <td className="py-3 text-slate-600" colSpan={13}>
                     Nenhuma compra finalizada encontrada.
                   </td>
                 </tr>
               ) : (
                 rows.map((r) => {
                   const profit = pick(r.finalProfitCents);
-                  const profitCls = profit < 0 ? "text-red-600" : profit > 0 ? "text-emerald-700" : "text-slate-700";
+                  const profitCls =
+                    profit < 0 ? "text-red-600" : profit > 0 ? "text-emerald-700" : "text-slate-700";
 
                   return (
                     <tr
@@ -354,12 +359,14 @@ export default function ComprasFinalizadasPage() {
 
                       <td className="py-2 pr-3">{r.ciaAerea || "-"}</td>
 
-                      <td className="py-2 pr-3">{fmtInt(r._count?.sales || 0)}</td>
+                      {/* ✅ removido: coluna Vendas */}
 
                       <td className="py-2 pr-3">
                         <div className="font-medium">{fmtInt(pick(r.finalSoldPoints))}</div>
                         {r.finalRemainingPoints != null ? (
-                          <div className="text-[11px] text-slate-500">Restante: {fmtInt(pick(r.finalRemainingPoints))}</div>
+                          <div className="text-[11px] text-slate-500">
+                            Restante: {fmtInt(pick(r.finalRemainingPoints))}
+                          </div>
                         ) : (
                           <div className="text-[11px] text-slate-500">&nbsp;</div>
                         )}
@@ -458,7 +465,11 @@ export default function ComprasFinalizadasPage() {
                           value={fmtMoneyBR(pick(detail.metrics.purchaseTotalCents))}
                           hint="TotalCents da compra"
                         />
-                        <Line label="Lucro bruto" value={fmtMoneyBR(pick(detail.metrics.profitBrutoCents))} hint="PV - custo" />
+                        <Line
+                          label="Lucro bruto"
+                          value={fmtMoneyBR(pick(detail.metrics.profitBrutoCents))}
+                          hint="PV - custo"
+                        />
                         <Line
                           label="Bônus (30% excedente)"
                           value={fmtMoneyBR(pick(detail.metrics.bonusCents))}
@@ -483,7 +494,9 @@ export default function ComprasFinalizadasPage() {
                             ) : (
                               <>
                                 Vigência:{" "}
-                                <span className="font-mono">{detail.plan.effectiveFrom ? detail.plan.effectiveFrom.slice(0, 10) : "-"}</span>
+                                <span className="font-mono">
+                                  {detail.plan.effectiveFrom ? detail.plan.effectiveFrom.slice(0, 10) : "-"}
+                                </span>
                                 {detail.plan.effectiveTo ? (
                                   <>
                                     {" "}
