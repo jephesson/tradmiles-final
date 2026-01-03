@@ -114,8 +114,18 @@ model User {
    * RATEIO (BASE PERCENTUAL)
    * =========================
    */
-  profitSharesOwned  ProfitShare[]      @relation("ProfitShareOwner")
-  profitShareAsPayee ProfitShareItem[]  @relation("ProfitSharePayee")
+  profitSharesOwned  ProfitShare[]     @relation("ProfitShareOwner")
+  profitShareAsPayee ProfitShareItem[] @relation("ProfitSharePayee")
+
+  /**
+   * =========================
+   * PAGAMENTOS (COMISSÕES FUNCIONÁRIOS POR DIA)
+   * =========================
+   * - marca o "pago" por DIA REFERENTE (dia fechado)
+   * - permite pagar 2-3 dias depois sem perder o histórico
+   */
+  employeePayouts     EmployeePayout[] @relation("EmployeePayoutUser")
+  employeePayoutsPaid EmployeePayout[] @relation("EmployeePayoutPaidBy")
 
   // Um convite por usuário
   employeeInvite EmployeeInvite?
@@ -154,10 +164,9 @@ model EmployeeInvite {
  * - A versão é definida por effectiveFrom (vigência a partir de)
  * - effectiveTo (opcional) fecha a vigência quando uma nova versão entra
  * - Os itens somam 100% (10000 bps)
- *
  * ✅ IMPORTANTE (não perder dados):
  * - effectiveFrom é NOT NULL com DEFAULT '2000-01-01', então qualquer rateio antigo passa
- *   a valer desde sempre (não quebra cálculos históricos).
+ * a valer desde sempre (não quebra cálculos históricos).
  */
 model ProfitShare {
   id      String @id @default(cuid())
@@ -165,7 +174,7 @@ model ProfitShare {
   ownerId String
 
   // ✅ vigência
-  effectiveFrom DateTime @default(dbgenerated("'2000-01-01 00:00:00'::timestamp"))
+  effectiveFrom DateTime  @default(dbgenerated("'2000-01-01 00:00:00'::timestamp"))
   effectiveTo   DateTime?
 
   isActive Boolean @default(true)
@@ -173,17 +182,15 @@ model ProfitShare {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  owner User @relation("ProfitShareOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  owner User              @relation("ProfitShareOwner", fields: [ownerId], references: [id], onDelete: Cascade)
   items ProfitShareItem[]
 
   // ✅ agora é versionado (não é mais 1 por owner)
   @@unique([team, ownerId, effectiveFrom], map: "uniq_profitshare_owner_from")
-
   @@index([team])
   @@index([ownerId])
   @@index([team, ownerId, effectiveFrom])
   @@index([team, ownerId, effectiveTo])
-
   @@map("profit_shares")
 }
 
@@ -199,7 +206,7 @@ model ProfitShareItem {
   updatedAt DateTime @updatedAt
 
   share ProfitShare @relation(fields: [shareId], references: [id], onDelete: Cascade)
-  payee User       @relation("ProfitSharePayee", fields: [payeeId], references: [id], onDelete: Cascade)
+  payee User        @relation("ProfitSharePayee", fields: [payeeId], references: [id], onDelete: Cascade)
 
   @@unique([shareId, payeeId])
   @@index([payeeId])
@@ -217,7 +224,7 @@ model Cedente {
 
   nomeCompleto   String
   dataNascimento DateTime?
-  cpf            String @unique
+  cpf            String    @unique
 
   telefone    String?
   emailCriado String?
@@ -242,10 +249,10 @@ model Cedente {
   reviewedAt DateTime?
 
   reviewedById String?
-  reviewedBy   User? @relation("CedenteReviewedBy", fields: [reviewedById], references: [id], onDelete: SetNull)
+  reviewedBy   User?   @relation("CedenteReviewedBy", fields: [reviewedById], references: [id], onDelete: SetNull)
 
   ownerId String
-  owner   User @relation("CedenteOwner", fields: [ownerId], references: [id], onDelete: Restrict)
+  owner   User   @relation("CedenteOwner", fields: [ownerId], references: [id], onDelete: Restrict)
 
   inviteId String?
   invite   EmployeeInvite? @relation(fields: [inviteId], references: [id], onDelete: SetNull)
@@ -348,7 +355,7 @@ model Debt {
   status      DebtStatus @default(OPEN)
 
   createdById String?
-  createdBy   User? @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  createdBy   User?   @relation(fields: [createdById], references: [id], onDelete: SetNull)
 
   payments DebtPayment[]
 
@@ -387,13 +394,13 @@ model BlockedAccount {
 
   cedenteId String
   program   LoyaltyProgram
-  status    BlockStatus @default(OPEN)
+  status    BlockStatus    @default(OPEN)
 
   note              String?
   estimatedUnlockAt DateTime?
 
   createdById String?
-  createdBy   User? @relation("BlockedCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  createdBy   User?   @relation("BlockedCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
 
   resolvedAt   DateTime?
   observations BlockObservation[]
@@ -417,7 +424,7 @@ model BlockObservation {
   text      String
 
   createdById String?
-  createdBy   User? @relation("BlockedObsCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  createdBy   User?   @relation("BlockedObsCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -521,7 +528,7 @@ model Purchase {
    */
   liberadoEm    DateTime?
   liberadoPorId String?
-  liberadoPor   User? @relation("CompraLiberadaPor", fields: [liberadoPorId], references: [id], onDelete: SetNull)
+  liberadoPor   User?     @relation("CompraLiberadaPor", fields: [liberadoPorId], references: [id], onDelete: SetNull)
 
   /**
    * =========================
@@ -530,7 +537,7 @@ model Purchase {
    */
   finalizedAt   DateTime?
   finalizedById String?
-  finalizedBy   User? @relation("PurchaseFinalizedBy", fields: [finalizedById], references: [id], onDelete: SetNull)
+  finalizedBy   User?     @relation("PurchaseFinalizedBy", fields: [finalizedById], references: [id], onDelete: SetNull)
 
   /**
    * ✅ SNAPSHOTS CONSOLIDADOS DO ID NO MOMENTO DA FINALIZAÇÃO
@@ -641,11 +648,11 @@ model CedenteCommission {
 
   generatedAt   DateTime @default(now())
   generatedById String?
-  generatedBy   User? @relation("CedenteCommissionGeneratedBy", fields: [generatedById], references: [id], onDelete: SetNull)
+  generatedBy   User?    @relation("CedenteCommissionGeneratedBy", fields: [generatedById], references: [id], onDelete: SetNull)
 
   paidAt   DateTime?
   paidById String?
-  paidBy   User? @relation("CedenteCommissionPaidBy", fields: [paidById], references: [id], onDelete: SetNull)
+  paidBy   User?     @relation("CedenteCommissionPaidBy", fields: [paidById], references: [id], onDelete: SetNull)
 
   note String?
 
@@ -688,7 +695,7 @@ model Cliente {
   origemDescricao String?
 
   createdById String?
-  createdBy   User? @relation("ClienteCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  createdBy   User?   @relation("ClienteCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
 
   // Vendas vinculadas a este cliente
   sales Sale[]
@@ -835,7 +842,7 @@ model Sale {
   purchase   Purchase? @relation(fields: [purchaseId], references: [id], onDelete: SetNull)
 
   sellerId String?
-  seller   User? @relation("SaleSeller", fields: [sellerId], references: [id], onDelete: SetNull)
+  seller   User?   @relation("SaleSeller", fields: [sellerId], references: [id], onDelete: SetNull)
 
   receivableId String?     @unique
   receivable   Receivable? @relation("SaleReceivable", fields: [receivableId], references: [id], onDelete: SetNull)
@@ -849,4 +856,52 @@ model Sale {
   @@index([clienteId])
   @@index([purchaseId])
   @@map("sales")
+}
+
+/**
+ * =========================
+ * PAGAMENTOS (COMISSÕES FUNCIONÁRIOS POR DIA)
+ * =========================
+ * Guarda o pagamento por "dia fechado" (date) e funcionário.
+ * Permite pagar dias passados (ficar pendente até quitar), e manter histórico completo.
+ */
+model EmployeePayout {
+  id String @id @default(cuid())
+
+  /**
+   * ✅ Dia referente ao lucro (dia fechado)
+   * Recomendação: salvar como 00:00 no fuso do Brasil (-03).
+   */
+  date   DateTime
+  userId String
+
+  // lucro (1% + 30% + rateio) do dia
+  grossProfitCents Int
+
+  // 7% só em cima do lucro (grossProfit)
+  tax7Cents Int
+
+  // reembolso das taxas (embarque) pagas no cartão do funcionário
+  feeCents Int
+
+  // total líquido a pagar (gross - tax + fee)
+  netPayCents Int
+
+  // detalhamento livre (comissão1/bonus30/rateio etc.)
+  breakdown Json?
+
+  // quando pagou de fato
+  paidAt   DateTime @default(now())
+  paidById String?
+
+  user   User  @relation("EmployeePayoutUser", fields: [userId], references: [id], onDelete: Cascade)
+  paidBy User? @relation("EmployeePayoutPaidBy", fields: [paidById], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([date, userId], map: "uniq_employee_payout_day_user")
+  @@index([date])
+  @@index([userId, date])
+  @@map("employee_payouts")
 }
