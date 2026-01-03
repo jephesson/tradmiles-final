@@ -31,10 +31,9 @@ function readCookieFromHeader(cookieHeader: string | null, name: string) {
 }
 
 export async function requireSession(req?: Request): Promise<Session> {
-  const token =
-    req
-      ? readCookieFromHeader(req.headers.get("cookie"), "tm.session")
-      : cookies().get("tm.session")?.value;
+  const token = req
+    ? readCookieFromHeader(req.headers.get("cookie"), "tm.session")
+    : (await cookies()).get("tm.session")?.value;
 
   if (!token) throw new Error("UNAUTHENTICATED");
 
