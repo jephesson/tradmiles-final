@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
 type Program = "LATAM" | "SMILES" | "LIVELO" | "ESFERA";
@@ -38,6 +37,76 @@ type Row = {
   updatedAt: string;
 };
 
+type DetailResp = {
+  ok: true;
+  purchase: {
+    id: string;
+    numero: string;
+    ciaAerea: Program | null;
+    pontosCiaTotal: number;
+    metaMilheiroCents: number | null;
+    totalCents: number | null;
+
+    finalizedAt: string | null;
+    finalizedBy: { id: string; name: string; login: string } | null;
+
+    cedente: {
+      id: string;
+      identificador: string;
+      nomeCompleto: string;
+      ownerId: string;
+      owner: { id: string; name: string; login: string };
+    };
+  };
+
+  metrics: {
+    soldPoints: number;
+    pax: number;
+
+    salesTotalCents: number;
+    salesPointsValueCents: number;
+    salesTaxesCents: number;
+
+    purchaseTotalCents: number;
+
+    profitBrutoCents: number;
+    bonusCents: number;
+    profitLiquidoCents: number;
+
+    avgMilheiroCents: number | null;
+    remainingPoints: number | null;
+  };
+
+  plan: {
+    effectiveFrom: string | null;
+    effectiveTo: string | null;
+    sumBps: number;
+    isDefault: boolean;
+  };
+
+  rateio: Array<{
+    payeeId: string;
+    bps: number;
+    payee: { id: string; name: string; login: string };
+    amountCents: number;
+  }>;
+
+  checks: { sumRateioCents: number };
+
+  // opcional no teu endpoint (se tu incluir)
+  sales?: Array<{
+    id: string;
+    date: string;
+    points: number;
+    passengers: number;
+    totalCents: number;
+    pointsValueCents: number;
+    embarqueFeeCents: number;
+    locator: string | null;
+    paymentStatus: string;
+  }>;
+};
+
 function fmtMoneyBR(cents: number) {
   const v = (cents || 0) / 100;
   return v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -54,8 +123,20 @@ function fmtDateTimeBR(iso?: string | null) {
   return d.toLocaleString("pt-BR");
 }
 
+function fmtPctBps(bps: number) {
+  const v = (Number(bps || 0) / 100).toFixed(2).replace(".", ",");
+  return `${v}%`;
+}
+
 function pick(n: number | null | undefined, fallback = 0) {
   return typeof n === "number" && Number.isFinite(n) ? n : fallback;
+}
+
+async function fetchJson<T>(url: string): Promise<T> {
+  const res = await fetch(url, { cache: "no-store", credentials: "include" });
+  const json = await res.json().catch(() => null);
+  if (!res.ok || !json?.ok) throw new Error(json?.error || `Erro ${res.status}`);
+  return json as T;
 }
 
 export default function ComprasFinalizadasPage() {
@@ -63,6 +144,12 @@ export default function ComprasFinalizadasPage() {
   const [err, setErr] = useState("");
   const [rows, setRows] = useState<Row[]>([]);
   const [q, setQ] = useState("");
+
+  // ✅ Modal "Ver"
+  const [openRow, setOpenRow] = useState<Row | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [detailErr, setDetailErr] = useState("");
+  const [detail, setDetail] = useState<DetailResp | null>(null);
 
   async function load() {
     setLoading(true);
@@ -73,10 +160,7 @@ export default function ComprasFinalizadasPage() {
       if (q.trim()) qs.set("q", q.trim());
       qs.set("take", "200");
 
-      const res = await fetch(`/api/vendas/compras-finalizadas?${qs.toString()}`, { cache: "no-store" });
-      const json = await res.json().catch(() => null);
-
-      if (!res.ok || !json?.ok) throw new Error(json?.error || "Falha ao carregar.");
+      const json = await fetchJson<{ ok: true; purchases: Row[] }>(`/api/vendas/compras-finalizadas?${qs.toString()}`);
       setRows(Array.isArray(json.purchases) ? json.purchases : []);
     } catch (e: any) {
       setErr(e?.message || "Erro ao carregar.");
@@ -84,6 +168,29 @@ export default function ComprasFinalizadasPage() {
     } finally {
       setLoading(false);
     }
+  }
+
+  async function openDetails(r: Row) {
+    setOpenRow(r);
+    setDetail(null);
+    setDetailErr("");
+    setDetailLoading(true);
+
+    try {
+      const out = await fetchJson<DetailResp>(`/api/vendas/compras-finalizadas/${r.id}`);
+      setDetail(out);
+    } catch (e: any) {
+      setDetailErr(e?.message || "Erro ao carregar detalhes.");
+    } finally {
+      setDetailLoading(false);
+    }
+  }
+
+  function closeDetails() {
+    setOpenRow(null);
+    setDetail(null);
+    setDetailErr("");
+    setDetailLoading(false);
   }
 
   useEffect(() => {
@@ -166,7 +273,7 @@ export default function ComprasFinalizadasPage() {
         </div>
 
         <div className="overflow-auto">
-          <table className="min-w-[1100px] w-full text-sm">
+          <table className="min-w-[1180px] w-full text-sm">
             <thead>
               <tr className="border-b text-left text-slate-500">
                 <th className="py-2 pr-3">ID</th>
@@ -182,29 +289,36 @@ export default function ComprasFinalizadasPage() {
                 <th className="py-2 pr-3">Lucro líquido</th>
                 <th className="py-2 pr-3">Finalizado em</th>
                 <th className="py-2 pr-3">Por</th>
+                <th className="py-2 pr-3 text-right">Ações</th>
               </tr>
             </thead>
 
             <tbody>
               {loading ? (
                 <tr>
-                  <td className="py-3 text-slate-600" colSpan={13}>
+                  <td className="py-3 text-slate-600" colSpan={14}>
                     Carregando...
                   </td>
                 </tr>
               ) : rows.length === 0 ? (
                 <tr>
-                  <td className="py-3 text-slate-600" colSpan={13}>
+                  <td className="py-3 text-slate-600" colSpan={14}>
                     Nenhuma compra finalizada encontrada.
                   </td>
                 </tr>
               ) : (
                 rows.map((r) => {
                   const profit = pick(r.finalProfitCents);
-                  const profitCls = profit < 0 ? "text-red-600" : profit > 0 ? "text-emerald-700" : "text-slate-700";
+                  const profitCls =
+                    profit < 0 ? "text-red-600" : profit > 0 ? "text-emerald-700" : "text-slate-700";
 
                   return (
-                    <tr key={r.id} className="border-b last:border-b-0">
+                    <tr
+                      key={r.id}
+                      className="border-b last:border-b-0 hover:bg-slate-50 cursor-pointer"
+                      title="Clique para ver detalhes e rateio"
+                      onClick={() => void openDetails(r)}
+                    >
                       <td className="py-2 pr-3">
                         <div className="font-semibold">{r.numero}</div>
                         <div className="text-[11px] text-slate-500">{r.status}</div>
@@ -222,7 +336,9 @@ export default function ComprasFinalizadasPage() {
                       <td className="py-2 pr-3">
                         <div className="font-medium">{fmtInt(pick(r.finalSoldPoints))}</div>
                         {r.finalRemainingPoints !== null && r.finalRemainingPoints !== undefined ? (
-                          <div className="text-[11px] text-slate-500">Restante: {fmtInt(pick(r.finalRemainingPoints))}</div>
+                          <div className="text-[11px] text-slate-500">
+                            Restante: {fmtInt(pick(r.finalRemainingPoints))}
+                          </div>
                         ) : (
                           <div className="text-[11px] text-slate-500">&nbsp;</div>
                         )}
@@ -246,6 +362,19 @@ export default function ComprasFinalizadasPage() {
                         <div className="font-medium">{r.finalizedBy?.name || "-"}</div>
                         <div className="text-[11px] text-slate-500">{r.finalizedBy?.login || ""}</div>
                       </td>
+
+                      <td
+                        className="py-2 pr-3 text-right"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <button
+                          type="button"
+                          onClick={() => void openDetails(r)}
+                          className="rounded-xl border px-3 py-1.5 text-xs hover:bg-white"
+                        >
+                          Ver
+                        </button>
+                      </td>
                     </tr>
                   );
                 })
@@ -255,11 +384,172 @@ export default function ComprasFinalizadasPage() {
         </div>
 
         <div className="mt-3 text-xs text-slate-500">
-          Dica: se você quiser um botão “Ver detalhes”, me diga qual é a rota atual de detalhes da compra (ex.:{" "}
-          <span className="font-mono">/dashboard/compras/[id]</span> ou <span className="font-mono">/dashboard/compras/visualizar</span>)
-          que eu já coloco o Link sem quebrar nada.
+          Clique em uma linha (ou em <span className="font-semibold">Ver</span>) para ver custos, lucro e rateio do lucro líquido.
         </div>
       </div>
+
+      {/* ✅ MODAL DETALHES / RATEIO */}
+      {openRow ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-5xl rounded-2xl bg-white shadow-xl">
+            <div className="border-b p-4 flex items-start justify-between gap-3">
+              <div>
+                <div className="text-lg font-bold">Rateio da compra</div>
+                <div className="text-sm text-slate-600">
+                  {openRow.numero} • {openRow.cedente?.identificador || "-"} • {openRow.cedente?.nomeCompleto || "-"}
+                </div>
+              </div>
+
+              <button
+                className="rounded-xl border px-4 py-2 text-sm hover:bg-slate-50"
+                onClick={closeDetails}
+              >
+                Fechar
+              </button>
+            </div>
+
+            <div className="p-4 space-y-4">
+              {detailErr ? <div className="text-sm text-red-600">{detailErr}</div> : null}
+
+              {detailLoading ? (
+                <div className="rounded-2xl border bg-slate-50 p-4 text-sm text-slate-700">
+                  Carregando detalhes...
+                </div>
+              ) : detail ? (
+                <>
+                  {/* RESUMO */}
+                  <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
+                    <Kpi label="Custo (compra)" value={fmtMoneyBR(pick(detail.metrics.purchaseTotalCents))} />
+                    <Kpi label="Venda (sem taxa)" value={fmtMoneyBR(pick(detail.metrics.salesPointsValueCents))} />
+                    <Kpi label="Bônus" value={fmtMoneyBR(pick(detail.metrics.bonusCents))} />
+                    <Kpi
+                      label="Lucro líquido"
+                      value={fmtMoneyBR(pick(detail.metrics.profitLiquidoCents))}
+                    />
+                  </div>
+
+                  {/* BLOCO CUSTOS / LUCROS */}
+                  <div className="rounded-2xl border bg-white p-4">
+                    <div className="text-sm font-semibold mb-2">Resumo financeiro</div>
+
+                    <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+                      <Line
+                        label="Total cobrado (com taxas)"
+                        value={fmtMoneyBR(pick(detail.metrics.salesTotalCents))}
+                        hint={`Taxas: ${fmtMoneyBR(pick(detail.metrics.salesTaxesCents))}`}
+                      />
+                      <Line
+                        label="Venda sem taxa (PV)"
+                        value={fmtMoneyBR(pick(detail.metrics.salesPointsValueCents))}
+                        hint="Base do lucro (sem taxa)"
+                      />
+                      <Line
+                        label="Custo da compra"
+                        value={fmtMoneyBR(pick(detail.metrics.purchaseTotalCents))}
+                        hint="TotalCents da compra"
+                      />
+                      <Line
+                        label="Lucro bruto"
+                        value={fmtMoneyBR(pick(detail.metrics.profitBrutoCents))}
+                        hint="PV - custo"
+                      />
+                      <Line
+                        label="Bônus (30% excedente)"
+                        value={fmtMoneyBR(pick(detail.metrics.bonusCents))}
+                        hint="Regra bônus"
+                      />
+                      <Line
+                        label="Lucro líquido"
+                        value={fmtMoneyBR(pick(detail.metrics.profitLiquidoCents))}
+                        hint="Lucro bruto - bônus"
+                        strong
+                      />
+                    </div>
+                  </div>
+
+                  {/* RATEIO */}
+                  <div className="rounded-2xl border bg-white p-4">
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <div className="text-sm font-semibold">Rateio do lucro líquido</div>
+                        <div className="text-xs text-slate-500">
+                          {detail.plan.isDefault ? (
+                            <>Sem configuração: default 100% para o owner</>
+                          ) : (
+                            <>
+                              Vigência:{" "}
+                              <span className="font-mono">
+                                {detail.plan.effectiveFrom ? detail.plan.effectiveFrom.slice(0, 10) : "-"}
+                              </span>
+                              {detail.plan.effectiveTo ? (
+                                <>
+                                  {" "}
+                                  → <span className="font-mono">{detail.plan.effectiveTo.slice(0, 10)}</span>
+                                </>
+                              ) : (
+                                <> → atual</>
+                              )}
+                            </>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="text-right">
+                        <div className="text-xs text-slate-500">Total rateado</div>
+                        <div className="text-sm font-bold">{fmtMoneyBR(pick(detail.checks.sumRateioCents))}</div>
+                        <div className="text-[11px] text-slate-500">bps: {detail.plan.sumBps}</div>
+                      </div>
+                    </div>
+
+                    <div className="mt-3 overflow-auto rounded-xl border">
+                      <table className="min-w-[900px] w-full text-sm">
+                        <thead className="bg-slate-50">
+                          <tr className="text-left text-slate-500">
+                            <th className="p-3">Destinatário</th>
+                            <th className="p-3">%</th>
+                            <th className="p-3">Valor</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {detail.rateio.map((it, idx) => (
+                            <tr key={`${it.payeeId}-${idx}`} className="border-t">
+                              <td className="p-3">
+                                <div className="font-medium">{it.payee?.name}</div>
+                                <div className="text-[11px] text-slate-500">{it.payee?.login}</div>
+                              </td>
+                              <td className="p-3">{fmtPctBps(it.bps)}</td>
+                              <td className="p-3 font-semibold">{fmtMoneyBR(pick(it.amountCents))}</td>
+                            </tr>
+                          ))}
+                          <tr className="border-t bg-slate-50">
+                            <td className="p-3 font-semibold">Total</td>
+                            <td className="p-3 text-xs text-slate-500">lucro líquido</td>
+                            <td className="p-3 font-semibold">{fmtMoneyBR(pick(detail.metrics.profitLiquidoCents))}</td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+
+                  {/* OPERACIONAL */}
+                  <div className="rounded-2xl border bg-white p-4">
+                    <div className="text-sm font-semibold mb-2">Operacional</div>
+                    <div className="grid grid-cols-1 gap-2 md:grid-cols-3">
+                      <Line label="Pontos vendidos" value={fmtInt(pick(detail.metrics.soldPoints))} />
+                      <Line label="PAX" value={fmtInt(pick(detail.metrics.pax))} />
+                      <Line
+                        label="Milheiro médio (sem taxa)"
+                        value={detail.metrics.avgMilheiroCents == null ? "-" : fmtMoneyBR(detail.metrics.avgMilheiroCents)}
+                        hint={detail.metrics.remainingPoints == null ? undefined : `Restante: ${fmtInt(detail.metrics.remainingPoints)}`}
+                      />
+                    </div>
+                  </div>
+                </>
+              ) : null}
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -269,6 +559,26 @@ function Kpi({ label, value }: { label: string; value: string }) {
     <div className="rounded-2xl border bg-slate-50 p-3">
       <div className="text-[11px] text-slate-500">{label}</div>
       <div className="text-lg font-bold">{value}</div>
+    </div>
+  );
+}
+
+function Line({
+  label,
+  value,
+  hint,
+  strong,
+}: {
+  label: string;
+  value: string;
+  hint?: string;
+  strong?: boolean;
+}) {
+  return (
+    <div className="rounded-xl border bg-white p-3">
+      <div className="text-[11px] text-slate-500">{label}</div>
+      <div className={`text-sm ${strong ? "font-bold" : "font-semibold"}`}>{value}</div>
+      {hint ? <div className="mt-1 text-[11px] text-slate-500">{hint}</div> : null}
     </div>
   );
 }
