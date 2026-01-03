@@ -1,5 +1,5 @@
 // lib/auth/session-server.ts
-import { NextRequest } from "next/server";
+import { cookies } from "next/headers";
 import { prisma } from "@/lib/prisma";
 
 export type SessionUser = {
@@ -8,61 +8,37 @@ export type SessionUser = {
   name: string;
   team: string;
   role: string;
+  employeeId?: string | null;
 };
 
-export type Session = {
-  user: SessionUser;
-};
+export type Session = { user: SessionUser };
 
-function tryParseUserIdFromCookie(raw: string): string | null {
-  if (!raw) return null;
-
-  // 1) JSON direto
-  try {
-    const obj = JSON.parse(decodeURIComponent(raw));
-    const id = obj?.user?.id || obj?.userId || obj?.id || obj?.sub;
-    if (typeof id === "string" && id.length >= 10) return id;
-  } catch {}
-
-  // 2) Base64(JSON)
-  try {
-    const decoded = Buffer.from(raw, "base64").toString("utf8");
-    const obj = JSON.parse(decoded);
-    const id = obj?.user?.id || obj?.userId || obj?.id || obj?.sub;
-    if (typeof id === "string" && id.length >= 10) return id;
-  } catch {}
-
-  // 3) JWT (payload sem validar assinatura)
-  try {
-    const parts = raw.split(".");
-    if (parts.length >= 2) {
-      const p = parts[1]
-        .replace(/-/g, "+")
-        .replace(/_/g, "/")
-        .padEnd(Math.ceil(parts[1].length / 4) * 4, "=");
-
-      const payloadJson = Buffer.from(p, "base64").toString("utf8");
-      const obj = JSON.parse(payloadJson);
-      const id = obj?.user?.id || obj?.userId || obj?.id || obj?.sub;
-      if (typeof id === "string" && id.length >= 10) return id;
+function readCookieFromHeader(cookieHeader: string | null, name: string) {
+  if (!cookieHeader) return null;
+  const parts = cookieHeader.split(";").map((p) => p.trim());
+  for (const p of parts) {
+    if (p.startsWith(name + "=")) {
+      return decodeURIComponent(p.slice(name.length + 1));
     }
-  } catch {}
-
+  }
   return null;
 }
 
-export async function requireSession(req: NextRequest): Promise<Session> {
-  const raw = req.cookies.get("tm.session")?.value || "";
-  const userId = tryParseUserIdFromCookie(raw);
+export async function requireSession(req?: Request): Promise<Session> {
+  // ✅ se veio Request (ex.: route handler), lê do header
+  // ✅ se não veio, usa cookies() do Next (server)
+  const token =
+    req ? readCookieFromHeader(req.headers.get("cookie"), "tm.session") : cookies().get("tm.session")?.value;
 
-  if (!userId) throw new Error("UNAUTHORIZED");
+  if (!token) throw new Error("UNAUTHENTICATED");
 
+  // 🔸 No seu sistema, o tm.session normalmente é o userId (uuid)
   const user = await prisma.user.findUnique({
-    where: { id: userId },
-    select: { id: true, login: true, name: true, team: true, role: true },
+    where: { id: token },
+    select: { id: true, login: true, name: true, team: true, role: true, employeeId: true },
   });
 
-  if (!user) throw new Error("UNAUTHORIZED");
+  if (!user) throw new Error("UNAUTHENTICATED");
 
   return { user };
 }
