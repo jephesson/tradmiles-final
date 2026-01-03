@@ -31,19 +31,19 @@ async function getServerSession(): Promise<Sess | null> {
   return readSessionCookie(raw);
 }
 
-function safeInt(v: any, fb = 0) {
+function safeInt(v: unknown, fb = 0) {
   const n = Number(v);
   return Number.isFinite(n) ? Math.trunc(n) : fb;
 }
 
-function toBps(percent: any) {
+function toBps(percent: unknown) {
   const p = Number(percent);
   if (!Number.isFinite(p)) return 0;
   return Math.round(p * 100); // 2 casas -> bps (100.00% => 10000)
 }
 
 /** "YYYY-MM-DD" -> Date local (00:00) */
-function parseDateISOToLocalDay(v: any): Date | null {
+function parseDateISOToLocalDay(v: unknown): Date | null {
   const s = String(v || "").trim();
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
   if (!m) return null;
@@ -54,11 +54,24 @@ function parseDateISOToLocalDay(v: any): Date | null {
   return Number.isNaN(dt.getTime()) ? null : dt;
 }
 
+function todayLocalDay(): Date {
+  const d = new Date();
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, 0, 0);
+}
+
 type OutItem = {
   payeeId: string;
   bps: number;
   payee: { id: string; name: string; login: string };
 };
+
+type SharePack = {
+  effectiveFrom: string;
+  effectiveTo: string | null;
+  items: OutItem[];
+};
+
+type RateioItem = { payeeId: string; bps: number };
 
 export async function GET(req: Request) {
   const session = await getServerSession();
@@ -89,7 +102,7 @@ export async function GET(req: Request) {
   /**
    * ✅ pega o rateio vigente em `now` por owner:
    * effectiveFrom <= now AND (effectiveTo is null OR effectiveTo > now)
-   * e usa distinct(ownerId) com orderBy effectiveFrom desc
+   * distinct(ownerId) com orderBy ownerId asc, effectiveFrom desc (DISTINCT ON)
    */
   const shares = await prisma.profitShare.findMany({
     where: {
@@ -115,7 +128,7 @@ export async function GET(req: Request) {
     },
   });
 
-  const shareMap = new Map<string, { effectiveFrom: string; effectiveTo: string | null; items: OutItem[] }>();
+  const shareMap = new Map<string, SharePack>();
   for (const s of shares) {
     shareMap.set(String(s.ownerId), {
       effectiveFrom: s.effectiveFrom.toISOString(),
@@ -154,20 +167,18 @@ export async function PUT(req: Request) {
     return NextResponse.json({ ok: false, error: "Não autenticado" }, { status: 401 });
   }
 
-  const body = await req.json().catch(() => ({}));
+  const body: any = await req.json().catch(() => ({}));
 
   const ownerId = String(body.ownerId || "").trim();
-  const itemsRaw = Array.isArray(body.items) ? body.items : [];
 
-  // ✅ NOVO: vigência
-  const effectiveFromRaw = body.effectiveFrom;
-  const effectiveFrom = parseDateISOToLocalDay(effectiveFromRaw);
+  // ✅ itens entram como unknown[] (evita implicit any)
+  const itemsRaw: unknown[] = Array.isArray(body.items) ? body.items : [];
+
+  // ✅ NOVO: vigência (se não vier, default = hoje 00:00 local)
+  const effectiveFrom = parseDateISOToLocalDay(body.effectiveFrom) ?? todayLocalDay();
 
   if (!ownerId) {
     return NextResponse.json({ ok: false, error: "ownerId obrigatório" }, { status: 400 });
-  }
-  if (!effectiveFrom) {
-    return NextResponse.json({ ok: false, error: "effectiveFrom inválido (use YYYY-MM-DD)" }, { status: 400 });
   }
 
   const owner = await prisma.user.findFirst({
@@ -178,13 +189,16 @@ export async function PUT(req: Request) {
     return NextResponse.json({ ok: false, error: "Owner inválido" }, { status: 400 });
   }
 
-  // ✅ tipagem pra não cair em implicit any
-  const items: Array<{ payeeId: string; bps: number }> = itemsRaw
-    .map((it: any) => ({
-      payeeId: String(it?.payeeId || "").trim(),
-      bps: toBps(it?.percent),
-    }))
-    .filter((it) => it.payeeId && it.bps >= 0);
+  // ✅ NORMALIZA + TIPADO (não gera implicit any)
+  const items: RateioItem[] = itemsRaw
+    .map((raw): RateioItem => {
+      const it = raw as any;
+      return {
+        payeeId: String(it?.payeeId || "").trim(),
+        bps: toBps(it?.percent),
+      };
+    })
+    .filter((it: RateioItem) => it.payeeId.length > 0 && it.bps >= 0);
 
   if (items.length === 0) {
     return NextResponse.json({ ok: false, error: "Informe pelo menos 1 destinatário" }, { status: 400 });
@@ -200,13 +214,16 @@ export async function PUT(req: Request) {
   }
 
   // valida payees no mesmo team
-  const payeeIds: string[] = items.map((it) => it.payeeId);
+  const payeeIds: string[] = items.map((it: RateioItem) => it.payeeId);
   const payees = await prisma.user.findMany({
     where: { id: { in: payeeIds }, team: session.team },
     select: { id: true },
   });
   if (payees.length !== payeeIds.length) {
-    return NextResponse.json({ ok: false, error: "Um ou mais destinatários não pertencem ao team" }, { status: 400 });
+    return NextResponse.json(
+      { ok: false, error: "Um ou mais destinatários não pertencem ao team" },
+      { status: 400 }
+    );
   }
 
   const sumBps = items.reduce((acc, it) => acc + safeInt(it.bps, 0), 0);
@@ -230,7 +247,7 @@ export async function PUT(req: Request) {
     });
 
     // cria/atualiza o rateio desta data
-    const plan = await tx.profitShare.upsert({
+    await tx.profitShare.upsert({
       where: {
         team_ownerId_effectiveFrom: {
           team: session.team,
@@ -245,7 +262,7 @@ export async function PUT(req: Request) {
         effectiveFrom,
         effectiveTo: next?.effectiveFrom ?? null,
         items: {
-          create: items.map((it) => ({
+          create: items.map((it: RateioItem) => ({
             payeeId: it.payeeId,
             bps: it.bps,
           })),
@@ -256,13 +273,13 @@ export async function PUT(req: Request) {
         effectiveTo: next?.effectiveFrom ?? null,
         items: {
           deleteMany: {},
-          create: items.map((it) => ({
+          create: items.map((it: RateioItem) => ({
             payeeId: it.payeeId,
             bps: it.bps,
           })),
         },
       },
-      select: { id: true, effectiveFrom: true },
+      select: { id: true },
     });
 
     // fecha o anterior (se existir e se fizer sentido)
@@ -275,10 +292,6 @@ export async function PUT(req: Request) {
         });
       }
     }
-
-    // garantia: se existir next, o plan já ficou com effectiveTo=next.effectiveFrom
-    // (se não existir next, effectiveTo = null = vigente até mudar)
-    void plan;
   });
 
   return NextResponse.json({ ok: true });
