@@ -105,17 +105,34 @@ export async function GET(req: Request) {
     },
   });
 
-  const ids = purchases.map((p) => p.id);
-  const numeros = purchases.map((p) => p.numero);
-  const idByNumero = new Map(purchases.map((p) => [p.numero.toUpperCase(), p.id]));
+  const ids = purchases.map((p) => p.id).filter(Boolean);
+
+  // ✅ lista de numeros (ID00018) (sem null/vazio)
+  const numeros = purchases
+    .map((p) => String(p.numero || "").trim())
+    .filter(Boolean);
+
+  // ✅ map: "ID00018" -> cuid
+  const idByNumero = new Map<string, string>();
+  for (const p of purchases) {
+    const num = String(p.numero || "").trim();
+    if (num) idByNumero.set(num.toUpperCase(), p.id);
+  }
 
   if (ids.length === 0) return NextResponse.json({ ok: true, purchases: [] });
 
-  // ✅ busca vendas por purchaseId (cuid) OU por numero (legado)
+  // ✅ busca vendas:
+  // - novo: sale.purchaseId (cuid)
+  // - novo: sale.purchaseNumero (ID00018)
+  // - legado: alguém pode ter salvo "ID00018" no campo purchaseId
   const sales = await prisma.sale.findMany({
     where: {
       paymentStatus: { not: "CANCELED" },
-      OR: [{ purchaseId: { in: ids } }, { purchaseId: { in: numeros } }],
+      OR: [
+        { purchaseId: { in: ids } },
+        ...(numeros.length ? [{ purchaseNumero: { in: numeros } }] : []),
+        ...(numeros.length ? [{ purchaseId: { in: numeros } }] : []), // legado extremo
+      ],
     },
     select: {
       id: true,
@@ -126,6 +143,8 @@ export async function GET(req: Request) {
       locator: true,
 
       purchaseId: true,
+      purchaseNumero: true,
+
       points: true,
       passengers: true,
       totalCents: true,
@@ -153,21 +172,39 @@ export async function GET(req: Request) {
 
   const salesByPurchase = new Map<string, any[]>();
 
-  // helper: normaliza purchaseId vindo da Sale
-  function normalizePurchaseId(raw: string) {
-    const r = (raw || "").trim();
-    if (!r) return "";
-    return idByNumero.get(r.toUpperCase()) || r; // se for "ID00001", vira cuid
+  // ✅ helper: resolve SEMPRE para cuid da Purchase
+  function resolvePurchaseId(s: { purchaseId?: any; purchaseNumero?: any }) {
+    const pidRaw = String(s.purchaseId || "").trim();
+    const pnumRaw = String(s.purchaseNumero || "").trim();
+
+    // 1) se veio cuid válido e existe na lista -> usa direto
+    if (pidRaw && ids.includes(pidRaw)) return pidRaw;
+
+    // 2) se purchaseId está no formato numero (legado), converte
+    if (pidRaw) {
+      const mapped = idByNumero.get(pidRaw.toUpperCase());
+      if (mapped) return mapped;
+    }
+
+    // 3) se tem purchaseNumero, converte
+    if (pnumRaw) {
+      const mapped = idByNumero.get(pnumRaw.toUpperCase());
+      if (mapped) return mapped;
+    }
+
+    return "";
   }
 
+  // ✅ mapa de purchases por id pra metaMilheiro (bônus)
+  const byId = new Map(purchases.map((p) => [p.id, p]));
+
   for (const s of sales) {
-    const raw = String(s.purchaseId || "");
-    const pid = normalizePurchaseId(raw);
+    const pid = resolvePurchaseId(s);
     if (!pid) continue;
 
     const totalCents = safeInt(s.totalCents, 0);
     const feeCents = safeInt(s.embarqueFeeCents, 0);
-    let pvCents = safeInt(s.pointsValueCents as any, 0);
+    let pvCents = safeInt(s.pointsValueCents, 0);
 
     if (pvCents <= 0 && totalCents > 0) {
       const cand = Math.max(totalCents - feeCents, 0);
@@ -198,6 +235,13 @@ export async function GET(req: Request) {
     const dt = s.createdAt ? new Date(s.createdAt) : null;
     if (dt && (!cur.lastSaleAt || dt > cur.lastSaleAt)) cur.lastSaleAt = dt;
 
+    // ✅ aplica bônus aqui (não precisa de segundo loop)
+    const p = byId.get(pid);
+    if (p) {
+      const mil = milheiroFrom(safeInt(s.points, 0), pvCents);
+      cur.bonusCents += bonus30(safeInt(s.points, 0), mil, safeInt(p.metaMilheiroCents, 0));
+    }
+
     agg.set(pid, cur);
 
     const arr = salesByPurchase.get(pid) || [];
@@ -213,33 +257,6 @@ export async function GET(req: Request) {
       createdAt: s.createdAt,
     });
     salesByPurchase.set(pid, arr);
-  }
-
-  // aplica bônus por compra
-  const byId = new Map(purchases.map((p) => [p.id, p]));
-
-  for (const s of sales) {
-    const raw = String(s.purchaseId || "");
-    const pid = normalizePurchaseId(raw);
-    if (!pid) continue;
-
-    const p = byId.get(pid);
-    if (!p) continue;
-
-    const totalCents = safeInt(s.totalCents, 0);
-    const feeCents = safeInt(s.embarqueFeeCents, 0);
-    let pvCents = safeInt(s.pointsValueCents as any, 0);
-
-    if (pvCents <= 0 && totalCents > 0) {
-      const cand = Math.max(totalCents - feeCents, 0);
-      pvCents = cand > 0 ? cand : totalCents;
-    }
-
-    const mil = milheiroFrom(safeInt(s.points, 0), pvCents);
-    const b = bonus30(safeInt(s.points, 0), mil, safeInt(p.metaMilheiroCents, 0));
-
-    const cur = agg.get(pid);
-    if (cur) cur.bonusCents += b;
   }
 
   const out = purchases.map((p) => {
@@ -277,7 +294,7 @@ export async function GET(req: Request) {
 
       // ✅ pro front
       salesCount,
-      vendas: salesCount, // alias caso a UI use "vendas"
+      vendas: salesCount, // alias se tua UI usar isso
       lastSaleAt: a.lastSaleAt ? a.lastSaleAt.toISOString() : null,
       sales: listSales,
 
