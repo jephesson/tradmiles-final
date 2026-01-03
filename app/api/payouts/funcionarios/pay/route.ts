@@ -10,18 +10,24 @@ type SessionLike = { userId: string; team: string };
 
 function toSessionLike(session: any): SessionLike {
   const userId = String(session?.userId ?? session?.user?.id ?? "");
-  const team = String(session?.team ?? "");
+  const team = String(session?.team ?? session?.user?.team ?? "");
   return { userId, team };
 }
 
-async function getSession(req: Request) {
-  // compatível com requireSession() ou requireSession(req)
-  return (requireSession as unknown as (req?: Request) => Promise<any>)(req);
+async function getSessionCompat(req: Request) {
+  // Compatível com:
+  // - requireSession(req)
+  // - requireSession()
+  try {
+    return await (requireSession as any)(req);
+  } catch {
+    return await (requireSession as any)();
+  }
 }
 
 export async function POST(req: Request) {
   try {
-    const sessionRaw = await getSession(req);
+    const sessionRaw = await getSessionCompat(req);
     const session = toSessionLike(sessionRaw);
 
     if (!session.userId || !session.team) {
@@ -29,7 +35,6 @@ export async function POST(req: Request) {
     }
 
     const body = await req.json().catch(() => ({}));
-
     const date = String(body?.date || "").slice(0, 10);
     const userId = String(body?.userId || "");
 
@@ -45,7 +50,7 @@ export async function POST(req: Request) {
       );
     }
 
-    // ✅ NÃO use findUnique com "map:" do @@unique
+    // ✅ Não usar findUnique com @@unique mapeado (teu client não expôs o nome)
     const row = await prisma.employeePayout.findFirst({
       where: { team: session.team, date, userId },
       include: {
@@ -69,6 +74,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: true, updated });
   } catch (e: any) {
     const msg = e?.message === "UNAUTHENTICATED" ? "Não autenticado" : e?.message || String(e);
-    return NextResponse.json({ ok: false, error: msg }, { status: 500 });
+    const status = e?.message === "UNAUTHENTICATED" ? 401 : 500;
+    return NextResponse.json({ ok: false, error: msg }, { status });
   }
 }

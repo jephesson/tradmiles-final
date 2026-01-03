@@ -9,17 +9,24 @@ type SessionLike = { userId: string; team: string };
 
 function toSessionLike(session: any): SessionLike {
   const userId = String(session?.userId ?? session?.user?.id ?? "");
-  const team = String(session?.team ?? "");
+  const team = String(session?.team ?? session?.user?.team ?? "");
   return { userId, team };
 }
 
-async function getSession(req: Request) {
-  return (requireSession as unknown as (req?: Request) => Promise<any>)(req);
+async function getSessionCompat(req: Request) {
+  // Compatível com:
+  // - requireSession()
+  // - requireSession(req)
+  try {
+    return await (requireSession as any)(req);
+  } catch {
+    return await (requireSession as any)();
+  }
 }
 
 export async function GET(req: Request) {
   try {
-    const sessionRaw = await getSession(req);
+    const sessionRaw = await getSessionCompat(req);
     const session = toSessionLike(sessionRaw);
 
     if (!session.userId || !session.team) {
@@ -27,9 +34,11 @@ export async function GET(req: Request) {
     }
 
     const url = new URL(req.url);
-    const date = (url.searchParams.get("date") || "").slice(0, 10);
+    const date = String(url.searchParams.get("date") || "").slice(0, 10);
 
-    if (!date) return NextResponse.json({ ok: false, error: "date obrigatório (YYYY-MM-DD)" }, { status: 400 });
+    if (!date) {
+      return NextResponse.json({ ok: false, error: "date obrigatório (YYYY-MM-DD)" }, { status: 400 });
+    }
 
     const rows = await prisma.employeePayout.findMany({
       where: { team: session.team, date },
@@ -56,6 +65,7 @@ export async function GET(req: Request) {
     return NextResponse.json({ ok: true, date, rows, totals });
   } catch (e: any) {
     const msg = e?.message === "UNAUTHENTICATED" ? "Não autenticado" : e?.message || String(e);
-    return NextResponse.json({ ok: false, error: msg }, { status: 401 });
+    const status = e?.message === "UNAUTHENTICATED" ? 401 : 500;
+    return NextResponse.json({ ok: false, error: msg }, { status });
   }
 }

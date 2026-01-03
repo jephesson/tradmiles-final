@@ -5,22 +5,30 @@ import { computeEmployeePayoutDay } from "@/lib/payouts/employeePayouts";
 
 export const runtime = "nodejs";
 
-type SessionLike = { userId: string; team: string };
+type SessionLike = { userId: string; team: string; role?: string };
 
 function toSessionLike(session: any): SessionLike {
   const userId = String(session?.userId ?? session?.user?.id ?? "");
-  const team = String(session?.team ?? "");
-  return { userId, team };
+  const team = String(session?.team ?? session?.user?.team ?? "");
+  const role = String(session?.role ?? session?.user?.role ?? "");
+  return { userId, team, ...(role ? { role } : {}) };
 }
 
-async function getSession(req: Request) {
-  // compatível com requireSession() ou requireSession(req)
-  return (requireSession as unknown as (req?: Request) => Promise<any>)(req);
+async function getSessionCompat(req: Request) {
+  // Compatível com:
+  // - requireSession()
+  // - requireSession(req)
+  try {
+    return await (requireSession as any)(req);
+  } catch (e: any) {
+    // se falhou por causa de assinatura (ou erro interno), tenta sem req
+    return await (requireSession as any)();
+  }
 }
 
 export async function POST(req: Request) {
   try {
-    const sessionRaw = await getSession(req);
+    const sessionRaw = await getSessionCompat(req);
     const session = toSessionLike(sessionRaw);
 
     if (!session.userId || !session.team) {
@@ -34,11 +42,11 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: "date obrigatório (YYYY-MM-DD)" }, { status: 400 });
     }
 
-    // ✅ aqui passamos SessionLike garantido
-    const result = await computeEmployeePayoutDay(session as any, date);
+    const result = await computeEmployeePayoutDay(session, date);
     return NextResponse.json({ ok: true, date, result });
   } catch (e: any) {
     const msg = e?.message === "UNAUTHENTICATED" ? "Não autenticado" : e?.message || String(e);
-    return NextResponse.json({ ok: false, error: msg }, { status: 500 });
+    const status = e?.message === "UNAUTHENTICATED" ? 401 : 500;
+    return NextResponse.json({ ok: false, error: msg }, { status });
   }
 }

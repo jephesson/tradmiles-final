@@ -12,10 +12,10 @@ export type SessionUser = {
 };
 
 export type Session = {
-  // ✅ mantém compatibilidade com o que já existia
+  // mantém compatibilidade com o que já existia
   user: SessionUser;
 
-  // ✅ adiciona campos que os payouts esperam
+  // campos que payouts esperam
   userId: string;
   team: string;
   role: string;
