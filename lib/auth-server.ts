@@ -1,4 +1,5 @@
 // lib/auth-server.ts
+import "server-only";
 import { cookies } from "next/headers";
 
 type Role = "admin" | "staff";
@@ -37,4 +38,11 @@ export async function getSessionServer(): Promise<Session | null> {
   } catch {
     return null;
   }
+}
+
+/** Usa em rotas/API server-side. Lança UNAUTHENTICATED se não tiver sessão. */
+export async function requireSession(): Promise<Session> {
+  const sess = await getSessionServer();
+  if (!sess) throw new Error("UNAUTHENTICATED");
+  return sess;
 }
