@@ -1,4 +1,3 @@
-// app/api/payouts/funcionarios/compute/route.ts
 import { NextResponse } from "next/server";
 import { requireSession } from "@/lib/auth/session-server";
 import { computeEmployeePayoutDay } from "@/lib/payouts/employeePayouts";
@@ -8,20 +7,18 @@ export const runtime = "nodejs";
 type SessionLike = { userId: string; team: string; role?: string };
 
 function toSessionLike(session: any): SessionLike {
-  const userId = String(session?.userId ?? session?.user?.id ?? "");
+  const userId = String(session?.userId ?? session?.id ?? session?.user?.id ?? "");
   const team = String(session?.team ?? session?.user?.team ?? "");
   const role = String(session?.role ?? session?.user?.role ?? "");
   return { userId, team, ...(role ? { role } : {}) };
 }
 
 async function getSessionCompat(req: Request) {
-  // Compatível com:
-  // - requireSession()
-  // - requireSession(req)
   try {
     return await (requireSession as any)(req);
   } catch (e: any) {
-    // se falhou por causa de assinatura (ou erro interno), tenta sem req
+    // se for realmente não autenticado, não tenta fallback
+    if (e?.message === "UNAUTHENTICATED") throw e;
     return await (requireSession as any)();
   }
 }
