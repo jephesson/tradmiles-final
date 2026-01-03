@@ -106,18 +106,21 @@ export async function GET(req: Request) {
   });
 
   const ids = purchases.map((p) => p.id);
+  const numeros = purchases.map((p) => p.numero);
+  const idByNumero = new Map(purchases.map((p) => [p.numero.toUpperCase(), p.id]));
+
   if (ids.length === 0) return NextResponse.json({ ok: true, purchases: [] });
 
-  // ✅ puxa vendas pra calcular
+  // ✅ busca vendas por purchaseId (cuid) OU por numero (legado)
   const sales = await prisma.sale.findMany({
     where: {
-      purchaseId: { in: ids },
       paymentStatus: { not: "CANCELED" },
+      OR: [{ purchaseId: { in: ids } }, { purchaseId: { in: numeros } }],
     },
     select: {
       id: true,
       numero: true,
-      createdAt: true, // ✅ pra lastSaleAt
+      createdAt: true,
       date: true,
       program: true,
       locator: true,
@@ -143,22 +146,28 @@ export async function GET(req: Request) {
 
       bonusCents: number;
 
-      // ✅ novos
       salesCount: number;
       lastSaleAt: Date | null;
     }
   >();
 
-  // (opcional) se tua UI abre detalhes e precisa da lista
   const salesByPurchase = new Map<string, any[]>();
 
+  // helper: normaliza purchaseId vindo da Sale
+  function normalizePurchaseId(raw: string) {
+    const r = (raw || "").trim();
+    if (!r) return "";
+    return idByNumero.get(r.toUpperCase()) || r; // se for "ID00001", vira cuid
+  }
+
   for (const s of sales) {
-    const pid = String(s.purchaseId || "");
+    const raw = String(s.purchaseId || "");
+    const pid = normalizePurchaseId(raw);
     if (!pid) continue;
 
     const totalCents = safeInt(s.totalCents, 0);
     const feeCents = safeInt(s.embarqueFeeCents, 0);
-    let pvCents = safeInt((s as any).pointsValueCents, 0);
+    let pvCents = safeInt(s.pointsValueCents as any, 0);
 
     if (pvCents <= 0 && totalCents > 0) {
       const cand = Math.max(totalCents - feeCents, 0);
@@ -174,7 +183,6 @@ export async function GET(req: Request) {
       salesPointsValueCents: 0,
       salesTaxesCents: 0,
       bonusCents: 0,
-
       salesCount: 0,
       lastSaleAt: null as Date | null,
     };
@@ -186,14 +194,12 @@ export async function GET(req: Request) {
     cur.salesPointsValueCents += pvCents;
     cur.salesTaxesCents += taxes;
 
-    // ✅ COUNT + LAST
     cur.salesCount += 1;
     const dt = s.createdAt ? new Date(s.createdAt) : null;
     if (dt && (!cur.lastSaleAt || dt > cur.lastSaleAt)) cur.lastSaleAt = dt;
 
     agg.set(pid, cur);
 
-    // (opcional) lista de vendas
     const arr = salesByPurchase.get(pid) || [];
     arr.push({
       id: s.id,
@@ -209,10 +215,12 @@ export async function GET(req: Request) {
     salesByPurchase.set(pid, arr);
   }
 
-  // aplica bônus por compra (precisa meta)
+  // aplica bônus por compra
   const byId = new Map(purchases.map((p) => [p.id, p]));
+
   for (const s of sales) {
-    const pid = String(s.purchaseId || "");
+    const raw = String(s.purchaseId || "");
+    const pid = normalizePurchaseId(raw);
     if (!pid) continue;
 
     const p = byId.get(pid);
@@ -220,7 +228,8 @@ export async function GET(req: Request) {
 
     const totalCents = safeInt(s.totalCents, 0);
     const feeCents = safeInt(s.embarqueFeeCents, 0);
-    let pvCents = safeInt((s as any).pointsValueCents, 0);
+    let pvCents = safeInt(s.pointsValueCents as any, 0);
+
     if (pvCents <= 0 && totalCents > 0) {
       const cand = Math.max(totalCents - feeCents, 0);
       pvCents = cand > 0 ? cand : totalCents;
@@ -260,15 +269,19 @@ export async function GET(req: Request) {
         ? Math.max(safeInt(p.pontosCiaTotal, 0) - a.soldPoints, 0)
         : null;
 
+    const listSales = salesByPurchase.get(p.id) || [];
+    const salesCount = a.salesCount || listSales.length;
+
     return {
       ...p,
 
-      // ✅ aliases “amigáveis” pra UI
-      salesCount: a.salesCount,
+      // ✅ pro front
+      salesCount,
+      vendas: salesCount, // alias caso a UI use "vendas"
       lastSaleAt: a.lastSaleAt ? a.lastSaleAt.toISOString() : null,
-      sales: salesByPurchase.get(p.id) || [],
+      sales: listSales,
 
-      // ✅ teus campos finais
+      // ✅ métricas finais
       finalSalesCents: a.salesTotalCents,
       finalSalesPointsValueCents: a.salesPointsValueCents,
       finalSalesTaxesCents: a.salesTaxesCents,
