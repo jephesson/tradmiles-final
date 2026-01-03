@@ -1,5 +1,6 @@
 // lib/payouts/employeePayouts.ts
 import { prisma } from "@/lib/prisma"; // se não tiver alias "@", troque para: import { prisma } from "../prisma";
+import type { LoyaltyProgram, Settings } from "@prisma/client";
 
 type SessionLike = { userId: string; team: string; role?: string };
 
@@ -20,29 +21,26 @@ export function todayISORecife() {
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
-  })
-    .formatToParts(d)
-    .reduce((acc: any, p) => {
-      acc[p.type] = p.value;
-      return acc;
-    }, {});
-  return `${parts.year}-${parts.month}-${parts.day}`;
+  }).formatToParts(d);
+
+  const map: Record<string, string> = {};
+  for (const p of parts) map[p.type] = p.value;
+
+  return `${map.year}-${map.month}-${map.day}`;
 }
 
 function tax8(cents: number) {
   return Math.round((cents || 0) * 0.08);
 }
 
-function costFromSettings(
-  program: "LATAM" | "SMILES" | "LIVELO" | "ESFERA",
-  settings: any
-) {
+function costFromSettings(program: LoyaltyProgram, settings: Settings | null) {
   if (!settings) {
     if (program === "LATAM") return 2000;
     if (program === "SMILES") return 1800;
     if (program === "LIVELO") return 2200;
     return 1700;
   }
+
   if (program === "LATAM") return settings.latamRateCents ?? 2000;
   if (program === "SMILES") return settings.smilesRateCents ?? 1800;
   if (program === "LIVELO") return settings.liveloRateCents ?? 2200;
@@ -85,12 +83,14 @@ function splitByBps(pool: number, items: Array<{ payeeId: string; bps: number }>
     out[it.payeeId] = (out[it.payeeId] || 0) + v;
     used += v;
   }
+
   const rem = pool - used;
   if (rem !== 0) {
     let best = items[0];
     for (const it of items) if (it.bps > best.bps) best = it;
     out[best.payeeId] = (out[best.payeeId] || 0) + rem;
   }
+
   return out;
 }
 
@@ -124,7 +124,7 @@ export async function computeEmployeePayoutDay(session: SessionLike, date: strin
   const shares = await prisma.profitShare.findMany({
     where: {
       team: session.team,
-      ownerId: { in: ownerIds },
+      ownerId: { in: ownerIds.length ? ownerIds : ["__none__"] },
       isActive: true,
       effectiveFrom: { lte: end },
     },
@@ -145,7 +145,13 @@ export async function computeEmployeePayoutDay(session: SessionLike, date: strin
 
   const byUser: Record<string, Agg> = {};
   const ensure = (u: string) =>
-    (byUser[u] ||= { commission1Cents: 0, commission2Cents: 0, rateioCents: 0, feeCents: 0, salesCount: 0 });
+    (byUser[u] ||= {
+      commission1Cents: 0,
+      commission2Cents: 0,
+      rateioCents: 0,
+      feeCents: 0,
+      salesCount: 0,
+    });
 
   for (const s of sales) {
     const sellerId = s.sellerId || null;
@@ -174,7 +180,9 @@ export async function computeEmployeePayoutDay(session: SessionLike, date: strin
 
     if (!share?.items?.length) continue;
 
-    const costMilheiro = s.purchase?.custoMilheiroCents ?? costFromSettings(s.program, settings);
+    const costMilheiro =
+      s.purchase?.custoMilheiroCents ?? costFromSettings(s.program, settings);
+
     const profit = profitForSaleCents({
       points: s.points,
       saleMilheiroCents: s.milheiroCents,
@@ -205,12 +213,15 @@ export async function computeEmployeePayoutDay(session: SessionLike, date: strin
 
   for (const userId of userIds) {
     const a = byUser[userId];
-    const gross = (a.commission1Cents || 0) + (a.commission2Cents || 0) + (a.rateioCents || 0);
+    const gross =
+      (a.commission1Cents || 0) + (a.commission2Cents || 0) + (a.rateioCents || 0);
+
     const tax = tax8(gross);
     const net = gross - tax + (a.feeCents || 0);
 
     await prisma.employeePayout.upsert({
-      where: { uniq_employee_payout_team_day_user: { team: session.team, date, userId } },
+      // ✅ NOME CERTO DO COMPOSITE UNIQUE NO PRISMA CLIENT
+      where: { team_date_userId: { team: session.team, date, userId } },
       create: {
         team: session.team,
         date,
