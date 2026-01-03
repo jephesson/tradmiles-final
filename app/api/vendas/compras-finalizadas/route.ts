@@ -40,7 +40,7 @@ function milheiroFrom(points: number, pointsValueCents: number) {
   const pts = safeInt(points, 0);
   const cents = safeInt(pointsValueCents, 0);
   if (!pts || !cents) return 0;
-  return Math.round((cents * 1000) / pts); // centavos por 1000
+  return Math.round((cents * 1000) / pts);
 }
 
 function bonus30(points: number, milheiroCents: number, metaMilheiroCents: number) {
@@ -97,11 +97,9 @@ export async function GET(req: Request) {
       pontosCiaTotal: true,
       metaMilheiroCents: true,
       totalCents: true,
-
       finalizedAt: true,
       finalizedBy: { select: { id: true, name: true, login: true } },
       cedente: { select: { id: true, identificador: true, nomeCompleto: true } },
-
       createdAt: true,
       updatedAt: true,
     },
@@ -110,13 +108,20 @@ export async function GET(req: Request) {
   const ids = purchases.map((p) => p.id);
   if (ids.length === 0) return NextResponse.json({ ok: true, purchases: [] });
 
-  // ✅ puxa vendas pra calcular igual compras-a-finalizar
+  // ✅ puxa vendas pra calcular
   const sales = await prisma.sale.findMany({
     where: {
       purchaseId: { in: ids },
       paymentStatus: { not: "CANCELED" },
     },
     select: {
+      id: true,
+      numero: true,
+      createdAt: true, // ✅ pra lastSaleAt
+      date: true,
+      program: true,
+      locator: true,
+
       purchaseId: true,
       points: true,
       passengers: true,
@@ -137,8 +142,15 @@ export async function GET(req: Request) {
       salesTaxesCents: number;
 
       bonusCents: number;
+
+      // ✅ novos
+      salesCount: number;
+      lastSaleAt: Date | null;
     }
   >();
+
+  // (opcional) se tua UI abre detalhes e precisa da lista
+  const salesByPurchase = new Map<string, any[]>();
 
   for (const s of sales) {
     const pid = String(s.purchaseId || "");
@@ -148,7 +160,6 @@ export async function GET(req: Request) {
     const feeCents = safeInt(s.embarqueFeeCents, 0);
     let pvCents = safeInt((s as any).pointsValueCents, 0);
 
-    // ✅ regra correta (SEM taxa): se não veio pv, tenta total-fee
     if (pvCents <= 0 && totalCents > 0) {
       const cand = Math.max(totalCents - feeCents, 0);
       pvCents = cand > 0 ? cand : totalCents;
@@ -163,6 +174,9 @@ export async function GET(req: Request) {
       salesPointsValueCents: 0,
       salesTaxesCents: 0,
       bonusCents: 0,
+
+      salesCount: 0,
+      lastSaleAt: null as Date | null,
     };
 
     cur.soldPoints += safeInt(s.points, 0);
@@ -172,8 +186,27 @@ export async function GET(req: Request) {
     cur.salesPointsValueCents += pvCents;
     cur.salesTaxesCents += taxes;
 
-    // bônus depende da meta da compra → calcula depois (precisa da meta)
+    // ✅ COUNT + LAST
+    cur.salesCount += 1;
+    const dt = s.createdAt ? new Date(s.createdAt) : null;
+    if (dt && (!cur.lastSaleAt || dt > cur.lastSaleAt)) cur.lastSaleAt = dt;
+
     agg.set(pid, cur);
+
+    // (opcional) lista de vendas
+    const arr = salesByPurchase.get(pid) || [];
+    arr.push({
+      id: s.id,
+      numero: s.numero,
+      date: s.date,
+      program: s.program,
+      points: s.points,
+      passengers: s.passengers,
+      totalCents: s.totalCents,
+      locator: s.locator,
+      createdAt: s.createdAt,
+    });
+    salesByPurchase.set(pid, arr);
   }
 
   // aplica bônus por compra (precisa meta)
@@ -208,23 +241,34 @@ export async function GET(req: Request) {
       salesPointsValueCents: 0,
       salesTaxesCents: 0,
       bonusCents: 0,
+      salesCount: 0,
+      lastSaleAt: null as Date | null,
     };
 
     const purchaseTotalCents = safeInt(p.totalCents, 0);
 
-    const profitBruto = a.salesPointsValueCents - purchaseTotalCents; // ✅ sem taxa
-    const profitLiquido = profitBruto - a.bonusCents; // ✅ sem taxa - bônus
+    const profitBruto = a.salesPointsValueCents - purchaseTotalCents;
+    const profitLiquido = profitBruto - a.bonusCents;
 
     const avgMilheiro =
-      a.soldPoints > 0 && a.salesPointsValueCents > 0 ? Math.round((a.salesPointsValueCents * 1000) / a.soldPoints) : null;
+      a.soldPoints > 0 && a.salesPointsValueCents > 0
+        ? Math.round((a.salesPointsValueCents * 1000) / a.soldPoints)
+        : null;
 
     const remaining =
-      safeInt(p.pontosCiaTotal, 0) > 0 ? Math.max(safeInt(p.pontosCiaTotal, 0) - a.soldPoints, 0) : null;
+      safeInt(p.pontosCiaTotal, 0) > 0
+        ? Math.max(safeInt(p.pontosCiaTotal, 0) - a.soldPoints, 0)
+        : null;
 
     return {
       ...p,
 
-      // ✅ devolve nos mesmos nomes que sua UI usa
+      // ✅ aliases “amigáveis” pra UI
+      salesCount: a.salesCount,
+      lastSaleAt: a.lastSaleAt ? a.lastSaleAt.toISOString() : null,
+      sales: salesByPurchase.get(p.id) || [],
+
+      // ✅ teus campos finais
       finalSalesCents: a.salesTotalCents,
       finalSalesPointsValueCents: a.salesPointsValueCents,
       finalSalesTaxesCents: a.salesTaxesCents,
