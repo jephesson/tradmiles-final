@@ -62,7 +62,6 @@ function fmtMoneyBR(cents: number) {
   return v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
 function fmtDateBR(iso: string) {
-  // iso: YYYY-MM-DD
   const [y, m, d] = iso.split("-");
   return `${d}/${m}/${y}`;
 }
@@ -82,24 +81,57 @@ function todayISORecife() {
   return `${parts.year}-${parts.month}-${parts.day}`;
 }
 function monthISORecife() {
-  const t = todayISORecife(); // YYYY-MM-DD
-  return t.slice(0, 7);
+  return todayISORecife().slice(0, 7);
 }
 
+/** ✅ garante cookie/session + mensagens melhores */
 async function apiGet<T>(url: string): Promise<T> {
-  const res = await fetch(url, { cache: "no-store" });
-  const json = await res.json();
-  if (!res.ok || !json?.ok) throw new Error(json?.error || "Erro");
+  const res = await fetch(url, {
+    cache: "no-store",
+    credentials: "include",
+  });
+
+  let json: any = null;
+  try {
+    json = await res.json();
+  } catch {}
+
+  if (!res.ok || !json?.ok) {
+    const msg =
+      json?.error ||
+      (res.status === 401 || res.status === 403
+        ? "Não autenticado (sessão/cookie não enviado)"
+        : `Erro (${res.status})`);
+    throw new Error(msg);
+  }
+
   return json as T;
 }
+
+/** ✅ garante cookie/session + mensagens melhores */
 async function apiPost<T>(url: string, body: any): Promise<T> {
   const res = await fetch(url, {
     method: "POST",
+    cache: "no-store",
+    credentials: "include",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
-  const json = await res.json();
-  if (!res.ok || !json?.ok) throw new Error(json?.error || "Erro");
+
+  let json: any = null;
+  try {
+    json = await res.json();
+  } catch {}
+
+  if (!res.ok || !json?.ok) {
+    const msg =
+      json?.error ||
+      (res.status === 401 || res.status === 403
+        ? "Não autenticado (sessão/cookie não enviado)"
+        : `Erro (${res.status})`);
+    throw new Error(msg);
+  }
+
   return json as T;
 }
 
@@ -108,9 +140,7 @@ export default function ComissoesFuncionariosPage() {
   const [day, setDay] = useState<DayResponse | null>(null);
   const [loadingDay, setLoadingDay] = useState(false);
   const [computing, setComputing] = useState(false);
-  const [toast, setToast] = useState<{ title: string; desc?: string } | null>(
-    null
-  );
+  const [toast, setToast] = useState<{ title: string; desc?: string } | null>(null);
 
   // modal histórico
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -122,17 +152,23 @@ export default function ComissoesFuncionariosPage() {
   const today = useMemo(() => todayISORecife(), []);
 
   const canPayThisDay = useMemo(() => {
-    // regra: pagar só dias anteriores ao "hoje"
     return date < today;
   }, [date, today]);
 
   async function loadDay(d = date) {
     setLoadingDay(true);
     try {
-      const data = await apiGet<DayResponse>(`/api/payouts/funcionarios/day?date=${encodeURIComponent(d)}`);
+      const data = await apiGet<DayResponse>(
+        `/api/payouts/funcionarios/day?date=${encodeURIComponent(d)}`
+      );
       setDay(data);
     } catch (e: any) {
-      setDay({ ok: true, date: d, rows: [], totals: { gross: 0, tax: 0, fee: 0, net: 0, paid: 0, pending: 0 } });
+      setDay({
+        ok: true,
+        date: d,
+        rows: [],
+        totals: { gross: 0, tax: 0, fee: 0, net: 0, paid: 0, pending: 0 },
+      });
       setToast({ title: "Sem dados ainda", desc: e?.message || String(e) });
     } finally {
       setLoadingDay(false);
@@ -157,7 +193,6 @@ export default function ComissoesFuncionariosPage() {
       await apiPost(`/api/payouts/funcionarios/pay`, { date, userId });
       setToast({ title: "Pago com sucesso", desc: `Dia ${fmtDateBR(date)}` });
       await loadDay(date);
-      // se o modal estiver aberto nesse user, atualiza também
       if (historyOpen && historyUser?.id === userId) {
         await loadHistory(userId, historyMonth);
       }
@@ -170,7 +205,9 @@ export default function ComissoesFuncionariosPage() {
     setLoadingHistory(true);
     try {
       const data = await apiGet<UserMonthResponse>(
-        `/api/payouts/funcionarios/user?userId=${encodeURIComponent(userId)}&month=${encodeURIComponent(month)}`
+        `/api/payouts/funcionarios/user?userId=${encodeURIComponent(userId)}&month=${encodeURIComponent(
+          month
+        )}`
       );
       setHistory(data);
     } catch (e: any) {
@@ -182,11 +219,11 @@ export default function ComissoesFuncionariosPage() {
   }
 
   function openHistory(u: UserLite) {
+    const m = monthISORecife();
     setHistoryUser(u);
-    setHistoryMonth(monthISORecife());
+    setHistoryMonth(m);
     setHistoryOpen(true);
-    // carrega no próximo tick
-    setTimeout(() => loadHistory(u.id, monthISORecife()), 0);
+    queueMicrotask(() => loadHistory(u.id, m));
   }
 
   async function exportDayExcel() {
@@ -213,7 +250,6 @@ export default function ComissoesFuncionariosPage() {
       const ws = XLSX.utils.json_to_sheet(rows);
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, ws, "Dia");
-
       XLSX.writeFile(wb, `comissoes_funcionarios_${date}.xlsx`);
     } catch (e: any) {
       setToast({ title: "Falha ao exportar Excel", desc: e?.message || String(e) });
@@ -301,7 +337,6 @@ export default function ComissoesFuncionariosPage() {
         </div>
       </div>
 
-      {/* Totais */}
       <div className="grid grid-cols-2 gap-2 md:grid-cols-6">
         <KPI label="Bruto" value={fmtMoneyBR(day?.totals.gross || 0)} />
         <KPI label="Imposto (8%)" value={fmtMoneyBR(day?.totals.tax || 0)} />
@@ -311,7 +346,6 @@ export default function ComissoesFuncionariosPage() {
         <KPI label="Pendente" value={fmtMoneyBR(day?.totals.pending || 0)} />
       </div>
 
-      {/* Tabela */}
       <div className="overflow-hidden rounded-2xl border bg-white">
         <div className="overflow-x-auto">
           <table className="w-full text-left text-sm">
@@ -379,11 +413,7 @@ export default function ComissoesFuncionariosPage() {
                           <button
                             disabled
                             className="h-9 cursor-not-allowed rounded-xl border px-3 text-xs opacity-50"
-                            title={
-                              !canPayThisDay
-                                ? "Só paga dia anterior ao hoje"
-                                : "Já está pago"
-                            }
+                            title={!canPayThisDay ? "Só paga dia anterior ao hoje" : "Já está pago"}
                           >
                             Pagar
                           </button>
@@ -406,7 +436,6 @@ export default function ComissoesFuncionariosPage() {
         </div>
       </div>
 
-      {/* Modal histórico */}
       {historyOpen && historyUser && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
           <div className="w-full max-w-3xl overflow-hidden rounded-2xl bg-white shadow-xl">
@@ -414,8 +443,7 @@ export default function ComissoesFuncionariosPage() {
               <div>
                 <div className="text-sm text-neutral-500">Histórico</div>
                 <div className="text-base font-semibold">
-                  {historyUser.name} <span className="text-neutral-400">•</span>{" "}
-                  {historyUser.login}
+                  {historyUser.name} <span className="text-neutral-400">•</span> {historyUser.login}
                 </div>
               </div>
               <button
@@ -529,7 +557,6 @@ export default function ComissoesFuncionariosPage() {
         </div>
       )}
 
-      {/* Toast simples */}
       {toast && (
         <div className="fixed bottom-4 right-4 z-50 w-[340px] rounded-2xl border bg-white p-3 shadow-xl">
           <div className="text-sm font-semibold">{toast.title}</div>
