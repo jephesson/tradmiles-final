@@ -1,5 +1,4 @@
-// lib/payouts/employeePayouts.ts
-import { prisma } from "@/lib/prisma"; // se não tiver alias "@", troque para: import { prisma } from "../prisma";
+import { prisma } from "@/lib/prisma";
 import type { LoyaltyProgram, Settings } from "@prisma/client";
 
 type SessionLike = { userId: string; team: string; role?: string };
@@ -30,7 +29,7 @@ export function todayISORecife() {
 }
 
 function tax8(cents: number) {
-  return Math.round((cents || 0) * 0.08);
+  return Math.round((cents ?? 0) * 0.08);
 }
 
 function costFromSettings(program: LoyaltyProgram, settings: Settings | null) {
@@ -53,8 +52,8 @@ function profitForSaleCents(args: {
   costMilheiroCents: number;
 }) {
   const { points, saleMilheiroCents, costMilheiroCents } = args;
-  const diff = (saleMilheiroCents || 0) - (costMilheiroCents || 0); // cents / 1000
-  return Math.round((diff * (points || 0)) / 1000);
+  const diff = (saleMilheiroCents ?? 0) - (costMilheiroCents ?? 0); // cents / 1000
+  return Math.round((diff * (points ?? 0)) / 1000);
 }
 
 function pickShareForDate(
@@ -80,7 +79,7 @@ function splitByBps(pool: number, items: Array<{ payeeId: string; bps: number }>
   let used = 0;
   for (const it of items) {
     const v = Math.floor((pool * it.bps) / 10000);
-    out[it.payeeId] = (out[it.payeeId] || 0) + v;
+    out[it.payeeId] = (out[it.payeeId] ?? 0) + v;
     used += v;
   }
 
@@ -88,21 +87,54 @@ function splitByBps(pool: number, items: Array<{ payeeId: string; bps: number }>
   if (rem !== 0) {
     let best = items[0];
     for (const it of items) if (it.bps > best.bps) best = it;
-    out[best.payeeId] = (out[best.payeeId] || 0) + rem;
+    out[best.payeeId] = (out[best.payeeId] ?? 0) + rem;
   }
 
   return out;
+}
+
+/** ✅ fallback: calcula PV (valor pontos sem taxa) */
+function pointsValueCentsFallback(points: number, milheiroCents: number) {
+  const denom = (points ?? 0) / 1000;
+  if (denom <= 0) return 0;
+  return Math.round(denom * (milheiroCents ?? 0));
+}
+
+/** ✅ fallback: comissão 1% do PV */
+function commission1Fallback(pointsValueCents: number) {
+  return Math.round((pointsValueCents ?? 0) * 0.01);
+}
+
+/** ✅ fallback: bônus 30% do excedente acima da meta (por ponto) */
+function bonusFallback(args: {
+  points: number;
+  milheiroCents: number;
+  metaMilheiroCents: number | null | undefined;
+}) {
+  const { points, milheiroCents, metaMilheiroCents } = args;
+  const meta = Number(metaMilheiroCents ?? 0);
+  if (!meta) return 0;
+
+  const diff = (milheiroCents ?? 0) - meta;
+  if (diff <= 0) return 0;
+
+  const denom = (points ?? 0) / 1000;
+  if (denom <= 0) return 0;
+
+  const diffTotal = Math.round(denom * diff);
+  return Math.round(diffTotal * 0.3);
 }
 
 export async function computeEmployeePayoutDay(session: SessionLike, date: string) {
   const { start, end } = dayBounds(date);
   const settings = await prisma.settings.findFirst({});
 
-  // ✅ vendas do dia (escopo do time via owner do cedente)
+  // ✅ vendas do dia (PENDING + PAID contam; só ignora CANCELED)
   const sales = await prisma.sale.findMany({
     where: {
       date: { gte: start, lt: end },
       cedente: { owner: { team: session.team } },
+      paymentStatus: { not: "CANCELED" }, // ✅ regra: só exclui cancelado
     },
     select: {
       id: true,
@@ -111,10 +143,13 @@ export async function computeEmployeePayoutDay(session: SessionLike, date: strin
       points: true,
       milheiroCents: true,
       embarqueFeeCents: true,
+
       commissionCents: true,
       bonusCents: true,
+      pointsValueCents: true,
+
       sellerId: true,
-      purchase: { select: { custoMilheiroCents: true } },
+      purchase: { select: { custoMilheiroCents: true, metaMilheiroCents: true } },
       cedente: { select: { ownerId: true } },
     },
   });
@@ -154,14 +189,31 @@ export async function computeEmployeePayoutDay(session: SessionLike, date: strin
     });
 
   for (const s of sales) {
-    const sellerId = s.sellerId || null;
+    const sellerId = s.sellerId ?? null;
 
-    // ✅ comissão 1 / 2 + reembolso taxa -> seller
+    // ✅ PV (sem taxa)
+    const pv = s.pointsValueCents ?? pointsValueCentsFallback(s.points, s.milheiroCents);
+
+    // ✅ comissão 1%
+    const c1 = s.commissionCents ?? commission1Fallback(pv);
+
+    // ✅ bônus (ou do banco, ou fallback usando meta da compra)
+    const c2 =
+      s.bonusCents ??
+      bonusFallback({
+        points: s.points,
+        milheiroCents: s.milheiroCents,
+        metaMilheiroCents: s.purchase?.metaMilheiroCents,
+      });
+
+    const fee = s.embarqueFeeCents ?? 0;
+
+    // ✅ comissão + reembolso taxa -> seller (mesmo pendente)
     if (sellerId) {
       const a = ensure(sellerId);
-      a.commission1Cents += s.commissionCents || 0;
-      a.commission2Cents += s.bonusCents || 0;
-      a.feeCents += s.embarqueFeeCents || 0;
+      a.commission1Cents += c1 ?? 0;
+      a.commission2Cents += c2 ?? 0;
+      a.feeCents += fee;
       a.salesCount += 1;
     }
 
@@ -180,8 +232,7 @@ export async function computeEmployeePayoutDay(session: SessionLike, date: strin
 
     if (!share?.items?.length) continue;
 
-    const costMilheiro =
-      s.purchase?.custoMilheiroCents ?? costFromSettings(s.program, settings);
+    const costMilheiro = s.purchase?.custoMilheiroCents ?? costFromSettings(s.program, settings);
 
     const profit = profitForSaleCents({
       points: s.points,
@@ -189,13 +240,14 @@ export async function computeEmployeePayoutDay(session: SessionLike, date: strin
       costMilheiroCents: costMilheiro,
     });
 
-    const pool = Math.max(0, profit - (s.commissionCents || 0) - (s.bonusCents || 0));
+    // ✅ pool do rateio: lucro - comissão - bônus
+    const pool = Math.max(0, profit - (c1 ?? 0) - (c2 ?? 0));
     if (pool <= 0) continue;
 
     const splits = splitByBps(pool, share.items);
     for (const payeeId of Object.keys(splits)) {
       const a = ensure(payeeId);
-      a.rateioCents += splits[payeeId] || 0;
+      a.rateioCents += splits[payeeId] ?? 0;
     }
   }
 
@@ -213,41 +265,39 @@ export async function computeEmployeePayoutDay(session: SessionLike, date: strin
 
   for (const userId of userIds) {
     const a = byUser[userId];
-    const gross =
-      (a.commission1Cents || 0) + (a.commission2Cents || 0) + (a.rateioCents || 0);
+    const gross = (a.commission1Cents ?? 0) + (a.commission2Cents ?? 0) + (a.rateioCents ?? 0);
 
     const tax = tax8(gross);
-    const net = gross - tax + (a.feeCents || 0);
+    const net = gross - tax + (a.feeCents ?? 0);
 
     await prisma.employeePayout.upsert({
-      // ✅ NOME CERTO DO COMPOSITE UNIQUE NO PRISMA CLIENT
       where: { team_date_userId: { team: session.team, date, userId } },
       create: {
         team: session.team,
         date,
         userId,
         grossProfitCents: gross,
-        tax7Cents: tax, // ✅ aqui é 8% (campo ficou com nome histórico)
-        feeCents: a.feeCents || 0,
+        tax7Cents: tax, // 8% (nome histórico)
+        feeCents: a.feeCents ?? 0,
         netPayCents: net,
         breakdown: {
-          commission1Cents: a.commission1Cents || 0,
-          commission2Cents: a.commission2Cents || 0,
-          commission3RateioCents: a.rateioCents || 0,
-          salesCount: a.salesCount || 0,
+          commission1Cents: a.commission1Cents ?? 0,
+          commission2Cents: a.commission2Cents ?? 0,
+          commission3RateioCents: a.rateioCents ?? 0,
+          salesCount: a.salesCount ?? 0,
           taxPercent: 8,
         },
       },
       update: {
         grossProfitCents: gross,
         tax7Cents: tax,
-        feeCents: a.feeCents || 0,
+        feeCents: a.feeCents ?? 0,
         netPayCents: net,
         breakdown: {
-          commission1Cents: a.commission1Cents || 0,
-          commission2Cents: a.commission2Cents || 0,
-          commission3RateioCents: a.rateioCents || 0,
-          salesCount: a.salesCount || 0,
+          commission1Cents: a.commission1Cents ?? 0,
+          commission2Cents: a.commission2Cents ?? 0,
+          commission3RateioCents: a.rateioCents ?? 0,
+          salesCount: a.salesCount ?? 0,
           taxPercent: 8,
         },
         // não mexe em paidAt/paidById aqui
