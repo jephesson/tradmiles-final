@@ -1,6 +1,6 @@
 // app/api/payouts/funcionarios/compute/route.ts
 import { NextResponse } from "next/server";
-import { getSessionServer } from "@/lib/auth/auth-server"; // <- ajuste o path se o teu for outro
+import { requireSession } from "@/lib/auth-server";
 import { computeEmployeePayoutDay } from "@/lib/payouts/employeePayouts";
 
 export const runtime = "nodejs";
@@ -10,11 +10,7 @@ type SessionLike = { userId: string; team: string; role?: string };
 
 export async function POST(req: Request) {
   try {
-    const sess = await getSessionServer();
-
-    if (!sess?.id || !sess?.team) {
-      return NextResponse.json({ ok: false, error: "Não autenticado" }, { status: 401 });
-    }
+    const sess = await requireSession(); // lê cookie tm.session
 
     const body = await req.json().catch(() => ({}));
     const date = String(body?.date || "").slice(0, 10);
@@ -26,14 +22,18 @@ export async function POST(req: Request) {
       );
     }
 
-    const session: SessionLike = { userId: sess.id, team: sess.team, role: sess.role };
+    const session: SessionLike = {
+      userId: sess.id,
+      team: sess.team,
+      ...(sess.role ? { role: sess.role } : {}),
+    };
 
     const result = await computeEmployeePayoutDay(session, date);
     return NextResponse.json({ ok: true, date, result });
   } catch (e: any) {
-    return NextResponse.json(
-      { ok: false, error: e?.message || "Erro ao computar" },
-      { status: 500 }
-    );
+    const msg =
+      e?.message === "UNAUTHENTICATED" ? "Não autenticado" : e?.message || "Erro ao computar";
+    const status = e?.message === "UNAUTHENTICATED" ? 401 : 500;
+    return NextResponse.json({ ok: false, error: msg }, { status });
   }
 }
