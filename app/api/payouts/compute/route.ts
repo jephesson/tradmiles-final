@@ -9,7 +9,11 @@ export async function POST(req: Request) {
   const body = await req.json();
   const dateStr: string = body.date; // YYYY-MM-DD
 
-  if (!dateStr) return NextResponse.json({ error: "date obrigatório (YYYY-MM-DD)" }, { status: 400 });
+  if (!dateStr)
+    return NextResponse.json(
+      { error: "date obrigatório (YYYY-MM-DD)" },
+      { status: 400 }
+    );
 
   // pega vendas do dia (00:00 até 23:59:59)
   const dayStart = new Date(`${dateStr}T00:00:00.000`);
@@ -30,7 +34,11 @@ export async function POST(req: Request) {
   });
 
   // agrupa por sellerId
-  const bySeller = new Map<string, { gross: number; fee: number; count: number }>();
+  const bySeller = new Map<
+    string,
+    { gross: number; fee: number; count: number }
+  >();
+
   for (const s of sales) {
     const sellerId = s.sellerId!;
     const cur = bySeller.get(sellerId) || { gross: 0, fee: 0, count: 0 };
@@ -40,7 +48,7 @@ export async function POST(req: Request) {
     bySeller.set(sellerId, cur);
   }
 
-  const dateOnly = new Date(dateStr); // @db.Date
+  const dateOnly = new Date(dateStr);
 
   const results: any[] = [];
   for (const [sellerId, v] of bySeller.entries()) {
@@ -49,7 +57,7 @@ export async function POST(req: Request) {
 
     // ✅ não sobrescreve se já estiver PAID
     const existing = await prisma.employeePayout.findUnique({
-      where: { uniq_employee_payout_day_user: { date: dateOnly, userId: sellerId } },
+      where: { date_userId: { date: dateOnly, userId: sellerId } },
       select: { status: true },
     });
 
@@ -59,7 +67,7 @@ export async function POST(req: Request) {
     }
 
     const row = await prisma.employeePayout.upsert({
-      where: { uniq_employee_payout_day_user: { date: dateOnly, userId: sellerId } },
+      where: { date_userId: { date: dateOnly, userId: sellerId } },
       create: {
         date: dateOnly,
         userId: sellerId,
