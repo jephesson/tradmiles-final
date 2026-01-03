@@ -5,9 +5,27 @@ import { requireSession } from "@/lib/auth/session-server";
 
 export const runtime = "nodejs";
 
+type SessionLike = { userId: string; team: string };
+
+function toSessionLike(session: any): SessionLike {
+  const userId = String(session?.userId ?? session?.user?.id ?? "");
+  const team = String(session?.team ?? "");
+  return { userId, team };
+}
+
+async function getSession(req: Request) {
+  return (requireSession as unknown as (req?: Request) => Promise<any>)(req);
+}
+
 export async function GET(req: Request) {
   try {
-    const session = await requireSession();
+    const sessionRaw = await getSession(req);
+    const session = toSessionLike(sessionRaw);
+
+    if (!session.userId || !session.team) {
+      return NextResponse.json({ ok: false, error: "Não autenticado" }, { status: 401 });
+    }
+
     const url = new URL(req.url);
     const date = (url.searchParams.get("date") || "").slice(0, 10);
 

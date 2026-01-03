@@ -6,9 +6,28 @@ import { todayISORecife } from "@/lib/payouts/employeePayouts";
 
 export const runtime = "nodejs";
 
+type SessionLike = { userId: string; team: string };
+
+function toSessionLike(session: any): SessionLike {
+  const userId = String(session?.userId ?? session?.user?.id ?? "");
+  const team = String(session?.team ?? "");
+  return { userId, team };
+}
+
+async function getSession(req: Request) {
+  // compatível com requireSession() ou requireSession(req)
+  return (requireSession as unknown as (req?: Request) => Promise<any>)(req);
+}
+
 export async function POST(req: Request) {
   try {
-    const session = await requireSession();
+    const sessionRaw = await getSession(req);
+    const session = toSessionLike(sessionRaw);
+
+    if (!session.userId || !session.team) {
+      return NextResponse.json({ ok: false, error: "Não autenticado" }, { status: 401 });
+    }
+
     const body = await req.json().catch(() => ({}));
 
     const date = String(body?.date || "").slice(0, 10);
@@ -20,11 +39,19 @@ export async function POST(req: Request) {
 
     const today = todayISORecife();
     if (date >= today) {
-      return NextResponse.json({ ok: false, error: "Só paga dia fechado (pagar apenas dias anteriores a hoje)." }, { status: 400 });
+      return NextResponse.json(
+        { ok: false, error: "Só paga dia fechado (pagar apenas dias anteriores a hoje)." },
+        { status: 400 }
+      );
     }
 
-    const row = await prisma.employeePayout.findUnique({
-      where: { uniq_employee_payout_team_day_user: { team: session.team, date, userId } },
+    // ✅ NÃO use findUnique com "map:" do @@unique
+    const row = await prisma.employeePayout.findFirst({
+      where: { team: session.team, date, userId },
+      include: {
+        user: { select: { id: true, name: true, login: true } },
+        paidBy: { select: { id: true, name: true } },
+      },
     });
 
     if (!row) return NextResponse.json({ ok: false, error: "Payout não encontrado." }, { status: 404 });
