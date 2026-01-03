@@ -31,7 +31,7 @@ async function getServerSession(): Promise<Sess | null> {
   return readSessionCookie(raw);
 }
 
-function safeInt(v: any, fb = 0) {
+function safeInt(v: unknown, fb = 0) {
   const n = Number(v);
   return Number.isFinite(n) ? Math.trunc(n) : fb;
 }
@@ -72,22 +72,33 @@ export async function GET(req: Request) {
   const q = (url.searchParams.get("q") || "").trim();
   const take = clampTake(url.searchParams.get("take"), 200);
 
+  // ✅ IMPORTANTe: não depender só de finalizedAt
+  // (suas compras "LIBERADAS" podem estar CLOSED mas finalizedAt null)
   const where: any = {
-    finalizedAt: { not: null },
     cedente: { owner: { team: session.team } },
+    AND: [
+      {
+        OR: [
+          { finalizedAt: { not: null } },
+          { status: "CLOSED" }, // ✅ pega as liberadas/finalizadas do teu fluxo atual
+        ],
+      },
+    ],
   };
 
   if (q) {
-    where.OR = [
-      { numero: { contains: q, mode: "insensitive" } },
-      { cedente: { identificador: { contains: q, mode: "insensitive" } } },
-      { cedente: { nomeCompleto: { contains: q, mode: "insensitive" } } },
-    ];
+    where.AND.push({
+      OR: [
+        { numero: { contains: q, mode: "insensitive" } },
+        { cedente: { identificador: { contains: q, mode: "insensitive" } } },
+        { cedente: { nomeCompleto: { contains: q, mode: "insensitive" } } },
+      ],
+    });
   }
 
   const purchases = await prisma.purchase.findMany({
     where,
-    orderBy: { finalizedAt: "desc" },
+    orderBy: [{ finalizedAt: "desc" }, { updatedAt: "desc" }],
     take,
     select: {
       id: true,
@@ -106,21 +117,25 @@ export async function GET(req: Request) {
   });
 
   const ids = purchases.map((p) => p.id);
-  const numeros = purchases.map((p) => String(p.numero || "").trim()).filter(Boolean);
-
-  // para mapear legado (quando Sale.purchaseId guardou o numero "ID00018")
-  const idByNumero = new Map(purchases.map((p) => [String(p.numero || "").toUpperCase(), p.id]));
+  const numeros = purchases.map((p) => p.numero).filter(Boolean);
 
   if (ids.length === 0) return NextResponse.json({ ok: true, purchases: [] });
 
-  // ✅ busca vendas por purchaseId (cuid) OU por purchaseId = numero (legado)
+  // ✅ mapa: numero -> id (pra casar sale.purchaseId = "ID00018" com Purchase.id)
+  const idByNumeroUpper = new Map<string, string>(
+    purchases.map((p) => [String(p.numero || "").toUpperCase(), p.id])
+  );
+
+  // ✅ cobre case diferente (id00018 vs ID00018)
+  const numerosUpper = Array.from(new Set(numeros.map((n) => String(n).toUpperCase())));
+  const numerosLower = Array.from(new Set(numeros.map((n) => String(n).toLowerCase())));
+  const numerosAll = Array.from(new Set([...numeros, ...numerosUpper, ...numerosLower]));
+
+  // ✅ busca vendas por purchaseId (cuid) OU por numero (legado)
   const sales = await prisma.sale.findMany({
     where: {
       paymentStatus: { not: "CANCELED" },
-      OR: [
-        { purchaseId: { in: ids } },
-        ...(numeros.length ? [{ purchaseId: { in: numeros } }] : []), // legado
-      ],
+      OR: [{ purchaseId: { in: ids } }, { purchaseId: { in: numerosAll } }],
     },
     select: {
       id: true,
@@ -162,7 +177,7 @@ export async function GET(req: Request) {
     const r = (raw || "").trim();
     if (!r) return "";
     const upper = r.toUpperCase();
-    return idByNumero.get(upper) || r; // se for "ID00001", vira cuid; senão mantém
+    return idByNumeroUpper.get(upper) || r; // se for "ID00018", vira cuid; se já for cuid, fica
   }
 
   for (const s of sales) {
@@ -180,16 +195,17 @@ export async function GET(req: Request) {
 
     const taxes = Math.max(totalCents - pvCents, 0);
 
-    const cur = agg.get(pid) || {
-      soldPoints: 0,
-      pax: 0,
-      salesTotalCents: 0,
-      salesPointsValueCents: 0,
-      salesTaxesCents: 0,
-      bonusCents: 0,
-      salesCount: 0,
-      lastSaleAt: null as Date | null,
-    };
+    const cur =
+      agg.get(pid) || {
+        soldPoints: 0,
+        pax: 0,
+        salesTotalCents: 0,
+        salesPointsValueCents: 0,
+        salesTaxesCents: 0,
+        bonusCents: 0,
+        salesCount: 0,
+        lastSaleAt: null as Date | null,
+      };
 
     cur.soldPoints += safeInt(s.points, 0);
     cur.pax += safeInt(s.passengers, 0);
@@ -219,6 +235,7 @@ export async function GET(req: Request) {
     salesByPurchase.set(pid, arr);
   }
 
+  // aplica bônus por compra
   const byId = new Map(purchases.map((p) => [p.id, p]));
 
   for (const s of sales) {
@@ -245,16 +262,17 @@ export async function GET(req: Request) {
   }
 
   const out = purchases.map((p) => {
-    const a = agg.get(p.id) || {
-      soldPoints: 0,
-      pax: 0,
-      salesTotalCents: 0,
-      salesPointsValueCents: 0,
-      salesTaxesCents: 0,
-      bonusCents: 0,
-      salesCount: 0,
-      lastSaleAt: null as Date | null,
-    };
+    const a =
+      agg.get(p.id) || {
+        soldPoints: 0,
+        pax: 0,
+        salesTotalCents: 0,
+        salesPointsValueCents: 0,
+        salesTaxesCents: 0,
+        bonusCents: 0,
+        salesCount: 0,
+        lastSaleAt: null as Date | null,
+      };
 
     const purchaseTotalCents = safeInt(p.totalCents, 0);
 
@@ -278,7 +296,7 @@ export async function GET(req: Request) {
       ...p,
 
       salesCount,
-      vendas: salesCount,
+      vendas: salesCount, // alias opcional
       lastSaleAt: a.lastSaleAt ? a.lastSaleAt.toISOString() : null,
       sales: listSales,
 
