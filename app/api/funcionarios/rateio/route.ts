@@ -39,24 +39,37 @@ function safeInt(v: any, fb = 0) {
 function toBps(percent: any) {
   const p = Number(percent);
   if (!Number.isFinite(p)) return 0;
-  return Math.round(p * 100); // 2 casas -> bps
+  return Math.round(p * 100); // 2 casas -> bps (100.00% => 10000)
 }
 
-type PutBody = {
-  ownerId?: string;
-  items?: Array<{
-    payeeId?: string;
-    percent?: number | string;
-  }>;
+/** "YYYY-MM-DD" -> Date local (00:00) */
+function parseDateISOToLocalDay(v: any): Date | null {
+  const s = String(v || "").trim();
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
+  if (!m) return null;
+  const y = Number(m[1]);
+  const mm = Number(m[2]);
+  const d = Number(m[3]);
+  const dt = new Date(y, mm - 1, d, 0, 0, 0, 0);
+  return Number.isNaN(dt.getTime()) ? null : dt;
+}
+
+type OutItem = {
+  payeeId: string;
+  bps: number;
+  payee: { id: string; name: string; login: string };
 };
 
-type RateioItemNorm = { payeeId: string; bps: number };
-
-export async function GET() {
+export async function GET(req: Request) {
   const session = await getServerSession();
   if (!session?.id) {
     return NextResponse.json({ ok: false, error: "Não autenticado" }, { status: 401 });
   }
+
+  const url = new URL(req.url);
+  const atParam = url.searchParams.get("at"); // opcional: simular "vigência em X data"
+  const at = atParam ? parseDateISOToLocalDay(atParam) : null;
+  const now = at ?? new Date();
 
   const users = await prisma.user.findMany({
     where: { team: session.team },
@@ -73,10 +86,24 @@ export async function GET() {
   const cedCountMap = new Map<string, number>();
   for (const g of cedCounts) cedCountMap.set(String(g.ownerId), safeInt(g._count._all, 0));
 
+  /**
+   * ✅ pega o rateio vigente em `now` por owner:
+   * effectiveFrom <= now AND (effectiveTo is null OR effectiveTo > now)
+   * e usa distinct(ownerId) com orderBy effectiveFrom desc
+   */
   const shares = await prisma.profitShare.findMany({
-    where: { team: session.team, isActive: true },
+    where: {
+      team: session.team,
+      isActive: true,
+      effectiveFrom: { lte: now },
+      OR: [{ effectiveTo: null }, { effectiveTo: { gt: now } }],
+    },
+    orderBy: [{ ownerId: "asc" }, { effectiveFrom: "desc" }],
+    distinct: ["ownerId"],
     select: {
       ownerId: true,
+      effectiveFrom: true,
+      effectiveTo: true,
       items: {
         orderBy: { bps: "desc" },
         select: {
@@ -88,21 +115,22 @@ export async function GET() {
     },
   });
 
-  const shareMap = new Map<
-    string,
-    { payeeId: string; bps: number; payee: { id: string; name: string; login: string } }[]
-  >();
+  const shareMap = new Map<string, { effectiveFrom: string; effectiveTo: string | null; items: OutItem[] }>();
   for (const s of shares) {
-    shareMap.set(
-      String(s.ownerId),
-      s.items.map((it) => ({ payeeId: it.payeeId, bps: it.bps, payee: it.payee }))
-    );
+    shareMap.set(String(s.ownerId), {
+      effectiveFrom: s.effectiveFrom.toISOString(),
+      effectiveTo: s.effectiveTo ? s.effectiveTo.toISOString() : null,
+      items: s.items.map((it) => ({ payeeId: it.payeeId, bps: it.bps, payee: it.payee })),
+    });
   }
 
   const rows = users.map((u) => {
-    const items = shareMap.get(u.id) || [
-      { payeeId: u.id, bps: 10000, payee: { id: u.id, name: u.name, login: u.login } },
-    ];
+    const found = shareMap.get(u.id);
+
+    const items: OutItem[] =
+      found?.items?.length
+        ? found.items
+        : [{ payeeId: u.id, bps: 10000, payee: { id: u.id, name: u.name, login: u.login } }];
 
     const sumBps = items.reduce((acc, it) => acc + safeInt(it.bps, 0), 0);
 
@@ -111,11 +139,13 @@ export async function GET() {
       cedentesCount: cedCountMap.get(u.id) || 0,
       items,
       sumBps,
-      isDefault: !shareMap.has(u.id),
+      isDefault: !found,
+      effectiveFrom: found?.effectiveFrom ?? null,
+      effectiveTo: found?.effectiveTo ?? null,
     };
   });
 
-  return NextResponse.json({ ok: true, users, rows });
+  return NextResponse.json({ ok: true, users, rows, at: now.toISOString() });
 }
 
 export async function PUT(req: Request) {
@@ -124,13 +154,20 @@ export async function PUT(req: Request) {
     return NextResponse.json({ ok: false, error: "Não autenticado" }, { status: 401 });
   }
 
-  const body = (await req.json().catch(() => ({}))) as PutBody;
+  const body = await req.json().catch(() => ({}));
 
   const ownerId = String(body.ownerId || "").trim();
   const itemsRaw = Array.isArray(body.items) ? body.items : [];
 
+  // ✅ NOVO: vigência
+  const effectiveFromRaw = body.effectiveFrom;
+  const effectiveFrom = parseDateISOToLocalDay(effectiveFromRaw);
+
   if (!ownerId) {
     return NextResponse.json({ ok: false, error: "ownerId obrigatório" }, { status: 400 });
+  }
+  if (!effectiveFrom) {
+    return NextResponse.json({ ok: false, error: "effectiveFrom inválido (use YYYY-MM-DD)" }, { status: 400 });
   }
 
   const owner = await prisma.user.findFirst({
@@ -141,13 +178,13 @@ export async function PUT(req: Request) {
     return NextResponse.json({ ok: false, error: "Owner inválido" }, { status: 400 });
   }
 
-  // normaliza itens (percent -> bps)
-  const items: RateioItemNorm[] = itemsRaw
-    .map((it): RateioItemNorm => ({
+  // ✅ tipagem pra não cair em implicit any
+  const items: Array<{ payeeId: string; bps: number }> = itemsRaw
+    .map((it: any) => ({
       payeeId: String(it?.payeeId || "").trim(),
       bps: toBps(it?.percent),
     }))
-    .filter((it) => it.payeeId.length > 0 && it.bps >= 0);
+    .filter((it) => it.payeeId && it.bps >= 0);
 
   if (items.length === 0) {
     return NextResponse.json({ ok: false, error: "Informe pelo menos 1 destinatário" }, { status: 400 });
@@ -163,7 +200,7 @@ export async function PUT(req: Request) {
   }
 
   // valida payees no mesmo team
-  const payeeIds = items.map((x) => x.payeeId);
+  const payeeIds: string[] = items.map((it) => it.payeeId);
   const payees = await prisma.user.findMany({
     where: { id: { in: payeeIds }, team: session.team },
     select: { id: true },
@@ -178,12 +215,35 @@ export async function PUT(req: Request) {
   }
 
   await prisma.$transaction(async (tx) => {
-    await tx.profitShare.upsert({
-      where: { team_ownerId: { team: session.team, ownerId } },
+    // acha o "próximo" já agendado (pra setar effectiveTo do novo)
+    const next = await tx.profitShare.findFirst({
+      where: { team: session.team, ownerId, effectiveFrom: { gt: effectiveFrom } },
+      orderBy: { effectiveFrom: "asc" },
+      select: { id: true, effectiveFrom: true },
+    });
+
+    // acha o "anterior" (pra fechar com effectiveTo = effectiveFrom do novo)
+    const prev = await tx.profitShare.findFirst({
+      where: { team: session.team, ownerId, effectiveFrom: { lt: effectiveFrom } },
+      orderBy: { effectiveFrom: "desc" },
+      select: { id: true, effectiveFrom: true, effectiveTo: true },
+    });
+
+    // cria/atualiza o rateio desta data
+    const plan = await tx.profitShare.upsert({
+      where: {
+        team_ownerId_effectiveFrom: {
+          team: session.team,
+          ownerId,
+          effectiveFrom,
+        },
+      },
       create: {
         team: session.team,
         ownerId,
         isActive: true,
+        effectiveFrom,
+        effectiveTo: next?.effectiveFrom ?? null,
         items: {
           create: items.map((it) => ({
             payeeId: it.payeeId,
@@ -193,6 +253,7 @@ export async function PUT(req: Request) {
       },
       update: {
         isActive: true,
+        effectiveTo: next?.effectiveFrom ?? null,
         items: {
           deleteMany: {},
           create: items.map((it) => ({
@@ -201,7 +262,23 @@ export async function PUT(req: Request) {
           })),
         },
       },
+      select: { id: true, effectiveFrom: true },
     });
+
+    // fecha o anterior (se existir e se fizer sentido)
+    if (prev?.id) {
+      const prevTo = prev.effectiveTo ? new Date(prev.effectiveTo) : null;
+      if (!prevTo || prevTo > effectiveFrom) {
+        await tx.profitShare.update({
+          where: { id: prev.id },
+          data: { effectiveTo: effectiveFrom },
+        });
+      }
+    }
+
+    // garantia: se existir next, o plan já ficou com effectiveTo=next.effectiveFrom
+    // (se não existir next, effectiveTo = null = vigente até mudar)
+    void plan;
   });
 
   return NextResponse.json({ ok: true });

@@ -114,8 +114,8 @@ model User {
    * RATEIO (BASE PERCENTUAL)
    * =========================
    */
-  profitSharesOwned ProfitShare[]     @relation("ProfitShareOwner")
-  profitShareAsPayee ProfitShareItem[] @relation("ProfitSharePayee")
+  profitSharesOwned  ProfitShare[]      @relation("ProfitShareOwner")
+  profitShareAsPayee ProfitShareItem[]  @relation("ProfitSharePayee")
 
   // Um convite por usuário
   employeeInvite EmployeeInvite?
@@ -147,17 +147,26 @@ model EmployeeInvite {
 
 /**
  * =========================
- * RATEIO (BASE PERCENTUAL)
+ * RATEIO (BASE PERCENTUAL) — VERSIONADO POR DATA
  * =========================
  * Regras:
- * - Para cada "owner" (funcionário dono dos cedentes), existe 1 configuração por team
+ * - Para cada "owner" (funcionário dono dos cedentes), pode existir múltiplas versões
+ * - A versão é definida por effectiveFrom (vigência a partir de)
+ * - effectiveTo (opcional) fecha a vigência quando uma nova versão entra
  * - Os itens somam 100% (10000 bps)
- * - Depois essa base será usada para ratear lucro líquido
+ *
+ * ✅ IMPORTANTE (não perder dados):
+ * - effectiveFrom é NOT NULL com DEFAULT '2000-01-01', então qualquer rateio antigo passa
+ *   a valer desde sempre (não quebra cálculos históricos).
  */
 model ProfitShare {
   id      String @id @default(cuid())
   team    String
   ownerId String
+
+  // ✅ vigência
+  effectiveFrom DateTime @default(dbgenerated("'2000-01-01 00:00:00'::timestamp"))
+  effectiveTo   DateTime?
 
   isActive Boolean @default(true)
 
@@ -167,9 +176,14 @@ model ProfitShare {
   owner User @relation("ProfitShareOwner", fields: [ownerId], references: [id], onDelete: Cascade)
   items ProfitShareItem[]
 
-  @@unique([team, ownerId])
+  // ✅ agora é versionado (não é mais 1 por owner)
+  @@unique([team, ownerId, effectiveFrom], map: "uniq_profitshare_owner_from")
+
   @@index([team])
   @@index([ownerId])
+  @@index([team, ownerId, effectiveFrom])
+  @@index([team, ownerId, effectiveTo])
+
   @@map("profit_shares")
 }
 

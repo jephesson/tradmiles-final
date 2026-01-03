@@ -1,15 +1,25 @@
 "use client";
 
-import { Fragment, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
+import Link from "next/link";
+import { cn } from "@/lib/cn";
 
 type UserLite = { id: string; name: string; login: string; role: string };
 
 type Row = {
   owner: UserLite;
   cedentesCount: number;
-  items: Array<{ payeeId: string; bps: number; payee: { id: string; name: string; login: string } }>;
+  items: Array<{
+    payeeId: string;
+    bps: number;
+    payee: { id: string; name: string; login: string };
+  }>;
   sumBps: number;
   isDefault: boolean;
+
+  // ✅ opcionais (se GET já devolver, mostramos; se não, segue normal)
+  effectiveFrom?: string | null;
+  effectiveTo?: string | null;
 };
 
 function fmtPct(bps: number) {
@@ -20,6 +30,28 @@ function fmtPct(bps: number) {
 function n(v: any, fb = 0) {
   const x = Number(v);
   return Number.isFinite(x) ? x : fb;
+}
+
+function pad2(x: number) {
+  return String(x).padStart(2, "0");
+}
+
+function todayISODate() {
+  const d = new Date();
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+}
+
+function addDaysISODate(days: number) {
+  const d = new Date();
+  d.setDate(d.getDate() + days);
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+}
+
+function fmtDateBR(isoOrDate?: string | null) {
+  if (!isoOrDate) return "";
+  const d = new Date(isoOrDate);
+  if (Number.isNaN(d.getTime())) return String(isoOrDate);
+  return `${pad2(d.getDate())}/${pad2(d.getMonth() + 1)}/${d.getFullYear()}`;
 }
 
 async function api<T>(url: string, init?: RequestInit): Promise<T> {
@@ -54,6 +86,10 @@ export default function RateioClient() {
   const [editingOwnerId, setEditingOwnerId] = useState<string | null>(null);
   const [editItems, setEditItems] = useState<EditItem[]>([]);
   const [saving, setSaving] = useState(false);
+
+  // ✅ NOVO: vigência do rateio
+  const [effectiveFrom, setEffectiveFrom] = useState<string>(addDaysISODate(1)); // default: amanhã
+  const minEffectiveFrom = todayISODate();
 
   async function load(opts?: { silent?: boolean }) {
     if (!opts?.silent) setLoading(true);
@@ -100,16 +136,25 @@ export default function RateioClient() {
       percent: Math.round((n(it.bps) / 100) * 100) / 100, // bps -> %
     }));
 
-    // se por algum motivo vier vazio, default 100% pro owner
     if (!items.length) items.push({ payeeId: r.owner.id, percent: 100 });
-
     setEditItems(items);
+
+    // ✅ regra: novo rateio vale a partir de X data.
+    // default: amanhã, mas se tiver uma vigência futura já no row, pré-preenche.
+    const ef = r.effectiveFrom ? new Date(r.effectiveFrom) : null;
+    const now = new Date();
+    if (ef && !Number.isNaN(ef.getTime()) && ef.getTime() > now.getTime()) {
+      setEffectiveFrom(`${ef.getFullYear()}-${pad2(ef.getMonth() + 1)}-${pad2(ef.getDate())}`);
+    } else {
+      setEffectiveFrom(addDaysISODate(1));
+    }
   }
 
   function closeEdit() {
     setEditingOwnerId(null);
     setEditItems([]);
     setSaving(false);
+    setEffectiveFrom(addDaysISODate(1));
   }
 
   const sumPercent = useMemo(() => {
@@ -117,11 +162,28 @@ export default function RateioClient() {
     return Math.round(s * 100) / 100;
   }, [editItems]);
 
-  const canSave = editingOwnerId && editItems.length > 0 && Math.abs(sumPercent - 100) < 0.001;
+  const hasEmptyPayee = useMemo(() => editItems.some((it) => !String(it.payeeId || "").trim()), [editItems]);
+
+  const canSave =
+    Boolean(editingOwnerId) &&
+    editItems.length > 0 &&
+    !hasEmptyPayee &&
+    Math.abs(sumPercent - 100) < 0.001 &&
+    Boolean(effectiveFrom) &&
+    effectiveFrom >= minEffectiveFrom;
 
   async function saveEdit() {
     if (!editingOwnerId) return;
-    if (!canSave) {
+
+    if (!effectiveFrom || effectiveFrom < minEffectiveFrom) {
+      alert("Escolha uma data válida (não pode ser no passado).");
+      return;
+    }
+    if (hasEmptyPayee) {
+      alert("Existe destinatário vazio. Selecione todos os destinatários.");
+      return;
+    }
+    if (Math.abs(sumPercent - 100) >= 0.001) {
       alert("O rateio precisa somar 100%.");
       return;
     }
@@ -134,6 +196,7 @@ export default function RateioClient() {
         method: "PUT",
         body: JSON.stringify({
           ownerId: editingOwnerId,
+          effectiveFrom, // ✅ NOVO (YYYY-MM-DD)
           items: editItems.map((it) => ({ payeeId: it.payeeId, percent: it.percent })),
         }),
       });
@@ -154,7 +217,11 @@ export default function RateioClient() {
           <h1 className="text-xl font-semibold">Rateio do lucro (base percentual)</h1>
           <p className="text-sm text-gray-600">
             Configure como o lucro líquido será dividido por <b>grupo do dono do cedente</b> (owner).
-            Depois a gente usa isso para calcular o rateio real em outra página.
+            <br />
+            <span className="text-gray-500">
+              ✅ Alterações não mudam histórico: você define uma <b>data de vigência</b> e o novo rateio só vale a partir
+              dela.
+            </span>
           </p>
         </div>
 
@@ -193,18 +260,17 @@ export default function RateioClient() {
       </div>
 
       {err && (
-        <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">
-          {err}
-        </div>
+        <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">{err}</div>
       )}
 
       <div className="overflow-auto rounded-xl border">
-        <table className="min-w-[1000px] w-full text-sm">
+        <table className="min-w-[1100px] w-full text-sm">
           <thead className="bg-gray-50">
             <tr className="text-left">
               <th className="p-3">Funcionário (owner)</th>
               <th className="p-3">Login</th>
               <th className="p-3">Cedentes</th>
+              <th className="p-3">Vigência</th>
               <th className="p-3">Rateio</th>
               <th className="p-3 text-right">Ações</th>
             </tr>
@@ -213,7 +279,7 @@ export default function RateioClient() {
           <tbody>
             {filtered.length === 0 && !loading && (
               <tr>
-                <td colSpan={5} className="p-4 text-gray-500">
+                <td colSpan={6} className="p-4 text-gray-500">
                   Nenhum resultado.
                 </td>
               </tr>
@@ -224,6 +290,11 @@ export default function RateioClient() {
                 .map((it) => `${fmtPct(it.bps)} → ${it.payee?.name || it.payeeId}`)
                 .join(" · ");
 
+              const vig =
+                r.effectiveFrom || r.effectiveTo
+                  ? `${r.effectiveFrom ? fmtDateBR(r.effectiveFrom) : "—"} → ${r.effectiveTo ? fmtDateBR(r.effectiveTo) : "∞"}`
+                  : "—";
+
               return (
                 <tr key={r.owner.id} className="border-t">
                   <td className="p-3">
@@ -233,8 +304,11 @@ export default function RateioClient() {
                   <td className="p-3 font-mono">{r.owner.login}</td>
                   <td className="p-3">{r.cedentesCount}</td>
                   <td className="p-3">
-                    <div className="text-sm">{summary || "100% → (self)"}</div>
+                    <div className="text-sm">{vig}</div>
                     {r.isDefault && <div className="text-xs text-amber-700">default</div>}
+                  </td>
+                  <td className="p-3">
+                    <div className="text-sm">{summary || "100% → (self)"}</div>
                   </td>
                   <td className="p-3">
                     <div className="flex justify-end">
@@ -243,7 +317,7 @@ export default function RateioClient() {
                         onClick={() => openEdit(r)}
                         className="rounded-md border px-2 py-1 text-xs hover:bg-slate-50"
                       >
-                        Editar
+                        {r.isDefault ? "Configurar" : "Novo rateio"}
                       </button>
                     </div>
                   </td>
@@ -253,7 +327,7 @@ export default function RateioClient() {
 
             {loading && (
               <tr>
-                <td colSpan={5} className="p-4 text-gray-500">
+                <td colSpan={6} className="p-4 text-gray-500">
                   Carregando...
                 </td>
               </tr>
@@ -262,16 +336,39 @@ export default function RateioClient() {
         </table>
       </div>
 
-      {/* Modal simples */}
+      {/* Modal */}
       {editingOwnerId && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
           <div className="w-full max-w-2xl rounded-xl bg-white shadow-lg">
             <div className="border-b p-4">
-              <div className="text-lg font-semibold">Editar rateio</div>
-              <div className="text-sm text-gray-600">A soma precisa dar 100%.</div>
+              <div className="text-lg font-semibold">Criar novo rateio (com vigência)</div>
+              <div className="text-sm text-gray-600">
+                A soma precisa dar 100% e o novo rateio só vale a partir da data escolhida.
+              </div>
             </div>
 
-            <div className="p-4 space-y-3">
+            <div className="p-4 space-y-4">
+              {/* Vigência */}
+              <div className="rounded-lg border p-3">
+                <div className="text-sm font-medium">Vigente a partir de</div>
+                <div className="mt-2 flex flex-wrap items-center gap-3">
+                  <input
+                    type="date"
+                    value={effectiveFrom}
+                    min={minEffectiveFrom}
+                    onChange={(e) => setEffectiveFrom(e.target.value)}
+                    className="rounded-md border px-3 py-2 text-sm"
+                  />
+                  <div className="text-xs text-gray-500">
+                    (mínimo: <b>{fmtDateBR(minEffectiveFrom)}</b>)
+                  </div>
+                </div>
+                <div className="mt-2 text-xs text-gray-500">
+                  Dica: se você quer “não mexer no passado”, escolha uma data futura.
+                </div>
+              </div>
+
+              {/* Soma */}
               <div className="rounded-md border p-3 text-sm">
                 Soma atual:{" "}
                 <b className={Math.abs(sumPercent - 100) < 0.001 ? "text-green-700" : "text-red-700"}>
@@ -279,6 +376,7 @@ export default function RateioClient() {
                 </b>
               </div>
 
+              {/* Tabela */}
               <div className="overflow-auto rounded-lg border">
                 <table className="min-w-[700px] w-full text-sm">
                   <thead className="bg-gray-50">
@@ -300,14 +398,20 @@ export default function RateioClient() {
                               )
                             }
                             className="w-full rounded-md border px-2 py-1"
+                            disabled={!users.length}
                           >
-                            {users.map((u) => (
-                              <option key={u.id} value={u.id}>
-                                {u.name} ({u.login})
-                              </option>
-                            ))}
+                            {users.length === 0 ? (
+                              <option value="">Sem usuários</option>
+                            ) : (
+                              users.map((u) => (
+                                <option key={u.id} value={u.id}>
+                                  {u.name} ({u.login})
+                                </option>
+                              ))
+                            )}
                           </select>
                         </td>
+
                         <td className="p-2">
                           <input
                             value={String(it.percent)}
@@ -322,6 +426,7 @@ export default function RateioClient() {
                             inputMode="decimal"
                           />
                         </td>
+
                         <td className="p-2">
                           <div className="flex justify-end gap-2">
                             <button
@@ -343,11 +448,20 @@ export default function RateioClient() {
 
               <button
                 type="button"
-                onClick={() => setEditItems((arr) => [...arr, { payeeId: users[0]?.id || "", percent: 0 }])}
+                onClick={() =>
+                  setEditItems((arr) => [...arr, { payeeId: users[0]?.id || "", percent: 0 }])
+                }
                 className="rounded-md border px-3 py-2 text-sm hover:bg-slate-50"
+                disabled={!users.length}
               >
                 + Adicionar linha
               </button>
+
+              {!canSave && (
+                <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
+                  Para salvar: data válida (não passada), destinatários preenchidos e soma = 100%.
+                </div>
+              )}
             </div>
 
             <div className="border-t p-4 flex items-center justify-end gap-2">
