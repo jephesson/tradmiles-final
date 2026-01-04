@@ -16,7 +16,7 @@ const STRICT_NOQUERY_ACTIVE_PATHS = new Set<string>([
   "/dashboard/cedentes/visualizar",
   "/dashboard/emissoes",
   "/dashboard/painel-emissoes",
-  "/dashboard/clubes", // ✅ NOVO (pra quando tiver query em /dashboard/clubes)
+  "/dashboard/clubes", // ✅ pra quando tiver query em /dashboard/clubes
 ]);
 
 export default function Sidebar() {
@@ -43,7 +43,7 @@ export default function Sidebar() {
   const isComprasRoute = pathname.startsWith("/dashboard/compras");
   const isVendasRoute = pathname.startsWith("/dashboard/vendas");
 
-  // ✅ NOVO: Clubes
+  // ✅ Clubes (rota base /dashboard/clubes e subrotas)
   const isClubesRoute = pathname.startsWith("/dashboard/clubes");
 
   const isGestaoPontosRoute =
@@ -129,9 +129,6 @@ export default function Sidebar() {
   const [openPontosVisualizar, setOpenPontosVisualizar] =
     useState(isPontosVisualizarRoute);
 
-  // ✅ NOVO: SubAccordion Clubes
-  const [openClubes, setOpenClubes] = useState(isClubesRoute);
-
   const [openCompras, setOpenCompras] = useState(isComprasRoute);
   const [openVendas, setOpenVendas] = useState(isVendasRoute);
 
@@ -195,11 +192,6 @@ export default function Sidebar() {
     () => setOpenPontosVisualizar(isPontosVisualizarRoute),
     [isPontosVisualizarRoute]
   );
-
-  // ✅ NOVO: abre Clubes automaticamente quando estiver em /dashboard/clubes/*
-  useEffect(() => {
-    setOpenClubes(isClubesRoute);
-  }, [isClubesRoute]);
 
   useEffect(() => setOpenCompras(isComprasRoute), [isComprasRoute]);
   useEffect(() => setOpenVendas(isVendasRoute), [isVendasRoute]);
@@ -458,20 +450,8 @@ export default function Sidebar() {
             )}
           </SubAccordion>
 
-          {/* ✅ NOVO: CLUBES (título clicável + sem Combinação) */}
-          <SubAccordion
-            title="Clubes"
-            href="/dashboard/clubes/latam"
-            open={openClubes}
-            onToggle={() => setOpenClubes((v) => !v)}
-            active={isClubesRoute}
-            variant="nav"
-          >
-            <NavLink href="/dashboard/clubes/latam">Clube Latam</NavLink>
-            <NavLink href="/dashboard/clubes/smiles">Clube Smiles</NavLink>
-            <NavLink href="/dashboard/clubes/esfera">Clube Esfera</NavLink>
-            <NavLink href="/dashboard/clubes/livelo">Clube Livelo</NavLink>
-          </SubAccordion>
+          {/* ✅ Clube (somente 1 rota: /dashboard/clubes) */}
+          <NavLink href="/dashboard/clubes">Clube</NavLink>
 
           <SubAccordion
             title="Compras"
