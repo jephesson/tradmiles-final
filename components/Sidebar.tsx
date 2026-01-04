@@ -16,6 +16,7 @@ const STRICT_NOQUERY_ACTIVE_PATHS = new Set<string>([
   "/dashboard/cedentes/visualizar",
   "/dashboard/emissoes",
   "/dashboard/painel-emissoes",
+  "/dashboard/clubes", // ✅ NOVO (pra quando tiver query em /dashboard/clubes)
 ]);
 
 export default function Sidebar() {

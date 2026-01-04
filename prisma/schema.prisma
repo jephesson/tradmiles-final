@@ -59,6 +59,17 @@ enum CedenteCommissionStatus {
 
 /**
  * =========================
+ * ✅ CLUBES (ASSINATURAS)
+ * =========================
+ */
+enum ClubSubscriptionStatus {
+  ACTIVE
+  PAUSED
+  CANCELED
+}
+
+/**
+ * =========================
  * USERS / LOGIN / CONVITES
  * =========================
  */
@@ -259,6 +270,9 @@ model Cedente {
   emissions       EmissionEvent[]
   sales           Sale[]
 
+  // ✅ NOVO: assinaturas de clube por cedente
+  clubSubscriptions ClubSubscription[]
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -282,6 +296,49 @@ model CedenteTermAcceptance {
   @@index([cedenteId])
   @@index([acceptedAt])
   @@map("cedente_term_acceptances")
+}
+
+/**
+ * =========================
+ * ✅ CLUBES (ASSINATURAS) — FORA DA COMPRA
+ * =========================
+ */
+model ClubSubscription {
+  id String @id @default(cuid())
+
+  // facilita query por time (derivado do owner.team, mas gravado aqui)
+  team      String
+  cedenteId String
+  program   LoyaltyProgram
+
+  // Ex: 10 => 10k
+  tierK      Int @default(0)
+  priceCents Int @default(0)
+
+  subscribedAt DateTime
+  renewalDay   Int @default(1)
+
+  // controle operacional
+  lastRenewedAt    DateTime?
+  pointsExpireAt   DateTime? // expiração dos pontos do clube/promo (pra alerta)
+  renewedThisCycle Boolean   @default(false)
+  status           ClubSubscriptionStatus @default(ACTIVE)
+
+  // ✅ só smiles: quando volta a ser elegível ao bônus de assinatura (ex.: +365d)
+  smilesBonusEligibleAt DateTime?
+
+  notes String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  cedente Cedente @relation(fields: [cedenteId], references: [id], onDelete: Cascade)
+
+  @@index([team, program])
+  @@index([team, status])
+  @@index([cedenteId])
+  @@index([pointsExpireAt])
+  @@map("club_subscriptions")
 }
 
 /**
