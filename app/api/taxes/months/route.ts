@@ -5,147 +5,126 @@ import { monthKeyTZ, monthIsPayable, isValidMonthKey } from "@/lib/taxes";
 
 export const runtime = "nodejs";
 
-type MonthRow = { month: string; total: bigint | number | null };
+type MonthRowDB = { month: string; total: bigint | number | null };
 
 function toNumber(v: unknown) {
   if (typeof v === "bigint") return Number(v);
   return Number(v || 0);
 }
 
-type TaxUserItem = { userId: string; taxCents: number };
-type TaxBreakdown = { users: TaxUserItem[] };
-
-function safeBreakdown(v: any): TaxBreakdown {
-  if (!v || typeof v !== "object") return { users: [] };
-  const users = Array.isArray(v.users) ? v.users : [];
-  return {
-    users: users
-      .map((u: any) => ({
-        userId: String(u.userId || ""),
-        taxCents: toNumber(u.taxCents),
-      }))
-      .filter((u: TaxUserItem) => u.userId && u.taxCents > 0),
-  };
-}
-
-async function computeBreakdown(team: string, month: string): Promise<TaxBreakdown> {
-  const rows = await prisma.$queryRaw<{ userid: string; amount: bigint | number | null }[]>`
-    SELECT
-      "userId"         AS userid,
-      SUM("tax7Cents") AS amount
-    FROM employee_payouts
-    WHERE team = ${team}
-      AND date LIKE ${month + "-%"}
-    GROUP BY "userId"
-  `;
-
-  return {
-    users: rows
-      .map((r) => ({
-        userId: String(r.userid),
-        taxCents: toNumber(r.amount),
-      }))
-      .filter((u) => u.taxCents > 0),
-  };
-}
-
-async function upsertMonthSnapshot(team: string, month: string) {
-  // se já pago -> congela
+async function ensureMonthRow(team: string, month: string, totalTaxCents: number) {
   const existing = await prisma.taxMonthPayment.findUnique({
     where: { team_month: { team, month } },
-    select: { id: true, paidAt: true, breakdown: true },
+    select: { id: true, paidAt: true },
   });
 
-  if (existing?.paidAt) return;
-
-  const breakdown = await computeBreakdown(team, month);
-  const totalTaxCents = breakdown.users.reduce((a, b) => a + (b.taxCents || 0), 0);
-
+  // cria se não existe
   if (!existing) {
     await prisma.taxMonthPayment.create({
       data: {
         team,
         month,
         totalTaxCents,
-        breakdown: breakdown as any,
+        breakdown: { users: [] } as any, // breakdown real é no /[month]
       },
     });
     return;
   }
 
-  // atualiza enquanto NÃO estiver pago
-  const prev = safeBreakdown(existing.breakdown);
-  // mantém usuários antigos que talvez sumiram? (opcional)
-  const map = new Map(breakdown.users.map((u) => [u.userId, u]));
-  for (const u of prev.users) {
-    if (!map.has(u.userId)) map.set(u.userId, u);
+  // se não está pago, mantém o total sempre sincronizado
+  if (!existing.paidAt) {
+    await prisma.taxMonthPayment.update({
+      where: { id: existing.id },
+      data: { totalTaxCents },
+    });
   }
-
-  const merged: TaxBreakdown = { users: Array.from(map.values()) };
-  const mergedTotal = merged.users.reduce((a, b) => a + (b.taxCents || 0), 0);
-
-  await prisma.taxMonthPayment.update({
-    where: { id: existing.id },
-    data: {
-      totalTaxCents: mergedTotal,
-      breakdown: merged as any,
-    },
-  });
 }
 
 export async function GET(_req: NextRequest) {
-  const session = getSession();
-  if (!session?.team) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
-  const team = session.team;
-  const currentMonth = monthKeyTZ();
-
-  // pega meses existentes no employee_payouts
-  const months = await prisma.$queryRaw<MonthRow[]>`
-    SELECT
-      SUBSTRING(date FROM 1 FOR 7) AS month,
-      SUM("tax7Cents")             AS total
-    FROM employee_payouts
-    WHERE team = ${team}
-    GROUP BY SUBSTRING(date FROM 1 FOR 7)
-    ORDER BY month DESC
-  `;
-
-  // garante snapshot (somente pra meses válidos)
-  for (const m of months) {
-    const key = String(m.month);
-    if (isValidMonthKey(key)) {
-      await upsertMonthSnapshot(team, key);
+  try {
+    const session = getSession();
+    if (!session?.team) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+
+    const team = session.team;
+    const currentMonth = monthKeyTZ();
+
+    // meses existentes no employee_payouts (fonte da verdade do imposto)
+    const monthRows = await prisma.$queryRaw<MonthRowDB[]>`
+      SELECT
+        SUBSTRING(date FROM 1 FOR 7) AS month,
+        SUM("tax7Cents")             AS total
+      FROM employee_payouts
+      WHERE team = ${team}
+      GROUP BY SUBSTRING(date FROM 1 FOR 7)
+      ORDER BY month DESC
+    `;
+
+    const validMonths = monthRows
+      .map((m) => String(m.month))
+      .filter((m) => isValidMonthKey(m));
+
+    // totals do payout (para meses NÃO pagos)
+    const totalFromPayout = new Map<string, number>(
+      monthRows
+        .map((m) => [String(m.month), toNumber(m.total)] as const)
+        .filter(([k]) => isValidMonthKey(k))
+    );
+
+    // garante que exista 1 linha por mês no tax_month_payments
+    await Promise.all(
+      validMonths.map((month) =>
+        ensureMonthRow(team, month, totalFromPayout.get(month) || 0)
+      )
+    );
+
+    // busca registros (pra saber paidAt e total congelado quando pago)
+    const records = await prisma.taxMonthPayment.findMany({
+      where: { team, month: { in: validMonths } },
+      orderBy: [{ month: "desc" }],
+      select: {
+        month: true,
+        totalTaxCents: true,
+        paidAt: true,
+      },
+    });
+
+    // monta no formato que o FRONT espera ✅
+    const months = records.map((r) => {
+      const month = r.month;
+      const payable = monthIsPayable(month, currentMonth);
+      const isCurrent = month === currentMonth;
+
+      const totalCents = r.paidAt
+        ? (r.totalTaxCents || 0) // congelado quando pago
+        : (totalFromPayout.get(month) || 0);
+
+      const paidCents = r.paidAt ? totalCents : 0;
+      const pendingCents = Math.max(0, totalCents - paidCents);
+
+      return {
+        month,
+        totalCents,
+        paidCents,
+        pendingCents,
+        payable,
+        isCurrent,
+      };
+    });
+
+    const openPayableCents = months
+      .filter((m) => m.payable)
+      .reduce((a, b) => a + (b.pendingCents || 0), 0);
+
+    return NextResponse.json(
+      { currentMonth, openPayableCents, months },
+      { headers: { "Cache-Control": "no-store" } }
+    );
+  } catch (e: any) {
+    return NextResponse.json(
+      { error: e?.message || "Erro ao carregar impostos" },
+      { status: 500, headers: { "Cache-Control": "no-store" } }
+    );
   }
-
-  const items = await prisma.taxMonthPayment.findMany({
-    where: { team },
-    orderBy: [{ month: "desc" }],
-    select: {
-      id: true,
-      month: true,
-      totalTaxCents: true,
-      paidAt: true,
-      paidById: true,
-      paidBy: { select: { id: true, name: true, login: true } },
-      updatedAt: true,
-    },
-  });
-
-  return NextResponse.json({
-    currentMonth,
-    items: items.map((i) => ({
-      id: i.id,
-      month: i.month,
-      payable: monthIsPayable(i.month, currentMonth),
-      totalTaxCents: i.totalTaxCents || 0,
-      paidAt: i.paidAt,
-      paidByName: i.paidBy?.name || null,
-      paidByLogin: i.paidBy?.login || null,
-      updatedAt: i.updatedAt,
-    })),
-  });
 }

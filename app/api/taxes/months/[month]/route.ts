@@ -28,7 +28,9 @@ function safeBreakdown(v: any): TaxBreakdown {
 }
 
 async function computeBreakdown(team: string, month: string): Promise<TaxBreakdown> {
-  const rows = await prisma.$queryRaw<{ userid: string; amount: bigint | number | null }[]>`
+  const rows = await prisma.$queryRaw<
+    { userid: string; amount: bigint | number | null }[]
+  >`
     SELECT
       "userId"         AS userid,
       SUM("tax7Cents") AS amount
@@ -37,6 +39,7 @@ async function computeBreakdown(team: string, month: string): Promise<TaxBreakdo
       AND date LIKE ${month + "-%"}
     GROUP BY "userId"
   `;
+
   return {
     users: rows
       .map((r) => ({ userId: String(r.userid), taxCents: toNumber(r.amount) }))
@@ -47,7 +50,7 @@ async function computeBreakdown(team: string, month: string): Promise<TaxBreakdo
 async function syncMonth(team: string, month: string) {
   const existing = await prisma.taxMonthPayment.findUnique({
     where: { team_month: { team, month } },
-    select: { id: true, paidAt: true, breakdown: true },
+    select: { id: true, paidAt: true },
   });
 
   if (existing?.paidAt) return; // pago = congelado
@@ -69,57 +72,71 @@ async function syncMonth(team: string, month: string) {
 }
 
 export async function GET(_req: NextRequest, ctx: Ctx) {
-  const session = getSession();
-  if (!session?.team) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  try {
+    const session = getSession();
+    if (!session?.team) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const team = session.team;
+    const { month } = await ctx.params;
+
+    if (!isValidMonthKey(month)) {
+      return NextResponse.json({ error: "Invalid month" }, { status: 400 });
+    }
+
+    const currentMonth = monthKeyTZ();
+    const payable = monthIsPayable(month, currentMonth);
+
+    await syncMonth(team, month);
+
+    const rec = await prisma.taxMonthPayment.findUnique({
+      where: { team_month: { team, month } },
+      include: {
+        paidBy: { select: { id: true, name: true, login: true } },
+      },
+    });
+
+    const bd = safeBreakdown(rec?.breakdown);
+    const totalCents = rec?.totalTaxCents || 0;
+
+    const userIds = Array.from(new Set(bd.users.map((u) => u.userId)));
+    const users = userIds.length
+      ? await prisma.user.findMany({
+          where: { id: { in: userIds } },
+          select: { id: true, name: true, login: true },
+        })
+      : [];
+
+    const map = new Map(users.map((u) => [u.id, u]));
+
+    return NextResponse.json(
+      {
+        month,
+        currentMonth,
+        payable,
+        totalCents,
+        paidAt: rec?.paidAt || null,
+        paidByName: rec?.paidBy?.name || null,
+        paidByLogin: rec?.paidBy?.login || null,
+        items: bd.users
+          .sort((a, b) => (b.taxCents || 0) - (a.taxCents || 0))
+          .map((i) => {
+            const u = map.get(i.userId);
+            return {
+              userId: i.userId,
+              userName: u?.name || null,
+              userLogin: u?.login || null,
+              taxCents: i.taxCents,
+            };
+          }),
+      },
+      { headers: { "Cache-Control": "no-store" } }
+    );
+  } catch (e: any) {
+    return NextResponse.json(
+      { error: e?.message || "Erro ao carregar mês" },
+      { status: 500, headers: { "Cache-Control": "no-store" } }
+    );
   }
-
-  const team = session.team;
-  const { month } = await ctx.params;
-
-  if (!isValidMonthKey(month)) {
-    return NextResponse.json({ error: "Invalid month" }, { status: 400 });
-  }
-
-  const currentMonth = monthKeyTZ();
-  const payable = monthIsPayable(month, currentMonth);
-
-  await syncMonth(team, month);
-
-  const rec = await prisma.taxMonthPayment.findUnique({
-    where: { team_month: { team, month } },
-    include: {
-      paidBy: { select: { id: true, name: true, login: true } },
-    },
-  });
-
-  const bd = safeBreakdown(rec?.breakdown);
-  const totalCents = rec?.totalTaxCents || 0;
-
-  const userIds = Array.from(new Set(bd.users.map((u) => u.userId)));
-  const users = await prisma.user.findMany({
-    where: { id: { in: userIds } },
-    select: { id: true, name: true, login: true },
-  });
-  const map = new Map(users.map((u) => [u.id, u]));
-
-  return NextResponse.json({
-    month,
-    currentMonth,
-    payable,
-    totalCents,
-    paidAt: rec?.paidAt || null,
-    paidByName: rec?.paidBy?.name || null,
-    items: bd.users
-      .sort((a, b) => (b.taxCents || 0) - (a.taxCents || 0))
-      .map((i) => {
-        const u = map.get(i.userId);
-        return {
-          userId: i.userId,
-          userName: u?.name || null,
-          userLogin: u?.login || null,
-          taxCents: i.taxCents,
-        };
-      }),
-  });
 }
