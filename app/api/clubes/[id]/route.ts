@@ -54,15 +54,14 @@ function prismaMsg(e: any) {
 
 export async function PATCH(
   req: NextRequest,
-  ctx: { params: { id: string } }
+  ctx: { params: Promise<{ id: string }> }
 ) {
   const session = await getSessionServer();
   if (!session) return bad("Não autenticado", 401);
 
-  const { id } = ctx.params;
+  const { id } = await ctx.params;
 
   try {
-    // ✅ pega program atual também (pra regra do SMILES funcionar mesmo sem trocar program)
     const existing = await prisma.clubSubscription.findFirst({
       where: { id, team: session.team },
       select: { id: true, program: true },
@@ -114,13 +113,11 @@ export async function PATCH(
     }
 
     if (body.lastRenewedAt !== undefined) {
-      const d = toDate(body.lastRenewedAt);
-      data.lastRenewedAt = d; // pode ser null pra limpar
+      data.lastRenewedAt = toDate(body.lastRenewedAt); // pode ser null
     }
 
     if (body.pointsExpireAt !== undefined) {
-      const d = toDate(body.pointsExpireAt);
-      data.pointsExpireAt = d; // pode ser null pra limpar
+      data.pointsExpireAt = toDate(body.pointsExpireAt); // pode ser null
     }
 
     if (body.renewedThisCycle !== undefined) {
@@ -134,8 +131,7 @@ export async function PATCH(
     }
 
     if (body.smilesBonusEligibleAt !== undefined) {
-      const d = toDate(body.smilesBonusEligibleAt);
-      data.smilesBonusEligibleAt = d; // pode ser null
+      data.smilesBonusEligibleAt = toDate(body.smilesBonusEligibleAt); // pode ser null
     }
 
     if (body.notes !== undefined) {
@@ -146,7 +142,6 @@ export async function PATCH(
       data.notes = notes;
     }
 
-    // ✅ regra SMILES (funciona mesmo se você não mudar o program no PATCH)
     const finalProgram: Program =
       (data.program as Program) ?? (existing.program as Program);
 
@@ -172,12 +167,12 @@ export async function PATCH(
 
 export async function DELETE(
   req: NextRequest,
-  ctx: { params: { id: string } }
+  ctx: { params: Promise<{ id: string }> }
 ) {
   const session = await getSessionServer();
   if (!session) return bad("Não autenticado", 401);
 
-  const { id } = ctx.params;
+  const { id } = await ctx.params;
 
   try {
     const { searchParams } = new URL(req.url);
