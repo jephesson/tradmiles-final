@@ -19,7 +19,7 @@ type PayoutRow = {
   date: string; // YYYY-MM-DD
   userId: string;
 
-  grossProfitCents: number;
+  grossProfitCents: number; // C1+C2+C3 (bruto)
   tax7Cents: number; // 8% (nome legado)
   feeCents: number; // reembolso taxa
   netPayCents: number;
@@ -49,14 +49,7 @@ type DayResponse = {
   totals: DayTotals;
 };
 
-type MonthTotals = {
-  gross: number;
-  tax: number;
-  fee: number;
-  net: number;
-  paid: number;
-  pending: number;
-};
+type MonthTotals = DayTotals;
 
 type MonthResponse = {
   ok: true;
@@ -109,6 +102,7 @@ function fmtDateTimeBR(iso?: string | null) {
 
 async function apiGet<T>(url: string): Promise<T> {
   const res = await fetch(url, { cache: "no-store", credentials: "include" });
+
   let json: any = null;
   try {
     json = await res.json();
@@ -122,6 +116,7 @@ async function apiGet<T>(url: string): Promise<T> {
         : `Erro (${res.status})`);
     throw new Error(msg);
   }
+
   return json as T;
 }
 
@@ -147,6 +142,7 @@ async function apiPost<T>(url: string, body?: any): Promise<T> {
         : `Erro (${res.status})`);
     throw new Error(msg);
   }
+
   return json as T;
 }
 
@@ -251,8 +247,9 @@ export default function ComissoesFuncionariosClient() {
   async function loadMonth(userId: string, m: string) {
     setMonthLoading(true);
     try {
+      const mm = String(m || "").slice(0, 7);
       const data = await apiGet<MonthResponse>(
-        `/api/payouts/funcionarios/month?userId=${encodeURIComponent(userId)}&month=${encodeURIComponent(m)}`
+        `/api/payouts/funcionarios/month?userId=${encodeURIComponent(userId)}&month=${encodeURIComponent(mm)}`
       );
       setMonthData(data);
     } catch (e: any) {
@@ -319,7 +316,7 @@ export default function ComissoesFuncionariosClient() {
       </div>
 
       <div className="grid grid-cols-2 gap-2 md:grid-cols-6">
-        <KPI label="Bruto (C1)" value={fmtMoneyBR(day?.totals.gross || 0)} />
+        <KPI label="Bruto (C1+C2+C3)" value={fmtMoneyBR(day?.totals.gross || 0)} />
         <KPI label="Imposto (8%)" value={fmtMoneyBR(day?.totals.tax || 0)} />
         <KPI label="Taxas (reembolso)" value={fmtMoneyBR(day?.totals.fee || 0)} />
         <KPI label="Líquido total" value={fmtMoneyBR(day?.totals.net || 0)} />
@@ -441,7 +438,7 @@ export default function ComissoesFuncionariosClient() {
       </div>
 
       <p className="text-xs text-neutral-500">
-        Nota: “Bruto (C1)” = soma da Comissão 1 (1%). Comissão 2 (bônus) e Comissão 3 (rateio) aparecem nas colunas.
+        Nota: Bruto = C1+C2+C3. Comissão 2 (bônus) e Comissão 3 (rateio) aparecem nas colunas.
       </p>
 
       {/* Drawer mês */}
@@ -455,11 +452,8 @@ export default function ComissoesFuncionariosClient() {
                 <div className="text-xs text-neutral-500">
                   {monthUser ? (
                     <>
-                      <span className="font-medium">
-                        {firstName(monthUser.name, monthUser.login)}
-                      </span>{" "}
-                      <span className="text-neutral-400">•</span>{" "}
-                      <span>{monthUser.login}</span>
+                      <span className="font-medium">{firstName(monthUser.name, monthUser.login)}</span>{" "}
+                      <span className="text-neutral-400">•</span> <span>{monthUser.login}</span>
                     </>
                   ) : (
                     "-"
