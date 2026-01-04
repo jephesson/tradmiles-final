@@ -1,21 +1,20 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
 import { isValidMonthKey, monthIsPayable, monthKeyTZ } from "@/lib/taxes";
 
 export const runtime = "nodejs";
 
-export async function POST(
-  req: Request,
-  { params }: { params: { month: string } }
-) {
+type Ctx = { params: Promise<{ month: string }> };
+
+export async function POST(req: NextRequest, ctx: Ctx) {
   const session = getSession();
   if (!session?.team || !session?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   const team = session.team;
-  const month = params.month;
+  const { month } = await ctx.params;
 
   if (!isValidMonthKey(month)) {
     return NextResponse.json({ error: "Invalid month" }, { status: 400 });
