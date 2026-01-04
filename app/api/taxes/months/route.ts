@@ -1,10 +1,17 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-// ✅ troque pelo seu helper real (o mesmo dos endpoints /api/payouts/*)
 import { requireSession } from "@/lib/require-session";
 
 function bad(status: number, error: string) {
   return NextResponse.json({ ok: false, error }, { status });
+}
+
+function toNumber(v: unknown) {
+  if (typeof v === "bigint") return Number(v);
+  if (typeof v === "number") return v;
+  if (v == null) return 0;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : 0;
 }
 
 export async function GET(req: Request) {
@@ -36,6 +43,7 @@ export async function GET(req: Request) {
     `;
 
     const months = rows.map((r) => r.month);
+
     const payments = await prisma.taxMonthPayment.findMany({
       where: { team: session.team, month: { in: months.length ? months : ["__none__"] } },
       select: {
@@ -55,12 +63,12 @@ export async function GET(req: Request) {
 
       return {
         month: r.month,
-        taxCents: Number(r.taxCents || 0n),
-        usersCount: Number(r.usersCount || 0),
-        daysCount: Number(r.daysCount || 0),
+        taxCents: toNumber(r.taxCents),
+        usersCount: toNumber(r.usersCount),
+        daysCount: toNumber(r.daysCount),
         paidAt,
         paidBy: p?.paidBy ? { id: p.paidBy.id, name: p.paidBy.name } : null,
-        snapshotTaxCents: p?.paidAt ? (p?.totalTaxCents ?? 0) : null,
+        snapshotTaxCents: p?.paidAt ? toNumber(p.totalTaxCents) : null,
       };
     });
 
