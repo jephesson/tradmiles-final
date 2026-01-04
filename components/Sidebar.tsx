@@ -56,7 +56,9 @@ export default function Sidebar() {
   // ✅ FINANCEIRO
   const isDividasRoute = pathname.startsWith("/dashboard/dividas");
   const isRecebimentosRoute = pathname.startsWith("/dashboard/recebimentos");
-  const isFinanceiroRoute = isDividasRoute || isRecebimentosRoute;
+  const isImpostosRoute = pathname.startsWith("/dashboard/impostos");
+  const isFinanceiroRoute =
+    isDividasRoute || isRecebimentosRoute || isImpostosRoute;
 
   // ✅ IMPORTAÇÕES (fora do Gestor de emissões)
   const isImportacoesRoute = pathname.startsWith("/dashboard/importacoes");
@@ -519,6 +521,7 @@ export default function Sidebar() {
         >
           <NavLink href="/dashboard/dividas">Dívidas</NavLink>
           <NavLink href="/dashboard/recebimentos">Recebimentos</NavLink>
+          <NavLink href="/dashboard/impostos">Impostos</NavLink>
         </Accordion>
 
         {/* ================= IMPORTAÇÕES (FORA DO GESTOR) ================= */}
