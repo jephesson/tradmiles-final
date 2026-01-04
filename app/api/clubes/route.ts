@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { getSessionFromCookies } from "@/lib/auth-server";
+import { getSessionFromCookies } from "@/lib/auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -46,8 +46,7 @@ function normalizeStatus(v?: string | null): Status | undefined {
 }
 
 function prismaMsg(e: any) {
-  const msg = String(e?.message || NOTE: "");
-  // P2002: unique constraint, P2025: not found, etc.
+  const msg = String(e?.message || ""); // ✅ FIX: removeu o lixo "NOTE:"
   const code = String(e?.code || "");
   if (code === "P2002") return "Registro duplicado (chave única).";
   if (code === "P2025") return "Registro não encontrado.";
@@ -135,7 +134,7 @@ export async function POST(req: NextRequest) {
   const status = normalizeStatus(body.status || "ACTIVE");
   const notes =
     body.notes !== undefined && body.notes !== null
-      ? String(body.notes).trim().slice(0, 500) // ✅ limita tamanho
+      ? String(body.notes).trim().slice(0, 500)
       : null;
 
   if (!cedenteId) return bad("cedenteId é obrigatório");
