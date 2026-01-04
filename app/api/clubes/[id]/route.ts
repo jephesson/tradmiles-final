@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { requireSession } from "@/lib/require-session";
+import { getSessionServer } from "@/lib/auth-server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -54,18 +54,15 @@ function prismaMsg(e: any) {
 
 export async function PATCH(
   req: NextRequest,
-  ctx: { params: Promise<{ id: string }> }
+  ctx: { params: { id: string } }
 ) {
-  let session: ReturnType<typeof requireSession>;
-  try {
-    session = requireSession(req);
-  } catch {
-    return bad("Não autenticado", 401);
-  }
+  const session = await getSessionServer();
+  if (!session) return bad("Não autenticado", 401);
 
-  const { id } = await ctx.params;
+  const { id } = ctx.params;
 
   try {
+    // ✅ pega program atual também (pra regra do SMILES funcionar mesmo sem trocar program)
     const existing = await prisma.clubSubscription.findFirst({
       where: { id, team: session.team },
       select: { id: true, program: true },
@@ -112,21 +109,18 @@ export async function PATCH(
     }
 
     if (body.renewalDay !== undefined) {
-      const renewalDay = Math.min(
-        31,
-        Math.max(1, toInt(body.renewalDay, 1) ?? 1)
-      );
+      const renewalDay = Math.min(31, Math.max(1, toInt(body.renewalDay, 1) ?? 1));
       data.renewalDay = renewalDay;
     }
 
     if (body.lastRenewedAt !== undefined) {
       const d = toDate(body.lastRenewedAt);
-      data.lastRenewedAt = d;
+      data.lastRenewedAt = d; // pode ser null pra limpar
     }
 
     if (body.pointsExpireAt !== undefined) {
       const d = toDate(body.pointsExpireAt);
-      data.pointsExpireAt = d;
+      data.pointsExpireAt = d; // pode ser null pra limpar
     }
 
     if (body.renewedThisCycle !== undefined) {
@@ -141,7 +135,7 @@ export async function PATCH(
 
     if (body.smilesBonusEligibleAt !== undefined) {
       const d = toDate(body.smilesBonusEligibleAt);
-      data.smilesBonusEligibleAt = d;
+      data.smilesBonusEligibleAt = d; // pode ser null
     }
 
     if (body.notes !== undefined) {
@@ -152,6 +146,7 @@ export async function PATCH(
       data.notes = notes;
     }
 
+    // ✅ regra SMILES (funciona mesmo se você não mudar o program no PATCH)
     const finalProgram: Program =
       (data.program as Program) ?? (existing.program as Program);
 
@@ -177,16 +172,12 @@ export async function PATCH(
 
 export async function DELETE(
   req: NextRequest,
-  ctx: { params: Promise<{ id: string }> }
+  ctx: { params: { id: string } }
 ) {
-  let session: ReturnType<typeof requireSession>;
-  try {
-    session = requireSession(req);
-  } catch {
-    return bad("Não autenticado", 401);
-  }
+  const session = await getSessionServer();
+  if (!session) return bad("Não autenticado", 401);
 
-  const { id } = await ctx.params;
+  const { id } = ctx.params;
 
   try {
     const { searchParams } = new URL(req.url);
