@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { getSessionFromCookies } from "@/lib/auth";
+import { requireSession } from "@/lib/require-session";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -56,15 +56,18 @@ export async function PATCH(
   req: NextRequest,
   ctx: { params: Promise<{ id: string }> }
 ) {
-  const session = await getSessionFromCookies();
-  if (!session?.user) return bad("Não autenticado", 401);
+  let session: ReturnType<typeof requireSession>;
+  try {
+    session = requireSession(req);
+  } catch {
+    return bad("Não autenticado", 401);
+  }
 
   const { id } = await ctx.params;
 
   try {
-    // ✅ pega program atual também (pra regra do SMILES funcionar mesmo sem trocar program)
     const existing = await prisma.clubSubscription.findFirst({
-      where: { id, team: session.user.team },
+      where: { id, team: session.team },
       select: { id: true, program: true },
     });
     if (!existing) return bad("Clube não encontrado", 404);
@@ -77,7 +80,7 @@ export async function PATCH(
     if (body.cedenteId) {
       const cedenteId = String(body.cedenteId).trim();
       const ced = await prisma.cedente.findFirst({
-        where: { id: cedenteId, owner: { team: session.user.team } },
+        where: { id: cedenteId, owner: { team: session.team } },
         select: { id: true },
       });
       if (!ced) return bad("Cedente inválido (fora do seu time)", 400);
@@ -118,12 +121,12 @@ export async function PATCH(
 
     if (body.lastRenewedAt !== undefined) {
       const d = toDate(body.lastRenewedAt);
-      data.lastRenewedAt = d; // pode ser null pra limpar
+      data.lastRenewedAt = d;
     }
 
     if (body.pointsExpireAt !== undefined) {
       const d = toDate(body.pointsExpireAt);
-      data.pointsExpireAt = d; // pode ser null pra limpar
+      data.pointsExpireAt = d;
     }
 
     if (body.renewedThisCycle !== undefined) {
@@ -138,7 +141,7 @@ export async function PATCH(
 
     if (body.smilesBonusEligibleAt !== undefined) {
       const d = toDate(body.smilesBonusEligibleAt);
-      data.smilesBonusEligibleAt = d; // pode ser null
+      data.smilesBonusEligibleAt = d;
     }
 
     if (body.notes !== undefined) {
@@ -149,8 +152,9 @@ export async function PATCH(
       data.notes = notes;
     }
 
-    // ✅ regra SMILES (funciona mesmo se você não mudar o program no PATCH)
-    const finalProgram: Program = (data.program as Program) ?? (existing.program as Program);
+    const finalProgram: Program =
+      (data.program as Program) ?? (existing.program as Program);
+
     if (finalProgram !== "SMILES") {
       data.smilesBonusEligibleAt = null;
     }
@@ -175,8 +179,12 @@ export async function DELETE(
   req: NextRequest,
   ctx: { params: Promise<{ id: string }> }
 ) {
-  const session = await getSessionFromCookies();
-  if (!session?.user) return bad("Não autenticado", 401);
+  let session: ReturnType<typeof requireSession>;
+  try {
+    session = requireSession(req);
+  } catch {
+    return bad("Não autenticado", 401);
+  }
 
   const { id } = await ctx.params;
 
@@ -185,7 +193,7 @@ export async function DELETE(
     const hard = searchParams.get("hard") === "1";
 
     const existing = await prisma.clubSubscription.findFirst({
-      where: { id, team: session.user.team },
+      where: { id, team: session.team },
       select: { id: true },
     });
     if (!existing) return bad("Clube não encontrado", 404);

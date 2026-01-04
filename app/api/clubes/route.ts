@@ -1,6 +1,7 @@
+// app/api/clubes/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { getSessionFromCookies } from "@/lib/auth";
+import { getSessionServer } from "@/lib/auth-server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -46,17 +47,15 @@ function normalizeStatus(v?: string | null): Status | undefined {
 }
 
 function prismaMsg(e: any) {
-  const msg = String(e?.message || ""); // ✅ FIX: removeu o lixo "NOTE:"
   const code = String(e?.code || "");
   if (code === "P2002") return "Registro duplicado (chave única).";
   if (code === "P2025") return "Registro não encontrado.";
-  if (msg) return "Falha ao processar no banco.";
-  return "Erro interno.";
+  return "Falha ao processar no banco.";
 }
 
 export async function GET(req: NextRequest) {
-  const session = await getSessionFromCookies();
-  if (!session?.user) return bad("Não autenticado", 401);
+  const session = await getSessionServer();
+  if (!session) return bad("Não autenticado", 401);
 
   const { searchParams } = new URL(req.url);
 
@@ -69,7 +68,7 @@ export async function GET(req: NextRequest) {
   const statusRaw = searchParams.get("status") || undefined;
 
   const qRaw = (searchParams.get("q") || "").trim();
-  const q = qRaw ? qRaw.slice(0, 80) : undefined; // ✅ limita
+  const q = qRaw ? qRaw.slice(0, 80) : undefined;
 
   const program = normalizeProgram(programRaw);
   const status = normalizeStatus(statusRaw);
@@ -78,7 +77,7 @@ export async function GET(req: NextRequest) {
   if (statusRaw && !status) return bad("Status inválido");
 
   const where: any = {
-    team: session.user.team,
+    team: session.team,
     ...(cedenteId ? { cedenteId } : {}),
     ...(program ? { program } : {}),
     ...(status ? { status } : {}),
@@ -99,7 +98,12 @@ export async function GET(req: NextRequest) {
       where,
       include: {
         cedente: {
-          select: { id: true, identificador: true, nomeCompleto: true, cpf: true },
+          select: {
+            id: true,
+            identificador: true,
+            nomeCompleto: true,
+            cpf: true,
+          },
         },
       },
       orderBy: [{ subscribedAt: "desc" }, { createdAt: "desc" }],
@@ -112,8 +116,8 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  const session = await getSessionFromCookies();
-  if (!session?.user) return bad("Não autenticado", 401);
+  const session = await getSessionServer();
+  if (!session) return bad("Não autenticado", 401);
 
   const body = await req.json().catch(() => null);
   if (!body) return bad("JSON inválido");
@@ -132,6 +136,7 @@ export async function POST(req: NextRequest) {
 
   const renewedThisCycle = Boolean(body.renewedThisCycle ?? false);
   const status = normalizeStatus(body.status || "ACTIVE");
+
   const notes =
     body.notes !== undefined && body.notes !== null
       ? String(body.notes).trim().slice(0, 500)
@@ -146,17 +151,19 @@ export async function POST(req: NextRequest) {
   try {
     // ✅ garante que o cedente pertence ao mesmo team (via owner.team)
     const ced = await prisma.cedente.findFirst({
-      where: { id: cedenteId, owner: { team: session.user.team } },
+      where: { id: cedenteId, owner: { team: session.team } },
       select: { id: true },
     });
-    if (!ced) return bad("Cedente não encontrado (ou não pertence ao seu time)", 404);
+    if (!ced) {
+      return bad("Cedente não encontrado (ou não pertence ao seu time)", 404);
+    }
 
     // regra: smilesBonusEligibleAt só faz sentido no SMILES
     const smilesDate = program === "SMILES" ? smilesBonusEligibleAt : null;
 
     const created = await prisma.clubSubscription.create({
       data: {
-        team: session.user.team,
+        team: session.team,
         cedenteId,
         program: program as any,
         tierK,
@@ -172,7 +179,12 @@ export async function POST(req: NextRequest) {
       },
       include: {
         cedente: {
-          select: { id: true, identificador: true, nomeCompleto: true, cpf: true },
+          select: {
+            id: true,
+            identificador: true,
+            nomeCompleto: true,
+            cpf: true,
+          },
         },
       },
     });
