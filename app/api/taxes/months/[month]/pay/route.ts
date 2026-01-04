@@ -7,66 +7,36 @@ export const runtime = "nodejs";
 
 type Ctx = { params: Promise<{ month: string }> };
 
-function isUnknownArgError(err: unknown) {
-  const msg = (err as any)?.message || "";
-  return typeof msg === "string" && msg.includes("Unknown arg");
+function toNumber(v: unknown) {
+  if (typeof v === "bigint") return Number(v);
+  return Number(v || 0);
 }
 
-const USER_KEY_CANDIDATES = ["userId", "payeeId", "employeeId"] as const;
+type TaxUserItem = { userId: string; taxCents: number };
+type TaxBreakdown = { users: TaxUserItem[] };
 
-async function updateManyByUserKey(args: {
-  team: string;
-  month: string;
-  userId?: string;
-  data: Record<string, any>;
-}) {
-  const { team, month, userId, data } = args;
+async function computeBreakdown(team: string, month: string): Promise<TaxBreakdown> {
+  const rows = await prisma.$queryRaw<{ userid: string; amount: bigint | number | null }[]>`
+    SELECT
+      "userId"         AS userid,
+      SUM("tax7Cents") AS amount
+    FROM employee_payouts
+    WHERE team = ${team}
+      AND date LIKE ${month + "-%"}
+    GROUP BY "userId"
+  `;
 
-  const baseWhere: any = {
-    team,
-    month,
-    amountCents: { gt: 0 },
-    status: { not: "PAID" },
+  return {
+    users: rows
+      .map((r) => ({
+        userId: String(r.userid),
+        taxCents: toNumber(r.amount),
+      }))
+      .filter((u) => u.taxCents > 0),
   };
-
-  // pagar o mês todo (sem user) ✅
-  if (!userId) {
-    const updated = await prisma.taxMonthPayment.updateMany({
-      where: baseWhere,
-      data,
-    });
-    return updated.count;
-  }
-
-  // pagar só 1 pessoa (detecta o campo correto) ✅
-  let lastErr: any = null;
-
-  for (const key of USER_KEY_CANDIDATES) {
-    try {
-      const where: any = { ...baseWhere, [key]: userId };
-      const updated = await prisma.taxMonthPayment.updateMany({
-        where,
-        data,
-      });
-      return updated.count;
-    } catch (e) {
-      // se o schema não tiver esse campo, tenta o próximo
-      if (isUnknownArgError(e)) {
-        lastErr = e;
-        continue;
-      }
-      throw e;
-    }
-  }
-
-  // nenhum campo bateu -> schema não tem userId/payeeId/employeeId
-  console.error(lastErr);
-  throw new Error(
-    "TaxMonthPayment não possui campo de usuário (userId/payeeId/employeeId). Ajuste o schema."
-  );
 }
 
-export async function POST(req: NextRequest, ctx: Ctx) {
+export async function POST(_req: NextRequest, ctx: Ctx) {
   const session = getSession();
   if (!session?.team || !session?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -80,8 +50,6 @@ export async function POST(req: NextRequest, ctx: Ctx) {
   }
 
   const currentMonth = monthKeyTZ();
-
-  // Mês atual não pode pagar (só quando virar)
   if (!monthIsPayable(month, currentMonth)) {
     return NextResponse.json(
       { error: "Mês atual não pode ser pago ainda." },
@@ -89,30 +57,46 @@ export async function POST(req: NextRequest, ctx: Ctx) {
     );
   }
 
-  const body = await req.json().catch(() => ({}));
-  const userId: string | undefined = body?.userId;
-  const note: string | undefined = body?.note;
-
   const now = new Date();
 
-  try {
-    const updatedCount = await updateManyByUserKey({
-      team,
-      month,
-      userId,
+  // garante snapshot atualizado antes de pagar (congela o valor do mês)
+  const breakdown = await computeBreakdown(team, month);
+  const totalTaxCents = breakdown.users.reduce((a, b) => a + (b.taxCents || 0), 0);
+
+  const existing = await prisma.taxMonthPayment.findUnique({
+    where: { team_month: { team, month } },
+    select: { id: true, paidAt: true },
+  });
+
+  if (!existing) {
+    // cria já como pago
+    await prisma.taxMonthPayment.create({
       data: {
-        status: "PAID",
+        team,
+        month,
+        totalTaxCents,
+        breakdown: breakdown as any,
         paidAt: now,
         paidById: session.id,
-        note: note || null,
       },
     });
 
-    return NextResponse.json({ ok: true, updated: updatedCount });
-  } catch (e: any) {
-    return NextResponse.json(
-      { error: e?.message || "Erro ao pagar impostos" },
-      { status: 500 }
-    );
+    return NextResponse.json({ ok: true, created: true, month, totalTaxCents });
   }
+
+  if (existing.paidAt) {
+    return NextResponse.json({ ok: true, alreadyPaid: true, month });
+  }
+
+  await prisma.taxMonthPayment.update({
+    where: { id: existing.id },
+    data: {
+      totalTaxCents,
+      breakdown: breakdown as any,
+      paidAt: now,
+      paidById: session.id,
+    },
+  });
+
+  return NextResponse.json({ ok: true, paid: true, month, totalTaxCents });
 }

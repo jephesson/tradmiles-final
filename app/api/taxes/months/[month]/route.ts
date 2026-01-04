@@ -6,54 +6,29 @@ import { isValidMonthKey, monthIsPayable, monthKeyTZ } from "@/lib/taxes";
 export const runtime = "nodejs";
 
 type Ctx = { params: Promise<{ month: string }> };
+type TaxUserItem = { userId: string; taxCents: number };
+type TaxBreakdown = { users: TaxUserItem[] };
 
-type AggRow = { userid: string; amount: bigint | number | null };
-
-const USER_KEY_CANDIDATES = ["userId", "payeeId", "employeeId"] as const;
-
-function msg(err: unknown) {
-  return (err as any)?.message || "";
-}
-function isUnknownFieldOrArg(err: unknown) {
-  const m = msg(err);
-  return (
-    typeof m === "string" &&
-    (m.includes("Unknown arg") ||
-      m.includes("Unknown field") ||
-      m.includes("Unknown argument"))
-  );
+function toNumber(v: unknown) {
+  if (typeof v === "bigint") return Number(v);
+  return Number(v || 0);
 }
 
-let cachedUserKey: (typeof USER_KEY_CANDIDATES)[number] | null = null;
-
-async function detectUserKey() {
-  if (cachedUserKey) return cachedUserKey;
-
-  // tenta descobrir qual campo existe no TaxMonthPayment
-  for (const key of USER_KEY_CANDIDATES) {
-    try {
-      // se o campo existir, isso NÃO quebra (mesmo com tabela vazia)
-      await prisma.taxMonthPayment.findFirst({
-        select: { [key]: true } as any,
-      } as any);
-
-      cachedUserKey = key;
-      return key;
-    } catch (e) {
-      if (isUnknownFieldOrArg(e)) continue;
-      throw e;
-    }
-  }
-
-  throw new Error(
-    "TaxMonthPayment não possui campo de usuário (userId/payeeId/employeeId). Ajuste o schema."
-  );
+function safeBreakdown(v: any): TaxBreakdown {
+  if (!v || typeof v !== "object") return { users: [] };
+  const users = Array.isArray(v.users) ? v.users : [];
+  return {
+    users: users
+      .map((u: any) => ({
+        userId: String(u.userId || ""),
+        taxCents: toNumber(u.taxCents),
+      }))
+      .filter((u: TaxUserItem) => u.userId && u.taxCents > 0),
+  };
 }
 
-async function syncMonth(team: string, month: string) {
-  const userKey = await detectUserKey();
-
-  const rows = await prisma.$queryRaw<AggRow[]>`
+async function computeBreakdown(team: string, month: string): Promise<TaxBreakdown> {
+  const rows = await prisma.$queryRaw<{ userid: string; amount: bigint | number | null }[]>`
     SELECT
       "userId"         AS userid,
       SUM("tax7Cents") AS amount
@@ -62,42 +37,35 @@ async function syncMonth(team: string, month: string) {
       AND date LIKE ${month + "-%"}
     GROUP BY "userId"
   `;
+  return {
+    users: rows
+      .map((r) => ({ userId: String(r.userid), taxCents: toNumber(r.amount) }))
+      .filter((u) => u.taxCents > 0),
+  };
+}
 
-  await Promise.all(
-    rows.map(async (r) => {
-      const userId = String(r.userid);
-      const amountCents =
-        typeof r.amount === "bigint" ? Number(r.amount) : Number(r.amount || 0);
+async function syncMonth(team: string, month: string) {
+  const existing = await prisma.taxMonthPayment.findUnique({
+    where: { team_month: { team, month } },
+    select: { id: true, paidAt: true, breakdown: true },
+  });
 
-      const where = { team, month, [userKey]: userId } as any;
+  if (existing?.paidAt) return; // pago = congelado
 
-      // ✅ SEM findUnique (evita team_month_userId)
-      const existing = await prisma.taxMonthPayment.findFirst({
-        where,
-        select: { id: true, status: true } as any,
-      } as any);
+  const breakdown = await computeBreakdown(team, month);
+  const totalTaxCents = breakdown.users.reduce((a, b) => a + (b.taxCents || 0), 0);
 
-      if (!existing) {
-        await prisma.taxMonthPayment.create({
-          data: {
-            team,
-            month,
-            [userKey]: userId,
-            amountCents,
-          } as any,
-        });
-        return;
-      }
+  if (!existing) {
+    await prisma.taxMonthPayment.create({
+      data: { team, month, totalTaxCents, breakdown: breakdown as any },
+    });
+    return;
+  }
 
-      // não altera valor se já estiver PAID (pra não mudar histórico do pago)
-      if (existing.status !== "PAID") {
-        await prisma.taxMonthPayment.update({
-          where: { id: existing.id } as any,
-          data: { amountCents } as any,
-        } as any);
-      }
-    })
-  );
+  await prisma.taxMonthPayment.update({
+    where: { id: existing.id },
+    data: { totalTaxCents, breakdown: breakdown as any },
+  });
 }
 
 export async function GET(_req: NextRequest, ctx: Ctx) {
@@ -118,78 +86,40 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
 
   await syncMonth(team, month);
 
-  const userKey = await detectUserKey();
+  const rec = await prisma.taxMonthPayment.findUnique({
+    where: { team_month: { team, month } },
+    include: {
+      paidBy: { select: { id: true, name: true, login: true } },
+    },
+  });
 
-  const items = await prisma.taxMonthPayment.findMany({
-    where: { team, month, amountCents: { gt: 0 } } as any,
-    orderBy: [{ status: "asc" }, { amountCents: "desc" }] as any,
-  } as any);
+  const bd = safeBreakdown(rec?.breakdown);
+  const totalCents = rec?.totalTaxCents || 0;
 
-  const userIds = Array.from(
-    new Set(
-      (items as any[])
-        .map((i) => i?.[userKey])
-        .filter((v) => typeof v === "string" && v.length > 0)
-    )
-  );
-
-  const paidByIds = Array.from(
-    new Set(
-      (items as any[])
-        .map((i) => i?.paidById)
-        .filter((v) => typeof v === "string" && v.length > 0)
-    )
-  );
-
+  const userIds = Array.from(new Set(bd.users.map((u) => u.userId)));
   const users = await prisma.user.findMany({
     where: { id: { in: userIds } },
     select: { id: true, name: true, login: true },
   });
-
-  const paidBys = await prisma.user.findMany({
-    where: { id: { in: paidByIds } },
-    select: { id: true, name: true, login: true },
-  });
-
-  const usersMap = new Map(users.map((u) => [u.id, u]));
-  const paidByMap = new Map(paidBys.map((u) => [u.id, u]));
-
-  const totalCents = (items as any[]).reduce(
-    (a, b) => a + Number(b?.amountCents || 0),
-    0
-  );
-
-  const paidCents = (items as any[])
-    .filter((i) => i?.status === "PAID")
-    .reduce((a, b) => a + Number(b?.amountCents || 0), 0);
+  const map = new Map(users.map((u) => [u.id, u]));
 
   return NextResponse.json({
     month,
     currentMonth,
     payable,
     totalCents,
-    paidCents,
-    pendingCents: Math.max(0, totalCents - paidCents),
-    items: (items as any[]).map((i) => {
-      const uid = i?.[userKey] as string | undefined;
-      const u = uid ? usersMap.get(uid) : null;
-
-      const pbid = i?.paidById as string | undefined;
-      const pb = pbid ? paidByMap.get(pbid) : null;
-
-      return {
-        id: i.id,
-        userId: uid || null,
-        userName: u?.name || null,
-        userLogin: u?.login || null,
-
-        amountCents: Number(i.amountCents || 0),
-        status: i.status,
-
-        paidAt: i.paidAt || null,
-        paidByName: pb?.name || null,
-        note: i.note || null,
-      };
-    }),
+    paidAt: rec?.paidAt || null,
+    paidByName: rec?.paidBy?.name || null,
+    items: bd.users
+      .sort((a, b) => (b.taxCents || 0) - (a.taxCents || 0))
+      .map((i) => {
+        const u = map.get(i.userId);
+        return {
+          userId: i.userId,
+          userName: u?.name || null,
+          userLogin: u?.login || null,
+          taxCents: i.taxCents,
+        };
+      }),
   });
 }
