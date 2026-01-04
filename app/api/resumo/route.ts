@@ -1,23 +1,29 @@
 // app/api/resumo/route.ts
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { requireSession } from "@/lib/require-session";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 function safeInt(v: any) {
+  if (typeof v === "bigint") return Number(v);
   const n = Number(v);
   return Number.isFinite(n) ? Math.trunc(n) : 0;
 }
 function toIntOrNull(v: any) {
+  if (typeof v === "bigint") return Number(v);
   const n = Number(v);
   return Number.isFinite(n) ? Math.trunc(n) : null;
 }
 
-export async function GET() {
+export async function GET(req: Request) {
   try {
-    // soma pontos de TODOS cedentes
+    const session = await requireSession(req);
+
+    // soma pontos de TODOS cedentes (do team)
     const agg = await prisma.cedente.aggregate({
+      where: { owner: { team: session.team } },
       _sum: {
         pontosLatam: true,
         pontosSmiles: true,
@@ -78,19 +84,65 @@ export async function GET() {
       return sum + bal;
     }, 0);
 
-    // ✅ comissões pendentes de cedentes
+    // ✅ comissões pendentes de cedentes (do team)
     const pendingAgg = await prisma.cedenteCommission.aggregate({
-      where: { status: "PENDING" },
+      where: { status: "PENDING", cedente: { owner: { team: session.team } } },
       _sum: { amountCents: true },
     });
     const pendingCedenteCommissionsCents = safeInt(pendingAgg._sum.amountCents);
 
-    // ✅ A RECEBER (recebimentos em aberto): soma do saldo balanceCents dos OPEN
+    // ✅ A RECEBER (clientes): soma balanceCents dos receivables OPEN do team
+    // (deriva o team via Sale -> Cedente -> Owner.team)
     const receivablesAgg = await prisma.receivable.aggregate({
-      where: { status: "OPEN" },
+      where: {
+        status: "OPEN",
+        sale: { is: { cedente: { owner: { team: session.team } } } },
+      },
       _sum: { balanceCents: true },
     });
     const receivablesOpenCents = safeInt(receivablesAgg._sum.balanceCents);
+
+    // ✅ A PAGAR (funcionários): soma netPayCents pendente (paidAt null) do team
+    const empPendingAgg = await prisma.employeePayout.aggregate({
+      where: { team: session.team, paidAt: null },
+      _sum: { netPayCents: true },
+    });
+    const employeePayoutsPendingCents = safeInt(empPendingAgg._sum.netPayCents);
+
+    // ✅ IMPOSTOS pendentes: soma por mês de tax7Cents onde NÃO existe pagamento do mês (paidAt não preenchido)
+    const taxPendingRows = await prisma.$queryRaw<
+      Array<{ pendingTaxCents: bigint }>
+    >`
+      WITH m AS (
+        SELECT
+          substring(ep."date", 1, 7) AS "month",
+          COALESCE(SUM(ep."tax7Cents"), 0)::bigint AS "taxCents"
+        FROM "employee_payouts" ep
+        WHERE ep."team" = ${session.team}
+        GROUP BY 1
+      )
+      SELECT
+        COALESCE(SUM(
+          CASE
+            WHEN tmp."paidAt" IS NULL THEN m."taxCents"
+            ELSE 0
+          END
+        ), 0)::bigint AS "pendingTaxCents"
+      FROM m
+      LEFT JOIN "tax_month_payments" tmp
+        ON tmp."team" = ${session.team}
+       AND tmp."month" = m."month"
+    `;
+    const taxesPendingCents = safeInt(taxPendingRows?.[0]?.pendingTaxCents);
+
+    const latestCashCents = safeInt(latest?.cashCents ?? 0);
+
+    // ✅ caixa projetado (pra você já usar no front)
+    const cashProjectedCents =
+      latestCashCents +
+      receivablesOpenCents -
+      employeePayoutsPendingCents -
+      taxesPendingCents;
 
     return NextResponse.json(
       {
@@ -99,13 +151,9 @@ export async function GET() {
           points,
           ratesCents: settings,
 
-          // ✅ caixa “gravado” (pra preencher o input)
-          latestCashCents: latest?.cashCents ?? 0,
+          latestCashCents,
+          latestTotalLiquidoCents: safeInt(latest?.totalLiquido ?? 0),
 
-          // ✅ total líquido do último snapshot (se quiser usar)
-          latestTotalLiquidoCents: latest?.totalLiquido ?? 0,
-
-          // ✅ histórico completo
           snapshots: snapshots.map((s) => ({
             id: s.id,
             date: s.date.toISOString(),
@@ -117,11 +165,16 @@ export async function GET() {
 
           debtsOpenCents,
 
-          // ✅ novo campo pro front
           pendingCedenteCommissionsCents,
 
-          // ✅ novo campo: total a receber (OPEN)
           receivablesOpenCents,
+
+          // ✅ novos
+          employeePayoutsPendingCents,
+          taxesPendingCents,
+
+          // ✅ pronto pro front
+          cashProjectedCents,
         },
       },
       { status: 200 }
@@ -139,9 +192,6 @@ export async function POST(req: Request) {
   try {
     const body = await req.json();
 
-    // ✅ Aceita 2 formatos:
-    // (novo) cashCents, totalBruto, totalDividas, totalLiquido
-    // (antigo) totalBrutoCents, totalDividasCents, totalLiquidoCents
     const cashCents = toIntOrNull(body.cashCents ?? body.caixaCents ?? 0);
 
     const totalBrutoCents = toIntOrNull(body.totalBruto ?? body.totalBrutoCents);
@@ -154,13 +204,9 @@ export async function POST(req: Request) {
       totalDividasCents == null ||
       totalLiquidoCents == null
     ) {
-      return NextResponse.json(
-        { ok: false, error: "Valores inválidos." },
-        { status: 400 }
-      );
+      return NextResponse.json({ ok: false, error: "Valores inválidos." }, { status: 400 });
     }
 
-    // 📅 usa o dia atual (00:00)
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 

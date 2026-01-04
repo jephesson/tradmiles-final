@@ -4,7 +4,6 @@ import { useEffect, useMemo, useState } from "react";
 
 type Points = { latam: number; smiles: number; livelo: number; esfera: number };
 
-// ✅ snapshot guarda bruto/dividas/liquido (e o caixa vem separado do backend)
 type Snapshot = {
   id: string;
   date: string;
@@ -121,12 +120,23 @@ export default function CedentesResumoClient() {
 
   const [debtsOpenCents, setDebtsOpenCents] = useState<number>(0);
 
-  // ✅ novo: comissões pendentes (cedentes)
+  // ✅ comissões pendentes (cedentes)
   const [pendingCedenteCommissionsCents, setPendingCedenteCommissionsCents] =
     useState<number>(0);
 
-  // ✅ novo: recebimentos em aberto (A RECEBER)
+  // ✅ recebimentos em aberto (A RECEBER)
   const [receivablesOpenCents, setReceivablesOpenCents] = useState<number>(0);
+
+  // ✅ NOVO: a pagar funcionários (pendente)
+  const [employeePayoutsPendingCents, setEmployeePayoutsPendingCents] =
+    useState<number>(0);
+
+  // ✅ NOVO: impostos pendentes (mês não pago)
+  const [taxesPendingCents, setTaxesPendingCents] = useState<number>(0);
+
+  // ✅ opcional: se o backend mandar pronto, usamos (senão calculamos)
+  const [cashProjectedFromApiCents, setCashProjectedFromApiCents] =
+    useState<number | null>(null);
 
   const [rateLatam, setRateLatam] = useState("20,00");
   const [rateSmiles, setRateSmiles] = useState("18,00");
@@ -145,7 +155,6 @@ export default function CedentesResumoClient() {
       setPoints(j.data.points);
       setSnapshots(j.data.snapshots);
 
-      // ✅ input do Caixa vem do CASH (não do total líquido)
       const latestCashCents = Number(j.data.latestCashCents ?? 0);
       setCashInput(String((latestCashCents / 100).toFixed(2)).replace(".", ","));
 
@@ -159,13 +168,20 @@ export default function CedentesResumoClient() {
 
       setDebtsOpenCents(Number(j.data.debtsOpenCents || 0));
 
-      // ✅ comissões pendentes
       setPendingCedenteCommissionsCents(
         Number(j.data.pendingCedenteCommissionsCents || 0)
       );
 
-      // ✅ recebimentos em aberto
       setReceivablesOpenCents(Number(j.data.receivablesOpenCents || 0));
+
+      // ✅ novos
+      setEmployeePayoutsPendingCents(Number(j.data.employeePayoutsPendingCents || 0));
+      setTaxesPendingCents(Number(j.data.taxesPendingCents || 0));
+
+      const apiProjected = j.data.cashProjectedCents;
+      setCashProjectedFromApiCents(
+        apiProjected == null ? null : Number(apiProjected || 0)
+      );
 
       setDidLoad(true);
     } catch (e: any) {
@@ -222,7 +238,7 @@ export default function CedentesResumoClient() {
     const cashCents = toCentsFromInput(cashInput);
     const receivableCents = Number(receivablesOpenCents || 0);
 
-    // ✅ BRUTO agora inclui A RECEBER
+    // ✅ BRUTO inclui A RECEBER
     const totalGrossCents =
       vLatamCents +
       vSmilesCents +
@@ -231,12 +247,27 @@ export default function CedentesResumoClient() {
       cashCents +
       receivableCents;
 
-    // ✅ teu líquido "oficial" (o que você salva no snapshot) continua: bruto - dívidas
+    // ✅ snapshot “oficial”: bruto - dívidas (como você já faz)
     const totalNetCents = totalGrossCents - (debtsOpenCents || 0);
 
-    // ✅ líquido “referência” após comissões (não mexe no snapshot)
-    const totalAfterCommissionsCents =
-      totalNetCents - (pendingCedenteCommissionsCents || 0);
+    // ✅ referência final: subtrai também comissões, funcionários e impostos
+    const totalAfterPendingsCents =
+      totalNetCents -
+      (pendingCedenteCommissionsCents || 0) -
+      (employeePayoutsPendingCents || 0) -
+      (taxesPendingCents || 0);
+
+    // ✅ caixa projetado (só caixa + a receber - a pagar func - impostos)
+    const cashProjectedCalcCents =
+      cashCents +
+      receivableCents -
+      (employeePayoutsPendingCents || 0) -
+      (taxesPendingCents || 0);
+
+    const cashProjectedCents =
+      cashProjectedFromApiCents != null
+        ? cashProjectedFromApiCents
+        : cashProjectedCalcCents;
 
     return {
       milLatam,
@@ -251,7 +282,8 @@ export default function CedentesResumoClient() {
       receivableCents,
       totalGrossCents,
       totalNetCents,
-      totalAfterCommissionsCents,
+      totalAfterPendingsCents,
+      cashProjectedCents,
     };
   }, [
     points,
@@ -263,6 +295,9 @@ export default function CedentesResumoClient() {
     debtsOpenCents,
     pendingCedenteCommissionsCents,
     receivablesOpenCents,
+    employeePayoutsPendingCents,
+    taxesPendingCents,
+    cashProjectedFromApiCents,
   ]);
 
   async function salvarCaixaHoje() {
@@ -274,7 +309,7 @@ export default function CedentesResumoClient() {
           cashCents: calc.cashCents,
           totalBrutoCents: calc.totalGrossCents,
           totalDividasCents: debtsOpenCents,
-          totalLiquidoCents: calc.totalNetCents, // ✅ mantém teu snapshot igual
+          totalLiquidoCents: calc.totalNetCents, // ✅ snapshot continua igual
         }),
       });
 
@@ -294,8 +329,7 @@ export default function CedentesResumoClient() {
         <div>
           <h1 className="text-2xl font-bold">Resumo</h1>
           <p className="text-sm text-slate-600">
-            Patrimônio estimado: milhas (por milheiro) + caixa (Inter) + a receber − dívidas.{" "}
-            <span className="text-slate-500">(Comissões pendentes exibidas à parte)</span>
+            Patrimônio estimado: milhas (por milheiro) + caixa + a receber − dívidas − pendências (comissões/funcionários/impostos).
           </p>
         </div>
 
@@ -308,7 +342,7 @@ export default function CedentesResumoClient() {
         </button>
       </div>
 
-      {/* Top cards: Milhas + Caixa + Comissões */}
+      {/* Top cards: Milhas + Caixa + Pendências */}
       <div className="grid gap-4 lg:grid-cols-3">
         {/* Milhas */}
         <div className="rounded-2xl border bg-white p-4 space-y-3">
@@ -355,6 +389,14 @@ export default function CedentesResumoClient() {
             placeholder="Ex: 12345,67"
           />
 
+          <div className="rounded-xl border bg-slate-50 p-3">
+            <div className="text-xs text-slate-600">Caixa projetado</div>
+            <div className="text-xl font-bold">{fmtMoneyBR(calc.cashProjectedCents)}</div>
+            <div className="text-xs text-slate-500 mt-1">
+              caixa + a receber − (a pagar funcionários + impostos)
+            </div>
+          </div>
+
           <button
             onClick={salvarCaixaHoje}
             className="w-full rounded-xl bg-black px-4 py-2 text-white text-sm hover:bg-gray-800"
@@ -367,27 +409,49 @@ export default function CedentesResumoClient() {
           </div>
         </div>
 
-        {/* Comissões pendentes */}
+        {/* Pendências */}
         <div className="rounded-2xl border bg-white p-4 space-y-3">
           <div className="flex items-center justify-between">
-            <div className="font-semibold">Comissões</div>
+            <div className="font-semibold">Pendências</div>
             <span className="text-[11px] rounded-full bg-slate-100 px-2 py-1 text-slate-600">
-              cedentes
+              a pagar
             </span>
           </div>
 
-          <div className="rounded-xl border bg-slate-50 p-3">
-            <div className="text-xs text-slate-600">Pendentes</div>
-            <div className="text-xl font-bold">
-              {fmtMoneyBR(pendingCedenteCommissionsCents)}
+          <div className="grid gap-2">
+            <div className="rounded-xl border bg-slate-50 p-3">
+              <div className="text-xs text-slate-600">Comissões (cedentes)</div>
+              <div className="text-xl font-bold">
+                {fmtMoneyBR(pendingCedenteCommissionsCents)}
+              </div>
+              <div className="text-xs text-slate-500 mt-1">
+                soma status <b>PENDING</b>
+              </div>
             </div>
-            <div className="text-xs text-slate-500 mt-1">
-              soma de comissões com status <b>PENDING</b>
+
+            <div className="rounded-xl border bg-slate-50 p-3">
+              <div className="text-xs text-slate-600">A pagar (funcionários)</div>
+              <div className="text-xl font-bold">
+                {fmtMoneyBR(employeePayoutsPendingCents)}
+              </div>
+              <div className="text-xs text-slate-500 mt-1">
+                soma netPayCents com <b>paidAt = null</b>
+              </div>
+            </div>
+
+            <div className="rounded-xl border bg-slate-50 p-3">
+              <div className="text-xs text-slate-600">Impostos pendentes</div>
+              <div className="text-xl font-bold">
+                {fmtMoneyBR(taxesPendingCents)}
+              </div>
+              <div className="text-xs text-slate-500 mt-1">
+                meses ainda não marcados como pagos
+              </div>
             </div>
           </div>
 
           <div className="text-xs text-slate-600">
-            Isso é “a pagar” pro cedente (não altera o snapshot salvo).
+            Esses valores entram no “líquido (referência)”.
           </div>
         </div>
       </div>
@@ -415,7 +479,6 @@ export default function CedentesResumoClient() {
           </button>
         </div>
 
-        {/* Inputs */}
         <div className="grid gap-3 sm:grid-cols-2">
           <Input label="LATAM" value={rateLatam} onChange={setRateLatam} />
           <Input label="Smiles" value={rateSmiles} onChange={setRateSmiles} />
@@ -423,7 +486,6 @@ export default function CedentesResumoClient() {
           <Input label="Esfera" value={rateEsfera} onChange={setRateEsfera} />
         </div>
 
-        {/* Valores por programa */}
         <div className="grid gap-3 sm:grid-cols-2">
           <div className="rounded-xl border p-3">
             <div className="text-xs text-slate-600">LATAM</div>
@@ -456,7 +518,7 @@ export default function CedentesResumoClient() {
         </div>
 
         {/* Totais */}
-        <div className="grid gap-3 md:grid-cols-5">
+        <div className="grid gap-3 md:grid-cols-4">
           <StatCard
             label="TOTAL BRUTO (milhas + caixa + a receber)"
             value={fmtMoneyBR(calc.totalGrossCents)}
@@ -464,30 +526,50 @@ export default function CedentesResumoClient() {
           <StatCard
             label="A RECEBER (aberto)"
             value={`+${fmtMoneyBR(calc.receivableCents)}`}
-            hint="saldo total OPEN em recebimentos"
+            hint="saldo total OPEN"
           />
           <StatCard
             label="DÍVIDAS EM ABERTO"
             value={`-${fmtMoneyBR(debtsOpenCents)}`}
-            hint="saldo total das dívidas OPEN"
+            hint="saldo total OPEN"
             tone="danger"
           />
           <StatCard
-            label="COMISSÕES PENDENTES"
+            label="LÍQUIDO (snapshot)"
+            value={fmtMoneyBR(calc.totalNetCents)}
+            hint="bruto − dívidas (o que você salva)"
+          />
+        </div>
+
+        <div className="grid gap-3 md:grid-cols-4">
+          <StatCard
+            label="COMISSÕES PENDENTES (cedentes)"
             value={`-${fmtMoneyBR(pendingCedenteCommissionsCents)}`}
-            hint="somatório PENDING (cedentes)"
+            hint="status PENDING"
+            tone="danger"
+          />
+          <StatCard
+            label="A PAGAR (funcionários)"
+            value={`-${fmtMoneyBR(employeePayoutsPendingCents)}`}
+            hint="paidAt = null"
+            tone="danger"
+          />
+          <StatCard
+            label="IMPOSTOS PENDENTES"
+            value={`-${fmtMoneyBR(taxesPendingCents)}`}
+            hint="meses não pagos"
             tone="danger"
           />
           <StatCard
             label="LÍQUIDO (referência)"
-            value={fmtMoneyBR(calc.totalAfterCommissionsCents)}
-            hint="(milhas+caixa+a receber) − dívidas − comissões"
+            value={fmtMoneyBR(calc.totalAfterPendingsCents)}
+            hint="snapshot − comissões − func − impostos"
             tone="dark"
           />
         </div>
 
         <div className="text-xs text-slate-600">
-          * O snapshot diário continua salvando <b>bruto − dívidas</b>. Esse “líquido (referência)” é só um indicador.
+          * O snapshot diário continua salvando <b>bruto − dívidas</b>. O “líquido (referência)” é um indicador operacional.
         </div>
       </div>
 
