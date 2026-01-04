@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
-import { getSessionFromCookies } from "@/lib/auth";
+import { getSessionFromCookies } from "@/lib/auth-server";
 import ClubesClient from "./ClubesClient";
 
 export const runtime = "nodejs";
