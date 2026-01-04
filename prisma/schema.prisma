@@ -125,6 +125,13 @@ model User {
   employeePayouts     EmployeePayout[] @relation("EmployeePayoutUser")
   employeePayoutsPaid EmployeePayout[] @relation("EmployeePayoutPaidBy")
 
+  /**
+   * =========================
+   * IMPOSTOS (PAGAMENTO MENSAL)
+   * =========================
+   */
+  taxMonthsPaid TaxMonthPayment[] @relation("TaxMonthPaidBy")
+
   // Um convite por usuário
   employeeInvite EmployeeInvite?
 
@@ -808,4 +815,34 @@ model EmployeePayout {
   @@index([team, date])
   @@index([userId, date])
   @@map("employee_payouts")
+}
+
+/**
+ * =========================
+ * IMPOSTOS (FECHAMENTO / PAGAMENTO MENSAL)
+ * =========================
+ * - month: "YYYY-MM"
+ * - totalTaxCents: snapshot do total de imposto do mês quando marcou como pago
+ * - breakdown: snapshot por usuário (ex.: [{ userId, taxCents }...])
+ */
+model TaxMonthPayment {
+  id    String @id @default(cuid())
+
+  team  String
+  month String // "YYYY-MM"
+
+  totalTaxCents Int @default(0)
+  breakdown     Json?
+
+  paidAt   DateTime?
+  paidById String?
+  paidBy   User? @relation("TaxMonthPaidBy", fields: [paidById], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([team, month], map: "uniq_tax_month_payment_team_month")
+  @@index([team, month])
+  @@index([paidAt])
+  @@map("tax_month_payments")
 }
