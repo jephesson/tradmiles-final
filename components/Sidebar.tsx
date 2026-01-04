@@ -42,8 +42,11 @@ export default function Sidebar() {
   const isComprasRoute = pathname.startsWith("/dashboard/compras");
   const isVendasRoute = pathname.startsWith("/dashboard/vendas");
 
+  // ✅ NOVO: Clubes
+  const isClubesRoute = pathname.startsWith("/dashboard/clubes");
+
   const isGestaoPontosRoute =
-    isPontosVisualizarRoute || isComprasRoute || isVendasRoute;
+    isPontosVisualizarRoute || isComprasRoute || isVendasRoute || isClubesRoute;
 
   // ✅ Lucros/Comissões (sem rateio)
   const isLucrosRoute =
@@ -124,6 +127,10 @@ export default function Sidebar() {
   const [openGestaoPontos, setOpenGestaoPontos] = useState(isGestaoPontosRoute);
   const [openPontosVisualizar, setOpenPontosVisualizar] =
     useState(isPontosVisualizarRoute);
+
+  // ✅ NOVO: SubAccordion Clubes
+  const [openClubes, setOpenClubes] = useState(isClubesRoute);
+
   const [openCompras, setOpenCompras] = useState(isComprasRoute);
   const [openVendas, setOpenVendas] = useState(isVendasRoute);
 
@@ -187,6 +194,12 @@ export default function Sidebar() {
     () => setOpenPontosVisualizar(isPontosVisualizarRoute),
     [isPontosVisualizarRoute]
   );
+
+  // ✅ NOVO: abre Clubes automaticamente quando estiver em /dashboard/clubes/*
+  useEffect(() => {
+    setOpenClubes(isClubesRoute);
+  }, [isClubesRoute]);
+
   useEffect(() => setOpenCompras(isComprasRoute), [isComprasRoute]);
   useEffect(() => setOpenVendas(isVendasRoute), [isVendasRoute]);
 
@@ -444,6 +457,19 @@ export default function Sidebar() {
             )}
           </SubAccordion>
 
+          {/* ✅ NOVO: CLUBES */}
+          <SubAccordion
+            title="Clubes"
+            open={openClubes}
+            onToggle={() => setOpenClubes((v) => !v)}
+          >
+            <NavLink href="/dashboard/clubes/latam">Clube Latam</NavLink>
+            <NavLink href="/dashboard/clubes/smiles">Clube Smiles</NavLink>
+            <NavLink href="/dashboard/clubes/esfera">Clube Esfera</NavLink>
+            <NavLink href="/dashboard/clubes/livelo">Clube Livelo</NavLink>
+            <NavLink href="/dashboard/clubes/combinacao">Combinação</NavLink>
+          </SubAccordion>
+
           <SubAccordion
             title="Compras"
             open={openCompras}
@@ -504,7 +530,7 @@ export default function Sidebar() {
 
         {/* ================= ANÁLISE ================= */}
         <Accordion
-          title="Análise"
+          title="Análise & Estratégia"
           open={openAnalise}
           onToggle={() => setOpenAnalise((v) => !v)}
           active={isAnaliseRoute}
