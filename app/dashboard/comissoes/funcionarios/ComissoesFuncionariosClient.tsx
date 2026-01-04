@@ -49,6 +49,23 @@ type DayResponse = {
   totals: DayTotals;
 };
 
+type MonthTotals = {
+  gross: number;
+  tax: number;
+  fee: number;
+  net: number;
+  paid: number;
+  pending: number;
+};
+
+type MonthResponse = {
+  ok: true;
+  userId: string;
+  month: string; // YYYY-MM
+  totals: MonthTotals;
+  days: PayoutRow[]; // vem do include user/paidBy também
+};
+
 function fmtMoneyBR(cents: number) {
   return ((cents || 0) / 100).toLocaleString("pt-BR", {
     style: "currency",
@@ -72,6 +89,17 @@ function todayISORecife() {
   return `${parts.year}-${parts.month}-${parts.day}`;
 }
 
+function monthFromISODate(dateISO: string) {
+  return String(dateISO || "").slice(0, 7);
+}
+
+function fmtDateTimeBR(iso?: string | null) {
+  if (!iso) return "-";
+  const d = new Date(String(iso));
+  if (Number.isNaN(d.getTime())) return String(iso);
+  return d.toLocaleString("pt-BR");
+}
+
 async function apiGet<T>(url: string): Promise<T> {
   const res = await fetch(url, { cache: "no-store", credentials: "include" });
   let json: any = null;
@@ -83,11 +111,10 @@ async function apiGet<T>(url: string): Promise<T> {
     const msg =
       json?.error ||
       (res.status === 401 || res.status === 403
-        ? "Não autenticado (cookie tm.session não chegou)"
+        ? "Não autenticado/sem permissão (cookie tm.session não chegou)"
         : `Erro (${res.status})`);
     throw new Error(msg);
   }
-
   return json as T;
 }
 
@@ -109,11 +136,10 @@ async function apiPost<T>(url: string, body?: any): Promise<T> {
     const msg =
       json?.error ||
       (res.status === 401 || res.status === 403
-        ? "Não autenticado (cookie tm.session não chegou)"
+        ? "Não autenticado/sem permissão (cookie tm.session não chegou)"
         : `Erro (${res.status})`);
     throw new Error(msg);
   }
-
   return json as T;
 }
 
@@ -126,12 +152,41 @@ function KPI({ label, value }: { label: string; value: string }) {
   );
 }
 
+function Pill({
+  kind,
+  text,
+}: {
+  kind: "ok" | "warn" | "muted";
+  text: string;
+}) {
+  const cls =
+    kind === "ok"
+      ? "bg-emerald-50 text-emerald-700"
+      : kind === "warn"
+      ? "bg-amber-50 text-amber-700"
+      : "bg-neutral-100 text-neutral-700";
+
+  return <span className={`rounded-full px-2 py-1 text-xs ${cls}`}>{text}</span>;
+}
+
 export default function ComissoesFuncionariosClient() {
   const [date, setDate] = useState<string>(() => todayISORecife());
   const [day, setDay] = useState<DayResponse | null>(null);
+
   const [loading, setLoading] = useState(false);
   const [computing, setComputing] = useState(false);
-  const [toast, setToast] = useState<{ title: string; desc?: string } | null>(null);
+  const [payingUserId, setPayingUserId] = useState<string | null>(null);
+
+  const [toast, setToast] = useState<{ title: string; desc?: string } | null>(
+    null
+  );
+
+  // drawer do mês
+  const [monthOpen, setMonthOpen] = useState(false);
+  const [monthUser, setMonthUser] = useState<UserLite | null>(null);
+  const [month, setMonth] = useState<string>(() => monthFromISODate(todayISORecife()));
+  const [monthData, setMonthData] = useState<MonthResponse | null>(null);
+  const [monthLoading, setMonthLoading] = useState(false);
 
   const today = useMemo(() => todayISORecife(), []);
   const isFutureOrToday = useMemo(() => date >= today, [date, today]);
@@ -151,7 +206,10 @@ export default function ComissoesFuncionariosClient() {
         rows: [],
         totals: { gross: 0, tax: 0, fee: 0, net: 0, paid: 0, pending: 0 },
       });
-      setToast({ title: "Não foi possível carregar o dia", desc: e?.message || String(e) });
+      setToast({
+        title: "Não foi possível carregar o dia",
+        desc: e?.message || String(e),
+      });
     } finally {
       setLoading(false);
     }
@@ -160,8 +218,6 @@ export default function ComissoesFuncionariosClient() {
   async function computeDay(d = date) {
     setComputing(true);
     try {
-      // ✅ você precisa ter esse route:
-      // POST /api/payouts/funcionarios/compute  body: { date: "YYYY-MM-DD" }
       await apiPost<{ ok: true }>(`/api/payouts/funcionarios/compute`, { date: d });
       await loadDay(d);
       setToast({ title: "Dia computado!", desc: `Comissões calculadas para ${d}.` });
@@ -172,10 +228,53 @@ export default function ComissoesFuncionariosClient() {
     }
   }
 
+  async function payRow(d: string, userId: string) {
+    setPayingUserId(userId);
+    try {
+      await apiPost<{ ok: true }>(`/api/payouts/funcionarios/pay`, { date: d, userId });
+      await loadDay(d);
+
+      if (monthOpen && monthUser?.id === userId) {
+        await loadMonth(userId, month);
+      }
+
+      setToast({ title: "Pago!", desc: `Pagamento marcado para ${d}.` });
+    } catch (e: any) {
+      setToast({ title: "Falha ao pagar", desc: e?.message || String(e) });
+    } finally {
+      setPayingUserId(null);
+    }
+  }
+
+  async function loadMonth(userId: string, m: string) {
+    setMonthLoading(true);
+    try {
+      const data = await apiGet<MonthResponse>(
+        `/api/payouts/funcionarios/month?userId=${encodeURIComponent(userId)}&month=${encodeURIComponent(m)}`
+      );
+      setMonthData(data);
+    } catch (e: any) {
+      setMonthData(null);
+      setToast({ title: "Falha ao carregar mês", desc: e?.message || String(e) });
+    } finally {
+      setMonthLoading(false);
+    }
+  }
+
+  async function openMonthDrawer(u: UserLite) {
+    const m = monthFromISODate(date);
+    setMonth(m);
+    setMonthUser(u);
+    setMonthOpen(true);
+    await loadMonth(u.id, m);
+  }
+
   useEffect(() => {
     loadDay(date);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [date]);
+
+  const monthLabel = useMemo(() => monthFromISODate(date), [date]);
 
   return (
     <div className="space-y-4 p-4">
@@ -183,7 +282,7 @@ export default function ComissoesFuncionariosClient() {
         <div className="space-y-1">
           <h1 className="text-xl font-semibold">Comissões — Funcionários</h1>
           <p className="text-sm text-neutral-500">
-            Começando por <b>Comissão 1 (1%)</b>. O sistema lista <b>todos</b> os funcionários do time.
+            Começando por <b>Comissão 1 (1%)</b>. O sistema lista os funcionários do time (admin vê todos; staff tende a ver só ele).
           </p>
         </div>
 
@@ -244,11 +343,18 @@ export default function ComissoesFuncionariosClient() {
                 <th className="px-4 py-3">Taxa embarque</th>
                 <th className="px-4 py-3">Líquido</th>
                 <th className="px-4 py-3">Status</th>
+                <th className="px-4 py-3 text-right">Ações</th>
               </tr>
             </thead>
+
             <tbody>
               {(day?.rows || []).map((r) => {
                 const b = r.breakdown;
+                const isMissing = String(r.id || "").startsWith("missing:");
+                const isPaid = !!r.paidById;
+                const canPay = !isMissing && !isPaid && canCompute; // só dias anteriores
+                const paying = payingUserId === r.userId;
+
                 return (
                   <tr key={r.id} className="border-t">
                     <td className="px-4 py-3">
@@ -260,23 +366,52 @@ export default function ComissoesFuncionariosClient() {
                       {b?.salesCount ?? 0}
                     </td>
 
-                    <td className="px-4 py-3">
-                      {fmtMoneyBR(b?.commission1Cents ?? 0)}
-                    </td>
+                    <td className="px-4 py-3">{fmtMoneyBR(b?.commission1Cents ?? 0)}</td>
                     <td className="px-4 py-3">{fmtMoneyBR(r.tax7Cents || 0)}</td>
                     <td className="px-4 py-3">{fmtMoneyBR(r.feeCents || 0)}</td>
                     <td className="px-4 py-3 font-semibold">{fmtMoneyBR(r.netPayCents || 0)}</td>
 
                     <td className="px-4 py-3">
-                      {r.paidById ? (
-                        <span className="rounded-full bg-emerald-50 px-2 py-1 text-xs text-emerald-700">
-                          PAGO
-                        </span>
+                      {isPaid ? (
+                        <div className="space-y-1">
+                          <Pill kind="ok" text="PAGO" />
+                          <div className="text-xs text-neutral-500">
+                            {r.paidBy?.name ? `por ${r.paidBy.name}` : ""}
+                            {r.paidAt ? ` • ${fmtDateTimeBR(r.paidAt)}` : ""}
+                          </div>
+                        </div>
                       ) : (
-                        <span className="rounded-full bg-amber-50 px-2 py-1 text-xs text-amber-700">
-                          PENDENTE
-                        </span>
+                        <Pill kind={canCompute ? "warn" : "muted"} text="PENDENTE" />
                       )}
+                    </td>
+
+                    <td className="px-4 py-3 text-right">
+                      <div className="flex justify-end gap-2">
+                        <button
+                          onClick={() => openMonthDrawer(r.user)}
+                          className="h-9 rounded-xl border px-3 text-xs hover:bg-neutral-50"
+                          title={`Ver mês (${monthLabel})`}
+                        >
+                          Ver mês
+                        </button>
+
+                        <button
+                          onClick={() => payRow(date, r.userId)}
+                          disabled={!canPay || paying}
+                          className="h-9 rounded-xl bg-black px-3 text-xs text-white hover:bg-neutral-800 disabled:opacity-50"
+                          title={
+                            canPay
+                              ? "Marcar como pago"
+                              : isMissing
+                              ? "Ainda não existe payout no banco (compute o dia)"
+                              : isPaid
+                              ? "Já pago"
+                              : "Só paga dia fechado (anterior a hoje)"
+                          }
+                        >
+                          {paying ? "Pagando..." : "Pagar"}
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 );
@@ -284,7 +419,7 @@ export default function ComissoesFuncionariosClient() {
 
               {!day?.rows?.length && (
                 <tr>
-                  <td className="px-4 py-8 text-center text-sm text-neutral-500" colSpan={7}>
+                  <td className="px-4 py-8 text-center text-sm text-neutral-500" colSpan={8}>
                     Sem dados para este dia (ou ainda não autenticado).
                   </td>
                 </tr>
@@ -298,6 +433,148 @@ export default function ComissoesFuncionariosClient() {
         Nota: “Bruto (C1)” = soma da Comissão 1 (1%). Depois a gente adiciona Comissão 2 (bônus) e Comissão 3 (rateio).
       </p>
 
+      {/* Drawer mês */}
+      {monthOpen && (
+        <div className="fixed inset-0 z-50">
+          <div
+            className="absolute inset-0 bg-black/40"
+            onClick={() => setMonthOpen(false)}
+          />
+          <div className="absolute right-0 top-0 h-full w-full max-w-[520px] bg-white shadow-2xl">
+            <div className="flex items-center justify-between border-b p-4">
+              <div>
+                <div className="text-sm font-semibold">Mês do funcionário</div>
+                <div className="text-xs text-neutral-500">
+                  {monthUser ? (
+                    <>
+                      <span className="font-medium">{monthUser.name}</span>{" "}
+                      <span className="text-neutral-400">•</span>{" "}
+                      <span>{monthUser.login}</span>
+                    </>
+                  ) : (
+                    "-"
+                  )}
+                </div>
+              </div>
+
+              <button
+                onClick={() => setMonthOpen(false)}
+                className="h-9 rounded-xl border px-3 text-xs hover:bg-neutral-50"
+              >
+                Fechar
+              </button>
+            </div>
+
+            <div className="space-y-3 p-4">
+              <div className="flex items-end justify-between gap-2">
+                <div className="flex flex-col">
+                  <label className="text-xs text-neutral-500">Mês (YYYY-MM)</label>
+                  <input
+                    value={month}
+                    onChange={(e) => setMonth(e.target.value.slice(0, 7))}
+                    placeholder="YYYY-MM"
+                    className="h-10 rounded-xl border px-3 text-sm"
+                  />
+                </div>
+
+                <button
+                  onClick={() => monthUser && loadMonth(monthUser.id, month)}
+                  disabled={!monthUser || monthLoading}
+                  className="h-10 rounded-xl bg-black px-4 text-sm text-white hover:bg-neutral-800 disabled:opacity-50"
+                >
+                  {monthLoading ? "Carregando..." : "Atualizar mês"}
+                </button>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <KPI label="Bruto" value={fmtMoneyBR(monthData?.totals.gross || 0)} />
+                <KPI label="Imposto" value={fmtMoneyBR(monthData?.totals.tax || 0)} />
+                <KPI label="Taxas" value={fmtMoneyBR(monthData?.totals.fee || 0)} />
+                <KPI label="Líquido" value={fmtMoneyBR(monthData?.totals.net || 0)} />
+                <KPI label="Pago" value={fmtMoneyBR(monthData?.totals.paid || 0)} />
+                <KPI label="Pendente" value={fmtMoneyBR(monthData?.totals.pending || 0)} />
+              </div>
+
+              <div className="overflow-hidden rounded-2xl border">
+                <div className="max-h-[55vh] overflow-auto">
+                  <table className="w-full text-left text-sm">
+                    <thead className="sticky top-0 bg-neutral-50 text-xs text-neutral-600">
+                      <tr>
+                        <th className="px-4 py-3">Dia</th>
+                        <th className="px-4 py-3 text-right">Vendas</th>
+                        <th className="px-4 py-3">Bruto</th>
+                        <th className="px-4 py-3">Líquido</th>
+                        <th className="px-4 py-3">Status</th>
+                        <th className="px-4 py-3 text-right">Ação</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(monthData?.days || []).map((r) => {
+                        const b = r.breakdown;
+                        const isPaid = !!r.paidById;
+                        const canPayThisDay = !isPaid && r.date < todayISORecife();
+                        const paying = payingUserId === r.userId && r.date === date; // só UI
+                        return (
+                          <tr key={r.id} className="border-t">
+                            <td className="px-4 py-3 font-medium">{r.date}</td>
+                            <td className="px-4 py-3 text-right tabular-nums">
+                              {b?.salesCount ?? 0}
+                            </td>
+                            <td className="px-4 py-3">{fmtMoneyBR(r.grossProfitCents || 0)}</td>
+                            <td className="px-4 py-3 font-semibold">{fmtMoneyBR(r.netPayCents || 0)}</td>
+                            <td className="px-4 py-3">
+                              {isPaid ? (
+                                <div className="space-y-1">
+                                  <Pill kind="ok" text="PAGO" />
+                                  <div className="text-xs text-neutral-500">
+                                    {r.paidBy?.name ? `por ${r.paidBy.name}` : ""}
+                                    {r.paidAt ? ` • ${fmtDateTimeBR(r.paidAt)}` : ""}
+                                  </div>
+                                </div>
+                              ) : (
+                                <Pill kind="warn" text="PENDENTE" />
+                              )}
+                            </td>
+                            <td className="px-4 py-3 text-right">
+                              <button
+                                onClick={() => monthUser && payRow(r.date, monthUser.id)}
+                                disabled={!monthUser || !canPayThisDay}
+                                className="h-9 rounded-xl bg-black px-3 text-xs text-white hover:bg-neutral-800 disabled:opacity-50"
+                                title={
+                                  canPayThisDay
+                                    ? "Marcar este dia como pago"
+                                    : "Só paga dias anteriores a hoje / ou já pago"
+                                }
+                              >
+                                {paying ? "..." : "Pagar"}
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+
+                      {!monthData?.days?.length && (
+                        <tr>
+                          <td className="px-4 py-8 text-center text-sm text-neutral-500" colSpan={6}>
+                            Sem dados no mês selecionado.
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              <div className="text-xs text-neutral-500">
+                Dica: o mês mostra apenas os dias que existem na tabela <b>employee_payouts</b>.
+                Se estiver vazio, rode <b>Computar dia</b> nos dias necessários.
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Toast */}
       {toast && (
         <div className="fixed bottom-4 right-4 z-50 w-[360px] rounded-2xl border bg-white p-3 shadow-xl">
           <div className="text-sm font-semibold">{toast.title}</div>
