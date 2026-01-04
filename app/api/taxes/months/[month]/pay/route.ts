@@ -36,12 +36,14 @@ export async function POST(req: NextRequest, ctx: Ctx) {
 
   const now = new Date();
 
+  // ✅ Pagar imposto de um usuário específico
   if (userId) {
     const updated = await prisma.taxMonthPayment.updateMany({
       where: {
         team,
         month,
-        userId,
+        // ✅ em vez de "userId", filtra pelo relacionamento
+        user: { is: { id: userId } },
         amountCents: { gt: 0 },
         status: { not: "PAID" },
       },
@@ -56,6 +58,7 @@ export async function POST(req: NextRequest, ctx: Ctx) {
     return NextResponse.json({ ok: true, updated: updated.count });
   }
 
+  // ✅ Pagar todos do mês
   const updated = await prisma.taxMonthPayment.updateMany({
     where: {
       team,
