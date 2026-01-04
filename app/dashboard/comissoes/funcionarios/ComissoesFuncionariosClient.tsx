@@ -7,8 +7,8 @@ type PaidByLite = { id: string; name: string } | null;
 
 type Breakdown = {
   commission1Cents: number; // 1%
-  commission2Cents?: number;
-  commission3RateioCents?: number;
+  commission2Cents?: number; // bônus
+  commission3RateioCents?: number; // rateio
   salesCount: number;
   taxPercent: number; // 8
 };
@@ -63,7 +63,7 @@ type MonthResponse = {
   userId: string;
   month: string; // YYYY-MM
   totals: MonthTotals;
-  days: PayoutRow[]; // vem do include user/paidBy também
+  days: PayoutRow[];
 };
 
 function fmtMoneyBR(cents: number) {
@@ -71,6 +71,13 @@ function fmtMoneyBR(cents: number) {
     style: "currency",
     currency: "BRL",
   });
+}
+
+function firstName(full?: string, fallback?: string) {
+  const s = String(full || "").trim();
+  if (!s) return fallback || "-";
+  const p = s.split(/\s+/)[0];
+  return p || fallback || "-";
 }
 
 function todayISORecife() {
@@ -152,13 +159,7 @@ function KPI({ label, value }: { label: string; value: string }) {
   );
 }
 
-function Pill({
-  kind,
-  text,
-}: {
-  kind: "ok" | "warn" | "muted";
-  text: string;
-}) {
+function Pill({ kind, text }: { kind: "ok" | "warn" | "muted"; text: string }) {
   const cls =
     kind === "ok"
       ? "bg-emerald-50 text-emerald-700"
@@ -175,11 +176,11 @@ export default function ComissoesFuncionariosClient() {
 
   const [loading, setLoading] = useState(false);
   const [computing, setComputing] = useState(false);
-  const [payingUserId, setPayingUserId] = useState<string | null>(null);
 
-  const [toast, setToast] = useState<{ title: string; desc?: string } | null>(
-    null
-  );
+  // “Pagando...” por (date|userId)
+  const [payingKey, setPayingKey] = useState<string | null>(null);
+
+  const [toast, setToast] = useState<{ title: string; desc?: string } | null>(null);
 
   // drawer do mês
   const [monthOpen, setMonthOpen] = useState(false);
@@ -229,7 +230,8 @@ export default function ComissoesFuncionariosClient() {
   }
 
   async function payRow(d: string, userId: string) {
-    setPayingUserId(userId);
+    const key = `${d}|${userId}`;
+    setPayingKey(key);
     try {
       await apiPost<{ ok: true }>(`/api/payouts/funcionarios/pay`, { date: d, userId });
       await loadDay(d);
@@ -242,7 +244,7 @@ export default function ComissoesFuncionariosClient() {
     } catch (e: any) {
       setToast({ title: "Falha ao pagar", desc: e?.message || String(e) });
     } finally {
-      setPayingUserId(null);
+      setPayingKey(null);
     }
   }
 
@@ -282,7 +284,7 @@ export default function ComissoesFuncionariosClient() {
         <div className="space-y-1">
           <h1 className="text-xl font-semibold">Comissões — Funcionários</h1>
           <p className="text-sm text-neutral-500">
-            Começando por <b>Comissão 1 (1%)</b>. O sistema lista os funcionários do time (admin vê todos; staff tende a ver só ele).
+            Comissão 1 (1%) + colunas de Comissão 2 (bônus) e Comissão 3 (rateio).
           </p>
         </div>
 
@@ -338,10 +340,15 @@ export default function ComissoesFuncionariosClient() {
               <tr>
                 <th className="px-4 py-3">Funcionário</th>
                 <th className="px-4 py-3 text-right">Vendas</th>
+
                 <th className="px-4 py-3">Comissão 1 (1%)</th>
+                <th className="px-4 py-3">Comissão 2 (bônus)</th>
+                <th className="px-4 py-3">Comissão 3 (rateio)</th>
+
                 <th className="px-4 py-3">Imposto (8%)</th>
                 <th className="px-4 py-3">Taxa embarque</th>
                 <th className="px-4 py-3">Líquido</th>
+
                 <th className="px-4 py-3">Status</th>
                 <th className="px-4 py-3 text-right">Ações</th>
               </tr>
@@ -350,23 +357,27 @@ export default function ComissoesFuncionariosClient() {
             <tbody>
               {(day?.rows || []).map((r) => {
                 const b = r.breakdown;
+
                 const isMissing = String(r.id || "").startsWith("missing:");
                 const isPaid = !!r.paidById;
-                const canPay = !isMissing && !isPaid && canCompute; // só dias anteriores
-                const paying = payingUserId === r.userId;
+                const canPay = !isMissing && !isPaid && canCompute;
+                const paying = payingKey === `${date}|${r.userId}`;
+
+                const displayName = firstName(r.user.name, r.user.login);
 
                 return (
                   <tr key={r.id} className="border-t">
                     <td className="px-4 py-3">
-                      <div className="font-medium">{r.user.name}</div>
+                      <div className="font-medium">{displayName}</div>
                       <div className="text-xs text-neutral-500">{r.user.login}</div>
                     </td>
 
-                    <td className="px-4 py-3 text-right tabular-nums">
-                      {b?.salesCount ?? 0}
-                    </td>
+                    <td className="px-4 py-3 text-right tabular-nums">{b?.salesCount ?? 0}</td>
 
                     <td className="px-4 py-3">{fmtMoneyBR(b?.commission1Cents ?? 0)}</td>
+                    <td className="px-4 py-3">{fmtMoneyBR(b?.commission2Cents ?? 0)}</td>
+                    <td className="px-4 py-3">{fmtMoneyBR(b?.commission3RateioCents ?? 0)}</td>
+
                     <td className="px-4 py-3">{fmtMoneyBR(r.tax7Cents || 0)}</td>
                     <td className="px-4 py-3">{fmtMoneyBR(r.feeCents || 0)}</td>
                     <td className="px-4 py-3 font-semibold">{fmtMoneyBR(r.netPayCents || 0)}</td>
@@ -419,7 +430,7 @@ export default function ComissoesFuncionariosClient() {
 
               {!day?.rows?.length && (
                 <tr>
-                  <td className="px-4 py-8 text-center text-sm text-neutral-500" colSpan={8}>
+                  <td className="px-4 py-8 text-center text-sm text-neutral-500" colSpan={10}>
                     Sem dados para este dia (ou ainda não autenticado).
                   </td>
                 </tr>
@@ -430,16 +441,13 @@ export default function ComissoesFuncionariosClient() {
       </div>
 
       <p className="text-xs text-neutral-500">
-        Nota: “Bruto (C1)” = soma da Comissão 1 (1%). Depois a gente adiciona Comissão 2 (bônus) e Comissão 3 (rateio).
+        Nota: “Bruto (C1)” = soma da Comissão 1 (1%). Comissão 2 (bônus) e Comissão 3 (rateio) aparecem nas colunas.
       </p>
 
       {/* Drawer mês */}
       {monthOpen && (
         <div className="fixed inset-0 z-50">
-          <div
-            className="absolute inset-0 bg-black/40"
-            onClick={() => setMonthOpen(false)}
-          />
+          <div className="absolute inset-0 bg-black/40" onClick={() => setMonthOpen(false)} />
           <div className="absolute right-0 top-0 h-full w-full max-w-[520px] bg-white shadow-2xl">
             <div className="flex items-center justify-between border-b p-4">
               <div>
@@ -447,7 +455,9 @@ export default function ComissoesFuncionariosClient() {
                 <div className="text-xs text-neutral-500">
                   {monthUser ? (
                     <>
-                      <span className="font-medium">{monthUser.name}</span>{" "}
+                      <span className="font-medium">
+                        {firstName(monthUser.name, monthUser.login)}
+                      </span>{" "}
                       <span className="text-neutral-400">•</span>{" "}
                       <span>{monthUser.login}</span>
                     </>
@@ -497,71 +507,84 @@ export default function ComissoesFuncionariosClient() {
 
               <div className="overflow-hidden rounded-2xl border">
                 <div className="max-h-[55vh] overflow-auto">
-                  <table className="w-full text-left text-sm">
-                    <thead className="sticky top-0 bg-neutral-50 text-xs text-neutral-600">
-                      <tr>
-                        <th className="px-4 py-3">Dia</th>
-                        <th className="px-4 py-3 text-right">Vendas</th>
-                        <th className="px-4 py-3">Bruto</th>
-                        <th className="px-4 py-3">Líquido</th>
-                        <th className="px-4 py-3">Status</th>
-                        <th className="px-4 py-3 text-right">Ação</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {(monthData?.days || []).map((r) => {
-                        const b = r.breakdown;
-                        const isPaid = !!r.paidById;
-                        const canPayThisDay = !isPaid && r.date < todayISORecife();
-                        const paying = payingUserId === r.userId && r.date === date; // só UI
-                        return (
-                          <tr key={r.id} className="border-t">
-                            <td className="px-4 py-3 font-medium">{r.date}</td>
-                            <td className="px-4 py-3 text-right tabular-nums">
-                              {b?.salesCount ?? 0}
-                            </td>
-                            <td className="px-4 py-3">{fmtMoneyBR(r.grossProfitCents || 0)}</td>
-                            <td className="px-4 py-3 font-semibold">{fmtMoneyBR(r.netPayCents || 0)}</td>
-                            <td className="px-4 py-3">
-                              {isPaid ? (
-                                <div className="space-y-1">
-                                  <Pill kind="ok" text="PAGO" />
-                                  <div className="text-xs text-neutral-500">
-                                    {r.paidBy?.name ? `por ${r.paidBy.name}` : ""}
-                                    {r.paidAt ? ` • ${fmtDateTimeBR(r.paidAt)}` : ""}
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-sm">
+                      <thead className="sticky top-0 bg-neutral-50 text-xs text-neutral-600">
+                        <tr>
+                          <th className="px-4 py-3">Dia</th>
+                          <th className="px-4 py-3 text-right">Vendas</th>
+                          <th className="px-4 py-3">C1</th>
+                          <th className="px-4 py-3">C2</th>
+                          <th className="px-4 py-3">C3</th>
+                          <th className="px-4 py-3">Líquido</th>
+                          <th className="px-4 py-3">Status</th>
+                          <th className="px-4 py-3 text-right">Ação</th>
+                        </tr>
+                      </thead>
+
+                      <tbody>
+                        {(monthData?.days || []).map((r) => {
+                          const b = r.breakdown;
+                          const isPaid = !!r.paidById;
+                          const canPayThisDay = !isPaid && r.date < todayISORecife();
+                          const paying = payingKey === `${r.date}|${r.userId}`;
+
+                          return (
+                            <tr key={r.id} className="border-t">
+                              <td className="px-4 py-3 font-medium">{r.date}</td>
+
+                              <td className="px-4 py-3 text-right tabular-nums">
+                                {b?.salesCount ?? 0}
+                              </td>
+
+                              <td className="px-4 py-3">{fmtMoneyBR(b?.commission1Cents ?? 0)}</td>
+                              <td className="px-4 py-3">{fmtMoneyBR(b?.commission2Cents ?? 0)}</td>
+                              <td className="px-4 py-3">{fmtMoneyBR(b?.commission3RateioCents ?? 0)}</td>
+
+                              <td className="px-4 py-3 font-semibold">{fmtMoneyBR(r.netPayCents || 0)}</td>
+
+                              <td className="px-4 py-3">
+                                {isPaid ? (
+                                  <div className="space-y-1">
+                                    <Pill kind="ok" text="PAGO" />
+                                    <div className="text-xs text-neutral-500">
+                                      {r.paidBy?.name ? `por ${r.paidBy.name}` : ""}
+                                      {r.paidAt ? ` • ${fmtDateTimeBR(r.paidAt)}` : ""}
+                                    </div>
                                   </div>
-                                </div>
-                              ) : (
-                                <Pill kind="warn" text="PENDENTE" />
-                              )}
-                            </td>
-                            <td className="px-4 py-3 text-right">
-                              <button
-                                onClick={() => monthUser && payRow(r.date, monthUser.id)}
-                                disabled={!monthUser || !canPayThisDay}
-                                className="h-9 rounded-xl bg-black px-3 text-xs text-white hover:bg-neutral-800 disabled:opacity-50"
-                                title={
-                                  canPayThisDay
-                                    ? "Marcar este dia como pago"
-                                    : "Só paga dias anteriores a hoje / ou já pago"
-                                }
-                              >
-                                {paying ? "..." : "Pagar"}
-                              </button>
+                                ) : (
+                                  <Pill kind="warn" text="PENDENTE" />
+                                )}
+                              </td>
+
+                              <td className="px-4 py-3 text-right">
+                                <button
+                                  onClick={() => monthUser && payRow(r.date, monthUser.id)}
+                                  disabled={!monthUser || !canPayThisDay || paying}
+                                  className="h-9 rounded-xl bg-black px-3 text-xs text-white hover:bg-neutral-800 disabled:opacity-50"
+                                  title={
+                                    canPayThisDay
+                                      ? "Marcar este dia como pago"
+                                      : "Só paga dias anteriores a hoje / ou já pago"
+                                  }
+                                >
+                                  {paying ? "Pagando..." : "Pagar"}
+                                </button>
+                              </td>
+                            </tr>
+                          );
+                        })}
+
+                        {!monthData?.days?.length && (
+                          <tr>
+                            <td className="px-4 py-8 text-center text-sm text-neutral-500" colSpan={8}>
+                              Sem dados no mês selecionado.
                             </td>
                           </tr>
-                        );
-                      })}
-
-                      {!monthData?.days?.length && (
-                        <tr>
-                          <td className="px-4 py-8 text-center text-sm text-neutral-500" colSpan={6}>
-                            Sem dados no mês selecionado.
-                          </td>
-                        </tr>
-                      )}
-                    </tbody>
-                  </table>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
               </div>
 
