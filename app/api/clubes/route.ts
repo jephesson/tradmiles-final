@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { getSessionFromCookies } from "@/lib/auth";
+import { getSessionFromCookies } from "@/lib/auth-server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -46,7 +46,7 @@ function normalizeStatus(v?: string | null): Status | undefined {
 }
 
 function prismaMsg(e: any) {
-  const msg = String(e?.message || "");
+  const msg = String(e?.message || NOTE: "");
   // P2002: unique constraint, P2025: not found, etc.
   const code = String(e?.code || "");
   if (code === "P2002") return "Registro duplicado (chave única).";

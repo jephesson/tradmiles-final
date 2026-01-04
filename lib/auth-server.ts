@@ -40,6 +40,16 @@ export async function getSessionServer(): Promise<Session | null> {
   }
 }
 
+/**
+ * ✅ Compat com os handlers que usam session.user
+ * (ex: session.user.team)
+ */
+export async function getSessionFromCookies(): Promise<{ user: Session } | null> {
+  const user = await getSessionServer();
+  if (!user) return null;
+  return { user };
+}
+
 /** Usa em rotas/API server-side. Lança UNAUTHENTICATED se não tiver sessão. */
 export async function requireSession(): Promise<Session> {
   const sess = await getSessionServer();
