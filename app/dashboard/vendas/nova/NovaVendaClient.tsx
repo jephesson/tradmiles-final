@@ -105,6 +105,15 @@ type FuncItem = {
   _count?: { cedentes: number };
 };
 
+// ✅ credenciais do cedente (API)
+type CedenteCreds = {
+  cpf: string;
+  program: Program;
+  programPassword: string;
+  programEmail: string;
+  emailPassword: string;
+};
+
 export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) {
   const detailsRef = useRef<HTMLDivElement | null>(null);
 
@@ -259,6 +268,66 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
     }, 60);
   }
 
+  // =========================
+  // ✅ CREDENCIAIS (REVELAR)
+  // =========================
+  const [revealCreds, setRevealCreds] = useState(false);
+  const [creds, setCreds] = useState<CedenteCreds | null>(null);
+  const [loadingCreds, setLoadingCreds] = useState(false);
+  const [credsError, setCredsError] = useState("");
+
+  const [showProgramPass, setShowProgramPass] = useState(false);
+  const [showEmailPass, setShowEmailPass] = useState(false);
+
+  async function copyText(label: string, value: string) {
+    if (!value) return alert(`Nada para copiar em: ${label}`);
+    try {
+      await navigator.clipboard.writeText(value);
+      alert(`Copiado: ${label}`);
+    } catch {
+      // fallback
+      const ok = prompt(`Copie manualmente (${label}):`, value);
+      void ok;
+    }
+  }
+
+  async function loadCreds(cedenteId: string, p: Program, signal?: AbortSignal) {
+    setLoadingCreds(true);
+    setCredsError("");
+    try {
+      const url = `/api/cedentes/credentials?cedenteId=${encodeURIComponent(cedenteId)}&program=${encodeURIComponent(p)}`;
+      const out = await api<{ ok: true; data: CedenteCreds }>(url, { signal } as any);
+      setCreds(out.data);
+    } catch (e: any) {
+      if (e?.name !== "AbortError") {
+        setCreds(null);
+        setCredsError(e?.message || "Erro ao carregar credenciais.");
+      }
+    } finally {
+      if (!signal?.aborted) setLoadingCreds(false);
+    }
+  }
+
+  // quando troca cedente: reseta credenciais
+  useEffect(() => {
+    setRevealCreds(false);
+    setCreds(null);
+    setCredsError("");
+    setShowProgramPass(false);
+    setShowEmailPass(false);
+  }, [sel?.cedente?.id]);
+
+  // quando muda o programa e está revelado: recarrega
+  useEffect(() => {
+    if (!revealCreds) return;
+    if (!sel?.cedente?.id) return;
+
+    const ac = new AbortController();
+    loadCreds(sel.cedente.id, program, ac.signal);
+    return () => ac.abort();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [program, revealCreds, sel?.cedente?.id]);
+
   function clearSelection() {
     setSel(null);
     setCompras([]);
@@ -269,6 +338,13 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
     setClientes([]);
     setSelectedCliente(null);
     setClientesError("");
+
+    // ✅ também limpa credenciais
+    setRevealCreds(false);
+    setCreds(null);
+    setCredsError("");
+    setShowProgramPass(false);
+    setShowEmailPass(false);
   }
 
   // carrega funcionários (preferência: /api/funcionarios)
@@ -382,11 +458,7 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
 
         const out = await api<any>(url, { signal: ac.signal } as any);
 
-        let list: ClienteLite[] =
-          out?.clientes ||
-          out?.data?.clientes ||
-          out?.data?.data?.clientes ||
-          [];
+        let list: ClienteLite[] = out?.clientes || out?.data?.clientes || out?.data?.data?.clientes || [];
 
         if (!Array.isArray(list)) list = [];
 
@@ -465,10 +537,7 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
         const exists = prev.some((x) => x.id === created.id);
         const next = exists ? prev : [created, ...prev];
         // garante que ele esteja no começo
-        const dedup = [
-          created,
-          ...next.filter((x) => x.id !== created.id),
-        ].slice(0, 20);
+        const dedup = [created, ...next.filter((x) => x.id !== created.id)].slice(0, 20);
         return dedup;
       });
 
@@ -578,7 +647,13 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
     if (!q) return suggestions;
 
     return suggestions.filter((s) => {
-      const hay = [s.cedente.nomeCompleto, s.cedente.identificador, s.cedente.cpf, s.cedente.owner?.name, s.cedente.owner?.login]
+      const hay = [
+        s.cedente.nomeCompleto,
+        s.cedente.identificador,
+        s.cedente.cpf,
+        s.cedente.owner?.name,
+        s.cedente.owner?.login,
+      ]
         .map(normStr)
         .join(" | ");
       return hay.includes(q);
@@ -714,6 +789,75 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
                     Alerta: limite anual estoura e ainda sobraria &gt; 3.000 pts.
                   </div>
                 ) : null}
+
+                {/* ✅ Credenciais (revelar) */}
+                <div className="mt-3 rounded-xl border bg-slate-50 p-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="text-xs font-semibold text-slate-700">Credenciais ({program})</div>
+
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (!sel?.cedente?.id) return;
+
+                          if (!revealCreds) {
+                            setRevealCreds(true);
+                            setShowProgramPass(false);
+                            setShowEmailPass(false);
+
+                            // carrega na hora ao revelar
+                            const ac = new AbortController();
+                            loadCreds(sel.cedente.id, program, ac.signal);
+                          } else {
+                            setRevealCreds(false);
+                            setShowProgramPass(false);
+                            setShowEmailPass(false);
+                          }
+                        }}
+                        className="rounded-lg border bg-white px-2 py-1 text-[11px] hover:bg-slate-50"
+                      >
+                        {revealCreds ? "Ocultar" : "Revelar"}
+                      </button>
+
+                      {loadingCreds ? <div className="text-[11px] text-slate-500">Carregando…</div> : null}
+                    </div>
+                  </div>
+
+                  {credsError ? <div className="mt-1 text-[11px] text-rose-600">{credsError}</div> : null}
+
+                  {revealCreds ? (
+                    <div className="mt-2 grid gap-2 md:grid-cols-2">
+                      <CopyField label="CPF" value={creds?.cpf || sel.cedente.cpf} onCopy={(v) => copyText("CPF", v)} />
+
+                      <CopyField
+                        label="Email"
+                        value={creds?.programEmail || ""}
+                        onCopy={(v) => copyText("Email", v)}
+                      />
+
+                      <CopyField
+                        label="Senha do programa"
+                        value={creds?.programPassword || ""}
+                        masked={!showProgramPass}
+                        onToggleMask={() => setShowProgramPass((s) => !s)}
+                        onCopy={(v) => copyText("Senha do programa", v)}
+                      />
+
+                      <CopyField
+                        label="Senha do email"
+                        value={creds?.emailPassword || ""}
+                        masked={!showEmailPass}
+                        onToggleMask={() => setShowEmailPass((s) => !s)}
+                        onCopy={(v) => copyText("Senha do email", v)}
+                      />
+                    </div>
+                  ) : (
+                    <div className="mt-2 text-[11px] text-slate-500">
+                      Clique em <b>Revelar</b> para mostrar e copiar.
+                    </div>
+                  )}
+                </div>
               </div>
 
               <div className="flex gap-2">
@@ -1188,6 +1332,54 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
           </div>
         </div>
       ) : null}
+    </div>
+  );
+}
+
+function CopyField({
+  label,
+  value,
+  masked,
+  onToggleMask,
+  onCopy,
+}: {
+  label: string;
+  value: string;
+  masked?: boolean;
+  onToggleMask?: () => void;
+  onCopy: (value: string) => void;
+}) {
+  const showValue = masked ? (value ? "••••••••••" : "") : value;
+
+  return (
+    <div className="rounded-lg border bg-white px-3 py-2">
+      <div className="flex items-center justify-between gap-2">
+        <div className="text-[11px] text-slate-500">{label}</div>
+        <div className="flex items-center gap-2">
+          {typeof masked === "boolean" ? (
+            <button
+              type="button"
+              onClick={onToggleMask}
+              className="text-[11px] underline text-slate-600 hover:text-slate-800"
+            >
+              {masked ? "Mostrar" : "Ocultar"}
+            </button>
+          ) : null}
+
+          <button
+            type="button"
+            onClick={() => onCopy(value || "")}
+            className="rounded-md border px-2 py-1 text-[11px] hover:bg-slate-50"
+            title="Copiar"
+          >
+            Copiar
+          </button>
+        </div>
+      </div>
+
+      <div className="mt-1 font-mono text-sm text-slate-800 break-all">
+        {showValue || <span className="text-slate-400">—</span>}
+      </div>
     </div>
   );
 }
