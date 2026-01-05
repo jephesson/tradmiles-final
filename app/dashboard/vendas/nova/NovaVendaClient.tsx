@@ -105,13 +105,21 @@ type FuncItem = {
   _count?: { cedentes: number };
 };
 
-// ✅ credenciais do cedente (API)
+// ✅ credenciais do cedente (API) — compatível com 2 formatos
+// (seu formato) programEmail/programPassword/emailPassword
+// (formato alternativo) email/senhaPrograma/senhaEmail
 type CedenteCreds = {
   cpf: string;
-  program: Program;
-  programPassword: string;
-  programEmail: string;
-  emailPassword: string;
+
+  program?: Program;
+
+  programEmail?: string | null;
+  programPassword?: string | null;
+  emailPassword?: string | null;
+
+  email?: string | null;
+  senhaPrograma?: string | null;
+  senhaEmail?: string | null;
 };
 
 export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) {
@@ -143,7 +151,11 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
     try {
       const s = getSession();
       if ((s as any)?.id && (s as any)?.login) {
-        setMe({ id: (s as any).id, login: (s as any).login, name: (s as any).name || (s as any).login });
+        setMe({
+          id: (s as any).id,
+          login: (s as any).login,
+          name: (s as any).name || (s as any).login,
+        });
         return;
       }
     } catch {}
@@ -240,7 +252,10 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
   const commissionCents = useMemo(() => Math.round(pointsValueCents * 0.01), [pointsValueCents]);
 
   // encontra pela compra.numero (ID00018)
-  const compraSel = useMemo(() => compras.find((c) => c.numero === purchaseNumero) || null, [compras, purchaseNumero]);
+  const compraSel = useMemo(
+    () => compras.find((c) => c.numero === purchaseNumero) || null,
+    [compras, purchaseNumero]
+  );
 
   const metaMilheiroCents = compraSel?.metaMilheiroCents || 0;
 
@@ -279,6 +294,11 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
   const [showProgramPass, setShowProgramPass] = useState(false);
   const [showEmailPass, setShowEmailPass] = useState(false);
 
+  const credCpf = creds?.cpf || sel?.cedente?.cpf || "";
+  const credEmail = (creds?.programEmail ?? creds?.email ?? "") || "";
+  const credProgramPass = (creds?.programPassword ?? creds?.senhaPrograma ?? "") || "";
+  const credEmailPass = (creds?.emailPassword ?? creds?.senhaEmail ?? "") || "";
+
   async function copyText(label: string, value: string) {
     if (!value) return alert(`Nada para copiar em: ${label}`);
     try {
@@ -295,9 +315,15 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
     setLoadingCreds(true);
     setCredsError("");
     try {
-      const url = `/api/cedentes/credentials?cedenteId=${encodeURIComponent(cedenteId)}&program=${encodeURIComponent(p)}`;
-      const out = await api<{ ok: true; data: CedenteCreds }>(url, { signal } as any);
-      setCreds(out.data);
+      const url = `/api/cedentes/credentials?cedenteId=${encodeURIComponent(
+        cedenteId
+      )}&program=${encodeURIComponent(p)}`;
+      const out = await api<any>(url, { signal } as any);
+
+      const data = out?.data ?? out?.creds ?? out ?? null;
+      if (!data?.cpf) throw new Error("Resposta de credenciais inválida.");
+
+      setCreds(data as CedenteCreds);
     } catch (e: any) {
       if (e?.name !== "AbortError") {
         setCreds(null);
@@ -400,9 +426,9 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
 
       setLoadingSug(true);
       try {
-        const url = `/api/vendas/sugestoes?program=${encodeURIComponent(program)}&points=${encodeURIComponent(
-          String(points)
-        )}&passengers=${encodeURIComponent(String(passengers))}`;
+        const url = `/api/vendas/sugestoes?program=${encodeURIComponent(
+          program
+        )}&points=${encodeURIComponent(String(points))}&passengers=${encodeURIComponent(String(passengers))}`;
 
         const out = await api<{ ok: true; suggestions: Suggestion[] }>(url, { signal: ac.signal } as any);
         const list = out.suggestions || [];
@@ -439,7 +465,7 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
     if (found) setSelectedCliente(found);
   }, [clienteId, clientes]);
 
-  // ✅ cliente search (agora garantindo que o selecionado nunca some da lista)
+  // ✅ cliente search (com âncora do selecionado)
   useEffect(() => {
     const ac = new AbortController();
     const t = setTimeout(async () => {
@@ -452,17 +478,12 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
 
       setLoadingClientes(true);
       try {
-        const url = isRecent
-          ? `/api/clientes/search?recent=1`
-          : `/api/clientes/search?q=${encodeURIComponent(q)}`;
-
+        const url = isRecent ? `/api/clientes/search?recent=1` : `/api/clientes/search?q=${encodeURIComponent(q)}`;
         const out = await api<any>(url, { signal: ac.signal } as any);
 
         let list: ClienteLite[] = out?.clientes || out?.data?.clientes || out?.data?.data?.clientes || [];
-
         if (!Array.isArray(list)) list = [];
 
-        // ✅ âncora do selecionado: se o backend não retornou, mantém mesmo assim
         if (selectedCliente?.id && !list.some((x) => x.id === selectedCliente.id)) {
           list = [selectedCliente, ...list];
         }
@@ -470,13 +491,10 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
         setClientes(list);
       } catch (e: any) {
         if (e?.name !== "AbortError") {
-          // se falhou, ainda tenta manter o selecionado visível
           const fallback = selectedCliente ? [selectedCliente] : [];
           setClientes(fallback);
 
-          if (!isRecent) {
-            setClientesError(e?.message || "Erro ao buscar clientes.");
-          }
+          if (!isRecent) setClientesError(e?.message || "Erro ao buscar clientes.");
         }
       } finally {
         if (!ac.signal.aborted) setLoadingClientes(false);
@@ -518,7 +536,6 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
       const raw = out?.data?.cliente || out?.cliente || null;
       if (!raw?.id) throw new Error("Cliente criado, mas resposta inválida.");
 
-      // ✅ normaliza pra ClienteLite (pra não quebrar se o backend mudar nomes)
       const created: ClienteLite = {
         id: String(raw.id),
         identificador: String(raw.identificador || raw.code || raw.ident || "—"),
@@ -529,16 +546,12 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
 
       setClienteId(created.id);
       setSelectedCliente(created);
-
-      // importante: manter o texto no input e a lista com o cliente novo
       setClienteQ(created.nome);
 
       setClientes((prev) => {
         const exists = prev.some((x) => x.id === created.id);
         const next = exists ? prev : [created, ...prev];
-        // garante que ele esteja no começo
-        const dedup = [created, ...next.filter((x) => x.id !== created.id)].slice(0, 20);
-        return dedup;
+        return [created, ...next.filter((x) => x.id !== created.id)].slice(0, 20);
       });
 
       setClienteModalOpen(false);
@@ -781,7 +794,9 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
                   <span className="rounded-full border bg-white px-2 py-1">
                     Sobra: <b className="tabular-nums">{fmtInt(sel.leftoverPoints)}</b>
                   </span>
-                  <span className={cn("rounded-full border px-2 py-1", badgeClass(sel.priorityLabel))}>{sel.priorityLabel}</span>
+                  <span className={cn("rounded-full border px-2 py-1", badgeClass(sel.priorityLabel))}>
+                    {sel.priorityLabel}
+                  </span>
                 </div>
 
                 {sel.alerts.includes("PASSAGEIROS_ESTOURADOS_COM_PONTOS") ? (
@@ -806,7 +821,6 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
                             setShowProgramPass(false);
                             setShowEmailPass(false);
 
-                            // carrega na hora ao revelar
                             const ac = new AbortController();
                             loadCreds(sel.cedente.id, program, ac.signal);
                           } else {
@@ -828,17 +842,13 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
 
                   {revealCreds ? (
                     <div className="mt-2 grid gap-2 md:grid-cols-2">
-                      <CopyField label="CPF" value={creds?.cpf || sel.cedente.cpf} onCopy={(v) => copyText("CPF", v)} />
+                      <CopyField label="CPF" value={credCpf} onCopy={(v) => copyText("CPF", v)} />
 
-                      <CopyField
-                        label="Email"
-                        value={creds?.programEmail || ""}
-                        onCopy={(v) => copyText("Email", v)}
-                      />
+                      <CopyField label="Email" value={credEmail} onCopy={(v) => copyText("Email", v)} />
 
                       <CopyField
                         label="Senha do programa"
-                        value={creds?.programPassword || ""}
+                        value={credProgramPass}
                         masked={!showProgramPass}
                         onToggleMask={() => setShowProgramPass((s) => !s)}
                         onCopy={(v) => copyText("Senha do programa", v)}
@@ -846,7 +856,7 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
 
                       <CopyField
                         label="Senha do email"
-                        value={creds?.emailPassword || ""}
+                        value={credEmailPass}
                         masked={!showEmailPass}
                         onToggleMask={() => setShowEmailPass((s) => !s)}
                         onCopy={(v) => copyText("Senha do email", v)}
@@ -868,7 +878,11 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
                 >
                   Ir para dados
                 </button>
-                <button type="button" onClick={clearSelection} className="rounded-xl border px-3 py-2 text-sm hover:bg-slate-50">
+                <button
+                  type="button"
+                  onClick={clearSelection}
+                  className="rounded-xl border px-3 py-2 text-sm hover:bg-slate-50"
+                >
                   Trocar cedente
                 </button>
               </div>
@@ -888,7 +902,11 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
                   />
                 </label>
 
-                <button type="button" onClick={() => setCedenteQ("")} className="rounded-xl border px-3 py-2 text-sm hover:bg-slate-50">
+                <button
+                  type="button"
+                  onClick={() => setCedenteQ("")}
+                  className="rounded-xl border px-3 py-2 text-sm hover:bg-slate-50"
+                >
                   Limpar busca
                 </button>
               </div>
@@ -956,7 +974,9 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
                         </td>
                         <td className="px-4 py-3 text-right tabular-nums">{fmtInt(s.leftoverPoints)}</td>
                         <td className="px-4 py-3">
-                          <span className={cn("inline-flex rounded-full border px-2 py-1 text-xs", badge)}>{s.priorityLabel}</span>
+                          <span className={cn("inline-flex rounded-full border px-2 py-1 text-xs", badge)}>
+                            {s.priorityLabel}
+                          </span>
                         </td>
                         <td className="px-4 py-3 text-right">
                           <button
@@ -989,7 +1009,7 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
       </div>
 
       {/* 3) Detalhes */}
-      {sel && (
+      {sel ? (
         <div ref={detailsRef} className="grid gap-4 lg:grid-cols-3">
           <div className="lg:col-span-2 space-y-4">
             <div className="rounded-2xl border bg-white p-5">
@@ -1094,7 +1114,11 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
                     disabled={loadingCompras}
                   >
                     <option value="">
-                      {loadingCompras ? "Carregando compras liberadas..." : compras.length ? "Selecione..." : "Nenhuma compra liberada"}
+                      {loadingCompras
+                        ? "Carregando compras liberadas..."
+                        : compras.length
+                        ? "Selecione..."
+                        : "Nenhuma compra liberada"}
                     </option>
                     {compras.map((c) => (
                       <option key={c.id} value={c.numero}>
@@ -1217,7 +1241,7 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
             <div className="text-xs text-slate-500">Comissão ignora taxa. Bônus = 30% do excedente acima da meta.</div>
           </div>
         </div>
-      )}
+      ) : null}
 
       {/* ✅ MODAL CADASTRO RÁPIDO */}
       {clienteModalOpen ? (
