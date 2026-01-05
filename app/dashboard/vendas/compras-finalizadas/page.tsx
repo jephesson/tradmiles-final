@@ -168,7 +168,12 @@ export default function ComprasFinalizadasPage() {
       const json = await fetchJson<{ ok: true; purchases: Row[] }>(
         `/api/vendas/compras-finalizadas?${qs.toString()}`
       );
-      setRows(Array.isArray(json.purchases) ? json.purchases : []);
+
+      const list = Array.isArray(json.purchases) ? json.purchases : [];
+
+      // ✅ GARANTIA NO FRONT: mostra SÓ o que tem finalizedAt
+      // (mesmo se alguém mexer no backend depois)
+      setRows(list.filter((p) => !!p.finalizedAt));
     } catch (e: any) {
       setErr(e?.message || "Erro ao carregar.");
       setRows([]);
@@ -263,7 +268,7 @@ export default function ComprasFinalizadasPage() {
           <div>
             <h1 className="text-xl font-bold">Compras finalizadas</h1>
             <div className="text-sm text-slate-600">
-              Mostra IDs com <b>finalizedAt</b> preenchido (snapshots finais já gravados).
+              Mostra somente compras com <b>finalizedAt</b> preenchido (snapshots finais já gravados).
             </div>
           </div>
 
@@ -307,7 +312,6 @@ export default function ComprasFinalizadasPage() {
                 <th className="py-2 pr-3">ID</th>
                 <th className="py-2 pr-3">Cedente</th>
                 <th className="py-2 pr-3">CIA</th>
-                {/* ✅ removido: Vendas */}
                 <th className="py-2 pr-3">Pontos</th>
                 <th className="py-2 pr-3">PAX</th>
                 <th className="py-2 pr-3">Total</th>
@@ -358,8 +362,6 @@ export default function ComprasFinalizadasPage() {
                       </td>
 
                       <td className="py-2 pr-3">{r.ciaAerea || "-"}</td>
-
-                      {/* ✅ removido: coluna Vendas */}
 
                       <td className="py-2 pr-3">
                         <div className="font-medium">{fmtInt(pick(r.finalSoldPoints))}</div>
@@ -413,7 +415,6 @@ export default function ComprasFinalizadasPage() {
           <div
             className="fixed inset-0 z-[9999] bg-black/40 p-4 flex items-center justify-center"
             onMouseDown={(e) => {
-              // fecha clicando fora
               if (e.target === e.currentTarget) closeDetails();
             }}
           >
@@ -431,7 +432,6 @@ export default function ComprasFinalizadasPage() {
                 </button>
               </div>
 
-              {/* ✅ aqui vai o scroll: não “come linhas” */}
               <div className="p-4 space-y-4 overflow-y-auto">
                 {detailErr ? <div className="text-sm text-red-600">{detailErr}</div> : null}
 
@@ -517,7 +517,6 @@ export default function ComprasFinalizadasPage() {
                         </div>
                       </div>
 
-                      {/* ✅ wrapper com overflow-hidden para não “comer” linhas da tabela */}
                       <div className="mt-3 rounded-xl border overflow-hidden">
                         <div className="overflow-auto">
                           <table className="min-w-[900px] w-full text-sm">
@@ -558,7 +557,11 @@ export default function ComprasFinalizadasPage() {
                         <Line
                           label="Milheiro médio (sem taxa)"
                           value={detail.metrics.avgMilheiroCents == null ? "-" : fmtMoneyBR(detail.metrics.avgMilheiroCents)}
-                          hint={detail.metrics.remainingPoints == null ? undefined : `Restante: ${fmtInt(detail.metrics.remainingPoints)}`}
+                          hint={
+                            detail.metrics.remainingPoints == null
+                              ? undefined
+                              : `Restante: ${fmtInt(detail.metrics.remainingPoints)}`
+                          }
                         />
                       </div>
                     </div>

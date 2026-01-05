@@ -80,7 +80,7 @@ export async function GET(req: Request) {
       {
         OR: [
           { finalizedAt: { not: null } },
-          { status: "CLOSED" }, // ✅ pega as liberadas/finalizadas do teu fluxo atual
+          // { status: "CLOSED" }, // ✅ pega as liberadas/finalizadas do teu fluxo atual
         ],
       },
     ],
