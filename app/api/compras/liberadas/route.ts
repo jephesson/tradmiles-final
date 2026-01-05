@@ -3,10 +3,10 @@ import { ok, badRequest, serverError } from "@/lib/api";
 
 export const dynamic = "force-dynamic";
 
-function clampInt(n: any) {
+function clampNonNegInt(n: any) {
   const x = Number(n);
   if (!Number.isFinite(x)) return 0;
-  return Math.trunc(x);
+  return Math.max(0, Math.trunc(x));
 }
 
 function fixMetaMilheiroCents(row: {
@@ -14,21 +14,22 @@ function fixMetaMilheiroCents(row: {
   custoMilheiroCents: number | null;
   metaMarkupCents: number | null;
 }) {
-  const custo = clampInt(row.custoMilheiroCents);
-  const markup = clampInt(row.metaMarkupCents);
-  const metaRaw = clampInt(row.metaMilheiroCents);
+  const custo = clampNonNegInt(row.custoMilheiroCents);
+  const markup = clampNonNegInt(row.metaMarkupCents);
+  const metaRaw = clampNonNegInt(row.metaMilheiroCents);
 
-  // ✅ já é meta final (ex.: 2628 = R$26,28)
-  if (metaRaw >= 1000) return metaRaw;
+  // ✅ se veio meta explícita
+  if (metaRaw > 0) {
+    // se temos custo e a meta é MENOR que o custo, ela provavelmente veio como MARKUP
+    if (custo > 0 && metaRaw < custo) return custo + metaRaw;
 
-  // ✅ veio como markup (ex.: 150 = R$1,50)
-  if (metaRaw > 0 && metaRaw < 1000) {
-    // se custo existe, soma. se não existir, devolve o que tem (não tem como somar).
-    return custo > 0 ? custo + metaRaw : metaRaw;
+    // senão, assume que já é META FINAL
+    return metaRaw;
   }
 
-  // ✅ não veio meta: usa custo + markup padrão
-  return custo > 0 ? custo + markup : markup;
+  // ✅ não veio meta: usa custo + markup (ou só markup se custo não existir)
+  if (custo > 0) return custo + markup;
+  return markup;
 }
 
 export async function GET(req: Request) {
@@ -38,10 +39,7 @@ export async function GET(req: Request) {
     if (!cedenteId) return badRequest("cedenteId é obrigatório.");
 
     const comprasRaw = await prisma.purchase.findMany({
-      where: {
-        cedenteId,
-        status: "CLOSED",
-      },
+      where: { cedenteId, status: "CLOSED" },
       orderBy: { liberadoEm: "desc" },
       take: 50,
       select: {
@@ -60,15 +58,32 @@ export async function GET(req: Request) {
     });
 
     const compras = comprasRaw.map((c) => {
+      const custo = clampNonNegInt(c.custoMilheiroCents);
+      const markup = clampNonNegInt(c.metaMarkupCents);
+      const metaOriginal = clampNonNegInt(c.metaMilheiroCents);
+
       const metaFinal = fixMetaMilheiroCents(c);
+
+      // debug mais confiável que o ">=1000"
+      const metaFoiMarkup =
+        metaOriginal > 0 &&
+        custo > 0 &&
+        metaOriginal < custo; // se for menor que custo, tratamos como markup
+
+      const metaBateMarkup =
+        metaOriginal > 0 &&
+        markup > 0 &&
+        Math.abs(metaOriginal - markup) <= 2; // tolerância pequena (cents)
 
       return {
         ...c,
-        // ✅ garante que o client sempre recebe META FINAL aqui
+        // ✅ sempre retorna meta FINAL pro client
         metaMilheiroCents: metaFinal,
-        // opcional p/ debug (se quiser ver quando vinha errado)
+
+        // (opcional) debug
         metaMilheiroOriginalCents: c.metaMilheiroCents,
-        metaFoiMarkup: (c.metaMilheiroCents ?? 0) > 0 && (c.metaMilheiroCents ?? 0) < 1000,
+        metaFoiMarkup,
+        metaBateMarkup,
       };
     });
 
