@@ -5,7 +5,10 @@ import { useEffect, useMemo, useState } from "react";
 import { cn } from "@/lib/cn";
 
 function fmtMoneyBR(cents: number) {
-  return ((cents || 0) / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+  return ((cents || 0) / 100).toLocaleString("pt-BR", {
+    style: "currency",
+    currency: "BRL",
+  });
 }
 function fmtInt(n: number) {
   return (n || 0).toLocaleString("pt-BR");
@@ -35,7 +38,8 @@ async function api<T>(url: string, init?: RequestInit): Promise<T> {
     ...init,
   });
   const j = await r.json().catch(() => ({}));
-  if (!r.ok || (j as any)?.ok === false) throw new Error((j as any)?.error || `Erro ${r.status}`);
+  if (!r.ok || (j as any)?.ok === false)
+    throw new Error((j as any)?.error || `Erro ${r.status}`);
   return j as T;
 }
 
@@ -73,7 +77,8 @@ function pendingCentsOfSale(r: SaleRow) {
   if (r.paymentStatus === "PAID") return 0;
   if (r.paymentStatus === "CANCELED") return 0;
 
-  if (typeof r.receivable?.balanceCents === "number") return Math.max(0, r.receivable.balanceCents);
+  if (typeof r.receivable?.balanceCents === "number")
+    return Math.max(0, r.receivable.balanceCents);
   return Math.max(0, r.totalCents || 0);
 }
 
@@ -82,7 +87,7 @@ export default function VendasClient() {
   const [rows, setRows] = useState<SaleRow[]>([]);
   const [q, setQ] = useState("");
 
-  // ✅ filtros novos
+  // ✅ filtros
   const [clientId, setClientId] = useState<string>("ALL");
   const [status, setStatus] = useState<StatusFilter>("ALL");
 
@@ -115,7 +120,9 @@ export default function VendasClient() {
         });
       }
     }
-    return Array.from(map.values()).sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"));
+    return Array.from(map.values()).sort((a, b) =>
+      a.nome.localeCompare(b.nome, "pt-BR")
+    );
   }, [rows]);
 
   const selectedClient = useMemo(() => {
@@ -142,7 +149,13 @@ export default function VendasClient() {
       const num = (r.numero || "").toLowerCase();
       const loc = (r.locator || "").toLowerCase();
 
-      return num.includes(s) || cliente.includes(s) || loc.includes(s) || ced.includes(s) || cedId.includes(s);
+      return (
+        num.includes(s) ||
+        cliente.includes(s) ||
+        loc.includes(s) ||
+        ced.includes(s) ||
+        cedId.includes(s)
+      );
     });
   }, [rows, q, clientId, status]);
 
@@ -201,6 +214,57 @@ export default function VendasClient() {
     }
   }
 
+  /**
+   * ✅ Cancelar venda:
+   * - sempre estorna pontos
+   * - pergunta se mantém passageiros "queimados" (padrão) ou reseta (erro de cadastro)
+   */
+  async function cancelSale(r: SaleRow) {
+    if (updatingId) return;
+    if (r.paymentStatus === "CANCELED") return;
+
+    const ok1 = confirm(
+      `Cancelar a venda ${r.numero}?\n\n• Os pontos serão estornados para o cedente.\n• O recebível (se existir) será cancelado.`
+    );
+    if (!ok1) return;
+
+    // ✅ padrão: manter passageiros usados (CPF queimado)
+    const keepPassengers = confirm(
+      "Manter o uso dos passageiros?\n\n✅ OK = MANTER (padrão). A cota NÃO volta (CPF queimado).\n❌ Cancelar = RESETAR. Use só se foi erro de cadastro e quer devolver a cota."
+    );
+
+    setUpdatingId(r.id);
+    try {
+      await api<{ ok: true }>("/api/vendas/cancelar", {
+        method: "POST",
+        body: JSON.stringify({ saleId: r.id, keepPassengers }),
+      });
+
+      setRows((prev) =>
+        prev.map((x) =>
+          x.id === r.id
+            ? {
+                ...x,
+                paymentStatus: "CANCELED",
+                receivable: x.receivable
+                  ? {
+                      ...x.receivable,
+                      status: "CANCELED",
+                      receivedCents: 0,
+                      balanceCents: 0,
+                    }
+                  : x.receivable,
+              }
+            : x
+        )
+      );
+    } catch (e: any) {
+      alert(e?.message || "Falha ao cancelar venda.");
+    } finally {
+      setUpdatingId(null);
+    }
+  }
+
   function statusBadge(r: SaleRow) {
     return r.paymentStatus === "PAID"
       ? "bg-emerald-50 border-emerald-200 text-emerald-700"
@@ -210,7 +274,11 @@ export default function VendasClient() {
   }
 
   function statusLabel(r: SaleRow) {
-    return r.paymentStatus === "PAID" ? "Pago" : r.paymentStatus === "CANCELED" ? "Cancelado" : "Pendente";
+    return r.paymentStatus === "PAID"
+      ? "Pago"
+      : r.paymentStatus === "CANCELED"
+      ? "Cancelado"
+      : "Pendente";
   }
 
   function chip(active: boolean) {
@@ -227,17 +295,25 @@ export default function VendasClient() {
       <div className="flex items-start justify-between gap-4">
         <div>
           <h1 className="text-2xl font-semibold">Vendas{headerSuffix}</h1>
-          <p className="text-sm text-slate-500">Filtre por cliente e status para ver pendências e pagamentos.</p>
+          <p className="text-sm text-slate-500">
+            Filtre por cliente e status para ver pendências e pagamentos.
+          </p>
         </div>
 
         <div className="flex gap-2">
           <button
             onClick={load}
-            className={cn("rounded-xl border px-4 py-2 text-sm", loading ? "opacity-60" : "hover:bg-slate-50")}
+            className={cn(
+              "rounded-xl border px-4 py-2 text-sm",
+              loading ? "opacity-60" : "hover:bg-slate-50"
+            )}
           >
             {loading ? "Atualizando..." : "Atualizar"}
           </button>
-          <Link href="/dashboard/vendas/nova" className="rounded-xl bg-black px-4 py-2 text-sm text-white hover:bg-gray-800">
+          <Link
+            href="/dashboard/vendas/nova"
+            className="rounded-xl bg-black px-4 py-2 text-sm text-white hover:bg-gray-800"
+          >
             + Nova venda
           </Link>
         </div>
@@ -309,7 +385,9 @@ export default function VendasClient() {
         </div>
 
         <div className="rounded-2xl border bg-white p-4">
-          <div className="text-xs text-slate-500">{selectedClient ? "Total no filtro (cliente)" : "Total no filtro"}</div>
+          <div className="text-xs text-slate-500">
+            {selectedClient ? "Total no filtro (cliente)" : "Total no filtro"}
+          </div>
           <div className="text-lg font-semibold">{fmtMoneyBR(totals.totalGeral)}</div>
         </div>
 
@@ -321,7 +399,9 @@ export default function VendasClient() {
         </div>
 
         <div className="rounded-2xl border bg-white p-4">
-          <div className="text-xs text-slate-500">{selectedClient ? "Total pago (cliente)" : "Total pago"}</div>
+          <div className="text-xs text-slate-500">
+            {selectedClient ? "Total pago (cliente)" : "Total pago"}
+          </div>
           <div className="text-lg font-semibold">{fmtMoneyBR(totals.totalPago)}</div>
         </div>
       </div>
@@ -342,7 +422,7 @@ export default function VendasClient() {
                 <th className="text-right font-semibold px-4 py-3 w-[170px]">A RECEBER</th>
                 <th className="text-left font-semibold px-4 py-3 w-[140px]">STATUS</th>
                 <th className="text-left font-semibold px-4 py-3 w-[140px]">LOC</th>
-                <th className="text-right font-semibold px-4 py-3 w-[160px]">AÇÃO</th>
+                <th className="text-right font-semibold px-4 py-3 w-[200px]">AÇÃO</th>
               </tr>
             </thead>
 
@@ -357,6 +437,7 @@ export default function VendasClient() {
 
               {filtered.map((r) => {
                 const pend = pendingCentsOfSale(r);
+                const isBusy = updatingId === r.id;
 
                 return (
                   <tr key={r.id} className="border-b last:border-b-0">
@@ -386,7 +467,12 @@ export default function VendasClient() {
 
                     <td className="px-4 py-3 text-right font-semibold">{fmtMoneyBR(r.totalCents)}</td>
 
-                    <td className={cn("px-4 py-3 text-right font-semibold", pend > 0 ? "text-amber-700" : "text-slate-700")}>
+                    <td
+                      className={cn(
+                        "px-4 py-3 text-right font-semibold",
+                        pend > 0 ? "text-amber-700" : "text-slate-700"
+                      )}
+                    >
                       {fmtMoneyBR(pend)}
                     </td>
 
@@ -402,17 +488,35 @@ export default function VendasClient() {
                       {r.paymentStatus === "CANCELED" ? (
                         <span className="text-xs text-slate-400">—</span>
                       ) : (
-                        <button
-                          onClick={() => togglePago(r)}
-                          disabled={updatingId === r.id}
-                          className={cn(
-                            "rounded-xl border px-3 py-1.5 text-sm",
-                            updatingId === r.id ? "opacity-60 cursor-not-allowed" : "hover:bg-slate-50"
-                          )}
-                          title={r.paymentStatus === "PAID" ? "Marcar como pendente" : "Marcar como pago"}
-                        >
-                          {updatingId === r.id ? "Salvando..." : r.paymentStatus === "PAID" ? "Marcar pendente" : "Marcar pago"}
-                        </button>
+                        <div className="flex justify-end gap-2">
+                          <button
+                            onClick={() => togglePago(r)}
+                            disabled={isBusy}
+                            className={cn(
+                              "rounded-xl border px-3 py-1.5 text-sm",
+                              isBusy ? "opacity-60 cursor-not-allowed" : "hover:bg-slate-50"
+                            )}
+                            title={r.paymentStatus === "PAID" ? "Marcar como pendente" : "Marcar como pago"}
+                          >
+                            {isBusy
+                              ? "Salvando..."
+                              : r.paymentStatus === "PAID"
+                              ? "Marcar pendente"
+                              : "Marcar pago"}
+                          </button>
+
+                          <button
+                            onClick={() => cancelSale(r)}
+                            disabled={isBusy}
+                            className={cn(
+                              "rounded-xl border px-3 py-1.5 text-sm border-red-300 text-red-700",
+                              isBusy ? "opacity-60 cursor-not-allowed" : "hover:bg-red-50"
+                            )}
+                            title="Cancelar venda (estorna pontos e opcionalmente reseta passageiros)"
+                          >
+                            Cancelar
+                          </button>
+                        </div>
                       )}
                     </td>
                   </tr>
