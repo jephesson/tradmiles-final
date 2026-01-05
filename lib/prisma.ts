@@ -21,3 +21,6 @@ function makeClient() {
 export const prisma = globalForPrisma.prisma ?? makeClient();
 
 if (process.env.NODE_ENV !== "production") globalForPrisma.prisma = prisma;
+
+// ✅ isso permite `import prisma from "@/lib/prisma"`
+export default prisma;
