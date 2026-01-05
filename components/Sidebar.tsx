@@ -16,8 +16,10 @@ const STRICT_NOQUERY_ACTIVE_PATHS = new Set<string>([
   "/dashboard/cedentes/visualizar",
   "/dashboard/emissoes",
   "/dashboard/painel-emissoes",
-  "/dashboard/clubes", // ✅ evita marcar "Lista" quando houver query na lista
+  "/dashboard/clubes",
 ]);
+
+const VISUALIZAR_PONTOS_PATH = "/dashboard/cedentes/visualizar";
 
 export default function Sidebar() {
   const pathname = usePathname();
@@ -29,9 +31,7 @@ export default function Sidebar() {
    * ROTAS
    * ========================= */
 
-  const isPontosVisualizarRoute = pathname.startsWith(
-    "/dashboard/cedentes/visualizar"
-  );
+  const isPontosVisualizarRoute = pathname.startsWith(VISUALIZAR_PONTOS_PATH);
 
   // ✅ Cadastro NÃO deve “pegar” Visualizar cedentes
   const isCadastroRoute =
@@ -43,40 +43,42 @@ export default function Sidebar() {
   const isComprasRoute = pathname.startsWith("/dashboard/compras");
   const isVendasRoute = pathname.startsWith("/dashboard/vendas");
 
-  // ✅ Clubes (lista e cadastrar)
   const isClubesRoute = pathname.startsWith("/dashboard/clubes");
-  const isClubesCadastrarRoute =
-    pathname === "/dashboard/clubes/cadastrar" ||
-    pathname.startsWith("/dashboard/clubes/cadastrar/");
-  const isClubesListaRoute =
-    pathname === "/dashboard/clubes" || pathname.startsWith("/dashboard/clubes/");
 
   // ✅ Gestão de pontos engloba Visualizar, Compras, Vendas e Clubes
   const isGestaoPontosRoute =
     isPontosVisualizarRoute || isComprasRoute || isVendasRoute || isClubesRoute;
 
-  // ✅ Lucros/Comissões (sem rateio)
+  // ✅ Lucros/Comissões
   const isLucrosRoute =
     pathname.startsWith("/dashboard/lucros") ||
     pathname.startsWith("/dashboard/comissoes");
 
-  // ✅ ANÁLISE agora é só Resumo
-  const isAnaliseRoute = pathname.startsWith("/dashboard/resumo");
+  // ✅ RESUMO (link mantém /dashboard/resumo)
+  const isResumoRoute = pathname.startsWith("/dashboard/resumo");
 
-  // ✅ FINANCEIRO
+  // ✅ ANÁLISE & ESTRATÉGIA (novas rotas)
+  const isEstrategiaCompraRoute = pathname.startsWith(
+    "/dashboard/estrategia-compra"
+  );
+  const isContasSelecionadasRoute = pathname.startsWith(
+    "/dashboard/contas-selecionadas"
+  );
+  const isAnaliseRoute = isEstrategiaCompraRoute || isContasSelecionadasRoute;
+
+  // ✅ FINANCEIRO (agora inclui Resumo)
   const isDividasRoute = pathname.startsWith("/dashboard/dividas");
   const isRecebimentosRoute = pathname.startsWith("/dashboard/recebimentos");
   const isImpostosRoute = pathname.startsWith("/dashboard/impostos");
   const isFinanceiroRoute =
-    isDividasRoute || isRecebimentosRoute || isImpostosRoute;
+    isDividasRoute || isRecebimentosRoute || isImpostosRoute || isResumoRoute;
 
   // ✅ IMPORTAÇÕES (fora do Gestor de emissões)
   const isImportacoesRoute = pathname.startsWith("/dashboard/importacoes");
   const isImportacoesEmissoesLatamRoute = pathname.startsWith(
     "/dashboard/emissoes/import-latam"
   );
-  const isImportacoesEmissoesRoute = isImportacoesEmissoesLatamRoute;
-  const isImportacoesEmissoesSubRoute = isImportacoesEmissoesRoute;
+  const isImportacoesEmissoesSubRoute = isImportacoesEmissoesLatamRoute;
 
   // ✅ Painel de Emissões (novo)
   const isPainelEmissoesRoute = pathname.startsWith(
@@ -118,7 +120,6 @@ export default function Sidebar() {
    * ========================= */
   const [openCadastro, setOpenCadastro] = useState(isCadastroRoute);
 
-  // ✅ Cedentes (no Cadastro) não abre em Visualizar cedentes
   const [openCedentes, setOpenCedentes] = useState(
     (pathname.startsWith("/dashboard/cedentes") && !isPontosVisualizarRoute) ||
       pathname.startsWith("/dashboard/bloqueios")
@@ -135,7 +136,6 @@ export default function Sidebar() {
   const [openPontosVisualizar, setOpenPontosVisualizar] =
     useState(isPontosVisualizarRoute);
 
-  // ✅ Clube como subcategoria (Cadastrar / Lista)
   const [openClubes, setOpenClubes] = useState(isClubesRoute);
 
   const [openCompras, setOpenCompras] = useState(isComprasRoute);
@@ -143,41 +143,32 @@ export default function Sidebar() {
 
   const [openLucros, setOpenLucros] = useState(isLucrosRoute);
 
-  // ✅ Análise agora só Resumo
   const [openAnalise, setOpenAnalise] = useState(isAnaliseRoute);
 
-  // ✅ Financeiro
   const [openFinanceiro, setOpenFinanceiro] = useState(isFinanceiroRoute);
 
-  // ✅ Gestor de emissões
   const [openGestorEmissoes, setOpenGestorEmissoes] =
     useState(isGestorEmissoesRoute);
 
-  // ✅ Importações (accordion principal, fora do gestor)
   const [openImportacoes, setOpenImportacoes] = useState(
     isImportacoesRoute || isImportacoesEmissoesLatamRoute
   );
-  // ✅ Importações > Emissões
   const [openImportacoesEmissoes, setOpenImportacoesEmissoes] = useState(
     isImportacoesEmissoesSubRoute
   );
 
-  // ✅ SubAccordion Comissões dentro de Lucros & Comissões
   const [openComissoes, setOpenComissoes] = useState(isComissoesSubRoute);
 
-  // ✅ SubAccordion "Emissões por cedente" dentro do Gestor de emissões
   const [openEmissoesPorCedente, setOpenEmissoesPorCedente] = useState(
     isEmissoesRoute
   );
 
-  // ✅ SubAccordion "Painel de Emissões" dentro do Gestor de emissões
   const [openPainelEmissoes, setOpenPainelEmissoes] = useState(
     isPainelEmissoesRoute
   );
 
   useEffect(() => setOpenCadastro(isCadastroRoute), [isCadastroRoute]);
 
-  // ✅ mantém subaccordions do Cadastro coerentes com a rota atual
   useEffect(() => {
     setOpenCedentes(
       (pathname.startsWith("/dashboard/cedentes") && !isPontosVisualizarRoute) ||
@@ -202,7 +193,6 @@ export default function Sidebar() {
     [isPontosVisualizarRoute]
   );
 
-  // ✅ Clubes abre automaticamente quando estiver em /dashboard/clubes*
   useEffect(() => setOpenClubes(isClubesRoute), [isClubesRoute]);
 
   useEffect(() => setOpenCompras(isComprasRoute), [isComprasRoute]);
@@ -210,19 +200,15 @@ export default function Sidebar() {
 
   useEffect(() => setOpenLucros(isLucrosRoute), [isLucrosRoute]);
 
-  // ✅ Análise só Resumo
   useEffect(() => setOpenAnalise(isAnaliseRoute), [isAnaliseRoute]);
 
-  // ✅ Financeiro
   useEffect(() => setOpenFinanceiro(isFinanceiroRoute), [isFinanceiroRoute]);
 
-  // ✅ Gestor de emissões
   useEffect(
     () => setOpenGestorEmissoes(isGestorEmissoesRoute),
     [isGestorEmissoesRoute]
   );
 
-  // ✅ Importações: abre quando estiver em uma rota de importação
   useEffect(() => {
     setOpenImportacoes(isImportacoesRoute || isImportacoesEmissoesLatamRoute);
   }, [isImportacoesRoute, isImportacoesEmissoesLatamRoute]);
@@ -233,12 +219,10 @@ export default function Sidebar() {
 
   useEffect(() => setOpenComissoes(isComissoesSubRoute), [isComissoesSubRoute]);
 
-  // ✅ Emissões por cedente (abre automaticamente quando estiver em /dashboard/emissoes, exclui import)
   useEffect(() => {
     setOpenEmissoesPorCedente(isEmissoesRoute);
   }, [isEmissoesRoute]);
 
-  // ✅ Painel de emissões (abre automaticamente quando estiver em /dashboard/painel-emissoes)
   useEffect(() => {
     setOpenPainelEmissoes(isPainelEmissoesRoute);
   }, [isPainelEmissoesRoute]);
@@ -246,15 +230,23 @@ export default function Sidebar() {
   /* =========================
    * FILTRO (VISUALIZAR PONTOS)
    * ========================= */
-  const programa = (search?.get("programa") || "").toLowerCase();
 
-  function pushWithPrograma(value: string | undefined) {
-    const qs = new URLSearchParams(search?.toString() || "");
+  // ✅ só marca ativo quando estiver na tela de visualizar
+  const programa = isPontosVisualizarRoute
+    ? (search?.get("programa") || "").toLowerCase()
+    : "";
+
+  // ✅ navega SEMPRE pra página de visualizar (resolve o problema dos botões fora da rota)
+  function goVisualizarPrograma(value: string | undefined) {
+    const qs = new URLSearchParams(
+      isPontosVisualizarRoute ? search?.toString() || "" : ""
+    );
+
     if (!value) qs.delete("programa");
     else qs.set("programa", value);
 
     const q = qs.toString();
-    router.push(q ? `${pathname}?${q}` : pathname);
+    router.push(q ? `${VISUALIZAR_PONTOS_PATH}?${q}` : VISUALIZAR_PONTOS_PATH);
   }
 
   /* =========================
@@ -320,7 +312,6 @@ export default function Sidebar() {
             </NavLink>
             <NavLink href="/dashboard/cedentes/novo">Cadastrar cedente</NavLink>
 
-            {/* ✅ removido: Visualizar cedentes (duplicava com Gestão de pontos) */}
             <NavLink href="/dashboard/cedentes/pendentes">
               Cedentes pendentes
             </NavLink>
@@ -371,92 +362,75 @@ export default function Sidebar() {
             open={openPontosVisualizar}
             onToggle={() => setOpenPontosVisualizar((v) => !v)}
           >
-            <NavLink href="/dashboard/cedentes/visualizar">Todos</NavLink>
-            <NavLink href="/dashboard/cedentes/visualizar?programa=latam">
-              Latam
-            </NavLink>
+            {/* ✅ APENAS OS RETÂNGULOS (sem NavLink duplicado) */}
+            <div className="pl-2 pr-2 pb-1">
+              <div className="flex flex-wrap gap-1">
+                <button
+                  type="button"
+                  onClick={() => goVisualizarPrograma(undefined)}
+                  className={cn(
+                    "px-3 py-1 text-xs rounded-full border",
+                    programa === "" ? "bg-black text-white" : "hover:bg-slate-100"
+                  )}
+                >
+                  Todos
+                </button>
 
-            {isPontosVisualizarRoute ? (
-              <div className="pl-2 pr-2 pb-1">
-                <div className="flex flex-wrap gap-1">
-                  <button
-                    type="button"
-                    onClick={() => pushWithPrograma(undefined)}
-                    className={cn(
-                      "px-3 py-1 text-xs rounded-full border",
-                      programa === ""
-                        ? "bg-black text-white"
-                        : "hover:bg-slate-100"
-                    )}
-                  >
-                    Todos
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => pushWithPrograma("latam")}
-                    className={cn(
-                      "px-3 py-1 text-xs rounded-full border",
-                      programa === "latam"
-                        ? "bg-black text-white"
-                        : "hover:bg-slate-100"
-                    )}
-                  >
-                    Latam
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => pushWithPrograma("smiles")}
-                    className={cn(
-                      "px-3 py-1 text-xs rounded-full border",
-                      programa === "smiles"
-                        ? "bg-black text-white"
-                        : "hover:bg-slate-100"
-                    )}
-                  >
-                    Smiles
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => pushWithPrograma("livelo")}
-                    className={cn(
-                      "px-3 py-1 text-xs rounded-full border",
-                      programa === "livelo"
-                        ? "bg-black text-white"
-                        : "hover:bg-slate-100"
-                    )}
-                  >
-                    Livelo
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => pushWithPrograma("esfera")}
-                    className={cn(
-                      "px-3 py-1 text-xs rounded-full border",
-                      programa === "esfera"
-                        ? "bg-black text-white"
-                        : "hover:bg-slate-100"
-                    )}
-                  >
-                    Esfera
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <>
-                <NavLink href="/dashboard/cedentes/visualizar?programa=smiles">
+                <button
+                  type="button"
+                  onClick={() => goVisualizarPrograma("latam")}
+                  className={cn(
+                    "px-3 py-1 text-xs rounded-full border",
+                    programa === "latam"
+                      ? "bg-black text-white"
+                      : "hover:bg-slate-100"
+                  )}
+                >
+                  Latam
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => goVisualizarPrograma("smiles")}
+                  className={cn(
+                    "px-3 py-1 text-xs rounded-full border",
+                    programa === "smiles"
+                      ? "bg-black text-white"
+                      : "hover:bg-slate-100"
+                  )}
+                >
                   Smiles
-                </NavLink>
-                <NavLink href="/dashboard/cedentes/visualizar?programa=livelo">
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => goVisualizarPrograma("livelo")}
+                  className={cn(
+                    "px-3 py-1 text-xs rounded-full border",
+                    programa === "livelo"
+                      ? "bg-black text-white"
+                      : "hover:bg-slate-100"
+                  )}
+                >
                   Livelo
-                </NavLink>
-                <NavLink href="/dashboard/cedentes/visualizar?programa=esfera">
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => goVisualizarPrograma("esfera")}
+                  className={cn(
+                    "px-3 py-1 text-xs rounded-full border",
+                    programa === "esfera"
+                      ? "bg-black text-white"
+                      : "hover:bg-slate-100"
+                  )}
+                >
                   Esfera
-                </NavLink>
-              </>
-            )}
+                </button>
+              </div>
+            </div>
           </SubAccordion>
 
-          {/* ✅ Clube agora vira subcategoria, padrão igual Compras/Vendas */}
           <SubAccordion
             title="Clube"
             open={openClubes}
@@ -466,7 +440,6 @@ export default function Sidebar() {
               Cadastrar clube
             </NavLink>
 
-            {/* ✅ Lista como rota base */}
             <NavLink href="/dashboard/clubes" exact>
               Lista
             </NavLink>
@@ -533,7 +506,12 @@ export default function Sidebar() {
           onToggle={() => setOpenAnalise((v) => !v)}
           active={isAnaliseRoute}
         >
-          <NavLink href="/dashboard/resumo">Resumo</NavLink>
+          <NavLink href="/dashboard/estrategia-compra">
+            Estratégia de compra
+          </NavLink>
+          <NavLink href="/dashboard/contas-selecionadas">
+            Contas selecionadas
+          </NavLink>
         </Accordion>
 
         {/* ================= FINANCEIRO ================= */}
@@ -543,6 +521,9 @@ export default function Sidebar() {
           onToggle={() => setOpenFinanceiro((v) => !v)}
           active={isFinanceiroRoute}
         >
+          {/* ✅ Resumo veio pra cá (sem mudar link) */}
+          <NavLink href="/dashboard/resumo">Resumo</NavLink>
+
           <NavLink href="/dashboard/dividas">Dívidas</NavLink>
           <NavLink href="/dashboard/recebimentos">Recebimentos</NavLink>
           <NavLink href="/dashboard/impostos">Impostos</NavLink>
@@ -669,8 +650,7 @@ function NavLink({
     ? pathname === hrefPath && paramsEqual(search, hrefQuery)
     : exact
     ? pathname === hrefPath
-    : // ✅ evita marcar "Todos" como ativo quando houver query (?programa=...)
-      !(
+    : !(
         STRICT_NOQUERY_ACTIVE_PATHS.has(hrefPath) &&
         pathname === hrefPath &&
         currentQuery
@@ -748,7 +728,6 @@ function SubAccordion({
       : "w-full flex justify-between items-center px-3 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded"
   );
 
-  // ✅ Se tiver href: o título vira Link (clicável), e a setinha só abre/fecha
   if (href) {
     return (
       <>
@@ -779,7 +758,6 @@ function SubAccordion({
     );
   }
 
-  // ✅ comportamento antigo
   return (
     <>
       <button onClick={onToggle} className={rowClass}>
