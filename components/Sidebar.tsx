@@ -16,7 +16,7 @@ const STRICT_NOQUERY_ACTIVE_PATHS = new Set<string>([
   "/dashboard/cedentes/visualizar",
   "/dashboard/emissoes",
   "/dashboard/painel-emissoes",
-  "/dashboard/clubes", // ✅ pra quando tiver query em /dashboard/clubes
+  "/dashboard/clubes", // ✅ evita marcar "Lista" quando houver query na lista
 ]);
 
 export default function Sidebar() {
@@ -33,7 +33,7 @@ export default function Sidebar() {
     "/dashboard/cedentes/visualizar"
   );
 
-  // ✅ Cadastro NÃO deve “pegar” Visualizar cedentes (pra não duplicar com Gestão de pontos)
+  // ✅ Cadastro NÃO deve “pegar” Visualizar cedentes
   const isCadastroRoute =
     (pathname.startsWith("/dashboard/cedentes") && !isPontosVisualizarRoute) ||
     pathname.startsWith("/dashboard/clientes") ||
@@ -43,9 +43,15 @@ export default function Sidebar() {
   const isComprasRoute = pathname.startsWith("/dashboard/compras");
   const isVendasRoute = pathname.startsWith("/dashboard/vendas");
 
-  // ✅ Clubes (rota base /dashboard/clubes e subrotas)
+  // ✅ Clubes (lista e cadastrar)
   const isClubesRoute = pathname.startsWith("/dashboard/clubes");
+  const isClubesCadastrarRoute =
+    pathname === "/dashboard/clubes/cadastrar" ||
+    pathname.startsWith("/dashboard/clubes/cadastrar/");
+  const isClubesListaRoute =
+    pathname === "/dashboard/clubes" || pathname.startsWith("/dashboard/clubes/");
 
+  // ✅ Gestão de pontos engloba Visualizar, Compras, Vendas e Clubes
   const isGestaoPontosRoute =
     isPontosVisualizarRoute || isComprasRoute || isVendasRoute || isClubesRoute;
 
@@ -129,6 +135,9 @@ export default function Sidebar() {
   const [openPontosVisualizar, setOpenPontosVisualizar] =
     useState(isPontosVisualizarRoute);
 
+  // ✅ Clube como subcategoria (Cadastrar / Lista)
+  const [openClubes, setOpenClubes] = useState(isClubesRoute);
+
   const [openCompras, setOpenCompras] = useState(isComprasRoute);
   const [openVendas, setOpenVendas] = useState(isVendasRoute);
 
@@ -192,6 +201,9 @@ export default function Sidebar() {
     () => setOpenPontosVisualizar(isPontosVisualizarRoute),
     [isPontosVisualizarRoute]
   );
+
+  // ✅ Clubes abre automaticamente quando estiver em /dashboard/clubes*
+  useEffect(() => setOpenClubes(isClubesRoute), [isClubesRoute]);
 
   useEffect(() => setOpenCompras(isComprasRoute), [isComprasRoute]);
   useEffect(() => setOpenVendas(isVendasRoute), [isVendasRoute]);
@@ -269,6 +281,7 @@ export default function Sidebar() {
           />
           <span className="font-semibold">TradeMiles</span>
         </div>
+
         {session && (
           <button
             onClick={doLogout}
@@ -307,8 +320,7 @@ export default function Sidebar() {
             </NavLink>
             <NavLink href="/dashboard/cedentes/novo">Cadastrar cedente</NavLink>
 
-            {/* ✅ REMOVIDO: Visualizar cedentes (pra não duplicar com Gestão de pontos) */}
-
+            {/* ✅ removido: Visualizar cedentes (duplicava com Gestão de pontos) */}
             <NavLink href="/dashboard/cedentes/pendentes">
               Cedentes pendentes
             </NavLink>
@@ -325,12 +337,10 @@ export default function Sidebar() {
               Cadastrar funcionário
             </NavLink>
 
-            {/* ✅ exact pra não ficar ativo em /dashboard/funcionarios/* */}
             <NavLink href="/dashboard/funcionarios" exact>
               Visualizar funcionários
             </NavLink>
 
-            {/* ✅ NOVO: base percentual do rateio do lucro */}
             <NavLink href="/dashboard/funcionarios/rateio">
               Rateio do lucro
             </NavLink>
@@ -343,7 +353,6 @@ export default function Sidebar() {
           >
             <NavLink href="/dashboard/clientes/novo">Cadastrar cliente</NavLink>
 
-            {/* ✅ exact pra não ficar ativo em /dashboard/clientes/* */}
             <NavLink href="/dashboard/clientes" exact>
               Visualizar clientes
             </NavLink>
@@ -362,10 +371,7 @@ export default function Sidebar() {
             open={openPontosVisualizar}
             onToggle={() => setOpenPontosVisualizar((v) => !v)}
           >
-            {/* ✅ Mantém o Todos como está */}
             <NavLink href="/dashboard/cedentes/visualizar">Todos</NavLink>
-
-            {/* ✅ Acrescenta o Latam */}
             <NavLink href="/dashboard/cedentes/visualizar?programa=latam">
               Latam
             </NavLink>
@@ -450,8 +456,21 @@ export default function Sidebar() {
             )}
           </SubAccordion>
 
-          {/* ✅ Clube (somente 1 rota: /dashboard/clubes) */}
-          <NavLink href="/dashboard/clubes">Clube</NavLink>
+          {/* ✅ Clube agora vira subcategoria, padrão igual Compras/Vendas */}
+          <SubAccordion
+            title="Clube"
+            open={openClubes}
+            onToggle={() => setOpenClubes((v) => !v)}
+          >
+            <NavLink href="/dashboard/clubes/cadastrar" exact>
+              Cadastrar clube
+            </NavLink>
+
+            {/* ✅ Lista como rota base */}
+            <NavLink href="/dashboard/clubes" exact>
+              Lista
+            </NavLink>
+          </SubAccordion>
 
           <SubAccordion
             title="Compras"
@@ -459,8 +478,6 @@ export default function Sidebar() {
             onToggle={() => setOpenCompras((v) => !v)}
           >
             <NavLink href="/dashboard/compras/nova">Efetuar compra</NavLink>
-
-            {/* ✅ exact pra não ficar ativo em /dashboard/compras/* */}
             <NavLink href="/dashboard/compras" exact>
               Visualizar compras
             </NavLink>
@@ -473,12 +490,10 @@ export default function Sidebar() {
           >
             <NavLink href="/dashboard/vendas/nova">Efetuar venda</NavLink>
 
-            {/* ✅ IMPORTANTE: exact para não ficar ativo em /dashboard/vendas/* */}
             <NavLink href="/dashboard/vendas" exact>
               Painel de vendas
             </NavLink>
 
-            {/* ✅ NOVO: Compras a finalizar / finalizadas (histórico) */}
             <NavLink href="/dashboard/vendas/compras-a-finalizar">
               Compras a finalizar
             </NavLink>
@@ -563,7 +578,6 @@ export default function Sidebar() {
           onToggle={() => setOpenGestorEmissoes((v) => !v)}
           active={isGestorEmissoesRoute}
         >
-          {/* Emissões por cedente */}
           <SubAccordion
             title="Emissões por cedente"
             open={openEmissoesPorCedente}
@@ -588,7 +602,6 @@ export default function Sidebar() {
             </NavLink>
           </SubAccordion>
 
-          {/* ✅ Painel de Emissões (novo) */}
           <SubAccordion
             title="Painel de Emissões"
             open={openPainelEmissoes}
