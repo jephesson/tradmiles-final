@@ -19,16 +19,30 @@ type ClubeRow = {
   program: Program;
 
   tierK: number;
-  priceCents: number;
+  priceCents: number; // backend força 0 (não usamos no front)
 
   subscribedAt: string; // ISO
   renewalDay: number;
 
   lastRenewedAt: string | null;
+
+  /**
+   * ⚠️ backend novo:
+   * - LATAM/SMILES: pointsExpireAt = "cancela em"
+   * - LIVELO: pointsExpireAt = "inativa em" (permanente)
+   * - ESFERA: null
+   */
   pointsExpireAt: string | null;
+
   renewedThisCycle: boolean;
 
   status: Status;
+
+  /**
+   * ⚠️ backend novo:
+   * - SMILES: smilesBonusEligibleAt = "pode aderir promo de novo"
+   * - demais: null
+   */
   smilesBonusEligibleAt: string | null;
 
   notes: string | null;
@@ -39,19 +53,19 @@ type ClubeRow = {
   cedente: CedenteLite;
 };
 
-function fmtMoneyBR(cents: number) {
-  const v = (cents || 0) / 100;
-  return v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
-}
-
 function isoToInputDate(iso: string | null) {
   if (!iso) return "";
   return String(iso).slice(0, 10);
 }
 
+/**
+ * Evita bug de timezone ao salvar date-only.
+ * Envia sempre no meio-dia UTC (não “volta um dia” no backend).
+ */
 function inputDateToISO(v: string) {
   if (!v) return null;
-  const d = new Date(v);
+  // YYYY-MM-DD -> YYYY-MM-DDT12:00:00Z
+  const d = new Date(`${v}T12:00:00.000Z`);
   if (Number.isNaN(d.getTime())) return null;
   return d.toISOString();
 }
@@ -63,6 +77,109 @@ async function jfetch(url: string, init?: RequestInit) {
     throw new Error(json?.error || "Erro na requisição");
   }
   return json;
+}
+
+/* =========================
+   Regras (mesmas do backend)
+========================= */
+const LATAM_CANCEL_AFTER_INACTIVE_DAYS = 10;
+const SMILES_CANCEL_AFTER_INACTIVE_DAYS = 60;
+
+// ✅ backend atualizado: LIVELO inativa em 30 dias (base = lastRenewedAt ?? subscribedAt)
+const LIVELO_INACTIVE_AFTER_SUBSCRIBE_DAYS = 30;
+
+function addDaysUTC(base: Date, days: number) {
+  const d = new Date(Date.UTC(base.getUTCFullYear(), base.getUTCMonth(), base.getUTCDate()));
+  d.setUTCDate(d.getUTCDate() + days);
+  return d;
+}
+
+function daysInMonthUTC(year: number, month0: number) {
+  return new Date(Date.UTC(year, month0 + 1, 0)).getUTCDate();
+}
+
+function nextMonthOnDayUTC(base: Date, day: number) {
+  const y0 = base.getUTCFullYear();
+  const m0 = base.getUTCMonth();
+
+  let y = y0;
+  let m = m0 + 1;
+  if (m > 11) {
+    m = 0;
+    y += 1;
+  }
+
+  const last = daysInMonthUTC(y, m);
+  const dd = Math.min(Math.max(1, day), last);
+
+  return new Date(Date.UTC(y, m, dd));
+}
+
+function toDateSafe(iso: string | null) {
+  if (!iso) return null;
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+function fmtDateBR(iso: string | null) {
+  const d = toDateSafe(iso);
+  if (!d) return "-";
+  return new Intl.DateTimeFormat("pt-BR", {
+    timeZone: "UTC",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(d);
+}
+
+function computeAutoDates(
+  row: Pick<ClubeRow, "program" | "subscribedAt" | "renewalDay" | "lastRenewedAt">
+) {
+  const program = row.program;
+  const subscribedAt = toDateSafe(row.subscribedAt) || new Date();
+  const renewalDay = Math.min(31, Math.max(1, Number(row.renewalDay) || 1));
+  const lastRenewedAt = toDateSafe(row.lastRenewedAt);
+
+  let nextRenewalAt: Date | null = null;
+  let inactiveAt: Date | null = null;
+  let cancelAtOrInativaAt: Date | null = null;
+
+  if (program === "LATAM" || program === "SMILES") {
+    const base = lastRenewedAt ?? subscribedAt;
+
+    // ✅ sempre mês seguinte no dia renewalDay
+    nextRenewalAt = nextMonthOnDayUTC(base, renewalDay);
+    inactiveAt = addDaysUTC(nextRenewalAt, 1);
+
+    const cancelAfter =
+      program === "LATAM"
+        ? LATAM_CANCEL_AFTER_INACTIVE_DAYS
+        : SMILES_CANCEL_AFTER_INACTIVE_DAYS;
+
+    cancelAtOrInativaAt = addDaysUTC(inactiveAt, cancelAfter);
+  } else if (program === "LIVELO") {
+    // ✅ LIVELO: base = lastRenewedAt ?? subscribedAt; inativa em 30 dias
+    const base = lastRenewedAt ?? subscribedAt;
+    inactiveAt = addDaysUTC(base, LIVELO_INACTIVE_AFTER_SUBSCRIBE_DAYS);
+    cancelAtOrInativaAt = inactiveAt; // aqui é "inativa em" (permanente)
+    nextRenewalAt = inactiveAt;
+  } else {
+    // ESFERA sem regra
+  }
+
+  return {
+    nextRenewalAt,
+    inactiveAt,
+    cancelAtOrInativaAt,
+  };
+}
+
+function dateToISO(d: Date | null) {
+  return d ? d.toISOString() : null;
+}
+
+function clampTierK(n: number) {
+  return Math.min(20, Math.max(1, n));
 }
 
 export default function ClubesClient({
@@ -83,7 +200,6 @@ export default function ClubesClient({
   const [msg, setMsg] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
-  // form (criar/editar)
   const [editingId, setEditingId] = useState<string | null>(null);
 
   const emptyForm = useMemo(
@@ -91,14 +207,11 @@ export default function ClubesClient({
       cedenteId: cedentes[0]?.id || "",
       program: "LATAM" as Program,
       tierK: 10,
-      priceReais: "0",
-      subscribedAt: isoToInputDate(new Date().toISOString()),
+      subscribedAt: isoToInputDate(new Date().toISOString()), // ✅ hoje (mas pode retroativo)
       renewalDay: 1,
       lastRenewedAt: "",
-      pointsExpireAt: "",
       renewedThisCycle: false,
       status: "ACTIVE" as Status,
-      smilesBonusEligibleAt: "",
       notes: "",
     }),
     [cedentes]
@@ -107,12 +220,11 @@ export default function ClubesClient({
   const [form, setForm] = useState(emptyForm);
 
   useEffect(() => {
-    // mantém o form coerente quando a lista de cedentes chega depois (fallback)
     setForm((f) => ({ ...emptyForm, ...f }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cedentes.length]);
 
-  // ✅ fallback: se por algum motivo vier sem cedentes, busca um "lite" a partir do approved
+  // fallback cedentes
   useEffect(() => {
     if (cedentes.length > 0) return;
 
@@ -128,15 +240,32 @@ export default function ClubesClient({
         }));
         setCedentes(lite);
       } catch {
-        // não explode UI; o form já vai bloquear se não tiver cedente
+        // sem crash
       }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const decorated = useMemo(() => {
+    return clubes.map((c) => {
+      const auto = computeAutoDates(c);
+
+      // Preferir o valor do backend quando existir (é a fonte de verdade)
+      const backendCancelOrInativa = toDateSafe(c.pointsExpireAt);
+      const cancelAtOrInativaAt = backendCancelOrInativa ?? auto.cancelAtOrInativaAt;
+
+      return {
+        ...c,
+        _nextRenewalISO: dateToISO(auto.nextRenewalAt),
+        _inactiveISO: dateToISO(auto.inactiveAt),
+        _cancelOrInativaISO: dateToISO(cancelAtOrInativaAt),
+      };
+    });
+  }, [clubes]);
+
   const filtered = useMemo(() => {
     const qq = q.trim().toLowerCase();
-    return clubes.filter((c) => {
+    return decorated.filter((c) => {
       if (filterProgram && c.program !== filterProgram) return false;
       if (filterStatus && c.status !== filterStatus) return false;
 
@@ -154,7 +283,7 @@ export default function ClubesClient({
 
       return hay.includes(qq);
     });
-  }, [clubes, q, filterProgram, filterStatus]);
+  }, [decorated, q, filterProgram, filterStatus]);
 
   function resetAlerts() {
     setErr(null);
@@ -194,40 +323,29 @@ export default function ClubesClient({
       cedenteId: row.cedenteId,
       program: row.program,
       tierK: row.tierK,
-      priceReais: String((row.priceCents / 100).toFixed(2)).replace(".", ","),
       subscribedAt: isoToInputDate(row.subscribedAt),
       renewalDay: row.renewalDay,
       lastRenewedAt: isoToInputDate(row.lastRenewedAt),
-      pointsExpireAt: isoToInputDate(row.pointsExpireAt),
       renewedThisCycle: row.renewedThisCycle,
       status: row.status,
-      smilesBonusEligibleAt: isoToInputDate(row.smilesBonusEligibleAt),
       notes: row.notes || "",
     });
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
-  function parsePriceCentsFromReais(input: string) {
-    // aceita: "1234,56" | "1.234,56" | "1234.56" | "1,234.56"
-    let s = String(input || "").trim();
-    if (!s) return 0;
+  function markRenewedToday() {
+    const today = new Date();
+    const yyyy = today.getFullYear();
+    const mm = String(today.getMonth() + 1).padStart(2, "0");
+    const dd = String(today.getDate()).padStart(2, "0");
+    const v = `${yyyy}-${mm}-${dd}`;
 
-    // remove R$, espaços e afins
-    s = s.replace(/[R$\s]/gi, "");
-
-    if (s.includes(",")) {
-      // se tem vírgula, assume vírgula = decimal (pt-BR)
-      // remove pontos de milhar, troca vírgula por ponto
-      s = s.replace(/\./g, "").replace(",", ".");
-    } else {
-      // sem vírgula: assume ponto = decimal (en-US)
-      // remove vírgulas de milhar
-      s = s.replace(/,/g, "");
-    }
-
-    const v = Number(s);
-    if (!Number.isFinite(v)) return 0;
-    return Math.max(0, Math.round(v * 100));
+    setForm((f) => ({
+      ...f,
+      lastRenewedAt: v,
+      renewedThisCycle: true,
+      status: "ACTIVE",
+    }));
   }
 
   async function onSave(e: FormEvent) {
@@ -236,28 +354,24 @@ export default function ClubesClient({
     setLoading(true);
 
     try {
+      if (!cedentes.length) throw new Error("Você precisa cadastrar/importar cedentes primeiro.");
+      if (!form.cedenteId) throw new Error("Escolha um cedente");
+
+      const subscribedAtISO = inputDateToISO(form.subscribedAt);
+      if (!subscribedAtISO) throw new Error("Data de assinatura inválida");
+
       const payload: any = {
         cedenteId: form.cedenteId,
         program: form.program,
-        tierK: Number(form.tierK) || 0,
-        priceCents: parsePriceCentsFromReais(form.priceReais),
-        subscribedAt: inputDateToISO(form.subscribedAt),
-        renewalDay: Number(form.renewalDay) || 1,
+        tierK: clampTierK(Number(form.tierK) || 10),
+        subscribedAt: subscribedAtISO,
+        renewalDay: Math.min(31, Math.max(1, Number(form.renewalDay) || 1)),
         lastRenewedAt: form.lastRenewedAt ? inputDateToISO(form.lastRenewedAt) : null,
-        pointsExpireAt: form.pointsExpireAt ? inputDateToISO(form.pointsExpireAt) : null,
         renewedThisCycle: Boolean(form.renewedThisCycle),
         status: form.status,
-        smilesBonusEligibleAt:
-          form.program === "SMILES" && form.smilesBonusEligibleAt
-            ? inputDateToISO(form.smilesBonusEligibleAt)
-            : null,
         notes: form.notes?.trim().slice(0, 500) || null,
+        // ✅ NÃO enviar: priceCents, pointsExpireAt, smilesBonusEligibleAt (automáticos)
       };
-
-      if (!cedentes.length) throw new Error("Você precisa cadastrar/importar cedentes primeiro.");
-      if (!payload.cedenteId) throw new Error("Escolha um cedente");
-      if (!payload.subscribedAt) throw new Error("Data de assinatura inválida");
-      payload.renewalDay = Math.min(31, Math.max(1, payload.renewalDay));
 
       if (!editingId) {
         const json = await jfetch("/api/clubes", {
@@ -289,7 +403,12 @@ export default function ClubesClient({
     setLoading(true);
     try {
       const json = await jfetch(`/api/clubes/${row.id}`, { method: "DELETE" });
-      setClubes((prev) => prev.map((c) => (c.id === row.id ? json.item : c)));
+      // soft cancel retorna {item}; hard delete retorna {deleted:true}
+      if (json?.item) {
+        setClubes((prev) => prev.map((c) => (c.id === row.id ? json.item : c)));
+      } else {
+        setClubes((prev) => prev.filter((c) => c.id !== row.id));
+      }
       setMsg("Clube cancelado ✅");
     } catch (e: any) {
       setErr(e?.message || "Erro ao cancelar");
@@ -298,6 +417,8 @@ export default function ClubesClient({
     }
   }
 
+  const tierOptions = useMemo(() => Array.from({ length: 20 }, (_, i) => i + 1), []);
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -305,7 +426,7 @@ export default function ClubesClient({
         <div>
           <h1 className="text-xl font-semibold tracking-tight">Clubes</h1>
           <p className="text-sm text-neutral-500">
-            Cadastre assinaturas (LATAM/SMILES/LIVELO/ESFERA) por cedente.
+            Assinaturas por cedente. Datas de inativação/cancelamento são automáticas por regra.
           </p>
         </div>
 
@@ -344,21 +465,34 @@ export default function ClubesClient({
       {/* Form */}
       <form onSubmit={onSave} className="rounded-2xl border p-4 space-y-4 bg-white">
         <div className="flex items-center justify-between gap-3">
-          <h2 className="text-sm font-semibold">
-            {editingId ? "Editar clube" : "Cadastrar clube"}
-          </h2>
-          {editingId && (
-            <button
-              type="button"
-              onClick={() => {
-                setEditingId(null);
-                setForm(emptyForm);
-              }}
-              className="text-xs text-neutral-500 hover:text-neutral-800"
-            >
-              sair do modo edição
-            </button>
-          )}
+          <h2 className="text-sm font-semibold">{editingId ? "Editar clube" : "Cadastrar clube"}</h2>
+
+          <div className="flex items-center gap-2">
+            {(form.program === "LATAM" || form.program === "SMILES") && (
+              <button
+                type="button"
+                onClick={markRenewedToday}
+                className="rounded-xl border px-3 py-2 text-xs hover:bg-neutral-50"
+                disabled={loading}
+                title="Preenche última renovação com hoje e marca como renovado neste ciclo"
+              >
+                Marcar renovado hoje
+              </button>
+            )}
+
+            {editingId && (
+              <button
+                type="button"
+                onClick={() => {
+                  setEditingId(null);
+                  setForm(emptyForm);
+                }}
+                className="text-xs text-neutral-500 hover:text-neutral-800"
+              >
+                sair do modo edição
+              </button>
+            )}
+          </div>
         </div>
 
         {!cedentes.length && (
@@ -393,7 +527,6 @@ export default function ClubesClient({
                 setForm((f) => ({
                   ...f,
                   program: e.target.value as Program,
-                  smilesBonusEligibleAt: "",
                 }))
               }
             >
@@ -415,29 +548,24 @@ export default function ClubesClient({
               <option value="PAUSED">PAUSADO</option>
               <option value="CANCELED">CANCELADO</option>
             </select>
+            <div className="mt-1 text-[11px] text-neutral-400">
+              *O backend pode rebaixar automaticamente (ACTIVE→PAUSED→CANCELED) conforme as regras.
+            </div>
           </label>
 
           <label className="text-xs text-neutral-600">
-            Tier (K)
-            <input
+            Tier (K) (1k..20k)
+            <select
               className="mt-1 w-full rounded-xl border px-3 py-2 text-sm"
-              type="number"
-              min={0}
-              value={form.tierK}
-              onChange={(e) =>
-                setForm((f) => ({ ...f, tierK: Math.max(0, Number(e.target.value) || 0) }))
-              }
-            />
-          </label>
-
-          <label className="text-xs text-neutral-600">
-            Preço (R$)
-            <input
-              className="mt-1 w-full rounded-xl border px-3 py-2 text-sm"
-              placeholder="ex: 129,90"
-              value={form.priceReais}
-              onChange={(e) => setForm((f) => ({ ...f, priceReais: e.target.value }))}
-            />
+              value={String(form.tierK)}
+              onChange={(e) => setForm((f) => ({ ...f, tierK: Number(e.target.value) }))}
+            >
+              {tierOptions.map((k) => (
+                <option key={k} value={k}>
+                  {k}k
+                </option>
+              ))}
+            </select>
           </label>
 
           <label className="text-xs text-neutral-600">
@@ -465,6 +593,9 @@ export default function ClubesClient({
                 }))
               }
             />
+            <div className="mt-1 text-[11px] text-neutral-400">
+              *LATAM/SMILES: a inativação começa no dia seguinte à renovação do mês seguinte.
+            </div>
           </label>
 
           <label className="text-xs text-neutral-600">
@@ -477,16 +608,6 @@ export default function ClubesClient({
             />
           </label>
 
-          <label className="text-xs text-neutral-600">
-            Expiração dos pontos (opcional)
-            <input
-              className="mt-1 w-full rounded-xl border px-3 py-2 text-sm"
-              type="date"
-              value={form.pointsExpireAt}
-              onChange={(e) => setForm((f) => ({ ...f, pointsExpireAt: e.target.value }))}
-            />
-          </label>
-
           <label className="text-xs text-neutral-600 flex items-center gap-2 mt-6">
             <input
               type="checkbox"
@@ -495,18 +616,6 @@ export default function ClubesClient({
             />
             Renovou neste ciclo
           </label>
-
-          {form.program === "SMILES" && (
-            <label className="text-xs text-neutral-600 md:col-span-2">
-              SMILES: elegível bônus novamente (opcional)
-              <input
-                className="mt-1 w-full rounded-xl border px-3 py-2 text-sm"
-                type="date"
-                value={form.smilesBonusEligibleAt}
-                onChange={(e) => setForm((f) => ({ ...f, smilesBonusEligibleAt: e.target.value }))}
-              />
-            </label>
-          )}
 
           <label className="text-xs text-neutral-600 md:col-span-3">
             Observações (opcional)
@@ -581,96 +690,107 @@ export default function ClubesClient({
         </div>
 
         <div className="overflow-x-auto">
-          <table className="min-w-[980px] w-full text-sm">
+          <table className="min-w-[1120px] w-full text-sm">
             <thead className="bg-neutral-50 text-neutral-600">
               <tr>
                 <th className="text-left px-4 py-2">Cedente</th>
                 <th className="text-left px-4 py-2">Programa</th>
                 <th className="text-left px-4 py-2">Tier</th>
-                <th className="text-left px-4 py-2">Preço</th>
                 <th className="text-left px-4 py-2">Assinatura</th>
-                <th className="text-left px-4 py-2">Renova</th>
-                <th className="text-left px-4 py-2">Expira pts</th>
-                <th className="text-left px-4 py-2">Bônus SMILES</th>
+                <th className="text-left px-4 py-2">Próx. renov.</th>
+                <th className="text-left px-4 py-2">Inativa em</th>
+                <th className="text-left px-4 py-2">Cancela / Inativa</th>
+                <th className="text-left px-4 py-2">Promo SMILES</th>
                 <th className="text-left px-4 py-2">Status</th>
                 <th className="text-right px-4 py-2">Ações</th>
               </tr>
             </thead>
 
             <tbody className="divide-y">
-              {filtered.map((c) => (
-                <tr key={c.id} className="hover:bg-neutral-50">
-                  <td className="px-4 py-2">
-                    <div className="font-medium">{c.cedente?.nomeCompleto}</div>
-                    <div className="text-xs text-neutral-500">
-                      {c.cedente?.identificador} • CPF {c.cedente?.cpf}
-                    </div>
-                  </td>
+              {filtered.map((c: any) => {
+                const nextLabel =
+                  c.program === "LATAM" || c.program === "SMILES" ? fmtDateBR(c._nextRenewalISO) : "-";
 
-                  <td className="px-4 py-2 font-medium">{c.program}</td>
+                const inactiveLabel =
+                  c.program === "LATAM" || c.program === "SMILES" || c.program === "LIVELO"
+                    ? fmtDateBR(c._inactiveISO)
+                    : "-";
 
-                  <td className="px-4 py-2">{c.tierK}k</td>
+                const cancelOrInativaLabel =
+                  c.program === "ESFERA" ? "-" : fmtDateBR(c._cancelOrInativaISO);
 
-                  <td className="px-4 py-2">{fmtMoneyBR(c.priceCents)}</td>
+                const cancelOrInativaTitle =
+                  c.program === "LIVELO"
+                    ? "Data em que fica inativo (permanente)"
+                    : "Data em que cancela automaticamente";
 
-                  <td className="px-4 py-2">{isoToInputDate(c.subscribedAt)}</td>
+                return (
+                  <tr key={c.id} className="hover:bg-neutral-50">
+                    <td className="px-4 py-2">
+                      <div className="font-medium">{c.cedente?.nomeCompleto}</div>
+                      <div className="text-xs text-neutral-500">
+                        {c.cedente?.identificador} • CPF {c.cedente?.cpf}
+                      </div>
+                    </td>
 
-                  <td className="px-4 py-2">
-                    dia {c.renewalDay}
-                    {c.renewedThisCycle ? (
-                      <span className="ml-2 text-xs text-green-700">• renovou</span>
-                    ) : (
-                      <span className="ml-2 text-xs text-neutral-500">• pendente</span>
-                    )}
-                  </td>
+                    <td className="px-4 py-2 font-medium">{c.program}</td>
 
-                  <td className="px-4 py-2">
-                    {c.pointsExpireAt ? isoToInputDate(c.pointsExpireAt) : "-"}
-                  </td>
+                    <td className="px-4 py-2">{c.tierK}k</td>
 
-                  <td className="px-4 py-2">
-                    {c.program === "SMILES" && c.smilesBonusEligibleAt
-                      ? isoToInputDate(c.smilesBonusEligibleAt)
-                      : "-"}
-                  </td>
+                    <td className="px-4 py-2">{fmtDateBR(c.subscribedAt)}</td>
 
-                  <td className="px-4 py-2">
-                    <span
-                      className={[
-                        "inline-flex items-center rounded-full px-2 py-0.5 text-xs border",
-                        c.status === "ACTIVE"
-                          ? "border-green-200 bg-green-50 text-green-700"
-                          : c.status === "PAUSED"
-                          ? "border-yellow-200 bg-yellow-50 text-yellow-700"
-                          : "border-red-200 bg-red-50 text-red-700",
-                      ].join(" ")}
-                    >
-                      {c.status}
-                    </span>
-                  </td>
+                    <td className="px-4 py-2">{nextLabel}</td>
 
-                  <td className="px-4 py-2 text-right space-x-2">
-                    <button
-                      type="button"
-                      onClick={() => startEdit(c)}
-                      className="rounded-lg border px-2 py-1 text-xs hover:bg-white"
-                    >
-                      Editar
-                    </button>
+                    <td className="px-4 py-2">{inactiveLabel}</td>
 
-                    {c.status !== "CANCELED" && (
+                    <td className="px-4 py-2" title={cancelOrInativaTitle}>
+                      {cancelOrInativaLabel}
+                    </td>
+
+                    <td className="px-4 py-2">
+                      {c.program === "SMILES" && c.smilesBonusEligibleAt
+                        ? fmtDateBR(c.smilesBonusEligibleAt)
+                        : "-"}
+                    </td>
+
+                    <td className="px-4 py-2">
+                      <span
+                        className={[
+                          "inline-flex items-center rounded-full px-2 py-0.5 text-xs border",
+                          c.status === "ACTIVE"
+                            ? "border-green-200 bg-green-50 text-green-700"
+                            : c.status === "PAUSED"
+                            ? "border-yellow-200 bg-yellow-50 text-yellow-700"
+                            : "border-red-200 bg-red-50 text-red-700",
+                        ].join(" ")}
+                      >
+                        {c.status}
+                      </span>
+                    </td>
+
+                    <td className="px-4 py-2 text-right space-x-2">
                       <button
                         type="button"
-                        onClick={() => onCancel(c)}
+                        onClick={() => startEdit(c)}
                         className="rounded-lg border px-2 py-1 text-xs hover:bg-white"
-                        disabled={loading}
                       >
-                        Cancelar
+                        Editar
                       </button>
-                    )}
-                  </td>
-                </tr>
-              ))}
+
+                      {c.status !== "CANCELED" && (
+                        <button
+                          type="button"
+                          onClick={() => onCancel(c)}
+                          className="rounded-lg border px-2 py-1 text-xs hover:bg-white"
+                          disabled={loading}
+                        >
+                          Cancelar
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
 
               {!filtered.length && (
                 <tr>

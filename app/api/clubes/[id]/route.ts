@@ -1,3 +1,4 @@
+// app/api/clubes/[id]/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSessionServer } from "@/lib/auth-server";
@@ -52,6 +53,140 @@ function prismaMsg(e: any) {
   return "Falha ao processar no banco.";
 }
 
+/* ======================
+   Regras de automação
+====================== */
+const LATAM_CANCEL_AFTER_INACTIVE_DAYS = 10;
+const SMILES_CANCEL_AFTER_INACTIVE_DAYS = 60;
+
+// ✅ LIVELO: exatamente 30 dias após assinatura/renovação
+const LIVELO_INACTIVE_AFTER_SUBSCRIBE_DAYS = 30;
+
+const SMILES_PROMO_DAYS = 365;
+
+/** normaliza qualquer date para "início do dia" em UTC */
+function startUTC(d: Date) {
+  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+}
+
+/** datas em UTC para não “pular dia” por timezone */
+function addDaysUTC(base: Date, days: number) {
+  const d = startUTC(base);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d;
+}
+
+function daysInMonthUTC(year: number, month0: number) {
+  return new Date(Date.UTC(year, month0 + 1, 0)).getUTCDate();
+}
+
+/** dia X do mês seguinte ao base (clamp se mês não tem aquele dia) */
+function nextMonthOnDayUTC(base: Date, day: number) {
+  const b = startUTC(base);
+  const y0 = b.getUTCFullYear();
+  const m0 = b.getUTCMonth();
+
+  let y = y0;
+  let m = m0 + 1;
+  if (m > 11) {
+    m = 0;
+    y += 1;
+  }
+
+  const last = daysInMonthUTC(y, m);
+  const dd = Math.min(Math.max(1, day), last);
+
+  return new Date(Date.UTC(y, m, dd));
+}
+
+function computeAutoDates(input: {
+  program: Program;
+  subscribedAt: Date;
+  renewalDay: number;
+  lastRenewedAt: Date | null;
+  firstSmilesSubscribedAt?: Date | null;
+}) {
+  const { program, subscribedAt, renewalDay, lastRenewedAt } = input;
+
+  let nextRenewalAt: Date | null = null;
+  let inactiveAt: Date | null = null;
+
+  // pointsExpireAt aqui = “cancela em” (LATAM/SMILES) OU “inativa em” (LIVELO)
+  let pointsExpireAt: Date | null = null;
+
+  let smilesBonusEligibleAt: Date | null = null;
+
+  if (program === "LATAM" || program === "SMILES") {
+    const base = lastRenewedAt ?? subscribedAt;
+
+    // ✅ NUNCA no mesmo mês: sempre mês seguinte
+    nextRenewalAt = nextMonthOnDayUTC(base, renewalDay);
+    inactiveAt = addDaysUTC(nextRenewalAt, 1);
+
+    const cancelAfter =
+      program === "LATAM"
+        ? LATAM_CANCEL_AFTER_INACTIVE_DAYS
+        : SMILES_CANCEL_AFTER_INACTIVE_DAYS;
+
+    pointsExpireAt = addDaysUTC(inactiveAt, cancelAfter);
+
+    if (program === "SMILES") {
+      const first = input.firstSmilesSubscribedAt ?? subscribedAt;
+      smilesBonusEligibleAt = addDaysUTC(first, SMILES_PROMO_DAYS);
+    }
+  } else if (program === "LIVELO") {
+    // ✅ LIVELO: 30 dias após assinatura/renovação (se houver lastRenewedAt, usa ele)
+    const base = lastRenewedAt ?? subscribedAt;
+    inactiveAt = addDaysUTC(base, LIVELO_INACTIVE_AFTER_SUBSCRIBE_DAYS);
+    pointsExpireAt = inactiveAt; // aqui é "inativaEm"
+    nextRenewalAt = inactiveAt;
+  } else {
+    // ESFERA: sem automação
+  }
+
+  return { nextRenewalAt, inactiveAt, pointsExpireAt, smilesBonusEligibleAt };
+}
+
+function clampTierK(n: number) {
+  return Math.min(20, Math.max(1, n));
+}
+
+function clampRenewalDay(n: number) {
+  return Math.min(31, Math.max(1, n));
+}
+
+function applyAutoDowngrade(params: {
+  now: Date;
+  program: Program;
+  currentStatus: Status;
+  inactiveAt: Date | null;
+  cancelAtOrInativaAt: Date | null; // pointsExpireAt
+}) {
+  const now = startUTC(params.now);
+  const { program, currentStatus, inactiveAt, cancelAtOrInativaAt } = params;
+
+  let s: Status = currentStatus;
+
+  if (s !== "CANCELED") {
+    // LATAM/SMILES: pointsExpireAt = cancelaEm
+    if ((program === "LATAM" || program === "SMILES") && cancelAtOrInativaAt) {
+      if (now >= startUTC(cancelAtOrInativaAt)) s = "CANCELED";
+    }
+
+    // inativação (ACTIVE -> PAUSED)
+    if (inactiveAt && now >= startUTC(inactiveAt) && s === "ACTIVE") {
+      s = "PAUSED";
+    }
+
+    // LIVELO: inativo permanente (ACTIVE -> PAUSED)
+    if (program === "LIVELO" && inactiveAt && now >= startUTC(inactiveAt) && s === "ACTIVE") {
+      s = "PAUSED";
+    }
+  }
+
+  return s;
+}
+
 export async function PATCH(
   req: NextRequest,
   ctx: { params: Promise<{ id: string }> }
@@ -64,7 +199,19 @@ export async function PATCH(
   try {
     const existing = await prisma.clubSubscription.findFirst({
       where: { id, team: session.team },
-      select: { id: true, program: true },
+      select: {
+        id: true,
+        team: true,
+        program: true,
+        cedenteId: true,
+        subscribedAt: true,
+        renewalDay: true,
+        lastRenewedAt: true,
+        tierK: true,
+        status: true,
+        renewedThisCycle: true,
+        notes: true,
+      },
     });
     if (!existing) return bad("Clube não encontrado", 404);
 
@@ -73,67 +220,68 @@ export async function PATCH(
 
     const data: any = {};
 
-    if (body.cedenteId) {
-      const cedenteId = String(body.cedenteId).trim();
+    // cedente
+    if (body.cedenteId !== undefined) {
+      const cedenteId = String(body.cedenteId || "").trim();
+      if (!cedenteId) return bad("cedenteId inválido");
+
       const ced = await prisma.cedente.findFirst({
         where: { id: cedenteId, owner: { team: session.team } },
         select: { id: true },
       });
       if (!ced) return bad("Cedente inválido (fora do seu time)", 400);
+
       data.cedenteId = cedenteId;
     }
 
+    // program
     if (body.program !== undefined) {
       const program = normalizeProgram(body.program);
       if (!program) return bad("program inválido");
       data.program = program;
     }
 
+    // tierK (1..20)
     if (body.tierK !== undefined) {
-      const tierK = toInt(body.tierK, 0) ?? 0;
-      if (tierK < 0) return bad("tierK não pode ser negativo");
-      data.tierK = tierK;
+      const raw = toInt(body.tierK, Number(existing.tierK) || 10) ?? 10;
+      if (raw < 0) return bad("tierK não pode ser negativo");
+      data.tierK = clampTierK(raw);
     }
 
-    if (body.priceCents !== undefined) {
-      const priceCents = toInt(body.priceCents, 0) ?? 0;
-      if (priceCents < 0) return bad("priceCents não pode ser negativo");
-      data.priceCents = priceCents;
-    }
+    // preço não existe mais (força 0 sempre)
+    data.priceCents = 0;
 
+    // subscribedAt
     if (body.subscribedAt !== undefined) {
       const d = toDate(body.subscribedAt);
       if (!d) return bad("subscribedAt inválido");
       data.subscribedAt = d;
     }
 
+    // renewalDay (1..31)
     if (body.renewalDay !== undefined) {
-      const renewalDay = Math.min(31, Math.max(1, toInt(body.renewalDay, 1) ?? 1));
+      const renewalDay = clampRenewalDay(toInt(body.renewalDay, 1) ?? 1);
       data.renewalDay = renewalDay;
     }
 
+    // lastRenewedAt (pode ser null)
     if (body.lastRenewedAt !== undefined) {
-      data.lastRenewedAt = toDate(body.lastRenewedAt); // pode ser null
+      data.lastRenewedAt = toDate(body.lastRenewedAt);
     }
 
-    if (body.pointsExpireAt !== undefined) {
-      data.pointsExpireAt = toDate(body.pointsExpireAt); // pode ser null
-    }
-
+    // renewedThisCycle
     if (body.renewedThisCycle !== undefined) {
       data.renewedThisCycle = Boolean(body.renewedThisCycle);
     }
 
+    // status
     if (body.status !== undefined) {
       const status = normalizeStatus(body.status);
       if (!status) return bad("status inválido");
       data.status = status;
     }
 
-    if (body.smilesBonusEligibleAt !== undefined) {
-      data.smilesBonusEligibleAt = toDate(body.smilesBonusEligibleAt); // pode ser null
-    }
-
+    // notes
     if (body.notes !== undefined) {
       const notes =
         body.notes !== null && body.notes !== undefined && String(body.notes).trim()
@@ -142,12 +290,82 @@ export async function PATCH(
       data.notes = notes;
     }
 
-    const finalProgram: Program =
-      (data.program as Program) ?? (existing.program as Program);
+    // ==========================
+    // Recalcula automações
+    // ==========================
+    const finalCedenteId: string = (data.cedenteId as string) ?? existing.cedenteId;
+    const finalProgram: Program = (data.program as Program) ?? (existing.program as Program);
 
-    if (finalProgram !== "SMILES") {
-      data.smilesBonusEligibleAt = null;
+    const finalSubscribedAt: Date =
+      (data.subscribedAt as Date) ?? (existing.subscribedAt as Date);
+
+    const finalRenewalDay: number = clampRenewalDay(
+      Number((data.renewalDay as number) ?? existing.renewalDay) || 1
+    );
+
+    const finalLastRenewedAt: Date | null =
+      data.lastRenewedAt !== undefined
+        ? (data.lastRenewedAt as Date | null)
+        : (existing.lastRenewedAt as Date | null);
+
+    const finalTierK: number = clampTierK(
+      Number((data.tierK as number) ?? existing.tierK) || 10
+    );
+    data.tierK = finalTierK;
+    data.renewalDay = finalRenewalDay;
+
+    // SMILES promo: (primeira assinatura SMILES do cedente) + 365
+    let firstSmiles: Date | null = null;
+    if (finalProgram === "SMILES") {
+      const firstOther = await prisma.clubSubscription.findFirst({
+        where: {
+          team: session.team,
+          cedenteId: finalCedenteId,
+          program: "SMILES" as any,
+          NOT: { id },
+        },
+        orderBy: { subscribedAt: "asc" },
+        select: { subscribedAt: true },
+      });
+
+      if (firstOther?.subscribedAt) {
+        firstSmiles =
+          firstOther.subscribedAt.getTime() <= finalSubscribedAt.getTime()
+            ? firstOther.subscribedAt
+            : finalSubscribedAt;
+      } else {
+        firstSmiles = finalSubscribedAt;
+      }
     }
+
+    const auto = computeAutoDates({
+      program: finalProgram,
+      subscribedAt: finalSubscribedAt,
+      renewalDay: finalRenewalDay,
+      lastRenewedAt: finalLastRenewedAt,
+      firstSmilesSubscribedAt: firstSmiles,
+    });
+
+    // pointsExpireAt agora é campo automático
+    data.pointsExpireAt = auto.pointsExpireAt ?? null;
+
+    // smilesBonusEligibleAt automático (ou null)
+    data.smilesBonusEligibleAt =
+      finalProgram === "SMILES" ? auto.smilesBonusEligibleAt ?? null : null;
+
+    // status downgrade automático (não reativa sozinho)
+    const now = startUTC(new Date());
+    const currentStatus: Status = (data.status as Status) ?? (existing.status as Status);
+
+    const desiredStatus = applyAutoDowngrade({
+      now,
+      program: finalProgram,
+      currentStatus,
+      inactiveAt: auto.inactiveAt,
+      cancelAtOrInativaAt: auto.pointsExpireAt,
+    });
+
+    data.status = desiredStatus;
 
     const updated = await prisma.clubSubscription.update({
       where: { id },
