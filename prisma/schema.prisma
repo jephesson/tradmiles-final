@@ -264,13 +264,13 @@ model Cedente {
 
   termAcceptances CedenteTermAcceptance[]
 
-  blockedAccounts BlockedAccount[]
-  purchases       Purchase[]
+  blockedAccounts    BlockedAccount[]
+  purchases          Purchase[]
   cedenteCommissions CedenteCommission[]
-  emissions       EmissionEvent[]
-  sales           Sale[]
+  emissions          EmissionEvent[]
+  sales              Sale[]
 
-  // ✅ NOVO: assinaturas de clube por cedente
+  // ✅ assinaturas de clube por cedente
   clubSubscriptions ClubSubscription[]
 
   createdAt DateTime @default(now())
@@ -316,18 +316,22 @@ model ClubSubscription {
   priceCents Int @default(0)
 
   subscribedAt DateTime
-  renewalDay   Int @default(1)
+  renewalDay   Int      @default(1)
 
   // controle operacional
   lastRenewedAt    DateTime?
   pointsExpireAt   DateTime? // expiração dos pontos do clube/promo (pra alerta)
-  renewedThisCycle Boolean   @default(false)
+  renewedThisCycle Boolean                @default(false)
   status           ClubSubscriptionStatus @default(ACTIVE)
 
   // ✅ só smiles: quando volta a ser elegível ao bônus de assinatura (ex.: +365d)
   smilesBonusEligibleAt DateTime?
 
   notes String?
+
+  // ✅ NOVO: se veio de uma compra (PurchaseItem tipo CLUB), trava duplicação
+  sourcePurchaseItemId String?       @unique
+  sourcePurchaseItem   PurchaseItem? @relation("ClubSubFromPurchaseItem", fields: [sourcePurchaseItemId], references: [id], onDelete: SetNull)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -605,6 +609,9 @@ model PurchaseItem {
 
   purchase Purchase @relation(fields: [purchaseId], references: [id], onDelete: Cascade)
 
+  // ✅ NOVO: 1 item CLUB pode gerar 1 ClubSubscription
+  clubSubscription ClubSubscription? @relation("ClubSubFromPurchaseItem")
+
   @@index([purchaseId])
   @@index([type])
   @@index([status])
@@ -722,7 +729,7 @@ model Receivable {
   updatedAt DateTime @default(now()) @updatedAt
 
   receipts Receipt[]
-  sale Sale? @relation("SaleReceivable")
+  sale     Sale?     @relation("SaleReceivable")
 
   @@index([status])
   @@index([createdAt])
@@ -796,8 +803,8 @@ model Sale {
   milheiroCents Int
 
   embarqueFeeCents Int @default(0)
-  pointsValueCents  Int @default(0)
-  totalCents        Int @default(0)
+  pointsValueCents Int @default(0)
+  totalCents       Int @default(0)
 
   commissionCents Int @default(0)
   bonusCents      Int @default(0)
@@ -838,7 +845,7 @@ model Sale {
 
 /**
  * =========================
- * PAGAMENTOS (COMISSÕES FUNCIONÁRIOS POR DIA) — RESET DO ZERO ✅
+ * PAGAMENTOS (COMISSÕES FUNCIONÁRIOS POR DIA)
  * =========================
  * ✅ Agora:
  * - date vira String "YYYY-MM-DD" (sem dor de timezone)
@@ -883,17 +890,17 @@ model EmployeePayout {
  * - breakdown: snapshot por usuário (ex.: [{ userId, taxCents }...])
  */
 model TaxMonthPayment {
-  id    String @id @default(cuid())
+  id String @id @default(cuid())
 
   team  String
   month String // "YYYY-MM"
 
-  totalTaxCents Int @default(0)
+  totalTaxCents Int   @default(0)
   breakdown     Json?
 
   paidAt   DateTime?
   paidById String?
-  paidBy   User? @relation("TaxMonthPaidBy", fields: [paidById], references: [id], onDelete: SetNull)
+  paidBy   User?     @relation("TaxMonthPaidBy", fields: [paidById], references: [id], onDelete: SetNull)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

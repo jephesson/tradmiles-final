@@ -7,11 +7,21 @@ import { prisma } from "@/lib/prisma";
 
 const LATAM_ANUAL_PASSAGEIROS_LIMITE = 25;
 
-function startOfYear(d = new Date()) {
-  return new Date(d.getFullYear(), 0, 1, 0, 0, 0, 0);
+/**
+ * ✅ Regra LATAM (janela móvel por mês):
+ * - Emissões do mês-12 continuam contando durante o mês atual
+ * - Só "renovam" (saem da conta) quando vira o mês seguinte
+ *
+ * Implementação:
+ * - w0 = início do mês-12 (inclusivo)
+ * - w1 = início do próximo mês (exclusivo)
+ * - soma passengersCount dentro desse range
+ */
+function startOfMonthUTC(d = new Date()) {
+  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1, 0, 0, 0, 0));
 }
-function startOfNextYear(d = new Date()) {
-  return new Date(d.getFullYear() + 1, 0, 1, 0, 0, 0, 0);
+function addMonthsUTC(d: Date, m: number) {
+  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + m, 1, 0, 0, 0, 0));
 }
 
 export async function GET(req: NextRequest) {
@@ -39,10 +49,7 @@ export async function GET(req: NextRequest) {
 
   // "só LATAM": tenta reduzir a lista para quem tem LATAM configurado/útil
   whereCedente.AND.push({
-    OR: [
-      { pontosLatam: { gt: 0 } },
-      { senhaLatamPass: { not: null } },
-    ],
+    OR: [{ pontosLatam: { gt: 0 } }, { senhaLatamPass: { not: null } }],
   });
 
   const cedentes = await prisma.cedente.findMany({
@@ -91,23 +98,30 @@ export async function GET(req: NextRequest) {
   }
 
   // =========================
-  // Emissões LATAM no ano (EmissionEvent)
+  // Emissões LATAM (janela móvel por mês) (EmissionEvent)
+  // - inclui mês-12 até virar o mês seguinte
   // =========================
-  const y0 = startOfYear(new Date());
-  const y1 = startOfNextYear(new Date());
+  const now = new Date();
+  const m0 = startOfMonthUTC(now);      // início do mês atual (UTC)
+  const w0 = addMonthsUTC(m0, -12);     // início do mês-12 (inclusivo)
+  const w1 = addMonthsUTC(m0, 1);       // início do próximo mês (exclusivo)
 
-  const emissions = await prisma.emissionEvent.findMany({
+  // ✅ mais performático que findMany + reduce
+  const grouped = await prisma.emissionEvent.groupBy({
+    by: ["cedenteId"],
     where: {
       program: "LATAM",
       cedenteId: { in: ids },
-      issuedAt: { gte: y0, lt: y1 },
+      issuedAt: { gte: w0, lt: w1 },
+      // se existir um status de cancelamento/estorno, filtre aqui também:
+      // status: "APPROVED",
     },
-    select: { cedenteId: true, passengersCount: true },
+    _sum: { passengersCount: true },
   });
 
   const usedMap = new Map<string, number>();
-  for (const e of emissions) {
-    usedMap.set(e.cedenteId, (usedMap.get(e.cedenteId) || 0) + (e.passengersCount || 0));
+  for (const g of grouped) {
+    usedMap.set(g.cedenteId, Number(g._sum.passengersCount || 0));
   }
 
   // =========================
@@ -115,7 +129,10 @@ export async function GET(req: NextRequest) {
   // =========================
   const rows = cedentes.map((c: any) => {
     const pend = pendingMap.get(c.id) || 0;
+
+    // ✅ agora é "rolling 12 meses por mês" (com mês-12 ainda contando)
     const used = usedMap.get(c.id) || 0;
+
     const available = Math.max(0, LATAM_ANUAL_PASSAGEIROS_LIMITE - used);
 
     return {
