@@ -45,16 +45,6 @@ function costFromSettings(program: LoyaltyProgram, settings: Settings | null) {
   return settings.esferaRateCents ?? 1700;
 }
 
-function profitForSaleCents(args: {
-  points: number;
-  saleMilheiroCents: number;
-  costMilheiroCents: number;
-}) {
-  const { points, saleMilheiroCents, costMilheiroCents } = args;
-  const diff = (saleMilheiroCents ?? 0) - (costMilheiroCents ?? 0);
-  return Math.round((diff * (points ?? 0)) / 1000);
-}
-
 function pickShareForDate(
   shares: Array<{
     effectiveFrom: Date;
@@ -92,29 +82,45 @@ function splitByBps(pool: number, items: Array<{ payeeId: string; bps: number }>
   return out;
 }
 
-/** fallback PV (valor pontos sem taxa) */
+/** =========================
+ *  Base helpers (PV / C1 / C2)
+ * ========================= */
+
+/** PV bruto (milheiro * pts/1000) — pode estar "com taxa" dependendo da origem do milheiro */
 function pointsValueCentsFallback(points: number, milheiroCents: number) {
   const denom = (points ?? 0) / 1000;
   if (denom <= 0) return 0;
   return Math.round(denom * (milheiroCents ?? 0));
 }
 
-/** fallback comissão 1% do PV */
-function commission1Fallback(pointsValueCents: number) {
-  return Math.round((pointsValueCents ?? 0) * 0.01);
+/** ✅ PV sem taxa (fallback): (milheiro*pts/1000) - fee */
+function pointsValueNoFeeFallback(points: number, milheiroCents: number, feeCents: number) {
+  const gross = pointsValueCentsFallback(points, milheiroCents);
+  return Math.max(0, gross - (feeCents ?? 0));
 }
 
-/** fallback bônus 30% do excedente acima da meta */
+/** milheiro derivado do PV sem taxa (pra bônus não “contaminar”) */
+function milheiroNoFeeFromPv(points: number, pvNoFeeCents: number) {
+  const denom = (points ?? 0) / 1000;
+  if (denom <= 0) return 0;
+  return Math.round((pvNoFeeCents ?? 0) / denom);
+}
+
+function commission1Fallback(pointsValueNoFeeCents: number) {
+  return Math.round((pointsValueNoFeeCents ?? 0) * 0.01);
+}
+
+/** bônus 30% do excedente acima da meta (milheiro SEM taxa) */
 function bonusFallback(args: {
   points: number;
-  milheiroCents: number;
+  milheiroNoFeeCents: number;
   metaMilheiroCents: number | null | undefined;
 }) {
-  const { points, milheiroCents, metaMilheiroCents } = args;
+  const { points, milheiroNoFeeCents, metaMilheiroCents } = args;
   const meta = Number(metaMilheiroCents ?? 0);
   if (!meta) return 0;
 
-  const diff = (milheiroCents ?? 0) - meta;
+  const diff = (milheiroNoFeeCents ?? 0) - meta;
   if (diff <= 0) return 0;
 
   const denom = (points ?? 0) / 1000;
@@ -125,27 +131,31 @@ function bonusFallback(args: {
 }
 
 /**
- * ✅ helpers pra lidar com "default 0" do Prisma
- * - se o campo veio 0 mas points>0, a gente considera "não calculado" e usa fallback
+ * ✅ helpers para “default 0” do Prisma
+ * Regra:
+ * - pointsValueCents no banco deve ser PV SEM taxa (se estiver >0, confia)
+ * - se PV vier 0, calcula PV sem taxa pelo fallback (milheiro*pts/1000 - fee)
  */
-function choosePv(points: number, pvDb: number, milheiroCents: number) {
+function choosePvNoFee(points: number, pvDb: number, milheiroCents: number, feeCents: number) {
   if ((pvDb ?? 0) > 0) return pvDb;
-  if ((points ?? 0) > 0) return pointsValueCentsFallback(points, milheiroCents);
+  if ((points ?? 0) > 0) return pointsValueNoFeeFallback(points, milheiroCents, feeCents);
   return 0;
 }
 
-function chooseC1(points: number, c1Db: number, pv: number) {
+function chooseC1(points: number, c1Db: number, pvNoFee: number) {
   if ((c1Db ?? 0) > 0) return c1Db;
-  if ((points ?? 0) > 0 && (pv ?? 0) > 0) return commission1Fallback(pv);
+  if ((points ?? 0) > 0 && (pvNoFee ?? 0) > 0) return commission1Fallback(pvNoFee);
   return 0;
 }
 
-function chooseC2(points: number, c2Db: number, milheiroCents: number, metaMilheiroCents: number | null | undefined) {
-  // se veio >0 do banco, usa. Se veio 0, tenta recalcular (e se não tiver excedente, vai dar 0 mesmo)
+function chooseC2(
+  points: number,
+  c2Db: number,
+  milheiroNoFeeCents: number,
+  metaMilheiroCents: number | null | undefined
+) {
   if ((c2Db ?? 0) > 0) return c2Db;
-  if ((points ?? 0) > 0) {
-    return bonusFallback({ points, milheiroCents, metaMilheiroCents });
-  }
+  if ((points ?? 0) > 0) return bonusFallback({ points, milheiroNoFeeCents, metaMilheiroCents });
   return 0;
 }
 
@@ -157,6 +167,20 @@ function chooseCostMilheiro(program: LoyaltyProgram, costDb: number, settings: S
 function chooseMetaMilheiro(metaSaleOrPurchase: number | null | undefined) {
   const v = Number(metaSaleOrPurchase ?? 0);
   return v > 0 ? v : 0;
+}
+
+/** ✅ lucro do rateio usa PV(sem taxa) - custo */
+function profitForSaleFromPvCents(args: {
+  points: number;
+  pvNoFeeCents: number;
+  costMilheiroCents: number;
+}) {
+  const { points, pvNoFeeCents, costMilheiroCents } = args;
+  const denom = (points ?? 0) / 1000;
+  if (denom <= 0) return 0;
+
+  const costCents = Math.round(denom * (costMilheiroCents ?? 0));
+  return Math.round((pvNoFeeCents ?? 0) - costCents);
 }
 
 export async function computeEmployeePayoutDay(session: SessionLike, date: string) {
@@ -174,15 +198,17 @@ export async function computeEmployeePayoutDay(session: SessionLike, date: strin
       date: true,
       program: true,
       points: true,
+
+      // ⚠️ milheiro pode estar “com taxa” dependendo do teu cálculo lá na venda
       milheiroCents: true,
+
       embarqueFeeCents: true,
 
-      // ⚠️ esses são default 0 no schema
+      // default 0 no schema
       commissionCents: true,
       bonusCents: true,
-      pointsValueCents: true,
+      pointsValueCents: true, // esperado: PV sem taxa
 
-      // ✅ pega meta também (melhor pra bônus)
       metaMilheiroCents: true,
 
       sellerId: true,
@@ -227,27 +253,31 @@ export async function computeEmployeePayoutDay(session: SessionLike, date: strin
 
   for (const s of sales) {
     const sellerId = s.sellerId ?? null;
-
-    // ✅ PV: se veio 0 do banco, calcula
-    const pv = choosePv(s.points, s.pointsValueCents, s.milheiroCents);
-
-    // ✅ comissão 1: se veio 0 do banco, calcula 1% do PV
-    const c1 = chooseC1(s.points, s.commissionCents, pv);
-
-    // ✅ meta pro bônus: prioriza meta da SALE (se existir), senão compra
-    const meta = chooseMetaMilheiro((s.metaMilheiroCents ?? 0) > 0 ? s.metaMilheiroCents : s.purchase?.metaMilheiroCents);
-
-    // ✅ bônus: se veio 0 do banco, tenta recalcular com meta
-    const c2 = chooseC2(s.points, s.bonusCents, s.milheiroCents, meta);
-
     const fee = s.embarqueFeeCents ?? 0;
+
+    // ✅ PV SEM TAXA (se 0 no banco, calcula por fallback - fee)
+    const pvNoFee = choosePvNoFee(s.points, s.pointsValueCents, s.milheiroCents, fee);
+
+    // ✅ milheiro SEM taxa (para bônus)
+    const milheiroNoFee = milheiroNoFeeFromPv(s.points, pvNoFee);
+
+    // ✅ C1: 1% do PV sem taxa
+    const c1 = chooseC1(s.points, s.commissionCents, pvNoFee);
+
+    // ✅ meta do bônus (sale > purchase)
+    const meta = chooseMetaMilheiro(
+      (s.metaMilheiroCents ?? 0) > 0 ? s.metaMilheiroCents : s.purchase?.metaMilheiroCents
+    );
+
+    // ✅ C2: bônus calculado sobre milheiro sem taxa
+    const c2 = chooseC2(s.points, s.bonusCents, milheiroNoFee, meta);
 
     // ✅ comissão + reembolso taxa -> seller
     if (sellerId) {
       const a = ensure(sellerId);
       a.commission1Cents += c1;
       a.commission2Cents += c2;
-      a.feeCents += fee;
+      a.feeCents += fee; // ✅ reembolso de taxa (não entra em comissão/rateio)
       a.salesCount += 1;
     }
 
@@ -266,12 +296,13 @@ export async function computeEmployeePayoutDay(session: SessionLike, date: strin
 
     if (!share?.items?.length) continue;
 
-    // ✅ custo milheiro: se compra veio 0, cai no Settings (pra não inflar lucro)
+    // ✅ custo milheiro (compra > settings)
     const costMilheiro = chooseCostMilheiro(s.program, s.purchase?.custoMilheiroCents ?? 0, settings);
 
-    const profit = profitForSaleCents({
+    // ✅ lucro do rateio SEM taxa: PV(sem taxa) - custo
+    const profit = profitForSaleFromPvCents({
       points: s.points,
-      saleMilheiroCents: s.milheiroCents,
+      pvNoFeeCents: pvNoFee,
       costMilheiroCents: costMilheiro,
     });
 
@@ -288,6 +319,7 @@ export async function computeEmployeePayoutDay(session: SessionLike, date: strin
 
   const userIds = Object.keys(byUser);
 
+  // remove payouts “lixo” não pagos e sem movimento
   await prisma.employeePayout.deleteMany({
     where: {
       team: session.team,
@@ -297,6 +329,7 @@ export async function computeEmployeePayoutDay(session: SessionLike, date: strin
     },
   });
 
+  // upsert
   for (const userId of userIds) {
     const a = byUser[userId];
     const gross = a.commission1Cents + a.commission2Cents + a.rateioCents;

@@ -95,6 +95,55 @@ async function resolveCedenteId(tx: Prisma.TransactionClient, cedenteKey: string
   return ced?.id ?? null;
 }
 
+/**
+ * ✅ BLINDAGEM: normaliza PV / total / milheiro SEM deixar taxa contaminar.
+ * Prioridade:
+ * 1) se vier PV direto: PV + taxa = total
+ * 2) se vier total: PV = total - taxa
+ * 3) senão: PV = calc(points, milheiro)
+ */
+function normalizeSaleValues(args: {
+  points: number;
+  milheiroCents: number;
+  embarqueFeeCents: number;
+  totalCentsIn?: number;
+  pointsValueCentsIn?: number;
+}) {
+  const points = clampInt(args.points);
+  const fee = clampInt(args.embarqueFeeCents);
+  const milIn = clampInt(args.milheiroCents);
+
+  const totalIn = clampInt(args.totalCentsIn);
+  const pvIn = clampInt(args.pointsValueCentsIn);
+
+  let pv = 0;
+  let total = 0;
+  let milFinal = milIn;
+
+  // 1) PV informado (fonte forte)
+  if (pvIn > 0) {
+    pv = pvIn;
+    total = pv + fee;
+    milFinal = points > 0 ? Math.round((pv * 1000) / points) : milIn;
+    return { pointsValueCents: pv, totalCents: total, milheiroFinal: milFinal };
+  }
+
+  // 2) Total informado (nunca deixa taxa entrar no PV)
+  if (totalIn > 0) {
+    total = totalIn;
+    pv = Math.max(total - fee, 0);
+    milFinal = points > 0 && pv > 0 ? Math.round((pv * 1000) / points) : milIn;
+    return { pointsValueCents: pv, totalCents: total, milheiroFinal: milFinal };
+  }
+
+  // 3) fallback: milheiro sem taxa
+  pv = calcPointsValueCents(points, milIn);
+  total = pv + fee;
+  milFinal = points > 0 && pv > 0 ? Math.round((pv * 1000) / points) : milIn;
+
+  return { pointsValueCents: pv, totalCents: total, milheiroFinal: milFinal };
+}
+
 export async function GET() {
   const session = await getServerSession();
   if (!session?.id) {
@@ -115,7 +164,7 @@ export async function GET() {
       pointsValueCents: true,
       totalCents: true,
       paymentStatus: true,
-      paidAt: true, // ✅ ADD
+      paidAt: true,
       locator: true,
       feeCardLabel: true,
       commissionCents: true,
@@ -128,7 +177,6 @@ export async function GET() {
       seller: { select: { id: true, name: true, login: true } },
 
       receivable: {
-        // ✅ ADD (pra pendente de recebimento)
         select: {
           id: true,
           totalCents: true,
@@ -159,8 +207,14 @@ export async function POST(req: Request) {
   const program = body.program as Program;
   const points = clampInt(body.points);
   const passengers = clampInt(body.passengers);
+
+  // inputs
   const milheiroCents = clampInt(body.milheiroCents);
   const embarqueFeeCents = clampInt(body.embarqueFeeCents);
+
+  // ✅ opcionais (pra blindar entrada)
+  const totalCentsIn = clampInt(body.totalCents);
+  const pointsValueCentsIn = clampInt(body.pointsValueCents);
 
   const cedenteKey = String(body.cedenteId || "").trim();
   const clienteId = String(body.clienteId || "").trim();
@@ -183,7 +237,8 @@ export async function POST(req: Request) {
   if (points <= 0 || passengers <= 0) {
     return NextResponse.json({ ok: false, error: "Pontos/Passageiros inválidos" }, { status: 400 });
   }
-  if (milheiroCents <= 0) {
+  // ✅ se o front não manda PV/total, exige milheiro
+  if (pointsValueCentsIn <= 0 && totalCentsIn <= 0 && milheiroCents <= 0) {
     return NextResponse.json({ ok: false, error: "Milheiro inválido" }, { status: 400 });
   }
 
@@ -245,11 +300,22 @@ export async function POST(req: Request) {
       const purchaseIdReal = purchase.id;
       const metaMilheiroCents = clampInt(purchase.metaMilheiroCents);
 
-      const pointsValueCents = calcPointsValueCents(points, milheiroCents);
-      const totalCents = pointsValueCents + embarqueFeeCents;
+      // ✅ NORMALIZA (PV sem taxa, total com taxa, milheiro sem taxa)
+      const norm = normalizeSaleValues({
+        points,
+        milheiroCents,
+        embarqueFeeCents,
+        totalCentsIn,
+        pointsValueCentsIn,
+      });
 
+      const pointsValueCents = norm.pointsValueCents;
+      const totalCents = norm.totalCents;
+      const milheiroFinal = norm.milheiroFinal;
+
+      // ✅ comissão e bônus SEM taxa
       const commissionCents = calcCommissionCents(pointsValueCents);
-      const bonusCents = calcBonusCents(points, milheiroCents, metaMilheiroCents);
+      const bonusCents = calcBonusCents(points, milheiroFinal, metaMilheiroCents);
 
       const n = await nextCounter(tx, "SALE");
       const numero = formatSaleNumber(n);
@@ -278,13 +344,18 @@ export async function POST(req: Request) {
           program,
           points,
           passengers,
-          milheiroCents,
+
+          // ✅ grava milheiro CONSISTENTE (sem taxa)
+          milheiroCents: milheiroFinal,
+
           embarqueFeeCents,
           pointsValueCents,
           totalCents,
+
           commissionCents,
           bonusCents,
           metaMilheiroCents,
+
           feeCardLabel,
           locator,
           paymentStatus: "PENDING",
@@ -321,6 +392,9 @@ export async function POST(req: Request) {
 
     return NextResponse.json({ ok: true, sale: result });
   } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e?.message || "Erro ao criar venda" }, { status: 400 });
+    return NextResponse.json(
+      { ok: false, error: e?.message || "Erro ao criar venda" },
+      { status: 400 }
+    );
   }
 }
