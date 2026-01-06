@@ -167,6 +167,9 @@ function Pill({ kind, text }: { kind: "ok" | "warn" | "muted"; text: string }) {
 }
 
 export default function ComissoesFuncionariosClient() {
+  // ✅ auto-compute do dia em andamento (ajusta aqui)
+  const AUTO_COMPUTE_MS = 2 * 60 * 1000; // 2 min
+
   const [date, setDate] = useState<string>(() => todayISORecife());
   const [day, setDay] = useState<DayResponse | null>(null);
 
@@ -187,7 +190,15 @@ export default function ComissoesFuncionariosClient() {
 
   const today = useMemo(() => todayISORecife(), []);
   const isFutureOrToday = useMemo(() => date >= today, [date, today]);
-  const canCompute = useMemo(() => date < today, [date, today]);
+  const isClosedDay = useMemo(() => date < today, [date, today]); // ✅ dia fechado
+  const canCompute = useMemo(() => date <= today, [date, today]); // ✅ permite HOJE, bloqueia futuro
+  const isToday = useMemo(() => date === today, [date, today]);
+
+  const computeTitle = useMemo(() => {
+    if (date > today) return "Não computa datas futuras";
+    if (date === today) return "Recalcular hoje (dia em andamento)";
+    return "Calcular comissões do dia fechado";
+  }, [date, today]);
 
   async function loadDay(d = date) {
     setLoading(true);
@@ -225,6 +236,15 @@ export default function ComissoesFuncionariosClient() {
     }
   }
 
+  // ✅ compute silencioso (usado no auto-compute do dia de hoje)
+  async function computeDaySilent(d: string) {
+    try {
+      await apiPost<{ ok: true }>(`/api/payouts/funcionarios/compute`, { date: d });
+    } catch {
+      // silencioso mesmo (não toast)
+    }
+  }
+
   async function payRow(d: string, userId: string) {
     const key = `${d}|${userId}`;
     setPayingKey(key);
@@ -249,7 +269,9 @@ export default function ComissoesFuncionariosClient() {
     try {
       const mm = String(m || "").slice(0, 7);
       const data = await apiGet<MonthResponse>(
-        `/api/payouts/funcionarios/month?userId=${encodeURIComponent(userId)}&month=${encodeURIComponent(mm)}`
+        `/api/payouts/funcionarios/month?userId=${encodeURIComponent(
+          userId
+        )}&month=${encodeURIComponent(mm)}`
       );
       setMonthData(data);
     } catch (e: any) {
@@ -268,10 +290,39 @@ export default function ComissoesFuncionariosClient() {
     await loadMonth(u.id, m);
   }
 
+  // ✅ Ao trocar a data:
+  // - se for HOJE: compute silencioso -> load
+  // - se for passado/futuro: só load (futuro não terá dados mesmo)
   useEffect(() => {
-    loadDay(date);
+    let cancelled = false;
+
+    (async () => {
+      if (isToday) {
+        await computeDaySilent(date);
+      }
+      if (!cancelled) {
+        await loadDay(date);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [date]);
+  }, [date, isToday]);
+
+  // ✅ Auto-compute do dia de hoje (dinâmico até fechar o dia)
+  useEffect(() => {
+    if (!isToday) return;
+
+    const t = setInterval(async () => {
+      await computeDaySilent(date);
+      await loadDay(date);
+    }, AUTO_COMPUTE_MS);
+
+    return () => clearInterval(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isToday, date]);
 
   const monthLabel = useMemo(() => monthFromISODate(date), [date]);
 
@@ -308,7 +359,7 @@ export default function ComissoesFuncionariosClient() {
             onClick={() => computeDay(date)}
             disabled={!canCompute || computing}
             className="h-10 rounded-xl bg-black px-4 text-sm text-white hover:bg-neutral-800 disabled:opacity-50"
-            title={canCompute ? "Calcular comissões do dia" : "Só computa dias fechados (anteriores a hoje)"}
+            title={computeTitle}
           >
             {computing ? "Computando..." : "Computar dia"}
           </button>
@@ -357,7 +408,10 @@ export default function ComissoesFuncionariosClient() {
 
                 const isMissing = String(r.id || "").startsWith("missing:");
                 const isPaid = !!r.paidById;
-                const canPay = !isMissing && !isPaid && canCompute;
+
+                // ✅ paga só dia fechado
+                const canPay = !isMissing && !isPaid && isClosedDay;
+
                 const paying = payingKey === `${date}|${r.userId}`;
 
                 const displayName = firstName(r.user.name, r.user.login);
@@ -389,7 +443,8 @@ export default function ComissoesFuncionariosClient() {
                           </div>
                         </div>
                       ) : (
-                        <Pill kind={canCompute ? "warn" : "muted"} text="PENDENTE" />
+                        // ✅ warn só se o dia é fechado
+                        <Pill kind={isClosedDay ? "warn" : "muted"} text="PENDENTE" />
                       )}
                     </td>
 
@@ -533,7 +588,9 @@ export default function ComissoesFuncionariosClient() {
 
                               <td className="px-4 py-3">{fmtMoneyBR(b?.commission1Cents ?? 0)}</td>
                               <td className="px-4 py-3">{fmtMoneyBR(b?.commission2Cents ?? 0)}</td>
-                              <td className="px-4 py-3">{fmtMoneyBR(b?.commission3RateioCents ?? 0)}</td>
+                              <td className="px-4 py-3">
+                                {fmtMoneyBR(b?.commission3RateioCents ?? 0)}
+                              </td>
 
                               <td className="px-4 py-3 font-semibold">{fmtMoneyBR(r.netPayCents || 0)}</td>
 
@@ -571,7 +628,10 @@ export default function ComissoesFuncionariosClient() {
 
                         {!monthData?.days?.length && (
                           <tr>
-                            <td className="px-4 py-8 text-center text-sm text-neutral-500" colSpan={8}>
+                            <td
+                              className="px-4 py-8 text-center text-sm text-neutral-500"
+                              colSpan={8}
+                            >
                               Sem dados no mês selecionado.
                             </td>
                           </tr>
@@ -583,8 +643,8 @@ export default function ComissoesFuncionariosClient() {
               </div>
 
               <div className="text-xs text-neutral-500">
-                Dica: o mês mostra apenas os dias que existem na tabela <b>employee_payouts</b>.
-                Se estiver vazio, rode <b>Computar dia</b> nos dias necessários.
+                Dica: o mês mostra apenas os dias que existem na tabela <b>employee_payouts</b>. Se estiver vazio, rode{" "}
+                <b>Computar dia</b> nos dias necessários.
               </div>
             </div>
           </div>

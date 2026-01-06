@@ -134,9 +134,8 @@ function chooseMetaMilheiro(metaSaleOrPurchase: number | null | undefined) {
    POST /api/payouts/funcionarios/compute
    body: { date: "YYYY-MM-DD" }
 
-   ✅ AGORA:
-   - Dia é baseado em Purchase.finalizedAt (Recife) -> bate com "Compras finalizadas"
-   - C3 é rateio do Purchase.finalProfitCents (lucro líquido snapshot)
+   ✅ Dia baseado em Purchase.finalizedAt (Recife)
+   ✅ C3 = rateio do Purchase.finalProfitCents (lucro líquido snapshot)
 ========================= */
 export async function POST(req: Request) {
   try {
@@ -156,13 +155,18 @@ export async function POST(req: Request) {
     const date = String(body?.date || "").trim();
 
     if (!date || !isISODate(date)) {
-      return NextResponse.json({ ok: false, error: "date obrigatório (YYYY-MM-DD)" }, { status: 400 });
+      return NextResponse.json(
+        { ok: false, error: "date obrigatório (YYYY-MM-DD)" },
+        { status: 400 }
+      );
     }
 
     const today = todayISORecife();
-    if (date >= today) {
+
+    // ✅ permite HOJE (dinâmico), bloqueia apenas futuro
+    if (date > today) {
       return NextResponse.json(
-        { ok: false, error: "Só computa dia fechado (apenas dias anteriores a hoje)." },
+        { ok: false, error: "Não computa datas futuras." },
         { status: 400 }
       );
     }
@@ -314,8 +318,7 @@ export async function POST(req: Request) {
       );
 
       // fallback: se não tiver plano, joga 100% pro owner
-      const items =
-        share?.items?.length ? share.items : [{ payeeId: ownerId, bps: 10000 }];
+      const items = share?.items?.length ? share.items : [{ payeeId: ownerId, bps: 10000 }];
 
       const splits = splitByBps(pool, items);
       for (const payeeId of Object.keys(splits)) {
@@ -381,6 +384,7 @@ export async function POST(req: Request) {
             salesCount: safeInt(agg.salesCount, 0),
             taxPercent: 8,
           },
+          // ✅ não mexe em paidAt/paidById
         },
       });
     }
