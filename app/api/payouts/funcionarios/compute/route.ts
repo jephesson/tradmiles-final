@@ -45,6 +45,37 @@ function tax8(cents: number) {
 }
 
 /**
+ * ✅ PV efetivo:
+ * 1) pointsValueCents (se vier)
+ * 2) totalCents - embarqueFeeCents (igual tua rota de compras finalizadas)
+ * 3) fallback por milheiro (último caso)
+ */
+function effectivePointsValueCents(s: {
+  points?: any;
+  milheiroCents?: any;
+  totalCents?: any;
+  pointsValueCents?: any;
+  embarqueFeeCents?: any;
+}) {
+  const fee = safeInt(s.embarqueFeeCents, 0);
+
+  let pv = safeInt(s.pointsValueCents, 0);
+  if (pv <= 0) {
+    const total = safeInt(s.totalCents, 0);
+    if (total > 0) {
+      const cand = Math.max(total - fee, 0);
+      pv = cand > 0 ? cand : total;
+    }
+  }
+
+  if (pv <= 0) {
+    pv = pointsValueCentsFallback(safeInt(s.points, 0), safeInt(s.milheiroCents, 0));
+  }
+
+  return safeInt(pv, 0);
+}
+
+/**
  * POST /api/payouts/funcionarios/compute
  * body: { date: "YYYY-MM-DD" }
  *
@@ -105,6 +136,7 @@ export async function POST(req: Request) {
         points: true,
         milheiroCents: true,
         pointsValueCents: true,
+        totalCents: true, // ✅ necessário pro PV = total - fee
         commissionCents: true,
         embarqueFeeCents: true,
       },
@@ -117,13 +149,15 @@ export async function POST(req: Request) {
       const sellerId = s.sellerId;
       if (!sellerId) continue;
 
-      const pv = safeInt(s.pointsValueCents, 0) || pointsValueCentsFallback(s.points, s.milheiroCents);
-      const c1 = safeInt(s.commissionCents, 0) || commission1Fallback(pv);
       const fee = safeInt(s.embarqueFeeCents, 0);
+      const pv = effectivePointsValueCents(s);
+
+      // ✅ mantém override se existir; senão calcula 1% em cima do PV (sem taxas)
+      const c1 = safeInt(s.commissionCents, 0) > 0 ? safeInt(s.commissionCents, 0) : commission1Fallback(pv);
 
       const a = (byUser[sellerId] ||= { commission1Cents: 0, feeCents: 0, salesCount: 0 });
       a.commission1Cents += c1;
-      a.feeCents += fee;
+      a.feeCents += fee; // ✅ reembolso separado (não entra na comissão)
       a.salesCount += 1;
     }
 
