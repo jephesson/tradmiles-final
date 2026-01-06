@@ -1,8 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/auth-server";
-import type { LoyaltyProgram, Settings } from "@prisma/client";
-import { todayISORecife } from "@/lib/payouts/employeePayouts";
+import { dayBounds, todayISORecife } from "@/lib/payouts/employeePayouts";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -17,18 +16,6 @@ function isISODate(v: string) {
 function safeInt(v: unknown, fb = 0) {
   const n = Number(v);
   return Number.isFinite(n) ? Math.trunc(n) : fb;
-}
-
-/**
- * ✅ IMPORTANTE:
- * Sale.date foi salvo como Date "naive" em ambiente UTC (Vercel),
- * então pra NÃO perder vendas, filtra por DIA em UTC.
- */
-function dayBoundsUTC(date: string) {
-  const start = new Date(`${date}T00:00:00.000Z`);
-  const end = new Date(`${date}T00:00:00.000Z`);
-  end.setUTCDate(end.getUTCDate() + 1);
-  return { start, end };
 }
 
 function tax8(cents: number) {
@@ -63,36 +50,6 @@ function bonusFallback(args: {
   return Math.round(diffTotal * 0.3);
 }
 
-function profitForSaleCents(args: {
-  points: number;
-  saleMilheiroCents: number;
-  costMilheiroCents: number;
-}) {
-  const points = safeInt(args.points, 0);
-  const saleMil = safeInt(args.saleMilheiroCents, 0);
-  const costMil = safeInt(args.costMilheiroCents, 0);
-
-  const diff = saleMil - costMil;
-  return Math.round((diff * points) / 1000);
-}
-
-/* =========================
-   Settings (custo milheiro fallback)
-========================= */
-function costFromSettings(program: LoyaltyProgram, settings: Settings | null) {
-  if (!settings) {
-    if (program === "LATAM") return 2000;
-    if (program === "SMILES") return 1800;
-    if (program === "LIVELO") return 2200;
-    return 1700;
-  }
-
-  if (program === "LATAM") return safeInt(settings.latamRateCents, 2000);
-  if (program === "SMILES") return safeInt(settings.smilesRateCents, 1800);
-  if (program === "LIVELO") return safeInt(settings.liveloRateCents, 2200);
-  return safeInt(settings.esferaRateCents, 1700);
-}
-
 /* =========================
    ProfitShare helpers
 ========================= */
@@ -102,11 +59,11 @@ function pickShareForDate(
     effectiveTo: Date | null;
     items: Array<{ payeeId: string; bps: number }>;
   }>,
-  saleDate: Date
+  refDate: Date
 ) {
   for (const s of shares) {
-    if (s.effectiveFrom && s.effectiveFrom > saleDate) continue;
-    if (s.effectiveTo && saleDate >= s.effectiveTo) continue;
+    if (s.effectiveFrom && s.effectiveFrom > refDate) continue;
+    if (s.effectiveTo && refDate >= s.effectiveTo) continue;
     return s;
   }
   return null;
@@ -168,12 +125,6 @@ function chooseC2(points: number, c2Db: number, milheiroCents: number, metaMilhe
   return 0;
 }
 
-function chooseCostMilheiro(program: LoyaltyProgram, costDb: number, settings: Settings | null) {
-  const cost = safeInt(costDb, 0);
-  if (cost > 0) return cost;
-  return costFromSettings(program, settings);
-}
-
 function chooseMetaMilheiro(metaSaleOrPurchase: number | null | undefined) {
   const v = safeInt(metaSaleOrPurchase ?? 0, 0);
   return v > 0 ? v : 0;
@@ -183,10 +134,9 @@ function chooseMetaMilheiro(metaSaleOrPurchase: number | null | undefined) {
    POST /api/payouts/funcionarios/compute
    body: { date: "YYYY-MM-DD" }
 
-   - Calcula/UPSERT payout do dia:
-     C1 (1%) + C2 (bônus) + C3 (rateio)
-   - Preserva payout já PAGO
-   - Remove payouts "lixo" não pagos
+   ✅ AGORA:
+   - Dia é baseado em Purchase.finalizedAt (Recife) -> bate com "Compras finalizadas"
+   - C3 é rateio do Purchase.finalProfitCents (lucro líquido snapshot)
 ========================= */
 export async function POST(req: Request) {
   try {
@@ -198,7 +148,6 @@ export async function POST(req: Request) {
     if (!team || !meId) {
       return NextResponse.json({ ok: false, error: "Não autenticado" }, { status: 401 });
     }
-
     if (role !== "admin") {
       return NextResponse.json({ ok: false, error: "Sem permissão." }, { status: 403 });
     }
@@ -218,27 +167,61 @@ export async function POST(req: Request) {
       );
     }
 
-    const { start, end } = dayBoundsUTC(date);
-    const settings = await prisma.settings.findFirst({});
+    // ✅ recorte do dia em Recife (mesmo padrão do app)
+    const { start, end } = dayBounds(date);
 
-    // 1) payouts existentes do dia (pra preservar PAGO)
+    // 1) preserva payouts já pagos
     const existingPayouts = await prisma.employeePayout.findMany({
       where: { team, date },
       select: { userId: true, paidById: true },
     });
     const existingByUserId = new Map(existingPayouts.map((p) => [p.userId, p]));
 
-    // 2) vendas do dia (PENDING + PAID; ignora só CANCELED)
+    // 2) compras FINALIZADAS no dia (fonte da verdade do lucro líquido)
+    const purchases = await prisma.purchase.findMany({
+      where: {
+        finalizedAt: { gte: start, lt: end },
+        cedente: { owner: { team } },
+      },
+      select: {
+        id: true,
+        finalizedAt: true,
+        finalProfitCents: true, // ✅ lucro líquido snapshot
+        cedente: { select: { ownerId: true } },
+      },
+      orderBy: { finalizedAt: "desc" },
+    });
+
+    const purchaseIds = purchases.map((p) => p.id);
+
+    // se não teve compra finalizada, limpa payouts não pagos e sai
+    if (!purchaseIds.length) {
+      await prisma.employeePayout.deleteMany({ where: { team, date, paidById: null } });
+      return NextResponse.json({ ok: true, date, users: 0, purchases: 0, sales: 0 });
+    }
+
+    const purchaseById = new Map(
+      purchases.map((p) => [
+        p.id,
+        {
+          id: p.id,
+          ownerId: p.cedente.ownerId,
+          finalizedAt: p.finalizedAt!,
+          finalProfitCents: safeInt(p.finalProfitCents ?? 0, 0),
+        },
+      ])
+    );
+
+    // 3) vendas das compras finalizadas (pra C1/C2/taxa) — independe do sale.date
     const sales = await prisma.sale.findMany({
       where: {
-        date: { gte: start, lt: end },
-        cedente: { owner: { team } },
+        purchaseId: { in: purchaseIds },
         paymentStatus: { not: "CANCELED" },
       },
       select: {
         id: true,
-        date: true,
-        program: true,
+        purchaseId: true,
+
         points: true,
         milheiroCents: true,
         embarqueFeeCents: true,
@@ -249,17 +232,14 @@ export async function POST(req: Request) {
         pointsValueCents: true,
 
         metaMilheiroCents: true,
-
         sellerId: true,
-        purchase: { select: { custoMilheiroCents: true, metaMilheiroCents: true } },
-        cedente: { select: { ownerId: true } },
+
+        purchase: { select: { metaMilheiroCents: true } },
       },
     });
 
-    // owners do dia (pra buscar profitShare)
-    const ownerIds = Array.from(
-      new Set(sales.map((s) => s.cedente.ownerId).filter(Boolean))
-    );
+    // 4) ProfitShare dos owners envolvidos
+    const ownerIds = Array.from(new Set(purchases.map((p) => p.cedente.ownerId).filter(Boolean)));
 
     const shares = await prisma.profitShare.findMany({
       where: {
@@ -293,9 +273,10 @@ export async function POST(req: Request) {
         salesCount: 0,
       });
 
-    // 3) agrega C1/C2/fee por seller + C3 rateio por owner
+    // 5) C1/C2 + taxa por seller (somente vendas das compras finalizadas)
     for (const s of sales) {
       const sellerId = s.sellerId ?? null;
+      if (!sellerId) continue;
 
       const pv = choosePv(s.points, s.pointsValueCents, s.milheiroCents);
       const c1 = chooseC1(s.points, s.commissionCents, pv);
@@ -305,20 +286,21 @@ export async function POST(req: Request) {
       );
 
       const c2 = chooseC2(s.points, s.bonusCents, s.milheiroCents, meta);
-
       const fee = safeInt(s.embarqueFeeCents, 0);
 
-      // ✅ seller recebe C1 + C2 + reembolso taxa
-      if (sellerId) {
-        const a = ensure(sellerId);
-        a.commission1Cents += c1;
-        a.commission2Cents += c2;
-        a.feeCents += fee;
-        a.salesCount += 1;
-      }
+      const a = ensure(sellerId);
+      a.commission1Cents += c1;
+      a.commission2Cents += c2;
+      a.feeCents += fee;
+      a.salesCount += 1;
+    }
 
-      // ✅ rateio do lucro da venda por ProfitShare do OWNER do cedente
-      const ownerId = s.cedente.ownerId;
+    // 6) C3 = rateio do lucro líquido FINAL por compra (snapshot)
+    for (const p of purchaseById.values()) {
+      const pool = safeInt(p.finalProfitCents, 0);
+      if (pool <= 0) continue;
+
+      const ownerId = p.ownerId;
       if (!ownerId) continue;
 
       const ownerShares = sharesByOwner[ownerId] || [];
@@ -328,28 +310,14 @@ export async function POST(req: Request) {
           effectiveTo: x.effectiveTo,
           items: x.items.map((i) => ({ payeeId: i.payeeId, bps: i.bps })),
         })),
-        s.date
+        p.finalizedAt
       );
 
-      if (!share?.items?.length) continue;
+      // fallback: se não tiver plano, joga 100% pro owner
+      const items =
+        share?.items?.length ? share.items : [{ payeeId: ownerId, bps: 10000 }];
 
-      const costMilheiro = chooseCostMilheiro(
-        s.program,
-        s.purchase?.custoMilheiroCents ?? 0,
-        settings
-      );
-
-      const profit = profitForSaleCents({
-        points: s.points,
-        saleMilheiroCents: s.milheiroCents,
-        costMilheiroCents: costMilheiro,
-      });
-
-      // pool = lucro - C1 - C2
-      const pool = Math.max(0, profit - c1 - c2);
-      if (pool <= 0) continue;
-
-      const splits = splitByBps(pool, share.items);
+      const splits = splitByBps(pool, items);
       for (const payeeId of Object.keys(splits)) {
         const a = ensure(payeeId);
         a.commission3RateioCents += safeInt(splits[payeeId], 0);
@@ -358,7 +326,7 @@ export async function POST(req: Request) {
 
     const computedUserIds = Object.keys(byUser);
 
-    // 4) remove payouts "lixo" (sem movimento) que ainda não foram pagos
+    // 7) remove payouts "lixo" não pagos
     await prisma.employeePayout.deleteMany({
       where: {
         team,
@@ -368,12 +336,11 @@ export async function POST(req: Request) {
       },
     });
 
-    // 5) upsert payout (C1 + C2 + C3), preservando se já estiver PAGO
+    // 8) upsert preservando pagos
     for (const userId of computedUserIds) {
       const agg = byUser[userId];
       const existing = existingByUserId.get(userId);
-
-      if (existing?.paidById) continue; // ✅ não muda histórico pago
+      if (existing?.paidById) continue;
 
       const c1 = safeInt(agg.commission1Cents, 0);
       const c2 = safeInt(agg.commission2Cents, 0);
@@ -414,7 +381,6 @@ export async function POST(req: Request) {
             salesCount: safeInt(agg.salesCount, 0),
             taxPercent: 8,
           },
-          // ✅ não mexe em paidAt/paidById
         },
       });
     }
@@ -423,6 +389,7 @@ export async function POST(req: Request) {
       ok: true,
       date,
       users: computedUserIds.length,
+      purchases: purchases.length,
       sales: sales.length,
     });
   } catch (e: any) {
