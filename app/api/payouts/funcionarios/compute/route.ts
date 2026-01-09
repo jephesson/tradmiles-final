@@ -72,7 +72,7 @@ function pickShareForDate(
 function splitByBps(pool: number, items: Array<{ payeeId: string; bps: number }>) {
   const out: Record<string, number> = {};
   const total = safeInt(pool, 0);
-  if (total <= 0 || !items?.length) return out;
+  if (!items?.length) return out;
 
   let used = 0;
   for (const it of items) {
@@ -135,7 +135,8 @@ function chooseMetaMilheiro(metaSaleOrPurchase: number | null | undefined) {
    body: { date: "YYYY-MM-DD" }
 
    ✅ Dia baseado em Purchase.finalizedAt (Recife)
-   ✅ C3 = rateio do Purchase.finalProfitCents (lucro líquido snapshot)
+   ✅ C3 (rateio) = soma do lucro líquido REAL por compra finalizada
+      (PV sem taxa - custo - bônus), igual “Compras finalizadas”
 ========================= */
 export async function POST(req: Request) {
   try {
@@ -181,7 +182,7 @@ export async function POST(req: Request) {
     });
     const existingByUserId = new Map(existingPayouts.map((p) => [p.userId, p]));
 
-    // 2) compras FINALIZADAS no dia (fonte da verdade do lucro líquido)
+    // 2) compras FINALIZADAS no dia (precisamos dos campos pra lucro líquido real)
     const purchases = await prisma.purchase.findMany({
       where: {
         finalizedAt: { gte: start, lt: end },
@@ -190,7 +191,12 @@ export async function POST(req: Request) {
       select: {
         id: true,
         finalizedAt: true,
-        finalProfitCents: true, // ✅ lucro líquido snapshot
+        totalCents: true, // custo
+        finalSalesPointsValueCents: true, // PV sem taxa (ideal)
+        finalProfitBrutoCents: true,
+        finalBonusCents: true,
+        finalProfitCents: true, // NÃO confiar cegamente (pode estar “poluído”)
+        metaMilheiroCents: true,
         cedente: { select: { ownerId: true } },
       },
       orderBy: { finalizedAt: "desc" },
@@ -204,19 +210,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: true, date, users: 0, purchases: 0, sales: 0 });
     }
 
-    const purchaseById = new Map(
-      purchases.map((p) => [
-        p.id,
-        {
-          id: p.id,
-          ownerId: p.cedente.ownerId,
-          finalizedAt: p.finalizedAt!,
-          finalProfitCents: safeInt(p.finalProfitCents ?? 0, 0),
-        },
-      ])
-    );
-
-    // 3) vendas das compras finalizadas (pra C1/C2/taxa) — independe do sale.date
+    // 3) vendas das compras finalizadas (pra C1/C2/taxa e fallback do lucro líquido)
     const sales = await prisma.sale.findMany({
       where: {
         purchaseId: { in: purchaseIds },
@@ -228,6 +222,7 @@ export async function POST(req: Request) {
 
         points: true,
         milheiroCents: true,
+        totalCents: true, // ✅ necessário pra PV sem taxa via fallback (total - fee)
         embarqueFeeCents: true,
 
         // defaults 0
@@ -241,6 +236,100 @@ export async function POST(req: Request) {
         purchase: { select: { metaMilheiroCents: true } },
       },
     });
+
+    // index sales por purchase
+    const salesByPurchaseId: Record<
+      string,
+      Array<{
+        points: number;
+        milheiroCents: number;
+        totalCents: number;
+        embarqueFeeCents: number;
+        pointsValueCents: number;
+        bonusCents: number | null;
+        metaMilheiroCents: number;
+        purchaseMetaMilheiroCents: number;
+      }>
+    > = {};
+    for (const s of sales) {
+      const pid = String(s.purchaseId || "");
+      if (!pid) continue;
+      (salesByPurchaseId[pid] ||= []).push({
+        points: safeInt(s.points, 0),
+        milheiroCents: safeInt(s.milheiroCents, 0),
+        totalCents: safeInt(s.totalCents, 0),
+        embarqueFeeCents: safeInt(s.embarqueFeeCents, 0),
+        pointsValueCents: safeInt(s.pointsValueCents, 0),
+        bonusCents: typeof s.bonusCents === "number" ? safeInt(s.bonusCents, 0) : null,
+        metaMilheiroCents: safeInt(s.metaMilheiroCents, 0),
+        purchaseMetaMilheiroCents: safeInt(s.purchase?.metaMilheiroCents, 0),
+      });
+    }
+
+    // ✅ lucro líquido REAL por compra (igual “Compras finalizadas”)
+    function computeLucroLiquidoCompra(p: (typeof purchases)[number]) {
+      const cost = safeInt(p.totalCents, 0);
+
+      // 1) melhor fonte: PV sem taxa + bônus
+      const pvDb = safeInt(p.finalSalesPointsValueCents ?? 0, 0);
+      const bonusDb = safeInt(p.finalBonusCents ?? 0, 0);
+
+      if (pvDb > 0 && (p.finalBonusCents !== null && p.finalBonusCents !== undefined)) {
+        const bruto = pvDb - cost;
+        return bruto - bonusDb;
+      }
+
+      // 2) segunda melhor: bruto + bônus
+      const brutoDb = safeInt(p.finalProfitBrutoCents ?? 0, 0);
+      if (brutoDb !== 0 && (p.finalBonusCents !== null && p.finalBonusCents !== undefined)) {
+        return brutoDb - bonusDb;
+      }
+
+      // 3) fallback via sales (PV sem taxa = total - fee, ou pointsValueCents, ou points*milheiro)
+      const ss = salesByPurchaseId[p.id] || [];
+      if (!ss.length) {
+        // último recurso: usa o campo finalProfitCents (pode estar “poluído”, mas evita 0)
+        const fp = safeInt(p.finalProfitCents ?? 0, 0);
+        return fp;
+      }
+
+      let pvSum = 0;
+      let bonusSum = 0;
+
+      for (const s of ss) {
+        // PV sem taxa (prioridade):
+        // - pointsValueCents (se veio)
+        // - totalCents - embarqueFeeCents (se tiver)
+        // - fallback por pontos*milheiro
+        let pv = safeInt(s.pointsValueCents, 0);
+        if (pv <= 0) {
+          const total = safeInt(s.totalCents, 0);
+          const fee = safeInt(s.embarqueFeeCents, 0);
+          if (total > 0) pv = Math.max(total - fee, 0);
+        }
+        if (pv <= 0) {
+          pv = pointsValueCentsFallback(s.points, s.milheiroCents);
+        }
+        pvSum += pv;
+
+        // bônus: usa salvo; senão recalcula
+        if (s.bonusCents !== null) {
+          bonusSum += safeInt(s.bonusCents, 0);
+        } else {
+          const meta = chooseMetaMilheiro(
+            safeInt(s.metaMilheiroCents, 0) > 0 ? s.metaMilheiroCents : s.purchaseMetaMilheiroCents
+          );
+          bonusSum += bonusFallback({
+            points: s.points,
+            milheiroCents: s.milheiroCents,
+            metaMilheiroCents: meta,
+          });
+        }
+      }
+
+      const bruto = pvSum - cost;
+      return bruto - bonusSum;
+    }
 
     // 4) ProfitShare dos owners envolvidos
     const ownerIds = Array.from(new Set(purchases.map((p) => p.cedente.ownerId).filter(Boolean)));
@@ -277,7 +366,7 @@ export async function POST(req: Request) {
         salesCount: 0,
       });
 
-    // 5) C1/C2 + taxa por seller (somente vendas das compras finalizadas)
+    // 5) C1/C2 + taxa por seller
     for (const s of sales) {
       const sellerId = s.sellerId ?? null;
       if (!sellerId) continue;
@@ -299,12 +388,12 @@ export async function POST(req: Request) {
       a.salesCount += 1;
     }
 
-    // 6) C3 = rateio do lucro líquido FINAL por compra (snapshot)
-    for (const p of purchaseById.values()) {
-      const pool = safeInt(p.finalProfitCents, 0);
-      if (pool <= 0) continue;
+    // 6) ✅ C3 = rateio do lucro líquido REAL por compra (igual Compras finalizadas)
+    for (const p of purchases) {
+      const pool = computeLucroLiquidoCompra(p);
+      if (safeInt(pool, 0) <= 0) continue;
 
-      const ownerId = p.ownerId;
+      const ownerId = p.cedente.ownerId;
       if (!ownerId) continue;
 
       const ownerShares = sharesByOwner[ownerId] || [];
@@ -314,7 +403,7 @@ export async function POST(req: Request) {
           effectiveTo: x.effectiveTo,
           items: x.items.map((i) => ({ payeeId: i.payeeId, bps: i.bps })),
         })),
-        p.finalizedAt
+        p.finalizedAt ?? start
       );
 
       // fallback: se não tiver plano, joga 100% pro owner
