@@ -14,6 +14,8 @@ type SummaryRow = {
   grossCents: number;
   taxCents: number;
   feeCents: number;
+
+  // ⚠️ hoje vem “com taxa” (gross - tax + fee)
   netCents: number;
 };
 
@@ -32,6 +34,8 @@ type SummaryResp = {
     gross: number;
     tax: number;
     fee: number;
+
+    // ⚠️ hoje vem “com taxa”
     net: number;
   };
 };
@@ -123,7 +127,23 @@ export default function LucrosFuncionariosMesClient() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [month]);
 
-  const rows = useMemo(() => (data?.rows || []).slice().sort((a, b) => b.netCents - a.netCents), [data]);
+  // ✅ líquidos sem taxa
+  const totalNetNoFeeCents = useMemo(() => {
+    const net = data?.totals?.net ?? 0;
+    const fee = data?.totals?.fee ?? 0;
+    return (net || 0) - (fee || 0);
+  }, [data]);
+
+  const rows = useMemo(() => {
+    const base = data?.rows || [];
+    return base
+      .map((r) => {
+        const netNoFeeCents = (r.netCents || 0) - (r.feeCents || 0);
+        return { ...r, netNoFeeCents };
+      })
+      // ✅ ordena pelo líquido sem taxa
+      .sort((a, b) => (b as any).netNoFeeCents - (a as any).netNoFeeCents);
+  }, [data]);
 
   return (
     <div className="space-y-4">
@@ -131,7 +151,8 @@ export default function LucrosFuncionariosMesClient() {
         <div className="space-y-1">
           <h2 className="text-lg font-semibold">Funcionários — análise do mês</h2>
           <p className="text-sm text-neutral-500">
-            Baseado nos <b>dias computados</b> em Comissões → Funcionários (inclui C1, C2, C3, imposto e taxa).
+            Baseado nos <b>dias computados</b> em Comissões → Funcionários.{" "}
+            <b>Líquido aqui é SEM taxa de embarque</b> (taxa aparece separada).
           </p>
         </div>
 
@@ -164,7 +185,9 @@ export default function LucrosFuncionariosMesClient() {
       </div>
 
       <div className="grid grid-cols-2 gap-2 md:grid-cols-6">
-        <KPI label="Líquido total (após imposto)" value={fmtMoneyBR(data?.totals.net || 0)} />
+        {/* ✅ aqui exclui taxa */}
+        <KPI label="Líquido total (sem taxa)" value={fmtMoneyBR(totalNetNoFeeCents)} />
+
         <KPI label="Imposto total (8%)" value={fmtMoneyBR(data?.totals.tax || 0)} />
         <KPI label="Taxas (reembolso)" value={fmtMoneyBR(data?.totals.fee || 0)} />
         <KPI label="Bruto (C1+C2+C3)" value={fmtMoneyBR(data?.totals.gross || 0)} />
@@ -189,12 +212,13 @@ export default function LucrosFuncionariosMesClient() {
                 <th className="px-4 py-3">C3 (rateio)</th>
                 <th className="px-4 py-3">Imposto</th>
                 <th className="px-4 py-3">Taxa embarque</th>
-                <th className="px-4 py-3">Líquido</th>
+                {/* ✅ coluna líquido sem taxa */}
+                <th className="px-4 py-3">Líquido (sem taxa)</th>
               </tr>
             </thead>
 
             <tbody>
-              {rows.map((r) => {
+              {rows.map((r: any) => {
                 const display = firstName(r.user.name, r.user.login);
                 return (
                   <tr key={r.user.id} className="border-t">
@@ -213,7 +237,7 @@ export default function LucrosFuncionariosMesClient() {
                     <td className="px-4 py-3">{fmtMoneyBR(r.taxCents)}</td>
                     <td className="px-4 py-3">{fmtMoneyBR(r.feeCents)}</td>
 
-                    <td className="px-4 py-3 font-semibold">{fmtMoneyBR(r.netCents)}</td>
+                    <td className="px-4 py-3 font-semibold">{fmtMoneyBR(r.netNoFeeCents)}</td>
                   </tr>
                 );
               })}

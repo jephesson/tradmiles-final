@@ -34,24 +34,8 @@ function nextMonthStart(month: string) {
   if (!y || !m) return "9999-12-01";
   const nm = m === 12 ? 1 : m + 1;
   const ny = m === 12 ? y + 1 : y;
-  const mm = String(nm).padStart(2, "0");
-  return `${ny}-${mm}-01`;
+  return `${ny}-${String(nm).padStart(2, "0")}-01`;
 }
-
-type SummaryRow = {
-  user: { id: string; name: string; login: string; role: string };
-  days: number;
-  salesCount: number;
-
-  commission1Cents: number;
-  commission2Cents: number;
-  commission3RateioCents: number;
-
-  grossCents: number;
-  taxCents: number;
-  feeCents: number;
-  netCents: number;
-};
 
 export async function GET(req: Request) {
   try {
@@ -71,10 +55,9 @@ export async function GET(req: Request) {
     const monthParam = String(searchParams.get("month") || "").trim();
     const month = isMonthISO(monthParam) ? monthParam : monthISORecife();
 
-    const startDate = `${month}-01`; // YYYY-MM-01
-    const endDate = nextMonthStart(month); // YYYY-MM-01 do mês seguinte (exclusive)
+    const startDate = `${month}-01`;
+    const endDate = nextMonthStart(month);
 
-    // pega todos os usuários do time (pra aparecer “0” também)
     const users = await prisma.user.findMany({
       where: { team },
       select: { id: true, name: true, login: true, role: true },
@@ -97,19 +80,25 @@ export async function GET(req: Request) {
       },
     });
 
-    type Agg = {
-      days: number;
-      salesCount: number;
-      c1: number;
-      c2: number;
-      c3: number;
-      gross: number;
-      tax: number;
-      fee: number;
-      net: number;
-    };
+    const byUser: Record<
+      string,
+      {
+        days: number;
+        salesCount: number;
 
-    const byUser: Record<string, Agg> = {};
+        c1: number;
+        c2: number;
+        c3: number;
+
+        gross: number;
+        tax: number;
+        fee: number;
+
+        netNoFee: number;   // ✅ líquido sem taxa (gross - tax)
+        netWithFee: number; // (opcional) líquido com taxa (netPayCents)
+      }
+    > = {};
+
     function ensure(userId: string) {
       return (byUser[userId] ||= {
         days: 0,
@@ -120,14 +109,21 @@ export async function GET(req: Request) {
         gross: 0,
         tax: 0,
         fee: 0,
-        net: 0,
+        netNoFee: 0,
+        netWithFee: 0,
       });
     }
 
     for (const p of payouts) {
       const a = ensure(p.userId);
-
       const b: any = p.breakdown || {};
+
+      const gross = safeInt(p.grossProfitCents, 0);
+      const tax = safeInt(p.tax7Cents, 0);
+      const fee = safeInt(p.feeCents, 0);
+      const netWithFee = safeInt(p.netPayCents, 0);
+      const netNoFee = gross - tax; // ✅ aqui exclui taxa
+
       a.days += 1;
       a.salesCount += safeInt(b?.salesCount, 0);
 
@@ -135,36 +131,45 @@ export async function GET(req: Request) {
       a.c2 += safeInt(b?.commission2Cents, 0);
       a.c3 += safeInt(b?.commission3RateioCents, 0);
 
-      a.gross += safeInt(p.grossProfitCents, 0);
-      a.tax += safeInt(p.tax7Cents, 0);
-      a.fee += safeInt(p.feeCents, 0);
-      a.net += safeInt(p.netPayCents, 0);
+      a.gross += gross;
+      a.tax += tax;
+      a.fee += fee;
+
+      a.netNoFee += netNoFee;
+      a.netWithFee += netWithFee;
     }
 
-    const rows: SummaryRow[] = users.map((u) => {
-      const a = byUser[u.id] || {
-        days: 0,
-        salesCount: 0,
-        c1: 0,
-        c2: 0,
-        c3: 0,
-        gross: 0,
-        tax: 0,
-        fee: 0,
-        net: 0,
-      };
+    const rows = users.map((u) => {
+      const a =
+        byUser[u.id] ||
+        ({
+          days: 0,
+          salesCount: 0,
+          c1: 0,
+          c2: 0,
+          c3: 0,
+          gross: 0,
+          tax: 0,
+          fee: 0,
+          netNoFee: 0,
+          netWithFee: 0,
+        } as const);
 
       return {
         user: { id: u.id, name: u.name, login: u.login, role: u.role },
         days: a.days,
         salesCount: a.salesCount,
+
         commission1Cents: a.c1,
         commission2Cents: a.c2,
         commission3RateioCents: a.c3,
+
         grossCents: a.gross,
         taxCents: a.tax,
         feeCents: a.fee,
-        netCents: a.net,
+
+        netNoFeeCents: a.netNoFee,     // ✅ novo (use esse no “líquido”)
+        netWithFeeCents: a.netWithFee, // opcional p/ conferência
       };
     });
 
@@ -178,7 +183,8 @@ export async function GET(req: Request) {
         acc.gross += r.grossCents;
         acc.tax += r.taxCents;
         acc.fee += r.feeCents;
-        acc.net += r.netCents;
+        acc.netNoFee += r.netNoFeeCents;
+        acc.netWithFee += r.netWithFeeCents;
         return acc;
       },
       {
@@ -190,7 +196,8 @@ export async function GET(req: Request) {
         gross: 0,
         tax: 0,
         fee: 0,
-        net: 0,
+        netNoFee: 0,
+        netWithFee: 0,
       }
     );
 
