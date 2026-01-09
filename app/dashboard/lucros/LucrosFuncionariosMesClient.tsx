@@ -15,8 +15,9 @@ type SummaryRow = {
   taxCents: number;
   feeCents: number;
 
-  // ⚠️ hoje vem “com taxa” (gross - tax + fee)
-  netCents: number;
+  // ✅ backend já entrega
+  netNoFeeCents: number;     // gross - tax
+  netWithFeeCents: number;   // netPayCents (gross - tax + fee)
 };
 
 type SummaryResp = {
@@ -34,9 +35,8 @@ type SummaryResp = {
     gross: number;
     tax: number;
     fee: number;
-
-    // ⚠️ hoje vem “com taxa”
-    net: number;
+    netNoFee: number;   // ✅ líquido total sem taxa
+    netWithFee: number; // opcional (conferência)
   };
 };
 
@@ -127,22 +127,9 @@ export default function LucrosFuncionariosMesClient() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [month]);
 
-  // ✅ líquidos sem taxa
-  const totalNetNoFeeCents = useMemo(() => {
-    const net = data?.totals?.net ?? 0;
-    const fee = data?.totals?.fee ?? 0;
-    return (net || 0) - (fee || 0);
-  }, [data]);
-
+  // ✅ ordena pelo líquido sem taxa (já pronto no backend)
   const rows = useMemo(() => {
-    const base = data?.rows || [];
-    return base
-      .map((r) => {
-        const netNoFeeCents = (r.netCents || 0) - (r.feeCents || 0);
-        return { ...r, netNoFeeCents };
-      })
-      // ✅ ordena pelo líquido sem taxa
-      .sort((a, b) => (b as any).netNoFeeCents - (a as any).netNoFeeCents);
+    return (data?.rows || []).slice().sort((a, b) => b.netNoFeeCents - a.netNoFeeCents);
   }, [data]);
 
   return (
@@ -151,8 +138,8 @@ export default function LucrosFuncionariosMesClient() {
         <div className="space-y-1">
           <h2 className="text-lg font-semibold">Funcionários — análise do mês</h2>
           <p className="text-sm text-neutral-500">
-            Baseado nos <b>dias computados</b> em Comissões → Funcionários.{" "}
-            <b>Líquido aqui é SEM taxa de embarque</b> (taxa aparece separada).
+            Baseado nos dias <b>computados</b> em Comissões → Funcionários.{" "}
+            <b>Líquido aqui é SEM taxa</b> (taxa aparece separada).
           </p>
         </div>
 
@@ -185,9 +172,8 @@ export default function LucrosFuncionariosMesClient() {
       </div>
 
       <div className="grid grid-cols-2 gap-2 md:grid-cols-6">
-        {/* ✅ aqui exclui taxa */}
-        <KPI label="Líquido total (sem taxa)" value={fmtMoneyBR(totalNetNoFeeCents)} />
-
+        {/* ✅ usa totals.netNoFee direto (sem subtrair nada) */}
+        <KPI label="Líquido total (sem taxa)" value={fmtMoneyBR(data?.totals.netNoFee || 0)} />
         <KPI label="Imposto total (8%)" value={fmtMoneyBR(data?.totals.tax || 0)} />
         <KPI label="Taxas (reembolso)" value={fmtMoneyBR(data?.totals.fee || 0)} />
         <KPI label="Bruto (C1+C2+C3)" value={fmtMoneyBR(data?.totals.gross || 0)} />
@@ -212,13 +198,12 @@ export default function LucrosFuncionariosMesClient() {
                 <th className="px-4 py-3">C3 (rateio)</th>
                 <th className="px-4 py-3">Imposto</th>
                 <th className="px-4 py-3">Taxa embarque</th>
-                {/* ✅ coluna líquido sem taxa */}
                 <th className="px-4 py-3">Líquido (sem taxa)</th>
               </tr>
             </thead>
 
             <tbody>
-              {rows.map((r: any) => {
+              {rows.map((r) => {
                 const display = firstName(r.user.name, r.user.login);
                 return (
                   <tr key={r.user.id} className="border-t">
@@ -237,6 +222,7 @@ export default function LucrosFuncionariosMesClient() {
                     <td className="px-4 py-3">{fmtMoneyBR(r.taxCents)}</td>
                     <td className="px-4 py-3">{fmtMoneyBR(r.feeCents)}</td>
 
+                    {/* ✅ líquido correto */}
                     <td className="px-4 py-3 font-semibold">{fmtMoneyBR(r.netNoFeeCents)}</td>
                   </tr>
                 );
