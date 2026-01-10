@@ -771,17 +771,6 @@ function cap1(s?: string | null) {
   return v.charAt(0).toUpperCase() + v.slice(1);
 }
 
-function toBRDate(iso: string) {
-  const m = String(iso || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  return m ? `${m[3]}/${m[2]}/${m[1]}` : iso;
-}
-
-function cap1(s?: string | null) {
-  const v = (s || "").trim();
-  if (!v) return "";
-  return v.charAt(0).toUpperCase() + v.slice(1);
-}
-
 function buildTelegramMessage(args: {
   saleId?: string | null;
   cliente: ClienteLite | null;
