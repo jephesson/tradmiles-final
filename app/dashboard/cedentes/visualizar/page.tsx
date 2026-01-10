@@ -2,6 +2,7 @@ export const dynamic = "force-dynamic";
 
 import CedentesVisualizarClient from "./CedentesVisualizarClient";
 import CedentesVisualizarLatamClient from "./CedentesVisualizarLatamClient";
+import CedentesVisualizarSmilesClient from "./CedentesVisualizarSmilesClient";
 
 type SearchParams = { [key: string]: string | string[] | undefined };
 
@@ -15,9 +16,9 @@ export default async function Page({
   const programaRaw = Array.isArray(sp.programa) ? sp.programa[0] : sp.programa;
   const p = (programaRaw || "").toLowerCase();
 
-  if (p === "latam") {
-    return <CedentesVisualizarLatamClient />;
-  }
+  if (p === "latam") return <CedentesVisualizarLatamClient />;
+  if (p === "smiles") return <CedentesVisualizarSmilesClient />;
 
+  // default: lista geral (todos)
   return <CedentesVisualizarClient />;
 }
