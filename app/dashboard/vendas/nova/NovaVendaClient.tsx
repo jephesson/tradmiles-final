@@ -890,16 +890,13 @@ function buildTelegramMessage(args: {
         totalCents,
         locator,
         compraNumero: purchaseNumero,
-        metaMilheiroCents: metaMilheiroCents || 0,
         cedenteNome: sel.cedente.nomeCompleto,
-        cedenteIdentificador: sel.cedente.identificador,
         responsavelNome: sel.cedente.owner.name,
-        responsavelLogin: sel.cedente.owner.login,
         feeCardLabel: feeCardLabel || "—",
         dateISO,
         vendedorNome: me?.name || null,
-        vendedorLogin: me?.login || null,
       });
+
 
       setPostSaveMsg(msg);
       setPostSaveOpen(true);
