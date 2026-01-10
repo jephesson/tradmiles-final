@@ -64,7 +64,12 @@ export default function Sidebar() {
   const isContasSelecionadasRoute = pathname.startsWith(
     "/dashboard/contas-selecionadas"
   );
-  const isAnaliseRoute = isEstrategiaCompraRoute || isContasSelecionadasRoute;
+
+  // ✅ NOVO: Análise de dados
+  const isAnaliseDadosRoute = pathname.startsWith("/dashboard/analise-dados");
+
+  const isAnaliseRoute =
+    isEstrategiaCompraRoute || isContasSelecionadasRoute || isAnaliseDadosRoute;
 
   // ✅ FINANCEIRO (agora inclui Resumo)
   const isDividasRoute = pathname.startsWith("/dashboard/dividas");
@@ -514,6 +519,9 @@ export default function Sidebar() {
           onToggle={() => setOpenAnalise((v) => !v)}
           active={isAnaliseRoute}
         >
+          {/* ✅ NOVO ITEM */}
+          <NavLink href="/dashboard/analise-dados">Análise de dados</NavLink>
+
           <NavLink href="/dashboard/estrategia-compra">
             Estratégia de compra
           </NavLink>
