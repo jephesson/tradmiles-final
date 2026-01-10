@@ -280,11 +280,20 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
     return Math.round(diffTotal * 0.3);
   }, [milheiroCents, metaMilheiroCents, pointsTotal]);
 
+  // ✅ ajuste de PAX disponível (após esta venda) — usando passengersNeeded da sugestão
+  const selPaxAfter = useMemo(() => {
+    if (!sel) return 0;
+    const after = (sel.availablePassengersYear || 0) - (sel.passengersNeeded || 0);
+    return after;
+  }, [sel, passengers]);
+
   function badgeClass(priorityLabel: Suggestion["priorityLabel"]) {
     return priorityLabel === "MAX"
       ? "bg-emerald-50 border-emerald-200 text-emerald-700"
       : priorityLabel === "BAIXA"
       ? "bg-slate-100 border-slate-200 text-slate-600"
+      : priorityLabel === "INELIGIVEL"
+      ? "bg-rose-50 border-rose-200 text-rose-700"
       : "bg-amber-50 border-amber-200 text-amber-700";
   }
 
@@ -317,7 +326,6 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
       await navigator.clipboard.writeText(value);
       alert(`Copiado: ${label}`);
     } catch {
-      // fallback
       const ok = prompt(`Copie manualmente (${label}):`, value);
       void ok;
     }
@@ -327,9 +335,9 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
     setLoadingCreds(true);
     setCredsError("");
     try {
-      const url = `/api/cedentes/credentials?cedenteId=${encodeURIComponent(
-        cedenteId
-      )}&program=${encodeURIComponent(p)}`;
+      const url = `/api/cedentes/credentials?cedenteId=${encodeURIComponent(cedenteId)}&program=${encodeURIComponent(
+        p
+      )}`;
       const out = await api<any>(url, { signal } as any);
 
       const data = out?.data ?? out?.creds ?? out ?? null;
@@ -438,9 +446,9 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
 
       setLoadingSug(true);
       try {
-        const url = `/api/vendas/sugestoes?program=${encodeURIComponent(
-          program
-        )}&points=${encodeURIComponent(String(pointsTotal))}&passengers=${encodeURIComponent(String(passengers))}`;
+        const url = `/api/vendas/sugestoes?program=${encodeURIComponent(program)}&points=${encodeURIComponent(
+          String(pointsTotal)
+        )}&passengers=${encodeURIComponent(String(passengers))}`;
 
         const out = await api<{ ok: true; suggestions: Suggestion[] }>(url, { signal: ac.signal } as any);
         const list = out.suggestions || [];
@@ -678,7 +686,9 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
     lines.push(`✈️ Programa: *${args.program}*`);
 
     if (args.pointsMode === "POR_PAX") {
-      lines.push(`🎯 Pontos: *${fmtInt(args.pointsTotal)}* (${fmtInt(args.pointsInput)}/pax x ${fmtInt(args.passengers)})`);
+      lines.push(
+        `🎯 Pontos: *${fmtInt(args.pointsTotal)}* (${fmtInt(args.pointsInput)}/pax x ${fmtInt(args.passengers)})`
+      );
     } else {
       lines.push(`🎯 Pontos: *${fmtInt(args.pointsTotal)}*`);
     }
@@ -727,22 +737,10 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
     try {
       const out = await api<any>("/api/vendas", { method: "POST", body: JSON.stringify(payload) });
 
-      const sale =
-        out?.data?.sale ||
-        out?.sale ||
-        out?.data?.venda ||
-        out?.venda ||
-        out?.data ||
-        null;
+      const sale = out?.data?.sale || out?.sale || out?.data?.venda || out?.venda || out?.data || null;
 
       const saleId =
-        sale?.id ||
-        sale?.saleId ||
-        out?.data?.saleId ||
-        out?.saleId ||
-        out?.data?.id ||
-        out?.id ||
-        null;
+        sale?.id || sale?.saleId || out?.data?.saleId || out?.saleId || out?.data?.id || out?.id || null;
 
       setPostSaveSaleId(saleId ? String(saleId) : null);
 
@@ -783,13 +781,7 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
     if (!q) return suggestions;
 
     return suggestions.filter((s) => {
-      const hay = [
-        s.cedente.nomeCompleto,
-        s.cedente.identificador,
-        s.cedente.cpf,
-        s.cedente.owner?.name,
-        s.cedente.owner?.login,
-      ]
+      const hay = [s.cedente.nomeCompleto, s.cedente.identificador, s.cedente.cpf, s.cedente.owner?.name, s.cedente.owner?.login]
         .map(normStr)
         .join(" | ");
       return hay.includes(q);
@@ -868,22 +860,12 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
               <span className="text-slate-500">Pontos informados:</span>
 
               <label className="inline-flex items-center gap-2">
-                <input
-                  type="radio"
-                  name="pointsMode"
-                  checked={pointsMode === "TOTAL"}
-                  onChange={() => setPointsMode("TOTAL")}
-                />
+                <input type="radio" name="pointsMode" checked={pointsMode === "TOTAL"} onChange={() => setPointsMode("TOTAL")} />
                 Total
               </label>
 
               <label className="inline-flex items-center gap-2">
-                <input
-                  type="radio"
-                  name="pointsMode"
-                  checked={pointsMode === "POR_PAX"}
-                  onChange={() => setPointsMode("POR_PAX")}
-                />
+                <input type="radio" name="pointsMode" checked={pointsMode === "POR_PAX"} onChange={() => setPointsMode("POR_PAX")} />
                 Por passageiro
               </label>
 
@@ -938,24 +920,28 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
                   <span className="rounded-full border bg-white px-2 py-1">
                     PTS: <b className="tabular-nums">{fmtInt(sel.pts)}</b>
                   </span>
+
+                  {/* ✅ PAX disponível AJUSTADO (APÓS esta venda) */}
                   <span className="rounded-full border bg-white px-2 py-1">
-                    PAX disp.: <b className="tabular-nums">{fmtInt(sel.availablePassengersYear)}</b>{" "}
+                    PAX após:{" "}
+                    <b className={cn("tabular-nums", selPaxAfter < 0 ? "text-rose-600" : "")}>
+                      {fmtInt(Math.max(0, selPaxAfter))}
+                    </b>{" "}
                     <span className="text-slate-500">
-                      (usados {fmtInt(sel.usedPassengersYear)}/{fmtInt(sel.paxLimit)})
+                      (agora {fmtInt(sel.availablePassengersYear)} • usados {fmtInt(sel.usedPassengersYear)}/{fmtInt(sel.paxLimit)} • consome{" "}
+                      {fmtInt(sel.passengersNeeded)})
                     </span>
                   </span>
+
                   <span className="rounded-full border bg-white px-2 py-1">
                     Sobra: <b className="tabular-nums">{fmtInt(sel.leftoverPoints)}</b>
                   </span>
-                  <span className={cn("rounded-full border px-2 py-1", badgeClass(sel.priorityLabel))}>
-                    {sel.priorityLabel}
-                  </span>
+
+                  <span className={cn("rounded-full border px-2 py-1", badgeClass(sel.priorityLabel))}>{sel.priorityLabel}</span>
                 </div>
 
                 {sel.alerts.includes("PASSAGEIROS_ESTOURADOS_COM_PONTOS") ? (
-                  <div className="mt-2 text-[11px] text-rose-600">
-                    Alerta: limite anual estoura e ainda sobraria &gt; 3.000 pts.
-                  </div>
+                  <div className="mt-2 text-[11px] text-rose-600">Alerta: limite anual estoura e ainda sobraria &gt; 3.000 pts.</div>
                 ) : null}
 
                 {/* ✅ Credenciais (revelar) */}
@@ -996,7 +982,6 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
                   {revealCreds ? (
                     <div className="mt-2 grid gap-2 md:grid-cols-2">
                       <CopyField label="CPF" value={credCpf} onCopy={(v) => copyText("CPF", v)} />
-
                       <CopyField label="Email" value={credEmail} onCopy={(v) => copyText("Email", v)} />
 
                       <CopyField
@@ -1031,11 +1016,7 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
                 >
                   Ir para dados
                 </button>
-                <button
-                  type="button"
-                  onClick={clearSelection}
-                  className="rounded-xl border px-3 py-2 text-sm hover:bg-slate-50"
-                >
+                <button type="button" onClick={clearSelection} className="rounded-xl border px-3 py-2 text-sm hover:bg-slate-50">
                   Trocar cedente
                 </button>
               </div>
@@ -1055,11 +1036,7 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
                   />
                 </label>
 
-                <button
-                  type="button"
-                  onClick={() => setCedenteQ("")}
-                  className="rounded-xl border px-3 py-2 text-sm hover:bg-slate-50"
-                >
+                <button type="button" onClick={() => setCedenteQ("")} className="rounded-xl border px-3 py-2 text-sm hover:bg-slate-50">
                   Limpar busca
                 </button>
               </div>
@@ -1076,7 +1053,10 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
                     <th className="text-left font-semibold px-4 py-3 w-[360px]">CEDENTE</th>
                     <th className="text-left font-semibold px-4 py-3 w-[220px]">RESPONSÁVEL</th>
                     <th className="text-right font-semibold px-4 py-3 w-[140px]">PTS</th>
-                    <th className="text-right font-semibold px-4 py-3 w-[220px]">PAX DISP. (ano)</th>
+
+                    {/* ✅ coluna com PAX já AJUSTADO */}
+                    <th className="text-right font-semibold px-4 py-3 w-[260px]">PAX DISP. (após)</th>
+
                     <th className="text-right font-semibold px-4 py-3 w-[140px]">SOBRA</th>
                     <th className="text-left font-semibold px-4 py-3 w-[140px]">PRIOR.</th>
                     <th className="text-right font-semibold px-4 py-3 w-[120px]"></th>
@@ -1102,15 +1082,16 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
                   {visibleSuggestions.map((s) => {
                     const badge = badgeClass(s.priorityLabel);
 
+                    const paxAfter = (s.availablePassengersYear || 0) - (s.passengersNeeded || 0);
+                    const paxAfterClamped = Math.max(0, paxAfter);
+
                     return (
                       <tr key={s.cedente.id} className="border-b last:border-b-0">
                         <td className="px-4 py-3">
                           <div className="font-medium">{s.cedente.nomeCompleto}</div>
                           <div className="text-xs text-slate-500">{s.cedente.identificador}</div>
                           {s.alerts.includes("PASSAGEIROS_ESTOURADOS_COM_PONTOS") ? (
-                            <div className="mt-1 text-[11px] text-rose-600">
-                              Alerta: limite anual estoura e ainda sobraria &gt; 3.000 pts.
-                            </div>
+                            <div className="mt-1 text-[11px] text-rose-600">Alerta: limite anual estoura e ainda sobraria &gt; 3.000 pts.</div>
                           ) : null}
                         </td>
                         <td className="px-4 py-3">
@@ -1118,18 +1099,20 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
                           <div className="text-xs text-slate-500">@{s.cedente.owner.login}</div>
                         </td>
                         <td className="px-4 py-3 text-right tabular-nums">{fmtInt(s.pts)}</td>
+
+                        {/* ✅ PAX após venda */}
                         <td className="px-4 py-3 text-right tabular-nums">
-                          {fmtInt(s.availablePassengersYear)}
+                          <span className={cn(paxAfter < 0 ? "text-rose-600 font-semibold" : "")}>{fmtInt(paxAfterClamped)}</span>
                           <span className="text-xs text-slate-500">
                             {" "}
-                            (usados {fmtInt(s.usedPassengersYear)}/{fmtInt(s.paxLimit)})
+                            (agora {fmtInt(s.availablePassengersYear)} • usados {fmtInt(s.usedPassengersYear)}/{fmtInt(s.paxLimit)} • consome{" "}
+                            {fmtInt(s.passengersNeeded)})
                           </span>
                         </td>
+
                         <td className="px-4 py-3 text-right tabular-nums">{fmtInt(s.leftoverPoints)}</td>
                         <td className="px-4 py-3">
-                          <span className={cn("inline-flex rounded-full border px-2 py-1 text-xs", badge)}>
-                            {s.priorityLabel}
-                          </span>
+                          <span className={cn("inline-flex rounded-full border px-2 py-1 text-xs", badge)}>{s.priorityLabel}</span>
                         </td>
                         <td className="px-4 py-3 text-right">
                           <button
@@ -1171,19 +1154,12 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
               <div className="mt-4 grid gap-4 md:grid-cols-2">
                 <label className="space-y-1">
                   <div className="text-xs text-slate-600">Data</div>
-                  <input
-                    type="date"
-                    className="w-full rounded-xl border px-3 py-2 text-sm"
-                    value={dateISO}
-                    onChange={(e) => setDateISO(e.target.value)}
-                  />
+                  <input type="date" className="w-full rounded-xl border px-3 py-2 text-sm" value={dateISO} onChange={(e) => setDateISO(e.target.value)} />
                 </label>
 
                 <div className="space-y-1">
                   <div className="text-xs text-slate-600">Vendedor</div>
-                  <div className="rounded-xl border px-3 py-2 text-sm bg-slate-50">
-                    {me?.name ? `${me.name} (@${me.login})` : "—"}
-                  </div>
+                  <div className="rounded-xl border px-3 py-2 text-sm bg-slate-50">{me?.name ? `${me.name} (@${me.login})` : "—"}</div>
                 </div>
 
                 <div className="md:col-span-2 grid gap-2 md:grid-cols-2">
@@ -1224,11 +1200,7 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
                     <div className="text-xs text-slate-600">Selecionar cliente</div>
 
                     <div className="flex gap-2">
-                      <select
-                        className="flex-1 rounded-xl border px-3 py-2 text-sm bg-white"
-                        value={clienteId}
-                        onChange={(e) => setClienteId(e.target.value)}
-                      >
+                      <select className="flex-1 rounded-xl border px-3 py-2 text-sm bg-white" value={clienteId} onChange={(e) => setClienteId(e.target.value)}>
                         <option value="">Selecione...</option>
                         {clientes.map((c) => (
                           <option key={c.id} value={c.id}>
@@ -1267,11 +1239,7 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
                     disabled={loadingCompras}
                   >
                     <option value="">
-                      {loadingCompras
-                        ? "Carregando compras liberadas..."
-                        : compras.length
-                        ? "Selecione..."
-                        : "Nenhuma compra liberada"}
+                      {loadingCompras ? "Carregando compras liberadas..." : compras.length ? "Selecione..." : "Nenhuma compra liberada"}
                     </option>
                     {compras.map((c) => (
                       <option key={c.id} value={c.numero}>
@@ -1286,31 +1254,17 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
 
                 <label className="space-y-1">
                   <div className="text-xs text-slate-600">Milheiro (R$)</div>
-                  <input
-                    className="w-full rounded-xl border px-3 py-2 text-sm font-mono"
-                    value={milheiroStr}
-                    onChange={(e) => setMilheiroStr(e.target.value)}
-                    placeholder="Ex: 25,50"
-                  />
+                  <input className="w-full rounded-xl border px-3 py-2 text-sm font-mono" value={milheiroStr} onChange={(e) => setMilheiroStr(e.target.value)} placeholder="Ex: 25,50" />
                 </label>
 
                 <label className="space-y-1">
                   <div className="text-xs text-slate-600">Taxa de embarque (R$)</div>
-                  <input
-                    className="w-full rounded-xl border px-3 py-2 text-sm font-mono"
-                    value={embarqueStr}
-                    onChange={(e) => setEmbarqueStr(e.target.value)}
-                    placeholder="Ex: 78,34"
-                  />
+                  <input className="w-full rounded-xl border px-3 py-2 text-sm font-mono" value={embarqueStr} onChange={(e) => setEmbarqueStr(e.target.value)} placeholder="Ex: 78,34" />
                 </label>
 
                 <label className="space-y-1">
                   <div className="text-xs text-slate-600">Cartão da taxa</div>
-                  <select
-                    className="w-full rounded-xl border px-3 py-2 text-sm bg-white"
-                    value={feeCardPreset}
-                    onChange={(e) => setFeeCardPreset(e.target.value)}
-                  >
+                  <select className="w-full rounded-xl border px-3 py-2 text-sm bg-white" value={feeCardPreset} onChange={(e) => setFeeCardPreset(e.target.value)}>
                     <option value="SELF">{selfLabel}</option>
                     <option value="VIAS">Vias Aéreas</option>
                     {users.length ? <option disabled>────────────</option> : null}
@@ -1323,12 +1277,7 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
                   </select>
 
                   {feeCardPreset === "MANUAL" ? (
-                    <input
-                      className="mt-2 w-full rounded-xl border px-3 py-2 text-sm"
-                      value={feeCardManual}
-                      onChange={(e) => setFeeCardManual(e.target.value)}
-                      placeholder="Ex: Cartão Inter PJ"
-                    />
+                    <input className="mt-2 w-full rounded-xl border px-3 py-2 text-sm" value={feeCardManual} onChange={(e) => setFeeCardManual(e.target.value)} placeholder="Ex: Cartão Inter PJ" />
                   ) : (
                     <div className="mt-2 text-xs text-slate-500">Selecionado: {feeCardLabel || "—"}</div>
                   )}
@@ -1336,12 +1285,7 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
 
                 <label className="space-y-1">
                   <div className="text-xs text-slate-600">Localizador</div>
-                  <input
-                    className="w-full rounded-xl border px-3 py-2 text-sm font-mono"
-                    value={locator}
-                    onChange={(e) => setLocator(e.target.value)}
-                    placeholder="Opcional"
-                  />
+                  <input className="w-full rounded-xl border px-3 py-2 text-sm font-mono" value={locator} onChange={(e) => setLocator(e.target.value)} placeholder="Opcional" />
                 </label>
               </div>
             </div>
@@ -1414,11 +1358,7 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
                 <div className="text-lg font-semibold">Cadastrar cliente</div>
                 <div className="text-xs text-slate-500">Cadastro rápido sem sair da venda.</div>
               </div>
-              <button
-                type="button"
-                onClick={() => setClienteModalOpen(false)}
-                className="rounded-lg border px-2 py-1 text-sm hover:bg-slate-50"
-              >
+              <button type="button" onClick={() => setClienteModalOpen(false)} className="rounded-lg border px-2 py-1 text-sm hover:bg-slate-50">
                 ✕
               </button>
             </div>
@@ -1426,11 +1366,7 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
             <div className="mt-4 grid gap-3 md:grid-cols-2">
               <label className="space-y-1">
                 <div className="text-xs text-slate-600">Tipo</div>
-                <select
-                  className="w-full rounded-xl border px-3 py-2 text-sm bg-white"
-                  value={novoCliente.tipo}
-                  onChange={(e) => setNovoCliente((p) => ({ ...p, tipo: e.target.value as ClienteTipo }))}
-                >
+                <select className="w-full rounded-xl border px-3 py-2 text-sm bg-white" value={novoCliente.tipo} onChange={(e) => setNovoCliente((p) => ({ ...p, tipo: e.target.value as ClienteTipo }))}>
                   <option value="PESSOA">Pessoa</option>
                   <option value="EMPRESA">Empresa</option>
                 </select>
@@ -1438,41 +1374,22 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
 
               <label className="space-y-1 md:col-span-2">
                 <div className="text-xs text-slate-600">Nome</div>
-                <input
-                  className="w-full rounded-xl border px-3 py-2 text-sm"
-                  value={novoCliente.nome}
-                  onChange={(e) => setNovoCliente((p) => ({ ...p, nome: e.target.value }))}
-                  placeholder="Nome do cliente / empresa"
-                />
+                <input className="w-full rounded-xl border px-3 py-2 text-sm" value={novoCliente.nome} onChange={(e) => setNovoCliente((p) => ({ ...p, nome: e.target.value }))} placeholder="Nome do cliente / empresa" />
               </label>
 
               <label className="space-y-1">
                 <div className="text-xs text-slate-600">CPF/CNPJ (opcional)</div>
-                <input
-                  className="w-full rounded-xl border px-3 py-2 text-sm"
-                  value={novoCliente.cpfCnpj}
-                  onChange={(e) => setNovoCliente((p) => ({ ...p, cpfCnpj: e.target.value }))}
-                  placeholder="Somente números ou com máscara"
-                />
+                <input className="w-full rounded-xl border px-3 py-2 text-sm" value={novoCliente.cpfCnpj} onChange={(e) => setNovoCliente((p) => ({ ...p, cpfCnpj: e.target.value }))} placeholder="Somente números ou com máscara" />
               </label>
 
               <label className="space-y-1">
                 <div className="text-xs text-slate-600">Telefone (opcional)</div>
-                <input
-                  className="w-full rounded-xl border px-3 py-2 text-sm"
-                  value={novoCliente.telefone}
-                  onChange={(e) => setNovoCliente((p) => ({ ...p, telefone: e.target.value }))}
-                  placeholder="Somente números ou com máscara"
-                />
+                <input className="w-full rounded-xl border px-3 py-2 text-sm" value={novoCliente.telefone} onChange={(e) => setNovoCliente((p) => ({ ...p, telefone: e.target.value }))} placeholder="Somente números ou com máscara" />
               </label>
 
               <label className="space-y-1 md:col-span-2">
                 <div className="text-xs text-slate-600">Origem</div>
-                <select
-                  className="w-full rounded-xl border px-3 py-2 text-sm bg-white"
-                  value={novoCliente.origem}
-                  onChange={(e) => setNovoCliente((p) => ({ ...p, origem: e.target.value as ClienteOrigem }))}
-                >
+                <select className="w-full rounded-xl border px-3 py-2 text-sm bg-white" value={novoCliente.origem} onChange={(e) => setNovoCliente((p) => ({ ...p, origem: e.target.value as ClienteOrigem }))}>
                   <option value="BALCAO_MILHAS">Balcão Milhas</option>
                   <option value="PARTICULAR">Particular</option>
                   <option value="SITE">Site</option>
@@ -1483,12 +1400,7 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
               {novoCliente.origem === "OUTROS" ? (
                 <label className="space-y-1 md:col-span-2">
                   <div className="text-xs text-slate-600">Descreva a origem</div>
-                  <input
-                    className="w-full rounded-xl border px-3 py-2 text-sm"
-                    value={novoCliente.origemDescricao}
-                    onChange={(e) => setNovoCliente((p) => ({ ...p, origemDescricao: e.target.value }))}
-                    placeholder="Ex: Indicação, Instagram, etc."
-                  />
+                  <input className="w-full rounded-xl border px-3 py-2 text-sm" value={novoCliente.origemDescricao} onChange={(e) => setNovoCliente((p) => ({ ...p, origemDescricao: e.target.value }))} placeholder="Ex: Indicação, Instagram, etc." />
                 </label>
               ) : null}
             </div>
@@ -1496,21 +1408,14 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
             {createClienteError ? <div className="mt-3 text-sm text-rose-600">{createClienteError}</div> : null}
 
             <div className="mt-5 flex justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => setClienteModalOpen(false)}
-                className="rounded-xl border px-4 py-2 text-sm hover:bg-slate-50"
-              >
+              <button type="button" onClick={() => setClienteModalOpen(false)} className="rounded-xl border px-4 py-2 text-sm hover:bg-slate-50">
                 Cancelar
               </button>
               <button
                 type="button"
                 disabled={creatingCliente}
                 onClick={criarClienteRapido}
-                className={cn(
-                  "rounded-xl px-4 py-2 text-sm text-white",
-                  creatingCliente ? "bg-slate-400 cursor-not-allowed" : "bg-black hover:bg-gray-800"
-                )}
+                className={cn("rounded-xl px-4 py-2 text-sm text-white", creatingCliente ? "bg-slate-400 cursor-not-allowed" : "bg-black hover:bg-gray-800")}
               >
                 {creatingCliente ? "Cadastrando..." : "Cadastrar"}
               </button>
@@ -1537,33 +1442,19 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
                 </div>
               </div>
 
-              <button
-                type="button"
-                onClick={() => setPostSaveOpen(false)}
-                className="rounded-lg border px-2 py-1 text-sm hover:bg-slate-50"
-              >
+              <button type="button" onClick={() => setPostSaveOpen(false)} className="rounded-lg border px-2 py-1 text-sm hover:bg-slate-50">
                 ✕
               </button>
             </div>
 
             <div className="mt-4">
               <div className="text-xs text-slate-600 mb-1">Mensagem</div>
-              <textarea
-                className="w-full min-h-[220px] rounded-xl border p-3 text-sm font-mono"
-                value={postSaveMsg}
-                onChange={(e) => setPostSaveMsg(e.target.value)}
-              />
-              <div className="mt-2 text-[11px] text-slate-500">
-                Obs: está em Markdown (asteriscos). Se teu Telegram não formatar, ainda fica legível.
-              </div>
+              <textarea className="w-full min-h-[220px] rounded-xl border p-3 text-sm font-mono" value={postSaveMsg} onChange={(e) => setPostSaveMsg(e.target.value)} />
+              <div className="mt-2 text-[11px] text-slate-500">Obs: está em Markdown (asteriscos). Se teu Telegram não formatar, ainda fica legível.</div>
             </div>
 
             <div className="mt-5 flex flex-wrap justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => copyText("Mensagem Telegram", postSaveMsg)}
-                className="rounded-xl border px-4 py-2 text-sm hover:bg-slate-50"
-              >
+              <button type="button" onClick={() => copyText("Mensagem Telegram", postSaveMsg)} className="rounded-xl border px-4 py-2 text-sm hover:bg-slate-50">
                 Copiar mensagem
               </button>
 
@@ -1608,29 +1499,18 @@ function CopyField({
         <div className="text-[11px] text-slate-500">{label}</div>
         <div className="flex items-center gap-2">
           {typeof masked === "boolean" ? (
-            <button
-              type="button"
-              onClick={onToggleMask}
-              className="text-[11px] underline text-slate-600 hover:text-slate-800"
-            >
+            <button type="button" onClick={onToggleMask} className="text-[11px] underline text-slate-600 hover:text-slate-800">
               {masked ? "Mostrar" : "Ocultar"}
             </button>
           ) : null}
 
-          <button
-            type="button"
-            onClick={() => onCopy(value || "")}
-            className="rounded-md border px-2 py-1 text-[11px] hover:bg-slate-50"
-            title="Copiar"
-          >
+          <button type="button" onClick={() => onCopy(value || "")} className="rounded-md border px-2 py-1 text-[11px] hover:bg-slate-50" title="Copiar">
             Copiar
           </button>
         </div>
       </div>
 
-      <div className="mt-1 font-mono text-sm text-slate-800 break-all">
-        {showValue || <span className="text-slate-400">—</span>}
-      </div>
+      <div className="mt-1 font-mono text-sm text-slate-800 break-all">{showValue || <span className="text-slate-400">—</span>}</div>
     </div>
   );
 }
