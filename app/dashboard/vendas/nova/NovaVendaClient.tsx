@@ -760,73 +760,99 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
   const [postSaveMsg, setPostSaveMsg] = useState("");
   const [postSaveSaleId, setPostSaveSaleId] = useState<string | null>(null);
 
-  function buildTelegramMessage(args: {
-    saleId?: string | null;
-    cliente: ClienteLite | null;
-    program: Program;
-    pointsMode: PointsMode;
-    pointsInput: number;
-    passengers: number;
-    pointsTotal: number;
-    milheiroCents: number;
-    pointsValueCents: number;
-    embarqueFeeCents: number;
-    totalCents: number;
-    locator: string;
-    compraNumero: string;
-    metaMilheiroCents: number;
-    cedenteNome: string;
-    cedenteIdentificador: string;
-    responsavelNome: string;
-    responsavelLogin: string;
-    feeCardLabel: string;
-    dateISO: string;
-    vendedorNome?: string | null;
-    vendedorLogin?: string | null;
-  }) {
-    const lines: string[] = [];
+  function toBRDate(iso: string) {
+  const m = String(iso || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  return m ? `${m[3]}/${m[2]}/${m[1]}` : iso;
+}
 
-    lines.push("✅ *Venda criada*");
-    if (args.saleId) lines.push(`ID: \`${args.saleId}\``);
+function cap1(s?: string | null) {
+  const v = (s || "").trim();
+  if (!v) return "";
+  return v.charAt(0).toUpperCase() + v.slice(1);
+}
 
-    lines.push(`📅 Data: *${args.dateISO}*`);
-    if (args.vendedorNome || args.vendedorLogin) {
-      lines.push(`👤 Vendedor: *${args.vendedorNome || "—"}* (@${args.vendedorLogin || "—"})`);
-    }
+function toBRDate(iso: string) {
+  const m = String(iso || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  return m ? `${m[3]}/${m[2]}/${m[1]}` : iso;
+}
 
-    if (args.cliente) lines.push(`🧾 Cliente: *${args.cliente.nome}* (${args.cliente.identificador || "—"})`);
+function cap1(s?: string | null) {
+  const v = (s || "").trim();
+  if (!v) return "";
+  return v.charAt(0).toUpperCase() + v.slice(1);
+}
 
-    lines.push(`✈️ Programa: *${args.program}*`);
+function buildTelegramMessage(args: {
+  saleId?: string | null;
+  cliente: ClienteLite | null;
+  program: Program;
+  pointsMode: PointsMode;
+  pointsInput: number;
+  passengers: number;
+  pointsTotal: number;
+  milheiroCents: number;
+  pointsValueCents: number;
+  embarqueFeeCents: number;
+  totalCents: number;
+  locator: string;
+  compraNumero: string;
+  cedenteNome: string;
+  responsavelNome: string;
+  feeCardLabel: string;
+  dateISO: string;
+  vendedorNome?: string | null;
+}) {
+  const lines: string[] = [];
 
-    if (args.pointsMode === "POR_PAX") {
-      lines.push(
-        `🎯 Pontos: *${fmtInt(args.pointsTotal)}* (${fmtInt(args.pointsInput)}/pax x ${fmtInt(args.passengers)})`
-      );
-    } else {
-      lines.push(`🎯 Pontos: *${fmtInt(args.pointsTotal)}*`);
-    }
+  lines.push("✅ Venda criada");
+  if (args.saleId) lines.push(`ID: ${args.saleId}`);
 
-    lines.push(`👥 PAX: *${fmtInt(args.passengers)}*`);
-    lines.push(`💸 Milheiro: *${fmtMoneyBR(args.milheiroCents)}*`);
-    lines.push(`🧮 Valor pontos: *${fmtMoneyBR(args.pointsValueCents)}*`);
-    lines.push(`🛄 Taxa embarque: *${fmtMoneyBR(args.embarqueFeeCents)}*`);
-    lines.push(`💰 Total: *${fmtMoneyBR(args.totalCents)}*`);
+  lines.push(`📅 Data: ${toBRDate(args.dateISO)}`);
 
-    lines.push(
-      `📦 Compra: *${args.compraNumero}* (meta ${
-        args.metaMilheiroCents ? fmtMoneyBR(args.metaMilheiroCents) : "—"
-      })`
-    );
-
-    lines.push(`🙋 Cedente: *${args.cedenteNome}* (${args.cedenteIdentificador})`);
-    lines.push(`🧑‍💼 Resp.: *${args.responsavelNome}* (@${args.responsavelLogin})`);
-
-    lines.push(`💳 Cartão taxa: *${args.feeCardLabel || "—"}*`);
-
-    if (args.locator?.trim()) lines.push(`🔎 Localizador: \`${args.locator.trim()}\``);
-
-    return lines.join("\n");
+  if (args.vendedorNome) {
+    lines.push(`👤 Vendedor: ${cap1(args.vendedorNome)}`);
   }
+
+  if (args.cliente) {
+    lines.push(`🧾 Cliente: ${args.cliente.nome}`);
+  }
+
+  lines.push(`✈️ Programa: ${args.program}`);
+
+  if (args.pointsMode === "POR_PAX") {
+    lines.push(
+      `🎯 Pontos: ${fmtInt(args.pointsTotal)} (${fmtInt(
+        args.pointsInput
+      )}/pax x ${fmtInt(args.passengers)})`
+    );
+  } else {
+    lines.push(`🎯 Pontos: ${fmtInt(args.pointsTotal)}`);
+  }
+
+  lines.push(`👥 PAX: ${fmtInt(args.passengers)}`);
+  lines.push(`💸 Milheiro: ${fmtMoneyBR(args.milheiroCents)}`);
+  lines.push(`🧮 Valor pontos: ${fmtMoneyBR(args.pointsValueCents)}`);
+  lines.push(`🛄 Taxa embarque: ${fmtMoneyBR(args.embarqueFeeCents)}`);
+  lines.push(`💰 Total: ${fmtMoneyBR(args.totalCents)}`);
+
+  lines.push(`📦 Compra: ${args.compraNumero}`);
+  lines.push(`🙋 Cedente: ${args.cedenteNome}`);
+  lines.push(`🧑‍💼 Resp.: ${args.responsavelNome}`);
+  lines.push(`💳 Cartão taxa: ${cap1(args.feeCardLabel || "—")}`);
+
+  if (args.locator?.trim()) {
+    lines.push(`🔎 Localizador: ${args.locator.trim()}`);
+  }
+
+  lines.push("");
+  lines.push("Dados para pagamento");
+  lines.push("Pix: 63817773000185 (CNPJ)");
+  lines.push("Nome: Vias Aereas");
+  lines.push("Banco: Inter");
+  lines.push(`Total a pagar: ${fmtMoneyBR(args.totalCents)}`);
+
+  return lines.join("\n");
+}
 
   async function salvarVenda() {
     if (!sel?.eligible) return alert("Selecione um cedente elegível.");
