@@ -7,6 +7,7 @@ import { getSession } from "@/lib/auth";
 
 type Program = "LATAM" | "SMILES" | "LIVELO" | "ESFERA";
 type PointsMode = "TOTAL" | "POR_PAX";
+type ProgramKey = "latam" | "smiles" | "livelo" | "esfera";
 
 type Owner = { id: string; name: string; login: string };
 
@@ -124,6 +125,54 @@ type CedenteCreds = {
   senhaEmail?: string | null;
 };
 
+// ✅ resposta do painel (usada pra janela LATAM 365d ~ 13 meses)
+type EmissionsPanelResp = {
+  ok: true;
+  program: string;
+  months: Array<{ key: string; label: string }>;
+  currentMonthKey: string;
+  renewMonthKey: string;
+  rows: Array<{
+    cedenteId: string;
+    total: number;
+    manual: number;
+    renewEndOfMonth: number;
+    perMonth: Record<string, number>;
+  }>;
+  totals: { total: number; manual: number; renewEndOfMonth: number };
+};
+
+function programToKey(p: Program): ProgramKey {
+  if (p === "LATAM") return "latam";
+  if (p === "SMILES") return "smiles";
+  if (p === "LIVELO") return "livelo";
+  return "esfera";
+}
+
+// ✅ aplica janela LATAM (painel) numa sugestão
+function applyLatamWindow(s: Suggestion, usedRaw: number): Suggestion {
+  const paxLimit = Number(s.paxLimit || 25);
+  const used = Math.max(0, Math.trunc(Number(usedRaw || 0)));
+  const available = Math.max(0, paxLimit - used);
+
+  const paxNeed = Math.max(0, Math.trunc(Number(s.passengersNeeded || 0)));
+  const paxOk = available >= paxNeed;
+
+  let alerts = Array.isArray(s.alerts) ? [...s.alerts] : [];
+  alerts = alerts.filter((a) => a !== "PASSAGEIROS_ESTOURADOS_COM_PONTOS");
+  if (!paxOk && Number(s.leftoverPoints || 0) > 3000) {
+    alerts.push("PASSAGEIROS_ESTOURADOS_COM_PONTOS");
+  }
+
+  return {
+    ...s,
+    usedPassengersYear: used,
+    availablePassengersYear: available,
+    eligible: Boolean(s.eligible) && paxOk,
+    alerts,
+  };
+}
+
 export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) {
   const detailsRef = useRef<HTMLDivElement | null>(null);
 
@@ -197,6 +246,15 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
   const [sel, setSel] = useState<Suggestion | null>(null);
   const [sugError, setSugError] = useState<string>("");
+
+  // ✅ fix LATAM: ajustar PAX pela janela 365d (painel)
+  const [latamPaxLoading, setLatamPaxLoading] = useState(false);
+  const [latamPaxError, setLatamPaxError] = useState("");
+
+  const sugIdsKey = useMemo(() => {
+    const ids = suggestions.map((s) => s.cedente.id).slice().sort();
+    return ids.join("|");
+  }, [suggestions]);
 
   // busca cedente
   const [cedenteQ, setCedenteQ] = useState("");
@@ -475,6 +533,61 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [program, pointsTotal, passengers]);
 
+  // ✅ LATAM: após carregar sugestões, recalcula usados/disp. na janela (365d ~ painel)
+  useEffect(() => {
+    if (program !== "LATAM") return;
+    if (!suggestions.length) return;
+
+    const ac = new AbortController();
+    setLatamPaxLoading(true);
+    setLatamPaxError("");
+
+    (async () => {
+      try {
+        const ids = suggestions.map((s) => s.cedente.id);
+
+        const out = await api<EmissionsPanelResp>("/api/emissions/panel", {
+          method: "POST",
+          body: JSON.stringify({
+            programa: programToKey(program),
+            months: 13,
+            cedenteIds: ids,
+          }),
+          signal: ac.signal,
+        } as any);
+
+        const map = new Map<string, number>();
+        for (const r of out?.rows || []) {
+          map.set(String(r.cedenteId), Number(r.total || 0));
+        }
+
+        setSuggestions((prev) =>
+          prev.map((s) => {
+            const used = map.get(s.cedente.id);
+            if (used == null) return s;
+            return applyLatamWindow(s, used);
+          })
+        );
+
+        setSel((prevSel) => {
+          if (!prevSel) return prevSel;
+          const used = map.get(prevSel.cedente.id);
+          if (used == null) return prevSel;
+          return applyLatamWindow(prevSel, used);
+        });
+      } catch (e: any) {
+        if (e?.name !== "AbortError") {
+          setLatamPaxError(e?.message || "Falha ao ajustar PAX (janela 365 dias).");
+        }
+      } finally {
+        if (!ac.signal.aborted) setLatamPaxLoading(false);
+      }
+    })();
+
+    return () => ac.abort();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [program, sugIdsKey]);
+
   // ✅ mantém selectedCliente em sync quando escolhe no select
   useEffect(() => {
     if (!clienteId) {
@@ -699,7 +812,11 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
     lines.push(`🛄 Taxa embarque: *${fmtMoneyBR(args.embarqueFeeCents)}*`);
     lines.push(`💰 Total: *${fmtMoneyBR(args.totalCents)}*`);
 
-    lines.push(`📦 Compra: *${args.compraNumero}* (meta ${args.metaMilheiroCents ? fmtMoneyBR(args.metaMilheiroCents) : "—"})`);
+    lines.push(
+      `📦 Compra: *${args.compraNumero}* (meta ${
+        args.metaMilheiroCents ? fmtMoneyBR(args.metaMilheiroCents) : "—"
+      })`
+    );
 
     lines.push(`🙋 Cedente: *${args.cedenteNome}* (${args.cedenteIdentificador})`);
     lines.push(`🧑‍💼 Resp.: *${args.responsavelNome}* (@${args.responsavelLogin})`);
@@ -890,7 +1007,8 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
         </div>
 
         <div className="mt-4 text-xs text-slate-500">
-          Sugestões consideram: <b>pontos</b>, <b>limite anual</b> (EmissionEvent) e <b>bloqueio</b> (BlockedAccount OPEN).
+          Sugestões consideram: <b>pontos</b>, <b>limite de passageiros</b> (LATAM: 365 dias / Smiles: anual) e{" "}
+          <b>bloqueio</b> (BlockedAccount OPEN).
         </div>
       </div>
 
@@ -902,6 +1020,15 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
             <div className="text-xs text-slate-500">
               Prioridade: sobrar &lt; 2k (MAX) • sobrar 3-10k (BAIXA) • acima de 10k, sobrar menos primeiro.
             </div>
+            {program === "LATAM" ? (
+              <div className="mt-1 text-[11px] text-slate-500">
+                {latamPaxLoading
+                  ? "Ajustando PAX (janela 365 dias)…"
+                  : latamPaxError
+                  ? <span className="text-rose-600">{latamPaxError}</span>
+                  : "PAX: janela 365 dias (painel)."}
+              </div>
+            ) : null}
           </div>
           <div className="text-xs text-slate-500">{countLabel}</div>
         </div>
@@ -928,8 +1055,8 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
                       {fmtInt(Math.max(0, selPaxAfter))}
                     </b>{" "}
                     <span className="text-slate-500">
-                      (agora {fmtInt(sel.availablePassengersYear)} • usados {fmtInt(sel.usedPassengersYear)}/{fmtInt(sel.paxLimit)} • consome{" "}
-                      {fmtInt(sel.passengersNeeded)})
+                      (agora {fmtInt(sel.availablePassengersYear)} • usados {fmtInt(sel.usedPassengersYear)}/{fmtInt(sel.paxLimit)}
+                      {program === "LATAM" ? " • 365d" : ""} • consome {fmtInt(sel.passengersNeeded)})
                     </span>
                   </span>
 
@@ -941,7 +1068,9 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
                 </div>
 
                 {sel.alerts.includes("PASSAGEIROS_ESTOURADOS_COM_PONTOS") ? (
-                  <div className="mt-2 text-[11px] text-rose-600">Alerta: limite anual estoura e ainda sobraria &gt; 3.000 pts.</div>
+                  <div className="mt-2 text-[11px] text-rose-600">
+                    Alerta: limite de passageiros estoura e ainda sobraria &gt; 3.000 pts.
+                  </div>
                 ) : null}
 
                 {/* ✅ Credenciais (revelar) */}
@@ -1091,7 +1220,9 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
                           <div className="font-medium">{s.cedente.nomeCompleto}</div>
                           <div className="text-xs text-slate-500">{s.cedente.identificador}</div>
                           {s.alerts.includes("PASSAGEIROS_ESTOURADOS_COM_PONTOS") ? (
-                            <div className="mt-1 text-[11px] text-rose-600">Alerta: limite anual estoura e ainda sobraria &gt; 3.000 pts.</div>
+                            <div className="mt-1 text-[11px] text-rose-600">
+                              Alerta: limite de passageiros estoura e ainda sobraria &gt; 3.000 pts.
+                            </div>
                           ) : null}
                         </td>
                         <td className="px-4 py-3">
@@ -1105,8 +1236,8 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
                           <span className={cn(paxAfter < 0 ? "text-rose-600 font-semibold" : "")}>{fmtInt(paxAfterClamped)}</span>
                           <span className="text-xs text-slate-500">
                             {" "}
-                            (agora {fmtInt(s.availablePassengersYear)} • usados {fmtInt(s.usedPassengersYear)}/{fmtInt(s.paxLimit)} • consome{" "}
-                            {fmtInt(s.passengersNeeded)})
+                            (agora {fmtInt(s.availablePassengersYear)} • usados {fmtInt(s.usedPassengersYear)}/{fmtInt(s.paxLimit)}
+                            {program === "LATAM" ? " • 365d" : ""} • consome {fmtInt(s.passengersNeeded)})
                           </span>
                         </td>
 
