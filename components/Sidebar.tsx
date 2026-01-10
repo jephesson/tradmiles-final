@@ -70,8 +70,16 @@ export default function Sidebar() {
   const isDividasRoute = pathname.startsWith("/dashboard/dividas");
   const isRecebimentosRoute = pathname.startsWith("/dashboard/recebimentos");
   const isImpostosRoute = pathname.startsWith("/dashboard/impostos");
+
+  // ✅ NOVO: Caixa imediato
+  const isCaixaImediatoRoute = pathname.startsWith("/dashboard/caixa-imediato");
+
   const isFinanceiroRoute =
-    isDividasRoute || isRecebimentosRoute || isImpostosRoute || isResumoRoute;
+    isDividasRoute ||
+    isRecebimentosRoute ||
+    isImpostosRoute ||
+    isResumoRoute ||
+    isCaixaImediatoRoute;
 
   // ✅ IMPORTAÇÕES (fora do Gestor de emissões)
   const isImportacoesRoute = pathname.startsWith("/dashboard/importacoes");
@@ -523,6 +531,9 @@ export default function Sidebar() {
         >
           {/* ✅ Resumo veio pra cá (sem mudar link) */}
           <NavLink href="/dashboard/resumo">Resumo</NavLink>
+
+          {/* ✅ NOVO ITEM: Caixa imediato */}
+          <NavLink href="/dashboard/caixa-imediato">Caixa imediato</NavLink>
 
           <NavLink href="/dashboard/dividas">Dívidas</NavLink>
           <NavLink href="/dashboard/recebimentos">Recebimentos</NavLink>
