@@ -6,6 +6,8 @@ import { cn } from "@/lib/cn";
 import { getSession } from "@/lib/auth";
 
 type Program = "LATAM" | "SMILES" | "LIVELO" | "ESFERA";
+type PointsMode = "TOTAL" | "POR_PAX";
+
 type Owner = { id: string; name: string; login: string };
 
 type Suggestion = {
@@ -176,9 +178,19 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
 
   // 1) input principal
   const [program, setProgram] = useState<Program>("LATAM");
+
+  const [pointsMode, setPointsMode] = useState<PointsMode>("TOTAL");
   const [pointsStr, setPointsStr] = useState("");
-  const points = useMemo(() => clampInt((pointsStr || "").replace(/\D+/g, "")), [pointsStr]);
+  const pointsInput = useMemo(() => clampInt((pointsStr || "").replace(/\D+/g, "")), [pointsStr]);
+
   const [passengers, setPassengers] = useState(1);
+
+  // ✅ total de pontos efetivo (o que vai para sugestão + venda)
+  const pointsTotal = useMemo(() => {
+    const p = Math.max(0, pointsInput);
+    const pax = Math.max(1, passengers);
+    return pointsMode === "POR_PAX" ? p * pax : p;
+  }, [pointsMode, pointsInput, passengers]);
 
   // sugestões
   const [loadingSug, setLoadingSug] = useState(false);
@@ -243,10 +255,10 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
   const embarqueFeeCents = useMemo(() => moneyToCentsBR(embarqueStr), [embarqueStr]);
 
   const pointsValueCents = useMemo(() => {
-    const denom = points / 1000;
+    const denom = pointsTotal / 1000;
     if (denom <= 0) return 0;
     return Math.round(denom * milheiroCents);
-  }, [points, milheiroCents]);
+  }, [pointsTotal, milheiroCents]);
 
   const totalCents = useMemo(() => pointsValueCents + embarqueFeeCents, [pointsValueCents, embarqueFeeCents]);
   const commissionCents = useMemo(() => Math.round(pointsValueCents * 0.01), [pointsValueCents]);
@@ -263,10 +275,10 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
     if (!metaMilheiroCents) return 0;
     const diff = milheiroCents - metaMilheiroCents;
     if (diff <= 0) return 0;
-    const denom = points / 1000;
+    const denom = pointsTotal / 1000;
     const diffTotal = Math.round(denom * diff);
     return Math.round(diffTotal * 0.3);
-  }, [milheiroCents, metaMilheiroCents, points]);
+  }, [milheiroCents, metaMilheiroCents, pointsTotal]);
 
   function badgeClass(priorityLabel: Suggestion["priorityLabel"]) {
     return priorityLabel === "MAX"
@@ -418,7 +430,7 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
     const t = setTimeout(async () => {
       setSugError("");
 
-      if (points <= 0 || passengers <= 0) {
+      if (pointsTotal <= 0 || passengers <= 0) {
         setSuggestions([]);
         setSel(null);
         return;
@@ -428,7 +440,7 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
       try {
         const url = `/api/vendas/sugestoes?program=${encodeURIComponent(
           program
-        )}&points=${encodeURIComponent(String(points))}&passengers=${encodeURIComponent(String(passengers))}`;
+        )}&points=${encodeURIComponent(String(pointsTotal))}&passengers=${encodeURIComponent(String(passengers))}`;
 
         const out = await api<{ ok: true; suggestions: Suggestion[] }>(url, { signal: ac.signal } as any);
         const list = out.suggestions || [];
@@ -453,7 +465,7 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
       clearTimeout(t);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [program, points, passengers]);
+  }, [program, pointsTotal, passengers]);
 
   // ✅ mantém selectedCliente em sync quando escolhe no select
   useEffect(() => {
@@ -617,24 +629,90 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
     if (!clienteId) return false;
     if (!purchaseNumero) return false;
     if (!compraSel) return false;
-    if (points <= 0 || passengers <= 0) return false;
+    if (pointsTotal <= 0 || passengers <= 0) return false;
     if (milheiroCents <= 0) return false;
     if (feeCardPreset === "MANUAL" && !feeCardLabel) return false;
     return true;
-  }, [sel?.eligible, clienteId, purchaseNumero, compraSel, points, passengers, milheiroCents, feeCardPreset, feeCardLabel]);
+  }, [sel?.eligible, clienteId, purchaseNumero, compraSel, pointsTotal, passengers, milheiroCents, feeCardPreset, feeCardLabel]);
+
+  const [postSaveOpen, setPostSaveOpen] = useState(false);
+  const [postSaveMsg, setPostSaveMsg] = useState("");
+  const [postSaveSaleId, setPostSaveSaleId] = useState<string | null>(null);
+
+  function buildTelegramMessage(args: {
+    saleId?: string | null;
+    cliente: ClienteLite | null;
+    program: Program;
+    pointsMode: PointsMode;
+    pointsInput: number;
+    passengers: number;
+    pointsTotal: number;
+    milheiroCents: number;
+    pointsValueCents: number;
+    embarqueFeeCents: number;
+    totalCents: number;
+    locator: string;
+    compraNumero: string;
+    metaMilheiroCents: number;
+    cedenteNome: string;
+    cedenteIdentificador: string;
+    responsavelNome: string;
+    responsavelLogin: string;
+    feeCardLabel: string;
+    dateISO: string;
+    vendedorNome?: string | null;
+    vendedorLogin?: string | null;
+  }) {
+    const lines: string[] = [];
+
+    lines.push("✅ *Venda criada*");
+    if (args.saleId) lines.push(`ID: \`${args.saleId}\``);
+
+    lines.push(`📅 Data: *${args.dateISO}*`);
+    if (args.vendedorNome || args.vendedorLogin) {
+      lines.push(`👤 Vendedor: *${args.vendedorNome || "—"}* (@${args.vendedorLogin || "—"})`);
+    }
+
+    if (args.cliente) lines.push(`🧾 Cliente: *${args.cliente.nome}* (${args.cliente.identificador || "—"})`);
+
+    lines.push(`✈️ Programa: *${args.program}*`);
+
+    if (args.pointsMode === "POR_PAX") {
+      lines.push(`🎯 Pontos: *${fmtInt(args.pointsTotal)}* (${fmtInt(args.pointsInput)}/pax x ${fmtInt(args.passengers)})`);
+    } else {
+      lines.push(`🎯 Pontos: *${fmtInt(args.pointsTotal)}*`);
+    }
+
+    lines.push(`👥 PAX: *${fmtInt(args.passengers)}*`);
+    lines.push(`💸 Milheiro: *${fmtMoneyBR(args.milheiroCents)}*`);
+    lines.push(`🧮 Valor pontos: *${fmtMoneyBR(args.pointsValueCents)}*`);
+    lines.push(`🛄 Taxa embarque: *${fmtMoneyBR(args.embarqueFeeCents)}*`);
+    lines.push(`💰 Total: *${fmtMoneyBR(args.totalCents)}*`);
+
+    lines.push(`📦 Compra: *${args.compraNumero}* (meta ${args.metaMilheiroCents ? fmtMoneyBR(args.metaMilheiroCents) : "—"})`);
+
+    lines.push(`🙋 Cedente: *${args.cedenteNome}* (${args.cedenteIdentificador})`);
+    lines.push(`🧑‍💼 Resp.: *${args.responsavelNome}* (@${args.responsavelLogin})`);
+
+    lines.push(`💳 Cartão taxa: *${args.feeCardLabel || "—"}*`);
+
+    if (args.locator?.trim()) lines.push(`🔎 Localizador: \`${args.locator.trim()}\``);
+
+    return lines.join("\n");
+  }
 
   async function salvarVenda() {
     if (!sel?.eligible) return alert("Selecione um cedente elegível.");
     if (!clienteId) return alert("Selecione um cliente.");
     if (!purchaseNumero) return alert("Selecione a compra LIBERADA (ID00018).");
     if (!compraSel) return alert("Compra selecionada inválida.");
-    if (points <= 0 || passengers <= 0) return alert("Pontos/Passageiros inválidos.");
+    if (pointsTotal <= 0 || passengers <= 0) return alert("Pontos/Passageiros inválidos.");
     if (milheiroCents <= 0) return alert("Milheiro inválido.");
     if (feeCardPreset === "MANUAL" && !feeCardLabel) return alert("Informe o nome do cartão (manual).");
 
     const payload = {
       program,
-      points,
+      points: pointsTotal,
       passengers,
       cedenteId: sel.cedente.id,
       clienteId,
@@ -647,9 +725,54 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
     };
 
     try {
-      await api("/api/vendas", { method: "POST", body: JSON.stringify(payload) });
-      alert("Venda criada!");
-      window.location.href = "/dashboard/vendas";
+      const out = await api<any>("/api/vendas", { method: "POST", body: JSON.stringify(payload) });
+
+      const sale =
+        out?.data?.sale ||
+        out?.sale ||
+        out?.data?.venda ||
+        out?.venda ||
+        out?.data ||
+        null;
+
+      const saleId =
+        sale?.id ||
+        sale?.saleId ||
+        out?.data?.saleId ||
+        out?.saleId ||
+        out?.data?.id ||
+        out?.id ||
+        null;
+
+      setPostSaveSaleId(saleId ? String(saleId) : null);
+
+      const msg = buildTelegramMessage({
+        saleId: saleId ? String(saleId) : null,
+        cliente: selectedCliente,
+        program,
+        pointsMode,
+        pointsInput,
+        passengers,
+        pointsTotal,
+        milheiroCents,
+        pointsValueCents,
+        embarqueFeeCents,
+        totalCents,
+        locator,
+        compraNumero: purchaseNumero,
+        metaMilheiroCents: metaMilheiroCents || 0,
+        cedenteNome: sel.cedente.nomeCompleto,
+        cedenteIdentificador: sel.cedente.identificador,
+        responsavelNome: sel.cedente.owner.name,
+        responsavelLogin: sel.cedente.owner.login,
+        feeCardLabel: feeCardLabel || "—",
+        dateISO,
+        vendedorNome: me?.name || null,
+        vendedorLogin: me?.login || null,
+      });
+
+      setPostSaveMsg(msg);
+      setPostSaveOpen(true);
     } catch (e: any) {
       alert(e.message);
     }
@@ -738,8 +861,38 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
               className="w-full rounded-xl border px-3 py-2 text-sm font-mono"
               value={pointsStr}
               onChange={(e) => onChangePoints(e.target.value)}
-              placeholder="Ex: 100.000"
+              placeholder={pointsMode === "POR_PAX" ? "Ex: 100.000 (por passageiro)" : "Ex: 200.000 (total)"}
             />
+
+            <div className="mt-2 flex flex-wrap items-center gap-3 text-[11px] text-slate-600">
+              <span className="text-slate-500">Pontos informados:</span>
+
+              <label className="inline-flex items-center gap-2">
+                <input
+                  type="radio"
+                  name="pointsMode"
+                  checked={pointsMode === "TOTAL"}
+                  onChange={() => setPointsMode("TOTAL")}
+                />
+                Total
+              </label>
+
+              <label className="inline-flex items-center gap-2">
+                <input
+                  type="radio"
+                  name="pointsMode"
+                  checked={pointsMode === "POR_PAX"}
+                  onChange={() => setPointsMode("POR_PAX")}
+                />
+                Por passageiro
+              </label>
+
+              {pointsMode === "POR_PAX" && pointsInput > 0 ? (
+                <span className="text-slate-500">
+                  • Total calculado: <b className="tabular-nums">{fmtInt(pointsTotal)}</b>
+                </span>
+              ) : null}
+            </div>
           </label>
 
           <label className="space-y-1">
@@ -1200,13 +1353,22 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
 
             <div className="rounded-xl bg-slate-50 p-4 text-sm space-y-1">
               <div className="flex justify-between">
-                <span className="text-slate-600">Pontos</span>
-                <b>{fmtInt(points)}</b>
+                <span className="text-slate-600">Pontos (total)</span>
+                <b>{fmtInt(pointsTotal)}</b>
               </div>
+
+              {pointsMode === "POR_PAX" ? (
+                <div className="flex justify-between text-xs text-slate-500">
+                  <span>Pontos por passageiro</span>
+                  <b className="tabular-nums">{fmtInt(pointsInput)}</b>
+                </div>
+              ) : null}
+
               <div className="flex justify-between">
                 <span className="text-slate-600">PAX</span>
                 <b>{fmtInt(passengers)}</b>
               </div>
+
               <div className="h-px bg-slate-200 my-2" />
 
               <div className="flex justify-between">
@@ -1351,6 +1513,71 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
                 )}
               >
                 {creatingCliente ? "Cadastrando..." : "Cadastrar"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {/* ✅ MODAL PÓS-SAVE (mensagem Telegram) */}
+      {postSaveOpen ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-2xl rounded-2xl bg-white border p-5">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <div className="text-lg font-semibold">Venda criada ✅</div>
+                <div className="text-xs text-slate-500">
+                  Copie a mensagem abaixo e cole no Telegram.
+                  {postSaveSaleId ? (
+                    <>
+                      {" "}
+                      <span className="text-slate-400">•</span> ID: <span className="font-mono">{postSaveSaleId}</span>
+                    </>
+                  ) : null}
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setPostSaveOpen(false)}
+                className="rounded-lg border px-2 py-1 text-sm hover:bg-slate-50"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="mt-4">
+              <div className="text-xs text-slate-600 mb-1">Mensagem</div>
+              <textarea
+                className="w-full min-h-[220px] rounded-xl border p-3 text-sm font-mono"
+                value={postSaveMsg}
+                onChange={(e) => setPostSaveMsg(e.target.value)}
+              />
+              <div className="mt-2 text-[11px] text-slate-500">
+                Obs: está em Markdown (asteriscos). Se teu Telegram não formatar, ainda fica legível.
+              </div>
+            </div>
+
+            <div className="mt-5 flex flex-wrap justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => copyText("Mensagem Telegram", postSaveMsg)}
+                className="rounded-xl border px-4 py-2 text-sm hover:bg-slate-50"
+              >
+                Copiar mensagem
+              </button>
+
+              <button
+                type="button"
+                onClick={async () => {
+                  try {
+                    await navigator.clipboard.writeText(postSaveMsg);
+                  } catch {}
+                  window.location.href = "/dashboard/vendas";
+                }}
+                className="rounded-xl bg-black px-4 py-2 text-sm text-white hover:bg-gray-800"
+              >
+                Copiar e ir para vendas
               </button>
             </div>
           </div>
