@@ -65,34 +65,72 @@ function pickShareForDate(
   return null;
 }
 
+/**
+ * ✅ Split correto (igual ao modal):
+ * - distribui em centavos
+ * - faz o "floor" inicial
+ * - reparte o resto pelos maiores "fractions" (maior parte fracionária)
+ */
 function splitByBps(pool: number, items: Array<{ payeeId: string; bps: number }>) {
   const out: Record<string, number> = {};
   const total = safeInt(pool, 0);
-  if (!items?.length) return out;
+  if (!items?.length || total === 0) return out;
 
+  const rows = items
+    .map((it, idx) => ({
+      idx,
+      payeeId: it.payeeId,
+      bps: Math.max(0, safeInt(it.bps, 0)),
+    }))
+    .filter((x) => !!x.payeeId && x.bps > 0);
+
+  if (!rows.length) return out;
+
+  // Somatório de bps (normaliza, caso não seja 10000)
+  const sumBps = rows.reduce((acc, r) => acc + r.bps, 0);
+  if (sumBps <= 0) return out;
+
+  // First pass: floor + guarda fração
   let used = 0;
-  for (const it of items) {
-    const bps = safeInt(it.bps, 0);
-    const v = Math.floor((total * bps) / 10000);
-    out[it.payeeId] = (out[it.payeeId] ?? 0) + v;
-    used += v;
+  const tmp = rows.map((r) => {
+    const raw = (total * r.bps) / sumBps; // usa sumBps pra normalizar
+    const flo = Math.floor(raw);
+    const frac = raw - flo;
+    used += flo;
+    return { ...r, flo, frac };
+  });
+
+  // aplica floors
+  for (const r of tmp) {
+    out[r.payeeId] = (out[r.payeeId] ?? 0) + r.flo;
   }
 
-  const rem = total - used;
-  if (rem !== 0) {
-    let best = items[0];
-    for (const it of items) if (safeInt(it.bps, 0) > safeInt(best.bps, 0)) best = it;
-    out[best.payeeId] = (out[best.payeeId] ?? 0) + rem;
+  // reparte o resto pelos maiores frac (tie-break: bps maior, depois ordem)
+  let rem = total - used;
+  if (rem > 0) {
+    tmp.sort((a, b) => {
+      if (b.frac !== a.frac) return b.frac - a.frac;
+      if (b.bps !== a.bps) return b.bps - a.bps;
+      return a.idx - b.idx;
+    });
+
+    let i = 0;
+    while (rem > 0) {
+      const r = tmp[i % tmp.length];
+      out[r.payeeId] = (out[r.payeeId] ?? 0) + 1;
+      rem -= 1;
+      i += 1;
+    }
   }
 
   return out;
 }
 
 /* =========================
-   ✅ PV SEM TAXA: regra única
-   - Se tiver totalCents: PV = total - embarqueFee
-   - Senão: usa pointsValueCents (fallback)
-   - Senão: points*milheiro (fallback)
+   ✅ PV SEM TAXA (corrigido):
+   - PRIORIDADE 1: pointsValueCents (já é PV sem taxa)
+   - PRIORIDADE 2: total - embarqueFee
+   - PRIORIDADE 3: fallback pontos * milheiro
 ========================= */
 function pvSemTaxaFromSale(s: {
   totalCents: number;
@@ -101,13 +139,12 @@ function pvSemTaxaFromSale(s: {
   points: number;
   milheiroCents: number;
 }) {
-  const total = safeInt(s.totalCents, 0);
-  const fee = safeInt(s.embarqueFeeCents, 0);
-
-  if (total > 0) return Math.max(total - fee, 0);
-
   const pvDb = safeInt(s.pointsValueCents, 0);
   if (pvDb > 0) return pvDb;
+
+  const total = safeInt(s.totalCents, 0);
+  const fee = safeInt(s.embarqueFeeCents, 0);
+  if (total > 0) return Math.max(total - fee, 0);
 
   return pointsValueCentsFallback(safeInt(s.points, 0), safeInt(s.milheiroCents, 0));
 }
@@ -161,7 +198,10 @@ export async function POST(req: Request) {
     const date = String(body?.date || "").trim();
 
     if (!date || !isISODate(date)) {
-      return NextResponse.json({ ok: false, error: "date obrigatório (YYYY-MM-DD)" }, { status: 400 });
+      return NextResponse.json(
+        { ok: false, error: "date obrigatório (YYYY-MM-DD)" },
+        { status: 400 }
+      );
     }
 
     const today = todayISORecife();
@@ -288,7 +328,7 @@ export async function POST(req: Request) {
       const cost = safeInt(p.totalCents, 0);
       const ss = salesByPurchaseId[p.id] || [];
 
-      // Se não teve sales, não rateia (evita “puxar errado”)
+      // Se não teve sales, não rateia
       if (!ss.length) return 0;
 
       let pvSemTaxaSum = 0; // PV sem taxa (NUNCA inclui embarqueFee)
@@ -346,7 +386,7 @@ export async function POST(req: Request) {
       commission1Cents: number;
       commission2Cents: number;
       commission3RateioCents: number;
-      feeCents: number; // reembolso taxa
+      feeCents: number;
       salesCount: number;
     };
 
@@ -360,7 +400,7 @@ export async function POST(req: Request) {
         salesCount: 0,
       });
 
-    // 5) C1/C2 + fee (reembolso) por seller (usando sales NORMALIZADAS)
+    // 5) C1/C2 + fee por seller
     for (const pid of Object.keys(salesByPurchaseId)) {
       for (const s of salesByPurchaseId[pid]) {
         const sellerId = s.sellerId;
@@ -391,7 +431,7 @@ export async function POST(req: Request) {
       }
     }
 
-    // 6) ✅ C3 = rateio do lucro líquido REAL por compra (sem taxa)
+    // 6) ✅ C3 = rateio do lucro líquido REAL por compra
     for (const p of purchases) {
       const pool = computeLucroLiquidoCompra(p);
       if (safeInt(pool, 0) <= 0) continue;
