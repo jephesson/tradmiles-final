@@ -142,12 +142,6 @@ function chooseMetaMilheiro(metaSaleOrPurchase: number | null | undefined) {
 
 /* =========================
    POST /api/payouts/funcionarios/compute
-   body: { date: "YYYY-MM-DD" }
-
-   ✅ Dia baseado em Purchase.finalizedAt (Recife)
-   ✅ C3 (rateio) = soma do lucro líquido REAL por compra finalizada
-      (PV sem taxa - custo - bônus), igual “Compras finalizadas”
-   ✅ NÃO rateia taxa embarque
 ========================= */
 export async function POST(req: Request) {
   try {
@@ -171,7 +165,6 @@ export async function POST(req: Request) {
     }
 
     const today = todayISORecife();
-
     if (date > today) {
       return NextResponse.json({ ok: false, error: "Não computa datas futuras." }, { status: 400 });
     }
@@ -194,6 +187,7 @@ export async function POST(req: Request) {
       },
       select: {
         id: true,
+        numero: true, // ✅ necessário pra normalizar sale.purchaseId legado (ID00018)
         finalizedAt: true,
         totalCents: true, // custo
         metaMilheiroCents: true,
@@ -209,11 +203,30 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: true, date, users: 0, purchases: 0, sales: 0 });
     }
 
-    // 3) ✅ vendas das compras finalizadas (para PV sem taxa, C1/C2 e fee reembolso)
+    // ✅ mapa numero -> cuid
+    const idByNumeroUpper = new Map<string, string>(
+      purchases
+        .map((p) => [String(p.numero || "").trim().toUpperCase(), p.id] as const)
+        .filter(([k]) => !!k)
+    );
+
+    const numeros = purchases.map((p) => String(p.numero || "").trim()).filter(Boolean);
+    const numerosUpper = Array.from(new Set(numeros.map((n) => n.toUpperCase())));
+    const numerosLower = Array.from(new Set(numeros.map((n) => n.toLowerCase())));
+    const numerosAll = Array.from(new Set([...numeros, ...numerosUpper, ...numerosLower]));
+
+    function normalizePurchaseId(raw: string) {
+      const r = String(raw || "").trim();
+      if (!r) return "";
+      const upper = r.toUpperCase();
+      return idByNumeroUpper.get(upper) || r; // se for ID00018 vira cuid; se já for cuid, fica
+    }
+
+    // 3) ✅ vendas das compras finalizadas (cuid OU numero legado)
     const sales = await prisma.sale.findMany({
       where: {
-        purchaseId: { in: purchaseIds },
         paymentStatus: { not: "CANCELED" },
+        OR: [{ purchaseId: { in: purchaseIds } }, { purchaseId: { in: numerosAll } }],
       },
       select: {
         id: true,
@@ -235,7 +248,7 @@ export async function POST(req: Request) {
       },
     });
 
-    // index sales por purchase
+    // index sales por purchase (normalizado -> cuid)
     const salesByPurchaseId: Record<
       string,
       Array<{
@@ -244,24 +257,29 @@ export async function POST(req: Request) {
         totalCents: number;
         embarqueFeeCents: number;
         pointsValueCents: number;
+        commissionCents: number;
         bonusCents: number | null;
         metaMilheiroCents: number;
         purchaseMetaMilheiroCents: number;
+        sellerId: string | null;
       }>
     > = {};
 
     for (const s of sales) {
-      const pid = String(s.purchaseId || "");
+      const pid = normalizePurchaseId(String(s.purchaseId || ""));
       if (!pid) continue;
+
       (salesByPurchaseId[pid] ||= []).push({
         points: safeInt(s.points, 0),
         milheiroCents: safeInt(s.milheiroCents, 0),
         totalCents: safeInt(s.totalCents, 0),
         embarqueFeeCents: safeInt(s.embarqueFeeCents, 0),
         pointsValueCents: safeInt(s.pointsValueCents, 0),
+        commissionCents: safeInt(s.commissionCents, 0),
         bonusCents: typeof s.bonusCents === "number" ? safeInt(s.bonusCents, 0) : null,
         metaMilheiroCents: safeInt(s.metaMilheiroCents, 0),
         purchaseMetaMilheiroCents: safeInt(s.purchase?.metaMilheiroCents, 0),
+        sellerId: s.sellerId ?? null,
       });
     }
 
@@ -270,7 +288,7 @@ export async function POST(req: Request) {
       const cost = safeInt(p.totalCents, 0);
       const ss = salesByPurchaseId[p.id] || [];
 
-      // Se não tiver sales, não tem como calcular: retorna 0 (não rateia)
+      // Se não teve sales, não rateia (evita “puxar errado”)
       if (!ss.length) return 0;
 
       let pvSemTaxaSum = 0; // PV sem taxa (NUNCA inclui embarqueFee)
@@ -342,33 +360,35 @@ export async function POST(req: Request) {
         salesCount: 0,
       });
 
-    // 5) C1/C2 + fee (reembolso) por seller
-    for (const s of sales) {
-      const sellerId = s.sellerId ?? null;
-      if (!sellerId) continue;
+    // 5) C1/C2 + fee (reembolso) por seller (usando sales NORMALIZADAS)
+    for (const pid of Object.keys(salesByPurchaseId)) {
+      for (const s of salesByPurchaseId[pid]) {
+        const sellerId = s.sellerId;
+        if (!sellerId) continue;
 
-      const pvSemTaxa = pvSemTaxaFromSale({
-        totalCents: safeInt(s.totalCents, 0),
-        embarqueFeeCents: safeInt(s.embarqueFeeCents, 0),
-        pointsValueCents: safeInt(s.pointsValueCents, 0),
-        points: safeInt(s.points, 0),
-        milheiroCents: safeInt(s.milheiroCents, 0),
-      });
+        const pvSemTaxa = pvSemTaxaFromSale({
+          totalCents: s.totalCents,
+          embarqueFeeCents: s.embarqueFeeCents,
+          pointsValueCents: s.pointsValueCents,
+          points: s.points,
+          milheiroCents: s.milheiroCents,
+        });
 
-      const meta = chooseMetaMilheiro(
-        safeInt(s.metaMilheiroCents, 0) > 0 ? safeInt(s.metaMilheiroCents, 0) : safeInt(s.purchase?.metaMilheiroCents, 0)
-      );
+        const meta = chooseMetaMilheiro(
+          safeInt(s.metaMilheiroCents, 0) > 0 ? s.metaMilheiroCents : s.purchaseMetaMilheiroCents
+        );
 
-      const c1 = chooseC1(safeInt(s.points, 0), safeInt(s.commissionCents, 0), pvSemTaxa);
-      const c2 = chooseC2(safeInt(s.points, 0), safeInt(s.bonusCents, 0), safeInt(s.milheiroCents, 0), meta);
+        const c1 = chooseC1(s.points, s.commissionCents, pvSemTaxa);
+        const c2 = chooseC2(s.points, safeInt(s.bonusCents ?? 0, 0), s.milheiroCents, meta);
 
-      const fee = safeInt(s.embarqueFeeCents, 0);
+        const fee = safeInt(s.embarqueFeeCents, 0);
 
-      const a = ensure(sellerId);
-      a.commission1Cents += c1;
-      a.commission2Cents += c2;
-      a.feeCents += fee;
-      a.salesCount += 1;
+        const a = ensure(sellerId);
+        a.commission1Cents += c1;
+        a.commission2Cents += c2;
+        a.feeCents += fee;
+        a.salesCount += 1;
+      }
     }
 
     // 6) ✅ C3 = rateio do lucro líquido REAL por compra (sem taxa)
@@ -390,8 +410,8 @@ export async function POST(req: Request) {
       );
 
       const items = share?.items?.length ? share.items : [{ payeeId: ownerId, bps: 10000 }];
-
       const splits = splitByBps(pool, items);
+
       for (const payeeId of Object.keys(splits)) {
         const a = ensure(payeeId);
         a.commission3RateioCents += safeInt(splits[payeeId], 0);
