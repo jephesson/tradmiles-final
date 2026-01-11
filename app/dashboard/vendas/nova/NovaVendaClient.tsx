@@ -109,8 +109,6 @@ type FuncItem = {
 };
 
 // ✅ credenciais do cedente (API) — compatível com 2 formatos
-// (seu formato) programEmail/programPassword/emailPassword
-// (formato alternativo) email/senhaPrograma/senhaEmail
 type CedenteCreds = {
   cpf: string;
 
@@ -343,7 +341,7 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
     if (!sel) return 0;
     const after = (sel.availablePassengersYear || 0) - (sel.passengersNeeded || 0);
     return after;
-  }, [sel, passengers]);
+  }, [sel]);
 
   function badgeClass(priorityLabel: Suggestion["priorityLabel"]) {
     return priorityLabel === "MAX"
@@ -373,6 +371,9 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
   const [showProgramPass, setShowProgramPass] = useState(false);
   const [showEmailPass, setShowEmailPass] = useState(false);
 
+  // ✅ FIX: manter abort controller atual (evita race e “sumir/voltar”)
+  const credsAbortRef = useRef<AbortController | null>(null);
+
   const credCpf = creds?.cpf || sel?.cedente?.cpf || "";
   const credEmail = (creds?.programEmail ?? creds?.email ?? "") || "";
   const credProgramPass = (creds?.programPassword ?? creds?.senhaPrograma ?? "") || "";
@@ -393,9 +394,7 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
     setLoadingCreds(true);
     setCredsError("");
     try {
-      const url = `/api/cedentes/credentials?cedenteId=${encodeURIComponent(cedenteId)}&program=${encodeURIComponent(
-        p
-      )}`;
+      const url = `/api/cedentes/credentials?cedenteId=${encodeURIComponent(cedenteId)}&program=${encodeURIComponent(p)}`;
       const out = await api<any>(url, { signal } as any);
 
       const data = out?.data ?? out?.creds ?? out ?? null;
@@ -414,6 +413,12 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
 
   // quando troca cedente: reseta credenciais
   useEffect(() => {
+    // abort pendente
+    try {
+      credsAbortRef.current?.abort();
+    } catch {}
+    credsAbortRef.current = null;
+
     setRevealCreds(false);
     setCreds(null);
     setCredsError("");
@@ -426,9 +431,18 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
     if (!revealCreds) return;
     if (!sel?.cedente?.id) return;
 
+    try {
+      credsAbortRef.current?.abort();
+    } catch {}
     const ac = new AbortController();
+    credsAbortRef.current = ac;
+
     loadCreds(sel.cedente.id, program, ac.signal);
-    return () => ac.abort();
+    return () => {
+      try {
+        ac.abort();
+      } catch {}
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [program, revealCreds, sel?.cedente?.id]);
 
@@ -444,6 +458,11 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
     setClientesError("");
 
     // ✅ também limpa credenciais
+    try {
+      credsAbortRef.current?.abort();
+    } catch {}
+    credsAbortRef.current = null;
+
     setRevealCreds(false);
     setCreds(null);
     setCredsError("");
@@ -761,87 +780,78 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
   const [postSaveSaleId, setPostSaveSaleId] = useState<string | null>(null);
 
   function toBRDate(iso: string) {
-  const m = String(iso || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  return m ? `${m[3]}/${m[2]}/${m[1]}` : iso;
-}
-
-function cap1(s?: string | null) {
-  const v = (s || "").trim();
-  if (!v) return "";
-  return v.charAt(0).toUpperCase() + v.slice(1);
-}
-
-function buildTelegramMessage(args: {
-  saleId?: string | null;
-  cliente: ClienteLite | null;
-  program: Program;
-  pointsMode: PointsMode;
-  pointsInput: number;
-  passengers: number;
-  pointsTotal: number;
-  milheiroCents: number;
-  pointsValueCents: number;
-  embarqueFeeCents: number;
-  totalCents: number;
-  locator: string;
-  compraNumero: string;
-  cedenteNome: string;
-  responsavelNome: string;
-  feeCardLabel: string;
-  dateISO: string;
-  vendedorNome?: string | null;
-}) {
-  const lines: string[] = [];
-
-  lines.push("✅ Venda criada");
-  if (args.saleId) lines.push(`ID: ${args.saleId}`);
-
-  lines.push(`📅 Data: ${toBRDate(args.dateISO)}`);
-
-  if (args.vendedorNome) {
-    lines.push(`👤 Vendedor: ${cap1(args.vendedorNome)}`);
+    const m = String(iso || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    return m ? `${m[3]}/${m[2]}/${m[1]}` : iso;
   }
 
-  if (args.cliente) {
-    lines.push(`🧾 Cliente: ${args.cliente.nome}`);
+  function cap1(s?: string | null) {
+    const v = (s || "").trim();
+    if (!v) return "";
+    return v.charAt(0).toUpperCase() + v.slice(1);
   }
 
-  lines.push(`✈️ Programa: ${args.program}`);
+  function buildTelegramMessage(args: {
+    saleId?: string | null;
+    cliente: ClienteLite | null;
+    program: Program;
+    pointsMode: PointsMode;
+    pointsInput: number;
+    passengers: number;
+    pointsTotal: number;
+    milheiroCents: number;
+    pointsValueCents: number;
+    embarqueFeeCents: number;
+    totalCents: number;
+    locator: string;
+    compraNumero: string;
+    cedenteNome: string;
+    responsavelNome: string;
+    feeCardLabel: string;
+    dateISO: string;
+    vendedorNome?: string | null;
+  }) {
+    const lines: string[] = [];
 
-  if (args.pointsMode === "POR_PAX") {
-    lines.push(
-      `🎯 Pontos: ${fmtInt(args.pointsTotal)} (${fmtInt(
-        args.pointsInput
-      )}/pax x ${fmtInt(args.passengers)})`
-    );
-  } else {
-    lines.push(`🎯 Pontos: ${fmtInt(args.pointsTotal)}`);
+    lines.push("✅ Venda criada");
+    if (args.saleId) lines.push(`ID: ${args.saleId}`);
+
+    lines.push(`📅 Data: ${toBRDate(args.dateISO)}`);
+
+    if (args.vendedorNome) {
+      lines.push(`👤 Vendedor: ${cap1(args.vendedorNome)}`);
+    }
+
+    if (args.cliente) {
+      lines.push(`🧾 Cliente: ${args.cliente.nome}`);
+    }
+
+    lines.push(`✈️ Programa: ${args.program}`);
+
+    if (args.pointsMode === "POR_PAX") {
+      lines.push(`🎯 Pontos: ${fmtInt(args.pointsTotal)} (${fmtInt(args.pointsInput)}/pax x ${fmtInt(args.passengers)})`);
+    } else {
+      lines.push(`🎯 Pontos: ${fmtInt(args.pointsTotal)}`);
+    }
+
+    lines.push(`👥 PAX: ${fmtInt(args.passengers)}`);
+    lines.push(`💸 Milheiro: ${fmtMoneyBR(args.milheiroCents)}`);
+    lines.push(`🧮 Valor pontos: ${fmtMoneyBR(args.pointsValueCents)}`);
+    lines.push(`🛄 Taxa embarque: ${fmtMoneyBR(args.embarqueFeeCents)}`);
+    lines.push(`💰 Total: ${fmtMoneyBR(args.totalCents)}`);
+
+    if (args.locator?.trim()) {
+      lines.push(`🔎 Localizador: ${args.locator.trim()}`);
+    }
+
+    lines.push("");
+    lines.push("Dados para pagamento");
+    lines.push("Pix: 63817773000185 (CNPJ)");
+    lines.push("Nome: Vias Aereas");
+    lines.push("Banco: Inter");
+    lines.push(`Total a pagar: ${fmtMoneyBR(args.totalCents)}`);
+
+    return lines.join("\n");
   }
-
-  lines.push(`👥 PAX: ${fmtInt(args.passengers)}`);
-  lines.push(`💸 Milheiro: ${fmtMoneyBR(args.milheiroCents)}`);
-  lines.push(`🧮 Valor pontos: ${fmtMoneyBR(args.pointsValueCents)}`);
-  lines.push(`🛄 Taxa embarque: ${fmtMoneyBR(args.embarqueFeeCents)}`);
-  lines.push(`💰 Total: ${fmtMoneyBR(args.totalCents)}`);
-
-  lines.push(`📦 Compra: ${args.compraNumero}`);
-  lines.push(`🙋 Cedente: ${args.cedenteNome}`);
-  lines.push(`🧑‍💼 Resp.: ${args.responsavelNome}`);
-  lines.push(`💳 Cartão taxa: ${cap1(args.feeCardLabel || "—")}`);
-
-  if (args.locator?.trim()) {
-    lines.push(`🔎 Localizador: ${args.locator.trim()}`);
-  }
-
-  lines.push("");
-  lines.push("Dados para pagamento");
-  lines.push("Pix: 63817773000185 (CNPJ)");
-  lines.push("Nome: Vias Aereas");
-  lines.push("Banco: Inter");
-  lines.push(`Total a pagar: ${fmtMoneyBR(args.totalCents)}`);
-
-  return lines.join("\n");
-}
 
   async function salvarVenda() {
     if (!sel?.eligible) return alert("Selecione um cedente elegível.");
@@ -876,9 +886,12 @@ function buildTelegramMessage(args: {
 
       setPostSaveSaleId(saleId ? String(saleId) : null);
 
+      const clienteFinal =
+        selectedCliente || clientes.find((c) => c.id === clienteId) || null;
+
       const msg = buildTelegramMessage({
         saleId: saleId ? String(saleId) : null,
-        cliente: selectedCliente,
+        cliente: clienteFinal,
         program,
         pointsMode,
         pointsInput,
@@ -896,7 +909,6 @@ function buildTelegramMessage(args: {
         dateISO,
         vendedorNome: me?.name || null,
       });
-
 
       setPostSaveMsg(msg);
       setPostSaveOpen(true);
@@ -1034,11 +1046,13 @@ function buildTelegramMessage(args: {
             </div>
             {program === "LATAM" ? (
               <div className="mt-1 text-[11px] text-slate-500">
-                {latamPaxLoading
-                  ? "Ajustando PAX (janela 365 dias)…"
-                  : latamPaxError
-                  ? <span className="text-rose-600">{latamPaxError}</span>
-                  : "PAX: janela 365 dias (painel)."}
+                {latamPaxLoading ? (
+                  "Ajustando PAX (janela 365 dias)…"
+                ) : latamPaxError ? (
+                  <span className="text-rose-600">{latamPaxError}</span>
+                ) : (
+                  "PAX: janela 365 dias (painel)."
+                )}
               </div>
             ) : null}
           </div>
@@ -1076,7 +1090,9 @@ function buildTelegramMessage(args: {
                     Sobra: <b className="tabular-nums">{fmtInt(sel.leftoverPoints)}</b>
                   </span>
 
-                  <span className={cn("rounded-full border px-2 py-1", badgeClass(sel.priorityLabel))}>{sel.priorityLabel}</span>
+                  <span className={cn("rounded-full border px-2 py-1", badgeClass(sel.priorityLabel))}>
+                    {sel.priorityLabel}
+                  </span>
                 </div>
 
                 {sel.alerts.includes("PASSAGEIROS_ESTOURADOS_COM_PONTOS") ? (
@@ -1101,12 +1117,22 @@ function buildTelegramMessage(args: {
                             setShowProgramPass(false);
                             setShowEmailPass(false);
 
+                            try {
+                              credsAbortRef.current?.abort();
+                            } catch {}
                             const ac = new AbortController();
+                            credsAbortRef.current = ac;
+
                             loadCreds(sel.cedente.id, program, ac.signal);
                           } else {
                             setRevealCreds(false);
                             setShowProgramPass(false);
                             setShowEmailPass(false);
+
+                            try {
+                              credsAbortRef.current?.abort();
+                            } catch {}
+                            credsAbortRef.current = null;
                           }
                         }}
                         className="rounded-lg border bg-white px-2 py-1 text-[11px] hover:bg-slate-50"
@@ -1261,10 +1287,7 @@ function buildTelegramMessage(args: {
                           <button
                             disabled={!s.eligible}
                             onClick={() => selectSuggestion(s)}
-                            className={cn(
-                              "rounded-xl border px-3 py-1.5 text-sm",
-                              s.eligible ? "hover:bg-slate-50" : "opacity-40 cursor-not-allowed"
-                            )}
+                            className={cn("rounded-xl border px-3 py-1.5 text-sm", s.eligible ? "hover:bg-slate-50" : "opacity-40 cursor-not-allowed")}
                           >
                             Usar
                           </button>
