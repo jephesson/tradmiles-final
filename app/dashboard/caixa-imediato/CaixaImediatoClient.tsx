@@ -4,12 +4,27 @@ import { useEffect, useMemo, useState } from "react";
 
 type Points = { latam: number; smiles: number; livelo: number; esfera: number };
 
+/**
+ * ✅ Snapshot desta página:
+ * - "Caixa projetado (Inter)" NÃO inclui bloqueio.
+ * - Snapshot salva TUDO (inclui bloqueio + pendências) => totalImediatoCents
+ */
 type Snapshot = {
   id: string;
   date: string; // ISO
-  totalBruto: number;
-  totalDividas: number;
-  totalLiquido: number;
+
+  cashCents: number;
+  cutoffPoints: number;
+
+  totalBrutoCents: number;
+  totalDividasCents: number;
+
+  totalBloqueadoCents: number;
+  pendingCedenteCommissionsCents: number;
+  employeePayoutsPendingCents: number;
+  taxesPendingCents: number;
+
+  totalImediatoCents: number; // ✅ o “16 mil” (com bloqueio e pendências)
 };
 
 type CedenteOpt = {
@@ -102,19 +117,14 @@ function StatCard({
   tone?: "default" | "danger" | "dark";
 }) {
   const base = "rounded-2xl border p-4";
-  const cls =
-    tone === "dark"
-      ? `${base} bg-black text-white`
-      : `${base} bg-slate-50`;
+  const cls = tone === "dark" ? `${base} bg-black text-white` : `${base} bg-slate-50`;
 
   return (
     <div className={cls}>
       <div className={tone === "dark" ? "text-xs opacity-80" : "text-xs text-slate-600"}>
         {label}
       </div>
-      <div className={tone === "dark" ? "text-2xl font-bold" : "text-xl font-bold"}>
-        {value}
-      </div>
+      <div className={tone === "dark" ? "text-2xl font-bold" : "text-xl font-bold"}>{value}</div>
       {hint ? (
         <div className={tone === "dark" ? "text-xs opacity-70 mt-1" : "text-xs text-slate-500 mt-1"}>
           {hint}
@@ -200,10 +210,7 @@ export default function CaixaImediatoClient() {
       if (!jBloq?.ok) throw new Error(jBloq?.error || "Erro ao carregar bloqueios");
       if (!jCx?.ok) throw new Error(jCx?.error || "Erro ao carregar caixa imediato");
 
-      // cedentes p/ somar pontos com corte
       setCedentes(jCed.data || []);
-
-      // bloqueios
       setBlockedRows(jBloq.data?.rows || []);
 
       // ✅ snapshots do CAIXA-IMEDIATO (separado)
@@ -267,10 +274,22 @@ export default function CaixaImediatoClient() {
       const pLivelo = Number(c.pontosLivelo || 0);
       const pEsfera = Number(c.pontosEsfera || 0);
 
-      if (pLatam >= cutoff) { pts.latam += pLatam; counts.latam += 1; }
-      if (pSmiles >= cutoff) { pts.smiles += pSmiles; counts.smiles += 1; }
-      if (pLivelo >= cutoff) { pts.livelo += pLivelo; counts.livelo += 1; }
-      if (pEsfera >= cutoff) { pts.esfera += pEsfera; counts.esfera += 1; }
+      if (pLatam >= cutoff) {
+        pts.latam += pLatam;
+        counts.latam += 1;
+      }
+      if (pSmiles >= cutoff) {
+        pts.smiles += pSmiles;
+        counts.smiles += 1;
+      }
+      if (pLivelo >= cutoff) {
+        pts.livelo += pLivelo;
+        counts.livelo += 1;
+      }
+      if (pEsfera >= cutoff) {
+        pts.esfera += pEsfera;
+        counts.esfera += 1;
+      }
     }
 
     return { cutoff, pts, counts };
@@ -306,31 +325,40 @@ export default function CaixaImediatoClient() {
     // ✅ subtrai dívidas abertas
     const afterDebtsCents = totalGrossCents - (debtsOpenCents || 0);
 
-    // ✅ subtrai o BLOQUEADO (OPEN)
+    // ✅ subtrai o BLOQUEADO (OPEN) => isso é pro “imediato”
     const afterBlockedCents = afterDebtsCents - (blockedTotals.valueBlockedCents || 0);
 
-    // ✅ subtrai pendências operacionais
+    // ✅ subtrai pendências operacionais => CAIXA IMEDIATO
     const totalImmediateCents =
       afterBlockedCents -
       (pendingCedenteCommissionsCents || 0) -
       (employeePayoutsPendingCents || 0) -
       (taxesPendingCents || 0);
 
-    // ✅ caixa projetado (só caixa + a receber - a pagar func - impostos - bloqueado)
-    const cashProjectedCents =
-      cashCents +
-      receivableCents -
-      (employeePayoutsPendingCents || 0) -
-      (taxesPendingCents || 0) -
-      (blockedTotals.valueBlockedCents || 0);
+    /**
+     * ✅ Caixa projetado (Inter):
+     * NÃO desconta bloqueio (bloqueio não sai do saldo bancário).
+     */
+    const cashProjectedInterCents =
+      cashCents + receivableCents - (employeePayoutsPendingCents || 0) - (taxesPendingCents || 0);
 
     return {
-      milLatam, milSmiles, milLivelo, milEsfera,
-      vLatamCents, vSmilesCents, vLiveloCents, vEsferaCents,
+      milLatam,
+      milSmiles,
+      milLivelo,
+      milEsfera,
+      vLatamCents,
+      vSmilesCents,
+      vLiveloCents,
+      vEsferaCents,
       milesValueEligibleCents,
-      cashCents, receivableCents,
-      totalGrossCents, afterDebtsCents, afterBlockedCents, totalImmediateCents,
-      cashProjectedCents,
+      cashCents,
+      receivableCents,
+      totalGrossCents,
+      afterDebtsCents,
+      afterBlockedCents,
+      totalImmediateCents,
+      cashProjectedInterCents,
     };
   }, [
     eligible,
@@ -350,10 +378,18 @@ export default function CaixaImediatoClient() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          // ✅ auditoria / contexto
           cashCents: calc.cashCents,
+          cutoffPoints: eligible.cutoff,
           totalBrutoCents: calc.totalGrossCents,
           totalDividasCents: debtsOpenCents,
-          totalLiquidoCents: calc.afterDebtsCents, // histórico “clássico” (bruto − dívidas)
+
+          // ✅ “tudo” (inclui bloqueio + pendências)
+          totalBloqueadoCents: blockedTotals.valueBlockedCents,
+          pendingCedenteCommissionsCents,
+          employeePayoutsPendingCents,
+          taxesPendingCents,
+          totalImediatoCents: calc.totalImmediateCents,
         }),
       });
 
@@ -373,8 +409,8 @@ export default function CaixaImediatoClient() {
         <div>
           <h1 className="text-2xl font-bold">Caixa imediato</h1>
           <p className="text-sm text-slate-600">
-            Só conta <b>milhas elegíveis</b> (cedentes com pontos ≥ corte) + caixa + a receber, e
-            desconta dívidas, bloqueios e pendências.
+            Só conta <b>milhas elegíveis</b> (cedentes com pontos ≥ corte) + caixa + a receber, e desconta dívidas,
+            bloqueios e pendências.
           </p>
         </div>
 
@@ -399,18 +435,22 @@ export default function CaixaImediatoClient() {
           />
 
           <div className="rounded-xl border bg-slate-50 p-3 md:col-span-2">
-            <div className="text-xs text-slate-600">
-              Elegíveis (cedentes com saldo ≥ {fmtInt(eligible.cutoff)})
-            </div>
+            <div className="text-xs text-slate-600">Elegíveis (cedentes com saldo ≥ {fmtInt(eligible.cutoff)})</div>
             <div className="mt-1 grid gap-2 sm:grid-cols-4 text-sm">
-              <div>LATAM: <b>{fmtInt(eligible.counts.latam)}</b></div>
-              <div>Smiles: <b>{fmtInt(eligible.counts.smiles)}</b></div>
-              <div>Livelo: <b>{fmtInt(eligible.counts.livelo)}</b></div>
-              <div>Esfera: <b>{fmtInt(eligible.counts.esfera)}</b></div>
+              <div>
+                LATAM: <b>{fmtInt(eligible.counts.latam)}</b>
+              </div>
+              <div>
+                Smiles: <b>{fmtInt(eligible.counts.smiles)}</b>
+              </div>
+              <div>
+                Livelo: <b>{fmtInt(eligible.counts.livelo)}</b>
+              </div>
+              <div>
+                Esfera: <b>{fmtInt(eligible.counts.esfera)}</b>
+              </div>
             </div>
-            <div className="text-xs text-slate-500 mt-1">
-              Cedentes abaixo do corte são ignorados no cálculo de milhas.
-            </div>
+            <div className="text-xs text-slate-500 mt-1">Cedentes abaixo do corte são ignorados no cálculo de milhas.</div>
           </div>
         </div>
       </div>
@@ -421,16 +461,22 @@ export default function CaixaImediatoClient() {
         <div className="rounded-2xl border bg-white p-4 space-y-3">
           <div className="flex items-center justify-between">
             <div className="font-semibold">Milhas elegíveis</div>
-            <span className="text-[11px] rounded-full bg-slate-100 px-2 py-1 text-slate-600">
-              ≥ {fmtInt(eligible.cutoff)} pts
-            </span>
+            <span className="text-[11px] rounded-full bg-slate-100 px-2 py-1 text-slate-600">≥ {fmtInt(eligible.cutoff)} pts</span>
           </div>
 
           <div className="grid gap-2 sm:grid-cols-2 text-sm">
-            <div>LATAM: <b>{fmtInt(eligible.pts.latam)}</b></div>
-            <div>Smiles: <b>{fmtInt(eligible.pts.smiles)}</b></div>
-            <div>Livelo: <b>{fmtInt(eligible.pts.livelo)}</b></div>
-            <div>Esfera: <b>{fmtInt(eligible.pts.esfera)}</b></div>
+            <div>
+              LATAM: <b>{fmtInt(eligible.pts.latam)}</b>
+            </div>
+            <div>
+              Smiles: <b>{fmtInt(eligible.pts.smiles)}</b>
+            </div>
+            <div>
+              Livelo: <b>{fmtInt(eligible.pts.livelo)}</b>
+            </div>
+            <div>
+              Esfera: <b>{fmtInt(eligible.pts.esfera)}</b>
+            </div>
           </div>
 
           <div className="rounded-xl border bg-slate-50 p-3">
@@ -439,7 +485,7 @@ export default function CaixaImediatoClient() {
           </div>
 
           <div className="text-xs text-slate-600">
-            * usa milheiros inteiros: <b>floor(pontos/1000)</b>. <br/>
+            * usa milheiros inteiros: <b>floor(pontos/1000)</b>. <br />
             * valor do milheiro vem do <b>Resumo</b> (somente leitura).
           </div>
         </div>
@@ -448,24 +494,15 @@ export default function CaixaImediatoClient() {
         <div className="rounded-2xl border bg-white p-4 space-y-3">
           <div className="flex items-center justify-between">
             <div className="font-semibold">Caixa (Inter)</div>
-            <span className="text-[11px] rounded-full bg-slate-100 px-2 py-1 text-slate-600">
-              snapshot diário (desta página)
-            </span>
+            <span className="text-[11px] rounded-full bg-slate-100 px-2 py-1 text-slate-600">snapshot diário (desta página)</span>
           </div>
 
-          <Input
-            label="Saldo atual (R$)"
-            value={cashInput}
-            onChange={setCashInput}
-            placeholder="Ex: 12345,67"
-          />
+          <Input label="Saldo atual (R$)" value={cashInput} onChange={setCashInput} placeholder="Ex: 12345,67" />
 
           <div className="rounded-xl border bg-slate-50 p-3">
             <div className="text-xs text-slate-600">Caixa projetado</div>
-            <div className="text-xl font-bold">{fmtMoneyBR(calc.cashProjectedCents)}</div>
-            <div className="text-xs text-slate-500 mt-1">
-              caixa + a receber − (func + impostos) − bloqueios
-            </div>
+            <div className="text-xl font-bold">{fmtMoneyBR(calc.cashProjectedInterCents)}</div>
+            <div className="text-xs text-slate-500 mt-1">caixa + a receber − (func + impostos)</div>
           </div>
 
           <button
@@ -484,9 +521,7 @@ export default function CaixaImediatoClient() {
         <div className="rounded-2xl border bg-white p-4 space-y-3">
           <div className="flex items-center justify-between">
             <div className="font-semibold">Bloqueado (OPEN)</div>
-            <span className="text-[11px] rounded-full bg-slate-100 px-2 py-1 text-slate-600">
-              desconta no imediato
-            </span>
+            <span className="text-[11px] rounded-full bg-slate-100 px-2 py-1 text-slate-600">desconta no imediato</span>
           </div>
 
           <div className="grid gap-2">
@@ -508,7 +543,7 @@ export default function CaixaImediatoClient() {
             <div className="rounded-xl border bg-black p-3 text-white">
               <div className="text-xs opacity-80">Valor total bloqueado (R$)</div>
               <div className="text-2xl font-bold">{fmtMoneyBR(blockedTotals.valueBlockedCents)}</div>
-              <div className="text-xs opacity-70 mt-1">Esse valor é subtraído do “imediato”.</div>
+              <div className="text-xs opacity-70 mt-1">Esse valor é subtraído do “imediato” (e entra no snapshot).</div>
             </div>
           </div>
         </div>
@@ -519,14 +554,34 @@ export default function CaixaImediatoClient() {
         <div className="grid gap-3 md:grid-cols-4">
           <StatCard label="TOTAL BRUTO (milhas elegíveis + caixa + a receber)" value={fmtMoneyBR(calc.totalGrossCents)} />
           <StatCard label="A RECEBER (aberto)" value={`+${fmtMoneyBR(calc.receivableCents)}`} hint="saldo total OPEN" />
-          <StatCard label="DÍVIDAS EM ABERTO" value={`-${fmtMoneyBR(debtsOpenCents)}`} hint="saldo total OPEN" tone="danger" />
+          <StatCard
+            label="DÍVIDAS EM ABERTO"
+            value={`-${fmtMoneyBR(debtsOpenCents)}`}
+            hint="saldo total OPEN"
+            tone="danger"
+          />
           <StatCard label="APÓS DÍVIDAS" value={fmtMoneyBR(calc.afterDebtsCents)} hint="bruto − dívidas" />
         </div>
 
         <div className="grid gap-3 md:grid-cols-4">
-          <StatCard label="BLOQUEADO (OPEN)" value={`-${fmtMoneyBR(blockedTotals.valueBlockedCents)}`} hint="subtrai do imediato" tone="danger" />
-          <StatCard label="COMISSÕES PENDENTES (cedentes)" value={`-${fmtMoneyBR(pendingCedenteCommissionsCents)}`} hint="status PENDING" tone="danger" />
-          <StatCard label="A PAGAR (funcionários)" value={`-${fmtMoneyBR(employeePayoutsPendingCents)}`} hint="paidAt = null" tone="danger" />
+          <StatCard
+            label="BLOQUEADO (OPEN)"
+            value={`-${fmtMoneyBR(blockedTotals.valueBlockedCents)}`}
+            hint="subtrai do imediato"
+            tone="danger"
+          />
+          <StatCard
+            label="COMISSÕES PENDENTES (cedentes)"
+            value={`-${fmtMoneyBR(pendingCedenteCommissionsCents)}`}
+            hint="status PENDING"
+            tone="danger"
+          />
+          <StatCard
+            label="A PAGAR (funcionários)"
+            value={`-${fmtMoneyBR(employeePayoutsPendingCents)}`}
+            hint="paidAt = null"
+            tone="danger"
+          />
           <StatCard label="IMPOSTOS PENDENTES" value={`-${fmtMoneyBR(taxesPendingCents)}`} hint="meses não pagos" tone="danger" />
         </div>
 
@@ -540,8 +595,7 @@ export default function CaixaImediatoClient() {
           <div className="md:col-span-3 rounded-2xl border bg-slate-50 p-4">
             <div className="text-xs text-slate-600">Observação</div>
             <div className="text-sm text-slate-700 mt-1">
-              Esse número é o “quanto dá pra contar agora”, porque remove:
-              <b> bloqueios OPEN</b> e ignora <b>saldos pequenos</b> (abaixo do corte).
+              Esse número é o “quanto dá pra contar agora”, porque remove: <b>bloqueios OPEN</b> e <b>pendências</b>.
             </div>
           </div>
         </div>
@@ -562,14 +616,14 @@ export default function CaixaImediatoClient() {
               <thead className="sticky top-0 bg-slate-50">
                 <tr>
                   <th className="px-3 py-2 text-left">Dia</th>
-                  <th className="px-3 py-2 text-right">Total líquido (após dívidas)</th>
+                  <th className="px-3 py-2 text-right">Caixa imediato (com bloqueios)</th>
                 </tr>
               </thead>
               <tbody>
                 {snapshots.map((s) => (
                   <tr key={s.id} className="border-t">
                     <td className="px-3 py-2">{dateBR(s.date)}</td>
-                    <td className="px-3 py-2 text-right">{fmtMoneyBR(s.totalLiquido)}</td>
+                    <td className="px-3 py-2 text-right">{fmtMoneyBR(s.totalImediatoCents)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -578,7 +632,7 @@ export default function CaixaImediatoClient() {
         )}
 
         <div className="text-xs text-slate-600">
-          Aqui o snapshot salva <b>bruto − dívidas</b> (com bruto = milhas elegíveis + caixa + a receber).
+          Aqui o snapshot salva o <b>CAIXA IMEDIATO</b> (com bloqueios e pendências).
         </div>
       </div>
     </div>
