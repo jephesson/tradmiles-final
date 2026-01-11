@@ -114,472 +114,132 @@ function splitByBps(totalCents: number, items: RateioItem[]) {
 
 /* =========================
    GET /api/payouts/funcionarios/day?date=YYYY-MM-DD
-   - Gera/atualiza payout do dia:
-     C1 (1%) + C2 (30% bônus) + C3 (rateio por compra finalizada no dia)
-   - Retorna TODOS os funcionários do time (mesmo sem movimento)
+   ✅ READ ONLY:
+   - Não calcula C1/C2/C3
+   - Não apaga payout
+   - Não upsert
+   - Só lê do banco e devolve TODOS os funcionários
 ========================= */
 export async function GET(req: Request) {
-  const session = await getServerSession();
-  if (!session?.id || !session?.team) {
-    return NextResponse.json({ ok: false, error: "Não autenticado" }, { status: 401 });
-  }
+  try {
+    const session = await getServerSession();
+    if (!session?.id || !session?.team) {
+      return NextResponse.json({ ok: false, error: "Não autenticado" }, { status: 401 });
+    }
 
-  const url = new URL(req.url);
-  const date = String(url.searchParams.get("date") || "").trim();
+    const url = new URL(req.url);
+    const date = String(url.searchParams.get("date") || "").trim();
 
-  if (!date || !isISODate(date)) {
-    return NextResponse.json({ ok: false, error: "date obrigatório (YYYY-MM-DD)" }, { status: 400 });
-  }
+    if (!date || !isISODate(date)) {
+      return NextResponse.json(
+        { ok: false, error: "date obrigatório (YYYY-MM-DD)" },
+        { status: 400 }
+      );
+    }
 
-  const { start, end } = dayBoundsUTC(date);
+    // Mantém aqui só pra não quebrar (e pra teu compute usar igual).
+    // No DAY read-only a gente não usa start/end.
+    dayBoundsUTC(date);
 
-  // 1) todos usuários do time
-  const users = await prisma.user.findMany({
-    where: { team: session.team, role: { in: ["admin", "staff"] } },
-    select: { id: true, name: true, login: true },
-    orderBy: [{ name: "asc" }],
-  });
+    // 1) todos usuários do time
+    const users = await prisma.user.findMany({
+      where: { team: session.team, role: { in: ["admin", "staff"] } },
+      select: { id: true, name: true, login: true },
+      orderBy: [{ name: "asc" }],
+    });
 
-  // 2) payouts existentes do dia (pra preservar PAGO)
-  const existingPayouts = await prisma.employeePayout.findMany({
-    where: { team: session.team, date },
-    select: { id: true, userId: true, paidById: true, paidAt: true },
-  });
-  const existingByUserId = new Map(existingPayouts.map((p) => [p.userId, p]));
+    // 2) lê payouts do dia (com joins)
+    const payouts = await prisma.employeePayout.findMany({
+      where: { team: session.team, date },
+      include: {
+        user: { select: { id: true, name: true, login: true } },
+        paidBy: { select: { id: true, name: true } },
+      },
+    });
 
-  // 3) agrega C1 + C2 + fee por seller (vendas do dia)
-  //    ✅ conta PENDING + PAID; ignora só CANCELED
-  const sales = await prisma.sale.findMany({
-    where: {
-      date: { gte: start, lt: end },
-      cedente: { owner: { team: session.team } },
-      paymentStatus: { not: "CANCELED" },
-    },
-    select: {
-      id: true,
-      sellerId: true,
-      points: true,
-      milheiroCents: true,
-      pointsValueCents: true,
-      commissionCents: true,
-      bonusCents: true,
-      metaMilheiroCents: true,
-      embarqueFeeCents: true,
-    },
-  });
+    const byUserId = new Map(payouts.map((p) => [p.userId, p]));
 
-  type Agg = {
-    commission1Cents: number;
-    commission2Cents: number;
-    commission3RateioCents: number;
-    feeCents: number;
-    salesCount: number;
-    purchasesRateioCount: number;
-  };
+    // 3) garante retorno de TODO MUNDO (mesmo sem movimento)
+    const rows = users.map((u) => {
+      const p = byUserId.get(u.id);
 
-  const byUser: Record<string, Agg> = {};
+      if (p) {
+        return {
+          id: p.id,
+          team: p.team,
+          date: p.date,
+          userId: p.userId,
 
-  for (const s of sales) {
-    const sellerId = s.sellerId;
-    if (!sellerId) continue;
+          grossProfitCents: safeInt(p.grossProfitCents, 0),
+          tax7Cents: safeInt(p.tax7Cents, 0),
+          feeCents: safeInt(p.feeCents, 0),
+          netPayCents: safeInt(p.netPayCents, 0),
 
-    const pv =
-      s.pointsValueCents ?? pointsValueCentsFallback(s.points, s.milheiroCents);
+          breakdown: (p.breakdown as any) ?? null,
 
-    const c1 = s.commissionCents ?? commission1Fallback(pv);
+          paidAt: p.paidAt ? p.paidAt.toISOString() : null,
+          paidById: p.paidById ?? null,
 
-    // ✅ C2: bônus 30% (preferir o que já está salvo)
-    const c2 =
-      typeof s.bonusCents === "number"
-        ? s.bonusCents
-        : bonus30(
-            safeInt(s.points, 0),
-            safeInt(s.milheiroCents, 0),
-            safeInt(s.metaMilheiroCents, 0)
-          );
+          user: p.user,
+          paidBy: p.paidBy ?? null,
+        };
+      }
 
-    const fee = s.embarqueFeeCents ?? 0;
+      return {
+        id: `missing:${session.team}:${date}:${u.id}`,
+        team: session.team,
+        date,
+        userId: u.id,
 
-    const a =
-      (byUser[sellerId] ||= {
-        commission1Cents: 0,
-        commission2Cents: 0,
-        commission3RateioCents: 0,
+        grossProfitCents: 0,
+        tax7Cents: 0,
         feeCents: 0,
-        salesCount: 0,
-        purchasesRateioCount: 0,
-      });
+        netPayCents: 0,
 
-    a.commission1Cents += safeInt(c1, 0);
-    a.commission2Cents += safeInt(c2, 0);
-    a.feeCents += safeInt(fee, 0);
-    a.salesCount += 1;
-  }
-
-  // 4) C3: rateio por compras FINALIZADAS no dia (finalizedAt)
-  const purchases = await prisma.purchase.findMany({
-    where: {
-      finalizedAt: { gte: start, lt: end },
-      status: { not: "CANCELED" },
-      cedente: { owner: { team: session.team } },
-    },
-    select: {
-      id: true,
-      finalizedAt: true,
-      totalCents: true,
-      finalSalesPointsValueCents: true,
-      finalProfitBrutoCents: true,
-      finalBonusCents: true,
-      finalProfitCents: true,
-      metaMilheiroCents: true,
-      cedente: { select: { ownerId: true, owner: { select: { id: true } } } },
-    },
-    orderBy: { finalizedAt: "asc" },
-  });
-
-  // (a) resolve lucro líquido de forma segura, evitando N+1 quando possível
-  const needsSalesAgg = purchases.filter((p) => {
-    const hasFinalProfit = typeof p.finalProfitCents === "number";
-    if (hasFinalProfit) return false;
-
-    const hasBruto = typeof p.finalProfitBrutoCents === "number";
-    const hasBonus = typeof p.finalBonusCents === "number";
-    if (hasBruto && hasBonus) return false;
-
-    const hasPV = typeof p.finalSalesPointsValueCents === "number";
-    if (hasPV && hasBonus) return false;
-
-    // se não tem info suficiente, vamos recomputar via sales
-    return true;
-  });
-
-  let salesByPurchaseId: Record<
-    string,
-    Array<{
-      points: number;
-      pointsValueCents: number;
-      totalCents: number;
-      embarqueFeeCents: number;
-      bonusCents: number;
-      milheiroCents: number;
-      metaMilheiroCents: number;
-    }>
-  > = {};
-
-  if (needsSalesAgg.length) {
-    const ids = needsSalesAgg.map((p) => p.id);
-
-    const ss = await prisma.sale.findMany({
-      where: {
-        purchaseId: { in: ids },
-        paymentStatus: { not: "CANCELED" },
-      },
-      select: {
-        purchaseId: true,
-        points: true,
-        pointsValueCents: true,
-        totalCents: true,
-        embarqueFeeCents: true,
-        bonusCents: true,
-        milheiroCents: true,
-        metaMilheiroCents: true,
-      },
-      orderBy: { date: "asc" },
-    });
-
-    for (const s of ss) {
-      const k = String(s.purchaseId || "");
-      if (!k) continue;
-      (salesByPurchaseId[k] ||= []).push({
-        points: safeInt(s.points, 0),
-        pointsValueCents: safeInt(s.pointsValueCents, 0),
-        totalCents: safeInt(s.totalCents, 0),
-        embarqueFeeCents: safeInt(s.embarqueFeeCents, 0),
-        bonusCents: safeInt(s.bonusCents, 0),
-        milheiroCents: safeInt(s.milheiroCents, 0),
-        metaMilheiroCents: safeInt(s.metaMilheiroCents, 0),
-      });
-    }
-  }
-
-  // (b) carregar planos de rateio (ProfitShare) de todos os owners do dia
-  const ownerIds = Array.from(
-    new Set(purchases.map((p) => p.cedente.ownerId).filter(Boolean))
-  );
-
-  const plans = ownerIds.length
-    ? await prisma.profitShare.findMany({
-        where: {
-          team: session.team,
-          ownerId: { in: ownerIds },
-          isActive: true,
-          effectiveFrom: { lte: end }, // pode começar antes do fim do dia
-          OR: [{ effectiveTo: null }, { effectiveTo: { gt: start } }], // pode atravessar o dia
-        },
-        orderBy: [{ ownerId: "asc" }, { effectiveFrom: "desc" }],
-        select: {
-          ownerId: true,
-          effectiveFrom: true,
-          effectiveTo: true,
-          items: { select: { payeeId: true, bps: true } },
-        },
-      })
-    : [];
-
-  const plansByOwner: Record<
-    string,
-    Array<{
-      effectiveFrom: Date;
-      effectiveTo: Date | null;
-      items: Array<{ payeeId: string; bps: number }>;
-    }>
-  > = {};
-
-  for (const p of plans) {
-    (plansByOwner[p.ownerId] ||= []).push({
-      effectiveFrom: p.effectiveFrom,
-      effectiveTo: p.effectiveTo ?? null,
-      items: (p.items || []).map((it) => ({
-        payeeId: it.payeeId,
-        bps: safeInt(it.bps, 0),
-      })),
-    });
-  }
-
-  function pickPlanItems(ownerId: string, at: Date): RateioItem[] {
-    const list = plansByOwner[ownerId] || [];
-    for (const pl of list) {
-      if (pl.effectiveFrom <= at && (!pl.effectiveTo || pl.effectiveTo > at)) {
-        if (pl.items?.length) return pl.items;
-        break;
-      }
-    }
-    // default: 100% pro owner
-    return [{ payeeId: ownerId, bps: 10000 }];
-  }
-
-  function computeProfitLiquidoForPurchase(p: (typeof purchases)[number]) {
-    // prioridade: já gravado
-    if (typeof p.finalProfitCents === "number") {
-      return safeInt(p.finalProfitCents, 0);
-    }
-
-    // tenta por bruto/bonus
-    if (typeof p.finalProfitBrutoCents === "number" && typeof p.finalBonusCents === "number") {
-      return safeInt(p.finalProfitBrutoCents, 0) - safeInt(p.finalBonusCents, 0);
-    }
-
-    // tenta por PV/bonus
-    if (typeof p.finalSalesPointsValueCents === "number" && typeof p.finalBonusCents === "number") {
-      const pv = safeInt(p.finalSalesPointsValueCents, 0);
-      const cost = safeInt(p.totalCents, 0);
-      const bruto = pv - cost;
-      return bruto - safeInt(p.finalBonusCents, 0);
-    }
-
-    // fallback via sales
-    const ss = salesByPurchaseId[p.id] || [];
-    if (!ss.length) return 0;
-
-    let pvSum = 0;
-    let bonusSum = 0;
-
-    for (const s of ss) {
-      const total = safeInt(s.totalCents, 0);
-      const fee = safeInt(s.embarqueFeeCents, 0);
-
-      let pv = safeInt(s.pointsValueCents, 0);
-      if (pv <= 0 && total > 0) {
-        const cand = Math.max(total - fee, 0);
-        pv = cand > 0 ? cand : total;
-      }
-      pvSum += pv;
-
-      const b =
-        typeof s.bonusCents === "number" && Number.isFinite(s.bonusCents)
-          ? safeInt(s.bonusCents, 0)
-          : bonus30(safeInt(s.points, 0), milheiroFrom(safeInt(s.points, 0), pv), safeInt(s.metaMilheiroCents, 0));
-
-      bonusSum += b;
-    }
-
-    const cost = safeInt(p.totalCents, 0);
-    const bruto = pvSum - cost;
-    return bruto - bonusSum;
-  }
-
-  // (c) aplica rateio e agrega em byUser
-  for (const p of purchases) {
-    const finalizedAt = p.finalizedAt ?? start;
-    const ownerId = p.cedente.ownerId;
-    if (!ownerId) continue;
-
-    const lucroLiquido = computeProfitLiquidoForPurchase(p);
-    if (lucroLiquido === 0) continue; // se quiser incluir zero, pode remover esse if
-
-    const items = pickPlanItems(ownerId, finalizedAt);
-    const amounts = splitByBps(lucroLiquido, items);
-
-    items.forEach((it, idx) => {
-      const payeeId = it.payeeId;
-      const amount = safeInt(amounts[idx] ?? 0, 0);
-
-      const a =
-        (byUser[payeeId] ||= {
+        breakdown: {
           commission1Cents: 0,
           commission2Cents: 0,
           commission3RateioCents: 0,
-          feeCents: 0,
           salesCount: 0,
           purchasesRateioCount: 0,
-        });
-
-      a.commission3RateioCents += amount;
-      a.purchasesRateioCount += 1;
-    });
-  }
-
-  const computedUserIds = Object.keys(byUser);
-
-  // 5) remove payouts "lixo" (sem movimento) que ainda não foram pagos
-  await prisma.employeePayout.deleteMany({
-    where: {
-      team: session.team,
-      date,
-      paidById: null,
-      userId: { notIn: computedUserIds.length ? computedUserIds : ["__none__"] },
-    },
-  });
-
-  // 6) upsert payout (C1 + C2 + C3), preservando se já estiver PAGO
-  for (const userId of computedUserIds) {
-    const agg = byUser[userId];
-    const existing = existingByUserId.get(userId);
-
-    // ✅ se já está pago, não recalcula pra não mudar histórico
-    if (existing?.paidById) continue;
-
-    const c1 = safeInt(agg.commission1Cents, 0);
-    const c2 = safeInt(agg.commission2Cents, 0);
-    const c3 = safeInt(agg.commission3RateioCents, 0);
-
-    const gross = c1 + c2 + c3;
-    const tax = tax8OnPositive(gross);
-    const fee = safeInt(agg.feeCents, 0);
-    const net = gross - tax + fee;
-
-    await prisma.employeePayout.upsert({
-      where: { team_date_userId: { team: session.team, date, userId } },
-      create: {
-        team: session.team,
-        date,
-        userId,
-        grossProfitCents: gross,
-        tax7Cents: tax, // nome legado
-        feeCents: fee,
-        netPayCents: net,
-        breakdown: {
-          commission1Cents: c1,
-          commission2Cents: c2,
-          commission3RateioCents: c3,
-          salesCount: safeInt(agg.salesCount, 0),
-          purchasesRateioCount: safeInt(agg.purchasesRateioCount, 0),
           taxPercent: 8,
         },
-      },
-      update: {
-        grossProfitCents: gross,
-        tax7Cents: tax,
-        feeCents: fee,
-        netPayCents: net,
-        breakdown: {
-          commission1Cents: c1,
-          commission2Cents: c2,
-          commission3RateioCents: c3,
-          salesCount: safeInt(agg.salesCount, 0),
-          purchasesRateioCount: safeInt(agg.purchasesRateioCount, 0),
-          taxPercent: 8,
-        },
-        // ✅ não mexe em paidAt/paidById aqui
-      },
-    });
-  }
 
-  // 7) lê payouts do dia (com joins)
-  const payouts = await prisma.employeePayout.findMany({
-    where: { team: session.team, date },
-    include: {
-      user: { select: { id: true, name: true, login: true } },
-      paidBy: { select: { id: true, name: true } },
-    },
-  });
+        paidAt: null,
+        paidById: null,
 
-  const byUserId = new Map(payouts.map((p) => [p.userId, p]));
-
-  // 8) garante que volte TODO MUNDO (mesmo sem movimento)
-  const rows = users.map((u) => {
-    const p = byUserId.get(u.id);
-
-    if (p) {
-      return {
-        id: p.id,
-        team: p.team,
-        date: p.date,
-        userId: p.userId,
-        grossProfitCents: p.grossProfitCents,
-        tax7Cents: p.tax7Cents,
-        feeCents: p.feeCents,
-        netPayCents: p.netPayCents,
-        breakdown: (p.breakdown as any) ?? null,
-        paidAt: p.paidAt ? p.paidAt.toISOString() : null,
-        paidById: p.paidById ?? null,
-        user: p.user,
-        paidBy: p.paidBy ?? null,
+        user: u,
+        paidBy: null,
       };
-    }
+    });
 
-    return {
-      id: `missing:${session.team}:${date}:${u.id}`,
-      team: session.team,
-      date,
-      userId: u.id,
-      grossProfitCents: 0,
-      tax7Cents: 0,
-      feeCents: 0,
-      netPayCents: 0,
-      breakdown: {
-        commission1Cents: 0,
-        commission2Cents: 0,
-        commission3RateioCents: 0,
-        salesCount: 0,
-        purchasesRateioCount: 0,
-        taxPercent: 8,
+    // 4) totais
+    const totals = rows.reduce(
+      (acc, r) => {
+        acc.gross += safeInt(r.grossProfitCents, 0);
+        acc.tax += safeInt(r.tax7Cents, 0);
+        acc.fee += safeInt(r.feeCents, 0);
+        acc.net += safeInt(r.netPayCents, 0);
+
+        if (r.paidById || r.paidAt) acc.paid += safeInt(r.netPayCents, 0);
+
+        return acc;
       },
-      paidAt: null,
-      paidById: null,
-      user: u,
-      paidBy: null,
-    };
-  });
+      { gross: 0, tax: 0, fee: 0, net: 0, paid: 0, pending: 0 }
+    );
 
-  const totals = rows.reduce(
-    (acc, r) => {
-      acc.gross += safeInt(r.grossProfitCents, 0);
-      acc.tax += safeInt(r.tax7Cents, 0);
-      acc.fee += safeInt(r.feeCents, 0);
-      acc.net += safeInt(r.netPayCents, 0);
-      if (r.paidById || r.paidAt) acc.paid += safeInt(r.netPayCents, 0);
-      return acc;
-    },
-    { gross: 0, tax: 0, fee: 0, net: 0, paid: 0, pending: 0 }
-  );
+    totals.pending = totals.net - totals.paid;
 
-  totals.pending = totals.net - totals.paid;
-
-  return NextResponse.json({
-    ok: true,
-    date,
-    rows,
-    totals,
-  });
+    return NextResponse.json({
+      ok: true,
+      date,
+      rows,
+      totals,
+    });
+  } catch (e: any) {
+    return NextResponse.json(
+      { ok: false, error: e?.message || String(e) },
+      { status: 500 }
+    );
+  }
 }
