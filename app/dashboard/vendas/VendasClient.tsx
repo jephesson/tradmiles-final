@@ -30,6 +30,13 @@ function fmtDateBR(v: string) {
   return dt.toLocaleDateString("pt-BR");
 }
 
+function fmtDateTimeBR(v: string) {
+  if (!v) return "—";
+  const dt = new Date(String(v));
+  if (Number.isNaN(dt.getTime())) return "—";
+  return dt.toLocaleString("pt-BR");
+}
+
 async function api<T>(url: string, init?: RequestInit): Promise<T> {
   const r = await fetch(url, {
     cache: "no-store",
@@ -92,6 +99,13 @@ export default function VendasClient() {
   const [status, setStatus] = useState<StatusFilter>("ALL");
 
   const [updatingId, setUpdatingId] = useState<string | null>(null);
+
+  // ✅ modal de detalhes
+  const [detailsId, setDetailsId] = useState<string | null>(null);
+  const details = useMemo(
+    () => (detailsId ? rows.find((r) => r.id === detailsId) || null : null),
+    [rows, detailsId]
+  );
 
   async function load() {
     setLoading(true);
@@ -290,6 +304,16 @@ export default function VendasClient() {
 
   const headerSuffix = selectedClient ? ` • ${selectedClient.nome}` : "";
 
+  // ✅ fechar modal com ESC
+  useEffect(() => {
+    if (!detailsId) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setDetailsId(null);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [detailsId]);
+
   return (
     <div className="p-6 space-y-4">
       <div className="flex items-start justify-between gap-4">
@@ -440,10 +464,25 @@ export default function VendasClient() {
                 const isBusy = updatingId === r.id;
 
                 return (
-                  <tr key={r.id} className="border-b last:border-b-0">
+                  <tr
+                    key={r.id}
+                    className="border-b last:border-b-0 hover:bg-slate-50 cursor-pointer"
+                    onClick={() => setDetailsId(r.id)}
+                    title="Clique para ver detalhes"
+                  >
                     <td className="px-4 py-3">{fmtDateBR(r.date)}</td>
 
-                    <td className="px-4 py-3 font-mono">{r.numero}</td>
+                    <td className="px-4 py-3 font-mono">
+                      <button
+                        className="underline decoration-slate-300 underline-offset-2 hover:decoration-slate-500"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setDetailsId(r.id);
+                        }}
+                      >
+                        {r.numero}
+                      </button>
+                    </td>
 
                     <td className="px-4 py-3">
                       <div className="font-medium">{r.cliente.nome}</div>
@@ -477,14 +516,19 @@ export default function VendasClient() {
                     </td>
 
                     <td className="px-4 py-3">
-                      <span className={cn("inline-flex rounded-full border px-2 py-1 text-xs", statusBadge(r))}>
+                      <span
+                        className={cn("inline-flex rounded-full border px-2 py-1 text-xs", statusBadge(r))}
+                      >
                         {statusLabel(r)}
                       </span>
                     </td>
 
                     <td className="px-4 py-3 font-mono text-xs">{r.locator || "—"}</td>
 
-                    <td className="px-4 py-3 text-right">
+                    <td
+                      className="px-4 py-3 text-right"
+                      onClick={(e) => e.stopPropagation()} // ✅ não abrir detalhes ao clicar nos botões
+                    >
                       {r.paymentStatus === "CANCELED" ? (
                         <span className="text-xs text-slate-400">—</span>
                       ) : (
@@ -538,6 +582,156 @@ export default function VendasClient() {
           “A receber” = Receivable.balanceCents (se existir) senão usa Total quando status for Pendente.
         </div>
       </div>
+
+      {/* ✅ MODAL DETALHES */}
+      {details ? (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+          onMouseDown={() => setDetailsId(null)}
+        >
+          <div
+            className="w-full max-w-3xl rounded-2xl bg-white shadow-xl"
+            onMouseDown={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-4 border-b px-5 py-4">
+              <div>
+                <div className="text-xs text-slate-500">Detalhes da venda</div>
+                <div className="text-lg font-semibold">
+                  {details.numero} • {fmtDateBR(details.date)}
+                </div>
+                <div className="text-xs text-slate-500 mt-1">
+                  Criada em {fmtDateTimeBR(details.createdAt)}
+                </div>
+              </div>
+
+              <button
+                className="rounded-xl border px-3 py-2 text-sm hover:bg-slate-50"
+                onClick={() => setDetailsId(null)}
+              >
+                Fechar
+              </button>
+            </div>
+
+            <div className="p-5 space-y-4">
+              <div className="grid gap-3 md:grid-cols-3">
+                <div className="rounded-2xl border p-4">
+                  <div className="text-xs text-slate-500">Status</div>
+                  <div className="mt-1">
+                    <span
+                      className={cn(
+                        "inline-flex rounded-full border px-2 py-1 text-xs",
+                        statusBadge(details)
+                      )}
+                    >
+                      {statusLabel(details)}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="rounded-2xl border p-4">
+                  <div className="text-xs text-slate-500">Programa</div>
+                  <div className="mt-1 font-semibold">{details.program}</div>
+                  <div className="text-xs text-slate-500 mt-1">
+                    {fmtInt(details.points)} pts • {fmtInt(details.passengers)} pax
+                  </div>
+                </div>
+
+                <div className="rounded-2xl border p-4">
+                  <div className="text-xs text-slate-500">Localizador</div>
+                  <div className="mt-1 font-mono text-sm">{details.locator || "—"}</div>
+                </div>
+              </div>
+
+              <div className="grid gap-3 md:grid-cols-2">
+                <div className="rounded-2xl border p-4">
+                  <div className="text-xs text-slate-500">Cliente</div>
+                  <div className="mt-1 font-semibold">{details.cliente.nome}</div>
+                  <div className="text-xs text-slate-500">{details.cliente.identificador}</div>
+                </div>
+
+                <div className="rounded-2xl border p-4">
+                  <div className="text-xs text-slate-500">Cedente</div>
+                  {details.cedente?.nomeCompleto ? (
+                    <>
+                      <div className="mt-1 font-semibold">{details.cedente.nomeCompleto}</div>
+                      <div className="text-xs text-slate-500">{details.cedente.identificador}</div>
+                    </>
+                  ) : (
+                    <div className="mt-1 text-slate-400">—</div>
+                  )}
+                </div>
+              </div>
+
+              <div className="rounded-2xl border p-4">
+                <div className="grid gap-3 md:grid-cols-3">
+                  <div>
+                    <div className="text-xs text-slate-500">Total</div>
+                    <div className="text-lg font-semibold">{fmtMoneyBR(details.totalCents)}</div>
+                  </div>
+                  <div>
+                    <div className="text-xs text-slate-500">A receber</div>
+                    <div className={cn("text-lg font-semibold", pendingCentsOfSale(details) > 0 ? "text-amber-700" : "text-slate-800")}>
+                      {fmtMoneyBR(pendingCentsOfSale(details))}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-xs text-slate-500">Recebível</div>
+                    {details.receivable ? (
+                      <div className="text-sm mt-1 text-slate-700">
+                        <div>ID: <span className="font-mono">{details.receivable.id}</span></div>
+                        <div>Status: <span className="font-semibold">{details.receivable.status}</span></div>
+                        <div>Total: <span className="font-semibold">{fmtMoneyBR(details.receivable.totalCents)}</span></div>
+                        <div>Recebido: <span className="font-semibold">{fmtMoneyBR(details.receivable.receivedCents)}</span></div>
+                        <div>Saldo: <span className="font-semibold">{fmtMoneyBR(details.receivable.balanceCents)}</span></div>
+                      </div>
+                    ) : (
+                      <div className="mt-1 text-slate-400">—</div>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap gap-2 justify-end border-t pt-4">
+                {details.paymentStatus !== "CANCELED" ? (
+                  <>
+                    <button
+                      onClick={() => togglePago(details)}
+                      disabled={updatingId === details.id}
+                      className={cn(
+                        "rounded-xl border px-4 py-2 text-sm",
+                        updatingId === details.id ? "opacity-60 cursor-not-allowed" : "hover:bg-slate-50"
+                      )}
+                    >
+                      {updatingId === details.id
+                        ? "Salvando..."
+                        : details.paymentStatus === "PAID"
+                        ? "Marcar pendente"
+                        : "Marcar pago"}
+                    </button>
+
+                    <button
+                      onClick={() => cancelSale(details)}
+                      disabled={updatingId === details.id}
+                      className={cn(
+                        "rounded-xl border px-4 py-2 text-sm border-red-300 text-red-700",
+                        updatingId === details.id ? "opacity-60 cursor-not-allowed" : "hover:bg-red-50"
+                      )}
+                    >
+                      Cancelar venda
+                    </button>
+                  </>
+                ) : (
+                  <div className="text-sm text-slate-500">Venda cancelada.</div>
+                )}
+              </div>
+
+              <div className="text-xs text-slate-500">
+                Dica: aperta <span className="font-mono">ESC</span> pra fechar.
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
