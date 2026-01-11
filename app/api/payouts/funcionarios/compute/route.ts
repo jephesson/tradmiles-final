@@ -47,9 +47,11 @@ function bonusFallback(args: { points: number; milheiroCents: number; metaMilhei
 }
 
 /* =========================
-   ✅ Fee payer resolver (via feeCardLabel) — CORRIGIDO
-   - Reembolsa taxa para QUEM pagou o cartão (inferido do label)
-   - Só ignora "cartão empresa" se NÃO achar nenhum membro no label
+   ✅ Fee payer resolver (via feeCardLabel)
+   - PRIORIDADE: @login no label (ex.: "(@eduarda)")
+   - Depois: (login) no label (ex.: "(jephesson)")
+   - Depois: nome
+   - Se for cartão da empresa ("Vias Aéreas"), IGNORA reembolso
 ========================= */
 function norm(s: string) {
   return String(s || "")
@@ -60,23 +62,47 @@ function norm(s: string) {
     .replace(/\s+/g, " ");
 }
 
-function splitLabelParts(labelNorm: string) {
-  // quebra por separadores comuns, preservando pedaços úteis (ex: "nubank", "eduarda", "vias aereas")
-  const parts = labelNorm
-    .split(/[\-|/|(){}\[\]|•·,;:]+/g)
-    .map((p) => p.trim())
-    .filter(Boolean);
+function extractLoginHint(label?: string | null) {
+  const raw = String(label || "").trim();
+  if (!raw) return "";
 
-  // também tenta “subpartes” por múltiplos espaços
-  const more = parts
-    .flatMap((p) => p.split(/\s{2,}/g).map((x) => x.trim()))
-    .filter(Boolean);
+  // 1) tenta @login (mais confiável)
+  const mAt = raw.match(/@([a-zA-Z0-9._-]+)/);
+  if (mAt?.[1]) return norm(mAt[1]);
 
-  return Array.from(new Set([labelNorm, ...parts, ...more]));
+  // 2) tenta (login) se for 1 token
+  const mPar = raw.match(/\(([^)]+)\)/);
+  if (mPar?.[1]) {
+    const inside = mPar[1].trim().replace(/^@/, "");
+    if (inside && !inside.includes(" ")) return norm(inside);
+  }
+
+  return "";
 }
 
-function looksLikeCompanyCard(labelNorm: string) {
-  const s = norm(labelNorm);
+function extractCardOwnerName(label?: string | null) {
+  let s = norm(label || "");
+  if (!s) return "";
+
+  // remove prefix "cartao " (cartão vira "cartao" após normalize)
+  if (s.startsWith("cartao ")) s = s.slice("cartao ".length).trim();
+
+  // corta sufixos: " - ...", "(...)", "[...]", "| ..."
+  for (const sep of [" - ", " (", " [", " | ", " • ", " · "]) {
+    const idx = s.indexOf(sep);
+    if (idx >= 0) {
+      s = s.slice(0, idx).trim();
+      break;
+    }
+  }
+
+  // remove caracteres estranhos mantendo letras/números/espaço
+  s = s.replace(/[^\p{L}\p{N}\s]/gu, " ").replace(/\s+/g, " ").trim();
+  return s;
+}
+
+function isCompanyCardName(owner: string) {
+  const s = norm(owner);
   if (!s) return false;
 
   const needles = [
@@ -93,88 +119,50 @@ function looksLikeCompanyCard(labelNorm: string) {
   return needles.some((k) => s.includes(k));
 }
 
-type TeamMemberLite = {
-  id: string;
-  nameNorm: string;
-  loginNorm: string;
-  firstNameNorm: string;
-  lastNameNorm: string;
-};
+type TeamMemberLite = { id: string; nameNorm: string; loginNorm: string };
 
-function scoreMatch(hay: string, token: string) {
-  const t = norm(token);
-  if (!t) return 0;
-  // evita “token” curto demais causando falso positivo
-  if (t.length < 3) return 0;
-
-  // match “contém”
-  return hay.includes(t) ? t.length : 0;
-}
-
-/**
- * Procura o melhor membro do time dentro do label (ou partes)
- * Score maior = match mais forte
- */
-function bestMemberFromLabel(label: string | null | undefined, members: TeamMemberLite[]) {
-  const raw = norm(label || "");
-  if (!raw) return null;
-
-  const parts = splitLabelParts(raw);
-
-  let best: { userId: string; score: number } | null = null;
-  let tie = false;
-
-  for (const m of members) {
-    let sc = 0;
-
-    for (const p of parts) {
-      // prioridades: login > nome completo > primeiro nome > sobrenome
-      const byLogin = scoreMatch(p, m.loginNorm);
-      if (byLogin) sc = Math.max(sc, 10000 + byLogin);
-
-      const byFull = scoreMatch(p, m.nameNorm);
-      if (byFull) sc = Math.max(sc, 8000 + byFull);
-
-      const byFirst = scoreMatch(p, m.firstNameNorm);
-      if (byFirst) sc = Math.max(sc, 5000 + byFirst);
-
-      const byLast = scoreMatch(p, m.lastNameNorm);
-      if (byLast) sc = Math.max(sc, 3000 + byLast);
-    }
-
-    if (sc > 0) {
-      if (!best || sc > best.score) {
-        best = { userId: m.id, score: sc };
-        tie = false;
-      } else if (best && sc === best.score) {
-        // empate exato -> evita escolher errado
-        tie = true;
-      }
-    }
-  }
-
-  if (!best || tie) return null;
-  return best.userId;
-}
-
-/**
- * ✅ Regra final:
- * - tenta achar alguém do time no label (melhor abordagem)
- * - se achou: reembolsa pra essa pessoa
- * - se não achou e parece cartão empresa: ignora
- * - se não achou e não parece empresa: retorna null (caller decide fallback)
- */
 function resolveFeePayerFromLabel(
   feeCardLabel: string | null | undefined,
   members: TeamMemberLite[]
 ): { ignore: boolean; userId: string | null } {
-  const labelNorm = norm(feeCardLabel || "");
-  if (!labelNorm) return { ignore: false, userId: null };
+  const label = String(feeCardLabel || "").trim();
+  if (!label) return { ignore: false, userId: null };
 
-  const userId = bestMemberFromLabel(labelNorm, members);
-  if (userId) return { ignore: false, userId };
+  // 0) se parecer cartão da empresa, ignora
+  const ownerName = extractCardOwnerName(label);
+  if (ownerName && isCompanyCardName(ownerName)) return { ignore: true, userId: null };
 
-  if (looksLikeCompanyCard(labelNorm)) return { ignore: true, userId: null };
+  // 1) ✅ tenta por @login (ou (login))
+  const loginHint = extractLoginHint(label);
+  if (loginHint) {
+    const byLogin = members.find((m) => m.loginNorm === loginHint);
+    if (byLogin) return { ignore: false, userId: byLogin.id };
+  }
+
+  // 2) tenta por nome
+  if (!ownerName) return { ignore: false, userId: null };
+  const ownerNorm = norm(ownerName);
+
+  const byNameExact = members.find((m) => m.nameNorm === ownerNorm);
+  if (byNameExact) return { ignore: false, userId: byNameExact.id };
+
+  // contains (label menor ou maior)
+  let candidates = members.filter(
+    (m) =>
+      (m.nameNorm && m.nameNorm.includes(ownerNorm)) ||
+      (m.nameNorm && ownerNorm.includes(m.nameNorm))
+  );
+  if (candidates.length === 1) return { ignore: false, userId: candidates[0].id };
+
+  // primeiro token
+  const tok = ownerNorm.split(" ")[0] || "";
+  if (tok) {
+    candidates = members.filter((m) => {
+      const firstName = (m.nameNorm.split(" ")[0] || "").trim();
+      return firstName === tok || m.loginNorm === tok || m.nameNorm.includes(tok);
+    });
+    if (candidates.length === 1) return { ignore: false, userId: candidates[0].id };
+  }
 
   return { ignore: false, userId: null };
 }
@@ -198,6 +186,11 @@ function pickShareForDate(
   return null;
 }
 
+/**
+ * ✅ Split correto:
+ * - floor inicial
+ * - reparte resto por maiores frações
+ */
 function splitByBps(pool: number, items: Array<{ payeeId: string; bps: number }>) {
   const out: Record<string, number> = {};
   const total = safeInt(pool, 0);
@@ -247,6 +240,12 @@ function splitByBps(pool: number, items: Array<{ payeeId: string; bps: number }>
   return out;
 }
 
+/* =========================
+   ✅ PV SEM TAXA:
+   - pointsValueCents
+   - total - embarqueFee
+   - fallback pontos * milheiro
+========================= */
 function pvSemTaxaFromSale(s: {
   totalCents: number;
   embarqueFeeCents: number;
@@ -264,6 +263,9 @@ function pvSemTaxaFromSale(s: {
   return pointsValueCentsFallback(safeInt(s.points, 0), safeInt(s.milheiroCents, 0));
 }
 
+/* =========================
+   defaults
+========================= */
 function chooseC1(points: number, c1Db: number, pvSemTaxa: number) {
   const c1 = safeInt(c1Db, 0);
   if (c1 > 0) return c1;
@@ -310,7 +312,10 @@ export async function POST(req: Request) {
     const date = String(body?.date || "").trim();
 
     if (!date || !isISODate(date)) {
-      return NextResponse.json({ ok: false, error: "date obrigatório (YYYY-MM-DD)" }, { status: 400 });
+      return NextResponse.json(
+        { ok: false, error: "date obrigatório (YYYY-MM-DD)" },
+        { status: 400 }
+      );
     }
 
     const today = todayISORecife();
@@ -320,38 +325,26 @@ export async function POST(req: Request) {
 
     const { start, end } = dayBounds(date);
 
-    // ✅ membros do time (para mapear feeCardLabel -> userId)
-    let members: TeamMemberLite[] = [];
-    try {
-      const rawUsers = await prisma.user.findMany({
-        where: { team },
-        select: { id: true, name: true, login: true },
-      });
+    // ✅ membros do time para mapear feeCardLabel -> userId
+    const membersRaw = await prisma.user.findMany({
+      where: { team, role: { in: ["admin", "staff"] } },
+      select: { id: true, name: true, login: true },
+    });
 
-      members = rawUsers.map((u) => {
-        const nameNorm = norm(String((u as any)?.name || ""));
-        const loginNorm = norm(String((u as any)?.login || ""));
-        const parts = nameNorm.split(" ").filter(Boolean);
-        const first = parts[0] || "";
-        const last = parts.length > 1 ? parts[parts.length - 1] : "";
-        return {
-          id: String(u.id),
-          nameNorm,
-          loginNorm,
-          firstNameNorm: first,
-          lastNameNorm: last,
-        };
-      });
-    } catch {
-      members = [];
-    }
+    const members: TeamMemberLite[] = membersRaw.map((u) => ({
+      id: String(u.id),
+      nameNorm: norm(String(u.name || "")),
+      loginNorm: norm(String(u.login || "")),
+    }));
 
+    // 1) preserva payouts já pagos
     const existingPayouts = await prisma.employeePayout.findMany({
       where: { team, date },
       select: { userId: true, paidById: true },
     });
     const existingByUserId = new Map(existingPayouts.map((p) => [p.userId, p]));
 
+    // 2) ✅ compras FINALIZADAS + CLOSED no dia
     const purchases = await prisma.purchase.findMany({
       where: {
         status: "CLOSED",
@@ -376,6 +369,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: true, date, users: 0, purchases: 0, sales: 0 });
     }
 
+    // ✅ mapa numero -> cuid
     const idByNumeroUpper = new Map<string, string>(
       purchases
         .map((p) => [String(p.numero || "").trim().toUpperCase(), p.id] as const)
@@ -394,6 +388,7 @@ export async function POST(req: Request) {
       return idByNumeroUpper.get(upper) || r;
     }
 
+    // 3) ✅ vendas das compras finalizadas (cuid OU numero legado)
     const sales = await prisma.sale.findMany({
       where: {
         paymentStatus: { not: "CANCELED" },
@@ -447,11 +442,11 @@ export async function POST(req: Request) {
         milheiroCents: safeInt(s.milheiroCents, 0),
         totalCents: safeInt(s.totalCents, 0),
         embarqueFeeCents: safeInt(s.embarqueFeeCents, 0),
-        feeCardLabel: (s as any)?.feeCardLabel ?? null,
+        feeCardLabel: s.feeCardLabel ?? null,
 
         pointsValueCents: safeInt(s.pointsValueCents, 0),
         commissionCents: safeInt(s.commissionCents, 0),
-        bonusCents: typeof s.bonusCents === "number" ? safeInt(s.bonusCents, 0) : null,
+        bonusCents: typeof (s as any).bonusCents === "number" ? safeInt((s as any).bonusCents, 0) : null,
         metaMilheiroCents: safeInt(s.metaMilheiroCents, 0),
         purchaseMetaMilheiroCents: safeInt(s.purchase?.metaMilheiroCents, 0),
         sellerId: s.sellerId ?? null,
@@ -477,7 +472,6 @@ export async function POST(req: Request) {
 
         pvSemTaxaSum += pvSemTaxa;
 
-        // mantém tua lógica atual
         if (s.bonusCents !== null) {
           bonusSum += safeInt(s.bonusCents, 0);
         } else {
@@ -494,9 +488,11 @@ export async function POST(req: Request) {
 
       const lucroBruto = pvSemTaxaSum - cost;
       const lucroLiquido = lucroBruto - bonusSum;
+
       return safeInt(lucroLiquido, 0);
     }
 
+    // 4) ProfitShare dos owners envolvidos
     const ownerIds = Array.from(new Set(purchases.map((p) => p.cedente.ownerId).filter(Boolean)));
 
     const shares = await prisma.profitShare.findMany({
@@ -531,67 +527,47 @@ export async function POST(req: Request) {
         salesCount: 0,
       });
 
-    // ✅ stats pra você ver no response se ele está resolvendo corretamente
-    const feeStats = {
-      resolvedToLabelUser: 0,
-      ignoredCompanyCard: 0,
-      fallbackToSellerEmptyLabel: 0,
-      fallbackToSellerUnknownLabel: 0,
-    };
-
-    // 5) C1/C2 por seller + ✅ fee pro pagador do cartão
+    // 5) C1/C2 por seller + ✅ fee reembolsado pro pagador do cartão
     for (const pid of Object.keys(salesByPurchaseId)) {
       for (const s of salesByPurchaseId[pid]) {
         const sellerId = s.sellerId;
-        if (!sellerId) continue;
 
-        const pvSemTaxa = pvSemTaxaFromSale({
-          totalCents: s.totalCents,
-          embarqueFeeCents: s.embarqueFeeCents,
-          pointsValueCents: s.pointsValueCents,
-          points: s.points,
-          milheiroCents: s.milheiroCents,
-        });
+        // C1/C2 só se tiver seller
+        if (sellerId) {
+          const pvSemTaxa = pvSemTaxaFromSale({
+            totalCents: s.totalCents,
+            embarqueFeeCents: s.embarqueFeeCents,
+            pointsValueCents: s.pointsValueCents,
+            points: s.points,
+            milheiroCents: s.milheiroCents,
+          });
 
-        const meta = chooseMetaMilheiro(
-          safeInt(s.metaMilheiroCents, 0) > 0 ? s.metaMilheiroCents : s.purchaseMetaMilheiroCents
-        );
+          const meta = chooseMetaMilheiro(
+            safeInt(s.metaMilheiroCents, 0) > 0 ? s.metaMilheiroCents : s.purchaseMetaMilheiroCents
+          );
 
-        const c1 = chooseC1(s.points, s.commissionCents, pvSemTaxa);
-        const c2 = chooseC2(s.points, safeInt(s.bonusCents ?? 0, 0), s.milheiroCents, meta);
+          const c1 = chooseC1(s.points, s.commissionCents, pvSemTaxa);
+          const c2 = chooseC2(s.points, safeInt(s.bonusCents ?? 0, 0), s.milheiroCents, meta);
 
-        const aSeller = ensure(sellerId);
-        aSeller.commission1Cents += c1;
-        aSeller.commission2Cents += c2;
-        aSeller.salesCount += 1;
+          const aSeller = ensure(sellerId);
+          aSeller.commission1Cents += c1;
+          aSeller.commission2Cents += c2;
+          aSeller.salesCount += 1;
+        }
 
+        // ✅ Fee: vai pra pessoa do cartão (ou fallback seller)
         const fee = safeInt(s.embarqueFeeCents, 0);
         if (fee > 0) {
-          const labelNorm = norm(s.feeCardLabel || "");
           const { ignore, userId } = resolveFeePayerFromLabel(s.feeCardLabel, members);
-
-          if (ignore) {
-            feeStats.ignoredCompanyCard += 1;
-          } else {
-            let receiverId: string;
-
-            if (userId) {
-              receiverId = userId;
-              feeStats.resolvedToLabelUser += 1;
-            } else {
-              receiverId = sellerId;
-              if (!labelNorm) feeStats.fallbackToSellerEmptyLabel += 1;
-              else feeStats.fallbackToSellerUnknownLabel += 1;
-            }
-
-            const aFee = ensure(receiverId);
-            aFee.feeCents += fee;
+          if (!ignore) {
+            const receiverId = userId || sellerId;
+            if (receiverId) ensure(receiverId).feeCents += fee;
           }
         }
       }
     }
 
-    // 6) C3 rateio
+    // 6) ✅ C3 = rateio do lucro líquido REAL por compra
     for (const p of purchases) {
       const pool = computeLucroLiquidoCompra(p);
       if (safeInt(pool, 0) <= 0) continue;
@@ -613,13 +589,13 @@ export async function POST(req: Request) {
       const splits = splitByBps(pool, items);
 
       for (const payeeId of Object.keys(splits)) {
-        const a = ensure(payeeId);
-        a.commission3RateioCents += safeInt(splits[payeeId], 0);
+        ensure(payeeId).commission3RateioCents += safeInt(splits[payeeId], 0);
       }
     }
 
     const computedUserIds = Object.keys(byUser);
 
+    // 7) remove payouts "lixo" não pagos
     await prisma.employeePayout.deleteMany({
       where: {
         team,
@@ -629,6 +605,7 @@ export async function POST(req: Request) {
       },
     });
 
+    // 8) upsert preservando pagos
     for (const userId of computedUserIds) {
       const agg = byUser[userId];
       const existing = existingByUserId.get(userId);
@@ -683,7 +660,6 @@ export async function POST(req: Request) {
       users: computedUserIds.length,
       purchases: purchases.length,
       sales: sales.length,
-      feeStats, // 👈 olha isso no Network do browser pra confirmar se resolveu
     });
   } catch (e: any) {
     const msg = e?.message === "UNAUTHENTICATED" ? "Não autenticado" : e?.message || String(e);
