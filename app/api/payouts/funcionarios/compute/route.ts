@@ -7,7 +7,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 /* =========================
-   Utils
+  Utils
 ========================= */
 function isISODate(v: string) {
   return /^\d{4}-\d{2}-\d{2}$/.test((v || "").trim());
@@ -47,11 +47,13 @@ function bonusFallback(args: { points: number; milheiroCents: number; metaMilhei
 }
 
 /* =========================
-   ✅ Fee payer resolver (via feeCardLabel)
-   - PRIORIDADE: @login no label (ex.: "(@eduarda)")
-   - Depois: (login) no label (ex.: "(jephesson)")
-   - Depois: nome
-   - Se for cartão da empresa ("Vias Aéreas"), IGNORA reembolso
+  ✅ Fee payer resolver (via feeCardLabel)
+  - PRIORIDADE: @login no label (ex.: "(@eduarda)")
+  - Depois: (login) no label (ex.: "(jephesson)")
+  - Depois: nome
+  - Se for cartão da empresa ("Vias Aéreas"), IGNORA reembolso
+
+  ✅ AJUSTE: normaliza login removendo "@"
 ========================= */
 function norm(s: string) {
   return String(s || "")
@@ -62,19 +64,27 @@ function norm(s: string) {
     .replace(/\s+/g, " ");
 }
 
+// ✅ normalização específica pra login (remove @ e caracteres estranhos)
+function normLogin(s: string) {
+  return norm(s)
+    .replace(/^@+/, "")
+    .replace(/\s+/g, "")
+    .replace(/[^a-z0-9._-]/g, "");
+}
+
 function extractLoginHint(label?: string | null) {
   const raw = String(label || "").trim();
   if (!raw) return "";
 
   // 1) tenta @login (mais confiável)
   const mAt = raw.match(/@([a-zA-Z0-9._-]+)/);
-  if (mAt?.[1]) return norm(mAt[1]);
+  if (mAt?.[1]) return normLogin(mAt[1]);
 
   // 2) tenta (login) se for 1 token
   const mPar = raw.match(/\(([^)]+)\)/);
   if (mPar?.[1]) {
     const inside = mPar[1].trim().replace(/^@/, "");
-    if (inside && !inside.includes(" ")) return norm(inside);
+    if (inside && !inside.includes(" ")) return normLogin(inside);
   }
 
   return "";
@@ -154,12 +164,13 @@ function resolveFeePayerFromLabel(
   );
   if (candidates.length === 1) return { ignore: false, userId: candidates[0].id };
 
-  // primeiro token
+  // primeiro token (tenta casar com primeiro nome e/ou login)
   const tok = ownerNorm.split(" ")[0] || "";
   if (tok) {
+    const tokLogin = normLogin(tok);
     candidates = members.filter((m) => {
       const firstName = (m.nameNorm.split(" ")[0] || "").trim();
-      return firstName === tok || m.loginNorm === tok || m.nameNorm.includes(tok);
+      return firstName === tok || m.loginNorm === tokLogin || m.nameNorm.includes(tok);
     });
     if (candidates.length === 1) return { ignore: false, userId: candidates[0].id };
   }
@@ -168,7 +179,7 @@ function resolveFeePayerFromLabel(
 }
 
 /* =========================
-   ProfitShare helpers
+  ProfitShare helpers
 ========================= */
 function pickShareForDate(
   shares: Array<{
@@ -241,10 +252,10 @@ function splitByBps(pool: number, items: Array<{ payeeId: string; bps: number }>
 }
 
 /* =========================
-   ✅ PV SEM TAXA:
-   - pointsValueCents
-   - total - embarqueFee
-   - fallback pontos * milheiro
+  ✅ PV SEM TAXA:
+  - pointsValueCents
+  - total - embarqueFee
+  - fallback pontos * milheiro
 ========================= */
 function pvSemTaxaFromSale(s: {
   totalCents: number;
@@ -264,7 +275,7 @@ function pvSemTaxaFromSale(s: {
 }
 
 /* =========================
-   defaults
+  defaults
 ========================= */
 function chooseC1(points: number, c1Db: number, pvSemTaxa: number) {
   const c1 = safeInt(c1Db, 0);
@@ -292,7 +303,7 @@ function chooseMetaMilheiro(metaSaleOrPurchase: number | null | undefined) {
 }
 
 /* =========================
-   POST /api/payouts/funcionarios/compute
+  POST /api/payouts/funcionarios/compute
 ========================= */
 export async function POST(req: Request) {
   try {
@@ -312,10 +323,7 @@ export async function POST(req: Request) {
     const date = String(body?.date || "").trim();
 
     if (!date || !isISODate(date)) {
-      return NextResponse.json(
-        { ok: false, error: "date obrigatório (YYYY-MM-DD)" },
-        { status: 400 }
-      );
+      return NextResponse.json({ ok: false, error: "date obrigatório (YYYY-MM-DD)" }, { status: 400 });
     }
 
     const today = todayISORecife();
@@ -334,7 +342,8 @@ export async function POST(req: Request) {
     const members: TeamMemberLite[] = membersRaw.map((u) => ({
       id: String(u.id),
       nameNorm: norm(String(u.name || "")),
-      loginNorm: norm(String(u.login || "")),
+      // ✅ AJUSTE: normaliza login removendo "@"
+      loginNorm: normLogin(String(u.login || "")),
     }));
 
     // 1) preserva payouts já pagos
