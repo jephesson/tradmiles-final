@@ -1,13 +1,12 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { cn } from "@/lib/cn";
 
 type Points = { latam: number; smiles: number; livelo: number; esfera: number };
 
 type Snapshot = {
   id: string;
-  date: string;
+  date: string; // ISO
   totalBruto: number;
   totalDividas: number;
   totalLiquido: number;
@@ -18,7 +17,6 @@ type CedenteOpt = {
   nomeCompleto: string;
   cpf: string;
   identificador: string;
-
   pontosLatam: number;
   pontosSmiles: number;
   pontosLivelo: number;
@@ -33,6 +31,13 @@ type BlockRow = {
   cedente: { id: string; nomeCompleto: string; cpf: string; identificador: string };
   pointsBlocked: number;
   valueBlockedCents: number;
+};
+
+type RatesCents = {
+  latamRateCents: number; // ex: 2750 => R$ 27,50
+  smilesRateCents: number;
+  liveloRateCents: number;
+  esferaRateCents: number;
 };
 
 function fmtMoneyBR(cents: number) {
@@ -56,13 +61,6 @@ function toCentsFromInput(s: string) {
   const normalized = cleaned.replace(/\./g, "").replace(",", ".");
   const n = Number(normalized);
   return Number.isFinite(n) ? Math.round(n * 100) : 0;
-}
-function centsToRateInput(cents: number) {
-  const v = (Number(cents || 0) / 100).toFixed(2);
-  return v.replace(".", ",");
-}
-function rateInputToNumber(v: string) {
-  return Number(String(v || "").replace(",", ".")) || 0;
 }
 
 function Input({
@@ -107,8 +105,6 @@ function StatCard({
   const cls =
     tone === "dark"
       ? `${base} bg-black text-white`
-      : tone === "danger"
-      ? `${base} bg-slate-50`
       : `${base} bg-slate-50`;
 
   return (
@@ -128,10 +124,13 @@ function StatCard({
   );
 }
 
+const LS_CUTOFF_KEY = "tm.caixaImediato.cutoff";
+const LS_CASH_KEY = "tm.caixaImediato.cashInput";
+
 export default function CaixaImediatoClient() {
   const [loading, setLoading] = useState(false);
 
-  // ✅ corte: só conta cedentes >= corte (por programa)
+  // ✅ corte (persistido)
   const [cutoffInput, setCutoffInput] = useState<string>("5000");
 
   // dados
@@ -139,43 +138,67 @@ export default function CaixaImediatoClient() {
   const [blockedRows, setBlockedRows] = useState<BlockRow[]>([]);
   const [snapshots, setSnapshots] = useState<Snapshot[]>([]);
 
-  // caixa
+  // caixa (persistido + pode vir do backend do caixa-imediato)
   const [cashInput, setCashInput] = useState<string>("");
 
-  // pendências / financeiro
+  // rates (somente leitura, vem do resumo)
+  const [ratesCents, setRatesCents] = useState<RatesCents | null>(null);
+
+  // pendências / financeiro (vem do resumo)
   const [debtsOpenCents, setDebtsOpenCents] = useState<number>(0);
   const [pendingCedenteCommissionsCents, setPendingCedenteCommissionsCents] = useState<number>(0);
   const [receivablesOpenCents, setReceivablesOpenCents] = useState<number>(0);
   const [employeePayoutsPendingCents, setEmployeePayoutsPendingCents] = useState<number>(0);
   const [taxesPendingCents, setTaxesPendingCents] = useState<number>(0);
 
-  // opcional vindo do backend
-  const [cashProjectedFromApiCents, setCashProjectedFromApiCents] = useState<number | null>(null);
+  const [didHydrate, setDidHydrate] = useState(false);
 
-  // rates
-  const [rateLatam, setRateLatam] = useState("20,00");
-  const [rateSmiles, setRateSmiles] = useState("18,00");
-  const [rateLivelo, setRateLivelo] = useState("22,00");
-  const [rateEsfera, setRateEsfera] = useState("17,00");
+  // ✅ hydrate do localStorage
+  useEffect(() => {
+    try {
+      const c = localStorage.getItem(LS_CUTOFF_KEY);
+      if (c && /^\d+$/.test(c)) setCutoffInput(c);
 
-  const [didLoad, setDidLoad] = useState(false);
+      const cash = localStorage.getItem(LS_CASH_KEY);
+      if (cash) setCashInput(cash);
+    } catch {}
+    setDidHydrate(true);
+  }, []);
+
+  // ✅ persistência local do cutoff e cash
+  useEffect(() => {
+    if (!didHydrate) return;
+    try {
+      localStorage.setItem(LS_CUTOFF_KEY, String(safeInt(cutoffInput, 5000)));
+    } catch {}
+  }, [cutoffInput, didHydrate]);
+
+  useEffect(() => {
+    if (!didHydrate) return;
+    try {
+      localStorage.setItem(LS_CASH_KEY, cashInput);
+    } catch {}
+  }, [cashInput, didHydrate]);
 
   async function loadAll() {
     setLoading(true);
     try {
-      const [rResumo, rCedentes, rBloq] = await Promise.all([
+      const [rResumo, rCedentes, rBloq, rCx] = await Promise.all([
         fetch("/api/resumo", { cache: "no-store" }),
         fetch("/api/cedentes/options", { cache: "no-store" }),
         fetch("/api/bloqueios", { cache: "no-store" }),
+        fetch("/api/caixa-imediato", { cache: "no-store" }),
       ]);
 
       const jResumo = await rResumo.json();
       const jCed = await rCedentes.json();
       const jBloq = await rBloq.json();
+      const jCx = await rCx.json();
 
       if (!jResumo?.ok) throw new Error(jResumo?.error || "Erro ao carregar resumo");
       if (!jCed?.ok) throw new Error(jCed?.error || "Erro ao carregar cedentes");
       if (!jBloq?.ok) throw new Error(jBloq?.error || "Erro ao carregar bloqueios");
+      if (!jCx?.ok) throw new Error(jCx?.error || "Erro ao carregar caixa imediato");
 
       // cedentes p/ somar pontos com corte
       setCedentes(jCed.data || []);
@@ -183,31 +206,25 @@ export default function CaixaImediatoClient() {
       // bloqueios
       setBlockedRows(jBloq.data?.rows || []);
 
-      // snapshots / caixa
-      setSnapshots(jResumo.data.snapshots || []);
-      const latestCashCents = Number(jResumo.data.latestCashCents ?? 0);
-      setCashInput(String((latestCashCents / 100).toFixed(2)).replace(".", ","));
+      // ✅ snapshots do CAIXA-IMEDIATO (separado)
+      setSnapshots(jCx.data?.snapshots || []);
 
-      // rates
-      const rates = jResumo.data.ratesCents;
-      if (rates) {
-        setRateLatam(centsToRateInput(rates.latamRateCents));
-        setRateSmiles(centsToRateInput(rates.smilesRateCents));
-        setRateLivelo(centsToRateInput(rates.liveloRateCents));
-        setRateEsfera(centsToRateInput(rates.esferaRateCents));
+      // ✅ cash do CAIXA-IMEDIATO (se houver), senão mantém o digitado/localStorage
+      if (typeof jCx.data?.latestCashCents === "number") {
+        const latestCashCents = Number(jCx.data.latestCashCents ?? 0);
+        setCashInput(String((latestCashCents / 100).toFixed(2)).replace(".", ","));
       }
 
-      // financeiros
+      // ✅ rates (somente leitura) do resumo
+      const rates = jResumo.data?.ratesCents;
+      if (rates) setRatesCents(rates);
+
+      // financeiros (do resumo)
       setDebtsOpenCents(Number(jResumo.data.debtsOpenCents || 0));
       setPendingCedenteCommissionsCents(Number(jResumo.data.pendingCedenteCommissionsCents || 0));
       setReceivablesOpenCents(Number(jResumo.data.receivablesOpenCents || 0));
       setEmployeePayoutsPendingCents(Number(jResumo.data.employeePayoutsPendingCents || 0));
       setTaxesPendingCents(Number(jResumo.data.taxesPendingCents || 0));
-
-      const apiProjected = jResumo.data.cashProjectedCents;
-      setCashProjectedFromApiCents(apiProjected == null ? null : Number(apiProjected || 0));
-
-      setDidLoad(true);
     } catch (e: any) {
       alert(e.message);
     } finally {
@@ -218,30 +235,6 @@ export default function CaixaImediatoClient() {
   useEffect(() => {
     loadAll();
   }, []);
-
-  async function salvarRates() {
-    const res = await fetch("/api/resumo/rates", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        latam: rateLatam,
-        smiles: rateSmiles,
-        livelo: rateLivelo,
-        esfera: rateEsfera,
-      }),
-    });
-    const j = await res.json();
-    if (!j?.ok) throw new Error(j?.error || "Erro ao salvar milheiros");
-  }
-
-  useEffect(() => {
-    if (!didLoad) return;
-    const t = setTimeout(() => {
-      salvarRates().catch(() => {});
-    }, 600);
-    return () => clearTimeout(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rateLatam, rateSmiles, rateLivelo, rateEsfera, didLoad]);
 
   // ✅ Totais bloqueados (OPEN)
   const blockedTotals = useMemo(() => {
@@ -266,12 +259,7 @@ export default function CaixaImediatoClient() {
     const cutoff = Math.max(0, safeInt(cutoffInput, 0));
 
     let pts: Points = { latam: 0, smiles: 0, livelo: 0, esfera: 0 };
-    let counts: { latam: number; smiles: number; livelo: number; esfera: number } = {
-      latam: 0,
-      smiles: 0,
-      livelo: 0,
-      esfera: 0,
-    };
+    let counts = { latam: 0, smiles: 0, livelo: 0, esfera: 0 };
 
     for (const c of cedentes) {
       const pLatam = Number(c.pontosLatam || 0);
@@ -279,22 +267,10 @@ export default function CaixaImediatoClient() {
       const pLivelo = Number(c.pontosLivelo || 0);
       const pEsfera = Number(c.pontosEsfera || 0);
 
-      if (pLatam >= cutoff) {
-        pts.latam += pLatam;
-        counts.latam += 1;
-      }
-      if (pSmiles >= cutoff) {
-        pts.smiles += pSmiles;
-        counts.smiles += 1;
-      }
-      if (pLivelo >= cutoff) {
-        pts.livelo += pLivelo;
-        counts.livelo += 1;
-      }
-      if (pEsfera >= cutoff) {
-        pts.esfera += pEsfera;
-        counts.esfera += 1;
-      }
+      if (pLatam >= cutoff) { pts.latam += pLatam; counts.latam += 1; }
+      if (pSmiles >= cutoff) { pts.smiles += pSmiles; counts.smiles += 1; }
+      if (pLivelo >= cutoff) { pts.livelo += pLivelo; counts.livelo += 1; }
+      if (pEsfera >= cutoff) { pts.esfera += pEsfera; counts.esfera += 1; }
     }
 
     return { cutoff, pts, counts };
@@ -307,11 +283,11 @@ export default function CaixaImediatoClient() {
     const milLivelo = Math.floor((eligible.pts.livelo || 0) / 1000);
     const milEsfera = Math.floor((eligible.pts.esfera || 0) / 1000);
 
-    // rates (R$/milheiro)
-    const rLatam = rateInputToNumber(rateLatam);
-    const rSmiles = rateInputToNumber(rateSmiles);
-    const rLivelo = rateInputToNumber(rateLivelo);
-    const rEsfera = rateInputToNumber(rateEsfera);
+    // ✅ rates (do resumo). Se ainda não carregou, trata como 0.
+    const rLatam = (ratesCents?.latamRateCents ?? 0) / 100;
+    const rSmiles = (ratesCents?.smilesRateCents ?? 0) / 100;
+    const rLivelo = (ratesCents?.liveloRateCents ?? 0) / 100;
+    const rEsfera = (ratesCents?.esferaRateCents ?? 0) / 100;
 
     // valor das milhas elegíveis
     const vLatamCents = Math.round(milLatam * rLatam * 100);
@@ -330,7 +306,7 @@ export default function CaixaImediatoClient() {
     // ✅ subtrai dívidas abertas
     const afterDebtsCents = totalGrossCents - (debtsOpenCents || 0);
 
-    // ✅ subtrai o BLOQUEADO (OPEN) (pedido)
+    // ✅ subtrai o BLOQUEADO (OPEN)
     const afterBlockedCents = afterDebtsCents - (blockedTotals.valueBlockedCents || 0);
 
     // ✅ subtrai pendências operacionais
@@ -341,43 +317,23 @@ export default function CaixaImediatoClient() {
       (taxesPendingCents || 0);
 
     // ✅ caixa projetado (só caixa + a receber - a pagar func - impostos - bloqueado)
-    const cashProjectedCalcCents =
+    const cashProjectedCents =
       cashCents +
       receivableCents -
       (employeePayoutsPendingCents || 0) -
       (taxesPendingCents || 0) -
       (blockedTotals.valueBlockedCents || 0);
 
-    const cashProjectedCents =
-      cashProjectedFromApiCents != null ? cashProjectedFromApiCents : cashProjectedCalcCents;
-
     return {
-      milLatam,
-      milSmiles,
-      milLivelo,
-      milEsfera,
-      vLatamCents,
-      vSmilesCents,
-      vLiveloCents,
-      vEsferaCents,
+      milLatam, milSmiles, milLivelo, milEsfera,
+      vLatamCents, vSmilesCents, vLiveloCents, vEsferaCents,
       milesValueEligibleCents,
-
-      cashCents,
-      receivableCents,
-
-      totalGrossCents,
-      afterDebtsCents,
-      afterBlockedCents,
-      totalImmediateCents,
-
+      cashCents, receivableCents,
+      totalGrossCents, afterDebtsCents, afterBlockedCents, totalImmediateCents,
       cashProjectedCents,
     };
   }, [
     eligible,
-    rateLatam,
-    rateSmiles,
-    rateLivelo,
-    rateEsfera,
     cashInput,
     receivablesOpenCents,
     debtsOpenCents,
@@ -385,28 +341,26 @@ export default function CaixaImediatoClient() {
     pendingCedenteCommissionsCents,
     employeePayoutsPendingCents,
     taxesPendingCents,
-    cashProjectedFromApiCents,
+    ratesCents,
   ]);
 
   async function salvarCaixaHoje() {
     try {
-      const res = await fetch("/api/resumo/snapshot", {
+      const res = await fetch("/api/caixa-imediato/snapshot", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           cashCents: calc.cashCents,
-          // aqui salva “snapshot” do jeito clássico (bruto − dívidas)
-          // mas usando o bruto DO CAIXA IMEDIATO (milhas elegíveis + caixa + a receber)
           totalBrutoCents: calc.totalGrossCents,
           totalDividasCents: debtsOpenCents,
-          totalLiquidoCents: calc.afterDebtsCents,
+          totalLiquidoCents: calc.afterDebtsCents, // histórico “clássico” (bruto − dívidas)
         }),
       });
 
       const j = await res.json();
       if (!j?.ok) throw new Error(j?.error || "Erro ao salvar snapshot");
       await loadAll();
-      alert("✅ Snapshot do dia salvo!");
+      alert("✅ Snapshot do Caixa Imediato salvo!");
     } catch (e: any) {
       alert(e.message);
     }
@@ -445,20 +399,14 @@ export default function CaixaImediatoClient() {
           />
 
           <div className="rounded-xl border bg-slate-50 p-3 md:col-span-2">
-            <div className="text-xs text-slate-600">Elegíveis (cedentes com saldo ≥ {fmtInt(eligible.cutoff)})</div>
+            <div className="text-xs text-slate-600">
+              Elegíveis (cedentes com saldo ≥ {fmtInt(eligible.cutoff)})
+            </div>
             <div className="mt-1 grid gap-2 sm:grid-cols-4 text-sm">
-              <div>
-                LATAM: <b>{fmtInt(eligible.counts.latam)}</b>
-              </div>
-              <div>
-                Smiles: <b>{fmtInt(eligible.counts.smiles)}</b>
-              </div>
-              <div>
-                Livelo: <b>{fmtInt(eligible.counts.livelo)}</b>
-              </div>
-              <div>
-                Esfera: <b>{fmtInt(eligible.counts.esfera)}</b>
-              </div>
+              <div>LATAM: <b>{fmtInt(eligible.counts.latam)}</b></div>
+              <div>Smiles: <b>{fmtInt(eligible.counts.smiles)}</b></div>
+              <div>Livelo: <b>{fmtInt(eligible.counts.livelo)}</b></div>
+              <div>Esfera: <b>{fmtInt(eligible.counts.esfera)}</b></div>
             </div>
             <div className="text-xs text-slate-500 mt-1">
               Cedentes abaixo do corte são ignorados no cálculo de milhas.
@@ -479,18 +427,10 @@ export default function CaixaImediatoClient() {
           </div>
 
           <div className="grid gap-2 sm:grid-cols-2 text-sm">
-            <div>
-              LATAM: <b>{fmtInt(eligible.pts.latam)}</b>
-            </div>
-            <div>
-              Smiles: <b>{fmtInt(eligible.pts.smiles)}</b>
-            </div>
-            <div>
-              Livelo: <b>{fmtInt(eligible.pts.livelo)}</b>
-            </div>
-            <div>
-              Esfera: <b>{fmtInt(eligible.pts.esfera)}</b>
-            </div>
+            <div>LATAM: <b>{fmtInt(eligible.pts.latam)}</b></div>
+            <div>Smiles: <b>{fmtInt(eligible.pts.smiles)}</b></div>
+            <div>Livelo: <b>{fmtInt(eligible.pts.livelo)}</b></div>
+            <div>Esfera: <b>{fmtInt(eligible.pts.esfera)}</b></div>
           </div>
 
           <div className="rounded-xl border bg-slate-50 p-3">
@@ -499,7 +439,8 @@ export default function CaixaImediatoClient() {
           </div>
 
           <div className="text-xs text-slate-600">
-            * usa milheiros inteiros: <b>floor(pontos/1000)</b>.
+            * usa milheiros inteiros: <b>floor(pontos/1000)</b>. <br/>
+            * valor do milheiro vem do <b>Resumo</b> (somente leitura).
           </div>
         </div>
 
@@ -508,7 +449,7 @@ export default function CaixaImediatoClient() {
           <div className="flex items-center justify-between">
             <div className="font-semibold">Caixa (Inter)</div>
             <span className="text-[11px] rounded-full bg-slate-100 px-2 py-1 text-slate-600">
-              snapshot diário
+              snapshot diário (desta página)
             </span>
           </div>
 
@@ -534,7 +475,9 @@ export default function CaixaImediatoClient() {
             Salvar caixa de hoje
           </button>
 
-          <div className="text-xs text-slate-600">Grava/atualiza o snapshot do dia no histórico.</div>
+          <div className="text-xs text-slate-600">
+            Grava/atualiza o snapshot do dia no histórico <b>desta página</b>.
+          </div>
         </div>
 
         {/* Bloqueios */}
@@ -571,112 +514,20 @@ export default function CaixaImediatoClient() {
         </div>
       </div>
 
-      {/* Milheiro */}
+      {/* Totais */}
       <div className="rounded-2xl border bg-white p-4 space-y-4">
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <div className="font-semibold">Valor do milheiro</div>
-            <div className="text-xs text-slate-600">R$/1000</div>
-          </div>
-
-          <button
-            onClick={async () => {
-              try {
-                await salvarRates();
-                alert("✅ Milheiros salvos!");
-              } catch (e: any) {
-                alert(e.message);
-              }
-            }}
-            className="rounded-xl border px-4 py-2 text-sm hover:bg-slate-50"
-          >
-            Salvar milheiros
-          </button>
-        </div>
-
-        <div className="grid gap-3 sm:grid-cols-2">
-          <Input label="LATAM" value={rateLatam} onChange={setRateLatam} />
-          <Input label="Smiles" value={rateSmiles} onChange={setRateSmiles} />
-          <Input label="Livelo" value={rateLivelo} onChange={setRateLivelo} />
-          <Input label="Esfera" value={rateEsfera} onChange={setRateEsfera} />
-        </div>
-
-        <div className="grid gap-3 sm:grid-cols-2">
-          <div className="rounded-xl border p-3">
-            <div className="text-xs text-slate-600">LATAM</div>
-            <div className="text-sm">
-              Milheiros: <b>{fmtInt(calc.milLatam)}</b> • Valor: <b>{fmtMoneyBR(calc.vLatamCents)}</b>
-            </div>
-          </div>
-          <div className="rounded-xl border p-3">
-            <div className="text-xs text-slate-600">Smiles</div>
-            <div className="text-sm">
-              Milheiros: <b>{fmtInt(calc.milSmiles)}</b> • Valor: <b>{fmtMoneyBR(calc.vSmilesCents)}</b>
-            </div>
-          </div>
-          <div className="rounded-xl border p-3">
-            <div className="text-xs text-slate-600">Livelo</div>
-            <div className="text-sm">
-              Milheiros: <b>{fmtInt(calc.milLivelo)}</b> • Valor: <b>{fmtMoneyBR(calc.vLiveloCents)}</b>
-            </div>
-          </div>
-          <div className="rounded-xl border p-3">
-            <div className="text-xs text-slate-600">Esfera</div>
-            <div className="text-sm">
-              Milheiros: <b>{fmtInt(calc.milEsfera)}</b> • Valor: <b>{fmtMoneyBR(calc.vEsferaCents)}</b>
-            </div>
-          </div>
-        </div>
-
-        {/* Totais */}
         <div className="grid gap-3 md:grid-cols-4">
-          <StatCard
-            label="TOTAL BRUTO (milhas elegíveis + caixa + a receber)"
-            value={fmtMoneyBR(calc.totalGrossCents)}
-          />
-          <StatCard
-            label="A RECEBER (aberto)"
-            value={`+${fmtMoneyBR(calc.receivableCents)}`}
-            hint="saldo total OPEN"
-          />
-          <StatCard
-            label="DÍVIDAS EM ABERTO"
-            value={`-${fmtMoneyBR(debtsOpenCents)}`}
-            hint="saldo total OPEN"
-            tone="danger"
-          />
-          <StatCard
-            label="APÓS DÍVIDAS"
-            value={fmtMoneyBR(calc.afterDebtsCents)}
-            hint="bruto − dívidas"
-          />
+          <StatCard label="TOTAL BRUTO (milhas elegíveis + caixa + a receber)" value={fmtMoneyBR(calc.totalGrossCents)} />
+          <StatCard label="A RECEBER (aberto)" value={`+${fmtMoneyBR(calc.receivableCents)}`} hint="saldo total OPEN" />
+          <StatCard label="DÍVIDAS EM ABERTO" value={`-${fmtMoneyBR(debtsOpenCents)}`} hint="saldo total OPEN" tone="danger" />
+          <StatCard label="APÓS DÍVIDAS" value={fmtMoneyBR(calc.afterDebtsCents)} hint="bruto − dívidas" />
         </div>
 
         <div className="grid gap-3 md:grid-cols-4">
-          <StatCard
-            label="BLOQUEADO (OPEN)"
-            value={`-${fmtMoneyBR(blockedTotals.valueBlockedCents)}`}
-            hint="subtrai do imediato"
-            tone="danger"
-          />
-          <StatCard
-            label="COMISSÕES PENDENTES (cedentes)"
-            value={`-${fmtMoneyBR(pendingCedenteCommissionsCents)}`}
-            hint="status PENDING"
-            tone="danger"
-          />
-          <StatCard
-            label="A PAGAR (funcionários)"
-            value={`-${fmtMoneyBR(employeePayoutsPendingCents)}`}
-            hint="paidAt = null"
-            tone="danger"
-          />
-          <StatCard
-            label="IMPOSTOS PENDENTES"
-            value={`-${fmtMoneyBR(taxesPendingCents)}`}
-            hint="meses não pagos"
-            tone="danger"
-          />
+          <StatCard label="BLOQUEADO (OPEN)" value={`-${fmtMoneyBR(blockedTotals.valueBlockedCents)}`} hint="subtrai do imediato" tone="danger" />
+          <StatCard label="COMISSÕES PENDENTES (cedentes)" value={`-${fmtMoneyBR(pendingCedenteCommissionsCents)}`} hint="status PENDING" tone="danger" />
+          <StatCard label="A PAGAR (funcionários)" value={`-${fmtMoneyBR(employeePayoutsPendingCents)}`} hint="paidAt = null" tone="danger" />
+          <StatCard label="IMPOSTOS PENDENTES" value={`-${fmtMoneyBR(taxesPendingCents)}`} hint="meses não pagos" tone="danger" />
         </div>
 
         <div className="grid gap-3 md:grid-cols-4">

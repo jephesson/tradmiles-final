@@ -910,3 +910,19 @@ model TaxMonthPayment {
   @@index([paidAt])
   @@map("tax_month_payments")
 }
+
+model CaixaImediatoSnapshot {
+  id              String   @id @default(cuid())
+  team            String
+  date            String   // YYYY-MM-DD (mais fácil p/ upsert e lista)
+  cashCents        Int     @default(0)
+  totalBrutoCents  Int     @default(0)
+  totalDividasCents Int    @default(0)
+  totalLiquidoCents Int    @default(0)
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([team, date])
+  @@index([team, date])
+}
