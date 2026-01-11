@@ -9,13 +9,11 @@ type Program = "LATAM" | "SMILES" | "LIVELO" | "ESFERA";
 type ProgramOrAll = Program | "ALL";
 type TopMode = "MONTH" | "TOTAL";
 
-/* =========================
-   Utils
-========================= */
 function clampInt(v: any, fb = 0, min = -Infinity, max = Infinity) {
   const n = Number(v);
   if (!Number.isFinite(n)) return fb;
-  return Math.max(min, Math.min(max, Math.trunc(n)));
+  const x = Math.trunc(n);
+  return Math.max(min, Math.min(max, x));
 }
 
 function isYYYYMM(v: string) {
@@ -33,66 +31,80 @@ function isoMonthNowSP() {
       acc[p.type] = p.value;
       return acc;
     }, {});
-  return `${parts.year}-${parts.month}`;
+  return `${parts.year}-${parts.month}`; // YYYY-MM
 }
 
 function monthStartUTC(yyyyMm: string) {
-  const [y, m] = yyyyMm.split("-").map(Number);
-  return new Date(Date.UTC(y, m - 1, 1));
+  const [y, m] = yyyyMm.split("-").map((x) => Number(x));
+  return new Date(Date.UTC(y, (m || 1) - 1, 1, 0, 0, 0, 0));
 }
 
-function addMonthsUTC(d: Date, n: number) {
-  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + n, 1));
+function addMonthsUTC(d: Date, delta: number) {
+  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + delta, 1, 0, 0, 0, 0));
 }
 
 function monthKeyUTC(d: Date) {
-  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
+  const y = d.getUTCFullYear();
+  const m = String(d.getUTCMonth() + 1).padStart(2, "0");
+  return `${y}-${m}`;
 }
 
 function monthLabelPT(yyyyMm: string) {
-  return new Intl.DateTimeFormat("pt-BR", {
-    month: "short",
-    year: "numeric",
-    timeZone: "UTC",
-  })
-    .format(monthStartUTC(yyyyMm))
+  const dt = monthStartUTC(yyyyMm);
+  return new Intl.DateTimeFormat("pt-BR", { month: "short", year: "numeric", timeZone: "UTC" })
+    .format(dt)
     .replace(".", "");
 }
 
 const DOW_PT = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
 
-function pointsValueCents(points: number, milheiroCents: number) {
-  return Math.round(((points || 0) / 1000) * (milheiroCents || 0));
+function dowLabelFromUTCDate(d: Date) {
+  return DOW_PT[d.getUTCDay()] || "—";
 }
 
-/* =========================
-   Route
-========================= */
+function pointsValueCents(points: number, milheiroCents: number) {
+  const p = Math.max(0, Number(points || 0));
+  const mk = Math.max(0, Number(milheiroCents || 0));
+  const denom = p / 1000;
+  if (denom <= 0) return 0;
+  return Math.round(denom * mk);
+}
+
 export async function GET(req: NextRequest) {
   try {
-    await requireSession();
+    const sess = await requireSession();
+    const team = String((sess as any)?.team || "");
+    const role = String((sess as any)?.role || "");
+
+    if (!team) {
+      return NextResponse.json({ ok: false, error: "Não autenticado" }, { status: 401 });
+    }
+    if (role !== "admin") {
+      return NextResponse.json({ ok: false, error: "Sem permissão." }, { status: 403 });
+    }
 
     const { searchParams } = new URL(req.url);
 
     const monthParam = (searchParams.get("month") || "").trim();
     const month = isYYYYMM(monthParam) ? monthParam : isoMonthNowSP();
 
-    const programParam = (searchParams.get("program") || "ALL").toUpperCase();
+    const programParam = (searchParams.get("program") || "ALL").toUpperCase().trim();
     const program: ProgramOrAll =
-      ["LATAM", "SMILES", "LIVELO", "ESFERA"].includes(programParam)
+      programParam === "LATAM" || programParam === "SMILES" || programParam === "LIVELO" || programParam === "ESFERA"
         ? (programParam as Program)
         : "ALL";
 
     const monthsBack = clampInt(searchParams.get("monthsBack"), 12, 1, 36);
 
-    const topMode: TopMode =
-      (searchParams.get("topMode") || "").toUpperCase() === "TOTAL"
-        ? "TOTAL"
-        : "MONTH";
+    const topModeParam = (searchParams.get("topMode") || "MONTH").toUpperCase().trim();
+    const topMode: TopMode = topModeParam === "TOTAL" ? "TOTAL" : "MONTH";
 
-    const topProgramParam = (searchParams.get("topProgram") || program).toUpperCase();
+    const topProgramParam = (searchParams.get("topProgram") || "ALL").toUpperCase().trim();
     const topProgram: ProgramOrAll =
-      ["LATAM", "SMILES", "LIVELO", "ESFERA"].includes(topProgramParam)
+      topProgramParam === "LATAM" ||
+      topProgramParam === "SMILES" ||
+      topProgramParam === "LIVELO" ||
+      topProgramParam === "ESFERA"
         ? (topProgramParam as Program)
         : "ALL";
 
@@ -104,181 +116,247 @@ export async function GET(req: NextRequest) {
     const histStart = addMonthsUTC(mStart, -(monthsBack - 1));
     const histEnd = mEnd;
 
-    /* =========================
-       SALES (histórico)
-    ========================= */
+    // =========================
+    // 1) SALES (histórico p/ gráficos + mês selecionado)
+    // =========================
     const salesHist = await prisma.sale.findMany({
-      where: { date: { gte: histStart, lt: histEnd } },
+      where: {
+        date: { gte: histStart, lt: histEnd },
+        ...(program !== "ALL" ? { program } : {}),
+        // filtra por time via seller.team
+        seller: { team },
+      },
       select: {
+        id: true,
         date: true,
         program: true,
         points: true,
         passengers: true,
         milheiroCents: true,
         embarqueFeeCents: true,
+
         seller: { select: { id: true, name: true, login: true } },
         cliente: { select: { id: true, nome: true, identificador: true } },
       },
       orderBy: { date: "asc" },
     });
 
-    const monthSalesAll = salesHist.filter(
-      (s) => s.date >= mStart && s.date < mEnd
-    );
-    const monthSales =
-      program === "ALL"
-        ? monthSalesAll
-        : monthSalesAll.filter((s) => s.program === program);
+    const monthSales = salesHist.filter((s) => {
+      const d = new Date(s.date as any);
+      return d >= mStart && d < mEnd;
+    });
 
-    /* =========================
-       Resumo do mês
-    ========================= */
+    // =========================
+    // 2) RESUMO DO MÊS (bruto sem taxa + pax + etc)
+    // =========================
     let grossMonth = 0;
     let feeMonth = 0;
+    let totalMonth = 0;
     let paxMonth = 0;
 
     for (const s of monthSales) {
-      grossMonth += pointsValueCents(s.points, s.milheiroCents);
-      feeMonth += s.embarqueFeeCents || 0;
-      paxMonth += s.passengers || 0;
+      const gross = pointsValueCents(Number(s.points || 0), Number(s.milheiroCents || 0));
+      const fee = Math.max(0, Number(s.embarqueFeeCents || 0));
+      grossMonth += gross;
+      feeMonth += fee;
+      totalMonth += gross + fee;
+      paxMonth += Math.max(0, Number(s.passengers || 0));
     }
 
-    /* =========================
-       Dia da semana
-    ========================= */
-    const byDow = DOW_PT.map((d) => ({
-      dow: d,
-      grossCents: 0,
-      salesCount: 0,
-      passengers: 0,
-    }));
+    // =========================
+    // 3) DIA DA SEMANA (comparativo + melhor dia)
+    // =========================
+    const byDow = new Map<string, { gross: number; sales: number; pax: number }>();
+    for (const lab of DOW_PT) byDow.set(lab, { gross: 0, sales: 0, pax: 0 });
 
     for (const s of monthSales) {
-      const idx = s.date.getUTCDay();
-      byDow[idx].grossCents += pointsValueCents(s.points, s.milheiroCents);
-      byDow[idx].salesCount += 1;
-      byDow[idx].passengers += s.passengers || 0;
+      const d = new Date(s.date as any);
+      const lab = dowLabelFromUTCDate(d);
+      const cur = byDow.get(lab) || { gross: 0, sales: 0, pax: 0 };
+      const gross = pointsValueCents(Number(s.points || 0), Number(s.milheiroCents || 0));
+      cur.gross += gross;
+      cur.sales += 1;
+      cur.pax += Math.max(0, Number(s.passengers || 0));
+      byDow.set(lab, cur);
     }
 
-    const bestDayOfWeek =
-      byDow.reduce((a, b) => (b.grossCents > a.grossCents ? b : a)) ?? byDow[0];
+    const byDowArr = DOW_PT.map((lab) => {
+      const v = byDow.get(lab) || { gross: 0, sales: 0, pax: 0 };
+      const pct = grossMonth > 0 ? v.gross / grossMonth : 0;
+      return { dow: lab, grossCents: v.gross, pct, salesCount: v.sales, passengers: v.pax };
+    });
 
-    /* =========================
-       Vendas por funcionário
-    ========================= */
-    const empMap = new Map<
+    let best = byDowArr[0] || { dow: "—", grossCents: 0, pct: 0, salesCount: 0, passengers: 0 };
+    for (const r of byDowArr) if (r.grossCents > best.grossCents) best = r;
+
+    // =========================
+    // 4) VENDAS POR FUNCIONÁRIO (mês)
+    // =========================
+    const byEmp = new Map<
       string,
-      { id: string; name: string; login: string; gross: number; sales: number; pax: number }
+      { id: string; name: string; login: string; grossCents: number; salesCount: number; passengers: number }
     >();
 
     for (const s of monthSales) {
-      if (!s.seller) continue;
+      const u = s.seller;
+      if (!u?.id) continue;
 
+      const key = u.id;
       const cur =
-        empMap.get(s.seller.id) || {
-          id: s.seller.id,
-          name: s.seller.name,
-          login: s.seller.login,
-          gross: 0,
-          sales: 0,
-          pax: 0,
-        };
+        byEmp.get(key) || { id: u.id, name: u.name, login: u.login, grossCents: 0, salesCount: 0, passengers: 0 };
 
-      cur.gross += pointsValueCents(s.points, s.milheiroCents);
-      cur.sales += 1;
-      cur.pax += s.passengers || 0;
+      cur.grossCents += pointsValueCents(Number(s.points || 0), Number(s.milheiroCents || 0));
+      cur.salesCount += 1;
+      cur.passengers += Math.max(0, Number(s.passengers || 0));
 
-      empMap.set(s.seller.id, cur);
+      byEmp.set(key, cur);
     }
 
-    const byEmployee = Array.from(empMap.values()).sort(
-      (a, b) => b.gross - a.gross
-    );
+    const byEmployee = Array.from(byEmp.values()).sort((a, b) => b.grossCents - a.grossCents);
 
-    /* =========================
-       Evolução mensal
-    ========================= */
-    const months: any[] = [];
-    const agg = new Map<string, any>();
-
+    // =========================
+    // 5) EVOLUÇÃO MÊS A MÊS + MÉDIA (histórico)
+    // =========================
+    const monthKeys: string[] = [];
     for (let i = 0; i < monthsBack; i++) {
-      const k = monthKeyUTC(addMonthsUTC(histStart, i));
-      agg.set(k, { gross: 0, pax: 0, LATAM: 0, SMILES: 0, LIVELO: 0, ESFERA: 0 });
+      monthKeys.push(monthKeyUTC(addMonthsUTC(histStart, i)));
+    }
+
+    const aggByMonth = new Map<
+      string,
+      { gross: number; sales: number; pax: number; latam: number; smiles: number; livelo: number; esfera: number }
+    >();
+
+    for (const k of monthKeys) {
+      aggByMonth.set(k, { gross: 0, sales: 0, pax: 0, latam: 0, smiles: 0, livelo: 0, esfera: 0 });
     }
 
     for (const s of salesHist) {
-      const k = monthKeyUTC(s.date);
-      const cur = agg.get(k);
+      const d = new Date(s.date as any);
+      const k = monthKeyUTC(d);
+      const cur = aggByMonth.get(k);
       if (!cur) continue;
 
-      const gross = pointsValueCents(s.points, s.milheiroCents);
+      const gross = pointsValueCents(Number(s.points || 0), Number(s.milheiroCents || 0));
       cur.gross += gross;
-      cur.pax += s.passengers || 0;
-      cur[s.program] += gross;
+      cur.sales += 1;
+      cur.pax += Math.max(0, Number(s.passengers || 0));
+
+      if (s.program === "LATAM") cur.latam += gross;
+      else if (s.program === "SMILES") cur.smiles += gross;
+      else if (s.program === "LIVELO") cur.livelo += gross;
+      else if (s.program === "ESFERA") cur.esfera += gross;
     }
 
-    let avgSum = 0;
-    for (const [k, v] of agg.entries()) {
-      avgSum += v.gross;
-      months.push({
+    const months = monthKeys.map((k) => {
+      const cur = aggByMonth.get(k)!;
+      return {
         key: k,
         label: monthLabelPT(k),
-        grossCents: v.gross,
-        passengers: v.pax,
-        byProgram: {
-          LATAM: v.LATAM,
-          SMILES: v.SMILES,
-          LIVELO: v.LIVELO,
-          ESFERA: v.ESFERA,
-        },
+        grossCents: cur.gross,
+        salesCount: cur.sales,
+        passengers: cur.pax,
+        byProgram: { LATAM: cur.latam, SMILES: cur.smiles, LIVELO: cur.livelo, ESFERA: cur.esfera },
+      };
+    });
+
+    const avgMonthlyGrossCents =
+      months.length > 0 ? Math.round(months.reduce((acc, m) => acc + (m.grossCents || 0), 0) / months.length) : 0;
+
+    // =========================
+    // 6) CLUBES POR MÊS (SMILES + LATAM)
+    // =========================
+    let clubsByMonth: Array<{ key: string; label: string; smiles: number; latam: number }> = monthKeys.map((k) => ({
+      key: k,
+      label: monthLabelPT(k),
+      smiles: 0,
+      latam: 0,
+    }));
+
+    const clubs = await prisma.clubSubscription.findMany({
+      where: {
+        team,
+        subscribedAt: { gte: histStart, lt: histEnd },
+        program: { in: ["SMILES", "LATAM"] },
+      },
+      select: { subscribedAt: true, program: true },
+    });
+
+    {
+      const idx = new Map<string, { smiles: number; latam: number }>();
+      for (const k of monthKeys) idx.set(k, { smiles: 0, latam: 0 });
+
+      for (const c of clubs) {
+        const d = new Date(c.subscribedAt as any);
+        const k = monthKeyUTC(d);
+        const cur = idx.get(k);
+        if (!cur) continue;
+        if (c.program === "SMILES") cur.smiles += 1;
+        if (c.program === "LATAM") cur.latam += 1;
+      }
+
+      clubsByMonth = monthKeys.map((k) => {
+        const cur = idx.get(k) || { smiles: 0, latam: 0 };
+        return { key: k, label: monthLabelPT(k), smiles: cur.smiles, latam: cur.latam };
       });
     }
 
-    const avgMonthlyGrossCents =
-      months.length > 0 ? Math.round(avgSum / months.length) : 0;
-
-    /* =========================
-       TOP CLIENTES
-    ========================= */
-    const topWhere: any = {};
-    if (topMode === "MONTH") topWhere.date = { gte: mStart, lt: mEnd };
-    if (topProgram !== "ALL") topWhere.program = topProgram;
+    // =========================
+    // 7) TOP CLIENTES (mês OU total, com filtro de programa)
+    // =========================
+    const topWhere: any = {
+      seller: { team },
+      ...(topMode === "MONTH" ? { date: { gte: mStart, lt: mEnd } } : { date: { gte: histStart, lt: histEnd } }),
+      ...(topProgram !== "ALL" ? { program: topProgram } : {}),
+    };
 
     const topSales = await prisma.sale.findMany({
       where: topWhere,
       select: {
         points: true,
-        milheiroCents: true,
         passengers: true,
+        milheiroCents: true,
         cliente: { select: { id: true, nome: true, identificador: true } },
       },
     });
 
-    const byClient = new Map<string, any>();
+    const byClient = new Map<
+      string,
+      { id: string; nome: string; identificador: string; gross: number; sales: number; pax: number }
+    >();
 
     for (const s of topSales) {
-      if (!s.cliente) continue;
+      const c = s.cliente;
+      if (!c?.id) continue;
 
+      const key = c.id;
       const cur =
-        byClient.get(s.cliente.id) || {
-          id: s.cliente.id,
-          nome: s.cliente.nome,
-          identificador: s.cliente.identificador,
+        byClient.get(key) || {
+          id: c.id,
+          nome: c.nome,
+          identificador: c.identificador || "—",
           gross: 0,
           sales: 0,
           pax: 0,
         };
 
-      cur.gross += pointsValueCents(s.points, s.milheiroCents);
+      cur.gross += pointsValueCents(Number(s.points || 0), Number(s.milheiroCents || 0));
       cur.sales += 1;
-      cur.pax += s.passengers || 0;
-
-      byClient.set(s.cliente.id, cur);
+      cur.pax += Math.max(0, Number(s.passengers || 0));
+      byClient.set(key, cur);
     }
 
     const topClients = Array.from(byClient.values())
       .sort((a, b) => b.gross - a.gross)
-      .slice(0, topLimit);
+      .slice(0, topLimit)
+      .map((x) => ({
+        id: x.id,
+        nome: x.nome,
+        identificador: x.identificador,
+        grossCents: x.gross,
+        salesCount: x.sales,
+        passengers: x.pax,
+      }));
 
     return NextResponse.json({
       ok: true,
@@ -286,24 +364,25 @@ export async function GET(req: NextRequest) {
 
       summary: {
         monthLabel: monthLabelPT(month),
-        grossCents: grossMonth,
+        grossCents: grossMonth, // bruto sem taxa
         feeCents: feeMonth,
-        totalCents: grossMonth + feeMonth,
+        totalCents: totalMonth,
         salesCount: monthSales.length,
         passengers: paxMonth,
-        bestDayOfWeek,
+        bestDayOfWeek: best,
       },
 
-      byDow,
+      byDow: byDowArr,
       byEmployee,
-      months,
+
+      months, // evolução mês a mês + por programa
       avgMonthlyGrossCents,
+
+      clubsByMonth, // smiles/latam por mês
+
       topClients,
     });
   } catch (e: any) {
-    return NextResponse.json(
-      { ok: false, error: e?.message || "Erro no analytics." },
-      { status: 400 }
-    );
+    return NextResponse.json({ ok: false, error: e?.message || "Erro no analytics." }, { status: 400 });
   }
 }

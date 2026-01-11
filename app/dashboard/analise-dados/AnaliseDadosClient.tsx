@@ -12,15 +12,7 @@ function fmtInt(n: number) {
 
 type Analytics = any;
 
-function Card({
-  title,
-  value,
-  sub,
-}: {
-  title: string;
-  value: string;
-  sub?: string;
-}) {
+function Card({ title, value, sub }: { title: string; value: string; sub?: string }) {
   return (
     <div className="rounded-2xl border bg-white p-4 shadow-sm">
       <div className="text-xs text-neutral-500">{title}</div>
@@ -31,13 +23,7 @@ function Card({
 }
 
 // ======= charts simples (sem libs) =======
-function SimpleLineChart({
-  data,
-  height = 160,
-}: {
-  data: Array<{ x: string; y: number }>;
-  height?: number;
-}) {
+function SimpleLineChart({ data, height = 160 }: { data: Array<{ x: string; y: number }>; height?: number }) {
   const w = 900;
   const h = height;
   const pad = 24;
@@ -49,9 +35,7 @@ function SimpleLineChart({
     const t = (v - ymin) / (ymax - ymin || 1);
     return h - pad - t * (h - pad * 2);
   };
-  const points = data
-    .map((d, i) => `${pad + i * dx},${scaleY(d.y)}`)
-    .join(" ");
+  const points = data.map((d, i) => `${pad + i * dx},${scaleY(d.y)}`).join(" ");
 
   return (
     <div className="rounded-2xl border bg-white p-4 shadow-sm">
@@ -73,13 +57,7 @@ function SimpleLineChart({
   );
 }
 
-function SimpleBarChart({
-  title,
-  data,
-}: {
-  title: string;
-  data: Array<{ label: string; value: number; pct?: number }>;
-}) {
+function SimpleBarChart({ title, data }: { title: string; data: Array<{ label: string; value: number; pct?: number }> }) {
   const max = Math.max(1, ...data.map((d) => d.value));
   return (
     <div className="rounded-2xl border bg-white p-4 shadow-sm">
@@ -107,26 +85,32 @@ function SimpleBarChart({
 }
 
 export default function AnaliseDadosClient() {
-  const [months, setMonths] = useState<number>(12);
+  const [monthsBack, setMonthsBack] = useState<number>(12);
   const [focusYM, setFocusYM] = useState<string>(""); // YYYY-MM
   const [loading, setLoading] = useState(false);
   const [data, setData] = useState<Analytics | null>(null);
 
-  const [topPeriod, setTopPeriod] = useState<"FOCUS" | "RANGE">("FOCUS");
+  const [topPeriod, setTopPeriod] = useState<"MONTH" | "TOTAL">("MONTH");
   const [topProgram, setTopProgram] = useState<"ALL" | "LATAM" | "SMILES">("ALL");
 
   async function load() {
     setLoading(true);
     try {
       const qs = new URLSearchParams();
-      qs.set("months", String(months));
-      if (focusYM) qs.set("focus", focusYM);
+      qs.set("monthsBack", String(monthsBack));
+      if (focusYM) qs.set("month", focusYM);
+
+      // top clientes
+      qs.set("topMode", topPeriod);
+      qs.set("topProgram", topProgram);
+      qs.set("topLimit", "10");
+
       const res = await fetch(`/api/analytics?${qs.toString()}`, { cache: "no-store" });
       const j = await res.json();
       setData(j);
 
-      // se não tiver focusYM ainda, setar pro que veio
-      if (!focusYM && j?.focus?.ym) setFocusYM(j.focus.ym);
+      // define mês foco automaticamente (se não tiver ainda)
+      if (!focusYM && j?.filters?.month) setFocusYM(j.filters.month);
     } finally {
       setLoading(false);
     }
@@ -135,75 +119,76 @@ export default function AnaliseDadosClient() {
   useEffect(() => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [months, focusYM]);
+  }, [monthsBack, focusYM, topPeriod, topProgram]);
 
-  const monthOptions = useMemo(() => data?.range?.monthKeys || [], [data]);
-
-  const kpis = useMemo(() => {
-    if (!data) return null;
-    const total = data.totalsFocus?.grossCents || 0;
-    const pax = data.totalsFocus?.passengers || 0;
-    const count = data.totalsFocus?.salesCount || 0;
-    const latam = data.totalsFocus?.byProgram?.LATAM || 0;
-    const smiles = data.totalsFocus?.byProgram?.SMILES || 0;
-
-    // clubes do mês foco
-    const clubsRow = (data.clubsByMonth || []).find((x: any) => x.month === data.focus.ym);
-    const clubsLatam = clubsRow?.LATAM || 0;
-    const clubsSmiles = clubsRow?.SMILES || 0;
-
-    return { total, pax, count, latam, smiles, clubsLatam, clubsSmiles };
+  const monthOptions = useMemo(() => {
+    const arr = (data?.months || []) as any[];
+    // ordena do mais recente pro mais antigo no select
+    return [...arr].map((m) => m.key).reverse();
   }, [data]);
 
+  const kpis = useMemo(() => {
+    if (!data?.summary) return null;
+
+    const gross = data.summary.grossCents || 0;
+    const pax = data.summary.passengers || 0;
+    const count = data.summary.salesCount || 0;
+
+    // total por programa no mês foco (vem de data.months)
+    const monthRow = (data.months || []).find((m: any) => m.key === (data.filters?.month || focusYM));
+    const latam = monthRow?.byProgram?.LATAM || 0;
+    const smiles = monthRow?.byProgram?.SMILES || 0;
+
+    // clubes do mês foco
+    const clubRow = (data.clubsByMonth || []).find((c: any) => c.key === (data.filters?.month || focusYM));
+    const clubsLatam = clubRow?.latam || 0;
+    const clubsSmiles = clubRow?.smiles || 0;
+
+    return { gross, pax, count, latam, smiles, clubsLatam, clubsSmiles };
+  }, [data, focusYM]);
+
   const lineData = useMemo(() => {
-    if (!data?.byMonth) return [];
-    return (data.byMonth as any[]).map((m) => ({
-      x: m.month,
+    return (data?.months || []).map((m: any) => ({
+      x: m.label || m.key,
       y: m.grossCents || 0,
     }));
   }, [data]);
 
   const weekdayBars = useMemo(() => {
-    if (!data?.byWeekday) return [];
-    return (data.byWeekday as any[]).map((d) => ({
-      label: d.day,
+    return (data?.byDow || []).map((d: any) => ({
+      label: d.dow,
       value: d.grossCents || 0,
-      pct: d.pctGross || 0,
+      pct: d.pct || 0,
     }));
   }, [data]);
 
   const programByMonthBars = useMemo(() => {
-    if (!data?.byMonth) return [];
-    // aqui só usamos KPIs e você pode expandir depois pra um gráfico específico por programa
-    return (data.byMonth as any[]).map((m) => ({
-      month: m.month,
-      LATAM: m.byProgram?.LATAM?.grossCents || 0,
-      SMILES: m.byProgram?.SMILES?.grossCents || 0,
+    return (data?.months || []).map((m: any) => ({
+      month: m.label || m.key,
+      LATAM: m.byProgram?.LATAM || 0,
+      SMILES: m.byProgram?.SMILES || 0,
     }));
   }, [data]);
 
   const topClients = useMemo(() => {
-    if (!data) return [];
-    const src = topPeriod === "FOCUS" ? data.topClientsFocus : data.topClientsRange;
-    const arr = src?.[topProgram] || [];
-    return arr;
-  }, [data, topPeriod, topProgram]);
+    return (data?.topClients || []) as any[];
+  }, [data]);
+
+  const best = data?.summary?.bestDayOfWeek;
 
   return (
     <div className="mx-auto w-full max-w-6xl space-y-6 p-4">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <div className="text-xl font-semibold">Análise de dados</div>
-          <div className="text-sm text-neutral-500">
-            Vendas, passageiros, dias, funcionários, clientes e clubes.
-          </div>
+          <div className="text-sm text-neutral-500">Vendas, passageiros, dias, funcionários, clientes e clubes.</div>
         </div>
 
         <div className="flex flex-wrap gap-2">
           <select
             className="rounded-xl border bg-white px-3 py-2 text-sm"
-            value={months}
-            onChange={(e) => setMonths(Number(e.target.value))}
+            value={monthsBack}
+            onChange={(e) => setMonthsBack(Number(e.target.value))}
           >
             <option value={3}>Últimos 3 meses</option>
             <option value={6}>Últimos 6 meses</option>
@@ -223,11 +208,7 @@ export default function AnaliseDadosClient() {
             ))}
           </select>
 
-          <button
-            className="rounded-xl border bg-white px-3 py-2 text-sm"
-            onClick={load}
-            disabled={loading}
-          >
+          <button className="rounded-xl border bg-white px-3 py-2 text-sm" onClick={load} disabled={loading}>
             {loading ? "Carregando..." : "Atualizar"}
           </button>
         </div>
@@ -237,7 +218,7 @@ export default function AnaliseDadosClient() {
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <Card
           title="Total vendido no mês (sem taxa embarque)"
-          value={fmtMoneyBR(kpis?.total || 0)}
+          value={fmtMoneyBR(kpis?.gross || 0)}
           sub={`Média mensal no período: ${fmtMoneyBR(data?.avgMonthlyGrossCents || 0)}`}
         />
         <Card title="Quantidade de vendas no mês" value={fmtInt(kpis?.count || 0)} />
@@ -255,12 +236,13 @@ export default function AnaliseDadosClient() {
       {/* Dias da semana */}
       <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
         <SimpleBarChart title="Comparativo por dia da semana (período)" data={weekdayBars} />
+
         <div className="rounded-2xl border bg-white p-4 shadow-sm">
           <div className="text-sm font-semibold">Dia da semana que mais vende</div>
-          <div className="mt-2 text-2xl font-semibold">{data?.bestWeekday?.day || "—"}</div>
+          <div className="mt-2 text-2xl font-semibold">{best?.dow || "—"}</div>
           <div className="mt-1 text-sm text-neutral-600">
-            {fmtMoneyBR(data?.bestWeekday?.grossCents || 0)} • {fmtInt(data?.bestWeekday?.salesCount || 0)} vendas •{" "}
-            {fmtInt(data?.bestWeekday?.passengers || 0)} pax
+            {fmtMoneyBR(best?.grossCents || 0)} • {fmtInt(best?.salesCount || 0)} vendas • {fmtInt(best?.passengers || 0)}{" "}
+            pax
           </div>
 
           <div className="mt-4 text-sm font-semibold">Vendas por programa (por mês)</div>
@@ -282,7 +264,7 @@ export default function AnaliseDadosClient() {
       {/* Funcionários (mês foco) */}
       <div className="rounded-2xl border bg-white p-4 shadow-sm">
         <div className="mb-2 flex items-center justify-between">
-          <div className="text-sm font-semibold">Total por funcionário (mês {data?.focus?.ym})</div>
+          <div className="text-sm font-semibold">Total por funcionário (mês {data?.filters?.month || focusYM})</div>
         </div>
         <div className="overflow-auto">
           <table className="w-full min-w-[720px] text-sm">
@@ -295,7 +277,7 @@ export default function AnaliseDadosClient() {
               </tr>
             </thead>
             <tbody>
-              {(data?.byEmployeeFocusMonth || []).map((r: any) => (
+              {(data?.byEmployee || []).map((r: any) => (
                 <tr key={r.id} className="border-b">
                   <td className="py-2">
                     <div className="font-medium">{r.name}</div>
@@ -306,7 +288,7 @@ export default function AnaliseDadosClient() {
                   <td className="py-2 text-right font-semibold">{fmtMoneyBR(r.grossCents)}</td>
                 </tr>
               ))}
-              {!data?.byEmployeeFocusMonth?.length ? (
+              {!data?.byEmployee?.length ? (
                 <tr>
                   <td className="py-4 text-sm text-neutral-500" colSpan={4}>
                     Sem vendas no mês foco.
@@ -328,8 +310,8 @@ export default function AnaliseDadosClient() {
               value={topPeriod}
               onChange={(e) => setTopPeriod(e.target.value as any)}
             >
-              <option value="FOCUS">Filtrar: mês selecionado</option>
-              <option value="RANGE">Filtrar: total do período</option>
+              <option value="MONTH">Filtrar: mês selecionado</option>
+              <option value="TOTAL">Filtrar: total do período</option>
             </select>
             <select
               className="rounded-xl border bg-white px-3 py-2 text-sm"
