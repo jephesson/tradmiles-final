@@ -47,6 +47,104 @@ function bonusFallback(args: { points: number; milheiroCents: number; metaMilhei
 }
 
 /* =========================
+   ✅ Fee payer resolver (via feeCardLabel)
+   - Reembolsa taxa de embarque para QUEM pagou o cartão
+   - Se for "Cartão Vias Aéreas" (empresa), IGNORA (não repassa pra ninguém)
+   - Se não conseguir inferir, cai no comportamento antigo (seller)
+========================= */
+function norm(s: string) {
+  return String(s || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim()
+    .replace(/\s+/g, " ");
+}
+
+function extractCardOwnerName(label?: string | null) {
+  let s = norm(label || "");
+  if (!s) return "";
+
+  // remove prefix "cartao " (cartão vira "cartao" após normalize)
+  if (s.startsWith("cartao ")) s = s.slice("cartao ".length).trim();
+
+  // corta sufixos: " - ...", "(...)", "[...]", "| ..."
+  for (const sep of [" - ", " (", " [", " | ", " • ", " · "]) {
+    const idx = s.indexOf(sep);
+    if (idx >= 0) {
+      s = s.slice(0, idx).trim();
+      break;
+    }
+  }
+
+  // remove caracteres estranhos mantendo letras/números/espaço
+  s = s.replace(/[^\p{L}\p{N}\s]/gu, " ").replace(/\s+/g, " ").trim();
+  return s;
+}
+
+function isCompanyCardName(owner: string) {
+  const s = norm(owner);
+  if (!s) return false;
+
+  // termos comuns de cartão PJ/empresa
+  const needles = [
+    "vias aereas",
+    "via s aereas",
+    "trademiles",
+    "empresa",
+    "corporativo",
+    "business",
+    "pj",
+    "ltda",
+    "viagens e turismo",
+  ];
+  return needles.some((k) => s.includes(k));
+}
+
+type TeamMemberLite = { id: string; nameNorm: string; loginNorm: string };
+
+function resolveFeePayerFromLabel(
+  feeCardLabel: string | null | undefined,
+  members: TeamMemberLite[]
+): { ignore: boolean; userId: string | null } {
+  const owner = extractCardOwnerName(feeCardLabel);
+  if (!owner) return { ignore: false, userId: null };
+
+  if (isCompanyCardName(owner)) return { ignore: true, userId: null };
+
+  const ownerNorm = norm(owner);
+
+  // 1) match exato por login
+  const byLogin = members.find((m) => m.loginNorm && m.loginNorm === ownerNorm);
+  if (byLogin) return { ignore: false, userId: byLogin.id };
+
+  // 2) match exato por nome
+  const byName = members.find((m) => m.nameNorm && m.nameNorm === ownerNorm);
+  if (byName) return { ignore: false, userId: byName.id };
+
+  // 3) contains (label menor ou maior)
+  let candidates = members.filter(
+    (m) =>
+      (m.nameNorm && m.nameNorm.includes(ownerNorm)) ||
+      (m.nameNorm && ownerNorm.includes(m.nameNorm)) ||
+      (m.loginNorm && ownerNorm === m.loginNorm)
+  );
+  if (candidates.length === 1) return { ignore: false, userId: candidates[0].id };
+
+  // 4) primeiro token (ex: "eduarda", "jephesson")
+  const tok = ownerNorm.split(" ")[0] || "";
+  if (tok) {
+    candidates = members.filter((m) => {
+      const firstName = (m.nameNorm.split(" ")[0] || "").trim();
+      return firstName === tok || m.loginNorm === tok || m.nameNorm.includes(tok);
+    });
+    if (candidates.length === 1) return { ignore: false, userId: candidates[0].id };
+  }
+
+  return { ignore: false, userId: null };
+}
+
+/* =========================
    ProfitShare helpers
 ========================= */
 function pickShareForDate(
@@ -198,10 +296,7 @@ export async function POST(req: Request) {
     const date = String(body?.date || "").trim();
 
     if (!date || !isISODate(date)) {
-      return NextResponse.json(
-        { ok: false, error: "date obrigatório (YYYY-MM-DD)" },
-        { status: 400 }
-      );
+      return NextResponse.json({ ok: false, error: "date obrigatório (YYYY-MM-DD)" }, { status: 400 });
     }
 
     const today = todayISORecife();
@@ -210,6 +305,24 @@ export async function POST(req: Request) {
     }
 
     const { start, end } = dayBounds(date);
+
+    // ✅ lista de membros do time (para mapear feeCardLabel -> userId)
+    // Se no teu Prisma não existir "user" com (id, name, login, team), troca aqui pro model correto.
+    let members: TeamMemberLite[] = [];
+    try {
+      const rawUsers = await prisma.user.findMany({
+        where: { team },
+        select: { id: true, name: true, login: true },
+      });
+
+      members = rawUsers.map((u) => ({
+        id: String(u.id),
+        nameNorm: norm(String((u as any)?.name || "")),
+        loginNorm: norm(String((u as any)?.login || "")),
+      }));
+    } catch {
+      members = [];
+    }
 
     // 1) preserva payouts já pagos
     const existingPayouts = await prisma.employeePayout.findMany({
@@ -276,6 +389,7 @@ export async function POST(req: Request) {
         milheiroCents: true,
         totalCents: true,
         embarqueFeeCents: true,
+        feeCardLabel: true, // ✅ usado para decidir quem recebe o reembolso da taxa
 
         commissionCents: true,
         bonusCents: true,
@@ -296,6 +410,8 @@ export async function POST(req: Request) {
         milheiroCents: number;
         totalCents: number;
         embarqueFeeCents: number;
+        feeCardLabel: string | null;
+
         pointsValueCents: number;
         commissionCents: number;
         bonusCents: number | null;
@@ -314,6 +430,8 @@ export async function POST(req: Request) {
         milheiroCents: safeInt(s.milheiroCents, 0),
         totalCents: safeInt(s.totalCents, 0),
         embarqueFeeCents: safeInt(s.embarqueFeeCents, 0),
+        feeCardLabel: (s as any)?.feeCardLabel ?? null,
+
         pointsValueCents: safeInt(s.pointsValueCents, 0),
         commissionCents: safeInt(s.commissionCents, 0),
         bonusCents: typeof s.bonusCents === "number" ? safeInt(s.bonusCents, 0) : null,
@@ -400,7 +518,7 @@ export async function POST(req: Request) {
         salesCount: 0,
       });
 
-    // 5) C1/C2 + fee por seller
+    // 5) C1/C2 por seller + ✅ fee reembolsado para quem pagou o cartão
     for (const pid of Object.keys(salesByPurchaseId)) {
       for (const s of salesByPurchaseId[pid]) {
         const sellerId = s.sellerId;
@@ -421,13 +539,22 @@ export async function POST(req: Request) {
         const c1 = chooseC1(s.points, s.commissionCents, pvSemTaxa);
         const c2 = chooseC2(s.points, safeInt(s.bonusCents ?? 0, 0), s.milheiroCents, meta);
 
-        const fee = safeInt(s.embarqueFeeCents, 0);
+        const aSeller = ensure(sellerId);
+        aSeller.commission1Cents += c1;
+        aSeller.commission2Cents += c2;
+        aSeller.salesCount += 1;
 
-        const a = ensure(sellerId);
-        a.commission1Cents += c1;
-        a.commission2Cents += c2;
-        a.feeCents += fee;
-        a.salesCount += 1;
+        const fee = safeInt(s.embarqueFeeCents, 0);
+        if (fee > 0) {
+          const { ignore, userId } = resolveFeePayerFromLabel(s.feeCardLabel, members);
+
+          // se for cartão da empresa, ignora totalmente o reembolso
+          if (!ignore) {
+            const receiverId = userId || sellerId; // fallback pro comportamento antigo
+            const aFee = ensure(receiverId);
+            aFee.feeCents += fee;
+          }
+        }
       }
     }
 
