@@ -76,12 +76,8 @@ export async function GET(req: NextRequest) {
     const team = String((sess as any)?.team || "");
     const role = String((sess as any)?.role || "");
 
-    if (!team) {
-      return NextResponse.json({ ok: false, error: "Não autenticado" }, { status: 401 });
-    }
-    if (role !== "admin") {
-      return NextResponse.json({ ok: false, error: "Sem permissão." }, { status: 403 });
-    }
+    if (!team) return NextResponse.json({ ok: false, error: "Não autenticado" }, { status: 401 });
+    if (role !== "admin") return NextResponse.json({ ok: false, error: "Sem permissão." }, { status: 403 });
 
     const { searchParams } = new URL(req.url);
 
@@ -116,6 +112,9 @@ export async function GET(req: NextRequest) {
     const histStart = addMonthsUTC(mStart, -(monthsBack - 1));
     const histEnd = mEnd;
 
+    // ✅ filtro central: NÃO contar canceladas
+    const notCanceled = { paymentStatus: { not: "CANCELED" as any } };
+
     // =========================
     // 1) SALES (histórico p/ gráficos + mês selecionado)
     // =========================
@@ -123,8 +122,8 @@ export async function GET(req: NextRequest) {
       where: {
         date: { gte: histStart, lt: histEnd },
         ...(program !== "ALL" ? { program } : {}),
-        // filtra por time via seller.team
         seller: { team },
+        ...notCanceled, // ✅ AQUI
       },
       select: {
         id: true,
@@ -134,6 +133,7 @@ export async function GET(req: NextRequest) {
         passengers: true,
         milheiroCents: true,
         embarqueFeeCents: true,
+        paymentStatus: true,
 
         seller: { select: { id: true, name: true, login: true } },
         cliente: { select: { id: true, nome: true, identificador: true } },
@@ -147,7 +147,7 @@ export async function GET(req: NextRequest) {
     });
 
     // =========================
-    // 2) RESUMO DO MÊS (bruto sem taxa + pax + etc)
+    // 2) RESUMO DO MÊS
     // =========================
     let grossMonth = 0;
     let feeMonth = 0;
@@ -164,7 +164,7 @@ export async function GET(req: NextRequest) {
     }
 
     // =========================
-    // 3) DIA DA SEMANA (comparativo + melhor dia)
+    // 3) DIA DA SEMANA
     // =========================
     const byDow = new Map<string, { gross: number; sales: number; pax: number }>();
     for (const lab of DOW_PT) byDow.set(lab, { gross: 0, sales: 0, pax: 0 });
@@ -308,6 +308,7 @@ export async function GET(req: NextRequest) {
       seller: { team },
       ...(topMode === "MONTH" ? { date: { gte: mStart, lt: mEnd } } : { date: { gte: histStart, lt: histEnd } }),
       ...(topProgram !== "ALL" ? { program: topProgram } : {}),
+      ...notCanceled, // ✅ AQUI TAMBÉM
     };
 
     const topSales = await prisma.sale.findMany({
@@ -364,7 +365,7 @@ export async function GET(req: NextRequest) {
 
       summary: {
         monthLabel: monthLabelPT(month),
-        grossCents: grossMonth, // bruto sem taxa
+        grossCents: grossMonth,
         feeCents: feeMonth,
         totalCents: totalMonth,
         salesCount: monthSales.length,
@@ -375,11 +376,10 @@ export async function GET(req: NextRequest) {
       byDow: byDowArr,
       byEmployee,
 
-      months, // evolução mês a mês + por programa
+      months,
       avgMonthlyGrossCents,
 
-      clubsByMonth, // smiles/latam por mês
-
+      clubsByMonth,
       topClients,
     });
   } catch (e: any) {
