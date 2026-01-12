@@ -61,8 +61,15 @@ export default function Sidebar() {
   const isEstrategiaCompraRoute = pathname.startsWith(
     "/dashboard/estrategia-compra"
   );
+
   const isContasSelecionadasRoute = pathname.startsWith(
     "/dashboard/contas-selecionadas"
+  );
+  const isContasSelecionadasLatamRoute = pathname.startsWith(
+    "/dashboard/contas-selecionadas/latam"
+  );
+  const isContasSelecionadasSmilesRoute = pathname.startsWith(
+    "/dashboard/contas-selecionadas/smiles"
   );
 
   // ✅ NOVO: Análise de dados
@@ -158,6 +165,13 @@ export default function Sidebar() {
 
   const [openAnalise, setOpenAnalise] = useState(isAnaliseRoute);
 
+  // ✅ novo: submenus de Contas selecionadas
+  const [openContasSelecionadas, setOpenContasSelecionadas] = useState(
+    isContasSelecionadasRoute
+  );
+  const [openContasSelecionadasLatam, setOpenContasSelecionadasLatam] =
+    useState(isContasSelecionadasLatamRoute);
+
   const [openFinanceiro, setOpenFinanceiro] = useState(isFinanceiroRoute);
 
   const [openGestorEmissoes, setOpenGestorEmissoes] =
@@ -214,6 +228,16 @@ export default function Sidebar() {
   useEffect(() => setOpenLucros(isLucrosRoute), [isLucrosRoute]);
 
   useEffect(() => setOpenAnalise(isAnaliseRoute), [isAnaliseRoute]);
+
+  // ✅ mantém aberto quando entrar em /contas-selecionadas/*
+  useEffect(() => {
+    setOpenContasSelecionadas(isContasSelecionadasRoute);
+  }, [isContasSelecionadasRoute]);
+
+  // ✅ mantém aberto quando entrar em /contas-selecionadas/latam/*
+  useEffect(() => {
+    setOpenContasSelecionadasLatam(isContasSelecionadasLatamRoute);
+  }, [isContasSelecionadasLatamRoute]);
 
   useEffect(() => setOpenFinanceiro(isFinanceiroRoute), [isFinanceiroRoute]);
 
@@ -519,15 +543,38 @@ export default function Sidebar() {
           onToggle={() => setOpenAnalise((v) => !v)}
           active={isAnaliseRoute}
         >
-          {/* ✅ NOVO ITEM */}
           <NavLink href="/dashboard/analise-dados">Análise de dados</NavLink>
 
           <NavLink href="/dashboard/estrategia-compra">
             Estratégia de compra
           </NavLink>
-          <NavLink href="/dashboard/contas-selecionadas">
-            Contas selecionadas
-          </NavLink>
+
+          {/* ✅ Contas selecionadas: Latam + Smiles; dentro de Latam: Turbo Latam */}
+          <SubAccordion
+            title="Contas selecionadas"
+            href="/dashboard/contas-selecionadas"
+            open={openContasSelecionadas}
+            onToggle={() => setOpenContasSelecionadas((v) => !v)}
+            variant="nav"
+            active={isContasSelecionadasRoute}
+          >
+            <SubAccordion
+              title="Latam"
+              href="/dashboard/contas-selecionadas/latam"
+              open={openContasSelecionadasLatam}
+              onToggle={() => setOpenContasSelecionadasLatam((v) => !v)}
+              variant="nav"
+              active={isContasSelecionadasLatamRoute}
+            >
+              <NavLink href="/dashboard/contas-selecionadas/latam/turbo">
+                Turbo Latam
+              </NavLink>
+            </SubAccordion>
+
+            <NavLink href="/dashboard/contas-selecionadas/smiles">
+              Smiles
+            </NavLink>
+          </SubAccordion>
         </Accordion>
 
         {/* ================= FINANCEIRO ================= */}
@@ -537,12 +584,8 @@ export default function Sidebar() {
           onToggle={() => setOpenFinanceiro((v) => !v)}
           active={isFinanceiroRoute}
         >
-          {/* ✅ Resumo veio pra cá (sem mudar link) */}
           <NavLink href="/dashboard/resumo">Resumo</NavLink>
-
-          {/* ✅ NOVO ITEM: Caixa imediato */}
           <NavLink href="/dashboard/caixa-imediato">Caixa imediato</NavLink>
-
           <NavLink href="/dashboard/dividas">Dívidas</NavLink>
           <NavLink href="/dashboard/recebimentos">Recebimentos</NavLink>
           <NavLink href="/dashboard/impostos">Impostos</NavLink>
