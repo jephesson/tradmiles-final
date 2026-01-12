@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/auth-server";
 import { computeStatus } from "../../route";
@@ -22,38 +22,67 @@ function parseDate(v: unknown): Date | null {
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
-export async function GET(_req: Request, ctx: { params: { id: string } }) {
+type Ctx = { params: Promise<{ id: string }> };
+
+export async function GET(_req: NextRequest, { params }: Ctx) {
   const session = await requireSession();
-  const id = String(ctx.params.id || "");
+  const { id } = await params;
 
   const row = await prisma.dividaAReceber.findFirst({
-    where: { id, team: session.team },
+    where: { id: String(id || ""), team: session.team },
     include: { payments: { orderBy: { receivedAt: "desc" } } },
   });
-  if (!row) return NextResponse.json({ ok: false, error: "Não encontrado." }, { status: 404 });
+  if (!row)
+    return NextResponse.json(
+      { ok: false, error: "Não encontrado." },
+      { status: 404 }
+    );
 
   return NextResponse.json({ ok: true, row });
 }
 
-export async function POST(req: Request, ctx: { params: { id: string } }) {
+export async function POST(req: NextRequest, { params }: Ctx) {
   const session = await requireSession();
-  const id = String(ctx.params.id || "");
+  const { id } = await params;
+
   const body = await req.json().catch(() => ({}));
 
   const parent = await prisma.dividaAReceber.findFirst({
-    where: { id, team: session.team },
+    where: { id: String(id || ""), team: session.team },
     select: { id: true, totalCents: true, receivedCents: true, status: true },
   });
-  if (!parent) return NextResponse.json({ ok: false, error: "Não encontrado." }, { status: 404 });
+  if (!parent)
+    return NextResponse.json(
+      { ok: false, error: "Não encontrado." },
+      { status: 404 }
+    );
+
   if (parent.status === "CANCELED") {
-    return NextResponse.json({ ok: false, error: "Registro cancelado. Reative para lançar recebimento." }, { status: 400 });
+    return NextResponse.json(
+      {
+        ok: false,
+        error: "Registro cancelado. Reative para lançar recebimento.",
+      },
+      { status: 400 }
+    );
   }
 
   const amountCents = safeInt(body.amountCents, 0);
-  if (amountCents <= 0) return NextResponse.json({ ok: false, error: "Valor precisa ser maior que 0." }, { status: 400 });
+  if (amountCents <= 0)
+    return NextResponse.json(
+      { ok: false, error: "Valor precisa ser maior que 0." },
+      { status: 400 }
+    );
 
   const method = String(body.method || "PIX").toUpperCase();
-  const methodFinal = ["PIX", "CARTAO", "BOLETO", "DINHEIRO", "TRANSFERENCIA", "OUTRO"].includes(method)
+  const methodFinal = [
+    "PIX",
+    "CARTAO",
+    "BOLETO",
+    "DINHEIRO",
+    "TRANSFERENCIA",
+    "OUTRO",
+  ].includes(method)
     ? method
     : "PIX";
 
@@ -63,7 +92,7 @@ export async function POST(req: Request, ctx: { params: { id: string } }) {
   const result = await prisma.$transaction(async (tx) => {
     const payment = await tx.dividaAReceberPagamento.create({
       data: {
-        dividaId: id,
+        dividaId: String(id || ""),
         amountCents,
         method: methodFinal,
         receivedAt,
@@ -71,9 +100,8 @@ export async function POST(req: Request, ctx: { params: { id: string } }) {
       },
     });
 
-    // soma pagamentos
     const agg = await tx.dividaAReceberPagamento.aggregate({
-      where: { dividaId: id },
+      where: { dividaId: String(id || "") },
       _sum: { amountCents: true },
     });
     const receivedCents = agg._sum.amountCents || 0;
@@ -81,7 +109,7 @@ export async function POST(req: Request, ctx: { params: { id: string } }) {
     const status = computeStatus(parent.totalCents, receivedCents);
 
     const updated = await tx.dividaAReceber.update({
-      where: { id },
+      where: { id: String(id || "") },
       data: { receivedCents, status },
     });
 
