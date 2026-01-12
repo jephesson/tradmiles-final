@@ -2,6 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 
+type Basis = "SALE_DATE" | "PURCHASE_FINALIZED";
+
 type UserLite = { id: string; name: string; login: string };
 type PaidByLite = { id: string; name: string } | null;
 
@@ -11,6 +13,8 @@ type Breakdown = {
   commission3RateioCents?: number; // rateio
   salesCount: number;
   taxPercent: number; // 8
+  // pode vir do backend também:
+  basis?: Basis;
 };
 
 type PayoutRow = {
@@ -167,10 +171,12 @@ function Pill({ kind, text }: { kind: "ok" | "warn" | "muted"; text: string }) {
 }
 
 export default function ComissoesFuncionariosClient() {
-  // ✅ auto-compute do dia em andamento (ajusta aqui)
+  // ✅ auto-compute do dia em andamento
   const AUTO_COMPUTE_MS = 2 * 60 * 1000; // 2 min
 
   const [date, setDate] = useState<string>(() => todayISORecife());
+  const [basis, setBasis] = useState<Basis>("SALE_DATE");
+
   const [day, setDay] = useState<DayResponse | null>(null);
 
   const [loading, setLoading] = useState(false);
@@ -196,9 +202,13 @@ export default function ComissoesFuncionariosClient() {
 
   const computeTitle = useMemo(() => {
     if (date > today) return "Não computa datas futuras";
-    if (date === today) return "Recalcular hoje (dia em andamento)";
-    return "Calcular comissões do dia fechado";
+    if (date === today) return "Hoje: recalcula durante o dia (pode mudar)";
+    return "Dia fechado: recalcular é seguro";
   }, [date, today]);
+
+  const basisLabel = useMemo(() => {
+    return basis === "SALE_DATE" ? "SALE_DATE (vendas do dia)" : "PURCHASE_FINALIZED (compras finalizadas)";
+  }, [basis]);
 
   async function loadDay(d = date) {
     setLoading(true);
@@ -223,12 +233,24 @@ export default function ComissoesFuncionariosClient() {
     }
   }
 
-  async function computeDay(d = date) {
+  // ✅ compute com force (recalcular de verdade)
+  async function computeDay(d = date, opts?: { force?: boolean }) {
     setComputing(true);
+    const force = opts?.force ?? true;
+
     try {
-      await apiPost<{ ok: true }>(`/api/payouts/funcionarios/compute`, { date: d });
+      await apiPost<any>(`/api/payouts/funcionarios/compute`, {
+        date: d,
+        basis,
+        force,
+      });
+
       await loadDay(d);
-      setToast({ title: "Dia computado!", desc: `Comissões calculadas para ${d}.` });
+
+      setToast({
+        title: force ? "Dia recalculado!" : "Dia computado!",
+        desc: `${d} • ${basisLabel}${force ? " • FORÇAR" : ""}`,
+      });
     } catch (e: any) {
       setToast({ title: "Falha ao computar o dia", desc: e?.message || String(e) });
     } finally {
@@ -236,12 +258,16 @@ export default function ComissoesFuncionariosClient() {
     }
   }
 
-  // ✅ compute silencioso (usado no auto-compute do dia de hoje)
+  // ✅ compute silencioso (auto-compute do hoje): sem force
   async function computeDaySilent(d: string) {
     try {
-      await apiPost<{ ok: true }>(`/api/payouts/funcionarios/compute`, { date: d });
+      await apiPost<any>(`/api/payouts/funcionarios/compute`, {
+        date: d,
+        basis,
+        force: false,
+      });
     } catch {
-      // silencioso mesmo (não toast)
+      // silencioso mesmo
     }
   }
 
@@ -269,9 +295,7 @@ export default function ComissoesFuncionariosClient() {
     try {
       const mm = String(m || "").slice(0, 7);
       const data = await apiGet<MonthResponse>(
-        `/api/payouts/funcionarios/month?userId=${encodeURIComponent(
-          userId
-        )}&month=${encodeURIComponent(mm)}`
+        `/api/payouts/funcionarios/month?userId=${encodeURIComponent(userId)}&month=${encodeURIComponent(mm)}`
       );
       setMonthData(data);
     } catch (e: any) {
@@ -292,7 +316,7 @@ export default function ComissoesFuncionariosClient() {
 
   // ✅ Ao trocar a data:
   // - se for HOJE: compute silencioso -> load
-  // - se for passado/futuro: só load (futuro não terá dados mesmo)
+  // - se for passado/futuro: só load
   useEffect(() => {
     let cancelled = false;
 
@@ -309,7 +333,7 @@ export default function ComissoesFuncionariosClient() {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [date, isToday]);
+  }, [date, isToday, basis]);
 
   // ✅ Auto-compute do dia de hoje (dinâmico até fechar o dia)
   useEffect(() => {
@@ -322,7 +346,7 @@ export default function ComissoesFuncionariosClient() {
 
     return () => clearInterval(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isToday, date]);
+  }, [isToday, date, basis]);
 
   const monthLabel = useMemo(() => monthFromISODate(date), [date]);
 
@@ -347,6 +371,18 @@ export default function ComissoesFuncionariosClient() {
             />
           </div>
 
+          <div className="flex flex-col">
+            <label className="text-xs text-neutral-500">Base</label>
+            <select
+              value={basis}
+              onChange={(e) => setBasis(e.target.value as Basis)}
+              className="h-10 rounded-xl border px-3 text-sm"
+            >
+              <option value="SALE_DATE">SALE_DATE (vendas do dia)</option>
+              <option value="PURCHASE_FINALIZED">PURCHASE_FINALIZED (compras finalizadas)</option>
+            </select>
+          </div>
+
           <button
             onClick={() => loadDay(date)}
             disabled={loading}
@@ -356,12 +392,21 @@ export default function ComissoesFuncionariosClient() {
           </button>
 
           <button
-            onClick={() => computeDay(date)}
+            onClick={() => computeDay(date, { force: false })}
+            disabled={!canCompute || computing}
+            className="h-10 rounded-xl border px-4 text-sm hover:bg-neutral-50 disabled:opacity-50"
+            title={`Computa sem apagar pendentes • ${computeTitle}`}
+          >
+            {computing ? "Computando..." : "Computar"}
+          </button>
+
+          <button
+            onClick={() => computeDay(date, { force: true })}
             disabled={!canCompute || computing}
             className="h-10 rounded-xl bg-black px-4 text-sm text-white hover:bg-neutral-800 disabled:opacity-50"
-            title={computeTitle}
+            title={`FORÇAR: apaga payouts não pagos e refaz • ${computeTitle}`}
           >
-            {computing ? "Computando..." : "Computar dia"}
+            {computing ? "Recalculando..." : "Recalcular (FORÇAR)"}
           </button>
         </div>
       </div>
@@ -443,7 +488,6 @@ export default function ComissoesFuncionariosClient() {
                           </div>
                         </div>
                       ) : (
-                        // ✅ warn só se o dia é fechado
                         <Pill kind={isClosedDay ? "warn" : "muted"} text="PENDENTE" />
                       )}
                     </td>
@@ -582,15 +626,11 @@ export default function ComissoesFuncionariosClient() {
                             <tr key={r.id} className="border-t">
                               <td className="px-4 py-3 font-medium">{r.date}</td>
 
-                              <td className="px-4 py-3 text-right tabular-nums">
-                                {b?.salesCount ?? 0}
-                              </td>
+                              <td className="px-4 py-3 text-right tabular-nums">{b?.salesCount ?? 0}</td>
 
                               <td className="px-4 py-3">{fmtMoneyBR(b?.commission1Cents ?? 0)}</td>
                               <td className="px-4 py-3">{fmtMoneyBR(b?.commission2Cents ?? 0)}</td>
-                              <td className="px-4 py-3">
-                                {fmtMoneyBR(b?.commission3RateioCents ?? 0)}
-                              </td>
+                              <td className="px-4 py-3">{fmtMoneyBR(b?.commission3RateioCents ?? 0)}</td>
 
                               <td className="px-4 py-3 font-semibold">{fmtMoneyBR(r.netPayCents || 0)}</td>
 
@@ -628,10 +668,7 @@ export default function ComissoesFuncionariosClient() {
 
                         {!monthData?.days?.length && (
                           <tr>
-                            <td
-                              className="px-4 py-8 text-center text-sm text-neutral-500"
-                              colSpan={8}
-                            >
+                            <td className="px-4 py-8 text-center text-sm text-neutral-500" colSpan={8}>
                               Sem dados no mês selecionado.
                             </td>
                           </tr>
@@ -644,7 +681,7 @@ export default function ComissoesFuncionariosClient() {
 
               <div className="text-xs text-neutral-500">
                 Dica: o mês mostra apenas os dias que existem na tabela <b>employee_payouts</b>. Se estiver vazio, rode{" "}
-                <b>Computar dia</b> nos dias necessários.
+                <b>Computar</b>/<b>Recalcular</b> nos dias necessários.
               </div>
             </div>
           </div>

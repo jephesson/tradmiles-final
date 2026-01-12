@@ -71,10 +71,6 @@ function pvSemTaxaFromSale(s: {
 
 /* =========================
   Fee payer resolver (via feeCardLabel)
-  - PRIORIDADE: @login no label (ex.: "(@eduarda)")
-  - Depois: (login)
-  - Depois: nome
-  - Se for cartão da empresa ("Vias Aéreas"), IGNORA reembolso
 ========================= */
 function norm(s: string) {
   return String(s || "")
@@ -262,7 +258,7 @@ function chooseMetaMilheiro(metaSaleOrPurchase: number | null | undefined) {
 }
 
 /* =========================
-  Helpers: purchaseId legado (numero) -> id
+  Helpers: purchaseId legado (numero) variants
 ========================= */
 function makeNumeroVariants(numeros: string[]) {
   const clean = numeros.map((x) => String(x || "").trim()).filter(Boolean);
@@ -276,6 +272,13 @@ type Basis = "PURCHASE_FINALIZED" | "SALE_DATE";
 /* =========================
   POST /api/payouts/funcionarios/compute
   body: { date: "YYYY-MM-DD", basis?: "PURCHASE_FINALIZED"|"SALE_DATE", force?: boolean }
+
+  ✅ C1/C2/FEE:
+    - SALE_DATE (default): vendas do dia (criação do registro)
+    - PURCHASE_FINALIZED: vendas ligadas às compras finalizadas no dia
+
+  ✅ C3:
+    - sempre por compras finalizadas no dia
 ========================= */
 export async function POST(req: Request) {
   try {
@@ -289,7 +292,10 @@ export async function POST(req: Request) {
 
     const body = await req.json().catch(() => ({}));
     const date = String(body?.date || "").trim();
-    const basis = (String(body?.basis || "PURCHASE_FINALIZED").trim().toUpperCase() as Basis) || "PURCHASE_FINALIZED";
+
+    const basisRaw = String(body?.basis || "SALE_DATE").trim().toUpperCase();
+    const basis: Basis = basisRaw === "PURCHASE_FINALIZED" ? "PURCHASE_FINALIZED" : "SALE_DATE";
+
     const force = Boolean(body?.force);
 
     if (!date || !isISODate(date)) {
@@ -350,11 +356,9 @@ export async function POST(req: Request) {
 
     const purchaseIdsFinalized = purchasesFinalized.map((p) => p.id);
 
-    // Se não teve compra finalizada, ainda pode ter comissão do dia (SALE_DATE)
-    if (!purchaseIdsFinalized.length && basis === "PURCHASE_FINALIZED") {
-      await prisma.employeePayout.deleteMany({ where: { team, date, paidById: null } });
-      return NextResponse.json({ ok: true, date, basis, users: 0, purchases: 0, sales: 0 });
-    }
+    const purchaseMetaById = new Map<string, number>(
+      purchasesFinalized.map((p) => [p.id, safeInt(p.metaMilheiroCents, 0)] as const)
+    );
 
     // Map numero -> id (para legado)
     const idByNumeroUpper = new Map<string, string>(
@@ -370,39 +374,47 @@ export async function POST(req: Request) {
       return idByNumeroUpper.get(upper) || r;
     }
 
-    // 3) sales para C3 (somente das compras finalizadas do dia) + LEGADO por numero
+    // 3) sales das compras finalizadas (pra fallback de C3 e também quando basis=PURCHASE_FINALIZED)
     const numerosFinalized = purchasesFinalized.map((p) => String(p.numero || "").trim()).filter(Boolean);
     const numerosAllFinalized = makeNumeroVariants(numerosFinalized);
 
-    const salesForFinalizedPurchases = purchaseIdsFinalized.length
-      ? await prisma.sale.findMany({
-          where: {
-            OR: [{ purchaseId: { in: purchaseIdsFinalized } }, { purchaseId: { in: numerosAllFinalized } }],
-            // ✅ pega NULL também
-            OR: [{ paymentStatus: { not: "CANCELED" } }, { paymentStatus: null }],
-          },
-          select: {
-            id: true,
-            purchaseId: true,
-            createdAt: true,
+    const salesForFinalizedPurchases =
+      purchaseIdsFinalized.length > 0
+        ? await prisma.sale.findMany({
+            where: {
+              AND: [
+                {
+                  OR: [
+                    { purchaseId: { in: purchaseIdsFinalized } },
+                    { purchaseId: { in: numerosAllFinalized } },
+                  ],
+                },
+                // ✅ sem NULL (campo não é nullable no Prisma)
+                { paymentStatus: { not: "CANCELED" } },
+              ],
+            },
+            select: {
+              id: true,
+              purchaseId: true,
+              createdAt: true,
 
-            points: true,
-            milheiroCents: true,
-            totalCents: true,
-            embarqueFeeCents: true,
-            feeCardLabel: true,
+              points: true,
+              milheiroCents: true,
+              totalCents: true,
+              embarqueFeeCents: true,
+              feeCardLabel: true,
 
-            commissionCents: true,
-            bonusCents: true,
-            pointsValueCents: true,
+              commissionCents: true,
+              bonusCents: true,
+              pointsValueCents: true,
 
-            metaMilheiroCents: true,
-            sellerId: true,
+              metaMilheiroCents: true,
+              sellerId: true,
 
-            purchase: { select: { metaMilheiroCents: true } },
-          },
-        })
-      : [];
+              purchase: { select: { metaMilheiroCents: true } },
+            },
+          })
+        : [];
 
     // Index para fallback do C3
     const salesByPurchaseIdForC3: Record<
@@ -422,20 +434,24 @@ export async function POST(req: Request) {
     > = {};
 
     for (const s of salesForFinalizedPurchases) {
-      const pid = normalizePurchaseIdUsingFinalized(String(s.purchaseId || ""));
-      if (!pid) continue;
+      const pidNorm = normalizePurchaseIdUsingFinalized(String(s.purchaseId || ""));
+      if (!pidNorm) continue;
 
-      (salesByPurchaseIdForC3[pid] ||= []).push({
+      const purchaseMeta =
+        safeInt(s.purchase?.metaMilheiroCents, 0) ||
+        safeInt(purchaseMetaById.get(pidNorm) ?? 0, 0);
+
+      (salesByPurchaseIdForC3[pidNorm] ||= []).push({
         points: safeInt(s.points, 0),
         milheiroCents: safeInt(s.milheiroCents, 0),
         totalCents: safeInt(s.totalCents, 0),
         embarqueFeeCents: safeInt(s.embarqueFeeCents, 0),
-        feeCardLabel: (s as any).feeCardLabel ?? null,
+        feeCardLabel: s.feeCardLabel ?? null,
 
         pointsValueCents: safeInt(s.pointsValueCents, 0),
-        bonusCents: typeof (s as any).bonusCents === "number" ? safeInt((s as any).bonusCents, 0) : null,
+        bonusCents: typeof s.bonusCents === "number" ? safeInt(s.bonusCents, 0) : null,
         metaMilheiroCents: safeInt(s.metaMilheiroCents, 0),
-        purchaseMetaMilheiroCents: safeInt(s.purchase?.metaMilheiroCents, 0),
+        purchaseMetaMilheiroCents: purchaseMeta,
         sellerId: s.sellerId ?? null,
       });
     }
@@ -444,21 +460,21 @@ export async function POST(req: Request) {
     function computeLucroLiquidoCompra(p: (typeof purchasesFinalized)[number]) {
       const cost = safeInt(p.totalCents, 0);
 
-      const pvDb = safeInt((p as any).finalSalesPointsValueCents ?? 0, 0);
-      const bonusDb = safeInt((p as any).finalBonusCents ?? 0, 0);
+      const pvDb = safeInt(p.finalSalesPointsValueCents ?? 0, 0);
+      const bonusDb = safeInt(p.finalBonusCents ?? 0, 0);
 
-      if (pvDb > 0 && (p as any).finalBonusCents !== null && (p as any).finalBonusCents !== undefined) {
+      if (pvDb > 0 && p.finalBonusCents !== null && p.finalBonusCents !== undefined) {
         const bruto = pvDb - cost;
         return bruto - bonusDb;
       }
 
-      const brutoDb = safeInt((p as any).finalProfitBrutoCents ?? 0, 0);
-      if (brutoDb !== 0 && (p as any).finalBonusCents !== null && (p as any).finalBonusCents !== undefined) {
+      const brutoDb = safeInt(p.finalProfitBrutoCents ?? 0, 0);
+      if (brutoDb !== 0 && p.finalBonusCents !== null && p.finalBonusCents !== undefined) {
         return brutoDb - bonusDb;
       }
 
       const ss = salesByPurchaseIdForC3[p.id] || [];
-      if (!ss.length) return safeInt((p as any).finalProfitCents ?? 0, 0);
+      if (!ss.length) return safeInt(p.finalProfitCents ?? 0, 0);
 
       let pvSemTaxaSum = 0;
       let bonusSum = 0;
@@ -517,9 +533,7 @@ export async function POST(req: Request) {
       (byUser[u] ||= { commission1Cents: 0, commission2Cents: 0, commission3RateioCents: 0, feeCents: 0, salesCount: 0 });
 
     /* =========================
-       5) Escolhe as SALES que entram em C1/C2/FEE
-       - PURCHASE_FINALIZED: sales das compras finalizadas do dia
-       - SALE_DATE: sales criadas no dia (mesmo se compra finalizada em outro dia)
+       5) SALES que entram em C1/C2/FEE
     ========================= */
     type SaleForCommission = {
       id: string;
@@ -540,29 +554,35 @@ export async function POST(req: Request) {
     let salesForCommission: SaleForCommission[] = [];
 
     if (basis === "PURCHASE_FINALIZED") {
-      salesForCommission = salesForFinalizedPurchases.map((s) => ({
-        id: String(s.id),
-        purchaseId: String(s.purchaseId || ""),
-        points: safeInt(s.points, 0),
-        milheiroCents: safeInt(s.milheiroCents, 0),
-        totalCents: safeInt(s.totalCents, 0),
-        embarqueFeeCents: safeInt(s.embarqueFeeCents, 0),
-        feeCardLabel: (s as any).feeCardLabel ?? null,
+      // pega exatamente as vendas “pertencentes” às compras finalizadas do dia
+      salesForCommission = salesForFinalizedPurchases.map((s) => {
+        const pidNorm = normalizePurchaseIdUsingFinalized(String(s.purchaseId || ""));
+        const purchaseMeta =
+          safeInt(s.purchase?.metaMilheiroCents, 0) ||
+          safeInt(purchaseMetaById.get(pidNorm) ?? 0, 0);
 
-        commissionCents: safeInt(s.commissionCents, 0),
-        bonusCents: typeof (s as any).bonusCents === "number" ? safeInt((s as any).bonusCents, 0) : null,
-        pointsValueCents: safeInt(s.pointsValueCents, 0),
-
-        metaMilheiroCents: safeInt(s.metaMilheiroCents, 0),
-        sellerId: s.sellerId ?? null,
-        purchaseMetaMilheiroCents: safeInt(s.purchase?.metaMilheiroCents, 0),
-      }));
+        return {
+          id: String(s.id),
+          purchaseId: String(s.purchaseId || ""),
+          points: safeInt(s.points, 0),
+          milheiroCents: safeInt(s.milheiroCents, 0),
+          totalCents: safeInt(s.totalCents, 0),
+          embarqueFeeCents: safeInt(s.embarqueFeeCents, 0),
+          feeCardLabel: s.feeCardLabel ?? null,
+          commissionCents: safeInt(s.commissionCents, 0),
+          bonusCents: typeof s.bonusCents === "number" ? safeInt(s.bonusCents, 0) : null,
+          pointsValueCents: safeInt(s.pointsValueCents, 0),
+          metaMilheiroCents: safeInt(s.metaMilheiroCents, 0),
+          sellerId: s.sellerId ?? null,
+          purchaseMetaMilheiroCents: purchaseMeta,
+        };
+      });
     } else {
-      // SALE_DATE: busca vendas do dia e “amarra” no time por purchase (id ou numero)
+      // SALE_DATE: vendas criadas no dia + filtra por team via purchase id/numero
       const salesTodayRaw = await prisma.sale.findMany({
         where: {
           createdAt: { gte: start, lt: end },
-          OR: [{ paymentStatus: { not: "CANCELED" } }, { paymentStatus: null }],
+          paymentStatus: { not: "CANCELED" },
         },
         select: {
           id: true,
@@ -584,24 +604,26 @@ export async function POST(req: Request) {
         },
       });
 
-      const rawPurchaseIds = Array.from(new Set(salesTodayRaw.map((s) => String(s.purchaseId || "").trim()).filter(Boolean)));
+      const rawPurchaseIds = Array.from(
+        new Set(salesTodayRaw.map((s) => String(s.purchaseId || "").trim()).filter(Boolean))
+      );
 
       // tenta casar por id e por numero
-      const maybeIds = rawPurchaseIds.filter((x) => x.length >= 20); // heuristic ok pro dia
-      const maybeNumeros = rawPurchaseIds;
-
-      const numerosAll = makeNumeroVariants(maybeNumeros);
+      const maybeIds = rawPurchaseIds.filter((x) => x.length >= 20); // heurística ok
+      const numerosAll = makeNumeroVariants(rawPurchaseIds);
 
       const purchasesRef = await prisma.purchase.findMany({
         where: {
           cedente: { owner: { team } },
-          OR: [{ id: { in: maybeIds.length ? maybeIds : ["__none__"] } }, { numero: { in: numerosAll.length ? numerosAll : ["__none__"] } }],
+          OR: [
+            { id: { in: maybeIds.length ? maybeIds : ["__none__"] } },
+            { numero: { in: numerosAll.length ? numerosAll : ["__none__"] } },
+          ],
         },
         select: {
           id: true,
           numero: true,
           metaMilheiroCents: true,
-          cedente: { select: { ownerId: true } },
         },
       });
 
@@ -612,29 +634,25 @@ export async function POST(req: Request) {
         const rawPid = String(s.purchaseId || "").trim();
         if (!rawPid) continue;
 
-        const p =
-          byId.get(rawPid) ||
-          byNumeroUpper.get(rawPid.toUpperCase());
-
+        const p = byId.get(rawPid) || byNumeroUpper.get(rawPid.toUpperCase());
         if (!p) continue; // fora do team
 
         salesForCommission.push({
           id: String(s.id),
           purchaseId: rawPid,
-
           points: safeInt(s.points, 0),
           milheiroCents: safeInt(s.milheiroCents, 0),
           totalCents: safeInt(s.totalCents, 0),
           embarqueFeeCents: safeInt(s.embarqueFeeCents, 0),
-          feeCardLabel: (s as any).feeCardLabel ?? null,
+          feeCardLabel: s.feeCardLabel ?? null,
 
           commissionCents: safeInt(s.commissionCents, 0),
-          bonusCents: typeof (s as any).bonusCents === "number" ? safeInt((s as any).bonusCents, 0) : null,
+          bonusCents: typeof s.bonusCents === "number" ? safeInt(s.bonusCents, 0) : null,
           pointsValueCents: safeInt(s.pointsValueCents, 0),
 
           metaMilheiroCents: safeInt(s.metaMilheiroCents, 0),
           sellerId: s.sellerId ?? null,
-          purchaseMetaMilheiroCents: safeInt((p as any).metaMilheiroCents, 0),
+          purchaseMetaMilheiroCents: safeInt(p.metaMilheiroCents, 0),
         });
       }
     }
@@ -658,7 +676,6 @@ export async function POST(req: Request) {
         );
 
         const c1 = safeInt(s.commissionCents, 0) > 0 ? safeInt(s.commissionCents, 0) : commission1Fallback(pvSemTaxa);
-
         const c2 =
           safeInt(s.bonusCents ?? 0, 0) > 0
             ? safeInt(s.bonusCents ?? 0, 0)
@@ -709,7 +726,22 @@ export async function POST(req: Request) {
 
     const computedUserIds = Object.keys(byUser);
 
-    // 8) remove payouts "lixo" não pagos (se force já apagou tudo não pago, isso só mantém consistência)
+    if (!computedUserIds.length) {
+      // sem nada pra computar: limpa não pagos e sai
+      await prisma.employeePayout.deleteMany({ where: { team, date, paidById: null } });
+      return NextResponse.json({
+        ok: true,
+        date,
+        basis,
+        force,
+        users: 0,
+        purchasesFinalized: purchasesFinalized.length,
+        salesForCommission: salesForCommission.length,
+        salesForFinalizedPurchases: salesForFinalizedPurchases.length,
+      });
+    }
+
+    // 8) remove payouts "lixo" não pagos (mantém consistência)
     await prisma.employeePayout.deleteMany({
       where: {
         team,
