@@ -57,7 +57,7 @@ export default function Sidebar() {
   // ✅ RESUMO (link mantém /dashboard/resumo)
   const isResumoRoute = pathname.startsWith("/dashboard/resumo");
 
-  // ✅ ANÁLISE & ESTRATÉGIA (novas rotas)
+  // ✅ ANÁLISE & ESTRATÉGIA
   const isEstrategiaCompraRoute = pathname.startsWith(
     "/dashboard/estrategia-compra"
   );
@@ -78,9 +78,14 @@ export default function Sidebar() {
   const isAnaliseRoute =
     isEstrategiaCompraRoute || isContasSelecionadasRoute || isAnaliseDadosRoute;
 
-  // ✅ FINANCEIRO (agora inclui Resumo)
+  // ✅ FINANCEIRO
   const isDividasRoute = pathname.startsWith("/dashboard/dividas");
-  const isRecebimentosRoute = pathname.startsWith("/dashboard/recebimentos");
+
+  // ✅ NOVO: Dívidas a receber (ROTA SEPARADA, não mistura com /recebimentos)
+  const isDividasAReceberRoute = pathname.startsWith(
+    "/dashboard/dividas-a-receber"
+  );
+
   const isImpostosRoute = pathname.startsWith("/dashboard/impostos");
 
   // ✅ NOVO: Caixa imediato
@@ -88,7 +93,7 @@ export default function Sidebar() {
 
   const isFinanceiroRoute =
     isDividasRoute ||
-    isRecebimentosRoute ||
+    isDividasAReceberRoute ||
     isImpostosRoute ||
     isResumoRoute ||
     isCaixaImediatoRoute;
@@ -273,7 +278,7 @@ export default function Sidebar() {
     ? (search?.get("programa") || "").toLowerCase()
     : "";
 
-  // ✅ navega SEMPRE pra página de visualizar (resolve o problema dos botões fora da rota)
+  // ✅ navega SEMPRE pra página de visualizar
   function goVisualizarPrograma(value: string | undefined) {
     const qs = new URLSearchParams(
       isPontosVisualizarRoute ? search?.toString() || "" : ""
@@ -399,7 +404,7 @@ export default function Sidebar() {
             open={openPontosVisualizar}
             onToggle={() => setOpenPontosVisualizar((v) => !v)}
           >
-            {/* ✅ APENAS OS RETÂNGULOS (sem NavLink duplicado) */}
+            {/* ✅ APENAS OS RETÂNGULOS */}
             <div className="pl-2 pr-2 pb-1">
               <div className="flex flex-wrap gap-1">
                 <button
@@ -549,7 +554,6 @@ export default function Sidebar() {
             Estratégia de compra
           </NavLink>
 
-          {/* ✅ Contas selecionadas: Latam + Smiles; dentro de Latam: Turbo Latam */}
           <SubAccordion
             title="Contas selecionadas"
             href="/dashboard/contas-selecionadas"
@@ -587,7 +591,12 @@ export default function Sidebar() {
           <NavLink href="/dashboard/resumo">Resumo</NavLink>
           <NavLink href="/dashboard/caixa-imediato">Caixa imediato</NavLink>
           <NavLink href="/dashboard/dividas">Dívidas</NavLink>
-          <NavLink href="/dashboard/recebimentos">Recebimentos</NavLink>
+
+          {/* ✅ rota separada */}
+          <NavLink href="/dashboard/dividas-a-receber">
+            Dívidas a receber
+          </NavLink>
+
           <NavLink href="/dashboard/impostos">Impostos</NavLink>
         </Accordion>
 
