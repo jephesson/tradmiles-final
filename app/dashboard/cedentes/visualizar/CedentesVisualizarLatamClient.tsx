@@ -2,8 +2,10 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { cn } from "@/lib/cn";
 
+type Program = "LATAM" | "SMILES" | "LIVELO" | "ESFERA";
 type Owner = { id: string; name: string; login: string };
 
 type Row = {
@@ -20,6 +22,10 @@ type Row = {
 
   passageirosUsadosAno: number;
   passageirosDisponiveisAno: number;
+
+  // ✅ precisa vir da API (um dos dois já resolve)
+  latamBloqueado?: boolean;
+  blockedPrograms?: Program[];
 };
 
 type SortBy = "aprovado" | "esperado";
@@ -34,7 +40,14 @@ function maskCpf(cpf: string) {
   return `***.***.${d.slice(6, 9)}-${d.slice(9, 11)}`;
 }
 
+function isLatamBlocked(r: Row) {
+  if (typeof r.latamBloqueado === "boolean") return r.latamBloqueado;
+  return (r.blockedPrograms || []).includes("LATAM");
+}
+
 export default function CedentesVisualizarLatamClient() {
+  const router = useRouter();
+
   const [rows, setRows] = useState<Row[]>([]);
   const [loading, setLoading] = useState(false);
 
@@ -43,6 +56,9 @@ export default function CedentesVisualizarLatamClient() {
 
   // ✅ novo: ordenação
   const [sortBy, setSortBy] = useState<SortBy>("aprovado");
+
+  // ✅ novo: ocultar bloqueados
+  const [hideBlocked, setHideBlocked] = useState(false);
 
   async function load() {
     setLoading(true);
@@ -67,13 +83,11 @@ export default function CedentesVisualizarLatamClient() {
     }
   }
 
-  // load inicial
   useEffect(() => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // debounce do buscar
   useEffect(() => {
     const t = setTimeout(() => load(), 300);
     return () => clearTimeout(t);
@@ -88,22 +102,24 @@ export default function CedentesVisualizarLatamClient() {
     );
   }, [rows]);
 
-  // ✅ novo: ordena maior -> menor (aprovado ou esperado)
+  // ✅ ordena maior -> menor (aprovado ou esperado)
   const sortedRows = useMemo(() => {
     const list = [...rows];
     list.sort((a, b) => {
-      const av =
-        sortBy === "aprovado" ? a.latamAprovado : a.latamTotalEsperado;
-      const bv =
-        sortBy === "aprovado" ? b.latamAprovado : b.latamTotalEsperado;
+      const av = sortBy === "aprovado" ? a.latamAprovado : a.latamTotalEsperado;
+      const bv = sortBy === "aprovado" ? b.latamAprovado : b.latamTotalEsperado;
 
       if (bv !== av) return bv - av; // desc
-
-      // desempate: nome
       return a.nomeCompleto.localeCompare(b.nomeCompleto, "pt-BR");
     });
     return list;
   }, [rows, sortBy]);
+
+  // ✅ aplica “ocultar bloqueados”
+  const visibleRows = useMemo(() => {
+    if (!hideBlocked) return sortedRows;
+    return sortedRows.filter((r) => !isLatamBlocked(r));
+  }, [sortedRows, hideBlocked]);
 
   return (
     <div className="p-6">
@@ -112,8 +128,7 @@ export default function CedentesVisualizarLatamClient() {
         <div>
           <h1 className="text-2xl font-semibold">Cedentes • Latam</h1>
           <p className="text-sm text-slate-500">
-            Pontos aprovados, pendentes, total esperado e passageiros disponíveis
-            (ano).
+            Pontos aprovados, pendentes, total esperado e passageiros disponíveis (ano).
           </p>
         </div>
 
@@ -152,7 +167,6 @@ export default function CedentesVisualizarLatamClient() {
           ))}
         </select>
 
-        {/* ✅ novo: ordenação */}
         <select
           value={sortBy}
           onChange={(e) => setSortBy(e.target.value as SortBy)}
@@ -162,6 +176,16 @@ export default function CedentesVisualizarLatamClient() {
           <option value="aprovado">Ordenar: LATAM (aprovado) ↓</option>
           <option value="esperado">Ordenar: TOTAL esperado ↓</option>
         </select>
+
+        {/* ✅ novo: ocultar bloqueados */}
+        <label className="ml-1 inline-flex items-center gap-2 text-sm text-slate-700 select-none">
+          <input
+            type="checkbox"
+            checked={hideBlocked}
+            onChange={(e) => setHideBlocked(e.target.checked)}
+          />
+          Ocultar bloqueados
+        </label>
       </div>
 
       {/* Tabela */}
@@ -170,32 +194,18 @@ export default function CedentesVisualizarLatamClient() {
           <table className="w-full text-sm">
             <thead className="bg-slate-50 border-b">
               <tr className="text-slate-600">
-                <th className="text-left font-semibold px-4 py-3 w-[380px]">
-                  NOME
-                </th>
-                <th className="text-left font-semibold px-4 py-3 w-[260px]">
-                  RESPONSÁVEL
-                </th>
-                <th className="text-right font-semibold px-4 py-3 w-[140px]">
-                  LATAM
-                </th>
-                <th className="text-right font-semibold px-4 py-3 w-[160px]">
-                  PENDENTES
-                </th>
-                <th className="text-right font-semibold px-4 py-3 w-[180px]">
-                  TOTAL ESPERADO
-                </th>
-                <th className="text-right font-semibold px-4 py-3 w-[190px]">
-                  PASSAGEIROS DISP.
-                </th>
-                <th className="text-right font-semibold px-4 py-3 w-[140px]">
-                  AÇÕES
-                </th>
+                <th className="text-left font-semibold px-4 py-3 w-[380px]">NOME</th>
+                <th className="text-left font-semibold px-4 py-3 w-[260px]">RESPONSÁVEL</th>
+                <th className="text-right font-semibold px-4 py-3 w-[140px]">LATAM</th>
+                <th className="text-right font-semibold px-4 py-3 w-[160px]">PENDENTES</th>
+                <th className="text-right font-semibold px-4 py-3 w-[180px]">TOTAL ESPERADO</th>
+                <th className="text-right font-semibold px-4 py-3 w-[190px]">PASSAGEIROS DISP.</th>
+                <th className="text-right font-semibold px-4 py-3 w-[200px]">AÇÕES</th>
               </tr>
             </thead>
 
             <tbody>
-              {sortedRows.length === 0 && !loading ? (
+              {visibleRows.length === 0 && !loading ? (
                 <tr>
                   <td className="px-4 py-6 text-slate-500" colSpan={7}>
                     Nenhum resultado.
@@ -203,52 +213,80 @@ export default function CedentesVisualizarLatamClient() {
                 </tr>
               ) : null}
 
-              {sortedRows.map((r) => (
-                <tr key={r.id} className="border-b last:border-b-0">
-                  <td className="px-4 py-3">
-                    <div className="font-medium">{r.nomeCompleto}</div>
-                    <div className="text-xs text-slate-500">
-                      {r.identificador} • CPF: {maskCpf(r.cpf)}
-                    </div>
-                  </td>
+              {visibleRows.map((r) => {
+                const blocked = isLatamBlocked(r);
 
-                  <td className="px-4 py-3">
-                    <div className="font-medium">{r.owner.name}</div>
-                    <div className="text-xs text-slate-500">@{r.owner.login}</div>
-                  </td>
+                return (
+                  <tr
+                    key={r.id}
+                    className={cn(
+                      "border-b last:border-b-0",
+                      blocked ? "bg-red-50 text-red-700" : "",
+                      blocked ? "hover:bg-red-100" : "hover:bg-slate-50"
+                    )}
+                    title={blocked ? "BLOQUEADO NA LATAM" : undefined}
+                  >
+                    <td className="px-4 py-3">
+                      <div className="font-medium flex items-center gap-2">
+                        <span>{r.nomeCompleto}</span>
+                        {blocked ? (
+                          <span className="text-[10px] font-semibold uppercase tracking-wide border border-red-300 rounded px-2 py-0.5">
+                            Bloqueado
+                          </span>
+                        ) : null}
+                      </div>
+                      <div className={cn("text-xs", blocked ? "text-red-600/80" : "text-slate-500")}>
+                        {r.identificador} • CPF: {maskCpf(r.cpf)}
+                      </div>
+                    </td>
 
-                  <td className="px-4 py-3 text-right tabular-nums">
-                    {fmtInt(r.latamAprovado)}
-                  </td>
+                    <td className="px-4 py-3">
+                      <div className="font-medium">{r.owner.name}</div>
+                      <div className={cn("text-xs", blocked ? "text-red-600/80" : "text-slate-500")}>
+                        @{r.owner.login}
+                      </div>
+                    </td>
 
-                  <td className="px-4 py-3 text-right tabular-nums">
-                    {fmtInt(r.latamPendente)}
-                  </td>
+                    <td className="px-4 py-3 text-right tabular-nums">{fmtInt(r.latamAprovado)}</td>
+                    <td className="px-4 py-3 text-right tabular-nums">{fmtInt(r.latamPendente)}</td>
+                    <td className="px-4 py-3 text-right tabular-nums">{fmtInt(r.latamTotalEsperado)}</td>
 
-                  <td className="px-4 py-3 text-right tabular-nums">
-                    {fmtInt(r.latamTotalEsperado)}
-                  </td>
+                    <td className="px-4 py-3 text-right tabular-nums">
+                      {fmtInt(r.passageirosDisponiveisAno)}
+                      <span className={cn("text-xs", blocked ? "text-red-600/80" : "text-slate-500")}>
+                        {" "}
+                        (usados {fmtInt(r.passageirosUsadosAno)})
+                      </span>
+                    </td>
 
-                  <td className="px-4 py-3 text-right tabular-nums">
-                    {fmtInt(r.passageirosDisponiveisAno)}
-                    <span className="text-xs text-slate-500">
-                      {" "}
-                      (usados {fmtInt(r.passageirosUsadosAno)})
-                    </span>
-                  </td>
+                    <td className="px-4 py-3">
+                      <div className="flex justify-end gap-2">
+                        <Link
+                          href={`/dashboard/cedentes/visualizar/${r.id}`}
+                          className={cn(
+                            "border rounded-lg px-3 py-1.5 text-sm",
+                            blocked ? "hover:bg-red-50" : "hover:bg-slate-50"
+                          )}
+                        >
+                          Ver
+                        </Link>
 
-                  <td className="px-4 py-3">
-                    <div className="flex justify-end">
-                      <Link
-                        href={`/dashboard/cedentes/visualizar/${r.id}`}
-                        className="border rounded-lg px-3 py-1.5 text-sm hover:bg-slate-50"
-                      >
-                        Ver
-                      </Link>
-                    </div>
-                  </td>
-                </tr>
-              ))}
+                        <button
+                          type="button"
+                          onClick={() => router.push(`/dashboard/cedentes/${r.id}?edit=1`)}
+                          className={cn(
+                            "border rounded-lg px-3 py-1.5 text-sm",
+                            blocked ? "hover:bg-red-50" : "hover:bg-slate-50"
+                          )}
+                          title="Abrir detalhe em modo edição para ajustar pontos"
+                        >
+                          Editar pontos
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
 
               {loading ? (
                 <tr>
