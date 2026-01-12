@@ -22,14 +22,73 @@ function parseDate(v: unknown): Date | null {
 }
 
 type ReceberStatus = "OPEN" | "PARTIAL" | "PAID" | "CANCELED";
-type ReceberCategoria = "EMPRESTIMO" | "CARTAO" | "PARCELAMENTO" | "SERVICO" | "OUTROS";
-type ReceberMetodo = "PIX" | "CARTAO" | "BOLETO" | "DINHEIRO" | "TRANSFERENCIA" | "OUTRO";
+type ReceberCategoria =
+  | "EMPRESTIMO"
+  | "CARTAO"
+  | "PARCELAMENTO"
+  | "SERVICO"
+  | "OUTROS";
+type ReceberMetodo =
+  | "PIX"
+  | "CARTAO"
+  | "BOLETO"
+  | "DINHEIRO"
+  | "TRANSFERENCIA"
+  | "OUTRO";
 
-export function computeStatus(totalCents: number, receivedCents: number): ReceberStatus {
+const STATUS: ReceberStatus[] = ["OPEN", "PARTIAL", "PAID", "CANCELED"];
+const CATEG: ReceberCategoria[] = [
+  "EMPRESTIMO",
+  "CARTAO",
+  "PARCELAMENTO",
+  "SERVICO",
+  "OUTROS",
+];
+const METOD: ReceberMetodo[] = [
+  "PIX",
+  "CARTAO",
+  "BOLETO",
+  "DINHEIRO",
+  "TRANSFERENCIA",
+  "OUTRO",
+];
+
+export function computeStatus(
+  totalCents: number,
+  receivedCents: number
+): ReceberStatus {
   if (totalCents <= 0) return "OPEN";
   if (receivedCents <= 0) return "OPEN";
   if (receivedCents >= totalCents) return "PAID";
   return "PARTIAL";
+}
+
+function buildWhere(sessionTeam: string, statusRaw: string, q: string) {
+  const where: any = { team: sessionTeam };
+
+  const status = (statusRaw || "").toUpperCase();
+  if (status && STATUS.includes(status as ReceberStatus)) {
+    where.status = status;
+  }
+
+  if (q) {
+    where.OR = [
+      { debtorName: { contains: q, mode: "insensitive" } },
+      { debtorDoc: { contains: q, mode: "insensitive" } },
+      { title: { contains: q, mode: "insensitive" } },
+      { sourceLabel: { contains: q, mode: "insensitive" } },
+    ];
+  }
+
+  return where;
+}
+
+function summarizeFromAggregate(sumTotal: number, sumReceived: number) {
+  const totalCents = safeInt(sumTotal, 0);
+  const receivedCents = safeInt(sumReceived, 0);
+  // saldo global (agregado). assume que no geral received <= total.
+  const balanceCents = Math.max(0, totalCents - receivedCents);
+  return { totalCents, receivedCents, balanceCents };
 }
 
 export async function GET(req: Request) {
@@ -40,20 +99,9 @@ export async function GET(req: Request) {
   const q = (url.searchParams.get("q") || "").trim();
   const take = Math.min(Math.max(safeInt(url.searchParams.get("take"), 100), 1), 300);
 
-  const where: any = { team: session.team };
+  const where = buildWhere(session.team, status, q);
 
-  if (status && ["OPEN", "PARTIAL", "PAID", "CANCELED"].includes(status)) {
-    where.status = status;
-  }
-  if (q) {
-    where.OR = [
-      { debtorName: { contains: q, mode: "insensitive" } },
-      { debtorDoc: { contains: q, mode: "insensitive" } },
-      { title: { contains: q, mode: "insensitive" } },
-      { sourceLabel: { contains: q, mode: "insensitive" } },
-    ];
-  }
-
+  // ✅ lista (paginada)
   const rows = await prisma.dividaAReceber.findMany({
     where,
     orderBy: [{ status: "asc" }, { dueDate: "asc" }, { createdAt: "desc" }],
@@ -64,19 +112,34 @@ export async function GET(req: Request) {
     },
   });
 
-  const totals = rows.reduce(
-    (acc, r) => {
-      const total = r.totalCents || 0;
-      const rec = r.receivedCents || 0;
-      acc.totalCents += total;
-      acc.receivedCents += rec;
-      acc.balanceCents += Math.max(0, total - rec);
-      return acc;
-    },
-    { totalCents: 0, receivedCents: 0, balanceCents: 0 }
+  // ✅ totais ALL (independente de take)
+  const aggAll = await prisma.dividaAReceber.aggregate({
+    where,
+    _sum: { totalCents: true, receivedCents: true },
+  });
+
+  // ✅ totais OPEN+PARTIAL (independente de take)
+  const whereOpen = {
+    ...where,
+    status: { in: ["OPEN", "PARTIAL"] as ReceberStatus[] },
+  };
+
+  const aggOpen = await prisma.dividaAReceber.aggregate({
+    where: whereOpen,
+    _sum: { totalCents: true, receivedCents: true },
+  });
+
+  const totalsAll = summarizeFromAggregate(
+    aggAll._sum.totalCents ?? 0,
+    aggAll._sum.receivedCents ?? 0
   );
 
-  return NextResponse.json({ ok: true, rows, totals });
+  const totalsOpen = summarizeFromAggregate(
+    aggOpen._sum.totalCents ?? 0,
+    aggOpen._sum.receivedCents ?? 0
+  );
+
+  return NextResponse.json({ ok: true, rows, totalsAll, totalsOpen });
 }
 
 export async function POST(req: Request) {
@@ -87,12 +150,32 @@ export async function POST(req: Request) {
   const title = normalizeText(body.title, 160);
   const totalCents = safeInt(body.totalCents, 0);
 
-  if (!debtorName) return NextResponse.json({ ok: false, error: "Informe o nome de quem te deve." }, { status: 400 });
-  if (!title) return NextResponse.json({ ok: false, error: "Informe um título." }, { status: 400 });
-  if (totalCents <= 0) return NextResponse.json({ ok: false, error: "Total precisa ser maior que 0." }, { status: 400 });
+  if (!debtorName)
+    return NextResponse.json(
+      { ok: false, error: "Informe o nome de quem te deve." },
+      { status: 400 }
+    );
+  if (!title)
+    return NextResponse.json(
+      { ok: false, error: "Informe um título." },
+      { status: 400 }
+    );
+  if (totalCents <= 0)
+    return NextResponse.json(
+      { ok: false, error: "Total precisa ser maior que 0." },
+      { status: 400 }
+    );
 
-  const category = String(body.category || "OUTROS").toUpperCase() as ReceberCategoria;
-  const method = String(body.method || "PIX").toUpperCase() as ReceberMetodo;
+  const categoryRaw = String(body.category || "OUTROS").toUpperCase();
+  const methodRaw = String(body.method || "PIX").toUpperCase();
+
+  const categoryFinal: ReceberCategoria = CATEG.includes(categoryRaw as ReceberCategoria)
+    ? (categoryRaw as ReceberCategoria)
+    : "OUTROS";
+
+  const methodFinal: ReceberMetodo = METOD.includes(methodRaw as ReceberMetodo)
+    ? (methodRaw as ReceberMetodo)
+    : "PIX";
 
   const dueDate = parseDate(body.dueDate);
 
@@ -109,12 +192,8 @@ export async function POST(req: Request) {
       title,
       description: normalizeText(body.description, 2000) || null,
 
-      category: ["EMPRESTIMO", "CARTAO", "PARCELAMENTO", "SERVICO", "OUTROS"].includes(category)
-        ? category
-        : "OUTROS",
-      method: ["PIX", "CARTAO", "BOLETO", "DINHEIRO", "TRANSFERENCIA", "OUTRO"].includes(method)
-        ? method
-        : "PIX",
+      category: categoryFinal,
+      method: methodFinal,
 
       totalCents,
       receivedCents: 0,
