@@ -63,6 +63,10 @@ type SaleRow = {
   paymentStatus: "PENDING" | "PAID" | "CANCELED";
   locator: string | null;
 
+  // ✅ NOVOS (para mostrar cartão + taxa)
+  feeCardLabel?: string | null;
+  embarqueFeeCents?: number | null;
+
   cliente: { id: string; identificador: string; nome: string };
 
   cedente?: { id: string; identificador: string; nomeCompleto: string } | null;
@@ -87,6 +91,11 @@ function pendingCentsOfSale(r: SaleRow) {
   if (typeof r.receivable?.balanceCents === "number")
     return Math.max(0, r.receivable.balanceCents);
   return Math.max(0, r.totalCents || 0);
+}
+
+function feeCentsOfSale(r: SaleRow) {
+  const v = r.embarqueFeeCents;
+  return typeof v === "number" ? Math.max(0, v) : null;
 }
 
 export default function VendasClient() {
@@ -162,13 +171,15 @@ export default function VendasClient() {
       const cliente = (r.cliente?.nome || "").toLowerCase();
       const num = (r.numero || "").toLowerCase();
       const loc = (r.locator || "").toLowerCase();
+      const card = (r.feeCardLabel || "").toLowerCase();
 
       return (
         num.includes(s) ||
         cliente.includes(s) ||
         loc.includes(s) ||
         ced.includes(s) ||
-        cedId.includes(s)
+        cedId.includes(s) ||
+        card.includes(s)
       );
     });
   }, [rows, q, clientId, status]);
@@ -383,7 +394,7 @@ export default function VendasClient() {
         <input
           value={q}
           onChange={(e) => setQ(e.target.value)}
-          placeholder="Buscar por cliente / número / localizador / cedente..."
+          placeholder="Buscar por cliente / número / localizador / cedente / cartão..."
           className="border rounded-xl px-3 py-2 text-sm w-[520px]"
         />
 
@@ -445,6 +456,11 @@ export default function VendasClient() {
                 <th className="text-right font-semibold px-4 py-3 w-[160px]">TOTAL</th>
                 <th className="text-right font-semibold px-4 py-3 w-[170px]">A RECEBER</th>
                 <th className="text-left font-semibold px-4 py-3 w-[140px]">STATUS</th>
+
+                {/* ✅ novos */}
+                <th className="text-left font-semibold px-4 py-3 w-[240px]">CARTÃO</th>
+                <th className="text-right font-semibold px-4 py-3 w-[140px]">TAXA</th>
+
                 <th className="text-left font-semibold px-4 py-3 w-[140px]">LOC</th>
                 <th className="text-right font-semibold px-4 py-3 w-[200px]">AÇÃO</th>
               </tr>
@@ -453,7 +469,7 @@ export default function VendasClient() {
             <tbody>
               {filtered.length === 0 && !loading ? (
                 <tr>
-                  <td colSpan={12} className="px-4 py-8 text-slate-500">
+                  <td colSpan={14} className="px-4 py-8 text-slate-500">
                     Nenhum resultado.
                   </td>
                 </tr>
@@ -461,6 +477,7 @@ export default function VendasClient() {
 
               {filtered.map((r) => {
                 const pend = pendingCentsOfSale(r);
+                const fee = feeCentsOfSale(r);
                 const isBusy = updatingId === r.id;
 
                 return (
@@ -523,6 +540,24 @@ export default function VendasClient() {
                       </span>
                     </td>
 
+                    {/* ✅ novos */}
+                    <td className="px-4 py-3">
+                      {r.feeCardLabel ? (
+                        <div
+                          className="text-xs text-slate-700 max-w-[240px] truncate"
+                          title={r.feeCardLabel}
+                        >
+                          {r.feeCardLabel}
+                        </div>
+                      ) : (
+                        <div className="text-slate-400">—</div>
+                      )}
+                    </td>
+
+                    <td className="px-4 py-3 text-right font-semibold tabular-nums">
+                      {fee === null ? "—" : fmtMoneyBR(fee)}
+                    </td>
+
                     <td className="px-4 py-3 font-mono text-xs">{r.locator || "—"}</td>
 
                     <td
@@ -569,7 +604,7 @@ export default function VendasClient() {
 
               {loading ? (
                 <tr>
-                  <td colSpan={12} className="px-4 py-8 text-slate-500">
+                  <td colSpan={14} className="px-4 py-8 text-slate-500">
                     Carregando...
                   </td>
                 </tr>
@@ -642,6 +677,27 @@ export default function VendasClient() {
                 </div>
               </div>
 
+              {/* ✅ cartão + taxa */}
+              <div className="grid gap-3 md:grid-cols-2">
+                <div className="rounded-2xl border p-4">
+                  <div className="text-xs text-slate-500">Cartão usado</div>
+                  <div className="mt-1 text-sm text-slate-800">
+                    {details.feeCardLabel ? (
+                      <span className="font-medium">{details.feeCardLabel}</span>
+                    ) : (
+                      <span className="text-slate-400">—</span>
+                    )}
+                  </div>
+                </div>
+
+                <div className="rounded-2xl border p-4">
+                  <div className="text-xs text-slate-500">Taxa de embarque</div>
+                  <div className="mt-1 text-lg font-semibold">
+                    {feeCentsOfSale(details) === null ? "—" : fmtMoneyBR(feeCentsOfSale(details) || 0)}
+                  </div>
+                </div>
+              </div>
+
               <div className="grid gap-3 md:grid-cols-2">
                 <div className="rounded-2xl border p-4">
                   <div className="text-xs text-slate-500">Cliente</div>
@@ -670,7 +726,12 @@ export default function VendasClient() {
                   </div>
                   <div>
                     <div className="text-xs text-slate-500">A receber</div>
-                    <div className={cn("text-lg font-semibold", pendingCentsOfSale(details) > 0 ? "text-amber-700" : "text-slate-800")}>
+                    <div
+                      className={cn(
+                        "text-lg font-semibold",
+                        pendingCentsOfSale(details) > 0 ? "text-amber-700" : "text-slate-800"
+                      )}
+                    >
                       {fmtMoneyBR(pendingCentsOfSale(details))}
                     </div>
                   </div>
@@ -678,11 +739,30 @@ export default function VendasClient() {
                     <div className="text-xs text-slate-500">Recebível</div>
                     {details.receivable ? (
                       <div className="text-sm mt-1 text-slate-700">
-                        <div>ID: <span className="font-mono">{details.receivable.id}</span></div>
-                        <div>Status: <span className="font-semibold">{details.receivable.status}</span></div>
-                        <div>Total: <span className="font-semibold">{fmtMoneyBR(details.receivable.totalCents)}</span></div>
-                        <div>Recebido: <span className="font-semibold">{fmtMoneyBR(details.receivable.receivedCents)}</span></div>
-                        <div>Saldo: <span className="font-semibold">{fmtMoneyBR(details.receivable.balanceCents)}</span></div>
+                        <div>
+                          ID: <span className="font-mono">{details.receivable.id}</span>
+                        </div>
+                        <div>
+                          Status: <span className="font-semibold">{details.receivable.status}</span>
+                        </div>
+                        <div>
+                          Total:{" "}
+                          <span className="font-semibold">
+                            {fmtMoneyBR(details.receivable.totalCents)}
+                          </span>
+                        </div>
+                        <div>
+                          Recebido:{" "}
+                          <span className="font-semibold">
+                            {fmtMoneyBR(details.receivable.receivedCents)}
+                          </span>
+                        </div>
+                        <div>
+                          Saldo:{" "}
+                          <span className="font-semibold">
+                            {fmtMoneyBR(details.receivable.balanceCents)}
+                          </span>
+                        </div>
                       </div>
                     ) : (
                       <div className="mt-1 text-slate-400">—</div>
