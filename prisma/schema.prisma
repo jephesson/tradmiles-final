@@ -273,6 +273,11 @@ model Cedente {
   // ✅ assinaturas de clube por cedente
   clubSubscriptions ClubSubscription[]
 
+  // ✅ marcações do Turbo LATAM por mês
+  latamTurboMonths LatamTurboMonth[] @relation("LatamTurboMonthCedente")
+
+  latamTurboAccount LatamTurboAccount? @relation("LatamTurboAccountCedente")
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -912,17 +917,60 @@ model TaxMonthPayment {
 }
 
 model CaixaImediatoSnapshot {
-  id              String   @id @default(cuid())
-  team            String
-  date            String   // YYYY-MM-DD (mais fácil p/ upsert e lista)
-  cashCents        Int     @default(0)
-  totalBrutoCents  Int     @default(0)
+  id                String @id @default(cuid())
+  team              String
+  date              String // YYYY-MM-DD (mais fácil p/ upsert e lista)
+  cashCents         Int    @default(0)
+  totalBrutoCents   Int    @default(0)
   totalDividasCents Int    @default(0)
   totalLiquidoCents Int    @default(0)
 
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@unique([team, date])
   @@index([team, date])
+}
+
+enum LatamTurboStatus {
+  PENDING // em aguardo
+  TRANSFERRED // transferido (verde)
+  SKIPPED // não transferir (vermelho)
+}
+
+model LatamTurboMonth {
+  id        String           @id @default(cuid())
+  team      String
+  monthKey  String
+  cedenteId String
+  status    LatamTurboStatus @default(PENDING)
+  points    Int              @default(0)
+  notes     String?
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
+
+  cedente Cedente @relation("LatamTurboMonthCedente", fields: [cedenteId], references: [id], onDelete: Cascade)
+
+  @@unique([team, monthKey, cedenteId], name: "team_monthKey_cedenteId")
+  @@index([team, monthKey, status])
+  @@map("latam_turbo_months")
+}
+
+model LatamTurboAccount {
+  id        String @id @default(cuid())
+  team      String
+  cedenteId String @unique
+
+  // ✅ controle de CPFs liberados na LATAM (beneficiários)
+  cpfLimit Int @default(25)
+  cpfUsed  Int @default(0)
+
+  notes     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  cedente Cedente @relation("LatamTurboAccountCedente", fields: [cedenteId], references: [id], onDelete: Cascade)
+
+  @@index([team])
+  @@map("latam_turbo_accounts")
 }
