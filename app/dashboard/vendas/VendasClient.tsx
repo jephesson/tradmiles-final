@@ -63,7 +63,7 @@ type SaleRow = {
   paymentStatus: "PENDING" | "PAID" | "CANCELED";
   locator: string | null;
 
-  // ✅ NOVOS (para mostrar cartão + taxa)
+  // ✅ vem da API (aparece só no modal)
   feeCardLabel?: string | null;
   embarqueFeeCents?: number | null;
 
@@ -456,11 +456,6 @@ export default function VendasClient() {
                 <th className="text-right font-semibold px-4 py-3 w-[160px]">TOTAL</th>
                 <th className="text-right font-semibold px-4 py-3 w-[170px]">A RECEBER</th>
                 <th className="text-left font-semibold px-4 py-3 w-[140px]">STATUS</th>
-
-                {/* ✅ novos */}
-                <th className="text-left font-semibold px-4 py-3 w-[240px]">CARTÃO</th>
-                <th className="text-right font-semibold px-4 py-3 w-[140px]">TAXA</th>
-
                 <th className="text-left font-semibold px-4 py-3 w-[140px]">LOC</th>
                 <th className="text-right font-semibold px-4 py-3 w-[200px]">AÇÃO</th>
               </tr>
@@ -469,7 +464,7 @@ export default function VendasClient() {
             <tbody>
               {filtered.length === 0 && !loading ? (
                 <tr>
-                  <td colSpan={14} className="px-4 py-8 text-slate-500">
+                  <td colSpan={12} className="px-4 py-8 text-slate-500">
                     Nenhum resultado.
                   </td>
                 </tr>
@@ -477,7 +472,6 @@ export default function VendasClient() {
 
               {filtered.map((r) => {
                 const pend = pendingCentsOfSale(r);
-                const fee = feeCentsOfSale(r);
                 const isBusy = updatingId === r.id;
 
                 return (
@@ -540,24 +534,6 @@ export default function VendasClient() {
                       </span>
                     </td>
 
-                    {/* ✅ novos */}
-                    <td className="px-4 py-3">
-                      {r.feeCardLabel ? (
-                        <div
-                          className="text-xs text-slate-700 max-w-[240px] truncate"
-                          title={r.feeCardLabel}
-                        >
-                          {r.feeCardLabel}
-                        </div>
-                      ) : (
-                        <div className="text-slate-400">—</div>
-                      )}
-                    </td>
-
-                    <td className="px-4 py-3 text-right font-semibold tabular-nums">
-                      {fee === null ? "—" : fmtMoneyBR(fee)}
-                    </td>
-
                     <td className="px-4 py-3 font-mono text-xs">{r.locator || "—"}</td>
 
                     <td
@@ -604,7 +580,7 @@ export default function VendasClient() {
 
               {loading ? (
                 <tr>
-                  <td colSpan={14} className="px-4 py-8 text-slate-500">
+                  <td colSpan={12} className="px-4 py-8 text-slate-500">
                     Carregando...
                   </td>
                 </tr>
@@ -677,7 +653,7 @@ export default function VendasClient() {
                 </div>
               </div>
 
-              {/* ✅ cartão + taxa */}
+              {/* ✅ cartão + taxa (SÓ no modal) */}
               <div className="grid gap-3 md:grid-cols-2">
                 <div className="rounded-2xl border p-4">
                   <div className="text-xs text-slate-500">Cartão usado</div>
@@ -693,7 +669,9 @@ export default function VendasClient() {
                 <div className="rounded-2xl border p-4">
                   <div className="text-xs text-slate-500">Taxa de embarque</div>
                   <div className="mt-1 text-lg font-semibold">
-                    {feeCentsOfSale(details) === null ? "—" : fmtMoneyBR(feeCentsOfSale(details) || 0)}
+                    {feeCentsOfSale(details) === null
+                      ? "—"
+                      : fmtMoneyBR(feeCentsOfSale(details) || 0)}
                   </div>
                 </div>
               </div>
