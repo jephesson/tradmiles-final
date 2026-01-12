@@ -1,22 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-
-// ✅ ajuste o import do prisma conforme seu projeto:
 import { prisma } from "@/lib/prisma";
-// se o seu for default export, troque por:
-// import prisma from "@/lib/prisma";
 
 const LATAM_ANUAL_PASSAGEIROS_LIMITE = 25;
 
-/**
- * ✅ Regra LATAM (janela móvel por mês):
- * - Emissões do mês-12 continuam contando durante o mês atual
- * - Só "renovam" (saem da conta) quando vira o mês seguinte
- *
- * Implementação:
- * - w0 = início do mês-12 (inclusivo)
- * - w1 = início do próximo mês (exclusivo)
- * - soma passengersCount dentro desse range
- */
 function startOfMonthUTC(d = new Date()) {
   return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1, 0, 0, 0, 0));
 }
@@ -29,6 +15,11 @@ export async function GET(req: NextRequest) {
   const q = (url.searchParams.get("q") || "").trim();
   const ownerId = (url.searchParams.get("ownerId") || "").trim();
 
+  // ✅ opcional: filtrar já no backend
+  const hideBlocked = ["1", "true", "yes", "on"].includes(
+    (url.searchParams.get("hideBlocked") || "").toLowerCase()
+  );
+
   const whereCedente: any = {
     status: "APPROVED",
     AND: [],
@@ -36,7 +27,6 @@ export async function GET(req: NextRequest) {
 
   if (ownerId) whereCedente.AND.push({ ownerId });
 
-  // filtro texto
   if (q) {
     whereCedente.AND.push({
       OR: [
@@ -52,7 +42,7 @@ export async function GET(req: NextRequest) {
     OR: [{ pontosLatam: { gt: 0 } }, { senhaLatamPass: { not: null } }],
   });
 
-  const cedentes = await prisma.cedente.findMany({
+  const cedentesRaw = await prisma.cedente.findMany({
     where: whereCedente,
     select: {
       id: true,
@@ -66,7 +56,29 @@ export async function GET(req: NextRequest) {
     take: 2000,
   });
 
-  const ids = cedentes.map((c: any) => c.id);
+  const idsRaw = cedentesRaw.map((c) => c.id);
+  if (idsRaw.length === 0) return NextResponse.json({ rows: [] });
+
+  // =========================
+  // ✅ BLOQUEADOS LATAM (BlockedAccount OPEN)
+  // =========================
+  const blockedLatam = await prisma.blockedAccount.findMany({
+    where: {
+      cedenteId: { in: idsRaw },
+      program: "LATAM",
+      status: "OPEN",
+    },
+    select: { cedenteId: true },
+  });
+
+  const blockedSet = new Set(blockedLatam.map((b) => b.cedenteId));
+
+  // ✅ se quiser ocultar já no backend
+  const cedentes = hideBlocked
+    ? cedentesRaw.filter((c) => !blockedSet.has(c.id))
+    : cedentesRaw;
+
+  const ids = cedentes.map((c) => c.id);
   if (ids.length === 0) return NextResponse.json({ rows: [] });
 
   // =========================
@@ -79,11 +91,7 @@ export async function GET(req: NextRequest) {
         cedenteId: { in: ids },
         status: { not: "CANCELED" },
       },
-      OR: [
-        { programTo: "LATAM" },
-        // fallback: se você usa ciaAerea no Purchase como LATAM
-        { purchase: { ciaAerea: "LATAM" } },
-      ],
+      OR: [{ programTo: "LATAM" }, { purchase: { ciaAerea: "LATAM" } }],
     },
     select: {
       pointsFinal: true,
@@ -98,23 +106,19 @@ export async function GET(req: NextRequest) {
   }
 
   // =========================
-  // Emissões LATAM (janela móvel por mês) (EmissionEvent)
-  // - inclui mês-12 até virar o mês seguinte
+  // Emissões LATAM (rolling 12 meses por mês) (EmissionEvent)
   // =========================
   const now = new Date();
-  const m0 = startOfMonthUTC(now);      // início do mês atual (UTC)
-  const w0 = addMonthsUTC(m0, -12);     // início do mês-12 (inclusivo)
-  const w1 = addMonthsUTC(m0, 1);       // início do próximo mês (exclusivo)
+  const m0 = startOfMonthUTC(now);
+  const w0 = addMonthsUTC(m0, -12);
+  const w1 = addMonthsUTC(m0, 1);
 
-  // ✅ mais performático que findMany + reduce
   const grouped = await prisma.emissionEvent.groupBy({
     by: ["cedenteId"],
     where: {
       program: "LATAM",
       cedenteId: { in: ids },
       issuedAt: { gte: w0, lt: w1 },
-      // se existir um status de cancelamento/estorno, filtre aqui também:
-      // status: "APPROVED",
     },
     _sum: { passengersCount: true },
   });
@@ -129,18 +133,16 @@ export async function GET(req: NextRequest) {
   // =========================
   const rows = cedentes.map((c: any) => {
     const pend = pendingMap.get(c.id) || 0;
-
-    // ✅ agora é "rolling 12 meses por mês" (com mês-12 ainda contando)
     const used = usedMap.get(c.id) || 0;
-
     const available = Math.max(0, LATAM_ANUAL_PASSAGEIROS_LIMITE - used);
+
+    const latamBloqueado = blockedSet.has(c.id);
 
     return {
       id: c.id,
       identificador: c.identificador,
       nomeCompleto: c.nomeCompleto,
       cpf: c.cpf,
-
       owner: c.owner,
 
       latamAprovado: c.pontosLatam || 0,
@@ -149,6 +151,12 @@ export async function GET(req: NextRequest) {
 
       passageirosUsadosAno: used,
       passageirosDisponiveisAno: available,
+
+      // ✅ chave pro front pintar/ocultar
+      latamBloqueado,
+
+      // ✅ opcional: compat com o padrão do outro endpoint
+      blockedPrograms: latamBloqueado ? (["LATAM"] as const) : [],
     };
   });
 
