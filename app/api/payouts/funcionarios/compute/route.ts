@@ -32,11 +32,7 @@ function commission1Fallback(pointsValueCents: number) {
   return Math.round(Math.max(0, safeInt(pointsValueCents, 0)) * 0.01);
 }
 
-function bonusFallback(args: {
-  points: number;
-  milheiroCents: number;
-  metaMilheiroCents: number;
-}) {
+function bonusFallback(args: { points: number; milheiroCents: number; metaMilheiroCents: number }) {
   const points = safeInt(args.points, 0);
   const mil = safeInt(args.milheiroCents, 0);
   const meta = safeInt(args.metaMilheiroCents, 0);
@@ -51,7 +47,144 @@ function bonusFallback(args: {
 }
 
 /* =========================
-   ProfitShare helpers
+  ✅ PV SEM TAXA
+  - pointsValueCents (se vier)
+  - total - embarqueFee
+  - fallback pontos * milheiro
+========================= */
+function pvSemTaxaFromSale(s: {
+  totalCents: number;
+  embarqueFeeCents: number;
+  pointsValueCents: number;
+  points: number;
+  milheiroCents: number;
+}) {
+  const pvDb = safeInt(s.pointsValueCents, 0);
+  if (pvDb > 0) return pvDb;
+
+  const total = safeInt(s.totalCents, 0);
+  const fee = safeInt(s.embarqueFeeCents, 0);
+  if (total > 0) return Math.max(total - fee, 0);
+
+  return pointsValueCentsFallback(safeInt(s.points, 0), safeInt(s.milheiroCents, 0));
+}
+
+/* =========================
+  Fee payer resolver (via feeCardLabel)
+  - PRIORIDADE: @login no label (ex.: "(@eduarda)")
+  - Depois: (login)
+  - Depois: nome
+  - Se for cartão da empresa ("Vias Aéreas"), IGNORA reembolso
+========================= */
+function norm(s: string) {
+  return String(s || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim()
+    .replace(/\s+/g, " ");
+}
+
+function normLogin(s: string) {
+  return norm(s).replace(/^@+/, "").replace(/\s+/g, "").replace(/[^a-z0-9._-]/g, "");
+}
+
+function extractLoginHint(label?: string | null) {
+  const raw = String(label || "").trim();
+  if (!raw) return "";
+
+  const mAt = raw.match(/@([a-zA-Z0-9._-]+)/);
+  if (mAt?.[1]) return normLogin(mAt[1]);
+
+  const mPar = raw.match(/\(([^)]+)\)/);
+  if (mPar?.[1]) {
+    const inside = mPar[1].trim().replace(/^@/, "");
+    if (inside && !inside.includes(" ")) return normLogin(inside);
+  }
+
+  return "";
+}
+
+function extractCardOwnerName(label?: string | null) {
+  let s = norm(label || "");
+  if (!s) return "";
+
+  if (s.startsWith("cartao ")) s = s.slice("cartao ".length).trim();
+
+  for (const sep of [" - ", " (", " [", " | ", " • ", " · "]) {
+    const idx = s.indexOf(sep);
+    if (idx >= 0) {
+      s = s.slice(0, idx).trim();
+      break;
+    }
+  }
+
+  s = s.replace(/[^\p{L}\p{N}\s]/gu, " ").replace(/\s+/g, " ").trim();
+  return s;
+}
+
+function isCompanyCardName(owner: string) {
+  const s = norm(owner);
+  if (!s) return false;
+
+  const needles = [
+    "vias aereas",
+    "via s aereas",
+    "trademiles",
+    "empresa",
+    "corporativo",
+    "business",
+    "pj",
+    "ltda",
+    "viagens e turismo",
+  ];
+  return needles.some((k) => s.includes(k));
+}
+
+type TeamMemberLite = { id: string; nameNorm: string; loginNorm: string };
+
+function resolveFeePayerFromLabel(
+  feeCardLabel: string | null | undefined,
+  members: TeamMemberLite[]
+): { ignore: boolean; userId: string | null } {
+  const label = String(feeCardLabel || "").trim();
+  if (!label) return { ignore: false, userId: null };
+
+  const ownerName = extractCardOwnerName(label);
+  if (ownerName && isCompanyCardName(ownerName)) return { ignore: true, userId: null };
+
+  const loginHint = extractLoginHint(label);
+  if (loginHint) {
+    const byLogin = members.find((m) => m.loginNorm === loginHint);
+    if (byLogin) return { ignore: false, userId: byLogin.id };
+  }
+
+  if (!ownerName) return { ignore: false, userId: null };
+  const ownerNorm = norm(ownerName);
+
+  const byNameExact = members.find((m) => m.nameNorm === ownerNorm);
+  if (byNameExact) return { ignore: false, userId: byNameExact.id };
+
+  let candidates = members.filter(
+    (m) => (m.nameNorm && m.nameNorm.includes(ownerNorm)) || (m.nameNorm && ownerNorm.includes(m.nameNorm))
+  );
+  if (candidates.length === 1) return { ignore: false, userId: candidates[0].id };
+
+  const tok = ownerNorm.split(" ")[0] || "";
+  if (tok) {
+    const tokLogin = normLogin(tok);
+    candidates = members.filter((m) => {
+      const firstName = (m.nameNorm.split(" ")[0] || "").trim();
+      return firstName === tok || m.loginNorm === tokLogin || m.nameNorm.includes(tok);
+    });
+    if (candidates.length === 1) return { ignore: false, userId: candidates[0].id };
+  }
+
+  return { ignore: false, userId: null };
+}
+
+/* =========================
+  ProfitShare helpers
 ========================= */
 function pickShareForDate(
   shares: Array<{
@@ -69,60 +202,58 @@ function pickShareForDate(
   return null;
 }
 
+/**
+ * ✅ Split correto:
+ * - floor inicial
+ * - reparte resto por maiores frações
+ */
 function splitByBps(pool: number, items: Array<{ payeeId: string; bps: number }>) {
   const out: Record<string, number> = {};
   const total = safeInt(pool, 0);
-  if (!items?.length) return out;
+  if (!items?.length || total === 0) return out;
+
+  const rows = items
+    .map((it, idx) => ({
+      idx,
+      payeeId: it.payeeId,
+      bps: Math.max(0, safeInt(it.bps, 0)),
+    }))
+    .filter((x) => !!x.payeeId && x.bps > 0);
+
+  if (!rows.length) return out;
+
+  const sumBps = rows.reduce((acc, r) => acc + r.bps, 0);
+  if (sumBps <= 0) return out;
 
   let used = 0;
-  for (const it of items) {
-    const bps = safeInt(it.bps, 0);
-    const v = Math.floor((total * bps) / 10000);
-    out[it.payeeId] = (out[it.payeeId] ?? 0) + v;
-    used += v;
-  }
+  const tmp = rows.map((r) => {
+    const raw = (total * r.bps) / sumBps;
+    const flo = Math.floor(raw);
+    const frac = raw - flo;
+    used += flo;
+    return { ...r, flo, frac };
+  });
 
-  const rem = total - used;
-  if (rem !== 0) {
-    let best = items[0];
-    for (const it of items) if (safeInt(it.bps, 0) > safeInt(best.bps, 0)) best = it;
-    out[best.payeeId] = (out[best.payeeId] ?? 0) + rem;
+  for (const r of tmp) out[r.payeeId] = (out[r.payeeId] ?? 0) + r.flo;
+
+  let rem = total - used;
+  if (rem > 0) {
+    tmp.sort((a, b) => {
+      if (b.frac !== a.frac) return b.frac - a.frac;
+      if (b.bps !== a.bps) return b.bps - a.bps;
+      return a.idx - b.idx;
+    });
+
+    let i = 0;
+    while (rem > 0) {
+      const r = tmp[i % tmp.length];
+      out[r.payeeId] = (out[r.payeeId] ?? 0) + 1;
+      rem -= 1;
+      i += 1;
+    }
   }
 
   return out;
-}
-
-/* =========================
-   “default 0” safe chooses
-========================= */
-function choosePv(points: number, pvDb: number, milheiroCents: number) {
-  const pv = safeInt(pvDb, 0);
-  if (pv > 0) return pv;
-
-  const pts = safeInt(points, 0);
-  if (pts > 0) return pointsValueCentsFallback(pts, milheiroCents);
-
-  return 0;
-}
-
-function chooseC1(points: number, c1Db: number, pv: number) {
-  const c1 = safeInt(c1Db, 0);
-  if (c1 > 0) return c1;
-
-  const pts = safeInt(points, 0);
-  if (pts > 0 && safeInt(pv, 0) > 0) return commission1Fallback(pv);
-
-  return 0;
-}
-
-function chooseC2(points: number, c2Db: number, milheiroCents: number, metaMilheiroCents: number) {
-  const c2 = safeInt(c2Db, 0);
-  if (c2 > 0) return c2;
-
-  const pts = safeInt(points, 0);
-  if (pts > 0) return bonusFallback({ points: pts, milheiroCents, metaMilheiroCents });
-
-  return 0;
 }
 
 function chooseMetaMilheiro(metaSaleOrPurchase: number | null | undefined) {
@@ -131,12 +262,20 @@ function chooseMetaMilheiro(metaSaleOrPurchase: number | null | undefined) {
 }
 
 /* =========================
-   POST /api/payouts/funcionarios/compute
-   body: { date: "YYYY-MM-DD" }
+  Helpers: purchaseId legado (numero) -> id
+========================= */
+function makeNumeroVariants(numeros: string[]) {
+  const clean = numeros.map((x) => String(x || "").trim()).filter(Boolean);
+  const upper = clean.map((x) => x.toUpperCase());
+  const lower = clean.map((x) => x.toLowerCase());
+  return Array.from(new Set([...clean, ...upper, ...lower]));
+}
 
-   ✅ Dia baseado em Purchase.finalizedAt (Recife)
-   ✅ C3 (rateio) = soma do lucro líquido REAL por compra finalizada
-      (PV sem taxa - custo - bônus), igual “Compras finalizadas”
+type Basis = "PURCHASE_FINALIZED" | "SALE_DATE";
+
+/* =========================
+  POST /api/payouts/funcionarios/compute
+  body: { date: "YYYY-MM-DD", basis?: "PURCHASE_FINALIZED"|"SALE_DATE", force?: boolean }
 ========================= */
 export async function POST(req: Request) {
   try {
@@ -145,35 +284,40 @@ export async function POST(req: Request) {
     const meId = String((sess as any)?.id || "");
     const role = String((sess as any)?.role || "");
 
-    if (!team || !meId) {
-      return NextResponse.json({ ok: false, error: "Não autenticado" }, { status: 401 });
-    }
-    if (role !== "admin") {
-      return NextResponse.json({ ok: false, error: "Sem permissão." }, { status: 403 });
-    }
+    if (!team || !meId) return NextResponse.json({ ok: false, error: "Não autenticado" }, { status: 401 });
+    if (role !== "admin") return NextResponse.json({ ok: false, error: "Sem permissão." }, { status: 403 });
 
     const body = await req.json().catch(() => ({}));
     const date = String(body?.date || "").trim();
+    const basis = (String(body?.basis || "PURCHASE_FINALIZED").trim().toUpperCase() as Basis) || "PURCHASE_FINALIZED";
+    const force = Boolean(body?.force);
 
     if (!date || !isISODate(date)) {
-      return NextResponse.json(
-        { ok: false, error: "date obrigatório (YYYY-MM-DD)" },
-        { status: 400 }
-      );
+      return NextResponse.json({ ok: false, error: "date obrigatório (YYYY-MM-DD)" }, { status: 400 });
     }
 
     const today = todayISORecife();
-
-    // ✅ permite HOJE (dinâmico), bloqueia apenas futuro
     if (date > today) {
-      return NextResponse.json(
-        { ok: false, error: "Não computa datas futuras." },
-        { status: 400 }
-      );
+      return NextResponse.json({ ok: false, error: "Não computa datas futuras." }, { status: 400 });
     }
 
-    // ✅ recorte do dia em Recife (mesmo padrão do app)
     const { start, end } = dayBounds(date);
+
+    // ✅ força: apaga tudo que NÃO foi pago e reconstrói
+    if (force) {
+      await prisma.employeePayout.deleteMany({ where: { team, date, paidById: null } });
+    }
+
+    // ✅ membros do time (para feeCardLabel -> userId)
+    const membersRaw = await prisma.user.findMany({
+      where: { team, role: { in: ["admin", "staff"] } },
+      select: { id: true, name: true, login: true },
+    });
+    const members: TeamMemberLite[] = membersRaw.map((u) => ({
+      id: String(u.id),
+      nameNorm: norm(String(u.name || "")),
+      loginNorm: normLogin(String(u.login || "")),
+    }));
 
     // 1) preserva payouts já pagos
     const existingPayouts = await prisma.employeePayout.findMany({
@@ -182,157 +326,169 @@ export async function POST(req: Request) {
     });
     const existingByUserId = new Map(existingPayouts.map((p) => [p.userId, p]));
 
-    // 2) compras FINALIZADAS no dia (precisamos dos campos pra lucro líquido real)
-    const purchases = await prisma.purchase.findMany({
+    // 2) compras FINALIZADAS no dia (pra C3) — garante CLOSED
+    const purchasesFinalized = await prisma.purchase.findMany({
       where: {
+        status: "CLOSED",
         finalizedAt: { gte: start, lt: end },
         cedente: { owner: { team } },
       },
       select: {
         id: true,
+        numero: true,
         finalizedAt: true,
-        totalCents: true, // custo
-        finalSalesPointsValueCents: true, // PV sem taxa (ideal)
+        totalCents: true,
+        metaMilheiroCents: true,
+        finalSalesPointsValueCents: true,
         finalProfitBrutoCents: true,
         finalBonusCents: true,
-        finalProfitCents: true, // NÃO confiar cegamente (pode estar “poluído”)
-        metaMilheiroCents: true,
+        finalProfitCents: true,
         cedente: { select: { ownerId: true } },
       },
       orderBy: { finalizedAt: "desc" },
     });
 
-    const purchaseIds = purchases.map((p) => p.id);
+    const purchaseIdsFinalized = purchasesFinalized.map((p) => p.id);
 
-    // se não teve compra finalizada, limpa payouts não pagos e sai
-    if (!purchaseIds.length) {
+    // Se não teve compra finalizada, ainda pode ter comissão do dia (SALE_DATE)
+    if (!purchaseIdsFinalized.length && basis === "PURCHASE_FINALIZED") {
       await prisma.employeePayout.deleteMany({ where: { team, date, paidById: null } });
-      return NextResponse.json({ ok: true, date, users: 0, purchases: 0, sales: 0 });
+      return NextResponse.json({ ok: true, date, basis, users: 0, purchases: 0, sales: 0 });
     }
 
-    // 3) vendas das compras finalizadas (pra C1/C2/taxa e fallback do lucro líquido)
-    const sales = await prisma.sale.findMany({
-      where: {
-        purchaseId: { in: purchaseIds },
-        paymentStatus: { not: "CANCELED" },
-      },
-      select: {
-        id: true,
-        purchaseId: true,
+    // Map numero -> id (para legado)
+    const idByNumeroUpper = new Map<string, string>(
+      purchasesFinalized
+        .map((p) => [String(p.numero || "").trim().toUpperCase(), p.id] as const)
+        .filter(([k]) => !!k)
+    );
 
-        points: true,
-        milheiroCents: true,
-        totalCents: true, // ✅ necessário pra PV sem taxa via fallback (total - fee)
-        embarqueFeeCents: true,
+    function normalizePurchaseIdUsingFinalized(raw: string) {
+      const r = String(raw || "").trim();
+      if (!r) return "";
+      const upper = r.toUpperCase();
+      return idByNumeroUpper.get(upper) || r;
+    }
 
-        // defaults 0
-        commissionCents: true,
-        bonusCents: true,
-        pointsValueCents: true,
+    // 3) sales para C3 (somente das compras finalizadas do dia) + LEGADO por numero
+    const numerosFinalized = purchasesFinalized.map((p) => String(p.numero || "").trim()).filter(Boolean);
+    const numerosAllFinalized = makeNumeroVariants(numerosFinalized);
 
-        metaMilheiroCents: true,
-        sellerId: true,
+    const salesForFinalizedPurchases = purchaseIdsFinalized.length
+      ? await prisma.sale.findMany({
+          where: {
+            OR: [{ purchaseId: { in: purchaseIdsFinalized } }, { purchaseId: { in: numerosAllFinalized } }],
+            // ✅ pega NULL também
+            OR: [{ paymentStatus: { not: "CANCELED" } }, { paymentStatus: null }],
+          },
+          select: {
+            id: true,
+            purchaseId: true,
+            createdAt: true,
 
-        purchase: { select: { metaMilheiroCents: true } },
-      },
-    });
+            points: true,
+            milheiroCents: true,
+            totalCents: true,
+            embarqueFeeCents: true,
+            feeCardLabel: true,
 
-    // index sales por purchase
-    const salesByPurchaseId: Record<
+            commissionCents: true,
+            bonusCents: true,
+            pointsValueCents: true,
+
+            metaMilheiroCents: true,
+            sellerId: true,
+
+            purchase: { select: { metaMilheiroCents: true } },
+          },
+        })
+      : [];
+
+    // Index para fallback do C3
+    const salesByPurchaseIdForC3: Record<
       string,
       Array<{
         points: number;
         milheiroCents: number;
         totalCents: number;
         embarqueFeeCents: number;
+        feeCardLabel: string | null;
         pointsValueCents: number;
         bonusCents: number | null;
         metaMilheiroCents: number;
         purchaseMetaMilheiroCents: number;
+        sellerId: string | null;
       }>
     > = {};
-    for (const s of sales) {
-      const pid = String(s.purchaseId || "");
+
+    for (const s of salesForFinalizedPurchases) {
+      const pid = normalizePurchaseIdUsingFinalized(String(s.purchaseId || ""));
       if (!pid) continue;
-      (salesByPurchaseId[pid] ||= []).push({
+
+      (salesByPurchaseIdForC3[pid] ||= []).push({
         points: safeInt(s.points, 0),
         milheiroCents: safeInt(s.milheiroCents, 0),
         totalCents: safeInt(s.totalCents, 0),
         embarqueFeeCents: safeInt(s.embarqueFeeCents, 0),
+        feeCardLabel: (s as any).feeCardLabel ?? null,
+
         pointsValueCents: safeInt(s.pointsValueCents, 0),
-        bonusCents: typeof s.bonusCents === "number" ? safeInt(s.bonusCents, 0) : null,
+        bonusCents: typeof (s as any).bonusCents === "number" ? safeInt((s as any).bonusCents, 0) : null,
         metaMilheiroCents: safeInt(s.metaMilheiroCents, 0),
         purchaseMetaMilheiroCents: safeInt(s.purchase?.metaMilheiroCents, 0),
+        sellerId: s.sellerId ?? null,
       });
     }
 
-    // ✅ lucro líquido REAL por compra (igual “Compras finalizadas”)
-    function computeLucroLiquidoCompra(p: (typeof purchases)[number]) {
+    // ✅ lucro líquido REAL por compra (C3)
+    function computeLucroLiquidoCompra(p: (typeof purchasesFinalized)[number]) {
       const cost = safeInt(p.totalCents, 0);
 
-      // 1) melhor fonte: PV sem taxa + bônus
-      const pvDb = safeInt(p.finalSalesPointsValueCents ?? 0, 0);
-      const bonusDb = safeInt(p.finalBonusCents ?? 0, 0);
+      const pvDb = safeInt((p as any).finalSalesPointsValueCents ?? 0, 0);
+      const bonusDb = safeInt((p as any).finalBonusCents ?? 0, 0);
 
-      if (pvDb > 0 && (p.finalBonusCents !== null && p.finalBonusCents !== undefined)) {
+      if (pvDb > 0 && (p as any).finalBonusCents !== null && (p as any).finalBonusCents !== undefined) {
         const bruto = pvDb - cost;
         return bruto - bonusDb;
       }
 
-      // 2) segunda melhor: bruto + bônus
-      const brutoDb = safeInt(p.finalProfitBrutoCents ?? 0, 0);
-      if (brutoDb !== 0 && (p.finalBonusCents !== null && p.finalBonusCents !== undefined)) {
+      const brutoDb = safeInt((p as any).finalProfitBrutoCents ?? 0, 0);
+      if (brutoDb !== 0 && (p as any).finalBonusCents !== null && (p as any).finalBonusCents !== undefined) {
         return brutoDb - bonusDb;
       }
 
-      // 3) fallback via sales (PV sem taxa = total - fee, ou pointsValueCents, ou points*milheiro)
-      const ss = salesByPurchaseId[p.id] || [];
-      if (!ss.length) {
-        // último recurso: usa o campo finalProfitCents (pode estar “poluído”, mas evita 0)
-        const fp = safeInt(p.finalProfitCents ?? 0, 0);
-        return fp;
-      }
+      const ss = salesByPurchaseIdForC3[p.id] || [];
+      if (!ss.length) return safeInt((p as any).finalProfitCents ?? 0, 0);
 
-      let pvSum = 0;
+      let pvSemTaxaSum = 0;
       let bonusSum = 0;
 
       for (const s of ss) {
-        // PV sem taxa (prioridade):
-        // - pointsValueCents (se veio)
-        // - totalCents - embarqueFeeCents (se tiver)
-        // - fallback por pontos*milheiro
-        let pv = safeInt(s.pointsValueCents, 0);
-        if (pv <= 0) {
-          const total = safeInt(s.totalCents, 0);
-          const fee = safeInt(s.embarqueFeeCents, 0);
-          if (total > 0) pv = Math.max(total - fee, 0);
-        }
-        if (pv <= 0) {
-          pv = pointsValueCentsFallback(s.points, s.milheiroCents);
-        }
-        pvSum += pv;
+        const pvSemTaxa = pvSemTaxaFromSale({
+          totalCents: s.totalCents,
+          embarqueFeeCents: s.embarqueFeeCents,
+          pointsValueCents: s.pointsValueCents,
+          points: s.points,
+          milheiroCents: s.milheiroCents,
+        });
+        pvSemTaxaSum += pvSemTaxa;
 
-        // bônus: usa salvo; senão recalcula
         if (s.bonusCents !== null) {
           bonusSum += safeInt(s.bonusCents, 0);
         } else {
           const meta = chooseMetaMilheiro(
             safeInt(s.metaMilheiroCents, 0) > 0 ? s.metaMilheiroCents : s.purchaseMetaMilheiroCents
           );
-          bonusSum += bonusFallback({
-            points: s.points,
-            milheiroCents: s.milheiroCents,
-            metaMilheiroCents: meta,
-          });
+          bonusSum += bonusFallback({ points: s.points, milheiroCents: s.milheiroCents, metaMilheiroCents: meta });
         }
       }
 
-      const bruto = pvSum - cost;
+      const bruto = pvSemTaxaSum - cost;
       return bruto - bonusSum;
     }
 
-    // 4) ProfitShare dos owners envolvidos
-    const ownerIds = Array.from(new Set(purchases.map((p) => p.cedente.ownerId).filter(Boolean)));
+    // 4) ProfitShare dos owners envolvidos (C3)
+    const ownerIds = Array.from(new Set(purchasesFinalized.map((p) => p.cedente.ownerId).filter(Boolean)));
 
     const shares = await prisma.profitShare.findMany({
       where: {
@@ -358,38 +514,175 @@ export async function POST(req: Request) {
 
     const byUser: Record<string, Agg> = {};
     const ensure = (u: string) =>
-      (byUser[u] ||= {
-        commission1Cents: 0,
-        commission2Cents: 0,
-        commission3RateioCents: 0,
-        feeCents: 0,
-        salesCount: 0,
+      (byUser[u] ||= { commission1Cents: 0, commission2Cents: 0, commission3RateioCents: 0, feeCents: 0, salesCount: 0 });
+
+    /* =========================
+       5) Escolhe as SALES que entram em C1/C2/FEE
+       - PURCHASE_FINALIZED: sales das compras finalizadas do dia
+       - SALE_DATE: sales criadas no dia (mesmo se compra finalizada em outro dia)
+    ========================= */
+    type SaleForCommission = {
+      id: string;
+      purchaseId: string;
+      points: number;
+      milheiroCents: number;
+      totalCents: number;
+      embarqueFeeCents: number;
+      feeCardLabel: string | null;
+      commissionCents: number;
+      bonusCents: number | null;
+      pointsValueCents: number;
+      metaMilheiroCents: number;
+      sellerId: string | null;
+      purchaseMetaMilheiroCents: number;
+    };
+
+    let salesForCommission: SaleForCommission[] = [];
+
+    if (basis === "PURCHASE_FINALIZED") {
+      salesForCommission = salesForFinalizedPurchases.map((s) => ({
+        id: String(s.id),
+        purchaseId: String(s.purchaseId || ""),
+        points: safeInt(s.points, 0),
+        milheiroCents: safeInt(s.milheiroCents, 0),
+        totalCents: safeInt(s.totalCents, 0),
+        embarqueFeeCents: safeInt(s.embarqueFeeCents, 0),
+        feeCardLabel: (s as any).feeCardLabel ?? null,
+
+        commissionCents: safeInt(s.commissionCents, 0),
+        bonusCents: typeof (s as any).bonusCents === "number" ? safeInt((s as any).bonusCents, 0) : null,
+        pointsValueCents: safeInt(s.pointsValueCents, 0),
+
+        metaMilheiroCents: safeInt(s.metaMilheiroCents, 0),
+        sellerId: s.sellerId ?? null,
+        purchaseMetaMilheiroCents: safeInt(s.purchase?.metaMilheiroCents, 0),
+      }));
+    } else {
+      // SALE_DATE: busca vendas do dia e “amarra” no time por purchase (id ou numero)
+      const salesTodayRaw = await prisma.sale.findMany({
+        where: {
+          createdAt: { gte: start, lt: end },
+          OR: [{ paymentStatus: { not: "CANCELED" } }, { paymentStatus: null }],
+        },
+        select: {
+          id: true,
+          purchaseId: true,
+          createdAt: true,
+
+          points: true,
+          milheiroCents: true,
+          totalCents: true,
+          embarqueFeeCents: true,
+          feeCardLabel: true,
+
+          commissionCents: true,
+          bonusCents: true,
+          pointsValueCents: true,
+
+          metaMilheiroCents: true,
+          sellerId: true,
+        },
       });
 
-    // 5) C1/C2 + taxa por seller
-    for (const s of sales) {
-      const sellerId = s.sellerId ?? null;
-      if (!sellerId) continue;
+      const rawPurchaseIds = Array.from(new Set(salesTodayRaw.map((s) => String(s.purchaseId || "").trim()).filter(Boolean)));
 
-      const pv = choosePv(s.points, s.pointsValueCents, s.milheiroCents);
-      const c1 = chooseC1(s.points, s.commissionCents, pv);
+      // tenta casar por id e por numero
+      const maybeIds = rawPurchaseIds.filter((x) => x.length >= 20); // heuristic ok pro dia
+      const maybeNumeros = rawPurchaseIds;
 
-      const meta = chooseMetaMilheiro(
-        safeInt(s.metaMilheiroCents, 0) > 0 ? s.metaMilheiroCents : s.purchase?.metaMilheiroCents
-      );
+      const numerosAll = makeNumeroVariants(maybeNumeros);
 
-      const c2 = chooseC2(s.points, s.bonusCents, s.milheiroCents, meta);
-      const fee = safeInt(s.embarqueFeeCents, 0);
+      const purchasesRef = await prisma.purchase.findMany({
+        where: {
+          cedente: { owner: { team } },
+          OR: [{ id: { in: maybeIds.length ? maybeIds : ["__none__"] } }, { numero: { in: numerosAll.length ? numerosAll : ["__none__"] } }],
+        },
+        select: {
+          id: true,
+          numero: true,
+          metaMilheiroCents: true,
+          cedente: { select: { ownerId: true } },
+        },
+      });
 
-      const a = ensure(sellerId);
-      a.commission1Cents += c1;
-      a.commission2Cents += c2;
-      a.feeCents += fee;
-      a.salesCount += 1;
+      const byId = new Map(purchasesRef.map((p) => [p.id, p]));
+      const byNumeroUpper = new Map(purchasesRef.map((p) => [String(p.numero || "").trim().toUpperCase(), p]));
+
+      for (const s of salesTodayRaw) {
+        const rawPid = String(s.purchaseId || "").trim();
+        if (!rawPid) continue;
+
+        const p =
+          byId.get(rawPid) ||
+          byNumeroUpper.get(rawPid.toUpperCase());
+
+        if (!p) continue; // fora do team
+
+        salesForCommission.push({
+          id: String(s.id),
+          purchaseId: rawPid,
+
+          points: safeInt(s.points, 0),
+          milheiroCents: safeInt(s.milheiroCents, 0),
+          totalCents: safeInt(s.totalCents, 0),
+          embarqueFeeCents: safeInt(s.embarqueFeeCents, 0),
+          feeCardLabel: (s as any).feeCardLabel ?? null,
+
+          commissionCents: safeInt(s.commissionCents, 0),
+          bonusCents: typeof (s as any).bonusCents === "number" ? safeInt((s as any).bonusCents, 0) : null,
+          pointsValueCents: safeInt(s.pointsValueCents, 0),
+
+          metaMilheiroCents: safeInt(s.metaMilheiroCents, 0),
+          sellerId: s.sellerId ?? null,
+          purchaseMetaMilheiroCents: safeInt((p as any).metaMilheiroCents, 0),
+        });
+      }
     }
 
-    // 6) ✅ C3 = rateio do lucro líquido REAL por compra (igual Compras finalizadas)
-    for (const p of purchases) {
+    // 6) C1/C2 por seller + ✅ Fee reembolsado pro pagador do cartão (fallback seller)
+    for (const s of salesForCommission) {
+      const sellerId = s.sellerId;
+
+      // C1/C2 só se tiver seller
+      if (sellerId) {
+        const pvSemTaxa = pvSemTaxaFromSale({
+          totalCents: s.totalCents,
+          embarqueFeeCents: s.embarqueFeeCents,
+          pointsValueCents: s.pointsValueCents,
+          points: s.points,
+          milheiroCents: s.milheiroCents,
+        });
+
+        const meta = chooseMetaMilheiro(
+          safeInt(s.metaMilheiroCents, 0) > 0 ? s.metaMilheiroCents : s.purchaseMetaMilheiroCents
+        );
+
+        const c1 = safeInt(s.commissionCents, 0) > 0 ? safeInt(s.commissionCents, 0) : commission1Fallback(pvSemTaxa);
+
+        const c2 =
+          safeInt(s.bonusCents ?? 0, 0) > 0
+            ? safeInt(s.bonusCents ?? 0, 0)
+            : bonusFallback({ points: s.points, milheiroCents: s.milheiroCents, metaMilheiroCents: meta });
+
+        const aSeller = ensure(sellerId);
+        aSeller.commission1Cents += safeInt(c1, 0);
+        aSeller.commission2Cents += safeInt(c2, 0);
+        aSeller.salesCount += 1;
+      }
+
+      // ✅ Fee: vai pra pessoa do cartão (ou fallback seller)
+      const fee = safeInt(s.embarqueFeeCents, 0);
+      if (fee > 0) {
+        const { ignore, userId } = resolveFeePayerFromLabel(s.feeCardLabel, members);
+        if (!ignore) {
+          const receiverId = userId || sellerId;
+          if (receiverId) ensure(receiverId).feeCents += fee;
+        }
+      }
+    }
+
+    // 7) ✅ C3 = rateio do lucro líquido REAL por compra finalizada no dia
+    for (const p of purchasesFinalized) {
       const pool = computeLucroLiquidoCompra(p);
       if (safeInt(pool, 0) <= 0) continue;
 
@@ -406,19 +699,17 @@ export async function POST(req: Request) {
         p.finalizedAt ?? start
       );
 
-      // fallback: se não tiver plano, joga 100% pro owner
       const items = share?.items?.length ? share.items : [{ payeeId: ownerId, bps: 10000 }];
-
       const splits = splitByBps(pool, items);
+
       for (const payeeId of Object.keys(splits)) {
-        const a = ensure(payeeId);
-        a.commission3RateioCents += safeInt(splits[payeeId], 0);
+        ensure(payeeId).commission3RateioCents += safeInt(splits[payeeId], 0);
       }
     }
 
     const computedUserIds = Object.keys(byUser);
 
-    // 7) remove payouts "lixo" não pagos
+    // 8) remove payouts "lixo" não pagos (se force já apagou tudo não pago, isso só mantém consistência)
     await prisma.employeePayout.deleteMany({
       where: {
         team,
@@ -428,7 +719,7 @@ export async function POST(req: Request) {
       },
     });
 
-    // 8) upsert preservando pagos
+    // 9) upsert preservando pagos
     for (const userId of computedUserIds) {
       const agg = byUser[userId];
       const existing = existingByUserId.get(userId);
@@ -450,7 +741,7 @@ export async function POST(req: Request) {
           date,
           userId,
           grossProfitCents: gross,
-          tax7Cents: tax, // nome legado
+          tax7Cents: tax, // legado
           feeCents: fee,
           netPayCents: net,
           breakdown: {
@@ -459,6 +750,7 @@ export async function POST(req: Request) {
             commission3RateioCents: c3,
             salesCount: safeInt(agg.salesCount, 0),
             taxPercent: 8,
+            basis,
           },
         },
         update: {
@@ -472,8 +764,8 @@ export async function POST(req: Request) {
             commission3RateioCents: c3,
             salesCount: safeInt(agg.salesCount, 0),
             taxPercent: 8,
+            basis,
           },
-          // ✅ não mexe em paidAt/paidById
         },
       });
     }
@@ -481,9 +773,12 @@ export async function POST(req: Request) {
     return NextResponse.json({
       ok: true,
       date,
+      basis,
+      force,
       users: computedUserIds.length,
-      purchases: purchases.length,
-      sales: sales.length,
+      purchasesFinalized: purchasesFinalized.length,
+      salesForCommission: salesForCommission.length,
+      salesForFinalizedPurchases: salesForFinalizedPurchases.length,
     });
   } catch (e: any) {
     const msg = e?.message === "UNAUTHENTICATED" ? "Não autenticado" : e?.message || String(e);
