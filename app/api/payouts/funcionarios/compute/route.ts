@@ -48,12 +48,6 @@ function bonusFallback(args: { points: number; milheiroCents: number; metaMilhei
 
 /* =========================
   ✅ Fee payer resolver (via feeCardLabel)
-  - PRIORIDADE: @login no label (ex.: "(@eduarda)")
-  - Depois: (login) no label (ex.: "(jephesson)")
-  - Depois: nome
-  - Se for cartão da empresa ("Vias Aéreas"), IGNORA reembolso
-
-  ✅ AJUSTE: normaliza login removendo "@"
 ========================= */
 function norm(s: string) {
   return String(s || "")
@@ -64,7 +58,6 @@ function norm(s: string) {
     .replace(/\s+/g, " ");
 }
 
-// ✅ normalização específica pra login (remove @ e caracteres estranhos)
 function normLogin(s: string) {
   return norm(s)
     .replace(/^@+/, "")
@@ -76,11 +69,9 @@ function extractLoginHint(label?: string | null) {
   const raw = String(label || "").trim();
   if (!raw) return "";
 
-  // 1) tenta @login (mais confiável)
   const mAt = raw.match(/@([a-zA-Z0-9._-]+)/);
   if (mAt?.[1]) return normLogin(mAt[1]);
 
-  // 2) tenta (login) se for 1 token
   const mPar = raw.match(/\(([^)]+)\)/);
   if (mPar?.[1]) {
     const inside = mPar[1].trim().replace(/^@/, "");
@@ -94,10 +85,8 @@ function extractCardOwnerName(label?: string | null) {
   let s = norm(label || "");
   if (!s) return "";
 
-  // remove prefix "cartao " (cartão vira "cartao" após normalize)
   if (s.startsWith("cartao ")) s = s.slice("cartao ".length).trim();
 
-  // corta sufixos: " - ...", "(...)", "[...]", "| ..."
   for (const sep of [" - ", " (", " [", " | ", " • ", " · "]) {
     const idx = s.indexOf(sep);
     if (idx >= 0) {
@@ -106,7 +95,6 @@ function extractCardOwnerName(label?: string | null) {
     }
   }
 
-  // remove caracteres estranhos mantendo letras/números/espaço
   s = s.replace(/[^\p{L}\p{N}\s]/gu, " ").replace(/\s+/g, " ").trim();
   return s;
 }
@@ -138,33 +126,26 @@ function resolveFeePayerFromLabel(
   const label = String(feeCardLabel || "").trim();
   if (!label) return { ignore: false, userId: null };
 
-  // 0) se parecer cartão da empresa, ignora
   const ownerName = extractCardOwnerName(label);
   if (ownerName && isCompanyCardName(ownerName)) return { ignore: true, userId: null };
 
-  // 1) ✅ tenta por @login (ou (login))
   const loginHint = extractLoginHint(label);
   if (loginHint) {
     const byLogin = members.find((m) => m.loginNorm === loginHint);
     if (byLogin) return { ignore: false, userId: byLogin.id };
   }
 
-  // 2) tenta por nome
   if (!ownerName) return { ignore: false, userId: null };
   const ownerNorm = norm(ownerName);
 
   const byNameExact = members.find((m) => m.nameNorm === ownerNorm);
   if (byNameExact) return { ignore: false, userId: byNameExact.id };
 
-  // contains (label menor ou maior)
   let candidates = members.filter(
-    (m) =>
-      (m.nameNorm && m.nameNorm.includes(ownerNorm)) ||
-      (m.nameNorm && ownerNorm.includes(m.nameNorm))
+    (m) => (m.nameNorm && m.nameNorm.includes(ownerNorm)) || (m.nameNorm && ownerNorm.includes(m.nameNorm))
   );
   if (candidates.length === 1) return { ignore: false, userId: candidates[0].id };
 
-  // primeiro token (tenta casar com primeiro nome e/ou login)
   const tok = ownerNorm.split(" ")[0] || "";
   if (tok) {
     const tokLogin = normLogin(tok);
@@ -197,22 +178,13 @@ function pickShareForDate(
   return null;
 }
 
-/**
- * ✅ Split correto:
- * - floor inicial
- * - reparte resto por maiores frações
- */
 function splitByBps(pool: number, items: Array<{ payeeId: string; bps: number }>) {
   const out: Record<string, number> = {};
   const total = safeInt(pool, 0);
   if (!items?.length || total === 0) return out;
 
   const rows = items
-    .map((it, idx) => ({
-      idx,
-      payeeId: it.payeeId,
-      bps: Math.max(0, safeInt(it.bps, 0)),
-    }))
+    .map((it, idx) => ({ idx, payeeId: it.payeeId, bps: Math.max(0, safeInt(it.bps, 0)) }))
     .filter((x) => !!x.payeeId && x.bps > 0);
 
   if (!rows.length) return out;
@@ -252,10 +224,7 @@ function splitByBps(pool: number, items: Array<{ payeeId: string; bps: number }>
 }
 
 /* =========================
-  ✅ PV SEM TAXA:
-  - pointsValueCents
-  - total - embarqueFee
-  - fallback pontos * milheiro
+  ✅ PV SEM TAXA
 ========================= */
 function pvSemTaxaFromSale(s: {
   totalCents: number;
@@ -342,7 +311,6 @@ export async function POST(req: Request) {
     const members: TeamMemberLite[] = membersRaw.map((u) => ({
       id: String(u.id),
       nameNorm: norm(String(u.name || "")),
-      // ✅ AJUSTE: normaliza login removendo "@"
       loginNorm: normLogin(String(u.login || "")),
     }));
 
@@ -353,7 +321,7 @@ export async function POST(req: Request) {
     });
     const existingByUserId = new Map(existingPayouts.map((p) => [p.userId, p]));
 
-    // 2) ✅ compras FINALIZADAS + CLOSED no dia
+    // 2) compras FINALIZADAS + CLOSED no dia
     const purchases = await prisma.purchase.findMany({
       where: {
         status: "CLOSED",
@@ -378,7 +346,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: true, date, users: 0, purchases: 0, sales: 0 });
     }
 
-    // ✅ mapa numero -> cuid
+    // mapa numero -> id (cuid)
     const idByNumeroUpper = new Map<string, string>(
       purchases
         .map((p) => [String(p.numero || "").trim().toUpperCase(), p.id] as const)
@@ -397,15 +365,27 @@ export async function POST(req: Request) {
       return idByNumeroUpper.get(upper) || r;
     }
 
-    // 3) ✅ vendas das compras finalizadas (cuid OU numero legado)
+    // ✅ FIX PRINCIPAL:
+    // paymentStatus: { not: "CANCELED" } NÃO pega NULL no SQL
+    // então precisamos incluir paymentStatus = null como válido.
+    const activePaymentStatusWhere = {
+      OR: [{ paymentStatus: { not: "CANCELED" as any } }, { paymentStatus: null as any }],
+    };
+
+    // 3) vendas das compras finalizadas (cuid OU numero legado)
     const sales = await prisma.sale.findMany({
       where: {
-        paymentStatus: { not: "CANCELED" },
-        OR: [{ purchaseId: { in: purchaseIds } }, { purchaseId: { in: numerosAll } }],
+        AND: [
+          activePaymentStatusWhere as any,
+          { OR: [{ purchaseId: { in: purchaseIds } }, { purchaseId: { in: numerosAll } }] },
+        ],
       },
       select: {
         id: true,
         purchaseId: true,
+
+        // ✅ ajuda a debugar se precisar (pode tirar depois)
+        paymentStatus: true,
 
         points: true,
         milheiroCents: true,
@@ -455,7 +435,7 @@ export async function POST(req: Request) {
 
         pointsValueCents: safeInt(s.pointsValueCents, 0),
         commissionCents: safeInt(s.commissionCents, 0),
-        bonusCents: typeof (s as any).bonusCents === "number" ? safeInt((s as any).bonusCents, 0) : null,
+        bonusCents: s.bonusCents === null ? null : safeInt(s.bonusCents, 0),
         metaMilheiroCents: safeInt(s.metaMilheiroCents, 0),
         purchaseMetaMilheiroCents: safeInt(s.purchase?.metaMilheiroCents, 0),
         sellerId: s.sellerId ?? null,
@@ -536,13 +516,16 @@ export async function POST(req: Request) {
         salesCount: 0,
       });
 
-    // 5) C1/C2 por seller + ✅ fee reembolsado pro pagador do cartão
+    // 5) C1/C2 por seller + Fee reembolsado pro pagador do cartão
     for (const pid of Object.keys(salesByPurchaseId)) {
       for (const s of salesByPurchaseId[pid]) {
-        const sellerId = s.sellerId;
+        // ✅ fallback (só pra não “sumir comissão” se sellerId vier null):
+        // usa login/nome do feeCardLabel se NÃO for cartão da empresa.
+        const feePayer = resolveFeePayerFromLabel(s.feeCardLabel, members);
+        const sellerEffectiveId = s.sellerId || (!feePayer.ignore ? feePayer.userId : null);
 
-        // C1/C2 só se tiver seller
-        if (sellerId) {
+        // C1/C2 só se tiver seller (ou fallback pelo label)
+        if (sellerEffectiveId) {
           const pvSemTaxa = pvSemTaxaFromSale({
             totalCents: s.totalCents,
             embarqueFeeCents: s.embarqueFeeCents,
@@ -551,32 +534,29 @@ export async function POST(req: Request) {
             milheiroCents: s.milheiroCents,
           });
 
-          const meta = chooseMetaMilheiro(
-            safeInt(s.metaMilheiroCents, 0) > 0 ? s.metaMilheiroCents : s.purchaseMetaMilheiroCents
-          );
+          const meta = chooseMetaMilheiro(safeInt(s.metaMilheiroCents, 0) > 0 ? s.metaMilheiroCents : s.purchaseMetaMilheiroCents);
 
           const c1 = chooseC1(s.points, s.commissionCents, pvSemTaxa);
           const c2 = chooseC2(s.points, safeInt(s.bonusCents ?? 0, 0), s.milheiroCents, meta);
 
-          const aSeller = ensure(sellerId);
+          const aSeller = ensure(sellerEffectiveId);
           aSeller.commission1Cents += c1;
           aSeller.commission2Cents += c2;
           aSeller.salesCount += 1;
         }
 
-        // ✅ Fee: vai pra pessoa do cartão (ou fallback seller)
+        // Fee: vai pro pagador do cartão (ou fallback seller)
         const fee = safeInt(s.embarqueFeeCents, 0);
         if (fee > 0) {
-          const { ignore, userId } = resolveFeePayerFromLabel(s.feeCardLabel, members);
-          if (!ignore) {
-            const receiverId = userId || sellerId;
+          if (!feePayer.ignore) {
+            const receiverId = feePayer.userId || sellerEffectiveId;
             if (receiverId) ensure(receiverId).feeCents += fee;
           }
         }
       }
     }
 
-    // 6) ✅ C3 = rateio do lucro líquido REAL por compra
+    // 6) C3 = rateio do lucro líquido REAL por compra (do dia)
     for (const p of purchases) {
       const pool = computeLucroLiquidoCompra(p);
       if (safeInt(pool, 0) <= 0) continue;
@@ -604,7 +584,7 @@ export async function POST(req: Request) {
 
     const computedUserIds = Object.keys(byUser);
 
-    // 7) remove payouts "lixo" não pagos
+    // 7) remove payouts "lixo" não pagos (que sumiram do cálculo)
     await prisma.employeePayout.deleteMany({
       where: {
         team,
