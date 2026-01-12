@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/auth-server";
 import { computeStatus } from "../../route";
+import { ReceberMetodo } from "@prisma/client";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -22,6 +23,25 @@ function parseDate(v: unknown): Date | null {
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
+const METHODS = [
+  "PIX",
+  "CARTAO",
+  "BOLETO",
+  "DINHEIRO",
+  "TRANSFERENCIA",
+  "OUTRO",
+] as const;
+
+type MethodStr = (typeof METHODS)[number];
+
+function parseMethod(v: unknown): ReceberMetodo {
+  const raw = String(v ?? "PIX").toUpperCase();
+  const normalized = METHODS.includes(raw as MethodStr)
+    ? (raw as MethodStr)
+    : "PIX";
+  return normalized as ReceberMetodo;
+}
+
 type Ctx = { params: Promise<{ id: string }> };
 
 export async function GET(_req: NextRequest, { params }: Ctx) {
@@ -32,11 +52,13 @@ export async function GET(_req: NextRequest, { params }: Ctx) {
     where: { id: String(id || ""), team: session.team },
     include: { payments: { orderBy: { receivedAt: "desc" } } },
   });
-  if (!row)
+
+  if (!row) {
     return NextResponse.json(
       { ok: false, error: "Não encontrado." },
       { status: 404 }
     );
+  }
 
   return NextResponse.json({ ok: true, row });
 }
@@ -49,13 +71,15 @@ export async function POST(req: NextRequest, { params }: Ctx) {
 
   const parent = await prisma.dividaAReceber.findFirst({
     where: { id: String(id || ""), team: session.team },
-    select: { id: true, totalCents: true, receivedCents: true, status: true },
+    select: { id: true, totalCents: true, status: true },
   });
-  if (!parent)
+
+  if (!parent) {
     return NextResponse.json(
       { ok: false, error: "Não encontrado." },
       { status: 404 }
     );
+  }
 
   if (parent.status === "CANCELED") {
     return NextResponse.json(
@@ -68,24 +92,14 @@ export async function POST(req: NextRequest, { params }: Ctx) {
   }
 
   const amountCents = safeInt(body.amountCents, 0);
-  if (amountCents <= 0)
+  if (amountCents <= 0) {
     return NextResponse.json(
       { ok: false, error: "Valor precisa ser maior que 0." },
       { status: 400 }
     );
+  }
 
-  const method = String(body.method || "PIX").toUpperCase();
-  const methodFinal = [
-    "PIX",
-    "CARTAO",
-    "BOLETO",
-    "DINHEIRO",
-    "TRANSFERENCIA",
-    "OUTRO",
-  ].includes(method)
-    ? method
-    : "PIX";
-
+  const methodFinal = parseMethod(body.method);
   const receivedAt = parseDate(body.receivedAt) || new Date();
   const note = normalizeText(body.note, 1000) || null;
 
@@ -104,9 +118,13 @@ export async function POST(req: NextRequest, { params }: Ctx) {
       where: { dividaId: String(id || "") },
       _sum: { amountCents: true },
     });
+
     const receivedCents = agg._sum.amountCents || 0;
 
-    const status = computeStatus(parent.totalCents, receivedCents);
+    const status =
+      parent.status === "CANCELED"
+        ? "CANCELED"
+        : computeStatus(parent.totalCents, receivedCents);
 
     const updated = await tx.dividaAReceber.update({
       where: { id: String(id || "") },
