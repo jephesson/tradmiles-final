@@ -144,7 +144,8 @@ model User {
   taxMonthsPaid TaxMonthPayment[] @relation("TaxMonthPaidBy")
 
   // Um convite por usuário
-  employeeInvite EmployeeInvite?
+  employeeInvite  EmployeeInvite?
+  dividaARecebers DividaAReceber[]
 
   @@index([team])
   @@index([role])
@@ -973,4 +974,104 @@ model LatamTurboAccount {
 
   @@index([team])
   @@map("latam_turbo_accounts")
+}
+
+/**
+ * =========================
+ * ✅ DÍVIDAS A RECEBER (EXCLUSIVO — NÃO MISTURA COM VENDAS)
+ * =========================
+ * - NÃO tem relação com Sale
+ * - Serve para empréstimos, cartão a receber, parcelamentos, etc.
+ * - Pagamentos parciais via ReceberPayment
+ */
+
+enum ReceberStatus {
+  OPEN // nada recebido ainda
+  PARTIAL // recebeu parte
+  PAID // quitado
+  CANCELED // cancelado/baixado
+}
+
+enum ReceberCategoria {
+  EMPRESTIMO
+  CARTAO
+  PARCELAMENTO
+  SERVICO
+  OUTROS
+}
+
+enum ReceberMetodo {
+  PIX
+  CARTAO
+  BOLETO
+  DINHEIRO
+  TRANSFERENCIA
+  OUTRO
+}
+
+model DividaAReceber {
+  id String @id @default(cuid())
+
+  // ✅ dono do registro (quem controla no sistema)
+  ownerId String
+  owner   User   @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+
+  // ✅ facilita filtro por time (igual seu padrão em outras tabelas)
+  team String
+
+  // ✅ quem te deve (livre)
+  debtorName  String
+  debtorDoc   String? // CPF/CNPJ opcional
+  debtorPhone String?
+  debtorEmail String?
+
+  // ✅ descrição do título
+  title       String
+  description String?
+
+  category ReceberCategoria @default(OUTROS)
+  method   ReceberMetodo    @default(PIX)
+
+  // ✅ valores
+  totalCents    Int
+  receivedCents Int @default(0)
+
+  // ✅ datas
+  dueDate DateTime?
+  status  ReceberStatus @default(OPEN)
+
+  // ✅ opcional: “de onde vem” (ex: banco/cartão) — não mistura com Sales
+  sourceLabel String?
+
+  // ✅ histórico de recebimentos
+  payments DividaAReceberPagamento[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([team, status])
+  @@index([team, dueDate])
+  @@index([ownerId])
+  @@index([createdAt])
+  @@map("dividas_a_receber")
+}
+
+model DividaAReceberPagamento {
+  id String @id @default(cuid())
+
+  dividaId String
+  divida   DividaAReceber @relation(fields: [dividaId], references: [id], onDelete: Cascade)
+
+  amountCents Int
+  method      ReceberMetodo @default(PIX)
+
+  receivedAt DateTime @default(now())
+  note       String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([dividaId])
+  @@index([receivedAt])
+  @@map("dividas_a_receber_pagamentos")
 }

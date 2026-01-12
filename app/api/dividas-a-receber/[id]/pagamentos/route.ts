@@ -1,0 +1,92 @@
+import { NextResponse } from "next/server";
+import { prisma } from "@/lib/prisma";
+import { requireSession } from "@/lib/auth-server";
+import { computeStatus } from "../../route";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
+function safeInt(v: unknown, fb = 0) {
+  const n = Number(v);
+  return Number.isFinite(n) ? Math.trunc(n) : fb;
+}
+function normalizeText(v: unknown, max = 2000) {
+  const s = String(v ?? "").trim();
+  if (!s) return "";
+  return s.length > max ? s.slice(0, max) : s;
+}
+function parseDate(v: unknown): Date | null {
+  const s = String(v ?? "").trim();
+  if (!s) return null;
+  const d = new Date(s);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+export async function GET(_req: Request, ctx: { params: { id: string } }) {
+  const session = await requireSession();
+  const id = String(ctx.params.id || "");
+
+  const row = await prisma.dividaAReceber.findFirst({
+    where: { id, team: session.team },
+    include: { payments: { orderBy: { receivedAt: "desc" } } },
+  });
+  if (!row) return NextResponse.json({ ok: false, error: "Não encontrado." }, { status: 404 });
+
+  return NextResponse.json({ ok: true, row });
+}
+
+export async function POST(req: Request, ctx: { params: { id: string } }) {
+  const session = await requireSession();
+  const id = String(ctx.params.id || "");
+  const body = await req.json().catch(() => ({}));
+
+  const parent = await prisma.dividaAReceber.findFirst({
+    where: { id, team: session.team },
+    select: { id: true, totalCents: true, receivedCents: true, status: true },
+  });
+  if (!parent) return NextResponse.json({ ok: false, error: "Não encontrado." }, { status: 404 });
+  if (parent.status === "CANCELED") {
+    return NextResponse.json({ ok: false, error: "Registro cancelado. Reative para lançar recebimento." }, { status: 400 });
+  }
+
+  const amountCents = safeInt(body.amountCents, 0);
+  if (amountCents <= 0) return NextResponse.json({ ok: false, error: "Valor precisa ser maior que 0." }, { status: 400 });
+
+  const method = String(body.method || "PIX").toUpperCase();
+  const methodFinal = ["PIX", "CARTAO", "BOLETO", "DINHEIRO", "TRANSFERENCIA", "OUTRO"].includes(method)
+    ? method
+    : "PIX";
+
+  const receivedAt = parseDate(body.receivedAt) || new Date();
+  const note = normalizeText(body.note, 1000) || null;
+
+  const result = await prisma.$transaction(async (tx) => {
+    const payment = await tx.dividaAReceberPagamento.create({
+      data: {
+        dividaId: id,
+        amountCents,
+        method: methodFinal,
+        receivedAt,
+        note,
+      },
+    });
+
+    // soma pagamentos
+    const agg = await tx.dividaAReceberPagamento.aggregate({
+      where: { dividaId: id },
+      _sum: { amountCents: true },
+    });
+    const receivedCents = agg._sum.amountCents || 0;
+
+    const status = computeStatus(parent.totalCents, receivedCents);
+
+    const updated = await tx.dividaAReceber.update({
+      where: { id },
+      data: { receivedCents, status },
+    });
+
+    return { payment, updated };
+  });
+
+  return NextResponse.json({ ok: true, ...result });
+}
