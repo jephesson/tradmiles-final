@@ -35,50 +35,29 @@ function fixMetaMilheiroCents(row: {
 export async function GET(req: Request) {
   try {
     const { searchParams } = new URL(req.url);
-
     const cedenteId = String(searchParams.get("cedenteId") || "").trim();
     if (!cedenteId) return badRequest("cedenteId é obrigatório.");
 
-    const includeActive = searchParams.get("includeActive") === "1";
-
-    // ✅ select único (reutiliza nos dois findMany)
-    const select = {
-      id: true,
-      numero: true,
-      status: true,
-      ciaAerea: true,
-
-      metaMilheiroCents: true,
-      custoMilheiroCents: true,
-      metaMarkupCents: true,
-
-      liberadoEm: true,
-      liberadoPor: { select: { id: true, name: true, login: true } },
-    } as const;
-
-    // ✅ por padrão: só CLOSED (LIBERADAS)
-    // ✅ se includeActive=1: traz CLOSED + (status != CLOSED) para “visualizar” as ativas também
-    const TAKE = 50;
-
-    const closedRaw = await prisma.purchase.findMany({
+    const comprasRaw = await prisma.purchase.findMany({
       where: { cedenteId, status: "CLOSED" },
       orderBy: { liberadoEm: "desc" },
-      take: includeActive ? 30 : TAKE,
-      select,
+      take: 50,
+      select: {
+        id: true,
+        numero: true,
+        status: true,
+        ciaAerea: true,
+
+        metaMilheiroCents: true,
+        custoMilheiroCents: true,
+        metaMarkupCents: true,
+
+        liberadoEm: true,
+        liberadoPor: { select: { id: true, name: true, login: true } },
+      },
     });
 
-    const othersRaw = includeActive
-      ? await prisma.purchase.findMany({
-          where: { cedenteId, status: { not: "CLOSED" } },
-          orderBy: { id: "desc" }, // não depende de createdAt/updatedAt
-          take: TAKE - 30,
-          select,
-        })
-      : [];
-
-    const comprasRaw = [...closedRaw, ...othersRaw].slice(0, TAKE);
-
-    const compras = comprasRaw.map((c: any) => {
+    const compras = comprasRaw.map((c) => {
       const custo = clampNonNegInt(c.custoMilheiroCents);
       const markup = clampNonNegInt(c.metaMarkupCents);
       const metaOriginal = clampNonNegInt(c.metaMilheiroCents);
@@ -86,21 +65,20 @@ export async function GET(req: Request) {
       const metaFinal = fixMetaMilheiroCents(c);
 
       // debug mais confiável que o ">=1000"
-      const metaFoiMarkup = metaOriginal > 0 && custo > 0 && metaOriginal < custo;
+      const metaFoiMarkup =
+        metaOriginal > 0 &&
+        custo > 0 &&
+        metaOriginal < custo; // se for menor que custo, tratamos como markup
 
       const metaBateMarkup =
-        metaOriginal > 0 && markup > 0 && Math.abs(metaOriginal - markup) <= 2;
-
-      const canUseInSale = String(c.status) === "CLOSED";
+        metaOriginal > 0 &&
+        markup > 0 &&
+        Math.abs(metaOriginal - markup) <= 2; // tolerância pequena (cents)
 
       return {
         ...c,
-
         // ✅ sempre retorna meta FINAL pro client
         metaMilheiroCents: metaFinal,
-
-        // ✅ flag para o front decidir se pode selecionar/salvar
-        canUseInSale,
 
         // (opcional) debug
         metaMilheiroOriginalCents: c.metaMilheiroCents,
