@@ -2,12 +2,14 @@
 
 import { useEffect, useMemo, useState } from "react";
 
+/* =========================
+ * Types
+ * ========================= */
 type Points = { latam: number; smiles: number; livelo: number; esfera: number };
 
 type Snapshot = {
   id: string;
   date: string; // ISO
-
   cashCents: number;
   cutoffPoints: number;
 
@@ -50,16 +52,12 @@ type RatesCents = {
   esferaRateCents: number;
 };
 
-/**
- * ✅ Dívida a Receber (do GET /api/dividas-a-receber)
- * Não vou travar em um shape único:
- * - tentamos ler: data.rows | rows | data | etc
- */
-type DividaAReceberRow = {
-  id: string;
-  status?: string | null; // ex: OPEN/PAID/CANCELED (depende do teu enum)
-  totalCents?: number | null;
-  receivedCents?: number | null;
+// ✅ resposta do GET /api/dividas-a-receber
+type DARResponse = {
+  ok: true;
+  rows?: any[];
+  totalsAll?: { totalCents: number; receivedCents: number; balanceCents: number };
+  totalsOpen?: { totalCents: number; receivedCents: number; balanceCents: number }; // OPEN+PARTIAL
 };
 
 function fmtMoneyBR(cents: number) {
@@ -85,6 +83,9 @@ function toCentsFromInput(s: string) {
   return Number.isFinite(n) ? Math.round(n * 100) : 0;
 }
 
+/* =========================
+ * UI bits
+ * ========================= */
 function Input({
   label,
   value,
@@ -168,7 +169,7 @@ export default function CaixaImediatoClient() {
   const [employeePayoutsPendingCents, setEmployeePayoutsPendingCents] = useState<number>(0);
   const [taxesPendingCents, setTaxesPendingCents] = useState<number>(0);
 
-  // ✅ NOVO: total “em aberto” das dívidas a receber
+  // ✅ total “em aberto” das dívidas a receber (OPEN+PARTIAL) — vem do totalsOpen.balanceCents
   const [dividasAReceberOpenCents, setDividasAReceberOpenCents] = useState<number>(0);
 
   const [didHydrate, setDidHydrate] = useState(false);
@@ -200,25 +201,6 @@ export default function CaixaImediatoClient() {
     } catch {}
   }, [cashInput, didHydrate]);
 
-  function computeDividasAReceberOpenCentsFromList(list: DividaAReceberRow[]) {
-    let sum = 0;
-
-    for (const r of list || []) {
-      const status = String(r?.status || "").toUpperCase();
-
-      // ✅ regra: ignora canceladas; soma só o que ainda falta receber
-      if (status === "CANCELED") continue;
-
-      const total = Math.max(0, Number(r?.totalCents ?? 0) || 0);
-      const received = Math.max(0, Number(r?.receivedCents ?? 0) || 0);
-      const remaining = total - received;
-
-      if (remaining > 0) sum += remaining;
-    }
-
-    return sum;
-  }
-
   async function loadAll() {
     setLoading(true);
     try {
@@ -227,20 +209,21 @@ export default function CaixaImediatoClient() {
         fetch("/api/cedentes/options", { cache: "no-store" }),
         fetch("/api/bloqueios", { cache: "no-store" }),
         fetch("/api/caixa-imediato", { cache: "no-store" }),
-        fetch("/api/dividas-a-receber", { cache: "no-store" }), // ✅ usa o endpoint que existe
+        // ✅ pode mandar take=1 só pra reduzir payload; totalsOpen continua correto
+        fetch("/api/dividas-a-receber?take=1", { cache: "no-store" }),
       ]);
 
       const jResumo = await rResumo.json();
       const jCed = await rCedentes.json();
       const jBloq = await rBloq.json();
       const jCx = await rCx.json();
-      const jDAR = await rDAR.json();
+      const jDAR = (await rDAR.json()) as DARResponse;
 
       if (!jResumo?.ok) throw new Error(jResumo?.error || "Erro ao carregar resumo");
       if (!jCed?.ok) throw new Error(jCed?.error || "Erro ao carregar cedentes");
       if (!jBloq?.ok) throw new Error(jBloq?.error || "Erro ao carregar bloqueios");
       if (!jCx?.ok) throw new Error(jCx?.error || "Erro ao carregar caixa imediato");
-      if (!jDAR?.ok) throw new Error(jDAR?.error || "Erro ao carregar dívidas a receber");
+      if (!jDAR?.ok) throw new Error((jDAR as any)?.error || "Erro ao carregar dívidas a receber");
 
       setCedentes(jCed.data || []);
       setBlockedRows(jBloq.data?.rows || []);
@@ -265,15 +248,9 @@ export default function CaixaImediatoClient() {
       setEmployeePayoutsPendingCents(Number(jResumo.data.employeePayoutsPendingCents || 0));
       setTaxesPendingCents(Number(jResumo.data.taxesPendingCents || 0));
 
-      // ✅ dívidas a receber: soma remaining (total - received)
-      const list: DividaAReceberRow[] =
-        (jDAR.data?.rows as any) ||
-        (jDAR.rows as any) ||
-        (jDAR.data as any) ||
-        (jDAR.data?.data as any) ||
-        [];
-
-      setDividasAReceberOpenCents(computeDividasAReceberOpenCentsFromList(Array.isArray(list) ? list : []));
+      // ✅ DÍVIDAS A RECEBER (TOTAL REAL em aberto): usa o agregado do backend (OPEN+PARTIAL)
+      const darOpen = Number(jDAR?.totalsOpen?.balanceCents ?? 0);
+      setDividasAReceberOpenCents(Number.isFinite(darOpen) ? darOpen : 0);
     } catch (e: any) {
       alert(e.message);
     } finally {
@@ -350,7 +327,7 @@ export default function CaixaImediatoClient() {
     const rLivelo = (ratesCents?.liveloRateCents ?? 0) / 100;
     const rEsfera = (ratesCents?.esferaRateCents ?? 0) / 100;
 
-    // valor das milhas elegíveis
+    // valor das milhas elegíveis (em cents)
     const vLatamCents = Math.round(milLatam * rLatam * 100);
     const vSmilesCents = Math.round(milSmiles * rSmiles * 100);
     const vLiveloCents = Math.round(milLivelo * rLivelo * 100);
@@ -363,7 +340,7 @@ export default function CaixaImediatoClient() {
     // ✅ a receber: VENDAS (do resumo)
     const receivableSalesCents = Number(receivablesOpenCents || 0);
 
-    // ✅ a receber: DÍVIDAS A RECEBER (do GET /api/dividas-a-receber)
+    // ✅ a receber: DÍVIDAS A RECEBER (TOTAL REAL em aberto do backend)
     const receivableDARcents = Number(dividasAReceberOpenCents || 0);
 
     // ✅ ENTRADAS (bruto)
@@ -377,14 +354,12 @@ export default function CaixaImediatoClient() {
       (employeePayoutsPendingCents || 0) +
       (taxesPendingCents || 0);
 
-    // ✅ CAIXA IMEDIATO
+    // ✅ CAIXA IMEDIATO (referência)
     const totalImmediateCents = totalGrossCents - outCents;
 
     /**
      * ✅ Caixa projetado (Inter):
-     * NÃO desconta bloqueio (bloqueio não sai do saldo bancário).
-     * (mantive igual sua lógica original: caixa + a receber - func - impostos,
-     * agora com as dívidas a receber somadas também)
+     * NÃO desconta bloqueio.
      */
     const cashProjectedInterCents =
       cashCents + receivableSalesCents + receivableDARcents - (employeePayoutsPendingCents || 0) - (taxesPendingCents || 0);
@@ -429,7 +404,7 @@ export default function CaixaImediatoClient() {
           cashCents: calc.cashCents,
           cutoffPoints: eligible.cutoff,
 
-          // ✅ bruto agora inclui dívidas a receber também
+          // ✅ bruto inclui dívidas a receber também
           totalBrutoCents: calc.totalGrossCents,
           totalDividasCents: debtsOpenCents,
 
@@ -506,9 +481,9 @@ export default function CaixaImediatoClient() {
         </div>
       </div>
 
-      {/* ✅ Novo layout: 1 card (Entradas x Saídas) + 1 card (Saldo) */}
+      {/* Entradas x Saídas + Saldo */}
       <div className="grid gap-4 lg:grid-cols-3">
-        {/* Card único: Entradas x Saídas */}
+        {/* Entradas x Saídas */}
         <div className="lg:col-span-2 rounded-2xl border bg-white p-4">
           <div className="flex items-start justify-between gap-3">
             <div>
@@ -516,10 +491,7 @@ export default function CaixaImediatoClient() {
               <div className="text-xs text-slate-500 mt-0.5">Um card só, com a lista de cada lado.</div>
             </div>
 
-            <button
-              onClick={salvarCaixaHoje}
-              className="rounded-xl bg-black px-4 py-2 text-white text-sm hover:bg-gray-800"
-            >
+            <button onClick={salvarCaixaHoje} className="rounded-xl bg-black px-4 py-2 text-white text-sm hover:bg-gray-800">
               Salvar snapshot do dia
             </button>
           </div>
@@ -541,23 +513,13 @@ export default function CaixaImediatoClient() {
                   tone="plus"
                   hint={`milheiros inteiros • corte ${fmtInt(eligible.cutoff)}`}
                 />
-                <Line
-                  label="Caixa (Inter)"
-                  value={`+${fmtMoneyBR(calc.cashCents)}`}
-                  tone="plus"
-                  hint="digitado nesta página (persistido)"
-                />
-                <Line
-                  label="A receber (Vendas)"
-                  value={`+${fmtMoneyBR(calc.receivableSalesCents)}`}
-                  tone="plus"
-                  hint="recebíveis OPEN (vendas)"
-                />
+                <Line label="Caixa (Inter)" value={`+${fmtMoneyBR(calc.cashCents)}`} tone="plus" hint="digitado nesta página (persistido)" />
+                <Line label="A receber (Vendas)" value={`+${fmtMoneyBR(calc.receivableSalesCents)}`} tone="plus" hint="recebíveis OPEN (vendas)" />
                 <Line
                   label="Dívidas a receber"
                   value={`+${fmtMoneyBR(calc.receivableDARcents)}`}
                   tone="plus"
-                  hint="somatório do restante (total − recebido) do GET /api/dividas-a-receber"
+                  hint="totalsOpen.balanceCents (OPEN+PARTIAL) do GET /api/dividas-a-receber"
                 />
               </div>
             </div>
@@ -585,19 +547,14 @@ export default function CaixaImediatoClient() {
                   tone="minus"
                   hint="status PENDING"
                 />
-                <Line
-                  label="A pagar (funcionários)"
-                  value={`-${fmtMoneyBR(employeePayoutsPendingCents)}`}
-                  tone="minus"
-                  hint="paidAt = null"
-                />
+                <Line label="A pagar (funcionários)" value={`-${fmtMoneyBR(employeePayoutsPendingCents)}`} tone="minus" hint="paidAt = null" />
                 <Line label="Impostos pendentes" value={`-${fmtMoneyBR(taxesPendingCents)}`} tone="minus" hint="meses não pagos" />
               </div>
             </div>
           </div>
         </div>
 
-        {/* Card Saldo */}
+        {/* Saldo */}
         <div className="rounded-2xl border bg-white p-4 space-y-3">
           <div className="font-semibold">Saldo</div>
 
@@ -613,9 +570,7 @@ export default function CaixaImediatoClient() {
             <div className="text-xs text-slate-500 mt-1">caixa + a receber − (func + impostos)</div>
           </div>
 
-          <div className="text-xs text-slate-600">
-            * O “projetado Inter” não desconta bloqueio (igual tua regra).
-          </div>
+          <div className="text-xs text-slate-600">* O “projetado Inter” não desconta bloqueio (igual tua regra).</div>
         </div>
       </div>
 
