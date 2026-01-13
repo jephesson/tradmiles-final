@@ -20,6 +20,15 @@ type DividaAReceberRow = {
   receivedCents?: number | null;
 };
 
+// ✅ shape do backend (igual ao Caixa Imediato)
+type DARResponse = {
+  ok: boolean;
+  rows?: DividaAReceberRow[];
+  totalsAll?: { totalCents: number; receivedCents: number; balanceCents: number };
+  totalsOpen?: { totalCents: number; receivedCents: number; balanceCents: number }; // OPEN+PARTIAL
+  error?: string;
+};
+
 function fmtMoneyBR(cents: number) {
   const v = (cents || 0) / 100;
   return v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -103,13 +112,13 @@ function StatCard({
   );
 }
 
+// ✅ fallback (caso totalsOpen não venha)
 function computeDividasAReceberOpenCents(list: DividaAReceberRow[]) {
   let sum = 0;
 
   for (const r of list || []) {
     const status = String(r?.status || "").toUpperCase();
-    // ✅ ignora canceladas
-    if (status === "CANCELED") continue;
+    if (status === "CANCELED") continue; // ignora canceladas
 
     const total = Math.max(0, Number(r?.totalCents ?? 0) || 0);
     const received = Math.max(0, Number(r?.receivedCents ?? 0) || 0);
@@ -142,13 +151,13 @@ export default function CedentesResumoClient() {
   // ✅ recebimentos em aberto (A RECEBER - vendas)
   const [receivablesOpenCents, setReceivablesOpenCents] = useState<number>(0);
 
-  // ✅ NOVO: dívidas a receber (em aberto: total - recebido; ignora canceladas)
+  // ✅ dívidas a receber (OPEN+PARTIAL pelo totalsOpen.balanceCents)
   const [dividasAReceberOpenCents, setDividasAReceberOpenCents] = useState<number>(0);
 
-  // ✅ NOVO: a pagar funcionários (pendente)
+  // ✅ a pagar funcionários (pendente)
   const [employeePayoutsPendingCents, setEmployeePayoutsPendingCents] = useState<number>(0);
 
-  // ✅ NOVO: impostos pendentes (mês não pago)
+  // ✅ impostos pendentes (mês não pago)
   const [taxesPendingCents, setTaxesPendingCents] = useState<number>(0);
 
   // ✅ opcional: se o backend mandar pronto, usamos (senão calculamos)
@@ -166,11 +175,12 @@ export default function CedentesResumoClient() {
     try {
       const [rResumo, rDAR] = await Promise.all([
         fetch("/api/resumo", { cache: "no-store" }),
-        fetch("/api/dividas-a-receber", { cache: "no-store" }),
+        // ✅ se teu endpoint suportar, pode reduzir payload (totalsOpen continua vindo)
+        fetch("/api/dividas-a-receber?take=1", { cache: "no-store" }),
       ]);
 
       const j = await rResumo.json();
-      const jDAR = await rDAR.json();
+      const jDAR = (await rDAR.json()) as DARResponse;
 
       if (!j?.ok) throw new Error(j?.error || "Erro ao carregar resumo");
       if (!jDAR?.ok) throw new Error(jDAR?.error || "Erro ao carregar dívidas a receber");
@@ -193,24 +203,25 @@ export default function CedentesResumoClient() {
       setPendingCedenteCommissionsCents(Number(j.data.pendingCedenteCommissionsCents || 0));
       setReceivablesOpenCents(Number(j.data.receivablesOpenCents || 0));
 
-      // ✅ novos
       setEmployeePayoutsPendingCents(Number(j.data.employeePayoutsPendingCents || 0));
       setTaxesPendingCents(Number(j.data.taxesPendingCents || 0));
 
       const apiProjected = j.data.cashProjectedCents;
       setCashProjectedFromApiCents(apiProjected == null ? null : Number(apiProjected || 0));
 
-      // ✅ dívidas a receber (restante = total - recebido; ignora canceladas)
-      const list: DividaAReceberRow[] =
-        (jDAR.data?.rows as any) ||
-        (jDAR.rows as any) ||
-        (jDAR.data as any) ||
-        (jDAR.data?.data as any) ||
-        [];
-
-      setDividasAReceberOpenCents(
-        computeDividasAReceberOpenCents(Array.isArray(list) ? list : [])
-      );
+      /**
+       * ✅ DÍVIDAS A RECEBER:
+       * Igual ao Caixa Imediato:
+       * usa totalsOpen.balanceCents (OPEN+PARTIAL).
+       * Se não vier, faz fallback pelos rows.
+       */
+      const darOpen = Number(jDAR?.totalsOpen?.balanceCents ?? NaN);
+      if (Number.isFinite(darOpen)) {
+        setDividasAReceberOpenCents(darOpen);
+      } else {
+        const rows = Array.isArray(jDAR?.rows) ? jDAR.rows : [];
+        setDividasAReceberOpenCents(computeDividasAReceberOpenCents(rows));
+      }
 
       setDidLoad(true);
     } catch (e: any) {
@@ -266,13 +277,9 @@ export default function CedentesResumoClient() {
 
     const cashCents = toCentsFromInput(cashInput);
 
-    // ✅ A receber (VENDAS)
     const receivableSalesCents = Number(receivablesOpenCents || 0);
-
-    // ✅ Dívidas a receber (restante do DAR)
     const receivableDARcents = Number(dividasAReceberOpenCents || 0);
 
-    // ✅ BRUTO inclui: milhas + caixa + a receber (vendas) + dívidas a receber
     const totalGrossCents =
       vLatamCents +
       vSmilesCents +
@@ -282,17 +289,14 @@ export default function CedentesResumoClient() {
       receivableSalesCents +
       receivableDARcents;
 
-    // ✅ snapshot “oficial”: bruto - dívidas (como você já faz)
     const totalNetCents = totalGrossCents - (debtsOpenCents || 0);
 
-    // ✅ referência final: subtrai também comissões, funcionários e impostos
     const totalAfterPendingsCents =
       totalNetCents -
       (pendingCedenteCommissionsCents || 0) -
       (employeePayoutsPendingCents || 0) -
       (taxesPendingCents || 0);
 
-    // ✅ caixa projetado (só caixa + a receber - a pagar func - impostos)
     const cashProjectedCalcCents =
       cashCents +
       receivableSalesCents +
@@ -345,14 +349,9 @@ export default function CedentesResumoClient() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           cashCents: calc.cashCents,
-
-          // ✅ bruto agora inclui dívidas a receber também
-          totalBrutoCents: calc.totalGrossCents,
-
+          totalBrutoCents: calc.totalGrossCents, // ✅ bruto inclui DAR
           totalDividasCents: debtsOpenCents,
-
-          // ✅ snapshot continua igual: bruto − dívidas
-          totalLiquidoCents: calc.totalNetCents,
+          totalLiquidoCents: calc.totalNetCents, // ✅ bruto − dívidas
         }),
       });
 
@@ -542,52 +541,22 @@ export default function CedentesResumoClient() {
 
         {/* Totais */}
         <div className="grid gap-3 md:grid-cols-4">
-          <StatCard
-            label="TOTAL BRUTO (milhas + caixa + a receber + dívidas a receber)"
-            value={fmtMoneyBR(calc.totalGrossCents)}
-          />
-          <StatCard
-            label="A RECEBER (Vendas)"
-            value={`+${fmtMoneyBR(calc.receivableSalesCents)}`}
-            hint="saldo total OPEN (vendas)"
-          />
-          <StatCard
-            label="DÍVIDAS A RECEBER"
-            value={`+${fmtMoneyBR(calc.receivableDARcents)}`}
-            hint="restante (total − recebido) • ignora canceladas"
-          />
-          <StatCard
-            label="DÍVIDAS EM ABERTO"
-            value={`-${fmtMoneyBR(debtsOpenCents)}`}
-            hint="saldo total OPEN"
-            tone="danger"
-          />
+          <StatCard label="TOTAL BRUTO (milhas + caixa + a receber + dívidas a receber)" value={fmtMoneyBR(calc.totalGrossCents)} />
+          <StatCard label="A RECEBER (Vendas)" value={`+${fmtMoneyBR(calc.receivableSalesCents)}`} hint="saldo total OPEN (vendas)" />
+          <StatCard label="DÍVIDAS A RECEBER" value={`+${fmtMoneyBR(calc.receivableDARcents)}`} hint="totalsOpen.balanceCents (OPEN+PARTIAL)" />
+          <StatCard label="DÍVIDAS EM ABERTO" value={`-${fmtMoneyBR(debtsOpenCents)}`} hint="saldo total OPEN" tone="danger" />
         </div>
 
         <div className="grid gap-3 md:grid-cols-4">
-          <StatCard
-            label="LÍQUIDO (snapshot)"
-            value={fmtMoneyBR(calc.totalNetCents)}
-            hint="bruto − dívidas (o que você salva)"
-          />
+          <StatCard label="LÍQUIDO (snapshot)" value={fmtMoneyBR(calc.totalNetCents)} hint="bruto − dívidas (o que você salva)" />
           <StatCard
             label="COMISSÕES PENDENTES (cedentes)"
             value={`-${fmtMoneyBR(pendingCedenteCommissionsCents)}`}
             hint="status PENDING"
             tone="danger"
           />
-          <StatCard
-            label="A PAGAR (funcionários)"
-            value={`-${fmtMoneyBR(employeePayoutsPendingCents)}`}
-            hint="paidAt = null"
-            tone="danger"
-          />
-          <StatCard
-            label="IMPOSTOS PENDENTES"
-            value={`-${fmtMoneyBR(taxesPendingCents)}`}
-            hint="meses não pagos"
-            tone="danger"
-          />
+          <StatCard label="A PAGAR (funcionários)" value={`-${fmtMoneyBR(employeePayoutsPendingCents)}`} hint="paidAt = null" tone="danger" />
+          <StatCard label="IMPOSTOS PENDENTES" value={`-${fmtMoneyBR(taxesPendingCents)}`} hint="meses não pagos" tone="danger" />
         </div>
 
         <div className="grid gap-3 md:grid-cols-4">
