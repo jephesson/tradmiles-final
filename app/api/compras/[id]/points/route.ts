@@ -12,17 +12,16 @@ function safeInt(v: unknown, fb = 0) {
   return Number.isFinite(n) ? Math.trunc(n) : fb;
 }
 
-/** evita crash com bigint em json (se aparecer) */
 function jsonSafe<T>(obj: T): T {
-  return JSON.parse(
-    JSON.stringify(obj, (_k, v) => (typeof v === "bigint" ? Number(v) : v))
-  );
+  return JSON.parse(JSON.stringify(obj, (_k, v) => (typeof v === "bigint" ? Number(v) : v)));
 }
 
 function pointsForMilheiro(pAny: any, ciaPointsTotal: number) {
   const cia = (pAny?.ciaProgram ?? pAny?.ciaAerea ?? null) as string | null;
   if (cia === "LATAM") return safeInt(pAny?.expectedLatamPoints ?? ciaPointsTotal, 0);
   if (cia === "SMILES") return safeInt(pAny?.expectedSmilesPoints ?? ciaPointsTotal, 0);
+  if (cia === "LIVELO") return safeInt(pAny?.expectedLiveloPoints ?? ciaPointsTotal, 0);
+  if (cia === "ESFERA") return safeInt(pAny?.expectedEsferaPoints ?? ciaPointsTotal, 0);
   return ciaPointsTotal;
 }
 
@@ -71,213 +70,150 @@ async function recalcPurchaseTotals(db: any, purchaseId: string) {
   });
 }
 
-/**
- * GET /api/compras/:id/points
- * -> para a modal "Comprar mais": retorna numero/status/cia + itens POINTS_BUY
- */
 export async function GET(_req: NextRequest, { params }: Ctx) {
-  const session = await requireSession();
-  const { id: purchaseId } = await params;
+  try {
+    const session = await requireSession();
+    const { id: purchaseId } = await params;
 
-  const compra = await prisma.purchase.findFirst({
-    where: { id: purchaseId, cedente: { owner: { team: session.team } } },
-    include: { items: true },
-  });
+    const compra = await prisma.purchase.findFirst({
+      where: { id: purchaseId, cedente: { owner: { team: session.team } } },
+      include: {
+        items: {
+          where: { type: "POINTS_BUY", NOT: { status: "CANCELED" } },
+          orderBy: { createdAt: "asc" },
+        },
+      },
+    });
 
-  if (!compra) {
-    return NextResponse.json({ ok: false, error: "Compra não encontrada." }, { status: 404 });
-  }
+    if (!compra) {
+      return NextResponse.json({ ok: false, error: "Compra não encontrada." }, { status: 404 });
+    }
 
-  const compraAny = compra as any;
-  const cia = (compraAny.ciaProgram ?? compraAny.ciaAerea ?? null) as any;
+    const compraAny = compra as any;
+    const cia = (compraAny.ciaProgram ?? compraAny.ciaAerea ?? null) as any;
 
-  const items = (compra.items || [])
-    .filter((it: any) => it.type === "POINTS_BUY" && it.status !== "CANCELED")
-    .map((it: any) => ({
+    const items = (compra.items || []).map((it: any) => ({
       id: it.id,
       title: String(it.title || "Compra de pontos"),
       pointsFinal: safeInt(it.pointsFinal, 0),
       amountCents: safeInt(it.amountCents, 0),
     }));
 
-  return NextResponse.json(
-    jsonSafe({
-      ok: true,
-      compra: {
-        id: compra.id,
-        numero: compra.numero,
-        status: compra.status,
-        ciaProgram: cia,
-      },
-      items,
-    })
-  );
+    return NextResponse.json(
+      jsonSafe({
+        ok: true,
+        compra: { id: compra.id, numero: compra.numero, status: compra.status, ciaProgram: cia },
+        items,
+      })
+    );
+  } catch (e: any) {
+    return NextResponse.json(
+      { ok: false, error: e?.message || "Falha ao carregar itens de compra de pontos." },
+      { status: 500 }
+    );
+  }
 }
 
-/**
- * POST /api/compras/:id/points
- * body: { items: [{id?, title, pointsFinal, amountCents}], deleteIds: string[] }
- * -> OPEN: só mexe nos POINTS_BUY e recalcula totais
- * -> CLOSED: mexe nos POINTS_BUY + aplica delta no saldo do cedente + ajusta expected + recalcula
- */
 export async function POST(req: NextRequest, { params }: Ctx) {
-  const session = await requireSession();
-  const { id: purchaseId } = await params;
+  try {
+    const session = await requireSession();
+    const { id: purchaseId } = await params;
 
-  const body = await req.json().catch(() => ({}));
-  const items = Array.isArray(body?.items) ? body.items : [];
-  const deleteIds = Array.isArray(body?.deleteIds) ? body.deleteIds : [];
+    const body = await req.json().catch(() => ({}));
+    const items = Array.isArray(body?.items) ? body.items : [];
+    const deleteIds = Array.isArray(body?.deleteIds) ? body.deleteIds : [];
 
-  const compra = await prisma.purchase.findFirst({
-    where: { id: purchaseId, cedente: { owner: { team: session.team } } },
-    include: {
-      items: true,
-      cedente: true,
-    },
-  });
+    const compra = await prisma.purchase.findFirst({
+      where: { id: purchaseId, cedente: { owner: { team: session.team } } },
+      include: { items: true, cedente: true },
+    });
 
-  if (!compra) {
-    return NextResponse.json({ ok: false, error: "Compra não encontrada." }, { status: 404 });
-  }
+    if (!compra) return NextResponse.json({ ok: false, error: "Compra não encontrada." }, { status: 404 });
+    if (compra.status === "CANCELED") return NextResponse.json({ ok: false, error: "Compra cancelada." }, { status: 400 });
 
-  if (compra.status === "CANCELED") {
-    return NextResponse.json({ ok: false, error: "Compra cancelada." }, { status: 400 });
-  }
+    if (compra.status !== "OPEN" && compra.status !== "CLOSED") {
+      return NextResponse.json({ ok: false, error: "Compra travada (status não permite comprar mais)." }, { status: 400 });
+    }
 
-  // ✅ permite comprar mais mesmo LIBERADA (CLOSED)
-  if (compra.status !== "OPEN" && compra.status !== "CLOSED") {
+    const compraAny = compra as any;
+    const cia = (compraAny.ciaProgram ?? compraAny.ciaAerea ?? null) as any;
+    if (!cia) return NextResponse.json({ ok: false, error: "Defina a CIA da compra primeiro." }, { status: 400 });
+
+    const existingPointItems = (compra.items || []).filter((it: any) => it.type === "POINTS_BUY");
+    const byId = new Map<string, any>();
+    for (const it of existingPointItems) byId.set(it.id, it);
+
+    let deltaPoints = 0;
+
+    await prisma.$transaction(async (tx) => {
+      for (const delId of deleteIds) {
+        const old = byId.get(delId);
+        if (!old) continue;
+        deltaPoints -= safeInt(old.pointsFinal, 0);
+        await tx.purchaseItem.delete({ where: { id: delId } });
+      }
+
+      for (const raw of items) {
+        const id = typeof raw?.id === "string" ? raw.id : null;
+        const title = String(raw?.title || "Compra de pontos").trim();
+        const pointsFinal = safeInt(raw?.pointsFinal, 0);
+        const amountCents = safeInt(raw?.amountCents, 0);
+
+        if (pointsFinal <= 0) continue;
+
+        if (id && byId.has(id)) {
+          const old = byId.get(id);
+          const oldPts = safeInt(old?.pointsFinal, 0);
+          deltaPoints += pointsFinal - oldPts;
+
+          await tx.purchaseItem.update({
+            where: { id },
+            data: { title, pointsBase: pointsFinal, pointsFinal, amountCents, programTo: cia, type: "POINTS_BUY" } as any,
+          });
+        } else {
+          deltaPoints += pointsFinal;
+          await tx.purchaseItem.create({
+            data: {
+              purchaseId,
+              type: "POINTS_BUY",
+              status: "RELEASED",
+              title,
+              pointsBase: pointsFinal,
+              pointsFinal,
+              pointsDebitedFromOrigin: 0,
+              amountCents,
+              programTo: cia,
+            } as any,
+          });
+        }
+      }
+
+      if (compra.status === "CLOSED" && deltaPoints !== 0) {
+        const cedenteId = compra.cedenteId;
+
+        if (cia === "LATAM") {
+          await tx.cedente.update({ where: { id: cedenteId }, data: { pontosLatam: { increment: deltaPoints } } as any });
+          await tx.purchase.update({ where: { id: purchaseId }, data: { expectedLatamPoints: safeInt(compraAny.expectedLatamPoints, 0) + deltaPoints } as any });
+        } else if (cia === "SMILES") {
+          await tx.cedente.update({ where: { id: cedenteId }, data: { pontosSmiles: { increment: deltaPoints } } as any });
+          await tx.purchase.update({ where: { id: purchaseId }, data: { expectedSmilesPoints: safeInt(compraAny.expectedSmilesPoints, 0) + deltaPoints } as any });
+        } else if (cia === "LIVELO") {
+          await tx.cedente.update({ where: { id: cedenteId }, data: { pontosLivelo: { increment: deltaPoints } } as any });
+          await tx.purchase.update({ where: { id: purchaseId }, data: { expectedLiveloPoints: safeInt(compraAny.expectedLiveloPoints, 0) + deltaPoints } as any });
+        } else if (cia === "ESFERA") {
+          await tx.cedente.update({ where: { id: cedenteId }, data: { pontosEsfera: { increment: deltaPoints } } as any });
+          await tx.purchase.update({ where: { id: purchaseId }, data: { expectedEsferaPoints: safeInt(compraAny.expectedEsferaPoints, 0) + deltaPoints } as any });
+        }
+      }
+
+      await recalcPurchaseTotals(tx, purchaseId);
+    });
+
+    return NextResponse.json({ ok: true, deltaPoints });
+  } catch (e: any) {
     return NextResponse.json(
-      { ok: false, error: "Compra travada (status não permite comprar mais)." },
-      { status: 400 }
+      { ok: false, error: e?.message || "Falha ao salvar compra de pontos." },
+      { status: 500 }
     );
   }
-
-  const compraAny = compra as any;
-  const cia = (compraAny.ciaProgram ?? compraAny.ciaAerea ?? null) as any;
-
-  if (!cia) {
-    return NextResponse.json(
-      { ok: false, error: "Defina a CIA da compra primeiro." },
-      { status: 400 }
-    );
-  }
-
-  const existingPointItems = (compra.items || []).filter((it: any) => it.type === "POINTS_BUY");
-  const byId = new Map<string, any>();
-  for (const it of existingPointItems) byId.set(it.id, it);
-
-  let deltaPoints = 0;
-
-  await prisma.$transaction(async (tx) => {
-    // deletar explícitos
-    for (const delId of deleteIds) {
-      const old = byId.get(delId);
-      if (!old) continue;
-
-      deltaPoints -= safeInt(old.pointsFinal, 0);
-      await tx.purchaseItem.delete({ where: { id: delId } });
-    }
-
-    // upsert
-    for (const raw of items) {
-      const id = typeof raw?.id === "string" ? raw.id : null;
-      const title = String(raw?.title || "Compra de pontos").trim();
-
-      const pointsFinal = safeInt(raw?.pointsFinal, 0);
-      const amountCents = safeInt(raw?.amountCents, 0);
-
-      if (pointsFinal <= 0) continue;
-
-      if (id && byId.has(id)) {
-        const old = byId.get(id);
-        const oldPts = safeInt(old?.pointsFinal, 0);
-
-        deltaPoints += pointsFinal - oldPts;
-
-        await tx.purchaseItem.update({
-          where: { id },
-          data: {
-            title,
-            pointsBase: pointsFinal,
-            pointsFinal,
-            amountCents,
-            programTo: cia,
-            type: "POINTS_BUY",
-          } as any,
-        });
-      } else {
-        deltaPoints += pointsFinal;
-
-        await tx.purchaseItem.create({
-          data: {
-            purchaseId,
-            type: "POINTS_BUY",
-            status: "RELEASED",
-            title,
-            pointsBase: pointsFinal,
-            pointsFinal,
-            pointsDebitedFromOrigin: 0,
-            amountCents,
-            programTo: cia,
-          } as any,
-        });
-      }
-    }
-
-    // ✅ se já está LIBERADA: aplica delta no saldo do cedente + expected da compra
-    if (compra.status === "CLOSED" && deltaPoints !== 0) {
-      const cedenteId = compra.cedenteId;
-
-      if (cia === "LATAM") {
-        await tx.cedente.update({
-          where: { id: cedenteId },
-          data: { pontosLatam: { increment: deltaPoints } } as any,
-        });
-
-        const nextExpected = safeInt(compraAny.expectedLatamPoints, 0) + deltaPoints;
-        await tx.purchase.update({
-          where: { id: purchaseId },
-          data: { expectedLatamPoints: nextExpected } as any,
-        });
-      } else if (cia === "SMILES") {
-        await tx.cedente.update({
-          where: { id: cedenteId },
-          data: { pontosSmiles: { increment: deltaPoints } } as any,
-        });
-
-        const nextExpected = safeInt(compraAny.expectedSmilesPoints, 0) + deltaPoints;
-        await tx.purchase.update({
-          where: { id: purchaseId },
-          data: { expectedSmilesPoints: nextExpected } as any,
-        });
-      } else if (cia === "LIVELO") {
-        await tx.cedente.update({
-          where: { id: cedenteId },
-          data: { pontosLivelo: { increment: deltaPoints } } as any,
-        });
-
-        const nextExpected = safeInt(compraAny.expectedLiveloPoints, 0) + deltaPoints;
-        await tx.purchase.update({
-          where: { id: purchaseId },
-          data: { expectedLiveloPoints: nextExpected } as any,
-        });
-      } else if (cia === "ESFERA") {
-        await tx.cedente.update({
-          where: { id: cedenteId },
-          data: { pontosEsfera: { increment: deltaPoints } } as any,
-        });
-
-        const nextExpected = safeInt(compraAny.expectedEsferaPoints, 0) + deltaPoints;
-        await tx.purchase.update({
-          where: { id: purchaseId },
-          data: { expectedEsferaPoints: nextExpected } as any,
-        });
-      }
-    }
-
-    // recalcula totais ainda dentro da transação
-    await recalcPurchaseTotals(tx, purchaseId);
-  });
-
-  return NextResponse.json({ ok: true, deltaPoints });
 }
