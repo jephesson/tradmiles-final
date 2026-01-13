@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useParams } from "next/navigation";
 
 type LoyaltyProgram = "LATAM" | "SMILES" | "LIVELO" | "ESFERA";
 
@@ -151,11 +152,16 @@ function pointsForMilheiro(d: PurchaseDraft) {
 
 function computeTotals(d: PurchaseDraft) {
   const itemsArr = Array.isArray(d.items) ? d.items : [];
-  const itemsCost = itemsArr.reduce((acc, it) => acc + (it.amountCents || 0), 0);
+  const itemsCost = itemsArr.reduce(
+    (acc, it) => acc + (it.amountCents || 0),
+    0
+  );
 
   const subtotal = itemsCost + (d.cedentePayCents || 0);
 
-  const vendor = roundCents((subtotal * (d.vendorCommissionBps || 0)) / 10000);
+  const vendor = roundCents(
+    (subtotal * (d.vendorCommissionBps || 0)) / 10000
+  );
   const total = subtotal + vendor;
 
   const pts = Math.max(0, pointsForMilheiro(d));
@@ -184,7 +190,8 @@ function computeProgramDeltas(items: PurchaseItem[]) {
   const arr = Array.isArray(items) ? items : [];
   for (const it of arr) {
     if (it.programTo) out[it.programTo] += clampInt(it.pointsFinal);
-    if (it.programFrom) out[it.programFrom] -= clampInt(it.pointsDebitedFromOrigin);
+    if (it.programFrom)
+      out[it.programFrom] -= clampInt(it.pointsDebitedFromOrigin);
   }
   return out;
 }
@@ -273,19 +280,32 @@ function normalizeDraft(raw: any, cedenteSel?: Cedente | null): PurchaseDraft {
 
     cedentePayCents: clampInt(raw?.cedentePayCents ?? 0),
     vendorCommissionBps: clampInt(raw?.vendorCommissionBps ?? 0),
-    targetMarkupCents: clampInt(raw?.targetMarkupCents ?? raw?.metaMarkupCents ?? 0),
+    targetMarkupCents: clampInt(
+      raw?.targetMarkupCents ?? raw?.metaMarkupCents ?? 0
+    ),
 
-    subtotalCostCents: clampInt(raw?.subtotalCostCents ?? raw?.subtotalCents ?? 0),
-    vendorCommissionCents: clampInt(raw?.vendorCommissionCents ?? raw?.comissaoCents ?? 0),
+    subtotalCostCents: clampInt(
+      raw?.subtotalCostCents ?? raw?.subtotalCents ?? 0
+    ),
+    vendorCommissionCents: clampInt(
+      raw?.vendorCommissionCents ?? raw?.comissaoCents ?? 0
+    ),
     totalCostCents: clampInt(raw?.totalCostCents ?? raw?.totalCents ?? 0),
 
-    costPerKiloCents: clampInt(raw?.costPerKiloCents ?? raw?.custoMilheiroCents ?? 0),
-    targetPerKiloCents: clampInt(raw?.targetPerKiloCents ?? raw?.metaMilheiroCents ?? 0),
+    costPerKiloCents: clampInt(
+      raw?.costPerKiloCents ?? raw?.custoMilheiroCents ?? 0
+    ),
+    targetPerKiloCents: clampInt(
+      raw?.targetPerKiloCents ?? raw?.metaMilheiroCents ?? 0
+    ),
 
     expectedLatamPoints: raw?.expectedLatamPoints ?? raw?.saldoPrevistoLatam ?? null,
-    expectedSmilesPoints: raw?.expectedSmilesPoints ?? raw?.saldoPrevistoSmiles ?? null,
-    expectedLiveloPoints: raw?.expectedLiveloPoints ?? raw?.saldoPrevistoLivelo ?? null,
-    expectedEsferaPoints: raw?.expectedEsferaPoints ?? raw?.saldoPrevistoEsfera ?? null,
+    expectedSmilesPoints:
+      raw?.expectedSmilesPoints ?? raw?.saldoPrevistoSmiles ?? null,
+    expectedLiveloPoints:
+      raw?.expectedLiveloPoints ?? raw?.saldoPrevistoLivelo ?? null,
+    expectedEsferaPoints:
+      raw?.expectedEsferaPoints ?? raw?.saldoPrevistoEsfera ?? null,
 
     note: raw?.note ?? raw?.observacao ?? null,
 
@@ -308,6 +328,12 @@ function normalizeDraft(raw: any, cedenteSel?: Cedente | null): PurchaseDraft {
 }
 
 export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }) {
+  // ✅ pega /.../[id] quando existir (e mantém compatível com prop purchaseId)
+  const params = useParams() as Record<string, string | string[] | undefined>;
+  const routeIdRaw = params?.id;
+  const routeId = Array.isArray(routeIdRaw) ? routeIdRaw[0] : routeIdRaw;
+  const purchaseIdFinal = purchaseId || routeId;
+
   const [query, setQuery] = useState("");
   const [allCedentes, setAllCedentes] = useState<Cedente[]>([]);
   const [cedenteSel, setCedenteSel] = useState<Cedente | null>(null);
@@ -318,8 +344,12 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
   const [error, setError] = useState<string | null>(null);
   const saveTimer = useRef<number | null>(null);
 
-  const [itemsAllowManualFinal, setItemsAllowManualFinal] = useState<Record<string, boolean>>({});
-  const [expectedAuto, setExpectedAuto] = useState<Record<LoyaltyProgram, boolean>>({
+  const [itemsAllowManualFinal, setItemsAllowManualFinal] = useState<
+    Record<string, boolean>
+  >({});
+  const [expectedAuto, setExpectedAuto] = useState<
+    Record<LoyaltyProgram, boolean>
+  >({
     LATAM: true,
     SMILES: true,
     LIVELO: true,
@@ -328,13 +358,15 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
 
   // ===== load compra existente (modo edição)
   useEffect(() => {
-    if (!purchaseId) return;
+    if (!purchaseIdFinal) return;
 
     (async () => {
       try {
         setSaving(true);
 
-        const out = await api<{ compra: any; cedente: Cedente }>(`/api/compras/${purchaseId}`);
+        const out = await api<{ compra: any; cedente: Cedente }>(
+          `/api/compras/${purchaseIdFinal}`
+        );
 
         setCedenteSel(out.cedente);
 
@@ -348,7 +380,7 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
         setSaving(false);
       }
     })();
-  }, [purchaseId]);
+  }, [purchaseIdFinal]);
 
   // ===== load cedentes
   useEffect(() => {
@@ -357,7 +389,9 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
     const load = async () => {
       setLoadingCed(true);
       try {
-        const out = await api<{ ok: true; data: Cedente[] }>(`/api/cedentes/approved`);
+        const out = await api<{ ok: true; data: Cedente[] }>(
+          `/api/cedentes/approved`
+        );
         if (!alive) return;
         setAllCedentes(Array.isArray(out?.data) ? out.data : []);
       } catch (e: any) {
@@ -487,17 +521,20 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
     try {
       await saveDraft(draft, true);
 
-      const out = await api<{ ok: true; compra: any }>(`/api/compras/${draft.id}/liberar`, {
-        method: "POST",
-        body: JSON.stringify({
-          saldosAplicados: {
-            latam: draft.expectedLatamPoints ?? undefined,
-            smiles: draft.expectedSmilesPoints ?? undefined,
-            livelo: draft.expectedLiveloPoints ?? undefined,
-            esfera: draft.expectedEsferaPoints ?? undefined,
-          },
-        }),
-      });
+      const out = await api<{ ok: true; compra: any }>(
+        `/api/compras/${draft.id}/liberar`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            saldosAplicados: {
+              latam: draft.expectedLatamPoints ?? undefined,
+              smiles: draft.expectedSmilesPoints ?? undefined,
+              livelo: draft.expectedLiveloPoints ?? undefined,
+              esfera: draft.expectedEsferaPoints ?? undefined,
+            },
+          }),
+        }
+      );
 
       const p2 = normalizeDraft(out.compra, cedenteSel);
       const totals2 = computeTotals(p2);
@@ -673,10 +710,14 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
     if (expectedAuto.ESFERA) patch.expectedEsferaPoints = computedExpected.ESFERA;
 
     const changed =
-      (expectedAuto.LATAM && draft.expectedLatamPoints !== patch.expectedLatamPoints) ||
-      (expectedAuto.SMILES && draft.expectedSmilesPoints !== patch.expectedSmilesPoints) ||
-      (expectedAuto.LIVELO && draft.expectedLiveloPoints !== patch.expectedLiveloPoints) ||
-      (expectedAuto.ESFERA && draft.expectedEsferaPoints !== patch.expectedEsferaPoints);
+      (expectedAuto.LATAM &&
+        draft.expectedLatamPoints !== patch.expectedLatamPoints) ||
+      (expectedAuto.SMILES &&
+        draft.expectedSmilesPoints !== patch.expectedSmilesPoints) ||
+      (expectedAuto.LIVELO &&
+        draft.expectedLiveloPoints !== patch.expectedLiveloPoints) ||
+      (expectedAuto.ESFERA &&
+        draft.expectedEsferaPoints !== patch.expectedEsferaPoints);
 
     if (changed) updateDraft(patch);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -735,7 +776,9 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
       <div className="rounded-xl border p-4 space-y-3">
         <div className="flex items-center justify-between">
           <h2 className="font-medium">1) Cedente</h2>
-          <span className="text-xs text-gray-500">Selecione e gere o ID único</span>
+          <span className="text-xs text-gray-500">
+            Selecione e gere o ID único
+          </span>
         </div>
 
         <div className="grid gap-3 md:grid-cols-2">
@@ -755,9 +798,14 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
               </div>
             )}
 
-            {!draft && query.trim().length >= 2 && cedentes.length === 0 && !loadingCed && (
-              <div className="mt-2 text-xs text-gray-500">Nenhum cedente encontrado.</div>
-            )}
+            {!draft &&
+              query.trim().length >= 2 &&
+              cedentes.length === 0 &&
+              !loadingCed && (
+                <div className="mt-2 text-xs text-gray-500">
+                  Nenhum cedente encontrado.
+                </div>
+              )}
 
             {!draft && cedentes.length > 0 && (
               <div className="mt-2 max-h-56 overflow-auto rounded-md border">
@@ -789,7 +837,9 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
           <div className="rounded-xl bg-gray-50 p-4">
             <div className="text-sm font-medium">Selecionado</div>
 
-            {!cedenteSel && <div className="text-sm text-gray-600">Nenhum.</div>}
+            {!cedenteSel && (
+              <div className="text-sm text-gray-600">Nenhum.</div>
+            )}
 
             {cedenteSel && (
               <div className="text-sm text-gray-700 space-y-1">
@@ -799,8 +849,8 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
                 </div>
                 <div className="text-xs text-gray-500">
                   Saldos atuais: LATAM {cedenteSel.pontosLatam} · SMILES{" "}
-                  {cedenteSel.pontosSmiles} · LIVELO {cedenteSel.pontosLivelo} · ESFERA{" "}
-                  {cedenteSel.pontosEsfera}
+                  {cedenteSel.pontosSmiles} · LIVELO {cedenteSel.pontosLivelo} ·
+                  ESFERA {cedenteSel.pontosEsfera}
                 </div>
               </div>
             )}
@@ -845,14 +895,18 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
 
             <div className="grid gap-3 md:grid-cols-3">
               <div>
-                <label className="text-sm text-gray-600">Taxa cedente (R$)</label>
+                <label className="text-sm text-gray-600">
+                  Taxa cedente (R$)
+                </label>
                 <input
                   type="number"
                   value={draft.cedentePayCents / 100}
                   disabled={!!isReleased}
                   onChange={(e) =>
                     updateDraft({
-                      cedentePayCents: roundCents(Number(e.target.value || 0) * 100),
+                      cedentePayCents: roundCents(
+                        Number(e.target.value || 0) * 100
+                      ),
                     })
                   }
                   className="mt-1 w-full rounded-md border px-3 py-2 text-sm"
@@ -860,31 +914,41 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
               </div>
 
               <div>
-                <label className="text-sm text-gray-600">Comissão vendedor (%)</label>
+                <label className="text-sm text-gray-600">
+                  Comissão vendedor (%)
+                </label>
                 <input
                   type="number"
                   value={draft.vendorCommissionBps / 100}
                   disabled={!!isReleased}
                   onChange={(e) =>
                     updateDraft({
-                      vendorCommissionBps: roundCents(Number(e.target.value || 0) * 100),
+                      vendorCommissionBps: roundCents(
+                        Number(e.target.value || 0) * 100
+                      ),
                     })
                   }
                   className="mt-1 w-full rounded-md border px-3 py-2 text-sm"
                   placeholder="1 = 1%"
                 />
-                <div className="mt-1 text-xs text-gray-500">Interno em bps. Use 1 para 1%.</div>
+                <div className="mt-1 text-xs text-gray-500">
+                  Interno em bps. Use 1 para 1%.
+                </div>
               </div>
 
               <div>
-                <label className="text-sm text-gray-600">Markup meta (R$/milheiro)</label>
+                <label className="text-sm text-gray-600">
+                  Markup meta (R$/milheiro)
+                </label>
                 <input
                   type="number"
                   value={draft.targetMarkupCents / 100}
                   disabled={!!isReleased}
                   onChange={(e) =>
                     updateDraft({
-                      targetMarkupCents: roundCents(Number(e.target.value || 0) * 100),
+                      targetMarkupCents: roundCents(
+                        Number(e.target.value || 0) * 100
+                      ),
                     })
                   }
                   className="mt-1 w-full rounded-md border px-3 py-2 text-sm"
@@ -898,17 +962,36 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
             <div className="text-sm font-medium">Resumo</div>
 
             <div className="rounded-lg bg-gray-50 p-3 text-sm space-y-1">
-              <Row label="Subtotal" value={fmtMoneyBR(totals?.subtotalCostCents || 0)} />
-              <Row label="Comissão" value={fmtMoneyBR(totals?.vendorCommissionCents || 0)} />
+              <Row
+                label="Subtotal"
+                value={fmtMoneyBR(totals?.subtotalCostCents || 0)}
+              />
+              <Row
+                label="Comissão"
+                value={fmtMoneyBR(totals?.vendorCommissionCents || 0)}
+              />
               <div className="h-px bg-gray-200 my-2" />
-              <Row label="Total" value={fmtMoneyBR(totals?.totalCostCents || 0)} bold />
+              <Row
+                label="Total"
+                value={fmtMoneyBR(totals?.totalCostCents || 0)}
+                bold
+              />
               <div className="h-px bg-gray-200 my-2" />
-              <Row label="Milheiro" value={fmtMoneyBR(totals?.costPerKiloCents || 0)} bold />
-              <Row label="Meta" value={fmtMoneyBR(totals?.targetPerKiloCents || 0)} bold />
+              <Row
+                label="Milheiro"
+                value={fmtMoneyBR(totals?.costPerKiloCents || 0)}
+                bold
+              />
+              <Row
+                label="Meta"
+                value={fmtMoneyBR(totals?.targetPerKiloCents || 0)}
+                bold
+              />
             </div>
 
             <div className="text-xs text-gray-500">
-              Dica: selecione a CIA na etapa 5. O milheiro usa o <b>Esperado</b> da CIA.
+              Dica: selecione a CIA na etapa 5. O milheiro usa o <b>Esperado</b>{" "}
+              da CIA.
             </div>
           </div>
         </div>
@@ -931,7 +1014,9 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
           </div>
 
           {clubItems.length === 0 && (
-            <div className="text-sm text-gray-600">Nenhum clube adicionado.</div>
+            <div className="text-sm text-gray-600">
+              Nenhum clube adicionado.
+            </div>
           )}
 
           {clubItems.length > 0 && (
@@ -954,8 +1039,13 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
 
                     const meta =
                       safeJsonParse<ClubMeta>(it.details) || {
-                        program: (it.programTo || "LIVELO") as LoyaltyProgram,
-                        tierK: Math.max(1, Math.round((it.pointsFinal || 0) / 1000) || 10) || 10,
+                        program: (it.programTo ||
+                          "LIVELO") as LoyaltyProgram,
+                        tierK:
+                          Math.max(
+                            1,
+                            Math.round((it.pointsFinal || 0) / 1000) || 10
+                          ) || 10,
                         priceCents: it.amountCents || 0,
                         renewalDay: new Date().getDate(),
                         startDateISO: isoToday(),
@@ -991,7 +1081,10 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
                             value={meta.tierK}
                             disabled={!!isReleased}
                             onChange={(e) => {
-                              const next: ClubMeta = { ...meta, tierK: clampInt(e.target.value) };
+                              const next: ClubMeta = {
+                                ...meta,
+                                tierK: clampInt(e.target.value),
+                              };
                               updateItem(realIdx, {
                                 details: JSON.stringify(next),
                                 pointsBase: next.tierK * 1000,
@@ -1014,8 +1107,13 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
                             value={(meta.priceCents || 0) / 100}
                             disabled={!!isReleased}
                             onChange={(e) => {
-                              const cents = roundCents(Number(e.target.value || 0) * 100);
-                              const next: ClubMeta = { ...meta, priceCents: cents };
+                              const cents = roundCents(
+                                Number(e.target.value || 0) * 100
+                              );
+                              const next: ClubMeta = {
+                                ...meta,
+                                priceCents: cents,
+                              };
                               updateItem(realIdx, {
                                 details: JSON.stringify(next),
                                 amountCents: cents,
@@ -1035,7 +1133,9 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
                                 ...meta,
                                 renewalDay: clampDay(e.target.value),
                               };
-                              updateItem(realIdx, { details: JSON.stringify(next) });
+                              updateItem(realIdx, {
+                                details: JSON.stringify(next),
+                              });
                             }}
                             className="w-full rounded-md border px-2 py-1"
                           />
@@ -1051,7 +1151,9 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
                                 ...meta,
                                 startDateISO: e.target.value || isoToday(),
                               };
-                              updateItem(realIdx, { details: JSON.stringify(next) });
+                              updateItem(realIdx, {
+                                details: JSON.stringify(next),
+                              });
                             }}
                             className="w-full rounded-md border px-2 py-1"
                           />
@@ -1090,7 +1192,8 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
             <div>
               <h2 className="font-medium">4) Itens (pontos + custos)</h2>
               <div className="text-xs text-gray-500">
-                Layout em cartões (não corta texto). Em telas grandes, fica bem alinhado.
+                Layout em cartões (não corta texto). Em telas grandes, fica bem
+                alinhado.
               </div>
             </div>
 
@@ -1146,8 +1249,12 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
       {draft && cedenteSel && (
         <div className="rounded-xl border p-4 space-y-3">
           <div className="flex items-center justify-between">
-            <h2 className="font-medium">5) Saldo final esperado (aplica no LIBERAR)</h2>
-            <div className="text-xs text-gray-500">Auto = atual + deltas dos itens/clubes</div>
+            <h2 className="font-medium">
+              5) Saldo final esperado (aplica no LIBERAR)
+            </h2>
+            <div className="text-xs text-gray-500">
+              Auto = atual + deltas dos itens/clubes
+            </div>
           </div>
 
           <div className="grid gap-3 md:grid-cols-3">
@@ -1157,7 +1264,9 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
                 value={draft.ciaProgram || ""}
                 disabled={!!isReleased}
                 onChange={(e) =>
-                  updateDraft({ ciaProgram: (e.target.value || null) as LoyaltyProgram | null })
+                  updateDraft({
+                    ciaProgram: (e.target.value || null) as LoyaltyProgram | null,
+                  })
                 }
                 className="mt-1 w-full rounded-md border px-3 py-2 text-sm"
               >
@@ -1245,7 +1354,8 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
           </div>
 
           <div className="text-xs text-gray-600">
-            Ao clicar em <b>LIBERAR</b>, os pontos do cedente serão atualizados para <b>esses saldos</b>.
+            Ao clicar em <b>LIBERAR</b>, os pontos do cedente serão atualizados para{" "}
+            <b>esses saldos</b>.
           </div>
         </div>
       )}
@@ -1316,7 +1426,8 @@ function ExpectedBalance(props: {
   onToggleAuto: (v: boolean) => void;
   onChange: (v: number | null) => void;
 }) {
-  const { label, current, delta, value, auto, disabled, onToggleAuto, onChange } = props;
+  const { label, current, delta, value, auto, disabled, onToggleAuto, onChange } =
+    props;
 
   const signedDelta =
     delta === 0
@@ -1346,7 +1457,9 @@ function ExpectedBalance(props: {
 
       <div className="text-xs text-gray-600">
         Delta:{" "}
-        <b className={delta >= 0 ? "text-emerald-700" : "text-red-700"}>{signedDelta}</b>
+        <b className={delta >= 0 ? "text-emerald-700" : "text-red-700"}>
+          {signedDelta}
+        </b>
       </div>
 
       <label className="mt-2 block text-xs text-gray-600">Esperado</label>
@@ -1363,7 +1476,11 @@ function ExpectedBalance(props: {
         className="mt-1 w-full rounded-md border px-2 py-2 text-sm disabled:opacity-50"
         placeholder="Ex: 150000"
       />
-      {auto && <div className="mt-1 text-[11px] text-gray-500">Calculado automaticamente.</div>}
+      {auto && (
+        <div className="mt-1 text-[11px] text-gray-500">
+          Calculado automaticamente.
+        </div>
+      )}
     </div>
   );
 }
@@ -1392,7 +1509,9 @@ function ItemCard(props: {
           <select
             value={it.type}
             disabled={isReleased}
-            onChange={(e) => onUpdateItem(realIdx, { type: e.target.value as PurchaseItemType })}
+            onChange={(e) =>
+              onUpdateItem(realIdx, { type: e.target.value as PurchaseItemType })
+            }
             className="mt-1 w-full rounded-md border px-3 py-2 text-sm"
           >
             <option value="TRANSFER">Transferência</option>
@@ -1412,7 +1531,9 @@ function ItemCard(props: {
             placeholder="Ex: Transfer Livelo→Smiles"
           />
 
-          <label className="mt-2 block text-[11px] text-gray-600">Detalhes (opcional)</label>
+          <label className="mt-2 block text-[11px] text-gray-600">
+            Detalhes (opcional)
+          </label>
           <input
             value={it.details || ""}
             disabled={isReleased}
@@ -1429,7 +1550,9 @@ function ItemCard(props: {
             value={(it.amountCents || 0) / 100}
             disabled={isReleased}
             onChange={(e) =>
-              onUpdateItem(realIdx, { amountCents: roundCents(Number(e.target.value || 0) * 100) })
+              onUpdateItem(realIdx, {
+                amountCents: roundCents(Number(e.target.value || 0) * 100),
+              })
             }
             className="mt-1 w-full rounded-md border px-3 py-2 text-sm"
           />
@@ -1458,7 +1581,9 @@ function ItemCard(props: {
             value={it.programFrom || ""}
             disabled={isReleased}
             onChange={(e) =>
-              onUpdateItem(realIdx, { programFrom: (e.target.value || null) as any })
+              onUpdateItem(realIdx, {
+                programFrom: (e.target.value || null) as any,
+              })
             }
             className="mt-1 w-full rounded-md border px-3 py-2 text-sm"
           >
@@ -1476,7 +1601,9 @@ function ItemCard(props: {
           <select
             value={it.programTo || ""}
             disabled={isReleased}
-            onChange={(e) => onUpdateItem(realIdx, { programTo: (e.target.value || null) as any })}
+            onChange={(e) =>
+              onUpdateItem(realIdx, { programTo: (e.target.value || null) as any })
+            }
             className="mt-1 w-full rounded-md border px-3 py-2 text-sm"
           >
             <option value="">—</option>
@@ -1494,7 +1621,9 @@ function ItemCard(props: {
             type="number"
             value={it.pointsBase}
             disabled={isReleased}
-            onChange={(e) => onUpdateItem(realIdx, { pointsBase: clampInt(e.target.value) })}
+            onChange={(e) =>
+              onUpdateItem(realIdx, { pointsBase: clampInt(e.target.value) })
+            }
             className="mt-1 w-full rounded-md border px-3 py-2 text-sm font-mono"
           />
         </div>
@@ -1506,7 +1635,9 @@ function ItemCard(props: {
             <select
               value={it.bonusMode || ""}
               disabled={isReleased}
-              onChange={(e) => onUpdateItem(realIdx, { bonusMode: e.target.value as any })}
+              onChange={(e) =>
+                onUpdateItem(realIdx, { bonusMode: e.target.value as any })
+              }
               className="w-[120px] rounded-md border px-3 py-2 text-sm"
             >
               <option value="">—</option>
@@ -1518,7 +1649,9 @@ function ItemCard(props: {
               type="number"
               value={it.bonusValue ?? 0}
               disabled={isReleased || !it.bonusMode}
-              onChange={(e) => onUpdateItem(realIdx, { bonusValue: clampInt(e.target.value) })}
+              onChange={(e) =>
+                onUpdateItem(realIdx, { bonusValue: clampInt(e.target.value) })
+              }
               className="flex-1 rounded-md border px-3 py-2 text-sm font-mono disabled:opacity-50"
               placeholder="0"
             />
@@ -1535,7 +1668,9 @@ function ItemCard(props: {
             type="number"
             value={it.pointsFinal}
             disabled={isReleased || !allowManual}
-            onChange={(e) => onUpdateItem(realIdx, { pointsFinal: clampInt(e.target.value) })}
+            onChange={(e) =>
+              onUpdateItem(realIdx, { pointsFinal: clampInt(e.target.value) })
+            }
             className="mt-1 w-full rounded-md border px-3 py-2 text-sm font-mono disabled:opacity-50"
           />
 
@@ -1551,7 +1686,9 @@ function ItemCard(props: {
             </label>
 
             {!allowManual && (
-              <span className="text-[11px] text-gray-500">auto (base + bônus)</span>
+              <span className="text-[11px] text-gray-500">
+                auto (base + bônus)
+              </span>
             )}
           </div>
         </div>
@@ -1564,7 +1701,9 @@ function ItemCard(props: {
             value={it.pointsDebitedFromOrigin}
             disabled={isReleased}
             onChange={(e) =>
-              onUpdateItem(realIdx, { pointsDebitedFromOrigin: clampInt(e.target.value) })
+              onUpdateItem(realIdx, {
+                pointsDebitedFromOrigin: clampInt(e.target.value),
+              })
             }
             className="mt-1 w-full rounded-md border px-3 py-2 text-sm font-mono"
             placeholder="0"
@@ -1580,7 +1719,11 @@ function ItemCard(props: {
           <select
             value={it.transferMode || ""}
             disabled={isReleased}
-            onChange={(e) => onUpdateItem(realIdx, { transferMode: (e.target.value || null) as any })}
+            onChange={(e) =>
+              onUpdateItem(realIdx, {
+                transferMode: (e.target.value || null) as any,
+              })
+            }
             className="mt-1 w-full rounded-md border px-3 py-2 text-sm"
           >
             <option value="">—</option>
