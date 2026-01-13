@@ -1,3 +1,4 @@
+// app/api/compras/liberadas/route.ts
 import { prisma } from "@/lib/prisma";
 import { ok, badRequest, serverError } from "@/lib/api";
 
@@ -7,6 +8,13 @@ function clampNonNegInt(n: any) {
   const x = Number(n);
   if (!Number.isFinite(x)) return 0;
   return Math.max(0, Math.trunc(x));
+}
+
+function clampPosInt(n: any, fb = 50) {
+  const x = Number(n);
+  if (!Number.isFinite(x)) return fb;
+  const v = Math.max(1, Math.trunc(x));
+  return Math.min(200, v); // evita payload gigante
 }
 
 function fixMetaMilheiroCents(row: {
@@ -35,13 +43,16 @@ function fixMetaMilheiroCents(row: {
 export async function GET(req: Request) {
   try {
     const { searchParams } = new URL(req.url);
+
     const cedenteId = String(searchParams.get("cedenteId") || "").trim();
     if (!cedenteId) return badRequest("cedenteId é obrigatório.");
+
+    const take = clampPosInt(searchParams.get("take"), 50);
 
     const comprasRaw = await prisma.purchase.findMany({
       where: { cedenteId, status: "CLOSED" },
       orderBy: { liberadoEm: "desc" },
-      take: 50,
+      take,
       select: {
         id: true,
         numero: true,
@@ -57,35 +68,11 @@ export async function GET(req: Request) {
       },
     });
 
-    const compras = comprasRaw.map((c) => {
-      const custo = clampNonNegInt(c.custoMilheiroCents);
-      const markup = clampNonNegInt(c.metaMarkupCents);
-      const metaOriginal = clampNonNegInt(c.metaMilheiroCents);
-
-      const metaFinal = fixMetaMilheiroCents(c);
-
-      // debug mais confiável que o ">=1000"
-      const metaFoiMarkup =
-        metaOriginal > 0 &&
-        custo > 0 &&
-        metaOriginal < custo; // se for menor que custo, tratamos como markup
-
-      const metaBateMarkup =
-        metaOriginal > 0 &&
-        markup > 0 &&
-        Math.abs(metaOriginal - markup) <= 2; // tolerância pequena (cents)
-
-      return {
-        ...c,
-        // ✅ sempre retorna meta FINAL pro client
-        metaMilheiroCents: metaFinal,
-
-        // (opcional) debug
-        metaMilheiroOriginalCents: c.metaMilheiroCents,
-        metaFoiMarkup,
-        metaBateMarkup,
-      };
-    });
+    const compras = comprasRaw.map((c) => ({
+      ...c,
+      // ✅ sempre retorna meta FINAL pro client (sem mexer em mais nada)
+      metaMilheiroCents: fixMetaMilheiroCents(c),
+    }));
 
     return ok({ compras });
   } catch (e: any) {
