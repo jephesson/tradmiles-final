@@ -12,6 +12,14 @@ type Snapshot = {
   totalLiquido: number;
 };
 
+type ReceberStatus = "OPEN" | "PARTIAL" | "PAID" | "CANCELED";
+type DividaAReceberRow = {
+  id: string;
+  status?: ReceberStatus | string | null;
+  totalCents?: number | null;
+  receivedCents?: number | null;
+};
+
 function fmtMoneyBR(cents: number) {
   const v = (cents || 0) / 100;
   return v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -80,29 +88,37 @@ function StatCard({
 
   return (
     <div className={cls}>
-      <div
-        className={
-          tone === "dark" ? "text-xs opacity-80" : "text-xs text-slate-600"
-        }
-      >
+      <div className={tone === "dark" ? "text-xs opacity-80" : "text-xs text-slate-600"}>
         {label}
       </div>
       <div className={tone === "dark" ? "text-2xl font-bold" : "text-xl font-bold"}>
         {value}
       </div>
       {hint ? (
-        <div
-          className={
-            tone === "dark"
-              ? "text-xs opacity-70 mt-1"
-              : "text-xs text-slate-500 mt-1"
-          }
-        >
+        <div className={tone === "dark" ? "text-xs opacity-70 mt-1" : "text-xs text-slate-500 mt-1"}>
           {hint}
         </div>
       ) : null}
     </div>
   );
+}
+
+function computeDividasAReceberOpenCents(list: DividaAReceberRow[]) {
+  let sum = 0;
+
+  for (const r of list || []) {
+    const status = String(r?.status || "").toUpperCase();
+    // ✅ ignora canceladas
+    if (status === "CANCELED") continue;
+
+    const total = Math.max(0, Number(r?.totalCents ?? 0) || 0);
+    const received = Math.max(0, Number(r?.receivedCents ?? 0) || 0);
+    const remaining = total - received;
+
+    if (remaining > 0) sum += remaining;
+  }
+
+  return sum;
 }
 
 export default function CedentesResumoClient() {
@@ -121,22 +137,22 @@ export default function CedentesResumoClient() {
   const [debtsOpenCents, setDebtsOpenCents] = useState<number>(0);
 
   // ✅ comissões pendentes (cedentes)
-  const [pendingCedenteCommissionsCents, setPendingCedenteCommissionsCents] =
-    useState<number>(0);
+  const [pendingCedenteCommissionsCents, setPendingCedenteCommissionsCents] = useState<number>(0);
 
-  // ✅ recebimentos em aberto (A RECEBER)
+  // ✅ recebimentos em aberto (A RECEBER - vendas)
   const [receivablesOpenCents, setReceivablesOpenCents] = useState<number>(0);
 
+  // ✅ NOVO: dívidas a receber (em aberto: total - recebido; ignora canceladas)
+  const [dividasAReceberOpenCents, setDividasAReceberOpenCents] = useState<number>(0);
+
   // ✅ NOVO: a pagar funcionários (pendente)
-  const [employeePayoutsPendingCents, setEmployeePayoutsPendingCents] =
-    useState<number>(0);
+  const [employeePayoutsPendingCents, setEmployeePayoutsPendingCents] = useState<number>(0);
 
   // ✅ NOVO: impostos pendentes (mês não pago)
   const [taxesPendingCents, setTaxesPendingCents] = useState<number>(0);
 
   // ✅ opcional: se o backend mandar pronto, usamos (senão calculamos)
-  const [cashProjectedFromApiCents, setCashProjectedFromApiCents] =
-    useState<number | null>(null);
+  const [cashProjectedFromApiCents, setCashProjectedFromApiCents] = useState<number | null>(null);
 
   const [rateLatam, setRateLatam] = useState("20,00");
   const [rateSmiles, setRateSmiles] = useState("18,00");
@@ -148,9 +164,16 @@ export default function CedentesResumoClient() {
   async function load() {
     setLoading(true);
     try {
-      const r = await fetch("/api/resumo", { cache: "no-store" });
-      const j = await r.json();
+      const [rResumo, rDAR] = await Promise.all([
+        fetch("/api/resumo", { cache: "no-store" }),
+        fetch("/api/dividas-a-receber", { cache: "no-store" }),
+      ]);
+
+      const j = await rResumo.json();
+      const jDAR = await rDAR.json();
+
       if (!j?.ok) throw new Error(j?.error || "Erro ao carregar resumo");
+      if (!jDAR?.ok) throw new Error(jDAR?.error || "Erro ao carregar dívidas a receber");
 
       setPoints(j.data.points);
       setSnapshots(j.data.snapshots);
@@ -167,11 +190,7 @@ export default function CedentesResumoClient() {
       }
 
       setDebtsOpenCents(Number(j.data.debtsOpenCents || 0));
-
-      setPendingCedenteCommissionsCents(
-        Number(j.data.pendingCedenteCommissionsCents || 0)
-      );
-
+      setPendingCedenteCommissionsCents(Number(j.data.pendingCedenteCommissionsCents || 0));
       setReceivablesOpenCents(Number(j.data.receivablesOpenCents || 0));
 
       // ✅ novos
@@ -179,8 +198,18 @@ export default function CedentesResumoClient() {
       setTaxesPendingCents(Number(j.data.taxesPendingCents || 0));
 
       const apiProjected = j.data.cashProjectedCents;
-      setCashProjectedFromApiCents(
-        apiProjected == null ? null : Number(apiProjected || 0)
+      setCashProjectedFromApiCents(apiProjected == null ? null : Number(apiProjected || 0));
+
+      // ✅ dívidas a receber (restante = total - recebido; ignora canceladas)
+      const list: DividaAReceberRow[] =
+        (jDAR.data?.rows as any) ||
+        (jDAR.rows as any) ||
+        (jDAR.data as any) ||
+        (jDAR.data?.data as any) ||
+        [];
+
+      setDividasAReceberOpenCents(
+        computeDividasAReceberOpenCents(Array.isArray(list) ? list : [])
       );
 
       setDidLoad(true);
@@ -236,16 +265,22 @@ export default function CedentesResumoClient() {
     const vEsferaCents = Math.round(milEsfera * rEsfera * 100);
 
     const cashCents = toCentsFromInput(cashInput);
-    const receivableCents = Number(receivablesOpenCents || 0);
 
-    // ✅ BRUTO inclui A RECEBER
+    // ✅ A receber (VENDAS)
+    const receivableSalesCents = Number(receivablesOpenCents || 0);
+
+    // ✅ Dívidas a receber (restante do DAR)
+    const receivableDARcents = Number(dividasAReceberOpenCents || 0);
+
+    // ✅ BRUTO inclui: milhas + caixa + a receber (vendas) + dívidas a receber
     const totalGrossCents =
       vLatamCents +
       vSmilesCents +
       vLiveloCents +
       vEsferaCents +
       cashCents +
-      receivableCents;
+      receivableSalesCents +
+      receivableDARcents;
 
     // ✅ snapshot “oficial”: bruto - dívidas (como você já faz)
     const totalNetCents = totalGrossCents - (debtsOpenCents || 0);
@@ -260,14 +295,13 @@ export default function CedentesResumoClient() {
     // ✅ caixa projetado (só caixa + a receber - a pagar func - impostos)
     const cashProjectedCalcCents =
       cashCents +
-      receivableCents -
+      receivableSalesCents +
+      receivableDARcents -
       (employeePayoutsPendingCents || 0) -
       (taxesPendingCents || 0);
 
     const cashProjectedCents =
-      cashProjectedFromApiCents != null
-        ? cashProjectedFromApiCents
-        : cashProjectedCalcCents;
+      cashProjectedFromApiCents != null ? cashProjectedFromApiCents : cashProjectedCalcCents;
 
     return {
       milLatam,
@@ -279,7 +313,10 @@ export default function CedentesResumoClient() {
       vLiveloCents,
       vEsferaCents,
       cashCents,
-      receivableCents,
+
+      receivableSalesCents,
+      receivableDARcents,
+
       totalGrossCents,
       totalNetCents,
       totalAfterPendingsCents,
@@ -295,6 +332,7 @@ export default function CedentesResumoClient() {
     debtsOpenCents,
     pendingCedenteCommissionsCents,
     receivablesOpenCents,
+    dividasAReceberOpenCents,
     employeePayoutsPendingCents,
     taxesPendingCents,
     cashProjectedFromApiCents,
@@ -307,9 +345,14 @@ export default function CedentesResumoClient() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           cashCents: calc.cashCents,
+
+          // ✅ bruto agora inclui dívidas a receber também
           totalBrutoCents: calc.totalGrossCents,
+
           totalDividasCents: debtsOpenCents,
-          totalLiquidoCents: calc.totalNetCents, // ✅ snapshot continua igual
+
+          // ✅ snapshot continua igual: bruto − dívidas
+          totalLiquidoCents: calc.totalNetCents,
         }),
       });
 
@@ -329,7 +372,8 @@ export default function CedentesResumoClient() {
         <div>
           <h1 className="text-2xl font-bold">Resumo</h1>
           <p className="text-sm text-slate-600">
-            Patrimônio estimado: milhas (por milheiro) + caixa + a receber − dívidas − pendências (comissões/funcionários/impostos).
+            Patrimônio estimado: milhas (por milheiro) + caixa + a receber (vendas) + dívidas a receber − dívidas −
+            pendências (comissões/funcionários/impostos).
           </p>
         </div>
 
@@ -342,7 +386,7 @@ export default function CedentesResumoClient() {
         </button>
       </div>
 
-      {/* Top cards: Milhas + Caixa + Pendências */}
+      {/* Top cards */}
       <div className="grid gap-4 lg:grid-cols-3">
         {/* Milhas */}
         <div className="rounded-2xl border bg-white p-4 space-y-3">
@@ -382,18 +426,13 @@ export default function CedentesResumoClient() {
             </span>
           </div>
 
-          <Input
-            label="Saldo atual (R$)"
-            value={cashInput}
-            onChange={setCashInput}
-            placeholder="Ex: 12345,67"
-          />
+          <Input label="Saldo atual (R$)" value={cashInput} onChange={setCashInput} placeholder="Ex: 12345,67" />
 
           <div className="rounded-xl border bg-slate-50 p-3">
             <div className="text-xs text-slate-600">Caixa projetado</div>
             <div className="text-xl font-bold">{fmtMoneyBR(calc.cashProjectedCents)}</div>
             <div className="text-xs text-slate-500 mt-1">
-              caixa + a receber − (a pagar funcionários + impostos)
+              caixa + a receber (vendas) + dívidas a receber − (a pagar funcionários + impostos)
             </div>
           </div>
 
@@ -404,9 +443,7 @@ export default function CedentesResumoClient() {
             Salvar caixa de hoje
           </button>
 
-          <div className="text-xs text-slate-600">
-            Grava/atualiza o snapshot do dia no histórico.
-          </div>
+          <div className="text-xs text-slate-600">Grava/atualiza o snapshot do dia no histórico.</div>
         </div>
 
         {/* Pendências */}
@@ -421,9 +458,7 @@ export default function CedentesResumoClient() {
           <div className="grid gap-2">
             <div className="rounded-xl border bg-slate-50 p-3">
               <div className="text-xs text-slate-600">Comissões (cedentes)</div>
-              <div className="text-xl font-bold">
-                {fmtMoneyBR(pendingCedenteCommissionsCents)}
-              </div>
+              <div className="text-xl font-bold">{fmtMoneyBR(pendingCedenteCommissionsCents)}</div>
               <div className="text-xs text-slate-500 mt-1">
                 soma status <b>PENDING</b>
               </div>
@@ -431,9 +466,7 @@ export default function CedentesResumoClient() {
 
             <div className="rounded-xl border bg-slate-50 p-3">
               <div className="text-xs text-slate-600">A pagar (funcionários)</div>
-              <div className="text-xl font-bold">
-                {fmtMoneyBR(employeePayoutsPendingCents)}
-              </div>
+              <div className="text-xl font-bold">{fmtMoneyBR(employeePayoutsPendingCents)}</div>
               <div className="text-xs text-slate-500 mt-1">
                 soma netPayCents com <b>paidAt = null</b>
               </div>
@@ -441,18 +474,12 @@ export default function CedentesResumoClient() {
 
             <div className="rounded-xl border bg-slate-50 p-3">
               <div className="text-xs text-slate-600">Impostos pendentes</div>
-              <div className="text-xl font-bold">
-                {fmtMoneyBR(taxesPendingCents)}
-              </div>
-              <div className="text-xs text-slate-500 mt-1">
-                meses ainda não marcados como pagos
-              </div>
+              <div className="text-xl font-bold">{fmtMoneyBR(taxesPendingCents)}</div>
+              <div className="text-xs text-slate-500 mt-1">meses ainda não marcados como pagos</div>
             </div>
           </div>
 
-          <div className="text-xs text-slate-600">
-            Esses valores entram no “líquido (referência)”.
-          </div>
+          <div className="text-xs text-slate-600">Esses valores entram no “líquido (referência)”.</div>
         </div>
       </div>
 
@@ -490,29 +517,25 @@ export default function CedentesResumoClient() {
           <div className="rounded-xl border p-3">
             <div className="text-xs text-slate-600">LATAM</div>
             <div className="text-sm">
-              Milheiros: <b>{fmtInt(calc.milLatam)}</b> • Valor:{" "}
-              <b>{fmtMoneyBR(calc.vLatamCents)}</b>
+              Milheiros: <b>{fmtInt(calc.milLatam)}</b> • Valor: <b>{fmtMoneyBR(calc.vLatamCents)}</b>
             </div>
           </div>
           <div className="rounded-xl border p-3">
             <div className="text-xs text-slate-600">Smiles</div>
             <div className="text-sm">
-              Milheiros: <b>{fmtInt(calc.milSmiles)}</b> • Valor:{" "}
-              <b>{fmtMoneyBR(calc.vSmilesCents)}</b>
+              Milheiros: <b>{fmtInt(calc.milSmiles)}</b> • Valor: <b>{fmtMoneyBR(calc.vSmilesCents)}</b>
             </div>
           </div>
           <div className="rounded-xl border p-3">
             <div className="text-xs text-slate-600">Livelo</div>
             <div className="text-sm">
-              Milheiros: <b>{fmtInt(calc.milLivelo)}</b> • Valor:{" "}
-              <b>{fmtMoneyBR(calc.vLiveloCents)}</b>
+              Milheiros: <b>{fmtInt(calc.milLivelo)}</b> • Valor: <b>{fmtMoneyBR(calc.vLiveloCents)}</b>
             </div>
           </div>
           <div className="rounded-xl border p-3">
             <div className="text-xs text-slate-600">Esfera</div>
             <div className="text-sm">
-              Milheiros: <b>{fmtInt(calc.milEsfera)}</b> • Valor:{" "}
-              <b>{fmtMoneyBR(calc.vEsferaCents)}</b>
+              Milheiros: <b>{fmtInt(calc.milEsfera)}</b> • Valor: <b>{fmtMoneyBR(calc.vEsferaCents)}</b>
             </div>
           </div>
         </div>
@@ -520,13 +543,18 @@ export default function CedentesResumoClient() {
         {/* Totais */}
         <div className="grid gap-3 md:grid-cols-4">
           <StatCard
-            label="TOTAL BRUTO (milhas + caixa + a receber)"
+            label="TOTAL BRUTO (milhas + caixa + a receber + dívidas a receber)"
             value={fmtMoneyBR(calc.totalGrossCents)}
           />
           <StatCard
-            label="A RECEBER (aberto)"
-            value={`+${fmtMoneyBR(calc.receivableCents)}`}
-            hint="saldo total OPEN"
+            label="A RECEBER (Vendas)"
+            value={`+${fmtMoneyBR(calc.receivableSalesCents)}`}
+            hint="saldo total OPEN (vendas)"
+          />
+          <StatCard
+            label="DÍVIDAS A RECEBER"
+            value={`+${fmtMoneyBR(calc.receivableDARcents)}`}
+            hint="restante (total − recebido) • ignora canceladas"
           />
           <StatCard
             label="DÍVIDAS EM ABERTO"
@@ -534,14 +562,14 @@ export default function CedentesResumoClient() {
             hint="saldo total OPEN"
             tone="danger"
           />
+        </div>
+
+        <div className="grid gap-3 md:grid-cols-4">
           <StatCard
             label="LÍQUIDO (snapshot)"
             value={fmtMoneyBR(calc.totalNetCents)}
             hint="bruto − dívidas (o que você salva)"
           />
-        </div>
-
-        <div className="grid gap-3 md:grid-cols-4">
           <StatCard
             label="COMISSÕES PENDENTES (cedentes)"
             value={`-${fmtMoneyBR(pendingCedenteCommissionsCents)}`}
@@ -560,6 +588,9 @@ export default function CedentesResumoClient() {
             hint="meses não pagos"
             tone="danger"
           />
+        </div>
+
+        <div className="grid gap-3 md:grid-cols-4">
           <StatCard
             label="LÍQUIDO (referência)"
             value={fmtMoneyBR(calc.totalAfterPendingsCents)}
@@ -577,9 +608,7 @@ export default function CedentesResumoClient() {
       <div className="rounded-2xl border bg-white p-4 space-y-3">
         <div className="flex items-center justify-between gap-3">
           <div className="font-semibold">Histórico do caixa (por dia)</div>
-          <div className="text-xs text-slate-500">
-            últimos {Math.min(60, snapshots.length)} dias
-          </div>
+          <div className="text-xs text-slate-500">últimos {Math.min(60, snapshots.length)} dias</div>
         </div>
 
         {snapshots.length === 0 ? (
@@ -597,9 +626,7 @@ export default function CedentesResumoClient() {
                 {snapshots.map((s) => (
                   <tr key={s.id} className="border-t">
                     <td className="px-3 py-2">{dateBR(s.date)}</td>
-                    <td className="px-3 py-2 text-right">
-                      {fmtMoneyBR(s.totalLiquido)}
-                    </td>
+                    <td className="px-3 py-2 text-right">{fmtMoneyBR(s.totalLiquido)}</td>
                   </tr>
                 ))}
               </tbody>
