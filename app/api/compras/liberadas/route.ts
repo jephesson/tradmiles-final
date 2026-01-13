@@ -3,18 +3,10 @@ import { ok, badRequest, serverError } from "@/lib/api";
 
 export const dynamic = "force-dynamic";
 
-type Program = "LATAM" | "SMILES" | "LIVELO" | "ESFERA";
-
 function clampNonNegInt(n: any) {
   const x = Number(n);
   if (!Number.isFinite(x)) return 0;
   return Math.max(0, Math.trunc(x));
-}
-
-function parseProgram(v: string | null): Program | null {
-  const p = String(v || "").trim().toUpperCase();
-  if (p === "LATAM" || p === "SMILES" || p === "LIVELO" || p === "ESFERA") return p as Program;
-  return null;
 }
 
 function fixMetaMilheiroCents(row: {
@@ -26,11 +18,16 @@ function fixMetaMilheiroCents(row: {
   const markup = clampNonNegInt(row.metaMarkupCents);
   const metaRaw = clampNonNegInt(row.metaMilheiroCents);
 
+  // ✅ se veio meta explícita
   if (metaRaw > 0) {
-    if (custo > 0 && metaRaw < custo) return custo + metaRaw; // veio como markup
-    return metaRaw; // já é meta final
+    // se temos custo e a meta é MENOR que o custo, ela provavelmente veio como MARKUP
+    if (custo > 0 && metaRaw < custo) return custo + metaRaw;
+
+    // senão, assume que já é META FINAL
+    return metaRaw;
   }
 
+  // ✅ não veio meta: usa custo + markup (ou só markup se custo não existir)
   if (custo > 0) return custo + markup;
   return markup;
 }
@@ -38,32 +35,11 @@ function fixMetaMilheiroCents(row: {
 export async function GET(req: Request) {
   try {
     const { searchParams } = new URL(req.url);
-
     const cedenteId = String(searchParams.get("cedenteId") || "").trim();
     if (!cedenteId) return badRequest("cedenteId é obrigatório.");
 
-    const program = parseProgram(searchParams.get("program")); // ✅ vem do frontend
-
-    const whereBase: any = {
-      cedenteId,
-      status: "CLOSED", // ✅ LIBERADA
-      ...(program ? { ciaAerea: program } : {}),
-      // ✅ NÃO mostrar finalizadas (use o campo correto no teu schema)
-      finalizedAt: null,
-    };
-
-    // ✅ NÃO mostrar arquivadas — escolha UM destes conforme teu schema:
-    // Opção A (mais comum):
-    whereBase.archivedAt = null;
-
-    // Opção B:
-    // whereBase.archived = false;
-
-    // Opção C:
-    // whereBase.isArchived = false;
-
     const comprasRaw = await prisma.purchase.findMany({
-      where: whereBase,
+      where: { cedenteId, status: "CLOSED" },
       orderBy: { liberadoEm: "desc" },
       take: 50,
       select: {
@@ -78,12 +54,6 @@ export async function GET(req: Request) {
 
         liberadoEm: true,
         liberadoPor: { select: { id: true, name: true, login: true } },
-
-        // (opcional p/ debug)
-        finalizedAt: true,
-        // archivedAt: true, // se existir
-        // archived: true,   // se existir
-        // isArchived: true, // se existir
       },
     });
 
@@ -94,12 +64,23 @@ export async function GET(req: Request) {
 
       const metaFinal = fixMetaMilheiroCents(c);
 
-      const metaFoiMarkup = metaOriginal > 0 && custo > 0 && metaOriginal < custo;
-      const metaBateMarkup = metaOriginal > 0 && markup > 0 && Math.abs(metaOriginal - markup) <= 2;
+      // debug mais confiável que o ">=1000"
+      const metaFoiMarkup =
+        metaOriginal > 0 &&
+        custo > 0 &&
+        metaOriginal < custo; // se for menor que custo, tratamos como markup
+
+      const metaBateMarkup =
+        metaOriginal > 0 &&
+        markup > 0 &&
+        Math.abs(metaOriginal - markup) <= 2; // tolerância pequena (cents)
 
       return {
         ...c,
+        // ✅ sempre retorna meta FINAL pro client
         metaMilheiroCents: metaFinal,
+
+        // (opcional) debug
         metaMilheiroOriginalCents: c.metaMilheiroCents,
         metaFoiMarkup,
         metaBateMarkup,
