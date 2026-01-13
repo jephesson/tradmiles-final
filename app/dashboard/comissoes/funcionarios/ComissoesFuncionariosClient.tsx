@@ -173,8 +173,6 @@ function Pill({ kind, text }: { kind: "ok" | "warn" | "muted"; text: string }) {
  * ✅ REGRA FINAL (sem duplicar):
  * - "Lucro s/ taxa" = bruto - imposto (sem reembolso)
  * - "A pagar (líquido)" = netPay (inclui reembolso taxa)
- *
- * Por isso: removemos "A pagar (total - imposto)" porque era igual ao lucro s/ taxa.
  */
 function lucroSemTaxaEmbarqueCents(r: PayoutRow) {
   return (r.grossProfitCents || 0) - (r.tax7Cents || 0);
@@ -353,19 +351,23 @@ export default function ComissoesFuncionariosClient() {
 
   const monthLabel = useMemo(() => monthFromISODate(date), [date]);
 
-  // ✅ KPI extra do dia: lucro s/ taxa (somatório)
   const dayExtra = useMemo(() => {
     const rows = day?.rows || [];
     const lucroSemTaxa = rows.reduce((acc, r) => acc + lucroSemTaxaEmbarqueCents(r), 0);
     return { lucroSemTaxa };
   }, [day]);
 
-  // ✅ KPI extra do mês: lucro s/ taxa (somatório)
   const monthExtra = useMemo(() => {
     const rows = monthData?.days || [];
     const lucroSemTaxa = rows.reduce((acc, r) => acc + lucroSemTaxaEmbarqueCents(r), 0);
     return { lucroSemTaxa };
   }, [monthData]);
+
+  // ✅ classes de destaque (azul / verde)
+  const lucroCellCls =
+    "bg-sky-50 text-sky-900 ring-1 ring-inset ring-sky-200";
+  const liquidoCellCls =
+    "bg-emerald-50 text-emerald-900 ring-1 ring-inset ring-emerald-200";
 
   return (
     <div className="space-y-4 p-4">
@@ -428,7 +430,6 @@ export default function ComissoesFuncionariosClient() {
         </div>
       </div>
 
-      {/* ✅ KPIs: removido "A pagar (total - imposto)" porque duplicava o "Lucro s/ taxa" */}
       <div className="grid grid-cols-2 gap-2 md:grid-cols-7">
         <KPI label="Bruto (C1+C2+C3)" value={fmtMoneyBR(day?.totals.gross || 0)} />
         <KPI label="Imposto (8%)" value={fmtMoneyBR(day?.totals.tax || 0)} />
@@ -460,10 +461,9 @@ export default function ComissoesFuncionariosClient() {
                 <th className="px-4 py-3">Imposto (8%)</th>
                 <th className="px-4 py-3">Taxa embarque</th>
 
-                {/* ✅ NOVA COLUNA ÚTIL (não duplica) */}
-                <th className="px-4 py-3">Lucro s/ taxa</th>
-
-                <th className="px-4 py-3">Líquido (a pagar)</th>
+                {/* ✅ cabeçalhos com fundo */}
+                <th className={`px-4 py-3 ${lucroCellCls}`}>Lucro s/ taxa</th>
+                <th className={`px-4 py-3 ${liquidoCellCls}`}>Líquido (a pagar)</th>
 
                 <th className="px-4 py-3">Status</th>
                 <th className="px-4 py-3 text-right">Ações</th>
@@ -500,9 +500,14 @@ export default function ComissoesFuncionariosClient() {
                     <td className="px-4 py-3">{fmtMoneyBR(r.tax7Cents || 0)}</td>
                     <td className="px-4 py-3">{fmtMoneyBR(r.feeCents || 0)}</td>
 
-                    <td className="px-4 py-3 font-medium">{fmtMoneyBR(lucroSemTaxa)}</td>
+                    {/* ✅ células com fundo */}
+                    <td className={`px-4 py-3 font-semibold ${lucroCellCls}`}>
+                      {fmtMoneyBR(lucroSemTaxa)}
+                    </td>
 
-                    <td className="px-4 py-3 font-semibold">{fmtMoneyBR(r.netPayCents || 0)}</td>
+                    <td className={`px-4 py-3 font-bold ${liquidoCellCls}`}>
+                      {fmtMoneyBR(r.netPayCents || 0)}
+                    </td>
 
                     <td className="px-4 py-3">
                       {isPaid ? (
@@ -616,7 +621,6 @@ export default function ComissoesFuncionariosClient() {
                 </button>
               </div>
 
-              {/* ✅ KPIs do mês (sem duplicar) */}
               <div className="grid grid-cols-2 gap-2 md:grid-cols-7">
                 <KPI label="Bruto" value={fmtMoneyBR(monthData?.totals.gross || 0)} />
                 <KPI label="Imposto" value={fmtMoneyBR(monthData?.totals.tax || 0)} />
@@ -641,9 +645,9 @@ export default function ComissoesFuncionariosClient() {
 
                           <th className="px-4 py-3">Imposto</th>
                           <th className="px-4 py-3">Taxa</th>
-                          <th className="px-4 py-3">Lucro s/ taxa</th>
 
-                          <th className="px-4 py-3">Líquido</th>
+                          <th className={`px-4 py-3 ${lucroCellCls}`}>Lucro s/ taxa</th>
+                          <th className={`px-4 py-3 ${liquidoCellCls}`}>Líquido</th>
 
                           <th className="px-4 py-3">Status</th>
                           <th className="px-4 py-3 text-right">Ação</th>
@@ -671,9 +675,14 @@ export default function ComissoesFuncionariosClient() {
 
                               <td className="px-4 py-3">{fmtMoneyBR(r.tax7Cents || 0)}</td>
                               <td className="px-4 py-3">{fmtMoneyBR(r.feeCents || 0)}</td>
-                              <td className="px-4 py-3 font-medium">{fmtMoneyBR(lucroSemTaxa)}</td>
 
-                              <td className="px-4 py-3 font-semibold">{fmtMoneyBR(r.netPayCents || 0)}</td>
+                              <td className={`px-4 py-3 font-semibold ${lucroCellCls}`}>
+                                {fmtMoneyBR(lucroSemTaxa)}
+                              </td>
+
+                              <td className={`px-4 py-3 font-bold ${liquidoCellCls}`}>
+                                {fmtMoneyBR(r.netPayCents || 0)}
+                              </td>
 
                               <td className="px-4 py-3">
                                 {isPaid ? (
@@ -729,7 +738,6 @@ export default function ComissoesFuncionariosClient() {
         </div>
       )}
 
-      {/* Toast */}
       {toast && (
         <div className="fixed bottom-4 right-4 z-50 w-[360px] rounded-2xl border bg-white p-3 shadow-xl">
           <div className="text-sm font-semibold">{toast.title}</div>
