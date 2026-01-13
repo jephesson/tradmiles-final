@@ -13,7 +13,6 @@ type Breakdown = {
   commission3RateioCents?: number; // rateio
   salesCount: number;
   taxPercent: number; // 8
-  // pode vir do backend também:
   basis?: Basis;
 };
 
@@ -170,8 +169,17 @@ function Pill({ kind, text }: { kind: "ok" | "warn" | "muted"; text: string }) {
   return <span className={`rounded-full px-2 py-1 text-xs ${cls}`}>{text}</span>;
 }
 
+// ✅ helpers novos (pedido)
+function lucroSemTaxaEmbarqueCents(r: PayoutRow) {
+  // “lucrou desconsiderando taxa de embarque” => líquido - reembolso taxa
+  return (r.netPayCents || 0) - (r.feeCents || 0);
+}
+function aPagarTotalMenosImpostoCents(r: PayoutRow) {
+  // “quanto tenho que pagar (total - imposto)” => bruto - imposto
+  return (r.grossProfitCents || 0) - (r.tax7Cents || 0);
+}
+
 export default function ComissoesFuncionariosClient() {
-  // ✅ auto-compute do dia em andamento
   const AUTO_COMPUTE_MS = 2 * 60 * 1000; // 2 min
 
   const [date, setDate] = useState<string>(() => todayISORecife());
@@ -182,12 +190,10 @@ export default function ComissoesFuncionariosClient() {
   const [loading, setLoading] = useState(false);
   const [computing, setComputing] = useState(false);
 
-  // “Pagando...” por (date|userId)
   const [payingKey, setPayingKey] = useState<string | null>(null);
 
   const [toast, setToast] = useState<{ title: string; desc?: string } | null>(null);
 
-  // drawer do mês
   const [monthOpen, setMonthOpen] = useState(false);
   const [monthUser, setMonthUser] = useState<UserLite | null>(null);
   const [month, setMonth] = useState<string>(() => monthFromISODate(todayISORecife()));
@@ -196,8 +202,8 @@ export default function ComissoesFuncionariosClient() {
 
   const today = useMemo(() => todayISORecife(), []);
   const isFutureOrToday = useMemo(() => date >= today, [date, today]);
-  const isClosedDay = useMemo(() => date < today, [date, today]); // ✅ dia fechado
-  const canCompute = useMemo(() => date <= today, [date, today]); // ✅ permite HOJE, bloqueia futuro
+  const isClosedDay = useMemo(() => date < today, [date, today]);
+  const canCompute = useMemo(() => date <= today, [date, today]);
   const isToday = useMemo(() => date === today, [date, today]);
 
   const computeTitle = useMemo(() => {
@@ -233,7 +239,6 @@ export default function ComissoesFuncionariosClient() {
     }
   }
 
-  // ✅ compute com force (recalcular de verdade)
   async function computeDay(d = date, opts?: { force?: boolean }) {
     setComputing(true);
     const force = opts?.force ?? true;
@@ -258,7 +263,6 @@ export default function ComissoesFuncionariosClient() {
     }
   }
 
-  // ✅ compute silencioso (auto-compute do hoje): sem force
   async function computeDaySilent(d: string) {
     try {
       await apiPost<any>(`/api/payouts/funcionarios/compute`, {
@@ -266,9 +270,7 @@ export default function ComissoesFuncionariosClient() {
         basis,
         force: false,
       });
-    } catch {
-      // silencioso mesmo
-    }
+    } catch {}
   }
 
   async function payRow(d: string, userId: string) {
@@ -314,9 +316,6 @@ export default function ComissoesFuncionariosClient() {
     await loadMonth(u.id, m);
   }
 
-  // ✅ Ao trocar a data:
-  // - se for HOJE: compute silencioso -> load
-  // - se for passado/futuro: só load
   useEffect(() => {
     let cancelled = false;
 
@@ -335,7 +334,6 @@ export default function ComissoesFuncionariosClient() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [date, isToday, basis]);
 
-  // ✅ Auto-compute do dia de hoje (dinâmico até fechar o dia)
   useEffect(() => {
     if (!isToday) return;
 
@@ -349,6 +347,22 @@ export default function ComissoesFuncionariosClient() {
   }, [isToday, date, basis]);
 
   const monthLabel = useMemo(() => monthFromISODate(date), [date]);
+
+  // ✅ KPIs extras do dia (calculados)
+  const dayExtra = useMemo(() => {
+    const rows = day?.rows || [];
+    const lucroSemTaxa = rows.reduce((acc, r) => acc + lucroSemTaxaEmbarqueCents(r), 0);
+    const pagarTotalMenosImposto = rows.reduce((acc, r) => acc + aPagarTotalMenosImpostoCents(r), 0);
+    return { lucroSemTaxa, pagarTotalMenosImposto };
+  }, [day]);
+
+  // ✅ KPIs extras do mês (calculados)
+  const monthExtra = useMemo(() => {
+    const rows = monthData?.days || [];
+    const lucroSemTaxa = rows.reduce((acc, r) => acc + lucroSemTaxaEmbarqueCents(r), 0);
+    const pagarTotalMenosImposto = rows.reduce((acc, r) => acc + aPagarTotalMenosImpostoCents(r), 0);
+    return { lucroSemTaxa, pagarTotalMenosImposto };
+  }, [monthData]);
 
   return (
     <div className="space-y-4 p-4">
@@ -411,11 +425,14 @@ export default function ComissoesFuncionariosClient() {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-2 md:grid-cols-6">
+      {/* ✅ KPIs: inclui os novos pedidos */}
+      <div className="grid grid-cols-2 gap-2 md:grid-cols-8">
         <KPI label="Bruto (C1+C2+C3)" value={fmtMoneyBR(day?.totals.gross || 0)} />
         <KPI label="Imposto (8%)" value={fmtMoneyBR(day?.totals.tax || 0)} />
         <KPI label="Taxas (reembolso)" value={fmtMoneyBR(day?.totals.fee || 0)} />
-        <KPI label="Líquido total" value={fmtMoneyBR(day?.totals.net || 0)} />
+        <KPI label="Líquido total (a pagar)" value={fmtMoneyBR(day?.totals.net || 0)} />
+        <KPI label="Lucro (sem taxa embarque)" value={fmtMoneyBR(dayExtra.lucroSemTaxa)} />
+        <KPI label="A pagar (total - imposto)" value={fmtMoneyBR(dayExtra.pagarTotalMenosImposto)} />
         <KPI label="Pago" value={fmtMoneyBR(day?.totals.paid || 0)} />
         <KPI label="Pendente" value={fmtMoneyBR(day?.totals.pending || 0)} />
       </div>
@@ -440,7 +457,12 @@ export default function ComissoesFuncionariosClient() {
 
                 <th className="px-4 py-3">Imposto (8%)</th>
                 <th className="px-4 py-3">Taxa embarque</th>
-                <th className="px-4 py-3">Líquido</th>
+
+                {/* ✅ NOVAS COLUNAS */}
+                <th className="px-4 py-3">Lucro s/ taxa</th>
+                <th className="px-4 py-3">A pagar (total - imposto)</th>
+
+                <th className="px-4 py-3">Líquido (a pagar)</th>
 
                 <th className="px-4 py-3">Status</th>
                 <th className="px-4 py-3 text-right">Ações</th>
@@ -454,12 +476,13 @@ export default function ComissoesFuncionariosClient() {
                 const isMissing = String(r.id || "").startsWith("missing:");
                 const isPaid = !!r.paidById;
 
-                // ✅ paga só dia fechado
                 const canPay = !isMissing && !isPaid && isClosedDay;
-
                 const paying = payingKey === `${date}|${r.userId}`;
 
                 const displayName = firstName(r.user.name, r.user.login);
+
+                const lucroSemTaxa = lucroSemTaxaEmbarqueCents(r);
+                const pagarTotalMenosImposto = aPagarTotalMenosImpostoCents(r);
 
                 return (
                   <tr key={r.id} className="border-t">
@@ -476,6 +499,11 @@ export default function ComissoesFuncionariosClient() {
 
                     <td className="px-4 py-3">{fmtMoneyBR(r.tax7Cents || 0)}</td>
                     <td className="px-4 py-3">{fmtMoneyBR(r.feeCents || 0)}</td>
+
+                    {/* ✅ NOVOS VALORES */}
+                    <td className="px-4 py-3 font-medium">{fmtMoneyBR(lucroSemTaxa)}</td>
+                    <td className="px-4 py-3 font-medium">{fmtMoneyBR(pagarTotalMenosImposto)}</td>
+
                     <td className="px-4 py-3 font-semibold">{fmtMoneyBR(r.netPayCents || 0)}</td>
 
                     <td className="px-4 py-3">
@@ -526,7 +554,7 @@ export default function ComissoesFuncionariosClient() {
 
               {!day?.rows?.length && (
                 <tr>
-                  <td className="px-4 py-8 text-center text-sm text-neutral-500" colSpan={10}>
+                  <td className="px-4 py-8 text-center text-sm text-neutral-500" colSpan={12}>
                     Sem dados para este dia (ou ainda não autenticado).
                   </td>
                 </tr>
@@ -537,14 +565,15 @@ export default function ComissoesFuncionariosClient() {
       </div>
 
       <p className="text-xs text-neutral-500">
-        Nota: Bruto = C1+C2+C3. Comissão 2 (bônus) e Comissão 3 (rateio) aparecem nas colunas.
+        Nota: Bruto = C1+C2+C3. <b>Lucro s/ taxa</b> = líquido - taxa. <b>A pagar (total - imposto)</b> = bruto - imposto.
+        O <b>líquido</b> continua sendo o total final a pagar.
       </p>
 
       {/* Drawer mês */}
       {monthOpen && (
         <div className="fixed inset-0 z-50">
           <div className="absolute inset-0 bg-black/40" onClick={() => setMonthOpen(false)} />
-          <div className="absolute right-0 top-0 h-full w-full max-w-[520px] bg-white shadow-2xl">
+          <div className="absolute right-0 top-0 h-full w-full max-w-[620px] bg-white shadow-2xl">
             <div className="flex items-center justify-between border-b p-4">
               <div>
                 <div className="text-sm font-semibold">Mês do funcionário</div>
@@ -589,11 +618,14 @@ export default function ComissoesFuncionariosClient() {
                 </button>
               </div>
 
-              <div className="grid grid-cols-2 gap-2">
+              {/* ✅ KPIs do mês com extras */}
+              <div className="grid grid-cols-2 gap-2 md:grid-cols-8">
                 <KPI label="Bruto" value={fmtMoneyBR(monthData?.totals.gross || 0)} />
                 <KPI label="Imposto" value={fmtMoneyBR(monthData?.totals.tax || 0)} />
                 <KPI label="Taxas" value={fmtMoneyBR(monthData?.totals.fee || 0)} />
-                <KPI label="Líquido" value={fmtMoneyBR(monthData?.totals.net || 0)} />
+                <KPI label="Líquido (a pagar)" value={fmtMoneyBR(monthData?.totals.net || 0)} />
+                <KPI label="Lucro s/ taxa" value={fmtMoneyBR(monthExtra.lucroSemTaxa)} />
+                <KPI label="A pagar (total - imposto)" value={fmtMoneyBR(monthExtra.pagarTotalMenosImposto)} />
                 <KPI label="Pago" value={fmtMoneyBR(monthData?.totals.paid || 0)} />
                 <KPI label="Pendente" value={fmtMoneyBR(monthData?.totals.pending || 0)} />
               </div>
@@ -609,7 +641,13 @@ export default function ComissoesFuncionariosClient() {
                           <th className="px-4 py-3">C1</th>
                           <th className="px-4 py-3">C2</th>
                           <th className="px-4 py-3">C3</th>
+
+                          <th className="px-4 py-3">Taxa</th>
+                          <th className="px-4 py-3">Lucro s/ taxa</th>
+                          <th className="px-4 py-3">Total - imposto</th>
+
                           <th className="px-4 py-3">Líquido</th>
+
                           <th className="px-4 py-3">Status</th>
                           <th className="px-4 py-3 text-right">Ação</th>
                         </tr>
@@ -622,6 +660,9 @@ export default function ComissoesFuncionariosClient() {
                           const canPayThisDay = !isPaid && r.date < todayISORecife();
                           const paying = payingKey === `${r.date}|${r.userId}`;
 
+                          const lucroSemTaxa = lucroSemTaxaEmbarqueCents(r);
+                          const pagarTotalMenosImposto = aPagarTotalMenosImpostoCents(r);
+
                           return (
                             <tr key={r.id} className="border-t">
                               <td className="px-4 py-3 font-medium">{r.date}</td>
@@ -631,6 +672,10 @@ export default function ComissoesFuncionariosClient() {
                               <td className="px-4 py-3">{fmtMoneyBR(b?.commission1Cents ?? 0)}</td>
                               <td className="px-4 py-3">{fmtMoneyBR(b?.commission2Cents ?? 0)}</td>
                               <td className="px-4 py-3">{fmtMoneyBR(b?.commission3RateioCents ?? 0)}</td>
+
+                              <td className="px-4 py-3">{fmtMoneyBR(r.feeCents || 0)}</td>
+                              <td className="px-4 py-3 font-medium">{fmtMoneyBR(lucroSemTaxa)}</td>
+                              <td className="px-4 py-3 font-medium">{fmtMoneyBR(pagarTotalMenosImposto)}</td>
 
                               <td className="px-4 py-3 font-semibold">{fmtMoneyBR(r.netPayCents || 0)}</td>
 
@@ -668,7 +713,7 @@ export default function ComissoesFuncionariosClient() {
 
                         {!monthData?.days?.length && (
                           <tr>
-                            <td className="px-4 py-8 text-center text-sm text-neutral-500" colSpan={8}>
+                            <td className="px-4 py-8 text-center text-sm text-neutral-500" colSpan={11}>
                               Sem dados no mês selecionado.
                             </td>
                           </tr>
