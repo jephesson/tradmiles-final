@@ -93,9 +93,6 @@ function milheiroFromSale(points: number, pointsValueCents?: number, totalCentsF
 
 /**
  * ✅ Bônus = 30% do excedente acima da meta (apenas sobre valor das milhas, SEM taxa).
- * - points: pontos vendidos
- * - milheiroCents: milheiro efetivo (centavos por 1000) sem taxa
- * - metaMilheiroCents: meta da compra
  */
 function bonus30FromSale(points: number, milheiroCents: number | null, metaMilheiroCents: number): number {
   const pts = Number(points || 0);
@@ -106,7 +103,6 @@ function bonus30FromSale(points: number, milheiroCents: number | null, metaMilhe
   const diff = mil - meta;
   if (diff <= 0) return 0;
 
-  // excedente (centavos) = (pts/1000) * (mil - meta)
   const excedenteCents = Math.round((pts * diff) / 1000);
   return Math.round(excedenteCents * 0.3);
 }
@@ -125,7 +121,6 @@ function computeRow(r: Row) {
       ? n((r as any).salesTaxesCents, 0)
       : Math.max(salesTotalCents - salesPointsValueCents, 0);
 
-  // se backend mandar remainingPoints, beleza; senão tenta calcular se tiver pointsTotal
   const pointsTotal = n((r as any).pointsTotal, n((r as any).pontosCiaTotal, 0));
   const remainingPoints =
     typeof (r as any).remainingPoints === "number"
@@ -137,20 +132,16 @@ function computeRow(r: Row) {
   const avgMilheiroCents = nOrNull((r as any).avgMilheiroCents);
   const metaMilheiroCentsRaw = n((r as any).metaMilheiroCents, 0);
 
-  // ✅ saldo BRUTO (sem taxa) do backend (fallback se faltar)
   const saldoBrutoCents = n((r as any).saldoCents, salesPointsValueCents - (r.purchaseTotalCents || 0));
 
-  // ✅ bônus já pago nas vendas (somatório por venda, usando milheiro real sem taxa)
   const bonusPaidCents = (r.sales || []).reduce((acc, s) => {
     const pv = n((s as any).pointsValueCents, 0);
     const mil = milheiroFromSale(s.points, pv > 0 ? pv : undefined, s.totalCents);
     return acc + bonus30FromSale(s.points, mil, metaMilheiroCentsRaw);
   }, 0);
 
-  // ✅ saldo LÍQUIDO (lucro sem taxa - bônus)
   const netSaldoCents = saldoBrutoCents - bonusPaidCents;
 
-  // ✅ projeções: sempre entregar como líquido (desconta bônus já pago e bônus futuro estimado)
   const projectedProfitAvgCentsBackend = (
     "projectedProfitAvgCents" in r ? (r.projectedProfitAvgCents ?? null) : null
   ) as number | null;
@@ -159,7 +150,6 @@ function computeRow(r: Row) {
     "projectedProfitMetaCents" in r ? (r.projectedProfitMetaCents ?? null) : null
   ) as number | null;
 
-  // bruto calculado (fallback) — SEM taxa
   const calcProjectedAvgBruto =
     projectedProfitAvgCentsBackend !== null
       ? projectedProfitAvgCentsBackend
@@ -174,18 +164,17 @@ function computeRow(r: Row) {
       ? salesPointsValueCents + Math.round((remainingPoints * metaMilheiroCentsRaw) / 1000) - (r.purchaseTotalCents || 0)
       : null;
 
-  // bônus futuro (se vender o restante a um dado milheiro)
   const futureBonusAvg =
     remainingPoints != null && avgMilheiroCents != null && avgMilheiroCents > 0
       ? bonus30FromSale(remainingPoints, avgMilheiroCents, metaMilheiroCentsRaw)
       : 0;
 
-  // na meta, excedente = 0
   const futureBonusMeta = 0;
 
-  // líquido = bruto - bônus já pago - bônus futuro
-  const projectedNetAvg = calcProjectedAvgBruto == null ? null : calcProjectedAvgBruto - bonusPaidCents - futureBonusAvg;
-  const projectedNetMeta = calcProjectedMetaBruto == null ? null : calcProjectedMetaBruto - bonusPaidCents - futureBonusMeta;
+  const projectedNetAvg =
+    calcProjectedAvgBruto == null ? null : calcProjectedAvgBruto - bonusPaidCents - futureBonusAvg;
+  const projectedNetMeta =
+    calcProjectedMetaBruto == null ? null : calcProjectedMetaBruto - bonusPaidCents - futureBonusMeta;
 
   return {
     salesTotalCents,
@@ -202,7 +191,6 @@ function computeRow(r: Row) {
     bonusPaidCents,
     netSaldoCents,
 
-    // ✅ agora são LÍQUIDOS (já desconta bônus)
     projectedProfitAvgCents: projectedNetAvg,
     projectedProfitMetaCents: projectedNetMeta,
   };
@@ -289,7 +277,6 @@ export default function ComprasFinalizarClient() {
   const totals = useMemo(() => {
     let compras = 0;
 
-    // ✅ duas visões:
     let vendasTotal = 0; // com taxa
     let vendasMilhas = 0; // sem taxa
 
@@ -332,13 +319,38 @@ export default function ComprasFinalizarClient() {
     }
   }
 
+  async function onCancelarSemImpacto(purchaseId: string) {
+    const ok = window.confirm(
+      "Cancelar sem impacto? Isso só ARQUIVA este ID e ele não aparecerá mais para efetuar venda."
+    );
+    if (!ok) return;
+
+    setBusyId(purchaseId);
+    setErr(null);
+
+    try {
+      await api<{ ok: true }>(`/api/vendas/compras-a-finalizar/${purchaseId}/cancelar`, {
+        method: "POST",
+        body: JSON.stringify({}),
+      });
+
+      await load({ silent: true });
+      alert("Compra arquivada (sem impacto).");
+    } catch (e: any) {
+      setErr(e?.message || "Falha ao cancelar sem impacto.");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
   return (
     <div className="space-y-5">
       <div className="flex items-start justify-between gap-4">
         <div>
           <h1 className="text-xl font-semibold">Compras a finalizar</h1>
           <p className="text-sm text-gray-600">
-            Agrupa por ID (compra LIBERADA). Mostra valores SEM taxa. O saldo aqui é <b>líquido</b> (desconta bônus 30% do excedente).
+            Agrupa por ID (compra LIBERADA). Mostra valores SEM taxa. O saldo aqui é <b>líquido</b> (desconta bônus 30%
+            do excedente).
           </p>
         </div>
 
@@ -354,8 +366,8 @@ export default function ComprasFinalizarClient() {
 
       {needsMigration && (
         <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
-          ⚠️ Parece que as colunas de finalização ainda não foram migradas no banco (finalizedAt/final*).
-          Rode uma migration pra isso.
+          ⚠️ Parece que as colunas de finalização ainda não foram migradas no banco (finalizedAt/final*). Rode uma
+          migration pra isso.
         </div>
       )}
 
@@ -392,11 +404,7 @@ export default function ComprasFinalizarClient() {
         />
       </div>
 
-      {err && (
-        <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">
-          {err}
-        </div>
-      )}
+      {err && <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">{err}</div>}
 
       <div className="overflow-auto rounded-xl border">
         <table className="min-w-[1100px] w-full text-sm">
@@ -454,7 +462,6 @@ export default function ComprasFinalizarClient() {
                       <div className="text-xs text-gray-500">{fmtInt(r.salesCount)} venda(s)</div>
                     </td>
 
-                    {/* ✅ agora mostra líquido */}
                     <td className="p-3 font-medium">{fmtMoneyBR(c.netSaldoCents)}</td>
 
                     <td className="p-3">
@@ -475,6 +482,16 @@ export default function ComprasFinalizarClient() {
                           title="Finaliza e grava os totais"
                         >
                           {isBusy ? "..." : "Finalizar"}
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => void onCancelarSemImpacto(r.purchaseId)}
+                          disabled={isBusy}
+                          className="rounded-md border border-red-300 px-2 py-1 text-xs text-red-700 hover:bg-red-50 disabled:opacity-50"
+                          title="Arquiva este ID sem impacto (não altera saldo, nem itens)"
+                        >
+                          {isBusy ? "..." : "Cancelar"}
                         </button>
                       </div>
                     </td>
