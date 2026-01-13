@@ -5,9 +5,18 @@ import { requireSession } from "@/lib/auth-server";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+type Ctx = { params: Promise<{ id: string }> };
+
 function safeInt(v: unknown, fb = 0) {
   const n = Number(v);
   return Number.isFinite(n) ? Math.trunc(n) : fb;
+}
+
+/** evita crash com bigint em json (se aparecer) */
+function jsonSafe<T>(obj: T): T {
+  return JSON.parse(
+    JSON.stringify(obj, (_k, v) => (typeof v === "bigint" ? Number(v) : v))
+  );
 }
 
 function pointsForMilheiro(pAny: any, ciaPointsTotal: number) {
@@ -62,8 +71,55 @@ async function recalcPurchaseTotals(db: any, purchaseId: string) {
   });
 }
 
-type Ctx = { params: Promise<{ id: string }> };
+/**
+ * GET /api/compras/:id/points
+ * -> para a modal "Comprar mais": retorna numero/status/cia + itens POINTS_BUY
+ */
+export async function GET(_req: NextRequest, { params }: Ctx) {
+  const session = await requireSession();
+  const { id: purchaseId } = await params;
 
+  const compra = await prisma.purchase.findFirst({
+    where: { id: purchaseId, cedente: { owner: { team: session.team } } },
+    include: { items: true },
+  });
+
+  if (!compra) {
+    return NextResponse.json({ ok: false, error: "Compra não encontrada." }, { status: 404 });
+  }
+
+  const compraAny = compra as any;
+  const cia = (compraAny.ciaProgram ?? compraAny.ciaAerea ?? null) as any;
+
+  const items = (compra.items || [])
+    .filter((it: any) => it.type === "POINTS_BUY" && it.status !== "CANCELED")
+    .map((it: any) => ({
+      id: it.id,
+      title: String(it.title || "Compra de pontos"),
+      pointsFinal: safeInt(it.pointsFinal, 0),
+      amountCents: safeInt(it.amountCents, 0),
+    }));
+
+  return NextResponse.json(
+    jsonSafe({
+      ok: true,
+      compra: {
+        id: compra.id,
+        numero: compra.numero,
+        status: compra.status,
+        ciaProgram: cia,
+      },
+      items,
+    })
+  );
+}
+
+/**
+ * POST /api/compras/:id/points
+ * body: { items: [{id?, title, pointsFinal, amountCents}], deleteIds: string[] }
+ * -> OPEN: só mexe nos POINTS_BUY e recalcula totais
+ * -> CLOSED: mexe nos POINTS_BUY + aplica delta no saldo do cedente + ajusta expected + recalcula
+ */
 export async function POST(req: NextRequest, { params }: Ctx) {
   const session = await requireSession();
   const { id: purchaseId } = await params;
@@ -76,7 +132,7 @@ export async function POST(req: NextRequest, { params }: Ctx) {
     where: { id: purchaseId, cedente: { owner: { team: session.team } } },
     include: {
       items: true,
-      cedente: true, // precisa para aplicar delta no saldo quando CLOSED
+      cedente: true,
     },
   });
 
@@ -88,9 +144,7 @@ export async function POST(req: NextRequest, { params }: Ctx) {
     return NextResponse.json({ ok: false, error: "Compra cancelada." }, { status: 400 });
   }
 
-  // ✅ Aqui está o pulo do gato:
-  // - OPEN: pode mexer em POINTS_BUY e só recalcula
-  // - CLOSED: pode mexer em POINTS_BUY e também aplica delta no cedente + expected
+  // ✅ permite comprar mais mesmo LIBERADA (CLOSED)
   if (compra.status !== "OPEN" && compra.status !== "CLOSED") {
     return NextResponse.json(
       { ok: false, error: "Compra travada (status não permite comprar mais)." },
@@ -102,7 +156,10 @@ export async function POST(req: NextRequest, { params }: Ctx) {
   const cia = (compraAny.ciaProgram ?? compraAny.ciaAerea ?? null) as any;
 
   if (!cia) {
-    return NextResponse.json({ ok: false, error: "Defina a CIA da compra primeiro." }, { status: 400 });
+    return NextResponse.json(
+      { ok: false, error: "Defina a CIA da compra primeiro." },
+      { status: 400 }
+    );
   }
 
   const existingPointItems = (compra.items || []).filter((it: any) => it.type === "POINTS_BUY");
@@ -116,6 +173,7 @@ export async function POST(req: NextRequest, { params }: Ctx) {
     for (const delId of deleteIds) {
       const old = byId.get(delId);
       if (!old) continue;
+
       deltaPoints -= safeInt(old.pointsFinal, 0);
       await tx.purchaseItem.delete({ where: { id: delId } });
     }
@@ -133,7 +191,8 @@ export async function POST(req: NextRequest, { params }: Ctx) {
       if (id && byId.has(id)) {
         const old = byId.get(id);
         const oldPts = safeInt(old?.pointsFinal, 0);
-        deltaPoints += (pointsFinal - oldPts);
+
+        deltaPoints += pointsFinal - oldPts;
 
         await tx.purchaseItem.update({
           where: { id },
@@ -144,7 +203,7 @@ export async function POST(req: NextRequest, { params }: Ctx) {
             amountCents,
             programTo: cia,
             type: "POINTS_BUY",
-          },
+          } as any,
         });
       } else {
         deltaPoints += pointsFinal;
@@ -160,21 +219,21 @@ export async function POST(req: NextRequest, { params }: Ctx) {
             pointsDebitedFromOrigin: 0,
             amountCents,
             programTo: cia,
-          },
+          } as any,
         });
       }
     }
 
-    // ✅ Se a compra já foi LIBERADA (CLOSED), então "comprar mais" precisa aplicar no saldo também
+    // ✅ se já está LIBERADA: aplica delta no saldo do cedente + expected da compra
     if (compra.status === "CLOSED" && deltaPoints !== 0) {
       const cedenteId = compra.cedenteId;
 
-      // Atualiza saldo do cedente na CIA
       if (cia === "LATAM") {
         await tx.cedente.update({
           where: { id: cedenteId },
           data: { pontosLatam: { increment: deltaPoints } } as any,
         });
+
         const nextExpected = safeInt(compraAny.expectedLatamPoints, 0) + deltaPoints;
         await tx.purchase.update({
           where: { id: purchaseId },
@@ -185,6 +244,7 @@ export async function POST(req: NextRequest, { params }: Ctx) {
           where: { id: cedenteId },
           data: { pontosSmiles: { increment: deltaPoints } } as any,
         });
+
         const nextExpected = safeInt(compraAny.expectedSmilesPoints, 0) + deltaPoints;
         await tx.purchase.update({
           where: { id: purchaseId },
@@ -195,6 +255,7 @@ export async function POST(req: NextRequest, { params }: Ctx) {
           where: { id: cedenteId },
           data: { pontosLivelo: { increment: deltaPoints } } as any,
         });
+
         const nextExpected = safeInt(compraAny.expectedLiveloPoints, 0) + deltaPoints;
         await tx.purchase.update({
           where: { id: purchaseId },
@@ -205,6 +266,7 @@ export async function POST(req: NextRequest, { params }: Ctx) {
           where: { id: cedenteId },
           data: { pontosEsfera: { increment: deltaPoints } } as any,
         });
+
         const nextExpected = safeInt(compraAny.expectedEsferaPoints, 0) + deltaPoints;
         await tx.purchase.update({
           where: { id: purchaseId },
@@ -213,7 +275,7 @@ export async function POST(req: NextRequest, { params }: Ctx) {
       }
     }
 
-    // recalcula totais dentro da transação
+    // recalcula totais ainda dentro da transação
     await recalcPurchaseTotals(tx, purchaseId);
   });
 

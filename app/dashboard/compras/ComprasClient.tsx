@@ -64,7 +64,9 @@ function normalizeRow(r: PurchaseRowRaw): PurchaseRow {
     ciaProgram: (r.ciaProgram ?? r.ciaAerea ?? null) as any,
     ciaPointsTotal: asInt((r.ciaPointsTotal ?? r.pontosCiaTotal ?? 0) as any),
 
-    totalCostCents: asInt((r.totalCostCents ?? r.totalCost ?? r.totalCents ?? 0) as any),
+    totalCostCents: asInt(
+      (r.totalCostCents ?? r.totalCost ?? r.totalCents ?? 0) as any
+    ),
 
     cedente: r.cedente ?? null,
   };
@@ -121,7 +123,11 @@ function StatusPill({ status }: { status: PurchaseStatus }) {
       ? "bg-blue-50 border-blue-200 text-blue-700"
       : "bg-gray-50 border-gray-200 text-gray-700";
 
-  return <span className={`rounded-full border px-2 py-1 text-xs ${cls}`}>{STATUS_LABEL[status]}</span>;
+  return (
+    <span className={`rounded-full border px-2 py-1 text-xs ${cls}`}>
+      {STATUS_LABEL[status]}
+    </span>
+  );
 }
 
 function norm(v?: string) {
@@ -165,7 +171,9 @@ export default function ComprasClient() {
       if (status) qs.set("status", status);
       if (q.trim()) qs.set("q", q.trim());
 
-      const out = await api<{ ok: true; compras: PurchaseRowRaw[] }>(`/api/compras?${qs.toString()}`);
+      const out = await api<{ ok: true; compras: PurchaseRowRaw[] }>(
+        `/api/compras?${qs.toString()}`
+      );
 
       const list = Array.isArray(out.compras) ? out.compras : [];
       setRows(list.map(normalizeRow));
@@ -214,7 +222,9 @@ export default function ComprasClient() {
   }, [rows, q, status]);
 
   async function onRelease(id: string) {
-    const okConfirm = window.confirm("Liberar esta compra? Isso vai aplicar saldo e travar a compra.");
+    const okConfirm = window.confirm(
+      "Liberar esta compra? Isso vai aplicar saldo e travar a compra."
+    );
     if (!okConfirm) return;
 
     setBusyId(id);
@@ -233,7 +243,9 @@ export default function ComprasClient() {
   }
 
   async function onCancel(id: string) {
-    const okConfirm = window.confirm("Cancelar esta compra? (não deve alterar saldo se ainda não foi liberada)");
+    const okConfirm = window.confirm(
+      "Cancelar esta compra? (não deve alterar saldo se ainda não foi liberada)"
+    );
     if (!okConfirm) return;
 
     setBusyId(id);
@@ -263,10 +275,15 @@ export default function ComprasClient() {
       <div className="flex items-start justify-between gap-4">
         <div>
           <h1 className="text-xl font-semibold">Compras</h1>
-          <p className="text-sm text-gray-600">Visualize, edite, libere ou cancele compras.</p>
+          <p className="text-sm text-gray-600">
+            Visualize, edite, libere ou cancele compras.
+          </p>
         </div>
 
-        <Link href="/dashboard/compras/nova" className="rounded-md bg-black px-3 py-2 text-sm text-white">
+        <Link
+          href="/dashboard/compras/nova"
+          className="rounded-md bg-black px-3 py-2 text-sm text-white"
+        >
           + Nova compra
         </Link>
       </div>
@@ -326,7 +343,9 @@ export default function ComprasClient() {
       </div>
 
       {err && (
-        <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">{err}</div>
+        <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+          {err}
+        </div>
       )}
 
       <div className="overflow-auto rounded-xl border">
@@ -383,17 +402,24 @@ export default function ComprasClient() {
                   </td>
 
                   <td className="p-3">{r.ciaProgram || "—"}</td>
-                  <td className="p-3">{(r.ciaPointsTotal || 0).toLocaleString("pt-BR")}</td>
-                  <td className="p-3 font-medium">{fmtMoneyBR(r.totalCostCents || 0)}</td>
+                  <td className="p-3">
+                    {(r.ciaPointsTotal || 0).toLocaleString("pt-BR")}
+                  </td>
+                  <td className="p-3 font-medium">
+                    {fmtMoneyBR(r.totalCostCents || 0)}
+                  </td>
                   <td className="p-3">{fmtDateBR(r.createdAt)}</td>
 
                   <td className="p-3">
                     <div className="flex items-center justify-end gap-2">
-                      <Link href={`/dashboard/compras/${r.id}`} className="rounded-md border px-2 py-1 text-xs">
+                      <Link
+                        href={`/dashboard/compras/${r.id}`}
+                        className="rounded-md border px-2 py-1 text-xs"
+                      >
                         Editar
                       </Link>
 
-                      {/* ✅ NOVO: Comprar mais (mesmo CLOSED) */}
+                      {/* ✅ Comprar mais: habilita quando CLOSED (travada) */}
                       <button
                         type="button"
                         onClick={() => setPointsModalId(r.id)}
@@ -444,7 +470,9 @@ export default function ComprasClient() {
         </table>
       </div>
 
-      <div className="text-xs text-gray-500">Dica: “Comprar mais” adiciona POINTS_BUY mesmo liberada, mantendo o ID.</div>
+      <div className="text-xs text-gray-500">
+        Dica: “Comprar mais” adiciona POINTS_BUY mesmo liberada, mantendo o ID.
+      </div>
 
       <PointsBuyModal
         open={!!pointsModalId}
@@ -457,6 +485,7 @@ export default function ComprasClient() {
 }
 
 function toCentsFromInput(v: string) {
+  // number input normalmente vem com ponto (.) — ok
   const n = Number(v || 0);
   return Number.isFinite(n) ? Math.round(n * 100) : 0;
 }
@@ -484,17 +513,17 @@ function PointsBuyModal(props: {
       setLoading(true);
       setErr(null);
       try {
-        // assume que /api/compras/:id existe e devolve compra com items
-        const out = await api<{ ok?: boolean; compra: any }>(`/api/compras/${purchaseId}`);
-        const p = out?.compra as any;
+        // ✅ CERTO: usa o endpoint que criamos (GET /points)
+        const out = await api<{
+          ok: true;
+          compra: { id: string; numero: string; status: PurchaseStatus; ciaProgram: LoyaltyProgram | null };
+          items: Array<{ id: string; title: string; pointsFinal: number; amountCents: number }>;
+        }>(`/api/compras/${purchaseId}/points`);
 
-        setNumero(String(p?.numero || ""));
-        setCia((p?.ciaProgram ?? p?.ciaAerea ?? null) as any);
+        setNumero(String(out?.compra?.numero || ""));
+        setCia((out?.compra?.ciaProgram ?? null) as any);
 
-        const items = Array.isArray(p?.items) ? p.items : [];
-        const pointBuys = items.filter((it: any) => it?.type === "POINTS_BUY" && it?.status !== "CANCELED");
-
-        const mapped: PointsBuyRow[] = pointBuys.map((it: any) => ({
+        const mapped: PointsBuyRow[] = (out.items || []).map((it) => ({
           id: it.id,
           title: String(it.title || "Compra de pontos"),
           pointsFinal: asInt(it.pointsFinal, 0),
@@ -502,9 +531,9 @@ function PointsBuyModal(props: {
           remove: false,
         }));
 
-        setRows(mapped.length ? mapped : []);
+        setRows(mapped);
       } catch (e: any) {
-        setErr(e?.message || "Falha ao carregar compra.");
+        setErr(e?.message || "Falha ao carregar itens.");
         setRows([]);
         setNumero("");
         setCia(null);
@@ -534,7 +563,7 @@ function PointsBuyModal(props: {
     setErr(null);
 
     if (!cia) {
-      setErr("Defina a CIA da compra antes (LATAM/SMILES).");
+      setErr("Compra sem CIA definida.");
       return;
     }
 
@@ -556,7 +585,7 @@ function PointsBuyModal(props: {
 
     setSaving(true);
     try {
-      await api<{ ok: true }>(`/api/compras/${purchaseId}/points`, {
+      await api<{ ok: true; deltaPoints?: number }>(`/api/compras/${purchaseId}/points`, {
         method: "POST",
         body: JSON.stringify({ items, deleteIds }),
       });
@@ -580,7 +609,7 @@ function PointsBuyModal(props: {
               Compra <span className="font-mono">{numero || purchaseId.slice(0, 8)}</span>
             </div>
             <div className="mt-1 text-xs text-gray-500">
-              Isto cria/edita itens <b>POINTS_BUY</b>. Se a compra já estiver <b>LIBERADA</b>, aplica o delta no saldo do cedente também.
+              Isto cria/edita itens <b>POINTS_BUY</b>. Se a compra estiver <b>LIBERADA</b>, aplica o delta no saldo do cedente também.
             </div>
           </div>
 
@@ -595,7 +624,11 @@ function PointsBuyModal(props: {
         </div>
 
         <div className="space-y-3 p-4">
-          {err && <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">{err}</div>}
+          {err && (
+            <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+              {err}
+            </div>
+          )}
 
           {loading ? (
             <div className="text-sm text-gray-600">Carregando...</div>
