@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/auth-server";
 
@@ -59,9 +59,12 @@ async function recalcPurchaseTotals(purchaseId: string) {
   });
 }
 
-export async function POST(req: Request, { params }: { params: { id: string } }) {
+type Ctx = { params: Promise<{ id: string }> };
+
+export async function POST(req: NextRequest, { params }: Ctx) {
   const session = await requireSession();
-  const purchaseId = params.id;
+
+  const { id: purchaseId } = await params;
 
   const body = await req.json().catch(() => ({}));
   const items = Array.isArray(body?.items) ? body.items : [];
@@ -72,9 +75,14 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     include: { items: true },
   });
 
-  if (!compra) return NextResponse.json({ ok: false, error: "Compra não encontrada." }, { status: 404 });
+  if (!compra)
+    return NextResponse.json({ ok: false, error: "Compra não encontrada." }, { status: 404 });
+
   if (compra.status !== "OPEN")
-    return NextResponse.json({ ok: false, error: "Compra travada (não está OPEN)." }, { status: 400 });
+    return NextResponse.json(
+      { ok: false, error: "Compra travada (não está OPEN)." },
+      { status: 400 }
+    );
 
   const cia = (compra.ciaProgram ?? (compra as any).ciaAerea ?? null) as any;
 
