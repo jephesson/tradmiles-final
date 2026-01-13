@@ -1,4 +1,3 @@
-// app/dashboard/vendas/nova/NovaVendaClient.tsx
 "use client";
 
 import Link from "next/link";
@@ -321,7 +320,10 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
   const commissionCents = useMemo(() => Math.round(pointsValueCents * 0.01), [pointsValueCents]);
 
   // encontra pela compra.numero (ID00018)
-  const compraSel = useMemo(() => compras.find((c) => c.numero === purchaseNumero) || null, [compras, purchaseNumero]);
+  const compraSel = useMemo(
+    () => compras.find((c) => c.numero === purchaseNumero) || null,
+    [compras, purchaseNumero]
+  );
 
   const metaMilheiroCents = compraSel?.metaMilheiroCents || 0;
 
@@ -369,9 +371,6 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
   const [showProgramPass, setShowProgramPass] = useState(false);
   const [showEmailPass, setShowEmailPass] = useState(false);
 
-  // ✅ FIX: manter abort controller atual (evita race e “sumir/voltar”)
-  const credsAbortRef = useRef<AbortController | null>(null);
-
   const credCpf = creds?.cpf || sel?.cedente?.cpf || "";
   const credEmail = (creds?.programEmail ?? creds?.email ?? "") || "";
   const credProgramPass = (creds?.programPassword ?? creds?.senhaPrograma ?? "") || "";
@@ -411,12 +410,6 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
 
   // quando troca cedente: reseta credenciais
   useEffect(() => {
-    // abort pendente
-    try {
-      credsAbortRef.current?.abort();
-    } catch {}
-    credsAbortRef.current = null;
-
     setRevealCreds(false);
     setCreds(null);
     setCredsError("");
@@ -429,18 +422,9 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
     if (!revealCreds) return;
     if (!sel?.cedente?.id) return;
 
-    try {
-      credsAbortRef.current?.abort();
-    } catch {}
     const ac = new AbortController();
-    credsAbortRef.current = ac;
-
     loadCreds(sel.cedente.id, program, ac.signal);
-    return () => {
-      try {
-        ac.abort();
-      } catch {}
-    };
+    return () => ac.abort();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [program, revealCreds, sel?.cedente?.id]);
 
@@ -456,11 +440,6 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
     setClientesError("");
 
     // ✅ também limpa credenciais
-    try {
-      credsAbortRef.current?.abort();
-    } catch {}
-    credsAbortRef.current = null;
-
     setRevealCreds(false);
     setCreds(null);
     setCredsError("");
@@ -826,7 +805,9 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
     lines.push(`✈️ Programa: ${args.program}`);
 
     if (args.pointsMode === "POR_PAX") {
-      lines.push(`🎯 Pontos: ${fmtInt(args.pointsTotal)} (${fmtInt(args.pointsInput)}/pax x ${fmtInt(args.passengers)})`);
+      lines.push(
+        `🎯 Pontos: ${fmtInt(args.pointsTotal)} (${fmtInt(args.pointsInput)}/pax x ${fmtInt(args.passengers)})`
+      );
     } else {
       lines.push(`🎯 Pontos: ${fmtInt(args.pointsTotal)}`);
     }
@@ -879,15 +860,14 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
 
       const sale = out?.data?.sale || out?.sale || out?.data?.venda || out?.venda || out?.data || null;
 
-      const saleId = sale?.id || sale?.saleId || out?.data?.saleId || out?.saleId || out?.data?.id || out?.id || null;
+      const saleId =
+        sale?.id || sale?.saleId || out?.data?.saleId || out?.saleId || out?.data?.id || out?.id || null;
 
       setPostSaveSaleId(saleId ? String(saleId) : null);
 
-      const clienteFinal = selectedCliente || clientes.find((c) => c.id === clienteId) || null;
-
       const msg = buildTelegramMessage({
         saleId: saleId ? String(saleId) : null,
-        cliente: clienteFinal,
+        cliente: selectedCliente,
         program,
         pointsMode,
         pointsInput,
@@ -918,7 +898,13 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
     if (!q) return suggestions;
 
     return suggestions.filter((s) => {
-      const hay = [s.cedente.nomeCompleto, s.cedente.identificador, s.cedente.cpf, s.cedente.owner?.name, s.cedente.owner?.login]
+      const hay = [
+        s.cedente.nomeCompleto,
+        s.cedente.identificador,
+        s.cedente.cpf,
+        s.cedente.owner?.name,
+        s.cedente.owner?.login,
+      ]
         .map(normStr)
         .join(" | ");
       return hay.includes(q);
@@ -944,7 +930,9 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
       <div className="flex items-start justify-between gap-4">
         <div>
           <h1 className="text-2xl font-semibold">Nova venda</h1>
-          <p className="text-sm text-slate-500">Informe pontos + CIA + passageiros. O sistema sugere o melhor cedente.</p>
+          <p className="text-sm text-slate-500">
+            Informe pontos + CIA + passageiros. O sistema sugere o melhor cedente.
+          </p>
           {sugError ? <div className="mt-2 text-xs text-rose-600">{sugError}</div> : null}
         </div>
 
@@ -955,7 +943,10 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
           <button
             onClick={salvarVenda}
             disabled={!canSave}
-            className={cn("rounded-xl px-4 py-2 text-sm text-white", canSave ? "bg-black hover:bg-gray-800" : "bg-slate-300 cursor-not-allowed")}
+            className={cn(
+              "rounded-xl px-4 py-2 text-sm text-white",
+              canSave ? "bg-black hover:bg-gray-800" : "bg-slate-300 cursor-not-allowed"
+            )}
           >
             Salvar venda
           </button>
@@ -969,7 +960,11 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
         <div className="mt-4 grid gap-4 md:grid-cols-3">
           <label className="space-y-1">
             <div className="text-xs text-slate-600">CIA / Programa</div>
-            <select className="w-full rounded-xl border px-3 py-2 text-sm bg-white" value={program} onChange={(e) => setProgram(e.target.value as Program)}>
+            <select
+              className="w-full rounded-xl border px-3 py-2 text-sm bg-white"
+              value={program}
+              onChange={(e) => setProgram(e.target.value as Program)}
+            >
               <option value="LATAM">LATAM</option>
               <option value="SMILES">SMILES</option>
               <option value="LIVELO">LIVELO</option>
@@ -1020,7 +1015,8 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
         </div>
 
         <div className="mt-4 text-xs text-slate-500">
-          Sugestões consideram: <b>pontos</b>, <b>limite de passageiros</b> (LATAM: 365 dias / Smiles: anual) e <b>bloqueio</b> (BlockedAccount OPEN).
+          Sugestões consideram: <b>pontos</b>, <b>limite de passageiros</b> (LATAM: 365 dias / Smiles: anual) e{" "}
+          <b>bloqueio</b> (BlockedAccount OPEN).
         </div>
       </div>
 
@@ -1034,7 +1030,13 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
             </div>
             {program === "LATAM" ? (
               <div className="mt-1 text-[11px] text-slate-500">
-                {latamPaxLoading ? "Ajustando PAX (janela 365 dias)…" : latamPaxError ? <span className="text-rose-600">{latamPaxError}</span> : "PAX: janela 365 dias (painel)."}
+                {latamPaxLoading ? (
+                  "Ajustando PAX (janela 365 dias)…"
+                ) : latamPaxError ? (
+                  <span className="text-rose-600">{latamPaxError}</span>
+                ) : (
+                  "PAX: janela 365 dias (painel)."
+                )}
               </div>
             ) : null}
           </div>
@@ -1059,7 +1061,9 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
                   {/* ✅ PAX disponível AJUSTADO (APÓS esta venda) */}
                   <span className="rounded-full border bg-white px-2 py-1">
                     PAX após:{" "}
-                    <b className={cn("tabular-nums", selPaxAfter < 0 ? "text-rose-600" : "")}>{fmtInt(Math.max(0, selPaxAfter))}</b>{" "}
+                    <b className={cn("tabular-nums", selPaxAfter < 0 ? "text-rose-600" : "")}>
+                      {fmtInt(Math.max(0, selPaxAfter))}
+                    </b>{" "}
                     <span className="text-slate-500">
                       (agora {fmtInt(sel.availablePassengersYear)} • usados {fmtInt(sel.usedPassengersYear)}/{fmtInt(sel.paxLimit)}
                       {program === "LATAM" ? " • 365d" : ""} • consome {fmtInt(sel.passengersNeeded)})
@@ -1070,11 +1074,15 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
                     Sobra: <b className="tabular-nums">{fmtInt(sel.leftoverPoints)}</b>
                   </span>
 
-                  <span className={cn("rounded-full border px-2 py-1", badgeClass(sel.priorityLabel))}>{sel.priorityLabel}</span>
+                  <span className={cn("rounded-full border px-2 py-1", badgeClass(sel.priorityLabel))}>
+                    {sel.priorityLabel}
+                  </span>
                 </div>
 
                 {sel.alerts.includes("PASSAGEIROS_ESTOURADOS_COM_PONTOS") ? (
-                  <div className="mt-2 text-[11px] text-rose-600">Alerta: limite de passageiros estoura e ainda sobraria &gt; 3.000 pts.</div>
+                  <div className="mt-2 text-[11px] text-rose-600">
+                    Alerta: limite de passageiros estoura e ainda sobraria &gt; 3.000 pts.
+                  </div>
                 ) : null}
 
                 {/* ✅ Credenciais (revelar) */}
@@ -1093,22 +1101,12 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
                             setShowProgramPass(false);
                             setShowEmailPass(false);
 
-                            try {
-                              credsAbortRef.current?.abort();
-                            } catch {}
                             const ac = new AbortController();
-                            credsAbortRef.current = ac;
-
                             loadCreds(sel.cedente.id, program, ac.signal);
                           } else {
                             setRevealCreds(false);
                             setShowProgramPass(false);
                             setShowEmailPass(false);
-
-                            try {
-                              credsAbortRef.current?.abort();
-                            } catch {}
-                            credsAbortRef.current = null;
                           }
                         }}
                         className="rounded-lg border bg-white px-2 py-1 text-[11px] hover:bg-slate-50"
@@ -1152,7 +1150,11 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
               </div>
 
               <div className="flex gap-2">
-                <button type="button" onClick={() => detailsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })} className="rounded-xl border px-3 py-2 text-sm hover:bg-slate-50">
+                <button
+                  type="button"
+                  onClick={() => detailsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}
+                  className="rounded-xl border px-3 py-2 text-sm hover:bg-slate-50"
+                >
                   Ir para dados
                 </button>
                 <button type="button" onClick={clearSelection} className="rounded-xl border px-3 py-2 text-sm hover:bg-slate-50">
@@ -1167,7 +1169,12 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
               <div className="grid gap-3 md:grid-cols-3 md:items-end">
                 <label className="space-y-1 md:col-span-2">
                   <div className="text-xs text-slate-600">Pesquisar cedente (nome, ID, CPF, responsável)</div>
-                  <input className="w-full rounded-xl border px-3 py-2 text-sm" value={cedenteQ} onChange={(e) => setCedenteQ(e.target.value)} placeholder="Ex: Rayssa / RAY-212 / Lucas / 123..." />
+                  <input
+                    className="w-full rounded-xl border px-3 py-2 text-sm"
+                    value={cedenteQ}
+                    onChange={(e) => setCedenteQ(e.target.value)}
+                    placeholder="Ex: Rayssa / RAY-212 / Lucas / 123..."
+                  />
                 </label>
 
                 <button type="button" onClick={() => setCedenteQ("")} className="rounded-xl border px-3 py-2 text-sm hover:bg-slate-50">
@@ -1187,8 +1194,10 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
                     <th className="text-left font-semibold px-4 py-3 w-[360px]">CEDENTE</th>
                     <th className="text-left font-semibold px-4 py-3 w-[220px]">RESPONSÁVEL</th>
                     <th className="text-right font-semibold px-4 py-3 w-[140px]">PTS</th>
+
                     {/* ✅ coluna com PAX já AJUSTADO */}
                     <th className="text-right font-semibold px-4 py-3 w-[260px]">PAX DISP. (após)</th>
+
                     <th className="text-right font-semibold px-4 py-3 w-[140px]">SOBRA</th>
                     <th className="text-left font-semibold px-4 py-3 w-[140px]">PRIOR.</th>
                     <th className="text-right font-semibold px-4 py-3 w-[120px]"></th>
@@ -1223,7 +1232,9 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
                           <div className="font-medium">{s.cedente.nomeCompleto}</div>
                           <div className="text-xs text-slate-500">{s.cedente.identificador}</div>
                           {s.alerts.includes("PASSAGEIROS_ESTOURADOS_COM_PONTOS") ? (
-                            <div className="mt-1 text-[11px] text-rose-600">Alerta: limite de passageiros estoura e ainda sobraria &gt; 3.000 pts.</div>
+                            <div className="mt-1 text-[11px] text-rose-600">
+                              Alerta: limite de passageiros estoura e ainda sobraria &gt; 3.000 pts.
+                            </div>
                           ) : null}
                         </td>
                         <td className="px-4 py-3">
@@ -1234,7 +1245,9 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
 
                         {/* ✅ PAX após venda */}
                         <td className="px-4 py-3 text-right tabular-nums">
-                          <span className={cn(paxAfter < 0 ? "text-rose-600 font-semibold" : "")}>{fmtInt(paxAfterClamped)}</span>
+                          <span className={cn(paxAfter < 0 ? "text-rose-600 font-semibold" : "")}>
+                            {fmtInt(paxAfterClamped)}
+                          </span>
                           <span className="text-xs text-slate-500">
                             {" "}
                             (agora {fmtInt(s.availablePassengersYear)} • usados {fmtInt(s.usedPassengersYear)}/{fmtInt(s.paxLimit)}
@@ -1244,13 +1257,18 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
 
                         <td className="px-4 py-3 text-right tabular-nums">{fmtInt(s.leftoverPoints)}</td>
                         <td className="px-4 py-3">
-                          <span className={cn("inline-flex rounded-full border px-2 py-1 text-xs", badge)}>{s.priorityLabel}</span>
+                          <span className={cn("inline-flex rounded-full border px-2 py-1 text-xs", badge)}>
+                            {s.priorityLabel}
+                          </span>
                         </td>
                         <td className="px-4 py-3 text-right">
                           <button
                             disabled={!s.eligible}
                             onClick={() => selectSuggestion(s)}
-                            className={cn("rounded-xl border px-3 py-1.5 text-sm", s.eligible ? "hover:bg-slate-50" : "opacity-40 cursor-not-allowed")}
+                            className={cn(
+                              "rounded-xl border px-3 py-1.5 text-sm",
+                              s.eligible ? "hover:bg-slate-50" : "opacity-40 cursor-not-allowed"
+                            )}
                           >
                             Usar
                           </button>
@@ -1283,12 +1301,19 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
               <div className="mt-4 grid gap-4 md:grid-cols-2">
                 <label className="space-y-1">
                   <div className="text-xs text-slate-600">Data</div>
-                  <input type="date" className="w-full rounded-xl border px-3 py-2 text-sm" value={dateISO} onChange={(e) => setDateISO(e.target.value)} />
+                  <input
+                    type="date"
+                    className="w-full rounded-xl border px-3 py-2 text-sm"
+                    value={dateISO}
+                    onChange={(e) => setDateISO(e.target.value)}
+                  />
                 </label>
 
                 <div className="space-y-1">
                   <div className="text-xs text-slate-600">Vendedor</div>
-                  <div className="rounded-xl border px-3 py-2 text-sm bg-slate-50">{me?.name ? `${me.name} (@${me.login})` : "—"}</div>
+                  <div className="rounded-xl border px-3 py-2 text-sm bg-slate-50">
+                    {me?.name ? `${me.name} (@${me.login})` : "—"}
+                  </div>
                 </div>
 
                 <div className="md:col-span-2 grid gap-2 md:grid-cols-2">
@@ -1329,7 +1354,11 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
                     <div className="text-xs text-slate-600">Selecionar cliente</div>
 
                     <div className="flex gap-2">
-                      <select className="flex-1 rounded-xl border px-3 py-2 text-sm bg-white" value={clienteId} onChange={(e) => setClienteId(e.target.value)}>
+                      <select
+                        className="flex-1 rounded-xl border px-3 py-2 text-sm bg-white"
+                        value={clienteId}
+                        onChange={(e) => setClienteId(e.target.value)}
+                      >
                         <option value="">Selecione...</option>
                         {clientes.map((c) => (
                           <option key={c.id} value={c.id}>
@@ -1368,7 +1397,11 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
                     disabled={loadingCompras}
                   >
                     <option value="">
-                      {loadingCompras ? "Carregando compras liberadas..." : compras.length ? "Selecione..." : "Nenhuma compra liberada"}
+                      {loadingCompras
+                        ? "Carregando compras liberadas..."
+                        : compras.length
+                        ? "Selecione..."
+                        : "Nenhuma compra liberada"}
                     </option>
                     {compras.map((c) => (
                       <option key={c.id} value={c.numero}>
@@ -1376,22 +1409,38 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
                       </option>
                     ))}
                   </select>
-                  <div className="text-[11px] text-slate-500 mt-1">A venda só deixa salvar se a compra estiver LIBERADA (status CLOSED) e for do mesmo cedente.</div>
+                  <div className="text-[11px] text-slate-500 mt-1">
+                    A venda só deixa salvar se a compra estiver LIBERADA (status CLOSED) e for do mesmo cedente.
+                  </div>
                 </label>
 
                 <label className="space-y-1">
                   <div className="text-xs text-slate-600">Milheiro (R$)</div>
-                  <input className="w-full rounded-xl border px-3 py-2 text-sm font-mono" value={milheiroStr} onChange={(e) => setMilheiroStr(e.target.value)} placeholder="Ex: 25,50" />
+                  <input
+                    className="w-full rounded-xl border px-3 py-2 text-sm font-mono"
+                    value={milheiroStr}
+                    onChange={(e) => setMilheiroStr(e.target.value)}
+                    placeholder="Ex: 25,50"
+                  />
                 </label>
 
                 <label className="space-y-1">
                   <div className="text-xs text-slate-600">Taxa de embarque (R$)</div>
-                  <input className="w-full rounded-xl border px-3 py-2 text-sm font-mono" value={embarqueStr} onChange={(e) => setEmbarqueStr(e.target.value)} placeholder="Ex: 78,34" />
+                  <input
+                    className="w-full rounded-xl border px-3 py-2 text-sm font-mono"
+                    value={embarqueStr}
+                    onChange={(e) => setEmbarqueStr(e.target.value)}
+                    placeholder="Ex: 78,34"
+                  />
                 </label>
 
                 <label className="space-y-1">
                   <div className="text-xs text-slate-600">Cartão da taxa</div>
-                  <select className="w-full rounded-xl border px-3 py-2 text-sm bg-white" value={feeCardPreset} onChange={(e) => setFeeCardPreset(e.target.value)}>
+                  <select
+                    className="w-full rounded-xl border px-3 py-2 text-sm bg-white"
+                    value={feeCardPreset}
+                    onChange={(e) => setFeeCardPreset(e.target.value)}
+                  >
                     <option value="SELF">{selfLabel}</option>
                     <option value="VIAS">Vias Aéreas</option>
                     {users.length ? <option disabled>────────────</option> : null}
@@ -1404,7 +1453,12 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
                   </select>
 
                   {feeCardPreset === "MANUAL" ? (
-                    <input className="mt-2 w-full rounded-xl border px-3 py-2 text-sm" value={feeCardManual} onChange={(e) => setFeeCardManual(e.target.value)} placeholder="Ex: Cartão Inter PJ" />
+                    <input
+                      className="mt-2 w-full rounded-xl border px-3 py-2 text-sm"
+                      value={feeCardManual}
+                      onChange={(e) => setFeeCardManual(e.target.value)}
+                      placeholder="Ex: Cartão Inter PJ"
+                    />
                   ) : (
                     <div className="mt-2 text-xs text-slate-500">Selecionado: {feeCardLabel || "—"}</div>
                   )}
@@ -1412,7 +1466,12 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
 
                 <label className="space-y-1">
                   <div className="text-xs text-slate-600">Localizador</div>
-                  <input className="w-full rounded-xl border px-3 py-2 text-sm font-mono" value={locator} onChange={(e) => setLocator(e.target.value)} placeholder="Opcional" />
+                  <input
+                    className="w-full rounded-xl border px-3 py-2 text-sm font-mono"
+                    value={locator}
+                    onChange={(e) => setLocator(e.target.value)}
+                    placeholder="Opcional"
+                  />
                 </label>
               </div>
             </div>
@@ -1471,7 +1530,9 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
               </div>
             </div>
 
-            <div className="text-xs text-slate-500">Comissão ignora taxa. Bônus = 30% do excedente acima da meta.</div>
+            <div className="text-xs text-slate-500">
+              Comissão ignora taxa. Bônus = 30% do excedente acima da meta.
+            </div>
           </div>
         </div>
       ) : null}
@@ -1485,7 +1546,11 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
                 <div className="text-lg font-semibold">Cadastrar cliente</div>
                 <div className="text-xs text-slate-500">Cadastro rápido sem sair da venda.</div>
               </div>
-              <button type="button" onClick={() => setClienteModalOpen(false)} className="rounded-lg border px-2 py-1 text-sm hover:bg-slate-50">
+              <button
+                type="button"
+                onClick={() => setClienteModalOpen(false)}
+                className="rounded-lg border px-2 py-1 text-sm hover:bg-slate-50"
+              >
                 ✕
               </button>
             </div>
@@ -1563,14 +1628,21 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
             {createClienteError ? <div className="mt-3 text-sm text-rose-600">{createClienteError}</div> : null}
 
             <div className="mt-5 flex justify-end gap-2">
-              <button type="button" onClick={() => setClienteModalOpen(false)} className="rounded-xl border px-4 py-2 text-sm hover:bg-slate-50">
+              <button
+                type="button"
+                onClick={() => setClienteModalOpen(false)}
+                className="rounded-xl border px-4 py-2 text-sm hover:bg-slate-50"
+              >
                 Cancelar
               </button>
               <button
                 type="button"
                 disabled={creatingCliente}
                 onClick={criarClienteRapido}
-                className={cn("rounded-xl px-4 py-2 text-sm text-white", creatingCliente ? "bg-slate-400 cursor-not-allowed" : "bg-black hover:bg-gray-800")}
+                className={cn(
+                  "rounded-xl px-4 py-2 text-sm text-white",
+                  creatingCliente ? "bg-slate-400 cursor-not-allowed" : "bg-black hover:bg-gray-800"
+                )}
               >
                 {creatingCliente ? "Cadastrando..." : "Cadastrar"}
               </button>
@@ -1591,25 +1663,40 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
                   {postSaveSaleId ? (
                     <>
                       {" "}
-                      <span className="text-slate-400">•</span> ID: <span className="font-mono">{postSaveSaleId}</span>
+                      <span className="text-slate-400">•</span> ID:{" "}
+                      <span className="font-mono">{postSaveSaleId}</span>
                     </>
                   ) : null}
                 </div>
               </div>
 
-              <button type="button" onClick={() => setPostSaveOpen(false)} className="rounded-lg border px-2 py-1 text-sm hover:bg-slate-50">
+              <button
+                type="button"
+                onClick={() => setPostSaveOpen(false)}
+                className="rounded-lg border px-2 py-1 text-sm hover:bg-slate-50"
+              >
                 ✕
               </button>
             </div>
 
             <div className="mt-4">
               <div className="text-xs text-slate-600 mb-1">Mensagem</div>
-              <textarea className="w-full min-h-[220px] rounded-xl border p-3 text-sm font-mono" value={postSaveMsg} onChange={(e) => setPostSaveMsg(e.target.value)} />
-              <div className="mt-2 text-[11px] text-slate-500">Obs: está em Markdown (asteriscos). Se teu Telegram não formatar, ainda fica legível.</div>
+              <textarea
+                className="w-full min-h-[220px] rounded-xl border p-3 text-sm font-mono"
+                value={postSaveMsg}
+                onChange={(e) => setPostSaveMsg(e.target.value)}
+              />
+              <div className="mt-2 text-[11px] text-slate-500">
+                Obs: está em Markdown (asteriscos). Se teu Telegram não formatar, ainda fica legível.
+              </div>
             </div>
 
             <div className="mt-5 flex flex-wrap justify-end gap-2">
-              <button type="button" onClick={() => copyText("Mensagem Telegram", postSaveMsg)} className="rounded-xl border px-4 py-2 text-sm hover:bg-slate-50">
+              <button
+                type="button"
+                onClick={() => copyText("Mensagem Telegram", postSaveMsg)}
+                className="rounded-xl border px-4 py-2 text-sm hover:bg-slate-50"
+              >
                 Copiar mensagem
               </button>
 
@@ -1654,18 +1741,29 @@ function CopyField({
         <div className="text-[11px] text-slate-500">{label}</div>
         <div className="flex items-center gap-2">
           {typeof masked === "boolean" ? (
-            <button type="button" onClick={onToggleMask} className="text-[11px] underline text-slate-600 hover:text-slate-800">
+            <button
+              type="button"
+              onClick={onToggleMask}
+              className="text-[11px] underline text-slate-600 hover:text-slate-800"
+            >
               {masked ? "Mostrar" : "Ocultar"}
             </button>
           ) : null}
 
-          <button type="button" onClick={() => onCopy(value || "")} className="rounded-md border px-2 py-1 text-[11px] hover:bg-slate-50" title="Copiar">
+          <button
+            type="button"
+            onClick={() => onCopy(value || "")}
+            className="rounded-md border px-2 py-1 text-[11px] hover:bg-slate-50"
+            title="Copiar"
+          >
             Copiar
           </button>
         </div>
       </div>
 
-      <div className="mt-1 font-mono text-sm text-slate-800 break-all">{showValue || <span className="text-slate-400">—</span>}</div>
+      <div className="mt-1 font-mono text-sm text-slate-800 break-all">
+        {showValue || <span className="text-slate-400">—</span>}
+      </div>
     </div>
   );
 }
