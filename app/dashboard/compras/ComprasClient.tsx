@@ -6,17 +6,12 @@ import { useEffect, useMemo, useState } from "react";
 type PurchaseStatus = "OPEN" | "DRAFT" | "READY" | "CLOSED" | "CANCELED";
 type LoyaltyProgram = "LATAM" | "SMILES" | "LIVELO" | "ESFERA";
 
-/**
- * ✅ Compat: o backend pode devolver nomes diferentes dependendo do schema
- * então deixamos como "any shape" e normalizamos.
- */
 type PurchaseRowRaw = {
   id: string;
   numero: string;
   status: PurchaseStatus;
   createdAt: string;
 
-  // nomes possíveis (schema antigo/novo)
   ciaProgram?: LoyaltyProgram | null;
   ciaAerea?: LoyaltyProgram | null;
 
@@ -69,9 +64,7 @@ function normalizeRow(r: PurchaseRowRaw): PurchaseRow {
     ciaProgram: (r.ciaProgram ?? r.ciaAerea ?? null) as any,
     ciaPointsTotal: asInt((r.ciaPointsTotal ?? r.pontosCiaTotal ?? 0) as any),
 
-    totalCostCents: asInt(
-      (r.totalCostCents ?? r.totalCost ?? r.totalCents ?? 0) as any
-    ),
+    totalCostCents: asInt((r.totalCostCents ?? r.totalCost ?? r.totalCents ?? 0) as any),
 
     cedente: r.cedente ?? null,
   };
@@ -128,11 +121,7 @@ function StatusPill({ status }: { status: PurchaseStatus }) {
       ? "bg-blue-50 border-blue-200 text-blue-700"
       : "bg-gray-50 border-gray-200 text-gray-700";
 
-  return (
-    <span className={`rounded-full border px-2 py-1 text-xs ${cls}`}>
-      {STATUS_LABEL[status]}
-    </span>
-  );
+  return <span className={`rounded-full border px-2 py-1 text-xs ${cls}`}>{STATUS_LABEL[status]}</span>;
 }
 
 function norm(v?: string) {
@@ -146,6 +135,14 @@ function onlyDigits(v?: string) {
   return (v || "").replace(/\D+/g, "");
 }
 
+type PointsBuyRow = {
+  id?: string;
+  title: string;
+  pointsFinal: number;
+  amountCents: number;
+  remove?: boolean;
+};
+
 export default function ComprasClient() {
   const [rows, setRows] = useState<PurchaseRow[]>([]);
   const [loading, setLoading] = useState(false);
@@ -156,6 +153,9 @@ export default function ComprasClient() {
 
   const [busyId, setBusyId] = useState<string | null>(null);
 
+  // modal state
+  const [pointsModalId, setPointsModalId] = useState<string | null>(null);
+
   async function load(opts?: { silent?: boolean }) {
     if (!opts?.silent) setLoading(true);
     setErr(null);
@@ -165,9 +165,7 @@ export default function ComprasClient() {
       if (status) qs.set("status", status);
       if (q.trim()) qs.set("q", q.trim());
 
-      const out = await api<{ ok: true; compras: PurchaseRowRaw[] }>(
-        `/api/compras?${qs.toString()}`
-      );
+      const out = await api<{ ok: true; compras: PurchaseRowRaw[] }>(`/api/compras?${qs.toString()}`);
 
       const list = Array.isArray(out.compras) ? out.compras : [];
       setRows(list.map(normalizeRow));
@@ -216,9 +214,7 @@ export default function ComprasClient() {
   }, [rows, q, status]);
 
   async function onRelease(id: string) {
-    const okConfirm = window.confirm(
-      "Liberar esta compra? Isso vai aplicar saldo e travar a compra."
-    );
+    const okConfirm = window.confirm("Liberar esta compra? Isso vai aplicar saldo e travar a compra.");
     if (!okConfirm) return;
 
     setBusyId(id);
@@ -236,13 +232,8 @@ export default function ComprasClient() {
     }
   }
 
-  // ✅ AJUSTE: fallback automático
-  // 1) tenta POST /cancelar (se você criar essa rota)
-  // 2) se der 404/405 -> usa DELETE /api/compras/:id (seu backend atual)
   async function onCancel(id: string) {
-    const okConfirm = window.confirm(
-      "Cancelar esta compra? (não deve alterar saldo se ainda não foi liberada)"
-    );
+    const okConfirm = window.confirm("Cancelar esta compra? (não deve alterar saldo se ainda não foi liberada)");
     if (!okConfirm) return;
 
     setBusyId(id);
@@ -254,10 +245,8 @@ export default function ComprasClient() {
       } catch (e: any) {
         const msg = String(e?.message || "");
         const isMethodOrRoute = msg.includes("Erro 404") || msg.includes("Erro 405");
-
         if (!isMethodOrRoute) throw e;
 
-        // ✅ backend atual (o que você mostrou): DELETE no /api/compras/:id
         await api<{ ok: true }>(`/api/compras/${id}`, { method: "DELETE" });
       }
 
@@ -274,15 +263,10 @@ export default function ComprasClient() {
       <div className="flex items-start justify-between gap-4">
         <div>
           <h1 className="text-xl font-semibold">Compras</h1>
-          <p className="text-sm text-gray-600">
-            Visualize, edite, libere ou cancele compras.
-          </p>
+          <p className="text-sm text-gray-600">Visualize, edite, libere ou cancele compras.</p>
         </div>
 
-        <Link
-          href="/dashboard/compras/nova"
-          className="rounded-md bg-black px-3 py-2 text-sm text-white"
-        >
+        <Link href="/dashboard/compras/nova" className="rounded-md bg-black px-3 py-2 text-sm text-white">
           + Nova compra
         </Link>
       </div>
@@ -342,9 +326,7 @@ export default function ComprasClient() {
       </div>
 
       {err && (
-        <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">
-          {err}
-        </div>
+        <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">{err}</div>
       )}
 
       <div className="overflow-auto rounded-xl border">
@@ -401,20 +383,26 @@ export default function ComprasClient() {
                   </td>
 
                   <td className="p-3">{r.ciaProgram || "—"}</td>
-                  <td className="p-3">
-                    {(r.ciaPointsTotal || 0).toLocaleString("pt-BR")}
-                  </td>
+                  <td className="p-3">{(r.ciaPointsTotal || 0).toLocaleString("pt-BR")}</td>
                   <td className="p-3 font-medium">{fmtMoneyBR(r.totalCostCents || 0)}</td>
                   <td className="p-3">{fmtDateBR(r.createdAt)}</td>
 
                   <td className="p-3">
                     <div className="flex items-center justify-end gap-2">
-                      <Link
-                        href={`/dashboard/compras/${r.id}`}
-                        className="rounded-md border px-2 py-1 text-xs"
-                      >
+                      <Link href={`/dashboard/compras/${r.id}`} className="rounded-md border px-2 py-1 text-xs">
                         Editar
                       </Link>
+
+                      {/* ✅ NOVO: Comprar mais (mesmo CLOSED) */}
+                      <button
+                        type="button"
+                        onClick={() => setPointsModalId(r.id)}
+                        disabled={isBusy || isCanceled || !isReleased}
+                        className="rounded-md bg-indigo-600 px-2 py-1 text-xs text-white disabled:opacity-50"
+                        title="Adicionar mais itens de compra de pontos usando o mesmo ID"
+                      >
+                        Comprar mais
+                      </button>
 
                       <button
                         type="button"
@@ -456,8 +444,284 @@ export default function ComprasClient() {
         </table>
       </div>
 
-      <div className="text-xs text-gray-500">
-        Dica: “Editar” abre a compra pelo ID. “Liberar” aplica saldo e trava.
+      <div className="text-xs text-gray-500">Dica: “Comprar mais” adiciona POINTS_BUY mesmo liberada, mantendo o ID.</div>
+
+      <PointsBuyModal
+        open={!!pointsModalId}
+        purchaseId={pointsModalId}
+        onClose={() => setPointsModalId(null)}
+        onSaved={() => void load({ silent: true })}
+      />
+    </div>
+  );
+}
+
+function toCentsFromInput(v: string) {
+  const n = Number(v || 0);
+  return Number.isFinite(n) ? Math.round(n * 100) : 0;
+}
+
+function PointsBuyModal(props: {
+  open: boolean;
+  purchaseId: string | null;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const { open, purchaseId, onClose, onSaved } = props;
+
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const [numero, setNumero] = useState<string>("");
+  const [cia, setCia] = useState<LoyaltyProgram | null>(null);
+  const [rows, setRows] = useState<PointsBuyRow[]>([]);
+
+  useEffect(() => {
+    if (!open || !purchaseId) return;
+
+    (async () => {
+      setLoading(true);
+      setErr(null);
+      try {
+        // assume que /api/compras/:id existe e devolve compra com items
+        const out = await api<{ ok?: boolean; compra: any }>(`/api/compras/${purchaseId}`);
+        const p = out?.compra as any;
+
+        setNumero(String(p?.numero || ""));
+        setCia((p?.ciaProgram ?? p?.ciaAerea ?? null) as any);
+
+        const items = Array.isArray(p?.items) ? p.items : [];
+        const pointBuys = items.filter((it: any) => it?.type === "POINTS_BUY" && it?.status !== "CANCELED");
+
+        const mapped: PointsBuyRow[] = pointBuys.map((it: any) => ({
+          id: it.id,
+          title: String(it.title || "Compra de pontos"),
+          pointsFinal: asInt(it.pointsFinal, 0),
+          amountCents: asInt(it.amountCents, 0),
+          remove: false,
+        }));
+
+        setRows(mapped.length ? mapped : []);
+      } catch (e: any) {
+        setErr(e?.message || "Falha ao carregar compra.");
+        setRows([]);
+        setNumero("");
+        setCia(null);
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, [open, purchaseId]);
+
+  if (!open || !purchaseId) return null;
+
+  const canSave = !saving && !loading;
+
+  function addRow() {
+    setRows((s) => [
+      ...s,
+      {
+        title: "Compra de pontos",
+        pointsFinal: 0,
+        amountCents: 0,
+        remove: false,
+      },
+    ]);
+  }
+
+  async function onSave() {
+    setErr(null);
+
+    if (!cia) {
+      setErr("Defina a CIA da compra antes (LATAM/SMILES).");
+      return;
+    }
+
+    const deleteIds = rows.filter((r) => r.remove && r.id).map((r) => r.id!) as string[];
+    const items = rows
+      .filter((r) => !r.remove)
+      .map((r) => ({
+        id: r.id,
+        title: String(r.title || "Compra de pontos").trim(),
+        pointsFinal: asInt(r.pointsFinal, 0),
+        amountCents: asInt(r.amountCents, 0),
+      }))
+      .filter((r) => r.pointsFinal > 0);
+
+    if (items.length === 0 && deleteIds.length === 0) {
+      setErr("Adicione ao menos 1 item com pontos > 0 (ou marque algo para remover).");
+      return;
+    }
+
+    setSaving(true);
+    try {
+      await api<{ ok: true }>(`/api/compras/${purchaseId}/points`, {
+        method: "POST",
+        body: JSON.stringify({ items, deleteIds }),
+      });
+
+      onSaved();
+      onClose();
+    } catch (e: any) {
+      setErr(e?.message || "Falha ao salvar.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-3">
+      <div className="w-full max-w-3xl rounded-2xl bg-white shadow-xl">
+        <div className="flex items-start justify-between gap-3 border-b p-4">
+          <div>
+            <div className="text-sm text-gray-600">Comprar mais (mesmo ID)</div>
+            <div className="text-lg font-semibold">
+              Compra <span className="font-mono">{numero || purchaseId.slice(0, 8)}</span>
+            </div>
+            <div className="mt-1 text-xs text-gray-500">
+              Isto cria/edita itens <b>POINTS_BUY</b>. Se a compra já estiver <b>LIBERADA</b>, aplica o delta no saldo do cedente também.
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={saving}
+            className="rounded-md border px-3 py-2 text-sm disabled:opacity-50"
+          >
+            Fechar
+          </button>
+        </div>
+
+        <div className="space-y-3 p-4">
+          {err && <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">{err}</div>}
+
+          {loading ? (
+            <div className="text-sm text-gray-600">Carregando...</div>
+          ) : (
+            <>
+              <div className="flex items-center justify-between">
+                <div className="text-sm font-medium">Itens de compra de pontos</div>
+                <button
+                  type="button"
+                  onClick={addRow}
+                  disabled={!canSave}
+                  className="rounded-md bg-black px-3 py-2 text-sm text-white disabled:opacity-50"
+                >
+                  + Adicionar linha
+                </button>
+              </div>
+
+              {rows.length === 0 ? (
+                <div className="rounded-lg border bg-gray-50 p-3 text-sm text-gray-600">
+                  Nenhum item POINTS_BUY ainda. Clique em “Adicionar linha”.
+                </div>
+              ) : (
+                <div className="overflow-auto rounded-xl border">
+                  <table className="min-w-[900px] w-full text-sm">
+                    <thead className="bg-gray-50">
+                      <tr className="text-left">
+                        <th className="p-2">Remover</th>
+                        <th className="p-2">Título</th>
+                        <th className="p-2">Pontos</th>
+                        <th className="p-2">Custo (R$)</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {rows.map((r, idx) => (
+                        <tr key={r.id ?? `new_${idx}`} className="border-t">
+                          <td className="p-2">
+                            <input
+                              type="checkbox"
+                              checked={!!r.remove}
+                              onChange={(e) =>
+                                setRows((s) => {
+                                  const next = [...s];
+                                  next[idx] = { ...next[idx], remove: e.target.checked };
+                                  return next;
+                                })
+                              }
+                            />
+                          </td>
+
+                          <td className="p-2">
+                            <input
+                              value={r.title}
+                              disabled={!!r.remove}
+                              onChange={(e) =>
+                                setRows((s) => {
+                                  const next = [...s];
+                                  next[idx] = { ...next[idx], title: e.target.value };
+                                  return next;
+                                })
+                              }
+                              className="w-full rounded-md border px-3 py-2 text-sm disabled:opacity-50"
+                              placeholder="Ex: Compra extra 10k"
+                            />
+                          </td>
+
+                          <td className="p-2">
+                            <input
+                              type="number"
+                              value={r.pointsFinal}
+                              disabled={!!r.remove}
+                              onChange={(e) =>
+                                setRows((s) => {
+                                  const next = [...s];
+                                  next[idx] = { ...next[idx], pointsFinal: asInt(e.target.value, 0) };
+                                  return next;
+                                })
+                              }
+                              className="w-full rounded-md border px-3 py-2 text-sm font-mono disabled:opacity-50"
+                              placeholder="10000"
+                            />
+                          </td>
+
+                          <td className="p-2">
+                            <input
+                              type="number"
+                              value={(r.amountCents || 0) / 100}
+                              disabled={!!r.remove}
+                              onChange={(e) =>
+                                setRows((s) => {
+                                  const next = [...s];
+                                  next[idx] = { ...next[idx], amountCents: toCentsFromInput(e.target.value) };
+                                  return next;
+                                })
+                              }
+                              className="w-full rounded-md border px-3 py-2 text-sm disabled:opacity-50"
+                              placeholder="0"
+                            />
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              <div className="flex items-center justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={onClose}
+                  disabled={saving}
+                  className="rounded-md border px-3 py-2 text-sm disabled:opacity-50"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  onClick={onSave}
+                  disabled={!canSave}
+                  className="rounded-md bg-emerald-600 px-3 py-2 text-sm text-white disabled:opacity-50"
+                >
+                  {saving ? "Salvando..." : "Salvar"}
+                </button>
+              </div>
+            </>
+          )}
+        </div>
       </div>
     </div>
   );
