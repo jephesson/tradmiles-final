@@ -10,10 +10,15 @@ function safeInt(v: unknown, fb = 0) {
   return Number.isFinite(n) ? Math.trunc(n) : fb;
 }
 
+/**
+ * Usa a CIA (ciaProgram/ciaAerea) para decidir quais pontos entram no milheiro.
+ * ATENÇÃO: tipagem do Prisma pode não ter ciaProgram/ciaAerea no tipo gerado,
+ * então acessamos via any quando necessário.
+ */
 function pointsForMilheiro(p: any, ciaPointsTotal: number) {
-  const cia = (p.ciaProgram ?? p.ciaAerea ?? null) as string | null;
-  if (cia === "LATAM") return safeInt(p.expectedLatamPoints ?? ciaPointsTotal, 0);
-  if (cia === "SMILES") return safeInt(p.expectedSmilesPoints ?? ciaPointsTotal, 0);
+  const cia = (p?.ciaProgram ?? p?.ciaAerea ?? null) as string | null;
+  if (cia === "LATAM") return safeInt(p?.expectedLatamPoints ?? ciaPointsTotal, 0);
+  if (cia === "SMILES") return safeInt(p?.expectedSmilesPoints ?? ciaPointsTotal, 0);
   return ciaPointsTotal;
 }
 
@@ -24,25 +29,29 @@ async function recalcPurchaseTotals(purchaseId: string) {
   });
   if (!p) return;
 
-  const cia = (p.ciaProgram ?? p.ciaAerea ?? null) as any;
+  // ✅ cast para não estourar TS se o tipo do Prisma não tiver ciaProgram/ciaAerea
+  const pAny = p as any;
+  const cia = (pAny.ciaProgram ?? pAny.ciaAerea ?? null) as any;
 
   const items = (p.items || []).filter((it) => it.status !== "CANCELED");
+
   const ciaPointsTotal = items
     .filter((it) => it.programTo === cia)
     .reduce((acc, it) => acc + safeInt(it.pointsFinal, 0), 0);
 
   const itemsCost = items.reduce((acc, it) => acc + safeInt(it.amountCents, 0), 0);
 
-  const cedentePayCents = safeInt((p as any).cedentePayCents, 0);
-  const vendorCommissionBps = safeInt((p as any).vendorCommissionBps, 0);
-  const targetMarkupCents = safeInt((p as any).targetMarkupCents ?? (p as any).metaMarkupCents, 0);
+  const cedentePayCents = safeInt(pAny.cedentePayCents, 0);
+  const vendorCommissionBps = safeInt(pAny.vendorCommissionBps, 0);
+  const targetMarkupCents = safeInt(pAny.targetMarkupCents ?? pAny.metaMarkupCents, 0);
 
   const subtotalCostCents = itemsCost + cedentePayCents;
   const vendorCommissionCents = Math.round((subtotalCostCents * vendorCommissionBps) / 10000);
   const totalCostCents = subtotalCostCents + vendorCommissionCents;
 
-  const pts = Math.max(0, pointsForMilheiro(p, ciaPointsTotal));
+  const pts = Math.max(0, pointsForMilheiro(pAny, ciaPointsTotal));
   const denom = pts / 1000;
+
   const costPerKiloCents = denom > 0 ? Math.round(totalCostCents / denom) : 0;
   const targetPerKiloCents = costPerKiloCents + targetMarkupCents;
 
@@ -63,7 +72,6 @@ type Ctx = { params: Promise<{ id: string }> };
 
 export async function POST(req: NextRequest, { params }: Ctx) {
   const session = await requireSession();
-
   const { id: purchaseId } = await params;
 
   const body = await req.json().catch(() => ({}));
@@ -75,25 +83,29 @@ export async function POST(req: NextRequest, { params }: Ctx) {
     include: { items: true },
   });
 
-  if (!compra)
+  if (!compra) {
     return NextResponse.json({ ok: false, error: "Compra não encontrada." }, { status: 404 });
+  }
 
-  if (compra.status !== "OPEN")
+  if (compra.status !== "OPEN") {
     return NextResponse.json(
       { ok: false, error: "Compra travada (não está OPEN)." },
       { status: 400 }
     );
+  }
 
-  const cia = (compra.ciaProgram ?? (compra as any).ciaAerea ?? null) as any;
+  // ✅ cast para não estourar TS se o tipo do Prisma não tiver ciaProgram/ciaAerea
+  const compraAny = compra as any;
+  const cia = (compraAny.ciaProgram ?? compraAny.ciaAerea ?? null) as any;
 
   const existingPointItems = (compra.items || []).filter((it) => it.type === "POINTS_BUY");
   const existingIds = new Set(existingPointItems.map((it) => it.id));
 
   await prisma.$transaction(async (tx) => {
     // deletar explícitos
-    for (const id of deleteIds) {
-      if (!existingIds.has(id)) continue;
-      await tx.purchaseItem.delete({ where: { id } });
+    for (const delId of deleteIds) {
+      if (!existingIds.has(delId)) continue;
+      await tx.purchaseItem.delete({ where: { id: delId } });
     }
 
     // upsert
