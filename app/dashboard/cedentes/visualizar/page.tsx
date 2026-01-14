@@ -3,7 +3,7 @@ export const dynamic = "force-dynamic";
 import CedentesVisualizarClient from "./CedentesVisualizarClient";
 import CedentesVisualizarLatamClient from "./CedentesVisualizarLatamClient";
 import CedentesVisualizarSmilesClient from "./CedentesVisualizarSmilesClient";
-import CedentesVisualizarLiveloClient from "./CedentesVisualizarLiveloClient";
+import CedentesVisualizarLiveloClient from "./cedentes-visualizar-livelo-client";
 
 type SearchParams = { [key: string]: string | string[] | undefined };
 
