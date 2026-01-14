@@ -15,9 +15,8 @@ type SummaryRow = {
   taxCents: number;
   feeCents: number;
 
-  // ✅ backend já entrega
-  netNoFeeCents: number;     // gross - tax
-  netWithFeeCents: number;   // netPayCents (gross - tax + fee)
+  netNoFeeCents: number; // gross - tax
+  netWithFeeCents: number; // gross - tax + fee
 };
 
 type SummaryResp = {
@@ -35,8 +34,8 @@ type SummaryResp = {
     gross: number;
     tax: number;
     fee: number;
-    netNoFee: number;   // ✅ líquido total sem taxa
-    netWithFee: number; // opcional (conferência)
+    netNoFee: number; // ✅ líquido total sem taxa
+    netWithFee: number;
   };
 };
 
@@ -91,13 +90,40 @@ async function apiGet<T>(url: string): Promise<T> {
   return json as T;
 }
 
-function KPI({ label, value }: { label: string; value: string }) {
+function KPI({ label, value, sub }: { label: string; value: string; sub?: string }) {
   return (
     <div className="rounded-2xl border bg-white p-3">
       <div className="text-xs text-neutral-500">{label}</div>
       <div className="text-sm font-semibold">{value}</div>
+      {sub ? <div className="mt-1 text-xs text-neutral-500">{sub}</div> : null}
     </div>
   );
+}
+
+/** ✅ dias no mês do tipo "YYYY-MM" (UTC safe) */
+function daysInMonth(yyyyMm: string) {
+  const [yStr, mStr] = String(yyyyMm || "").split("-");
+  const y = Number(yStr);
+  const m = Number(mStr);
+  if (!y || !m) return 30;
+  // Date.UTC: mês seguinte dia 0 => último dia do mês atual
+  return new Date(Date.UTC(y, m, 0)).getUTCDate();
+}
+
+/** ✅ dia do mês "hoje" no timezone Recife */
+function recifeDayOfMonthToday() {
+  const d = new Date();
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Recife",
+    day: "2-digit",
+  })
+    .formatToParts(d)
+    .reduce((acc: any, p) => {
+      acc[p.type] = p.value;
+      return acc;
+    }, {});
+  const day = Number(parts.day);
+  return Number.isFinite(day) && day > 0 ? day : 1;
 }
 
 export default function LucrosFuncionariosMesClient() {
@@ -127,10 +153,24 @@ export default function LucrosFuncionariosMesClient() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [month]);
 
-  // ✅ ordena pelo líquido sem taxa (já pronto no backend)
   const rows = useMemo(() => {
     return (data?.rows || []).slice().sort((a, b) => b.netNoFeeCents - a.netNoFeeCents);
   }, [data]);
+
+  // ✅ PROJEÇÃO DO MÊS (card)
+  const projectedNetNoFeeCents = useMemo(() => {
+    const net = Number(data?.totals.netNoFee || 0);
+    if (!Number.isFinite(net) || net <= 0) return 0;
+
+    const daysMonth = daysInMonth(month);
+    const isCurrentMonth = month === monthISORecifeClient();
+
+    // se não for o mês atual, projeção = real (evita distorcer histórico)
+    const daysPassed = isCurrentMonth ? recifeDayOfMonthToday() : daysMonth;
+
+    const safePassed = Math.max(1, Math.min(daysMonth, daysPassed));
+    return Math.round((net * daysMonth) / safePassed);
+  }, [data?.totals.netNoFee, month]);
 
   return (
     <div className="space-y-4">
@@ -172,7 +212,6 @@ export default function LucrosFuncionariosMesClient() {
       </div>
 
       <div className="grid grid-cols-2 gap-2 md:grid-cols-6">
-        {/* ✅ usa totals.netNoFee direto (sem subtrair nada) */}
         <KPI label="Líquido total (sem taxa)" value={fmtMoneyBR(data?.totals.netNoFee || 0)} />
         <KPI label="Imposto total (8%)" value={fmtMoneyBR(data?.totals.tax || 0)} />
         <KPI label="Taxas (reembolso)" value={fmtMoneyBR(data?.totals.fee || 0)} />
@@ -181,9 +220,16 @@ export default function LucrosFuncionariosMesClient() {
         <KPI label="Dias computados" value={String(data?.totals.days || 0)} />
       </div>
 
-      {err ? (
-        <div className="rounded-2xl border bg-rose-50 p-3 text-sm text-rose-800">{err}</div>
-      ) : null}
+      {/* ✅ Card extra embaixo (como você pediu) */}
+      <div className="grid grid-cols-1 gap-2 md:grid-cols-3">
+        <KPI
+          label="Projeção do mês (líquido sem taxa)"
+          value={fmtMoneyBR(projectedNetNoFeeCents)}
+          sub="Projeção = (líquido até hoje ÷ dia do mês) × dias do mês"
+        />
+      </div>
+
+      {err ? <div className="rounded-2xl border bg-rose-50 p-3 text-sm text-rose-800">{err}</div> : null}
 
       <div className="overflow-hidden rounded-2xl border bg-white">
         <div className="overflow-x-auto">
@@ -222,7 +268,6 @@ export default function LucrosFuncionariosMesClient() {
                     <td className="px-4 py-3">{fmtMoneyBR(r.taxCents)}</td>
                     <td className="px-4 py-3">{fmtMoneyBR(r.feeCents)}</td>
 
-                    {/* ✅ líquido correto */}
                     <td className="px-4 py-3 font-semibold">{fmtMoneyBR(r.netNoFeeCents)}</td>
                   </tr>
                 );
