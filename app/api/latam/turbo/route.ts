@@ -37,15 +37,12 @@ function nextMonthOnDayUTC(base: Date, day: number) {
 
   return new Date(Date.UTC(y, m, dd));
 }
-
 function monthKeyUTC(d: Date) {
   const y = d.getUTCFullYear();
   const m = String(d.getUTCMonth() + 1).padStart(2, "0");
   return `${y}-${m}`; // YYYY-MM
 }
-
 function parseMonthKeyUTC(key: string) {
-  // "YYYY-MM"
   const m = /^(\d{4})-(\d{2})$/.exec((key || "").trim());
   if (!m) return null;
   const y = Number(m[1]);
@@ -53,7 +50,6 @@ function parseMonthKeyUTC(key: string) {
   if (!Number.isFinite(y) || !Number.isFinite(mm) || mm < 1 || mm > 12) return null;
   return { y, m0: mm - 1 };
 }
-
 function startOfMonthUTCFromKey(key: string) {
   const p = parseMonthKeyUTC(key);
   if (!p) return null;
@@ -64,7 +60,6 @@ function endOfMonthUTCFromKey(key: string) {
   if (!p) return null;
   return new Date(Date.UTC(p.y, p.m0 + 1, 0, 23, 59, 59, 999));
 }
-
 function clampInt(n: number, min: number, max: number) {
   return Math.min(max, Math.max(min, n));
 }
@@ -72,9 +67,12 @@ function safeInt(v: unknown, fb = 0) {
   const n = Number(v);
   return Number.isFinite(n) ? Math.trunc(n) : fb;
 }
-
 function bad(message: string, status = 400) {
   return NextResponse.json({ ok: false, error: message }, { status });
+}
+function isBetweenUTC(d: Date, start: Date, end: Date) {
+  const t = startUTC(d).getTime();
+  return t >= startUTC(start).getTime() && t <= startUTC(end).getTime();
 }
 
 // ======================
@@ -96,10 +94,13 @@ function computeLatamAutoDates(input: {
   // inativa no dia seguinte
   const inactiveAt = addDaysUTC(nextRenewalAt, 1);
 
+  // ✅ até quando fica ativo (dia anterior a ficar inativo)
+  const activeUntil = addDaysUTC(inactiveAt, -1);
+
   // cancela após 10 dias inativo
   const cancelAt = addDaysUTC(inactiveAt, LATAM_CANCEL_AFTER_INACTIVE_DAYS);
 
-  return { nextRenewalAt, inactiveAt, cancelAt };
+  return { nextRenewalAt, inactiveAt, activeUntil, cancelAt };
 }
 
 type TurboStatus = "PENDING" | "TRANSFERRED" | "SKIPPED";
@@ -121,9 +122,11 @@ type Row = {
   auto: null | {
     nextRenewalAt: string;
     inactiveAt: string;
+    activeUntil: string; // ✅ até quando fica ativo
     cancelAt: string;
-    inactiveInMonth: boolean;
-    cancelInMonth: boolean;
+
+    inactiveInMonth: boolean; // ✅ fica inativo no mês
+    cancelInMonth: boolean; // ✅ cancela no mês
   };
 
   account: {
@@ -140,12 +143,11 @@ type Row = {
     updatedAt: string;
   };
 
-  // ajuda no front
   buckets: {
-    isActiveBucket: boolean;
-    isInactiveBucket: boolean;
-    isCancelBucket: boolean;
-    canSubscribe: boolean;
+    isActiveBucket: boolean; // ACTIVE e não cancela no mês
+    isInactiveBucket: boolean; // PAUSED e não cancela no mês
+    isCancelBucket: boolean; // vai cancelar no mês (e ainda não está cancelado)
+    canSubscribe: boolean; // sem clube ou CANCELED
   };
 };
 
@@ -303,32 +305,29 @@ export async function GET(req: NextRequest) {
         lastRenewedAt: club.lastRenewedAt,
       });
 
-      const inactiveInMonth =
-        startUTC(a.inactiveAt).getTime() >= startUTC(monthStart).getTime() &&
-        startUTC(a.inactiveAt).getTime() <= startUTC(monthEnd).getTime();
-
-      const cancelInMonth =
-        startUTC(a.cancelAt).getTime() >= startUTC(monthStart).getTime() &&
-        startUTC(a.cancelAt).getTime() <= startUTC(monthEnd).getTime();
+      const inactiveInMonth = isBetweenUTC(a.inactiveAt, monthStart, monthEnd);
+      const cancelInMonth = isBetweenUTC(a.cancelAt, monthStart, monthEnd);
 
       auto = {
         nextRenewalAt: a.nextRenewalAt.toISOString(),
         inactiveAt: a.inactiveAt.toISOString(),
+        activeUntil: a.activeUntil.toISOString(),
         cancelAt: a.cancelAt.toISOString(),
         inactiveInMonth,
         cancelInMonth,
       };
     }
 
-    // buckets (3 listas que você pediu)
-    const isCancelBucket = Boolean(club && auto?.cancelInMonth);
-    const isInactiveBucket = Boolean(club && !isCancelBucket && club.status === "PAUSED");
-    const isActiveBucket = Boolean(club && !isCancelBucket && !isInactiveBucket); // inclui "inativa no mês" junto
+    // ✅ BUCKETS (3 listas) — sem misturar ACTIVE/PAUSED/CANCELED
+    const willCancelThisMonth = Boolean(club && auto?.cancelInMonth && club.status !== "CANCELED");
 
-    // posso assinar clube: sem registro ou cancelado
+    const isCancelBucket = willCancelThisMonth; // cancela no mês (ainda não cancelou)
+    const isInactiveBucket = Boolean(club && !isCancelBucket && club.status === "PAUSED");
+    const isActiveBucket = Boolean(club && !isCancelBucket && club.status === "ACTIVE");
+
+    // posso assinar clube: sem registro ou já cancelado
     const canSubscribe = !club || club.status === "CANCELED";
 
-    // turbo mark
     const turbo = markByCedente.get(ced.id) || null;
 
     return {
@@ -359,23 +358,36 @@ export async function GET(req: NextRequest) {
     };
   });
 
-  // 6) somente relevantes (primeiro mês)
+  // 6) somente relevantes
+  // ✅ agora inclui: cancelam no mês, inativos, ativos (mesmo que permaneçam ativos),
+  // e candidatos a assinar (cpfFree>5)
   const filteredRows = onlyRelevant
     ? rows.filter((r) => {
         const rel =
           r.buckets.isCancelBucket ||
           r.buckets.isInactiveBucket ||
-          (r.buckets.isActiveBucket && (r.auto?.inactiveInMonth || false)) ||
+          r.buckets.isActiveBucket ||
           (r.buckets.canSubscribe && r.account.cpfFree > 5);
-
         return rel;
       })
     : rows;
 
-  // 7) listas
-  const cancelThisMonth = filteredRows.filter((r) => r.buckets.isCancelBucket);
-  const inactive = filteredRows.filter((r) => r.buckets.isInactiveBucket);
-  const active = filteredRows.filter((r) => r.buckets.isActiveBucket);
+  // 7) listas (ordenadas)
+  const cancelThisMonth = filteredRows
+    .filter((r) => r.buckets.isCancelBucket)
+    .sort((a, b) => {
+      const ta = a.auto ? startUTC(new Date(a.auto.cancelAt)).getTime() : 0;
+      const tb = b.auto ? startUTC(new Date(b.auto.cancelAt)).getTime() : 0;
+      return ta - tb || a.cedente.nomeCompleto.localeCompare(b.cedente.nomeCompleto);
+    });
+
+  const inactive = filteredRows
+    .filter((r) => r.buckets.isInactiveBucket)
+    .sort((a, b) => a.cedente.nomeCompleto.localeCompare(b.cedente.nomeCompleto));
+
+  const active = filteredRows
+    .filter((r) => r.buckets.isActiveBucket)
+    .sort((a, b) => a.cedente.nomeCompleto.localeCompare(b.cedente.nomeCompleto));
 
   const canSubscribe = rows
     .filter((r) => r.buckets.canSubscribe)
@@ -448,7 +460,16 @@ export async function POST(req: NextRequest) {
       notes,
     },
     update: { status, points, notes },
-    select: { id: true, team: true, monthKey: true, cedenteId: true, status: true, points: true, notes: true, updatedAt: true },
+    select: {
+      id: true,
+      team: true,
+      monthKey: true,
+      cedenteId: true,
+      status: true,
+      points: true,
+      notes: true,
+      updatedAt: true,
+    },
   });
 
   return NextResponse.json({ ok: true, item });
