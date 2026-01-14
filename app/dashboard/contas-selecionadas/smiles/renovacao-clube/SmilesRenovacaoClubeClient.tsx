@@ -68,12 +68,9 @@ export default function SmilesRenovacaoClubeClient() {
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
-  // mês selecionado (YYYY-MM)
-  const [selectedYM, setSelectedYM] = useState<string>("");
-
+  // hoje UTC em YYYY-MM-DD e mês atual UTC em YYYY-MM
   const todayYMD = useMemo(() => {
     const now = new Date();
-    // compara por string YYYY-MM-DD (evita bugs por hora do dia)
     const y = now.getUTCFullYear();
     const m = String(now.getUTCMonth() + 1).padStart(2, "0");
     const d = String(now.getUTCDate()).padStart(2, "0");
@@ -81,6 +78,9 @@ export default function SmilesRenovacaoClubeClient() {
   }, []);
 
   const currentYM = todayYMD.slice(0, 7);
+
+  // ✅ mês selecionado (YYYY-MM) — default será sempre o mês atual
+  const [selectedYM, setSelectedYM] = useState<string>("");
 
   async function load() {
     setLoading(true);
@@ -104,19 +104,31 @@ export default function SmilesRenovacaoClubeClient() {
     load();
   }, []);
 
-  // meses disponíveis (ordenado asc)
-  const months = useMemo(() => {
+  // ✅ meses vindos dos dados (ordenado asc)
+  const monthsFromData = useMemo(() => {
     const set = new Set<string>();
     for (const it of items) set.add(ymFromISO(it.smilesBonusEligibleAt));
     return Array.from(set).sort((a, b) => a.localeCompare(b));
   }, [items]);
 
-  // default do select: mês atual se existir, senão primeiro mês disponível
+  // ✅ opções do select SEMPRE incluem o mês atual, mesmo que não tenha dados
+  // e deixam o mês atual no topo.
+  const monthOptions = useMemo(() => {
+    const all = new Set<string>([currentYM, ...monthsFromData]);
+    const sorted = Array.from(all).sort((a, b) => a.localeCompare(b));
+    return [currentYM, ...sorted.filter((k) => k !== currentYM)];
+  }, [currentYM, monthsFromData]);
+
+  // ✅ default do select: mês atual (sempre)
   useEffect(() => {
-    if (selectedYM) return;
-    if (months.includes(currentYM)) setSelectedYM(currentYM);
-    else setSelectedYM(months[0] || currentYM);
-  }, [months, currentYM, selectedYM]);
+    if (!selectedYM) setSelectedYM(currentYM);
+  }, [selectedYM, currentYM]);
+
+  // ✅ se por algum motivo o mês selecionado não existir nas opções, volta pro mês atual
+  useEffect(() => {
+    if (!selectedYM) return;
+    if (!monthOptions.includes(selectedYM)) setSelectedYM(currentYM);
+  }, [selectedYM, monthOptions, currentYM]);
 
   const groupedByMonth = useMemo(() => {
     const map = new Map<string, Item[]>();
@@ -139,8 +151,7 @@ export default function SmilesRenovacaoClubeClient() {
   }, [items]);
 
   const selectedItems = useMemo(() => {
-    const list = groupedByMonth.get(selectedYM) || [];
-    return list;
+    return groupedByMonth.get(selectedYM) || [];
   }, [groupedByMonth, selectedYM]);
 
   const selectedIsCurrentMonth = selectedYM === currentYM;
@@ -170,8 +181,8 @@ export default function SmilesRenovacaoClubeClient() {
   }, [selectedItems, todayYMD]);
 
   const reportByMonth = useMemo(() => {
-    // tabela “quantos renovam em cada mês” + soma pontos
-    return months.map((ym) => {
+    // ✅ relatório sempre inclui o mês atual (mesmo que 0)
+    return monthOptions.map((ym) => {
       const list = groupedByMonth.get(ym) || [];
       const count = list.length;
       const sumPoints = list.reduce(
@@ -180,7 +191,7 @@ export default function SmilesRenovacaoClubeClient() {
       );
       return { ym, count, sumPoints };
     });
-  }, [months, groupedByMonth]);
+  }, [monthOptions, groupedByMonth]);
 
   return (
     <div className="p-6 space-y-6">
@@ -224,21 +235,14 @@ export default function SmilesRenovacaoClubeClient() {
 
       {/* Controls */}
       <div className="flex flex-wrap items-center gap-3">
-        <div className="text-sm text-slate-600">
-          Mês selecionado
-        </div>
+        <div className="text-sm text-slate-600">Mês selecionado</div>
 
         <select
           value={selectedYM}
           onChange={(e) => setSelectedYM(e.target.value)}
           className="border rounded-lg px-3 py-2 text-sm min-w-[260px]"
         >
-          {/* garante pelo menos o mês atual no select */}
-          {months.length === 0 ? (
-            <option value={currentYM}>{monthLabelPT(currentYM)}</option>
-          ) : null}
-
-          {months.map((ym) => (
+          {monthOptions.map((ym) => (
             <option key={ym} value={ym}>
               {monthLabelPT(ym)}
               {ym === currentYM ? " (mês atual)" : ""}
@@ -261,7 +265,9 @@ export default function SmilesRenovacaoClubeClient() {
         </div>
 
         <div className="rounded-2xl border bg-white p-4 shadow-sm">
-          <div className="text-xs text-neutral-500">Total pontos SMILES (cedentes do mês)</div>
+          <div className="text-xs text-neutral-500">
+            Total pontos SMILES (cedentes do mês)
+          </div>
           <div className="mt-1 text-xl font-semibold">
             {fmtInt(selectedStats.totalPontos)}
           </div>
@@ -271,14 +277,20 @@ export default function SmilesRenovacaoClubeClient() {
           <div className="text-xs text-neutral-500">
             {selectedIsCurrentMonth ? "Já liberados (mês atual)" : "Liberados (até hoje)"}
           </div>
-          <div className="mt-1 text-xl font-semibold">{fmtInt(selectedStats.alreadyCount)}</div>
+          <div className="mt-1 text-xl font-semibold">
+            {fmtInt(selectedStats.alreadyCount)}
+          </div>
         </div>
 
         <div className="rounded-2xl border bg-white p-4 shadow-sm">
           <div className="text-xs text-neutral-500">
-            {selectedIsCurrentMonth ? "Ainda vão liberar (mês atual)" : "Ainda não liberados"}
+            {selectedIsCurrentMonth
+              ? "Ainda vão liberar (mês atual)"
+              : "Ainda não liberados"}
           </div>
-          <div className="mt-1 text-xl font-semibold">{fmtInt(selectedStats.futureCount)}</div>
+          <div className="mt-1 text-xl font-semibold">
+            {fmtInt(selectedStats.futureCount)}
+          </div>
         </div>
       </div>
 
@@ -289,9 +301,7 @@ export default function SmilesRenovacaoClubeClient() {
           <div className="rounded-2xl border bg-white overflow-hidden">
             <div className="px-4 py-3 border-b">
               <div className="text-sm font-semibold">Já liberados neste mês</div>
-              <div className="text-xs text-neutral-500">
-                Promo SMILES ≤ hoje
-              </div>
+              <div className="text-xs text-neutral-500">Promo SMILES ≤ hoje</div>
             </div>
 
             <div className="overflow-x-auto">
@@ -384,7 +394,7 @@ export default function SmilesRenovacaoClubeClient() {
         <div className="px-4 py-3 border-b flex items-center justify-between">
           <div>
             <div className="text-sm font-semibold">
-              Cedentes aptos em {monthLabelPT(selectedYM)}
+              Cedentes aptos em {monthLabelPT(selectedYM || currentYM)}
             </div>
             <div className="text-xs text-neutral-500">
               Ordenado pela data Promo SMILES dentro do mês
@@ -462,9 +472,11 @@ export default function SmilesRenovacaoClubeClient() {
                           "ml-2 inline-flex items-center rounded-full px-2 py-0.5 text-xs border",
                           it.status === "ACTIVE"
                             ? "border-green-200 bg-green-50 text-green-700"
-                            : "border-yellow-200 bg-yellow-50 text-yellow-700"
+                            : it.status === "PAUSED"
+                            ? "border-yellow-200 bg-yellow-50 text-yellow-700"
+                            : "border-red-200 bg-red-50 text-red-700"
                         )}
-                        title="Status do clube (ACTIVE/PAUSED)"
+                        title="Status do clube (ACTIVE/PAUSED/CANCELED)"
                       >
                         {it.status}
                       </span>
@@ -504,14 +516,6 @@ export default function SmilesRenovacaoClubeClient() {
               </tr>
             </thead>
             <tbody className="divide-y">
-              {reportByMonth.length === 0 ? (
-                <tr>
-                  <td className="px-4 py-8 text-neutral-500" colSpan={3}>
-                    Sem dados de Promo SMILES.
-                  </td>
-                </tr>
-              ) : null}
-
               {reportByMonth.map((r) => (
                 <tr
                   key={r.ym}
@@ -527,7 +531,8 @@ export default function SmilesRenovacaoClubeClient() {
                       className="text-left hover:underline"
                       title="Selecionar mês"
                     >
-                      {monthLabelPT(r.ym)}{r.ym === currentYM ? " (mês atual)" : ""}
+                      {monthLabelPT(r.ym)}
+                      {r.ym === currentYM ? " (mês atual)" : ""}
                     </button>
                   </td>
                   <td className="px-4 py-2 text-right tabular-nums">
@@ -544,7 +549,8 @@ export default function SmilesRenovacaoClubeClient() {
       </div>
 
       <div className="text-xs text-neutral-500">
-        Fonte: ClubSubscription (SMILES) + campo <code>smilesBonusEligibleAt</code> + pontos do cedente (<code>pontosSmiles</code>).
+        Fonte: ClubSubscription (SMILES) + campo <code>smilesBonusEligibleAt</code> + pontos do
+        cedente (<code>pontosSmiles</code>).
       </div>
     </div>
   );
