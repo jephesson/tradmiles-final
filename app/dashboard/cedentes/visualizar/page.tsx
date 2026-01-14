@@ -3,21 +3,29 @@ export const dynamic = "force-dynamic";
 import CedentesVisualizarClient from "./CedentesVisualizarClient";
 import CedentesVisualizarLatamClient from "./CedentesVisualizarLatamClient";
 import CedentesVisualizarSmilesClient from "./CedentesVisualizarSmilesClient";
+import CedentesVisualizarLiveloClient from "./CedentesVisualizarLiveloClient";
 
 type SearchParams = { [key: string]: string | string[] | undefined };
+
+function firstParam(v: string | string[] | undefined) {
+  return Array.isArray(v) ? v[0] : v;
+}
 
 export default async function Page({
   searchParams,
 }: {
-  searchParams: Promise<SearchParams>;
+  searchParams: SearchParams | Promise<SearchParams>;
 }) {
-  const sp = await searchParams;
+  const sp = await Promise.resolve(searchParams);
 
-  const programaRaw = Array.isArray(sp.programa) ? sp.programa[0] : sp.programa;
+  const programaRaw =
+    firstParam(sp.programa) || firstParam(sp.program) || firstParam(sp.p);
+
   const p = (programaRaw || "").toLowerCase();
 
   if (p === "latam") return <CedentesVisualizarLatamClient />;
   if (p === "smiles") return <CedentesVisualizarSmilesClient />;
+  if (p === "livelo") return <CedentesVisualizarLiveloClient />;
 
   // default: lista geral (todos)
   return <CedentesVisualizarClient />;
