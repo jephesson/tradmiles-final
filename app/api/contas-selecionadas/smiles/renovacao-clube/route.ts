@@ -10,19 +10,41 @@ function bad(message: string, status = 400) {
   return NextResponse.json({ ok: false, error: message }, { status });
 }
 
-export async function GET() {
+export async function GET(req: Request) {
   const session = await getSessionServer();
   if (!session) return bad("Não autenticado", 401);
 
   try {
-    const items = await prisma.clubSubscription.findMany({
+    /**
+     * ✅ Por padrão, incluímos CANCELADOS também.
+     * Isso é necessário porque muitos "Promo SMILES" do mês atual
+     * estão em CANCELED (como no seu print de janeiro/2026).
+     *
+     * Opcional: se quiser ocultar cancelados no futuro, você pode chamar:
+     * /api/.../renovacao-clube?includeCanceled=0
+     */
+    const url = new URL(req.url);
+    const includeCanceled = url.searchParams.get("includeCanceled") !== "0";
+
+    const statusIn = includeCanceled
+      ? (["ACTIVE", "PAUSED", "CANCELED"] as const)
+      : (["ACTIVE", "PAUSED"] as const);
+
+    /**
+     * ✅ Regra correta para deduplicar:
+     * 1) pega o MAIS RECENTE por cedente (orderBy updatedAt desc)
+     * 2) usa distinct cedenteId
+     * 3) depois ordena em memória por smilesBonusEligibleAt para exibição
+     */
+    const latestPerCedente = await prisma.clubSubscription.findMany({
       where: {
         team: session.team,
         program: "SMILES",
-        status: { in: ["ACTIVE", "PAUSED"] },
+        status: { in: statusIn as any },
         smilesBonusEligibleAt: { not: null },
       },
-      orderBy: [{ smilesBonusEligibleAt: "asc" }, { updatedAt: "desc" }],
+      orderBy: [{ updatedAt: "desc" }], // ✅ garante "mais recente"
+      distinct: ["cedenteId"], // ✅ 1 por cedente
       select: {
         id: true,
         cedenteId: true,
@@ -32,6 +54,7 @@ export async function GET() {
         lastRenewedAt: true,
         renewalDay: true,
         smilesBonusEligibleAt: true,
+        updatedAt: true, // útil para tie-break e auditoria
         cedente: {
           select: {
             id: true,
@@ -45,16 +68,18 @@ export async function GET() {
       },
     });
 
-    // Se houver duplicatas por cedente, mantém o mais recente (por updatedAt desc no orderBy)
-    const seen = new Set<string>();
-    const unique = items.filter((it) => {
-      if (seen.has(it.cedenteId)) return false;
-      seen.add(it.cedenteId);
-      return true;
+    // ✅ Ordena para a UI (mês/dia), sem quebrar a deduplicação
+    const unique = [...latestPerCedente].sort((a, b) => {
+      const av = String(a.smilesBonusEligibleAt || "");
+      const bv = String(b.smilesBonusEligibleAt || "");
+      if (av !== bv) return av.localeCompare(bv); // asc por data elegível
+      // tie-break: mais atualizado primeiro
+      return String(b.updatedAt).localeCompare(String(a.updatedAt));
     });
 
     return NextResponse.json({ ok: true, items: unique });
-  } catch {
+  } catch (e) {
+    console.error(e);
     return bad("Falha ao carregar renovação do clube (Smiles).", 500);
   }
 }
