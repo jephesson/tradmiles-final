@@ -90,12 +90,11 @@ async function apiGet<T>(url: string): Promise<T> {
   return json as T;
 }
 
-function KPI({ label, value, sub }: { label: string; value: string; sub?: string }) {
+function KPI({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-2xl border bg-white p-3">
       <div className="text-xs text-neutral-500">{label}</div>
       <div className="text-sm font-semibold">{value}</div>
-      {sub ? <div className="mt-1 text-xs text-neutral-500">{sub}</div> : null}
     </div>
   );
 }
@@ -106,8 +105,7 @@ function daysInMonth(yyyyMm: string) {
   const y = Number(yStr);
   const m = Number(mStr);
   if (!y || !m) return 30;
-  // Date.UTC: mês seguinte dia 0 => último dia do mês atual
-  return new Date(Date.UTC(y, m, 0)).getUTCDate();
+  return new Date(Date.UTC(y, m, 0)).getUTCDate(); // mês seguinte, dia 0 => último dia do mês atual
 }
 
 /** ✅ dia do mês "hoje" no timezone Recife */
@@ -136,9 +134,7 @@ export default function LucrosFuncionariosMesClient() {
     setLoading(true);
     setErr("");
     try {
-      const out = await apiGet<SummaryResp>(
-        `/api/payouts/funcionarios/month-summary?month=${encodeURIComponent(m)}`
-      );
+      const out = await apiGet<SummaryResp>(`/api/payouts/funcionarios/month-summary?month=${encodeURIComponent(m)}`);
       setData(out);
     } catch (e: any) {
       setData(null);
@@ -153,24 +149,54 @@ export default function LucrosFuncionariosMesClient() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [month]);
 
+  // ✅ tabela principal: ordena pelo líquido sem taxa
   const rows = useMemo(() => {
     return (data?.rows || []).slice().sort((a, b) => b.netNoFeeCents - a.netNoFeeCents);
   }, [data]);
 
-  // ✅ PROJEÇÃO DO MÊS (card)
-  const projectedNetNoFeeCents = useMemo(() => {
-    const net = Number(data?.totals.netNoFee || 0);
-    if (!Number.isFinite(net) || net <= 0) return 0;
-
+  // ✅ fator de projeção do mês (dia atual / dias do mês)
+  const projectionMeta = useMemo(() => {
     const daysMonth = daysInMonth(month);
     const isCurrentMonth = month === monthISORecifeClient();
-
-    // se não for o mês atual, projeção = real (evita distorcer histórico)
-    const daysPassed = isCurrentMonth ? recifeDayOfMonthToday() : daysMonth;
-
+    const daysPassed = isCurrentMonth ? recifeDayOfMonthToday() : daysMonth; // mês passado => projeção = real
     const safePassed = Math.max(1, Math.min(daysMonth, daysPassed));
-    return Math.round((net * daysMonth) / safePassed);
-  }, [data?.totals.netNoFee, month]);
+    const factor = daysMonth / safePassed;
+    return { daysMonth, daysPassed: safePassed, factor, isCurrentMonth };
+  }, [month]);
+
+  // ✅ projeção por funcionário + total
+  const projectionRows = useMemo(() => {
+    const base = data?.rows || [];
+    const factor = projectionMeta.factor;
+
+    const list = base.map((r) => {
+      const current = Number(r.netNoFeeCents || 0);
+      const projected = Math.round(current * factor);
+      return {
+        id: r.user.id,
+        name: firstName(r.user.name, r.user.login),
+        login: r.user.login,
+        currentCents: current,
+        projectedCents: projected,
+        deltaCents: projected - current,
+      };
+    });
+
+    // ordena pela projeção (opcional, fica mais “ranking”)
+    list.sort((a, b) => b.projectedCents - a.projectedCents);
+
+    const totalCurrent = Number(data?.totals.netNoFee || 0);
+    const totalProjected = Math.round(totalCurrent * factor);
+
+    return {
+      list,
+      total: {
+        currentCents: totalCurrent,
+        projectedCents: totalProjected,
+        deltaCents: totalProjected - totalCurrent,
+      },
+    };
+  }, [data, projectionMeta.factor]);
 
   return (
     <div className="space-y-4">
@@ -178,8 +204,8 @@ export default function LucrosFuncionariosMesClient() {
         <div className="space-y-1">
           <h2 className="text-lg font-semibold">Funcionários — análise do mês</h2>
           <p className="text-sm text-neutral-500">
-            Baseado nos dias <b>computados</b> em Comissões → Funcionários.{" "}
-            <b>Líquido aqui é SEM taxa</b> (taxa aparece separada).
+            Baseado nos dias <b>computados</b> em Comissões → Funcionários. <b>Líquido aqui é SEM taxa</b> (taxa aparece
+            separada).
           </p>
         </div>
 
@@ -194,10 +220,7 @@ export default function LucrosFuncionariosMesClient() {
             />
           </div>
 
-          <button
-            onClick={() => setMonth(prevMonth(month))}
-            className="h-10 rounded-xl border px-4 text-sm hover:bg-neutral-50"
-          >
+          <button onClick={() => setMonth(prevMonth(month))} className="h-10 rounded-xl border px-4 text-sm hover:bg-neutral-50">
             Mês anterior
           </button>
 
@@ -220,17 +243,9 @@ export default function LucrosFuncionariosMesClient() {
         <KPI label="Dias computados" value={String(data?.totals.days || 0)} />
       </div>
 
-      {/* ✅ Card extra embaixo (como você pediu) */}
-      <div className="grid grid-cols-1 gap-2 md:grid-cols-3">
-        <KPI
-          label="Projeção do mês (líquido sem taxa)"
-          value={fmtMoneyBR(projectedNetNoFeeCents)}
-          sub="Projeção = (líquido até hoje ÷ dia do mês) × dias do mês"
-        />
-      </div>
-
       {err ? <div className="rounded-2xl border bg-rose-50 p-3 text-sm text-rose-800">{err}</div> : null}
 
+      {/* ======= TABELA PRINCIPAL ======= */}
       <div className="overflow-hidden rounded-2xl border bg-white">
         <div className="overflow-x-auto">
           <table className="w-full text-left text-sm">
@@ -277,6 +292,62 @@ export default function LucrosFuncionariosMesClient() {
                 <tr>
                   <td className="px-4 py-6 text-sm text-neutral-500" colSpan={9}>
                     Nenhum dado para este mês (ou dias ainda não foram computados).
+                  </td>
+                </tr>
+              ) : null}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* ======= NOVA TABELA: PROJEÇÃO ======= */}
+      <div className="overflow-hidden rounded-2xl border bg-white">
+        <div className="border-b px-4 py-3">
+          <div className="text-sm font-semibold">Projeção do mês (líquido sem taxa)</div>
+          <div className="text-xs text-neutral-500">
+            Projeção = (líquido até hoje ÷ dia do mês) × dias do mês — base: dia{" "}
+            <b>{projectionMeta.daysPassed}</b> de <b>{projectionMeta.daysMonth}</b>
+            {projectionMeta.isCurrentMonth ? "" : " (mês fechado: projeção = real)"}.
+          </div>
+        </div>
+
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-sm">
+            <thead className="bg-neutral-50 text-xs text-neutral-600">
+              <tr>
+                <th className="px-4 py-3">Funcionário</th>
+                <th className="px-4 py-3 text-right">Líquido atual</th>
+                <th className="px-4 py-3 text-right">Projeção mês</th>
+                <th className="px-4 py-3 text-right">Diferença</th>
+              </tr>
+            </thead>
+
+            <tbody>
+              {projectionRows.list.map((r) => (
+                <tr key={r.id} className="border-t">
+                  <td className="px-4 py-3">
+                    <div className="font-medium">{r.name}</div>
+                    <div className="text-xs text-neutral-500">{r.login}</div>
+                  </td>
+
+                  <td className="px-4 py-3 text-right tabular-nums">{fmtMoneyBR(r.currentCents)}</td>
+                  <td className="px-4 py-3 text-right tabular-nums font-semibold">{fmtMoneyBR(r.projectedCents)}</td>
+                  <td className="px-4 py-3 text-right tabular-nums">{fmtMoneyBR(r.deltaCents)}</td>
+                </tr>
+              ))}
+
+              {/* TOTAL */}
+              <tr className="border-t bg-neutral-50/50">
+                <td className="px-4 py-3 font-semibold">TOTAL</td>
+                <td className="px-4 py-3 text-right tabular-nums font-semibold">{fmtMoneyBR(projectionRows.total.currentCents)}</td>
+                <td className="px-4 py-3 text-right tabular-nums font-semibold">{fmtMoneyBR(projectionRows.total.projectedCents)}</td>
+                <td className="px-4 py-3 text-right tabular-nums font-semibold">{fmtMoneyBR(projectionRows.total.deltaCents)}</td>
+              </tr>
+
+              {!projectionRows.list.length ? (
+                <tr>
+                  <td className="px-4 py-6 text-sm text-neutral-500" colSpan={4}>
+                    Sem dados para projetar.
                   </td>
                 </tr>
               ) : null}
