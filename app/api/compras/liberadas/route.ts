@@ -5,6 +5,7 @@ import { ok, badRequest, serverError } from "@/lib/api";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 type Program = "LATAM" | "SMILES" | "LIVELO" | "ESFERA";
 type Sess = { id: string; login: string; team: string; role: "admin" | "staff" };
@@ -73,6 +74,23 @@ function isProgram(v: any): v is Program {
   return v === "LATAM" || v === "SMILES" || v === "LIVELO" || v === "ESFERA";
 }
 
+type FinalizedMode = "OPEN" | "FINALIZED" | "ALL";
+function parseFinalizedMode(searchParams: URLSearchParams): FinalizedMode {
+  const v = String(searchParams.get("finalized") || "").trim().toLowerCase();
+
+  // finalized=0 | false | open  -> OPEN
+  if (v === "" || v === "0" || v === "false" || v === "open") return "OPEN";
+
+  // finalized=1 | true | finalized -> FINALIZED
+  if (v === "1" || v === "true" || v === "finalized") return "FINALIZED";
+
+  // finalized=all -> ALL
+  if (v === "all") return "ALL";
+
+  // fallback seguro
+  return "OPEN";
+}
+
 export async function GET(req: Request) {
   try {
     const session = await getServerSession();
@@ -85,16 +103,25 @@ export async function GET(req: Request) {
 
     const take = clampPosInt(searchParams.get("take"), 50);
 
-    // ✅ opcional: filtrar compras liberadas por programa
+    // ✅ opcional: filtrar por programa
     const programRaw = String(searchParams.get("program") || "").trim().toUpperCase();
     const program = isProgram(programRaw) ? (programRaw as Program) : null;
+
+    // ✅ padrão mantém como estava (somente não-finalizadas),
+    // mas agora dá pra pedir finalizadas ou todas:
+    // ?finalized=0 (default) | ?finalized=1 | ?finalized=all
+    const finalizedMode = parseFinalizedMode(searchParams);
 
     const comprasRaw = await prisma.purchase.findMany({
       where: {
         cedenteId,
         status: "CLOSED",
-        finalizedAt: null, // ✅ NÃO trazer compra já finalizada
-        ...(program ? { ciaAerea: program } : {}), // ✅ se informarem, trava no programa
+
+        ...(finalizedMode === "OPEN" ? { finalizedAt: null } : {}),
+        ...(finalizedMode === "FINALIZED" ? { finalizedAt: { not: null } } : {}),
+
+        ...(program ? { ciaAerea: program } : {}),
+
         // ✅ segurança: o cedente tem que ser do mesmo time do usuário logado
         cedente: { owner: { team: session.team } },
       },
@@ -111,6 +138,7 @@ export async function GET(req: Request) {
         metaMarkupCents: true,
 
         liberadoEm: true,
+        finalizedAt: true, // ✅ útil pra telas que precisem diferenciar
         liberadoPor: { select: { id: true, name: true, login: true } },
       },
     });
