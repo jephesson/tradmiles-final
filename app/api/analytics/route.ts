@@ -70,6 +70,34 @@ function pointsValueCents(points: number, milheiroCents: number) {
   return Math.round(denom * mk);
 }
 
+// ===== ✅ helpers p/ clubes por overlap (ativos no mês) =====
+function safeDate(v: any): Date | null {
+  if (!v) return null;
+  const d = new Date(v);
+  return Number.isFinite(d.getTime()) ? d : null;
+}
+
+/**
+ * ✅ ATIVO NO MÊS (overlap):
+ * - começou antes do fim do mês
+ * - e NÃO inativou antes do mês começar
+ */
+function overlapsMonth(subscribedAt: Date | null, inactivatedAt: Date | null, mStart: Date, mEnd: Date) {
+  if (!subscribedAt) return false;
+  if (subscribedAt >= mEnd) return false;
+  if (inactivatedAt && inactivatedAt < mStart) return false;
+  return true;
+}
+
+/**
+ * ✅ FICOU INATIVO NO MÊS:
+ * - inactivatedAt dentro do mês
+ */
+function inactivatedInMonth(inactivatedAt: Date | null, mStart: Date, mEnd: Date) {
+  if (!inactivatedAt) return false;
+  return inactivatedAt >= mStart && inactivatedAt < mEnd;
+}
+
 export async function GET(req: NextRequest) {
   try {
     const sess = await requireSession();
@@ -123,7 +151,7 @@ export async function GET(req: NextRequest) {
         date: { gte: histStart, lt: histEnd },
         ...(program !== "ALL" ? { program } : {}),
         seller: { team },
-        ...notCanceled, // ✅ AQUI
+        ...notCanceled,
       },
       select: {
         id: true,
@@ -265,39 +293,94 @@ export async function GET(req: NextRequest) {
 
     // =========================
     // 6) CLUBES POR MÊS (SMILES + LATAM)
+    // ✅ ATIVOS NO MÊS (overlap) + ✅ INATIVADOS NO MÊS
+    // Observação: como NÃO tem cancelAt no schema,
+    // usamos updatedAt como "data de inativação" quando status != ACTIVE.
     // =========================
-    let clubsByMonth: Array<{ key: string; label: string; smiles: number; latam: number }> = monthKeys.map((k) => ({
+    let clubsByMonth: Array<{
+      key: string;
+      label: string;
+
+      // compat com front antigo: smiles/latam = ATIVOS NO MÊS
+      smiles: number;
+      latam: number;
+
+      // novos: INATIVADOS NO MÊS
+      smilesInactivated: number;
+      latamInactivated: number;
+    }> = monthKeys.map((k) => ({
       key: k,
       label: monthLabelPT(k),
       smiles: 0,
       latam: 0,
+      smilesInactivated: 0,
+      latamInactivated: 0,
     }));
 
     const clubs = await prisma.clubSubscription.findMany({
       where: {
         team,
-        subscribedAt: { gte: histStart, lt: histEnd },
         program: { in: ["SMILES", "LATAM"] },
+        subscribedAt: { lt: histEnd },
+        OR: [
+          { status: "ACTIVE" },
+          { status: { in: ["PAUSED", "CANCELED"] }, updatedAt: { gte: histStart } },
+        ],
       },
-      select: { subscribedAt: true, program: true },
+      select: {
+        subscribedAt: true,
+        program: true,
+        status: true,
+        updatedAt: true,
+      },
     });
 
     {
-      const idx = new Map<string, { smiles: number; latam: number }>();
-      for (const k of monthKeys) idx.set(k, { smiles: 0, latam: 0 });
+      const idx = new Map<
+        string,
+        { smiles: number; latam: number; smilesInactivated: number; latamInactivated: number }
+      >();
+      for (const k of monthKeys) idx.set(k, { smiles: 0, latam: 0, smilesInactivated: 0, latamInactivated: 0 });
 
-      for (const c of clubs) {
-        const d = new Date(c.subscribedAt as any);
-        const k = monthKeyUTC(d);
-        const cur = idx.get(k);
-        if (!cur) continue;
-        if (c.program === "SMILES") cur.smiles += 1;
-        if (c.program === "LATAM") cur.latam += 1;
+      for (const k of monthKeys) {
+        const ms = monthStartUTC(k);
+        const me = addMonthsUTC(ms, 1);
+
+        const cur = idx.get(k)!;
+
+        for (const c of clubs) {
+          const subAt = safeDate(c.subscribedAt as any);
+          const updAt = safeDate(c.updatedAt as any);
+          if (!subAt || !updAt) continue;
+
+          const inactivatedAt = c.status === "ACTIVE" ? null : updAt;
+
+          // ✅ ativo no mês (overlap)
+          if (overlapsMonth(subAt, inactivatedAt, ms, me)) {
+            if (c.program === "SMILES") cur.smiles += 1;
+            if (c.program === "LATAM") cur.latam += 1;
+          }
+
+          // ✅ ficou inativo no mês
+          if (inactivatedInMonth(inactivatedAt, ms, me)) {
+            if (c.program === "SMILES") cur.smilesInactivated += 1;
+            if (c.program === "LATAM") cur.latamInactivated += 1;
+          }
+        }
+
+        idx.set(k, cur);
       }
 
       clubsByMonth = monthKeys.map((k) => {
-        const cur = idx.get(k) || { smiles: 0, latam: 0 };
-        return { key: k, label: monthLabelPT(k), smiles: cur.smiles, latam: cur.latam };
+        const cur = idx.get(k) || { smiles: 0, latam: 0, smilesInactivated: 0, latamInactivated: 0 };
+        return {
+          key: k,
+          label: monthLabelPT(k),
+          smiles: cur.smiles,
+          latam: cur.latam,
+          smilesInactivated: cur.smilesInactivated,
+          latamInactivated: cur.latamInactivated,
+        };
       });
     }
 
@@ -308,7 +391,7 @@ export async function GET(req: NextRequest) {
       seller: { team },
       ...(topMode === "MONTH" ? { date: { gte: mStart, lt: mEnd } } : { date: { gte: histStart, lt: histEnd } }),
       ...(topProgram !== "ALL" ? { program: topProgram } : {}),
-      ...notCanceled, // ✅ AQUI TAMBÉM
+      ...notCanceled,
     };
 
     const topSales = await prisma.sale.findMany({
