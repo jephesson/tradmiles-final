@@ -70,9 +70,7 @@ export default function ClientesClient() {
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold">Clientes</h1>
-          <p className="text-sm text-slate-600">
-            Clientes são para quem você vende os pontos.
-          </p>
+          <p className="text-sm text-slate-600">Clientes são para quem você vende os pontos.</p>
         </div>
 
         <div className="flex gap-2">
@@ -95,7 +93,7 @@ export default function ClientesClient() {
 
       {/* Search */}
       <div className="rounded-2xl border bg-white p-4">
-        <div className="text-xs text-slate-600 mb-1">Buscar</div>
+        <div className="mb-1 text-xs text-slate-600">Buscar</div>
         <input
           className="w-full rounded-xl border px-3 py-2 text-sm"
           value={q}
@@ -122,6 +120,7 @@ export default function ClientesClient() {
                   <th className="px-3 py-2 text-left">Telefone</th>
                   <th className="px-3 py-2 text-left">Origem</th>
                   <th className="px-3 py-2 text-left">Criado em</th>
+                  <th className="px-3 py-2 text-right">Ações</th>
                 </tr>
               </thead>
               <tbody>
@@ -134,6 +133,14 @@ export default function ClientesClient() {
                     <td className="px-3 py-2">{c.telefone || "-"}</td>
                     <td className="px-3 py-2">{origemLabel(c.origem, c.origemDescricao)}</td>
                     <td className="px-3 py-2">{dateBR(c.createdAt)}</td>
+                    <td className="px-3 py-2 text-right">
+                      <Link
+                        href={`/dashboard/clientes/${c.id}/editar`}
+                        className="inline-flex rounded-lg border px-3 py-1.5 text-xs hover:bg-white"
+                      >
+                        Editar
+                      </Link>
+                    </td>
                   </tr>
                 ))}
               </tbody>
