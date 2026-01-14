@@ -158,8 +158,9 @@ export default function Sidebar() {
   );
 
   const [openGestaoPontos, setOpenGestaoPontos] = useState(isGestaoPontosRoute);
-  const [openPontosVisualizar, setOpenPontosVisualizar] =
-    useState(isPontosVisualizarRoute);
+  const [openPontosVisualizar, setOpenPontosVisualizar] = useState(
+    isPontosVisualizarRoute
+  );
 
   const [openClubes, setOpenClubes] = useState(isClubesRoute);
 
@@ -177,10 +178,15 @@ export default function Sidebar() {
   const [openContasSelecionadasLatam, setOpenContasSelecionadasLatam] =
     useState(isContasSelecionadasLatamRoute);
 
+  // ✅ NOVO: smiles como sub-accordion (igual Latam)
+  const [openContasSelecionadasSmiles, setOpenContasSelecionadasSmiles] =
+    useState(isContasSelecionadasSmilesRoute);
+
   const [openFinanceiro, setOpenFinanceiro] = useState(isFinanceiroRoute);
 
-  const [openGestorEmissoes, setOpenGestorEmissoes] =
-    useState(isGestorEmissoesRoute);
+  const [openGestorEmissoes, setOpenGestorEmissoes] = useState(
+    isGestorEmissoesRoute
+  );
 
   const [openImportacoes, setOpenImportacoes] = useState(
     isImportacoesRoute || isImportacoesEmissoesLatamRoute
@@ -243,6 +249,11 @@ export default function Sidebar() {
   useEffect(() => {
     setOpenContasSelecionadasLatam(isContasSelecionadasLatamRoute);
   }, [isContasSelecionadasLatamRoute]);
+
+  // ✅ NOVO: mantém aberto quando entrar em /contas-selecionadas/smiles/*
+  useEffect(() => {
+    setOpenContasSelecionadasSmiles(isContasSelecionadasSmilesRoute);
+  }, [isContasSelecionadasSmilesRoute]);
 
   useEffect(() => setOpenFinanceiro(isFinanceiroRoute), [isFinanceiroRoute]);
 
@@ -575,9 +586,19 @@ export default function Sidebar() {
               </NavLink>
             </SubAccordion>
 
-            <NavLink href="/dashboard/contas-selecionadas/smiles">
-              Smiles
-            </NavLink>
+            {/* ✅ Smiles agora é SubAccordion, igual Latam */}
+            <SubAccordion
+              title="Smiles"
+              href="/dashboard/contas-selecionadas/smiles"
+              open={openContasSelecionadasSmiles}
+              onToggle={() => setOpenContasSelecionadasSmiles((v) => !v)}
+              variant="nav"
+              active={isContasSelecionadasSmilesRoute}
+            >
+              <NavLink href="/dashboard/contas-selecionadas/smiles/renovacao-clube">
+                Renovação Clube
+              </NavLink>
+            </SubAccordion>
           </SubAccordion>
         </Accordion>
 
