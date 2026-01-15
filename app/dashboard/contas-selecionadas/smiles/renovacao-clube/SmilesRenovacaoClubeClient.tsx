@@ -63,6 +63,51 @@ function maskCpf(cpf: string) {
   return `***.***.${d.slice(6, 9)}-${d.slice(9, 11)}`;
 }
 
+function statusRank(s: Item["status"]) {
+  // em empate de data, preferir o status mais "atual"
+  if (s === "ACTIVE") return 3;
+  if (s === "PAUSED") return 2;
+  return 1; // CANCELED
+}
+
+/**
+ * ✅ Remove histórico duplicado:
+ * mantém apenas o "último" por cedente (maior smilesBonusEligibleAt).
+ * Assim: quando você assina de novo, o novo registro empurra o cedente pro mês futuro
+ * e ele some de "Já liberados" do mês atual.
+ */
+function dedupLatestByCedente(list: Item[]) {
+  const map = new Map<string, Item>();
+
+  for (const it of list) {
+    const key = it.cedenteId || it.cedente?.id || it.id;
+    const cur = map.get(key);
+
+    if (!cur) {
+      map.set(key, it);
+      continue;
+    }
+
+    const a = String(cur.smilesBonusEligibleAt || "");
+    const b = String(it.smilesBonusEligibleAt || "");
+
+    // maior data ganha
+    if (b.localeCompare(a) > 0) {
+      map.set(key, it);
+      continue;
+    }
+    if (b.localeCompare(a) < 0) continue;
+
+    // empate de data: preferir status melhor (ACTIVE > PAUSED > CANCELED)
+    if (statusRank(it.status) > statusRank(cur.status)) {
+      map.set(key, it);
+      continue;
+    }
+  }
+
+  return Array.from(map.values());
+}
+
 export default function SmilesRenovacaoClubeClient() {
   const [items, setItems] = useState<Item[]>([]);
   const [loading, setLoading] = useState(false);
@@ -91,7 +136,10 @@ export default function SmilesRenovacaoClubeClient() {
       });
       const json = await r.json().catch(() => null);
       if (!r.ok || !json?.ok) throw new Error(json?.error || "Falha ao carregar");
-      setItems(Array.isArray(json.items) ? json.items : []);
+
+      const raw: Item[] = Array.isArray(json.items) ? json.items : [];
+      const dedup = dedupLatestByCedente(raw);
+      setItems(dedup);
     } catch (e: any) {
       setItems([]);
       setErr(e?.message || "Falha ao carregar");
