@@ -417,6 +417,31 @@ export default function ClubesClient({
     }
   }
 
+  async function onHardDelete(row: ClubeRow) {
+    resetAlerts();
+
+    if (row.status !== "CANCELED") {
+      setErr("Só é possível excluir definitivamente um registro CANCELADO.");
+      return;
+    }
+
+    const ok = window.confirm(
+      "Excluir definitivamente este registro?\n\nIsso remove do banco e NÃO tem como desfazer."
+    );
+    if (!ok) return;
+
+    setLoading(true);
+    try {
+      await jfetch(`/api/clubes/${row.id}?hard=1`, { method: "DELETE" });
+      setClubes((prev) => prev.filter((c) => c.id !== row.id));
+      setMsg("Registro excluído definitivamente ✅");
+    } catch (e: any) {
+      setErr(e?.message || "Erro ao excluir definitivamente");
+    } finally {
+      setLoading(false);
+    }
+  }
+
   const tierOptions = useMemo(() => Array.from({ length: 20 }, (_, i) => i + 1), []);
 
   return (
@@ -433,8 +458,9 @@ export default function ClubesClient({
         <div className="flex gap-2">
           <button
             onClick={startCreate}
-            className="rounded-xl border px-3 py-2 text-sm hover:bg-neutral-50"
+            className="rounded-xl border px-3 py-2 text-sm hover:bg-neutral-50 disabled:opacity-60"
             type="button"
+            disabled={loading}
           >
             Novo clube
           </button>
@@ -472,7 +498,7 @@ export default function ClubesClient({
               <button
                 type="button"
                 onClick={markRenewedToday}
-                className="rounded-xl border px-3 py-2 text-xs hover:bg-neutral-50"
+                className="rounded-xl border px-3 py-2 text-xs hover:bg-neutral-50 disabled:opacity-60"
                 disabled={loading}
                 title="Preenche última renovação com hoje e marca como renovado neste ciclo"
               >
@@ -487,7 +513,8 @@ export default function ClubesClient({
                   setEditingId(null);
                   setForm(emptyForm);
                 }}
-                className="text-xs text-neutral-500 hover:text-neutral-800"
+                className="text-xs text-neutral-500 hover:text-neutral-800 disabled:opacity-60"
+                disabled={loading}
               >
                 sair do modo edição
               </button>
@@ -508,7 +535,7 @@ export default function ClubesClient({
               className="mt-1 w-full rounded-xl border px-3 py-2 text-sm disabled:opacity-60"
               value={form.cedenteId}
               onChange={(e) => setForm((f) => ({ ...f, cedenteId: e.target.value }))}
-              disabled={!cedentes.length}
+              disabled={!cedentes.length || loading}
             >
               {cedentes.map((c) => (
                 <option key={c.id} value={c.id}>
@@ -521,7 +548,7 @@ export default function ClubesClient({
           <label className="text-xs text-neutral-600">
             Programa
             <select
-              className="mt-1 w-full rounded-xl border px-3 py-2 text-sm"
+              className="mt-1 w-full rounded-xl border px-3 py-2 text-sm disabled:opacity-60"
               value={form.program}
               onChange={(e) =>
                 setForm((f) => ({
@@ -529,6 +556,7 @@ export default function ClubesClient({
                   program: e.target.value as Program,
                 }))
               }
+              disabled={loading}
             >
               <option value="LATAM">LATAM</option>
               <option value="SMILES">SMILES</option>
@@ -540,9 +568,10 @@ export default function ClubesClient({
           <label className="text-xs text-neutral-600">
             Status
             <select
-              className="mt-1 w-full rounded-xl border px-3 py-2 text-sm"
+              className="mt-1 w-full rounded-xl border px-3 py-2 text-sm disabled:opacity-60"
               value={form.status}
               onChange={(e) => setForm((f) => ({ ...f, status: e.target.value as Status }))}
+              disabled={loading}
             >
               <option value="ACTIVE">ATIVO</option>
               <option value="PAUSED">PAUSADO</option>
@@ -556,9 +585,10 @@ export default function ClubesClient({
           <label className="text-xs text-neutral-600">
             Tier (K) (1k..20k)
             <select
-              className="mt-1 w-full rounded-xl border px-3 py-2 text-sm"
+              className="mt-1 w-full rounded-xl border px-3 py-2 text-sm disabled:opacity-60"
               value={String(form.tierK)}
               onChange={(e) => setForm((f) => ({ ...f, tierK: Number(e.target.value) }))}
+              disabled={loading}
             >
               {tierOptions.map((k) => (
                 <option key={k} value={k}>
@@ -571,17 +601,18 @@ export default function ClubesClient({
           <label className="text-xs text-neutral-600">
             Assinado em
             <input
-              className="mt-1 w-full rounded-xl border px-3 py-2 text-sm"
+              className="mt-1 w-full rounded-xl border px-3 py-2 text-sm disabled:opacity-60"
               type="date"
               value={form.subscribedAt}
               onChange={(e) => setForm((f) => ({ ...f, subscribedAt: e.target.value }))}
+              disabled={loading}
             />
           </label>
 
           <label className="text-xs text-neutral-600">
             Dia renovação (1-31)
             <input
-              className="mt-1 w-full rounded-xl border px-3 py-2 text-sm"
+              className="mt-1 w-full rounded-xl border px-3 py-2 text-sm disabled:opacity-60"
               type="number"
               min={1}
               max={31}
@@ -592,6 +623,7 @@ export default function ClubesClient({
                   renewalDay: Math.min(31, Math.max(1, Number(e.target.value) || 1)),
                 }))
               }
+              disabled={loading}
             />
             <div className="mt-1 text-[11px] text-neutral-400">
               *LATAM/SMILES: a inativação começa no dia seguinte à renovação do mês seguinte.
@@ -601,10 +633,11 @@ export default function ClubesClient({
           <label className="text-xs text-neutral-600">
             Última renovação (opcional)
             <input
-              className="mt-1 w-full rounded-xl border px-3 py-2 text-sm"
+              className="mt-1 w-full rounded-xl border px-3 py-2 text-sm disabled:opacity-60"
               type="date"
               value={form.lastRenewedAt}
               onChange={(e) => setForm((f) => ({ ...f, lastRenewedAt: e.target.value }))}
+              disabled={loading}
             />
           </label>
 
@@ -613,6 +646,7 @@ export default function ClubesClient({
               type="checkbox"
               checked={form.renewedThisCycle}
               onChange={(e) => setForm((f) => ({ ...f, renewedThisCycle: e.target.checked }))}
+              disabled={loading}
             />
             Renovou neste ciclo
           </label>
@@ -620,9 +654,10 @@ export default function ClubesClient({
           <label className="text-xs text-neutral-600 md:col-span-3">
             Observações (opcional)
             <textarea
-              className="mt-1 w-full rounded-xl border px-3 py-2 text-sm min-h-[70px]"
+              className="mt-1 w-full rounded-xl border px-3 py-2 text-sm min-h-[70px] disabled:opacity-60"
               value={form.notes}
               onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))}
+              disabled={loading}
             />
           </label>
         </div>
@@ -641,16 +676,18 @@ export default function ClubesClient({
       <div className="rounded-2xl border p-4 bg-white">
         <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
           <input
-            className="rounded-xl border px-3 py-2 text-sm"
+            className="rounded-xl border px-3 py-2 text-sm disabled:opacity-60"
             placeholder="Buscar (nome, identificador, cpf, obs...)"
             value={q}
             onChange={(e) => setQ(e.target.value)}
+            disabled={loading}
           />
 
           <select
-            className="rounded-xl border px-3 py-2 text-sm"
+            className="rounded-xl border px-3 py-2 text-sm disabled:opacity-60"
             value={filterProgram}
             onChange={(e) => setFilterProgram(e.target.value as any)}
+            disabled={loading}
           >
             <option value="">Todos programas</option>
             <option value="LATAM">LATAM</option>
@@ -660,9 +697,10 @@ export default function ClubesClient({
           </select>
 
           <select
-            className="rounded-xl border px-3 py-2 text-sm"
+            className="rounded-xl border px-3 py-2 text-sm disabled:opacity-60"
             value={filterStatus}
             onChange={(e) => setFilterStatus(e.target.value as any)}
+            disabled={loading}
           >
             <option value="">Todos status</option>
             <option value="ACTIVE">ATIVO</option>
@@ -709,15 +747,16 @@ export default function ClubesClient({
             <tbody className="divide-y">
               {filtered.map((c: any) => {
                 const nextLabel =
-                  c.program === "LATAM" || c.program === "SMILES" ? fmtDateBR(c._nextRenewalISO) : "-";
+                  c.program === "LATAM" || c.program === "SMILES"
+                    ? fmtDateBR(c._nextRenewalISO)
+                    : "-";
 
                 const inactiveLabel =
                   c.program === "LATAM" || c.program === "SMILES" || c.program === "LIVELO"
                     ? fmtDateBR(c._inactiveISO)
                     : "-";
 
-                const cancelOrInativaLabel =
-                  c.program === "ESFERA" ? "-" : fmtDateBR(c._cancelOrInativaISO);
+                const cancelOrInativaLabel = c.program === "ESFERA" ? "-" : fmtDateBR(c._cancelOrInativaISO);
 
                 const cancelOrInativaTitle =
                   c.program === "LIVELO"
@@ -772,7 +811,8 @@ export default function ClubesClient({
                       <button
                         type="button"
                         onClick={() => startEdit(c)}
-                        className="rounded-lg border px-2 py-1 text-xs hover:bg-white"
+                        className="rounded-lg border px-2 py-1 text-xs hover:bg-white disabled:opacity-60"
+                        disabled={loading}
                       >
                         Editar
                       </button>
@@ -781,10 +821,22 @@ export default function ClubesClient({
                         <button
                           type="button"
                           onClick={() => onCancel(c)}
-                          className="rounded-lg border px-2 py-1 text-xs hover:bg-white"
+                          className="rounded-lg border px-2 py-1 text-xs hover:bg-white disabled:opacity-60"
                           disabled={loading}
                         >
                           Cancelar
+                        </button>
+                      )}
+
+                      {c.status === "CANCELED" && (
+                        <button
+                          type="button"
+                          onClick={() => onHardDelete(c)}
+                          className="rounded-lg border px-2 py-1 text-xs text-red-600 hover:bg-red-50 disabled:opacity-60"
+                          disabled={loading}
+                          title="Excluir definitivamente (remove do banco)"
+                        >
+                          Excluir
                         </button>
                       )}
                     </td>
