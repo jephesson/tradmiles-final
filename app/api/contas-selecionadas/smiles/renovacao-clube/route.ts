@@ -17,11 +17,7 @@ export async function GET(req: Request) {
   try {
     /**
      * ✅ Por padrão, incluímos CANCELADOS também.
-     * Isso é necessário porque muitos "Promo SMILES" do mês atual
-     * estão em CANCELED (como no seu print de janeiro/2026).
-     *
-     * Opcional: se quiser ocultar cancelados no futuro, você pode chamar:
-     * /api/.../renovacao-clube?includeCanceled=0
+     * Opcional: /api/.../renovacao-clube?includeCanceled=0
      */
     const url = new URL(req.url);
     const includeCanceled = url.searchParams.get("includeCanceled") !== "0";
@@ -31,20 +27,26 @@ export async function GET(req: Request) {
       : (["ACTIVE", "PAUSED"] as const);
 
     /**
-     * ✅ Regra correta para deduplicar:
-     * 1) pega o MAIS RECENTE por cedente (orderBy updatedAt desc)
-     * 2) usa distinct cedenteId
-     * 3) depois ordena em memória por smilesBonusEligibleAt para exibição
+     * ✅ Deduplicação correta no Postgres (DISTINCT ON):
+     * - orderBy PRECISA começar pelo(s) campo(s) do distinct (cedenteId)
+     * - depois vem o critério do "mais recente" (updatedAt desc)
+     * - tie-break por id desc para ficar determinístico
      */
     const latestPerCedente = await prisma.clubSubscription.findMany({
       where: {
-        team: session.team,
         program: "SMILES",
         status: { in: statusIn as any },
         smilesBonusEligibleAt: { not: null },
+
+        // ✅ segurança: só devolve cedentes do mesmo time do usuário logado
+        cedente: { owner: { team: session.team } },
       },
-      orderBy: [{ updatedAt: "desc" }], // ✅ garante "mais recente"
-      distinct: ["cedenteId"], // ✅ 1 por cedente
+      distinct: ["cedenteId"],
+      orderBy: [
+        { cedenteId: "asc" }, // ✅ obrigatório com distinct no Postgres
+        { updatedAt: "desc" }, // ✅ pega o mais recente por cedente
+        { id: "desc" }, // ✅ desempate
+      ],
       select: {
         id: true,
         cedenteId: true,
@@ -54,7 +56,7 @@ export async function GET(req: Request) {
         lastRenewedAt: true,
         renewalDay: true,
         smilesBonusEligibleAt: true,
-        updatedAt: true, // útil para tie-break e auditoria
+        updatedAt: true,
         cedente: {
           select: {
             id: true,
@@ -74,7 +76,10 @@ export async function GET(req: Request) {
       const bv = String(b.smilesBonusEligibleAt || "");
       if (av !== bv) return av.localeCompare(bv); // asc por data elegível
       // tie-break: mais atualizado primeiro
-      return String(b.updatedAt).localeCompare(String(a.updatedAt));
+      const au = String(a.updatedAt || "");
+      const bu = String(b.updatedAt || "");
+      if (au !== bu) return bu.localeCompare(au);
+      return String(b.id).localeCompare(String(a.id));
     });
 
     return NextResponse.json({ ok: true, items: unique });
