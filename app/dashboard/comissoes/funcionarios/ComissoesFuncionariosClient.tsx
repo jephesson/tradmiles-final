@@ -62,11 +62,59 @@ type MonthResponse = {
   days: PayoutRow[];
 };
 
+type DetailSaleLine = {
+  ref: { type: "sale"; id: string };
+  numero: string;
+  locator: string | null;
+  points: number;
+  pointsValueCents: number;
+  c1Cents: number;
+  c2Cents: number;
+  c3Cents: number;
+  feeCents: number;
+};
+
+type DetailsResponse = {
+  ok: true;
+  scope: "day" | "month";
+  date: string;
+  month: string;
+  user: UserLite | null;
+  payout: {
+    id: string;
+    team: string;
+    date: string;
+    userId: string;
+    grossProfitCents: number;
+    tax7Cents: number;
+    feeCents: number;
+    netPayCents: number;
+    paidAt: string | null;
+    paidById: string | null;
+    paidBy: PaidByLite;
+  } | null;
+  breakdown: any;
+  explain: any;
+  lines?: { sales?: DetailSaleLine[] };
+  audit?: {
+    linesGrossCents: number;
+    payoutGrossCents: number;
+    diffGrossCents: number;
+    linesFeeCents: number;
+    payoutFeeCents: number;
+    diffFeeCents: number;
+  } | null;
+  note?: string;
+};
+
 function fmtMoneyBR(cents: number) {
   return ((cents || 0) / 100).toLocaleString("pt-BR", {
     style: "currency",
     currency: "BRL",
   });
+}
+function fmtInt(n: number) {
+  return new Intl.NumberFormat("pt-BR").format(n || 0);
 }
 
 function firstName(full?: string, fallback?: string) {
@@ -193,8 +241,15 @@ export default function ComissoesFuncionariosClient() {
 
   const [toast, setToast] = useState<{ title: string; desc?: string } | null>(null);
 
-  const [monthOpen, setMonthOpen] = useState(false);
-  const [monthUser, setMonthUser] = useState<UserLite | null>(null);
+  // ===== Drawer (Detalhes + Mês) =====
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [drawerTab, setDrawerTab] = useState<"DAY" | "MONTH">("DAY");
+  const [drawerUser, setDrawerUser] = useState<UserLite | null>(null);
+
+  const [detailsDate, setDetailsDate] = useState<string>(() => todayISORecife());
+  const [details, setDetails] = useState<DetailsResponse | null>(null);
+  const [detailsLoading, setDetailsLoading] = useState(false);
+
   const [month, setMonth] = useState<string>(() => monthFromISODate(todayISORecife()));
   const [monthData, setMonthData] = useState<MonthResponse | null>(null);
   const [monthLoading, setMonthLoading] = useState(false);
@@ -281,8 +336,12 @@ export default function ComissoesFuncionariosClient() {
       await apiPost<{ ok: true }>(`/api/payouts/funcionarios/pay`, { date: d, userId });
       await loadDay(d);
 
-      if (monthOpen && monthUser?.id === userId) {
-        await loadMonth(userId, month);
+      // se o drawer estiver aberto no mesmo user, atualiza também
+      if (drawerOpen && drawerUser?.id === userId) {
+        await loadDetails(d, userId);
+        if (drawerTab === "MONTH") {
+          await loadMonth(userId, monthFromISODate(d));
+        }
       }
 
       setToast({ title: "Pago!", desc: `Pagamento marcado para ${d}.` });
@@ -311,12 +370,54 @@ export default function ComissoesFuncionariosClient() {
     }
   }
 
-  async function openMonthDrawer(u: UserLite) {
-    const m = monthFromISODate(date);
+  async function loadDetails(d: string, userId: string) {
+    setDetailsLoading(true);
+    try {
+      const data = await apiGet<DetailsResponse>(
+        `/api/payouts/funcionarios/details?date=${encodeURIComponent(
+          d
+        )}&userId=${encodeURIComponent(userId)}&includeLines=1`
+      );
+      setDetails(data);
+    } catch (e: any) {
+      setDetails(null);
+      setToast({ title: "Falha ao carregar detalhes", desc: e?.message || String(e) });
+    } finally {
+      setDetailsLoading(false);
+    }
+  }
+
+  async function openDetailsDrawer(u: UserLite) {
+    const d = date;
+    const m = monthFromISODate(d);
+
+    setDrawerUser(u);
+    setDrawerOpen(true);
+    setDrawerTab("DAY");
+    setDetailsDate(d);
+
+    // carrega detalhe do dia
+    await loadDetails(d, u.id);
+
+    // prepara mês (lazy: você pode comentar se preferir carregar só ao clicar na aba)
     setMonth(m);
-    setMonthUser(u);
-    setMonthOpen(true);
-    await loadMonth(u.id, m);
+    setMonthData(null);
+  }
+
+  async function goToMonthTab() {
+    if (!drawerUser) return;
+    setDrawerTab("MONTH");
+    const mm = month.slice(0, 7) || monthFromISODate(detailsDate);
+    if (!monthData || monthData.month !== mm || monthData.userId !== drawerUser.id) {
+      await loadMonth(drawerUser.id, mm);
+    }
+  }
+
+  async function goToDayTab(d: string) {
+    if (!drawerUser) return;
+    setDrawerTab("DAY");
+    setDetailsDate(d);
+    await loadDetails(d, drawerUser.id);
   }
 
   useEffect(() => {
@@ -364,10 +465,34 @@ export default function ComissoesFuncionariosClient() {
   }, [monthData]);
 
   // ✅ classes de destaque (azul / verde)
-  const lucroCellCls =
-    "bg-sky-50 text-sky-900 ring-1 ring-inset ring-sky-200";
-  const liquidoCellCls =
-    "bg-emerald-50 text-emerald-900 ring-1 ring-inset ring-emerald-200";
+  const lucroCellCls = "bg-sky-50 text-sky-900 ring-1 ring-inset ring-sky-200";
+  const liquidoCellCls = "bg-emerald-50 text-emerald-900 ring-1 ring-inset ring-emerald-200";
+
+  // ===== detalhes (helpers) =====
+  const detailsSales = useMemo(() => details?.lines?.sales || [], [details]);
+  const detailsSum = useMemo(() => {
+    const rows = detailsSales || [];
+    const acc = rows.reduce(
+      (a, s) => {
+        a.c1 += s.c1Cents || 0;
+        a.c2 += s.c2Cents || 0;
+        a.c3 += s.c3Cents || 0;
+        a.fee += s.feeCents || 0;
+        a.pointsValue += s.pointsValueCents || 0;
+        a.sales += 1;
+        a.points += s.points || 0;
+        return a;
+      },
+      { c1: 0, c2: 0, c3: 0, fee: 0, pointsValue: 0, sales: 0, points: 0 }
+    );
+    return { ...acc, gross: acc.c1 + acc.c2 + acc.c3 };
+  }, [detailsSales]);
+
+  const detailsLucroSemTaxa = useMemo(() => {
+    const p = details?.payout;
+    if (!p) return 0;
+    return (p.grossProfitCents || 0) - (p.tax7Cents || 0);
+  }, [details]);
 
   return (
     <div className="space-y-4 p-4">
@@ -461,7 +586,6 @@ export default function ComissoesFuncionariosClient() {
                 <th className="px-4 py-3">Imposto (8%)</th>
                 <th className="px-4 py-3">Taxa embarque</th>
 
-                {/* ✅ cabeçalhos com fundo */}
                 <th className={`px-4 py-3 ${lucroCellCls}`}>Lucro s/ taxa</th>
                 <th className={`px-4 py-3 ${liquidoCellCls}`}>Líquido (a pagar)</th>
 
@@ -481,7 +605,6 @@ export default function ComissoesFuncionariosClient() {
                 const paying = payingKey === `${date}|${r.userId}`;
 
                 const displayName = firstName(r.user.name, r.user.login);
-
                 const lucroSemTaxa = lucroSemTaxaEmbarqueCents(r);
 
                 return (
@@ -500,7 +623,6 @@ export default function ComissoesFuncionariosClient() {
                     <td className="px-4 py-3">{fmtMoneyBR(r.tax7Cents || 0)}</td>
                     <td className="px-4 py-3">{fmtMoneyBR(r.feeCents || 0)}</td>
 
-                    {/* ✅ células com fundo */}
                     <td className={`px-4 py-3 font-semibold ${lucroCellCls}`}>
                       {fmtMoneyBR(lucroSemTaxa)}
                     </td>
@@ -526,11 +648,11 @@ export default function ComissoesFuncionariosClient() {
                     <td className="px-4 py-3 text-right">
                       <div className="flex justify-end gap-2">
                         <button
-                          onClick={() => openMonthDrawer(r.user)}
+                          onClick={() => openDetailsDrawer(r.user)}
                           className="h-9 rounded-xl border px-3 text-xs hover:bg-neutral-50"
-                          title={`Ver mês (${monthLabel})`}
+                          title="Ver detalhes (de onde veio cada valor)"
                         >
-                          Ver mês
+                          Detalhes
                         </button>
 
                         <button
@@ -572,19 +694,19 @@ export default function ComissoesFuncionariosClient() {
         (inclui reembolso da taxa).
       </p>
 
-      {/* Drawer mês */}
-      {monthOpen && (
+      {/* ===== Drawer Detalhes + Mês ===== */}
+      {drawerOpen && (
         <div className="fixed inset-0 z-50">
-          <div className="absolute inset-0 bg-black/40" onClick={() => setMonthOpen(false)} />
-          <div className="absolute right-0 top-0 h-full w-full max-w-[620px] bg-white shadow-2xl">
+          <div className="absolute inset-0 bg-black/40" onClick={() => setDrawerOpen(false)} />
+          <div className="absolute right-0 top-0 h-full w-full max-w-[780px] bg-white shadow-2xl">
             <div className="flex items-center justify-between border-b p-4">
-              <div>
-                <div className="text-sm font-semibold">Mês do funcionário</div>
+              <div className="space-y-0.5">
+                <div className="text-sm font-semibold">Detalhes do funcionário</div>
                 <div className="text-xs text-neutral-500">
-                  {monthUser ? (
+                  {drawerUser ? (
                     <>
-                      <span className="font-medium">{firstName(monthUser.name, monthUser.login)}</span>{" "}
-                      <span className="text-neutral-400">•</span> <span>{monthUser.login}</span>
+                      <span className="font-medium">{firstName(drawerUser.name, drawerUser.login)}</span>{" "}
+                      <span className="text-neutral-400">•</span> <span>{drawerUser.login}</span>
                     </>
                   ) : (
                     "-"
@@ -592,148 +714,353 @@ export default function ComissoesFuncionariosClient() {
                 </div>
               </div>
 
-              <button
-                onClick={() => setMonthOpen(false)}
-                className="h-9 rounded-xl border px-3 text-xs hover:bg-neutral-50"
-              >
-                Fechar
-              </button>
-            </div>
-
-            <div className="space-y-3 p-4">
-              <div className="flex items-end justify-between gap-2">
-                <div className="flex flex-col">
-                  <label className="text-xs text-neutral-500">Mês (YYYY-MM)</label>
-                  <input
-                    value={month}
-                    onChange={(e) => setMonth(e.target.value.slice(0, 7))}
-                    placeholder="YYYY-MM"
-                    className="h-10 rounded-xl border px-3 text-sm"
-                  />
-                </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setDrawerTab("DAY")}
+                  className={[
+                    "h-9 rounded-xl border px-3 text-xs",
+                    drawerTab === "DAY" ? "bg-black text-white border-black" : "hover:bg-neutral-50",
+                  ].join(" ")}
+                >
+                  Dia
+                </button>
 
                 <button
-                  onClick={() => monthUser && loadMonth(monthUser.id, month)}
-                  disabled={!monthUser || monthLoading}
-                  className="h-10 rounded-xl bg-black px-4 text-sm text-white hover:bg-neutral-800 disabled:opacity-50"
+                  onClick={goToMonthTab}
+                  className={[
+                    "h-9 rounded-xl border px-3 text-xs",
+                    drawerTab === "MONTH" ? "bg-black text-white border-black" : "hover:bg-neutral-50",
+                  ].join(" ")}
                 >
-                  {monthLoading ? "Carregando..." : "Atualizar mês"}
+                  Mês
+                </button>
+
+                <button
+                  onClick={() => setDrawerOpen(false)}
+                  className="h-9 rounded-xl border px-3 text-xs hover:bg-neutral-50"
+                >
+                  Fechar
                 </button>
               </div>
+            </div>
 
-              <div className="grid grid-cols-2 gap-2 md:grid-cols-7">
-                <KPI label="Bruto" value={fmtMoneyBR(monthData?.totals.gross || 0)} />
-                <KPI label="Imposto" value={fmtMoneyBR(monthData?.totals.tax || 0)} />
-                <KPI label="Taxas" value={fmtMoneyBR(monthData?.totals.fee || 0)} />
-                <KPI label="Líquido (a pagar)" value={fmtMoneyBR(monthData?.totals.net || 0)} />
-                <KPI label="Lucro s/ taxa" value={fmtMoneyBR(monthExtra.lucroSemTaxa)} />
-                <KPI label="Pago" value={fmtMoneyBR(monthData?.totals.paid || 0)} />
-                <KPI label="Pendente" value={fmtMoneyBR(monthData?.totals.pending || 0)} />
-              </div>
+            {/* ===== TAB: DAY ===== */}
+            {drawerTab === "DAY" && (
+              <div className="space-y-3 p-4">
+                <div className="flex flex-wrap items-end justify-between gap-2">
+                  <div className="flex flex-col">
+                    <label className="text-xs text-neutral-500">Dia</label>
+                    <input
+                      type="date"
+                      value={detailsDate}
+                      onChange={(e) => setDetailsDate(e.target.value)}
+                      className="h-10 rounded-xl border px-3 text-sm"
+                    />
+                  </div>
 
-              <div className="overflow-hidden rounded-2xl border">
-                <div className="max-h-[55vh] overflow-auto">
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => drawerUser && goToDayTab(detailsDate)}
+                      disabled={!drawerUser || detailsLoading}
+                      className="h-10 rounded-xl bg-black px-4 text-sm text-white hover:bg-neutral-800 disabled:opacity-50"
+                    >
+                      {detailsLoading ? "Carregando..." : "Atualizar detalhes"}
+                    </button>
+                  </div>
+                </div>
+
+                <div className="rounded-2xl border bg-neutral-50 p-3 text-xs text-neutral-700">
+                  <div className="font-semibold">Como ler:</div>
+                  <ul className="list-disc pl-5">
+                    <li>
+                      <b>Fonte de verdade</b>: payout salvo em <b>employee_payouts</b>.
+                    </li>
+                    <li>
+                      A lista abaixo é uma <b>explicação/auditoria</b> (de onde veio).
+                    </li>
+                  </ul>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2 md:grid-cols-5">
+                  <KPI label="Bruto (payout)" value={fmtMoneyBR(details?.payout?.grossProfitCents || 0)} />
+                  <KPI label="Imposto (payout)" value={fmtMoneyBR(details?.payout?.tax7Cents || 0)} />
+                  <KPI label="Taxas (payout)" value={fmtMoneyBR(details?.payout?.feeCents || 0)} />
+                  <KPI label="Lucro s/ taxa" value={fmtMoneyBR(detailsLucroSemTaxa)} />
+                  <KPI label="Líquido (a pagar)" value={fmtMoneyBR(details?.payout?.netPayCents || 0)} />
+                </div>
+
+                {details?.audit ? (
+                  <div className="rounded-2xl border bg-white p-3 text-sm">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="font-semibold">Auditoria (linhas vs payout)</div>
+                      <div className="flex gap-2">
+                        {details.audit.diffGrossCents === 0 ? (
+                          <Pill kind="ok" text="Bruto bate" />
+                        ) : (
+                          <Pill kind="warn" text={`Bruto dif: ${fmtMoneyBR(details.audit.diffGrossCents)}`} />
+                        )}
+                        {details.audit.diffFeeCents === 0 ? (
+                          <Pill kind="ok" text="Taxas batem" />
+                        ) : (
+                          <Pill kind="warn" text={`Taxas dif: ${fmtMoneyBR(details.audit.diffFeeCents)}`} />
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="mt-2 grid grid-cols-2 gap-2 md:grid-cols-4 text-xs text-neutral-700">
+                      <div>
+                        <div className="text-neutral-500">Bruto (linhas)</div>
+                        <div className="font-medium">{fmtMoneyBR(details.audit.linesGrossCents)}</div>
+                      </div>
+                      <div>
+                        <div className="text-neutral-500">Bruto (payout)</div>
+                        <div className="font-medium">{fmtMoneyBR(details.audit.payoutGrossCents)}</div>
+                      </div>
+                      <div>
+                        <div className="text-neutral-500">Taxas (linhas)</div>
+                        <div className="font-medium">{fmtMoneyBR(details.audit.linesFeeCents)}</div>
+                      </div>
+                      <div>
+                        <div className="text-neutral-500">Taxas (payout)</div>
+                        <div className="font-medium">{fmtMoneyBR(details.audit.payoutFeeCents)}</div>
+                      </div>
+                    </div>
+
+                    <div className="mt-2 text-xs text-neutral-500">
+                      Se houver diferença, normalmente é porque C2/C3/fee estão sendo calculados no compute com uma regra
+                      diferente da auditoria.
+                    </div>
+                  </div>
+                ) : null}
+
+                <div className="overflow-hidden rounded-2xl border bg-white">
+                  <div className="px-4 py-3 border-b flex items-center justify-between">
+                    <div className="text-sm font-semibold">Linhas (de onde veio)</div>
+                    <div className="text-xs text-neutral-500">
+                      {detailsSum.sales} vendas • {fmtInt(detailsSum.points)} pontos • PV: {fmtMoneyBR(detailsSum.pointsValue)}
+                    </div>
+                  </div>
+
                   <div className="overflow-x-auto">
-                    <table className="w-full text-left text-sm">
-                      <thead className="sticky top-0 bg-neutral-50 text-xs text-neutral-600">
+                    <table className="min-w-[980px] w-full text-left text-sm">
+                      <thead className="bg-neutral-50 text-xs text-neutral-600">
                         <tr>
-                          <th className="px-4 py-3">Dia</th>
-                          <th className="px-4 py-3 text-right">Vendas</th>
+                          <th className="px-4 py-3">Venda</th>
+                          <th className="px-4 py-3">Localizador</th>
+                          <th className="px-4 py-3 text-right">Pontos</th>
+                          <th className="px-4 py-3">Valor pontos</th>
                           <th className="px-4 py-3">C1</th>
                           <th className="px-4 py-3">C2</th>
                           <th className="px-4 py-3">C3</th>
-
-                          <th className="px-4 py-3">Imposto</th>
-                          <th className="px-4 py-3">Taxa</th>
-
-                          <th className={`px-4 py-3 ${lucroCellCls}`}>Lucro s/ taxa</th>
-                          <th className={`px-4 py-3 ${liquidoCellCls}`}>Líquido</th>
-
-                          <th className="px-4 py-3">Status</th>
-                          <th className="px-4 py-3 text-right">Ação</th>
+                          <th className="px-4 py-3">Taxa embarque</th>
                         </tr>
                       </thead>
 
                       <tbody>
-                        {(monthData?.days || []).map((r) => {
-                          const b = r.breakdown;
-                          const isPaid = !!r.paidById;
-                          const canPayThisDay = !isPaid && r.date < todayISORecife();
-                          const paying = payingKey === `${r.date}|${r.userId}`;
+                        {(detailsSales || []).map((s) => (
+                          <tr key={s.ref.id} className="border-t">
+                            <td className="px-4 py-3 font-medium">{s.numero}</td>
+                            <td className="px-4 py-3 text-neutral-600">{s.locator || "-"}</td>
+                            <td className="px-4 py-3 text-right tabular-nums">{fmtInt(s.points || 0)}</td>
+                            <td className="px-4 py-3">{fmtMoneyBR(s.pointsValueCents || 0)}</td>
+                            <td className="px-4 py-3">{fmtMoneyBR(s.c1Cents || 0)}</td>
+                            <td className="px-4 py-3">{fmtMoneyBR(s.c2Cents || 0)}</td>
+                            <td className="px-4 py-3">{fmtMoneyBR(s.c3Cents || 0)}</td>
+                            <td className="px-4 py-3">{fmtMoneyBR(s.feeCents || 0)}</td>
+                          </tr>
+                        ))}
 
-                          const lucroSemTaxa = lucroSemTaxaEmbarqueCents(r);
-
-                          return (
-                            <tr key={r.id} className="border-t">
-                              <td className="px-4 py-3 font-medium">{r.date}</td>
-
-                              <td className="px-4 py-3 text-right tabular-nums">{b?.salesCount ?? 0}</td>
-
-                              <td className="px-4 py-3">{fmtMoneyBR(b?.commission1Cents ?? 0)}</td>
-                              <td className="px-4 py-3">{fmtMoneyBR(b?.commission2Cents ?? 0)}</td>
-                              <td className="px-4 py-3">{fmtMoneyBR(b?.commission3RateioCents ?? 0)}</td>
-
-                              <td className="px-4 py-3">{fmtMoneyBR(r.tax7Cents || 0)}</td>
-                              <td className="px-4 py-3">{fmtMoneyBR(r.feeCents || 0)}</td>
-
-                              <td className={`px-4 py-3 font-semibold ${lucroCellCls}`}>
-                                {fmtMoneyBR(lucroSemTaxa)}
-                              </td>
-
-                              <td className={`px-4 py-3 font-bold ${liquidoCellCls}`}>
-                                {fmtMoneyBR(r.netPayCents || 0)}
-                              </td>
-
-                              <td className="px-4 py-3">
-                                {isPaid ? (
-                                  <div className="space-y-1">
-                                    <Pill kind="ok" text="PAGO" />
-                                    <div className="text-xs text-neutral-500">
-                                      {r.paidBy?.name ? `por ${r.paidBy.name}` : ""}
-                                      {r.paidAt ? ` • ${fmtDateTimeBR(r.paidAt)}` : ""}
-                                    </div>
-                                  </div>
-                                ) : (
-                                  <Pill kind="warn" text="PENDENTE" />
-                                )}
-                              </td>
-
-                              <td className="px-4 py-3 text-right">
-                                <button
-                                  onClick={() => monthUser && payRow(r.date, monthUser.id)}
-                                  disabled={!monthUser || !canPayThisDay || paying}
-                                  className="h-9 rounded-xl bg-black px-3 text-xs text-white hover:bg-neutral-800 disabled:opacity-50"
-                                  title={
-                                    canPayThisDay
-                                      ? "Marcar este dia como pago"
-                                      : "Só paga dias anteriores a hoje / ou já pago"
-                                  }
-                                >
-                                  {paying ? "Pagando..." : "Pagar"}
-                                </button>
-                              </td>
-                            </tr>
-                          );
-                        })}
-
-                        {!monthData?.days?.length && (
+                        {!detailsSales?.length ? (
                           <tr>
-                            <td className="px-4 py-8 text-center text-sm text-neutral-500" colSpan={11}>
-                              Sem dados no mês selecionado.
+                            <td className="px-4 py-8 text-center text-sm text-neutral-500" colSpan={8}>
+                              Sem linhas para este dia (ou compute não conseguiu auditar).
                             </td>
+                          </tr>
+                        ) : (
+                          <tr className="border-t bg-neutral-50">
+                            <td className="px-4 py-3 font-semibold" colSpan={4}>
+                              Totais (linhas)
+                            </td>
+                            <td className="px-4 py-3 font-semibold">{fmtMoneyBR(detailsSum.c1)}</td>
+                            <td className="px-4 py-3 font-semibold">{fmtMoneyBR(detailsSum.c2)}</td>
+                            <td className="px-4 py-3 font-semibold">{fmtMoneyBR(detailsSum.c3)}</td>
+                            <td className="px-4 py-3 font-semibold">{fmtMoneyBR(detailsSum.fee)}</td>
                           </tr>
                         )}
                       </tbody>
                     </table>
                   </div>
                 </div>
-              </div>
 
-              <div className="text-xs text-neutral-500">
-                Dica: o mês mostra apenas os dias que existem na tabela <b>employee_payouts</b>. Se estiver vazio, rode{" "}
-                <b>Computar</b>/<b>Recalcular</b> nos dias necessários.
+                {details?.payout?.paidById ? (
+                  <div className="rounded-2xl border bg-white p-3 text-sm">
+                    <div className="flex items-center justify-between">
+                      <div className="font-semibold">Status</div>
+                      <Pill kind="ok" text="PAGO" />
+                    </div>
+                    <div className="mt-1 text-xs text-neutral-600">
+                      {details.payout.paidBy?.name ? `por ${details.payout.paidBy.name}` : ""}
+                      {details.payout.paidAt ? ` • ${fmtDateTimeBR(details.payout.paidAt)}` : ""}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="rounded-2xl border bg-white p-3 text-sm flex items-center justify-between">
+                    <div>
+                      <div className="font-semibold">Status</div>
+                      <div className="text-xs text-neutral-500">
+                        {detailsDate < today ? "Dia fechado (pode pagar)" : "Dia ainda em aberto"}
+                      </div>
+                    </div>
+                    <Pill kind={detailsDate < today ? "warn" : "muted"} text="PENDENTE" />
+                  </div>
+                )}
               </div>
-            </div>
+            )}
+
+            {/* ===== TAB: MONTH ===== */}
+            {drawerTab === "MONTH" && (
+              <div className="space-y-3 p-4">
+                <div className="flex items-end justify-between gap-2">
+                  <div className="flex flex-col">
+                    <label className="text-xs text-neutral-500">Mês (YYYY-MM)</label>
+                    <input
+                      value={month}
+                      onChange={(e) => setMonth(e.target.value.slice(0, 7))}
+                      placeholder="YYYY-MM"
+                      className="h-10 rounded-xl border px-3 text-sm"
+                    />
+                  </div>
+
+                  <button
+                    onClick={() => drawerUser && loadMonth(drawerUser.id, month)}
+                    disabled={!drawerUser || monthLoading}
+                    className="h-10 rounded-xl bg-black px-4 text-sm text-white hover:bg-neutral-800 disabled:opacity-50"
+                  >
+                    {monthLoading ? "Carregando..." : "Atualizar mês"}
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2 md:grid-cols-7">
+                  <KPI label="Bruto" value={fmtMoneyBR(monthData?.totals.gross || 0)} />
+                  <KPI label="Imposto" value={fmtMoneyBR(monthData?.totals.tax || 0)} />
+                  <KPI label="Taxas" value={fmtMoneyBR(monthData?.totals.fee || 0)} />
+                  <KPI label="Líquido (a pagar)" value={fmtMoneyBR(monthData?.totals.net || 0)} />
+                  <KPI label="Lucro s/ taxa" value={fmtMoneyBR(monthExtra.lucroSemTaxa)} />
+                  <KPI label="Pago" value={fmtMoneyBR(monthData?.totals.paid || 0)} />
+                  <KPI label="Pendente" value={fmtMoneyBR(monthData?.totals.pending || 0)} />
+                </div>
+
+                <div className="overflow-hidden rounded-2xl border">
+                  <div className="max-h-[55vh] overflow-auto">
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left text-sm">
+                        <thead className="sticky top-0 bg-neutral-50 text-xs text-neutral-600">
+                          <tr>
+                            <th className="px-4 py-3">Dia</th>
+                            <th className="px-4 py-3 text-right">Vendas</th>
+                            <th className="px-4 py-3">C1</th>
+                            <th className="px-4 py-3">C2</th>
+                            <th className="px-4 py-3">C3</th>
+                            <th className="px-4 py-3">Imposto</th>
+                            <th className="px-4 py-3">Taxa</th>
+                            <th className={`px-4 py-3 ${lucroCellCls}`}>Lucro s/ taxa</th>
+                            <th className={`px-4 py-3 ${liquidoCellCls}`}>Líquido</th>
+                            <th className="px-4 py-3">Status</th>
+                            <th className="px-4 py-3 text-right">Ações</th>
+                          </tr>
+                        </thead>
+
+                        <tbody>
+                          {(monthData?.days || []).map((r) => {
+                            const b = r.breakdown;
+                            const isPaid = !!r.paidById;
+                            const canPayThisDay = !isPaid && r.date < todayISORecife();
+                            const paying = payingKey === `${r.date}|${r.userId}`;
+
+                            const lucroSemTaxa = lucroSemTaxaEmbarqueCents(r);
+
+                            return (
+                              <tr key={r.id} className="border-t">
+                                <td className="px-4 py-3 font-medium">{r.date}</td>
+
+                                <td className="px-4 py-3 text-right tabular-nums">{b?.salesCount ?? 0}</td>
+
+                                <td className="px-4 py-3">{fmtMoneyBR(b?.commission1Cents ?? 0)}</td>
+                                <td className="px-4 py-3">{fmtMoneyBR(b?.commission2Cents ?? 0)}</td>
+                                <td className="px-4 py-3">{fmtMoneyBR(b?.commission3RateioCents ?? 0)}</td>
+
+                                <td className="px-4 py-3">{fmtMoneyBR(r.tax7Cents || 0)}</td>
+                                <td className="px-4 py-3">{fmtMoneyBR(r.feeCents || 0)}</td>
+
+                                <td className={`px-4 py-3 font-semibold ${lucroCellCls}`}>
+                                  {fmtMoneyBR(lucroSemTaxa)}
+                                </td>
+
+                                <td className={`px-4 py-3 font-bold ${liquidoCellCls}`}>
+                                  {fmtMoneyBR(r.netPayCents || 0)}
+                                </td>
+
+                                <td className="px-4 py-3">
+                                  {isPaid ? (
+                                    <div className="space-y-1">
+                                      <Pill kind="ok" text="PAGO" />
+                                      <div className="text-xs text-neutral-500">
+                                        {r.paidBy?.name ? `por ${r.paidBy.name}` : ""}
+                                        {r.paidAt ? ` • ${fmtDateTimeBR(r.paidAt)}` : ""}
+                                      </div>
+                                    </div>
+                                  ) : (
+                                    <Pill kind="warn" text="PENDENTE" />
+                                  )}
+                                </td>
+
+                                <td className="px-4 py-3 text-right">
+                                  <div className="flex justify-end gap-2">
+                                    <button
+                                      onClick={() => goToDayTab(r.date)}
+                                      className="h-9 rounded-xl border px-3 text-xs hover:bg-neutral-50"
+                                      title="Abrir detalhes deste dia (linhas)"
+                                    >
+                                      Detalhes
+                                    </button>
+
+                                    <button
+                                      onClick={() => drawerUser && payRow(r.date, drawerUser.id)}
+                                      disabled={!drawerUser || !canPayThisDay || paying}
+                                      className="h-9 rounded-xl bg-black px-3 text-xs text-white hover:bg-neutral-800 disabled:opacity-50"
+                                      title={
+                                        canPayThisDay
+                                          ? "Marcar este dia como pago"
+                                          : "Só paga dias anteriores a hoje / ou já pago"
+                                      }
+                                    >
+                                      {paying ? "Pagando..." : "Pagar"}
+                                    </button>
+                                  </div>
+                                </td>
+                              </tr>
+                            );
+                          })}
+
+                          {!monthData?.days?.length && (
+                            <tr>
+                              <td className="px-4 py-8 text-center text-sm text-neutral-500" colSpan={11}>
+                                Sem dados no mês selecionado.
+                              </td>
+                            </tr>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="text-xs text-neutral-500">
+                  Dica: o mês mostra apenas os dias que existem na tabela <b>employee_payouts</b>. Se estiver vazio, rode{" "}
+                  <b>Computar</b>/<b>Recalcular</b> nos dias necessários.
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}
