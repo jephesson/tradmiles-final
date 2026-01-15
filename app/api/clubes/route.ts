@@ -137,8 +137,6 @@ function computeAutoDates(input: {
     inactiveAt = addDaysUTC(base, LIVELO_INACTIVE_AFTER_SUBSCRIBE_DAYS);
     pointsExpireAt = inactiveAt;
     nextRenewalAt = inactiveAt;
-  } else {
-    // ESFERA: sem automação
   }
 
   return { nextRenewalAt, inactiveAt, pointsExpireAt, smilesBonusEligibleAt };
@@ -163,6 +161,7 @@ export async function GET(req: NextRequest) {
   if (programRaw && !program) return bad("Program inválido");
   if (statusRaw && !status) return bad("Status inválido");
 
+  // NÃO filtra status no banco (pra automação on-demand poder atualizar)
   const where: any = {
     team: session.team,
     ...(cedenteId ? { cedenteId } : {}),
@@ -190,10 +189,9 @@ export async function GET(req: NextRequest) {
       orderBy: [{ subscribedAt: "desc" }, { createdAt: "desc" }],
     });
 
-    // ===== automação on-demand =====
     const now = startUTC(new Date());
 
-    // ✅ SMILES: precisamos da ÚLTIMA assinatura por cedente (MAX) para promo+365
+    // ✅ SMILES: ÚLTIMA assinatura por cedente (MAX) para promo+365
     const smilesCedenteIds = Array.from(
       new Set(items.filter((i) => i.program === "SMILES").map((i) => i.cedenteId))
     );
@@ -226,16 +224,17 @@ export async function GET(req: NextRequest) {
         subscribedAt: it.subscribedAt as Date,
         renewalDay,
         lastRenewedAt: (it.lastRenewedAt as Date | null) ?? null,
-        smilesPromoBaseAt: lastSmilesByCedente.get(it.cedenteId) ?? null,
+        smilesPromoBaseAt:
+          it.program === "SMILES" ? (lastSmilesByCedente.get(it.cedenteId) ?? null) : null,
       });
 
+      // downgrade automático (não reativa sozinho)
       let desiredStatus: Status = it.status as Status;
 
       if (desiredStatus !== "CANCELED") {
         if (auto.pointsExpireAt && (it.program === "LATAM" || it.program === "SMILES")) {
           if (now >= startUTC(auto.pointsExpireAt)) desiredStatus = "CANCELED";
         }
-
         if (auto.inactiveAt && now >= startUTC(auto.inactiveAt) && desiredStatus === "ACTIVE") {
           desiredStatus = "PAUSED";
         }
@@ -244,6 +243,7 @@ export async function GET(req: NextRequest) {
       const desired: any = {};
       let dirty = false;
 
+      // normalizações
       if (it.priceCents !== 0) {
         desired.priceCents = 0;
         dirty = true;
@@ -257,6 +257,7 @@ export async function GET(req: NextRequest) {
         dirty = true;
       }
 
+      // pointsExpireAt
       const curPE: Date | null = it.pointsExpireAt ?? null;
       const nxtPE: Date | null = auto.pointsExpireAt ?? null;
       const samePE =
@@ -268,6 +269,7 @@ export async function GET(req: NextRequest) {
         dirty = true;
       }
 
+      // SMILES promo: sempre recalcula e aplica igual em todos os registros do cedente
       if (it.program === "SMILES") {
         const curSB: Date | null = it.smilesBonusEligibleAt ?? null;
         const nxtSB: Date | null = auto.smilesBonusEligibleAt ?? null;
@@ -351,7 +353,7 @@ export async function POST(req: NextRequest) {
     });
     if (!ced) return bad("Cedente não encontrado (ou não pertence ao seu time)", 404);
 
-    // ✅ SMILES: pega a ÚLTIMA assinatura do cedente (MAX) para promo+365
+    // ✅ SMILES: base = última assinatura SMILES (MAX), incluindo o registro novo
     let promoBaseAt: Date | null = null;
     if (program === "SMILES") {
       const agg = await prisma.clubSubscription.aggregate({
