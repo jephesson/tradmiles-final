@@ -101,7 +101,6 @@ function computeAutoDates(input: {
   subscribedAt: Date;
   renewalDay: number;
   lastRenewedAt: Date | null;
-  firstSmilesSubscribedAt?: Date | null;
 }) {
   const { program, subscribedAt, renewalDay, lastRenewedAt } = input;
 
@@ -132,8 +131,8 @@ function computeAutoDates(input: {
     pointsExpireAt = addDaysUTC(inactiveAt, cancelAfter);
 
     if (program === "SMILES") {
-      const first = input.firstSmilesSubscribedAt ?? subscribedAt;
-      smilesBonusEligibleAt = addDaysUTC(first, SMILES_PROMO_DAYS);
+      // ✅ POR REGISTRO: assinatura do próprio clube + 365 dias
+      smilesBonusEligibleAt = addDaysUTC(subscribedAt, SMILES_PROMO_DAYS);
     }
   } else if (program === "LIVELO") {
     // ✅ LIVELO: inativo exatamente 30 dias após assinatura/renovação (se houver lastRenewedAt, usa ele)
@@ -201,29 +200,6 @@ export async function GET(req: NextRequest) {
 
     // ===== automação on-demand =====
     const now = startUTC(new Date());
-
-    // SMILES: precisamos do "primeiro subscribedAt" por cedente pra promo+365
-    const smilesCedenteIds = Array.from(
-      new Set(items.filter((i) => i.program === "SMILES").map((i) => i.cedenteId))
-    );
-
-    const firstSmilesByCedente = new Map<string, Date>();
-    if (smilesCedenteIds.length) {
-      const grouped = await prisma.clubSubscription.groupBy({
-        by: ["cedenteId"],
-        where: {
-          team: session.team,
-          program: "SMILES" as any,
-          cedenteId: { in: smilesCedenteIds },
-        },
-        _min: { subscribedAt: true },
-      });
-
-      for (const g of grouped) {
-        if (g._min.subscribedAt) firstSmilesByCedente.set(g.cedenteId, g._min.subscribedAt);
-      }
-    }
-
     const updates: Promise<any>[] = [];
 
     for (const it of items as any[]) {
@@ -235,7 +211,6 @@ export async function GET(req: NextRequest) {
         subscribedAt: it.subscribedAt as Date,
         renewalDay,
         lastRenewedAt: (it.lastRenewedAt as Date | null) ?? null,
-        firstSmilesSubscribedAt: firstSmilesByCedente.get(it.cedenteId) ?? null,
       });
 
       // só faz downgrade automático (não reativa sozinho)
@@ -282,7 +257,7 @@ export async function GET(req: NextRequest) {
         dirty = true;
       }
 
-      // SMILES promo (sempre recalcula)
+      // SMILES promo (sempre recalcula por registro)
       if (it.program === "SMILES") {
         const curSB: Date | null = it.smilesBonusEligibleAt ?? null;
         const nxtSB: Date | null = auto.smilesBonusEligibleAt ?? null;
@@ -349,13 +324,15 @@ export async function POST(req: NextRequest) {
   // preço não é usado
   const priceCents = 0;
 
-  // permite retroativo; se não vier, hoje
-  const subscribedAt = toDate(body.subscribedAt) || new Date();
+  // permite retroativo; se não vier, hoje (normaliza para início do dia UTC)
+  const subscribedAt = startUTC(toDate(body.subscribedAt) || new Date());
 
   // renewalDay é relevante p/ LATAM e SMILES (mas pode guardar em todos)
   const renewalDay = Math.min(31, Math.max(1, toInt(body.renewalDay, 1) ?? 1));
 
-  const lastRenewedAt = toDate(body.lastRenewedAt);
+  const lastRenewedAtRaw = toDate(body.lastRenewedAt);
+  const lastRenewedAt = lastRenewedAtRaw ? startUTC(lastRenewedAtRaw) : null;
+
   const renewedThisCycle = Boolean(body.renewedThisCycle ?? false);
 
   const notes =
@@ -374,23 +351,11 @@ export async function POST(req: NextRequest) {
     });
     if (!ced) return bad("Cedente não encontrado (ou não pertence ao seu time)", 404);
 
-    // SMILES: pega a primeira assinatura do cedente (mínimo) para promo+365
-    let firstSmiles: Date | null = null;
-    if (program === "SMILES") {
-      const agg = await prisma.clubSubscription.aggregate({
-        where: { team: session.team, cedenteId, program: "SMILES" as any },
-        _min: { subscribedAt: true },
-      });
-      firstSmiles = agg._min.subscribedAt || subscribedAt;
-      if (firstSmiles > subscribedAt) firstSmiles = subscribedAt;
-    }
-
     const auto = computeAutoDates({
       program,
       subscribedAt,
       renewalDay,
       lastRenewedAt,
-      firstSmilesSubscribedAt: firstSmiles,
     });
 
     const created = await prisma.clubSubscription.create({
@@ -406,7 +371,7 @@ export async function POST(req: NextRequest) {
         pointsExpireAt: auto.pointsExpireAt, // LATAM/SMILES=cancela em; LIVELO=inativa em
         renewedThisCycle,
         status: status as any,
-        smilesBonusEligibleAt: auto.smilesBonusEligibleAt, // SMILES=promo+365
+        smilesBonusEligibleAt: auto.smilesBonusEligibleAt, // SMILES=subscribedAt+365 (por registro)
         notes,
       },
       include: {
