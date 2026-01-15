@@ -2,7 +2,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/auth-server";
-import { dayBoundsUTC } from "@/lib/payouts/employeePayouts"; // se você já tem isso; senão eu te passo inline
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -16,8 +15,43 @@ function safeInt(v: any, fb = 0) {
   return Number.isFinite(n) ? Math.trunc(n) : fb;
 }
 
+function isISODate(v: string) {
+  return /^\d{4}-\d{2}-\d{2}$/.test((v || "").trim());
+}
+
+function isISOMonth(v: string) {
+  return /^\d{4}-\d{2}$/.test((v || "").trim());
+}
+
 function monthFromISODate(dateISO: string) {
   return String(dateISO || "").slice(0, 7);
+}
+
+/**
+ * Bounds do dia em UTC para não “perder” vendas por timezone.
+ * dateISO: "YYYY-MM-DD"
+ */
+function dayBoundsUTC(dateISO: string) {
+  if (!isISODate(dateISO)) {
+    throw new Error("date inválido. Use YYYY-MM-DD");
+  }
+  const start = new Date(`${dateISO}T00:00:00.000Z`);
+  const end = new Date(`${dateISO}T24:00:00.000Z`);
+  return { start, end };
+}
+
+/**
+ * Bounds do mês em UTC.
+ * month: "YYYY-MM"
+ */
+function monthBoundsUTC(month: string) {
+  if (!isISOMonth(month)) {
+    throw new Error("month inválido. Use YYYY-MM");
+  }
+  const [yy, mm] = month.split("-").map((x) => Number(x));
+  const start = new Date(Date.UTC(yy, mm - 1, 1));
+  const end = new Date(Date.UTC(yy, mm, 1)); // 1º do mês seguinte
+  return { start, end };
 }
 
 /**
@@ -25,7 +59,7 @@ function monthFromISODate(dateISO: string) {
  * Aqui deixei simples pra não depender do compute/day.
  */
 function commission1Fallback(pointsValueCents: number) {
-  // 1% por ex.
+  // 1%
   return Math.round(Math.max(0, safeInt(pointsValueCents, 0)) * 0.01);
 }
 
@@ -40,41 +74,50 @@ function bonusFallback(/* sale */ _s: any) {
   return 0;
 }
 
+function isoDayUTC(d: Date) {
+  // Date -> "YYYY-MM-DD" em UTC
+  return d.toISOString().slice(0, 10);
+}
+
 export async function GET(req: NextRequest) {
   const session = await requireSession();
   const url = new URL(req.url);
 
-  const date = String(url.searchParams.get("date") || "").trim();
+  const date = String(url.searchParams.get("date") || "").trim(); // sempre obrigatório (pra UX do front)
   const userId = String(url.searchParams.get("userId") || "").trim();
   const includeLines = String(url.searchParams.get("includeLines") || "") === "1";
-  const month = String(url.searchParams.get("month") || "").trim(); // opcional
+  const month = String(url.searchParams.get("month") || "").trim(); // opcional "YYYY-MM"
 
   if (!date) return bad("date é obrigatório (YYYY-MM-DD)");
+  if (!isISODate(date)) return bad("date inválido. Use YYYY-MM-DD");
   if (!userId) return bad("userId é obrigatório");
+  if (month && !isISOMonth(month)) return bad("month inválido. Use YYYY-MM");
+
+  const scopeMonth = !!month;
+  const monthKey = scopeMonth ? month.slice(0, 7) : monthFromISODate(date);
 
   // ✅ carrega payouts do banco (fonte de verdade)
   const payouts = await prisma.employeePayout.findMany({
     where: {
       team: session.team,
       userId,
-      ...(month ? { date: { startsWith: month.slice(0, 7) } } : { date }),
+      ...(scopeMonth ? { date: { startsWith: monthKey } } : { date }),
     },
     include: {
       user: { select: { id: true, name: true, login: true } },
       paidBy: { select: { id: true, name: true } },
     },
     orderBy: { date: "asc" },
-    take: month ? 80 : 1,
+    take: scopeMonth ? 80 : 1,
   });
 
   const payout = payouts[0] || null;
 
-  // retorno base (mesmo sem linhas)
-  const base = {
+  const base: any = {
     ok: true,
-    scope: month ? "month" : "day",
+    scope: scopeMonth ? "month" : "day",
     date,
-    month: month || monthFromISODate(date),
+    month: monthKey,
     user: payout?.user || null,
     payout: payout
       ? {
@@ -91,7 +134,7 @@ export async function GET(req: NextRequest) {
           paidBy: payout.paidBy ?? null,
         }
       : null,
-    payouts: month
+    payouts: scopeMonth
       ? payouts.map((p) => ({
           date: p.date,
           grossProfitCents: safeInt(p.grossProfitCents, 0),
@@ -119,18 +162,36 @@ export async function GET(req: NextRequest) {
     return NextResponse.json(base);
   }
 
-  // ✅ modo “linhas”: tenta explicar origem por SALES do dia (auditoria)
-  // (se for month, explica dia a dia; aqui mantive simples e foca no date do query)
-  const { start, end } = dayBoundsUTC(date);
+  // ==========================
+  // ✅ modo “linhas”: auditoria por SALES
+  // ==========================
+  let start: Date;
+  let end: Date;
+
+  try {
+    if (scopeMonth) {
+      const b = monthBoundsUTC(monthKey);
+      start = b.start;
+      end = b.end;
+    } else {
+      const b = dayBoundsUTC(date);
+      start = b.start;
+      end = b.end;
+    }
+  } catch (e: any) {
+    return bad(e?.message || "Parâmetro inválido");
+  }
 
   const sales = await prisma.sale.findMany({
     where: {
       sellerId: userId,
       date: { gte: start, lt: end },
-      seller: { team: session.team },
+      // seller é optional no schema -> precisa do "is"
+      seller: { is: { team: session.team } },
     },
     select: {
       id: true,
+      date: true,
       numero: true,
       locator: true,
       points: true,
@@ -139,10 +200,10 @@ export async function GET(req: NextRequest) {
       embarqueFeeCents: true,
     },
     orderBy: { date: "asc" },
-    take: 500,
+    take: 5000,
   });
 
-  const lines = sales.map((s) => {
+  const lineFromSale = (s: any) => {
     const pvc =
       safeInt(s.pointsValueCents, 0) ||
       pointsValueCentsFallback(safeInt(s.points, 0), safeInt(s.milheiroCents, 0));
@@ -159,38 +220,105 @@ export async function GET(req: NextRequest) {
       pointsValueCents: pvc,
       c1Cents: c1,
       c2Cents: c2,
-      c3Cents: 0, // ⚠️ se sua regra de C3 depender de outro conjunto, dá pra incluir aqui depois
+      c3Cents: 0, // ⚠️ C3 depende da sua regra real
       feeCents: fee,
     };
-  });
+  };
 
-  const sum = lines.reduce(
-    (acc, it) => {
-      acc.gross += it.c1Cents + it.c2Cents + it.c3Cents;
-      acc.fee += it.feeCents;
+  if (!scopeMonth) {
+    const lines = sales.map(lineFromSale);
+
+    const sum = lines.reduce(
+      (acc, it) => {
+        acc.gross += it.c1Cents + it.c2Cents + it.c3Cents;
+        acc.fee += it.feeCents;
+        return acc;
+      },
+      { gross: 0, fee: 0 }
+    );
+
+    const audit =
+      payout
+        ? {
+            linesGrossCents: sum.gross,
+            payoutGrossCents: safeInt(payout.grossProfitCents, 0),
+            diffGrossCents: sum.gross - safeInt(payout.grossProfitCents, 0),
+
+            linesFeeCents: sum.fee,
+            payoutFeeCents: safeInt(payout.feeCents, 0),
+            diffFeeCents: sum.fee - safeInt(payout.feeCents, 0),
+          }
+        : null;
+
+    return NextResponse.json({
+      ...base,
+      lines: { sales: lines },
+      audit,
+      note:
+        "As linhas são uma auditoria/explicação. A fonte de verdade do pagamento é o payout salvo em employee_payouts.",
+    });
+  }
+
+  // ✅ mês: agrupa por dia (YYYY-MM-DD)
+  const byDay = new Map<string, any[]>();
+  for (const s of sales) {
+    const d = isoDayUTC(new Date(s.date));
+    const arr = byDay.get(d) || [];
+    arr.push(lineFromSale(s));
+    byDay.set(d, arr);
+  }
+
+  const days = Array.from(byDay.entries())
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([d, items]) => {
+      const sums = items.reduce(
+        (acc, it) => {
+          acc.gross += it.c1Cents + it.c2Cents + it.c3Cents;
+          acc.fee += it.feeCents;
+          acc.salesCount += 1;
+          return acc;
+        },
+        { gross: 0, fee: 0, salesCount: 0 }
+      );
+      return { date: d, sales: items, sums };
+    });
+
+  const totalLines = days.reduce(
+    (acc, day) => {
+      acc.gross += day.sums.gross;
+      acc.fee += day.sums.fee;
+      acc.salesCount += day.sums.salesCount;
+      return acc;
+    },
+    { gross: 0, fee: 0, salesCount: 0 }
+  );
+
+  const totalPayouts = payouts.reduce(
+    (acc, p) => {
+      acc.gross += safeInt(p.grossProfitCents, 0);
+      acc.fee += safeInt(p.feeCents, 0);
       return acc;
     },
     { gross: 0, fee: 0 }
   );
 
-  const audit =
-    payout
-      ? {
-          linesGrossCents: sum.gross,
-          payoutGrossCents: safeInt(payout.grossProfitCents, 0),
-          diffGrossCents: sum.gross - safeInt(payout.grossProfitCents, 0),
+  const auditMonth = {
+    linesGrossCents: totalLines.gross,
+    payoutsGrossCents: totalPayouts.gross,
+    diffGrossCents: totalLines.gross - totalPayouts.gross,
 
-          linesFeeCents: sum.fee,
-          payoutFeeCents: safeInt(payout.feeCents, 0),
-          diffFeeCents: sum.fee - safeInt(payout.feeCents, 0),
-        }
-      : null;
+    linesFeeCents: totalLines.fee,
+    payoutsFeeCents: totalPayouts.fee,
+    diffFeeCents: totalLines.fee - totalPayouts.fee,
+
+    linesSalesCount: totalLines.salesCount,
+  };
 
   return NextResponse.json({
     ...base,
-    lines: { sales: lines },
-    audit,
+    lines: { days },
+    audit: auditMonth,
     note:
-      "As linhas são uma auditoria/explicação. A fonte de verdade do pagamento é o payout salvo em employee_payouts.",
+      "As linhas são uma auditoria/explicação por SALES. A fonte de verdade do pagamento é o payout salvo em employee_payouts.",
   });
 }
