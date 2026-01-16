@@ -34,6 +34,22 @@ function isoMonthNowSP() {
   return `${parts.year}-${parts.month}`; // YYYY-MM
 }
 
+// ✅ HOJE (SP)
+function isoDateNowSP() {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Sao_Paulo",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  })
+    .formatToParts(new Date())
+    .reduce((acc: any, p) => {
+      acc[p.type] = p.value;
+      return acc;
+    }, {});
+  return `${parts.year}-${parts.month}-${parts.day}`; // YYYY-MM-DD
+}
+
 function monthStartUTC(yyyyMm: string) {
   const [y, m] = yyyyMm.split("-").map((x) => Number(x));
   return new Date(Date.UTC(y, (m || 1) - 1, 1, 0, 0, 0, 0));
@@ -54,6 +70,17 @@ function monthLabelPT(yyyyMm: string) {
   return new Intl.DateTimeFormat("pt-BR", { month: "short", year: "numeric", timeZone: "UTC" })
     .format(dt)
     .replace(".", "");
+}
+
+function dayStartUTC(yyyyMmDd: string) {
+  const [y, m, d] = yyyyMmDd.split("-").map((x) => Number(x));
+  return new Date(Date.UTC(y, (m || 1) - 1, d || 1, 0, 0, 0, 0));
+}
+function dayBoundsUTC(yyyyMmDd: string) {
+  const start = dayStartUTC(yyyyMmDd);
+  const end = new Date(start);
+  end.setUTCDate(end.getUTCDate() + 1);
+  return { start, end };
 }
 
 const DOW_PT = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
@@ -142,6 +169,41 @@ export async function GET(req: NextRequest) {
 
     // ✅ filtro central: NÃO contar canceladas
     const notCanceled = { paymentStatus: { not: "CANCELED" as any } };
+
+    // =========================
+    // ✅ 0) HOJE (KPI) — usando DIA de SP, filtrando bounds em UTC
+    // =========================
+    const todayISO = isoDateNowSP();
+    const { start: tStart, end: tEnd } = dayBoundsUTC(todayISO);
+
+    const todaySales = await prisma.sale.findMany({
+      where: {
+        date: { gte: tStart, lt: tEnd },
+        ...(program !== "ALL" ? { program } : {}),
+        seller: { team },
+        ...notCanceled,
+      },
+      select: {
+        points: true,
+        passengers: true,
+        milheiroCents: true,
+        embarqueFeeCents: true,
+      },
+    });
+
+    let grossToday = 0;
+    let feeToday = 0;
+    let totalToday = 0;
+    let paxToday = 0;
+
+    for (const s of todaySales) {
+      const gross = pointsValueCents(Number(s.points || 0), Number(s.milheiroCents || 0));
+      const fee = Math.max(0, Number(s.embarqueFeeCents || 0));
+      grossToday += gross;
+      feeToday += fee;
+      totalToday += gross + fee;
+      paxToday += Math.max(0, Number(s.passengers || 0));
+    }
 
     // =========================
     // 1) SALES (histórico p/ gráficos + mês selecionado)
@@ -293,19 +355,12 @@ export async function GET(req: NextRequest) {
 
     // =========================
     // 6) CLUBES POR MÊS (SMILES + LATAM)
-    // ✅ ATIVOS NO MÊS (overlap) + ✅ INATIVADOS NO MÊS
-    // Observação: como NÃO tem cancelAt no schema,
-    // usamos updatedAt como "data de inativação" quando status != ACTIVE.
     // =========================
     let clubsByMonth: Array<{
       key: string;
       label: string;
-
-      // compat com front antigo: smiles/latam = ATIVOS NO MÊS
       smiles: number;
       latam: number;
-
-      // novos: INATIVADOS NO MÊS
       smilesInactivated: number;
       latamInactivated: number;
     }> = monthKeys.map((k) => ({
@@ -355,13 +410,11 @@ export async function GET(req: NextRequest) {
 
           const inactivatedAt = c.status === "ACTIVE" ? null : updAt;
 
-          // ✅ ativo no mês (overlap)
           if (overlapsMonth(subAt, inactivatedAt, ms, me)) {
             if (c.program === "SMILES") cur.smiles += 1;
             if (c.program === "LATAM") cur.latam += 1;
           }
 
-          // ✅ ficou inativo no mês
           if (inactivatedInMonth(inactivatedAt, ms, me)) {
             if (c.program === "SMILES") cur.smilesInactivated += 1;
             if (c.program === "LATAM") cur.latamInactivated += 1;
@@ -445,6 +498,16 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({
       ok: true,
       filters: { month, program, monthsBack, topMode, topProgram, topLimit },
+
+      // ✅ NOVO: KPI HOJE
+      today: {
+        date: todayISO,
+        grossCents: grossToday, // sem taxa embarque
+        feeCents: feeToday,
+        totalCents: totalToday,
+        salesCount: todaySales.length,
+        passengers: paxToday,
+      },
 
       summary: {
         monthLabel: monthLabelPT(month),

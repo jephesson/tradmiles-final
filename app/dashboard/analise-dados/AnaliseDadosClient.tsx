@@ -147,6 +147,8 @@ export default function AnaliseDadosClient() {
     return { gross, pax, count, latam, smiles, clubsLatam, clubsSmiles };
   }, [data, focusYM]);
 
+  const today = (data as any)?.today || null;
+
   const lineData = useMemo(() => {
     return (data?.months || []).map((m: any) => ({
       x: m.label || m.key,
@@ -212,6 +214,25 @@ export default function AnaliseDadosClient() {
             {loading ? "Carregando..." : "Atualizar"}
           </button>
         </div>
+      </div>
+
+      {/* ✅ HOJE */}
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <Card
+          title={today?.date ? `Total vendido hoje (${today.date})` : "Total vendido hoje"}
+          value={fmtMoneyBR(today?.grossCents || 0)}
+          sub={`${fmtInt(today?.salesCount || 0)} vendas • ${fmtInt(today?.passengers || 0)} pax`}
+        />
+        <Card
+          title="Total do dia (com taxa embarque)"
+          value={fmtMoneyBR(today?.totalCents || 0)}
+          sub={`Taxa embarque: ${fmtMoneyBR(today?.feeCents || 0)}`}
+        />
+        <Card
+          title="Mês selecionado"
+          value={data?.summary?.monthLabel || (data?.filters?.month || focusYM) || "—"}
+          sub={`Período no gráfico: ${fmtInt(monthsBack)} meses`}
+        />
       </div>
 
       {/* KPIs */}
