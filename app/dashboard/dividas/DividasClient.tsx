@@ -30,6 +30,16 @@ function toCentsFromInput(s: string) {
   return Number.isFinite(n) ? Math.round(n * 100) : 0;
 }
 
+// ===== ordenação/status helpers =====
+const statusRank: Record<Debt["status"], number> = {
+  OPEN: 0,
+  PAID: 1,
+  CANCELED: 2,
+};
+
+type StatusFilter = "ALL" | "OPEN" | "PAID";
+type SortMode = "NEWEST" | "OLDEST" | "BALANCE_DESC" | "BALANCE_ASC" | "TOTAL_DESC" | "TOTAL_ASC";
+
 export default function DividasClient() {
   const [loading, setLoading] = useState(false);
   const [debts, setDebts] = useState<Debt[]>([]);
@@ -40,6 +50,10 @@ export default function DividasClient() {
 
   const [payAmount, setPayAmount] = useState<Record<string, string>>({});
   const [payNote, setPayNote] = useState<Record<string, string>>({});
+
+  // ✅ filtros/ordenação
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("ALL");
+  const [sortMode, setSortMode] = useState<SortMode>("BALANCE_DESC");
 
   async function load() {
     setLoading(true);
@@ -65,6 +79,45 @@ export default function DividasClient() {
     const balanceCents = debts.reduce((a, d) => a + (d.balanceCents || 0), 0);
     return { totalCents, paidCents, balanceCents };
   }, [debts]);
+
+  const filteredSorted = useMemo(() => {
+    let arr = [...debts];
+
+    // ✅ filtra
+    if (statusFilter !== "ALL") {
+      arr = arr.filter((d) => d.status === statusFilter);
+    }
+
+    // ✅ sempre: OPEN primeiro, depois PAID, depois CANCELED
+    arr.sort((a, b) => {
+      const ra = statusRank[a.status] ?? 99;
+      const rb = statusRank[b.status] ?? 99;
+      if (ra !== rb) return ra - rb;
+
+      // tie-break: aplica sortMode
+      const da = new Date(a.createdAt).getTime();
+      const db = new Date(b.createdAt).getTime();
+
+      switch (sortMode) {
+        case "NEWEST":
+          return db - da;
+        case "OLDEST":
+          return da - db;
+        case "BALANCE_ASC":
+          return (a.balanceCents || 0) - (b.balanceCents || 0);
+        case "BALANCE_DESC":
+          return (b.balanceCents || 0) - (a.balanceCents || 0);
+        case "TOTAL_ASC":
+          return (a.totalCents || 0) - (b.totalCents || 0);
+        case "TOTAL_DESC":
+          return (b.totalCents || 0) - (a.totalCents || 0);
+        default:
+          return (b.balanceCents || 0) - (a.balanceCents || 0);
+      }
+    });
+
+    return arr;
+  }, [debts, statusFilter, sortMode]);
 
   async function createDebt() {
     const cents = toCentsFromInput(total);
@@ -149,6 +202,41 @@ export default function DividasClient() {
         </div>
       </div>
 
+      {/* ✅ Filtros */}
+      <div className="rounded-2xl border bg-white p-4">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+          <div className="font-semibold">Filtros</div>
+          <div className="flex flex-wrap gap-2">
+            <select
+              className="rounded-xl border bg-white px-3 py-2 text-sm"
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value as StatusFilter)}
+            >
+              <option value="ALL">Status: todas</option>
+              <option value="OPEN">Status: abertas</option>
+              <option value="PAID">Status: quitadas</option>
+            </select>
+
+            <select
+              className="rounded-xl border bg-white px-3 py-2 text-sm"
+              value={sortMode}
+              onChange={(e) => setSortMode(e.target.value as SortMode)}
+            >
+              <option value="BALANCE_DESC">Ordenar: maior saldo</option>
+              <option value="BALANCE_ASC">Ordenar: menor saldo</option>
+              <option value="NEWEST">Ordenar: mais recentes</option>
+              <option value="OLDEST">Ordenar: mais antigas</option>
+              <option value="TOTAL_DESC">Ordenar: maior total</option>
+              <option value="TOTAL_ASC">Ordenar: menor total</option>
+            </select>
+          </div>
+        </div>
+
+        <div className="mt-2 text-xs text-slate-500">
+          * Sempre prioriza “Abertas” no topo. Depois aplica a ordenação selecionada.
+        </div>
+      </div>
+
       {/* Criar dívida */}
       <div className="rounded-2xl border bg-white p-4 space-y-3">
         <div className="font-semibold">Adicionar dívida</div>
@@ -195,18 +283,28 @@ export default function DividasClient() {
       </div>
 
       {/* Lista */}
-      {debts.length === 0 ? (
-        <div className="text-sm text-slate-600">Nenhuma dívida cadastrada ainda.</div>
+      {filteredSorted.length === 0 ? (
+        <div className="text-sm text-slate-600">
+          Nenhuma dívida encontrada para o filtro atual.
+        </div>
       ) : (
         <div className="space-y-4">
-          {debts.map((d) => (
+          {filteredSorted.map((d) => (
             <div key={d.id} className="rounded-2xl border bg-white p-4 space-y-3">
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <div className="text-lg font-semibold">
                     {d.title}{" "}
-                    <span className={`text-xs px-2 py-1 rounded-full border ${d.status === "PAID" ? "bg-emerald-50" : "bg-yellow-50"}`}>
-                      {d.status === "PAID" ? "Quitada" : "Aberta"}
+                    <span
+                      className={`text-xs px-2 py-1 rounded-full border ${
+                        d.status === "PAID"
+                          ? "bg-emerald-50"
+                          : d.status === "OPEN"
+                          ? "bg-yellow-50"
+                          : "bg-slate-100"
+                      }`}
+                    >
+                      {d.status === "PAID" ? "Quitada" : d.status === "OPEN" ? "Aberta" : "Cancelada"}
                     </span>
                   </div>
                   {d.description ? <div className="text-sm text-slate-600">{d.description}</div> : null}
@@ -235,7 +333,7 @@ export default function DividasClient() {
               </div>
 
               {/* Add payment */}
-              {d.status !== "PAID" && (
+              {d.status !== "PAID" && d.status !== "CANCELED" && (
                 <div className="rounded-xl border bg-slate-50 p-3 space-y-2">
                   <div className="text-sm font-semibold">Adicionar pagamento</div>
                   <div className="grid gap-2 md:grid-cols-3">
