@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-// se quiser travar por login, descomenta e usa
 // import { requireSession } from "@/lib/auth-server";
 
 export const runtime = "nodejs";
@@ -23,16 +22,24 @@ function safeInt(v: unknown, fb = 0) {
   return Number.isFinite(n) ? Math.trunc(n) : fb;
 }
 
+const SMILES_PASSENGERS_LIMIT_PER_YEAR = 25; // ajuste se sua regra mudar
+const YEAR = 2026;
+
+function yearBoundsUTC(year: number) {
+  const start = new Date(Date.UTC(year, 0, 1, 0, 0, 0));
+  const end = new Date(Date.UTC(year + 1, 0, 1, 0, 0, 0));
+  return { start, end };
+}
+
 export async function GET(req: NextRequest) {
   try {
-    // await requireSession(); // se quiser restringir
+    // await requireSession();
 
     const { searchParams } = new URL(req.url);
     const q = (searchParams.get("q") || "").trim();
     const ownerId = (searchParams.get("ownerId") || "").trim();
 
     const where: any = { status: "APPROVED" };
-
     if (ownerId) where.ownerId = ownerId;
 
     if (q) {
@@ -56,10 +63,35 @@ export async function GET(req: NextRequest) {
       },
     });
 
+    const cedenteIds = rows.map((r) => r.id);
+    const usedByCedente = new Map<string, number>();
+
+    if (cedenteIds.length) {
+      const { start, end } = yearBoundsUTC(YEAR);
+
+      const grouped = await prisma.emissionEvent.groupBy({
+        by: ["cedenteId"],
+        where: {
+          cedenteId: { in: cedenteIds },
+          program: "SMILES",
+          issuedAt: { gte: start, lt: end },
+        },
+        _sum: { passengersCount: true },
+      });
+
+      for (const g of grouped) {
+        usedByCedente.set(g.cedenteId, Number(g._sum.passengersCount || 0));
+      }
+    }
+
     const mapped = rows.map((r) => {
       const aprovado = r.pontosSmiles || 0;
       const pendente = 0; // TODO: plugar tua regra real
       const total = aprovado + pendente;
+
+      const used2026 = usedByCedente.get(r.id) || 0;
+      const limit2026 = SMILES_PASSENGERS_LIMIT_PER_YEAR;
+      const remaining2026 = Math.max(0, limit2026 - used2026);
 
       return {
         id: r.id,
@@ -67,13 +99,23 @@ export async function GET(req: NextRequest) {
         nomeCompleto: r.nomeCompleto,
         cpf: r.cpf,
         owner: r.owner,
+
         smilesAprovado: aprovado,
         smilesPendente: pendente,
         smilesTotalEsperado: total,
+
+        // ✅ NOVO: passageiros Smiles 2026
+        smilesPassengersYear: YEAR,
+        smilesPassengersLimit: limit2026,
+        smilesPassengersUsed: used2026,
+        smilesPassengersRemaining: remaining2026,
       };
     });
 
-    return NextResponse.json({ ok: true, rows: mapped }, { headers: noCacheHeaders() });
+    return NextResponse.json(
+      { ok: true, rows: mapped },
+      { headers: noCacheHeaders() }
+    );
   } catch (e: any) {
     return NextResponse.json(
       { ok: false, error: e?.message || "Erro ao listar SMILES." },
@@ -84,7 +126,7 @@ export async function GET(req: NextRequest) {
 
 export async function PATCH(req: NextRequest) {
   try {
-    // await requireSession(); // se quiser restringir
+    // await requireSession();
 
     const body = await req.json().catch(() => ({}));
     const id = String(body?.id || "").trim();
