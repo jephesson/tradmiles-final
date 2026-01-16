@@ -60,6 +60,17 @@ type DARResponse = {
   totalsOpen?: { totalCents: number; receivedCents: number; balanceCents: number }; // OPEN+PARTIAL
 };
 
+// ✅ resposta do GET /api/compras/pending-points
+type PendingPointsResponse = {
+  ok: true;
+  data: {
+    latamPoints: number;
+    smilesPoints: number;
+    latamCount: number;
+    smilesCount: number;
+  };
+};
+
 function fmtMoneyBR(cents: number) {
   const v = (cents || 0) / 100;
   return v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -172,6 +183,12 @@ export default function CaixaImediatoClient() {
   // ✅ total “em aberto” das dívidas a receber (OPEN+PARTIAL) — vem do totalsOpen.balanceCents
   const [dividasAReceberOpenCents, setDividasAReceberOpenCents] = useState<number>(0);
 
+  // ✅ pontos comprados pendentes (compras OPEN) — separados por programa
+  const [pendingPurchaseLatamPoints, setPendingPurchaseLatamPoints] = useState(0);
+  const [pendingPurchaseSmilesPoints, setPendingPurchaseSmilesPoints] = useState(0);
+  const [pendingPurchaseLatamCount, setPendingPurchaseLatamCount] = useState(0);
+  const [pendingPurchaseSmilesCount, setPendingPurchaseSmilesCount] = useState(0);
+
   const [didHydrate, setDidHydrate] = useState(false);
 
   // ✅ hydrate do localStorage
@@ -204,13 +221,15 @@ export default function CaixaImediatoClient() {
   async function loadAll() {
     setLoading(true);
     try {
-      const [rResumo, rCedentes, rBloq, rCx, rDAR] = await Promise.all([
+      const [rResumo, rCedentes, rBloq, rCx, rDAR, rPendingPts] = await Promise.all([
         fetch("/api/resumo", { cache: "no-store" }),
         fetch("/api/cedentes/options", { cache: "no-store" }),
         fetch("/api/bloqueios", { cache: "no-store" }),
         fetch("/api/caixa-imediato", { cache: "no-store" }),
         // ✅ pode mandar take=1 só pra reduzir payload; totalsOpen continua correto
         fetch("/api/dividas-a-receber?take=1", { cache: "no-store" }),
+        // ✅ NOVO: compras OPEN de pontos (pendentes de liberação)
+        fetch("/api/compras/pending-points", { cache: "no-store" }),
       ]);
 
       const jResumo = await rResumo.json();
@@ -218,12 +237,14 @@ export default function CaixaImediatoClient() {
       const jBloq = await rBloq.json();
       const jCx = await rCx.json();
       const jDAR = (await rDAR.json()) as DARResponse;
+      const jPending = (await rPendingPts.json()) as PendingPointsResponse;
 
       if (!jResumo?.ok) throw new Error(jResumo?.error || "Erro ao carregar resumo");
       if (!jCed?.ok) throw new Error(jCed?.error || "Erro ao carregar cedentes");
       if (!jBloq?.ok) throw new Error(jBloq?.error || "Erro ao carregar bloqueios");
       if (!jCx?.ok) throw new Error(jCx?.error || "Erro ao carregar caixa imediato");
       if (!jDAR?.ok) throw new Error((jDAR as any)?.error || "Erro ao carregar dívidas a receber");
+      if (!jPending?.ok) throw new Error((jPending as any)?.error || "Erro ao carregar pontos pendentes (compras)");
 
       setCedentes(jCed.data || []);
       setBlockedRows(jBloq.data?.rows || []);
@@ -251,6 +272,12 @@ export default function CaixaImediatoClient() {
       // ✅ DÍVIDAS A RECEBER (TOTAL REAL em aberto): usa o agregado do backend (OPEN+PARTIAL)
       const darOpen = Number(jDAR?.totalsOpen?.balanceCents ?? 0);
       setDividasAReceberOpenCents(Number.isFinite(darOpen) ? darOpen : 0);
+
+      // ✅ PONTOS PENDENTES (COMPRAS OPEN)
+      setPendingPurchaseLatamPoints(Number(jPending.data?.latamPoints || 0));
+      setPendingPurchaseSmilesPoints(Number(jPending.data?.smilesPoints || 0));
+      setPendingPurchaseLatamCount(Number(jPending.data?.latamCount || 0));
+      setPendingPurchaseSmilesCount(Number(jPending.data?.smilesCount || 0));
     } catch (e: any) {
       alert(e.message);
     } finally {
@@ -315,25 +342,34 @@ export default function CaixaImediatoClient() {
   }, [cedentes, cutoffInput]);
 
   const calc = useMemo(() => {
-    // milheiros inteiros
+    // milheiros inteiros (cedentes elegíveis)
     const milLatam = Math.floor((eligible.pts.latam || 0) / 1000);
     const milSmiles = Math.floor((eligible.pts.smiles || 0) / 1000);
     const milLivelo = Math.floor((eligible.pts.livelo || 0) / 1000);
     const milEsfera = Math.floor((eligible.pts.esfera || 0) / 1000);
 
     // ✅ rates (do resumo). Se ainda não carregou, trata como 0.
-    const rLatam = (ratesCents?.latamRateCents ?? 0) / 100;
-    const rSmiles = (ratesCents?.smilesRateCents ?? 0) / 100;
-    const rLivelo = (ratesCents?.liveloRateCents ?? 0) / 100;
-    const rEsfera = (ratesCents?.esferaRateCents ?? 0) / 100;
+    const rateLatamCents = ratesCents?.latamRateCents ?? 0;   // cents por milheiro
+    const rateSmilesCents = ratesCents?.smilesRateCents ?? 0; // cents por milheiro
+    const rateLiveloCents = ratesCents?.liveloRateCents ?? 0;
+    const rateEsferaCents = ratesCents?.esferaRateCents ?? 0;
 
-    // valor das milhas elegíveis (em cents)
-    const vLatamCents = Math.round(milLatam * rLatam * 100);
-    const vSmilesCents = Math.round(milSmiles * rSmiles * 100);
-    const vLiveloCents = Math.round(milLivelo * rLivelo * 100);
-    const vEsferaCents = Math.round(milEsfera * rEsfera * 100);
+    // valor das milhas elegíveis (em cents) — milheiros inteiros
+    const vLatamCents = milLatam * rateLatamCents;
+    const vSmilesCents = milSmiles * rateSmilesCents;
+    const vLiveloCents = milLivelo * rateLiveloCents;
+    const vEsferaCents = milEsfera * rateEsferaCents;
 
     const milesValueEligibleCents = vLatamCents + vSmilesCents + vLiveloCents + vEsferaCents;
+
+    // ✅ compras OPEN (pontos pendentes) — valor estimado por rate, milheiros inteiros
+    const pendingLatamMil = Math.floor((pendingPurchaseLatamPoints || 0) / 1000);
+    const pendingSmilesMil = Math.floor((pendingPurchaseSmilesPoints || 0) / 1000);
+
+    const pendingLatamValueCents = pendingLatamMil * rateLatamCents;
+    const pendingSmilesValueCents = pendingSmilesMil * rateSmilesCents;
+
+    const pendingPurchasesValueCents = pendingLatamValueCents + pendingSmilesValueCents;
 
     const cashCents = toCentsFromInput(cashInput);
 
@@ -344,7 +380,12 @@ export default function CaixaImediatoClient() {
     const receivableDARcents = Number(dividasAReceberOpenCents || 0);
 
     // ✅ ENTRADAS (bruto)
-    const totalGrossCents = milesValueEligibleCents + cashCents + receivableSalesCents + receivableDARcents;
+    const totalGrossCents =
+      milesValueEligibleCents +
+      pendingPurchasesValueCents +
+      cashCents +
+      receivableSalesCents +
+      receivableDARcents;
 
     // ✅ SAÍDAS (imediato)
     const outCents =
@@ -362,7 +403,11 @@ export default function CaixaImediatoClient() {
      * NÃO desconta bloqueio.
      */
     const cashProjectedInterCents =
-      cashCents + receivableSalesCents + receivableDARcents - (employeePayoutsPendingCents || 0) - (taxesPendingCents || 0);
+      cashCents +
+      receivableSalesCents +
+      receivableDARcents -
+      (employeePayoutsPendingCents || 0) -
+      (taxesPendingCents || 0);
 
     return {
       milLatam,
@@ -371,6 +416,12 @@ export default function CaixaImediatoClient() {
       milEsfera,
 
       milesValueEligibleCents,
+
+      pendingLatamMil,
+      pendingSmilesMil,
+      pendingLatamValueCents,
+      pendingSmilesValueCents,
+      pendingPurchasesValueCents,
 
       cashCents,
       receivableSalesCents,
@@ -393,6 +444,8 @@ export default function CaixaImediatoClient() {
     employeePayoutsPendingCents,
     taxesPendingCents,
     ratesCents,
+    pendingPurchaseLatamPoints,
+    pendingPurchaseSmilesPoints,
   ]);
 
   async function salvarCaixaHoje() {
@@ -404,7 +457,7 @@ export default function CaixaImediatoClient() {
           cashCents: calc.cashCents,
           cutoffPoints: eligible.cutoff,
 
-          // ✅ bruto inclui dívidas a receber também
+          // ✅ bruto inclui dívidas a receber + compras pendentes
           totalBrutoCents: calc.totalGrossCents,
           totalDividasCents: debtsOpenCents,
 
@@ -433,8 +486,8 @@ export default function CaixaImediatoClient() {
         <div>
           <h1 className="text-2xl font-bold">Caixa imediato</h1>
           <p className="text-sm text-slate-600">
-            <b>Entradas</b>: milhas elegíveis + caixa + a receber (vendas) + <b>dívidas a receber</b>.{" "}
-            <b>Saídas</b>: dívidas, bloqueios e pendências.
+            <b>Entradas</b>: milhas elegíveis + <b>compras pendentes (OPEN)</b> + caixa + a receber (vendas) +{" "}
+            <b>dívidas a receber</b>. <b>Saídas</b>: dívidas, bloqueios e pendências.
           </p>
         </div>
 
@@ -513,6 +566,25 @@ export default function CaixaImediatoClient() {
                   tone="plus"
                   hint={`milheiros inteiros • corte ${fmtInt(eligible.cutoff)}`}
                 />
+
+                <Line
+                  label="Pontos pendentes (compras OPEN) — LATAM"
+                  value={`+${fmtMoneyBR(calc.pendingLatamValueCents)}`}
+                  tone="plus"
+                  hint={`${fmtInt(pendingPurchaseLatamPoints)} pts • ${fmtInt(calc.pendingLatamMil)} milheiros • ${fmtInt(
+                    pendingPurchaseLatamCount
+                  )} compras`}
+                />
+
+                <Line
+                  label="Pontos pendentes (compras OPEN) — Smiles"
+                  value={`+${fmtMoneyBR(calc.pendingSmilesValueCents)}`}
+                  tone="plus"
+                  hint={`${fmtInt(pendingPurchaseSmilesPoints)} pts • ${fmtInt(calc.pendingSmilesMil)} milheiros • ${fmtInt(
+                    pendingPurchaseSmilesCount
+                  )} compras`}
+                />
+
                 <Line label="Caixa (Inter)" value={`+${fmtMoneyBR(calc.cashCents)}`} tone="plus" hint="digitado nesta página (persistido)" />
                 <Line label="A receber (Vendas)" value={`+${fmtMoneyBR(calc.receivableSalesCents)}`} tone="plus" hint="recebíveis OPEN (vendas)" />
                 <Line
