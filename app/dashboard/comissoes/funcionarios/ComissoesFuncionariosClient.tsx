@@ -837,7 +837,8 @@ export default function ComissoesFuncionariosClient() {
                   <div className="px-4 py-3 border-b flex items-center justify-between">
                     <div className="text-sm font-semibold">Linhas (de onde veio)</div>
                     <div className="text-xs text-neutral-500">
-                      {detailsSum.sales} vendas • {fmtInt(detailsSum.points)} pontos • PV: {fmtMoneyBR(detailsSum.pointsValue)}
+                      {detailsSum.sales} vendas • {fmtInt(detailsSum.points)} pontos • PV:{" "}
+                      {fmtMoneyBR(detailsSum.pointsValue)}
                     </div>
                   </div>
 
