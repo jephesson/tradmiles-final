@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSessionServer } from "@/lib/auth-server";
+import { LoyaltyProgram } from "@prisma/client";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -73,6 +74,22 @@ function bad(message: string, status = 400) {
 function isBetweenUTC(d: Date, start: Date, end: Date) {
   const t = startUTC(d).getTime();
   return t >= startUTC(start).getTime() && t <= startUTC(end).getTime();
+}
+
+// ✅ últimos 365 dias (UTC) por DIA (inclui hoje)
+function boundsLast365UTC() {
+  const now = new Date();
+
+  const end = new Date(
+    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 23, 59, 59, 999)
+  );
+
+  // hoje (1) + 364 dias anteriores = 365 dias
+  const start = new Date(end);
+  start.setUTCDate(start.getUTCDate() - 364);
+  start.setUTCHours(0, 0, 0, 0);
+
+  return { start, end };
 }
 
 // ======================
@@ -236,7 +253,10 @@ export async function GET(req: NextRequest) {
 
     if (desiredStatus !== "CANCELED") {
       if (today.getTime() >= nxtPE) desiredStatus = "CANCELED";
-      else if (today.getTime() >= startUTC(auto.inactiveAt).getTime() && desiredStatus === "ACTIVE") {
+      else if (
+        today.getTime() >= startUTC(auto.inactiveAt).getTime() &&
+        desiredStatus === "ACTIVE"
+      ) {
         desiredStatus = "PAUSED";
       }
     }
@@ -287,13 +307,35 @@ export async function GET(req: NextRequest) {
   const accByCedente = new Map<string, { cpfLimit: number; cpfUsed: number }>();
   for (const a of accounts) accByCedente.set(a.cedenteId, { cpfLimit: a.cpfLimit, cpfUsed: a.cpfUsed });
 
+  // ✅ 4b) CPFs usados (calculado) = soma passengersCount nos últimos 365 dias (UTC)
+  const { start: yStart, end: yEnd } = boundsLast365UTC();
+
+  const usedAgg = await prisma.emissionEvent.groupBy({
+    by: ["cedenteId"],
+    where: {
+      program: LoyaltyProgram.LATAM, // se for string, troque por "LATAM"
+      issuedAt: { gte: yStart, lte: yEnd },
+      ...(cedenteIds.length ? { cedenteId: { in: cedenteIds } } : {}),
+    },
+    _sum: { passengersCount: true },
+  });
+
+  const usedCalcByCedente = new Map<string, number>(
+    usedAgg.map((x) => [x.cedenteId, Number(x._sum.passengersCount || 0)])
+  );
+
   // 5) montar rows + buckets
   const rows: Row[] = cedentes.map((ced) => {
     const club = latestClubByCedente.get(ced.id) || null;
 
     const acc = accByCedente.get(ced.id) || { cpfLimit: 25, cpfUsed: 0 };
     const cpfLimit = clampInt(safeInt(acc.cpfLimit, 25), 0, 999);
-    const cpfUsed = clampInt(safeInt(acc.cpfUsed, 0), 0, 999);
+
+    const usedCalc = clampInt(safeInt(usedCalcByCedente.get(ced.id) ?? 0, 0), 0, 999);
+    const usedManual = clampInt(safeInt(acc.cpfUsed, 0), 0, 999);
+
+    // ✅ efetivo: usado = max(calculado, manual)
+    const cpfUsed = Math.max(usedCalc, usedManual);
     const cpfFree = Math.max(0, cpfLimit - cpfUsed);
 
     let auto: Row["auto"] = null;
@@ -359,8 +401,6 @@ export async function GET(req: NextRequest) {
   });
 
   // 6) somente relevantes
-  // ✅ agora inclui: cancelam no mês, inativos, ativos (mesmo que permaneçam ativos),
-  // e candidatos a assinar (cpfFree>5)
   const filteredRows = onlyRelevant
     ? rows.filter((r) => {
         const rel =
@@ -431,7 +471,11 @@ export async function POST(req: NextRequest) {
 
   const statusRaw = String(body.status || "PENDING").toUpperCase();
   const status: TurboStatus =
-    statusRaw === "TRANSFERRED" ? "TRANSFERRED" : statusRaw === "SKIPPED" ? "SKIPPED" : "PENDING";
+    statusRaw === "TRANSFERRED"
+      ? "TRANSFERRED"
+      : statusRaw === "SKIPPED"
+      ? "SKIPPED"
+      : "PENDING";
 
   const points = clampInt(safeInt(body.points, 0), 0, LIMIT_POINTS);
 
