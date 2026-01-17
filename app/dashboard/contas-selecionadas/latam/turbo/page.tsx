@@ -73,6 +73,33 @@ function pillClass(s: TurboStatus) {
   return "bg-amber-100 text-amber-700 border-amber-200";
 }
 
+/**
+ * PRIORIDADE (para aparecer em cima):
+ *  0) inativa no mês + em aguardo
+ *  1) em aguardo
+ *  2) resto
+ *  Empate: ordem alfabética
+ */
+function rowStatus(r: Row): TurboStatus {
+  return r.turbo?.status || "PENDING";
+}
+function rowPriority(r: Row) {
+  const st = rowStatus(r);
+  if (st !== "PENDING") return 2;
+  if (r.auto?.inactiveInMonth) return 0;
+  return 1;
+}
+function rowAlphaKey(r: Row) {
+  return (r.cedente.nomeCompleto || r.cedente.identificador || "").trim();
+}
+function compareRowsByPriority(a: Row, b: Row) {
+  const pa = rowPriority(a);
+  const pb = rowPriority(b);
+  if (pa !== pb) return pa - pb;
+
+  return rowAlphaKey(a).localeCompare(rowAlphaKey(b), "pt-BR", { sensitivity: "base" });
+}
+
 async function postTurbo(payload: any) {
   const r = await fetch("/api/latam/turbo", {
     method: "POST",
@@ -110,11 +137,17 @@ function Section({
   showClub?: boolean;
   showCancelBadge?: boolean;
 }) {
+  const sortedRows = useMemo(() => {
+    const copy = [...rows];
+    copy.sort(compareRowsByPriority);
+    return copy;
+  }, [rows]);
+
   return (
     <div className="rounded-2xl border bg-white p-4 shadow-sm">
       <div className="flex items-center justify-between">
         <div className="text-sm font-semibold">{title}</div>
-        <div className="text-xs text-neutral-500">{rows.length} contas</div>
+        <div className="text-xs text-neutral-500">{sortedRows.length} contas</div>
       </div>
 
       <div className="mt-3 overflow-x-auto">
@@ -141,7 +174,7 @@ function Section({
           </thead>
 
           <tbody>
-            {rows.map((r) => {
+            {sortedRows.map((r) => {
               const status: TurboStatus = r.turbo?.status || "PENDING";
               const points = r.turbo?.points || 0;
 
@@ -158,11 +191,13 @@ function Section({
                           <span className="rounded-full border px-2 py-0.5 text-xs">
                             {r.club?.status || "—"}
                           </span>
+
                           {showCancelBadge && r.auto?.cancelInMonth ? (
                             <span className="rounded-full border border-rose-200 bg-rose-50 px-2 py-0.5 text-xs text-rose-700">
                               cancela no mês
                             </span>
                           ) : null}
+
                           {!showCancelBadge && r.auto?.inactiveInMonth ? (
                             <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs text-amber-700">
                               inativa no mês
@@ -176,9 +211,7 @@ function Section({
                   ) : null}
 
                   <td className="py-2 pr-3">
-                    <span className="rounded-full border px-2 py-0.5 text-xs">
-                      {r.account.cpfFree}
-                    </span>
+                    <span className="rounded-full border px-2 py-0.5 text-xs">{r.account.cpfFree}</span>
                   </td>
 
                   <td className="py-2 pr-3">
@@ -195,8 +228,16 @@ function Section({
                   </td>
 
                   <td className="py-2 pr-3">
-                    <span className={`inline-flex items-center gap-2 rounded-full border px-2 py-1 text-xs ${pillClass(status)}`}>
-                      {status === "TRANSFERRED" ? "transferido" : status === "SKIPPED" ? "não transferir" : "em aguardo"}
+                    <span
+                      className={`inline-flex items-center gap-2 rounded-full border px-2 py-1 text-xs ${pillClass(
+                        status
+                      )}`}
+                    >
+                      {status === "TRANSFERRED"
+                        ? "transferido"
+                        : status === "SKIPPED"
+                        ? "não transferir"
+                        : "em aguardo"}
                     </span>
                   </td>
 
@@ -225,7 +266,8 @@ function Section({
                 </tr>
               );
             })}
-            {rows.length === 0 ? (
+
+            {sortedRows.length === 0 ? (
               <tr>
                 <td colSpan={12} className="py-8 text-center text-sm text-neutral-500">
                   Sem resultados.
@@ -281,14 +323,23 @@ export default function LatamTurboPage() {
     return data.lists.canSubscribe;
   }, [data]);
 
-  async function applyChange(cedenteId: string, patch: Partial<{ status: TurboStatus; points: number }>) {
+  async function applyChange(
+    cedenteId: string,
+    patch: Partial<{ status: TurboStatus; points: number }>
+  ) {
     if (!data) return;
 
-    // otimista no front
     const mutateLists = (rows: Row[]) =>
       rows.map((r) => {
         if (r.cedente.id !== cedenteId) return r;
-        const cur = r.turbo || { id: "", status: "PENDING" as TurboStatus, points: 0, notes: null, updatedAt: new Date().toISOString() };
+        const cur =
+          r.turbo || {
+            id: "",
+            status: "PENDING" as TurboStatus,
+            points: 0,
+            notes: null,
+            updatedAt: new Date().toISOString(),
+          };
         const next = {
           ...cur,
           status: (patch.status ?? cur.status) as TurboStatus,
@@ -319,7 +370,6 @@ export default function LatamTurboPage() {
         ...(typeof patch.points === "number" ? { points: patch.points } : {}),
       });
 
-      // recarrega pra recalcular totais/limite certinho
       await load();
     } catch (e: any) {
       setErr(e?.message || "Falha ao salvar");
@@ -342,9 +392,7 @@ export default function LatamTurboPage() {
   if (err) {
     return (
       <div className="p-6">
-        <div className="rounded-2xl border bg-white p-4 text-sm text-rose-700">
-          {err}
-        </div>
+        <div className="rounded-2xl border bg-white p-4 text-sm text-rose-700">{err}</div>
       </div>
     );
   }
@@ -356,7 +404,10 @@ export default function LatamTurboPage() {
         <div>
           <div className="text-lg font-semibold">LATAM Turbo</div>
           <div className="text-sm text-neutral-500">
-            Mês: <span className="font-medium text-neutral-700">{monthKey}</span> • Limite: {fmtInt(limit)} • Planejado: {fmtInt(totalPlanned)} • Restante: {fmtInt(remaining)}
+            Mês:{" "}
+            <span className="font-medium text-neutral-700">{monthKey}</span> • Limite:{" "}
+            {fmtInt(limit)} • Planejado: {fmtInt(totalPlanned)} • Restante:{" "}
+            {fmtInt(remaining)}
           </div>
         </div>
 
@@ -370,7 +421,10 @@ export default function LatamTurboPage() {
               if (e.key === "Enter") load();
             }}
           />
-          <button className="rounded-2xl border bg-white px-4 py-2 text-sm hover:bg-neutral-50" onClick={load}>
+          <button
+            className="rounded-2xl border bg-white px-4 py-2 text-sm hover:bg-neutral-50"
+            onClick={load}
+          >
             Buscar
           </button>
 
@@ -412,7 +466,9 @@ export default function LatamTurboPage() {
 
         <div className="rounded-2xl border bg-white p-4 shadow-sm">
           <div className="flex items-center justify-between">
-            <div className="text-sm font-semibold">Posso assinar clube (CANCELED ou sem assinatura) • CPFs livres &gt; 5</div>
+            <div className="text-sm font-semibold">
+              Posso assinar clube (CANCELED ou sem assinatura) • CPFs livres &gt; 5
+            </div>
             <div className="text-xs text-neutral-500">{canSubscribeSorted.length} contas</div>
           </div>
 
@@ -436,7 +492,9 @@ export default function LatamTurboPage() {
                     <td className="py-2 pr-3">{r.cedente.nomeCompleto}</td>
                     <td className="py-2 pr-3">{r.cedente.cpf}</td>
                     <td className="py-2 pr-3">
-                      <span className="rounded-full border px-2 py-0.5 text-xs">{r.account.cpfFree}</span>
+                      <span className="rounded-full border px-2 py-0.5 text-xs">
+                        {r.account.cpfFree}
+                      </span>
                     </td>
                     <td className="py-2 pr-3">
                       <input
@@ -458,11 +516,10 @@ export default function LatamTurboPage() {
                         }}
                       />
                     </td>
-                    <td className="py-2 pr-3 text-xs text-neutral-500">
-                      (edite e clique fora)
-                    </td>
+                    <td className="py-2 pr-3 text-xs text-neutral-500">(edite e clique fora)</td>
                   </tr>
                 ))}
+
                 {canSubscribeSorted.length === 0 ? (
                   <tr>
                     <td colSpan={9} className="py-8 text-center text-sm text-neutral-500">
@@ -474,7 +531,6 @@ export default function LatamTurboPage() {
             </table>
           </div>
         </div>
-
       </div>
     </div>
   );
