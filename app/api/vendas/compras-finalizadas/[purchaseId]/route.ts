@@ -1,3 +1,4 @@
+// app/api/vendas/compras-finalizadas/[purchaseId]/desfazer/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { prisma } from "@/lib/prisma";
@@ -26,7 +27,7 @@ function readSessionCookie(raw?: string): Sess | null {
 }
 
 async function getServerSession(): Promise<Sess | null> {
-  const store = await cookies();
+  const store = await cookies(); // Next 16: ok usar await
   const raw = store.get("tm.session")?.value;
   return readSessionCookie(raw);
 }
@@ -35,19 +36,26 @@ function bad(message: string, status = 400) {
   return NextResponse.json({ ok: false, error: message }, { status });
 }
 
-// ✅ Next 16: context.params é Promise<{ purchaseId: string }>
-export async function PATCH(
-  req: NextRequest,
-  { params }: { params: Promise<{ purchaseId: string }> }
-) {
+type Ctx = { params: Promise<{ purchaseId: string }> };
+
+export async function PATCH(req: NextRequest, ctx: Ctx) {
   const session = await getServerSession();
   if (!session?.id) return bad("Não autenticado", 401);
 
-  // ✅ recomendo restringir a admin
+  // ✅ restringe (recomendado)
   if (session.role !== "admin") return bad("Sem permissão", 403);
 
-  const { purchaseId } = await params;
+  const { purchaseId } = await ctx.params;
   if (!purchaseId) return bad("purchaseId ausente.");
+
+  // (opcional) body com motivo
+  let reason: string | null = null;
+  try {
+    const body = await req.json().catch(() => null);
+    reason = typeof body?.reason === "string" && body.reason.trim() ? body.reason.trim() : null;
+  } catch {
+    // ignora
+  }
 
   try {
     await prisma.$transaction(async (tx) => {
@@ -68,13 +76,15 @@ export async function PATCH(
       if (!p) throw new Error("Compra não encontrada.");
       if (!p.finalizedAt) throw new Error("Esta compra não está finalizada.");
 
-      // ✅ Se você tiver qualquer tabela de snapshot/rateio persistido,
-      // apague aqui (ajuste nomes conforme seu schema):
+      // ✅ Se você tiver tabela de snapshot/rateio persistido, delete aqui:
       // await tx.purchaseRateioSnapshot.deleteMany({ where: { purchaseId } });
 
       await tx.purchase.update({
         where: { id: purchaseId },
         data: {
+          // se quiser persistir o motivo no futuro, aqui é onde entraria
+          // undoReason: reason,
+
           finalizedAt: null,
           finalizedById: null,
 
