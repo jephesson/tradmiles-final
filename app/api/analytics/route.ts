@@ -8,6 +8,7 @@ export const dynamic = "force-dynamic";
 type Program = "LATAM" | "SMILES" | "LIVELO" | "ESFERA";
 type ProgramOrAll = Program | "ALL";
 type TopMode = "MONTH" | "TOTAL";
+type ChartMode = "MONTH" | "DAY";
 
 function clampInt(v: any, fb = 0, min = -Infinity, max = Infinity) {
   const n = Number(v);
@@ -18,6 +19,9 @@ function clampInt(v: any, fb = 0, min = -Infinity, max = Infinity) {
 
 function isYYYYMM(v: string) {
   return /^\d{4}-\d{2}$/.test((v || "").trim());
+}
+function isYYYYMMDD(v: string) {
+  return /^\d{4}-\d{2}-\d{2}$/.test((v || "").trim());
 }
 
 function isoMonthNowSP() {
@@ -76,11 +80,23 @@ function dayStartUTC(yyyyMmDd: string) {
   const [y, m, d] = yyyyMmDd.split("-").map((x) => Number(x));
   return new Date(Date.UTC(y, (m || 1) - 1, d || 1, 0, 0, 0, 0));
 }
+function addDaysUTC(d: Date, delta: number) {
+  const x = new Date(d);
+  x.setUTCDate(x.getUTCDate() + delta);
+  return x;
+}
 function dayBoundsUTC(yyyyMmDd: string) {
   const start = dayStartUTC(yyyyMmDd);
-  const end = new Date(start);
-  end.setUTCDate(end.getUTCDate() + 1);
+  const end = addDaysUTC(start, 1);
   return { start, end };
+}
+function isoDayUTC(d: Date) {
+  return d.toISOString().slice(0, 10); // YYYY-MM-DD
+}
+function dayLabelPT(yyyyMmDd: string) {
+  const [, mm, dd] = (yyyyMmDd || "").split("-");
+  if (dd && mm) return `${dd}/${mm}`;
+  return yyyyMmDd || "—";
 }
 
 const DOW_PT = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
@@ -161,6 +177,15 @@ export async function GET(req: NextRequest) {
 
     const topLimit = clampInt(searchParams.get("topLimit"), 10, 1, 50);
 
+    // ✅ novo: modo do gráfico
+    const chartParam = (searchParams.get("chart") || "MONTH").toUpperCase().trim();
+    const chart: ChartMode = chartParam === "DAY" ? "DAY" : "MONTH";
+
+    // ✅ novo: range diário
+    const daysBack = clampInt(searchParams.get("daysBack"), 30, 1, 365);
+    const fromQ = (searchParams.get("from") || "").trim(); // YYYY-MM-DD
+    const toQ = (searchParams.get("to") || "").trim(); // YYYY-MM-DD
+
     const mStart = monthStartUTC(month);
     const mEnd = addMonthsUTC(mStart, 1);
 
@@ -235,6 +260,69 @@ export async function GET(req: NextRequest) {
       const d = new Date(s.date as any);
       return d >= mStart && d < mEnd;
     });
+
+    // =========================
+    // ✅ 1b) SÉRIE DIÁRIA (para gráfico diário)
+    // =========================
+    let dailyStart: Date | null = null;
+    let dailyEndExclusive: Date | null = null;
+
+    if (chart === "DAY") {
+      if (isYYYYMMDD(fromQ) && isYYYYMMDD(toQ)) {
+        let a = dayStartUTC(fromQ);
+        let b = dayStartUTC(toQ);
+        if (a.getTime() > b.getTime()) {
+          const tmp = a;
+          a = b;
+          b = tmp;
+        }
+        dailyStart = a;
+        dailyEndExclusive = addDaysUTC(b, 1);
+
+        // proteção: no máx 365 dias
+        const maxEnd = addDaysUTC(dailyStart, 365);
+        if (dailyEndExclusive.getTime() > maxEnd.getTime()) {
+          dailyEndExclusive = maxEnd;
+        }
+      } else {
+        // últimos N dias (inclui hoje SP)
+        const { end } = dayBoundsUTC(todayISO);
+        dailyEndExclusive = end;
+        dailyStart = addDaysUTC(dailyEndExclusive, -daysBack);
+      }
+    }
+
+    let days: Array<{ key: string; label: string; grossCents: number }> = [];
+    if (chart === "DAY" && dailyStart && dailyEndExclusive) {
+      const dailySales = await prisma.sale.findMany({
+        where: {
+          date: { gte: dailyStart, lt: dailyEndExclusive },
+          ...(program !== "ALL" ? { program } : {}),
+          seller: { team },
+          ...notCanceled,
+        },
+        select: {
+          date: true,
+          points: true,
+          milheiroCents: true,
+        },
+        orderBy: { date: "asc" },
+      });
+
+      const agg = new Map<string, number>();
+      for (const s of dailySales) {
+        const k = isoDayUTC(new Date(s.date as any));
+        const gross = pointsValueCents(Number(s.points || 0), Number(s.milheiroCents || 0));
+        agg.set(k, (agg.get(k) || 0) + gross);
+      }
+
+      const out: Array<{ key: string; label: string; grossCents: number }> = [];
+      for (let d = new Date(dailyStart); d < dailyEndExclusive; d = addDaysUTC(d, 1)) {
+        const k = isoDayUTC(d);
+        out.push({ key: k, label: dayLabelPT(k), grossCents: agg.get(k) || 0 });
+      }
+      days = out;
+    }
 
     // =========================
     // 2) RESUMO DO MÊS
@@ -377,10 +465,7 @@ export async function GET(req: NextRequest) {
         team,
         program: { in: ["SMILES", "LATAM"] },
         subscribedAt: { lt: histEnd },
-        OR: [
-          { status: "ACTIVE" },
-          { status: { in: ["PAUSED", "CANCELED"] }, updatedAt: { gte: histStart } },
-        ],
+        OR: [{ status: "ACTIVE" }, { status: { in: ["PAUSED", "CANCELED"] }, updatedAt: { gte: histStart } }],
       },
       select: {
         subscribedAt: true,
@@ -391,10 +476,7 @@ export async function GET(req: NextRequest) {
     });
 
     {
-      const idx = new Map<
-        string,
-        { smiles: number; latam: number; smilesInactivated: number; latamInactivated: number }
-      >();
+      const idx = new Map<string, { smiles: number; latam: number; smilesInactivated: number; latamInactivated: number }>();
       for (const k of monthKeys) idx.set(k, { smiles: 0, latam: 0, smilesInactivated: 0, latamInactivated: 0 });
 
       for (const k of monthKeys) {
@@ -495,11 +577,26 @@ export async function GET(req: NextRequest) {
         passengers: x.pax,
       }));
 
+    const chartFrom = chart === "DAY" && dailyStart ? isoDayUTC(dailyStart) : null;
+    const chartTo =
+      chart === "DAY" && dailyEndExclusive ? isoDayUTC(addDaysUTC(dailyEndExclusive, -1)) : null;
+
     return NextResponse.json({
       ok: true,
-      filters: { month, program, monthsBack, topMode, topProgram, topLimit },
+      filters: {
+        month,
+        program,
+        monthsBack,
+        topMode,
+        topProgram,
+        topLimit,
+        chart,
+        daysBack: chart === "DAY" ? daysBack : undefined,
+        from: chart === "DAY" ? (isYYYYMMDD(fromQ) ? fromQ : chartFrom) : undefined,
+        to: chart === "DAY" ? (isYYYYMMDD(toQ) ? toQ : chartTo) : undefined,
+      },
 
-      // ✅ NOVO: KPI HOJE
+      // ✅ KPI HOJE
       today: {
         date: todayISO,
         grossCents: grossToday, // sem taxa embarque
@@ -518,6 +615,9 @@ export async function GET(req: NextRequest) {
         passengers: paxMonth,
         bestDayOfWeek: best,
       },
+
+      // ✅ novo: série diária (só preenche no modo DAY)
+      days,
 
       byDow: byDowArr,
       byEmployee,
