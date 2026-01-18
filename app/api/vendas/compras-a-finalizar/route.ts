@@ -179,7 +179,7 @@ export async function GET(req: Request) {
       points: safeInt(s.points),
       passengers: safeInt(s.passengers),
 
-      totalCents,        // com taxa (se tiver)
+      totalCents, // com taxa (se tiver)
       pointsValueCents: pvCents, // ✅ sem taxa (ou fallback)
 
       locator: s.locator ?? null,
@@ -216,9 +216,9 @@ export async function GET(req: Request) {
       soldPoints: number;
       pax: number;
 
-      salesTotalCents: number;       // com taxa
+      salesTotalCents: number; // com taxa
       salesPointsValueCents: number; // sem taxa (ou fallback)
-      salesTaxesCents: number;       // diferença
+      salesTaxesCents: number; // diferença
 
       salesCount: number;
       lastSaleAt: string | null;
@@ -266,7 +266,7 @@ export async function GET(req: Request) {
     const soldPoints = safeInt(agg.soldPoints, 0);
     const remainingPoints = Math.max(pointsTotal - soldPoints, 0);
 
-    const salesTotalCents = safeInt(agg.salesTotalCents, 0);             // com taxa
+    const salesTotalCents = safeInt(agg.salesTotalCents, 0); // com taxa
     const salesPointsValueCents = safeInt(agg.salesPointsValueCents, 0); // sem taxa
     const salesTaxesCents = safeInt(agg.salesTaxesCents, 0);
 
@@ -298,9 +298,9 @@ export async function GET(req: Request) {
       purchaseTotalCents,
 
       // ✅ duas visões (pra UI)
-      salesTotalCents,        // com taxa (caixa)
-      salesPointsValueCents,  // sem taxa (lucro/milheiro)
-      salesTaxesCents,        // taxas
+      salesTotalCents, // com taxa (caixa)
+      salesPointsValueCents, // sem taxa (lucro/milheiro)
+      salesTaxesCents, // taxas
 
       // ✅ saldo = lucro (sem taxa)
       saldoCents: salesPointsValueCents - purchaseTotalCents,

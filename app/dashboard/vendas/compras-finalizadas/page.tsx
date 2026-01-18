@@ -136,12 +136,120 @@ async function fetchJson<T>(url: string): Promise<T> {
   return json as T;
 }
 
+async function patchJson<T>(url: string, body?: any): Promise<T> {
+  const res = await fetch(url, {
+    method: "PATCH",
+    cache: "no-store",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  const json = await res.json().catch(() => null);
+  if (!res.ok || !json?.ok) throw new Error(json?.error || `Erro ${res.status}`);
+  return json as T;
+}
+
 /** ✅ Portal para o modal NÃO ser “comido” pelo layout (transform/overflow do dashboard) */
 function Portal({ children }: { children: ReactNode }) {
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
   if (!mounted) return null;
   return createPortal(children, document.body);
+}
+
+/** ✅ Modal de confirmação: desfazer finalização */
+function ConfirmUndoModal({
+  open,
+  numero,
+  cedenteNome,
+  reason,
+  setReason,
+  busy,
+  error,
+  onCancel,
+  onConfirm,
+}: {
+  open: boolean;
+  numero: string;
+  cedenteNome: string;
+  reason: string;
+  setReason: (v: string) => void;
+  busy: boolean;
+  error: string;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  if (!open) return null;
+
+  return (
+    <Portal>
+      <div
+        className="fixed inset-0 z-[10001] bg-black/55 p-4 flex items-center justify-center"
+        onMouseDown={(e) => {
+          if (e.target === e.currentTarget) onCancel();
+        }}
+      >
+        <div className="w-full max-w-xl rounded-2xl bg-white shadow-xl overflow-hidden">
+          <div className="border-b p-4">
+            <div className="text-lg font-bold text-red-700">Desfazer finalização</div>
+            <div className="text-sm text-slate-600 mt-1">
+              Compra: <span className="font-semibold">{numero}</span>
+              {cedenteNome ? (
+                <>
+                  {" "}
+                  • Cedente: <span className="font-semibold">{cedenteNome}</span>
+                </>
+              ) : null}
+            </div>
+          </div>
+
+          <div className="p-4 space-y-3">
+            <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-800">
+              Esta ação remove o <b>snapshot final</b> (finalizedAt e campos final*) e a compra volta para a fila de
+              finalização.
+              <div className="mt-1 text-[11px] text-red-700">
+                Use apenas se a finalização foi feita por engano.
+              </div>
+            </div>
+
+            <div>
+              <div className="text-xs font-semibold text-slate-600 mb-1">Motivo (opcional)</div>
+              <textarea
+                className="w-full rounded-xl border px-3 py-2 text-sm min-h-[96px]"
+                placeholder="Ex.: Finalizei errado / pontos ainda não estavam todos vendidos / custos incorretos / etc."
+                value={reason}
+                onChange={(e) => setReason(e.target.value)}
+                disabled={busy}
+              />
+              <div className="mt-1 text-[11px] text-slate-500">
+                Se você quiser persistir esse motivo no banco, eu adapto o endpoint.
+              </div>
+            </div>
+
+            {error ? <div className="text-sm text-red-600">{error}</div> : null}
+          </div>
+
+          <div className="border-t p-4 flex items-center justify-end gap-2">
+            <button
+              className="rounded-xl border px-4 py-2 text-sm hover:bg-slate-50 disabled:opacity-50"
+              onClick={onCancel}
+              disabled={busy}
+            >
+              Cancelar
+            </button>
+            <button
+              className="rounded-xl bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-50"
+              onClick={onConfirm}
+              disabled={busy}
+              title="Confirmar desfazer"
+            >
+              {busy ? "Desfazendo..." : "Confirmar desfazer"}
+            </button>
+          </div>
+        </div>
+      </div>
+    </Portal>
+  );
 }
 
 export default function ComprasFinalizadasPage() {
@@ -155,6 +263,12 @@ export default function ComprasFinalizadasPage() {
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailErr, setDetailErr] = useState("");
   const [detail, setDetail] = useState<DetailResp | null>(null);
+
+  // ✅ Desfazer (confirmação)
+  const [undoOpen, setUndoOpen] = useState(false);
+  const [undoBusy, setUndoBusy] = useState(false);
+  const [undoErr, setUndoErr] = useState("");
+  const [undoReason, setUndoReason] = useState("");
 
   async function load() {
     setLoading(true);
@@ -172,7 +286,6 @@ export default function ComprasFinalizadasPage() {
       const list = Array.isArray(json.purchases) ? json.purchases : [];
 
       // ✅ GARANTIA NO FRONT: mostra SÓ o que tem finalizedAt
-      // (mesmo se alguém mexer no backend depois)
       setRows(list.filter((p) => !!p.finalizedAt));
     } catch (e: any) {
       setErr(e?.message || "Erro ao carregar.");
@@ -203,28 +316,72 @@ export default function ComprasFinalizadasPage() {
     setDetail(null);
     setDetailErr("");
     setDetailLoading(false);
+
+    // fecha também o desfazer se estiver aberto
+    setUndoOpen(false);
+    setUndoBusy(false);
+    setUndoErr("");
+    setUndoReason("");
   }
 
-  // ✅ trava scroll do body quando modal abre
+  function askUndo() {
+    setUndoErr("");
+    setUndoReason("");
+    setUndoOpen(true);
+  }
+
+  function cancelUndo() {
+    if (undoBusy) return;
+    setUndoOpen(false);
+    setUndoErr("");
+    setUndoReason("");
+  }
+
+  async function confirmUndo() {
+    if (!openRow?.id) return;
+
+    setUndoBusy(true);
+    setUndoErr("");
+
+    try {
+      // ✅ endpoint esperado: PATCH /api/vendas/compras-finalizadas/:id/desfazer
+      await patchJson<{ ok: true }>(`/api/vendas/compras-finalizadas/${openRow.id}/desfazer`, {
+        reason: undoReason || null,
+      });
+
+      // Fecha confirmação + detalhes + recarrega lista
+      setUndoOpen(false);
+      closeDetails();
+      await load();
+    } catch (e: any) {
+      setUndoErr(e?.message || "Falha ao desfazer.");
+    } finally {
+      setUndoBusy(false);
+    }
+  }
+
+  // ✅ trava scroll do body quando modal abre (detalhe OU confirmação)
   useEffect(() => {
-    if (!openRow) return;
+    if (!openRow && !undoOpen) return;
     const prev = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     return () => {
       document.body.style.overflow = prev;
     };
-  }, [openRow]);
+  }, [openRow, undoOpen]);
 
-  // ✅ fecha com ESC
+  // ✅ fecha com ESC (primeiro desfazer; senão fecha detalhes)
   useEffect(() => {
-    if (!openRow) return;
+    if (!openRow && !undoOpen) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") closeDetails();
+      if (e.key !== "Escape") return;
+      if (undoOpen) cancelUndo();
+      else closeDetails();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [openRow]);
+  }, [openRow, undoOpen, undoBusy]);
 
   useEffect(() => {
     load();
@@ -405,7 +562,8 @@ export default function ComprasFinalizadasPage() {
         </div>
 
         <div className="mt-3 text-xs text-slate-500">
-          Clique em uma linha (ou em <span className="font-semibold">Ver</span>) para ver custos, lucro e rateio do lucro líquido.
+          Clique em uma linha (ou em <span className="font-semibold">Ver</span>) para ver custos, lucro e rateio do lucro
+          líquido.
         </div>
       </div>
 
@@ -423,20 +581,38 @@ export default function ComprasFinalizadasPage() {
                 <div>
                   <div className="text-lg font-bold">Rateio da compra</div>
                   <div className="text-sm text-slate-600">
-                    {openRow.numero} • {openRow.cedente?.identificador || "-"} • {openRow.cedente?.nomeCompleto || "-"}
+                    {openRow.numero} • {openRow.cedente?.identificador || "-"} •{" "}
+                    {openRow.cedente?.nomeCompleto || "-"}
                   </div>
                 </div>
 
-                <button className="rounded-xl border px-4 py-2 text-sm hover:bg-slate-50" onClick={closeDetails}>
-                  Fechar
-                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    className="rounded-xl border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700 hover:bg-red-100 disabled:opacity-50"
+                    onClick={askUndo}
+                    disabled={detailLoading || undoBusy}
+                    title="Desfazer finalização desta compra"
+                  >
+                    Desfazer
+                  </button>
+
+                  <button
+                    className="rounded-xl border px-4 py-2 text-sm hover:bg-slate-50"
+                    onClick={closeDetails}
+                    disabled={undoBusy}
+                  >
+                    Fechar
+                  </button>
+                </div>
               </div>
 
               <div className="p-4 space-y-4 overflow-y-auto">
                 {detailErr ? <div className="text-sm text-red-600">{detailErr}</div> : null}
 
                 {detailLoading ? (
-                  <div className="rounded-2xl border bg-slate-50 p-4 text-sm text-slate-700">Carregando detalhes...</div>
+                  <div className="rounded-2xl border bg-slate-50 p-4 text-sm text-slate-700">
+                    Carregando detalhes...
+                  </div>
                 ) : detail ? (
                   <>
                     <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
@@ -500,7 +676,8 @@ export default function ComprasFinalizadasPage() {
                                 {detail.plan.effectiveTo ? (
                                   <>
                                     {" "}
-                                    → <span className="font-mono">{detail.plan.effectiveTo.slice(0, 10)}</span>
+                                    →{" "}
+                                    <span className="font-mono">{detail.plan.effectiveTo.slice(0, 10)}</span>
                                   </>
                                 ) : (
                                   <> → atual</>
@@ -541,7 +718,9 @@ export default function ComprasFinalizadasPage() {
                               <tr className="border-t bg-slate-50">
                                 <td className="p-3 font-semibold">Total</td>
                                 <td className="p-3 text-xs text-slate-500">lucro líquido</td>
-                                <td className="p-3 font-semibold">{fmtMoneyBR(pick(detail.metrics.profitLiquidoCents))}</td>
+                                <td className="p-3 font-semibold">
+                                  {fmtMoneyBR(pick(detail.metrics.profitLiquidoCents))}
+                                </td>
                               </tr>
                             </tbody>
                           </table>
@@ -556,7 +735,11 @@ export default function ComprasFinalizadasPage() {
                         <Line label="PAX" value={fmtInt(pick(detail.metrics.pax))} />
                         <Line
                           label="Milheiro médio (sem taxa)"
-                          value={detail.metrics.avgMilheiroCents == null ? "-" : fmtMoneyBR(detail.metrics.avgMilheiroCents)}
+                          value={
+                            detail.metrics.avgMilheiroCents == null
+                              ? "-"
+                              : fmtMoneyBR(detail.metrics.avgMilheiroCents)
+                          }
                           hint={
                             detail.metrics.remainingPoints == null
                               ? undefined
@@ -568,6 +751,19 @@ export default function ComprasFinalizadasPage() {
                   </>
                 ) : null}
               </div>
+
+              {/* ✅ CONFIRMAÇÃO (desfazer) — fica acima do modal de detalhes */}
+              <ConfirmUndoModal
+                open={undoOpen}
+                numero={openRow.numero}
+                cedenteNome={openRow.cedente?.nomeCompleto || ""}
+                reason={undoReason}
+                setReason={setUndoReason}
+                busy={undoBusy}
+                error={undoErr}
+                onCancel={cancelUndo}
+                onConfirm={() => void confirmUndo()}
+              />
             </div>
           </div>
         </Portal>
@@ -585,7 +781,17 @@ function Kpi({ label, value }: { label: string; value: string }) {
   );
 }
 
-function Line({ label, value, hint, strong }: { label: string; value: string; hint?: string; strong?: boolean }) {
+function Line({
+  label,
+  value,
+  hint,
+  strong,
+}: {
+  label: string;
+  value: string;
+  hint?: string;
+  strong?: boolean;
+}) {
   return (
     <div className="rounded-xl border bg-white p-3">
       <div className="text-[11px] text-slate-500">{label}</div>
