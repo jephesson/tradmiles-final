@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { prisma } from "@/lib/prisma";
 
@@ -35,14 +35,18 @@ function bad(message: string, status = 400) {
   return NextResponse.json({ ok: false, error: message }, { status });
 }
 
-export async function PATCH(req: Request, { params }: { params: { purchaseId: string } }) {
+// ✅ Next 16: context.params é Promise<{ purchaseId: string }>
+export async function PATCH(
+  req: NextRequest,
+  { params }: { params: Promise<{ purchaseId: string }> }
+) {
   const session = await getServerSession();
   if (!session?.id) return bad("Não autenticado", 401);
 
   // ✅ recomendo restringir a admin
   if (session.role !== "admin") return bad("Sem permissão", 403);
 
-  const purchaseId = params.purchaseId;
+  const { purchaseId } = await params;
   if (!purchaseId) return bad("purchaseId ausente.");
 
   try {
