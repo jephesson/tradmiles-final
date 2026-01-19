@@ -82,6 +82,17 @@ function fmtDateBR(iso: string) {
   return d.toLocaleString("pt-BR");
 }
 
+/**
+ * Retorna custo por 1.000 pts (em CENTAVOS).
+ * Ex: totalCostCents=378245 e points=140000 => ~2702 cents => R$ 27,02 / mil
+ */
+function milheiroCents(points: number, totalCostCents: number) {
+  const p = asInt(points, 0);
+  const c = asInt(totalCostCents, 0);
+  if (p <= 0 || c <= 0) return 0;
+  return Math.round((c * 1000) / p);
+}
+
 async function api<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await fetch(url, {
     ...init,
@@ -199,13 +210,16 @@ export default function ComprasClient() {
       if (!needle && !dig) return true;
 
       const ced = r.cedente;
+      const m = milheiroCents(r.ciaPointsTotal || 0, r.totalCostCents || 0);
 
+      // ✅ mantém id na busca, mas não mostra na UI
       const hay = [
         r.numero,
         r.id,
         r.ciaProgram || "",
         String(r.ciaPointsTotal || 0),
         fmtMoneyBR(r.totalCostCents || 0),
+        m ? fmtMoneyBR(m) : "",
         ced?.nomeCompleto || "",
         ced?.cpf || "",
         ced?.identificador || "",
@@ -349,7 +363,7 @@ export default function ComprasClient() {
       )}
 
       <div className="overflow-auto rounded-xl border">
-        <table className="min-w-[1100px] w-full text-sm">
+        <table className="min-w-[1180px] w-full text-sm">
           <thead className="bg-gray-50">
             <tr className="text-left">
               <th className="p-3">Compra</th>
@@ -357,6 +371,7 @@ export default function ComprasClient() {
               <th className="p-3">Cedente</th>
               <th className="p-3">CIA</th>
               <th className="p-3">Pts CIA</th>
+              <th className="p-3">Milheiro</th>
               <th className="p-3">Total</th>
               <th className="p-3">Criada em</th>
               <th className="p-3"></th>
@@ -366,7 +381,7 @@ export default function ComprasClient() {
           <tbody>
             {filtered.length === 0 && !loading && (
               <tr>
-                <td colSpan={8} className="p-4 text-gray-500">
+                <td colSpan={9} className="p-4 text-gray-500">
                   Nenhuma compra encontrada.
                 </td>
               </tr>
@@ -377,11 +392,15 @@ export default function ComprasClient() {
               const isReleased = r.status === "CLOSED";
               const isCanceled = r.status === "CANCELED";
 
+              const m = milheiroCents(r.ciaPointsTotal || 0, r.totalCostCents || 0);
+
               return (
                 <tr key={r.id} className="border-t">
                   <td className="p-3">
-                    <div className="font-mono">{r.numero}</div>
-                    <div className="text-xs text-gray-500">{r.id}</div>
+                    {/* ✅ sem ID grande ocupando espaço; id fica no tooltip */}
+                    <div className="font-mono" title={r.id}>
+                      {r.numero}
+                    </div>
                   </td>
 
                   <td className="p-3">
@@ -402,12 +421,20 @@ export default function ComprasClient() {
                   </td>
 
                   <td className="p-3">{r.ciaProgram || "—"}</td>
-                  <td className="p-3">
+
+                  <td className="p-3 font-mono">
                     {(r.ciaPointsTotal || 0).toLocaleString("pt-BR")}
                   </td>
+
+                  <td className="p-3 font-medium">
+                    {m ? fmtMoneyBR(m) : <span className="text-gray-500">—</span>}
+                    <div className="text-[11px] text-gray-500">por 1.000 pts</div>
+                  </td>
+
                   <td className="p-3 font-medium">
                     {fmtMoneyBR(r.totalCostCents || 0)}
                   </td>
+
                   <td className="p-3">{fmtDateBR(r.createdAt)}</td>
 
                   <td className="p-3">
@@ -461,7 +488,7 @@ export default function ComprasClient() {
 
             {loading && (
               <tr>
-                <td colSpan={8} className="p-4 text-gray-500">
+                <td colSpan={9} className="p-4 text-gray-500">
                   Carregando...
                 </td>
               </tr>
@@ -485,8 +512,9 @@ export default function ComprasClient() {
 }
 
 function toCentsFromInput(v: string) {
-  // number input normalmente vem com ponto (.) — ok
-  const n = Number(v || 0);
+  // number input normalmente vem com ponto (.) — mas se vier com vírgula, normaliza
+  const cleaned = String(v || "").trim().replace(",", ".");
+  const n = Number(cleaned || 0);
   return Number.isFinite(n) ? Math.round(n * 100) : 0;
 }
 
@@ -513,10 +541,14 @@ function PointsBuyModal(props: {
       setLoading(true);
       setErr(null);
       try {
-        // ✅ CERTO: usa o endpoint que criamos (GET /points)
         const out = await api<{
           ok: true;
-          compra: { id: string; numero: string; status: PurchaseStatus; ciaProgram: LoyaltyProgram | null };
+          compra: {
+            id: string;
+            numero: string;
+            status: PurchaseStatus;
+            ciaProgram: LoyaltyProgram | null;
+          };
           items: Array<{ id: string; title: string; pointsFinal: number; amountCents: number }>;
         }>(`/api/compras/${purchaseId}/points`);
 
@@ -558,6 +590,11 @@ function PointsBuyModal(props: {
       },
     ]);
   }
+
+  const visibleRows = rows.filter((r) => !r.remove);
+  const totalPoints = visibleRows.reduce((acc, r) => acc + asInt(r.pointsFinal, 0), 0);
+  const totalCost = visibleRows.reduce((acc, r) => acc + asInt(r.amountCents, 0), 0);
+  const avgMilheiro = milheiroCents(totalPoints, totalCost);
 
   async function onSave() {
     setErr(null);
@@ -606,10 +643,27 @@ function PointsBuyModal(props: {
           <div>
             <div className="text-sm text-gray-600">Comprar mais (mesmo ID)</div>
             <div className="text-lg font-semibold">
-              Compra <span className="font-mono">{numero || purchaseId.slice(0, 8)}</span>
+              Compra <span className="font-mono">{numero || "—"}</span>
             </div>
             <div className="mt-1 text-xs text-gray-500">
-              Isto cria/edita itens <b>POINTS_BUY</b>. Se a compra estiver <b>LIBERADA</b>, aplica o delta no saldo do cedente também.
+              Isto cria/edita itens <b>POINTS_BUY</b>. Se a compra estiver <b>LIBERADA</b>, aplica o delta no saldo do
+              cedente também.
+            </div>
+
+            <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
+              <span className="rounded-full border px-2 py-1">
+                CIA: <b>{cia ?? "—"}</b>
+              </span>
+              <span className="rounded-full border px-2 py-1">
+                Total pontos: <b className="font-mono">{totalPoints.toLocaleString("pt-BR")}</b>
+              </span>
+              <span className="rounded-full border px-2 py-1">
+                Total custo: <b>{fmtMoneyBR(totalCost)}</b>
+              </span>
+              <span className="rounded-full border px-2 py-1">
+                Milheiro médio: <b>{avgMilheiro ? fmtMoneyBR(avgMilheiro) : "—"}</b>
+                <span className="text-gray-500"> / 1.000</span>
+              </span>
             </div>
           </div>
 
@@ -652,83 +706,97 @@ function PointsBuyModal(props: {
                 </div>
               ) : (
                 <div className="overflow-auto rounded-xl border">
-                  <table className="min-w-[900px] w-full text-sm">
+                  <table className="min-w-[980px] w-full text-sm">
                     <thead className="bg-gray-50">
                       <tr className="text-left">
                         <th className="p-2">Remover</th>
                         <th className="p-2">Título</th>
                         <th className="p-2">Pontos</th>
                         <th className="p-2">Custo (R$)</th>
+                        <th className="p-2">Milheiro</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {rows.map((r, idx) => (
-                        <tr key={r.id ?? `new_${idx}`} className="border-t">
-                          <td className="p-2">
-                            <input
-                              type="checkbox"
-                              checked={!!r.remove}
-                              onChange={(e) =>
-                                setRows((s) => {
-                                  const next = [...s];
-                                  next[idx] = { ...next[idx], remove: e.target.checked };
-                                  return next;
-                                })
-                              }
-                            />
-                          </td>
+                      {rows.map((r, idx) => {
+                        const m = milheiroCents(r.pointsFinal || 0, r.amountCents || 0);
 
-                          <td className="p-2">
-                            <input
-                              value={r.title}
-                              disabled={!!r.remove}
-                              onChange={(e) =>
-                                setRows((s) => {
-                                  const next = [...s];
-                                  next[idx] = { ...next[idx], title: e.target.value };
-                                  return next;
-                                })
-                              }
-                              className="w-full rounded-md border px-3 py-2 text-sm disabled:opacity-50"
-                              placeholder="Ex: Compra extra 10k"
-                            />
-                          </td>
+                        return (
+                          <tr key={r.id ?? `new_${idx}`} className="border-t">
+                            <td className="p-2">
+                              <input
+                                type="checkbox"
+                                checked={!!r.remove}
+                                onChange={(e) =>
+                                  setRows((s) => {
+                                    const next = [...s];
+                                    next[idx] = { ...next[idx], remove: e.target.checked };
+                                    return next;
+                                  })
+                                }
+                              />
+                            </td>
 
-                          <td className="p-2">
-                            <input
-                              type="number"
-                              value={r.pointsFinal}
-                              disabled={!!r.remove}
-                              onChange={(e) =>
-                                setRows((s) => {
-                                  const next = [...s];
-                                  next[idx] = { ...next[idx], pointsFinal: asInt(e.target.value, 0) };
-                                  return next;
-                                })
-                              }
-                              className="w-full rounded-md border px-3 py-2 text-sm font-mono disabled:opacity-50"
-                              placeholder="10000"
-                            />
-                          </td>
+                            <td className="p-2">
+                              <input
+                                value={r.title}
+                                disabled={!!r.remove}
+                                onChange={(e) =>
+                                  setRows((s) => {
+                                    const next = [...s];
+                                    next[idx] = { ...next[idx], title: e.target.value };
+                                    return next;
+                                  })
+                                }
+                                className="w-full rounded-md border px-3 py-2 text-sm disabled:opacity-50"
+                                placeholder="Ex: Compra extra 10k"
+                              />
+                            </td>
 
-                          <td className="p-2">
-                            <input
-                              type="number"
-                              value={(r.amountCents || 0) / 100}
-                              disabled={!!r.remove}
-                              onChange={(e) =>
-                                setRows((s) => {
-                                  const next = [...s];
-                                  next[idx] = { ...next[idx], amountCents: toCentsFromInput(e.target.value) };
-                                  return next;
-                                })
-                              }
-                              className="w-full rounded-md border px-3 py-2 text-sm disabled:opacity-50"
-                              placeholder="0"
-                            />
-                          </td>
-                        </tr>
-                      ))}
+                            <td className="p-2">
+                              <input
+                                type="number"
+                                value={r.pointsFinal}
+                                disabled={!!r.remove}
+                                onChange={(e) =>
+                                  setRows((s) => {
+                                    const next = [...s];
+                                    next[idx] = { ...next[idx], pointsFinal: asInt(e.target.value, 0) };
+                                    return next;
+                                  })
+                                }
+                                className="w-full rounded-md border px-3 py-2 text-sm font-mono disabled:opacity-50"
+                                placeholder="10000"
+                              />
+                            </td>
+
+                            <td className="p-2">
+                              <input
+                                type="number"
+                                value={(r.amountCents || 0) / 100}
+                                disabled={!!r.remove}
+                                onChange={(e) =>
+                                  setRows((s) => {
+                                    const next = [...s];
+                                    next[idx] = { ...next[idx], amountCents: toCentsFromInput(e.target.value) };
+                                    return next;
+                                  })
+                                }
+                                className="w-full rounded-md border px-3 py-2 text-sm disabled:opacity-50"
+                                placeholder="0"
+                              />
+                            </td>
+
+                            <td className="p-2">
+                              <div className={`text-sm font-medium ${r.remove ? "text-gray-400" : ""}`}>
+                                {m ? fmtMoneyBR(m) : <span className="text-gray-500">—</span>}
+                              </div>
+                              <div className={`text-[11px] ${r.remove ? "text-gray-300" : "text-gray-500"}`}>
+                                por 1.000 pts
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
