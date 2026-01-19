@@ -25,8 +25,8 @@ function readSessionCookie(raw?: string): Sess | null {
   }
 }
 
-function getServerSession(): Sess | null {
-  const store = cookies();
+async function getServerSession(): Promise<Sess | null> {
+  const store = await cookies(); // ✅ aqui é o ponto do erro
   const raw = store.get("tm.session")?.value;
   return readSessionCookie(raw);
 }
@@ -40,23 +40,17 @@ export async function PATCH(
   req: NextRequest,
   context: { params: Promise<{ id: string }> }
 ) {
-  const session = getServerSession();
+  const session = await getServerSession();
   if (!session?.id) return bad("Não autenticado", 401);
 
-  // ✅ recomendo restringir a admin
   if (session.role !== "admin") return bad("Sem permissão", 403);
 
   const { id } = await context.params; // id === purchaseId
   const purchaseId = id;
   if (!purchaseId) return bad("id ausente.");
 
-  // (opcional) ler motivo do body
-  // const body = await req.json().catch(() => null);
-  // const motivo = String(body?.motivo || "").trim();
-
   try {
     await prisma.$transaction(async (tx) => {
-      // ✅ garante escopo do time
       const p = await tx.purchase.findFirst({
         where: {
           id: purchaseId,
@@ -67,9 +61,6 @@ export async function PATCH(
 
       if (!p) throw new Error("Compra não encontrada.");
       if (!p.finalizedAt) throw new Error("Esta compra não está finalizada.");
-
-      // ✅ Se houver tabelas de snapshot persistidas, apague aqui:
-      // await tx.purchaseRateioSnapshot.deleteMany({ where: { purchaseId } });
 
       await tx.purchase.update({
         where: { id: purchaseId },
