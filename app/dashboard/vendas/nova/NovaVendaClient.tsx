@@ -8,6 +8,7 @@ import { getSession } from "@/lib/auth";
 type Program = "LATAM" | "SMILES" | "LIVELO" | "ESFERA";
 type PointsMode = "TOTAL" | "POR_PAX";
 type ProgramKey = "latam" | "smiles" | "livelo" | "esfera";
+type TripKind = "IDA" | "IDA_VOLTA";
 
 type Owner = { id: string; name: string; login: string };
 
@@ -223,21 +224,41 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
     })();
   }, [me?.id]);
 
+  // =========================
   // 1) input principal
+  // =========================
   const [program, setProgram] = useState<Program>("LATAM");
 
-  const [pointsMode, setPointsMode] = useState<PointsMode>("TOTAL");
-  const [pointsStr, setPointsStr] = useState("");
-  const pointsInput = useMemo(() => clampInt((pointsStr || "").replace(/\D+/g, "")), [pointsStr]);
+  // ✅ Ida / Ida+Volta
+  const [tripKind, setTripKind] = useState<TripKind>("IDA");
+
+  // ✅ pontos por trecho (cada um pode ser TOTAL ou POR_PAX)
+  const [idaMode, setIdaMode] = useState<PointsMode>("TOTAL");
+  const [idaStr, setIdaStr] = useState("");
+  const idaInput = useMemo(() => clampInt((idaStr || "").replace(/\D+/g, "")), [idaStr]);
+
+  const [voltaMode, setVoltaMode] = useState<PointsMode>("TOTAL");
+  const [voltaStr, setVoltaStr] = useState("");
+  const voltaInput = useMemo(() => clampInt((voltaStr || "").replace(/\D+/g, "")), [voltaStr]);
 
   const [passengers, setPassengers] = useState(1);
 
-  // ✅ total de pontos efetivo (o que vai para sugestão + venda)
-  const pointsTotal = useMemo(() => {
-    const p = Math.max(0, pointsInput);
+  // ✅ total efetivo por trecho
+  const idaTotalPoints = useMemo(() => {
+    const p = Math.max(0, idaInput);
     const pax = Math.max(1, passengers);
-    return pointsMode === "POR_PAX" ? p * pax : p;
-  }, [pointsMode, pointsInput, passengers]);
+    return idaMode === "POR_PAX" ? p * pax : p;
+  }, [idaMode, idaInput, passengers]);
+
+  const voltaTotalPoints = useMemo(() => {
+    if (tripKind !== "IDA_VOLTA") return 0;
+    const p = Math.max(0, voltaInput);
+    const pax = Math.max(1, passengers);
+    return voltaMode === "POR_PAX" ? p * pax : p;
+  }, [tripKind, voltaMode, voltaInput, passengers]);
+
+  // ✅ pontos totais (ida + volta)
+  const pointsTotal = useMemo(() => idaTotalPoints + voltaTotalPoints, [idaTotalPoints, voltaTotalPoints]);
 
   // sugestões
   const [loadingSug, setLoadingSug] = useState(false);
@@ -734,11 +755,12 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
     return () => ac.abort();
   }, [sel?.cedente?.id]);
 
-  function onChangePoints(v: string) {
+  // ✅ helper: formata input de pontos e manda pro setter certo
+  function onChangePoints(setter: (v: string) => void, v: string) {
     const digits = (v || "").replace(/\D+/g, "");
-    if (!digits) return setPointsStr("");
+    if (!digits) return setter("");
     const n = clampInt(digits);
-    setPointsStr(n.toLocaleString("pt-BR"));
+    setter(n.toLocaleString("pt-BR"));
   }
 
   const canSave = useMemo(() => {
@@ -748,13 +770,29 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
     if (!compraSel) return false;
     if (pointsTotal <= 0 || passengers <= 0) return false;
     if (milheiroCents <= 0) return false;
+    if (!locator?.trim()) return false; // ✅ obrigatório
     if (feeCardPreset === "MANUAL" && !feeCardLabel) return false;
     return true;
-  }, [sel?.eligible, clienteId, purchaseNumero, compraSel, pointsTotal, passengers, milheiroCents, feeCardPreset, feeCardLabel]);
+  }, [
+    sel?.eligible,
+    clienteId,
+    purchaseNumero,
+    compraSel,
+    pointsTotal,
+    passengers,
+    milheiroCents,
+    locator,
+    feeCardPreset,
+    feeCardLabel,
+  ]);
 
   const [postSaveOpen, setPostSaveOpen] = useState(false);
   const [postSaveMsg, setPostSaveMsg] = useState("");
   const [postSaveSaleId, setPostSaveSaleId] = useState<string | null>(null);
+
+  // ✅ confirmação + overlay saving
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
 
   function toBRDate(iso: string) {
     const m = String(iso || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
@@ -771,10 +809,18 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
     saleId?: string | null;
     cliente: ClienteLite | null;
     program: Program;
-    pointsMode: PointsMode;
-    pointsInput: number;
+
+    tripKind: TripKind;
+    idaMode: PointsMode;
+    idaInput: number;
+    idaTotalPoints: number;
+    voltaMode: PointsMode;
+    voltaInput: number;
+    voltaTotalPoints: number;
+
     passengers: number;
     pointsTotal: number;
+
     milheiroCents: number;
     pointsValueCents: number;
     embarqueFeeCents: number;
@@ -794,22 +840,30 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
 
     lines.push(`📅 Data: ${toBRDate(args.dateISO)}`);
 
-    if (args.vendedorNome) {
-      lines.push(`👤 Vendedor: ${cap1(args.vendedorNome)}`);
-    }
-
-    if (args.cliente) {
-      lines.push(`🧾 Cliente: ${args.cliente.nome}`);
-    }
+    if (args.vendedorNome) lines.push(`👤 Vendedor: ${cap1(args.vendedorNome)}`);
+    if (args.cliente) lines.push(`🧾 Cliente: ${args.cliente.nome}`);
 
     lines.push(`✈️ Programa: ${args.program}`);
 
-    if (args.pointsMode === "POR_PAX") {
-      lines.push(
-        `🎯 Pontos: ${fmtInt(args.pointsTotal)} (${fmtInt(args.pointsInput)}/pax x ${fmtInt(args.passengers)})`
-      );
+    // ✅ pontos ida/volta
+    if (args.tripKind === "IDA_VOLTA") {
+      const idaDesc =
+        args.idaMode === "POR_PAX"
+          ? `${fmtInt(args.idaInput)}/pax x ${fmtInt(args.passengers)} = ${fmtInt(args.idaTotalPoints)}`
+          : `${fmtInt(args.idaTotalPoints)}`;
+
+      const voltaDesc =
+        args.voltaMode === "POR_PAX"
+          ? `${fmtInt(args.voltaInput)}/pax x ${fmtInt(args.passengers)} = ${fmtInt(args.voltaTotalPoints)}`
+          : `${fmtInt(args.voltaTotalPoints)}`;
+
+      lines.push(`🎯 Pontos: ${fmtInt(args.pointsTotal)} (ida ${idaDesc} + volta ${voltaDesc})`);
     } else {
-      lines.push(`🎯 Pontos: ${fmtInt(args.pointsTotal)}`);
+      const idaDesc =
+        args.idaMode === "POR_PAX"
+          ? `${fmtInt(args.idaTotalPoints)} (${fmtInt(args.idaInput)}/pax x ${fmtInt(args.passengers)})`
+          : `${fmtInt(args.idaTotalPoints)}`;
+      lines.push(`🎯 Pontos: ${idaDesc}`);
     }
 
     lines.push(`👥 PAX: ${fmtInt(args.passengers)}`);
@@ -818,9 +872,7 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
     lines.push(`🛄 Taxa embarque: ${fmtMoneyBR(args.embarqueFeeCents)}`);
     lines.push(`💰 Total: ${fmtMoneyBR(args.totalCents)}`);
 
-    if (args.locator?.trim()) {
-      lines.push(`🔎 Localizador: ${args.locator.trim()}`);
-    }
+    if (args.locator?.trim()) lines.push(`🔎 Localizador: ${args.locator.trim()}`);
 
     lines.push("");
     lines.push("Dados para pagamento");
@@ -832,13 +884,16 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
     return lines.join("\n");
   }
 
-  async function salvarVenda() {
+  async function doSave() {
+    if (isSaving) return; // ✅ trava duplo clique
+
     if (!sel?.eligible) return alert("Selecione um cedente elegível.");
     if (!clienteId) return alert("Selecione um cliente.");
     if (!purchaseNumero) return alert("Selecione a compra LIBERADA (ID00018).");
     if (!compraSel) return alert("Compra selecionada inválida.");
     if (pointsTotal <= 0 || passengers <= 0) return alert("Pontos/Passageiros inválidos.");
     if (milheiroCents <= 0) return alert("Milheiro inválido.");
+    if (!locator?.trim()) return alert("Informe o localizador (obrigatório).");
     if (feeCardPreset === "MANUAL" && !feeCardLabel) return alert("Informe o nome do cartão (manual).");
 
     const payload = {
@@ -855,6 +910,7 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
       locator: locator?.trim() || null,
     };
 
+    setIsSaving(true);
     try {
       const out = await api<any>("/api/vendas", { method: "POST", body: JSON.stringify(payload) });
 
@@ -869,10 +925,18 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
         saleId: saleId ? String(saleId) : null,
         cliente: selectedCliente,
         program,
-        pointsMode,
-        pointsInput,
+
+        tripKind,
+        idaMode,
+        idaInput,
+        idaTotalPoints,
+        voltaMode,
+        voltaInput,
+        voltaTotalPoints,
+
         passengers,
         pointsTotal,
+
         milheiroCents,
         pointsValueCents,
         embarqueFeeCents,
@@ -890,6 +954,8 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
       setPostSaveOpen(true);
     } catch (e: any) {
       alert(e.message);
+    } finally {
+      setIsSaving(false);
     }
   }
 
@@ -936,20 +1002,11 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
           {sugError ? <div className="mt-2 text-xs text-rose-600">{sugError}</div> : null}
         </div>
 
+        {/* ✅ Só Voltar aqui (Salvar desce para o Resumo) */}
         <div className="flex gap-2">
           <Link href="/dashboard/vendas" className="rounded-xl border px-4 py-2 text-sm hover:bg-slate-50">
             Voltar
           </Link>
-          <button
-            onClick={salvarVenda}
-            disabled={!canSave}
-            className={cn(
-              "rounded-xl px-4 py-2 text-sm text-white",
-              canSave ? "bg-black hover:bg-gray-800" : "bg-slate-300 cursor-not-allowed"
-            )}
-          >
-            Salvar venda
-          </button>
         </div>
       </div>
 
@@ -972,35 +1029,109 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
             </select>
           </label>
 
-          <label className="space-y-1">
-            <div className="text-xs text-slate-600">Pontos</div>
-            <input
-              className="w-full rounded-xl border px-3 py-2 text-sm font-mono"
-              value={pointsStr}
-              onChange={(e) => onChangePoints(e.target.value)}
-              placeholder={pointsMode === "POR_PAX" ? "Ex: 100.000 (por passageiro)" : "Ex: 200.000 (total)"}
-            />
+          {/* ✅ Trecho + Pontos (Ida/Volta) */}
+          <div className="md:col-span-2 space-y-2">
+            <div className="text-xs text-slate-600">Trecho</div>
 
-            <div className="mt-2 flex flex-wrap items-center gap-3 text-[11px] text-slate-600">
-              <span className="text-slate-500">Pontos informados:</span>
-
+            <div className="flex flex-wrap gap-3 text-[11px] text-slate-600">
               <label className="inline-flex items-center gap-2">
-                <input type="radio" name="pointsMode" checked={pointsMode === "TOTAL"} onChange={() => setPointsMode("TOTAL")} />
-                Total
+                <input type="radio" name="tripKind" checked={tripKind === "IDA"} onChange={() => setTripKind("IDA")} />
+                Só ida
               </label>
 
               <label className="inline-flex items-center gap-2">
-                <input type="radio" name="pointsMode" checked={pointsMode === "POR_PAX"} onChange={() => setPointsMode("POR_PAX")} />
-                Por passageiro
+                <input
+                  type="radio"
+                  name="tripKind"
+                  checked={tripKind === "IDA_VOLTA"}
+                  onChange={() => setTripKind("IDA_VOLTA")}
+                />
+                Ida + Volta
               </label>
 
-              {pointsMode === "POR_PAX" && pointsInput > 0 ? (
-                <span className="text-slate-500">
-                  • Total calculado: <b className="tabular-nums">{fmtInt(pointsTotal)}</b>
-                </span>
-              ) : null}
+              <span className="text-slate-500">
+                • Total calculado: <b className="tabular-nums">{fmtInt(pointsTotal)}</b>
+              </span>
             </div>
-          </label>
+
+            <div className="grid gap-3 md:grid-cols-2">
+              {/* IDA */}
+              <div className="rounded-xl border p-3 bg-white">
+                <div className="text-xs text-slate-600 mb-2">Pontos (Ida)</div>
+
+                <input
+                  className="w-full rounded-xl border px-3 py-2 text-sm font-mono"
+                  value={idaStr}
+                  onChange={(e) => onChangePoints(setIdaStr, e.target.value)}
+                  placeholder={idaMode === "POR_PAX" ? "Ex: 100.000 (por pax)" : "Ex: 200.000 (total)"}
+                />
+
+                <div className="mt-2 flex flex-wrap items-center gap-3 text-[11px] text-slate-600">
+                  <label className="inline-flex items-center gap-2">
+                    <input type="radio" name="idaMode" checked={idaMode === "TOTAL"} onChange={() => setIdaMode("TOTAL")} />
+                    Total
+                  </label>
+                  <label className="inline-flex items-center gap-2">
+                    <input
+                      type="radio"
+                      name="idaMode"
+                      checked={idaMode === "POR_PAX"}
+                      onChange={() => setIdaMode("POR_PAX")}
+                    />
+                    Por passageiro
+                  </label>
+
+                  {idaMode === "POR_PAX" && idaInput > 0 ? (
+                    <span className="text-slate-500">
+                      • Ida total: <b className="tabular-nums">{fmtInt(idaTotalPoints)}</b>
+                    </span>
+                  ) : null}
+                </div>
+              </div>
+
+              {/* VOLTA */}
+              <div className={cn("rounded-xl border p-3 bg-white", tripKind !== "IDA_VOLTA" ? "opacity-50" : "")}>
+                <div className="text-xs text-slate-600 mb-2">Pontos (Volta)</div>
+
+                <input
+                  disabled={tripKind !== "IDA_VOLTA"}
+                  className="w-full rounded-xl border px-3 py-2 text-sm font-mono disabled:bg-slate-50"
+                  value={voltaStr}
+                  onChange={(e) => onChangePoints(setVoltaStr, e.target.value)}
+                  placeholder={voltaMode === "POR_PAX" ? "Ex: 100.000 (por pax)" : "Ex: 200.000 (total)"}
+                />
+
+                <div className="mt-2 flex flex-wrap items-center gap-3 text-[11px] text-slate-600">
+                  <label className="inline-flex items-center gap-2">
+                    <input
+                      disabled={tripKind !== "IDA_VOLTA"}
+                      type="radio"
+                      name="voltaMode"
+                      checked={voltaMode === "TOTAL"}
+                      onChange={() => setVoltaMode("TOTAL")}
+                    />
+                    Total
+                  </label>
+                  <label className="inline-flex items-center gap-2">
+                    <input
+                      disabled={tripKind !== "IDA_VOLTA"}
+                      type="radio"
+                      name="voltaMode"
+                      checked={voltaMode === "POR_PAX"}
+                      onChange={() => setVoltaMode("POR_PAX")}
+                    />
+                    Por passageiro
+                  </label>
+
+                  {tripKind === "IDA_VOLTA" && voltaMode === "POR_PAX" && voltaInput > 0 ? (
+                    <span className="text-slate-500">
+                      • Volta total: <b className="tabular-nums">{fmtInt(voltaTotalPoints)}</b>
+                    </span>
+                  ) : null}
+                </div>
+              </div>
+            </div>
+          </div>
 
           <label className="space-y-1">
             <div className="text-xs text-slate-600">Passageiros</div>
@@ -1157,7 +1288,11 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
                 >
                   Ir para dados
                 </button>
-                <button type="button" onClick={clearSelection} className="rounded-xl border px-3 py-2 text-sm hover:bg-slate-50">
+                <button
+                  type="button"
+                  onClick={clearSelection}
+                  className="rounded-xl border px-3 py-2 text-sm hover:bg-slate-50"
+                >
                   Trocar cedente
                 </button>
               </div>
@@ -1177,7 +1312,11 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
                   />
                 </label>
 
-                <button type="button" onClick={() => setCedenteQ("")} className="rounded-xl border px-3 py-2 text-sm hover:bg-slate-50">
+                <button
+                  type="button"
+                  onClick={() => setCedenteQ("")}
+                  className="rounded-xl border px-3 py-2 text-sm hover:bg-slate-50"
+                >
                   Limpar busca
                 </button>
               </div>
@@ -1465,12 +1604,15 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
                 </label>
 
                 <label className="space-y-1">
-                  <div className="text-xs text-slate-600">Localizador</div>
+                  <div className="text-xs text-slate-600">
+                    Localizador <span className="text-rose-600">*</span>
+                  </div>
                   <input
+                    required
                     className="w-full rounded-xl border px-3 py-2 text-sm font-mono"
                     value={locator}
                     onChange={(e) => setLocator(e.target.value)}
-                    placeholder="Opcional"
+                    placeholder="Obrigatório"
                   />
                 </label>
               </div>
@@ -1483,16 +1625,40 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
 
             <div className="rounded-xl bg-slate-50 p-4 text-sm space-y-1">
               <div className="flex justify-between">
+                <span className="text-slate-600">Trecho</span>
+                <b>{tripKind === "IDA_VOLTA" ? "Ida + Volta" : "Só ida"}</b>
+              </div>
+
+              <div className="flex justify-between">
+                <span className="text-slate-600">Pontos (ida)</span>
+                <b>{fmtInt(idaTotalPoints)}</b>
+              </div>
+              {idaMode === "POR_PAX" ? (
+                <div className="flex justify-between text-xs text-slate-500">
+                  <span>Ida por passageiro</span>
+                  <b className="tabular-nums">{fmtInt(idaInput)}</b>
+                </div>
+              ) : null}
+
+              {tripKind === "IDA_VOLTA" ? (
+                <>
+                  <div className="flex justify-between">
+                    <span className="text-slate-600">Pontos (volta)</span>
+                    <b>{fmtInt(voltaTotalPoints)}</b>
+                  </div>
+                  {voltaMode === "POR_PAX" ? (
+                    <div className="flex justify-between text-xs text-slate-500">
+                      <span>Volta por passageiro</span>
+                      <b className="tabular-nums">{fmtInt(voltaInput)}</b>
+                    </div>
+                  ) : null}
+                </>
+              ) : null}
+
+              <div className="flex justify-between">
                 <span className="text-slate-600">Pontos (total)</span>
                 <b>{fmtInt(pointsTotal)}</b>
               </div>
-
-              {pointsMode === "POR_PAX" ? (
-                <div className="flex justify-between text-xs text-slate-500">
-                  <span>Pontos por passageiro</span>
-                  <b className="tabular-nums">{fmtInt(pointsInput)}</b>
-                </div>
-              ) : null}
 
               <div className="flex justify-between">
                 <span className="text-slate-600">PAX</span>
@@ -1529,6 +1695,19 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
                 <b>{fmtMoneyBR(bonusCents)}</b>
               </div>
             </div>
+
+            {/* ✅ Botão salvar abaixo do resumo */}
+            <button
+              type="button"
+              onClick={() => setConfirmOpen(true)}
+              disabled={!canSave || isSaving}
+              className={cn(
+                "mt-3 w-full rounded-xl px-4 py-2 text-sm text-white",
+                !canSave || isSaving ? "bg-slate-300 cursor-not-allowed" : "bg-black hover:bg-gray-800"
+              )}
+            >
+              {isSaving ? "Salvando..." : "Salvar venda"}
+            </button>
 
             <div className="text-xs text-slate-500">
               Comissão ignora taxa. Bônus = 30% do excedente acima da meta.
@@ -1647,6 +1826,86 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
                 {creatingCliente ? "Cadastrando..." : "Cadastrar"}
               </button>
             </div>
+          </div>
+        </div>
+      ) : null}
+
+      {/* ✅ MODAL CONFIRMAR (antes de salvar) */}
+      {confirmOpen ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-lg rounded-2xl bg-white border p-5">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <div className="text-lg font-semibold">Confirmar venda</div>
+                <div className="text-xs text-slate-500">Confira os dados antes de salvar.</div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setConfirmOpen(false)}
+                className="rounded-lg border px-2 py-1 text-sm hover:bg-slate-50"
+                disabled={isSaving}
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="mt-4 space-y-2 text-sm">
+              <div className="flex justify-between">
+                <span className="text-slate-600">Total</span>
+                <b>{fmtMoneyBR(totalCents)}</b>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-600">Cartão da taxa</span>
+                <b>{feeCardLabel || "—"}</b>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-600">Localizador</span>
+                <b className="font-mono">{locator?.trim() || "—"}</b>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-600">Programa</span>
+                <b>{program}</b>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-600">Pontos</span>
+                <b>{fmtInt(pointsTotal)}</b>
+              </div>
+            </div>
+
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setConfirmOpen(false)}
+                className="rounded-xl border px-4 py-2 text-sm hover:bg-slate-50"
+                disabled={isSaving}
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  setConfirmOpen(false);
+                  await doSave();
+                }}
+                disabled={!canSave || isSaving}
+                className={cn(
+                  "rounded-xl px-4 py-2 text-sm text-white",
+                  !canSave || isSaving ? "bg-slate-400 cursor-not-allowed" : "bg-black hover:bg-gray-800"
+                )}
+              >
+                {isSaving ? "Salvando..." : "Confirmar e salvar"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {/* ✅ OVERLAY CENTRAL "SALVANDO..." */}
+      {isSaving ? (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/30">
+          <div className="rounded-2xl bg-white border px-5 py-4 shadow-sm flex items-center gap-3">
+            <div className="h-5 w-5 rounded-full border-2 border-slate-300 border-t-slate-900 animate-spin" />
+            <div className="text-sm font-medium">Salvando venda...</div>
           </div>
         </div>
       ) : null}
