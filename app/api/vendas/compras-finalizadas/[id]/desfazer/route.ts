@@ -1,4 +1,3 @@
-// app/api/vendas/compras-finalizadas/[purchaseId]/desfazer/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { prisma } from "@/lib/prisma";
@@ -26,9 +25,8 @@ function readSessionCookie(raw?: string): Sess | null {
   }
 }
 
-async function getServerSession(): Promise<Sess | null> {
-  // Next 16: cookies() pode ser sync, mas seu padrão com await funciona
-  const store = await cookies();
+function getServerSession(): Sess | null {
+  const store = cookies();
   const raw = store.get("tm.session")?.value;
   return readSessionCookie(raw);
 }
@@ -37,27 +35,24 @@ function bad(message: string, status = 400) {
   return NextResponse.json({ ok: false, error: message }, { status });
 }
 
-/**
- * ✅ Next 16: context.params é Promise<{...}>
- * (é EXATAMENTE isso que estava quebrando seu build)
- */
+// ✅ Next 16 (Turbopack) pode tipar params como Promise
 export async function PATCH(
   req: NextRequest,
-  context: { params: Promise<{ purchaseId: string }> }
+  context: { params: Promise<{ id: string }> }
 ) {
-  const session = await getServerSession();
+  const session = getServerSession();
   if (!session?.id) return bad("Não autenticado", 401);
 
-  // ✅ restrição recomendada (igual você queria)
+  // ✅ recomendo restringir a admin
   if (session.role !== "admin") return bad("Sem permissão", 403);
 
-  const { purchaseId } = await context.params;
-  if (!purchaseId) return bad("purchaseId ausente.");
+  const { id } = await context.params; // id === purchaseId
+  const purchaseId = id;
+  if (!purchaseId) return bad("id ausente.");
 
-  // opcional (frontend manda "reason")
-  const body = await req.json().catch(() => null);
-  const reason = body?.reason ? String(body.reason).slice(0, 500) : null;
-  void reason; // (não persiste por enquanto)
+  // (opcional) ler motivo do body
+  // const body = await req.json().catch(() => null);
+  // const motivo = String(body?.motivo || "").trim();
 
   try {
     await prisma.$transaction(async (tx) => {
@@ -67,17 +62,13 @@ export async function PATCH(
           id: purchaseId,
           cedente: { owner: { team: session.team } },
         },
-        select: {
-          id: true,
-          numero: true,
-          finalizedAt: true,
-        },
+        select: { id: true, finalizedAt: true },
       });
 
       if (!p) throw new Error("Compra não encontrada.");
       if (!p.finalizedAt) throw new Error("Esta compra não está finalizada.");
 
-      // ✅ Se existir alguma tabela de snapshot/rateio persistido, apague aqui:
+      // ✅ Se houver tabelas de snapshot persistidas, apague aqui:
       // await tx.purchaseRateioSnapshot.deleteMany({ where: { purchaseId } });
 
       await tx.purchase.update({
