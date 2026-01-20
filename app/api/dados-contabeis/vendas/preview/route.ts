@@ -36,16 +36,29 @@ function addDaysISO(iso: string, days: number) {
   return `${yy}-${mm}-${dd}`;
 }
 
+function isoToUTCDate(iso: string) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(iso || "").trim());
+  if (!m) return null;
+  const y = Number(m[1]);
+  const mo = Number(m[2]);
+  const d = Number(m[3]);
+  if (!y || !mo || !d) return null;
+  return new Date(Date.UTC(y, mo - 1, d)); // 00:00Z
+}
+
 function cleanDoc(v: string) {
   return String(v || "").replace(/\D+/g, "");
 }
 
-function splitProfitProportional(items: Array<{ key: string; totalCents: number }>, totalProfitCents: number) {
+function splitProfitProportional(
+  items: Array<{ key: string; totalCents: number }>,
+  totalProfitCents: number
+) {
   const total = items.reduce((a, x) => a + (x.totalCents || 0), 0);
-  if (total <= 0 || totalProfitCents <= 0) return new Map(items.map(i => [i.key, 0]));
+  if (total <= 0 || totalProfitCents <= 0)
+    return new Map(items.map((i) => [i.key, 0]));
 
-  // 1) aloca por arredondamento
-  const tmp = items.map(i => {
+  const tmp = items.map((i) => {
     const raw = (i.totalCents / total) * totalProfitCents;
     return { key: i.key, raw, floor: Math.floor(raw) };
   });
@@ -53,8 +66,8 @@ function splitProfitProportional(items: Array<{ key: string; totalCents: number 
   let allocated = tmp.reduce((a, x) => a + x.floor, 0);
   let remaining = totalProfitCents - allocated;
 
-  // 2) distribui o “resto” pelos maiores decimais
   tmp.sort((a, b) => (b.raw - b.floor) - (a.raw - a.floor));
+
   const out = new Map<string, number>();
   for (let i = 0; i < tmp.length; i++) {
     const add = remaining > 0 ? 1 : 0;
@@ -95,14 +108,19 @@ export async function GET(req: Request) {
       scopeMonth = m;
     }
 
+    const startDT = isoToUTCDate(startDate);
+    const endDT = isoToUTCDate(endExclusive);
+    if (!startDT || !endDT) return bad("Período inválido (datas)");
+
     const paymentStatusWhere =
       status === "PAID" ? "PAID" : status === "PENDING" ? "PENDING" : undefined;
 
-    // ✅ vendas do período (exclui canceladas)
+    // ✅ vendas do período (exclui canceladas) — FILTRA TIME VIA CEDENTE.OWNER.TEAM
     const sales = await prisma.sale.findMany({
       where: {
-        team,
-        date: { gte: startDate, lt: endExclusive },
+        cedente: { owner: { team } }, // ✅ aqui
+
+        date: { gte: startDT, lt: endDT },
         paymentStatus: paymentStatusWhere ? paymentStatusWhere : { in: ["PAID", "PENDING"] },
       },
       select: {
@@ -115,7 +133,7 @@ export async function GET(req: Request) {
             id: true,
             nome: true,
             identificador: true,
-            cpfCnpj: true, // ✅ se não existir no teu schema, me diga o nome correto
+            cpfCnpj: true,
           },
         },
       },
@@ -126,20 +144,20 @@ export async function GET(req: Request) {
     const totalSoldCents = sales.reduce((a, s) => a + (s.totalCents || 0), 0);
 
     // ✅ lucro do período (time) = soma grossProfitCents (SEM 8%)
+    // employeePayout.date é STRING YYYY-MM-DD, então gte/lt string é ok.
     const lucroAgg = await prisma.employeePayout.aggregate({
       where: { team, date: { gte: startDate, lt: endExclusive } },
       _sum: { grossProfitCents: true },
     });
     const profitTotalCents = lucroAgg._sum.grossProfitCents || 0;
 
-    // ✅ agrupa por cliente (modelo da planilha)
+    // ✅ agrupa por cliente (modelo)
     const map = new Map<
       string,
       {
         key: string;
         cpfCnpj: string;
         nome: string;
-        info: string;
         totalServiceCents: number;
         salesCount: number;
       }
@@ -155,7 +173,6 @@ export async function GET(req: Request) {
         key,
         cpfCnpj: cpfCnpjDisplay,
         nome,
-        info: "",
         totalServiceCents: 0,
         salesCount: 0,
       };
@@ -164,38 +181,37 @@ export async function GET(req: Request) {
       map.set(key, prev);
     }
 
-    const items = Array.from(map.values()).map((r) => ({
-      key: r.key,
-      totalCents: r.totalServiceCents,
-    }));
+    const groups = Array.from(map.values());
 
-    const profitMap = splitProfitProportional(items, profitTotalCents);
+    const profitMap = splitProfitProportional(
+      groups.map((g) => ({ key: g.key, totalCents: g.totalServiceCents })),
+      profitTotalCents
+    );
 
-    // ✅ monta linhas finais (com dedução)
-    const rows = Array.from(map.values())
-      .map((r) => {
-        const profitCents = profitMap.get(r.key) || 0;
-        const deductionCents = Math.max(0, (r.totalServiceCents || 0) - profitCents);
+    const rows = groups
+      .map((g) => {
+        const profitCents = profitMap.get(g.key) || 0;
+        const deductionCents = Math.max(0, (g.totalServiceCents || 0) - profitCents);
 
         const info = date
-          ? `Vendas do dia ${date} (${r.salesCount} venda(s))`
-          : `Vendas do mês ${scopeMonth} (${r.salesCount} venda(s))`;
+          ? `Vendas do dia ${date} (${g.salesCount} venda(s))`
+          : `Vendas do mês ${scopeMonth} (${g.salesCount} venda(s))`;
 
         return {
-          cpfCnpj: r.cpfCnpj,
-          nome: r.nome,
+          cpfCnpj: g.cpfCnpj,
+          nome: g.nome,
           info,
-          totalServiceCents: r.totalServiceCents,
+          totalServiceCents: g.totalServiceCents,
           deductionCents,
           profitCents,
-          salesCount: r.salesCount,
+          salesCount: g.salesCount,
         };
       })
       .sort((a, b) => b.totalServiceCents - a.totalServiceCents);
 
     const totalDeductionCents = rows.reduce((a, r) => a + r.deductionCents, 0);
+    const endDate = addDaysISO(endExclusive, -1);
 
-    const endDate = addDaysISO(endExclusive, -1); // só pra exibir
     return NextResponse.json({
       ok: true,
       scope: { month: scopeMonth, date: date || null, status: status || "ALL" },
@@ -204,7 +220,7 @@ export async function GET(req: Request) {
       totals: {
         salesCount,
         totalSoldCents,
-        profitTotalCents, // ✅ sem 8%
+        profitTotalCents,
         totalDeductionCents,
       },
       rows,
