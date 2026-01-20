@@ -1,21 +1,129 @@
 // app/dashboard/layout.tsx
+"use client";
+
+import { useEffect, useState } from "react";
 import Sidebar from "@/components/Sidebar";
 import AuthGuard from "@/components/AuthGuard";
+import { cn } from "@/lib/cn";
 
 export const dynamic = "force-dynamic";
 
-export default function DashboardLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
+export default function DashboardLayout({ children }: { children: React.ReactNode }) {
+  const [mobileOpen, setMobileOpen] = useState(false);
+
+  // ✅ fecha drawer ao trocar rota (se Sidebar usa links normais, isso evita ficar aberto)
+  useEffect(() => {
+    const onPop = () => setMobileOpen(false);
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, []);
+
+  // ✅ trava scroll do body quando drawer estiver aberto
+  useEffect(() => {
+    if (!mobileOpen) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = prev;
+    };
+  }, [mobileOpen]);
+
   return (
     <AuthGuard>
-      <div className="min-h-screen w-screen bg-white text-slate-900 overflow-x-hidden">
+      {/* ✅ usa dvh no mobile (melhor que min-h-screen) */}
+      <div className="min-h-dvh w-full bg-white text-slate-900">
         <div className="flex w-full">
-          <Sidebar />
+          {/* =====================
+              SIDEBAR DESKTOP
+              ===================== */}
+          <div className="hidden lg:block">
+            <Sidebar />
+          </div>
+
+          {/* =====================
+              MOBILE: TOP BAR
+              ===================== */}
+          <div className="lg:hidden fixed top-0 left-0 right-0 z-40 border-b bg-white/95 backdrop-blur">
+            <div className="mx-auto w-full max-w-screen-2xl px-4 py-3 flex items-center justify-between">
+              <button
+                type="button"
+                onClick={() => setMobileOpen(true)}
+                className="rounded-xl border px-3 py-2 text-sm hover:bg-slate-50 active:scale-[0.99]"
+                aria-label="Abrir menu"
+              >
+                ☰ Menu
+              </button>
+
+              <div className="text-sm font-semibold">TradeMiles</div>
+
+              {/* espaçador pra centralizar o título */}
+              <div className="w-[78px]" />
+            </div>
+          </div>
+
+          {/* =====================
+              MOBILE: DRAWER + OVERLAY
+              ===================== */}
+          <div
+            className={cn(
+              "lg:hidden fixed inset-0 z-50",
+              mobileOpen ? "pointer-events-auto" : "pointer-events-none"
+            )}
+            aria-hidden={!mobileOpen}
+          >
+            {/* overlay */}
+            <div
+              onClick={() => setMobileOpen(false)}
+              className={cn(
+                "absolute inset-0 bg-black/40 transition-opacity",
+                mobileOpen ? "opacity-100" : "opacity-0"
+              )}
+            />
+
+            {/* drawer */}
+            <div
+              className={cn(
+                "absolute left-0 top-0 h-full w-[86%] max-w-[340px] bg-white shadow-xl transition-transform",
+                mobileOpen ? "translate-x-0" : "-translate-x-full"
+              )}
+            >
+              <div className="flex items-center justify-between border-b px-4 py-3">
+                <div className="font-semibold">Menu</div>
+                <button
+                  type="button"
+                  onClick={() => setMobileOpen(false)}
+                  className="rounded-xl border px-3 py-2 text-sm hover:bg-slate-50"
+                >
+                  Fechar
+                </button>
+              </div>
+
+              {/* Sidebar dentro do drawer */}
+              <div
+                className="h-[calc(100%-56px)] overflow-auto"
+                onClick={(e) => {
+                  // ✅ se clicar em links dentro do menu, fecha
+                  const target = e.target as HTMLElement;
+                  const a = target.closest("a");
+                  if (a) setMobileOpen(false);
+                }}
+              >
+                <Sidebar />
+              </div>
+            </div>
+          </div>
+
+          {/* =====================
+              MAIN
+              ===================== */}
           <main className="flex-1 min-w-0">
-            <div className="w-full px-4 sm:px-6 lg:px-8 py-6">{children}</div>
+            {/* no mobile, empurra o conteúdo pra baixo do topbar */}
+            <div className="pt-[56px] lg:pt-0">
+              {/* ✅ mantém exatamente a mesma lógica de padding no desktop (lg+) */}
+              <div className="w-full px-4 sm:px-6 lg:px-8 py-4 sm:py-6">
+                {children}
+              </div>
+            </div>
           </main>
         </div>
       </div>
