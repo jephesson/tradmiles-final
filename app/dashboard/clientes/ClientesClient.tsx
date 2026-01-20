@@ -64,16 +64,20 @@ export default function ClientesClient() {
     });
   }, [rows, q]);
 
+  const canExport = rows.length > 0;
+
   return (
     <div className="space-y-6">
       {/* Topbar */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold">Clientes</h1>
-          <p className="text-sm text-slate-600">Clientes são para quem você vende os pontos.</p>
+          <p className="text-sm text-slate-600">
+            Clientes são para quem você vende os pontos.
+          </p>
         </div>
 
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <button
             onClick={load}
             disabled={loading}
@@ -81,6 +85,17 @@ export default function ClientesClient() {
           >
             {loading ? "Atualizando..." : "Atualizar"}
           </button>
+
+          <a
+            href="/api/clientes/export"
+            aria-disabled={!canExport}
+            className={[
+              "rounded-xl border px-4 py-2 text-sm hover:bg-slate-50",
+              !canExport ? "pointer-events-none opacity-50" : "",
+            ].join(" ")}
+          >
+            Baixar XLS
+          </a>
 
           <Link
             href="/dashboard/clientes/novo"
@@ -93,7 +108,13 @@ export default function ClientesClient() {
 
       {/* Search */}
       <div className="rounded-2xl border bg-white p-4">
-        <div className="mb-1 text-xs text-slate-600">Buscar</div>
+        <div className="mb-1 flex items-center justify-between gap-3">
+          <div className="text-xs text-slate-600">Buscar</div>
+          <div className="text-xs text-slate-500">
+            {filtered.length} / {rows.length}
+          </div>
+        </div>
+
         <input
           className="w-full rounded-xl border px-3 py-2 text-sm"
           value={q}
@@ -106,7 +127,9 @@ export default function ClientesClient() {
       <div className="rounded-2xl border bg-white p-4">
         {filtered.length === 0 ? (
           <div className="text-sm text-slate-600">
-            {rows.length === 0 ? "Nenhum cliente cadastrado ainda." : "Nenhum resultado para a busca."}
+            {rows.length === 0
+              ? "Nenhum cliente cadastrado ainda."
+              : "Nenhum resultado para a busca."}
           </div>
         ) : (
           <div className="overflow-auto rounded-xl border">
@@ -123,15 +146,20 @@ export default function ClientesClient() {
                   <th className="px-3 py-2 text-right">Ações</th>
                 </tr>
               </thead>
+
               <tbody>
                 {filtered.map((c) => (
                   <tr key={c.id} className="border-t hover:bg-slate-50">
                     <td className="px-3 py-2 font-medium">{c.identificador}</td>
                     <td className="px-3 py-2">{c.nome}</td>
-                    <td className="px-3 py-2">{c.tipo === "EMPRESA" ? "Empresa" : "Pessoa"}</td>
+                    <td className="px-3 py-2">
+                      {c.tipo === "EMPRESA" ? "Empresa" : "Pessoa"}
+                    </td>
                     <td className="px-3 py-2">{c.cpfCnpj || "-"}</td>
                     <td className="px-3 py-2">{c.telefone || "-"}</td>
-                    <td className="px-3 py-2">{origemLabel(c.origem, c.origemDescricao)}</td>
+                    <td className="px-3 py-2">
+                      {origemLabel(c.origem, c.origemDescricao)}
+                    </td>
                     <td className="px-3 py-2">{dateBR(c.createdAt)}</td>
                     <td className="px-3 py-2 text-right">
                       <Link
