@@ -16,6 +16,10 @@ function SidebarFallback({ className }: { className?: string }) {
   );
 }
 
+function PageFallback() {
+  return <div className="p-4 text-sm text-slate-500">Carregando…</div>;
+}
+
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const [mobileOpen, setMobileOpen] = useState(false);
 
@@ -82,7 +86,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             {/* overlay */}
             <div
               onClick={() => setMobileOpen(false)}
-              className={cn("absolute inset-0 bg-black/40 transition-opacity", mobileOpen ? "opacity-100" : "opacity-0")}
+              className={cn(
+                "absolute inset-0 bg-black/40 transition-opacity",
+                mobileOpen ? "opacity-100" : "opacity-0"
+              )}
             />
 
             {/* drawer */}
@@ -126,7 +133,11 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           <main className="flex-1 min-w-0">
             {/* no mobile, empurra o conteúdo pra baixo do topbar */}
             <div className="pt-[56px] lg:pt-0">
-              <div className="w-full px-4 sm:px-6 lg:px-8 py-4 sm:py-6">{children}</div>
+              {/* ✅ mantém exatamente igual no desktop (lg+) */}
+              <div className="w-full px-4 sm:px-6 lg:px-8 py-4 sm:py-6">
+                {/* ✅ FIX GLOBAL: cobre useSearchParams() em QUALQUER página do dashboard */}
+                <Suspense fallback={<PageFallback />}>{children}</Suspense>
+              </div>
             </div>
           </main>
         </div>
