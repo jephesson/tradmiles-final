@@ -1,7 +1,6 @@
 // app/api/clientes/export/route.ts
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import ExcelJS from "exceljs";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -26,6 +25,10 @@ function origemLabel(
 
 export async function GET() {
   try {
+    // ✅ dynamic import (evita resolver no build)
+    const mod = await import("exceljs");
+    const ExcelJS = mod.default ?? mod;
+
     const clientes = await prisma.cliente.findMany({
       orderBy: { createdAt: "desc" },
       select: {
@@ -73,8 +76,8 @@ export async function GET() {
     }
 
     // bordas leves
-    ws.eachRow((row, rowNumber) => {
-      row.eachCell((cell) => {
+    ws.eachRow((row: any, rowNumber: number) => {
+      row.eachCell((cell: any) => {
         cell.border = {
           top: { style: "thin", color: { argb: "FFE5E7EB" } },
           left: { style: "thin", color: { argb: "FFE5E7EB" } },
@@ -82,7 +85,11 @@ export async function GET() {
           right: { style: "thin", color: { argb: "FFE5E7EB" } },
         };
         if (rowNumber === 1) {
-          cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFF1F5F9" } };
+          cell.fill = {
+            type: "pattern",
+            pattern: "solid",
+            fgColor: { argb: "FFF1F5F9" },
+          };
         }
       });
     });
@@ -93,7 +100,6 @@ export async function GET() {
     const y = String(now.getFullYear());
     const m = String(now.getMonth() + 1).padStart(2, "0");
     const d = String(now.getDate()).padStart(2, "0");
-
     const filename = `clientes_${y}-${m}-${d}.xlsx`;
 
     return new NextResponse(Buffer.from(buf), {
