@@ -98,6 +98,15 @@ export default function Sidebar() {
     isResumoRoute ||
     isCaixaImediatoRoute;
 
+  // ✅ NOVO: Dados contábeis
+  const isDadosContabeisRoute = pathname.startsWith("/dashboard/dados-contabeis");
+  const isDadosContabeisVendasRoute = pathname.startsWith(
+    "/dashboard/dados-contabeis/vendas"
+  );
+  const isDadosContabeisComprasRoute = pathname.startsWith(
+    "/dashboard/dados-contabeis/compras"
+  );
+
   // ✅ IMPORTAÇÕES (fora do Gestor de emissões)
   const isImportacoesRoute = pathname.startsWith("/dashboard/importacoes");
   const isImportacoesEmissoesLatamRoute = pathname.startsWith(
@@ -184,6 +193,11 @@ export default function Sidebar() {
 
   const [openFinanceiro, setOpenFinanceiro] = useState(isFinanceiroRoute);
 
+  // ✅ NOVO: dados contábeis
+  const [openDadosContabeis, setOpenDadosContabeis] = useState(
+    isDadosContabeisRoute
+  );
+
   const [openGestorEmissoes, setOpenGestorEmissoes] = useState(
     isGestorEmissoesRoute
   );
@@ -256,6 +270,11 @@ export default function Sidebar() {
   }, [isContasSelecionadasSmilesRoute]);
 
   useEffect(() => setOpenFinanceiro(isFinanceiroRoute), [isFinanceiroRoute]);
+
+  // ✅ NOVO: mantém aberto quando entrar em /dados-contabeis/*
+  useEffect(() => {
+    setOpenDadosContabeis(isDadosContabeisRoute);
+  }, [isDadosContabeisRoute]);
 
   useEffect(
     () => setOpenGestorEmissoes(isGestorEmissoesRoute),
@@ -619,6 +638,21 @@ export default function Sidebar() {
           </NavLink>
 
           <NavLink href="/dashboard/impostos">Impostos</NavLink>
+        </Accordion>
+
+        {/* ================= DADOS CONTÁBEIS ================= */}
+        <Accordion
+          title="Dados contábeis"
+          open={openDadosContabeis}
+          onToggle={() => setOpenDadosContabeis((v) => !v)}
+          active={isDadosContabeisRoute}
+        >
+          <NavLink href="/dashboard/dados-contabeis/vendas">
+            Vendas
+          </NavLink>
+          <NavLink href="/dashboard/dados-contabeis/compras">
+            Compras
+          </NavLink>
         </Accordion>
 
         {/* ================= IMPORTAÇÕES (FORA DO GESTOR) ================= */}
