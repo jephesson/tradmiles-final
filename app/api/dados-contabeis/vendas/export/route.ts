@@ -37,29 +37,45 @@ function addDaysISO(iso: string, days: number) {
   return `${yy}-${mm}-${dd}`;
 }
 
-function cleanDoc(v: string) {
-  return String(v || "").replace(/\D+/g, "");
+/** ✅ DateTime (Sale.date) -> usa UTC start do dia */
+function utcStartDateFromISO(iso: string) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(iso || "").trim());
+  if (!m) return null;
+  const y = Number(m[1]);
+  const mo = Number(m[2]);
+  const d = Number(m[3]);
+  if (!y || !mo || !d) return null;
+  return new Date(Date.UTC(y, mo - 1, d, 0, 0, 0, 0));
 }
 
-function splitProfitProportional(items: Array<{ key: string; totalCents: number }>, totalProfitCents: number) {
+function splitProfitProportional(
+  items: Array<{ key: string; totalCents: number }>,
+  totalProfitCents: number
+) {
   const total = items.reduce((a, x) => a + (x.totalCents || 0), 0);
-  if (total <= 0 || totalProfitCents <= 0) return new Map(items.map(i => [i.key, 0]));
+  if (total <= 0 || totalProfitCents === 0) return new Map(items.map((i) => [i.key, 0]));
 
-  const tmp = items.map(i => {
-    const raw = (i.totalCents / total) * totalProfitCents;
+  const sign = totalProfitCents < 0 ? -1 : 1;
+  const profitAbs = Math.abs(totalProfitCents);
+
+  const tmp = items.map((i) => {
+    const raw = (i.totalCents / total) * profitAbs;
     return { key: i.key, raw, floor: Math.floor(raw) };
   });
 
   let allocated = tmp.reduce((a, x) => a + x.floor, 0);
-  let remaining = totalProfitCents - allocated;
+  let remaining = profitAbs - allocated;
 
   tmp.sort((a, b) => (b.raw - b.floor) - (a.raw - a.floor));
   const out = new Map<string, number>();
+
   for (let i = 0; i < tmp.length; i++) {
     const add = remaining > 0 ? 1 : 0;
-    out.set(tmp[i].key, tmp[i].floor + add);
+    const v = (tmp[i].floor + add) * sign;
+    out.set(tmp[i].key, v);
     if (remaining > 0) remaining -= 1;
   }
+
   return out;
 }
 
@@ -75,80 +91,102 @@ export async function GET(req: Request) {
     const date = String(url.searchParams.get("date") || "");
     const status = String(url.searchParams.get("status") || "ALL").toUpperCase();
 
-    let startDate = "";
-    let endExclusive = "";
+    // ✅ strings p/ EmployeePayout (date string)
+    let startDateISO = "";
+    let endExclusiveISO = "";
     let scopeMonth = "";
 
     if (date) {
       if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return bad("date inválido. Use YYYY-MM-DD");
-      startDate = date;
-      endExclusive = addDaysISO(date, 1);
-      if (!endExclusive) return bad("date inválido");
+      startDateISO = date;
+      endExclusiveISO = addDaysISO(date, 1);
+      if (!endExclusiveISO) return bad("date inválido");
       scopeMonth = date.slice(0, 7);
     } else {
       const m = month.slice(0, 7);
       if (!/^\d{4}-\d{2}$/.test(m)) return bad("month inválido. Use YYYY-MM");
-      startDate = `${m}-01`;
-      endExclusive = nextMonthStart(m);
-      if (!endExclusive) return bad("month inválido");
+      startDateISO = `${m}-01`;
+      endExclusiveISO = nextMonthStart(m);
+      if (!endExclusiveISO) return bad("month inválido");
       scopeMonth = m;
     }
+
+    // ✅ DateTime p/ Sale.date (UTC)
+    const startDT = utcStartDateFromISO(startDateISO);
+    const endDT = utcStartDateFromISO(endExclusiveISO);
+    if (!startDT || !endDT) return bad("Período inválido");
 
     const paymentStatusWhere =
       status === "PAID" ? "PAID" : status === "PENDING" ? "PENDING" : undefined;
 
+    // ✅ FIX PRINCIPAL: Sale não tem team -> filtra via cedente.owner.team
     const sales = await prisma.sale.findMany({
       where: {
-        team,
-        date: { gte: startDate, lt: endExclusive },
-        paymentStatus: paymentStatusWhere ? paymentStatusWhere : { in: ["PAID", "PENDING"] },
+        cedente: { owner: { team } }, // ✅ aqui
+        date: { gte: startDT, lt: endDT },
+        paymentStatus: paymentStatusWhere
+          ? paymentStatusWhere
+          : { in: ["PAID", "PENDING"] },
       },
       select: {
         totalCents: true,
         cliente: {
           select: {
+            id: true,
             nome: true,
             identificador: true,
-            cpfCnpj: true, // ✅ ajuste se teu schema usar outro nome
+            cpfCnpj: true,
           },
         },
       },
       orderBy: { date: "asc" },
     });
 
+    // ✅ Lucro do período: pega o GROSS do payout (sem 8%)
+    // EmployeePayout.date é string "YYYY-MM-DD", então usamos ISO strings
     const lucroAgg = await prisma.employeePayout.aggregate({
-      where: { team, date: { gte: startDate, lt: endExclusive } },
+      where: { team, date: { gte: startDateISO, lt: endExclusiveISO } },
       _sum: { grossProfitCents: true },
     });
     const profitTotalCents = lucroAgg._sum.grossProfitCents || 0;
 
+    // ✅ agrupa por CLIENTE (id)
     const map = new Map<
       string,
       { key: string; cpfCnpj: string; nome: string; totalServiceCents: number; salesCount: number }
     >();
 
     for (const s of sales) {
-      const doc = cleanDoc((s as any)?.cliente?.cpfCnpj || (s as any)?.cliente?.identificador || "");
-      const cpfCnpjDisplay = (s as any)?.cliente?.cpfCnpj || (s as any)?.cliente?.identificador || "—";
-      const nome = (s as any)?.cliente?.nome || "—";
-      const key = `${doc}::${nome}`;
+      const clienteId = s?.cliente?.id || "UNKNOWN";
+      const cpfCnpjDisplay = s?.cliente?.cpfCnpj || s?.cliente?.identificador || "—";
+      const nome = s?.cliente?.nome || "—";
 
-      const prev = map.get(key) || { key, cpfCnpj: cpfCnpjDisplay, nome, totalServiceCents: 0, salesCount: 0 };
+      const prev =
+        map.get(clienteId) || {
+          key: clienteId,
+          cpfCnpj: cpfCnpjDisplay,
+          nome,
+          totalServiceCents: 0,
+          salesCount: 0,
+        };
+
       prev.totalServiceCents += s.totalCents || 0;
       prev.salesCount += 1;
-      map.set(key, prev);
+      map.set(clienteId, prev);
     }
 
     const groups = Array.from(map.values());
+
     const profitMap = splitProfitProportional(
-      groups.map(g => ({ key: g.key, totalCents: g.totalServiceCents })),
+      groups.map((g) => ({ key: g.key, totalCents: g.totalServiceCents })),
       profitTotalCents
     );
 
     const rows = groups
       .map((g) => {
         const lucro = profitMap.get(g.key) || 0;
-        const deducao = Math.max(0, (g.totalServiceCents || 0) - lucro);
+        const deducao = (g.totalServiceCents || 0) - lucro; // ✅ total - lucro (como você pediu)
+
         const info = date
           ? `Vendas do dia ${date} (${g.salesCount} venda(s))`
           : `Vendas do mês ${scopeMonth} (${g.salesCount} venda(s))`;
@@ -177,13 +215,13 @@ export async function GET(req: Request) {
       { header: "LUCRO", key: "lucro", width: 16 },
     ];
 
-    // Header style (similar ao print)
+    // Header style
     const headerRow = ws.getRow(1);
     headerRow.height = 18;
     headerRow.eachCell((cell) => {
       cell.font = { bold: true, color: { argb: "FFFFFFFF" } };
       cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF3A3A3A" } };
-      cell.alignment = { vertical: "middle", horizontal: "center" };
+      cell.alignment = { vertical: "middle", horizontal: "center", wrapText: true };
       cell.border = {
         top: { style: "thin", color: { argb: "FFBDBDBD" } },
         left: { style: "thin", color: { argb: "FFBDBDBD" } },
@@ -204,7 +242,7 @@ export async function GET(req: Request) {
       });
     }
 
-    // Format money columns
+    // Money format
     ["D", "E", "F"].forEach((col) => {
       ws.getColumn(col).numFmt = '"R$"#,##0.00;[Red]-"R$"#,##0.00';
     });
