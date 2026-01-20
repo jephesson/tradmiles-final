@@ -1,17 +1,25 @@
 // app/dashboard/layout.tsx
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import Sidebar from "@/components/Sidebar";
 import AuthGuard from "@/components/AuthGuard";
 import { cn } from "@/lib/cn";
 
 export const dynamic = "force-dynamic";
 
+function SidebarFallback({ className }: { className?: string }) {
+  return (
+    <div className={cn("w-[280px] shrink-0 bg-white", className)}>
+      <div className="p-4 text-sm text-slate-500">Carregando menu…</div>
+    </div>
+  );
+}
+
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const [mobileOpen, setMobileOpen] = useState(false);
 
-  // ✅ fecha drawer ao trocar rota (se Sidebar usa links normais, isso evita ficar aberto)
+  // ✅ fecha drawer ao trocar rota (back/forward)
   useEffect(() => {
     const onPop = () => setMobileOpen(false);
     window.addEventListener("popstate", onPop);
@@ -37,7 +45,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               SIDEBAR DESKTOP
               ===================== */}
           <div className="hidden lg:block">
-            <Sidebar />
+            {/* ✅ FIX: useSearchParams no Sidebar precisa Suspense */}
+            <Suspense fallback={<SidebarFallback className="border-r" />}>
+              <Sidebar />
+            </Suspense>
           </div>
 
           {/* =====================
@@ -65,19 +76,13 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               MOBILE: DRAWER + OVERLAY
               ===================== */}
           <div
-            className={cn(
-              "lg:hidden fixed inset-0 z-50",
-              mobileOpen ? "pointer-events-auto" : "pointer-events-none"
-            )}
+            className={cn("lg:hidden fixed inset-0 z-50", mobileOpen ? "pointer-events-auto" : "pointer-events-none")}
             aria-hidden={!mobileOpen}
           >
             {/* overlay */}
             <div
               onClick={() => setMobileOpen(false)}
-              className={cn(
-                "absolute inset-0 bg-black/40 transition-opacity",
-                mobileOpen ? "opacity-100" : "opacity-0"
-              )}
+              className={cn("absolute inset-0 bg-black/40 transition-opacity", mobileOpen ? "opacity-100" : "opacity-0")}
             />
 
             {/* drawer */}
@@ -102,13 +107,15 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               <div
                 className="h-[calc(100%-56px)] overflow-auto"
                 onClick={(e) => {
-                  // ✅ se clicar em links dentro do menu, fecha
                   const target = e.target as HTMLElement;
                   const a = target.closest("a");
                   if (a) setMobileOpen(false);
                 }}
               >
-                <Sidebar />
+                {/* ✅ FIX: também precisa Suspense aqui */}
+                <Suspense fallback={<div className="p-4 text-sm text-slate-500">Carregando menu…</div>}>
+                  <Sidebar />
+                </Suspense>
               </div>
             </div>
           </div>
@@ -119,10 +126,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           <main className="flex-1 min-w-0">
             {/* no mobile, empurra o conteúdo pra baixo do topbar */}
             <div className="pt-[56px] lg:pt-0">
-              {/* ✅ mantém exatamente a mesma lógica de padding no desktop (lg+) */}
-              <div className="w-full px-4 sm:px-6 lg:px-8 py-4 sm:py-6">
-                {children}
-              </div>
+              <div className="w-full px-4 sm:px-6 lg:px-8 py-4 sm:py-6">{children}</div>
             </div>
           </main>
         </div>
