@@ -42,7 +42,9 @@ function startOfMonthUTC(d = new Date()) {
   return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1, 0, 0, 0, 0));
 }
 function addMonthsUTC(d: Date, m: number) {
-  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + m, 1, 0, 0, 0, 0));
+  return new Date(
+    Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + m, 1, 0, 0, 0, 0)
+  );
 }
 
 /* =========================
@@ -225,10 +227,13 @@ export async function PATCH(req: NextRequest) {
 
     if (!ced) return bad("Cedente não encontrado", 404);
 
-    // ✅ permissão (ajuste aqui se quiser)
-    const role = session?.user?.role;
+    // ✅ permissão (Session no seu projeto não tem "user" tipado)
+    const s = session as any;
+    const role: string | undefined = s?.role ?? s?.user?.role;
+    const sessionUserId: string | undefined = s?.userId ?? s?.id ?? s?.user?.id;
+
     const isAdmin = role === "ADMIN";
-    const isOwner = ced.ownerId === session?.user?.id;
+    const isOwner = ced.ownerId === sessionUserId;
 
     if (!isAdmin && !isOwner) return bad("Sem permissão", 403);
 
