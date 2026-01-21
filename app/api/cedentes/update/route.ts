@@ -1,7 +1,11 @@
+// app/api/cedentes/update/route.ts
 import { prisma } from "@/lib/prisma";
 import { NextResponse } from "next/server";
 
-const ALLOWED_KEYS = new Set([
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
+const ALLOWED_KEYS = new Set<string>([
   "identificador",
   "nomeCompleto",
   "cpf",
@@ -29,15 +33,18 @@ const ALLOWED_KEYS = new Set([
   "reviewedAt",
   "reviewedById",
   "inviteId",
-] as const);
+]);
 
 function pickAllowed(data: any) {
   const out: any = {};
   for (const [k, v] of Object.entries(data || {})) {
     if (!ALLOWED_KEYS.has(k)) continue;
 
-    // normaliza senhas vazias para null (opcional, mas ajuda)
-    if (k.startsWith("senha") && (v === "" || (typeof v === "string" && v.trim() === ""))) {
+    // normaliza senhas vazias para null (ajuda a "limpar" campo)
+    if (
+      k.startsWith("senha") &&
+      (v === "" || (typeof v === "string" && v.trim() === ""))
+    ) {
       out[k] = null;
       continue;
     }
@@ -49,7 +56,9 @@ function pickAllowed(data: any) {
 
 export async function PUT(req: Request) {
   try {
-    const { id, data } = await req.json();
+    const body = await req.json().catch(() => null);
+    const id = body?.id;
+    const data = body?.data;
 
     if (!id || !data) {
       return NextResponse.json(
@@ -60,6 +69,13 @@ export async function PUT(req: Request) {
 
     const safeData = pickAllowed(data);
 
+    if (Object.keys(safeData).length === 0) {
+      return NextResponse.json(
+        { ok: false, error: "Nenhum campo válido para atualizar." },
+        { status: 400 }
+      );
+    }
+
     const updated = await prisma.cedente.update({
       where: { id },
       data: safeData,
@@ -67,7 +83,7 @@ export async function PUT(req: Request) {
 
     return NextResponse.json({ ok: true, data: updated });
   } catch (e: any) {
-    console.error("PUT /api/cedentes error:", e);
+    console.error("PUT /api/cedentes/update error:", e);
     return NextResponse.json(
       { ok: false, error: e?.message || "Erro ao salvar." },
       { status: 500 }
