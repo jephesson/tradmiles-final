@@ -1,3 +1,4 @@
+// app/api/compras/route.ts
 import { prisma } from "@/lib/prisma";
 import { ok, badRequest, serverError } from "@/lib/api";
 import { nextNumeroCompra } from "@/lib/compraNumero";
@@ -27,12 +28,13 @@ function toPurchaseRow(
     status: p.status,
     createdAt: p.createdAt, // Date -> JSON vira ISO automaticamente
 
-    // compat: pode existir com nomes antigos
-    ciaProgram: p.ciaProgram ?? p.ciaAerea ?? null,
-    ciaPointsTotal: asInt(p.ciaPointsTotal ?? p.pontosCiaTotal ?? 0),
+    // ✅ compat no OUTPUT (a UI espera "ciaProgram")
+    // No Prisma/DB o campo é "ciaAerea"
+    ciaProgram: (p.ciaAerea ?? (p as any).ciaProgram ?? null) as LoyaltyProgram | null,
+    ciaPointsTotal: asInt((p as any).ciaPointsTotal ?? p.pontosCiaTotal ?? 0),
 
     // totals (compat com nomes diferentes)
-    totalCostCents: asInt(p.totalCostCents ?? p.totalCost ?? p.totalCents ?? 0),
+    totalCostCents: asInt((p as any).totalCostCents ?? p.totalCost ?? p.totalCents ?? 0),
 
     cedente: p.cedente
       ? {
@@ -110,7 +112,9 @@ export async function GET(req: Request) {
 
       if (qDigits.length >= 2) {
         or.push({ cedente: { is: { cpf: { contains: qDigits } } } });
-        or.push({ cedente: { is: { identificador: { contains: qDigits, mode: "insensitive" } } } });
+        or.push({
+          cedente: { is: { identificador: { contains: qDigits, mode: "insensitive" } } },
+        });
       }
 
       where.OR = or;
@@ -135,7 +139,6 @@ export async function GET(req: Request) {
 
     // =========================
     // ✅ FIX: calcular Pts CIA na LISTA somando itens (purchaseItem)
-    // Isso evita ficar “10k” quando a compra já tem 60k+ em itens.
     // =========================
     const ids = compras.map((c) => c.id);
     const sumAll = new Map<string, number>(); // purchaseId -> soma geral
@@ -168,7 +171,8 @@ export async function GET(req: Request) {
     }
 
     const comprasOut = compras.map((p) => {
-      const program = (p.ciaProgram ?? p.ciaAerea ?? null) as LoyaltyProgram | null;
+      // ✅ FIX do erro: no Prisma é "ciaAerea" (não existe "ciaProgram" no type)
+      const program = (p.ciaAerea ?? null) as LoyaltyProgram | null;
 
       // 1) tenta somar só do programTo da CIA
       let pts = 0;
@@ -208,7 +212,6 @@ export async function POST(req: Request) {
     const rawProgram = body.ciaProgram ?? body.ciaAerea ?? null;
     const ciaAerea = rawProgram ? normalizeEnumQ(String(rawProgram)) : null;
 
-    // se vier algo inválido, melhor bloquear (pra não explodir no Prisma)
     if (rawProgram && !ciaAerea) {
       return badRequest("Programa/Cia inválido. Use: LATAM, SMILES, LIVELO, ESFERA.");
     }
