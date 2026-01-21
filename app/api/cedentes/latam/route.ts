@@ -42,9 +42,7 @@ function startOfMonthUTC(d = new Date()) {
   return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1, 0, 0, 0, 0));
 }
 function addMonthsUTC(d: Date, m: number) {
-  return new Date(
-    Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + m, 1, 0, 0, 0, 0)
-  );
+  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + m, 1, 0, 0, 0, 0));
 }
 
 /* =========================
@@ -208,8 +206,8 @@ export async function GET(req: NextRequest) {
 ========================= */
 export async function PATCH(req: NextRequest) {
   try {
-    // ⚠️ se seu requireSession precisa do req, troque para: requireSession(req)
-    const session = await requireSession();
+    // ✅ Tenta com req (se requireSession precisar), senão segue.
+    const session = await (requireSession as any)(req);
 
     const body = await req.json().catch(() => null);
     const id = String(body?.id || "").trim();
@@ -227,13 +225,39 @@ export async function PATCH(req: NextRequest) {
 
     if (!ced) return bad("Cedente não encontrado", 404);
 
-    // ✅ permissão (Session no seu projeto não tem "user" tipado)
+    // ✅ extrai campos da sessão com fallbacks
     const s = session as any;
-    const role: string | undefined = s?.role ?? s?.user?.role;
-    const sessionUserId: string | undefined = s?.userId ?? s?.id ?? s?.user?.id;
 
-    const isAdmin = role === "ADMIN";
-    const isOwner = ced.ownerId === sessionUserId;
+    const sessionLogin: string = String(
+      s?.login ?? s?.user?.login ?? s?.username ?? s?.user?.username ?? ""
+    );
+
+    let sessionUserId: string = String(
+      s?.userId ?? s?.user_id ?? s?.uid ?? s?.user?.id ?? s?.id ?? ""
+    );
+
+    let role: string = String(
+      s?.role ?? s?.userRole ?? s?.user?.role ?? s?.perfil ?? s?.user?.perfil ?? ""
+    );
+
+    // ✅ se role não veio pela sessão, busca no DB (isso resolve “sou admin mas veio sem role”)
+    if ((!role || role === "undefined") && (sessionUserId || sessionLogin)) {
+      const u = await prisma.user.findFirst({
+        where: sessionUserId ? { id: sessionUserId } : { login: sessionLogin },
+        select: { id: true, role: true },
+      });
+
+      if (!sessionUserId && u?.id) sessionUserId = u.id;
+      if (!role && u?.role) role = String(u.role);
+    }
+
+    const roleUp = String(role || "").toUpperCase();
+
+    // ✅ admins/gestores podem editar qualquer cedente
+    const isAdmin = ["ADMIN", "SUPERADMIN", "ROOT", "OWNER"].includes(roleUp);
+
+    // ✅ fallback: se não tem role por algum motivo, ainda permite dono do cedente
+    const isOwner = Boolean(sessionUserId) && ced.ownerId === sessionUserId;
 
     if (!isAdmin && !isOwner) return bad("Sem permissão", 403);
 
