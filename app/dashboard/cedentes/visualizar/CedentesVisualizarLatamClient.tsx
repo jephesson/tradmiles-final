@@ -23,7 +23,6 @@ type Row = {
   passageirosUsadosAno: number;
   passageirosDisponiveisAno: number;
 
-  // ✅ precisa vir da API (um dos dois já resolve)
   latamBloqueado?: boolean;
   blockedPrograms?: Program[];
 };
@@ -45,6 +44,11 @@ function isLatamBlocked(r: Row) {
   return (r.blockedPrograms || []).includes("LATAM");
 }
 
+function onlyDigitsToInt(v: string) {
+  const n = Number(String(v || "").replace(/\D+/g, ""));
+  return Number.isFinite(n) ? Math.trunc(n) : 0;
+}
+
 export default function CedentesVisualizarLatamClient() {
   const router = useRouter();
 
@@ -54,11 +58,13 @@ export default function CedentesVisualizarLatamClient() {
   const [q, setQ] = useState("");
   const [ownerId, setOwnerId] = useState("");
 
-  // ✅ novo: ordenação
   const [sortBy, setSortBy] = useState<SortBy>("aprovado");
-
-  // ✅ novo: ocultar bloqueados
   const [hideBlocked, setHideBlocked] = useState(false);
+
+  // ✅ inline edit (igual SMILES)
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [draft, setDraft] = useState<string>("");
+  const [saving, setSaving] = useState(false);
 
   async function load() {
     setLoading(true);
@@ -71,9 +77,9 @@ export default function CedentesVisualizarLatamClient() {
         cache: "no-store",
       });
 
-      if (!res.ok) throw new Error("Falha ao carregar");
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !data?.ok) throw new Error(data?.error || "Falha ao carregar");
 
-      const data = await res.json();
       setRows(data.rows || []);
     } catch (e) {
       console.error(e);
@@ -102,24 +108,66 @@ export default function CedentesVisualizarLatamClient() {
     );
   }, [rows]);
 
-  // ✅ ordena maior -> menor (aprovado ou esperado)
   const sortedRows = useMemo(() => {
     const list = [...rows];
     list.sort((a, b) => {
       const av = sortBy === "aprovado" ? a.latamAprovado : a.latamTotalEsperado;
       const bv = sortBy === "aprovado" ? b.latamAprovado : b.latamTotalEsperado;
-
-      if (bv !== av) return bv - av; // desc
+      if (bv !== av) return bv - av;
       return a.nomeCompleto.localeCompare(b.nomeCompleto, "pt-BR");
     });
     return list;
   }, [rows, sortBy]);
 
-  // ✅ aplica “ocultar bloqueados”
   const visibleRows = useMemo(() => {
     if (!hideBlocked) return sortedRows;
     return sortedRows.filter((r) => !isLatamBlocked(r));
   }, [sortedRows, hideBlocked]);
+
+  function startEdit(r: Row) {
+    setEditingId(r.id);
+    setDraft(String(r.latamAprovado ?? 0));
+  }
+
+  function cancelEdit() {
+    setEditingId(null);
+    setDraft("");
+  }
+
+  async function saveEdit(id: string) {
+    const newValue = onlyDigitsToInt(draft);
+    if (!confirm(`Atualizar LATAM (aprovado) para ${fmtInt(newValue)}?`)) return;
+
+    setSaving(true);
+    try {
+      const res = await fetch("/api/cedentes/latam", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, pontosLatam: newValue }),
+      });
+
+      const json = await res.json().catch(() => null);
+      if (!res.ok || !json?.ok) throw new Error(json?.error || "Erro ao salvar.");
+
+      setRows((prev) =>
+        prev.map((r) =>
+          r.id !== id
+            ? r
+            : {
+                ...r,
+                latamAprovado: newValue,
+                latamTotalEsperado: (r.latamPendente || 0) + newValue,
+              }
+        )
+      );
+
+      cancelEdit();
+    } catch (e: any) {
+      alert(e?.message || "Erro ao salvar.");
+    } finally {
+      setSaving(false);
+    }
+  }
 
   return (
     <div className="p-6">
@@ -177,7 +225,6 @@ export default function CedentesVisualizarLatamClient() {
           <option value="esperado">Ordenar: TOTAL esperado ↓</option>
         </select>
 
-        {/* ✅ novo: ocultar bloqueados */}
         <label className="ml-1 inline-flex items-center gap-2 text-sm text-slate-700 select-none">
           <input
             type="checkbox"
@@ -200,7 +247,7 @@ export default function CedentesVisualizarLatamClient() {
                 <th className="text-right font-semibold px-4 py-3 w-[160px]">PENDENTES</th>
                 <th className="text-right font-semibold px-4 py-3 w-[180px]">TOTAL ESPERADO</th>
                 <th className="text-right font-semibold px-4 py-3 w-[190px]">PASSAGEIROS DISP.</th>
-                <th className="text-right font-semibold px-4 py-3 w-[200px]">AÇÕES</th>
+                <th className="text-right font-semibold px-4 py-3 w-[220px]">AÇÕES</th>
               </tr>
             </thead>
 
@@ -215,6 +262,7 @@ export default function CedentesVisualizarLatamClient() {
 
               {visibleRows.map((r) => {
                 const blocked = isLatamBlocked(r);
+                const isEditing = editingId === r.id;
 
                 return (
                   <tr
@@ -235,25 +283,60 @@ export default function CedentesVisualizarLatamClient() {
                           </span>
                         ) : null}
                       </div>
-                      <div className={cn("text-xs", blocked ? "text-red-600/80" : "text-slate-500")}>
+                      <div
+                        className={cn(
+                          "text-xs",
+                          blocked ? "text-red-600/80" : "text-slate-500"
+                        )}
+                      >
                         {r.identificador} • CPF: {maskCpf(r.cpf)}
                       </div>
                     </td>
 
                     <td className="px-4 py-3">
                       <div className="font-medium">{r.owner.name}</div>
-                      <div className={cn("text-xs", blocked ? "text-red-600/80" : "text-slate-500")}>
+                      <div
+                        className={cn(
+                          "text-xs",
+                          blocked ? "text-red-600/80" : "text-slate-500"
+                        )}
+                      >
                         @{r.owner.login}
                       </div>
                     </td>
 
-                    <td className="px-4 py-3 text-right tabular-nums">{fmtInt(r.latamAprovado)}</td>
+                    {/* ✅ LATAM inline edit */}
+                    <td className="px-4 py-3 text-right tabular-nums">
+                      {isEditing ? (
+                        <input
+                          value={draft}
+                          onChange={(e) => setDraft(e.target.value)}
+                          className={cn(
+                            "border rounded-lg px-2 py-1 text-right w-[140px]",
+                            blocked ? "border-red-300 bg-white" : ""
+                          )}
+                          inputMode="numeric"
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") saveEdit(r.id);
+                            if (e.key === "Escape") cancelEdit();
+                          }}
+                        />
+                      ) : (
+                        fmtInt(r.latamAprovado)
+                      )}
+                    </td>
+
                     <td className="px-4 py-3 text-right tabular-nums">{fmtInt(r.latamPendente)}</td>
                     <td className="px-4 py-3 text-right tabular-nums">{fmtInt(r.latamTotalEsperado)}</td>
 
                     <td className="px-4 py-3 text-right tabular-nums">
                       {fmtInt(r.passageirosDisponiveisAno)}
-                      <span className={cn("text-xs", blocked ? "text-red-600/80" : "text-slate-500")}>
+                      <span
+                        className={cn(
+                          "text-xs",
+                          blocked ? "text-red-600/80" : "text-slate-500"
+                        )}
+                      >
                         {" "}
                         (usados {fmtInt(r.passageirosUsadosAno)})
                       </span>
@@ -261,27 +344,62 @@ export default function CedentesVisualizarLatamClient() {
 
                     <td className="px-4 py-3">
                       <div className="flex justify-end gap-2">
-                        <Link
-                          href={`/dashboard/cedentes/visualizar/${r.id}`}
-                          className={cn(
-                            "border rounded-lg px-3 py-1.5 text-sm",
-                            blocked ? "hover:bg-red-50" : "hover:bg-slate-50"
-                          )}
-                        >
-                          Ver
-                        </Link>
+                        {isEditing ? (
+                          <>
+                            <button
+                              onClick={() => saveEdit(r.id)}
+                              disabled={saving}
+                              className={cn(
+                                "border rounded-lg px-3 py-1.5 text-sm",
+                                saving ? "opacity-60" : "hover:bg-slate-50"
+                              )}
+                            >
+                              {saving ? "Salvando..." : "Salvar"}
+                            </button>
+                            <button
+                              onClick={cancelEdit}
+                              disabled={saving}
+                              className="border rounded-lg px-3 py-1.5 text-sm hover:bg-slate-50"
+                            >
+                              Cancelar
+                            </button>
+                          </>
+                        ) : (
+                          <>
+                            <button
+                              onClick={() => startEdit(r)}
+                              className={cn(
+                                "border rounded-lg px-3 py-1.5 text-sm",
+                                blocked ? "hover:bg-red-50" : "hover:bg-slate-50"
+                              )}
+                            >
+                              Editar LATAM
+                            </button>
 
-                        <button
-                          type="button"
-                          onClick={() => router.push(`/dashboard/cedentes/${r.id}?edit=1`)}
-                          className={cn(
-                            "border rounded-lg px-3 py-1.5 text-sm",
-                            blocked ? "hover:bg-red-50" : "hover:bg-slate-50"
-                          )}
-                          title="Abrir detalhe em modo edição para ajustar pontos"
-                        >
-                          Editar pontos
-                        </button>
+                            <Link
+                              href={`/dashboard/cedentes/visualizar/${r.id}`}
+                              className={cn(
+                                "border rounded-lg px-3 py-1.5 text-sm",
+                                blocked ? "hover:bg-red-50" : "hover:bg-slate-50"
+                              )}
+                            >
+                              Ver
+                            </Link>
+
+                            {/* opcional: manter seu botão antigo */}
+                            <button
+                              type="button"
+                              onClick={() => router.push(`/dashboard/cedentes/${r.id}?edit=1`)}
+                              className={cn(
+                                "border rounded-lg px-3 py-1.5 text-sm",
+                                blocked ? "hover:bg-red-50" : "hover:bg-slate-50"
+                              )}
+                              title="Abrir detalhe em modo edição para ajustar pontos"
+                            >
+                              Editar pontos
+                            </button>
+                          </>
+                        )}
                       </div>
                     </td>
                   </tr>
