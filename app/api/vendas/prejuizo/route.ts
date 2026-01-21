@@ -2,6 +2,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/auth-server";
+import { Prisma } from "@prisma/client";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -18,13 +19,17 @@ function noCacheHeaders() {
 }
 
 function bad(message: string, status = 400) {
-  return NextResponse.json({ ok: false, error: message }, { status, headers: noCacheHeaders() });
+  return NextResponse.json(
+    { ok: false, error: message },
+    { status, headers: noCacheHeaders() }
+  );
 }
 
 function safeInt(v: any, fb = 0) {
   const n = Number(v);
   return Number.isFinite(n) ? Math.trunc(n) : fb;
 }
+
 function clamp(n: number, a: number, b: number) {
   return Math.min(b, Math.max(a, n));
 }
@@ -41,14 +46,15 @@ function monthBoundsUTC(ym: string) {
 function monthKeyFromISO(iso?: string | null) {
   if (!iso) return null;
   const s = String(iso);
-  // ISO: YYYY-MM-DD...
-  if (s.length >= 7) return s.slice(0, 7);
-  return null;
+  return s.length >= 7 ? s.slice(0, 7) : null;
 }
+
+type MonthAgg = { month: string; count: number; sumProfitCents: number };
 
 export async function GET(req: NextRequest) {
   try {
-    await requireSession(req);
+    // ✅ FIX: requireSession agora não recebe req
+    await requireSession();
 
     const { searchParams } = new URL(req.url);
     const q = String(searchParams.get("q") || "").trim();
@@ -56,7 +62,7 @@ export async function GET(req: NextRequest) {
     const take = clamp(safeInt(searchParams.get("take"), 2000), 1, 5000);
 
     // Base: somente FINALIZADAS e com prejuízo (< 0)
-    const baseWhere: any = {
+    const baseWhere: Prisma.PurchaseWhereInput = {
       status: "CLOSED",
       finalizedAt: { not: null },
       finalProfitCents: { lt: 0 },
@@ -72,7 +78,7 @@ export async function GET(req: NextRequest) {
     }
 
     // Listagem (pode filtrar por mês)
-    const listWhere: any = { ...baseWhere };
+    const listWhere: Prisma.PurchaseWhereInput = { ...baseWhere };
     const mb = monthBoundsUTC(month);
     if (mb) {
       listWhere.finalizedAt = { gte: mb.start, lt: mb.end };
@@ -85,7 +91,7 @@ export async function GET(req: NextRequest) {
       orderBy: { finalizedAt: "desc" },
     });
 
-    const monthMap = new Map<string, { month: string; count: number; sumProfitCents: number }>();
+    const monthMap = new Map<string, MonthAgg>();
     let allProfitCents = 0;
 
     for (const it of slim) {
@@ -102,7 +108,9 @@ export async function GET(req: NextRequest) {
       allProfitCents += profit;
     }
 
-    const months = Array.from(monthMap.values()).sort((a, b) => (a.month < b.month ? -1 : a.month > b.month ? 1 : 0));
+    const months = Array.from(monthMap.values()).sort((a, b) =>
+      a.month < b.month ? -1 : a.month > b.month ? 1 : 0
+    );
 
     // 2) Lista (mês filtrado ou ALL)
     const purchases = await prisma.purchase.findMany({
@@ -144,7 +152,9 @@ export async function GET(req: NextRequest) {
     });
 
     let listProfitCents = 0;
-    for (const p of purchases) listProfitCents += typeof p.finalProfitCents === "number" ? p.finalProfitCents : 0;
+    for (const p of purchases) {
+      listProfitCents += typeof p.finalProfitCents === "number" ? p.finalProfitCents : 0;
+    }
 
     return NextResponse.json(
       {
