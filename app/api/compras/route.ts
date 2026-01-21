@@ -15,8 +15,13 @@ function asInt(n: any, fallback = 0) {
  * Normaliza uma "purchase" do Prisma para o shape esperado pelo ComprasClient
  * (compat com campos antigos/novos)
  */
-function toPurchaseRow(p: any) {
-  return {
+function toPurchaseRow(
+  p: any,
+  overrides?: {
+    ciaPointsTotal?: number;
+  }
+) {
+  const row = {
     id: p.id,
     numero: p.numero,
     status: p.status,
@@ -38,6 +43,12 @@ function toPurchaseRow(p: any) {
         }
       : null,
   };
+
+  if (typeof overrides?.ciaPointsTotal === "number") {
+    row.ciaPointsTotal = asInt(overrides.ciaPointsTotal, row.ciaPointsTotal);
+  }
+
+  return row;
 }
 
 function normQ(v?: string | null) {
@@ -68,7 +79,7 @@ export async function GET(req: Request) {
     const cedenteId = searchParams.get("cedenteId") || undefined;
     const status = searchParams.get("status") || undefined;
 
-    // ✅ NOVO: busca do frontend (?q=...)
+    // ✅ busca do frontend (?q=...)
     const q = normQ(searchParams.get("q"));
 
     const take = Math.min(asInt(searchParams.get("take") || 50, 50), 200);
@@ -122,7 +133,61 @@ export async function GET(req: Request) {
       },
     });
 
-    const comprasOut = compras.map((p) => toPurchaseRow(p));
+    // =========================
+    // ✅ FIX: calcular Pts CIA na LISTA somando itens (purchaseItem)
+    // Isso evita ficar “10k” quando a compra já tem 60k+ em itens.
+    // =========================
+    const ids = compras.map((c) => c.id);
+    const sumAll = new Map<string, number>(); // purchaseId -> soma geral
+    const sumByProgram = new Map<string, Map<string, number>>(); // purchaseId -> (programTo -> soma)
+
+    if (ids.length > 0) {
+      const grouped = await prisma.purchaseItem.groupBy({
+        by: ["purchaseId", "programTo"],
+        where: {
+          purchaseId: { in: ids },
+          // se seu enum não tem CANCELED, pode remover essa linha
+          status: { not: "CANCELED" } as any,
+        },
+        _sum: { pointsFinal: true },
+      });
+
+      for (const g of grouped) {
+        const pid = g.purchaseId;
+        const s = Number(g._sum.pointsFinal || 0);
+
+        sumAll.set(pid, (sumAll.get(pid) || 0) + s);
+
+        const prog = g.programTo ? String(g.programTo) : "";
+        if (prog) {
+          if (!sumByProgram.has(pid)) sumByProgram.set(pid, new Map());
+          const m = sumByProgram.get(pid)!;
+          m.set(prog, (m.get(prog) || 0) + s);
+        }
+      }
+    }
+
+    const comprasOut = compras.map((p) => {
+      const program = (p.ciaProgram ?? p.ciaAerea ?? null) as LoyaltyProgram | null;
+
+      // 1) tenta somar só do programTo da CIA
+      let pts = 0;
+      if (program) {
+        pts = sumByProgram.get(p.id)?.get(String(program)) || 0;
+      }
+
+      // 2) fallback: soma geral (caso programTo venha null nos itens)
+      if (!pts) {
+        pts = sumAll.get(p.id) || 0;
+      }
+
+      // 3) fallback final: campo salvo no purchase
+      const saved = asInt((p as any).ciaPointsTotal ?? (p as any).pontosCiaTotal ?? 0);
+      const finalPts = pts || saved;
+
+      return toPurchaseRow(p, { ciaPointsTotal: finalPts });
+    });
+
     return ok({ compras: comprasOut });
   } catch (e: any) {
     return serverError("Falha ao listar compras.", { detail: e?.message });
@@ -165,7 +230,7 @@ export async function POST(req: Request) {
       data: {
         numero,
         cedenteId,
-        status: "OPEN", // ✅ OPEN = pendente (ainda não liberada)
+        status: "OPEN",
 
         // ✅ schema atual
         ciaAerea,
