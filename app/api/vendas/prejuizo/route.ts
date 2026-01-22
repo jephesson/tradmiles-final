@@ -19,10 +19,7 @@ function noCacheHeaders() {
 }
 
 function bad(message: string, status = 400) {
-  return NextResponse.json(
-    { ok: false, error: message },
-    { status, headers: noCacheHeaders() }
-  );
+  return NextResponse.json({ ok: false, error: message }, { status, headers: noCacheHeaders() });
 }
 
 function safeInt(v: any, fb = 0) {
@@ -53,19 +50,46 @@ type MonthAgg = { month: string; count: number; sumProfitCents: number };
 
 export async function GET(req: NextRequest) {
   try {
-    // ✅ FIX: requireSession agora não recebe req
-    await requireSession();
+    // ✅ requireSession agora sem req — mas precisamos do team
+    const session = (await requireSession()) as any;
+    const team = session?.team;
+    if (!team) return bad("Sessão inválida (team ausente).", 401);
 
     const { searchParams } = new URL(req.url);
     const q = String(searchParams.get("q") || "").trim();
     const month = String(searchParams.get("month") || "").trim(); // YYYY-MM ou vazio
     const take = clamp(safeInt(searchParams.get("take"), 2000), 1, 5000);
 
-    // Base: somente FINALIZADAS e com prejuízo (< 0)
+    // ✅ opcional: permitir ver “zeradas” para auditoria
+    const includeZeroSales = String(searchParams.get("includeZeroSales") || "") === "1";
+
+    // ✅ Base: FINALIZADAS (CLOSED+finalizedAt) + prejuízo (<0) + só do team
     const baseWhere: Prisma.PurchaseWhereInput = {
       status: "CLOSED",
       finalizedAt: { not: null },
       finalProfitCents: { lt: 0 },
+
+      // ✅ filtra pelo TEAM (mesma lógica do seu endpoint)
+      cedente: {
+        is: {
+          owner: { is: { team } },
+        },
+      },
+
+      // ✅ NÃO contar “negativo zerado/cancelado”
+      ...(includeZeroSales
+        ? {}
+        : {
+            AND: [
+              {
+                OR: [
+                  { finalSalesPointsValueCents: { gt: 0 } }, // PV
+                  { finalSalesCents: { gt: 0 } }, // total cobrado
+                  { finalSoldPoints: { gt: 0 } }, // pontos vendidos
+                ],
+              },
+            ],
+          }),
     };
 
     if (q) {
@@ -84,7 +108,7 @@ export async function GET(req: NextRequest) {
       listWhere.finalizedAt = { gte: mb.start, lt: mb.end };
     }
 
-    // 1) Summary por mês (sempre do baseWhere, pra manter o gráfico mesmo filtrando mês)
+    // 1) Summary por mês (sempre do baseWhere)
     const slim = await prisma.purchase.findMany({
       where: baseWhere,
       select: { finalizedAt: true, finalProfitCents: true },
