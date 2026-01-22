@@ -178,15 +178,15 @@ export default function PrejuizoPage() {
 
   const listTotals = useMemo(() => {
     let sumProfit = 0;
-    let sumSales = 0;
     let sumTaxes = 0;
+
     for (const r of rows) {
       sumProfit += pick(r.finalProfitCents);
-      sumSales += pick(r.finalSalesCents);
       sumTaxes += pick(r.finalSalesTaxesCents);
     }
+
     const avg = rows.length ? Math.round(sumProfit / rows.length) : 0;
-    return { sumProfit, sumSales, sumTaxes, avg };
+    return { sumProfit, sumTaxes, avg };
   }, [rows]);
 
   return (
@@ -227,11 +227,11 @@ export default function PrejuizoPage() {
           </div>
         </div>
 
-        <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-4">
+        {/* ✅ removido "Total cobrado (com taxa)" */}
+        <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-3">
           <Kpi label="Contas (filtro atual)" value={fmtInt(rows.length)} />
           <Kpi label="Prejuízo total (filtro atual)" value={fmtMoneyBR(listTotals.sumProfit)} />
           <Kpi label="Média por conta" value={fmtMoneyBR(listTotals.avg)} />
-          <Kpi label="Total cobrado (com taxa)" value={fmtMoneyBR(listTotals.sumSales)} />
         </div>
 
         {err ? <div className="mt-3 text-sm text-red-600">{err}</div> : null}
