@@ -76,7 +76,7 @@ function SimpleLineChart({
         {/* linha principal */}
         <polyline fill="none" stroke="currentColor" strokeWidth="2" points={pointsBase} className="text-neutral-900" />
         {data.map((d, i) => (
-          <circle key={d.x} cx={pad + i * dx} cy={scaleY(d.y)} r="2.5" className="text-neutral-900" />
+          <circle key={`${d.x}-${i}`} cx={pad + i * dx} cy={scaleY(d.y)} r="2.5" className="text-neutral-900" />
         ))}
 
         {/* linha extra (média móvel) */}
@@ -147,16 +147,16 @@ export default function AnaliseDadosClient() {
   const [topPeriod, setTopPeriod] = useState<"MONTH" | "TOTAL">("MONTH");
   const [topProgram, setTopProgram] = useState<"ALL" | "LATAM" | "SMILES">("ALL");
 
-  // ✅ NOVO: modo do gráfico
+  // ✅ modo do gráfico
   const [chartMode, setChartMode] = useState<ChartMode>("MONTH");
 
-  // ✅ NOVO: range diário
+  // ✅ range diário
   const [daysPreset, setDaysPreset] = useState<DaysPreset>(30);
   const [daysBack, setDaysBack] = useState<number>(30);
   const [dateFrom, setDateFrom] = useState<string>(""); // YYYY-MM-DD
   const [dateTo, setDateTo] = useState<string>(""); // YYYY-MM-DD
 
-  // ✅ NOVO: média móvel (linha cinza)
+  // ✅ média móvel (linha cinza)
   const [maWindow, setMaWindow] = useState<MAWindow>(0);
 
   useEffect(() => {
@@ -175,7 +175,7 @@ export default function AnaliseDadosClient() {
       qs.set("topProgram", topProgram);
       qs.set("topLimit", "10");
 
-      // ✅ gráfico
+      // gráfico
       qs.set("chart", chartMode);
       if (chartMode === "DAY") {
         if (daysPreset === "CUSTOM") {
@@ -227,9 +227,11 @@ export default function AnaliseDadosClient() {
 
   const today = (data as any)?.today || null;
 
-  // ✅ NOVO: total por funcionário HOJE
+  // ✅ FIX: total por funcionário HOJE (API manda "todayByEmployee")
+  // Mantém fallback em "byEmployeeToday" pra não quebrar deploy antigo.
   const byEmployeeToday = useMemo(() => {
-    return (((data as any)?.byEmployeeToday || []) as any[]).slice();
+    const j = data as any;
+    return ((j?.todayByEmployee || j?.byEmployeeToday || []) as any[]).slice();
   }, [data]);
 
   const todayLabel = today?.date ? String(today.date) : "";
@@ -328,7 +330,7 @@ export default function AnaliseDadosClient() {
             ))}
           </select>
 
-          {/* ✅ novo: alternar gráfico */}
+          {/* alternar gráfico */}
           <select
             className="rounded-xl border bg-white px-3 py-2 text-sm"
             value={chartMode}
@@ -338,7 +340,7 @@ export default function AnaliseDadosClient() {
             <option value="DAY">Gráfico: diário</option>
           </select>
 
-          {/* ✅ novo: controles do diário */}
+          {/* controles do diário */}
           {chartMode === "DAY" ? (
             <>
               <select
@@ -391,7 +393,7 @@ export default function AnaliseDadosClient() {
         </div>
       </div>
 
-      {/* ✅ HOJE */}
+      {/* HOJE */}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
         <Card
           title={today?.date ? `Total vendido hoje (${today.date})` : "Total vendido hoje"}
@@ -410,12 +412,10 @@ export default function AnaliseDadosClient() {
         />
       </div>
 
-      {/* ✅ NOVO: HOJE por funcionário */}
+      {/* HOJE por funcionário */}
       <div className="rounded-2xl border bg-white p-4 shadow-sm">
         <div className="mb-2 flex items-center justify-between">
-          <div className="text-sm font-semibold">
-            Total por funcionário {todayLabel ? `(hoje ${todayLabel})` : "(hoje)"}
-          </div>
+          <div className="text-sm font-semibold">Total por funcionário {todayLabel ? `(hoje ${todayLabel})` : "(hoje)"}</div>
         </div>
 
         <div className="overflow-auto">
@@ -469,7 +469,7 @@ export default function AnaliseDadosClient() {
         />
       </div>
 
-      {/* ✅ Gráfico evolução */}
+      {/* Gráfico evolução */}
       <SimpleLineChart
         title={chartMode === "DAY" ? "Evolução diária" : "Evolução mês a mês"}
         data={chartWithDelta}
