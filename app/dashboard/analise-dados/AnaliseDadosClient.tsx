@@ -227,6 +227,13 @@ export default function AnaliseDadosClient() {
 
   const today = (data as any)?.today || null;
 
+  // ✅ NOVO: total por funcionário HOJE
+  const byEmployeeToday = useMemo(() => {
+    return (((data as any)?.byEmployeeToday || []) as any[]).slice();
+  }, [data]);
+
+  const todayLabel = today?.date ? String(today.date) : "";
+
   // ✅ Fonte do gráfico depende do modo (TIPADO)
   const chartPoints = useMemo<ChartPoint[]>(() => {
     const src = (chartMode === "DAY" ? (data?.days || []) : (data?.months || [])) as any[];
@@ -401,6 +408,49 @@ export default function AnaliseDadosClient() {
           value={data?.summary?.monthLabel || (data?.filters?.month || focusYM) || "—"}
           sub={`Período no gráfico: ${chartPeriodLabel}`}
         />
+      </div>
+
+      {/* ✅ NOVO: HOJE por funcionário */}
+      <div className="rounded-2xl border bg-white p-4 shadow-sm">
+        <div className="mb-2 flex items-center justify-between">
+          <div className="text-sm font-semibold">
+            Total por funcionário {todayLabel ? `(hoje ${todayLabel})` : "(hoje)"}
+          </div>
+        </div>
+
+        <div className="overflow-auto">
+          <table className="w-full min-w-[720px] text-sm">
+            <thead>
+              <tr className="border-b text-left text-xs text-neutral-500">
+                <th className="py-2">Funcionário</th>
+                <th className="py-2">Vendas</th>
+                <th className="py-2">PAX</th>
+                <th className="py-2 text-right">Total (sem taxa)</th>
+              </tr>
+            </thead>
+            <tbody>
+              {byEmployeeToday.map((r: any) => (
+                <tr key={r.id} className="border-b">
+                  <td className="py-2">
+                    <div className="font-medium">{r.name}</div>
+                    <div className="text-xs text-neutral-500">{r.login}</div>
+                  </td>
+                  <td className="py-2">{fmtInt(r.salesCount || 0)}</td>
+                  <td className="py-2">{fmtInt(r.passengers || 0)}</td>
+                  <td className="py-2 text-right font-semibold">{fmtMoneyBR(r.grossCents || 0)}</td>
+                </tr>
+              ))}
+
+              {!byEmployeeToday.length ? (
+                <tr>
+                  <td className="py-4 text-sm text-neutral-500" colSpan={4}>
+                    Sem vendas hoje.
+                  </td>
+                </tr>
+              ) : null}
+            </tbody>
+          </table>
+        </div>
       </div>
 
       {/* KPIs */}
