@@ -135,7 +135,6 @@ function inactivatedInMonth(inactivatedAt: Date | null, mStart: Date, mEnd: Date
 }
 
 // ✅ filtro de time para sales (pega vendas com sellerId null via cedente.owner.team)
-// 🔥 Tipado e sem "as const" (evita readonly tuple no OR)
 function saleTeamWhere(team: string): Prisma.SaleWhereInput {
   return {
     OR: [
@@ -174,10 +173,11 @@ export async function GET(req: NextRequest) {
   try {
     const sess = await requireSession();
     const team = String((sess as any)?.team || "");
-    const role = String((sess as any)?.role || "");
 
-    if (!team) return NextResponse.json({ ok: false, error: "Não autenticado" }, { status: 401 });
-    if (role !== "admin") return NextResponse.json({ ok: false, error: "Sem permissão." }, { status: 403 });
+    // ✅ Agora: qualquer usuário logado do time pode acessar
+    if (!team) {
+      return NextResponse.json({ ok: false, error: "Não autenticado" }, { status: 401 });
+    }
 
     const { searchParams } = new URL(req.url);
 
@@ -247,7 +247,7 @@ export async function GET(req: NextRequest) {
         milheiroCents: true,
         embarqueFeeCents: true,
 
-        sellerId: true, // ✅ crucial
+        sellerId: true,
         seller: { select: { id: true, name: true, login: true } },
       },
     });
@@ -271,17 +271,16 @@ export async function GET(req: NextRequest) {
 
       const u = s.seller;
 
-      // 1) relation veio ok
       if (u?.id) {
         const cur =
-          byEmpToday.get(u.id) || {
+          byEmpToday.get(u.id) || ({
             id: u.id,
             name: u.name,
             login: u.login,
             grossCents: 0,
             salesCount: 0,
             passengers: 0,
-          };
+          } as EmpRow);
         cur.grossCents += gross;
         cur.salesCount += 1;
         cur.passengers += pax;
@@ -289,20 +288,19 @@ export async function GET(req: NextRequest) {
         continue;
       }
 
-      // 2) relation não veio, mas sellerId existe (resolve!)
       if (s.sellerId) {
         const base = teamUsersById.get(s.sellerId);
         const id = s.sellerId;
 
         const cur =
-          byEmpToday.get(id) || {
+          byEmpToday.get(id) || ({
             id,
             name: base?.name || "Vendedor",
             login: base?.login || "—",
             grossCents: 0,
             salesCount: 0,
             passengers: 0,
-          };
+          } as EmpRow);
 
         cur.grossCents += gross;
         cur.salesCount += 1;
@@ -311,7 +309,6 @@ export async function GET(req: NextRequest) {
         continue;
       }
 
-      // 3) sem vendedor (dados antigos)
       const key = ensureUnassigned(byEmpToday);
       const cur = byEmpToday.get(key)!;
       cur.grossCents += gross;
@@ -322,12 +319,11 @@ export async function GET(req: NextRequest) {
 
     const todayByEmployee = Array.from(byEmpToday.values()).sort((a, b) => b.grossCents - a.grossCents);
 
-    // ✅ aliases pra front não “errar o nome do campo”
     const todayByEmployeeOut = todayByEmployee.map((r) => ({
       ...r,
       sales: r.salesCount,
       pax: r.passengers,
-      totalCents: r.grossCents, // “Total (sem taxa)”
+      totalCents: r.grossCents,
       totalSemTaxaCents: r.grossCents,
     }));
 
@@ -477,7 +473,7 @@ export async function GET(req: NextRequest) {
 
       if (u?.id) {
         const cur =
-          byEmp.get(u.id) || { id: u.id, name: u.name, login: u.login, grossCents: 0, salesCount: 0, passengers: 0 };
+          byEmp.get(u.id) || ({ id: u.id, name: u.name, login: u.login, grossCents: 0, salesCount: 0, passengers: 0 } as EmpRow);
         cur.grossCents += gross;
         cur.salesCount += 1;
         cur.passengers += pax;
@@ -485,14 +481,15 @@ export async function GET(req: NextRequest) {
       } else if (sellerId) {
         const base = teamUsersById.get(sellerId);
         const cur =
-          byEmp.get(sellerId) || {
+          byEmp.get(sellerId) ||
+          ({
             id: sellerId,
             name: base?.name || "Vendedor",
             login: base?.login || "—",
             grossCents: 0,
             salesCount: 0,
             passengers: 0,
-          };
+          } as EmpRow);
         cur.grossCents += gross;
         cur.salesCount += 1;
         cur.passengers += pax;
@@ -655,7 +652,10 @@ export async function GET(req: NextRequest) {
       },
     });
 
-    const byClient = new Map<string, { id: string; nome: string; identificador: string; gross: number; sales: number; pax: number }>();
+    const byClient = new Map<
+      string,
+      { id: string; nome: string; identificador: string; gross: number; sales: number; pax: number }
+    >();
 
     for (const s of topSales) {
       const c = s.cliente;
@@ -693,55 +693,62 @@ export async function GET(req: NextRequest) {
     const chartFrom = chart === "DAY" && dailyStart ? isoDayUTC(dailyStart) : null;
     const chartTo = chart === "DAY" && dailyEndExclusive ? isoDayUTC(addDaysUTC(dailyEndExclusive, -1)) : null;
 
-    return NextResponse.json({
-      ok: true,
-      filters: {
-        month,
-        program,
-        monthsBack,
-        topMode,
-        topProgram,
-        topLimit,
-        chart,
-        daysBack: chart === "DAY" ? daysBack : undefined,
-        from: chart === "DAY" ? (isYYYYMMDD(fromQ) ? fromQ : chartFrom) : undefined,
-        to: chart === "DAY" ? (isYYYYMMDD(toQ) ? toQ : chartTo) : undefined,
+    return NextResponse.json(
+      {
+        ok: true,
+        filters: {
+          month,
+          program,
+          monthsBack,
+          topMode,
+          topProgram,
+          topLimit,
+          chart,
+          daysBack: chart === "DAY" ? daysBack : undefined,
+          from: chart === "DAY" ? (isYYYYMMDD(fromQ) ? fromQ : chartFrom) : undefined,
+          to: chart === "DAY" ? (isYYYYMMDD(toQ) ? toQ : chartTo) : undefined,
+        },
+
+        today: {
+          date: todayISO,
+          grossCents: grossToday,
+          feeCents: feeToday,
+          totalCents: totalToday,
+          salesCount: todaySales.length,
+          passengers: paxToday,
+        },
+
+        // ✅ HOJE POR FUNCIONÁRIO (com aliases)
+        todayByEmployee: todayByEmployeeOut,
+        byEmployeeToday: todayByEmployeeOut, // ✅ alias opcional p/ front antigo
+
+        summary: {
+          monthLabel: monthLabelPT(month),
+          grossCents: grossMonth,
+          feeCents: feeMonth,
+          totalCents: totalMonth,
+          salesCount: monthSales.length,
+          passengers: paxMonth,
+          bestDayOfWeek: best,
+        },
+
+        days,
+
+        byDow: byDowArr,
+        byEmployee,
+
+        months,
+        avgMonthlyGrossCents,
+
+        clubsByMonth,
+        topClients,
       },
-
-      // ✅ KPI HOJE
-      today: {
-        date: todayISO,
-        grossCents: grossToday,
-        feeCents: feeToday,
-        totalCents: totalToday,
-        salesCount: todaySales.length,
-        passengers: paxToday,
-      },
-
-      // ✅ HOJE POR FUNCIONÁRIO (com aliases)
-      todayByEmployee: todayByEmployeeOut,
-
-      summary: {
-        monthLabel: monthLabelPT(month),
-        grossCents: grossMonth,
-        feeCents: feeMonth,
-        totalCents: totalMonth,
-        salesCount: monthSales.length,
-        passengers: paxMonth,
-        bestDayOfWeek: best,
-      },
-
-      days,
-
-      byDow: byDowArr,
-      byEmployee,
-
-      months,
-      avgMonthlyGrossCents,
-
-      clubsByMonth,
-      topClients,
-    });
+      {
+        headers: {
+          "Cache-Control": "no-store",
+        },
+      }
+    );
   } catch (e: any) {
     return NextResponse.json({ ok: false, error: e?.message || "Erro no analytics." }, { status: 400 });
   }
