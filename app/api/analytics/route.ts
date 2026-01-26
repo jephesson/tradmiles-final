@@ -141,6 +141,41 @@ function inactivatedInMonth(inactivatedAt: Date | null, mStart: Date, mEnd: Date
   return inactivatedAt >= mStart && inactivatedAt < mEnd;
 }
 
+// ✅ filtro de time para sales (pega vendas com sellerId null via cedente.owner.team)
+function saleTeamWhere(team: string) {
+  return {
+    OR: [
+      { seller: { team } }, // normal
+      { sellerId: null, cedente: { owner: { team } } }, // fallback p/ dados antigos sem seller
+    ],
+  } as const;
+}
+
+type EmpRow = {
+  id: string;
+  name: string;
+  login: string;
+  grossCents: number;
+  salesCount: number;
+  passengers: number;
+};
+
+function seedEmpMap(users: Array<{ id: string; name: string; login: string }>) {
+  const map = new Map<string, EmpRow>();
+  for (const u of users) {
+    map.set(u.id, { id: u.id, name: u.name, login: u.login, grossCents: 0, salesCount: 0, passengers: 0 });
+  }
+  return map;
+}
+
+function ensureUnassigned(map: Map<string, EmpRow>) {
+  const key = "__UNASSIGNED__";
+  if (!map.has(key)) {
+    map.set(key, { id: key, name: "Sem vendedor", login: "—", grossCents: 0, salesCount: 0, passengers: 0 });
+  }
+  return key;
+}
+
 export async function GET(req: NextRequest) {
   try {
     const sess = await requireSession();
@@ -177,11 +212,11 @@ export async function GET(req: NextRequest) {
 
     const topLimit = clampInt(searchParams.get("topLimit"), 10, 1, 50);
 
-    // ✅ novo: modo do gráfico
+    // ✅ modo do gráfico
     const chartParam = (searchParams.get("chart") || "MONTH").toUpperCase().trim();
     const chart: ChartMode = chartParam === "DAY" ? "DAY" : "MONTH";
 
-    // ✅ novo: range diário
+    // ✅ range diário
     const daysBack = clampInt(searchParams.get("daysBack"), 30, 1, 365);
     const fromQ = (searchParams.get("from") || "").trim(); // YYYY-MM-DD
     const toQ = (searchParams.get("to") || "").trim(); // YYYY-MM-DD
@@ -195,8 +230,15 @@ export async function GET(req: NextRequest) {
     // ✅ filtro central: NÃO contar canceladas
     const notCanceled = { paymentStatus: { not: "CANCELED" as any } };
 
+    // ✅ lista de usuários do time (para mostrar todo mundo, mesmo com 0)
+    const teamUsers = await prisma.user.findMany({
+      where: { team },
+      select: { id: true, name: true, login: true },
+      orderBy: { name: "asc" },
+    });
+
     // =========================
-    // ✅ 0) HOJE (KPI) — usando DIA de SP, filtrando bounds em UTC
+    // ✅ 0) HOJE (KPI) + HOJE POR FUNCIONÁRIO
     // =========================
     const todayISO = isoDateNowSP();
     const { start: tStart, end: tEnd } = dayBoundsUTC(todayISO);
@@ -205,7 +247,7 @@ export async function GET(req: NextRequest) {
       where: {
         date: { gte: tStart, lt: tEnd },
         ...(program !== "ALL" ? { program } : {}),
-        seller: { team },
+        ...saleTeamWhere(team),
         ...notCanceled,
       },
       select: {
@@ -213,6 +255,7 @@ export async function GET(req: NextRequest) {
         passengers: true,
         milheiroCents: true,
         embarqueFeeCents: true,
+        seller: { select: { id: true, name: true, login: true } },
       },
     });
 
@@ -221,14 +264,36 @@ export async function GET(req: NextRequest) {
     let totalToday = 0;
     let paxToday = 0;
 
+    const byEmpToday = seedEmpMap(teamUsers);
+
     for (const s of todaySales) {
       const gross = pointsValueCents(Number(s.points || 0), Number(s.milheiroCents || 0));
       const fee = Math.max(0, Number(s.embarqueFeeCents || 0));
+      const pax = Math.max(0, Number(s.passengers || 0));
+
       grossToday += gross;
       feeToday += fee;
       totalToday += gross + fee;
-      paxToday += Math.max(0, Number(s.passengers || 0));
+      paxToday += pax;
+
+      const u = s.seller;
+      if (u?.id) {
+        const cur = byEmpToday.get(u.id) || { id: u.id, name: u.name, login: u.login, grossCents: 0, salesCount: 0, passengers: 0 };
+        cur.grossCents += gross;
+        cur.salesCount += 1;
+        cur.passengers += pax;
+        byEmpToday.set(u.id, cur);
+      } else {
+        const key = ensureUnassigned(byEmpToday);
+        const cur = byEmpToday.get(key)!;
+        cur.grossCents += gross;
+        cur.salesCount += 1;
+        cur.passengers += pax;
+        byEmpToday.set(key, cur);
+      }
     }
+
+    const todayByEmployee = Array.from(byEmpToday.values()).sort((a, b) => b.grossCents - a.grossCents);
 
     // =========================
     // 1) SALES (histórico p/ gráficos + mês selecionado)
@@ -237,7 +302,7 @@ export async function GET(req: NextRequest) {
       where: {
         date: { gte: histStart, lt: histEnd },
         ...(program !== "ALL" ? { program } : {}),
-        seller: { team },
+        ...saleTeamWhere(team),
         ...notCanceled,
       },
       select: {
@@ -298,14 +363,10 @@ export async function GET(req: NextRequest) {
         where: {
           date: { gte: dailyStart, lt: dailyEndExclusive },
           ...(program !== "ALL" ? { program } : {}),
-          seller: { team },
+          ...saleTeamWhere(team),
           ...notCanceled,
         },
-        select: {
-          date: true,
-          points: true,
-          milheiroCents: true,
-        },
+        select: { date: true, points: true, milheiroCents: true },
         orderBy: { date: "asc" },
       });
 
@@ -368,26 +429,29 @@ export async function GET(req: NextRequest) {
     for (const r of byDowArr) if (r.grossCents > best.grossCents) best = r;
 
     // =========================
-    // 4) VENDAS POR FUNCIONÁRIO (mês)
+    // 4) VENDAS POR FUNCIONÁRIO (mês) — SEMPRE MOSTRA TODO MUNDO
     // =========================
-    const byEmp = new Map<
-      string,
-      { id: string; name: string; login: string; grossCents: number; salesCount: number; passengers: number }
-    >();
+    const byEmp = seedEmpMap(teamUsers);
 
     for (const s of monthSales) {
+      const gross = pointsValueCents(Number(s.points || 0), Number(s.milheiroCents || 0));
+      const pax = Math.max(0, Number(s.passengers || 0));
       const u = s.seller;
-      if (!u?.id) continue;
 
-      const key = u.id;
-      const cur =
-        byEmp.get(key) || { id: u.id, name: u.name, login: u.login, grossCents: 0, salesCount: 0, passengers: 0 };
-
-      cur.grossCents += pointsValueCents(Number(s.points || 0), Number(s.milheiroCents || 0));
-      cur.salesCount += 1;
-      cur.passengers += Math.max(0, Number(s.passengers || 0));
-
-      byEmp.set(key, cur);
+      if (u?.id) {
+        const cur = byEmp.get(u.id) || { id: u.id, name: u.name, login: u.login, grossCents: 0, salesCount: 0, passengers: 0 };
+        cur.grossCents += gross;
+        cur.salesCount += 1;
+        cur.passengers += pax;
+        byEmp.set(u.id, cur);
+      } else {
+        const key = ensureUnassigned(byEmp);
+        const cur = byEmp.get(key)!;
+        cur.grossCents += gross;
+        cur.salesCount += 1;
+        cur.passengers += pax;
+        byEmp.set(key, cur);
+      }
     }
 
     const byEmployee = Array.from(byEmp.values()).sort((a, b) => b.grossCents - a.grossCents);
@@ -463,7 +527,7 @@ export async function GET(req: NextRequest) {
     const clubs = await prisma.clubSubscription.findMany({
       where: {
         team,
-        program: { in: ["SMILES", "LATAM"] },
+        program: { in: ["SMILES", "LATAM"] as any },
         subscribedAt: { lt: histEnd },
         OR: [{ status: "ACTIVE" }, { status: { in: ["PAUSED", "CANCELED"] }, updatedAt: { gte: histStart } }],
       },
@@ -476,7 +540,10 @@ export async function GET(req: NextRequest) {
     });
 
     {
-      const idx = new Map<string, { smiles: number; latam: number; smilesInactivated: number; latamInactivated: number }>();
+      const idx = new Map<
+        string,
+        { smiles: number; latam: number; smilesInactivated: number; latamInactivated: number }
+      >();
       for (const k of monthKeys) idx.set(k, { smiles: 0, latam: 0, smilesInactivated: 0, latamInactivated: 0 });
 
       for (const k of monthKeys) {
@@ -523,9 +590,9 @@ export async function GET(req: NextRequest) {
     // 7) TOP CLIENTES (mês OU total, com filtro de programa)
     // =========================
     const topWhere: any = {
-      seller: { team },
       ...(topMode === "MONTH" ? { date: { gte: mStart, lt: mEnd } } : { date: { gte: histStart, lt: histEnd } }),
       ...(topProgram !== "ALL" ? { program: topProgram } : {}),
+      ...saleTeamWhere(team),
       ...notCanceled,
     };
 
@@ -578,8 +645,7 @@ export async function GET(req: NextRequest) {
       }));
 
     const chartFrom = chart === "DAY" && dailyStart ? isoDayUTC(dailyStart) : null;
-    const chartTo =
-      chart === "DAY" && dailyEndExclusive ? isoDayUTC(addDaysUTC(dailyEndExclusive, -1)) : null;
+    const chartTo = chart === "DAY" && dailyEndExclusive ? isoDayUTC(addDaysUTC(dailyEndExclusive, -1)) : null;
 
     return NextResponse.json({
       ok: true,
@@ -606,6 +672,9 @@ export async function GET(req: NextRequest) {
         passengers: paxToday,
       },
 
+      // ✅ NOVO: HOJE POR FUNCIONÁRIO
+      todayByEmployee,
+
       summary: {
         monthLabel: monthLabelPT(month),
         grossCents: grossMonth,
@@ -616,7 +685,7 @@ export async function GET(req: NextRequest) {
         bestDayOfWeek: best,
       },
 
-      // ✅ novo: série diária (só preenche no modo DAY)
+      // ✅ série diária (só no modo DAY)
       days,
 
       byDow: byDowArr,
