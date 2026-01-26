@@ -122,11 +122,6 @@ function safeDate(v: any): Date | null {
   return Number.isFinite(d.getTime()) ? d : null;
 }
 
-/**
- * ✅ ATIVO NO MÊS (overlap):
- * - começou antes do fim do mês
- * - e NÃO inativou antes do mês começar
- */
 function overlapsMonth(subscribedAt: Date | null, inactivatedAt: Date | null, mStart: Date, mEnd: Date) {
   if (!subscribedAt) return false;
   if (subscribedAt >= mEnd) return false;
@@ -134,22 +129,16 @@ function overlapsMonth(subscribedAt: Date | null, inactivatedAt: Date | null, mS
   return true;
 }
 
-/**
- * ✅ FICOU INATIVO NO MÊS:
- * - inactivatedAt dentro do mês
- */
 function inactivatedInMonth(inactivatedAt: Date | null, mStart: Date, mEnd: Date) {
   if (!inactivatedAt) return false;
   return inactivatedAt >= mStart && inactivatedAt < mEnd;
 }
 
 // ✅ filtro de time para sales (pega vendas com sellerId null via cedente.owner.team)
-// 🔥 CORREÇÃO: tipa como Prisma.SaleWhereInput e NÃO usa "as const" (evita readonly tuple no OR)
+// 🔥 Tipado e sem "as const" (evita readonly tuple no OR)
 function saleTeamWhere(team: string): Prisma.SaleWhereInput {
   return {
     OR: [
-      // Se você preferir mais estrito (e evitar XOR do Prisma), pode usar:
-      // { seller: { is: { team } } },
       { seller: { team } }, // normal
       { sellerId: null, cedente: { owner: { team } } }, // fallback p/ dados antigos sem seller
     ],
@@ -217,11 +206,9 @@ export async function GET(req: NextRequest) {
 
     const topLimit = clampInt(searchParams.get("topLimit"), 10, 1, 50);
 
-    // ✅ modo do gráfico
     const chartParam = (searchParams.get("chart") || "MONTH").toUpperCase().trim();
     const chart: ChartMode = chartParam === "DAY" ? "DAY" : "MONTH";
 
-    // ✅ range diário
     const daysBack = clampInt(searchParams.get("daysBack"), 30, 1, 365);
     const fromQ = (searchParams.get("from") || "").trim(); // YYYY-MM-DD
     const toQ = (searchParams.get("to") || "").trim(); // YYYY-MM-DD
@@ -232,16 +219,14 @@ export async function GET(req: NextRequest) {
     const histStart = addMonthsUTC(mStart, -(monthsBack - 1));
     const histEnd = mEnd;
 
-    // ✅ filtro central: NÃO contar canceladas
-    // (mantive o "as any" pra não brigar com enum/tipos do teu schema)
     const notCanceled: Prisma.SaleWhereInput = { paymentStatus: { not: "CANCELED" as any } };
 
-    // ✅ lista de usuários do time (para mostrar todo mundo, mesmo com 0)
     const teamUsers = await prisma.user.findMany({
       where: { team },
       select: { id: true, name: true, login: true },
       orderBy: { name: "asc" },
     });
+    const teamUsersById = new Map(teamUsers.map((u) => [u.id, u] as const));
 
     // =========================
     // ✅ 0) HOJE (KPI) + HOJE POR FUNCIONÁRIO
@@ -261,6 +246,8 @@ export async function GET(req: NextRequest) {
         passengers: true,
         milheiroCents: true,
         embarqueFeeCents: true,
+
+        sellerId: true, // ✅ crucial
         seller: { select: { id: true, name: true, login: true } },
       },
     });
@@ -283,24 +270,66 @@ export async function GET(req: NextRequest) {
       paxToday += pax;
 
       const u = s.seller;
+
+      // 1) relation veio ok
       if (u?.id) {
         const cur =
-          byEmpToday.get(u.id) || { id: u.id, name: u.name, login: u.login, grossCents: 0, salesCount: 0, passengers: 0 };
+          byEmpToday.get(u.id) || {
+            id: u.id,
+            name: u.name,
+            login: u.login,
+            grossCents: 0,
+            salesCount: 0,
+            passengers: 0,
+          };
         cur.grossCents += gross;
         cur.salesCount += 1;
         cur.passengers += pax;
         byEmpToday.set(u.id, cur);
-      } else {
-        const key = ensureUnassigned(byEmpToday);
-        const cur = byEmpToday.get(key)!;
+        continue;
+      }
+
+      // 2) relation não veio, mas sellerId existe (resolve!)
+      if (s.sellerId) {
+        const base = teamUsersById.get(s.sellerId);
+        const id = s.sellerId;
+
+        const cur =
+          byEmpToday.get(id) || {
+            id,
+            name: base?.name || "Vendedor",
+            login: base?.login || "—",
+            grossCents: 0,
+            salesCount: 0,
+            passengers: 0,
+          };
+
         cur.grossCents += gross;
         cur.salesCount += 1;
         cur.passengers += pax;
-        byEmpToday.set(key, cur);
+        byEmpToday.set(id, cur);
+        continue;
       }
+
+      // 3) sem vendedor (dados antigos)
+      const key = ensureUnassigned(byEmpToday);
+      const cur = byEmpToday.get(key)!;
+      cur.grossCents += gross;
+      cur.salesCount += 1;
+      cur.passengers += pax;
+      byEmpToday.set(key, cur);
     }
 
     const todayByEmployee = Array.from(byEmpToday.values()).sort((a, b) => b.grossCents - a.grossCents);
+
+    // ✅ aliases pra front não “errar o nome do campo”
+    const todayByEmployeeOut = todayByEmployee.map((r) => ({
+      ...r,
+      sales: r.salesCount,
+      pax: r.passengers,
+      totalCents: r.grossCents, // “Total (sem taxa)”
+      totalSemTaxaCents: r.grossCents,
+    }));
 
     // =========================
     // 1) SALES (histórico p/ gráficos + mês selecionado)
@@ -322,6 +351,7 @@ export async function GET(req: NextRequest) {
         embarqueFeeCents: true,
         paymentStatus: true,
 
+        sellerId: true,
         seller: { select: { id: true, name: true, login: true } },
         cliente: { select: { id: true, nome: true, identificador: true } },
       },
@@ -351,13 +381,11 @@ export async function GET(req: NextRequest) {
         dailyStart = a;
         dailyEndExclusive = addDaysUTC(b, 1);
 
-        // proteção: no máx 365 dias
         const maxEnd = addDaysUTC(dailyStart, 365);
         if (dailyEndExclusive.getTime() > maxEnd.getTime()) {
           dailyEndExclusive = maxEnd;
         }
       } else {
-        // últimos N dias (inclui hoje SP)
         const { end } = dayBoundsUTC(todayISO);
         dailyEndExclusive = end;
         dailyStart = addDaysUTC(dailyEndExclusive, -daysBack);
@@ -443,7 +471,9 @@ export async function GET(req: NextRequest) {
     for (const s of monthSales) {
       const gross = pointsValueCents(Number(s.points || 0), Number(s.milheiroCents || 0));
       const pax = Math.max(0, Number(s.passengers || 0));
-      const u = s.seller;
+
+      const u = (s as any).seller as { id: string; name: string; login: string } | null;
+      const sellerId = (s as any).sellerId as string | null;
 
       if (u?.id) {
         const cur =
@@ -452,6 +482,21 @@ export async function GET(req: NextRequest) {
         cur.salesCount += 1;
         cur.passengers += pax;
         byEmp.set(u.id, cur);
+      } else if (sellerId) {
+        const base = teamUsersById.get(sellerId);
+        const cur =
+          byEmp.get(sellerId) || {
+            id: sellerId,
+            name: base?.name || "Vendedor",
+            login: base?.login || "—",
+            grossCents: 0,
+            salesCount: 0,
+            passengers: 0,
+          };
+        cur.grossCents += gross;
+        cur.salesCount += 1;
+        cur.passengers += pax;
+        byEmp.set(sellerId, cur);
       } else {
         const key = ensureUnassigned(byEmp);
         const cur = byEmp.get(key)!;
@@ -548,16 +593,12 @@ export async function GET(req: NextRequest) {
     });
 
     {
-      const idx = new Map<
-        string,
-        { smiles: number; latam: number; smilesInactivated: number; latamInactivated: number }
-      >();
+      const idx = new Map<string, { smiles: number; latam: number; smilesInactivated: number; latamInactivated: number }>();
       for (const k of monthKeys) idx.set(k, { smiles: 0, latam: 0, smilesInactivated: 0, latamInactivated: 0 });
 
       for (const k of monthKeys) {
         const ms = monthStartUTC(k);
         const me = addMonthsUTC(ms, 1);
-
         const cur = idx.get(k)!;
 
         for (const c of clubs) {
@@ -670,15 +711,15 @@ export async function GET(req: NextRequest) {
       // ✅ KPI HOJE
       today: {
         date: todayISO,
-        grossCents: grossToday, // sem taxa embarque
+        grossCents: grossToday,
         feeCents: feeToday,
         totalCents: totalToday,
         salesCount: todaySales.length,
         passengers: paxToday,
       },
 
-      // ✅ NOVO: HOJE POR FUNCIONÁRIO
-      todayByEmployee,
+      // ✅ HOJE POR FUNCIONÁRIO (com aliases)
+      todayByEmployee: todayByEmployeeOut,
 
       summary: {
         monthLabel: monthLabelPT(month),
@@ -690,7 +731,6 @@ export async function GET(req: NextRequest) {
         bestDayOfWeek: best,
       },
 
-      // ✅ série diária (só no modo DAY)
       days,
 
       byDow: byDowArr,
