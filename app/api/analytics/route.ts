@@ -1,6 +1,8 @@
+// app/api/analytics/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/auth-server";
+import type { Prisma } from "@prisma/client";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -142,13 +144,16 @@ function inactivatedInMonth(inactivatedAt: Date | null, mStart: Date, mEnd: Date
 }
 
 // ✅ filtro de time para sales (pega vendas com sellerId null via cedente.owner.team)
-function saleTeamWhere(team: string) {
+// 🔥 CORREÇÃO: tipa como Prisma.SaleWhereInput e NÃO usa "as const" (evita readonly tuple no OR)
+function saleTeamWhere(team: string): Prisma.SaleWhereInput {
   return {
     OR: [
+      // Se você preferir mais estrito (e evitar XOR do Prisma), pode usar:
+      // { seller: { is: { team } } },
       { seller: { team } }, // normal
       { sellerId: null, cedente: { owner: { team } } }, // fallback p/ dados antigos sem seller
     ],
-  } as const;
+  };
 }
 
 type EmpRow = {
@@ -228,7 +233,8 @@ export async function GET(req: NextRequest) {
     const histEnd = mEnd;
 
     // ✅ filtro central: NÃO contar canceladas
-    const notCanceled = { paymentStatus: { not: "CANCELED" as any } };
+    // (mantive o "as any" pra não brigar com enum/tipos do teu schema)
+    const notCanceled: Prisma.SaleWhereInput = { paymentStatus: { not: "CANCELED" as any } };
 
     // ✅ lista de usuários do time (para mostrar todo mundo, mesmo com 0)
     const teamUsers = await prisma.user.findMany({
@@ -278,7 +284,8 @@ export async function GET(req: NextRequest) {
 
       const u = s.seller;
       if (u?.id) {
-        const cur = byEmpToday.get(u.id) || { id: u.id, name: u.name, login: u.login, grossCents: 0, salesCount: 0, passengers: 0 };
+        const cur =
+          byEmpToday.get(u.id) || { id: u.id, name: u.name, login: u.login, grossCents: 0, salesCount: 0, passengers: 0 };
         cur.grossCents += gross;
         cur.salesCount += 1;
         cur.passengers += pax;
@@ -439,7 +446,8 @@ export async function GET(req: NextRequest) {
       const u = s.seller;
 
       if (u?.id) {
-        const cur = byEmp.get(u.id) || { id: u.id, name: u.name, login: u.login, grossCents: 0, salesCount: 0, passengers: 0 };
+        const cur =
+          byEmp.get(u.id) || { id: u.id, name: u.name, login: u.login, grossCents: 0, salesCount: 0, passengers: 0 };
         cur.grossCents += gross;
         cur.salesCount += 1;
         cur.passengers += pax;
@@ -589,7 +597,7 @@ export async function GET(req: NextRequest) {
     // =========================
     // 7) TOP CLIENTES (mês OU total, com filtro de programa)
     // =========================
-    const topWhere: any = {
+    const topWhere: Prisma.SaleWhereInput = {
       ...(topMode === "MONTH" ? { date: { gte: mStart, lt: mEnd } } : { date: { gte: histStart, lt: histEnd } }),
       ...(topProgram !== "ALL" ? { program: topProgram } : {}),
       ...saleTeamWhere(team),
@@ -606,10 +614,7 @@ export async function GET(req: NextRequest) {
       },
     });
 
-    const byClient = new Map<
-      string,
-      { id: string; nome: string; identificador: string; gross: number; sales: number; pax: number }
-    >();
+    const byClient = new Map<string, { id: string; nome: string; identificador: string; gross: number; sales: number; pax: number }>();
 
     for (const s of topSales) {
       const c = s.cliente;
