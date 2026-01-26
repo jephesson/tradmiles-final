@@ -82,10 +82,16 @@ function nOrNull(v: any): number | null {
  * ✅ Milheiro SEM taxa.
  * Usa pointsValueCents (milhas) quando disponível; senão, cai no total (para compatibilidade).
  */
-function milheiroFromSale(points: number, pointsValueCents?: number, totalCentsFallback?: number): number | null {
+function milheiroFromSale(
+  points: number,
+  pointsValueCents?: number,
+  totalCentsFallback?: number
+): number | null {
   const pts = Number(points || 0);
   const cents =
-    Number(pointsValueCents ?? 0) > 0 ? Number(pointsValueCents || 0) : Number(totalCentsFallback || 0);
+    Number(pointsValueCents ?? 0) > 0
+      ? Number(pointsValueCents || 0)
+      : Number(totalCentsFallback || 0);
 
   if (!Number.isFinite(pts) || !Number.isFinite(cents) || pts <= 0 || cents <= 0) return null;
   return Math.round((cents * 1000) / pts); // centavos por 1000 pontos
@@ -407,13 +413,17 @@ export default function ComprasFinalizarClient() {
       {err && <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">{err}</div>}
 
       <div className="overflow-auto rounded-xl border">
-        <table className="min-w-[1100px] w-full text-sm">
+        <table className="min-w-[1200px] w-full text-sm">
           <thead className="bg-gray-50">
             <tr className="text-left">
               <th className="p-3">#</th>
               <th className="p-3">Cedente</th>
               <th className="p-3">ID</th>
               <th className="p-3">Pax (ID)</th>
+
+              {/* ✅ NOVO: pontos restantes */}
+              <th className="p-3">Restante (pts)</th>
+
               <th className="p-3">Saldo</th>
               <th className="p-3 text-right">Ações</th>
             </tr>
@@ -422,7 +432,7 @@ export default function ComprasFinalizarClient() {
           <tbody>
             {filtered.length === 0 && !loading && (
               <tr>
-                <td colSpan={6} className="p-4 text-gray-500">
+                <td colSpan={7} className="p-4 text-gray-500">
                   Nenhum resultado.
                 </td>
               </tr>
@@ -462,6 +472,14 @@ export default function ComprasFinalizarClient() {
                       <div className="text-xs text-gray-500">{fmtInt(r.salesCount)} venda(s)</div>
                     </td>
 
+                    {/* ✅ NOVO */}
+                    <td className="p-3">
+                      <div className="font-medium">
+                        {c.remainingPoints == null ? "—" : `${fmtInt(c.remainingPoints)} pts`}
+                      </div>
+                      <div className="text-xs text-gray-500">a vender</div>
+                    </td>
+
                     <td className="p-3 font-medium">{fmtMoneyBR(c.netSaldoCents)}</td>
 
                     <td className="p-3">
@@ -499,7 +517,7 @@ export default function ComprasFinalizarClient() {
 
                   {isOpen && (
                     <tr className="border-t bg-slate-50">
-                      <td colSpan={6} className="p-3">
+                      <td colSpan={7} className="p-3">
                         <div className="text-xs text-gray-700 mb-2 flex flex-wrap gap-x-3 gap-y-1">
                           <span>
                             Compras: <b>{fmtMoneyBR(r.purchaseTotalCents)}</b>
@@ -622,7 +640,7 @@ export default function ComprasFinalizarClient() {
 
             {loading && (
               <tr>
-                <td colSpan={6} className="p-4 text-gray-500">
+                <td colSpan={7} className="p-4 text-gray-500">
                   Carregando...
                 </td>
               </tr>
