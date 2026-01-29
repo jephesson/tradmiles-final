@@ -17,7 +17,10 @@ function noCacheHeaders() {
   };
 }
 function bad(message: string, status = 400) {
-  return NextResponse.json({ ok: false, error: message }, { status, headers: noCacheHeaders() });
+  return NextResponse.json(
+    { ok: false, error: message },
+    { status, headers: noCacheHeaders() }
+  );
 }
 
 const OPEN_STATUSES = ["DRAFT", "SENT", "WAITING"] as const;
@@ -28,22 +31,25 @@ export async function GET(req: NextRequest) {
   const session = await requireSession();
   const url = new URL(req.url);
 
-  const program = String(url.searchParams.get("program") || "").toUpperCase();
-  if (!PROGRAMS.has(program)) return bad("program inválido");
+  // ✅ program opcional (e aceita ALL)
+  const programRaw = String(url.searchParams.get("program") || "").toUpperCase();
+  const program = programRaw && programRaw !== "ALL" ? programRaw : "";
+
+  if (program && !PROGRAMS.has(program)) return bad("program inválido");
 
   const cedenteId = url.searchParams.get("cedenteId");
   const onlyOpen = (url.searchParams.get("onlyOpen") ?? "0") === "1";
 
   const where: any = {
     team: session.team,
-    program,
+    ...(program ? { program } : {}),
     ...(cedenteId ? { cedenteId: String(cedenteId) } : {}),
   };
 
   if (onlyOpen && !url.searchParams.get("status")) {
     where.status = { in: OPEN_STATUSES as any };
   } else if (url.searchParams.get("status")) {
-    const s = String(url.searchParams.get("status")).toUpperCase();
+    const s = String(url.searchParams.get("status") || "").toUpperCase();
     if (!STATUSES.has(s)) return bad("status inválido");
     where.status = s;
   }
@@ -62,7 +68,8 @@ export async function GET(req: NextRequest) {
       cedenteId: true,
       createdAt: true,
       updatedAt: true,
-      cedente: { select: { id: true, identificador: true, nomeCompleto: true } }, // ✅
+      // ✅ importante pro seu painel "abertos do programa"
+      cedente: { select: { id: true, identificador: true, nomeCompleto: true } },
     },
   });
 
@@ -83,10 +90,11 @@ export async function POST(req: NextRequest) {
   const title = String(body.title || "").slice(0, 120) || "Novo protocolo";
   const complaint = body.complaint != null ? String(body.complaint) : "";
 
-  const statusRaw = body.status != null ? String(body.status).toUpperCase() : "DRAFT";
+  const statusRaw =
+    body.status != null ? String(body.status).toUpperCase() : "DRAFT";
   if (!STATUSES.has(statusRaw)) return bad("status inválido");
 
-  // garante que o cedente é do time
+  // ✅ garante que o cedente é do time
   const cedente = await prisma.cedente.findFirst({
     where: { id: cedenteId, owner: { team: session.team } },
     select: { id: true },
