@@ -153,6 +153,9 @@ export default function Sidebar() {
   const isPainelLatam =
     isPainelBasePath && (programaPainel === "" || programaPainel === "latam");
 
+  // ✅ NOVO: Protocolos
+  const isProtocolosRoute = pathname.startsWith("/dashboard/protocolos");
+
   /* =========================
    * ACCORDIONS
    * ========================= */
@@ -222,6 +225,9 @@ export default function Sidebar() {
   const [openPainelEmissoes, setOpenPainelEmissoes] = useState(
     isPainelEmissoesRoute
   );
+
+  // ✅ NOVO: Protocolos
+  const [openProtocolos, setOpenProtocolos] = useState(isProtocolosRoute);
 
   useEffect(() => setOpenCadastro(isCadastroRoute), [isCadastroRoute]);
 
@@ -302,6 +308,11 @@ export default function Sidebar() {
   useEffect(() => {
     setOpenPainelEmissoes(isPainelEmissoesRoute);
   }, [isPainelEmissoesRoute]);
+
+  // ✅ NOVO: mantém aberto quando entrar em /protocolos/*
+  useEffect(() => {
+    setOpenProtocolos(isProtocolosRoute);
+  }, [isProtocolosRoute]);
 
   /* =========================
    * FILTRO (VISUALIZAR PONTOS)
@@ -623,6 +634,19 @@ export default function Sidebar() {
               </NavLink>
             </SubAccordion>
           </SubAccordion>
+        </Accordion>
+
+        {/* ================= PROTOCOLOS ================= */}
+        <Accordion
+          title="Protocolos"
+          open={openProtocolos}
+          onToggle={() => setOpenProtocolos((v) => !v)}
+          active={isProtocolosRoute}
+        >
+          <NavLink href="/dashboard/protocolos/latam">Latam</NavLink>
+          <NavLink href="/dashboard/protocolos/smiles">Smiles</NavLink>
+          <NavLink href="/dashboard/protocolos/livelo">Livelo</NavLink>
+          <NavLink href="/dashboard/protocolos/esfera">Esfera</NavLink>
         </Accordion>
 
         {/* ================= FINANCEIRO ================= */}
