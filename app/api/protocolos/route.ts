@@ -1,3 +1,4 @@
+// app/api/protocolos/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/auth-server";
@@ -19,28 +20,38 @@ function bad(message: string, status = 400) {
   return NextResponse.json({ ok: false, error: message }, { status, headers: noCacheHeaders() });
 }
 
+const OPEN_STATUSES = ["DRAFT", "SENT", "WAITING"] as const;
+const STATUSES = new Set(["DRAFT", "SENT", "WAITING", "RESOLVED", "DENIED"]);
 const PROGRAMS = new Set(["LATAM", "SMILES", "LIVELO", "ESFERA"]);
 
 export async function GET(req: NextRequest) {
   const session = await requireSession();
+  const url = new URL(req.url);
 
-  const { searchParams } = new URL(req.url);
-  const program = String(searchParams.get("program") || "").toUpperCase();
-  const cedenteId = String(searchParams.get("cedenteId") || "");
-
+  const program = String(url.searchParams.get("program") || "").toUpperCase();
   if (!PROGRAMS.has(program)) return bad("program inválido");
-  if (!cedenteId) return bad("cedenteId é obrigatório");
 
-  // ✅ garante que o cedente é do time
-  const ced = await prisma.cedente.findFirst({
-    where: { id: cedenteId, owner: { team: session.team } },
-    select: { id: true },
-  });
-  if (!ced) return bad("Cedente não encontrado (ou fora do time).", 404);
+  const cedenteId = url.searchParams.get("cedenteId");
+  const onlyOpen = (url.searchParams.get("onlyOpen") ?? "0") === "1";
+
+  const where: any = {
+    team: session.team,
+    program,
+    ...(cedenteId ? { cedenteId: String(cedenteId) } : {}),
+  };
+
+  if (onlyOpen && !url.searchParams.get("status")) {
+    where.status = { in: OPEN_STATUSES as any };
+  } else if (url.searchParams.get("status")) {
+    const s = String(url.searchParams.get("status")).toUpperCase();
+    if (!STATUSES.has(s)) return bad("status inválido");
+    where.status = s;
+  }
 
   const rows = await prisma.protocol.findMany({
-    where: { team: session.team, program: program as any, cedenteId },
-    orderBy: [{ createdAt: "desc" }],
+    where,
+    orderBy: { updatedAt: "desc" },
+    take: 200,
     select: {
       id: true,
       program: true,
@@ -48,8 +59,10 @@ export async function GET(req: NextRequest) {
       title: true,
       complaint: true,
       response: true,
+      cedenteId: true,
       createdAt: true,
       updatedAt: true,
+      cedente: { select: { id: true, identificador: true, nomeCompleto: true } }, // ✅
     },
   });
 
@@ -62,40 +75,36 @@ export async function POST(req: NextRequest) {
   if (!body) return bad("JSON inválido");
 
   const program = String(body.program || "").toUpperCase();
-  const cedenteId = String(body.cedenteId || "");
-  const title = body.title ? String(body.title).slice(0, 120) : null;
-
   if (!PROGRAMS.has(program)) return bad("program inválido");
-  if (!cedenteId) return bad("cedenteId é obrigatório");
 
-  const ced = await prisma.cedente.findFirst({
+  const cedenteId = String(body.cedenteId || "");
+  if (!cedenteId) return bad("cedenteId inválido");
+
+  const title = String(body.title || "").slice(0, 120) || "Novo protocolo";
+  const complaint = body.complaint != null ? String(body.complaint) : "";
+
+  const statusRaw = body.status != null ? String(body.status).toUpperCase() : "DRAFT";
+  if (!STATUSES.has(statusRaw)) return bad("status inválido");
+
+  // garante que o cedente é do time
+  const cedente = await prisma.cedente.findFirst({
     where: { id: cedenteId, owner: { team: session.team } },
     select: { id: true },
   });
-  if (!ced) return bad("Cedente não encontrado (ou fora do time).", 404);
+  if (!cedente) return bad("Cedente não encontrado", 404);
 
   const row = await prisma.protocol.create({
     data: {
       team: session.team,
       program: program as any,
-      status: "DRAFT" as any,
-      cedenteId,
+      status: statusRaw as any,
       title,
-      complaint: "",
-      response: null,
+      complaint,
+      cedenteId,
       createdById: session.id,
       updatedById: session.id,
     },
-    select: {
-      id: true,
-      program: true,
-      status: true,
-      title: true,
-      complaint: true,
-      response: true,
-      createdAt: true,
-      updatedAt: true,
-    },
+    select: { id: true },
   });
 
   return NextResponse.json({ ok: true, row }, { headers: noCacheHeaders() });
