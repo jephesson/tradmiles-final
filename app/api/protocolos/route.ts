@@ -31,21 +31,33 @@ export async function GET(req: NextRequest) {
   const session = await requireSession();
   const url = new URL(req.url);
 
-  // ✅ program opcional (e aceita ALL)
-  const programRaw = String(url.searchParams.get("program") || "").toUpperCase();
-  const program = programRaw && programRaw !== "ALL" ? programRaw : "";
+  const program = String(url.searchParams.get("program") || "").toUpperCase();
+  if (!PROGRAMS.has(program)) return bad("program inválido");
 
-  if (program && !PROGRAMS.has(program)) return bad("program inválido");
-
-  const cedenteId = url.searchParams.get("cedenteId");
+  const cedenteId = String(url.searchParams.get("cedenteId") || "");
   const onlyOpen = (url.searchParams.get("onlyOpen") ?? "0") === "1";
+
+  // ✅ regra do seu front:
+  // - sem cedente => onlyOpen=1
+  // - com cedente => cedenteId obrigatório
+  if (!onlyOpen && !cedenteId) return bad("cedenteId é obrigatório (ou use onlyOpen=1)");
+
+  // ✅ se vier cedenteId, garante que é do time (igual sua versão antiga)
+  if (cedenteId) {
+    const ced = await prisma.cedente.findFirst({
+      where: { id: cedenteId, owner: { team: session.team } },
+      select: { id: true },
+    });
+    if (!ced) return bad("Cedente não encontrado (ou fora do time).", 404);
+  }
 
   const where: any = {
     team: session.team,
-    ...(program ? { program } : {}),
-    ...(cedenteId ? { cedenteId: String(cedenteId) } : {}),
+    program,
+    ...(cedenteId ? { cedenteId } : {}),
   };
 
+  // ✅ status: se onlyOpen e não veio status, usa OPEN_STATUSES
   if (onlyOpen && !url.searchParams.get("status")) {
     where.status = { in: OPEN_STATUSES as any };
   } else if (url.searchParams.get("status")) {
@@ -68,8 +80,12 @@ export async function GET(req: NextRequest) {
       cedenteId: true,
       createdAt: true,
       updatedAt: true,
-      // ✅ importante pro seu painel "abertos do programa"
-      cedente: { select: { id: true, identificador: true, nomeCompleto: true } },
+
+      // ✅ pra lista “abertos do programa” (sem cedente selecionado)
+      // (não atrapalha quando vier cedenteId)
+      cedente: {
+        select: { id: true, identificador: true, nomeCompleto: true },
+      },
     },
   });
 
@@ -90,8 +106,7 @@ export async function POST(req: NextRequest) {
   const title = String(body.title || "").slice(0, 120) || "Novo protocolo";
   const complaint = body.complaint != null ? String(body.complaint) : "";
 
-  const statusRaw =
-    body.status != null ? String(body.status).toUpperCase() : "DRAFT";
+  const statusRaw = body.status != null ? String(body.status).toUpperCase() : "DRAFT";
   if (!STATUSES.has(statusRaw)) return bad("status inválido");
 
   // ✅ garante que o cedente é do time
