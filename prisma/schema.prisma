@@ -70,6 +70,19 @@ enum ClubSubscriptionStatus {
 
 /**
  * =========================
+ * ✅ PROTOCOLOS (RECLAMAÇÕES)
+ * =========================
+ */
+enum ProtocolStatus {
+  DRAFT
+  SENT
+  WAITING
+  RESOLVED
+  DENIED
+}
+
+/**
+ * =========================
  * USERS / LOGIN / CONVITES
  * =========================
  */
@@ -142,6 +155,10 @@ model User {
    * =========================
    */
   taxMonthsPaid TaxMonthPayment[] @relation("TaxMonthPaidBy")
+
+  // ✅ PROTOCOLOS
+  protocolsCreated Protocol[] @relation("ProtocolCreatedBy")
+  protocolsUpdated Protocol[] @relation("ProtocolUpdatedBy")
 
   // Um convite por usuário
   employeeInvite  EmployeeInvite?
@@ -255,10 +272,10 @@ model Cedente {
   reviewedAt DateTime?
 
   reviewedById String?
-  reviewedBy   User?   @relation("CedenteReviewedBy", fields: [reviewedById], references: [id], onDelete: SetNull)
+  reviewedBy   User? @relation("CedenteReviewedBy", fields: [reviewedById], references: [id], onDelete: SetNull)
 
   ownerId String
-  owner   User   @relation("CedenteOwner", fields: [ownerId], references: [id], onDelete: Restrict)
+  owner   User @relation("CedenteOwner", fields: [ownerId], references: [id], onDelete: Restrict)
 
   inviteId String?
   invite   EmployeeInvite? @relation(fields: [inviteId], references: [id], onDelete: SetNull)
@@ -278,6 +295,9 @@ model Cedente {
   latamTurboMonths LatamTurboMonth[] @relation("LatamTurboMonthCedente")
 
   latamTurboAccount LatamTurboAccount? @relation("LatamTurboAccountCedente")
+
+  // ✅ PROTOCOLOS
+  protocols Protocol[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -322,20 +342,18 @@ model ClubSubscription {
   priceCents Int @default(0)
 
   subscribedAt DateTime
-  renewalDay   Int      @default(1)
+  renewalDay   Int @default(1)
 
   // controle operacional
   lastRenewedAt    DateTime?
-  pointsExpireAt   DateTime? // expiração dos pontos do clube/promo (pra alerta)
+  pointsExpireAt   DateTime?
   renewedThisCycle Boolean                @default(false)
   status           ClubSubscriptionStatus @default(ACTIVE)
 
-  // ✅ só smiles: quando volta a ser elegível ao bônus de assinatura (ex.: +365d)
   smilesBonusEligibleAt DateTime?
 
   notes String?
 
-  // ✅ NOVO: se veio de uma compra (PurchaseItem tipo CLUB), trava duplicação
   sourcePurchaseItemId String?       @unique
   sourcePurchaseItem   PurchaseItem? @relation("ClubSubFromPurchaseItem", fields: [sourcePurchaseItemId], references: [id], onDelete: SetNull)
 
@@ -349,6 +367,40 @@ model ClubSubscription {
   @@index([cedenteId])
   @@index([pointsExpireAt])
   @@map("club_subscriptions")
+}
+
+/**
+ * =========================
+ * ✅ PROTOCOLOS (MODEL)
+ * =========================
+ */
+model Protocol {
+  id String @id @default(cuid())
+
+  team    String
+  program LoyaltyProgram
+  status  ProtocolStatus @default(DRAFT)
+
+  title     String? @db.VarChar(120)
+  complaint String  @db.Text
+  response  String? @db.Text
+
+  cedenteId String
+  cedente   Cedente @relation(fields: [cedenteId], references: [id], onDelete: Cascade)
+
+  createdById String?
+  createdBy   User? @relation("ProtocolCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+
+  updatedById String?
+  updatedBy   User? @relation("ProtocolUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([team, program, status])
+  @@index([team, program, cedenteId, createdAt])
+  @@index([cedenteId])
+  @@map("protocols")
 }
 
 /**
@@ -407,7 +459,7 @@ model Debt {
   status      DebtStatus @default(OPEN)
 
   createdById String?
-  createdBy   User?   @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  createdBy   User? @relation(fields: [createdById], references: [id], onDelete: SetNull)
 
   payments DebtPayment[]
 
@@ -446,13 +498,13 @@ model BlockedAccount {
 
   cedenteId String
   program   LoyaltyProgram
-  status    BlockStatus    @default(OPEN)
+  status    BlockStatus @default(OPEN)
 
   note              String?
   estimatedUnlockAt DateTime?
 
   createdById String?
-  createdBy   User?   @relation("BlockedCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  createdBy   User? @relation("BlockedCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
 
   resolvedAt   DateTime?
   observations BlockObservation[]
@@ -476,7 +528,7 @@ model BlockObservation {
   text      String
 
   createdById String?
-  createdBy   User?   @relation("BlockedObsCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  createdBy   User? @relation("BlockedObsCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -525,7 +577,7 @@ model Purchase {
   status    PurchaseStatus @default(OPEN)
 
   ciaAerea       LoyaltyProgram?
-  pontosCiaTotal Int             @default(0)
+  pontosCiaTotal Int @default(0)
 
   cedentePayCents     Int @default(0)
   vendorCommissionBps Int @default(100)
@@ -550,11 +602,11 @@ model Purchase {
 
   liberadoEm    DateTime?
   liberadoPorId String?
-  liberadoPor   User?     @relation("CompraLiberadaPor", fields: [liberadoPorId], references: [id], onDelete: SetNull)
+  liberadoPor   User? @relation("CompraLiberadaPor", fields: [liberadoPorId], references: [id], onDelete: SetNull)
 
   finalizedAt   DateTime?
   finalizedById String?
-  finalizedBy   User?     @relation("PurchaseFinalizedBy", fields: [finalizedById], references: [id], onDelete: SetNull)
+  finalizedBy   User? @relation("PurchaseFinalizedBy", fields: [finalizedById], references: [id], onDelete: SetNull)
 
   finalSalesCents            Int?
   finalSalesPointsValueCents Int?
@@ -597,12 +649,12 @@ model PurchaseItem {
   programFrom LoyaltyProgram?
   programTo   LoyaltyProgram?
 
-  pointsBase  Int     @default(0)
+  pointsBase  Int @default(0)
   bonusMode   String?
   bonusValue  Int?
-  pointsFinal Int     @default(0)
+  pointsFinal Int @default(0)
 
-  amountCents  Int           @default(0)
+  amountCents  Int @default(0)
   transferMode TransferMode?
 
   pointsDebitedFromOrigin Int @default(0)
@@ -615,7 +667,6 @@ model PurchaseItem {
 
   purchase Purchase @relation(fields: [purchaseId], references: [id], onDelete: Cascade)
 
-  // ✅ NOVO: 1 item CLUB pode gerar 1 ClubSubscription
   clubSubscription ClubSubscription? @relation("ClubSubFromPurchaseItem")
 
   @@index([purchaseId])
@@ -644,7 +695,7 @@ model CedenteCommission {
   cedenteId String
   cedente   Cedente @relation(fields: [cedenteId], references: [id], onDelete: Cascade)
 
-  purchaseId String?   @unique
+  purchaseId String? @unique
   purchase   Purchase? @relation("PurchaseCedenteCommission", fields: [purchaseId], references: [id], onDelete: SetNull)
 
   amountCents Int
@@ -652,11 +703,11 @@ model CedenteCommission {
 
   generatedAt   DateTime @default(now())
   generatedById String?
-  generatedBy   User?    @relation("CedenteCommissionGeneratedBy", fields: [generatedById], references: [id], onDelete: SetNull)
+  generatedBy   User? @relation("CedenteCommissionGeneratedBy", fields: [generatedById], references: [id], onDelete: SetNull)
 
   paidAt   DateTime?
   paidById String?
-  paidBy   User?     @relation("CedenteCommissionPaidBy", fields: [paidById], references: [id], onDelete: SetNull)
+  paidBy   User? @relation("CedenteCommissionPaidBy", fields: [paidById], references: [id], onDelete: SetNull)
 
   note String?
 
@@ -699,7 +750,7 @@ model Cliente {
   origemDescricao String?
 
   createdById String?
-  createdBy   User?   @relation("ClienteCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  createdBy   User? @relation("ClienteCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
 
   sales Sale[]
 
@@ -727,7 +778,7 @@ model Receivable {
   title         String
   description   String?
   totalCents    Int
-  receivedCents Int              @default(0)
+  receivedCents Int @default(0)
   balanceCents  Int
   status        ReceivableStatus @default(OPEN)
 
@@ -735,7 +786,7 @@ model Receivable {
   updatedAt DateTime @default(now()) @updatedAt
 
   receipts Receipt[]
-  sale     Sale?     @relation("SaleReceivable")
+  sale     Sale? @relation("SaleReceivable")
 
   @@index([status])
   @@index([createdAt])
@@ -756,7 +807,7 @@ model Receipt {
 
   @@index([receivableId])
   @@index([receivedAt])
-  @@map("Receipt") // ⚠️ se sua tabela for lowercase, troque pra "receipts"
+  @@map("Receipt")
 }
 
 /**
@@ -777,7 +828,7 @@ model EmissionEvent {
   cedente   Cedente @relation(fields: [cedenteId], references: [id], onDelete: Cascade)
 
   program         LoyaltyProgram
-  passengersCount Int            @default(1)
+  passengersCount Int @default(1)
 
   issuedAt DateTime
   source   EmissionSource @default(SALE)
@@ -833,9 +884,9 @@ model Sale {
   purchase   Purchase? @relation(fields: [purchaseId], references: [id], onDelete: SetNull)
 
   sellerId String?
-  seller   User?   @relation("SaleSeller", fields: [sellerId], references: [id], onDelete: SetNull)
+  seller   User? @relation("SaleSeller", fields: [sellerId], references: [id], onDelete: SetNull)
 
-  receivableId String?     @unique
+  receivableId String? @unique
   receivable   Receivable? @relation("SaleReceivable", fields: [receivableId], references: [id], onDelete: SetNull)
 
   createdAt DateTime @default(now())
@@ -853,16 +904,12 @@ model Sale {
  * =========================
  * PAGAMENTOS (COMISSÕES FUNCIONÁRIOS POR DIA)
  * =========================
- * ✅ Agora:
- * - date vira String "YYYY-MM-DD" (sem dor de timezone)
- * - team fica gravado no payout (query simples e rápida)
- * - paidAt é NULL quando pendente (só preenche ao pagar)
  */
 model EmployeePayout {
   id String @id @default(cuid())
 
   team   String
-  date   String // "YYYY-MM-DD"
+  date   String
   userId String
 
   grossProfitCents Int @default(0)
@@ -891,22 +938,19 @@ model EmployeePayout {
  * =========================
  * IMPOSTOS (FECHAMENTO / PAGAMENTO MENSAL)
  * =========================
- * - month: "YYYY-MM"
- * - totalTaxCents: snapshot do total de imposto do mês quando marcou como pago
- * - breakdown: snapshot por usuário (ex.: [{ userId, taxCents }...])
  */
 model TaxMonthPayment {
   id String @id @default(cuid())
 
   team  String
-  month String // "YYYY-MM"
+  month String
 
-  totalTaxCents Int   @default(0)
+  totalTaxCents Int @default(0)
   breakdown     Json?
 
   paidAt   DateTime?
   paidById String?
-  paidBy   User?     @relation("TaxMonthPaidBy", fields: [paidById], references: [id], onDelete: SetNull)
+  paidBy   User? @relation("TaxMonthPaidBy", fields: [paidById], references: [id], onDelete: SetNull)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -920,11 +964,11 @@ model TaxMonthPayment {
 model CaixaImediatoSnapshot {
   id                String @id @default(cuid())
   team              String
-  date              String // YYYY-MM-DD (mais fácil p/ upsert e lista)
-  cashCents         Int    @default(0)
-  totalBrutoCents   Int    @default(0)
-  totalDividasCents Int    @default(0)
-  totalLiquidoCents Int    @default(0)
+  date              String
+  cashCents         Int @default(0)
+  totalBrutoCents   Int @default(0)
+  totalDividasCents Int @default(0)
+  totalLiquidoCents Int @default(0)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -934,21 +978,21 @@ model CaixaImediatoSnapshot {
 }
 
 enum LatamTurboStatus {
-  PENDING // em aguardo
-  TRANSFERRED // transferido (verde)
-  SKIPPED // não transferir (vermelho)
+  PENDING
+  TRANSFERRED
+  SKIPPED
 }
 
 model LatamTurboMonth {
-  id        String           @id @default(cuid())
+  id        String @id @default(cuid())
   team      String
   monthKey  String
   cedenteId String
   status    LatamTurboStatus @default(PENDING)
-  points    Int              @default(0)
+  points    Int @default(0)
   notes     String?
-  createdAt DateTime         @default(now())
-  updatedAt DateTime         @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   cedente Cedente @relation("LatamTurboMonthCedente", fields: [cedenteId], references: [id], onDelete: Cascade)
 
@@ -962,7 +1006,6 @@ model LatamTurboAccount {
   team      String
   cedenteId String @unique
 
-  // ✅ controle de CPFs liberados na LATAM (beneficiários)
   cpfLimit Int @default(25)
   cpfUsed  Int @default(0)
 
@@ -978,18 +1021,14 @@ model LatamTurboAccount {
 
 /**
  * =========================
- * ✅ DÍVIDAS A RECEBER (EXCLUSIVO — NÃO MISTURA COM VENDAS)
+ * ✅ DÍVIDAS A RECEBER (EXCLUSIVO)
  * =========================
- * - NÃO tem relação com Sale
- * - Serve para empréstimos, cartão a receber, parcelamentos, etc.
- * - Pagamentos parciais via ReceberPayment
  */
-
 enum ReceberStatus {
-  OPEN // nada recebido ainda
-  PARTIAL // recebeu parte
-  PAID // quitado
-  CANCELED // cancelado/baixado
+  OPEN
+  PARTIAL
+  PAID
+  CANCELED
 }
 
 enum ReceberCategoria {
@@ -1012,38 +1051,30 @@ enum ReceberMetodo {
 model DividaAReceber {
   id String @id @default(cuid())
 
-  // ✅ dono do registro (quem controla no sistema)
   ownerId String
-  owner   User   @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  owner   User @relation(fields: [ownerId], references: [id], onDelete: Cascade)
 
-  // ✅ facilita filtro por time (igual seu padrão em outras tabelas)
   team String
 
-  // ✅ quem te deve (livre)
   debtorName  String
-  debtorDoc   String? // CPF/CNPJ opcional
+  debtorDoc   String?
   debtorPhone String?
   debtorEmail String?
 
-  // ✅ descrição do título
   title       String
   description String?
 
   category ReceberCategoria @default(OUTROS)
-  method   ReceberMetodo    @default(PIX)
+  method   ReceberMetodo @default(PIX)
 
-  // ✅ valores
   totalCents    Int
   receivedCents Int @default(0)
 
-  // ✅ datas
   dueDate DateTime?
   status  ReceberStatus @default(OPEN)
 
-  // ✅ opcional: “de onde vem” (ex: banco/cartão) — não mistura com Sales
   sourceLabel String?
 
-  // ✅ histórico de recebimentos
   payments DividaAReceberPagamento[]
 
   createdAt DateTime @default(now())
