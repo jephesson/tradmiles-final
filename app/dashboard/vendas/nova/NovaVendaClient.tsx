@@ -13,7 +13,13 @@ type TripKind = "IDA" | "IDA_VOLTA";
 type Owner = { id: string; name: string; login: string };
 
 type Suggestion = {
-  cedente: { id: string; identificador: string; nomeCompleto: string; cpf: string; owner: Owner };
+  cedente: {
+    id: string;
+    identificador: string;
+    nomeCompleto: string;
+    cpf: string;
+    owner: Owner;
+  };
   program: Program;
   pointsNeeded: number;
   passengersNeeded: number;
@@ -59,7 +65,10 @@ function fmtInt(n: number) {
   return (n || 0).toLocaleString("pt-BR");
 }
 function fmtMoneyBR(cents: number) {
-  return ((cents || 0) / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+  return ((cents || 0) / 100).toLocaleString("pt-BR", {
+    style: "currency",
+    currency: "BRL",
+  });
 }
 function moneyToCentsBR(input: string) {
   const s = (input || "").trim().replace(/\./g, "").replace(",", ".");
@@ -84,16 +93,22 @@ function normStr(v?: string) {
 function onlyDigits(v: any) {
   return String(v ?? "").replace(/\D+/g, "");
 }
+function withTs(url: string) {
+  const ts = Date.now();
+  return url.includes("?") ? `${url}&ts=${ts}` : `${url}?ts=${ts}`;
+}
 
 async function api<T>(url: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(url, {
+  const res = await fetch(withTs(url), {
     ...init,
     cache: "no-store",
     credentials: "include",
     headers: { "Content-Type": "application/json", ...(init?.headers || {}) },
   });
   const j = await res.json().catch(() => ({}));
-  if (!res.ok || (j as any)?.ok === false) throw new Error((j as any)?.error || `Erro ${res.status}`);
+  if (!res.ok || (j as any)?.ok === false) {
+    throw new Error((j as any)?.error || `Erro ${res.status}`);
+  }
   return j as T;
 }
 
@@ -214,7 +229,12 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
     (async () => {
       try {
         const out = await api<any>("/api/auth");
-        const sess = out?.data?.session || out?.session || out?.data?.user || out?.user || null;
+        const sess =
+          out?.data?.session ||
+          out?.session ||
+          out?.data?.user ||
+          out?.user ||
+          null;
         if (sess?.id && sess?.login) {
           setMe({ id: sess.id, login: sess.login, name: sess.name || sess.login });
         }
@@ -235,11 +255,17 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
   // ✅ pontos por trecho (cada um pode ser TOTAL ou POR_PAX)
   const [idaMode, setIdaMode] = useState<PointsMode>("TOTAL");
   const [idaStr, setIdaStr] = useState("");
-  const idaInput = useMemo(() => clampInt((idaStr || "").replace(/\D+/g, "")), [idaStr]);
+  const idaInput = useMemo(
+    () => clampInt((idaStr || "").replace(/\D+/g, "")),
+    [idaStr]
+  );
 
   const [voltaMode, setVoltaMode] = useState<PointsMode>("TOTAL");
   const [voltaStr, setVoltaStr] = useState("");
-  const voltaInput = useMemo(() => clampInt((voltaStr || "").replace(/\D+/g, "")), [voltaStr]);
+  const voltaInput = useMemo(
+    () => clampInt((voltaStr || "").replace(/\D+/g, "")),
+    [voltaStr]
+  );
 
   const [passengers, setPassengers] = useState(1);
 
@@ -258,7 +284,10 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
   }, [tripKind, voltaMode, voltaInput, passengers]);
 
   // ✅ pontos totais (ida + volta)
-  const pointsTotal = useMemo(() => idaTotalPoints + voltaTotalPoints, [idaTotalPoints, voltaTotalPoints]);
+  const pointsTotal = useMemo(
+    () => idaTotalPoints + voltaTotalPoints,
+    [idaTotalPoints, voltaTotalPoints]
+  );
 
   // sugestões
   const [loadingSug, setLoadingSug] = useState(false);
@@ -329,7 +358,10 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
   const [locator, setLocator] = useState("");
 
   const milheiroCents = useMemo(() => moneyToCentsBR(milheiroStr), [milheiroStr]);
-  const embarqueFeeCents = useMemo(() => moneyToCentsBR(embarqueStr), [embarqueStr]);
+  const embarqueFeeCents = useMemo(
+    () => moneyToCentsBR(embarqueStr),
+    [embarqueStr]
+  );
 
   const pointsValueCents = useMemo(() => {
     const denom = pointsTotal / 1000;
@@ -337,8 +369,14 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
     return Math.round(denom * milheiroCents);
   }, [pointsTotal, milheiroCents]);
 
-  const totalCents = useMemo(() => pointsValueCents + embarqueFeeCents, [pointsValueCents, embarqueFeeCents]);
-  const commissionCents = useMemo(() => Math.round(pointsValueCents * 0.01), [pointsValueCents]);
+  const totalCents = useMemo(
+    () => pointsValueCents + embarqueFeeCents,
+    [pointsValueCents, embarqueFeeCents]
+  );
+  const commissionCents = useMemo(
+    () => Math.round(pointsValueCents * 0.01),
+    [pointsValueCents]
+  );
 
   // encontra pela compra.numero (ID00018)
   const compraSel = useMemo(
@@ -360,7 +398,8 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
   // ✅ ajuste de PAX disponível (após esta venda) — usando passengersNeeded da sugestão
   const selPaxAfter = useMemo(() => {
     if (!sel) return 0;
-    const after = (sel.availablePassengersYear || 0) - (sel.passengersNeeded || 0);
+    const after =
+      (sel.availablePassengersYear || 0) - (sel.passengersNeeded || 0);
     return after;
   }, [sel]);
 
@@ -377,7 +416,10 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
   function selectSuggestion(s: Suggestion) {
     setSel(s);
     setTimeout(() => {
-      detailsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      detailsRef.current?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
     }, 60);
   }
 
@@ -394,7 +436,8 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
 
   const credCpf = creds?.cpf || sel?.cedente?.cpf || "";
   const credEmail = (creds?.programEmail ?? creds?.email ?? "") || "";
-  const credProgramPass = (creds?.programPassword ?? creds?.senhaPrograma ?? "") || "";
+  const credProgramPass =
+    (creds?.programPassword ?? creds?.senhaPrograma ?? "") || "";
   const credEmailPass = (creds?.emailPassword ?? creds?.senhaEmail ?? "") || "";
 
   async function copyText(label: string, value: string) {
@@ -412,7 +455,9 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
     setLoadingCreds(true);
     setCredsError("");
     try {
-      const url = `/api/cedentes/credentials?cedenteId=${encodeURIComponent(cedenteId)}&program=${encodeURIComponent(p)}`;
+      const url = `/api/cedentes/credentials?cedenteId=${encodeURIComponent(
+        cedenteId
+      )}&program=${encodeURIComponent(p)}`;
       const out = await api<any>(url, { signal } as any);
 
       const data = out?.data ?? out?.creds ?? out ?? null;
@@ -472,7 +517,10 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
   useEffect(() => {
     (async () => {
       try {
-        const res = await fetch("/api/funcionarios", { cache: "no-store", credentials: "include" });
+        const res = await fetch(withTs("/api/funcionarios"), {
+          cache: "no-store",
+          credentials: "include",
+        });
         const json = await res.json().catch(() => ({}));
         if (json?.ok) {
           const data: FuncItem[] = json?.data || [];
@@ -486,7 +534,9 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
       } catch {}
 
       try {
-        const out = await api<{ ok: true; users: UserLite[] }>("/api/users/simple");
+        const out = await api<{ ok: true; users: UserLite[] }>(
+          "/api/users/simple"
+        );
         setUsers(out.users || []);
       } catch {
         setUsers([]);
@@ -521,15 +571,23 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
 
       setLoadingSug(true);
       try {
-        const url = `/api/vendas/sugestoes?program=${encodeURIComponent(program)}&points=${encodeURIComponent(
-          String(pointsTotal)
-        )}&passengers=${encodeURIComponent(String(passengers))}`;
+        const url = `/api/vendas/sugestoes?program=${encodeURIComponent(
+          program
+        )}&points=${encodeURIComponent(String(pointsTotal))}&passengers=${encodeURIComponent(
+          String(passengers)
+        )}`;
 
-        const out = await api<{ ok: true; suggestions: Suggestion[] }>(url, { signal: ac.signal } as any);
+        const out = await api<{ ok: true; suggestions: Suggestion[] }>(url, {
+          signal: ac.signal,
+        } as any);
+
         const list = out.suggestions || [];
         setSuggestions(list);
 
-        if (sel?.cedente?.id && !list.some((x) => x.cedente.id === sel.cedente.id)) {
+        if (
+          sel?.cedente?.id &&
+          !list.some((x) => x.cedente.id === sel.cedente.id)
+        ) {
           clearSelection();
         }
       } catch (e: any) {
@@ -628,10 +686,13 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
 
       setLoadingClientes(true);
       try {
-        const url = isRecent ? `/api/clientes/search?recent=1` : `/api/clientes/search?q=${encodeURIComponent(q)}`;
+        const url = isRecent
+          ? `/api/clientes/search?recent=1`
+          : `/api/clientes/search?q=${encodeURIComponent(q)}`;
         const out = await api<any>(url, { signal: ac.signal } as any);
 
-        let list: ClienteLite[] = out?.clientes || out?.data?.clientes || out?.data?.data?.clientes || [];
+        let list: ClienteLite[] =
+          out?.clientes || out?.data?.clientes || out?.data?.data?.clientes || [];
         if (!Array.isArray(list)) list = [];
 
         if (selectedCliente?.id && !list.some((x) => x.id === selectedCliente.id)) {
@@ -675,7 +736,8 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
         cpfCnpj: novoCliente.cpfCnpj ? onlyDigits(novoCliente.cpfCnpj) : null,
         telefone: novoCliente.telefone ? onlyDigits(novoCliente.telefone) : null,
         origem: novoCliente.origem,
-        origemDescricao: novoCliente.origem === "OUTROS" ? novoCliente.origemDescricao.trim() : null,
+        origemDescricao:
+          novoCliente.origem === "OUTROS" ? novoCliente.origemDescricao.trim() : null,
       };
 
       const out = await api<any>("/api/clientes", {
@@ -721,6 +783,7 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
   }
 
   // ✅ quando escolhe cedente -> carrega compras LIBERADAS (CLOSED) daquele cedente
+  // 🔧 inclui program no request (se teu backend suportar) + cache buster
   useEffect(() => {
     const ac = new AbortController();
 
@@ -734,14 +797,23 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
 
       setLoadingCompras(true);
       try {
-        const url = `/api/compras/liberadas?cedenteId=${encodeURIComponent(sel.cedente.id)}`;
-        const out = await api<{ ok: true; compras: CompraLiberada[] }>(url, { signal: ac.signal } as any);
+        const url = `/api/compras/liberadas?cedenteId=${encodeURIComponent(
+          sel.cedente.id
+        )}&program=${encodeURIComponent(program)}`;
 
-        const list = out.compras || [];
+        const out = await api<{ ok: true; compras: CompraLiberada[] }>(url, {
+          signal: ac.signal,
+        } as any);
+
+        const list = Array.isArray(out.compras) ? out.compras : [];
         setCompras(list);
 
-        if (list.length === 1) setPurchaseNumero(list[0].numero);
-        else setPurchaseNumero("");
+        // ✅ não “força” trocar seleção se já tem uma válida
+        setPurchaseNumero((prev) => {
+          if (prev && list.some((c) => c.numero === prev)) return prev;
+          if (list.length === 1) return list[0].numero;
+          return "";
+        });
       } catch (e: any) {
         if (e?.name !== "AbortError") {
           setCompras([]);
@@ -753,7 +825,7 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
     })();
 
     return () => ac.abort();
-  }, [sel?.cedente?.id]);
+  }, [sel?.cedente?.id, program]);
 
   // ✅ helper: formata input de pontos e manda pro setter certo
   function onChangePoints(setter: (v: string) => void, v: string) {
@@ -849,19 +921,27 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
     if (args.tripKind === "IDA_VOLTA") {
       const idaDesc =
         args.idaMode === "POR_PAX"
-          ? `${fmtInt(args.idaInput)}/pax x ${fmtInt(args.passengers)} = ${fmtInt(args.idaTotalPoints)}`
+          ? `${fmtInt(args.idaInput)}/pax x ${fmtInt(args.passengers)} = ${fmtInt(
+              args.idaTotalPoints
+            )}`
           : `${fmtInt(args.idaTotalPoints)}`;
 
       const voltaDesc =
         args.voltaMode === "POR_PAX"
-          ? `${fmtInt(args.voltaInput)}/pax x ${fmtInt(args.passengers)} = ${fmtInt(args.voltaTotalPoints)}`
+          ? `${fmtInt(args.voltaInput)}/pax x ${fmtInt(args.passengers)} = ${fmtInt(
+              args.voltaTotalPoints
+            )}`
           : `${fmtInt(args.voltaTotalPoints)}`;
 
-      lines.push(`🎯 Pontos: ${fmtInt(args.pointsTotal)} (ida ${idaDesc} + volta ${voltaDesc})`);
+      lines.push(
+        `🎯 Pontos: ${fmtInt(args.pointsTotal)} (ida ${idaDesc} + volta ${voltaDesc})`
+      );
     } else {
       const idaDesc =
         args.idaMode === "POR_PAX"
-          ? `${fmtInt(args.idaTotalPoints)} (${fmtInt(args.idaInput)}/pax x ${fmtInt(args.passengers)})`
+          ? `${fmtInt(args.idaTotalPoints)} (${fmtInt(args.idaInput)}/pax x ${fmtInt(
+              args.passengers
+            )})`
           : `${fmtInt(args.idaTotalPoints)}`;
       lines.push(`🎯 Pontos: ${idaDesc}`);
     }
@@ -912,12 +992,27 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
 
     setIsSaving(true);
     try {
-      const out = await api<any>("/api/vendas", { method: "POST", body: JSON.stringify(payload) });
+      const out = await api<any>("/api/vendas", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      });
 
-      const sale = out?.data?.sale || out?.sale || out?.data?.venda || out?.venda || out?.data || null;
+      const sale =
+        out?.data?.sale ||
+        out?.sale ||
+        out?.data?.venda ||
+        out?.venda ||
+        out?.data ||
+        null;
 
       const saleId =
-        sale?.id || sale?.saleId || out?.data?.saleId || out?.saleId || out?.data?.id || out?.id || null;
+        sale?.id ||
+        sale?.saleId ||
+        out?.data?.saleId ||
+        out?.saleId ||
+        out?.data?.id ||
+        out?.id ||
+        null;
 
       setPostSaveSaleId(saleId ? String(saleId) : null);
 
@@ -977,7 +1072,10 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
     });
   }, [suggestions, cedenteQ]);
 
-  const visibleSuggestions = useMemo(() => filteredSuggestions.slice(0, 10), [filteredSuggestions]);
+  const visibleSuggestions = useMemo(
+    () => filteredSuggestions.slice(0, 10),
+    [filteredSuggestions]
+  );
 
   const countLabel = useMemo(() => {
     if (loadingSug) return "Calculando...";
@@ -988,7 +1086,10 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
     return `${Math.min(10, suggestions.length)} de ${suggestions.length}`;
   }, [loadingSug, sel, cedenteQ, suggestions.length, filteredSuggestions.length]);
 
-  const selfLabel = useMemo(() => (me?.name ? `Meu cartão (${me.name})` : "Meu cartão"), [me?.name]);
+  const selfLabel = useMemo(
+    () => (me?.name ? `Meu cartão (${me.name})` : "Meu cartão"),
+    [me?.name]
+  );
 
   return (
     <div className="p-6 space-y-6">
@@ -1002,9 +1103,11 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
           {sugError ? <div className="mt-2 text-xs text-rose-600">{sugError}</div> : null}
         </div>
 
-        {/* ✅ Só Voltar aqui (Salvar desce para o Resumo) */}
         <div className="flex gap-2">
-          <Link href="/dashboard/vendas" className="rounded-xl border px-4 py-2 text-sm hover:bg-slate-50">
+          <Link
+            href="/dashboard/vendas"
+            className="rounded-xl border px-4 py-2 text-sm hover:bg-slate-50"
+          >
             Voltar
           </Link>
         </div>
@@ -1035,7 +1138,12 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
 
             <div className="flex flex-wrap gap-3 text-[11px] text-slate-600">
               <label className="inline-flex items-center gap-2">
-                <input type="radio" name="tripKind" checked={tripKind === "IDA"} onChange={() => setTripKind("IDA")} />
+                <input
+                  type="radio"
+                  name="tripKind"
+                  checked={tripKind === "IDA"}
+                  onChange={() => setTripKind("IDA")}
+                />
                 Só ida
               </label>
 
@@ -1068,7 +1176,12 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
 
                 <div className="mt-2 flex flex-wrap items-center gap-3 text-[11px] text-slate-600">
                   <label className="inline-flex items-center gap-2">
-                    <input type="radio" name="idaMode" checked={idaMode === "TOTAL"} onChange={() => setIdaMode("TOTAL")} />
+                    <input
+                      type="radio"
+                      name="idaMode"
+                      checked={idaMode === "TOTAL"}
+                      onChange={() => setIdaMode("TOTAL")}
+                    />
                     Total
                   </label>
                   <label className="inline-flex items-center gap-2">
@@ -1090,7 +1203,12 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
               </div>
 
               {/* VOLTA */}
-              <div className={cn("rounded-xl border p-3 bg-white", tripKind !== "IDA_VOLTA" ? "opacity-50" : "")}>
+              <div
+                className={cn(
+                  "rounded-xl border p-3 bg-white",
+                  tripKind !== "IDA_VOLTA" ? "opacity-50" : ""
+                )}
+              >
                 <div className="text-xs text-slate-600 mb-2">Pontos (Volta)</div>
 
                 <input
@@ -1333,10 +1451,7 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
                     <th className="text-left font-semibold px-4 py-3 w-[360px]">CEDENTE</th>
                     <th className="text-left font-semibold px-4 py-3 w-[220px]">RESPONSÁVEL</th>
                     <th className="text-right font-semibold px-4 py-3 w-[140px]">PTS</th>
-
-                    {/* ✅ coluna com PAX já AJUSTADO */}
                     <th className="text-right font-semibold px-4 py-3 w-[260px]">PAX DISP. (após)</th>
-
                     <th className="text-right font-semibold px-4 py-3 w-[140px]">SOBRA</th>
                     <th className="text-left font-semibold px-4 py-3 w-[140px]">PRIOR.</th>
                     <th className="text-right font-semibold px-4 py-3 w-[120px]"></th>
@@ -1361,7 +1476,6 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
 
                   {visibleSuggestions.map((s) => {
                     const badge = badgeClass(s.priorityLabel);
-
                     const paxAfter = (s.availablePassengersYear || 0) - (s.passengersNeeded || 0);
                     const paxAfterClamped = Math.max(0, paxAfter);
 
@@ -1381,8 +1495,6 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
                           <div className="text-xs text-slate-500">@{s.cedente.owner.login}</div>
                         </td>
                         <td className="px-4 py-3 text-right tabular-nums">{fmtInt(s.pts)}</td>
-
-                        {/* ✅ PAX após venda */}
                         <td className="px-4 py-3 text-right tabular-nums">
                           <span className={cn(paxAfter < 0 ? "text-rose-600 font-semibold" : "")}>
                             {fmtInt(paxAfterClamped)}
@@ -1393,7 +1505,6 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
                             {program === "LATAM" ? " • 365d" : ""} • consome {fmtInt(s.passengersNeeded)})
                           </span>
                         </td>
-
                         <td className="px-4 py-3 text-right tabular-nums">{fmtInt(s.leftoverPoints)}</td>
                         <td className="px-4 py-3">
                           <span className={cn("inline-flex rounded-full border px-2 py-1 text-xs", badge)}>
@@ -1464,8 +1575,12 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
                       onChange={(e) => setClienteQ(e.target.value)}
                       placeholder="Nome / CPF/CNPJ / telefone..."
                     />
-                    {loadingClientes ? <div className="text-[11px] text-slate-500">Buscando...</div> : null}
-                    {clientesError ? <div className="text-[11px] text-rose-600">{clientesError}</div> : null}
+                    {loadingClientes ? (
+                      <div className="text-[11px] text-slate-500">Buscando...</div>
+                    ) : null}
+                    {clientesError ? (
+                      <div className="text-[11px] text-rose-600">{clientesError}</div>
+                    ) : null}
 
                     {!loadingClientes && clienteQ.trim().length >= 2 && clientes.length === 0 ? (
                       <div className="text-[11px] text-slate-600">
@@ -1485,7 +1600,9 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
                     ) : null}
 
                     {!loadingClientes && clienteQ.trim().length < 2 && clientes.length > 0 ? (
-                      <div className="text-[11px] text-slate-500">Mostrando últimos clientes cadastrados.</div>
+                      <div className="text-[11px] text-slate-500">
+                        Mostrando últimos clientes cadastrados.
+                      </div>
                     ) : null}
                   </label>
 
@@ -1548,9 +1665,23 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
                       </option>
                     ))}
                   </select>
+
                   <div className="text-[11px] text-slate-500 mt-1">
                     A venda só deixa salvar se a compra estiver LIBERADA (status CLOSED) e for do mesmo cedente.
                   </div>
+
+                  {/* 🔧 botão de refresh manual (quando você suspeitar de cache server-side) */}
+                  <button
+                    type="button"
+                    className="mt-2 rounded-xl border px-3 py-1.5 text-sm hover:bg-slate-50"
+                    onClick={() => {
+                      // força re-disparar o effect mudando program p/ ele mesmo (hack simples)
+                      setProgram((p) => p);
+                    }}
+                    disabled={loadingCompras}
+                  >
+                    Recarregar compras
+                  </button>
                 </label>
 
                 <label className="space-y-1">
@@ -1696,14 +1827,15 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
               </div>
             </div>
 
-            {/* ✅ Botão salvar abaixo do resumo */}
             <button
               type="button"
               onClick={() => setConfirmOpen(true)}
               disabled={!canSave || isSaving}
               className={cn(
                 "mt-3 w-full rounded-xl px-4 py-2 text-sm text-white",
-                !canSave || isSaving ? "bg-slate-300 cursor-not-allowed" : "bg-black hover:bg-gray-800"
+                !canSave || isSaving
+                  ? "bg-slate-300 cursor-not-allowed"
+                  : "bg-black hover:bg-gray-800"
               )}
             >
               {isSaving ? "Salvando..." : "Salvar venda"}
@@ -1740,7 +1872,9 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
                 <select
                   className="w-full rounded-xl border px-3 py-2 text-sm bg-white"
                   value={novoCliente.tipo}
-                  onChange={(e) => setNovoCliente((p) => ({ ...p, tipo: e.target.value as ClienteTipo }))}
+                  onChange={(e) =>
+                    setNovoCliente((p) => ({ ...p, tipo: e.target.value as ClienteTipo }))
+                  }
                 >
                   <option value="PESSOA">Pessoa</option>
                   <option value="EMPRESA">Empresa</option>
@@ -1782,7 +1916,9 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
                 <select
                   className="w-full rounded-xl border px-3 py-2 text-sm bg-white"
                   value={novoCliente.origem}
-                  onChange={(e) => setNovoCliente((p) => ({ ...p, origem: e.target.value as ClienteOrigem }))}
+                  onChange={(e) =>
+                    setNovoCliente((p) => ({ ...p, origem: e.target.value as ClienteOrigem }))
+                  }
                 >
                   <option value="BALCAO_MILHAS">Balcão Milhas</option>
                   <option value="PARTICULAR">Particular</option>
@@ -1797,14 +1933,18 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
                   <input
                     className="w-full rounded-xl border px-3 py-2 text-sm"
                     value={novoCliente.origemDescricao}
-                    onChange={(e) => setNovoCliente((p) => ({ ...p, origemDescricao: e.target.value }))}
+                    onChange={(e) =>
+                      setNovoCliente((p) => ({ ...p, origemDescricao: e.target.value }))
+                    }
                     placeholder="Ex: Indicação, Instagram, etc."
                   />
                 </label>
               ) : null}
             </div>
 
-            {createClienteError ? <div className="mt-3 text-sm text-rose-600">{createClienteError}</div> : null}
+            {createClienteError ? (
+              <div className="mt-3 text-sm text-rose-600">{createClienteError}</div>
+            ) : null}
 
             <div className="mt-5 flex justify-end gap-2">
               <button
@@ -1890,7 +2030,9 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
                 disabled={!canSave || isSaving}
                 className={cn(
                   "rounded-xl px-4 py-2 text-sm text-white",
-                  !canSave || isSaving ? "bg-slate-400 cursor-not-allowed" : "bg-black hover:bg-gray-800"
+                  !canSave || isSaving
+                    ? "bg-slate-400 cursor-not-allowed"
+                    : "bg-black hover:bg-gray-800"
                 )}
               >
                 {isSaving ? "Salvando..." : "Confirmar e salvar"}

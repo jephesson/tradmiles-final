@@ -107,25 +107,32 @@ export async function GET(req: Request) {
     const programRaw = String(searchParams.get("program") || "").trim().toUpperCase();
     const program = isProgram(programRaw) ? (programRaw as Program) : null;
 
-    // ✅ padrão mantém como estava (somente não-finalizadas),
-    // mas agora dá pra pedir finalizadas ou todas:
-    // ?finalized=0 (default) | ?finalized=1 | ?finalized=all
-    const finalizedMode = parseFinalizedMode(searchParams);
+    // ✅ Mantemos a função/variável pra não quebrar compatibilidade,
+    // mas a rota "liberadas" aqui deve retornar APENAS:
+    // CLOSED + NÃO FINALIZADAS (finalizedAt null).
+    //
+    // Mesmo que alguém mande ?finalized=1 ou all, ignoramos.
+    // (isso resolve o caso de "só aparece 1" por estar alternando conforme finalizedAt muda)
+    void parseFinalizedMode(searchParams);
+    const finalizedMode: FinalizedMode = "OPEN";
 
     const comprasRaw = await prisma.purchase.findMany({
       where: {
         cedenteId,
         status: "CLOSED",
 
+        // ✅ regra fixa: somente CLOSED não-finalizadas
         ...(finalizedMode === "OPEN" ? { finalizedAt: null } : {}),
-        ...(finalizedMode === "FINALIZED" ? { finalizedAt: { not: null } } : {}),
 
         ...(program ? { ciaAerea: program } : {}),
 
         // ✅ segurança: o cedente tem que ser do mesmo time do usuário logado
         cedente: { owner: { team: session.team } },
       },
-      orderBy: { liberadoEm: "desc" },
+      orderBy: [
+        { liberadoEm: "desc" },
+        { id: "desc" }, // ✅ fallback estável se liberadoEm vier null/igual
+      ],
       take,
       select: {
         id: true,
