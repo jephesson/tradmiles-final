@@ -56,8 +56,12 @@ function isoDateOnlyUTC(d: Date) {
 }
 
 /**
- * ✅ Split proporcional (suporta lucro +/0/-)
- * Aqui você passa profitAfterLossCents (>=0) na prática.
+ * ✅ Split proporcional que suporta:
+ * - lucro positivo
+ * - lucro zero
+ * - lucro negativo (se você decidir usar)
+ *
+ * Aqui a gente vai passar `profitAfterLossCents` que é >= 0.
  */
 function splitProfitProportional(
   items: Array<{ key: string; totalCents: number }>,
@@ -80,15 +84,13 @@ function splitProfitProportional(
   let remaining = profitAbs - allocated;
 
   tmp.sort((a, b) => (b.raw - b.floor) - (a.raw - a.floor));
-  const out = new Map<string, number>();
 
+  const out = new Map<string, number>();
   for (let i = 0; i < tmp.length; i++) {
     const add = remaining > 0 ? 1 : 0;
-    const v = (tmp[i].floor + add) * sign;
-    out.set(tmp[i].key, v);
+    out.set(tmp[i].key, (tmp[i].floor + add) * sign);
     if (remaining > 0) remaining -= 1;
   }
-
   return out;
 }
 
@@ -98,8 +100,16 @@ function styleHeaderRow(ws: ExcelJS.Worksheet, lastCol: number) {
   for (let c = 1; c <= lastCol; c++) {
     const cell = headerRow.getCell(c);
     cell.font = { bold: true, color: { argb: "FFFFFFFF" } };
-    cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF3A3A3A" } };
-    cell.alignment = { vertical: "middle", horizontal: "center", wrapText: true };
+    cell.fill = {
+      type: "pattern",
+      pattern: "solid",
+      fgColor: { argb: "FF3A3A3A" },
+    };
+    cell.alignment = {
+      vertical: "middle",
+      horizontal: "center",
+      wrapText: true,
+    };
     cell.border = {
       top: { style: "thin", color: { argb: "FFBDBDBD" } },
       left: { style: "thin", color: { argb: "FFBDBDBD" } },
@@ -110,10 +120,7 @@ function styleHeaderRow(ws: ExcelJS.Worksheet, lastCol: number) {
 }
 
 // =========================
-// ✅ Prejuízo do mês (alinhado com /dashboard/prejuizo):
-// - purchase CLOSED no mês
-// - só entra se tiver ao menos 1 sale PAID vinculada
-// - lucro líquido < 0
+// ✅ Prejuízo do mês (mesma lógica do /api/vendas/prejuizo)
 // =========================
 function safeInt(v: unknown, fb = 0) {
   const n = Number(v);
@@ -140,6 +147,12 @@ function bonus30(points: number, milheiroCents: number, metaMilheiroCents: numbe
   return Math.round(excedenteCents * 0.3);
 }
 
+/**
+ * ✅ IMPORTANTE:
+ * Para bater 100% com a tela /prejuizo:
+ * - só conta prejuízo de purchase CLOSED/finalizedAt no mês
+ * - e SOMENTE se tiver pelo menos 1 sale vinculada (não-cancelada)
+ */
 async function computeLossTotalCents(team: string, scopeMonth: string) {
   if (!/^\d{4}-\d{2}$/.test(String(scopeMonth || ""))) return 0;
 
@@ -171,7 +184,6 @@ async function computeLossTotalCents(team: string, scopeMonth: string) {
   const ids = purchases.map((p) => p.id);
   const numeros = purchases.map((p) => String(p.numero || "").trim()).filter(Boolean);
 
-  // se sale.purchaseId guarda "numero" (legado)
   const idByNumeroUpper = new Map<string, string>(
     purchases
       .map((p) => [String(p.numero || "").trim().toUpperCase(), p.id] as const)
@@ -191,11 +203,10 @@ async function computeLossTotalCents(team: string, scopeMonth: string) {
 
   const byId = new Map(purchases.map((p) => [p.id, p]));
 
-  // 2) vendas ligadas às purchases
-  // ✅ CORREÇÃO: só conta venda CONCLUÍDA (PAID) — igual sua tela de prejuízo
+  // 2) vendas ligadas às purchases (ignora canceladas)
   const sales = await prisma.sale.findMany({
     where: {
-      paymentStatus: "PAID",
+      paymentStatus: { not: "CANCELED" },
       OR: [{ purchaseId: { in: ids } }, { purchaseId: { in: numerosAll } }],
     },
     select: {
@@ -207,8 +218,11 @@ async function computeLossTotalCents(team: string, scopeMonth: string) {
     },
   });
 
-  // 3) agrega por purchase e marca se teve PAID
-  const agg = new Map<string, { salesPointsValueCents: number; bonusCents: number; hasPaid: boolean }>();
+  // 3) agrega por purchase (inclui contador de vendas)
+  const agg = new Map<
+    string,
+    { salesPointsValueCents: number; bonusCents: number; salesCount: number }
+  >();
 
   for (const s of sales) {
     const pid = normalizePurchaseId(String(s.purchaseId || ""));
@@ -224,9 +238,9 @@ async function computeLossTotalCents(team: string, scopeMonth: string) {
       pvCents = cand > 0 ? cand : totalCents;
     }
 
-    const cur = agg.get(pid) || { salesPointsValueCents: 0, bonusCents: 0, hasPaid: false };
-    cur.hasPaid = true;
+    const cur = agg.get(pid) || { salesPointsValueCents: 0, bonusCents: 0, salesCount: 0 };
     cur.salesPointsValueCents += pvCents;
+    cur.salesCount += 1;
 
     const p = byId.get(pid);
     if (p) {
@@ -237,14 +251,14 @@ async function computeLossTotalCents(team: string, scopeMonth: string) {
     agg.set(pid, cur);
   }
 
-  // 4) soma somente prejuízos (<0) E SOMENTE purchases com ao menos 1 sale PAID
+  // 4) soma somente prejuízos (<0) e SOMENTE se teve venda vinculada
   let lossTotalCents = 0; // negativo
-
   for (const p of purchases) {
     const a = agg.get(p.id);
-    if (!a?.hasPaid) continue; // ✅ chave do ajuste (bate com /prejuizo)
+    if (!a || a.salesCount <= 0) continue; // ✅ regra que faltava
 
     const purchaseTotalCents = safeInt(p.totalCents, 0);
+
     const profitBruto = a.salesPointsValueCents - purchaseTotalCents;
     const profitLiquido = profitBruto - a.bonusCents;
 
@@ -269,7 +283,7 @@ export async function GET(req: Request) {
 
     if (mode !== "model" && mode !== "raw") return bad("mode inválido. Use model|raw");
 
-    // ✅ strings p/ EmployeePayout (date string)
+    // strings p/ EmployeePayout (date string)
     let startDateISO = "";
     let endExclusiveISO = "";
     let scopeMonth = "";
@@ -289,7 +303,7 @@ export async function GET(req: Request) {
       scopeMonth = m;
     }
 
-    // ✅ DateTime p/ Sale.date (UTC)
+    // DateTime p/ Sale.date (UTC)
     const startDT = utcStartDateFromISO(startDateISO);
     const endDT = utcStartDateFromISO(endExclusiveISO);
     if (!startDT || !endDT) return bad("Período inválido");
@@ -297,7 +311,7 @@ export async function GET(req: Request) {
     const paymentStatusWhere =
       status === "PAID" ? "PAID" : status === "PENDING" ? "PENDING" : undefined;
 
-    // ✅ Lucro do período: soma grossProfitCents (SEM 8%)
+    // Lucro do período: soma do grossProfitCents (SEM 8%)
     const lucroAgg = await prisma.employeePayout.aggregate({
       where: { team, date: { gte: startDateISO, lt: endExclusiveISO } },
       _sum: { grossProfitCents: true },
@@ -312,7 +326,7 @@ export async function GET(req: Request) {
     const profitAfterLossCents = Math.max(0, profitTotalCents + lossTotalCents);
 
     // =========================
-    // MODELO (AGRUPADO)
+    // MODEL: agrupa por cliente.id
     // =========================
     if (mode === "model") {
       const sales = await prisma.sale.findMany({
@@ -426,10 +440,10 @@ export async function GET(req: Request) {
       return new NextResponse(Buffer.from(buf), {
         status: 200,
         headers: {
-          "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+          "Content-Type":
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
           "Content-Disposition": `attachment; filename="${label}.xlsx"`,
           "Cache-Control": "no-store",
-          // debug útil
           "X-TM-Profit-Total": String(profitTotalCents),
           "X-TM-Loss-Total": String(lossTotalCents),
           "X-TM-Profit-After-Loss": String(profitAfterLossCents),
@@ -438,7 +452,7 @@ export async function GET(req: Request) {
     }
 
     // =========================
-    // RAW (DETALHADO)
+    // RAW (DETALHADO): uma linha por venda
     // =========================
     const sales = await prisma.sale.findMany({
       where: {
@@ -531,7 +545,8 @@ export async function GET(req: Request) {
     return new NextResponse(Buffer.from(buf), {
       status: 200,
       headers: {
-        "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "Content-Type":
+          "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         "Content-Disposition": `attachment; filename="${label}.xlsx"`,
         "Cache-Control": "no-store",
         "X-TM-Profit-Total": String(profitTotalCents),
@@ -540,10 +555,7 @@ export async function GET(req: Request) {
       },
     });
   } catch (e: any) {
-    const msg =
-      e?.message === "UNAUTHENTICATED"
-        ? "Não autenticado"
-        : e?.message || String(e);
+    const msg = e?.message === "UNAUTHENTICATED" ? "Não autenticado" : e?.message || String(e);
     const status = e?.message === "UNAUTHENTICATED" ? 401 : 500;
     return NextResponse.json({ ok: false, error: msg }, { status });
   }
