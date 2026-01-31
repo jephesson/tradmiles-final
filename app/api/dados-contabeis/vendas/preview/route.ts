@@ -1,3 +1,4 @@
+// app/api/dados-contabeis/vendas/preview/route.ts
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/auth-server";
@@ -50,6 +51,13 @@ function cleanDoc(v: string) {
   return String(v || "").replace(/\D+/g, "");
 }
 
+function isoDateOnlyUTC(d: Date) {
+  const yy = d.getUTCFullYear();
+  const mm = String(d.getUTCMonth() + 1).padStart(2, "0");
+  const dd = String(d.getUTCDate()).padStart(2, "0");
+  return `${yy}-${mm}-${dd}`;
+}
+
 function splitProfitProportional(
   items: Array<{ key: string; totalCents: number }>,
   totalProfitCents: number
@@ -88,6 +96,11 @@ export async function GET(req: Request) {
     const month = String(url.searchParams.get("month") || "");
     const date = String(url.searchParams.get("date") || "");
     const status = String(url.searchParams.get("status") || "ALL").toUpperCase(); // ALL | PAID | PENDING
+    const mode = String(url.searchParams.get("mode") || "model").toLowerCase(); // model | raw
+
+    if (mode !== "model" && mode !== "raw") {
+      return bad("mode inválido. Use model|raw");
+    }
 
     let startDate = "";
     let endExclusive = "";
@@ -115,11 +128,10 @@ export async function GET(req: Request) {
     const paymentStatusWhere =
       status === "PAID" ? "PAID" : status === "PENDING" ? "PENDING" : undefined;
 
-    // ✅ vendas do período (exclui canceladas) — FILTRA TIME VIA CEDENTE.OWNER.TEAM
+    // ✅ vendas do período — FILTRA TIME VIA CEDENTE.OWNER.TEAM
     const sales = await prisma.sale.findMany({
       where: {
-        cedente: { owner: { team } }, // ✅ aqui
-
+        cedente: { owner: { team } },
         date: { gte: startDT, lt: endDT },
         paymentStatus: paymentStatusWhere ? paymentStatusWhere : { in: ["PAID", "PENDING"] },
       },
@@ -128,6 +140,7 @@ export async function GET(req: Request) {
         numero: true,
         date: true,
         totalCents: true,
+        paymentStatus: true, // ✅ necessário pro RAW
         cliente: {
           select: {
             id: true,
@@ -137,21 +150,55 @@ export async function GET(req: Request) {
           },
         },
       },
-      orderBy: { date: "asc" },
+      orderBy: [{ date: "asc" }, { numero: "asc" }],
     });
 
     const salesCount = sales.length;
     const totalSoldCents = sales.reduce((a, s) => a + (s.totalCents || 0), 0);
 
     // ✅ lucro do período (time) = soma grossProfitCents (SEM 8%)
-    // employeePayout.date é STRING YYYY-MM-DD, então gte/lt string é ok.
     const lucroAgg = await prisma.employeePayout.aggregate({
       where: { team, date: { gte: startDate, lt: endExclusive } },
       _sum: { grossProfitCents: true },
     });
     const profitTotalCents = lucroAgg._sum.grossProfitCents || 0;
 
-    // ✅ agrupa por cliente (modelo)
+    // =========================
+    // RAW: UMA LINHA POR VENDA
+    // =========================
+    const profitBySale = splitProfitProportional(
+      sales.map((s) => ({ key: s.id, totalCents: s.totalCents || 0 })),
+      profitTotalCents
+    );
+
+    const rowsRaw = sales.map((s) => {
+      const cpfCnpjDisplay =
+        (s as any)?.cliente?.cpfCnpj ||
+        (s as any)?.cliente?.identificador ||
+        "—";
+
+      const nome = (s as any)?.cliente?.nome || "—";
+      const profitCents = profitBySale.get(s.id) || 0;
+      const deductionCents = Math.max(0, (s.totalCents || 0) - profitCents);
+
+      return {
+        saleId: s.id,
+        date: isoDateOnlyUTC(s.date),
+        numero: s.numero || "—",
+        paymentStatus: String((s as any)?.paymentStatus || "—"),
+        cpfCnpj: cpfCnpjDisplay,
+        nome,
+        totalServiceCents: s.totalCents || 0,
+        deductionCents,
+        profitCents,
+      };
+    });
+
+    const totalDeductionRawCents = rowsRaw.reduce((a, r) => a + (r.deductionCents || 0), 0);
+
+    // =========================
+    // MODEL: AGRUPADO POR CLIENTE (SEU MODELO)
+    // =========================
     const map = new Map<
       string,
       {
@@ -164,8 +211,10 @@ export async function GET(req: Request) {
     >();
 
     for (const s of sales) {
-      const doc = cleanDoc((s as any)?.cliente?.cpfCnpj || (s as any)?.cliente?.identificador || "") || "";
-      const cpfCnpjDisplay = (s as any)?.cliente?.cpfCnpj || (s as any)?.cliente?.identificador || "—";
+      const doc =
+        cleanDoc((s as any)?.cliente?.cpfCnpj || (s as any)?.cliente?.identificador || "") || "";
+      const cpfCnpjDisplay =
+        (s as any)?.cliente?.cpfCnpj || (s as any)?.cliente?.identificador || "—";
       const nome = (s as any)?.cliente?.nome || "—";
       const key = `${doc}::${nome}`;
 
@@ -183,14 +232,14 @@ export async function GET(req: Request) {
 
     const groups = Array.from(map.values());
 
-    const profitMap = splitProfitProportional(
+    const profitMapModel = splitProfitProportional(
       groups.map((g) => ({ key: g.key, totalCents: g.totalServiceCents })),
       profitTotalCents
     );
 
-    const rows = groups
+    const rowsModel = groups
       .map((g) => {
-        const profitCents = profitMap.get(g.key) || 0;
+        const profitCents = profitMapModel.get(g.key) || 0;
         const deductionCents = Math.max(0, (g.totalServiceCents || 0) - profitCents);
 
         const info = date
@@ -209,11 +258,13 @@ export async function GET(req: Request) {
       })
       .sort((a, b) => b.totalServiceCents - a.totalServiceCents);
 
-    const totalDeductionCents = rows.reduce((a, r) => a + r.deductionCents, 0);
+    const totalDeductionModelCents = rowsModel.reduce((a, r) => a + (r.deductionCents || 0), 0);
+
     const endDate = addDaysISO(endExclusive, -1);
 
     return NextResponse.json({
       ok: true,
+      mode,
       scope: { month: scopeMonth, date: date || null, status: status || "ALL" },
       startDate,
       endDate,
@@ -221,9 +272,9 @@ export async function GET(req: Request) {
         salesCount,
         totalSoldCents,
         profitTotalCents,
-        totalDeductionCents,
+        totalDeductionCents: mode === "raw" ? totalDeductionRawCents : totalDeductionModelCents,
       },
-      rows,
+      rows: mode === "raw" ? rowsRaw : rowsModel,
     });
   } catch (e: any) {
     const msg = e?.message === "UNAUTHENTICATED" ? "Não autenticado" : e?.message || String(e);

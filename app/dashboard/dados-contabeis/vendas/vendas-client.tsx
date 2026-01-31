@@ -59,8 +59,12 @@ async function apiGet<T>(url: string): Promise<T> {
 }
 
 type StatusFilter = "ALL" | "PAID" | "PENDING";
+type Mode = "model" | "raw";
 
-type PreviewRow = {
+/** =========================
+ *  MODELO (AGRUPADO)
+ *  ========================= */
+type PreviewRowModel = {
   cpfCnpj: string;
   nome: string;
   info: string;
@@ -70,8 +74,24 @@ type PreviewRow = {
   salesCount: number;
 };
 
+/** =========================
+ *  DETALHADO (UMA LINHA POR VENDA)
+ *  ========================= */
+type PreviewRowRaw = {
+  saleId: string;
+  date: string; // YYYY-MM-DD
+  numero: string;
+  paymentStatus: string; // PAID | PENDING | etc
+  cpfCnpj: string;
+  nome: string;
+  totalServiceCents: number;
+  deductionCents: number;
+  profitCents: number;
+};
+
 type PreviewResp = {
   ok: true;
+  mode: Mode;
   scope: { month: string; date: string | null; status: string };
   startDate: string;
   endDate: string;
@@ -81,7 +101,7 @@ type PreviewResp = {
     profitTotalCents: number;
     totalDeductionCents: number;
   };
-  rows: PreviewRow[];
+  rows: Array<PreviewRowModel | PreviewRowRaw>;
 };
 
 function KPI({ label, value }: { label: string; value: string }) {
@@ -97,6 +117,7 @@ export default function VendasDadosContabeisClient() {
   const [month, setMonth] = useState<string>(() => monthISORecifeClient());
   const [selectedDay, setSelectedDay] = useState<number | null>(null);
   const [status, setStatus] = useState<StatusFilter>("ALL");
+  const [mode, setMode] = useState<Mode>("model"); // ✅ novo
 
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState("");
@@ -114,9 +135,12 @@ export default function VendasDadosContabeisClient() {
       const qs = new URLSearchParams();
       qs.set("month", month);
       qs.set("status", status);
+      qs.set("mode", mode); // ✅ novo
       if (selectedDateISO) qs.set("date", selectedDateISO);
 
-      const out = await apiGet<PreviewResp>(`/api/dados-contabeis/vendas/preview?${qs.toString()}`);
+      const out = await apiGet<PreviewResp>(
+        `/api/dados-contabeis/vendas/preview?${qs.toString()}`
+      );
       setData(out);
     } catch (e: any) {
       setData(null);
@@ -129,7 +153,7 @@ export default function VendasDadosContabeisClient() {
   useEffect(() => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [month, selectedDateISO, status]);
+  }, [month, selectedDateISO, status, mode]); // ✅ inclui mode
 
   const cal = useMemo(() => {
     const dim = daysInMonth(month);
@@ -145,6 +169,7 @@ export default function VendasDadosContabeisClient() {
     const qs = new URLSearchParams();
     qs.set("month", month);
     qs.set("status", status);
+    qs.set("mode", mode); // ✅ novo
     if (selectedDateISO) qs.set("date", selectedDateISO);
 
     // download direto
@@ -159,13 +184,20 @@ export default function VendasDadosContabeisClient() {
     totalDeductionCents: 0,
   };
 
+  const isModel = mode === "model";
+
   return (
     <div className="space-y-4">
       <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
         <div className="space-y-1">
           <h1 className="text-lg font-semibold">Dados contábeis — Vendas</h1>
           <p className="text-sm text-neutral-500">
-            Lucro do período = <b>soma do grossProfitCents (SEM 8%)</b>. Lucro por cliente é proporcional ao valor total vendido.
+            Lucro do período = <b>soma do grossProfitCents (SEM 8%)</b>.{" "}
+            {isModel ? (
+              <>Lucro por cliente é proporcional ao valor total vendido.</>
+            ) : (
+              <>Lucro por venda é proporcional ao valor da venda.</>
+            )}
           </p>
         </div>
 
@@ -183,22 +215,56 @@ export default function VendasDadosContabeisClient() {
             />
           </div>
 
+          {/* ✅ NOVO: modo */}
+          <div className="flex items-center gap-2">
+            <div className="text-xs text-neutral-500">Visualização</div>
+            <button
+              className={cn(
+                "rounded-full border px-3 py-2 text-xs",
+                mode === "model" ? "bg-black text-white" : "hover:bg-neutral-50"
+              )}
+              onClick={() => setMode("model")}
+              title="Agrupa por cliente (modelo contábil)"
+            >
+              Modelo
+            </button>
+            <button
+              className={cn(
+                "rounded-full border px-3 py-2 text-xs",
+                mode === "raw" ? "bg-black text-white" : "hover:bg-neutral-50"
+              )}
+              onClick={() => setMode("raw")}
+              title="Mostra uma linha por venda (sem agrupar)"
+            >
+              Detalhado
+            </button>
+          </div>
+
           <div className="flex items-center gap-2">
             <div className="text-xs text-neutral-500">Status</div>
             <button
-              className={cn("rounded-full border px-3 py-2 text-xs", status === "ALL" ? "bg-black text-white" : "hover:bg-neutral-50")}
+              className={cn(
+                "rounded-full border px-3 py-2 text-xs",
+                status === "ALL" ? "bg-black text-white" : "hover:bg-neutral-50"
+              )}
               onClick={() => setStatus("ALL")}
             >
               Todos
             </button>
             <button
-              className={cn("rounded-full border px-3 py-2 text-xs", status === "PAID" ? "bg-black text-white" : "hover:bg-neutral-50")}
+              className={cn(
+                "rounded-full border px-3 py-2 text-xs",
+                status === "PAID" ? "bg-black text-white" : "hover:bg-neutral-50"
+              )}
               onClick={() => setStatus("PAID")}
             >
               Pagos
             </button>
             <button
-              className={cn("rounded-full border px-3 py-2 text-xs", status === "PENDING" ? "bg-black text-white" : "hover:bg-neutral-50")}
+              className={cn(
+                "rounded-full border px-3 py-2 text-xs",
+                status === "PENDING" ? "bg-black text-white" : "hover:bg-neutral-50"
+              )}
               onClick={() => setStatus("PENDING")}
             >
               Pendentes
@@ -217,7 +283,7 @@ export default function VendasDadosContabeisClient() {
             onClick={exportXlsx}
             disabled={!rows.length}
             className="h-10 rounded-xl bg-black px-4 text-sm text-white hover:bg-neutral-800 disabled:opacity-50"
-            title="Gerar XLSX no modelo"
+            title={isModel ? "Gerar XLSX no modelo" : "Gerar XLSX detalhado (todas as vendas)"}
           >
             Exportar XLSX
           </button>
@@ -242,7 +308,9 @@ export default function VendasDadosContabeisClient() {
 
         <div className="mt-3 grid grid-cols-7 gap-2 text-center text-xs">
           {["D", "S", "T", "Q", "Q", "S", "S"].map((w) => (
-            <div key={w} className="text-neutral-500">{w}</div>
+            <div key={w} className="text-neutral-500">
+              {w}
+            </div>
           ))}
 
           {cal.cells.map((c, idx) => {
@@ -283,13 +351,15 @@ export default function VendasDadosContabeisClient() {
         <KPI label="Dedução total" value={fmtMoneyBRFromCents(totals.totalDeductionCents || 0)} />
       </div>
 
-      {err ? <div className="rounded-2xl border bg-rose-50 p-3 text-sm text-rose-800">{err}</div> : null}
+      {err ? (
+        <div className="rounded-2xl border bg-rose-50 p-3 text-sm text-rose-800">{err}</div>
+      ) : null}
 
-      {/* tabela modelo */}
+      {/* tabela */}
       <div className="overflow-hidden rounded-2xl border bg-white">
         <div className="border-b px-4 py-3">
           <div className="text-sm font-semibold">
-            Prévia do XLSX (modelo)
+            {isModel ? "Prévia do XLSX (modelo)" : "Prévia do XLSX (detalhado)"}
           </div>
           <div className="text-xs text-neutral-500">
             Período: <b>{data?.startDate || "—"}</b> até <b>{data?.endDate || "—"}</b>
@@ -299,47 +369,91 @@ export default function VendasDadosContabeisClient() {
         <div className="overflow-x-auto">
           <table className="w-full text-left text-sm">
             <thead className="bg-neutral-50 text-xs text-neutral-600">
-              <tr>
-                <th className="px-4 py-3">CPF/CNPJ</th>
-                <th className="px-4 py-3">NOME</th>
-                <th className="px-4 py-3">INFORMAÇÕES</th>
-                <th className="px-4 py-3 text-right">VALOR TOTAL DO SERVIÇO</th>
-                <th className="px-4 py-3 text-right">DEDUÇÕES DA BASE DE CÁLCULO</th>
-                <th className="px-4 py-3 text-right">LUCRO</th>
-              </tr>
+              {isModel ? (
+                <tr>
+                  <th className="px-4 py-3">CPF/CNPJ</th>
+                  <th className="px-4 py-3">NOME</th>
+                  <th className="px-4 py-3">INFORMAÇÕES</th>
+                  <th className="px-4 py-3 text-right">VALOR TOTAL DO SERVIÇO</th>
+                  <th className="px-4 py-3 text-right">DEDUÇÕES DA BASE DE CÁLCULO</th>
+                  <th className="px-4 py-3 text-right">LUCRO</th>
+                </tr>
+              ) : (
+                <tr>
+                  <th className="px-4 py-3">DATA</th>
+                  <th className="px-4 py-3">Nº</th>
+                  <th className="px-4 py-3">STATUS</th>
+                  <th className="px-4 py-3">CPF/CNPJ</th>
+                  <th className="px-4 py-3">CLIENTE</th>
+                  <th className="px-4 py-3 text-right">TOTAL</th>
+                  <th className="px-4 py-3 text-right">DEDUÇÃO</th>
+                  <th className="px-4 py-3 text-right">LUCRO</th>
+                </tr>
+              )}
             </thead>
+
             <tbody>
               {!rows.length && !loading ? (
                 <tr>
-                  <td colSpan={6} className="px-4 py-8 text-sm text-neutral-500">
+                  <td colSpan={isModel ? 6 : 8} className="px-4 py-8 text-sm text-neutral-500">
                     Nenhum dado para este período.
                   </td>
                 </tr>
               ) : null}
 
-              {rows.map((r, i) => (
-                <tr key={`${r.cpfCnpj}-${i}`} className="border-t">
-                  <td className="px-4 py-3">{r.cpfCnpj}</td>
-                  <td className="px-4 py-3 font-medium">{r.nome}</td>
-                  <td className="px-4 py-3 text-xs text-neutral-600">{r.info}</td>
-                  <td className="px-4 py-3 text-right tabular-nums font-semibold">
-                    {fmtMoneyBRFromCents(r.totalServiceCents)}
-                  </td>
-                  <td className="px-4 py-3 text-right tabular-nums">
-                    {fmtMoneyBRFromCents(r.deductionCents)}
-                  </td>
-                  <td className="px-4 py-3 text-right tabular-nums font-semibold">
-                    {fmtMoneyBRFromCents(r.profitCents)}
-                  </td>
-                </tr>
-              ))}
+              {isModel
+                ? (rows as PreviewRowModel[]).map((r, i) => (
+                    <tr key={`${r.cpfCnpj}-${i}`} className="border-t">
+                      <td className="px-4 py-3">{r.cpfCnpj}</td>
+                      <td className="px-4 py-3 font-medium">{r.nome}</td>
+                      <td className="px-4 py-3 text-xs text-neutral-600">{r.info}</td>
+                      <td className="px-4 py-3 text-right tabular-nums font-semibold">
+                        {fmtMoneyBRFromCents(r.totalServiceCents)}
+                      </td>
+                      <td className="px-4 py-3 text-right tabular-nums">
+                        {fmtMoneyBRFromCents(r.deductionCents)}
+                      </td>
+                      <td className="px-4 py-3 text-right tabular-nums font-semibold">
+                        {fmtMoneyBRFromCents(r.profitCents)}
+                      </td>
+                    </tr>
+                  ))
+                : (rows as PreviewRowRaw[]).map((r) => (
+                    <tr key={r.saleId} className="border-t">
+                      <td className="px-4 py-3">{r.date}</td>
+                      <td className="px-4 py-3 font-medium">{r.numero}</td>
+                      <td className="px-4 py-3 text-xs text-neutral-600">{r.paymentStatus}</td>
+                      <td className="px-4 py-3">{r.cpfCnpj}</td>
+                      <td className="px-4 py-3">{r.nome}</td>
+                      <td className="px-4 py-3 text-right tabular-nums font-semibold">
+                        {fmtMoneyBRFromCents(r.totalServiceCents)}
+                      </td>
+                      <td className="px-4 py-3 text-right tabular-nums">
+                        {fmtMoneyBRFromCents(r.deductionCents)}
+                      </td>
+                      <td className="px-4 py-3 text-right tabular-nums font-semibold">
+                        {fmtMoneyBRFromCents(r.profitCents)}
+                      </td>
+                    </tr>
+                  ))}
             </tbody>
           </table>
         </div>
 
         <div className="border-t px-4 py-3 text-xs text-neutral-500">
-          Regras: <b>Lucro proporcional</b> = (Total do cliente / Total vendido no período) × Lucro total do período. <br />
-          Dedução = Total do serviço − Lucro.
+          {isModel ? (
+            <>
+              Regras: <b>Lucro proporcional</b> = (Total do cliente / Total vendido no período) × Lucro
+              total do período. <br />
+              Dedução = Total do serviço − Lucro.
+            </>
+          ) : (
+            <>
+              Regras: <b>Lucro proporcional por venda</b> = (Total da venda / Total vendido no período) ×
+              Lucro total do período. <br />
+              Dedução = Total da venda − Lucro.
+            </>
+          )}
         </div>
       </div>
     </div>
