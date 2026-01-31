@@ -128,7 +128,7 @@ export async function GET(req: Request) {
     const paymentStatusWhere =
       status === "PAID" ? "PAID" : status === "PENDING" ? "PENDING" : undefined;
 
-    // ✅ vendas do período — FILTRA TIME VIA CEDENTE.OWNER.TEAM
+    // ✅ vendas do período
     const sales = await prisma.sale.findMany({
       where: {
         cedente: { owner: { team } },
@@ -140,7 +140,7 @@ export async function GET(req: Request) {
         numero: true,
         date: true,
         totalCents: true,
-        paymentStatus: true, // ✅ necessário pro RAW
+        paymentStatus: true,
         cliente: {
           select: {
             id: true,
@@ -161,14 +161,50 @@ export async function GET(req: Request) {
       where: { team, date: { gte: startDate, lt: endExclusive } },
       _sum: { grossProfitCents: true },
     });
-    const profitTotalCents = lucroAgg._sum.grossProfitCents || 0;
+    const profitTotalCents = Number(lucroAgg._sum.grossProfitCents || 0);
+
+    /**
+     * ✅ PREJUÍZO DO MÊS (compras finalizadas com lucro < 0)
+     * - Por padrão, só aplica quando estiver no mês inteiro (sem date)
+     *   para não distorcer o filtro por dia.
+     *
+     * Se quiser aplicar também no filtro por dia:
+     *   const applyLoss = true;
+     */
+    const applyLoss = !date;
+
+    let lossTotalCents = 0; // negativo
+    if (applyLoss) {
+      const lossStartISO = `${scopeMonth}-01`;
+      const lossEndISO = nextMonthStart(scopeMonth);
+
+      if (lossEndISO) {
+        const lossAgg = await prisma.purchase.aggregate({
+          where: {
+            cedente: { owner: { team } },
+            status: "CLOSED",
+            finalizedAt: {
+              gte: new Date(`${lossStartISO}T00:00:00.000Z`),
+              lt: new Date(`${lossEndISO}T00:00:00.000Z`),
+            },
+            finalProfitCents: { lt: 0 },
+          },
+          _sum: { finalProfitCents: true },
+        });
+
+        lossTotalCents = Number(lossAgg._sum.finalProfitCents || 0);
+      }
+    }
+
+    // ✅ lucro ajustado para rateio (não deixar negativo)
+    const profitAfterLossCents = Math.max(0, profitTotalCents + lossTotalCents);
 
     // =========================
     // RAW: UMA LINHA POR VENDA
     // =========================
     const profitBySale = splitProfitProportional(
       sales.map((s) => ({ key: s.id, totalCents: s.totalCents || 0 })),
-      profitTotalCents
+      profitAfterLossCents // ✅ usa lucro ajustado
     );
 
     const rowsRaw = sales.map((s) => {
@@ -197,7 +233,7 @@ export async function GET(req: Request) {
     const totalDeductionRawCents = rowsRaw.reduce((a, r) => a + (r.deductionCents || 0), 0);
 
     // =========================
-    // MODEL: AGRUPADO POR CLIENTE (SEU MODELO)
+    // MODEL: AGRUPADO POR CLIENTE
     // =========================
     const map = new Map<
       string,
@@ -234,7 +270,7 @@ export async function GET(req: Request) {
 
     const profitMapModel = splitProfitProportional(
       groups.map((g) => ({ key: g.key, totalCents: g.totalServiceCents })),
-      profitTotalCents
+      profitAfterLossCents // ✅ usa lucro ajustado
     );
 
     const rowsModel = groups
@@ -271,7 +307,14 @@ export async function GET(req: Request) {
       totals: {
         salesCount,
         totalSoldCents,
+
+        // ✅ antigos
         profitTotalCents,
+
+        // ✅ novos
+        lossTotalCents,
+        profitAfterLossCents,
+
         totalDeductionCents: mode === "raw" ? totalDeductionRawCents : totalDeductionModelCents,
       },
       rows: mode === "raw" ? rowsRaw : rowsModel,

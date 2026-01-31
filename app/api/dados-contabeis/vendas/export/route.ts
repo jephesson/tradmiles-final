@@ -55,6 +55,11 @@ function isoDateOnlyUTC(d: Date) {
   return `${yy}-${mm}-${dd}`;
 }
 
+/**
+ * Rateio proporcional com fechamento de centavos:
+ * - distribui floor
+ * - reparte os centavos restantes por maior fração
+ */
 function splitProfitProportional(
   items: Array<{ key: string; totalCents: number }>,
   totalProfitCents: number
@@ -73,7 +78,7 @@ function splitProfitProportional(
   let allocated = tmp.reduce((a, x) => a + x.floor, 0);
   let remaining = profitAbs - allocated;
 
-  tmp.sort((a, b) => (b.raw - b.floor) - (a.raw - a.floor));
+  tmp.sort((a, b) => b.raw - b.floor - (a.raw - a.floor));
   const out = new Map<string, number>();
 
   for (let i = 0; i < tmp.length; i++) {
@@ -151,13 +156,53 @@ export async function GET(req: Request) {
       where: { team, date: { gte: startDateISO, lt: endExclusiveISO } },
       _sum: { grossProfitCents: true },
     });
-    const profitTotalCents = lucroAgg._sum.grossProfitCents || 0;
+    const profitTotalCents = Number(lucroAgg._sum.grossProfitCents || 0);
+
+    /**
+     * ✅ PREJUÍZO DO MÊS (compras finalizadas com lucro < 0)
+     * - Para imposto, faz sentido abater pelo MÊS.
+     * - Por padrão, só aplico quando estiver vendo o mês inteiro (sem date),
+     *   porque no filtro por DIA isso distorce o dia.
+     *
+     * Se você quiser aplicar mesmo com date, troque pra: const applyLoss = true;
+     */
+    const applyLoss = !date;
+
+    let lossTotalCents = 0;
+    if (applyLoss) {
+      const lossStartISO = `${scopeMonth}-01`;
+      const lossEndISO = nextMonthStart(scopeMonth);
+
+      // Se por algum motivo der ruim no nextMonthStart
+      if (lossEndISO) {
+        const lossAgg = await prisma.purchase.aggregate({
+          where: {
+            // garante que é do mesmo time
+            cedente: { owner: { team } },
+
+            status: "CLOSED",
+            finalizedAt: {
+              gte: new Date(`${lossStartISO}T00:00:00.000Z`),
+              lt: new Date(`${lossEndISO}T00:00:00.000Z`),
+            },
+            finalProfitCents: { lt: 0 },
+          },
+          _sum: { finalProfitCents: true },
+        });
+
+        // negativo (ex: -12345)
+        lossTotalCents = Number(lossAgg._sum.finalProfitCents || 0);
+      }
+    }
+
+    // ✅ LUCRO TRIBUTÁVEL (sem 8% e já abatendo prejuízo)
+    const profitAfterLossCents = Math.max(0, profitTotalCents + lossTotalCents);
 
     // =========================
     // BUSCA VENDAS (SELECT varia por modo)
     // =========================
     if (mode === "model") {
-      // ---- MODEL (seu XLSX atual): agrupa por cliente.id ----
+      // ---- MODEL (agrupa por cliente.id) ----
       const sales = await prisma.sale.findMany({
         where: {
           cedente: { owner: { team } },
@@ -207,15 +252,16 @@ export async function GET(req: Request) {
 
       const groups = Array.from(map.values());
 
+      // ✅ RATEIO usa o lucro TRIBUTÁVEL (após prejuízo)
       const profitMap = splitProfitProportional(
         groups.map((g) => ({ key: g.key, totalCents: g.totalServiceCents })),
-        profitTotalCents
+        profitAfterLossCents
       );
 
       const rows = groups
         .map((g) => {
           const lucro = profitMap.get(g.key) || 0;
-          const deducao = (g.totalServiceCents || 0) - lucro; // ✅ total - lucro
+          const deducao = (g.totalServiceCents || 0) - lucro;
 
           const info = date
             ? `Vendas do dia ${date} (${g.salesCount} venda(s))`
@@ -308,9 +354,10 @@ export async function GET(req: Request) {
       orderBy: [{ date: "asc" }, { numero: "asc" }],
     });
 
+    // ✅ RATEIO usa o lucro TRIBUTÁVEL (após prejuízo)
     const profitBySale = splitProfitProportional(
       sales.map((s) => ({ key: s.id, totalCents: s.totalCents || 0 })),
-      profitTotalCents
+      profitAfterLossCents
     );
 
     const rowsRaw = sales.map((s) => {

@@ -98,7 +98,14 @@ type PreviewResp = {
   totals: {
     salesCount: number;
     totalSoldCents: number;
+
+    // ✅ lucro do período (sem 8%)
     profitTotalCents: number;
+
+    // ✅ prejuízo do mês (negativo ou 0) e lucro tributável (>= 0)
+    lossTotalCents: number;
+    profitAfterLossCents: number;
+
     totalDeductionCents: number;
   };
   rows: Array<PreviewRowModel | PreviewRowRaw>;
@@ -117,7 +124,7 @@ export default function VendasDadosContabeisClient() {
   const [month, setMonth] = useState<string>(() => monthISORecifeClient());
   const [selectedDay, setSelectedDay] = useState<number | null>(null);
   const [status, setStatus] = useState<StatusFilter>("ALL");
-  const [mode, setMode] = useState<Mode>("model"); // ✅ novo
+  const [mode, setMode] = useState<Mode>("model");
 
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState("");
@@ -135,12 +142,10 @@ export default function VendasDadosContabeisClient() {
       const qs = new URLSearchParams();
       qs.set("month", month);
       qs.set("status", status);
-      qs.set("mode", mode); // ✅ novo
+      qs.set("mode", mode);
       if (selectedDateISO) qs.set("date", selectedDateISO);
 
-      const out = await apiGet<PreviewResp>(
-        `/api/dados-contabeis/vendas/preview?${qs.toString()}`
-      );
+      const out = await apiGet<PreviewResp>(`/api/dados-contabeis/vendas/preview?${qs.toString()}`);
       setData(out);
     } catch (e: any) {
       setData(null);
@@ -153,7 +158,7 @@ export default function VendasDadosContabeisClient() {
   useEffect(() => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [month, selectedDateISO, status, mode]); // ✅ inclui mode
+  }, [month, selectedDateISO, status, mode]);
 
   const cal = useMemo(() => {
     const dim = daysInMonth(month);
@@ -169,22 +174,25 @@ export default function VendasDadosContabeisClient() {
     const qs = new URLSearchParams();
     qs.set("month", month);
     qs.set("status", status);
-    qs.set("mode", mode); // ✅ novo
+    qs.set("mode", mode);
     if (selectedDateISO) qs.set("date", selectedDateISO);
 
-    // download direto
     window.location.href = `/api/dados-contabeis/vendas/export?${qs.toString()}`;
   }
 
   const rows = data?.rows || [];
+
   const totals = data?.totals || {
     salesCount: 0,
     totalSoldCents: 0,
     profitTotalCents: 0,
+    lossTotalCents: 0,
+    profitAfterLossCents: 0,
     totalDeductionCents: 0,
   };
 
   const isModel = mode === "model";
+  const isDayScope = !!selectedDateISO;
 
   return (
     <div className="space-y-4">
@@ -192,11 +200,12 @@ export default function VendasDadosContabeisClient() {
         <div className="space-y-1">
           <h1 className="text-lg font-semibold">Dados contábeis — Vendas</h1>
           <p className="text-sm text-neutral-500">
-            Lucro do período = <b>soma do grossProfitCents (SEM 8%)</b>.{" "}
+            Lucro do período = <b>soma do grossProfitCents (SEM 8%)</b>. <br />
+            Lucro tributável = <b>lucro − prejuízos do mês</b> (compras finalizadas com lucro negativo).{" "}
             {isModel ? (
-              <>Lucro por cliente é proporcional ao valor total vendido.</>
+              <>O rateio é proporcional ao total vendido por cliente.</>
             ) : (
-              <>Lucro por venda é proporcional ao valor da venda.</>
+              <>O rateio é proporcional ao valor de cada venda.</>
             )}
           </p>
         </div>
@@ -215,7 +224,7 @@ export default function VendasDadosContabeisClient() {
             />
           </div>
 
-          {/* ✅ NOVO: modo */}
+          {/* modo */}
           <div className="flex items-center gap-2">
             <div className="text-xs text-neutral-500">Visualização</div>
             <button
@@ -225,6 +234,7 @@ export default function VendasDadosContabeisClient() {
               )}
               onClick={() => setMode("model")}
               title="Agrupa por cliente (modelo contábil)"
+              type="button"
             >
               Modelo
             </button>
@@ -235,6 +245,7 @@ export default function VendasDadosContabeisClient() {
               )}
               onClick={() => setMode("raw")}
               title="Mostra uma linha por venda (sem agrupar)"
+              type="button"
             >
               Detalhado
             </button>
@@ -248,6 +259,7 @@ export default function VendasDadosContabeisClient() {
                 status === "ALL" ? "bg-black text-white" : "hover:bg-neutral-50"
               )}
               onClick={() => setStatus("ALL")}
+              type="button"
             >
               Todos
             </button>
@@ -257,6 +269,7 @@ export default function VendasDadosContabeisClient() {
                 status === "PAID" ? "bg-black text-white" : "hover:bg-neutral-50"
               )}
               onClick={() => setStatus("PAID")}
+              type="button"
             >
               Pagos
             </button>
@@ -266,6 +279,7 @@ export default function VendasDadosContabeisClient() {
                 status === "PENDING" ? "bg-black text-white" : "hover:bg-neutral-50"
               )}
               onClick={() => setStatus("PENDING")}
+              type="button"
             >
               Pendentes
             </button>
@@ -275,6 +289,7 @@ export default function VendasDadosContabeisClient() {
             onClick={load}
             disabled={loading}
             className="h-10 rounded-xl border px-4 text-sm hover:bg-neutral-50 disabled:opacity-50"
+            type="button"
           >
             {loading ? "Carregando..." : "Atualizar"}
           </button>
@@ -284,6 +299,7 @@ export default function VendasDadosContabeisClient() {
             disabled={!rows.length}
             className="h-10 rounded-xl bg-black px-4 text-sm text-white hover:bg-neutral-800 disabled:opacity-50"
             title={isModel ? "Gerar XLSX no modelo" : "Gerar XLSX detalhado (todas as vendas)"}
+            type="button"
           >
             Exportar XLSX
           </button>
@@ -298,6 +314,7 @@ export default function VendasDadosContabeisClient() {
             <button
               className="rounded-xl border px-3 py-1.5 text-xs hover:bg-neutral-50"
               onClick={() => setSelectedDay(null)}
+              type="button"
             >
               Limpar dia (voltar pro mês)
             </button>
@@ -325,6 +342,7 @@ export default function VendasDadosContabeisClient() {
                   "h-10 rounded-xl border text-sm",
                   active ? "bg-black text-white border-black" : "hover:bg-neutral-50"
                 )}
+                type="button"
               >
                 {day}
               </button>
@@ -344,12 +362,23 @@ export default function VendasDadosContabeisClient() {
       </div>
 
       {/* KPIs */}
-      <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
+      <div className="grid grid-cols-2 gap-2 md:grid-cols-5">
         <KPI label="Nº de vendas" value={String(totals.salesCount || 0)} />
         <KPI label="Total vendido" value={fmtMoneyBRFromCents(totals.totalSoldCents || 0)} />
         <KPI label="Lucro (sem 8%)" value={fmtMoneyBRFromCents(totals.profitTotalCents || 0)} />
-        <KPI label="Dedução total" value={fmtMoneyBRFromCents(totals.totalDeductionCents || 0)} />
+
+        {/* Observação: mesmo filtrando por DIA, o prejuízo é do MÊS (pra base fiscal) */}
+        <KPI label="Prejuízo do mês" value={fmtMoneyBRFromCents(totals.lossTotalCents || 0)} />
+
+        <KPI label="Lucro tributável" value={fmtMoneyBRFromCents(totals.profitAfterLossCents || 0)} />
       </div>
+
+      {isDayScope ? (
+        <div className="rounded-2xl border bg-amber-50 p-3 text-xs text-amber-900">
+          Observação: você está filtrando por <b>dia</b>, mas <b>Prejuízo do mês</b> e <b>Lucro tributável</b>{" "}
+          continuam sendo calculados no <b>mês inteiro</b> (base fiscal do mês).
+        </div>
+      ) : null}
 
       {err ? (
         <div className="rounded-2xl border bg-rose-50 p-3 text-sm text-rose-800">{err}</div>
@@ -443,14 +472,14 @@ export default function VendasDadosContabeisClient() {
         <div className="border-t px-4 py-3 text-xs text-neutral-500">
           {isModel ? (
             <>
-              Regras: <b>Lucro proporcional</b> = (Total do cliente / Total vendido no período) × Lucro
-              total do período. <br />
+              Regras: <b>Lucro proporcional</b> = (Total do cliente / Total vendido no período) ×{" "}
+              <b>Lucro tributável do período</b>. <br />
               Dedução = Total do serviço − Lucro.
             </>
           ) : (
             <>
-              Regras: <b>Lucro proporcional por venda</b> = (Total da venda / Total vendido no período) ×
-              Lucro total do período. <br />
+              Regras: <b>Lucro proporcional por venda</b> = (Total da venda / Total vendido no período) ×{" "}
+              <b>Lucro tributável do período</b>. <br />
               Dedução = Total da venda − Lucro.
             </>
           )}
