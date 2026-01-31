@@ -56,14 +56,14 @@ function isoDateOnlyUTC(d: Date) {
 }
 
 /**
- * Rateio proporcional com fechamento de centavos:
- * - distribui floor
- * - reparte os centavos restantes por maior fração
+ * ✅ Split proporcional que suporta:
+ * - lucro positivo
+ * - lucro zero
+ * - lucro negativo (se você decidir usar)
+ *
+ * Aqui a gente vai passar `profitAfterLossCents` que é >= 0.
  */
-function splitProfitProportional(
-  items: Array<{ key: string; totalCents: number }>,
-  totalProfitCents: number
-) {
+function splitProfitProportional(items: Array<{ key: string; totalCents: number }>, totalProfitCents: number) {
   const total = items.reduce((a, x) => a + (x.totalCents || 0), 0);
   if (total <= 0 || totalProfitCents === 0) return new Map(items.map((i) => [i.key, 0]));
 
@@ -78,7 +78,7 @@ function splitProfitProportional(
   let allocated = tmp.reduce((a, x) => a + x.floor, 0);
   let remaining = profitAbs - allocated;
 
-  tmp.sort((a, b) => b.raw - b.floor - (a.raw - a.floor));
+  tmp.sort((a, b) => (b.raw - b.floor) - (a.raw - a.floor));
   const out = new Map<string, number>();
 
   for (let i = 0; i < tmp.length; i++) {
@@ -106,6 +106,144 @@ function styleHeaderRow(ws: ExcelJS.Worksheet, lastCol: number) {
       right: { style: "thin", color: { argb: "FFBDBDBD" } },
     };
   }
+}
+
+// =========================
+// ✅ Prejuízo do mês (mesma lógica do /api/vendas/prejuizo)
+// =========================
+function safeInt(v: unknown, fb = 0) {
+  const n = Number(v);
+  return Number.isFinite(n) ? Math.trunc(n) : fb;
+}
+
+function milheiroFrom(points: number, pointsValueCents: number) {
+  const pts = safeInt(points, 0);
+  const cents = safeInt(pointsValueCents, 0);
+  if (!pts || !cents) return 0;
+  return Math.round((cents * 1000) / pts);
+}
+
+function bonus30(points: number, milheiroCents: number, metaMilheiroCents: number) {
+  const pts = safeInt(points, 0);
+  const mil = safeInt(milheiroCents, 0);
+  const meta = safeInt(metaMilheiroCents, 0);
+  if (!pts || !mil || !meta) return 0;
+
+  const diff = mil - meta;
+  if (diff <= 0) return 0;
+
+  const excedenteCents = Math.round((pts * diff) / 1000);
+  return Math.round(excedenteCents * 0.3);
+}
+
+async function computeLossTotalCents(team: string, scopeMonth: string) {
+  if (!/^\d{4}-\d{2}$/.test(String(scopeMonth || ""))) return 0;
+
+  const startISO = `${scopeMonth}-01`;
+  const endISO = nextMonthStart(scopeMonth);
+  if (!endISO) return 0;
+
+  const start = new Date(`${startISO}T00:00:00.000Z`);
+  const end = new Date(`${endISO}T00:00:00.000Z`);
+
+  // 1) compras fechadas no mês
+  const purchases = await prisma.purchase.findMany({
+    where: {
+      status: "CLOSED",
+      finalizedAt: { not: null, gte: start, lt: end },
+      cedente: { owner: { team } },
+    },
+    select: {
+      id: true,
+      numero: true,
+      totalCents: true,
+      metaMilheiroCents: true,
+      pontosCiaTotal: true,
+    },
+    take: 5000,
+  });
+
+  if (purchases.length === 0) return 0;
+
+  const ids = purchases.map((p) => p.id);
+  const numeros = purchases.map((p) => String(p.numero || "").trim()).filter(Boolean);
+
+  const idByNumeroUpper = new Map<string, string>(
+    purchases
+      .map((p) => [String(p.numero || "").trim().toUpperCase(), p.id] as const)
+      .filter(([k]) => !!k)
+  );
+
+  const numerosUpper = Array.from(new Set(numeros.map((n) => n.toUpperCase())));
+  const numerosLower = Array.from(new Set(numeros.map((n) => n.toLowerCase())));
+  const numerosAll = Array.from(new Set([...numeros, ...numerosUpper, ...numerosLower]));
+
+  function normalizePurchaseId(raw: string) {
+    const r = (raw || "").trim();
+    if (!r) return "";
+    const upper = r.toUpperCase();
+    return idByNumeroUpper.get(upper) || r;
+  }
+
+  const byId = new Map(purchases.map((p) => [p.id, p]));
+
+  // 2) vendas ligadas às purchases (ignora canceladas)
+  const sales = await prisma.sale.findMany({
+    where: {
+      paymentStatus: { not: "CANCELED" },
+      OR: [{ purchaseId: { in: ids } }, { purchaseId: { in: numerosAll } }],
+    },
+    select: {
+      purchaseId: true,
+      points: true,
+      totalCents: true,
+      pointsValueCents: true,
+      embarqueFeeCents: true,
+    },
+  });
+
+  // 3) agrega por purchase
+  const agg = new Map<string, { salesPointsValueCents: number; bonusCents: number }>();
+
+  for (const s of sales) {
+    const pid = normalizePurchaseId(String(s.purchaseId || ""));
+    if (!pid) continue;
+
+    const totalCents = safeInt(s.totalCents, 0);
+    const feeCents = safeInt(s.embarqueFeeCents, 0);
+    let pvCents = safeInt(s.pointsValueCents as any, 0);
+
+    // fallback: se não tiver pointsValueCents, usa total-fee
+    if (pvCents <= 0 && totalCents > 0) {
+      const cand = Math.max(totalCents - feeCents, 0);
+      pvCents = cand > 0 ? cand : totalCents;
+    }
+
+    const cur = agg.get(pid) || { salesPointsValueCents: 0, bonusCents: 0 };
+    cur.salesPointsValueCents += pvCents;
+
+    const p = byId.get(pid);
+    if (p) {
+      const mil = milheiroFrom(safeInt(s.points, 0), pvCents);
+      cur.bonusCents += bonus30(safeInt(s.points, 0), mil, safeInt(p.metaMilheiroCents, 0));
+    }
+
+    agg.set(pid, cur);
+  }
+
+  // 4) soma somente prejuízos (<0)
+  let lossTotalCents = 0; // negativo
+  for (const p of purchases) {
+    const a = agg.get(p.id) || { salesPointsValueCents: 0, bonusCents: 0 };
+    const purchaseTotalCents = safeInt(p.totalCents, 0);
+
+    const profitBruto = a.salesPointsValueCents - purchaseTotalCents;
+    const profitLiquido = profitBruto - a.bonusCents;
+
+    if (profitLiquido < 0) lossTotalCents += profitLiquido;
+  }
+
+  return lossTotalCents; // negativo
 }
 
 export async function GET(req: Request) {
@@ -148,8 +286,7 @@ export async function GET(req: Request) {
     const endDT = utcStartDateFromISO(endExclusiveISO);
     if (!startDT || !endDT) return bad("Período inválido");
 
-    const paymentStatusWhere =
-      status === "PAID" ? "PAID" : status === "PENDING" ? "PENDING" : undefined;
+    const paymentStatusWhere = status === "PAID" ? "PAID" : status === "PENDING" ? "PENDING" : undefined;
 
     // ✅ Lucro do período: pega o GROSS do payout (sem 8%)
     const lucroAgg = await prisma.employeePayout.aggregate({
@@ -158,58 +295,23 @@ export async function GET(req: Request) {
     });
     const profitTotalCents = Number(lucroAgg._sum.grossProfitCents || 0);
 
-    /**
-     * ✅ PREJUÍZO DO MÊS (compras finalizadas com lucro < 0)
-     * - Para imposto, faz sentido abater pelo MÊS.
-     * - Por padrão, só aplico quando estiver vendo o mês inteiro (sem date),
-     *   porque no filtro por DIA isso distorce o dia.
-     *
-     * Se você quiser aplicar mesmo com date, troque pra: const applyLoss = true;
-     */
+    // ✅ PREJUÍZO DO MÊS (só quando filtro é mês inteiro)
     const applyLoss = !date;
+    const lossTotalCents = applyLoss ? await computeLossTotalCents(team, scopeMonth) : 0; // negativo
 
-    let lossTotalCents = 0;
-    if (applyLoss) {
-      const lossStartISO = `${scopeMonth}-01`;
-      const lossEndISO = nextMonthStart(scopeMonth);
-
-      // Se por algum motivo der ruim no nextMonthStart
-      if (lossEndISO) {
-        const lossAgg = await prisma.purchase.aggregate({
-          where: {
-            // garante que é do mesmo time
-            cedente: { owner: { team } },
-
-            status: "CLOSED",
-            finalizedAt: {
-              gte: new Date(`${lossStartISO}T00:00:00.000Z`),
-              lt: new Date(`${lossEndISO}T00:00:00.000Z`),
-            },
-            finalProfitCents: { lt: 0 },
-          },
-          _sum: { finalProfitCents: true },
-        });
-
-        // negativo (ex: -12345)
-        lossTotalCents = Number(lossAgg._sum.finalProfitCents || 0);
-      }
-    }
-
-    // ✅ LUCRO TRIBUTÁVEL (sem 8% e já abatendo prejuízo)
+    // ✅ lucro tributável (não deixa negativo)
     const profitAfterLossCents = Math.max(0, profitTotalCents + lossTotalCents);
 
     // =========================
     // BUSCA VENDAS (SELECT varia por modo)
     // =========================
     if (mode === "model") {
-      // ---- MODEL (agrupa por cliente.id) ----
+      // ---- MODEL: agrupa por cliente.id ----
       const sales = await prisma.sale.findMany({
         where: {
           cedente: { owner: { team } },
           date: { gte: startDT, lt: endDT },
-          paymentStatus: paymentStatusWhere
-            ? paymentStatusWhere
-            : { in: ["PAID", "PENDING"] },
+          paymentStatus: paymentStatusWhere ? paymentStatusWhere : { in: ["PAID", "PENDING"] },
         },
         select: {
           totalCents: true,
@@ -225,7 +327,6 @@ export async function GET(req: Request) {
         orderBy: { date: "asc" },
       });
 
-      // ✅ agrupa por CLIENTE (id)
       const map = new Map<
         string,
         { key: string; cpfCnpj: string; nome: string; totalServiceCents: number; salesCount: number }
@@ -252,10 +353,9 @@ export async function GET(req: Request) {
 
       const groups = Array.from(map.values());
 
-      // ✅ RATEIO usa o lucro TRIBUTÁVEL (após prejuízo)
       const profitMap = splitProfitProportional(
         groups.map((g) => ({ key: g.key, totalCents: g.totalServiceCents })),
-        profitAfterLossCents
+        profitAfterLossCents // ✅ usa lucro ajustado
       );
 
       const rows = groups
@@ -319,10 +419,13 @@ export async function GET(req: Request) {
       return new NextResponse(Buffer.from(buf), {
         status: 200,
         headers: {
-          "Content-Type":
-            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+          "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
           "Content-Disposition": `attachment; filename="${label}.xlsx"`,
           "Cache-Control": "no-store",
+          // ✅ útil pra debug no Network (não quebra nada)
+          "X-TM-Profit-Total": String(profitTotalCents),
+          "X-TM-Loss-Total": String(lossTotalCents),
+          "X-TM-Profit-After-Loss": String(profitAfterLossCents),
         },
       });
     }
@@ -354,10 +457,9 @@ export async function GET(req: Request) {
       orderBy: [{ date: "asc" }, { numero: "asc" }],
     });
 
-    // ✅ RATEIO usa o lucro TRIBUTÁVEL (após prejuízo)
     const profitBySale = splitProfitProportional(
       sales.map((s) => ({ key: s.id, totalCents: s.totalCents || 0 })),
-      profitAfterLossCents
+      profitAfterLossCents // ✅ usa lucro ajustado
     );
 
     const rowsRaw = sales.map((s) => {
@@ -408,7 +510,6 @@ export async function GET(req: Request) {
       });
     }
 
-    // Money format (colunas F,G,H)
     ["F", "G", "H"].forEach((col) => {
       ws.getColumn(col).numFmt = '"R$"#,##0.00;[Red]-"R$"#,##0.00';
     });
@@ -424,10 +525,12 @@ export async function GET(req: Request) {
     return new NextResponse(Buffer.from(buf), {
       status: 200,
       headers: {
-        "Content-Type":
-          "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         "Content-Disposition": `attachment; filename="${label}.xlsx"`,
         "Cache-Control": "no-store",
+        "X-TM-Profit-Total": String(profitTotalCents),
+        "X-TM-Loss-Total": String(lossTotalCents),
+        "X-TM-Profit-After-Loss": String(profitAfterLossCents),
       },
     });
   } catch (e: any) {

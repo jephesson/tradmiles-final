@@ -67,23 +67,33 @@ function fmtDateTimeBR(iso?: string | null) {
 function pick(n: number | null | undefined, fallback = 0) {
   return typeof n === "number" && Number.isFinite(n) ? n : fallback;
 }
+
+/**
+ * ✅ FIX: evita “voltar” pro mês anterior no fuso BR.
+ * - cria data no dia 15 (não pega borda)
+ * - formata com timeZone UTC (não converte)
+ */
 function monthLabel(ym: string) {
-  // ym: YYYY-MM
   if (!/^\d{4}-\d{2}$/.test(ym)) return ym;
-  const [y, m] = ym.split("-").map((x) => Number(x));
-  const d = new Date(Date.UTC(y, m - 1, 1));
-  return d.toLocaleDateString("pt-BR", { month: "short", year: "numeric" });
+  const [y, m] = ym.split("-").map(Number);
+
+  const d = new Date(Date.UTC(y, m - 1, 15));
+
+  return new Intl.DateTimeFormat("pt-BR", {
+    month: "short",
+    year: "numeric",
+    timeZone: "UTC",
+  }).format(d);
 }
 
 async function fetchJson<T>(url: string): Promise<T> {
   const res = await fetch(url, { cache: "no-store", credentials: "include" });
   const json = await res.json().catch(() => null);
-  if (!res.ok || !json?.ok) throw new Error(json?.error || `Erro ${res.status}`);
+  if (!res.ok || !(json as any)?.ok) throw new Error((json as any)?.error || `Erro ${res.status}`);
   return json as T;
 }
 
 function MonthBarChart({ data }: { data: MonthSum[] }) {
-  // barras por valor absoluto do prejuízo (negativo)
   const sorted = useMemo(() => {
     return [...(data || [])].sort((a, b) => (a.month < b.month ? -1 : a.month > b.month ? 1 : 0));
   }, [data]);
@@ -93,22 +103,23 @@ function MonthBarChart({ data }: { data: MonthSum[] }) {
 
   return (
     <div className="w-full">
-      <div className="flex items-end gap-2 h-[180px]">
+      <div className="flex h-[180px] items-end gap-2">
         {sorted.map((m) => {
           const v = Math.abs(pick(m.sumProfitCents));
-          const h = Math.round((v / max) * 160); // px
+          const h = Math.round((v / max) * 160);
           return (
-            <div key={m.month} className="flex-1 min-w-[20px]">
+            <div key={m.month} className="min-w-[20px] flex-1">
               <div
                 className="w-full rounded-lg bg-slate-200"
                 style={{ height: `${h}px` }}
                 title={`${m.month} • ${fmtMoneyBR(m.sumProfitCents)}`}
               />
-              <div className="mt-1 text-[10px] text-slate-600 text-center">{m.month.slice(5, 7)}</div>
+              <div className="mt-1 text-center text-[10px] text-slate-600">{m.month.slice(5, 7)}</div>
             </div>
           );
         })}
       </div>
+
       <div className="mt-2 text-[11px] text-slate-500">
         Meses (eixo X) • Altura = <b>prejuízo absoluto</b>
       </div>
@@ -144,7 +155,6 @@ export default function PrejuizoPage() {
 
       const json = await fetchJson<ApiResp>(`/api/vendas/prejuizo?${qs.toString()}`);
 
-      // proteção extra no front
       const list = (json.purchases || []).filter((p) => !!p.finalizedAt && pick(p.finalProfitCents) < 0);
 
       setRows(list);
@@ -202,14 +212,14 @@ export default function PrejuizoPage() {
 
           <div className="flex flex-col gap-2 md:flex-row md:items-center">
             <input
-              className="w-full md:w-[360px] rounded-xl border px-3 py-2 text-sm"
+              className="w-full rounded-xl border px-3 py-2 text-sm md:w-[360px]"
               placeholder="Buscar por número, cedente, identificador..."
               value={q}
               onChange={(e) => setQ(e.target.value)}
             />
 
             <select
-              className="w-full md:w-[220px] rounded-xl border px-3 py-2 text-sm bg-white"
+              className="w-full rounded-xl border bg-white px-3 py-2 text-sm md:w-[220px]"
               value={month}
               onChange={(e) => setMonth(e.target.value)}
             >
@@ -227,7 +237,6 @@ export default function PrejuizoPage() {
           </div>
         </div>
 
-        {/* ✅ removido "Total cobrado (com taxa)" */}
         <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-3">
           <Kpi label="Contas (filtro atual)" value={fmtInt(rows.length)} />
           <Kpi label="Prejuízo total (filtro atual)" value={fmtMoneyBR(listTotals.sumProfit)} />
@@ -253,9 +262,9 @@ export default function PrejuizoPage() {
             <MonthBarChart data={months} />
           </div>
 
-          <div className="rounded-2xl border overflow-hidden">
+          <div className="overflow-hidden rounded-2xl border">
             <div className="overflow-auto">
-              <table className="min-w-[520px] w-full text-sm">
+              <table className="w-full min-w-[520px] text-sm">
                 <thead className="bg-slate-50">
                   <tr className="text-left text-slate-500">
                     <th className="p-3">Mês</th>
@@ -264,6 +273,7 @@ export default function PrejuizoPage() {
                     <th className="p-3"></th>
                   </tr>
                 </thead>
+
                 <tbody>
                   {months.length === 0 ? (
                     <tr>
@@ -310,7 +320,7 @@ export default function PrejuizoPage() {
         </div>
 
         <div className="overflow-auto">
-          <table className="min-w-[1100px] w-full text-sm">
+          <table className="w-full min-w-[1100px] text-sm">
             <thead>
               <tr className="border-b text-left text-slate-500">
                 <th className="py-2 pr-3">Compra</th>
