@@ -56,16 +56,17 @@ function isoDateOnlyUTC(d: Date) {
 }
 
 /**
- * ✅ Split proporcional que suporta:
- * - lucro positivo
- * - lucro zero
- * - lucro negativo (se você decidir usar)
- *
- * Aqui a gente vai passar `profitAfterLossCents` que é >= 0.
+ * ✅ Split proporcional (suporta lucro +/0/-)
+ * Aqui você passa profitAfterLossCents (>=0) na prática.
  */
-function splitProfitProportional(items: Array<{ key: string; totalCents: number }>, totalProfitCents: number) {
+function splitProfitProportional(
+  items: Array<{ key: string; totalCents: number }>,
+  totalProfitCents: number
+) {
   const total = items.reduce((a, x) => a + (x.totalCents || 0), 0);
-  if (total <= 0 || totalProfitCents === 0) return new Map(items.map((i) => [i.key, 0]));
+  if (total <= 0 || totalProfitCents === 0) {
+    return new Map(items.map((i) => [i.key, 0]));
+  }
 
   const sign = totalProfitCents < 0 ? -1 : 1;
   const profitAbs = Math.abs(totalProfitCents);
@@ -109,7 +110,10 @@ function styleHeaderRow(ws: ExcelJS.Worksheet, lastCol: number) {
 }
 
 // =========================
-// ✅ Prejuízo do mês (mesma lógica do /api/vendas/prejuizo)
+// ✅ Prejuízo do mês (alinhado com /dashboard/prejuizo):
+// - purchase CLOSED no mês
+// - só entra se tiver ao menos 1 sale PAID vinculada
+// - lucro líquido < 0
 // =========================
 function safeInt(v: unknown, fb = 0) {
   const n = Number(v);
@@ -158,7 +162,6 @@ async function computeLossTotalCents(team: string, scopeMonth: string) {
       numero: true,
       totalCents: true,
       metaMilheiroCents: true,
-      pontosCiaTotal: true,
     },
     take: 5000,
   });
@@ -168,6 +171,7 @@ async function computeLossTotalCents(team: string, scopeMonth: string) {
   const ids = purchases.map((p) => p.id);
   const numeros = purchases.map((p) => String(p.numero || "").trim()).filter(Boolean);
 
+  // se sale.purchaseId guarda "numero" (legado)
   const idByNumeroUpper = new Map<string, string>(
     purchases
       .map((p) => [String(p.numero || "").trim().toUpperCase(), p.id] as const)
@@ -187,10 +191,11 @@ async function computeLossTotalCents(team: string, scopeMonth: string) {
 
   const byId = new Map(purchases.map((p) => [p.id, p]));
 
-  // 2) vendas ligadas às purchases (ignora canceladas)
+  // 2) vendas ligadas às purchases
+  // ✅ CORREÇÃO: só conta venda CONCLUÍDA (PAID) — igual sua tela de prejuízo
   const sales = await prisma.sale.findMany({
     where: {
-      paymentStatus: { not: "CANCELED" },
+      paymentStatus: "PAID",
       OR: [{ purchaseId: { in: ids } }, { purchaseId: { in: numerosAll } }],
     },
     select: {
@@ -202,8 +207,8 @@ async function computeLossTotalCents(team: string, scopeMonth: string) {
     },
   });
 
-  // 3) agrega por purchase
-  const agg = new Map<string, { salesPointsValueCents: number; bonusCents: number }>();
+  // 3) agrega por purchase e marca se teve PAID
+  const agg = new Map<string, { salesPointsValueCents: number; bonusCents: number; hasPaid: boolean }>();
 
   for (const s of sales) {
     const pid = normalizePurchaseId(String(s.purchaseId || ""));
@@ -219,7 +224,8 @@ async function computeLossTotalCents(team: string, scopeMonth: string) {
       pvCents = cand > 0 ? cand : totalCents;
     }
 
-    const cur = agg.get(pid) || { salesPointsValueCents: 0, bonusCents: 0 };
+    const cur = agg.get(pid) || { salesPointsValueCents: 0, bonusCents: 0, hasPaid: false };
+    cur.hasPaid = true;
     cur.salesPointsValueCents += pvCents;
 
     const p = byId.get(pid);
@@ -231,12 +237,14 @@ async function computeLossTotalCents(team: string, scopeMonth: string) {
     agg.set(pid, cur);
   }
 
-  // 4) soma somente prejuízos (<0)
+  // 4) soma somente prejuízos (<0) E SOMENTE purchases com ao menos 1 sale PAID
   let lossTotalCents = 0; // negativo
-  for (const p of purchases) {
-    const a = agg.get(p.id) || { salesPointsValueCents: 0, bonusCents: 0 };
-    const purchaseTotalCents = safeInt(p.totalCents, 0);
 
+  for (const p of purchases) {
+    const a = agg.get(p.id);
+    if (!a?.hasPaid) continue; // ✅ chave do ajuste (bate com /prejuizo)
+
+    const purchaseTotalCents = safeInt(p.totalCents, 0);
     const profitBruto = a.salesPointsValueCents - purchaseTotalCents;
     const profitLiquido = profitBruto - a.bonusCents;
 
@@ -257,7 +265,7 @@ export async function GET(req: Request) {
     const month = String(url.searchParams.get("month") || "");
     const date = String(url.searchParams.get("date") || "");
     const status = String(url.searchParams.get("status") || "ALL").toUpperCase();
-    const mode = String(url.searchParams.get("mode") || "model").toLowerCase(); // ✅ model | raw
+    const mode = String(url.searchParams.get("mode") || "model").toLowerCase(); // model | raw
 
     if (mode !== "model" && mode !== "raw") return bad("mode inválido. Use model|raw");
 
@@ -286,9 +294,10 @@ export async function GET(req: Request) {
     const endDT = utcStartDateFromISO(endExclusiveISO);
     if (!startDT || !endDT) return bad("Período inválido");
 
-    const paymentStatusWhere = status === "PAID" ? "PAID" : status === "PENDING" ? "PENDING" : undefined;
+    const paymentStatusWhere =
+      status === "PAID" ? "PAID" : status === "PENDING" ? "PENDING" : undefined;
 
-    // ✅ Lucro do período: pega o GROSS do payout (sem 8%)
+    // ✅ Lucro do período: soma grossProfitCents (SEM 8%)
     const lucroAgg = await prisma.employeePayout.aggregate({
       where: { team, date: { gte: startDateISO, lt: endExclusiveISO } },
       _sum: { grossProfitCents: true },
@@ -303,10 +312,9 @@ export async function GET(req: Request) {
     const profitAfterLossCents = Math.max(0, profitTotalCents + lossTotalCents);
 
     // =========================
-    // BUSCA VENDAS (SELECT varia por modo)
+    // MODELO (AGRUPADO)
     // =========================
     if (mode === "model") {
-      // ---- MODEL: agrupa por cliente.id ----
       const sales = await prisma.sale.findMany({
         where: {
           cedente: { owner: { team } },
@@ -355,7 +363,7 @@ export async function GET(req: Request) {
 
       const profitMap = splitProfitProportional(
         groups.map((g) => ({ key: g.key, totalCents: g.totalServiceCents })),
-        profitAfterLossCents // ✅ usa lucro ajustado
+        profitAfterLossCents
       );
 
       const rows = groups
@@ -378,7 +386,6 @@ export async function GET(req: Request) {
         })
         .sort((a, b) => b.total - a.total);
 
-      // ===== XLSX (MODEL) =====
       const wb = new ExcelJS.Workbook();
       const ws = wb.addWorksheet("Página1", { views: [{ state: "frozen", ySplit: 1 }] });
 
@@ -414,15 +421,15 @@ export async function GET(req: Request) {
       };
 
       const buf = await wb.xlsx.writeBuffer();
-
       const label = date ? `vendas_${date}` : `vendas_${scopeMonth}`;
+
       return new NextResponse(Buffer.from(buf), {
         status: 200,
         headers: {
           "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
           "Content-Disposition": `attachment; filename="${label}.xlsx"`,
           "Cache-Control": "no-store",
-          // ✅ útil pra debug no Network (não quebra nada)
+          // debug útil
           "X-TM-Profit-Total": String(profitTotalCents),
           "X-TM-Loss-Total": String(lossTotalCents),
           "X-TM-Profit-After-Loss": String(profitAfterLossCents),
@@ -431,7 +438,7 @@ export async function GET(req: Request) {
     }
 
     // =========================
-    // RAW (DETALHADO): uma linha por venda
+    // RAW (DETALHADO)
     // =========================
     const sales = await prisma.sale.findMany({
       where: {
@@ -459,7 +466,7 @@ export async function GET(req: Request) {
 
     const profitBySale = splitProfitProportional(
       sales.map((s) => ({ key: s.id, totalCents: s.totalCents || 0 })),
-      profitAfterLossCents // ✅ usa lucro ajustado
+      profitAfterLossCents
     );
 
     const rowsRaw = sales.map((s) => {
@@ -480,7 +487,6 @@ export async function GET(req: Request) {
       };
     });
 
-    // ===== XLSX (RAW) =====
     const wb = new ExcelJS.Workbook();
     const ws = wb.addWorksheet("Página1", { views: [{ state: "frozen", ySplit: 1 }] });
 
@@ -520,8 +526,8 @@ export async function GET(req: Request) {
     };
 
     const buf = await wb.xlsx.writeBuffer();
-
     const label = date ? `vendas_${date}_raw` : `vendas_${scopeMonth}_raw`;
+
     return new NextResponse(Buffer.from(buf), {
       status: 200,
       headers: {
@@ -534,7 +540,10 @@ export async function GET(req: Request) {
       },
     });
   } catch (e: any) {
-    const msg = e?.message === "UNAUTHENTICATED" ? "Não autenticado" : e?.message || String(e);
+    const msg =
+      e?.message === "UNAUTHENTICATED"
+        ? "Não autenticado"
+        : e?.message || String(e);
     const status = e?.message === "UNAUTHENTICATED" ? 401 : 500;
     return NextResponse.json({ ok: false, error: msg }, { status });
   }
