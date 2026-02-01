@@ -66,18 +66,19 @@ function splitProfitProportional(
   totalProfitCents: number
 ) {
   const total = items.reduce((a, x) => a + (x.totalCents || 0), 0);
-  if (total <= 0 || totalProfitCents <= 0)
+  if (total <= 0 || totalProfitCents <= 0) {
     return new Map(items.map((i) => [i.key, 0]));
+  }
 
   const tmp = items.map((i) => {
     const raw = (i.totalCents / total) * totalProfitCents;
     return { key: i.key, raw, floor: Math.floor(raw) };
   });
 
-  let allocated = tmp.reduce((a, x) => a + x.floor, 0);
+  const allocated = tmp.reduce((a, x) => a + x.floor, 0);
   let remaining = totalProfitCents - allocated;
 
-  tmp.sort((a, b) => b.raw - b.floor - (a.raw - a.floor));
+  tmp.sort((a, b) => (b.raw - b.floor) - (a.raw - a.floor));
 
   const out = new Map<string, number>();
   for (let i = 0; i < tmp.length; i++) {
@@ -89,14 +90,14 @@ function splitProfitProportional(
 }
 
 // =========================
-// ✅ helpers do PREJUÍZO (ALINHADO COM /prejuizo)
-// Regra: SOMA do "lucro líquido FINAL" das purchases:
+// ✅ PREJUÍZO (ALINHADO COM /prejuizo)
+// Regra: SOMA das purchases:
 // - status CLOSED
 // - finalizedAt dentro do mês
-// - lucroLiquidoFinal < 0
+// - "lucro líquido final" < 0
 //
-// ⚠️ Não recalcula via Sale, porque isso diverge do /prejuizo
-// e foi exatamente o que fez “reduzir” e ficar diferente.
+// ✅ NÃO recalcula via Sale.
+// ✅ Usa campos FINAIS da Purchase (o que a tela /prejuizo deve usar).
 // =========================
 function safeInt(v: unknown, fb = 0) {
   const n = Number(v);
@@ -112,11 +113,12 @@ function monthBoundsISO(ym: string) {
 }
 
 /**
- * ✅ Prejuízo do mês idêntico ao /prejuizo
- * - usa campos "finais" da Purchase (finalProfitCents / finalProfitBrutoCents / finalBonusCents / finalSalesPointsValueCents)
- * - soma somente os negativos
- *
- * Ajuste os nomes dos campos caso seu schema use outros nomes.
+ * ✅ Prejuízo do mês idêntico ao /prejuizo:
+ * - soma SOMENTE negativos
+ * - prioridade de cálculo:
+ *   1) finalProfitCents (lucro líquido final)
+ *   2) finalProfitBrutoCents - finalBonusCents
+ *   3) finalSalesPointsValueCents - totalCents - finalBonusCents
  */
 async function computeLossTotalCents(team: string, scopeMonth: string) {
   const mb = monthBoundsISO(scopeMonth);
@@ -135,7 +137,7 @@ async function computeLossTotalCents(team: string, scopeMonth: string) {
       id: true,
       totalCents: true,
 
-      // ✅ campos finais (precisam existir no seu schema)
+      // ✅ CAMPOS FINAIS (ajuste se seu schema usar nomes diferentes)
       finalProfitCents: true,
       finalProfitBrutoCents: true,
       finalBonusCents: true,
@@ -156,14 +158,21 @@ async function computeLossTotalCents(team: string, scopeMonth: string) {
     const finalBonusCents = (p as any).finalBonusCents;
     const finalSalesPointsValueCents = (p as any).finalSalesPointsValueCents;
 
-    // prioridade: finalProfitCents
-    let profitLiquido = Number.isFinite(Number(finalProfitCents))
-      ? safeInt(finalProfitCents, 0)
-      : Number.isFinite(Number(finalProfitBrutoCents))
-      ? safeInt(finalProfitBrutoCents, 0) - safeInt(finalBonusCents, 0)
-      : safeInt(finalSalesPointsValueCents, 0) -
+    let profitLiquido = 0;
+
+    if (Number.isFinite(Number(finalProfitCents))) {
+      profitLiquido = safeInt(finalProfitCents, 0);
+    } else if (Number.isFinite(Number(finalProfitBrutoCents))) {
+      profitLiquido = safeInt(finalProfitBrutoCents, 0) - safeInt(finalBonusCents, 0);
+    } else if (Number.isFinite(Number(finalSalesPointsValueCents))) {
+      profitLiquido =
+        safeInt(finalSalesPointsValueCents, 0) -
         totalCents -
         safeInt(finalBonusCents, 0);
+    } else {
+      // ✅ sem dados finais -> não inventa (evita divergência)
+      profitLiquido = 0;
+    }
 
     if (profitLiquido < 0) lossTotalCents += profitLiquido;
   }
@@ -184,16 +193,16 @@ export async function GET(req: Request) {
     const status = String(url.searchParams.get("status") || "ALL").toUpperCase(); // ALL | PAID | PENDING
     const mode = String(url.searchParams.get("mode") || "model").toLowerCase(); // model | raw
 
-    if (mode !== "model" && mode !== "raw")
+    if (mode !== "model" && mode !== "raw") {
       return bad("mode inválido. Use model|raw");
+    }
 
     let startDate = "";
     let endExclusive = "";
     let scopeMonth = "";
 
     if (date) {
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(date))
-        return bad("date inválido. Use YYYY-MM-DD");
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return bad("date inválido. Use YYYY-MM-DD");
       startDate = date;
       endExclusive = addDaysISO(date, 1);
       if (!endExclusive) return bad("date inválido");
@@ -214,14 +223,12 @@ export async function GET(req: Request) {
     const paymentStatusWhere =
       status === "PAID" ? "PAID" : status === "PENDING" ? "PENDING" : undefined;
 
-    // ✅ vendas do período (conforme filtro de status da tela)
+    // ✅ vendas do período (conforme filtro de status)
     const sales = await prisma.sale.findMany({
       where: {
         cedente: { owner: { team } },
         date: { gte: startDT, lt: endDT },
-        paymentStatus: paymentStatusWhere
-          ? paymentStatusWhere
-          : { in: ["PAID", "PENDING"] },
+        paymentStatus: paymentStatusWhere ? paymentStatusWhere : { in: ["PAID", "PENDING"] },
       },
       select: {
         id: true,
@@ -230,12 +237,7 @@ export async function GET(req: Request) {
         totalCents: true,
         paymentStatus: true,
         cliente: {
-          select: {
-            id: true,
-            nome: true,
-            identificador: true,
-            cpfCnpj: true,
-          },
+          select: { id: true, nome: true, identificador: true, cpfCnpj: true },
         },
       },
       orderBy: [{ date: "asc" }, { numero: "asc" }],
@@ -252,13 +254,11 @@ export async function GET(req: Request) {
     const profitTotalCents = Number(lucroAgg._sum.grossProfitCents || 0);
 
     /**
-     * ✅ PREJUÍZO DO MÊS (alinhado com /prejuizo)
+     * ✅ PREJUÍZO DO MÊS (idêntico ao /prejuizo)
      * Mantive seu comportamento: só aplica quando filtro é mês inteiro.
      */
     const applyLoss = !date;
-    const lossTotalCents = applyLoss
-      ? await computeLossTotalCents(team, scopeMonth)
-      : 0; // negativo
+    const lossTotalCents = applyLoss ? await computeLossTotalCents(team, scopeMonth) : 0;
 
     // ✅ lucro tributável (não deixar negativo)
     const profitAfterLossCents = Math.max(0, profitTotalCents + lossTotalCents);
@@ -294,47 +294,23 @@ export async function GET(req: Request) {
       };
     });
 
-    const totalDeductionRawCents = rowsRaw.reduce(
-      (a, r) => a + (r.deductionCents || 0),
-      0
-    );
+    const totalDeductionRawCents = rowsRaw.reduce((a, r) => a + (r.deductionCents || 0), 0);
 
     // =========================
     // MODEL: AGRUPADO POR CLIENTE
     // =========================
     const map = new Map<
       string,
-      {
-        key: string;
-        cpfCnpj: string;
-        nome: string;
-        totalServiceCents: number;
-        salesCount: number;
-      }
+      { key: string; cpfCnpj: string; nome: string; totalServiceCents: number; salesCount: number }
     >();
 
     for (const s of sales) {
-      const doc =
-        cleanDoc(
-          (s as any)?.cliente?.cpfCnpj ||
-            (s as any)?.cliente?.identificador ||
-            ""
-        ) || "";
-      const cpfCnpjDisplay =
-        (s as any)?.cliente?.cpfCnpj ||
-        (s as any)?.cliente?.identificador ||
-        "—";
+      const doc = cleanDoc((s as any)?.cliente?.cpfCnpj || (s as any)?.cliente?.identificador || "") || "";
+      const cpfCnpjDisplay = (s as any)?.cliente?.cpfCnpj || (s as any)?.cliente?.identificador || "—";
       const nome = (s as any)?.cliente?.nome || "—";
       const key = `${doc}::${nome}`;
 
-      const prev = map.get(key) || {
-        key,
-        cpfCnpj: cpfCnpjDisplay,
-        nome,
-        totalServiceCents: 0,
-        salesCount: 0,
-      };
-
+      const prev = map.get(key) || { key, cpfCnpj: cpfCnpjDisplay, nome, totalServiceCents: 0, salesCount: 0 };
       prev.totalServiceCents += s.totalCents || 0;
       prev.salesCount += 1;
       map.set(key, prev);
@@ -350,10 +326,7 @@ export async function GET(req: Request) {
     const rowsModel = groups
       .map((g) => {
         const profitCents = profitMapModel.get(g.key) || 0;
-        const deductionCents = Math.max(
-          0,
-          (g.totalServiceCents || 0) - profitCents
-        );
+        const deductionCents = Math.max(0, (g.totalServiceCents || 0) - profitCents);
 
         const info = date
           ? `Vendas do dia ${date} (${g.salesCount} venda(s))`
@@ -371,10 +344,7 @@ export async function GET(req: Request) {
       })
       .sort((a, b) => b.totalServiceCents - a.totalServiceCents);
 
-    const totalDeductionModelCents = rowsModel.reduce(
-      (a, r) => a + (r.deductionCents || 0),
-      0
-    );
+    const totalDeductionModelCents = rowsModel.reduce((a, r) => a + (r.deductionCents || 0), 0);
 
     const endDate = addDaysISO(endExclusive, -1);
 
@@ -391,22 +361,18 @@ export async function GET(req: Request) {
         // lucro do período (SEM 8%)
         profitTotalCents,
 
-        // ✅ prejuízo do mês (alinhado com /prejuizo)
+        // ✅ prejuízo do mês (idêntico ao /prejuizo)
         lossTotalCents,
 
         // lucro tributável
         profitAfterLossCents,
 
-        totalDeductionCents:
-          mode === "raw" ? totalDeductionRawCents : totalDeductionModelCents,
+        totalDeductionCents: mode === "raw" ? totalDeductionRawCents : totalDeductionModelCents,
       },
       rows: mode === "raw" ? rowsRaw : rowsModel,
     });
   } catch (e: any) {
-    const msg =
-      e?.message === "UNAUTHENTICATED"
-        ? "Não autenticado"
-        : e?.message || String(e);
+    const msg = e?.message === "UNAUTHENTICATED" ? "Não autenticado" : e?.message || String(e);
     const status = e?.message === "UNAUTHENTICATED" ? 401 : 500;
     return NextResponse.json({ ok: false, error: msg }, { status });
   }
