@@ -37,15 +37,15 @@ function addDaysISO(iso: string, days: number) {
   return `${yy}-${mm}-${dd}`;
 }
 
-/** ✅ DateTime (Sale.date) -> usa UTC start do dia */
-function utcStartDateFromISO(iso: string) {
+/** ✅ Igual ao preview: ISO -> Date UTC 00:00Z */
+function isoToUTCDate(iso: string) {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(iso || "").trim());
   if (!m) return null;
   const y = Number(m[1]);
   const mo = Number(m[2]);
   const d = Number(m[3]);
   if (!y || !mo || !d) return null;
-  return new Date(Date.UTC(y, mo - 1, d, 0, 0, 0, 0));
+  return new Date(Date.UTC(y, mo - 1, d));
 }
 
 function isoDateOnlyUTC(d: Date) {
@@ -55,29 +55,37 @@ function isoDateOnlyUTC(d: Date) {
   return `${yy}-${mm}-${dd}`;
 }
 
+function cleanDoc(v: string) {
+  return String(v || "").replace(/\D+/g, "");
+}
+
+function safeInt(v: unknown, fb = 0) {
+  const n = Number(v);
+  return Number.isFinite(n) ? Math.trunc(n) : fb;
+}
+
 /**
- * ✅ Split proporcional (lucro >= 0 no seu caso)
+ * ✅ Rateio proporcional (idêntico ao preview)
+ * Só rateia se totalProfitCents > 0, senão tudo 0
  */
 function splitProfitProportional(
   items: Array<{ key: string; totalCents: number }>,
   totalProfitCents: number
 ) {
   const total = items.reduce((a, x) => a + (x.totalCents || 0), 0);
-  if (total <= 0 || totalProfitCents === 0) {
+  if (total <= 0 || totalProfitCents <= 0) {
     return new Map(items.map((i) => [i.key, 0]));
   }
 
-  const profitAbs = Math.abs(totalProfitCents);
-
   const tmp = items.map((i) => {
-    const raw = (i.totalCents / total) * profitAbs;
+    const raw = (i.totalCents / total) * totalProfitCents;
     return { key: i.key, raw, floor: Math.floor(raw) };
   });
 
-  let allocated = tmp.reduce((a, x) => a + x.floor, 0);
-  let remaining = profitAbs - allocated;
+  const allocated = tmp.reduce((a, x) => a + x.floor, 0);
+  let remaining = totalProfitCents - allocated;
 
-  tmp.sort((a, b) => b.raw - b.floor - (a.raw - a.floor));
+  tmp.sort((a, b) => (b.raw - b.floor) - (a.raw - a.floor));
 
   const out = new Map<string, number>();
   for (let i = 0; i < tmp.length; i++) {
@@ -114,63 +122,76 @@ function styleHeaderRow(ws: ExcelJS.Worksheet, lastCol: number) {
 }
 
 // =========================
-// ✅ PREJUÍZO DO MÊS (ALINHADO COM /prejuizo)
-// Source of truth: Purchase.finalProfitCents (lucro líquido final)
-// - status CLOSED
-// - finalizedAt no mês
-// - soma SOMENTE os negativos
-// - ✅ MAS SÓ SE tiver venda vinculada (igual /prejuizo quando includeZeroSales=0)
+// ✅ PREJUÍZO DO MÊS — IGUAL AO PREVIEW (/prejuizo-like)
+// - purchases CLOSED no mês
+// - sales vinculadas (purchaseId pode ser id ou numero em várias capitalizações)
+// - ignora CANCELED
+// - pvCents fallback total-fee
+// - bonus 30% por venda (excedente acima da meta)
+// - remove “sem venda” (includeZeroSales=false)
+// - soma SOMENTE negativos
 // =========================
-function safeInt(v: unknown, fb = 0) {
-  const n = Number(v);
-  return Number.isFinite(n) ? Math.trunc(n) : fb;
+
+function milheiroFrom(points: number, pointsValueCents: number) {
+  const pts = safeInt(points, 0);
+  const cents = safeInt(pointsValueCents, 0);
+  if (!pts || !cents) return 0;
+  return Math.round((cents * 1000) / pts);
 }
 
-async function computeLossTotalCents(team: string, scopeMonth: string) {
-  if (!/^\d{4}-\d{2}$/.test(String(scopeMonth || ""))) return 0;
+function bonus30(points: number, milheiroCents: number, metaMilheiroCents: number) {
+  const pts = safeInt(points, 0);
+  const mil = safeInt(milheiroCents, 0);
+  const meta = safeInt(metaMilheiroCents, 0);
+  if (!pts || !mil || !meta) return 0;
 
-  const startISO = `${scopeMonth}-01`;
-  const endISO = nextMonthStart(scopeMonth);
-  if (!endISO) return 0;
+  const diff = mil - meta;
+  if (diff <= 0) return 0;
 
-  const start = new Date(`${startISO}T00:00:00.000Z`);
-  const end = new Date(`${endISO}T00:00:00.000Z`);
+  const excedenteCents = Math.round((pts * diff) / 1000);
+  return Math.round(excedenteCents * 0.3);
+}
 
-  const purchases = await prisma.purchase.findMany({
+function monthBoundsISO(ym: string) {
+  if (!/^\d{4}-\d{2}$/.test(String(ym || ""))) return null;
+  const startISO = `${ym}-01`;
+  const endISO = nextMonthStart(ym);
+  if (!endISO) return null;
+  return { startISO, endISO };
+}
+
+async function computeLossTotalCentsLikePrejuizo(team: string, scopeMonth: string) {
+  const mb = monthBoundsISO(scopeMonth);
+  if (!mb) return 0;
+
+  const start = new Date(`${mb.startISO}T00:00:00.000Z`);
+  const end = new Date(`${mb.endISO}T00:00:00.000Z`);
+
+  const purchasesBase = await prisma.purchase.findMany({
     where: {
       status: "CLOSED",
       finalizedAt: { not: null, gte: start, lt: end },
       cedente: { owner: { team } },
     },
+    orderBy: [{ finalizedAt: "desc" }, { updatedAt: "desc" }],
+    take: 5000,
     select: {
       id: true,
       numero: true,
+      metaMilheiroCents: true,
       totalCents: true,
-
-      // finais (o que /prejuizo usa como referência)
-      finalProfitCents: true,
-      finalProfitBrutoCents: true,
-      finalBonusCents: true,
-      finalSalesPointsValueCents: true,
-
-      // ✅ para aplicar a mesma regra de “tem venda” do /prejuizo
-      finalSalesCents: true,
-      finalSoldPoints: true,
+      finalizedAt: true,
     },
-    take: 5000,
   });
 
-  if (purchases.length === 0) return 0;
+  if (purchasesBase.length === 0) return 0;
 
-  // --- monta ids/numeros pra bater sales e contar vendas não-canceladas ---
-  const ids = purchases.map((p) => p.id);
-  const numeros = purchases
-    .map((p) => String((p as any).numero || "").trim())
-    .filter(Boolean);
+  const ids = purchasesBase.map((p) => p.id);
+  const numeros = purchasesBase.map((p) => String(p.numero || "").trim()).filter(Boolean);
 
   const idByNumeroUpper = new Map<string, string>(
-    purchases
-      .map((p) => [String((p as any).numero || "").trim().toUpperCase(), p.id] as const)
+    purchasesBase
+      .map((p) => [String(p.numero || "").trim().toUpperCase(), p.id] as const)
       .filter(([k]) => !!k)
   );
 
@@ -185,53 +206,106 @@ async function computeLossTotalCents(team: string, scopeMonth: string) {
     return idByNumeroUpper.get(upper) || r;
   }
 
-  // sales não canceladas vinculadas às purchases do mês
+  const byId = new Map(purchasesBase.map((p) => [p.id, p]));
+
   const sales = await prisma.sale.findMany({
     where: {
       paymentStatus: { not: "CANCELED" },
       OR: [{ purchaseId: { in: ids } }, { purchaseId: { in: numerosAll } }],
     },
-    select: { purchaseId: true },
+    select: {
+      purchaseId: true,
+      points: true,
+      totalCents: true,
+      pointsValueCents: true,
+      embarqueFeeCents: true,
+      passengers: true,
+    },
     take: 20000,
   });
 
-  const salesCountByPurchase = new Map<string, number>();
+  const agg = new Map<
+    string,
+    {
+      soldPoints: number;
+      pax: number;
+      salesTotalCents: number;
+      salesPointsValueCents: number;
+      salesTaxesCents: number;
+      bonusCents: number;
+      salesCount: number;
+    }
+  >();
+
   for (const s of sales) {
-    const pid = normalizePurchaseId(String((s as any).purchaseId || ""));
+    const pid = normalizePurchaseId(String(s.purchaseId || ""));
     if (!pid) continue;
-    salesCountByPurchase.set(pid, (salesCountByPurchase.get(pid) || 0) + 1);
+
+    const totalCents = safeInt(s.totalCents, 0);
+    const feeCents = safeInt(s.embarqueFeeCents, 0);
+    let pvCents = safeInt(s.pointsValueCents as any, 0);
+
+    // fallback igual ao preview
+    if (pvCents <= 0 && totalCents > 0) {
+      const cand = Math.max(totalCents - feeCents, 0);
+      pvCents = cand > 0 ? cand : totalCents;
+    }
+
+    const taxes = Math.max(totalCents - pvCents, 0);
+
+    const cur =
+      agg.get(pid) || {
+        soldPoints: 0,
+        pax: 0,
+        salesTotalCents: 0,
+        salesPointsValueCents: 0,
+        salesTaxesCents: 0,
+        bonusCents: 0,
+        salesCount: 0,
+      };
+
+    cur.soldPoints += safeInt(s.points, 0);
+    cur.pax += safeInt(s.passengers, 0);
+    cur.salesTotalCents += totalCents;
+    cur.salesPointsValueCents += pvCents;
+    cur.salesTaxesCents += taxes;
+    cur.salesCount += 1;
+
+    const p = byId.get(pid);
+    if (p) {
+      const mil = milheiroFrom(safeInt(s.points, 0), pvCents);
+      cur.bonusCents += bonus30(safeInt(s.points, 0), mil, safeInt(p.metaMilheiroCents, 0));
+    }
+
+    agg.set(pid, cur);
   }
 
   let lossTotalCents = 0; // negativo
 
-  for (const p of purchases) {
-    const pid = p.id;
-    const salesCount = salesCountByPurchase.get(pid) || 0;
+  for (const p of purchasesBase) {
+    const a =
+      agg.get(p.id) || {
+        soldPoints: 0,
+        pax: 0,
+        salesTotalCents: 0,
+        salesPointsValueCents: 0,
+        salesTaxesCents: 0,
+        bonusCents: 0,
+        salesCount: 0,
+      };
 
-    // ✅ regra “tem venda” (igual /prejuizo com includeZeroSales=0)
-    const pv = safeInt((p as any).finalSalesPointsValueCents, 0);
-    const tot = safeInt((p as any).finalSalesCents, 0);
-    const pts = safeInt((p as any).finalSoldPoints, 0);
-    const hasSaleEvidence = salesCount > 0 || pv > 0 || tot > 0 || pts > 0;
+    // remove “sem venda”
+    const hasSales =
+      safeInt(a.salesCount, 0) > 0 ||
+      safeInt(a.salesPointsValueCents, 0) > 0 ||
+      safeInt(a.salesTotalCents, 0) > 0 ||
+      safeInt(a.soldPoints, 0) > 0;
 
-    if (!hasSaleEvidence) continue;
+    if (!hasSales) continue;
 
-    // prioridade 1: finalProfitCents
-    let profitLiquido = safeInt((p as any).finalProfitCents, 0);
-
-    // fallback: se vier sem finalProfitCents preenchido, tenta reconstruir com outros finais
-    if (!Number.isFinite(Number((p as any).finalProfitCents))) {
-      const bruto = safeInt((p as any).finalProfitBrutoCents, 0);
-      const bonus = safeInt((p as any).finalBonusCents, 0);
-
-      if (Number.isFinite(Number((p as any).finalProfitBrutoCents))) {
-        profitLiquido = bruto - bonus;
-      } else {
-        const pointsValue = safeInt((p as any).finalSalesPointsValueCents, 0);
-        const total = safeInt((p as any).totalCents, 0);
-        profitLiquido = pointsValue - total - bonus;
-      }
-    }
+    const purchaseTotalCents = safeInt(p.totalCents, 0);
+    const profitBruto = a.salesPointsValueCents - purchaseTotalCents;
+    const profitLiquido = profitBruto - a.bonusCents;
 
     if (profitLiquido < 0) lossTotalCents += profitLiquido;
   }
@@ -249,99 +323,95 @@ export async function GET(req: Request) {
     const url = new URL(req.url);
     const month = String(url.searchParams.get("month") || "");
     const date = String(url.searchParams.get("date") || "");
-    const status = String(url.searchParams.get("status") || "ALL").toUpperCase();
-    const mode = String(url.searchParams.get("mode") || "model").toLowerCase(); // model | raw
-
+    const status = String(url.searchParams.get("status") || "ALL").toUpperCase(); // ALL | PAID | PENDING
+    const mode = String(url.searchParams.get("mode") || "raw").toLowerCase(); // model | raw
     if (mode !== "model" && mode !== "raw") return bad("mode inválido. Use model|raw");
 
-    // strings p/ EmployeePayout (date string)
-    let startDateISO = "";
-    let endExclusiveISO = "";
+    let startDate = "";
+    let endExclusive = "";
     let scopeMonth = "";
 
     if (date) {
       if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return bad("date inválido. Use YYYY-MM-DD");
-      startDateISO = date;
-      endExclusiveISO = addDaysISO(date, 1);
-      if (!endExclusiveISO) return bad("date inválido");
+      startDate = date;
+      endExclusive = addDaysISO(date, 1);
+      if (!endExclusive) return bad("date inválido");
       scopeMonth = date.slice(0, 7);
     } else {
       const m = month.slice(0, 7);
       if (!/^\d{4}-\d{2}$/.test(m)) return bad("month inválido. Use YYYY-MM");
-      startDateISO = `${m}-01`;
-      endExclusiveISO = nextMonthStart(m);
-      if (!endExclusiveISO) return bad("month inválido");
+      startDate = `${m}-01`;
+      endExclusive = nextMonthStart(m);
+      if (!endExclusive) return bad("month inválido");
       scopeMonth = m;
     }
 
-    // DateTime p/ Sale.date (UTC)
-    const startDT = utcStartDateFromISO(startDateISO);
-    const endDT = utcStartDateFromISO(endExclusiveISO);
-    if (!startDT || !endDT) return bad("Período inválido");
+    const startDT = isoToUTCDate(startDate);
+    const endDT = isoToUTCDate(endExclusive);
+    if (!startDT || !endDT) return bad("Período inválido (datas)");
 
     const paymentStatusWhere =
       status === "PAID" ? "PAID" : status === "PENDING" ? "PENDING" : undefined;
 
-    // Lucro do período: soma do grossProfitCents (SEM 8%)
+    // ✅ lucro do período (SEM 8%) — igual preview
     const lucroAgg = await prisma.employeePayout.aggregate({
-      where: { team, date: { gte: startDateISO, lt: endExclusiveISO } },
+      where: { team, date: { gte: startDate, lt: endExclusive } },
       _sum: { grossProfitCents: true },
     });
     const profitTotalCents = Number(lucroAgg._sum.grossProfitCents || 0);
 
-    // ✅ PREJUÍZO DO MÊS (só quando filtro é mês inteiro) — agora 100% alinhado com /prejuizo
+    // ✅ prejuízo do mês — IGUAL preview (/prejuizo-like) e só quando é mês inteiro
     const applyLoss = !date;
-    const lossTotalCents = applyLoss ? await computeLossTotalCents(team, scopeMonth) : 0; // negativo
+    const lossTotalCents = applyLoss ? await computeLossTotalCentsLikePrejuizo(team, scopeMonth) : 0;
 
-    // ✅ lucro tributável (não deixa negativo)
+    // ✅ lucro tributável (não deixar negativo)
     const profitAfterLossCents = Math.max(0, profitTotalCents + lossTotalCents);
 
-    // =========================
-    // MODEL: agrupa por cliente.id
-    // =========================
-    if (mode === "model") {
-      const sales = await prisma.sale.findMany({
-        where: {
-          cedente: { owner: { team } },
-          date: { gte: startDT, lt: endDT },
-          paymentStatus: paymentStatusWhere ? paymentStatusWhere : { in: ["PAID", "PENDING"] },
+    // vendas do período (para montar XLSX)
+    const sales = await prisma.sale.findMany({
+      where: {
+        cedente: { owner: { team } },
+        date: { gte: startDT, lt: endDT },
+        paymentStatus: paymentStatusWhere ? paymentStatusWhere : { in: ["PAID", "PENDING"] },
+      },
+      select: {
+        id: true,
+        numero: true,
+        date: true,
+        paymentStatus: true,
+        totalCents: true,
+        cliente: {
+          select: { id: true, nome: true, identificador: true, cpfCnpj: true },
         },
-        select: {
-          totalCents: true,
-          cliente: {
-            select: {
-              id: true,
-              nome: true,
-              identificador: true,
-              cpfCnpj: true,
-            },
-          },
-        },
-        orderBy: { date: "asc" },
-      });
+      },
+      orderBy: [{ date: "asc" }, { numero: "asc" }],
+      take: 50000,
+    });
 
+    if (mode === "model") {
+      // ✅ igual preview: agrupa por doc + nome (não por cliente.id)
       const map = new Map<
         string,
         { key: string; cpfCnpj: string; nome: string; totalServiceCents: number; salesCount: number }
       >();
 
       for (const s of sales) {
-        const clienteId = s?.cliente?.id || "UNKNOWN";
+        const doc = cleanDoc(s?.cliente?.cpfCnpj || s?.cliente?.identificador || "") || "";
         const cpfCnpjDisplay = s?.cliente?.cpfCnpj || s?.cliente?.identificador || "—";
         const nome = s?.cliente?.nome || "—";
+        const key = `${doc}::${nome}`;
 
-        const prev =
-          map.get(clienteId) || {
-            key: clienteId,
-            cpfCnpj: cpfCnpjDisplay,
-            nome,
-            totalServiceCents: 0,
-            salesCount: 0,
-          };
+        const prev = map.get(key) || {
+          key,
+          cpfCnpj: cpfCnpjDisplay,
+          nome,
+          totalServiceCents: 0,
+          salesCount: 0,
+        };
 
         prev.totalServiceCents += s.totalCents || 0;
         prev.salesCount += 1;
-        map.set(clienteId, prev);
+        map.set(key, prev);
       }
 
       const groups = Array.from(map.values());
@@ -353,8 +423,8 @@ export async function GET(req: Request) {
 
       const rows = groups
         .map((g) => {
-          const lucro = profitMap.get(g.key) || 0;
-          const deducao = (g.totalServiceCents || 0) - lucro;
+          const lucroCents = profitMap.get(g.key) || 0;
+          const deducaoCents = Math.max(0, (g.totalServiceCents || 0) - lucroCents);
 
           const info = date
             ? `Vendas do dia ${date} (${g.salesCount} venda(s))`
@@ -364,12 +434,12 @@ export async function GET(req: Request) {
             cpfCnpj: g.cpfCnpj,
             nome: g.nome,
             info,
-            total: g.totalServiceCents,
-            deducao,
-            lucro,
+            totalCents: g.totalServiceCents,
+            deducaoCents,
+            lucroCents,
           };
         })
-        .sort((a, b) => b.total - a.total);
+        .sort((a, b) => b.totalCents - a.totalCents);
 
       const wb = new ExcelJS.Workbook();
       const ws = wb.addWorksheet("Página1", { views: [{ state: "frozen", ySplit: 1 }] });
@@ -390,9 +460,9 @@ export async function GET(req: Request) {
           cpf: r.cpfCnpj,
           nome: r.nome,
           info: r.info,
-          total: (r.total || 0) / 100,
-          deducao: (r.deducao || 0) / 100,
-          lucro: (r.lucro || 0) / 100,
+          total: (r.totalCents || 0) / 100,
+          deducao: (r.deducaoCents || 0) / 100,
+          lucro: (r.lucroCents || 0) / 100,
         });
       }
 
@@ -400,10 +470,7 @@ export async function GET(req: Request) {
         ws.getColumn(col).numFmt = '"R$"#,##0.00;[Red]-"R$"#,##0.00';
       });
 
-      ws.autoFilter = {
-        from: { row: 1, column: 1 },
-        to: { row: 1, column: 6 },
-      };
+      ws.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: 6 } };
 
       const buf = await wb.xlsx.writeBuffer();
       const label = date ? `vendas_${date}` : `vendas_${scopeMonth}`;
@@ -422,33 +489,7 @@ export async function GET(req: Request) {
       });
     }
 
-    // =========================
-    // RAW (DETALHADO): uma linha por venda
-    // =========================
-    const sales = await prisma.sale.findMany({
-      where: {
-        cedente: { owner: { team } },
-        date: { gte: startDT, lt: endDT },
-        paymentStatus: paymentStatusWhere ? paymentStatusWhere : { in: ["PAID", "PENDING"] },
-      },
-      select: {
-        id: true,
-        numero: true,
-        date: true,
-        paymentStatus: true,
-        totalCents: true,
-        cliente: {
-          select: {
-            id: true,
-            nome: true,
-            identificador: true,
-            cpfCnpj: true,
-          },
-        },
-      },
-      orderBy: [{ date: "asc" }, { numero: "asc" }],
-    });
-
+    // RAW (detalhado): rateia por venda
     const profitBySale = splitProfitProportional(
       sales.map((s) => ({ key: s.id, totalCents: s.totalCents || 0 })),
       profitAfterLossCents
@@ -457,18 +498,20 @@ export async function GET(req: Request) {
     const rowsRaw = sales.map((s) => {
       const cpfCnpjDisplay = s?.cliente?.cpfCnpj || s?.cliente?.identificador || "—";
       const nome = s?.cliente?.nome || "—";
-      const lucro = profitBySale.get(s.id) || 0;
-      const deducao = (s.totalCents || 0) - lucro;
+      const lucroCents = profitBySale.get(s.id) || 0;
+
+      // ✅ igual preview: não deixa dedução negativa
+      const deducaoCents = Math.max(0, (s.totalCents || 0) - lucroCents);
 
       return {
         date: isoDateOnlyUTC(s.date),
         numero: s.numero || "—",
-        paymentStatus: String((s as any)?.paymentStatus || "—"),
+        status: String((s as any)?.paymentStatus || "—"),
         cpfCnpj: cpfCnpjDisplay,
         nome,
-        total: s.totalCents || 0,
-        deducao,
-        lucro,
+        totalCents: s.totalCents || 0,
+        deducaoCents,
+        lucroCents,
       };
     });
 
@@ -492,12 +535,12 @@ export async function GET(req: Request) {
       ws.addRow({
         date: r.date,
         numero: r.numero,
-        status: r.paymentStatus,
+        status: r.status,
         cpf: r.cpfCnpj,
         nome: r.nome,
-        total: (r.total || 0) / 100,
-        deducao: (r.deducao || 0) / 100,
-        lucro: (r.lucro || 0) / 100,
+        total: (r.totalCents || 0) / 100,
+        deducao: (r.deducaoCents || 0) / 100,
+        lucro: (r.lucroCents || 0) / 100,
       });
     }
 
@@ -505,10 +548,7 @@ export async function GET(req: Request) {
       ws.getColumn(col).numFmt = '"R$"#,##0.00;[Red]-"R$"#,##0.00';
     });
 
-    ws.autoFilter = {
-      from: { row: 1, column: 1 },
-      to: { row: 1, column: 8 },
-    };
+    ws.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: 8 } };
 
     const buf = await wb.xlsx.writeBuffer();
     const label = date ? `vendas_${date}_raw` : `vendas_${scopeMonth}_raw`;
