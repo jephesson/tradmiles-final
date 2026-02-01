@@ -225,7 +225,9 @@ export default function CedentesVisualizarClient() {
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold">Cedentes • Todos</h1>
-          <p className="text-sm text-slate-600">Cedentes aprovados com pontos e responsável</p>
+          <p className="text-sm text-slate-600">
+            Cedentes aprovados com pontos e responsável
+          </p>
         </div>
 
         <div className="flex flex-wrap gap-2">
@@ -332,10 +334,7 @@ export default function CedentesVisualizarClient() {
 
                   <td className="px-4 py-3">
                     <div
-                      className={cn(
-                        "font-medium",
-                        hasAnyBlock && "text-red-600"
-                      )}
+                      className={cn("font-medium", hasAnyBlock && "text-red-600")}
                       title={hasAnyBlock ? `Bloqueado: ${(r.blockedPrograms || []).join(", ")}` : undefined}
                     >
                       {r.nomeCompleto}
@@ -381,7 +380,7 @@ export default function CedentesVisualizarClient() {
                         type="button"
                         className="rounded-lg border px-3 py-1 text-xs hover:bg-slate-50"
                         onClick={() => router.push(`/dashboard/cedentes/${r.id}?edit=1`)}
-                        title="Abrir detalhe em modo edição (a gente vai implementar)"
+                        title="Abrir detalhe em modo edição"
                       >
                         Editar
                       </button>
