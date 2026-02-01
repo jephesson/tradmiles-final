@@ -77,7 +77,7 @@ function splitProfitProportional(
   let allocated = tmp.reduce((a, x) => a + x.floor, 0);
   let remaining = profitAbs - allocated;
 
-  tmp.sort((a, b) => (b.raw - b.floor) - (a.raw - a.floor));
+  tmp.sort((a, b) => b.raw - b.floor - (a.raw - a.floor));
 
   const out = new Map<string, number>();
   for (let i = 0; i < tmp.length; i++) {
@@ -119,6 +119,7 @@ function styleHeaderRow(ws: ExcelJS.Worksheet, lastCol: number) {
 // - status CLOSED
 // - finalizedAt no mês
 // - soma SOMENTE os negativos
+// - ✅ MAS SÓ SE tiver venda vinculada (igual /prejuizo quando includeZeroSales=0)
 // =========================
 function safeInt(v: unknown, fb = 0) {
   const n = Number(v);
@@ -135,7 +136,6 @@ async function computeLossTotalCents(team: string, scopeMonth: string) {
   const start = new Date(`${startISO}T00:00:00.000Z`);
   const end = new Date(`${endISO}T00:00:00.000Z`);
 
-  // ⚠️ Não recalcula via Sale. Puxa os "finais" da Purchase (igual /prejuizo).
   const purchases = await prisma.purchase.findMany({
     where: {
       status: "CLOSED",
@@ -144,27 +144,82 @@ async function computeLossTotalCents(team: string, scopeMonth: string) {
     },
     select: {
       id: true,
+      numero: true,
+      totalCents: true,
 
       // finais (o que /prejuizo usa como referência)
       finalProfitCents: true,
       finalProfitBrutoCents: true,
       finalBonusCents: true,
       finalSalesPointsValueCents: true,
-      totalCents: true,
+
+      // ✅ para aplicar a mesma regra de “tem venda” do /prejuizo
+      finalSalesCents: true,
+      finalSoldPoints: true,
     },
     take: 5000,
   });
 
   if (purchases.length === 0) return 0;
 
+  // --- monta ids/numeros pra bater sales e contar vendas não-canceladas ---
+  const ids = purchases.map((p) => p.id);
+  const numeros = purchases
+    .map((p) => String((p as any).numero || "").trim())
+    .filter(Boolean);
+
+  const idByNumeroUpper = new Map<string, string>(
+    purchases
+      .map((p) => [String((p as any).numero || "").trim().toUpperCase(), p.id] as const)
+      .filter(([k]) => !!k)
+  );
+
+  const numerosUpper = Array.from(new Set(numeros.map((n) => n.toUpperCase())));
+  const numerosLower = Array.from(new Set(numeros.map((n) => n.toLowerCase())));
+  const numerosAll = Array.from(new Set([...numeros, ...numerosUpper, ...numerosLower]));
+
+  function normalizePurchaseId(raw: string) {
+    const r = (raw || "").trim();
+    if (!r) return "";
+    const upper = r.toUpperCase();
+    return idByNumeroUpper.get(upper) || r;
+  }
+
+  // sales não canceladas vinculadas às purchases do mês
+  const sales = await prisma.sale.findMany({
+    where: {
+      paymentStatus: { not: "CANCELED" },
+      OR: [{ purchaseId: { in: ids } }, { purchaseId: { in: numerosAll } }],
+    },
+    select: { purchaseId: true },
+    take: 20000,
+  });
+
+  const salesCountByPurchase = new Map<string, number>();
+  for (const s of sales) {
+    const pid = normalizePurchaseId(String((s as any).purchaseId || ""));
+    if (!pid) continue;
+    salesCountByPurchase.set(pid, (salesCountByPurchase.get(pid) || 0) + 1);
+  }
+
   let lossTotalCents = 0; // negativo
 
   for (const p of purchases) {
+    const pid = p.id;
+    const salesCount = salesCountByPurchase.get(pid) || 0;
+
+    // ✅ regra “tem venda” (igual /prejuizo com includeZeroSales=0)
+    const pv = safeInt((p as any).finalSalesPointsValueCents, 0);
+    const tot = safeInt((p as any).finalSalesCents, 0);
+    const pts = safeInt((p as any).finalSoldPoints, 0);
+    const hasSaleEvidence = salesCount > 0 || pv > 0 || tot > 0 || pts > 0;
+
+    if (!hasSaleEvidence) continue;
+
     // prioridade 1: finalProfitCents
     let profitLiquido = safeInt((p as any).finalProfitCents, 0);
 
-    // fallback: se algum legado vier sem finalProfitCents preenchido,
-    // tenta reconstruir com outros finais (sem usar Sale).
+    // fallback: se vier sem finalProfitCents preenchido, tenta reconstruir com outros finais
     if (!Number.isFinite(Number((p as any).finalProfitCents))) {
       const bruto = safeInt((p as any).finalProfitBrutoCents, 0);
       const bonus = safeInt((p as any).finalBonusCents, 0);
@@ -234,7 +289,7 @@ export async function GET(req: Request) {
     });
     const profitTotalCents = Number(lucroAgg._sum.grossProfitCents || 0);
 
-    // ✅ PREJUÍZO DO MÊS (só quando filtro é mês inteiro) — agora alinhado com /prejuizo
+    // ✅ PREJUÍZO DO MÊS (só quando filtro é mês inteiro) — agora 100% alinhado com /prejuizo
     const applyLoss = !date;
     const lossTotalCents = applyLoss ? await computeLossTotalCents(team, scopeMonth) : 0; // negativo
 
@@ -253,7 +308,6 @@ export async function GET(req: Request) {
         },
         select: {
           totalCents: true,
-          date: true,
           cliente: {
             select: {
               id: true,
