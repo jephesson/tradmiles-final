@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/auth-server";
+import { CedenteStatus } from "@prisma/client";
+import type { Prisma } from "@prisma/client";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -38,8 +40,6 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    // ✅ pelo menos restringe a usuários autorizados verem esse histórico
-    // (se quiser liberar pra todos logados, pode remover esse bloco)
     if (!canViewSecrets(session.role)) {
       return NextResponse.json(
         { ok: false, error: "Sem permissão." },
@@ -49,20 +49,35 @@ export async function GET(req: NextRequest) {
 
     const url = new URL(req.url);
     const days = clampInt(url.searchParams.get("days"), 1, 90, 7);
-    const basis = (url.searchParams.get("basis") || "reviewedAt").toString();
+
+    // ✅ basis tipado (evita string solta)
+    const basisParam = url.searchParams.get("basis");
+    const basis: "reviewedAt" | "createdAt" =
+      basisParam === "createdAt" ? "createdAt" : "reviewedAt";
 
     const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
 
-    // ✅ base do filtro: reviewedAt (aprovados nos últimos dias)
-    // fallback: se basis=createdAt, filtra pelo createdAt
-    const where =
+    // ✅ where tipado + enum correto (resolve o erro do build)
+    const baseWhere = {
+      status: CedenteStatus.APPROVED,
+      // ✅ recomendado: isola por time (se sua app é multi-time)
+      owner: { team: session.team },
+    } satisfies Prisma.CedenteWhereInput;
+
+    const where: Prisma.CedenteWhereInput =
       basis === "createdAt"
-        ? { status: "APPROVED", createdAt: { gte: since } }
-        : { status: "APPROVED", reviewedAt: { gte: since } };
+        ? { ...baseWhere, createdAt: { gte: since } }
+        : { ...baseWhere, reviewedAt: { gte: since } };
+
+    // ✅ orderBy consistente com o basis
+    const orderBy: Prisma.CedenteOrderByWithRelationInput[] =
+      basis === "createdAt"
+        ? [{ createdAt: "desc" }]
+        : [{ reviewedAt: "desc" }, { createdAt: "desc" }];
 
     const rows = await prisma.cedente.findMany({
       where,
-      orderBy: { reviewedAt: "desc" }, // se reviewedAt null, pode ajustar; aqui assume que aprovado tem reviewedAt
+      orderBy,
       take: 500,
       select: {
         id: true,
@@ -85,7 +100,7 @@ export async function GET(req: NextRequest) {
         reviewedBy: { select: { id: true, name: true, login: true } },
         owner: { select: { id: true, name: true, login: true } },
 
-        // ⚠️ NÃO vamos mandar as senhas, só flags
+        // ⚠️ NÃO devolve as senhas pro client: só usamos pra flags
         senhaEmail: true,
         senhaLatamPass: true,
         senhaSmiles: true,
@@ -122,7 +137,7 @@ export async function GET(req: NextRequest) {
 
       blockedPrograms: (r.blockedAccounts || []).map((b) => b.program),
 
-      // ✅ flags (pra UI mostrar botões)
+      // ✅ flags (pra UI mostrar os botões)
       hasSenhaEmail: !!r.senhaEmail,
       hasSenhaLatamPass: !!r.senhaLatamPass,
       hasSenhaSmiles: !!r.senhaSmiles,
