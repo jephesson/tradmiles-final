@@ -352,12 +352,7 @@ export default function Sidebar() {
       {/* Header */}
       <div className="flex items-center justify-between border-b p-4">
         <div className="flex items-center gap-3">
-          <Image
-            src="/trademiles.png"
-            alt="TradeMiles"
-            width={32}
-            height={32}
-          />
+          <Image src="/trademiles.png" alt="TradeMiles" width={32} height={32} />
           <span className="font-semibold">TradeMiles</span>
         </div>
 
@@ -397,10 +392,16 @@ export default function Sidebar() {
             <NavLink href="/dashboard/cedentes/importar">
               Importar cedentes
             </NavLink>
+
             <NavLink href="/dashboard/cedentes/novo">Cadastrar cedente</NavLink>
 
             <NavLink href="/dashboard/cedentes/pendentes">
               Cedentes pendentes
+            </NavLink>
+
+            {/* ✅ NOVO */}
+            <NavLink href="/dashboard/cedentes/historico-cadastro">
+              Histórico de cadastro
             </NavLink>
 
             <NavLink href="/dashboard/bloqueios">Contas bloqueadas</NavLink>
@@ -723,12 +724,14 @@ export default function Sidebar() {
             <NavLink href="/dashboard/emissoes" className="font-semibold">
               Últimas emissões
             </NavLink>
+
             <NavLink
               href="/dashboard/emissoes?programa=latam"
               className="font-semibold"
             >
               Latam
             </NavLink>
+
             <NavLink
               href="/dashboard/emissoes?programa=smiles"
               className="font-semibold"
