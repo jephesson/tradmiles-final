@@ -400,6 +400,14 @@ export default function Sidebar() {
             </NavLink>
 
             {/* ✅ NOVO */}
+            <NavLink href="/dashboard/cedentes/revisao">
+              Revisão de cedentes
+            </NavLink>
+
+            {/* ✅ NOVO */}
+            <NavLink href="/dashboard/cedentes/whatsapp">Whatsapp</NavLink>
+
+            {/* ✅ NOVO */}
             <NavLink href="/dashboard/cedentes/historico-cadastro">
               Histórico de cadastro
             </NavLink>
