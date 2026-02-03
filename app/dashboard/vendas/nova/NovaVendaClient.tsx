@@ -187,6 +187,26 @@ function applyLatamWindow(s: Suggestion, usedRaw: number): Suggestion {
   };
 }
 
+const LATAM_BIOMETRIA_AVISO = `⚠️ AVISO IMPORTANTE – NOVO PROTOCOLO LATAM (BIOMETRIA FACIAL)
+
+A LATAM passou a exigir biometria facial do titular da conta sempre que houver resgate/emissão de passagens com pontos para terceiros.
+
+Atualmente, para que a emissão seja feita sem travar nessa etapa, será necessário:
+
+✅ Caso a reserva seja para mais de um passageiro, inserir temporariamente o CPF do titular da conta nos dados só do primeiro passageiro
+✅ ajustar a nacionalidade, para evitar o check-in automático
+
+📌 Importante:
+Caso o cliente autorize esse procedimento, será obrigatório que os dados sejam corrigidos posteriormente pelo próprio cliente ou pela agência responsável, alterando novamente para o CPF e nacionalidade corretos do passageiro, o que pode ser feito:
+
+1 - no autoatendimento do aeroporto
+
+2 - ou até 48h antes do voo
+
+➡️ Se essa autorização não for dada durante o preenchimento dos dados do passageiro, a emissão será feita via biometria facial, o que poderá demorar mais do que o normal, pois a biometria só pode ser feita pelo titular da conta.
+
+Pedimos compreensão e paciência, pois trata-se de uma nova medida de segurança implantada pela companhia aérea.`;
+
 export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) {
   const detailsRef = useRef<HTMLDivElement | null>(null);
 
@@ -236,7 +256,11 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
           out?.user ||
           null;
         if (sess?.id && sess?.login) {
-          setMe({ id: sess.id, login: sess.login, name: sess.name || sess.login });
+          setMe({
+            id: sess.id,
+            login: sess.login,
+            name: sess.name || sess.login,
+          });
         }
       } catch {
         // ignora
@@ -315,7 +339,9 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
   const [clientesError, setClientesError] = useState<string>("");
 
   // ✅ âncora: sempre manter o selecionado no dropdown
-  const [selectedCliente, setSelectedCliente] = useState<ClienteLite | null>(null);
+  const [selectedCliente, setSelectedCliente] = useState<ClienteLite | null>(
+    null
+  );
 
   // ✅ modal "cadastro rápido"
   const [clienteModalOpen, setClienteModalOpen] = useState(false);
@@ -342,6 +368,9 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
   const [compras, setCompras] = useState<CompraLiberada[]>([]);
   const [purchaseNumero, setPurchaseNumero] = useState(""); // guarda ID00018
   const [loadingCompras, setLoadingCompras] = useState(false);
+
+  // ✅ tick pra recarregar compras (botão)
+  const [comprasReloadTick, setComprasReloadTick] = useState(0);
 
   // funcionários (para cartão)
   const [users, setUsers] = useState<UserLite[]>([]);
@@ -448,6 +477,14 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
     } catch {
       const ok = prompt(`Copie manualmente (${label}):`, value);
       void ok;
+    }
+  }
+
+  async function copySilent(value: string) {
+    try {
+      await navigator.clipboard.writeText(value);
+    } catch {
+      prompt("Copie:", value);
     }
   }
 
@@ -573,9 +610,9 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
       try {
         const url = `/api/vendas/sugestoes?program=${encodeURIComponent(
           program
-        )}&points=${encodeURIComponent(String(pointsTotal))}&passengers=${encodeURIComponent(
-          String(passengers)
-        )}`;
+        )}&points=${encodeURIComponent(
+          String(pointsTotal)
+        )}&passengers=${encodeURIComponent(String(passengers))}`;
 
         const out = await api<{ ok: true; suggestions: Suggestion[] }>(url, {
           signal: ac.signal,
@@ -652,7 +689,9 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
         });
       } catch (e: any) {
         if (e?.name !== "AbortError") {
-          setLatamPaxError(e?.message || "Falha ao ajustar PAX (janela 365 dias).");
+          setLatamPaxError(
+            e?.message || "Falha ao ajustar PAX (janela 365 dias)."
+          );
         }
       } finally {
         if (!ac.signal.aborted) setLatamPaxLoading(false);
@@ -692,10 +731,16 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
         const out = await api<any>(url, { signal: ac.signal } as any);
 
         let list: ClienteLite[] =
-          out?.clientes || out?.data?.clientes || out?.data?.data?.clientes || [];
+          out?.clientes ||
+          out?.data?.clientes ||
+          out?.data?.data?.clientes ||
+          [];
         if (!Array.isArray(list)) list = [];
 
-        if (selectedCliente?.id && !list.some((x) => x.id === selectedCliente.id)) {
+        if (
+          selectedCliente?.id &&
+          !list.some((x) => x.id === selectedCliente.id)
+        ) {
           list = [selectedCliente, ...list];
         }
 
@@ -705,7 +750,8 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
           const fallback = selectedCliente ? [selectedCliente] : [];
           setClientes(fallback);
 
-          if (!isRecent) setClientesError(e?.message || "Erro ao buscar clientes.");
+          if (!isRecent)
+            setClientesError(e?.message || "Erro ao buscar clientes.");
         }
       } finally {
         if (!ac.signal.aborted) setLoadingClientes(false);
@@ -737,7 +783,9 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
         telefone: novoCliente.telefone ? onlyDigits(novoCliente.telefone) : null,
         origem: novoCliente.origem,
         origemDescricao:
-          novoCliente.origem === "OUTROS" ? novoCliente.origemDescricao.trim() : null,
+          novoCliente.origem === "OUTROS"
+            ? novoCliente.origemDescricao.trim()
+            : null,
       };
 
       const out = await api<any>("/api/clientes", {
@@ -763,7 +811,10 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
       setClientes((prev) => {
         const exists = prev.some((x) => x.id === created.id);
         const next = exists ? prev : [created, ...prev];
-        return [created, ...next.filter((x) => x.id !== created.id)].slice(0, 20);
+        return [created, ...next.filter((x) => x.id !== created.id)].slice(
+          0,
+          20
+        );
       });
 
       setClienteModalOpen(false);
@@ -783,7 +834,6 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
   }
 
   // ✅ quando escolhe cedente -> carrega compras LIBERADAS (CLOSED) daquele cedente
-  // 🔧 inclui program no request (se teu backend suportar) + cache buster
   useEffect(() => {
     const ac = new AbortController();
 
@@ -808,7 +858,6 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
         const list = Array.isArray(out.compras) ? out.compras : [];
         setCompras(list);
 
-        // ✅ não “força” trocar seleção se já tem uma válida
         setPurchaseNumero((prev) => {
           if (prev && list.some((c) => c.numero === prev)) return prev;
           if (list.length === 1) return list[0].numero;
@@ -825,7 +874,7 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
     })();
 
     return () => ac.abort();
-  }, [sel?.cedente?.id, program]);
+  }, [sel?.cedente?.id, program, comprasReloadTick]);
 
   // ✅ helper: formata input de pontos e manda pro setter certo
   function onChangePoints(setter: (v: string) => void, v: string) {
@@ -921,16 +970,16 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
     if (args.tripKind === "IDA_VOLTA") {
       const idaDesc =
         args.idaMode === "POR_PAX"
-          ? `${fmtInt(args.idaInput)}/pax x ${fmtInt(args.passengers)} = ${fmtInt(
-              args.idaTotalPoints
-            )}`
+          ? `${fmtInt(args.idaInput)}/pax x ${fmtInt(
+              args.passengers
+            )} = ${fmtInt(args.idaTotalPoints)}`
           : `${fmtInt(args.idaTotalPoints)}`;
 
       const voltaDesc =
         args.voltaMode === "POR_PAX"
-          ? `${fmtInt(args.voltaInput)}/pax x ${fmtInt(args.passengers)} = ${fmtInt(
-              args.voltaTotalPoints
-            )}`
+          ? `${fmtInt(args.voltaInput)}/pax x ${fmtInt(
+              args.passengers
+            )} = ${fmtInt(args.voltaTotalPoints)}`
           : `${fmtInt(args.voltaTotalPoints)}`;
 
       lines.push(
@@ -939,9 +988,9 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
     } else {
       const idaDesc =
         args.idaMode === "POR_PAX"
-          ? `${fmtInt(args.idaTotalPoints)} (${fmtInt(args.idaInput)}/pax x ${fmtInt(
-              args.passengers
-            )})`
+          ? `${fmtInt(args.idaTotalPoints)} (${fmtInt(
+              args.idaInput
+            )}/pax x ${fmtInt(args.passengers)})`
           : `${fmtInt(args.idaTotalPoints)}`;
       lines.push(`🎯 Pontos: ${idaDesc}`);
     }
@@ -952,7 +1001,8 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
     lines.push(`🛄 Taxa embarque: ${fmtMoneyBR(args.embarqueFeeCents)}`);
     lines.push(`💰 Total: ${fmtMoneyBR(args.totalCents)}`);
 
-    if (args.locator?.trim()) lines.push(`🔎 Localizador: ${args.locator.trim()}`);
+    if (args.locator?.trim())
+      lines.push(`🔎 Localizador: ${args.locator.trim()}`);
 
     lines.push("");
     lines.push("Dados para pagamento");
@@ -969,12 +1019,16 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
 
     if (!sel?.eligible) return alert("Selecione um cedente elegível.");
     if (!clienteId) return alert("Selecione um cliente.");
-    if (!purchaseNumero) return alert("Selecione a compra LIBERADA (ID00018).");
+    if (!purchaseNumero)
+      return alert("Selecione a compra LIBERADA (ID00018).");
     if (!compraSel) return alert("Compra selecionada inválida.");
-    if (pointsTotal <= 0 || passengers <= 0) return alert("Pontos/Passageiros inválidos.");
+    if (pointsTotal <= 0 || passengers <= 0)
+      return alert("Pontos/Passageiros inválidos.");
     if (milheiroCents <= 0) return alert("Milheiro inválido.");
-    if (!locator?.trim()) return alert("Informe o localizador (obrigatório).");
-    if (feeCardPreset === "MANUAL" && !feeCardLabel) return alert("Informe o nome do cartão (manual).");
+    if (!locator?.trim())
+      return alert("Informe o localizador (obrigatório).");
+    if (feeCardPreset === "MANUAL" && !feeCardLabel)
+      return alert("Informe o nome do cartão (manual).");
 
     const payload = {
       program,
@@ -1082,7 +1136,10 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
     if (sel) return "Selecionado";
     const q = normStr(cedenteQ);
     if (!suggestions.length) return "0 resultados";
-    if (q) return `${Math.min(10, filteredSuggestions.length)} de ${filteredSuggestions.length} (busca)`;
+    if (q)
+      return `${Math.min(10, filteredSuggestions.length)} de ${
+        filteredSuggestions.length
+      } (busca)`;
     return `${Math.min(10, suggestions.length)} de ${suggestions.length}`;
   }, [loadingSug, sel, cedenteQ, suggestions.length, filteredSuggestions.length]);
 
@@ -1090,6 +1147,86 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
     () => (me?.name ? `Meu cartão (${me.name})` : "Meu cartão"),
     [me?.name]
   );
+
+  // ======================================================
+  // ✅ WhatsApp do cedente (somente LATAM) + modal aviso
+  // ======================================================
+  const [waMap, setWaMap] = useState<
+    Record<
+      string,
+      { telefone: string | null; whatsappE164: string | null; whatsappUrl: string | null }
+    >
+  >({});
+  const [waLoading, setWaLoading] = useState(false);
+  const [waError, setWaError] = useState("");
+
+  const [latamAvisoOpen, setLatamAvisoOpen] = useState(false);
+  const lastLatamCedenteRef = useRef<string | null>(null);
+
+  const selWhatsApp = useMemo(() => {
+    const id = sel?.cedente?.id;
+    return id ? waMap[id] || null : null;
+  }, [sel?.cedente?.id, waMap]);
+
+  async function loadCedentesWhatsapp(signal?: AbortSignal) {
+    setWaLoading(true);
+    setWaError("");
+    try {
+      const out = await api<any>("/api/cedentes/whatsapp", { signal } as any);
+      const rows = Array.isArray(out?.rows)
+        ? out.rows
+        : Array.isArray(out?.data?.rows)
+        ? out.data.rows
+        : Array.isArray(out?.data)
+        ? out.data
+        : [];
+
+      const next: Record<
+        string,
+        { telefone: string | null; whatsappE164: string | null; whatsappUrl: string | null }
+      > = {};
+
+      for (const r of rows) {
+        if (!r?.id) continue;
+        next[String(r.id)] = {
+          telefone: r.telefone ?? null,
+          whatsappE164: r.whatsappE164 ?? null,
+          whatsappUrl: r.whatsappUrl ?? null,
+        };
+      }
+
+      setWaMap(next);
+    } catch (e: any) {
+      if (e?.name !== "AbortError") {
+        setWaError(e?.message || "Erro ao carregar WhatsApp dos cedentes.");
+      }
+    } finally {
+      if (!signal?.aborted) setWaLoading(false);
+    }
+  }
+
+  // ✅ abre pop-up automaticamente ao selecionar cedente na LATAM (1x por cedente)
+  useEffect(() => {
+    if (program !== "LATAM") return;
+    const id = sel?.cedente?.id;
+    if (!id) return;
+    if (lastLatamCedenteRef.current !== id) {
+      lastLatamCedenteRef.current = id;
+      setLatamAvisoOpen(true);
+    }
+  }, [program, sel?.cedente?.id]);
+
+  // ✅ carrega WhatsApp uma vez (quando selecionar LATAM)
+  useEffect(() => {
+    if (program !== "LATAM") return;
+    if (!sel?.cedente?.id) return;
+    if (Object.keys(waMap).length > 0) return;
+
+    const ac = new AbortController();
+    loadCedentesWhatsapp(ac.signal);
+    return () => ac.abort();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [program, sel?.cedente?.id]);
 
   return (
     <div className="p-6 space-y-6">
@@ -1100,7 +1237,9 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
           <p className="text-sm text-slate-500">
             Informe pontos + CIA + passageiros. O sistema sugere o melhor cedente.
           </p>
-          {sugError ? <div className="mt-2 text-xs text-rose-600">{sugError}</div> : null}
+          {sugError ? (
+            <div className="mt-2 text-xs text-rose-600">{sugError}</div>
+          ) : null}
         </div>
 
         <div className="flex gap-2">
@@ -1158,7 +1297,8 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
               </label>
 
               <span className="text-slate-500">
-                • Total calculado: <b className="tabular-nums">{fmtInt(pointsTotal)}</b>
+                • Total calculado:{" "}
+                <b className="tabular-nums">{fmtInt(pointsTotal)}</b>
               </span>
             </div>
 
@@ -1171,7 +1311,11 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
                   className="w-full rounded-xl border px-3 py-2 text-sm font-mono"
                   value={idaStr}
                   onChange={(e) => onChangePoints(setIdaStr, e.target.value)}
-                  placeholder={idaMode === "POR_PAX" ? "Ex: 100.000 (por pax)" : "Ex: 200.000 (total)"}
+                  placeholder={
+                    idaMode === "POR_PAX"
+                      ? "Ex: 100.000 (por pax)"
+                      : "Ex: 200.000 (total)"
+                  }
                 />
 
                 <div className="mt-2 flex flex-wrap items-center gap-3 text-[11px] text-slate-600">
@@ -1196,7 +1340,8 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
 
                   {idaMode === "POR_PAX" && idaInput > 0 ? (
                     <span className="text-slate-500">
-                      • Ida total: <b className="tabular-nums">{fmtInt(idaTotalPoints)}</b>
+                      • Ida total:{" "}
+                      <b className="tabular-nums">{fmtInt(idaTotalPoints)}</b>
                     </span>
                   ) : null}
                 </div>
@@ -1216,7 +1361,11 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
                   className="w-full rounded-xl border px-3 py-2 text-sm font-mono disabled:bg-slate-50"
                   value={voltaStr}
                   onChange={(e) => onChangePoints(setVoltaStr, e.target.value)}
-                  placeholder={voltaMode === "POR_PAX" ? "Ex: 100.000 (por pax)" : "Ex: 200.000 (total)"}
+                  placeholder={
+                    voltaMode === "POR_PAX"
+                      ? "Ex: 100.000 (por pax)"
+                      : "Ex: 200.000 (total)"
+                  }
                 />
 
                 <div className="mt-2 flex flex-wrap items-center gap-3 text-[11px] text-slate-600">
@@ -1241,9 +1390,12 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
                     Por passageiro
                   </label>
 
-                  {tripKind === "IDA_VOLTA" && voltaMode === "POR_PAX" && voltaInput > 0 ? (
+                  {tripKind === "IDA_VOLTA" &&
+                  voltaMode === "POR_PAX" &&
+                  voltaInput > 0 ? (
                     <span className="text-slate-500">
-                      • Volta total: <b className="tabular-nums">{fmtInt(voltaTotalPoints)}</b>
+                      • Volta total:{" "}
+                      <b className="tabular-nums">{fmtInt(voltaTotalPoints)}</b>
                     </span>
                   ) : null}
                 </div>
@@ -1258,14 +1410,17 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
               min={1}
               className="w-full rounded-xl border px-3 py-2 text-sm font-mono"
               value={passengers}
-              onChange={(e) => setPassengers(Math.max(1, clampInt(e.target.value)))}
+              onChange={(e) =>
+                setPassengers(Math.max(1, clampInt(e.target.value)))
+              }
             />
           </label>
         </div>
 
         <div className="mt-4 text-xs text-slate-500">
-          Sugestões consideram: <b>pontos</b>, <b>limite de passageiros</b> (LATAM: 365 dias / Smiles: anual) e{" "}
-          <b>bloqueio</b> (BlockedAccount OPEN).
+          Sugestões consideram: <b>pontos</b>, <b>limite de passageiros</b>{" "}
+          (LATAM: 365 dias / Smiles: anual) e <b>bloqueio</b> (BlockedAccount
+          OPEN).
         </div>
       </div>
 
@@ -1275,7 +1430,8 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
           <div>
             <div className="font-medium">2) Cedentes sugeridos</div>
             <div className="text-xs text-slate-500">
-              Prioridade: sobrar &lt; 2k (MAX) • sobrar 3-10k (BAIXA) • acima de 10k, sobrar menos primeiro.
+              Prioridade: sobrar &lt; 2k (MAX) • sobrar 3-10k (BAIXA) • acima de
+              10k, sobrar menos primeiro.
             </div>
             {program === "LATAM" ? (
               <div className="mt-1 text-[11px] text-slate-500">
@@ -1297,9 +1453,12 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
             <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
               <div className="space-y-1">
                 <div className="text-xs text-slate-500">Cedente selecionado</div>
-                <div className="text-base font-semibold">{sel.cedente.nomeCompleto}</div>
+                <div className="text-base font-semibold">
+                  {sel.cedente.nomeCompleto}
+                </div>
                 <div className="text-xs text-slate-500">
-                  {sel.cedente.identificador} • Resp.: <b>{sel.cedente.owner.name}</b> (@{sel.cedente.owner.login})
+                  {sel.cedente.identificador} • Resp.:{" "}
+                  <b>{sel.cedente.owner.name}</b> (@{sel.cedente.owner.login})
                 </div>
 
                 <div className="mt-2 flex flex-wrap gap-2 text-xs">
@@ -1310,34 +1469,50 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
                   {/* ✅ PAX disponível AJUSTADO (APÓS esta venda) */}
                   <span className="rounded-full border bg-white px-2 py-1">
                     PAX após:{" "}
-                    <b className={cn("tabular-nums", selPaxAfter < 0 ? "text-rose-600" : "")}>
+                    <b
+                      className={cn(
+                        "tabular-nums",
+                        selPaxAfter < 0 ? "text-rose-600" : ""
+                      )}
+                    >
                       {fmtInt(Math.max(0, selPaxAfter))}
                     </b>{" "}
                     <span className="text-slate-500">
-                      (agora {fmtInt(sel.availablePassengersYear)} • usados {fmtInt(sel.usedPassengersYear)}/{fmtInt(sel.paxLimit)}
-                      {program === "LATAM" ? " • 365d" : ""} • consome {fmtInt(sel.passengersNeeded)})
+                      (agora {fmtInt(sel.availablePassengersYear)} • usados{" "}
+                      {fmtInt(sel.usedPassengersYear)}/{fmtInt(sel.paxLimit)}
+                      {program === "LATAM" ? " • 365d" : ""} • consome{" "}
+                      {fmtInt(sel.passengersNeeded)})
                     </span>
                   </span>
 
                   <span className="rounded-full border bg-white px-2 py-1">
-                    Sobra: <b className="tabular-nums">{fmtInt(sel.leftoverPoints)}</b>
+                    Sobra:{" "}
+                    <b className="tabular-nums">{fmtInt(sel.leftoverPoints)}</b>
                   </span>
 
-                  <span className={cn("rounded-full border px-2 py-1", badgeClass(sel.priorityLabel))}>
+                  <span
+                    className={cn(
+                      "rounded-full border px-2 py-1",
+                      badgeClass(sel.priorityLabel)
+                    )}
+                  >
                     {sel.priorityLabel}
                   </span>
                 </div>
 
                 {sel.alerts.includes("PASSAGEIROS_ESTOURADOS_COM_PONTOS") ? (
                   <div className="mt-2 text-[11px] text-rose-600">
-                    Alerta: limite de passageiros estoura e ainda sobraria &gt; 3.000 pts.
+                    Alerta: limite de passageiros estoura e ainda sobraria &gt;
+                    3.000 pts.
                   </div>
                 ) : null}
 
                 {/* ✅ Credenciais (revelar) */}
                 <div className="mt-3 rounded-xl border bg-slate-50 p-3">
                   <div className="flex items-center justify-between gap-2">
-                    <div className="text-xs font-semibold text-slate-700">Credenciais ({program})</div>
+                    <div className="text-xs font-semibold text-slate-700">
+                      Credenciais ({program})
+                    </div>
 
                     <div className="flex items-center gap-2">
                       <button
@@ -1363,16 +1538,32 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
                         {revealCreds ? "Ocultar" : "Revelar"}
                       </button>
 
-                      {loadingCreds ? <div className="text-[11px] text-slate-500">Carregando…</div> : null}
+                      {loadingCreds ? (
+                        <div className="text-[11px] text-slate-500">
+                          Carregando…
+                        </div>
+                      ) : null}
                     </div>
                   </div>
 
-                  {credsError ? <div className="mt-1 text-[11px] text-rose-600">{credsError}</div> : null}
+                  {credsError ? (
+                    <div className="mt-1 text-[11px] text-rose-600">
+                      {credsError}
+                    </div>
+                  ) : null}
 
                   {revealCreds ? (
                     <div className="mt-2 grid gap-2 md:grid-cols-2">
-                      <CopyField label="CPF" value={credCpf} onCopy={(v) => copyText("CPF", v)} />
-                      <CopyField label="Email" value={credEmail} onCopy={(v) => copyText("Email", v)} />
+                      <CopyField
+                        label="CPF"
+                        value={credCpf}
+                        onCopy={(v) => copyText("CPF", v)}
+                      />
+                      <CopyField
+                        label="Email"
+                        value={credEmail}
+                        onCopy={(v) => copyText("Email", v)}
+                      />
 
                       <CopyField
                         label="Senha do programa"
@@ -1396,12 +1587,93 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
                     </div>
                   )}
                 </div>
+
+                {/* ✅ WhatsApp do cedente (apenas LATAM) */}
+                {program === "LATAM" ? (
+                  <div className="mt-3 rounded-xl border bg-white p-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="text-xs font-semibold text-slate-700">
+                        WhatsApp do cedente
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setLatamAvisoOpen(true)}
+                          className="rounded-lg border bg-white px-2 py-1 text-[11px] hover:bg-slate-50"
+                          title="Abrir o aviso de biometria novamente"
+                        >
+                          Aviso LATAM
+                        </button>
+
+                        <button
+                          type="button"
+                          disabled={!selWhatsApp?.whatsappUrl}
+                          onClick={() => {
+                            const url = selWhatsApp?.whatsappUrl;
+                            if (!url) return;
+                            window.open(url, "_blank", "noopener,noreferrer");
+                          }}
+                          className={cn(
+                            "rounded-lg border bg-white px-2 py-1 text-[11px]",
+                            selWhatsApp?.whatsappUrl
+                              ? "hover:bg-slate-50"
+                              : "opacity-40 cursor-not-allowed"
+                          )}
+                        >
+                          Abrir WhatsApp
+                        </button>
+
+                        <button
+                          type="button"
+                          disabled={!selWhatsApp?.whatsappUrl}
+                          onClick={async () => {
+                            const url = selWhatsApp?.whatsappUrl;
+                            if (!url) return;
+                            await copySilent(url);
+                          }}
+                          className={cn(
+                            "rounded-lg border bg-white px-2 py-1 text-[11px]",
+                            selWhatsApp?.whatsappUrl
+                              ? "hover:bg-slate-50"
+                              : "opacity-40 cursor-not-allowed"
+                          )}
+                        >
+                          Copiar link
+                        </button>
+                      </div>
+                    </div>
+
+                    {waLoading ? (
+                      <div className="mt-2 text-[11px] text-slate-500">
+                        Carregando WhatsApp...
+                      </div>
+                    ) : waError ? (
+                      <div className="mt-2 text-[11px] text-rose-600">
+                        {waError}
+                      </div>
+                    ) : selWhatsApp?.whatsappUrl ? (
+                      <div className="mt-2 text-[11px] text-slate-600 break-all">
+                        {selWhatsApp.whatsappUrl}
+                      </div>
+                    ) : (
+                      <div className="mt-2 text-[11px] text-slate-500">
+                        Sem telefone/WhatsApp cadastrado para este cedente.
+                      </div>
+                    )}
+                  </div>
+                ) : null}
               </div>
 
               <div className="flex gap-2">
                 <button
                   type="button"
-                  onClick={() => detailsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}
+                  onClick={() =>
+                    detailsRef.current?.scrollIntoView({
+                      behavior: "smooth",
+                      block: "start",
+                    })
+                  }
                   className="rounded-xl border px-3 py-2 text-sm hover:bg-slate-50"
                 >
                   Ir para dados
@@ -1421,7 +1693,9 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
             <div className="p-5 border-b">
               <div className="grid gap-3 md:grid-cols-3 md:items-end">
                 <label className="space-y-1 md:col-span-2">
-                  <div className="text-xs text-slate-600">Pesquisar cedente (nome, ID, CPF, responsável)</div>
+                  <div className="text-xs text-slate-600">
+                    Pesquisar cedente (nome, ID, CPF, responsável)
+                  </div>
                   <input
                     className="w-full rounded-xl border px-3 py-2 text-sm"
                     value={cedenteQ}
@@ -1440,7 +1714,8 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
               </div>
 
               <div className="mt-2 text-xs text-slate-500">
-                Mostrando no máximo <b>10</b>. Para achar alguém específico, use a busca acima.
+                Mostrando no máximo <b>10</b>. Para achar alguém específico, use
+                a busca acima.
               </div>
             </div>
 
@@ -1448,12 +1723,24 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
               <table className="w-full text-sm">
                 <thead className="bg-slate-50 border-b">
                   <tr className="text-slate-600">
-                    <th className="text-left font-semibold px-4 py-3 w-[360px]">CEDENTE</th>
-                    <th className="text-left font-semibold px-4 py-3 w-[220px]">RESPONSÁVEL</th>
-                    <th className="text-right font-semibold px-4 py-3 w-[140px]">PTS</th>
-                    <th className="text-right font-semibold px-4 py-3 w-[260px]">PAX DISP. (após)</th>
-                    <th className="text-right font-semibold px-4 py-3 w-[140px]">SOBRA</th>
-                    <th className="text-left font-semibold px-4 py-3 w-[140px]">PRIOR.</th>
+                    <th className="text-left font-semibold px-4 py-3 w-[360px]">
+                      CEDENTE
+                    </th>
+                    <th className="text-left font-semibold px-4 py-3 w-[220px]">
+                      RESPONSÁVEL
+                    </th>
+                    <th className="text-right font-semibold px-4 py-3 w-[140px]">
+                      PTS
+                    </th>
+                    <th className="text-right font-semibold px-4 py-3 w-[260px]">
+                      PAX DISP. (após)
+                    </th>
+                    <th className="text-right font-semibold px-4 py-3 w-[140px]">
+                      SOBRA
+                    </th>
+                    <th className="text-left font-semibold px-4 py-3 w-[140px]">
+                      PRIOR.
+                    </th>
                     <th className="text-right font-semibold px-4 py-3 w-[120px]"></th>
                   </tr>
                 </thead>
@@ -1466,7 +1753,9 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
                     </tr>
                   ) : null}
 
-                  {!loadingSug && suggestions.length > 0 && visibleSuggestions.length === 0 ? (
+                  {!loadingSug &&
+                  suggestions.length > 0 &&
+                  visibleSuggestions.length === 0 ? (
                     <tr>
                       <td colSpan={7} className="px-4 py-8 text-slate-500">
                         Nenhum cedente encontrado para essa busca.
@@ -1476,7 +1765,9 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
 
                   {visibleSuggestions.map((s) => {
                     const badge = badgeClass(s.priorityLabel);
-                    const paxAfter = (s.availablePassengersYear || 0) - (s.passengersNeeded || 0);
+                    const paxAfter =
+                      (s.availablePassengersYear || 0) -
+                      (s.passengersNeeded || 0);
                     const paxAfterClamped = Math.max(0, paxAfter);
 
                     return (
@@ -1661,7 +1952,8 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
                     </option>
                     {compras.map((c) => (
                       <option key={c.id} value={c.numero}>
-                        {c.numero} • meta {((c.metaMilheiroCents || 0) / 100).toFixed(2).replace(".", ",")}
+                        {c.numero} • meta{" "}
+                        {((c.metaMilheiroCents || 0) / 100).toFixed(2).replace(".", ",")}
                       </option>
                     ))}
                   </select>
@@ -1670,14 +1962,11 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
                     A venda só deixa salvar se a compra estiver LIBERADA (status CLOSED) e for do mesmo cedente.
                   </div>
 
-                  {/* 🔧 botão de refresh manual (quando você suspeitar de cache server-side) */}
+                  {/* ✅ refresh manual real */}
                   <button
                     type="button"
                     className="mt-2 rounded-xl border px-3 py-1.5 text-sm hover:bg-slate-50"
-                    onClick={() => {
-                      // força re-disparar o effect mudando program p/ ele mesmo (hack simples)
-                      setProgram((p) => p);
-                    }}
+                    onClick={() => setComprasReloadTick((x) => x + 1)}
                     disabled={loadingCompras}
                   >
                     Recarregar compras
@@ -1855,7 +2144,9 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
             <div className="flex items-start justify-between gap-3">
               <div>
                 <div className="text-lg font-semibold">Cadastrar cliente</div>
-                <div className="text-xs text-slate-500">Cadastro rápido sem sair da venda.</div>
+                <div className="text-xs text-slate-500">
+                  Cadastro rápido sem sair da venda.
+                </div>
               </div>
               <button
                 type="button"
@@ -1873,7 +2164,10 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
                   className="w-full rounded-xl border px-3 py-2 text-sm bg-white"
                   value={novoCliente.tipo}
                   onChange={(e) =>
-                    setNovoCliente((p) => ({ ...p, tipo: e.target.value as ClienteTipo }))
+                    setNovoCliente((p) => ({
+                      ...p,
+                      tipo: e.target.value as ClienteTipo,
+                    }))
                   }
                 >
                   <option value="PESSOA">Pessoa</option>
@@ -1886,7 +2180,9 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
                 <input
                   className="w-full rounded-xl border px-3 py-2 text-sm"
                   value={novoCliente.nome}
-                  onChange={(e) => setNovoCliente((p) => ({ ...p, nome: e.target.value }))}
+                  onChange={(e) =>
+                    setNovoCliente((p) => ({ ...p, nome: e.target.value }))
+                  }
                   placeholder="Nome do cliente / empresa"
                 />
               </label>
@@ -1896,7 +2192,9 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
                 <input
                   className="w-full rounded-xl border px-3 py-2 text-sm"
                   value={novoCliente.cpfCnpj}
-                  onChange={(e) => setNovoCliente((p) => ({ ...p, cpfCnpj: e.target.value }))}
+                  onChange={(e) =>
+                    setNovoCliente((p) => ({ ...p, cpfCnpj: e.target.value }))
+                  }
                   placeholder="Somente números ou com máscara"
                 />
               </label>
@@ -1906,7 +2204,9 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
                 <input
                   className="w-full rounded-xl border px-3 py-2 text-sm"
                   value={novoCliente.telefone}
-                  onChange={(e) => setNovoCliente((p) => ({ ...p, telefone: e.target.value }))}
+                  onChange={(e) =>
+                    setNovoCliente((p) => ({ ...p, telefone: e.target.value }))
+                  }
                   placeholder="Somente números ou com máscara"
                 />
               </label>
@@ -1917,7 +2217,10 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
                   className="w-full rounded-xl border px-3 py-2 text-sm bg-white"
                   value={novoCliente.origem}
                   onChange={(e) =>
-                    setNovoCliente((p) => ({ ...p, origem: e.target.value as ClienteOrigem }))
+                    setNovoCliente((p) => ({
+                      ...p,
+                      origem: e.target.value as ClienteOrigem,
+                    }))
                   }
                 >
                   <option value="BALCAO_MILHAS">Balcão Milhas</option>
@@ -1934,7 +2237,10 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
                     className="w-full rounded-xl border px-3 py-2 text-sm"
                     value={novoCliente.origemDescricao}
                     onChange={(e) =>
-                      setNovoCliente((p) => ({ ...p, origemDescricao: e.target.value }))
+                      setNovoCliente((p) => ({
+                        ...p,
+                        origemDescricao: e.target.value,
+                      }))
                     }
                     placeholder="Ex: Indicação, Instagram, etc."
                   />
@@ -1960,7 +2266,9 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
                 onClick={criarClienteRapido}
                 className={cn(
                   "rounded-xl px-4 py-2 text-sm text-white",
-                  creatingCliente ? "bg-slate-400 cursor-not-allowed" : "bg-black hover:bg-gray-800"
+                  creatingCliente
+                    ? "bg-slate-400 cursor-not-allowed"
+                    : "bg-black hover:bg-gray-800"
                 )}
               >
                 {creatingCliente ? "Cadastrando..." : "Cadastrar"}
@@ -1977,7 +2285,9 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
             <div className="flex items-start justify-between gap-3">
               <div>
                 <div className="text-lg font-semibold">Confirmar venda</div>
-                <div className="text-xs text-slate-500">Confira os dados antes de salvar.</div>
+                <div className="text-xs text-slate-500">
+                  Confira os dados antes de salvar.
+                </div>
               </div>
               <button
                 type="button"
@@ -2088,7 +2398,8 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
                 onChange={(e) => setPostSaveMsg(e.target.value)}
               />
               <div className="mt-2 text-[11px] text-slate-500">
-                Obs: está em Markdown (asteriscos). Se teu Telegram não formatar, ainda fica legível.
+                Obs: está em Markdown (asteriscos). Se teu Telegram não formatar,
+                ainda fica legível.
               </div>
             </div>
 
@@ -2112,6 +2423,61 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
                 className="rounded-xl bg-black px-4 py-2 text-sm text-white hover:bg-gray-800"
               >
                 Copiar e ir para vendas
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {/* ✅ MODAL AVISO LATAM (biometria) */}
+      {latamAvisoOpen && program === "LATAM" ? (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-2xl rounded-2xl bg-white border p-5">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <div className="text-lg font-semibold">
+                  Aviso LATAM — Biometria facial
+                </div>
+                <div className="text-xs text-slate-500">
+                  Copie e envie para o cliente antes de prosseguir.
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setLatamAvisoOpen(false)}
+                className="rounded-lg border px-2 py-1 text-sm hover:bg-slate-50"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="mt-4">
+              <div className="text-xs text-slate-600 mb-1">Mensagem</div>
+              <textarea
+                className="w-full min-h-[260px] rounded-xl border p-3 text-sm whitespace-pre-wrap"
+                readOnly
+                value={LATAM_BIOMETRIA_AVISO}
+              />
+            </div>
+
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setLatamAvisoOpen(false)}
+                className="rounded-xl border px-4 py-2 text-sm hover:bg-slate-50"
+              >
+                Fechar
+              </button>
+
+              <button
+                type="button"
+                onClick={async () => {
+                  await copySilent(LATAM_BIOMETRIA_AVISO);
+                  setLatamAvisoOpen(false); // ✅ copia e fecha automático
+                }}
+                className="rounded-xl bg-black px-4 py-2 text-sm text-white hover:bg-gray-800"
+              >
+                Copiar
               </button>
             </div>
           </div>
