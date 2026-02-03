@@ -1,4 +1,3 @@
-// app/api/cedentes/whatsapp/route.ts
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/auth-server";
@@ -22,16 +21,30 @@ function bad(message: string, status = 400) {
   return NextResponse.json({ ok: false, error: message }, { status, headers: noCacheHeaders() });
 }
 
-type SessionLike = {
-  team?: string;
-  user?: { team?: string };
-};
-
 export async function GET() {
-  const session = (await requireSession()) as unknown as SessionLike;
+  const session = await requireSession();
 
-  // ✅ compatível com os dois formatos (session.team OU session.user.team)
-  const team = session?.team ?? session?.user?.team;
+  // ✅ não encosta em typings de Session: pega dados via "any"
+  const s: any = session;
+
+  // tenta formatos comuns
+  let team: string | undefined =
+    s?.team ??
+    s?.userTeam ??
+    s?.claims?.team ??
+    s?.user?.team; // (se existir em runtime)
+
+  // fallback: se não vier team, tenta descobrir via userId
+  if (!team) {
+    const userId: string | undefined = s?.userId ?? s?.id ?? s?.user?.id;
+    if (userId) {
+      const u = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { team: true },
+      });
+      team = u?.team;
+    }
+  }
 
   if (!team) {
     return bad("Sessão inválida: team não encontrado.", 401);
