@@ -18,11 +18,24 @@ function noCacheHeaders() {
   };
 }
 
-export async function GET() {
-  const session = await requireSession();
+function bad(message: string, status = 400) {
+  return NextResponse.json({ ok: false, error: message }, { status, headers: noCacheHeaders() });
+}
 
-  // Ajuste conforme seu session (team / userId).
-  const team = session.user.team;
+type SessionLike = {
+  team?: string;
+  user?: { team?: string };
+};
+
+export async function GET() {
+  const session = (await requireSession()) as unknown as SessionLike;
+
+  // ✅ compatível com os dois formatos (session.team OU session.user.team)
+  const team = session?.team ?? session?.user?.team;
+
+  if (!team) {
+    return bad("Sessão inválida: team não encontrado.", 401);
+  }
 
   const cedentes = await prisma.cedente.findMany({
     where: { owner: { team } },
