@@ -156,6 +156,11 @@ export default function Sidebar() {
   // ✅ NOVO: Protocolos
   const isProtocolosRoute = pathname.startsWith("/dashboard/protocolos");
 
+  // ✅ NOVO: OUTROS
+  const isAutomacaoRoute = pathname.startsWith("/dashboard/automacao");
+  const isWalletRoute = pathname.startsWith("/dashboard/wallet");
+  const isOutrosRoute = isAutomacaoRoute || isWalletRoute;
+
   /* =========================
    * ACCORDIONS
    * ========================= */
@@ -228,6 +233,9 @@ export default function Sidebar() {
 
   // ✅ NOVO: Protocolos
   const [openProtocolos, setOpenProtocolos] = useState(isProtocolosRoute);
+
+  // ✅ NOVO: OUTROS
+  const [openOutros, setOpenOutros] = useState(isOutrosRoute);
 
   useEffect(() => setOpenCadastro(isCadastroRoute), [isCadastroRoute]);
 
@@ -313,6 +321,11 @@ export default function Sidebar() {
   useEffect(() => {
     setOpenProtocolos(isProtocolosRoute);
   }, [isProtocolosRoute]);
+
+  // ✅ NOVO: mantém aberto quando entrar em /automacao/* ou /wallet/*
+  useEffect(() => {
+    setOpenOutros(isOutrosRoute);
+  }, [isOutrosRoute]);
 
   /* =========================
    * FILTRO (VISUALIZAR PONTOS)
@@ -765,6 +778,17 @@ export default function Sidebar() {
               Latam
             </NavLink>
           </SubAccordion>
+        </Accordion>
+
+        {/* ================= OUTROS ================= */}
+        <Accordion
+          title="Outros"
+          open={openOutros}
+          onToggle={() => setOpenOutros((v) => !v)}
+          active={isOutrosRoute}
+        >
+          <NavLink href="/dashboard/automacao">Automação</NavLink>
+          <NavLink href="/dashboard/wallet">Wallet</NavLink>
         </Accordion>
       </nav>
     </aside>
