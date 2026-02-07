@@ -35,8 +35,8 @@ function parseBRLToCents(input: string) {
   const parts = s.split(",");
   const intPart = (parts[0] || "").replace(/\D/g, "");
   const decPartRaw = (parts[1] || "").replace(/\D/g, "");
-
   const decPart = (decPartRaw + "00").slice(0, 2); // 2 casas
+
   const full = `${intPart}${decPart}`.replace(/^0+/, "") || "0";
   return Number(full);
 }
@@ -100,37 +100,63 @@ export default function WalletLatamClient() {
     });
   }, [rows, query]);
 
+  // ✅ tabela de baixo: só quem tem saldo cadastrado (> 0)
+  const rowsWithValue = useMemo(() => {
+    return [...rows]
+      .filter((r) => (r.wallet || 0) > 0)
+      .sort((a, b) => (b.wallet || 0) - (a.wallet || 0));
+  }, [rows]);
+
+  async function upsertAmount(cedenteId: string, amountCents: number) {
+    const r = await fetch("/api/wallet/latam", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ cedenteId, amountCents }),
+    });
+    const j = await r.json();
+    if (!j?.ok) throw new Error(j?.error || "Falha ao salvar.");
+
+    setRows((prev) =>
+      prev.map((x) =>
+        x.id === cedenteId
+          ? { ...x, wallet: j.saved.amountCents, walletUpdatedAt: j.saved.updatedAt }
+          : x
+      )
+    );
+    setTotalCents(j.totalCents || 0);
+
+    return j;
+  }
+
   async function save() {
     if (!selectedId) return;
     const cents = parseBRLToCents(amountText);
+
     try {
-      const r = await fetch("/api/wallet/latam", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ cedenteId: selectedId, amountCents: cents }),
-      });
-      const j = await r.json();
-      if (!j?.ok) throw new Error(j?.error || "Falha ao salvar.");
-
-      // atualiza rows localmente
-      setRows((prev) =>
-        prev.map((x) =>
-          x.id === selectedId
-            ? {
-                ...x,
-                wallet: j.saved.amountCents,
-                walletUpdatedAt: j.saved.updatedAt,
-              }
-            : x
-        )
-      );
-      setTotalCents(j.totalCents || 0);
-
-      // deixa input bonitinho
-      setAmountText(formatBRL(cents));
+      await upsertAmount(selectedId, cents);
+      setAmountText(formatBRL(cents)); // deixa o input bonitinho
     } catch (e: any) {
       console.error(e);
       alert(e?.message || "Erro ao salvar.");
+    }
+  }
+
+  async function zero(cedenteId: string) {
+    const r = rows.find((x) => x.id === cedenteId);
+    const label = r ? `${r.nomeCompleto} (${r.identificador})` : "este cedente";
+    const ok = window.confirm(`Zerar o saldo da wallet de ${label}?`);
+    if (!ok) return;
+
+    try {
+      await upsertAmount(cedenteId, 0);
+
+      // se for o selecionado, atualiza o input
+      if (selectedId === cedenteId) {
+        setAmountText(formatBRL(0));
+      }
+    } catch (e: any) {
+      console.error(e);
+      alert(e?.message || "Erro ao zerar.");
     }
   }
 
@@ -140,6 +166,13 @@ export default function WalletLatamClient() {
     setAmountText(r ? formatBRL(r.wallet || 0) : "");
     setOpen(false);
     setQuery("");
+  }
+
+  function editFromTable(id: string) {
+    setSelectedId(id);
+    const r = rows.find((x) => x.id === id);
+    setAmountText(r ? formatBRL(r.wallet || 0) : "");
+    window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
   return (
@@ -208,8 +241,7 @@ export default function WalletLatamClient() {
                       >
                         <div className="font-medium">{r.nomeCompleto}</div>
                         <div className="text-xs text-muted-foreground">
-                          {r.identificador} • CPF {r.cpf} • Wallet:{" "}
-                          {formatBRL(r.wallet || 0)}
+                          {r.identificador} • CPF {r.cpf} • Wallet: {formatBRL(r.wallet || 0)}
                         </div>
                       </button>
                     ))
@@ -228,30 +260,48 @@ export default function WalletLatamClient() {
               placeholder="Ex: 1.234,56"
               className="mt-1 w-full rounded-xl border px-3 py-2"
             />
-            <button
-              type="button"
-              onClick={save}
-              disabled={!selectedId || loading}
-              className={cn(
-                "mt-2 w-full rounded-xl px-3 py-2 font-medium",
-                !selectedId || loading
-                  ? "cursor-not-allowed bg-muted text-muted-foreground"
-                  : "bg-black text-white hover:opacity-90"
-              )}
-            >
-              Salvar
-            </button>
+
+            <div className="mt-2 flex gap-2">
+              <button
+                type="button"
+                onClick={save}
+                disabled={!selectedId || loading}
+                className={cn(
+                  "flex-1 rounded-xl px-3 py-2 font-medium",
+                  !selectedId || loading
+                    ? "cursor-not-allowed bg-muted text-muted-foreground"
+                    : "bg-black text-white hover:opacity-90"
+                )}
+              >
+                Salvar
+              </button>
+
+              <button
+                type="button"
+                onClick={() => selectedId && zero(selectedId)}
+                disabled={!selectedId || loading}
+                className={cn(
+                  "rounded-xl border px-3 py-2 font-medium",
+                  !selectedId || loading
+                    ? "cursor-not-allowed text-muted-foreground"
+                    : "hover:bg-muted/30"
+                )}
+                title="Zerar saldo (depois de sacar/usar)"
+              >
+                Zerar
+              </button>
+            </div>
           </div>
         </div>
       </div>
 
-      {/* Listagem */}
+      {/* ✅ Listagem: só os que têm saldo > 0 */}
       <div className="rounded-2xl border bg-white p-4 shadow-sm">
         <div className="mb-2 flex items-center justify-between gap-2">
           <div>
-            <div className="text-sm font-medium">Cedentes LATAM</div>
+            <div className="text-sm font-medium">Saldos cadastrados</div>
             <div className="text-xs text-muted-foreground">
-              {rows.length} cedentes
+              {rowsWithValue.length} cedentes com saldo
             </div>
           </div>
 
@@ -272,10 +322,12 @@ export default function WalletLatamClient() {
                 <th className="py-2">Identificador</th>
                 <th className="py-2">CPF</th>
                 <th className="py-2 text-right">Wallet (R$)</th>
+                <th className="py-2 text-right">Ações</th>
               </tr>
             </thead>
+
             <tbody>
-              {rows.map((r) => (
+              {rowsWithValue.map((r) => (
                 <tr key={r.id} className="border-b last:border-b-0">
                   <td className="py-2">
                     <div className="font-medium">{r.nomeCompleto}</div>
@@ -283,23 +335,46 @@ export default function WalletLatamClient() {
                       Owner: {r.owner?.name || r.owner?.login || "-"}
                     </div>
                   </td>
+
                   <td className="py-2">{r.identificador}</td>
                   <td className="py-2">{r.cpf}</td>
+
                   <td className="py-2 text-right font-medium">
                     {formatBRL(r.wallet || 0)}
                   </td>
+
+                  <td className="py-2 text-right">
+                    <button
+                      type="button"
+                      onClick={() => editFromTable(r.id)}
+                      className="mr-2 rounded-xl border px-3 py-1.5 text-sm hover:bg-muted/30"
+                    >
+                      Editar
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => zero(r.id)}
+                      className="rounded-xl border px-3 py-1.5 text-sm hover:bg-muted/30"
+                      title="Depois de sacar/usar, zere para sair da lista"
+                    >
+                      Zerar
+                    </button>
+                  </td>
                 </tr>
               ))}
-              {rows.length === 0 && !loading && (
+
+              {!loading && rowsWithValue.length === 0 && (
                 <tr>
-                  <td className="py-6 text-center text-muted-foreground" colSpan={4}>
-                    Nenhum cedente LATAM encontrado (pela regra atual).
+                  <td className="py-6 text-center text-muted-foreground" colSpan={5}>
+                    Nenhum saldo cadastrado ainda (wallet > R$ 0,00).
                   </td>
                 </tr>
               )}
+
               {loading && (
                 <tr>
-                  <td className="py-6 text-center text-muted-foreground" colSpan={4}>
+                  <td className="py-6 text-center text-muted-foreground" colSpan={5}>
                     Carregando…
                   </td>
                 </tr>

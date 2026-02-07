@@ -38,17 +38,10 @@ export async function GET() {
   const session = await requireSession();
   const team = session.team;
 
-  // “Cedentes da LATAM” (heurística segura):
-  // - tem senhaLatamPass OU pontosLatam > 0 OU tem Turbo LATAM configurado
+  // ✅ TODOS os cedentes do time (sem heurística LATAM)
   const cedentes = await prisma.cedente.findMany({
     where: {
       owner: { team },
-      OR: [
-        { senhaLatamPass: { not: null } },
-        { pontosLatam: { gt: 0 } },
-        { latamTurboMonths: { some: {} } },
-        { latamTurboAccount: { isNot: null } as any },
-      ],
     },
     select: {
       id: true,
@@ -80,7 +73,12 @@ export async function GET() {
     walletUpdatedAt: byCedente[c.id]?.updatedAt ?? null,
   }));
 
-  const totalCents = rows.reduce((acc, r) => acc + (r.wallet || 0), 0);
+  // ✅ total eficiente (somatório direto no banco)
+  const agg = await prisma.walletBalance.aggregate({
+    where: { team, program: LoyaltyProgram.LATAM },
+    _sum: { amountCents: true },
+  });
+  const totalCents = agg._sum.amountCents ?? 0;
 
   return NextResponse.json(
     { ok: true, rows, totalCents },
@@ -130,12 +128,12 @@ export async function POST(req: NextRequest) {
     select: { cedenteId: true, amountCents: true, updatedAt: true },
   });
 
-  // devolve total atualizado (rápido)
-  const all = await prisma.walletBalance.findMany({
+  // ✅ total eficiente (somatório direto no banco)
+  const agg = await prisma.walletBalance.aggregate({
     where: { team, program: LoyaltyProgram.LATAM },
-    select: { amountCents: true },
+    _sum: { amountCents: true },
   });
-  const totalCents = all.reduce((acc, x) => acc + x.amountCents, 0);
+  const totalCents = agg._sum.amountCents ?? 0;
 
   return NextResponse.json(
     {
