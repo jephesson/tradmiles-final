@@ -367,7 +367,7 @@ export default function WalletLatamClient() {
               {!loading && rowsWithValue.length === 0 && (
                 <tr>
                   <td className="py-6 text-center text-muted-foreground" colSpan={5}>
-                    Nenhum saldo cadastrado ainda (wallet > R$ 0,00).
+                    Nenhum saldo cadastrado ainda (wallet &gt; R$ 0,00).
                   </td>
                 </tr>
               )}
