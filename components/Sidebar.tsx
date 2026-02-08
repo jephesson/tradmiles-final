@@ -159,7 +159,11 @@ export default function Sidebar() {
   // ✅ NOVO: OUTROS
   const isAutomacaoRoute = pathname.startsWith("/dashboard/automacao");
   const isWalletRoute = pathname.startsWith("/dashboard/wallet");
-  const isOutrosRoute = isAutomacaoRoute || isWalletRoute;
+
+  // ✅ NOVO: Agenda
+  const isAgendaRoute = pathname.startsWith("/dashboard/agenda");
+
+  const isOutrosRoute = isAutomacaoRoute || isWalletRoute || isAgendaRoute;
 
   /* =========================
    * ACCORDIONS
@@ -322,7 +326,7 @@ export default function Sidebar() {
     setOpenProtocolos(isProtocolosRoute);
   }, [isProtocolosRoute]);
 
-  // ✅ NOVO: mantém aberto quando entrar em /automacao/* ou /wallet/*
+  // ✅ NOVO: mantém aberto quando entrar em /automacao/* ou /wallet/* ou /agenda/*
   useEffect(() => {
     setOpenOutros(isOutrosRoute);
   }, [isOutrosRoute]);
@@ -788,6 +792,10 @@ export default function Sidebar() {
           active={isOutrosRoute}
         >
           <NavLink href="/dashboard/automacao">Automação</NavLink>
+
+          {/* ✅ NOVO: Agenda */}
+          <NavLink href="/dashboard/agenda">Agenda</NavLink>
+
           <NavLink href="/dashboard/wallet">Wallet</NavLink>
         </Accordion>
       </nav>
