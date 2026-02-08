@@ -167,6 +167,18 @@ model User {
   // ✅ WALLET (quem atualizou)
   walletBalancesUpdated WalletBalance[] @relation("WalletBalanceUpdatedBy")
 
+  /**
+   * =========================
+   * ✅ AGENDA (NOVO)
+   * =========================
+   * IMPORTANTE: estes back-relations evitam erro de schema por relation "missing opposite field"
+   */
+  agendaEvents         AgendaEvent[]       @relation("AgendaEventUser")
+  agendaEventsCreated  AgendaEvent[]       @relation("AgendaEventCreatedBy")
+  agendaEventsCanceled AgendaEvent[]       @relation("AgendaEventCanceledBy")
+  agendaAuditsActor    AgendaAudit[]       @relation("AgendaAuditActor")
+  agendaMemberColors   AgendaMemberColor[] @relation("AgendaMemberColorUser")
+
   @@index([team])
   @@index([role])
   @@map("users")
@@ -377,7 +389,7 @@ model ClubSubscription {
 
 /**
  * =========================
- * ✅ PROTOCOLOS (MODEL)
+ * ✅ PROTOCOLOS
  * =========================
  */
 model Protocol {
@@ -1009,6 +1021,7 @@ model CaixaImediatoSnapshot {
 
   @@unique([team, date])
   @@index([team, date])
+  @@map("caixa_imediato_snapshots")
 }
 
 enum LatamTurboStatus {
@@ -1139,4 +1152,103 @@ model DividaAReceberPagamento {
   @@index([dividaId])
   @@index([receivedAt])
   @@map("dividas_a_receber_pagamentos")
+}
+
+/**
+ * =========================
+ * ✅ AGENDA (SHIFT / ABSENCE) + AUDIT + CORES
+ * =========================
+ */
+enum AgendaEventType {
+  SHIFT
+  ABSENCE
+}
+
+enum AgendaEventStatus {
+  ACTIVE
+  CANCELED
+}
+
+enum AgendaAuditAction {
+  CREATE
+  UPDATE
+  DELETE
+  SWAP
+}
+
+model AgendaEvent {
+  id     String            @id @default(cuid())
+  team   String
+  type   AgendaEventType
+  status AgendaEventStatus @default(ACTIVE)
+
+  // "YYYY-MM-DD" (interno) — exibição DD/MM/AAAA fica no frontend
+  dateISO  String
+  startMin Int
+  endMin   Int
+
+  note String?
+
+  userId String
+  user   User @relation("AgendaEventUser", fields: [userId], references: [id], onDelete: Cascade)
+
+  createdById String
+  createdBy   User @relation("AgendaEventCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+
+  canceledAt   DateTime?
+  canceledById String?
+  canceledBy   User? @relation("AgendaEventCanceledBy", fields: [canceledById], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  audits AgendaAudit[]
+
+  @@index([team, dateISO])
+  @@index([team, userId, dateISO])
+  @@index([team, status])
+  @@map("agenda_events")
+}
+
+model AgendaAudit {
+  id      String           @id @default(cuid())
+  team    String
+  eventId String
+  event   AgendaEvent      @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  action  AgendaAuditAction
+
+  actorId String
+  actor   User @relation("AgendaAuditActor", fields: [actorId], references: [id], onDelete: Restrict)
+
+  fromUserId   String?
+  toUserId     String?
+  fromStartMin Int?
+  fromEndMin   Int?
+  toStartMin   Int?
+  toEndMin     Int?
+
+  note      String?
+  createdAt DateTime @default(now())
+
+  @@index([team, createdAt])
+  @@index([team, eventId])
+  @@index([actorId])
+  @@map("agenda_audits")
+}
+
+model AgendaMemberColor {
+  id     String @id @default(cuid())
+  team   String
+  userId String
+  user   User   @relation("AgendaMemberColorUser", fields: [userId], references: [id], onDelete: Cascade)
+
+  colorHex String // "#RRGGBB"
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([team, userId], map: "uniq_agenda_member_color_team_user")
+  @@index([team])
+  @@map("agenda_member_colors")
 }
