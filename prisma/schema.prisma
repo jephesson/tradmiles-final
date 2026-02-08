@@ -171,7 +171,7 @@ model User {
    * =========================
    * ✅ AGENDA (NOVO)
    * =========================
-   * IMPORTANTE: estes back-relations evitam erro de schema por relation "missing opposite field"
+   * IMPORTANTE: estes back-relations evitam erro "missing opposite field"
    */
   agendaEvents         AgendaEvent[]       @relation("AgendaEventUser")
   agendaEventsCreated  AgendaEvent[]       @relation("AgendaEventCreatedBy")
@@ -1216,7 +1216,7 @@ model AgendaAudit {
   eventId String
   event   AgendaEvent      @relation(fields: [eventId], references: [id], onDelete: Cascade)
 
-  action  AgendaAuditAction
+  action AgendaAuditAction
 
   actorId String
   actor   User @relation("AgendaAuditActor", fields: [actorId], references: [id], onDelete: Restrict)
