@@ -19,7 +19,10 @@ function ok(data: any) {
   return NextResponse.json({ ok: true, data }, { headers: noCacheHeaders() });
 }
 function bad(error: string, status = 400) {
-  return NextResponse.json({ ok: false, error }, { status, headers: noCacheHeaders() });
+  return NextResponse.json(
+    { ok: false, error },
+    { status, headers: noCacheHeaders() }
+  );
 }
 
 function isBrDate(s: string) {
@@ -31,12 +34,14 @@ function isBrMonth(s: string) {
 function brToISO(ddmmyyyy: string) {
   if (!isBrDate(ddmmyyyy)) return "";
   const [dd, mm, yyyy] = ddmmyyyy.split("/");
-  const d = Number(dd), m = Number(mm), y = Number(yyyy);
+  const d = Number(dd),
+    m = Number(mm),
+    y = Number(yyyy);
   if (!d || !m || !y) return "";
   if (m < 1 || m > 12) return "";
   if (d < 1 || d > 31) return "";
+
   const iso = `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
-  // valida (evita 31/02 etc)
   const dt = new Date(`${iso}T12:00:00.000Z`);
   if (Number.isNaN(dt.getTime())) return "";
   const back = dt.toISOString().slice(0, 10);
@@ -51,7 +56,8 @@ function isoToBR(iso: string) {
 function brMonthToYM(mmYYYY: string) {
   if (!isBrMonth(mmYYYY)) return "";
   const [mm, yyyy] = mmYYYY.split("/");
-  const m = Number(mm), y = Number(yyyy);
+  const m = Number(mm),
+    y = Number(yyyy);
   if (!m || !y || m < 1 || m > 12) return "";
   return `${y}-${String(m).padStart(2, "0")}`;
 }
@@ -64,7 +70,8 @@ function daysInMonthYM(ym: string) {
 function parseHHMM(s: string) {
   const m = /^(\d{2}):(\d{2})$/.exec(String(s || "").trim());
   if (!m) return NaN;
-  const hh = Number(m[1]), mm = Number(m[2]);
+  const hh = Number(m[1]),
+    mm = Number(m[2]);
   if (hh < 0 || hh > 23) return NaN;
   if (mm < 0 || mm > 59) return NaN;
   return hh * 60 + mm;
@@ -87,7 +94,7 @@ function todayRecifeISO(): string {
 }
 function addMonthsYM(ym: string, delta: number) {
   const [y, m] = ym.split("-").map(Number);
-  const dt = new Date(Date.UTC(y, (m - 1) + delta, 1, 12, 0, 0));
+  const dt = new Date(Date.UTC(y, m - 1 + delta, 1, 12, 0, 0));
   const yy = dt.getUTCFullYear();
   const mm = String(dt.getUTCMonth() + 1).padStart(2, "0");
   return `${yy}-${mm}`;
@@ -100,7 +107,6 @@ function canEditMonth(ym: string) {
   const nextYM = addMonthsYM(currentYM, 1);
   if (ym !== nextYM) return false;
 
-  // libera mês seguinte 10 dias antes do dia 01
   const unlock = new Date(`${nextYM}-01T12:00:00.000Z`);
   unlock.setUTCDate(unlock.getUTCDate() - 10);
   const unlockISO = unlock.toISOString().slice(0, 10);
@@ -112,7 +118,6 @@ function intervalRule(type: "SHIFT" | "ABSENCE", startMin: number, endMin: numbe
   if (!Number.isFinite(startMin) || !Number.isFinite(endMin)) return "Horário inválido.";
   if (startMin < 0 || endMin > 1440 || startMin >= endMin) return "Intervalo inválido.";
 
-  // ausência dia inteiro
   if (type === "ABSENCE" && startMin === 0 && endMin === 1440) return null;
 
   const OPEN = 7 * 60;
@@ -132,7 +137,6 @@ function intervalRule(type: "SHIFT" | "ABSENCE", startMin: number, endMin: numbe
     }
   }
 
-  // ausência: aceita qualquer intervalo, mas sugiro 1h em 1h (UI resolve)
   return null;
 }
 
@@ -150,8 +154,14 @@ async function getMembersWithColors(team: string) {
 
   const map = new Map(colors.map((c) => [c.userId, c.colorHex]));
   const palette = [
-    "#2563EB", "#DC2626", "#16A34A", "#9333EA",
-    "#EA580C", "#0D9488", "#DB2777", "#4B5563",
+    "#2563EB",
+    "#DC2626",
+    "#16A34A",
+    "#9333EA",
+    "#EA580C",
+    "#0D9488",
+    "#DB2777",
+    "#4B5563",
   ];
 
   function pickColor(uid: string) {
@@ -246,11 +256,11 @@ export async function POST(req: NextRequest) {
   if (!dateISO) return bad("Data inválida. Use DD/MM/AAAA.");
 
   const ym = dateISO.slice(0, 7);
-  if (!canEditMonth(ym)) {
-    return bad("Cadastro/edição não liberados para este mês ainda.", 403);
-  }
+  if (!canEditMonth(ym)) return bad("Cadastro/edição não liberados para este mês ainda.", 403);
 
-  const userId = String(body.userId || session.userId || session.id || "").trim() || session.id;
+  // ✅ CORREÇÃO: Session NÃO tem userId → use session.id
+  const userId = String(body.userId || session.id || "").trim() || session.id;
+
   const note = String(body.note || "").trim() || null;
 
   let startMin = 0;
@@ -267,7 +277,6 @@ export async function POST(req: NextRequest) {
   const ruleErr = intervalRule(type, startMin, endMin);
   if (ruleErr) return bad(ruleErr);
 
-  // conflitos (mesmo user + mesma data)
   const existing = await prisma.agendaEvent.findMany({
     where: { team: session.team, status: "ACTIVE", dateISO, userId },
     select: { id: true, type: true, startMin: true, endMin: true },
@@ -320,7 +329,15 @@ export async function PATCH(req: NextRequest) {
 
   const existing = await prisma.agendaEvent.findFirst({
     where: { id, team: session.team },
-    select: { id: true, userId: true, dateISO: true, startMin: true, endMin: true, type: true, status: true },
+    select: {
+      id: true,
+      userId: true,
+      dateISO: true,
+      startMin: true,
+      endMin: true,
+      type: true,
+      status: true,
+    },
   });
   if (!existing) return bad("Evento não encontrado.", 404);
   if (existing.status !== "ACTIVE") return bad("Evento já está cancelado.", 400);
@@ -328,12 +345,10 @@ export async function PATCH(req: NextRequest) {
   const ym = existing.dateISO.slice(0, 7);
   if (!canEditMonth(ym)) return bad("Edição não liberada para este mês ainda.", 403);
 
-  // troca/re-atribuição
   if (body.swapToUserId) {
     const toUserId = String(body.swapToUserId || "").trim();
     if (!toUserId) return bad("swapToUserId inválido.");
 
-    // conflito com agenda do destino
     const destEvents = await prisma.agendaEvent.findMany({
       where: {
         team: session.team,
@@ -343,6 +358,7 @@ export async function PATCH(req: NextRequest) {
       },
       select: { startMin: true, endMin: true },
     });
+
     for (const e of destEvents) {
       if (overlap(existing.startMin, existing.endMin, e.startMin, e.endMin)) {
         return bad("Conflito: o destino já tem evento nesse horário.");
@@ -373,7 +389,6 @@ export async function PATCH(req: NextRequest) {
     return ok({ id });
   }
 
-  // edição normal (horário/nota)
   const nextNote = body.note !== undefined ? String(body.note || "").trim() || null : undefined;
 
   let nextStart = existing.startMin;
@@ -390,7 +405,6 @@ export async function PATCH(req: NextRequest) {
   const ruleErr = intervalRule(existing.type as any, nextStart, nextEnd);
   if (ruleErr) return bad(ruleErr);
 
-  // conflito com outros eventos do próprio user (exclui ele mesmo)
   const conflicts = await prisma.agendaEvent.findMany({
     where: {
       team: session.team,
@@ -399,7 +413,7 @@ export async function PATCH(req: NextRequest) {
       userId: existing.userId,
       NOT: { id: existing.id },
     },
-    select: { startMin: true, endMin: true, type: true },
+    select: { startMin: true, endMin: true },
   });
 
   for (const e of conflicts) {
@@ -443,7 +457,7 @@ export async function DELETE(req: NextRequest) {
     select: { id: true, dateISO: true, userId: true, startMin: true, endMin: true, status: true },
   });
   if (!existing) return bad("Evento não encontrado.", 404);
-  if (existing.status !== "ACTIVE") return ok({ id }); // idempotente
+  if (existing.status !== "ACTIVE") return ok({ id });
 
   const ym = existing.dateISO.slice(0, 7);
   if (!canEditMonth(ym)) return bad("Exclusão não liberada para este mês ainda.", 403);
