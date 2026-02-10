@@ -163,7 +163,16 @@ export default function Sidebar() {
   // ✅ NOVO: Agenda
   const isAgendaRoute = pathname.startsWith("/dashboard/agenda");
 
-  const isOutrosRoute = isAutomacaoRoute || isWalletRoute || isAgendaRoute;
+  // ✅ NOVO: Atualização dos termos (em OUTROS)
+  const isAtualizacaoTermosRoute = pathname.startsWith(
+    "/dashboard/atualizacao-termos"
+  );
+
+  const isOutrosRoute =
+    isAutomacaoRoute ||
+    isWalletRoute ||
+    isAgendaRoute ||
+    isAtualizacaoTermosRoute;
 
   /* =========================
    * ACCORDIONS
@@ -326,7 +335,7 @@ export default function Sidebar() {
     setOpenProtocolos(isProtocolosRoute);
   }, [isProtocolosRoute]);
 
-  // ✅ NOVO: mantém aberto quando entrar em /automacao/* ou /wallet/* ou /agenda/*
+  // ✅ NOVO: mantém aberto quando entrar em /automacao/* ou /wallet/* ou /agenda/* ou /atualizacao-termos/*
   useEffect(() => {
     setOpenOutros(isOutrosRoute);
   }, [isOutrosRoute]);
@@ -795,6 +804,11 @@ export default function Sidebar() {
 
           {/* ✅ NOVO: Agenda */}
           <NavLink href="/dashboard/agenda">Agenda</NavLink>
+
+          {/* ✅ NOVO: Atualização dos termos */}
+          <NavLink href="/dashboard/atualizacao-termos">
+            Atualização dos termos
+          </NavLink>
 
           <NavLink href="/dashboard/wallet">Wallet</NavLink>
         </Accordion>
