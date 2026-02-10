@@ -241,8 +241,8 @@ export default function AtualizacaoTermosClient({
               <th className="p-3">3) Exclusão definitiva</th>
               <th className="p-3">4) Tempo p/ responder</th>
               <th className="p-3">5) Disponibilidade (0–70)</th>
-              <th className="p-3">6) Score (4+5)</th>
-              <th className="p-3">Ações</th>
+              <th className="p-3 min-w-[140px]">6) Score (4+5)</th>
+              <th className="p-3 min-w-[180px]">Ações</th>
             </tr>
           </thead>
 
@@ -389,10 +389,10 @@ export default function AtualizacaoTermosClient({
                       />
                     </td>
 
-                    <td className="p-3">{scoreBar(score)}</td>
+                    <td className="p-3 min-w-[140px]">{scoreBar(score)}</td>
 
-                    <td className="p-3">
-                      <div className="flex flex-col gap-2">
+                    <td className="p-3 min-w-[180px]">
+                      <div className="flex flex-col items-start gap-2">
                         <button
                           className="h-9 rounded border border-zinc-300 px-3 text-sm"
                           disabled={saving}
