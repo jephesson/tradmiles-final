@@ -83,6 +83,24 @@ enum ProtocolStatus {
 
 /**
  * =========================
+ * ✅ TERMOS / CONFIANÇA (NOVO)
+ * =========================
+ */
+enum TermTriState {
+  YES
+  NO
+  NO_RESPONSE
+}
+
+enum TermResponseTime {
+  H1   // 30
+  H2   // 20
+  H3   // 10
+  GT3  // 0
+}
+
+/**
+ * =========================
  * USERS / LOGIN / CONVITES
  * =========================
  */
@@ -297,6 +315,9 @@ model Cedente {
 
   termAcceptances CedenteTermAcceptance[]
 
+  // ✅ NOVO: reviews/score de termo por versão
+  termReviews CedenteTermReview[]
+
   blockedAccounts    BlockedAccount[]
   purchases          Purchase[]
   cedenteCommissions CedenteCommission[]
@@ -340,6 +361,41 @@ model CedenteTermAcceptance {
   @@index([cedenteId])
   @@index([acceptedAt])
   @@map("cedente_term_acceptances")
+}
+
+/**
+ * =========================
+ * ✅ TERMOS / CONFIANÇA (NOVO)
+ * =========================
+ * Um registro por Cedente + Versão do Termo
+ */
+model CedenteTermReview {
+  id          String @id @default(uuid())
+  cedenteId   String
+  termoVersao String
+
+  // 1) Aceite Livelo/Esfera/Smiles
+  aceiteOutros TermTriState?
+  // 2) Aceite LATAM
+  aceiteLatam  TermTriState?
+  // 3) Exclusão definitiva
+  exclusaoDef  TermTriState?
+
+  // 4) Tempo para responder o termo
+  responseTime TermResponseTime?
+
+  // 5) Pontos de disponibilidade (0–70)
+  disponibilidadePoints Int @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  cedente Cedente @relation(fields: [cedenteId], references: [id], onDelete: Cascade)
+
+  @@unique([cedenteId, termoVersao], map: "uniq_cedente_termo_versao")
+  @@index([termoVersao])
+  @@index([cedenteId])
+  @@map("cedente_term_reviews")
 }
 
 /**
