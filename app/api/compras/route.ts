@@ -84,8 +84,12 @@ export async function GET(req: Request) {
     // ✅ busca do frontend (?q=...)
     const q = normQ(searchParams.get("q"));
 
+    // ✅ cursor pagination
     const take = Math.min(asInt(searchParams.get("take") || 50, 50), 200);
-    const skip = Math.max(0, asInt(searchParams.get("skip") || 0, 0));
+    const cursor = searchParams.get("cursor") || null;
+
+    // mantém compat (se alguém ainda usar offset)
+    const skipFallback = Math.max(0, asInt(searchParams.get("skip") || 0, 0));
 
     const qDigits = q ? digitsOnly(q) : "";
     const qProgram = q ? normalizeEnumQ(q) : null;
@@ -120,11 +124,28 @@ export async function GET(req: Request) {
       where.OR = or;
     }
 
-    const compras = await prisma.purchase.findMany({
+    // ✅ importante: orderBy estável para cursor pagination
+    const orderBy: Prisma.PurchaseOrderByWithRelationInput[] = [
+      { createdAt: "desc" },
+      { id: "desc" },
+    ];
+
+    const comprasPlusOne = await prisma.purchase.findMany({
       where,
-      orderBy: { createdAt: "desc" },
-      take,
-      skip,
+      orderBy,
+      take: take + 1,
+
+      // ✅ se vier cursor, usa cursor pagination
+      ...(cursor
+        ? {
+            cursor: { id: cursor },
+            skip: 1,
+          }
+        : {
+            // fallback antigo (offset)
+            skip: skipFallback,
+          }),
+
       include: {
         cedente: {
           select: {
@@ -136,6 +157,10 @@ export async function GET(req: Request) {
         },
       },
     });
+
+    const hasMore = comprasPlusOne.length > take;
+    const compras = hasMore ? comprasPlusOne.slice(0, take) : comprasPlusOne;
+    const nextCursor = hasMore ? compras[compras.length - 1]?.id : null;
 
     // =========================
     // ✅ FIX: calcular Pts CIA na LISTA somando itens (purchaseItem)
@@ -171,7 +196,6 @@ export async function GET(req: Request) {
     }
 
     const comprasOut = compras.map((p) => {
-      // ✅ FIX do erro: no Prisma é "ciaAerea" (não existe "ciaProgram" no type)
       const program = (p.ciaAerea ?? null) as LoyaltyProgram | null;
 
       // 1) tenta somar só do programTo da CIA
@@ -192,7 +216,7 @@ export async function GET(req: Request) {
       return toPurchaseRow(p, { ciaPointsTotal: finalPts });
     });
 
-    return ok({ compras: comprasOut });
+    return ok({ compras: comprasOut, nextCursor });
   } catch (e: any) {
     return serverError("Falha ao listar compras.", { detail: e?.message });
   }
@@ -226,8 +250,8 @@ export async function POST(req: Request) {
       body.observacao != null
         ? String(body.observacao)
         : body.note != null
-          ? String(body.note)
-          : null;
+        ? String(body.note)
+        : null;
 
     const compra = await prisma.purchase.create({
       data: {

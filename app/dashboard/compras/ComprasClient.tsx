@@ -64,9 +64,7 @@ function normalizeRow(r: PurchaseRowRaw): PurchaseRow {
     ciaProgram: (r.ciaProgram ?? r.ciaAerea ?? null) as any,
     ciaPointsTotal: asInt((r.ciaPointsTotal ?? r.pontosCiaTotal ?? 0) as any),
 
-    totalCostCents: asInt(
-      (r.totalCostCents ?? r.totalCost ?? r.totalCents ?? 0) as any
-    ),
+    totalCostCents: asInt((r.totalCostCents ?? r.totalCost ?? r.totalCents ?? 0) as any),
 
     cedente: r.cedente ?? null,
   };
@@ -76,6 +74,7 @@ function fmtMoneyBR(cents: number) {
   const v = (cents || 0) / 100;
   return v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
+
 function fmtDateBR(iso: string) {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;
@@ -134,11 +133,7 @@ function StatusPill({ status }: { status: PurchaseStatus }) {
       ? "bg-blue-50 border-blue-200 text-blue-700"
       : "bg-gray-50 border-gray-200 text-gray-700";
 
-  return (
-    <span className={`rounded-full border px-2 py-1 text-xs ${cls}`}>
-      {STATUS_LABEL[status]}
-    </span>
-  );
+  return <span className={`rounded-full border px-2 py-1 text-xs ${cls}`}>{STATUS_LABEL[status]}</span>;
 }
 
 function norm(v?: string) {
@@ -148,6 +143,7 @@ function norm(v?: string) {
     .toLowerCase()
     .trim();
 }
+
 function onlyDigits(v?: string) {
   return (v || "").replace(/\D+/g, "");
 }
@@ -163,6 +159,7 @@ type PointsBuyRow = {
 export default function ComprasClient() {
   const [rows, setRows] = useState<PurchaseRow[]>([]);
   const [loading, setLoading] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
   const [q, setQ] = useState("");
@@ -173,8 +170,23 @@ export default function ComprasClient() {
   // modal state
   const [pointsModalId, setPointsModalId] = useState<string | null>(null);
 
-  async function load(opts?: { silent?: boolean }) {
-    if (!opts?.silent) setLoading(true);
+  // paginação
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [hasMore, setHasMore] = useState(false);
+
+  function resetPagination() {
+    setNextCursor(null);
+    setHasMore(false);
+  }
+
+  async function load(opts?: { silent?: boolean; append?: boolean }) {
+    const append = !!opts?.append;
+
+    if (!opts?.silent) {
+      if (append) setLoadingMore(true);
+      else setLoading(true);
+    }
+
     setErr(null);
 
     try {
@@ -182,21 +194,37 @@ export default function ComprasClient() {
       if (status) qs.set("status", status);
       if (q.trim()) qs.set("q", q.trim());
 
-      const out = await api<{ ok: true; compras: PurchaseRowRaw[] }>(
-        `/api/compras?${qs.toString()}`
-      );
+      // paginação
+      qs.set("take", "50");
+      if (append && nextCursor) qs.set("cursor", nextCursor);
+
+      const out = await api<{
+        ok: true;
+        compras: PurchaseRowRaw[];
+        nextCursor?: string | null;
+      }>(`/api/compras?${qs.toString()}`);
 
       const list = Array.isArray(out.compras) ? out.compras : [];
-      setRows(list.map(normalizeRow));
+      const mapped = list.map(normalizeRow);
+
+      setRows((prev) => (append ? [...prev, ...mapped] : mapped));
+
+      const nc = out.nextCursor ?? null;
+      setNextCursor(nc);
+      setHasMore(!!nc);
     } catch (e: any) {
       setErr(e?.message || "Falha ao carregar compras.");
-      setRows([]);
+      if (!append) setRows([]);
     } finally {
-      if (!opts?.silent) setLoading(false);
+      if (!opts?.silent) {
+        if (append) setLoadingMore(false);
+        else setLoading(false);
+      }
     }
   }
 
   useEffect(() => {
+    resetPagination();
     void load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -212,7 +240,6 @@ export default function ComprasClient() {
       const ced = r.cedente;
       const m = milheiroCents(r.ciaPointsTotal || 0, r.totalCostCents || 0);
 
-      // ✅ mantém id na busca, mas não mostra na UI
       const hay = [
         r.numero,
         r.id,
@@ -236,19 +263,21 @@ export default function ComprasClient() {
   }, [rows, q, status]);
 
   async function onRelease(id: string) {
-    const okConfirm = window.confirm(
-      "Liberar esta compra? Isso vai aplicar saldo e travar a compra."
-    );
+    const okConfirm = window.confirm("Liberar esta compra? Isso vai aplicar saldo e travar a compra.");
     if (!okConfirm) return;
 
     setBusyId(id);
     setErr(null);
+
     try {
       await api<{ ok: true }>(`/api/compras/${id}/liberar`, {
         method: "POST",
         body: JSON.stringify({}),
       });
-      await load({ silent: true });
+
+      // recarrega do zero para evitar inconsistência com paginação
+      resetPagination();
+      await load({ silent: true, append: false });
     } catch (e: any) {
       setErr(e?.message || "Falha ao liberar.");
     } finally {
@@ -257,9 +286,7 @@ export default function ComprasClient() {
   }
 
   async function onCancel(id: string) {
-    const okConfirm = window.confirm(
-      "Cancelar esta compra? (não deve alterar saldo se ainda não foi liberada)"
-    );
+    const okConfirm = window.confirm("Cancelar esta compra? (não deve alterar saldo se ainda não foi liberada)");
     if (!okConfirm) return;
 
     setBusyId(id);
@@ -276,7 +303,8 @@ export default function ComprasClient() {
         await api<{ ok: true }>(`/api/compras/${id}`, { method: "DELETE" });
       }
 
-      await load({ silent: true });
+      resetPagination();
+      await load({ silent: true, append: false });
     } catch (e: any) {
       setErr(e?.message || "Falha ao cancelar.");
     } finally {
@@ -289,15 +317,10 @@ export default function ComprasClient() {
       <div className="flex items-start justify-between gap-4">
         <div>
           <h1 className="text-xl font-semibold">Compras</h1>
-          <p className="text-sm text-gray-600">
-            Visualize, edite, libere ou cancele compras.
-          </p>
+          <p className="text-sm text-gray-600">Visualize, edite, libere ou cancele compras.</p>
         </div>
 
-        <Link
-          href="/dashboard/compras/nova"
-          className="rounded-md bg-black px-3 py-2 text-sm text-white"
-        >
+        <Link href="/dashboard/compras/nova" className="rounded-md bg-black px-3 py-2 text-sm text-white">
           + Nova compra
         </Link>
       </div>
@@ -333,8 +356,11 @@ export default function ComprasClient() {
           <div className="flex items-end gap-2">
             <button
               type="button"
-              onClick={() => void load()}
-              disabled={loading}
+              onClick={() => {
+                resetPagination();
+                void load({ append: false });
+              }}
+              disabled={loading || loadingMore}
               className="rounded-md bg-black px-3 py-2 text-sm text-white disabled:opacity-50"
             >
               {loading ? "Carregando..." : "Aplicar filtros"}
@@ -345,9 +371,10 @@ export default function ComprasClient() {
               onClick={() => {
                 setQ("");
                 setStatus("");
-                setTimeout(() => void load(), 0);
+                resetPagination();
+                setTimeout(() => void load({ append: false }), 0);
               }}
-              disabled={loading}
+              disabled={loading || loadingMore}
               className="rounded-md border px-3 py-2 text-sm disabled:opacity-50"
             >
               Limpar
@@ -357,9 +384,7 @@ export default function ComprasClient() {
       </div>
 
       {err && (
-        <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">
-          {err}
-        </div>
+        <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">{err}</div>
       )}
 
       <div className="overflow-auto rounded-xl border">
@@ -397,7 +422,6 @@ export default function ComprasClient() {
               return (
                 <tr key={r.id} className="border-t">
                   <td className="p-3">
-                    {/* ✅ sem ID grande ocupando espaço; id fica no tooltip */}
                     <div className="font-mono" title={r.id}>
                       {r.numero}
                     </div>
@@ -422,31 +446,23 @@ export default function ComprasClient() {
 
                   <td className="p-3">{r.ciaProgram || "—"}</td>
 
-                  <td className="p-3 font-mono">
-                    {(r.ciaPointsTotal || 0).toLocaleString("pt-BR")}
-                  </td>
+                  <td className="p-3 font-mono">{(r.ciaPointsTotal || 0).toLocaleString("pt-BR")}</td>
 
                   <td className="p-3 font-medium">
                     {m ? fmtMoneyBR(m) : <span className="text-gray-500">—</span>}
                     <div className="text-[11px] text-gray-500">por 1.000 pts</div>
                   </td>
 
-                  <td className="p-3 font-medium">
-                    {fmtMoneyBR(r.totalCostCents || 0)}
-                  </td>
+                  <td className="p-3 font-medium">{fmtMoneyBR(r.totalCostCents || 0)}</td>
 
                   <td className="p-3">{fmtDateBR(r.createdAt)}</td>
 
                   <td className="p-3">
                     <div className="flex items-center justify-end gap-2">
-                      <Link
-                        href={`/dashboard/compras/${r.id}`}
-                        className="rounded-md border px-2 py-1 text-xs"
-                      >
+                      <Link href={`/dashboard/compras/${r.id}`} className="rounded-md border px-2 py-1 text-xs">
                         Editar
                       </Link>
 
-                      {/* ✅ Comprar mais: habilita quando CLOSED (travada) */}
                       <button
                         type="button"
                         onClick={() => setPointsModalId(r.id)}
@@ -497,22 +513,37 @@ export default function ComprasClient() {
         </table>
       </div>
 
-      <div className="text-xs text-gray-500">
-        Dica: “Comprar mais” adiciona POINTS_BUY mesmo liberada, mantendo o ID.
-      </div>
+      {/* ✅ Botão Carregar mais (sempre usa o dataset já trazido do backend, sem refazer filtro local) */}
+      {hasMore && (
+        <div className="flex justify-center">
+          <button
+            type="button"
+            onClick={() => void load({ append: true })}
+            disabled={loading || loadingMore}
+            className="rounded-md border px-3 py-2 text-sm disabled:opacity-50"
+          >
+            {loadingMore ? "Carregando..." : "Carregar mais"}
+          </button>
+        </div>
+      )}
+
+      <div className="text-xs text-gray-500">Dica: “Comprar mais” adiciona POINTS_BUY mesmo liberada, mantendo o ID.</div>
 
       <PointsBuyModal
         open={!!pointsModalId}
         purchaseId={pointsModalId}
         onClose={() => setPointsModalId(null)}
-        onSaved={() => void load({ silent: true })}
+        onSaved={() => {
+          // recarrega do zero para refletir totais/itens alterados
+          resetPagination();
+          void load({ silent: true, append: false });
+        }}
       />
     </div>
   );
 }
 
 function toCentsFromInput(v: string) {
-  // number input normalmente vem com ponto (.) — mas se vier com vírgula, normaliza
   const cleaned = String(v || "").trim().replace(",", ".");
   const n = Number(cleaned || 0);
   return Number.isFinite(n) ? Math.round(n * 100) : 0;
@@ -543,12 +574,7 @@ function PointsBuyModal(props: {
       try {
         const out = await api<{
           ok: true;
-          compra: {
-            id: string;
-            numero: string;
-            status: PurchaseStatus;
-            ciaProgram: LoyaltyProgram | null;
-          };
+          compra: { id: string; numero: string; status: PurchaseStatus; ciaProgram: LoyaltyProgram | null };
           items: Array<{ id: string; title: string; pointsFinal: number; amountCents: number }>;
         }>(`/api/compras/${purchaseId}/points`);
 
@@ -582,12 +608,7 @@ function PointsBuyModal(props: {
   function addRow() {
     setRows((s) => [
       ...s,
-      {
-        title: "Compra de pontos",
-        pointsFinal: 0,
-        amountCents: 0,
-        remove: false,
-      },
+      { title: "Compra de pontos", pointsFinal: 0, amountCents: 0, remove: false },
     ]);
   }
 
@@ -667,22 +688,13 @@ function PointsBuyModal(props: {
             </div>
           </div>
 
-          <button
-            type="button"
-            onClick={onClose}
-            disabled={saving}
-            className="rounded-md border px-3 py-2 text-sm disabled:opacity-50"
-          >
+          <button type="button" onClick={onClose} disabled={saving} className="rounded-md border px-3 py-2 text-sm disabled:opacity-50">
             Fechar
           </button>
         </div>
 
         <div className="space-y-3 p-4">
-          {err && (
-            <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">
-              {err}
-            </div>
-          )}
+          {err && <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">{err}</div>}
 
           {loading ? (
             <div className="text-sm text-gray-600">Carregando...</div>
@@ -803,20 +815,10 @@ function PointsBuyModal(props: {
               )}
 
               <div className="flex items-center justify-end gap-2 pt-2">
-                <button
-                  type="button"
-                  onClick={onClose}
-                  disabled={saving}
-                  className="rounded-md border px-3 py-2 text-sm disabled:opacity-50"
-                >
+                <button type="button" onClick={onClose} disabled={saving} className="rounded-md border px-3 py-2 text-sm disabled:opacity-50">
                   Cancelar
                 </button>
-                <button
-                  type="button"
-                  onClick={onSave}
-                  disabled={!canSave}
-                  className="rounded-md bg-emerald-600 px-3 py-2 text-sm text-white disabled:opacity-50"
-                >
+                <button type="button" onClick={onSave} disabled={!canSave} className="rounded-md bg-emerald-600 px-3 py-2 text-sm text-white disabled:opacity-50">
                   {saving ? "Salvando..." : "Salvar"}
                 </button>
               </div>
