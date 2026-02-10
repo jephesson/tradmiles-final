@@ -7,9 +7,6 @@ import { CedenteStatus, TermTriState, TermResponseTime } from "@prisma/client";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-/**
- * Template do termo (pra copiar/colar no WhatsApp, ou abrir link direto já com texto)
- */
 const TERM_MESSAGE = `Olá! Tudo bem?
 
 Aqui é a Vias Aéreas LTDA (CNPJ 63.817.773/0001-85).
@@ -96,15 +93,9 @@ function responseTimePoints(rt: TermResponseTime | null) {
   }
 }
 
-/**
- * Normaliza telefone pra wa.me
- * - se tiver 11 dígitos => assume BR e prefixa 55
- * - se já tiver 12-13 e começar com 55 => mantém
- */
 function phoneToWaNumber(raw: string | null | undefined) {
   const d = String(raw || "").replace(/\D+/g, "");
   if (!d) return null;
-
   if (d.startsWith("55") && (d.length === 12 || d.length === 13)) return d;
   if (d.length === 11) return `55${d}`;
   if (d.length === 10) return `55${d}`;
@@ -148,22 +139,23 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url);
     const termoVersao = (searchParams.get("versao") || "v1").trim();
 
-    // se sua sessão tiver team, filtra por team; senão, retorna aprovados geral
-    const teamRaw = (session as any)?.team as string | undefined;
-    const team = teamRaw ? String(teamRaw).trim() : "";
-
+    // ✅ MESMA BASE DO "approved": todos os cedentes aprovados
     const cedentes = await prisma.cedente.findMany({
-      where: {
-        status: CedenteStatus.APPROVED,
-        // ✅ FIX: relação to-one precisa de `is`
-        ...(team ? { owner: { is: { team } } } : {}),
-      },
+      where: { status: CedenteStatus.APPROVED },
       orderBy: { nomeCompleto: "asc" },
       select: {
+        // base “approved”
         id: true,
+        identificador: true,
         nomeCompleto: true,
+        cpf: true,
+        createdAt: true,
+
+        // termos / whatsapp
         telefone: true,
+
         owner: { select: { id: true, name: true, login: true } },
+
         termReviews: {
           where: { termoVersao },
           take: 1,
@@ -174,6 +166,8 @@ export async function GET(req: NextRequest) {
             responseTime: true,
             disponibilidadePoints: true,
             updatedAt: true,
+            termoVersao: true,
+            cedenteId: true,
           },
         },
       },
@@ -191,7 +185,10 @@ export async function GET(req: NextRequest) {
 
       return {
         id: c.id,
+        identificador: c.identificador,
         nomeCompleto: c.nomeCompleto,
+        cpf: c.cpf,
+        createdAt: c.createdAt,
         owner: c.owner,
         telefone: c.telefone,
 
@@ -212,12 +209,15 @@ export async function GET(req: NextRequest) {
       };
     });
 
-    return NextResponse.json({ ok: true, data }, { status: 200 });
+    return NextResponse.json(
+      { ok: true, termoVersao, termoTexto: TERM_MESSAGE, data },
+      { status: 200, headers: { "Cache-Control": "no-store" } }
+    );
   } catch (err: any) {
     console.error("GET /api/cedentes/termos ERROR:", err);
     return NextResponse.json(
       { ok: false, error: err?.message || "Erro interno." },
-      { status: 500 }
+      { status: 500, headers: { "Cache-Control": "no-store" } }
     );
   }
 }
@@ -242,12 +242,11 @@ export async function POST(req: NextRequest) {
     const aceiteLatam = toTri(body?.aceiteLatam);
     const exclusaoDef = toTri(body?.exclusaoDef);
     const responseTime = toRT(body?.responseTime);
-
     const disponibilidadePoints = clampInt(body?.disponibilidadePoints, 0, 70);
 
-    // ✅ UPSERT: o unique do Prisma Client é "cedenteId_termoVersao"
     const review = await prisma.cedenteTermReview.upsert({
       where: {
+        // ✅ seu unique correto
         cedenteId_termoVersao: { cedenteId, termoVersao },
       },
       create: {
@@ -294,13 +293,13 @@ export async function POST(req: NextRequest) {
           },
         },
       },
-      { status: 200 }
+      { status: 200, headers: { "Cache-Control": "no-store" } }
     );
   } catch (err: any) {
     console.error("POST /api/cedentes/termos ERROR:", err);
     return NextResponse.json(
       { ok: false, error: err?.message || "Erro interno." },
-      { status: 500 }
+      { status: 500, headers: { "Cache-Control": "no-store" } }
     );
   }
 }
