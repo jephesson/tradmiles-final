@@ -1,7 +1,7 @@
 // app/api/cedentes/termos/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { getSession } from "@/lib/auth";
+import { getSessionServer } from "@/lib/auth-server";
 import { CedenteStatus, TermTriState, TermResponseTime } from "@prisma/client";
 
 export const runtime = "nodejs";
@@ -130,7 +130,7 @@ function computeColor(review: {
 }
 
 export async function GET(req: NextRequest) {
-  const session = await getSession();
+  const session = await getSessionServer();
   if (!session?.id) {
     return NextResponse.json({ ok: false, error: "Não autenticado." }, { status: 401 });
   }
@@ -223,7 +223,7 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  const session = await getSession();
+  const session = await getSessionServer();
   if (!session?.id) {
     return NextResponse.json({ ok: false, error: "Não autenticado." }, { status: 401 });
   }

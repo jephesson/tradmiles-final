@@ -70,16 +70,30 @@ export default function AtualizacaoTermosClient({
   const [rows, setRows] = useState<Row[]>([]);
   const [q, setQ] = useState("");
   const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState<string | null>(null);
   const [savingId, setSavingId] = useState<string | null>(null);
 
   async function load() {
     setLoading(true);
-    const res = await fetch(`/api/cedentes/termos?versao=${encodeURIComponent(termoVersao)}`, {
-      cache: "no-store",
-    });
-    const j = await res.json();
-    setRows(j?.data || []);
-    setLoading(false);
+    setErr(null);
+
+    try {
+      const res = await fetch(`/api/cedentes/termos?versao=${encodeURIComponent(termoVersao)}`, {
+        cache: "no-store",
+      });
+      const j = await res.json().catch(() => ({}));
+
+      if (!res.ok || !j?.ok) {
+        throw new Error(j?.error || "Falha ao carregar cedentes.");
+      }
+
+      setRows(j?.data || []);
+    } catch (e: any) {
+      setErr(e?.message || "Erro inesperado.");
+      setRows([]);
+    } finally {
+      setLoading(false);
+    }
   }
 
   useEffect(() => {
@@ -113,26 +127,37 @@ export default function AtualizacaoTermosClient({
       ...patch,
     };
 
-    const res = await fetch(`/api/cedentes/termos`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        cedenteId,
-        termoVersao,
-        aceiteOutros: merged.aceiteOutros,
-        aceiteLatam: merged.aceiteLatam,
-        exclusaoDef: merged.exclusaoDef,
-        responseTime: merged.responseTime,
-        disponibilidadePoints: merged.disponibilidadePoints,
-      }),
-    });
+    try {
+      const res = await fetch(`/api/cedentes/termos`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          cedenteId,
+          termoVersao,
+          aceiteOutros: merged.aceiteOutros,
+          aceiteLatam: merged.aceiteLatam,
+          exclusaoDef: merged.exclusaoDef,
+          responseTime: merged.responseTime,
+          disponibilidadePoints: merged.disponibilidadePoints,
+        }),
+      });
 
-    const j = await res.json();
+      const j = await res.json().catch(() => ({}));
 
-    setRows((prev) =>
-      prev.map((r) => (r.id === cedenteId ? { ...r, review: j?.data || merged } : r))
-    );
-    setSavingId(null);
+      if (!res.ok || !j?.ok) {
+        throw new Error(j?.error || "Falha ao salvar.");
+      }
+
+      const nextReview: Review = j?.data?.review ?? j?.data ?? merged;
+
+      setRows((prev) =>
+        prev.map((r) => (r.id === cedenteId ? { ...r, review: nextReview } : r))
+      );
+    } catch (e) {
+      console.error("Falha ao salvar atualização de termos:", e);
+    } finally {
+      setSavingId(null);
+    }
   }
 
   function scoreBar(score: number) {
@@ -226,6 +251,12 @@ export default function AtualizacaoTermosClient({
               <tr>
                 <td className="p-4 text-zinc-600" colSpan={10}>
                   Carregando...
+                </td>
+              </tr>
+            ) : err ? (
+              <tr>
+                <td className="p-4 text-red-600" colSpan={10}>
+                  {err}
                 </td>
               </tr>
             ) : filtered.length === 0 ? (
