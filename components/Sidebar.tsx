@@ -72,6 +72,11 @@ export default function Sidebar() {
     "/dashboard/contas-selecionadas/smiles"
   );
 
+  // ✅ NOVO: Livelo em Contas selecionadas
+  const isContasSelecionadasLiveloRoute = pathname.startsWith(
+    "/dashboard/contas-selecionadas/livelo"
+  );
+
   // ✅ NOVO: Análise de dados
   const isAnaliseDadosRoute = pathname.startsWith("/dashboard/analise-dados");
 
@@ -212,9 +217,13 @@ export default function Sidebar() {
   const [openContasSelecionadasLatam, setOpenContasSelecionadasLatam] =
     useState(isContasSelecionadasLatamRoute);
 
-  // ✅ NOVO: smiles como sub-accordion (igual Latam)
+  // ✅ Smiles como sub-accordion (igual Latam)
   const [openContasSelecionadasSmiles, setOpenContasSelecionadasSmiles] =
     useState(isContasSelecionadasSmilesRoute);
+
+  // ✅ NOVO: Livelo como sub-accordion (igual Latam/Smiles)
+  const [openContasSelecionadasLivelo, setOpenContasSelecionadasLivelo] =
+    useState(isContasSelecionadasLiveloRoute);
 
   const [openFinanceiro, setOpenFinanceiro] = useState(isFinanceiroRoute);
 
@@ -295,10 +304,15 @@ export default function Sidebar() {
     setOpenContasSelecionadasLatam(isContasSelecionadasLatamRoute);
   }, [isContasSelecionadasLatamRoute]);
 
-  // ✅ NOVO: mantém aberto quando entrar em /contas-selecionadas/smiles/*
+  // ✅ mantém aberto quando entrar em /contas-selecionadas/smiles/*
   useEffect(() => {
     setOpenContasSelecionadasSmiles(isContasSelecionadasSmilesRoute);
   }, [isContasSelecionadasSmilesRoute]);
+
+  // ✅ NOVO: mantém aberto quando entrar em /contas-selecionadas/livelo/*
+  useEffect(() => {
+    setOpenContasSelecionadasLivelo(isContasSelecionadasLiveloRoute);
+  }, [isContasSelecionadasLiveloRoute]);
 
   useEffect(() => setOpenFinanceiro(isFinanceiroRoute), [isFinanceiroRoute]);
 
@@ -330,12 +344,12 @@ export default function Sidebar() {
     setOpenPainelEmissoes(isPainelEmissoesRoute);
   }, [isPainelEmissoesRoute]);
 
-  // ✅ NOVO: mantém aberto quando entrar em /protocolos/*
+  // ✅ mantém aberto quando entrar em /protocolos/*
   useEffect(() => {
     setOpenProtocolos(isProtocolosRoute);
   }, [isProtocolosRoute]);
 
-  // ✅ NOVO: mantém aberto quando entrar em /automacao/* ou /wallet/* ou /agenda/* ou /atualizacao-termos/*
+  // ✅ mantém aberto quando entrar em /automacao/* ou /wallet/* ou /agenda/* ou /atualizacao-termos/*
   useEffect(() => {
     setOpenOutros(isOutrosRoute);
   }, [isOutrosRoute]);
@@ -666,6 +680,20 @@ export default function Sidebar() {
             >
               <NavLink href="/dashboard/contas-selecionadas/smiles/renovacao-clube">
                 Renovação Clube
+              </NavLink>
+            </SubAccordion>
+
+            {/* ✅ NOVO: Livelo */}
+            <SubAccordion
+              title="Livelo"
+              href="/dashboard/contas-selecionadas/livelo"
+              open={openContasSelecionadasLivelo}
+              onToggle={() => setOpenContasSelecionadasLivelo((v) => !v)}
+              variant="nav"
+              active={isContasSelecionadasLiveloRoute}
+            >
+              <NavLink href="/dashboard/contas-selecionadas/livelo/aniversario">
+                Aniversário
               </NavLink>
             </SubAccordion>
           </SubAccordion>
