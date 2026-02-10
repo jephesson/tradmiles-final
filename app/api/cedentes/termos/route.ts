@@ -107,11 +107,7 @@ function phoneToWaNumber(raw: string | null | undefined) {
 
   if (d.startsWith("55") && (d.length === 12 || d.length === 13)) return d;
   if (d.length === 11) return `55${d}`;
-
-  // fallback: se tiver 10 (fixo/sem 9) ainda prefixa 55
   if (d.length === 10) return `55${d}`;
-
-  // caso estranho: retorna como está (mas pode falhar no WhatsApp)
   return d;
 }
 
@@ -148,72 +144,82 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ ok: false, error: "Não autenticado." }, { status: 401 });
   }
 
-  const { searchParams } = new URL(req.url);
-  const termoVersao = (searchParams.get("versao") || "v1").trim();
+  try {
+    const { searchParams } = new URL(req.url);
+    const termoVersao = (searchParams.get("versao") || "v1").trim();
 
-  // se sua sessão tiver team, filtra por team; senão, retorna aprovados geral
-  const team = (session as any)?.team as string | undefined;
+    // se sua sessão tiver team, filtra por team; senão, retorna aprovados geral
+    const teamRaw = (session as any)?.team as string | undefined;
+    const team = teamRaw ? String(teamRaw).trim() : "";
 
-  const cedentes = await prisma.cedente.findMany({
-    where: {
-      status: CedenteStatus.APPROVED,
-      ...(team ? { owner: { team } } : {}),
-    },
-    orderBy: { nomeCompleto: "asc" },
-    select: {
-      id: true,
-      nomeCompleto: true,
-      telefone: true,
-      owner: { select: { id: true, name: true, login: true } },
-      termReviews: {
-        where: { termoVersao },
-        take: 1,
-        select: {
-          aceiteOutros: true,
-          aceiteLatam: true,
-          exclusaoDef: true,
-          responseTime: true,
-          disponibilidadePoints: true,
-          updatedAt: true,
+    const cedentes = await prisma.cedente.findMany({
+      where: {
+        status: CedenteStatus.APPROVED,
+        // ✅ FIX: relação to-one precisa de `is`
+        ...(team ? { owner: { is: { team } } } : {}),
+      },
+      orderBy: { nomeCompleto: "asc" },
+      select: {
+        id: true,
+        nomeCompleto: true,
+        telefone: true,
+        owner: { select: { id: true, name: true, login: true } },
+        termReviews: {
+          where: { termoVersao },
+          take: 1,
+          select: {
+            aceiteOutros: true,
+            aceiteLatam: true,
+            exclusaoDef: true,
+            responseTime: true,
+            disponibilidadePoints: true,
+            updatedAt: true,
+          },
         },
       },
-    },
-  });
+    });
 
-  const data = cedentes.map((c) => {
-    const review = c.termReviews[0] || null;
+    const data = cedentes.map((c) => {
+      const review = c.termReviews[0] || null;
 
-    const waNumber = phoneToWaNumber(c.telefone);
-    const waUrl = waNumber ? buildWaLink(waNumber) : null;
-    const waUrlTermo = waNumber ? buildWaLink(waNumber, TERM_MESSAGE) : null;
+      const waNumber = phoneToWaNumber(c.telefone);
+      const waUrl = waNumber ? buildWaLink(waNumber) : null;
+      const waUrlTermo = waNumber ? buildWaLink(waNumber, TERM_MESSAGE) : null;
 
-    const scorePack = review ? computeScore(review) : { rtPts: 0, disp: 0, score: 0 };
-    const color = review ? computeColor(review) : "GRAY";
+      const scorePack = review ? computeScore(review) : { rtPts: 0, disp: 0, score: 0 };
+      const color = review ? computeColor(review) : "GRAY";
 
-    return {
-      id: c.id,
-      nomeCompleto: c.nomeCompleto,
-      owner: c.owner,
-      telefone: c.telefone,
+      return {
+        id: c.id,
+        nomeCompleto: c.nomeCompleto,
+        owner: c.owner,
+        telefone: c.telefone,
 
-      whatsapp: {
-        waNumber,
-        waUrl,
-        waUrlTermo, // link direto já abrindo conversa com o texto do termo
-        termoTexto: TERM_MESSAGE, // pra copiar/colar também
-      },
+        whatsapp: {
+          waNumber,
+          waUrl,
+          waUrlTermo,
+          termoTexto: TERM_MESSAGE,
+        },
 
-      review,
-      score: {
-        responseTimePoints: scorePack.rtPts,
-        disponibilidadePoints: scorePack.disp,
-        total: scorePack.score, // 0..100 (4+5)
-        color, // GREEN / RED / YELLOW / GRAY
-      },
-    };
-  });
+        review,
+        score: {
+          responseTimePoints: scorePack.rtPts,
+          disponibilidadePoints: scorePack.disp,
+          total: scorePack.score,
+          color,
+        },
+      };
+    });
 
-  return NextResponse.json({ ok: true, data }, { status: 200 });
+    return NextResponse.json({ ok: true, data }, { status: 200 });
+  } catch (err: any) {
+    console.error("GET /api/cedentes/termos ERROR:", err);
+    return NextResponse.json(
+      { ok: false, error: err?.message || "Erro interno." },
+      { status: 500 }
+    );
+  }
 }
 
 export async function POST(req: NextRequest) {
@@ -222,71 +228,79 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, error: "Não autenticado." }, { status: 401 });
   }
 
-  const body = await req.json().catch(() => ({}));
+  try {
+    const body = await req.json().catch(() => ({}));
 
-  const cedenteId = asString(body?.cedenteId).trim();
-  const termoVersao = (asString(body?.termoVersao).trim() || "v1").trim();
+    const cedenteId = asString(body?.cedenteId).trim();
+    const termoVersao = (asString(body?.termoVersao).trim() || "v1").trim();
 
-  if (!cedenteId) {
-    return NextResponse.json({ ok: false, error: "cedenteId é obrigatório." }, { status: 400 });
-  }
+    if (!cedenteId) {
+      return NextResponse.json({ ok: false, error: "cedenteId é obrigatório." }, { status: 400 });
+    }
 
-  const aceiteOutros = toTri(body?.aceiteOutros);
-  const aceiteLatam = toTri(body?.aceiteLatam);
-  const exclusaoDef = toTri(body?.exclusaoDef);
-  const responseTime = toRT(body?.responseTime);
+    const aceiteOutros = toTri(body?.aceiteOutros);
+    const aceiteLatam = toTri(body?.aceiteLatam);
+    const exclusaoDef = toTri(body?.exclusaoDef);
+    const responseTime = toRT(body?.responseTime);
 
-  const disponibilidadePoints = clampInt(body?.disponibilidadePoints, 0, 70);
+    const disponibilidadePoints = clampInt(body?.disponibilidadePoints, 0, 70);
 
-  // ✅ UPSERT: o unique do Prisma Client é "cedenteId_termoVersao"
-  const review = await prisma.cedenteTermReview.upsert({
-    where: {
-      cedenteId_termoVersao: { cedenteId, termoVersao },
-    },
-    create: {
-      cedenteId,
-      termoVersao,
-      aceiteOutros,
-      aceiteLatam,
-      exclusaoDef,
-      responseTime,
-      disponibilidadePoints,
-    },
-    update: {
-      aceiteOutros,
-      aceiteLatam,
-      exclusaoDef,
-      responseTime,
-      disponibilidadePoints,
-    },
-    select: {
-      aceiteOutros: true,
-      aceiteLatam: true,
-      exclusaoDef: true,
-      responseTime: true,
-      disponibilidadePoints: true,
-      updatedAt: true,
-      termoVersao: true,
-      cedenteId: true,
-    },
-  });
+    // ✅ UPSERT: o unique do Prisma Client é "cedenteId_termoVersao"
+    const review = await prisma.cedenteTermReview.upsert({
+      where: {
+        cedenteId_termoVersao: { cedenteId, termoVersao },
+      },
+      create: {
+        cedenteId,
+        termoVersao,
+        aceiteOutros,
+        aceiteLatam,
+        exclusaoDef,
+        responseTime,
+        disponibilidadePoints,
+      },
+      update: {
+        aceiteOutros,
+        aceiteLatam,
+        exclusaoDef,
+        responseTime,
+        disponibilidadePoints,
+      },
+      select: {
+        aceiteOutros: true,
+        aceiteLatam: true,
+        exclusaoDef: true,
+        responseTime: true,
+        disponibilidadePoints: true,
+        updatedAt: true,
+        termoVersao: true,
+        cedenteId: true,
+      },
+    });
 
-  const scorePack = computeScore(review);
-  const color = computeColor(review);
+    const scorePack = computeScore(review);
+    const color = computeColor(review);
 
-  return NextResponse.json(
-    {
-      ok: true,
-      data: {
-        review,
-        score: {
-          responseTimePoints: scorePack.rtPts,
-          disponibilidadePoints: scorePack.disp,
-          total: scorePack.score,
-          color,
+    return NextResponse.json(
+      {
+        ok: true,
+        data: {
+          review,
+          score: {
+            responseTimePoints: scorePack.rtPts,
+            disponibilidadePoints: scorePack.disp,
+            total: scorePack.score,
+            color,
+          },
         },
       },
-    },
-    { status: 200 }
-  );
+      { status: 200 }
+    );
+  } catch (err: any) {
+    console.error("POST /api/cedentes/termos ERROR:", err);
+    return NextResponse.json(
+      { ok: false, error: err?.message || "Erro interno." },
+      { status: 500 }
+    );
+  }
 }
