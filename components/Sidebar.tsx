@@ -173,11 +173,17 @@ export default function Sidebar() {
     "/dashboard/atualizacao-termos"
   );
 
+  // ✅ NOVO: Horário biometria (em OUTROS)
+  const isHorarioBiometriaRoute = pathname.startsWith(
+    "/dashboard/horario-biometria"
+  );
+
   const isOutrosRoute =
     isAutomacaoRoute ||
     isWalletRoute ||
     isAgendaRoute ||
-    isAtualizacaoTermosRoute;
+    isAtualizacaoTermosRoute ||
+    isHorarioBiometriaRoute;
 
   /* =========================
    * ACCORDIONS
@@ -836,6 +842,10 @@ export default function Sidebar() {
           {/* ✅ NOVO: Atualização dos termos */}
           <NavLink href="/dashboard/atualizacao-termos">
             Atualização dos termos
+          </NavLink>
+
+          <NavLink href="/dashboard/horario-biometria">
+            Horário biometria
           </NavLink>
 
           <NavLink href="/dashboard/wallet">Wallet</NavLink>

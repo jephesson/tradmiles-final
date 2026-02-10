@@ -318,6 +318,9 @@ model Cedente {
   // ✅ NOVO: reviews/score de termo por versão
   termReviews CedenteTermReview[]
 
+  // ✅ horários de biometria (LATAM)
+  biometriaHorario CedenteBiometriaHorario?
+
   blockedAccounts    BlockedAccount[]
   purchases          Purchase[]
   cedenteCommissions CedenteCommission[]
@@ -396,6 +399,29 @@ model CedenteTermReview {
   @@index([termoVersao])
   @@index([cedenteId])
   @@map("cedente_term_reviews")
+}
+
+/**
+ * =========================
+ * ✅ HORÁRIOS DE BIOMETRIA (LATAM)
+ * =========================
+ * Um registro por Cedente (turnos disponíveis)
+ */
+model CedenteBiometriaHorario {
+  id        String @id @default(uuid())
+  cedenteId String @unique
+
+  turnoManha Boolean @default(false)
+  turnoTarde Boolean @default(false)
+  turnoNoite Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  cedente Cedente @relation(fields: [cedenteId], references: [id], onDelete: Cascade)
+
+  @@index([cedenteId])
+  @@map("cedente_biometria_horarios")
 }
 
 /**
