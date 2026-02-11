@@ -12,8 +12,12 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-type Mode = "AVAILABILITY" | "CLUB" | "COMBINED";
+type Mode = "AVAILABILITY" | "CLUB" | "COMBINED" | "BIRTHDAY_TURBO";
 type ClubStatusOut = "ACTIVE" | "PAUSED" | "CANCELED" | "NONE";
+
+const TURBO_MONTH_LIMIT = 100_000;
+const TURBO_MIN_TRANSFERRED = 85_000;
+const BIRTHDAY_TZ = "America/Sao_Paulo";
 
 function noCacheHeaders() {
   return {
@@ -37,6 +41,101 @@ function str(v: any) {
 }
 function isProgram(v: any): v is LoyaltyProgram {
   return v === "LATAM" || v === "SMILES" || v === "LIVELO" || v === "ESFERA";
+}
+
+function monthNumberInTZ(date: Date, tz: string) {
+  const parts = new Intl.DateTimeFormat("en-US", { timeZone: tz, month: "numeric" }).formatToParts(
+    date
+  );
+  const m = parts.find((p) => p.type === "month")?.value;
+  return Number(m || 0);
+}
+
+function birthDayLabel(date: Date, tz: string) {
+  return new Intl.DateTimeFormat("pt-BR", { timeZone: tz, day: "2-digit", month: "2-digit" }).format(
+    date
+  );
+}
+
+// ====== utils (LATAM turbo, UTC)
+function startUTC(d: Date) {
+  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+}
+function addDaysUTC(base: Date, days: number) {
+  const d = startUTC(base);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d;
+}
+function daysInMonthUTC(year: number, month0: number) {
+  return new Date(Date.UTC(year, month0 + 1, 0)).getUTCDate();
+}
+function nextMonthOnDayUTC(base: Date, day: number) {
+  const y0 = base.getUTCFullYear();
+  const m0 = base.getUTCMonth();
+
+  let y = y0;
+  let m = m0 + 1;
+  if (m > 11) {
+    m = 0;
+    y += 1;
+  }
+
+  const last = daysInMonthUTC(y, m);
+  const dd = Math.min(Math.max(1, day), last);
+
+  return new Date(Date.UTC(y, m, dd));
+}
+function monthKeyUTC(d: Date) {
+  const y = d.getUTCFullYear();
+  const m = String(d.getUTCMonth() + 1).padStart(2, "0");
+  return `${y}-${m}`; // YYYY-MM
+}
+function parseMonthKeyUTC(key: string) {
+  const m = /^(\d{4})-(\d{2})$/.exec((key || "").trim());
+  if (!m) return null;
+  const y = Number(m[1]);
+  const mm = Number(m[2]);
+  if (!Number.isFinite(y) || !Number.isFinite(mm) || mm < 1 || mm > 12) return null;
+  return { y, m0: mm - 1 };
+}
+function startOfMonthUTCFromKey(key: string) {
+  const p = parseMonthKeyUTC(key);
+  if (!p) return null;
+  return new Date(Date.UTC(p.y, p.m0, 1, 0, 0, 0, 0));
+}
+function endOfMonthUTCFromKey(key: string) {
+  const p = parseMonthKeyUTC(key);
+  if (!p) return null;
+  return new Date(Date.UTC(p.y, p.m0 + 1, 0, 23, 59, 59, 999));
+}
+function clampInt(n: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, n));
+}
+function safeInt(v: unknown, fb = 0) {
+  const n = Number(v);
+  return Number.isFinite(n) ? Math.trunc(n) : fb;
+}
+function isBetweenUTC(d: Date, start: Date, end: Date) {
+  const t = startUTC(d).getTime();
+  return t >= startUTC(start).getTime() && t <= startUTC(end).getTime();
+}
+
+const LATAM_CANCEL_AFTER_INACTIVE_DAYS = 10;
+
+function computeLatamAutoDates(input: {
+  subscribedAt: Date;
+  renewalDay: number;
+  lastRenewedAt: Date | null;
+}) {
+  const renewalDay = clampInt(Number(input.renewalDay) || 1, 1, 31);
+  const base = input.lastRenewedAt ?? input.subscribedAt;
+
+  const nextRenewalAt = nextMonthOnDayUTC(base, renewalDay);
+  const inactiveAt = addDaysUTC(nextRenewalAt, 1);
+  const activeUntil = addDaysUTC(inactiveAt, -1);
+  const cancelAt = addDaysUTC(inactiveAt, LATAM_CANCEL_AFTER_INACTIVE_DAYS);
+
+  return { nextRenewalAt, inactiveAt, activeUntil, cancelAt };
 }
 
 function programLabel(p: LoyaltyProgram) {
@@ -117,6 +216,170 @@ export async function POST(req: NextRequest) {
 
   const mode: Mode = body.mode;
   if (!mode) return bad("mode obrigatório");
+
+  // ======= MODE: Aniversário Livelo + Latam Turbo
+  if (mode === "BIRTHDAY_TURBO") {
+    const monthKey = monthKeyUTC(new Date());
+    const monthStart = startOfMonthUTCFromKey(monthKey);
+    const monthEnd = endOfMonthUTCFromKey(monthKey);
+
+    const today = startUTC(new Date());
+    const currentBirthMonth = monthNumberInTZ(new Date(), BIRTHDAY_TZ);
+
+    const cedentes = await prisma.cedente.findMany({
+      where: {
+        status: CedenteStatus.APPROVED,
+        owner: { team },
+        dataNascimento: { not: null },
+      },
+      select: {
+        id: true,
+        identificador: true,
+        nomeCompleto: true,
+        cpf: true,
+        dataNascimento: true,
+        owner: { select: { id: true, name: true, login: true } },
+      },
+      orderBy: [{ nomeCompleto: "asc" }],
+    });
+
+    const birthdayCedentes = cedentes.filter(
+      (c) =>
+        c.dataNascimento &&
+        monthNumberInTZ(c.dataNascimento, BIRTHDAY_TZ) === currentBirthMonth
+    );
+
+    if (!birthdayCedentes.length) {
+      return NextResponse.json(
+        {
+          ok: true,
+          rows: [],
+          meta: {
+            monthKey,
+            limitPoints: TURBO_MONTH_LIMIT,
+            minTransferred: TURBO_MIN_TRANSFERRED,
+          },
+        },
+        { headers: noCacheHeaders() }
+      );
+    }
+
+    const birthdayIds = birthdayCedentes.map((c) => c.id);
+
+    const clubs = await prisma.clubSubscription.findMany({
+      where: {
+        team,
+        program: "LATAM",
+        cedenteId: { in: birthdayIds },
+      },
+      select: {
+        id: true,
+        cedenteId: true,
+        status: true,
+        tierK: true,
+        subscribedAt: true,
+        renewalDay: true,
+        lastRenewedAt: true,
+        pointsExpireAt: true,
+        createdAt: true,
+      },
+      orderBy: [{ subscribedAt: "desc" }, { createdAt: "desc" }],
+    });
+
+    const latestClubByCedente = new Map<string, (typeof clubs)[number]>();
+    for (const c of clubs) {
+      if (!latestClubByCedente.has(c.cedenteId)) latestClubByCedente.set(c.cedenteId, c);
+    }
+
+    const monthMarks = await prisma.latamTurboMonth.findMany({
+      where: {
+        team,
+        monthKey,
+        cedenteId: { in: birthdayIds },
+      },
+      select: { cedenteId: true, status: true, points: true, updatedAt: true },
+    });
+
+    const markByCedente = new Map<string, (typeof monthMarks)[number]>();
+    for (const m of monthMarks) markByCedente.set(m.cedenteId, m);
+
+    const rows = birthdayCedentes
+      .map((c) => {
+        const club = latestClubByCedente.get(c.id);
+        if (!club) return null;
+
+        const auto = computeLatamAutoDates({
+          subscribedAt: club.subscribedAt,
+          renewalDay: clampInt(Number(club.renewalDay) || 1, 1, 31),
+          lastRenewedAt: club.lastRenewedAt,
+        });
+
+        let effectiveStatus = club.status as ClubSubscriptionStatus;
+        if (effectiveStatus !== "CANCELED") {
+          if (today.getTime() >= startUTC(auto.cancelAt).getTime()) {
+            effectiveStatus = "CANCELED";
+          } else if (
+            today.getTime() >= startUTC(auto.inactiveAt).getTime() &&
+            effectiveStatus === "ACTIVE"
+          ) {
+            effectiveStatus = "PAUSED";
+          }
+        }
+
+        if (effectiveStatus !== "ACTIVE") return null;
+
+        const inactiveInMonth =
+          Boolean(monthStart && monthEnd) && isBetweenUTC(auto.inactiveAt, monthStart!, monthEnd!);
+
+        const mark = markByCedente.get(c.id) || null;
+        const transferredPoints =
+          mark && mark.status !== "SKIPPED" ? safeInt(mark.points, 0) : 0;
+
+        if (transferredPoints >= TURBO_MIN_TRANSFERRED) return null;
+
+        const remainingPoints = Math.max(0, TURBO_MONTH_LIMIT - transferredPoints);
+
+        return {
+          cedenteId: c.id,
+          cedenteNome: c.nomeCompleto,
+          cedenteIdentificador: c.identificador,
+          cpf: c.cpf,
+          owner: c.owner,
+          birthDay: c.dataNascimento ? birthDayLabel(c.dataNascimento, BIRTHDAY_TZ) : null,
+          turbo: {
+            status: mark?.status || "NONE",
+            transferredPoints,
+            remainingPoints,
+            willInactivate: inactiveInMonth,
+            cancelAt: inactiveInMonth ? auto.cancelAt.toISOString() : null,
+          },
+        };
+      })
+      .filter(Boolean) as any[];
+
+    rows.sort((a, b) => {
+      const ra = Number(a?.turbo?.remainingPoints || 0);
+      const rb = Number(b?.turbo?.remainingPoints || 0);
+      if (rb !== ra) return rb - ra;
+      const da = a?.birthDay ? a.birthDay : "";
+      const db = b?.birthDay ? b.birthDay : "";
+      if (da !== db) return da.localeCompare(db);
+      return String(a?.cedenteNome || "").localeCompare(String(b?.cedenteNome || ""));
+    });
+
+    return NextResponse.json(
+      {
+        ok: true,
+        rows,
+        meta: {
+          monthKey,
+          limitPoints: TURBO_MONTH_LIMIT,
+          minTransferred: TURBO_MIN_TRANSFERRED,
+        },
+      },
+      { headers: noCacheHeaders() }
+    );
+  }
 
   // ======= parse params (mantém compatível com a UI anterior)
   const ciaRaw = body.cia ?? body?.combined?.cia ?? null;

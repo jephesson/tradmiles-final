@@ -3,9 +3,11 @@
 import { useMemo, useState } from "react";
 
 type Program = "LATAM" | "SMILES" | "LIVELO" | "ESFERA";
-type Mode = "AVAILABILITY" | "CLUB" | "COMBINED";
+type Mode = "AVAILABILITY" | "CLUB" | "COMBINED" | "BIRTHDAY_TURBO";
 
 type ClubStatus = "ACTIVE" | "PAUSED" | "CANCELED" | "NONE";
+
+type Owner = { id: string; name: string; login: string };
 
 type ResultRow = {
   cedenteId: string;
@@ -28,13 +30,47 @@ type ResultRow = {
   notes?: string[];
 };
 
+type BirthdayTurboRow = {
+  cedenteId: string;
+  cedenteNome: string;
+  cedenteIdentificador?: string | null;
+  cpf: string;
+  owner: Owner;
+  birthDay: string | null; // DD/MM
+  turbo: {
+    status: "PENDING" | "TRANSFERRED" | "SKIPPED" | "NONE";
+    transferredPoints: number;
+    remainingPoints: number;
+    willInactivate: boolean;
+    cancelAt: string | null;
+  };
+};
+
+type StrategyRow = ResultRow | BirthdayTurboRow;
+
 function n(v: any) {
   const x = Number(v);
   return Number.isFinite(x) ? x : 0;
 }
 
+function fmtInt(n: number) {
+  return new Intl.NumberFormat("pt-BR").format(n || 0);
+}
+
+function fmtBirthDay(d: string | null | undefined) {
+  if (!d) return "-";
+  return d;
+}
+
+function fmtDateBR(iso: string | null | undefined) {
+  if (!iso) return "-";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "-";
+  return d.toLocaleDateString("pt-BR");
+}
+
 export default function StrategyCompraClient() {
-  const [mode, setMode] = useState<Mode>("AVAILABILITY");
+  const [mode, setMode] = useState<Mode>("BIRTHDAY_TURBO");
 
   // Disponibilidade
   const [cia, setCia] = useState<Program>("LATAM");
@@ -56,10 +92,14 @@ export default function StrategyCompraClient() {
   const [ruleClubRequired, setRuleClubRequired] = useState(false);
 
   const [loading, setLoading] = useState(false);
-  const [rows, setRows] = useState<ResultRow[]>([]);
+  const [rows, setRows] = useState<StrategyRow[]>([]);
+  const [meta, setMeta] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
 
   const payload = useMemo(() => {
+    if (mode === "BIRTHDAY_TURBO") {
+      return { mode };
+    }
     if (mode === "AVAILABILITY") {
       return {
         mode,
@@ -127,13 +167,24 @@ export default function StrategyCompraClient() {
       const data = await res.json();
       if (!res.ok || !data?.ok) throw new Error(data?.error || "Falha ao buscar");
       setRows(data.rows || []);
+      setMeta(data.meta || null);
     } catch (e: any) {
       setError(e?.message || "Erro");
       setRows([]);
+      setMeta(null);
     } finally {
       setLoading(false);
     }
   }
+
+  const birthdayRows = useMemo(() => {
+    if (mode !== "BIRTHDAY_TURBO") return [];
+    return rows as BirthdayTurboRow[];
+  }, [rows, mode]);
+
+  const totalBirthdayRemaining = useMemo(() => {
+    return birthdayRows.reduce((acc, r) => acc + (r.turbo?.remainingPoints || 0), 0);
+  }, [birthdayRows]);
 
   return (
     <div className="p-6 space-y-6">
@@ -164,6 +215,7 @@ export default function StrategyCompraClient() {
               onChange={(e) => setMode(e.target.value as Mode)}
               className="mt-1 w-full border rounded-lg px-3 py-2"
             >
+              <option value="BIRTHDAY_TURBO">Aniversário Livelo + Latam Turbo</option>
               <option value="AVAILABILITY">Estratégia por disponibilidade</option>
               <option value="CLUB">Estratégia por clube</option>
               <option value="COMBINED">Combinada (várias regras)</option>
@@ -208,6 +260,16 @@ export default function StrategyCompraClient() {
             </>
           )}
         </div>
+
+        {mode === "BIRTHDAY_TURBO" && (
+          <div className="rounded-lg border bg-slate-50 p-3 text-sm text-slate-700">
+            <div className="font-medium">Regras deste modo</div>
+            <div>1) Aniversário Livelo no mês corrente</div>
+            <div>2) Latam Turbo ativo no mês (se inativar, mostra a data de cancelamento)</div>
+            <div>3) Transferido no mês &lt; 85.000</div>
+            <div>Limite Latam Turbo: 100.000 por mês (1º ao último dia)</div>
+          </div>
+        )}
 
         {/* filtros por modo */}
         {mode === "AVAILABILITY" && (
@@ -332,66 +394,140 @@ export default function StrategyCompraClient() {
       {/* RESULTADOS */}
       <div className="rounded-xl border overflow-hidden">
         <div className="p-4 border-b">
-          <div className="text-sm text-neutral-600">
-            Resultados: <span className="font-semibold text-neutral-900">{rows.length}</span>
-          </div>
+          {mode === "BIRTHDAY_TURBO" ? (
+            <div className="flex flex-wrap items-center gap-4 text-sm text-neutral-600">
+              <div>
+                Resultados:{" "}
+                <span className="font-semibold text-neutral-900">{birthdayRows.length}</span>
+              </div>
+              <div>
+                Total pode transferir:{" "}
+                <span className="font-semibold text-neutral-900">
+                  {fmtInt(totalBirthdayRemaining)}
+                </span>
+              </div>
+              {meta?.monthKey && <div>Mês: {meta.monthKey}</div>}
+            </div>
+          ) : (
+            <div className="text-sm text-neutral-600">
+              Resultados: <span className="font-semibold text-neutral-900">{rows.length}</span>
+            </div>
+          )}
         </div>
 
         <div className="overflow-auto">
-          <table className="min-w-[980px] w-full text-sm">
-            <thead className="bg-neutral-50">
-              <tr className="text-left">
-                <th className="p-3">Cedente</th>
-                <th className="p-3">CIA</th>
-                <th className="p-3">Banco</th>
-                <th className="p-3">Pts CIA</th>
-                <th className="p-3">Pts Banco</th>
-                <th className="p-3">Pax</th>
-                <th className="p-3">CPF</th>
-                <th className="p-3">Clube</th>
-                <th className="p-3">Score</th>
-                <th className="p-3">Notas</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((r) => (
-                <tr key={`${r.cedenteId}-${r.cia}-${r.bank}`} className="border-t">
-                  <td className="p-3">
-                    <div className="font-medium">{r.cedenteNome}</div>
-                    {r.cedenteIdentificador ? (
-                      <div className="text-xs text-neutral-500">{r.cedenteIdentificador}</div>
-                    ) : null}
-                  </td>
-                  <td className="p-3">{r.cia ?? "-"}</td>
-                  <td className="p-3">{r.bank ?? "-"}</td>
-                  <td className="p-3">{r.ciaPoints.toLocaleString("pt-BR")}</td>
-                  <td className="p-3">{r.bankPoints.toLocaleString("pt-BR")}</td>
-                  <td className="p-3">{r.paxAvailable ?? "-"}</td>
-                  <td className="p-3">{r.cpfsAvailable ?? "-"}</td>
-                  <td className="p-3">
-                    {r.clubStatus === "NONE" ? "-" : (
-                      <div>
-                        <div className="font-medium">{r.clubStatus}</div>
-                        <div className="text-xs text-neutral-500">{r.clubPlan || ""}</div>
+          {mode === "BIRTHDAY_TURBO" ? (
+            <table className="min-w-[980px] w-full text-sm">
+              <thead className="bg-neutral-50">
+                <tr className="text-left">
+                  <th className="p-3">Cedente</th>
+                  <th className="p-3">Responsável</th>
+                  <th className="p-3">Aniversário</th>
+                  <th className="p-3">Turbo (mês)</th>
+                  <th className="p-3">Cancela em</th>
+                  <th className="p-3">Transferido</th>
+                  <th className="p-3">Pode transferir</th>
+                </tr>
+              </thead>
+              <tbody>
+                {birthdayRows.map((r) => (
+                  <tr key={r.cedenteId} className="border-t">
+                    <td className="p-3">
+                      <div className="font-medium">{r.cedenteNome}</div>
+                      {r.cedenteIdentificador ? (
+                        <div className="text-xs text-neutral-500">{r.cedenteIdentificador}</div>
+                      ) : null}
+                    </td>
+                    <td className="p-3">
+                      <div className="font-medium">{r.owner?.name || "-"}</div>
+                      <div className="text-xs text-neutral-500">@{r.owner?.login || "-"}</div>
+                    </td>
+                    <td className="p-3">{fmtBirthDay(r.birthDay)}</td>
+                    <td className="p-3">
+                      <div className="flex items-center gap-2">
+                        <span className="rounded-full border px-2 py-0.5 text-xs">
+                          {r.turbo?.status || "NONE"}
+                        </span>
+                        {r.turbo?.willInactivate ? (
+                          <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs text-amber-700">
+                            inativa no mês
+                          </span>
+                        ) : null}
                       </div>
-                    )}
-                  </td>
-                  <td className="p-3 font-semibold">{Math.round(r.score)}</td>
-                  <td className="p-3 text-xs text-neutral-600">
-                    {(r.notes || []).slice(0, 3).join(" · ")}
-                  </td>
-                </tr>
-              ))}
+                    </td>
+                    <td className="p-3">
+                      {r.turbo?.willInactivate ? fmtDateBR(r.turbo?.cancelAt) : "-"}
+                    </td>
+                    <td className="p-3">{fmtInt(r.turbo?.transferredPoints || 0)}</td>
+                    <td className="p-3 font-semibold">{fmtInt(r.turbo?.remainingPoints || 0)}</td>
+                  </tr>
+                ))}
 
-              {!rows.length && (
-                <tr>
-                  <td className="p-6 text-neutral-500" colSpan={10}>
-                    Nenhum resultado ainda. Ajuste os filtros e clique em <b>Buscar</b>.
-                  </td>
+                {!birthdayRows.length && (
+                  <tr>
+                    <td className="p-6 text-neutral-500" colSpan={7}>
+                      Nenhum resultado ainda. Clique em <b>Buscar</b>.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          ) : (
+            <table className="min-w-[980px] w-full text-sm">
+              <thead className="bg-neutral-50">
+                <tr className="text-left">
+                  <th className="p-3">Cedente</th>
+                  <th className="p-3">CIA</th>
+                  <th className="p-3">Banco</th>
+                  <th className="p-3">Pts CIA</th>
+                  <th className="p-3">Pts Banco</th>
+                  <th className="p-3">Pax</th>
+                  <th className="p-3">CPF</th>
+                  <th className="p-3">Clube</th>
+                  <th className="p-3">Score</th>
+                  <th className="p-3">Notas</th>
                 </tr>
-              )}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {rows.map((r) => (
+                  <tr key={`${(r as ResultRow).cedenteId}-${(r as ResultRow).cia}-${(r as ResultRow).bank}`} className="border-t">
+                    <td className="p-3">
+                      <div className="font-medium">{(r as ResultRow).cedenteNome}</div>
+                      {(r as ResultRow).cedenteIdentificador ? (
+                        <div className="text-xs text-neutral-500">{(r as ResultRow).cedenteIdentificador}</div>
+                      ) : null}
+                    </td>
+                    <td className="p-3">{(r as ResultRow).cia ?? "-"}</td>
+                    <td className="p-3">{(r as ResultRow).bank ?? "-"}</td>
+                    <td className="p-3">{(r as ResultRow).ciaPoints.toLocaleString("pt-BR")}</td>
+                    <td className="p-3">{(r as ResultRow).bankPoints.toLocaleString("pt-BR")}</td>
+                    <td className="p-3">{(r as ResultRow).paxAvailable ?? "-"}</td>
+                    <td className="p-3">{(r as ResultRow).cpfsAvailable ?? "-"}</td>
+                    <td className="p-3">
+                      {(r as ResultRow).clubStatus === "NONE" ? "-" : (
+                        <div>
+                          <div className="font-medium">{(r as ResultRow).clubStatus}</div>
+                          <div className="text-xs text-neutral-500">{(r as ResultRow).clubPlan || ""}</div>
+                        </div>
+                      )}
+                    </td>
+                    <td className="p-3 font-semibold">{Math.round((r as ResultRow).score)}</td>
+                    <td className="p-3 text-xs text-neutral-600">
+                      {((r as ResultRow).notes || []).slice(0, 3).join(" · ")}
+                    </td>
+                  </tr>
+                ))}
+
+                {!rows.length && (
+                  <tr>
+                    <td className="p-6 text-neutral-500" colSpan={10}>
+                      Nenhum resultado ainda. Ajuste os filtros e clique em <b>Buscar</b>.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          )}
         </div>
       </div>
 
