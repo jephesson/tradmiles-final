@@ -8,7 +8,7 @@ import {
   useSearchParams,
   type ReadonlyURLSearchParams,
 } from "next/navigation";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
 import { cn } from "@/lib/cn";
 import { getSession, signOut } from "@/lib/auth";
 
@@ -20,6 +20,94 @@ const STRICT_NOQUERY_ACTIVE_PATHS = new Set<string>([
 ]);
 
 const VISUALIZAR_PONTOS_PATH = "/dashboard/cedentes/visualizar";
+
+type Accent =
+  | "sky"
+  | "emerald"
+  | "amber"
+  | "teal"
+  | "rose"
+  | "orange"
+  | "lime"
+  | "cyan"
+  | "blue"
+  | "slate";
+
+const ACCENTS: Record<
+  Accent,
+  { accent: string; soft: string; text: string; border: string }
+> = {
+  sky: {
+    accent: "#0ea5e9",
+    soft: "rgba(14,165,233,0.12)",
+    text: "#075985",
+    border: "rgba(14,165,233,0.35)",
+  },
+  emerald: {
+    accent: "#10b981",
+    soft: "rgba(16,185,129,0.12)",
+    text: "#065f46",
+    border: "rgba(16,185,129,0.35)",
+  },
+  amber: {
+    accent: "#f59e0b",
+    soft: "rgba(245,158,11,0.14)",
+    text: "#92400e",
+    border: "rgba(245,158,11,0.35)",
+  },
+  teal: {
+    accent: "#14b8a6",
+    soft: "rgba(20,184,166,0.12)",
+    text: "#0f766e",
+    border: "rgba(20,184,166,0.35)",
+  },
+  rose: {
+    accent: "#f43f5e",
+    soft: "rgba(244,63,94,0.12)",
+    text: "#9f1239",
+    border: "rgba(244,63,94,0.35)",
+  },
+  orange: {
+    accent: "#f97316",
+    soft: "rgba(249,115,22,0.14)",
+    text: "#9a3412",
+    border: "rgba(249,115,22,0.35)",
+  },
+  lime: {
+    accent: "#84cc16",
+    soft: "rgba(132,204,22,0.14)",
+    text: "#3f6212",
+    border: "rgba(132,204,22,0.35)",
+  },
+  cyan: {
+    accent: "#06b6d4",
+    soft: "rgba(6,182,212,0.12)",
+    text: "#0e7490",
+    border: "rgba(6,182,212,0.35)",
+  },
+  blue: {
+    accent: "#3b82f6",
+    soft: "rgba(59,130,246,0.12)",
+    text: "#1e40af",
+    border: "rgba(59,130,246,0.35)",
+  },
+  slate: {
+    accent: "#64748b",
+    soft: "rgba(100,116,139,0.12)",
+    text: "#334155",
+    border: "rgba(100,116,139,0.35)",
+  },
+};
+
+function accentStyle(accent?: Accent): CSSProperties {
+  const a = ACCENTS[accent || "slate"];
+  return {
+    "--accent": a.accent,
+    "--accent-soft": a.soft,
+    "--accent-text": a.text,
+    "--accent-border": a.border,
+  } as CSSProperties;
+}
 
 export default function Sidebar() {
   const pathname = usePathname();
@@ -394,18 +482,18 @@ export default function Sidebar() {
    * UI
    * ========================= */
   return (
-    <aside className="w-64 h-screen border-r bg-white overflow-y-auto">
+    <aside className="w-64 h-screen border-r border-slate-200 bg-gradient-to-b from-white via-slate-50 to-white overflow-y-auto">
       {/* Header */}
-      <div className="flex items-center justify-between border-b p-4">
+      <div className="flex items-center justify-between border-b bg-white/80 backdrop-blur p-4">
         <div className="flex items-center gap-3">
           <Image src="/trademiles.png" alt="TradeMiles" width={32} height={32} />
-          <span className="font-semibold">TradeMiles</span>
+          <span className="font-semibold text-slate-800">TradeMiles</span>
         </div>
 
         {session && (
           <button
             onClick={doLogout}
-            className="text-xs border px-2 py-1 rounded"
+            className="text-xs border border-slate-200 px-2 py-1 rounded hover:bg-slate-50"
           >
             Sair
           </button>
@@ -429,6 +517,7 @@ export default function Sidebar() {
           open={openCadastro}
           onToggle={() => setOpenCadastro((v) => !v)}
           active={isCadastroRoute}
+          accent="sky"
         >
           <SubAccordion
             title="Cedentes"
@@ -498,6 +587,7 @@ export default function Sidebar() {
           open={openGestaoPontos}
           onToggle={() => setOpenGestaoPontos((v) => !v)}
           active={isGestaoPontosRoute}
+          accent="emerald"
         >
           <SubAccordion
             title="Visualizar pontos"
@@ -624,6 +714,7 @@ export default function Sidebar() {
           open={openLucros}
           onToggle={() => setOpenLucros((v) => !v)}
           active={isLucrosRoute}
+          accent="amber"
         >
           <NavLink href="/dashboard/lucros">Lucros</NavLink>
 
@@ -647,6 +738,7 @@ export default function Sidebar() {
           open={openAnalise}
           onToggle={() => setOpenAnalise((v) => !v)}
           active={isAnaliseRoute}
+          accent="teal"
         >
           <NavLink href="/dashboard/analise-dados">Análise de dados</NavLink>
 
@@ -711,6 +803,7 @@ export default function Sidebar() {
           open={openProtocolos}
           onToggle={() => setOpenProtocolos((v) => !v)}
           active={isProtocolosRoute}
+          accent="rose"
         >
           <NavLink href="/dashboard/protocolos/latam">Latam</NavLink>
           <NavLink href="/dashboard/protocolos/smiles">Smiles</NavLink>
@@ -724,6 +817,7 @@ export default function Sidebar() {
           open={openFinanceiro}
           onToggle={() => setOpenFinanceiro((v) => !v)}
           active={isFinanceiroRoute}
+          accent="orange"
         >
           <NavLink href="/dashboard/resumo">Resumo</NavLink>
           <NavLink href="/dashboard/caixa-imediato">Caixa imediato</NavLink>
@@ -747,6 +841,7 @@ export default function Sidebar() {
           open={openDadosContabeis}
           onToggle={() => setOpenDadosContabeis((v) => !v)}
           active={isDadosContabeisRoute}
+          accent="lime"
         >
           <NavLink href="/dashboard/dados-contabeis/vendas">Vendas</NavLink>
           <NavLink href="/dashboard/dados-contabeis/compras">Compras</NavLink>
@@ -758,6 +853,7 @@ export default function Sidebar() {
           open={openImportacoes}
           onToggle={() => setOpenImportacoes((v) => !v)}
           active={isImportacoesRoute || isImportacoesEmissoesLatamRoute}
+          accent="cyan"
         >
           <SubAccordion
             title="Emissões"
@@ -781,6 +877,7 @@ export default function Sidebar() {
           open={openGestorEmissoes}
           onToggle={() => setOpenGestorEmissoes((v) => !v)}
           active={isGestorEmissoesRoute}
+          accent="blue"
         >
           <SubAccordion
             title="Emissões por cedente"
@@ -833,6 +930,7 @@ export default function Sidebar() {
           open={openOutros}
           onToggle={() => setOpenOutros((v) => !v)}
           active={isOutrosRoute}
+          accent="slate"
         >
           <NavLink href="/dashboard/automacao">Automação</NavLink>
 
@@ -909,8 +1007,12 @@ function NavLink({
     <Link
       href={href}
       className={cn(
-        "block rounded-lg px-3 py-2 text-sm",
-        active ? "bg-black text-white" : "hover:bg-slate-100",
+        "relative block rounded-lg px-3 py-2 pl-5 text-sm transition-colors",
+        active
+          ? "bg-[var(--accent-soft)] text-[var(--accent-text)]"
+          : "text-slate-700 hover:bg-slate-100",
+        "before:content-[''] before:absolute before:left-2 before:top-2 before:bottom-2 before:w-1 before:rounded-full",
+        active ? "before:bg-[var(--accent)]" : "before:bg-transparent",
         className
       )}
     >
@@ -924,28 +1026,37 @@ function Accordion({
   open,
   onToggle,
   active,
+  accent,
   children,
 }: {
   title: string;
   open: boolean;
   onToggle: () => void;
   active?: boolean;
+  accent?: Accent;
   children: ReactNode;
 }) {
   return (
-    <>
+    <div className="space-y-1" style={accentStyle(accent)}>
       <button
         onClick={onToggle}
         className={cn(
-          "w-full flex justify-between items-center px-3 py-2 rounded text-sm",
-          active ? "bg-black text-white" : "hover:bg-slate-100"
+          "group w-full flex justify-between items-center px-3 py-2 rounded-lg text-sm font-semibold transition-colors",
+          active
+            ? "bg-[var(--accent-soft)] text-[var(--accent-text)] ring-1 ring-[var(--accent-border)]"
+            : "text-slate-800 hover:bg-slate-100"
         )}
       >
-        <span>{title}</span>
-        <span>{open ? "▾" : "▸"}</span>
+        <span className="inline-flex items-center gap-2">
+          <span className="h-2 w-2 rounded-full bg-[var(--accent)]" />
+          <span>{title}</span>
+        </span>
+        <span className="text-xs text-slate-500 group-hover:text-slate-700">
+          {open ? "▾" : "▸"}
+        </span>
       </button>
       {open && <div className="pl-2 space-y-1">{children}</div>}
-    </>
+    </div>
   );
 }
 
@@ -971,10 +1082,12 @@ function SubAccordion({
   const rowClass = cn(
     isNav
       ? cn(
-          "w-full flex justify-between items-center rounded-lg px-3 py-2 text-sm",
-          active ? "bg-black text-white" : "hover:bg-slate-100"
+          "w-full flex justify-between items-center rounded-lg px-3 py-2 text-sm transition-colors",
+          active
+            ? "bg-[var(--accent-soft)] text-[var(--accent-text)] ring-1 ring-[var(--accent-border)]"
+            : "text-slate-700 hover:bg-slate-100"
         )
-      : "w-full flex justify-between items-center px-3 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded"
+      : "w-full flex justify-between items-center px-3 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded transition-colors"
   );
 
   if (href) {
@@ -994,7 +1107,7 @@ function SubAccordion({
             }}
             className={cn(
               "ml-2 rounded px-2 py-1",
-              isNav && active ? "hover:bg-white/10" : "hover:bg-slate-200"
+              isNav && active ? "hover:bg-black/5" : "hover:bg-slate-200"
             )}
             aria-label={open ? `Fechar ${title}` : `Abrir ${title}`}
           >
