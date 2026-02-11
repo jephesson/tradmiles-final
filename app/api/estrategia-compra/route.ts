@@ -120,6 +120,22 @@ function isBetweenUTC(d: Date, start: Date, end: Date) {
   return t >= startUTC(start).getTime() && t <= startUTC(end).getTime();
 }
 
+// ✅ últimos 365 dias (UTC) por DIA (inclui hoje)
+function boundsLast365UTC() {
+  const now = new Date();
+
+  const end = new Date(
+    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 23, 59, 59, 999)
+  );
+
+  // hoje (1) + 364 dias anteriores = 365 dias
+  const start = new Date(end);
+  start.setUTCDate(start.getUTCDate() - 364);
+  start.setUTCHours(0, 0, 0, 0);
+
+  return { start, end };
+}
+
 const LATAM_CANCEL_AFTER_INACTIVE_DAYS = 10;
 
 function computeLatamAutoDates(input: {
@@ -303,6 +319,29 @@ export async function POST(req: NextRequest) {
     const markByCedente = new Map<string, (typeof monthMarks)[number]>();
     for (const m of monthMarks) markByCedente.set(m.cedenteId, m);
 
+    const accounts = await prisma.latamTurboAccount.findMany({
+      where: { team, cedenteId: { in: birthdayIds } },
+      select: { cedenteId: true, cpfLimit: true, cpfUsed: true },
+    });
+
+    const accByCedente = new Map<string, { cpfLimit: number; cpfUsed: number }>();
+    for (const a of accounts) accByCedente.set(a.cedenteId, { cpfLimit: a.cpfLimit, cpfUsed: a.cpfUsed });
+
+    const { start: yStart, end: yEnd } = boundsLast365UTC();
+    const usedAgg = await prisma.emissionEvent.groupBy({
+      by: ["cedenteId"],
+      where: {
+        program: LoyaltyProgram.LATAM,
+        issuedAt: { gte: yStart, lte: yEnd },
+        cedenteId: { in: birthdayIds },
+      },
+      _sum: { passengersCount: true },
+    });
+
+    const usedCalcByCedente = new Map<string, number>(
+      usedAgg.map((x) => [x.cedenteId, Number(x._sum.passengersCount || 0)])
+    );
+
     const rows = birthdayCedentes
       .map((c) => {
         const club = latestClubByCedente.get(c.id);
@@ -339,6 +378,13 @@ export async function POST(req: NextRequest) {
 
         const remainingPoints = Math.max(0, TURBO_MONTH_LIMIT - transferredPoints);
 
+        const acc = accByCedente.get(c.id) || { cpfLimit: 25, cpfUsed: 0 };
+        const cpfLimit = clampInt(safeInt(acc.cpfLimit, 25), 0, 999);
+        const usedCalc = clampInt(safeInt(usedCalcByCedente.get(c.id) ?? 0, 0), 0, 999);
+        const usedManual = clampInt(safeInt(acc.cpfUsed, 0), 0, 999);
+        const cpfUsed = Math.max(usedCalc, usedManual);
+        const cpfFree = Math.max(0, cpfLimit - cpfUsed);
+
         return {
           cedenteId: c.id,
           cedenteNome: c.nomeCompleto,
@@ -346,6 +392,7 @@ export async function POST(req: NextRequest) {
           cpf: c.cpf,
           owner: c.owner,
           birthDay: c.dataNascimento ? birthDayLabel(c.dataNascimento, BIRTHDAY_TZ) : null,
+          paxAvailable: cpfFree,
           turbo: {
             status: mark?.status || "NONE",
             transferredPoints,

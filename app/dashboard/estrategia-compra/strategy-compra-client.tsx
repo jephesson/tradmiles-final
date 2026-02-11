@@ -37,6 +37,7 @@ type BirthdayTurboRow = {
   cpf: string;
   owner: Owner;
   birthDay: string | null; // DD/MM
+  paxAvailable: number;
   turbo: {
     status: "PENDING" | "TRANSFERRED" | "SKIPPED" | "NONE";
     transferredPoints: number;
@@ -427,6 +428,7 @@ export default function StrategyCompraClient() {
                   <th className="p-3">Cancela em</th>
                   <th className="p-3">Transferido</th>
                   <th className="p-3">Pode transferir</th>
+                  <th className="p-3">Pax restantes</th>
                 </tr>
               </thead>
               <tbody>
@@ -460,12 +462,13 @@ export default function StrategyCompraClient() {
                     </td>
                     <td className="p-3">{fmtInt(r.turbo?.transferredPoints || 0)}</td>
                     <td className="p-3 font-semibold">{fmtInt(r.turbo?.remainingPoints || 0)}</td>
+                    <td className="p-3">{fmtInt(r.paxAvailable || 0)}</td>
                   </tr>
                 ))}
 
                 {!birthdayRows.length && (
                   <tr>
-                    <td className="p-6 text-neutral-500" colSpan={7}>
+                    <td className="p-6 text-neutral-500" colSpan={8}>
                       Nenhum resultado ainda. Clique em <b>Buscar</b>.
                     </td>
                   </tr>
