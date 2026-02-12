@@ -909,7 +909,6 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
 
   const [postSaveOpen, setPostSaveOpen] = useState(false);
   const [postSaveMsg, setPostSaveMsg] = useState("");
-  const [postSaveSaleId, setPostSaveSaleId] = useState<string | null>(null);
 
   // ✅ confirmação + overlay saving
   const [confirmOpen, setConfirmOpen] = useState(false);
@@ -956,8 +955,7 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
   }) {
     const lines: string[] = [];
 
-    lines.push("✅ Venda criada");
-    if (args.saleId) lines.push(`ID: ${args.saleId}`);
+    lines.push("Parabéns, sua passagem foi emitida com sucesso!");
 
     lines.push(`📅 Data: ${toBRDate(args.dateISO)}`);
 
@@ -1000,6 +998,7 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
     lines.push(`🧮 Valor pontos: ${fmtMoneyBR(args.pointsValueCents)}`);
     lines.push(`🛄 Taxa embarque: ${fmtMoneyBR(args.embarqueFeeCents)}`);
     lines.push(`💰 Total: ${fmtMoneyBR(args.totalCents)}`);
+    lines.push(`Cartão usado: ${args.feeCardLabel || "—"}`);
 
     if (args.locator?.trim())
       lines.push(`🔎 Localizador: ${args.locator.trim()}`);
@@ -1068,7 +1067,6 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
         out?.id ||
         null;
 
-      setPostSaveSaleId(saleId ? String(saleId) : null);
 
       const msg = buildTelegramMessage({
         saleId: saleId ? String(saleId) : null,
@@ -2368,16 +2366,11 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
           <div className="w-full max-w-2xl rounded-2xl bg-white border p-5">
             <div className="flex items-start justify-between gap-3">
               <div>
-                <div className="text-lg font-semibold">Venda criada ✅</div>
+                <div className="text-lg font-semibold">
+                  Parabéns, sua passagem foi emitida com sucesso!
+                </div>
                 <div className="text-xs text-slate-500">
                   Copie a mensagem abaixo e cole no Telegram.
-                  {postSaveSaleId ? (
-                    <>
-                      {" "}
-                      <span className="text-slate-400">•</span> ID:{" "}
-                      <span className="font-mono">{postSaveSaleId}</span>
-                    </>
-                  ) : null}
                 </div>
               </div>
 
