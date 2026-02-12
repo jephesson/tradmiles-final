@@ -286,9 +286,9 @@ export async function POST(req: Request) {
     const team = String((sess as any)?.team || "");
     const meId = String((sess as any)?.id || "");
     const role = String((sess as any)?.role || "");
+    const isAdmin = role === "admin";
 
     if (!team || !meId) return NextResponse.json({ ok: false, error: "Não autenticado" }, { status: 401 });
-    if (role !== "admin") return NextResponse.json({ ok: false, error: "Sem permissão." }, { status: 403 });
 
     const body = await req.json().catch(() => ({}));
     const date = String(body?.date || "").trim();
@@ -297,6 +297,12 @@ export async function POST(req: Request) {
     const basis: Basis = basisRaw === "PURCHASE_FINALIZED" ? "PURCHASE_FINALIZED" : "SALE_DATE";
 
     const force = Boolean(body?.force);
+    if (force && !isAdmin) {
+      return NextResponse.json(
+        { ok: false, error: "Somente admin pode forçar o recálculo." },
+        { status: 403 }
+      );
+    }
 
     if (!date || !isISODate(date)) {
       return NextResponse.json({ ok: false, error: "date obrigatório (YYYY-MM-DD)" }, { status: 400 });
