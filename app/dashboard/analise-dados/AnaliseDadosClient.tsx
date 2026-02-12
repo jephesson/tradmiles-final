@@ -24,10 +24,44 @@ type MAWindow = 0 | 7 | 15 | 30;
 type ChartPoint = { x: string; y: number };
 type ChartPointWithSub = ChartPoint & { sub?: string };
 
-function Card({ title, value, sub }: { title: string; value: string; sub?: string }) {
+type CardTone = "sky" | "emerald" | "amber" | "rose" | "slate" | "teal";
+
+const CARD_TONE_CLASS: Record<CardTone, string> = {
+  sky: "border-sky-100 bg-gradient-to-br from-sky-50/80 to-white",
+  emerald: "border-emerald-100 bg-gradient-to-br from-emerald-50/80 to-white",
+  amber: "border-amber-100 bg-gradient-to-br from-amber-50/80 to-white",
+  rose: "border-rose-100 bg-gradient-to-br from-rose-50/80 to-white",
+  teal: "border-teal-100 bg-gradient-to-br from-teal-50/80 to-white",
+  slate: "border-slate-200 bg-white",
+};
+
+const CHART_COLORS = [
+  "#0ea5e9",
+  "#22c55e",
+  "#f59e0b",
+  "#f97316",
+  "#e11d48",
+  "#06b6d4",
+  "#84cc16",
+  "#14b8a6",
+  "#3b82f6",
+  "#64748b",
+];
+
+function Card({
+  title,
+  value,
+  sub,
+  tone = "slate",
+}: {
+  title: string;
+  value: string;
+  sub?: string;
+  tone?: CardTone;
+}) {
   return (
-    <div className="rounded-2xl border bg-white p-4 shadow-sm">
-      <div className="text-xs text-neutral-500">{title}</div>
+    <div className={`rounded-2xl border p-4 shadow-sm ${CARD_TONE_CLASS[tone]}`}>
+      <div className="text-xs text-neutral-600">{title}</div>
       <div className="mt-1 text-xl font-semibold">{value}</div>
       {sub ? <div className="mt-1 text-xs text-neutral-500">{sub}</div> : null}
     </div>
@@ -41,12 +75,14 @@ function SimpleLineChart({
   height = 160,
   extraLine,
   footer,
+  accent = "text-slate-900",
 }: {
   title: string;
   data: ChartPointWithSub[];
   height?: number;
   extraLine?: ChartPoint[];
   footer?: ReactNode;
+  accent?: string;
 }) {
   const w = 900;
   const h = height;
@@ -74,9 +110,9 @@ function SimpleLineChart({
 
       <svg viewBox={`0 0 ${w} ${h}`} className="w-full">
         {/* linha principal */}
-        <polyline fill="none" stroke="currentColor" strokeWidth="2" points={pointsBase} className="text-neutral-900" />
+        <polyline fill="none" stroke="currentColor" strokeWidth="2" points={pointsBase} className={accent} />
         {data.map((d, i) => (
-          <circle key={`${d.x}-${i}`} cx={pad + i * dx} cy={scaleY(d.y)} r="2.5" className="text-neutral-900" />
+          <circle key={`${d.x}-${i}`} cx={pad + i * dx} cy={scaleY(d.y)} r="2.5" className={accent} />
         ))}
 
         {/* linha extra (média móvel) */}
@@ -107,14 +143,15 @@ function SimpleBarChart({ title, data }: { title: string; data: Array<{ label: s
     <div className="rounded-2xl border bg-white p-4 shadow-sm">
       <div className="mb-2 text-sm font-semibold">{title}</div>
       <div className="space-y-2">
-        {data.map((d) => {
+        {data.map((d, i) => {
           const w = Math.round((d.value / max) * 100);
+          const color = CHART_COLORS[i % CHART_COLORS.length];
           return (
             <div key={d.label} className="flex items-center gap-3">
               <div className="w-10 text-xs text-neutral-600">{d.label}</div>
               <div className="flex-1">
                 <div className="h-3 rounded-full bg-neutral-100">
-                  <div className="h-3 rounded-full bg-neutral-900" style={{ width: `${w}%` }} />
+                  <div className="h-3 rounded-full" style={{ width: `${w}%`, background: color }} />
                 </div>
               </div>
               <div className="w-32 text-right text-xs text-neutral-700">
@@ -124,6 +161,71 @@ function SimpleBarChart({ title, data }: { title: string; data: Array<{ label: s
           );
         })}
       </div>
+    </div>
+  );
+}
+
+function SimplePieChart({
+  title,
+  data,
+  totalLabel,
+}: {
+  title: string;
+  data: Array<{ label: string; value: number; pct: number; color: string }>;
+  totalLabel?: string;
+}) {
+  const total = data.reduce((acc, d) => acc + d.value, 0);
+  const radius = 15.915;
+  let accPct = 0;
+
+  return (
+    <div className="rounded-2xl border bg-white p-4 shadow-sm">
+      <div className="mb-2 text-sm font-semibold">{title}</div>
+
+      {!data.length || total <= 0 ? (
+        <div className="text-sm text-neutral-500">Sem dados suficientes para o gráfico.</div>
+      ) : (
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
+          <div className="flex items-center justify-center">
+            <svg viewBox="0 0 36 36" className="h-40 w-40">
+              <circle cx="18" cy="18" r={radius} fill="none" stroke="#e5e7eb" strokeWidth="6" />
+              {data.map((s, i) => {
+                const pct100 = Math.max(0, Math.min(100, s.pct * 100));
+                const dash = `${pct100} ${100 - pct100}`;
+                const dashOffset = 25 - accPct * 100;
+                accPct += s.pct;
+                return (
+                  <circle
+                    key={`${s.label}-${i}`}
+                    cx="18"
+                    cy="18"
+                    r={radius}
+                    fill="none"
+                    stroke={s.color}
+                    strokeWidth="6"
+                    strokeDasharray={dash}
+                    strokeDashoffset={dashOffset}
+                  />
+                );
+              })}
+            </svg>
+          </div>
+
+          <div className="flex-1 space-y-2">
+            {data.map((s) => (
+              <div key={s.label} className="flex items-center gap-2 text-xs">
+                <span className="h-2 w-2 rounded-full" style={{ background: s.color }} />
+                <span className="flex-1 truncate">{s.label}</span>
+                <span className="text-neutral-500">{(s.pct * 100).toFixed(1)}%</span>
+                <span className="font-medium">{fmtMoneyBR(s.value)}</span>
+              </div>
+            ))}
+            {totalLabel ? (
+              <div className="pt-2 text-xs text-neutral-500">{totalLabel}</div>
+            ) : null}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -292,6 +394,41 @@ export default function AnaliseDadosClient() {
 
   const best = data?.summary?.bestDayOfWeek;
 
+  const monthLabel = data?.filters?.month || focusYM;
+
+  const byEmployeeMonth = useMemo(() => {
+    return ((data?.byEmployee || []) as any[]).filter((r) => (r?.grossCents || 0) > 0);
+  }, [data]);
+
+  const byEmployeeMonthPie = useMemo(() => {
+    const rows = [...byEmployeeMonth].sort((a, b) => (b.grossCents || 0) - (a.grossCents || 0));
+    const total = rows.reduce((acc, r) => acc + (r.grossCents || 0), 0);
+    if (!total) return [];
+
+    const topN = 6;
+    const top = rows.slice(0, topN);
+    const rest = rows.slice(topN);
+    const restTotal = rest.reduce((acc, r) => acc + (r.grossCents || 0), 0);
+
+    const slices = top.map((r, i) => ({
+      label: r.name || r.login || "—",
+      value: r.grossCents || 0,
+      pct: (r.grossCents || 0) / total,
+      color: CHART_COLORS[i % CHART_COLORS.length],
+    }));
+
+    if (restTotal > 0) {
+      slices.push({
+        label: "Outros",
+        value: restTotal,
+        pct: restTotal / total,
+        color: CHART_COLORS[topN % CHART_COLORS.length],
+      });
+    }
+
+    return slices;
+  }, [byEmployeeMonth]);
+
   const chartPeriodLabel = useMemo(() => {
     if (chartMode === "MONTH") return `${fmtInt(monthsBack)} meses`;
     if (daysPreset === "CUSTOM" && dateFrom && dateTo) return `${dateFrom} → ${dateTo}`;
@@ -399,16 +536,19 @@ export default function AnaliseDadosClient() {
           title={today?.date ? `Total vendido hoje (${today.date})` : "Total vendido hoje"}
           value={fmtMoneyBR(today?.grossCents || 0)}
           sub={`${fmtInt(today?.salesCount || 0)} vendas • ${fmtInt(today?.passengers || 0)} pax`}
+          tone="sky"
         />
         <Card
           title="Total do dia (com taxa embarque)"
           value={fmtMoneyBR(today?.totalCents || 0)}
           sub={`Taxa embarque: ${fmtMoneyBR(today?.feeCents || 0)}`}
+          tone="emerald"
         />
         <Card
           title="Mês selecionado"
           value={data?.summary?.monthLabel || (data?.filters?.month || focusYM) || "—"}
           sub={`Período no gráfico: ${chartPeriodLabel}`}
+          tone="amber"
         />
       </div>
 
@@ -459,13 +599,15 @@ export default function AnaliseDadosClient() {
           title="Total vendido no mês (sem taxa embarque)"
           value={fmtMoneyBR(kpis?.gross || 0)}
           sub={`Média mensal no período: ${fmtMoneyBR(data?.avgMonthlyGrossCents || 0)}`}
+          tone="teal"
         />
-        <Card title="Quantidade de vendas no mês" value={fmtInt(kpis?.count || 0)} />
-        <Card title="Passageiros emitidos no mês" value={fmtInt(kpis?.pax || 0)} />
+        <Card title="Quantidade de vendas no mês" value={fmtInt(kpis?.count || 0)} tone="sky" />
+        <Card title="Passageiros emitidos no mês" value={fmtInt(kpis?.pax || 0)} tone="emerald" />
         <Card
           title="LATAM vs SMILES (mês)"
           value={`${fmtMoneyBR(kpis?.latam || 0)} / ${fmtMoneyBR(kpis?.smiles || 0)}`}
           sub={`Clubes: LATAM ${fmtInt(kpis?.clubsLatam || 0)} | SMILES ${fmtInt(kpis?.clubsSmiles || 0)}`}
+          tone="rose"
         />
       </div>
 
@@ -474,6 +616,7 @@ export default function AnaliseDadosClient() {
         title={chartMode === "DAY" ? "Evolução diária" : "Evolução mês a mês"}
         data={chartWithDelta}
         extraLine={extraLine}
+        accent="text-sky-900"
         footer={
           chartMode === "DAY"
             ? `Média diária no período: ${fmtMoneyBR(avgInChart)}${maWindow ? ` • Linha cinza = média móvel ${maWindow}d` : ""}`
@@ -498,9 +641,15 @@ export default function AnaliseDadosClient() {
               <div key={m.month} className="flex flex-col gap-1 rounded-xl border p-3">
                 <div className="text-xs text-neutral-500">{m.month}</div>
                 <div className="text-sm">
-                  <span className="font-semibold">LATAM:</span> {fmtMoneyBR(m.LATAM)}{" "}
+                  <span className="inline-flex items-center gap-1 font-semibold text-sky-700">
+                    <span className="h-2 w-2 rounded-full bg-sky-500" /> LATAM:
+                  </span>{" "}
+                  {fmtMoneyBR(m.LATAM)}{" "}
                   <span className="mx-2 text-neutral-300">|</span>
-                  <span className="font-semibold">SMILES:</span> {fmtMoneyBR(m.SMILES)}
+                  <span className="inline-flex items-center gap-1 font-semibold text-emerald-700">
+                    <span className="h-2 w-2 rounded-full bg-emerald-500" /> SMILES:
+                  </span>{" "}
+                  {fmtMoneyBR(m.SMILES)}
                 </div>
               </div>
             ))}
@@ -509,41 +658,61 @@ export default function AnaliseDadosClient() {
       </div>
 
       {/* Funcionários (mês foco) */}
-      <div className="rounded-2xl border bg-white p-4 shadow-sm">
-        <div className="mb-2 flex items-center justify-between">
-          <div className="text-sm font-semibold">Total por funcionário (mês {data?.filters?.month || focusYM})</div>
-        </div>
-        <div className="overflow-auto">
-          <table className="w-full min-w-[720px] text-sm">
-            <thead>
-              <tr className="border-b text-left text-xs text-neutral-500">
-                <th className="py-2">Funcionário</th>
-                <th className="py-2">Vendas</th>
-                <th className="py-2">PAX</th>
-                <th className="py-2 text-right">Total (sem taxa)</th>
-              </tr>
-            </thead>
-            <tbody>
-              {(data?.byEmployee || []).map((r: any) => (
-                <tr key={r.id} className="border-b">
-                  <td className="py-2">
-                    <div className="font-medium">{r.name}</div>
-                    <div className="text-xs text-neutral-500">{r.login}</div>
-                  </td>
-                  <td className="py-2">{fmtInt(r.salesCount)}</td>
-                  <td className="py-2">{fmtInt(r.passengers)}</td>
-                  <td className="py-2 text-right font-semibold">{fmtMoneyBR(r.grossCents)}</td>
+      <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+        <SimplePieChart
+          title={`Distribuição de vendas por funcionário (mês ${monthLabel})`}
+          data={byEmployeeMonthPie}
+          totalLabel={
+            byEmployeeMonthPie.length
+              ? `Total do mês: ${fmtMoneyBR(kpis?.gross || 0)}`
+              : undefined
+          }
+        />
+
+        <div className="rounded-2xl border bg-white p-4 shadow-sm">
+          <div className="mb-2 flex items-center justify-between">
+            <div className="text-sm font-semibold">Total por funcionário (mês {monthLabel})</div>
+          </div>
+          <div className="overflow-auto">
+            <table className="w-full min-w-[720px] text-sm">
+              <thead>
+                <tr className="border-b text-left text-xs text-neutral-500">
+                  <th className="py-2">Funcionário</th>
+                  <th className="py-2">Vendas</th>
+                  <th className="py-2">PAX</th>
+                  <th className="py-2 text-right">Total (sem taxa)</th>
                 </tr>
-              ))}
-              {!data?.byEmployee?.length ? (
-                <tr>
-                  <td className="py-4 text-sm text-neutral-500" colSpan={4}>
-                    Sem vendas no mês foco.
-                  </td>
-                </tr>
-              ) : null}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {(data?.byEmployee || []).map((r: any, i: number) => (
+                  <tr key={r.id} className="border-b">
+                    <td className="py-2">
+                      <div className="flex items-center gap-2">
+                        <span
+                          className="h-2 w-2 rounded-full"
+                          style={{ background: CHART_COLORS[i % CHART_COLORS.length] }}
+                        />
+                        <div>
+                          <div className="font-medium">{r.name}</div>
+                          <div className="text-xs text-neutral-500">{r.login}</div>
+                        </div>
+                      </div>
+                    </td>
+                    <td className="py-2">{fmtInt(r.salesCount)}</td>
+                    <td className="py-2">{fmtInt(r.passengers)}</td>
+                    <td className="py-2 text-right font-semibold">{fmtMoneyBR(r.grossCents)}</td>
+                  </tr>
+                ))}
+                {!data?.byEmployee?.length ? (
+                  <tr>
+                    <td className="py-4 text-sm text-neutral-500" colSpan={4}>
+                      Sem vendas no mês foco.
+                    </td>
+                  </tr>
+                ) : null}
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
 
