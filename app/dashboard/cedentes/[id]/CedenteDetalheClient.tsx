@@ -230,27 +230,8 @@ export default function CedenteDetalheClient() {
     setForm((prev) => (prev ? { ...prev, [key]: value } : prev));
   }
 
-  async function confirmPassword(): Promise<boolean> {
-    const password = prompt("Digite sua senha para confirmar:");
-    if (!password) return false;
-
-    const res = await fetch("/api/auth/confirm-password", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ password }),
-    });
-
-    const json = await safeJson(res);
-    if (!res.ok || !json?.ok) {
-      alert("Senha inválida.");
-      return false;
-    }
-    return true;
-  }
-
   async function salvar() {
     if (!form) return;
-    if (!(await confirmPassword())) return;
 
     try {
       const res = await fetch(`/api/cedentes/${id}`, {
