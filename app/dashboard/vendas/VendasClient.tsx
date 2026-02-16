@@ -129,6 +129,9 @@ export default function VendasClient() {
       const qs = new URLSearchParams();
       if (append && nextCursor) qs.set("cursor", nextCursor);
       qs.set("limit", "200");
+      if (q.trim()) qs.set("q", q.trim());
+      if (clientId !== "ALL") qs.set("clientId", clientId);
+      if (status !== "ALL") qs.set("status", status);
 
       const out = await api<{
         ok: true;
@@ -153,9 +156,15 @@ export default function VendasClient() {
     }
   }
 
+  // ✅ busca no servidor (inclusive localizador) com debounce
   useEffect(() => {
-    load();
-  }, []);
+    const delay = q.trim() ? 300 : 0;
+    const t = setTimeout(() => {
+      load();
+    }, delay);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [q, clientId, status]);
 
   const clients = useMemo(() => {
     const map = new Map<string, { id: string; nome: string; identificador: string }>();

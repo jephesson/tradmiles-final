@@ -154,8 +154,36 @@ export async function GET(req: Request) {
   const limitRaw = Number(searchParams.get("limit") || 200);
   const limit = Math.max(1, Math.min(500, Number.isFinite(limitRaw) ? Math.trunc(limitRaw) : 200));
   const cursor = (searchParams.get("cursor") || "").trim();
+  const q = (searchParams.get("q") || "").trim();
+  const status = (searchParams.get("status") || "").trim().toUpperCase();
+  const clientId = (searchParams.get("clientId") || "").trim();
+
+  const where: Prisma.SaleWhereInput = {};
+
+  if (status && status !== "ALL") {
+    if (status === "PENDING" || status === "PAID" || status === "CANCELED") {
+      where.paymentStatus = status as any;
+    }
+  }
+
+  if (clientId && clientId !== "ALL") {
+    where.clienteId = clientId;
+  }
+
+  if (q) {
+    where.OR = [
+      { numero: { contains: q, mode: "insensitive" } },
+      { locator: { contains: q, mode: "insensitive" } },
+      { feeCardLabel: { contains: q, mode: "insensitive" } },
+      { cliente: { nome: { contains: q, mode: "insensitive" } } },
+      { cliente: { identificador: { contains: q, mode: "insensitive" } } },
+      { cedente: { nomeCompleto: { contains: q, mode: "insensitive" } } },
+      { cedente: { identificador: { contains: q, mode: "insensitive" } } },
+    ];
+  }
 
   const sales = await prisma.sale.findMany({
+    where,
     orderBy: [{ createdAt: "desc" }, { id: "desc" }],
     select: {
       id: true,
