@@ -102,6 +102,8 @@ export default function VendasClient() {
   const [loading, setLoading] = useState(false);
   const [rows, setRows] = useState<SaleRow[]>([]);
   const [q, setQ] = useState("");
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [loadingMore, setLoadingMore] = useState(false);
 
   // ✅ filtros
   const [clientId, setClientId] = useState<string>("ALL");
@@ -116,15 +118,38 @@ export default function VendasClient() {
     [rows, detailsId]
   );
 
-  async function load() {
-    setLoading(true);
+  async function load(opts?: { append?: boolean }) {
+    const append = Boolean(opts?.append);
+    if (append && !nextCursor) return;
+
+    if (append) setLoadingMore(true);
+    else setLoading(true);
+
     try {
-      const out = await api<{ ok: true; sales: SaleRow[] }>("/api/vendas");
-      setRows(out.sales || []);
+      const qs = new URLSearchParams();
+      if (append && nextCursor) qs.set("cursor", nextCursor);
+      qs.set("limit", "200");
+
+      const out = await api<{
+        ok: true;
+        sales: SaleRow[];
+        nextCursor?: string | null;
+      }>(`/api/vendas?${qs.toString()}`);
+
+      const list = out.sales || [];
+
+      if (append) setRows((prev) => [...prev, ...list]);
+      else setRows(list);
+
+      setNextCursor(out.nextCursor || null);
     } catch {
-      setRows([]);
+      if (!append) {
+        setRows([]);
+        setNextCursor(null);
+      }
     } finally {
-      setLoading(false);
+      if (append) setLoadingMore(false);
+      else setLoading(false);
     }
   }
 
@@ -337,7 +362,7 @@ export default function VendasClient() {
 
         <div className="flex gap-2">
           <button
-            onClick={load}
+            onClick={() => load()}
             className={cn(
               "rounded-xl border px-4 py-2 text-sm",
               loading ? "opacity-60" : "hover:bg-slate-50"
@@ -592,6 +617,23 @@ export default function VendasClient() {
         <div className="border-t px-4 py-3 text-xs text-slate-500">
           “A receber” = Receivable.balanceCents (se existir) senão usa Total quando status for Pendente.
         </div>
+      </div>
+
+      <div className="flex justify-center">
+        {nextCursor ? (
+          <button
+            onClick={() => load({ append: true })}
+            className={cn(
+              "rounded-xl border px-4 py-2 text-sm",
+              loadingMore ? "opacity-60" : "hover:bg-slate-50"
+            )}
+            disabled={loadingMore}
+          >
+            {loadingMore ? "Carregando..." : "Carregar mais"}
+          </button>
+        ) : (
+          <div className="text-xs text-slate-500">Fim do histórico.</div>
+        )}
       </div>
 
       {/* ✅ MODAL DETALHES */}

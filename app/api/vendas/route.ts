@@ -144,14 +144,19 @@ function normalizeSaleValues(args: {
   return { pointsValueCents: pv, totalCents: total, milheiroFinal: milFinal };
 }
 
-export async function GET() {
+export async function GET(req: Request) {
   const session = await getServerSession();
   if (!session?.id) {
     return NextResponse.json({ ok: false, error: "Não autenticado" }, { status: 401 });
   }
 
+  const { searchParams } = new URL(req.url);
+  const limitRaw = Number(searchParams.get("limit") || 200);
+  const limit = Math.max(1, Math.min(500, Number.isFinite(limitRaw) ? Math.trunc(limitRaw) : 200));
+  const cursor = (searchParams.get("cursor") || "").trim();
+
   const sales = await prisma.sale.findMany({
-    orderBy: { createdAt: "desc" },
+    orderBy: [{ createdAt: "desc" }, { id: "desc" }],
     select: {
       id: true,
       numero: true,
@@ -188,10 +193,20 @@ export async function GET() {
 
       createdAt: true,
     },
-    take: 200,
+    take: limit + 1,
+    ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
   });
 
-  return NextResponse.json({ ok: true, sales });
+  let nextCursor: string | null = null;
+  let list = sales;
+
+  if (sales.length > limit) {
+    const next = sales.pop();
+    nextCursor = next?.id || null;
+    list = sales;
+  }
+
+  return NextResponse.json({ ok: true, sales: list, nextCursor });
 }
 
 export async function POST(req: Request) {
