@@ -562,6 +562,9 @@ model Settings {
   liveloRateCents Int @default(2200)
   esferaRateCents Int @default(1700)
 
+  taxPercent       Int      @default(8)
+  taxEffectiveFrom DateTime?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 

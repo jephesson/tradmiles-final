@@ -18,8 +18,8 @@ function safeInt(v: unknown, fb = 0) {
   return Number.isFinite(n) ? Math.trunc(n) : fb;
 }
 
-function tax8(cents: number) {
-  return Math.round(Math.max(0, safeInt(cents, 0)) * 0.08);
+function taxByPercent(cents: number, percent: number) {
+  return Math.round(Math.max(0, safeInt(cents, 0)) * (percent / 100));
 }
 
 function pointsValueCentsFallback(points: number, milheiroCents: number) {
@@ -312,6 +312,22 @@ export async function POST(req: Request) {
     if (date > today) {
       return NextResponse.json({ ok: false, error: "Não computa datas futuras." }, { status: 400 });
     }
+
+    const settings = await prisma.settings.upsert({
+      where: { key: "default" },
+      create: { key: "default" },
+      update: {},
+      select: { taxPercent: true, taxEffectiveFrom: true },
+    });
+
+    const effectiveISO = settings.taxEffectiveFrom
+      ? settings.taxEffectiveFrom.toISOString().slice(0, 10)
+      : null;
+    const defaultPercent = 8;
+    const configuredPercent = Number.isFinite(settings.taxPercent)
+      ? Math.max(0, Math.min(100, Number(settings.taxPercent)))
+      : defaultPercent;
+    const taxPercent = effectiveISO && date >= effectiveISO ? configuredPercent : defaultPercent;
 
     const { start, end } = dayBounds(date);
 
@@ -768,7 +784,7 @@ export async function POST(req: Request) {
       const c3 = safeInt(agg.commission3RateioCents, 0);
 
       const gross = c1 + c2 + c3;
-      const tax = tax8(gross);
+      const tax = taxByPercent(gross, taxPercent);
       const fee = safeInt(agg.feeCents, 0);
       const net = gross - tax + fee;
 
@@ -787,7 +803,7 @@ export async function POST(req: Request) {
             commission2Cents: c2,
             commission3RateioCents: c3,
             salesCount: safeInt(agg.salesCount, 0),
-            taxPercent: 8,
+            taxPercent,
             basis,
           },
         },
@@ -801,7 +817,7 @@ export async function POST(req: Request) {
             commission2Cents: c2,
             commission3RateioCents: c3,
             salesCount: safeInt(agg.salesCount, 0),
-            taxPercent: 8,
+            taxPercent,
             basis,
           },
         },

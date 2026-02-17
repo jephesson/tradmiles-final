@@ -236,7 +236,7 @@ export default function LucrosFuncionariosMesClient() {
 
       <div className="grid grid-cols-2 gap-2 md:grid-cols-6">
         <KPI label="Líquido total (sem taxa)" value={fmtMoneyBR(data?.totals.netNoFee || 0)} />
-        <KPI label="Imposto total (8%)" value={fmtMoneyBR(data?.totals.tax || 0)} />
+        <KPI label="Imposto total" value={fmtMoneyBR(data?.totals.tax || 0)} />
         <KPI label="Taxas (reembolso)" value={fmtMoneyBR(data?.totals.fee || 0)} />
         <KPI label="Bruto (C1+C2+C3)" value={fmtMoneyBR(data?.totals.gross || 0)} />
         <KPI label="Vendas (mês)" value={String(data?.totals.salesCount || 0)} />

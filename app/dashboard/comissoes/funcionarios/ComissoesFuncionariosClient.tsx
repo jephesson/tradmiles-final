@@ -458,6 +458,14 @@ export default function ComissoesFuncionariosClient() {
     return { lucroSemTaxa };
   }, [day]);
 
+  const dayTaxPercent = useMemo(() => {
+    const list = (day?.rows || [])
+      .map((r) => r.breakdown?.taxPercent)
+      .filter((v) => typeof v === "number" && Number.isFinite(v) && v > 0) as number[];
+    const uniq = Array.from(new Set(list.map((v) => Number(v))));
+    return uniq.length === 1 ? uniq[0] : null;
+  }, [day]);
+
   const monthExtra = useMemo(() => {
     const rows = monthData?.days || [];
     const lucroSemTaxa = rows.reduce((acc, r) => acc + lucroSemTaxaEmbarqueCents(r), 0);
@@ -557,7 +565,10 @@ export default function ComissoesFuncionariosClient() {
 
       <div className="grid grid-cols-2 gap-2 md:grid-cols-7">
         <KPI label="Bruto (C1+C2+C3)" value={fmtMoneyBR(day?.totals.gross || 0)} />
-        <KPI label="Imposto (8%)" value={fmtMoneyBR(day?.totals.tax || 0)} />
+        <KPI
+          label={`Imposto${dayTaxPercent ? ` (${dayTaxPercent}%)` : ""}`}
+          value={fmtMoneyBR(day?.totals.tax || 0)}
+        />
         <KPI label="Taxas (reembolso)" value={fmtMoneyBR(day?.totals.fee || 0)} />
         <KPI label="Líquido total (a pagar)" value={fmtMoneyBR(day?.totals.net || 0)} />
         <KPI label="Lucro (sem taxa embarque)" value={fmtMoneyBR(dayExtra.lucroSemTaxa)} />
@@ -583,7 +594,9 @@ export default function ComissoesFuncionariosClient() {
                 <th className="px-4 py-3">Comissão 2 (bônus)</th>
                 <th className="px-4 py-3">Comissão 3 (rateio)</th>
 
-                <th className="px-4 py-3">Imposto (8%)</th>
+                <th className="px-4 py-3">
+                  Imposto{dayTaxPercent ? ` (${dayTaxPercent}%)` : ""}
+                </th>
                 <th className="px-4 py-3">Taxa embarque</th>
 
                 <th className={`px-4 py-3 ${lucroCellCls}`}>Lucro s/ taxa</th>

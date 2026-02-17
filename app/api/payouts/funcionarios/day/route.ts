@@ -137,6 +137,22 @@ export async function GET(req: Request) {
       );
     }
 
+    const settings = await prisma.settings.upsert({
+      where: { key: "default" },
+      create: { key: "default" },
+      update: {},
+      select: { taxPercent: true, taxEffectiveFrom: true },
+    });
+
+    const effectiveISO = settings.taxEffectiveFrom
+      ? settings.taxEffectiveFrom.toISOString().slice(0, 10)
+      : null;
+    const defaultPercent = 8;
+    const configuredPercent = Number.isFinite(settings.taxPercent)
+      ? Math.max(0, Math.min(100, Number(settings.taxPercent)))
+      : defaultPercent;
+    const taxPercent = effectiveISO && date >= effectiveISO ? configuredPercent : defaultPercent;
+
     // Mantém aqui só pra não quebrar (e pra teu compute usar igual).
     // No DAY read-only a gente não usa start/end.
     dayBoundsUTC(date);
@@ -202,7 +218,7 @@ export async function GET(req: Request) {
           commission3RateioCents: 0,
           salesCount: 0,
           purchasesRateioCount: 0,
-          taxPercent: 8,
+          taxPercent,
         },
 
         paidAt: null,

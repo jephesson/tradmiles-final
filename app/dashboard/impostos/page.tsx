@@ -82,6 +82,17 @@ function todayISORecife() {
 function monthFromISODate(dateISO: string) {
   return String(dateISO || "").slice(0, 7);
 }
+function toISODateInput(v?: string | null) {
+  if (!v) return "";
+  const m = String(v).match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (m) return `${m[1]}-${m[2]}-${m[3]}`;
+  const d = new Date(v);
+  if (Number.isNaN(d.getTime())) return "";
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
+}
 
 async function apiGet<T>(url: string): Promise<T> {
   const res = await fetch(url, { cache: "no-store", credentials: "include" });
@@ -154,6 +165,10 @@ export default function ImpostosPage() {
   const [loading, setLoading] = useState(false);
 
   const [toast, setToast] = useState<{ title: string; desc?: string } | null>(null);
+  const [settingsLoading, setSettingsLoading] = useState(false);
+  const [settingsSaving, setSettingsSaving] = useState(false);
+  const [taxPercentInput, setTaxPercentInput] = useState("");
+  const [taxEffectiveFromInput, setTaxEffectiveFromInput] = useState("");
 
   // drawer mês
   const [open, setOpen] = useState(false);
@@ -181,6 +196,37 @@ export default function ImpostosPage() {
       });
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function loadSettings() {
+    setSettingsLoading(true);
+    try {
+      const res = await apiGet<{ ok: true; data: { taxPercent: number; taxEffectiveFrom: string | null } }>(
+        "/api/taxes/settings"
+      );
+      setTaxPercentInput(String(res.data.taxPercent ?? 8));
+      setTaxEffectiveFromInput(toISODateInput(res.data.taxEffectiveFrom || null));
+    } catch (e: any) {
+      setToast({ title: "Falha ao carregar imposto", desc: e?.message || String(e) });
+    } finally {
+      setSettingsLoading(false);
+    }
+  }
+
+  async function saveSettings() {
+    setSettingsSaving(true);
+    try {
+      await apiPost<{ ok: true }>(`/api/taxes/settings`, {
+        taxPercent: taxPercentInput,
+        taxEffectiveFrom: taxEffectiveFromInput || null,
+      });
+      await loadSettings();
+      setToast({ title: "Imposto atualizado", desc: "Percentual salvo com sucesso." });
+    } catch (e: any) {
+      setToast({ title: "Falha ao salvar imposto", desc: e?.message || String(e) });
+    } finally {
+      setSettingsSaving(false);
     }
   }
 
@@ -221,6 +267,7 @@ export default function ImpostosPage() {
 
   useEffect(() => {
     loadMonths();
+    loadSettings();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -238,7 +285,7 @@ export default function ImpostosPage() {
         <div className="space-y-1">
           <h1 className="text-xl font-semibold">Impostos — Funcionários</h1>
           <p className="text-sm text-neutral-500">
-            Consolida o <b>tax7Cents (8%)</b> dos <b>EmployeePayout</b>, agrupado por <b>mês</b>, com
+            Consolida o <b>tax7Cents (imposto)</b> dos <b>EmployeePayout</b>, agrupado por <b>mês</b>, com
             detalhamento por funcionário e pagamento mensal (snapshot em <b>tax_month_payments</b>).
           </p>
         </div>
@@ -291,6 +338,56 @@ export default function ImpostosPage() {
         <KPI label="Imposto pendente" value={fmtMoneyBR(totals.pending)} />
         <KPI label="Meses pagos" value={String(totals.monthsPaid)} />
         <KPI label="Meses pendentes" value={String(totals.monthsPending)} />
+      </div>
+
+      <div className="rounded-2xl border bg-white p-4">
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <div className="text-sm font-semibold">Configuração de imposto</div>
+            <div className="text-xs text-neutral-500">
+              Define a partir de qual data o novo percentual passa a valer no cálculo diário.
+            </div>
+          </div>
+          <button
+            onClick={loadSettings}
+            className="h-9 rounded-xl border px-3 text-sm hover:bg-neutral-50 disabled:opacity-50"
+            disabled={settingsLoading}
+          >
+            {settingsLoading ? "Atualizando..." : "Recarregar"}
+          </button>
+        </div>
+
+        <div className="mt-3 grid gap-3 md:grid-cols-3">
+          <div className="space-y-1">
+            <label className="text-xs text-neutral-500">Percentual (%)</label>
+            <input
+              className="h-10 w-full rounded-xl border px-3 text-sm"
+              value={taxPercentInput}
+              onChange={(e) => setTaxPercentInput(e.target.value)}
+              placeholder="Ex: 15"
+            />
+          </div>
+
+          <div className="space-y-1">
+            <label className="text-xs text-neutral-500">A partir do dia</label>
+            <input
+              type="date"
+              className="h-10 w-full rounded-xl border px-3 text-sm"
+              value={taxEffectiveFromInput}
+              onChange={(e) => setTaxEffectiveFromInput(e.target.value)}
+            />
+          </div>
+
+          <div className="flex items-end">
+            <button
+              onClick={saveSettings}
+              className="h-10 w-full rounded-xl bg-black px-4 text-sm text-white hover:bg-neutral-800 disabled:opacity-50"
+              disabled={settingsSaving}
+            >
+              {settingsSaving ? "Salvando..." : "Salvar percentual"}
+            </button>
+          </div>
+        </div>
       </div>
 
       <div className="overflow-hidden rounded-2xl border bg-white">
@@ -490,7 +587,7 @@ export default function ImpostosPage() {
               </div>
 
               <div className="text-xs text-neutral-500">
-                O valor aqui é exatamente a soma de <b>tax7Cents</b> dos payouts do mês (8% do bruto).
+                O valor aqui é exatamente a soma de <b>tax7Cents</b> dos payouts do mês (percentual configurado).
               </div>
             </div>
           </div>
