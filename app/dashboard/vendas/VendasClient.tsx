@@ -57,6 +57,7 @@ type SaleRow = {
 
   program: "LATAM" | "SMILES" | "LIVELO" | "ESFERA";
   points: number;
+  milheiroCents: number;
   passengers: number;
 
   totalCents: number;
@@ -486,6 +487,7 @@ export default function VendasClient() {
                 <th className="text-left font-semibold px-4 py-3 w-[280px]">CEDENTE</th>
                 <th className="text-left font-semibold px-4 py-3 w-[120px]">PROGRAMA</th>
                 <th className="text-right font-semibold px-4 py-3 w-[140px]">PONTOS</th>
+                <th className="text-right font-semibold px-4 py-3 w-[130px]">MILHEIRO</th>
                 <th className="text-right font-semibold px-4 py-3 w-[100px]">PAX</th>
                 <th className="text-right font-semibold px-4 py-3 w-[160px]">TOTAL</th>
                 <th className="text-right font-semibold px-4 py-3 w-[170px]">A RECEBER</th>
@@ -498,7 +500,7 @@ export default function VendasClient() {
             <tbody>
               {filtered.length === 0 && !loading ? (
                 <tr>
-                  <td colSpan={12} className="px-4 py-8 text-slate-500">
+                  <td colSpan={13} className="px-4 py-8 text-slate-500">
                     Nenhum resultado.
                   </td>
                 </tr>
@@ -547,6 +549,9 @@ export default function VendasClient() {
 
                     <td className="px-4 py-3">{r.program}</td>
                     <td className="px-4 py-3 text-right tabular-nums">{fmtInt(r.points)}</td>
+                    <td className="px-4 py-3 text-right tabular-nums">
+                      {fmtMoneyBR(r.milheiroCents)}
+                    </td>
                     <td className="px-4 py-3 text-right tabular-nums">{fmtInt(r.passengers)}</td>
 
                     <td className="px-4 py-3 text-right font-semibold">{fmtMoneyBR(r.totalCents)}</td>
@@ -614,7 +619,7 @@ export default function VendasClient() {
 
               {loading ? (
                 <tr>
-                  <td colSpan={12} className="px-4 py-8 text-slate-500">
+                  <td colSpan={13} className="px-4 py-8 text-slate-500">
                     Carregando...
                   </td>
                 </tr>
@@ -695,6 +700,9 @@ export default function VendasClient() {
                   <div className="mt-1 font-semibold">{details.program}</div>
                   <div className="text-xs text-slate-500 mt-1">
                     {fmtInt(details.points)} pts • {fmtInt(details.passengers)} pax
+                  </div>
+                  <div className="text-xs text-slate-500 mt-1">
+                    Milheiro: <span className="font-semibold">{fmtMoneyBR(details.milheiroCents)}</span>
                   </div>
                 </div>
 
