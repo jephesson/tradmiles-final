@@ -140,11 +140,30 @@ async function apiPost<T>(url: string, body?: any): Promise<T> {
   return json as T;
 }
 
-function KPI({ label, value }: { label: string; value: string }) {
+function KPI({
+  label,
+  value,
+  tone = "slate",
+}: {
+  label: string;
+  value: string;
+  tone?: "slate" | "emerald" | "amber" | "blue" | "violet";
+}) {
+  const toneCls =
+    tone === "emerald"
+      ? "border-emerald-200 bg-emerald-50/70"
+      : tone === "amber"
+      ? "border-amber-200 bg-amber-50/80"
+      : tone === "blue"
+      ? "border-sky-200 bg-sky-50/80"
+      : tone === "violet"
+      ? "border-indigo-200 bg-indigo-50/80"
+      : "border-slate-200 bg-white";
+
   return (
-    <div className="rounded-2xl border bg-white p-3">
-      <div className="text-xs text-neutral-500">{label}</div>
-      <div className="text-sm font-semibold">{value}</div>
+    <div className={`rounded-2xl border p-3 shadow-sm ${toneCls}`}>
+      <div className="text-xs font-medium text-neutral-500">{label}</div>
+      <div className="text-lg font-bold tracking-tight text-neutral-800">{value}</div>
     </div>
   );
 }
@@ -152,12 +171,12 @@ function KPI({ label, value }: { label: string; value: string }) {
 function Pill({ kind, text }: { kind: "ok" | "warn" | "muted"; text: string }) {
   const cls =
     kind === "ok"
-      ? "bg-emerald-50 text-emerald-700"
+      ? "border border-emerald-200 bg-emerald-50 text-emerald-700"
       : kind === "warn"
-      ? "bg-amber-50 text-amber-700"
-      : "bg-neutral-100 text-neutral-700";
+      ? "border border-amber-200 bg-amber-50 text-amber-700"
+      : "border border-neutral-200 bg-neutral-100 text-neutral-700";
 
-  return <span className={`rounded-full px-2 py-1 text-xs ${cls}`}>{text}</span>;
+  return <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${cls}`}>{text}</span>;
 }
 
 export default function ImpostosPage() {
@@ -279,48 +298,56 @@ export default function ImpostosPage() {
     monthsPending: 0,
   };
 
+  const taxRuleLabel = `${taxPercentInput || "8"}%${
+    taxEffectiveFromInput ? ` desde ${toISODateInput(taxEffectiveFromInput)}` : ""
+  }`;
+
   return (
-    <div className="space-y-4 p-4">
-      <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
-        <div className="space-y-1">
-          <h1 className="text-xl font-semibold">Impostos — Funcionários</h1>
-          <p className="text-sm text-neutral-500">
-            Consolida o <b>tax7Cents (imposto)</b> dos <b>EmployeePayout</b>, agrupado por <b>mês</b>, com
-            detalhamento por funcionário e pagamento mensal (snapshot em <b>tax_month_payments</b>).
+    <div className="space-y-5 bg-gradient-to-br from-sky-50/40 via-white to-emerald-50/30 p-4 md:p-5">
+      <div className="grid gap-3 lg:grid-cols-[1.5fr_1fr]">
+        <div className="rounded-3xl border border-slate-200 bg-gradient-to-r from-slate-900 via-slate-800 to-slate-700 p-5 text-white shadow-sm">
+          <h1 className="text-2xl font-bold tracking-tight">Impostos • Funcionários</h1>
+          <p className="mt-2 max-w-2xl text-sm text-slate-200">
+            Consolida o <b>tax7Cents</b> dos <b>EmployeePayout</b>, agrupado por <b>mês</b>, com detalhamento por
+            funcionário e controle de pagamento mensal.
           </p>
+          <div className="mt-4 inline-flex rounded-full border border-white/20 bg-white/10 px-3 py-1 text-xs font-semibold">
+            Regra atual: {taxRuleLabel}
+          </div>
         </div>
 
-        <div className="flex flex-wrap items-end gap-2">
-          <button
-            onClick={loadMonths}
-            disabled={loading}
-            className="h-10 rounded-xl border px-4 text-sm hover:bg-neutral-50 disabled:opacity-50"
-          >
-            {loading ? "Carregando..." : "Atualizar"}
-          </button>
+        <div className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
+          <div className="grid gap-2 sm:grid-cols-2">
+            <button
+              onClick={loadMonths}
+              disabled={loading}
+              className="h-10 rounded-xl border border-slate-300 bg-white px-4 text-sm font-semibold hover:bg-slate-50 disabled:opacity-50"
+            >
+              {loading ? "Carregando..." : "Atualizar"}
+            </button>
+            <button
+              onClick={() => openMonth(month)}
+              className="h-10 rounded-xl border border-slate-300 bg-white px-4 text-sm font-semibold hover:bg-slate-50"
+              title="Abrir detalhes do mês"
+            >
+              Ver mês
+            </button>
+          </div>
 
-          <button
-            onClick={() => openMonth(month)}
-            className="h-10 rounded-xl border px-4 text-sm hover:bg-neutral-50"
-            title="Abrir detalhes do mês"
-          >
-            Ver mês
-          </button>
-
-          <div className="flex flex-col">
-            <label className="text-xs text-neutral-500">Mês (YYYY-MM)</label>
+          <div className="mt-3 space-y-2">
+            <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">Mês (YYYY-MM)</label>
             <input
               value={month}
               onChange={(e) => setMonth(e.target.value.slice(0, 7))}
               placeholder="YYYY-MM"
-              className="h-10 rounded-xl border px-3 text-sm"
+              className="h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm"
             />
           </div>
 
           <button
             onClick={() => payMonth(month)}
             disabled={!canPayMonth || payingMonth === month}
-            className="h-10 rounded-xl bg-black px-4 text-sm text-white hover:bg-neutral-800 disabled:opacity-50"
+            className="mt-3 h-11 w-full rounded-xl bg-slate-900 px-4 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-50"
             title={
               canPayMonth
                 ? "Marcar imposto do mês como pago"
@@ -333,35 +360,35 @@ export default function ImpostosPage() {
       </div>
 
       <div className="grid grid-cols-2 gap-2 md:grid-cols-5">
-        <KPI label="Imposto total (período)" value={fmtMoneyBR(totals.tax)} />
-        <KPI label="Imposto pago" value={fmtMoneyBR(totals.paid)} />
-        <KPI label="Imposto pendente" value={fmtMoneyBR(totals.pending)} />
-        <KPI label="Meses pagos" value={String(totals.monthsPaid)} />
-        <KPI label="Meses pendentes" value={String(totals.monthsPending)} />
+        <KPI label="Imposto total (período)" value={fmtMoneyBR(totals.tax)} tone="blue" />
+        <KPI label="Imposto pago" value={fmtMoneyBR(totals.paid)} tone="emerald" />
+        <KPI label="Imposto pendente" value={fmtMoneyBR(totals.pending)} tone="amber" />
+        <KPI label="Meses pagos" value={String(totals.monthsPaid)} tone="violet" />
+        <KPI label="Meses pendentes" value={String(totals.monthsPending)} tone="slate" />
       </div>
 
-      <div className="rounded-2xl border bg-white p-4">
+      <div className="rounded-3xl border border-amber-200 bg-gradient-to-r from-amber-50 via-orange-50 to-white p-4 shadow-sm">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
-            <div className="text-sm font-semibold">Configuração de imposto</div>
-            <div className="text-xs text-neutral-500">
+            <div className="text-base font-semibold text-slate-900">Configuração de imposto</div>
+            <div className="text-xs text-slate-600">
               Define a partir de qual data o novo percentual passa a valer no cálculo diário.
             </div>
           </div>
           <button
             onClick={loadSettings}
-            className="h-9 rounded-xl border px-3 text-sm hover:bg-neutral-50 disabled:opacity-50"
+            className="h-9 rounded-xl border border-slate-300 bg-white px-3 text-sm font-semibold hover:bg-slate-50 disabled:opacity-50"
             disabled={settingsLoading}
           >
             {settingsLoading ? "Atualizando..." : "Recarregar"}
           </button>
         </div>
 
-        <div className="mt-3 grid gap-3 md:grid-cols-3">
+        <div className="mt-3 grid gap-3 lg:grid-cols-[1fr_1fr_auto]">
           <div className="space-y-1">
-            <label className="text-xs text-neutral-500">Percentual (%)</label>
+            <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">Percentual (%)</label>
             <input
-              className="h-10 w-full rounded-xl border px-3 text-sm"
+              className="h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm"
               value={taxPercentInput}
               onChange={(e) => setTaxPercentInput(e.target.value)}
               placeholder="Ex: 15"
@@ -369,10 +396,10 @@ export default function ImpostosPage() {
           </div>
 
           <div className="space-y-1">
-            <label className="text-xs text-neutral-500">A partir do dia</label>
+            <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">A partir do dia</label>
             <input
               type="date"
-              className="h-10 w-full rounded-xl border px-3 text-sm"
+              className="h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm"
               value={taxEffectiveFromInput}
               onChange={(e) => setTaxEffectiveFromInput(e.target.value)}
             />
@@ -381,7 +408,7 @@ export default function ImpostosPage() {
           <div className="flex items-end">
             <button
               onClick={saveSettings}
-              className="h-10 w-full rounded-xl bg-black px-4 text-sm text-white hover:bg-neutral-800 disabled:opacity-50"
+              className="h-11 w-full min-w-[220px] rounded-xl bg-slate-900 px-5 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-50"
               disabled={settingsSaving}
             >
               {settingsSaving ? "Salvando..." : "Salvar percentual"}
@@ -390,10 +417,10 @@ export default function ImpostosPage() {
         </div>
       </div>
 
-      <div className="overflow-hidden rounded-2xl border bg-white">
+      <div className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
         <div className="overflow-x-auto">
           <table className="w-full text-left text-sm">
-            <thead className="bg-neutral-50 text-xs text-neutral-600">
+            <thead className="bg-slate-900 text-xs font-semibold uppercase tracking-wide text-slate-200">
               <tr>
                 <th className="px-4 py-3">Mês</th>
                 <th className="px-4 py-3">Total imposto</th>
@@ -413,11 +440,11 @@ export default function ImpostosPage() {
                 const shownTax = isPaid && (m.snapshotTaxCents ?? 0) > 0 ? m.snapshotTaxCents! : m.taxCents;
 
                 return (
-                  <tr key={m.month} className="border-t">
-                    <td className="px-4 py-3 font-medium">{m.month}</td>
-                    <td className="px-4 py-3">{fmtMoneyBR(shownTax)}</td>
-                    <td className="px-4 py-3 text-right tabular-nums">{m.usersCount}</td>
-                    <td className="px-4 py-3 text-right tabular-nums">{m.daysCount}</td>
+                  <tr key={m.month} className="border-t border-slate-100 transition-colors hover:bg-slate-50/70">
+                    <td className="px-4 py-3 font-semibold text-slate-800">{m.month}</td>
+                    <td className="px-4 py-3 font-semibold text-slate-800">{fmtMoneyBR(shownTax)}</td>
+                    <td className="px-4 py-3 text-right tabular-nums text-slate-700">{m.usersCount}</td>
+                    <td className="px-4 py-3 text-right tabular-nums text-slate-700">{m.daysCount}</td>
                     <td className="px-4 py-3">
                       {isPaid ? (
                         <div className="space-y-1">
@@ -435,7 +462,7 @@ export default function ImpostosPage() {
                       <div className="flex justify-end gap-2">
                         <button
                           onClick={() => openMonth(m.month)}
-                          className="h-9 rounded-xl border px-3 text-xs hover:bg-neutral-50"
+                          className="h-9 rounded-xl border border-slate-300 bg-white px-3 text-xs font-semibold hover:bg-slate-50"
                         >
                           Detalhes
                         </button>
@@ -443,7 +470,7 @@ export default function ImpostosPage() {
                         <button
                           onClick={() => payMonth(m.month)}
                           disabled={!canPay || paying}
-                          className="h-9 rounded-xl bg-black px-3 text-xs text-white hover:bg-neutral-800 disabled:opacity-50"
+                          className="h-9 rounded-xl bg-slate-900 px-3 text-xs font-semibold text-white hover:bg-slate-800 disabled:opacity-50"
                           title={
                             canPay
                               ? "Marcar mês como pago"
@@ -472,19 +499,19 @@ export default function ImpostosPage() {
         </div>
       </div>
 
-      <p className="text-xs text-neutral-500">
-        Dica: o mês consolida os dias que existem em <b>employee_payouts</b>. Se um mês estiver “zerado”,
-        é porque os dias não foram computados em <b>/dashboard/comissoes</b>.
-      </p>
+      <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs text-slate-600">
+        Dica: o mês consolida os dias que existem em <b>employee_payouts</b>. Se um mês estiver zerado, é porque os
+        dias não foram computados em <b>/dashboard/comissoes</b>.
+      </div>
 
       {/* Drawer mês */}
       {open && (
         <div className="fixed inset-0 z-50">
-          <div className="absolute inset-0 bg-black/40" onClick={() => setOpen(false)} />
-          <div className="absolute right-0 top-0 h-full w-full max-w-[560px] bg-white shadow-2xl">
-            <div className="flex items-center justify-between border-b p-4">
+          <div className="absolute inset-0 bg-slate-950/45 backdrop-blur-[2px]" onClick={() => setOpen(false)} />
+          <div className="absolute right-0 top-0 h-full w-full max-w-[560px] border-l border-slate-200 bg-gradient-to-b from-white via-slate-50 to-white shadow-2xl">
+            <div className="flex items-center justify-between border-b border-slate-200 bg-white/70 p-4">
               <div>
-                <div className="text-sm font-semibold">Imposto do mês</div>
+                <div className="text-sm font-semibold text-slate-900">Imposto do mês</div>
                 <div className="text-xs text-neutral-500">
                   <span className="font-medium">{month}</span>{" "}
                   {month >= currentMonth ? (
@@ -495,7 +522,7 @@ export default function ImpostosPage() {
 
               <button
                 onClick={() => setOpen(false)}
-                className="h-9 rounded-xl border px-3 text-xs hover:bg-neutral-50"
+                className="h-9 rounded-xl border border-slate-300 bg-white px-3 text-xs font-semibold hover:bg-slate-50"
               >
                 Fechar
               </button>
@@ -504,11 +531,11 @@ export default function ImpostosPage() {
             <div className="space-y-3 p-4">
               <div className="flex items-end justify-between gap-2">
                 <div className="flex flex-col">
-                  <label className="text-xs text-neutral-500">Mês (YYYY-MM)</label>
+                  <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">Mês (YYYY-MM)</label>
                   <input
                     value={month}
                     onChange={(e) => setMonth(e.target.value.slice(0, 7))}
-                    className="h-10 rounded-xl border px-3 text-sm"
+                    className="h-10 rounded-xl border border-slate-300 bg-white px-3 text-sm"
                   />
                 </div>
 
@@ -516,7 +543,7 @@ export default function ImpostosPage() {
                   <button
                     onClick={() => loadMonth(month)}
                     disabled={detailLoading}
-                    className="h-10 rounded-xl border px-4 text-sm hover:bg-neutral-50 disabled:opacity-50"
+                    className="h-10 rounded-xl border border-slate-300 bg-white px-4 text-sm font-semibold hover:bg-slate-50 disabled:opacity-50"
                   >
                     {detailLoading ? "Carregando..." : "Atualizar"}
                   </button>
@@ -524,7 +551,7 @@ export default function ImpostosPage() {
                   <button
                     onClick={() => payMonth(month)}
                     disabled={!canPayMonth || payingMonth === month}
-                    className="h-10 rounded-xl bg-black px-4 text-sm text-white hover:bg-neutral-800 disabled:opacity-50"
+                    className="h-10 rounded-xl bg-slate-900 px-4 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-50"
                     title={
                       canPayMonth
                         ? "Marcar imposto do mês como pago"
@@ -536,10 +563,10 @@ export default function ImpostosPage() {
                 </div>
               </div>
 
-              <div className="rounded-2xl border bg-white p-3">
+              <div className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
                 <div className="flex items-center justify-between">
-                  <div className="text-sm font-semibold">Total imposto</div>
-                  <div className="text-sm font-semibold">
+                  <div className="text-sm font-semibold text-slate-900">Total imposto</div>
+                  <div className="text-sm font-bold text-slate-900">
                     {fmtMoneyBR(detail?.totalTaxCents || 0)}
                   </div>
                 </div>
@@ -550,10 +577,10 @@ export default function ImpostosPage() {
                 </div>
               </div>
 
-              <div className="overflow-hidden rounded-2xl border">
+              <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
                 <div className="max-h-[62vh] overflow-auto">
                   <table className="w-full text-left text-sm">
-                    <thead className="sticky top-0 bg-neutral-50 text-xs text-neutral-600">
+                    <thead className="sticky top-0 bg-slate-100 text-xs font-semibold uppercase tracking-wide text-slate-600">
                       <tr>
                         <th className="px-4 py-3">Funcionário</th>
                         <th className="px-4 py-3 text-right">Dias</th>
@@ -562,13 +589,13 @@ export default function ImpostosPage() {
                     </thead>
                     <tbody>
                       {(detail?.breakdown || []).map((b) => (
-                        <tr key={b.userId} className="border-t">
+                        <tr key={b.userId} className="border-t border-slate-100 hover:bg-slate-50/70">
                           <td className="px-4 py-3">
-                            <div className="font-medium">{b.name}</div>
+                            <div className="font-semibold text-slate-800">{b.name}</div>
                             <div className="text-xs text-neutral-500">{b.login}</div>
                           </td>
                           <td className="px-4 py-3 text-right tabular-nums">{b.daysCount}</td>
-                          <td className="px-4 py-3 text-right font-semibold">
+                          <td className="px-4 py-3 text-right font-bold text-slate-800">
                             {fmtMoneyBR(b.taxCents)}
                           </td>
                         </tr>
@@ -586,7 +613,7 @@ export default function ImpostosPage() {
                 </div>
               </div>
 
-              <div className="text-xs text-neutral-500">
+              <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
                 O valor aqui é exatamente a soma de <b>tax7Cents</b> dos payouts do mês (percentual configurado).
               </div>
             </div>
@@ -596,13 +623,13 @@ export default function ImpostosPage() {
 
       {/* Toast */}
       {toast && (
-        <div className="fixed bottom-4 right-4 z-50 w-[360px] rounded-2xl border bg-white p-3 shadow-xl">
-          <div className="text-sm font-semibold">{toast.title}</div>
-          {toast.desc ? <div className="text-xs text-neutral-600">{toast.desc}</div> : null}
+        <div className="fixed bottom-4 right-4 z-50 w-[360px] rounded-2xl border border-slate-200 bg-white p-3 shadow-2xl">
+          <div className="text-sm font-bold text-slate-900">{toast.title}</div>
+          {toast.desc ? <div className="text-xs text-slate-600">{toast.desc}</div> : null}
           <div className="mt-2 flex justify-end">
             <button
               onClick={() => setToast(null)}
-              className="rounded-xl border px-3 py-1 text-xs hover:bg-neutral-50"
+              className="rounded-xl border border-slate-300 px-3 py-1 text-xs font-semibold hover:bg-slate-50"
             >
               OK
             </button>
