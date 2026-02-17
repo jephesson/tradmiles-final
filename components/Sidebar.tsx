@@ -217,9 +217,11 @@ export default function Sidebar() {
   );
 
   // ✅ GESTOR DE EMISSÕES (exclui importação)
+  const isEmissoesBaseRoute =
+    pathname === "/dashboard/emissoes" ||
+    pathname.startsWith("/dashboard/emissoes/");
   const isEmissoesRoute =
-    pathname.startsWith("/dashboard/emissoes") &&
-    !isImportacoesEmissoesLatamRoute;
+    isEmissoesBaseRoute && !isImportacoesEmissoesLatamRoute;
 
   const isGestorEmissoesRoute = isEmissoesRoute || isPainelEmissoesRoute;
 
