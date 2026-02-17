@@ -266,7 +266,7 @@ export default function Sidebar() {
     "/dashboard/horario-biometria"
   );
 
-  // ✅ NOVO: Emissões no balcão (em OUTROS)
+  // ✅ NOVO: Emissões no balcão
   const isEmissoesBalcaoRoute = pathname.startsWith(
     "/dashboard/emissoes-balcao"
   );
@@ -276,8 +276,7 @@ export default function Sidebar() {
     isWalletRoute ||
     isAgendaRoute ||
     isAtualizacaoTermosRoute ||
-    isHorarioBiometriaRoute ||
-    isEmissoesBalcaoRoute;
+    isHorarioBiometriaRoute;
 
   /* =========================
    * ACCORDIONS
@@ -939,6 +938,19 @@ export default function Sidebar() {
 
         {/* ================= OUTROS ================= */}
         <Accordion
+          title="Emissões no balcão"
+          open={openEmissoesBalcao}
+          onToggle={() => setOpenEmissoesBalcao((v) => !v)}
+          active={isEmissoesBalcaoRoute}
+          accent="cyan"
+        >
+          <NavLink href="/dashboard/emissoes-balcao/compra-venda">
+            Compra e Venda
+          </NavLink>
+        </Accordion>
+
+        {/* ================= OUTROS ================= */}
+        <Accordion
           title="Outros"
           open={openOutros}
           onToggle={() => setOpenOutros((v) => !v)}
@@ -958,18 +970,6 @@ export default function Sidebar() {
           <NavLink href="/dashboard/horario-biometria">
             Horário biometria
           </NavLink>
-
-          <SubAccordion
-            title="Emissões no balcão"
-            open={openEmissoesBalcao}
-            onToggle={() => setOpenEmissoesBalcao((v) => !v)}
-            variant="nav"
-            active={isEmissoesBalcaoRoute}
-          >
-            <NavLink href="/dashboard/emissoes-balcao/compra-venda">
-              Compra e Venda
-            </NavLink>
-          </SubAccordion>
 
           <NavLink href="/dashboard/wallet">Wallet</NavLink>
         </Accordion>
