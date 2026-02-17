@@ -266,12 +266,18 @@ export default function Sidebar() {
     "/dashboard/horario-biometria"
   );
 
+  // ✅ NOVO: Emissões no balcão (em OUTROS)
+  const isEmissoesBalcaoRoute = pathname.startsWith(
+    "/dashboard/emissoes-balcao"
+  );
+
   const isOutrosRoute =
     isAutomacaoRoute ||
     isWalletRoute ||
     isAgendaRoute ||
     isAtualizacaoTermosRoute ||
-    isHorarioBiometriaRoute;
+    isHorarioBiometriaRoute ||
+    isEmissoesBalcaoRoute;
 
   /* =========================
    * ACCORDIONS
@@ -352,6 +358,9 @@ export default function Sidebar() {
 
   // ✅ NOVO: OUTROS
   const [openOutros, setOpenOutros] = useState(isOutrosRoute);
+  const [openEmissoesBalcao, setOpenEmissoesBalcao] = useState(
+    isEmissoesBalcaoRoute
+  );
 
   useEffect(() => setOpenCadastro(isCadastroRoute), [isCadastroRoute]);
 
@@ -447,6 +456,10 @@ export default function Sidebar() {
   useEffect(() => {
     setOpenOutros(isOutrosRoute);
   }, [isOutrosRoute]);
+
+  useEffect(() => {
+    setOpenEmissoesBalcao(isEmissoesBalcaoRoute);
+  }, [isEmissoesBalcaoRoute]);
 
   /* =========================
    * FILTRO (VISUALIZAR PONTOS)
@@ -945,6 +958,18 @@ export default function Sidebar() {
           <NavLink href="/dashboard/horario-biometria">
             Horário biometria
           </NavLink>
+
+          <SubAccordion
+            title="Emissões no balcão"
+            open={openEmissoesBalcao}
+            onToggle={() => setOpenEmissoesBalcao((v) => !v)}
+            variant="nav"
+            active={isEmissoesBalcaoRoute}
+          >
+            <NavLink href="/dashboard/emissoes-balcao/compra-venda">
+              Compra e Venda
+            </NavLink>
+          </SubAccordion>
 
           <NavLink href="/dashboard/wallet">Wallet</NavLink>
         </Accordion>

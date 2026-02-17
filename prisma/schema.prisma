@@ -151,6 +151,9 @@ model User {
   // Vendas feitas por este usuário
   salesSold Sale[] @relation("SaleSeller")
 
+  // Emissões no balcão (compra e venda)
+  balcaoOperations BalcaoOperacao[] @relation("BalcaoEmployee")
+
   /**
    * =========================
    * RATEIO (BASE PERCENTUAL)
@@ -873,6 +876,17 @@ enum ClienteOrigem {
   OUTROS
 }
 
+enum BalcaoAirline {
+  LATAM
+  SMILES
+  AZUL
+  TAP
+  IBERIA
+  FLYING_BLUE
+  COPA_AIRLINES
+  UNITED
+}
+
 model Cliente {
   id            String @id @default(cuid())
   identificador String @unique
@@ -890,6 +904,8 @@ model Cliente {
   createdBy   User? @relation("ClienteCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
 
   sales Sale[]
+  balcaoOperationsAsSupplier BalcaoOperacao[] @relation("BalcaoSupplierCliente")
+  balcaoOperationsAsFinal    BalcaoOperacao[] @relation("BalcaoFinalCliente")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1035,6 +1051,46 @@ model Sale {
   @@index([clienteId])
   @@index([purchaseId])
   @@map("sales")
+}
+
+/**
+ * =========================
+ * EMISSOES NO BALCAO (COMPRA E VENDA)
+ * =========================
+ */
+model BalcaoOperacao {
+  id String @id @default(cuid())
+
+  team    String
+  airline BalcaoAirline
+
+  supplierClienteId String
+  finalClienteId    String
+  employeeId        String?
+
+  points           Int
+  buyRateCents     Int
+  sellRateCents    Int
+  boardingFeeCents Int @default(0)
+
+  supplierPayCents    Int
+  customerChargeCents Int
+  profitCents         Int
+
+  note String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  supplierCliente Cliente @relation("BalcaoSupplierCliente", fields: [supplierClienteId], references: [id], onDelete: Restrict)
+  finalCliente    Cliente @relation("BalcaoFinalCliente", fields: [finalClienteId], references: [id], onDelete: Restrict)
+  employee        User?   @relation("BalcaoEmployee", fields: [employeeId], references: [id], onDelete: SetNull)
+
+  @@index([team, createdAt])
+  @@index([team, supplierClienteId])
+  @@index([team, finalClienteId])
+  @@index([team, employeeId])
+  @@map("balcao_operacoes")
 }
 
 /**
