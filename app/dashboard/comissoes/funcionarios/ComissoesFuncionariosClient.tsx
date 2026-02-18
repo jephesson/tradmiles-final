@@ -285,6 +285,7 @@ export default function ComissoesFuncionariosClient() {
   const [reportMonth, setReportMonth] = useState<string>(() =>
     monthFromISODate(todayISORecife())
   );
+  const [reportUserId, setReportUserId] = useState<string>("");
   const [downloadingPdfKey, setDownloadingPdfKey] = useState<string | null>(null);
 
   const today = useMemo(() => todayISORecife(), []);
@@ -533,8 +534,6 @@ export default function ComissoesFuncionariosClient() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isToday, date, basis]);
 
-  const monthLabel = useMemo(() => monthFromISODate(date), [date]);
-
   const dayExtra = useMemo(() => {
     const rows = day?.rows || [];
     const lucroSemTaxa = rows.reduce((acc, r) => acc + lucroSemTaxaEmbarqueCents(r), 0);
@@ -585,6 +584,21 @@ export default function ComissoesFuncionariosClient() {
     return (p.grossProfitCents || 0) - (p.tax7Cents || 0);
   }, [details]);
 
+  const reportUsers = useMemo(() => {
+    const rows = day?.rows || [];
+    return rows.map((r) => r.user);
+  }, [day]);
+
+  useEffect(() => {
+    if (!reportUsers.length) {
+      setReportUserId("");
+      return;
+    }
+    if (!reportUserId || !reportUsers.some((u) => u.id === reportUserId)) {
+      setReportUserId(reportUsers[0].id);
+    }
+  }, [reportUsers, reportUserId]);
+
   return (
     <div className="space-y-4 p-4">
       <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
@@ -616,16 +630,6 @@ export default function ComissoesFuncionariosClient() {
               <option value="SALE_DATE">SALE_DATE (vendas do dia)</option>
               <option value="PURCHASE_FINALIZED">PURCHASE_FINALIZED (compras finalizadas)</option>
             </select>
-          </div>
-
-          <div className="flex flex-col">
-            <label className="text-xs text-neutral-500">Mês do PDF</label>
-            <input
-              type="month"
-              value={reportMonth}
-              onChange={(e) => setReportMonth(e.target.value.slice(0, 7))}
-              className="h-10 rounded-xl border px-3 text-sm"
-            />
           </div>
 
           <button
@@ -789,17 +793,6 @@ export default function ComissoesFuncionariosClient() {
                         </button>
 
                         <button
-                          onClick={() => downloadMonthlyPdf(r.user)}
-                          disabled={downloadingPdfKey === `${r.user.id}|${reportMonth}`}
-                          className="h-9 rounded-xl border px-3 text-xs hover:bg-neutral-50 disabled:opacity-50"
-                          title={`Baixar PDF do mês ${reportMonth}`}
-                        >
-                          {downloadingPdfKey === `${r.user.id}|${reportMonth}`
-                            ? "Baixando PDF..."
-                            : "Baixar PDF"}
-                        </button>
-
-                        <button
                           onClick={() => payRow(date, r.userId)}
                           disabled={!canPay || paying}
                           className="h-9 rounded-xl bg-black px-3 text-xs text-white hover:bg-neutral-800 disabled:opacity-50"
@@ -830,6 +823,53 @@ export default function ComissoesFuncionariosClient() {
               )}
             </tbody>
           </table>
+        </div>
+      </div>
+
+      <div className="rounded-2xl border bg-white p-4">
+        <div className="text-sm font-semibold">Gerar relatório</div>
+        <div className="mt-3 flex flex-wrap items-end gap-3">
+          <div className="flex flex-col">
+            <label className="text-xs text-neutral-500">Mês</label>
+            <input
+              type="month"
+              value={reportMonth}
+              onChange={(e) => setReportMonth(e.target.value.slice(0, 7))}
+              className="h-10 rounded-xl border px-3 text-sm"
+            />
+          </div>
+
+          <div className="flex min-w-[280px] flex-col">
+            <label className="text-xs text-neutral-500">Funcionário</label>
+            <select
+              value={reportUserId}
+              onChange={(e) => setReportUserId(e.target.value)}
+              className="h-10 rounded-xl border px-3 text-sm"
+            >
+              {reportUsers.map((u) => (
+                <option key={u.id} value={u.id}>
+                  {firstName(u.name, u.login)} ({u.login})
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <button
+            onClick={() => {
+              const user = reportUsers.find((u) => u.id === reportUserId);
+              if (!user) return;
+              downloadMonthlyPdf(user, reportMonth);
+            }}
+            disabled={
+              !reportUserId ||
+              downloadingPdfKey === `${reportUserId}|${reportMonth}`
+            }
+            className="h-10 rounded-xl border px-4 text-sm hover:bg-neutral-50 disabled:opacity-50"
+          >
+            {downloadingPdfKey === `${reportUserId}|${reportMonth}`
+              ? "Baixando PDF..."
+              : "Baixar PDF"}
+          </button>
         </div>
       </div>
 
@@ -1084,19 +1124,6 @@ export default function ComissoesFuncionariosClient() {
                     {monthLoading ? "Carregando..." : "Atualizar mês"}
                   </button>
 
-                  <button
-                    onClick={() => drawerUser && downloadMonthlyPdf(drawerUser, month)}
-                    disabled={
-                      !drawerUser ||
-                      downloadingPdfKey === `${drawerUser.id}|${String(month || "").slice(0, 7)}`
-                    }
-                    className="h-10 rounded-xl border px-4 text-sm hover:bg-neutral-50 disabled:opacity-50"
-                  >
-                    {drawerUser &&
-                    downloadingPdfKey === `${drawerUser.id}|${String(month || "").slice(0, 7)}`
-                      ? "Baixando PDF..."
-                      : "Baixar PDF do mês"}
-                  </button>
                 </div>
 
                 <div className="grid grid-cols-2 gap-2 md:grid-cols-7">
