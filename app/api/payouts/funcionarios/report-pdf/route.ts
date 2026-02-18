@@ -22,7 +22,6 @@ type DayReport = {
   taxCents: number;
   feeCents: number;
   lucroSemTaxaCents: number; // bruto - imposto
-  netPayCents: number; // valor final a pagar (com reembolso de taxa)
   c1Cents: number;
   c2Cents: number;
   c3Cents: number;
@@ -41,7 +40,6 @@ type CurrencySummary = {
   totalTax: number;
   totalFee: number;
   totalLucroSemTaxa: number;
-  totalNetPay: number;
   totalC1: number;
   totalC2: number;
   totalC3: number;
@@ -307,7 +305,6 @@ function computeCurrencySummary(days: DayReport[]): CurrencySummary {
       acc.totalTax += d.taxCents;
       acc.totalFee += d.feeCents;
       acc.totalLucroSemTaxa += d.lucroSemTaxaCents;
-      acc.totalNetPay += d.netPayCents;
       acc.totalC1 += d.c1Cents;
       acc.totalC2 += d.c2Cents;
       acc.totalC3 += d.c3Cents;
@@ -319,7 +316,6 @@ function computeCurrencySummary(days: DayReport[]): CurrencySummary {
       totalTax: 0,
       totalFee: 0,
       totalLucroSemTaxa: 0,
-      totalNetPay: 0,
       totalC1: 0,
       totalC2: 0,
       totalC3: 0,
@@ -532,31 +528,38 @@ function drawSummaryBoxes(
   });
 
   const totalLines = [
-    ["Comissao 1 (1%)", fmtMoneyBR(input.totals.totalC1)],
-    ["Comissao 2 (bonus)", fmtMoneyBR(input.totals.totalC2)],
-    ["Comissao 3 (rateio)", fmtMoneyBR(input.totals.totalC3)],
-    ["Reembolso taxa", fmtMoneyBR(input.totals.totalFee)],
-    ["Impostos pagos", fmtMoneyBR(input.totals.totalTax)],
-    ["Bruto", fmtMoneyBR(input.totals.totalGross)],
-    ["Lucro s/taxa", fmtMoneyBR(input.totals.totalLucroSemTaxa)],
-    ["Liquido (a pagar)", fmtMoneyBR(input.totals.totalNetPay)],
-  ] as const;
+    { label: "Comissao 1 (1%)", value: fmtMoneyBR(input.totals.totalC1), isStrong: false, highlight: false },
+    { label: "Comissao 2 (bonus)", value: fmtMoneyBR(input.totals.totalC2), isStrong: false, highlight: false },
+    { label: "Comissao 3 (rateio)", value: fmtMoneyBR(input.totals.totalC3), isStrong: false, highlight: false },
+    { label: "Reembolso taxa", value: fmtMoneyBR(input.totals.totalFee), isStrong: false, highlight: false },
+    { label: "Impostos pagos", value: fmtMoneyBR(input.totals.totalTax), isStrong: false, highlight: false },
+    { label: "Bruto", value: fmtMoneyBR(input.totals.totalGross), isStrong: false, highlight: false },
+    { label: "Ganho mensal", value: fmtMoneyBR(input.totals.totalLucroSemTaxa), isStrong: true, highlight: true },
+  ];
 
   y = top + 42;
-  totalLines.forEach(([label, value], idx) => {
-    const isStrong = idx >= totalLines.length - 2;
+  totalLines.forEach((line) => {
+    if (line.highlight) {
+      page.rect({
+        x: rightX + 8,
+        y: y - 11,
+        w: boxW - 16,
+        h: 17,
+        fill: COLORS.tableHeaderBg,
+      });
+    }
 
     page.text({
-      text: label,
+      text: line.label,
       x: rightX + 12,
       y,
       size: 9,
-      color: isStrong ? COLORS.bodyText : COLORS.muted,
-      font: isStrong ? "F2" : "F1",
+      color: line.isStrong ? COLORS.bodyText : COLORS.muted,
+      font: line.isStrong ? "F2" : "F1",
     });
 
     page.text({
-      text: value,
+      text: line.value,
       x: rightX + 12,
       y,
       width: boxW - 24,
@@ -816,7 +819,6 @@ export async function GET(req: NextRequest) {
         grossProfitCents: true,
         tax7Cents: true,
         feeCents: true,
-        netPayCents: true,
         breakdown: true,
       },
     });
@@ -828,7 +830,6 @@ export async function GET(req: NextRequest) {
         const taxCents = safeInt(p.tax7Cents, 0);
         const feeCents = safeInt(p.feeCents, 0);
         const lucroSemTaxaCents = grossCents - taxCents;
-        const netPayCents = safeInt(p.netPayCents, 0);
 
         return {
           date: p.date,
@@ -836,7 +837,6 @@ export async function GET(req: NextRequest) {
           taxCents,
           feeCents,
           lucroSemTaxaCents,
-          netPayCents,
           c1Cents: b.c1Cents,
           c2Cents: b.c2Cents,
           c3Cents: b.c3Cents,
