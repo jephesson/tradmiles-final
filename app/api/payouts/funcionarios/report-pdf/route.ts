@@ -21,7 +21,7 @@ type DayReport = {
   grossCents: number;
   taxCents: number;
   feeCents: number;
-  netCents: number;
+  netCents: number; // liquido real = bruto - imposto - taxa
   c1Cents: number;
   c2Cents: number;
   c3Cents: number;
@@ -534,7 +534,7 @@ function drawSummaryBoxes(
     ["Reembolso taxa", fmtMoneyBR(input.totals.totalFee)],
     ["Impostos pagos", fmtMoneyBR(input.totals.totalTax)],
     ["Bruto", fmtMoneyBR(input.totals.totalGross)],
-    ["Liquido", fmtMoneyBR(input.totals.totalNet)],
+    ["Liquido (sem taxa)", fmtMoneyBR(input.totals.totalNet)],
   ] as const;
 
   y = top + 42;
@@ -750,7 +750,7 @@ function renderReportToPages(input: {
 
   const legendY = Math.min(tableY + 16, PAGE_HEIGHT - 48);
   canvas.text({
-    text: "Legenda var: ^ maior que dia anterior | v menor | = igual | - primeiro dia.",
+    text: "Legenda var: ^ maior que dia anterior | v menor | = igual | - primeiro dia. Liquido = Bruto - Imposto - Taxa.",
     x: MARGIN,
     y: legendY,
     size: 8,
@@ -811,7 +811,6 @@ export async function GET(req: NextRequest) {
         grossProfitCents: true,
         tax7Cents: true,
         feeCents: true,
-        netPayCents: true,
         breakdown: true,
       },
     });
@@ -819,12 +818,17 @@ export async function GET(req: NextRequest) {
     const days: DayReport[] = payouts
       .map((p) => {
         const b = parseBreakdown(p.breakdown);
+        const grossCents = safeInt(p.grossProfitCents, 0);
+        const taxCents = safeInt(p.tax7Cents, 0);
+        const feeCents = safeInt(p.feeCents, 0);
+        const netCents = grossCents - taxCents - feeCents;
+
         return {
           date: p.date,
-          grossCents: safeInt(p.grossProfitCents, 0),
-          taxCents: safeInt(p.tax7Cents, 0),
-          feeCents: safeInt(p.feeCents, 0),
-          netCents: safeInt(p.netPayCents, 0),
+          grossCents,
+          taxCents,
+          feeCents,
+          netCents,
           c1Cents: b.c1Cents,
           c2Cents: b.c2Cents,
           c3Cents: b.c3Cents,
