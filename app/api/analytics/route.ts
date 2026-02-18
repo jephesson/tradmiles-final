@@ -215,6 +215,9 @@ export async function GET(req: NextRequest) {
 
     const mStart = monthStartUTC(month);
     const mEnd = addMonthsUTC(mStart, 1);
+    const currentMonth = isoMonthNowSP();
+    const currentMonthStart = monthStartUTC(currentMonth);
+    const currentMonthEnd = addMonthsUTC(currentMonthStart, 1);
 
     const histStart = addMonthsUTC(mStart, -(monthsBack - 1));
     const histEnd = mEnd;
@@ -326,6 +329,54 @@ export async function GET(req: NextRequest) {
       totalCents: r.grossCents,
       totalSemTaxaCents: r.grossCents,
     }));
+
+    // =========================
+    // ✅ MÊS CORRENTE: vendas sem taxa vs lucro após imposto (sem taxa)
+    // =========================
+    const [currentMonthSales, currentMonthPayouts] = await Promise.all([
+      prisma.sale.findMany({
+        where: {
+          date: { gte: currentMonthStart, lt: currentMonthEnd },
+          ...saleTeamWhere(team),
+          ...notCanceled,
+        },
+        select: { points: true, milheiroCents: true },
+      }),
+      prisma.employeePayout.findMany({
+        where: {
+          team,
+          date: { startsWith: `${currentMonth}-` },
+        },
+        select: {
+          grossProfitCents: true,
+          tax7Cents: true,
+        },
+      }),
+    ]);
+
+    const currentMonthSoldWithoutFeeCents = currentMonthSales.reduce(
+      (acc, s) =>
+        acc + pointsValueCents(Number(s.points || 0), Number(s.milheiroCents || 0)),
+      0
+    );
+
+    const currentMonthProfitAfterTaxWithoutFeeCents = currentMonthPayouts.reduce(
+      (acc, p) =>
+        acc +
+        (Math.max(0, Number(p.grossProfitCents || 0)) -
+          Math.max(0, Number(p.tax7Cents || 0))),
+      0
+    );
+
+    const currentMonthSalesOverProfitRatio =
+      currentMonthProfitAfterTaxWithoutFeeCents > 0
+        ? currentMonthSoldWithoutFeeCents / currentMonthProfitAfterTaxWithoutFeeCents
+        : null;
+
+    const currentMonthSalesOverProfitPercent =
+      currentMonthSalesOverProfitRatio === null
+        ? null
+        : currentMonthSalesOverProfitRatio * 100;
 
     // =========================
     // 1) SALES (histórico p/ gráficos + mês selecionado)
@@ -721,6 +772,14 @@ export async function GET(req: NextRequest) {
         // ✅ HOJE POR FUNCIONÁRIO (com aliases)
         todayByEmployee: todayByEmployeeOut,
         byEmployeeToday: todayByEmployeeOut, // ✅ alias opcional p/ front antigo
+
+        currentMonthPerformance: {
+          month: currentMonth,
+          soldWithoutFeeCents: currentMonthSoldWithoutFeeCents,
+          profitAfterTaxWithoutFeeCents: currentMonthProfitAfterTaxWithoutFeeCents,
+          salesOverProfitRatio: currentMonthSalesOverProfitRatio,
+          salesOverProfitPercent: currentMonthSalesOverProfitPercent,
+        },
 
         summary: {
           monthLabel: monthLabelPT(month),

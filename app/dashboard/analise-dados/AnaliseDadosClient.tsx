@@ -14,6 +14,12 @@ function fmtPct(p: number) {
   const sign = v > 0 ? "+" : "";
   return `${sign}${v.toFixed(1)}%`;
 }
+function fmtPctRaw(v: number) {
+  return `${(v || 0).toLocaleString("pt-BR", {
+    minimumFractionDigits: 1,
+    maximumFractionDigits: 1,
+  })}%`;
+}
 
 type Analytics = any;
 
@@ -400,6 +406,23 @@ export default function AnaliseDadosClient() {
     return ((data?.byEmployee || []) as any[]).filter((r) => (r?.grossCents || 0) > 0);
   }, [data]);
 
+  const currentMonthPerformance = useMemo(() => {
+    const p = (data as any)?.currentMonthPerformance;
+    if (!p) return null;
+
+    const soldWithoutFeeCents = Number(p.soldWithoutFeeCents || 0);
+    const profitAfterTaxWithoutFeeCents = Number(p.profitAfterTaxWithoutFeeCents || 0);
+    const salesOverProfitPercent =
+      typeof p.salesOverProfitPercent === "number" ? Number(p.salesOverProfitPercent) : null;
+
+    return {
+      month: String(p.month || ""),
+      soldWithoutFeeCents,
+      profitAfterTaxWithoutFeeCents,
+      salesOverProfitPercent,
+    };
+  }, [data]);
+
   const byEmployeeMonthPie = useMemo(() => {
     const rows = [...byEmployeeMonth].sort((a, b) => (b.grossCents || 0) - (a.grossCents || 0));
     const total = rows.reduce((acc, r) => acc + (r.grossCents || 0), 0);
@@ -609,6 +632,23 @@ export default function AnaliseDadosClient() {
           sub={`Clubes: LATAM ${fmtInt(kpis?.clubsLatam || 0)} | SMILES ${fmtInt(kpis?.clubsSmiles || 0)}`}
           tone="rose"
         />
+      </div>
+
+      <div className="rounded-2xl border border-indigo-100 bg-gradient-to-br from-indigo-50/90 to-white p-4 shadow-sm">
+        <div className="text-xs text-indigo-700">Métrica do mês corrente {currentMonthPerformance?.month || "—"}</div>
+        <div className="mt-1 text-2xl font-semibold text-indigo-900">
+          {currentMonthPerformance?.salesOverProfitPercent !== null &&
+          currentMonthPerformance?.salesOverProfitPercent !== undefined
+            ? fmtPctRaw(currentMonthPerformance.salesOverProfitPercent)
+            : "—"}
+        </div>
+        <div className="mt-1 text-sm text-indigo-900/80">
+          Vendas sem taxa ÷ Lucro pós-imposto sem taxa
+        </div>
+        <div className="mt-2 text-xs text-indigo-900/70">
+          Vendas sem taxa: {fmtMoneyBR(currentMonthPerformance?.soldWithoutFeeCents || 0)} • Lucro total:{" "}
+          {fmtMoneyBR(currentMonthPerformance?.profitAfterTaxWithoutFeeCents || 0)}
+        </div>
       </div>
 
       {/* Gráfico evolução */}
