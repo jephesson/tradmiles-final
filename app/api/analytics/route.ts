@@ -369,8 +369,8 @@ export async function GET(req: NextRequest) {
     );
 
     const currentMonthSalesOverProfitRatio =
-      currentMonthProfitAfterTaxWithoutFeeCents > 0
-        ? currentMonthSoldWithoutFeeCents / currentMonthProfitAfterTaxWithoutFeeCents
+      currentMonthSoldWithoutFeeCents > 0
+        ? currentMonthProfitAfterTaxWithoutFeeCents / currentMonthSoldWithoutFeeCents
         : null;
 
     const currentMonthSalesOverProfitPercent =

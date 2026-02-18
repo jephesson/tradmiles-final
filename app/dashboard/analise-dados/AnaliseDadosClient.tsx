@@ -643,7 +643,7 @@ export default function AnaliseDadosClient() {
             : "—"}
         </div>
         <div className="mt-1 text-sm text-indigo-900/80">
-          Vendas sem taxa ÷ Lucro pós-imposto sem taxa
+          Lucro pós-imposto sem taxa ÷ Vendas sem taxa
         </div>
         <div className="mt-2 text-xs text-indigo-900/70">
           Vendas sem taxa: {fmtMoneyBR(currentMonthPerformance?.soldWithoutFeeCents || 0)} • Lucro total:{" "}
