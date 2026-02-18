@@ -8,10 +8,13 @@ export const dynamic = "force-dynamic";
 
 const PAGE_WIDTH = 595;
 const PAGE_HEIGHT = 842;
-const MARGIN_LEFT = 40;
-const START_Y = 810;
-const LINE_HEIGHT = 14;
-const MAX_LINES_PER_PAGE = 52;
+const MARGIN = 28;
+
+const TABLE_HEADER_HEIGHT = 24;
+const TABLE_ROW_HEIGHT = 20;
+const TABLE_TOP_FIRST_PAGE = 312;
+const TABLE_TOP_NEXT_PAGE = 96;
+const TABLE_BOTTOM_LIMIT = PAGE_HEIGHT - 64;
 
 type DayReport = {
   date: string;
@@ -32,6 +35,64 @@ type BreakdownExtract = {
   salesCount: number;
 };
 
+type CurrencySummary = {
+  totalGross: number;
+  totalTax: number;
+  totalFee: number;
+  totalNet: number;
+  totalC1: number;
+  totalC2: number;
+  totalC3: number;
+  totalSales: number;
+};
+
+type StatsSummary = {
+  gainDaysCount: number;
+  avgGainCents: number;
+  stdDevGainCents: number;
+  bestDayLabel: string;
+  bestDayValue: string;
+};
+
+type TableRow = {
+  dateLabel: string;
+  netLabel: string;
+  c1Label: string;
+  c2Label: string;
+  c3Label: string;
+  feeLabel: string;
+  taxLabel: string;
+  variation: "^" | "v" | "=" | "-";
+};
+
+type FontRef = "F1" | "F2";
+type Align = "left" | "right" | "center";
+type Rgb = [number, number, number];
+
+const COLORS = {
+  headerBg: [0.08, 0.16, 0.34] as Rgb,
+  headerText: [1, 1, 1] as Rgb,
+  bodyText: [0.12, 0.14, 0.18] as Rgb,
+  muted: [0.38, 0.43, 0.5] as Rgb,
+  cardBg: [0.96, 0.97, 0.99] as Rgb,
+  border: [0.78, 0.83, 0.9] as Rgb,
+  tableHeaderBg: [0.9, 0.94, 0.99] as Rgb,
+  rowAltBg: [0.98, 0.985, 0.995] as Rgb,
+  green: [0.14, 0.52, 0.32] as Rgb,
+  red: [0.78, 0.2, 0.2] as Rgb,
+} as const;
+
+const TABLE_COLUMNS = [
+  { key: "dateLabel", title: "Dia", width: 64, align: "left" as Align },
+  { key: "netLabel", title: "Liquido", width: 92, align: "right" as Align },
+  { key: "c1Label", title: "C1", width: 68, align: "right" as Align },
+  { key: "c2Label", title: "C2", width: 68, align: "right" as Align },
+  { key: "c3Label", title: "C3", width: 68, align: "right" as Align },
+  { key: "feeLabel", title: "Taxa", width: 68, align: "right" as Align },
+  { key: "taxLabel", title: "Imposto", width: 68, align: "right" as Align },
+  { key: "variation", title: "Var", width: 43, align: "center" as Align },
+] as const;
+
 function safeInt(v: unknown, fallback = 0) {
   const n = Number(v);
   return Number.isFinite(n) ? Math.trunc(n) : fallback;
@@ -48,16 +109,11 @@ function toAscii(input: string) {
     .replace(/[^\x20-\x7E]/g, " ");
 }
 
-function padRight(value: string, len: number) {
-  const v = toAscii(value);
-  if (v.length >= len) return v.slice(0, len);
-  return `${v}${" ".repeat(len - v.length)}`;
-}
-
-function padLeft(value: string, len: number) {
-  const v = toAscii(value);
-  if (v.length >= len) return v.slice(0, len);
-  return `${" ".repeat(len - v.length)}${v}`;
+function escapePdfText(text: string) {
+  return text
+    .replace(/\\/g, "\\\\")
+    .replace(/\(/g, "\\(")
+    .replace(/\)/g, "\\)");
 }
 
 function fmtMoneyBR(cents: number) {
@@ -79,18 +135,8 @@ function fmtNowBR() {
   return new Date().toLocaleString("pt-BR", { timeZone: "America/Recife" });
 }
 
-function parseBreakdown(value: Prisma.JsonValue | null): BreakdownExtract {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return { c1Cents: 0, c2Cents: 0, c3Cents: 0, salesCount: 0 };
-  }
-
-  const obj = value as Record<string, unknown>;
-  return {
-    c1Cents: safeInt(obj.commission1Cents, 0),
-    c2Cents: safeInt(obj.commission2Cents, 0),
-    c3Cents: safeInt(obj.commission3RateioCents, 0),
-    salesCount: safeInt(obj.salesCount, 0),
-  };
+function estimateTextWidth(text: string, fontSize: number) {
+  return toAscii(text).length * fontSize * 0.52;
 }
 
 function mean(values: number[]) {
@@ -106,75 +152,129 @@ function standardDeviation(values: number[]) {
   return Math.sqrt(variance);
 }
 
-function directionLabel(curr: number, prev: number | null) {
-  if (prev === null) return "-";
-  if (curr > prev) return "^";
-  if (curr < prev) return "v";
-  return "=";
-}
-
-function escapePdfText(text: string) {
-  return text
-    .replace(/\\/g, "\\\\")
-    .replace(/\(/g, "\\(")
-    .replace(/\)/g, "\\)");
-}
-
-function chunkLines(lines: string[], size: number) {
-  if (!lines.length) return [["Sem dados para gerar o relatorio."]];
-  const chunks: string[][] = [];
-  for (let i = 0; i < lines.length; i += size) {
-    chunks.push(lines.slice(i, i + size));
+function parseBreakdown(value: Prisma.JsonValue | null): BreakdownExtract {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return { c1Cents: 0, c2Cents: 0, c3Cents: 0, salesCount: 0 };
   }
-  return chunks;
+
+  const obj = value as Record<string, unknown>;
+  return {
+    c1Cents: safeInt(obj.commission1Cents, 0),
+    c2Cents: safeInt(obj.commission2Cents, 0),
+    c3Cents: safeInt(obj.commission3RateioCents, 0),
+    salesCount: safeInt(obj.salesCount, 0),
+  };
 }
 
-function buildPageContent(lines: string[]) {
-  const start = `${MARGIN_LEFT} ${START_Y} Td`;
-  const list = lines
-    .map((line, idx) => {
-      const safe = escapePdfText(toAscii(line));
-      if (idx === 0) return `(${safe}) Tj`;
-      return `T* (${safe}) Tj`;
-    })
-    .join("\n");
+class PdfCanvas {
+  private commands: string[] = [];
 
-  return [
-    "BT",
-    "/F1 10 Tf",
-    `${LINE_HEIGHT} TL`,
-    start,
-    list,
-    "ET",
-  ].join("\n");
+  private yToPdf(top: number) {
+    return PAGE_HEIGHT - top;
+  }
+
+  rect(opts: {
+    x: number;
+    y: number;
+    w: number;
+    h: number;
+    fill?: Rgb;
+    stroke?: Rgb;
+    lineWidth?: number;
+  }) {
+    const yPdf = PAGE_HEIGHT - opts.y - opts.h;
+    if (opts.fill) {
+      this.commands.push(
+        `${opts.fill[0]} ${opts.fill[1]} ${opts.fill[2]} rg ${opts.x.toFixed(2)} ${yPdf.toFixed(2)} ${opts.w.toFixed(2)} ${opts.h.toFixed(2)} re f`
+      );
+    }
+
+    if (opts.stroke) {
+      const lw = opts.lineWidth ?? 1;
+      this.commands.push(
+        `${lw.toFixed(2)} w ${opts.stroke[0]} ${opts.stroke[1]} ${opts.stroke[2]} RG ${opts.x.toFixed(2)} ${yPdf.toFixed(2)} ${opts.w.toFixed(2)} ${opts.h.toFixed(2)} re S`
+      );
+    }
+  }
+
+  line(opts: {
+    x1: number;
+    y1: number;
+    x2: number;
+    y2: number;
+    stroke?: Rgb;
+    lineWidth?: number;
+  }) {
+    const stroke = opts.stroke ?? COLORS.border;
+    const lw = opts.lineWidth ?? 1;
+    this.commands.push(
+      `${lw.toFixed(2)} w ${stroke[0]} ${stroke[1]} ${stroke[2]} RG ${opts.x1.toFixed(2)} ${this.yToPdf(opts.y1).toFixed(2)} m ${opts.x2.toFixed(2)} ${this.yToPdf(opts.y2).toFixed(2)} l S`
+    );
+  }
+
+  text(opts: {
+    text: string;
+    x: number;
+    y: number;
+    width?: number;
+    align?: Align;
+    font?: FontRef;
+    size?: number;
+    color?: Rgb;
+  }) {
+    const font = opts.font ?? "F1";
+    const size = opts.size ?? 10;
+    const color = opts.color ?? COLORS.bodyText;
+    const align = opts.align ?? "left";
+
+    const raw = toAscii(opts.text);
+    const safe = escapePdfText(raw);
+    const width = opts.width ?? estimateTextWidth(raw, size);
+    const textWidth = estimateTextWidth(raw, size);
+
+    let x = opts.x;
+    if (align === "right") {
+      x = opts.x + width - textWidth;
+    } else if (align === "center") {
+      x = opts.x + (width - textWidth) / 2;
+    }
+
+    this.commands.push(
+      `BT /${font} ${size} Tf ${color[0]} ${color[1]} ${color[2]} rg 1 0 0 1 ${x.toFixed(2)} ${this.yToPdf(opts.y).toFixed(2)} Tm (${safe}) Tj ET`
+    );
+  }
+
+  build() {
+    return this.commands.join("\n");
+  }
 }
 
-function buildPdf(lines: string[]) {
-  const pages = chunkLines(lines, MAX_LINES_PER_PAGE);
-  const totalObjects = 3 + pages.length * 2;
+function buildPdf(pages: string[]) {
+  const pageCount = pages.length;
+  const totalObjects = 4 + pageCount * 2;
   const objects = new Array<string>(totalObjects + 1).fill("");
 
   objects[1] = "<< /Type /Catalog /Pages 2 0 R >>";
   objects[3] = "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>";
+  objects[4] = "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>";
 
   const kids: string[] = [];
 
-  pages.forEach((pageLines, idx) => {
-    const pageObj = 4 + idx * 2;
+  pages.forEach((content, idx) => {
+    const pageObj = 5 + idx * 2;
     const contentObj = pageObj + 1;
+
     kids.push(`${pageObj} 0 R`);
 
-    const content = buildPageContent(pageLines);
     const contentLength = Buffer.byteLength(content, "utf8");
-
     objects[contentObj] = `<< /Length ${contentLength} >>\nstream\n${content}\nendstream`;
 
     objects[pageObj] =
       `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${PAGE_WIDTH} ${PAGE_HEIGHT}] ` +
-      `/Resources << /Font << /F1 3 0 R >> >> /Contents ${contentObj} 0 R >>`;
+      `/Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents ${contentObj} 0 R >>`;
   });
 
-  objects[2] = `<< /Type /Pages /Count ${pages.length} /Kids [ ${kids.join(" ")} ] >>`;
+  objects[2] = `<< /Type /Pages /Count ${pageCount} /Kids [ ${kids.join(" ")} ] >>`;
 
   let pdf = "%PDF-1.4\n";
   const offsets = new Array<number>(totalObjects + 1).fill(0);
@@ -198,103 +298,469 @@ function buildPdf(lines: string[]) {
   return Buffer.from(pdf, "utf8");
 }
 
-function buildReportLines(input: {
-  month: string;
-  employee: { name: string; login: string };
-  days: DayReport[];
-}) {
-  const { month, employee, days } = input;
-  const gainDays = days.filter((d) => d.netCents > 0);
+function computeCurrencySummary(days: DayReport[]): CurrencySummary {
+  return days.reduce(
+    (acc, d) => {
+      acc.totalGross += d.grossCents;
+      acc.totalTax += d.taxCents;
+      acc.totalFee += d.feeCents;
+      acc.totalNet += d.netCents;
+      acc.totalC1 += d.c1Cents;
+      acc.totalC2 += d.c2Cents;
+      acc.totalC3 += d.c3Cents;
+      acc.totalSales += d.salesCount;
+      return acc;
+    },
+    {
+      totalGross: 0,
+      totalTax: 0,
+      totalFee: 0,
+      totalNet: 0,
+      totalC1: 0,
+      totalC2: 0,
+      totalC3: 0,
+      totalSales: 0,
+    }
+  );
+}
 
-  const totalGross = gainDays.reduce((acc, d) => acc + d.grossCents, 0);
-  const totalTax = gainDays.reduce((acc, d) => acc + d.taxCents, 0);
-  const totalFee = gainDays.reduce((acc, d) => acc + d.feeCents, 0);
-  const totalNet = gainDays.reduce((acc, d) => acc + d.netCents, 0);
-  const totalC1 = gainDays.reduce((acc, d) => acc + d.c1Cents, 0);
-  const totalC2 = gainDays.reduce((acc, d) => acc + d.c2Cents, 0);
-  const totalC3 = gainDays.reduce((acc, d) => acc + d.c3Cents, 0);
-  const totalSales = gainDays.reduce((acc, d) => acc + d.salesCount, 0);
+function computeStats(days: DayReport[]): StatsSummary {
+  const gains = days.map((d) => d.netCents);
+  const avg = Math.round(mean(gains));
+  const stdDev = Math.round(standardDeviation(gains));
 
-  const gains = gainDays.map((d) => d.netCents);
-  const avgGain = mean(gains);
-  const stdDevGain = standardDeviation(gains);
-
-  const bestDay = gainDays.reduce<DayReport | null>((acc, d) => {
+  const best = days.reduce<DayReport | null>((acc, d) => {
     if (!acc) return d;
     return d.netCents > acc.netCents ? d : acc;
   }, null);
 
-  const lines: string[] = [];
-  lines.push("TRADEMILES - RELATORIO DE COMISSOES (FUNCIONARIO)");
-  lines.push("");
-  lines.push(`Funcionario: ${employee.name} (@${employee.login})`);
-  lines.push(`Mes: ${month}`);
-  lines.push(`Gerado em: ${fmtNowBR()}`);
-  lines.push("");
+  return {
+    gainDaysCount: days.length,
+    avgGainCents: avg,
+    stdDevGainCents: stdDev,
+    bestDayLabel: best ? fmtDateBR(best.date) : "-",
+    bestDayValue: best ? fmtMoneyBR(best.netCents) : "-",
+  };
+}
 
-  lines.push("ESTATISTICAS");
-  lines.push(`Dias com ganho no mes: ${gainDays.length}`);
-  lines.push(`Total ganho (liquido): ${fmtMoneyBR(totalNet)}`);
-  lines.push(`Media de ganho por dia: ${fmtMoneyBR(Math.round(avgGain))}`);
-  lines.push(`Desvio padrao do ganho diario: ${fmtMoneyBR(Math.round(stdDevGain))}`);
-  lines.push(
-    `Dia de maior ganho: ${bestDay ? `${fmtDateBR(bestDay.date)} (${fmtMoneyBR(bestDay.netCents)})` : "-"}`
-  );
-  lines.push("");
+function buildTableRows(days: DayReport[]): TableRow[] {
+  let previous: number | null = null;
 
-  lines.push("TOTAIS DO MES");
-  lines.push(`Comissao 1 (1%): ${fmtMoneyBR(totalC1)}`);
-  lines.push(`Comissao 2 (bonus): ${fmtMoneyBR(totalC2)}`);
-  lines.push(`Comissao 3 (rateio): ${fmtMoneyBR(totalC3)}`);
-  lines.push(`Reembolso taxa embarque: ${fmtMoneyBR(totalFee)}`);
-  lines.push(`Impostos pagos: ${fmtMoneyBR(totalTax)}`);
-  lines.push(`Bruto (C1+C2+C3): ${fmtMoneyBR(totalGross)}`);
-  lines.push(`Liquido a pagar: ${fmtMoneyBR(totalNet)}`);
-  lines.push(`Vendas computadas: ${totalSales}`);
-  lines.push("");
+  return days.map((d) => {
+    let variation: "^" | "v" | "=" | "-" = "-";
+    if (previous !== null) {
+      if (d.netCents > previous) variation = "^";
+      else if (d.netCents < previous) variation = "v";
+      else variation = "=";
+    }
 
-  lines.push("DETALHAMENTO DIARIO (apenas dias com ganho > 0)");
+    previous = d.netCents;
 
-  const header = [
-    padRight("Dia", 10),
-    padLeft("Liquido", 16),
-    padLeft("C1", 14),
-    padLeft("C2", 14),
-    padLeft("C3", 14),
-    padLeft("Taxa", 14),
-    padLeft("Imposto", 14),
-    padLeft("Var", 6),
-  ].join(" | ");
+    return {
+      dateLabel: fmtDateBR(d.date),
+      netLabel: fmtMoneyBR(d.netCents),
+      c1Label: fmtMoneyBR(d.c1Cents),
+      c2Label: fmtMoneyBR(d.c2Cents),
+      c3Label: fmtMoneyBR(d.c3Cents),
+      feeLabel: fmtMoneyBR(d.feeCents),
+      taxLabel: fmtMoneyBR(d.taxCents),
+      variation,
+    };
+  });
+}
 
-  lines.push(header);
-  lines.push("-".repeat(header.length));
+function drawHeader(
+  page: PdfCanvas,
+  input: {
+    isFirstPage: boolean;
+    pageNumber: number;
+    employeeName: string;
+    login: string;
+    month: string;
+    generatedAt: string;
+  }
+) {
+  if (input.isFirstPage) {
+    page.rect({ x: 0, y: 0, w: PAGE_WIDTH, h: 88, fill: COLORS.headerBg });
 
-  let previousNet: number | null = null;
-  gainDays.forEach((d) => {
-    const dir = directionLabel(d.netCents, previousNet);
-    lines.push(
-      [
-        padRight(fmtDateBR(d.date), 10),
-        padLeft(fmtMoneyBR(d.netCents), 16),
-        padLeft(fmtMoneyBR(d.c1Cents), 14),
-        padLeft(fmtMoneyBR(d.c2Cents), 14),
-        padLeft(fmtMoneyBR(d.c3Cents), 14),
-        padLeft(fmtMoneyBR(d.feeCents), 14),
-        padLeft(fmtMoneyBR(d.taxCents), 14),
-        padLeft(dir, 6),
-      ].join(" | ")
-    );
-    previousNet = d.netCents;
+    page.text({
+      text: "TradeMiles | Relatorio Mensal de Comissoes",
+      x: MARGIN,
+      y: 32,
+      font: "F2",
+      size: 16,
+      color: COLORS.headerText,
+    });
+
+    page.text({
+      text: `${input.employeeName} (@${input.login})`,
+      x: MARGIN,
+      y: 54,
+      font: "F1",
+      size: 10,
+      color: COLORS.headerText,
+    });
+
+    page.text({
+      text: `Mes ${input.month}`,
+      x: MARGIN,
+      y: 70,
+      font: "F1",
+      size: 10,
+      color: COLORS.headerText,
+    });
+
+    page.text({
+      text: `Gerado em ${input.generatedAt}`,
+      x: PAGE_WIDTH - MARGIN - 210,
+      y: 70,
+      width: 210,
+      align: "right",
+      font: "F1",
+      size: 9,
+      color: COLORS.headerText,
+    });
+  } else {
+    page.rect({ x: 0, y: 0, w: PAGE_WIDTH, h: 62, fill: COLORS.headerBg });
+
+    page.text({
+      text: "Relatorio Mensal de Comissoes",
+      x: MARGIN,
+      y: 30,
+      font: "F2",
+      size: 13,
+      color: COLORS.headerText,
+    });
+
+    page.text({
+      text: `${input.employeeName} (@${input.login}) | ${input.month}`,
+      x: MARGIN,
+      y: 48,
+      font: "F1",
+      size: 9,
+      color: COLORS.headerText,
+    });
+
+    page.text({
+      text: `Pag ${input.pageNumber}`,
+      x: PAGE_WIDTH - MARGIN - 70,
+      y: 48,
+      width: 70,
+      align: "right",
+      font: "F1",
+      size: 9,
+      color: COLORS.headerText,
+    });
+  }
+}
+
+function drawSummaryBoxes(
+  page: PdfCanvas,
+  input: {
+    stats: StatsSummary;
+    totals: CurrencySummary;
+  }
+) {
+  const top = 106;
+  const gap = 12;
+  const boxW = (PAGE_WIDTH - MARGIN * 2 - gap) / 2;
+  const boxH = 176;
+
+  const leftX = MARGIN;
+  const rightX = leftX + boxW + gap;
+
+  page.rect({
+    x: leftX,
+    y: top,
+    w: boxW,
+    h: boxH,
+    fill: COLORS.cardBg,
+    stroke: COLORS.border,
   });
 
-  if (!gainDays.length) {
-    lines.push("Sem dias com ganho positivo neste mes.");
+  page.rect({
+    x: rightX,
+    y: top,
+    w: boxW,
+    h: boxH,
+    fill: COLORS.cardBg,
+    stroke: COLORS.border,
+  });
+
+  page.text({
+    text: "Estatisticas",
+    x: leftX + 12,
+    y: top + 22,
+    font: "F2",
+    size: 11,
+  });
+
+  const statLines = [
+    ["Dias com ganho", String(input.stats.gainDaysCount)],
+    ["Media por dia", fmtMoneyBR(input.stats.avgGainCents)],
+    ["Desvio padrao", fmtMoneyBR(input.stats.stdDevGainCents)],
+    ["Dia de maior ganho", input.stats.bestDayLabel],
+    ["Valor do melhor dia", input.stats.bestDayValue],
+  ] as const;
+
+  let y = top + 46;
+  statLines.forEach(([label, value]) => {
+    page.text({ text: label, x: leftX + 12, y, size: 9, color: COLORS.muted });
+    page.text({
+      text: value,
+      x: leftX + 12,
+      y,
+      width: boxW - 24,
+      align: "right",
+      font: "F2",
+      size: 10,
+      color: COLORS.bodyText,
+    });
+    y += 24;
+  });
+
+  page.text({
+    text: "Totais do mes",
+    x: rightX + 12,
+    y: top + 22,
+    font: "F2",
+    size: 11,
+  });
+
+  const totalLines = [
+    ["Comissao 1 (1%)", fmtMoneyBR(input.totals.totalC1)],
+    ["Comissao 2 (bonus)", fmtMoneyBR(input.totals.totalC2)],
+    ["Comissao 3 (rateio)", fmtMoneyBR(input.totals.totalC3)],
+    ["Reembolso taxa", fmtMoneyBR(input.totals.totalFee)],
+    ["Impostos pagos", fmtMoneyBR(input.totals.totalTax)],
+    ["Bruto", fmtMoneyBR(input.totals.totalGross)],
+    ["Liquido", fmtMoneyBR(input.totals.totalNet)],
+  ] as const;
+
+  y = top + 42;
+  totalLines.forEach(([label, value], idx) => {
+    const isStrong = idx >= totalLines.length - 2;
+
+    page.text({
+      text: label,
+      x: rightX + 12,
+      y,
+      size: 9,
+      color: isStrong ? COLORS.bodyText : COLORS.muted,
+      font: isStrong ? "F2" : "F1",
+    });
+
+    page.text({
+      text: value,
+      x: rightX + 12,
+      y,
+      width: boxW - 24,
+      align: "right",
+      font: "F2",
+      size: 10,
+    });
+
+    y += 20;
+  });
+}
+
+function drawTableHeader(page: PdfCanvas, top: number) {
+  page.rect({
+    x: MARGIN,
+    y: top,
+    w: PAGE_WIDTH - MARGIN * 2,
+    h: TABLE_HEADER_HEIGHT,
+    fill: COLORS.tableHeaderBg,
+    stroke: COLORS.border,
+  });
+
+  let x = MARGIN;
+  TABLE_COLUMNS.forEach((col) => {
+    page.text({
+      text: col.title,
+      x: x + 6,
+      y: top + 16,
+      width: col.width - 12,
+      align: col.align === "left" ? "left" : col.align,
+      font: "F2",
+      size: 9,
+    });
+
+    x += col.width;
+  });
+}
+
+function drawTableRow(page: PdfCanvas, row: TableRow, top: number, index: number) {
+  if (index % 2 === 1) {
+    page.rect({
+      x: MARGIN,
+      y: top,
+      w: PAGE_WIDTH - MARGIN * 2,
+      h: TABLE_ROW_HEIGHT,
+      fill: COLORS.rowAltBg,
+    });
   }
 
-  lines.push("");
-  lines.push("Legenda Var: ^ = maior que o dia anterior | v = menor | = = igual | - = primeiro dia.");
+  page.line({
+    x1: MARGIN,
+    y1: top + TABLE_ROW_HEIGHT,
+    x2: PAGE_WIDTH - MARGIN,
+    y2: top + TABLE_ROW_HEIGHT,
+    stroke: COLORS.border,
+    lineWidth: 0.8,
+  });
 
-  return lines;
+  let x = MARGIN;
+  TABLE_COLUMNS.forEach((col) => {
+    const text = row[col.key];
+    const baseColor =
+      col.key === "variation"
+        ? row.variation === "^"
+          ? COLORS.green
+          : row.variation === "v"
+          ? COLORS.red
+          : COLORS.bodyText
+        : COLORS.bodyText;
+
+    page.text({
+      text,
+      x: x + 6,
+      y: top + 14,
+      width: col.width - 12,
+      align: col.align,
+      size: 9,
+      font: col.key === "variation" ? "F2" : "F1",
+      color: baseColor,
+    });
+
+    x += col.width;
+  });
+}
+
+function drawFooter(page: PdfCanvas, pageNumber: number) {
+  const footerTop = PAGE_HEIGHT - 36;
+
+  page.line({
+    x1: MARGIN,
+    y1: footerTop,
+    x2: PAGE_WIDTH - MARGIN,
+    y2: footerTop,
+    stroke: COLORS.border,
+  });
+
+  page.text({
+    text: "TradeMiles | Relatorio mensal de comissoes",
+    x: MARGIN,
+    y: footerTop + 16,
+    size: 8,
+    color: COLORS.muted,
+  });
+
+  page.text({
+    text: `Pagina ${pageNumber}`,
+    x: PAGE_WIDTH - MARGIN - 80,
+    y: footerTop + 16,
+    width: 80,
+    align: "right",
+    size: 8,
+    color: COLORS.muted,
+  });
+}
+
+function renderReportToPages(input: {
+  employeeName: string;
+  login: string;
+  month: string;
+  generatedAt: string;
+  stats: StatsSummary;
+  totals: CurrencySummary;
+  rows: TableRow[];
+}) {
+  const pages: string[] = [];
+  let pageNumber = 1;
+  let rowIndex = 0;
+
+  let canvas = new PdfCanvas();
+  drawHeader(canvas, {
+    isFirstPage: true,
+    pageNumber,
+    employeeName: input.employeeName,
+    login: input.login,
+    month: input.month,
+    generatedAt: input.generatedAt,
+  });
+
+  drawSummaryBoxes(canvas, { stats: input.stats, totals: input.totals });
+
+  canvas.text({
+    text: "Detalhamento diario (somente dias com ganho > 0)",
+    x: MARGIN,
+    y: TABLE_TOP_FIRST_PAGE - 14,
+    font: "F2",
+    size: 10,
+  });
+
+  drawTableHeader(canvas, TABLE_TOP_FIRST_PAGE);
+  let tableY = TABLE_TOP_FIRST_PAGE + TABLE_HEADER_HEIGHT;
+
+  while (rowIndex < input.rows.length) {
+    if (tableY + TABLE_ROW_HEIGHT > TABLE_BOTTOM_LIMIT) {
+      drawFooter(canvas, pageNumber);
+      pages.push(canvas.build());
+
+      pageNumber += 1;
+      canvas = new PdfCanvas();
+      drawHeader(canvas, {
+        isFirstPage: false,
+        pageNumber,
+        employeeName: input.employeeName,
+        login: input.login,
+        month: input.month,
+        generatedAt: input.generatedAt,
+      });
+      drawTableHeader(canvas, TABLE_TOP_NEXT_PAGE);
+      tableY = TABLE_TOP_NEXT_PAGE + TABLE_HEADER_HEIGHT;
+    }
+
+    drawTableRow(canvas, input.rows[rowIndex], tableY, rowIndex);
+    tableY += TABLE_ROW_HEIGHT;
+    rowIndex += 1;
+  }
+
+  if (!input.rows.length) {
+    canvas.rect({
+      x: MARGIN,
+      y: tableY,
+      w: PAGE_WIDTH - MARGIN * 2,
+      h: TABLE_ROW_HEIGHT,
+      fill: COLORS.rowAltBg,
+      stroke: COLORS.border,
+    });
+
+    canvas.text({
+      text: "Sem dias com ganho positivo neste mes.",
+      x: MARGIN + 10,
+      y: tableY + 14,
+      size: 9,
+      color: COLORS.muted,
+    });
+
+    tableY += TABLE_ROW_HEIGHT;
+  }
+
+  const legendY = Math.min(tableY + 16, PAGE_HEIGHT - 48);
+  canvas.text({
+    text: "Legenda var: ^ maior que dia anterior | v menor | = igual | - primeiro dia.",
+    x: MARGIN,
+    y: legendY,
+    size: 8,
+    color: COLORS.muted,
+  });
+
+  drawFooter(canvas, pageNumber);
+  pages.push(canvas.build());
+
+  return pages;
 }
 
 export async function GET(req: NextRequest) {
@@ -315,7 +781,10 @@ export async function GET(req: NextRequest) {
     }
 
     if (!isMonthISO(month)) {
-      return NextResponse.json({ ok: false, error: "month invalido. Use YYYY-MM." }, { status: 400 });
+      return NextResponse.json(
+        { ok: false, error: "month invalido. Use YYYY-MM." },
+        { status: 400 }
+      );
     }
 
     const user = await prisma.user.findFirst({
@@ -324,7 +793,10 @@ export async function GET(req: NextRequest) {
     });
 
     if (!user) {
-      return NextResponse.json({ ok: false, error: "Funcionario nao encontrado." }, { status: 404 });
+      return NextResponse.json(
+        { ok: false, error: "Funcionario nao encontrado." },
+        { status: 404 }
+      );
     }
 
     const payouts = await prisma.employeePayout.findMany({
@@ -344,32 +816,38 @@ export async function GET(req: NextRequest) {
       },
     });
 
-    const days: DayReport[] = payouts.map((p) => {
-      const b = parseBreakdown(p.breakdown);
-      return {
-        date: p.date,
-        grossCents: safeInt(p.grossProfitCents, 0),
-        taxCents: safeInt(p.tax7Cents, 0),
-        feeCents: safeInt(p.feeCents, 0),
-        netCents: safeInt(p.netPayCents, 0),
-        c1Cents: b.c1Cents,
-        c2Cents: b.c2Cents,
-        c3Cents: b.c3Cents,
-        salesCount: b.salesCount,
-      };
-    });
+    const days: DayReport[] = payouts
+      .map((p) => {
+        const b = parseBreakdown(p.breakdown);
+        return {
+          date: p.date,
+          grossCents: safeInt(p.grossProfitCents, 0),
+          taxCents: safeInt(p.tax7Cents, 0),
+          feeCents: safeInt(p.feeCents, 0),
+          netCents: safeInt(p.netPayCents, 0),
+          c1Cents: b.c1Cents,
+          c2Cents: b.c2Cents,
+          c3Cents: b.c3Cents,
+          salesCount: b.salesCount,
+        };
+      })
+      .filter((d) => d.netCents > 0);
 
-    const lines = buildReportLines({
+    const totals = computeCurrencySummary(days);
+    const stats = computeStats(days);
+    const rows = buildTableRows(days);
+
+    const pages = renderReportToPages({
+      employeeName: user.name || user.login,
+      login: user.login,
       month,
-      employee: {
-        name: user.name || user.login,
-        login: user.login,
-      },
-      days,
+      generatedAt: fmtNowBR(),
+      stats,
+      totals,
+      rows,
     });
 
-    const pdf = buildPdf(lines);
-
+    const pdf = buildPdf(pages);
     const safeLogin = toAscii(user.login || "funcionario").replace(/[^a-zA-Z0-9._-]/g, "_");
     const fileName = `comissoes-${safeLogin}-${month}.pdf`;
 
