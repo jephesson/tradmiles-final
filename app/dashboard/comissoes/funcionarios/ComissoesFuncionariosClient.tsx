@@ -221,6 +221,11 @@ async function apiPost<T>(url: string, body?: any): Promise<T> {
   return json as T;
 }
 
+async function readApiError(res: Response) {
+  const payload = (await res.json().catch(() => null)) as { error?: string } | null;
+  return payload?.error || `Erro (${res.status})`;
+}
+
 function KPI({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-2xl border bg-white p-3">
@@ -277,6 +282,10 @@ export default function ComissoesFuncionariosClient() {
   const [month, setMonth] = useState<string>(() => monthFromISODate(todayISORecife()));
   const [monthData, setMonthData] = useState<MonthResponse | null>(null);
   const [monthLoading, setMonthLoading] = useState(false);
+  const [reportMonth, setReportMonth] = useState<string>(() =>
+    monthFromISODate(todayISORecife())
+  );
+  const [downloadingPdfKey, setDownloadingPdfKey] = useState<string | null>(null);
 
   const today = useMemo(() => todayISORecife(), []);
   const isFutureOrToday = useMemo(() => date >= today, [date, today]);
@@ -373,6 +382,56 @@ export default function ComissoesFuncionariosClient() {
       setToast({ title: "Falha ao pagar", desc: e?.message || String(e) });
     } finally {
       setPayingKey(null);
+    }
+  }
+
+  async function downloadMonthlyPdf(user: UserLite, targetMonth = reportMonth) {
+    const m = String(targetMonth || "").slice(0, 7);
+    if (!/^\d{4}-\d{2}$/.test(m)) {
+      setToast({
+        title: "Mês inválido para PDF",
+        desc: "Use o formato YYYY-MM.",
+      });
+      return;
+    }
+
+    const key = `${user.id}|${m}`;
+    setDownloadingPdfKey(key);
+    try {
+      const res = await fetch(
+        `/api/payouts/funcionarios/report-pdf?userId=${encodeURIComponent(
+          user.id
+        )}&month=${encodeURIComponent(m)}`,
+        {
+          method: "GET",
+          cache: "no-store",
+          credentials: "include",
+        }
+      );
+
+      if (!res.ok) {
+        const msg = await readApiError(res);
+        throw new Error(msg);
+      }
+
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      const safeLogin = String(user.login || "funcionario").replace(
+        /[^a-zA-Z0-9._-]/g,
+        "_"
+      );
+      a.href = url;
+      a.download = `comissoes-${safeLogin}-${m}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setToast({ title: "Falha ao baixar PDF", desc: msg });
+    } finally {
+      setDownloadingPdfKey(null);
     }
   }
 
@@ -559,6 +618,16 @@ export default function ComissoesFuncionariosClient() {
             </select>
           </div>
 
+          <div className="flex flex-col">
+            <label className="text-xs text-neutral-500">Mês do PDF</label>
+            <input
+              type="month"
+              value={reportMonth}
+              onChange={(e) => setReportMonth(e.target.value.slice(0, 7))}
+              className="h-10 rounded-xl border px-3 text-sm"
+            />
+          </div>
+
           <button
             onClick={() => loadDay(date)}
             disabled={loading}
@@ -717,6 +786,17 @@ export default function ComissoesFuncionariosClient() {
                           title="Ver detalhes (de onde veio cada valor)"
                         >
                           Detalhes
+                        </button>
+
+                        <button
+                          onClick={() => downloadMonthlyPdf(r.user)}
+                          disabled={downloadingPdfKey === `${r.user.id}|${reportMonth}`}
+                          className="h-9 rounded-xl border px-3 text-xs hover:bg-neutral-50 disabled:opacity-50"
+                          title={`Baixar PDF do mês ${reportMonth}`}
+                        >
+                          {downloadingPdfKey === `${r.user.id}|${reportMonth}`
+                            ? "Baixando PDF..."
+                            : "Baixar PDF"}
                         </button>
 
                         <button
@@ -1002,6 +1082,20 @@ export default function ComissoesFuncionariosClient() {
                     className="h-10 rounded-xl bg-black px-4 text-sm text-white hover:bg-neutral-800 disabled:opacity-50"
                   >
                     {monthLoading ? "Carregando..." : "Atualizar mês"}
+                  </button>
+
+                  <button
+                    onClick={() => drawerUser && downloadMonthlyPdf(drawerUser, month)}
+                    disabled={
+                      !drawerUser ||
+                      downloadingPdfKey === `${drawerUser.id}|${String(month || "").slice(0, 7)}`
+                    }
+                    className="h-10 rounded-xl border px-4 text-sm hover:bg-neutral-50 disabled:opacity-50"
+                  >
+                    {drawerUser &&
+                    downloadingPdfKey === `${drawerUser.id}|${String(month || "").slice(0, 7)}`
+                      ? "Baixando PDF..."
+                      : "Baixar PDF do mês"}
                   </button>
                 </div>
 
