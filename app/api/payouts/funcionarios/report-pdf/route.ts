@@ -496,7 +496,7 @@ function drawSummaryBoxes(
   });
 
   const statLines = [
-    ["Dias com ganho", String(input.stats.gainDaysCount)],
+    ["Dias com comissao", String(input.stats.gainDaysCount)],
     ["Media por dia", fmtMoneyBR(input.stats.avgGainCents)],
     ["Desvio padrao", fmtMoneyBR(input.stats.stdDevGainCents)],
     ["Dia de maior ganho", input.stats.bestDayLabel],
@@ -693,7 +693,7 @@ function renderReportToPages(input: {
   drawSummaryBoxes(canvas, { stats: input.stats, totals: input.totals });
 
   canvas.text({
-    text: "Detalhamento diario (somente dias com ganho > 0)",
+    text: "Detalhamento diario (somente dias com comissoes > 0)",
     x: MARGIN,
     y: TABLE_TOP_FIRST_PAGE - 14,
     font: "F2",
@@ -738,7 +738,7 @@ function renderReportToPages(input: {
     });
 
     canvas.text({
-      text: "Sem dias com ganho positivo neste mes.",
+      text: "Sem dias com comissoes neste mes.",
       x: MARGIN + 10,
       y: tableY + 14,
       size: 9,
@@ -835,7 +835,7 @@ export async function GET(req: NextRequest) {
           salesCount: b.salesCount,
         };
       })
-      .filter((d) => d.netCents > 0);
+      .filter((d) => d.grossCents > 0);
 
     const totals = computeCurrencySummary(days);
     const stats = computeStats(days);
