@@ -45,11 +45,28 @@ type DayTotals = {
   pending: number;
 };
 
+type OverdueByDay = {
+  date: string;
+  rowsCount: number;
+  totalNetCents: number;
+  maxHoursLate: number;
+};
+
+type OverdueAlert = {
+  hasOverdue: boolean;
+  rowsCount: number;
+  daysCount: number;
+  totalNetCents: number;
+  oldestDate: string | null;
+  byDay: OverdueByDay[];
+};
+
 type DayResponse = {
   ok: true;
   date: string;
   rows: PayoutRow[];
   totals: DayTotals;
+  overdue?: OverdueAlert;
 };
 
 type MonthTotals = DayTotals;
@@ -149,6 +166,13 @@ function fmtDateTimeBR(iso?: string | null) {
   const d = new Date(String(iso));
   if (Number.isNaN(d.getTime())) return String(iso);
   return d.toLocaleString("pt-BR");
+}
+
+function fmtDateBR(isoDate?: string | null) {
+  if (!isoDate) return "-";
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(isoDate));
+  if (!m) return String(isoDate);
+  return `${m[3]}/${m[2]}/${m[1]}`;
 }
 
 async function apiGet<T>(url: string): Promise<T> {
@@ -579,6 +603,33 @@ export default function ComissoesFuncionariosClient() {
       {isFutureOrToday ? (
         <div className="rounded-2xl border bg-amber-50 p-3 text-sm text-amber-800">
           Observação: você selecionou <b>hoje ou futuro</b>. As vendas do dia ainda podem mudar.
+        </div>
+      ) : null}
+
+      {day?.overdue?.hasOverdue ? (
+        <div className="rounded-2xl border border-red-200 bg-red-50 p-3 text-sm text-red-800">
+          <div className="font-semibold">
+            Alerta de atraso: existem pagamentos pendentes há mais de 48h.
+          </div>
+          <div className="mt-1">
+            {day.overdue.rowsCount} pendências em {day.overdue.daysCount} dias • total{" "}
+            <b>{fmtMoneyBR(day.overdue.totalNetCents)}</b>
+            {day.overdue.oldestDate ? (
+              <>
+                {" "}
+                • mais antigo: <b>{fmtDateBR(day.overdue.oldestDate)}</b>
+              </>
+            ) : null}
+          </div>
+          {day.overdue.byDay?.length ? (
+            <div className="mt-2 text-xs text-red-700">
+              {day.overdue.byDay.slice(0, 5).map((d) => (
+                <div key={d.date}>
+                  {fmtDateBR(d.date)}: {d.rowsCount} pendência(s) • {fmtMoneyBR(d.totalNetCents)}
+                </div>
+              ))}
+            </div>
+          ) : null}
         </div>
       ) : null}
 

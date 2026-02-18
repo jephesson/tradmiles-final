@@ -51,6 +51,32 @@ function safeInt(v: unknown, fb = 0) {
   return Number.isFinite(n) ? Math.trunc(n) : fb;
 }
 
+function todayISORecife() {
+  const d = new Date();
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Recife",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  })
+    .formatToParts(d)
+    .reduce(
+      (acc: Record<string, string>, p) => {
+        acc[p.type] = p.value;
+        return acc;
+      },
+      {} as Record<string, string>
+    );
+
+  return `${parts.year}-${parts.month}-${parts.day}`;
+}
+
+function hoursSinceRecifeDateStart(dateISO: string) {
+  const startedAt = new Date(`${dateISO}T00:00:00-03:00`).getTime();
+  if (!Number.isFinite(startedAt)) return 0;
+  return (Date.now() - startedAt) / (1000 * 60 * 60);
+}
+
 /**
  * ✅ IMPORTANTE:
  * Seu `sale.date` foi salvo como Date "naive" (new Date(y,m,d)) em ambiente UTC (Vercel),
@@ -246,11 +272,77 @@ export async function GET(req: Request) {
 
     totals.pending = totals.net - totals.paid;
 
+    // ✅ alerta de atraso: pendências há mais de 48h
+    const todayRecife = todayISORecife();
+    const pendingRows = await prisma.employeePayout.findMany({
+      where: {
+        team: session.team,
+        paidAt: null,
+        date: { lt: todayRecife },
+      },
+      select: {
+        id: true,
+        date: true,
+        userId: true,
+        netPayCents: true,
+      },
+      orderBy: [{ date: "asc" }],
+    });
+
+    const overdueRows = pendingRows
+      .map((r) => {
+        const hoursLate = hoursSinceRecifeDateStart(r.date);
+        return {
+          ...r,
+          hoursLate,
+        };
+      })
+      .filter((r) => r.hoursLate > 48);
+
+    const byDayMap = new Map<
+      string,
+      { date: string; rowsCount: number; totalNetCents: number; maxHoursLate: number }
+    >();
+
+    for (const r of overdueRows) {
+      const curr = byDayMap.get(r.date);
+      if (!curr) {
+        byDayMap.set(r.date, {
+          date: r.date,
+          rowsCount: 1,
+          totalNetCents: safeInt(r.netPayCents, 0),
+          maxHoursLate: r.hoursLate,
+        });
+        continue;
+      }
+
+      curr.rowsCount += 1;
+      curr.totalNetCents += safeInt(r.netPayCents, 0);
+      curr.maxHoursLate = Math.max(curr.maxHoursLate, r.hoursLate);
+    }
+
+    const byDay = Array.from(byDayMap.values()).sort((a, b) =>
+      a.date.localeCompare(b.date)
+    );
+
+    const overdue = {
+      hasOverdue: overdueRows.length > 0,
+      rowsCount: overdueRows.length,
+      daysCount: byDay.length,
+      totalNetCents: overdueRows.reduce(
+        (acc, r) => acc + safeInt(r.netPayCents, 0),
+        0
+      ),
+      oldestDate: byDay[0]?.date ?? null,
+      byDay,
+    };
+
     return NextResponse.json({
       ok: true,
       date,
       rows,
       totals,
+      overdue,
     });
   } catch (e: any) {
     return NextResponse.json(
