@@ -21,7 +21,8 @@ type DayReport = {
   grossCents: number;
   taxCents: number;
   feeCents: number;
-  netCents: number; // liquido real = bruto - imposto - taxa
+  lucroSemTaxaCents: number; // bruto - imposto
+  netPayCents: number; // valor final a pagar (com reembolso de taxa)
   c1Cents: number;
   c2Cents: number;
   c3Cents: number;
@@ -39,7 +40,8 @@ type CurrencySummary = {
   totalGross: number;
   totalTax: number;
   totalFee: number;
-  totalNet: number;
+  totalLucroSemTaxa: number;
+  totalNetPay: number;
   totalC1: number;
   totalC2: number;
   totalC3: number;
@@ -84,7 +86,7 @@ const COLORS = {
 
 const TABLE_COLUMNS = [
   { key: "dateLabel", title: "Dia", width: 64, align: "left" as Align },
-  { key: "netLabel", title: "Liquido", width: 92, align: "right" as Align },
+  { key: "netLabel", title: "Lucro s/taxa", width: 92, align: "right" as Align },
   { key: "c1Label", title: "C1", width: 68, align: "right" as Align },
   { key: "c2Label", title: "C2", width: 68, align: "right" as Align },
   { key: "c3Label", title: "C3", width: 68, align: "right" as Align },
@@ -304,7 +306,8 @@ function computeCurrencySummary(days: DayReport[]): CurrencySummary {
       acc.totalGross += d.grossCents;
       acc.totalTax += d.taxCents;
       acc.totalFee += d.feeCents;
-      acc.totalNet += d.netCents;
+      acc.totalLucroSemTaxa += d.lucroSemTaxaCents;
+      acc.totalNetPay += d.netPayCents;
       acc.totalC1 += d.c1Cents;
       acc.totalC2 += d.c2Cents;
       acc.totalC3 += d.c3Cents;
@@ -315,7 +318,8 @@ function computeCurrencySummary(days: DayReport[]): CurrencySummary {
       totalGross: 0,
       totalTax: 0,
       totalFee: 0,
-      totalNet: 0,
+      totalLucroSemTaxa: 0,
+      totalNetPay: 0,
       totalC1: 0,
       totalC2: 0,
       totalC3: 0,
@@ -325,13 +329,13 @@ function computeCurrencySummary(days: DayReport[]): CurrencySummary {
 }
 
 function computeStats(days: DayReport[]): StatsSummary {
-  const gains = days.map((d) => d.netCents);
+  const gains = days.map((d) => d.lucroSemTaxaCents);
   const avg = Math.round(mean(gains));
   const stdDev = Math.round(standardDeviation(gains));
 
   const best = days.reduce<DayReport | null>((acc, d) => {
     if (!acc) return d;
-    return d.netCents > acc.netCents ? d : acc;
+    return d.lucroSemTaxaCents > acc.lucroSemTaxaCents ? d : acc;
   }, null);
 
   return {
@@ -339,7 +343,7 @@ function computeStats(days: DayReport[]): StatsSummary {
     avgGainCents: avg,
     stdDevGainCents: stdDev,
     bestDayLabel: best ? fmtDateBR(best.date) : "-",
-    bestDayValue: best ? fmtMoneyBR(best.netCents) : "-",
+    bestDayValue: best ? fmtMoneyBR(best.lucroSemTaxaCents) : "-",
   };
 }
 
@@ -349,16 +353,16 @@ function buildTableRows(days: DayReport[]): TableRow[] {
   return days.map((d) => {
     let variation: "^" | "v" | "=" | "-" = "-";
     if (previous !== null) {
-      if (d.netCents > previous) variation = "^";
-      else if (d.netCents < previous) variation = "v";
+      if (d.lucroSemTaxaCents > previous) variation = "^";
+      else if (d.lucroSemTaxaCents < previous) variation = "v";
       else variation = "=";
     }
 
-    previous = d.netCents;
+    previous = d.lucroSemTaxaCents;
 
     return {
       dateLabel: fmtDateBR(d.date),
-      netLabel: fmtMoneyBR(d.netCents),
+      netLabel: fmtMoneyBR(d.lucroSemTaxaCents),
       c1Label: fmtMoneyBR(d.c1Cents),
       c2Label: fmtMoneyBR(d.c2Cents),
       c3Label: fmtMoneyBR(d.c3Cents),
@@ -534,7 +538,8 @@ function drawSummaryBoxes(
     ["Reembolso taxa", fmtMoneyBR(input.totals.totalFee)],
     ["Impostos pagos", fmtMoneyBR(input.totals.totalTax)],
     ["Bruto", fmtMoneyBR(input.totals.totalGross)],
-    ["Liquido (sem taxa)", fmtMoneyBR(input.totals.totalNet)],
+    ["Lucro s/taxa", fmtMoneyBR(input.totals.totalLucroSemTaxa)],
+    ["Liquido (a pagar)", fmtMoneyBR(input.totals.totalNetPay)],
   ] as const;
 
   y = top + 42;
@@ -750,7 +755,7 @@ function renderReportToPages(input: {
 
   const legendY = Math.min(tableY + 16, PAGE_HEIGHT - 48);
   canvas.text({
-    text: "Legenda var: ^ maior que dia anterior | v menor | = igual | - primeiro dia. Liquido = Bruto - Imposto - Taxa.",
+    text: "Legenda var: ^ maior que dia anterior | v menor | = igual | - primeiro dia. Lucro s/taxa = Bruto - Imposto.",
     x: MARGIN,
     y: legendY,
     size: 8,
@@ -811,6 +816,7 @@ export async function GET(req: NextRequest) {
         grossProfitCents: true,
         tax7Cents: true,
         feeCents: true,
+        netPayCents: true,
         breakdown: true,
       },
     });
@@ -821,14 +827,16 @@ export async function GET(req: NextRequest) {
         const grossCents = safeInt(p.grossProfitCents, 0);
         const taxCents = safeInt(p.tax7Cents, 0);
         const feeCents = safeInt(p.feeCents, 0);
-        const netCents = grossCents - taxCents - feeCents;
+        const lucroSemTaxaCents = grossCents - taxCents;
+        const netPayCents = safeInt(p.netPayCents, 0);
 
         return {
           date: p.date,
           grossCents,
           taxCents,
           feeCents,
-          netCents,
+          lucroSemTaxaCents,
+          netPayCents,
           c1Cents: b.c1Cents,
           c2Cents: b.c2Cents,
           c3Cents: b.c3Cents,
