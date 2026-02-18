@@ -115,6 +115,31 @@ function pointsValueCents(points: number, milheiroCents: number) {
   return Math.round(denom * mk);
 }
 
+function safeInt(v: unknown, fb = 0) {
+  const n = Number(v);
+  return Number.isFinite(n) ? Math.trunc(n) : fb;
+}
+
+function milheiroFrom(points: number, pointsValue: number) {
+  const pts = safeInt(points, 0);
+  const cents = safeInt(pointsValue, 0);
+  if (!pts || !cents) return 0;
+  return Math.round((cents * 1000) / pts);
+}
+
+function bonus30(points: number, milheiroCents: number, metaMilheiroCents: number) {
+  const pts = safeInt(points, 0);
+  const mil = safeInt(milheiroCents, 0);
+  const meta = safeInt(metaMilheiroCents, 0);
+  if (!pts || !mil || !meta) return 0;
+
+  const diff = mil - meta;
+  if (diff <= 0) return 0;
+
+  const excedenteCents = Math.round((pts * diff) / 1000);
+  return Math.round(excedenteCents * 0.3);
+}
+
 // ===== ✅ helpers p/ clubes por overlap (ativos no mês) =====
 function safeDate(v: any): Date | null {
   if (!v) return null;
@@ -381,23 +406,13 @@ export async function GET(req: NextRequest) {
       0
     );
 
-    const currentMonthProfitAfterTaxWithoutFeeCents = currentMonthPayouts.reduce(
+    const currentMonthProfitAfterTaxWithoutFeeRawCents = currentMonthPayouts.reduce(
       (acc, p) =>
         acc +
         (Math.max(0, Number(p.grossProfitCents || 0)) -
           Math.max(0, Number(p.tax7Cents || 0))),
       0
     );
-
-    const currentMonthSalesOverProfitRatio =
-      currentMonthSoldWithoutFeeCents > 0
-        ? currentMonthProfitAfterTaxWithoutFeeCents / currentMonthSoldWithoutFeeCents
-        : null;
-
-    const currentMonthSalesOverProfitPercent =
-      currentMonthSalesOverProfitRatio === null
-        ? null
-        : currentMonthSalesOverProfitRatio * 100;
 
     const previousMonthSoldWithoutFeeCents = previousMonthSales.reduce(
       (acc, s) =>
@@ -405,26 +420,13 @@ export async function GET(req: NextRequest) {
       0
     );
 
-    const previousMonthProfitAfterTaxWithoutFeeCents = previousMonthPayouts.reduce(
+    const previousMonthProfitAfterTaxWithoutFeeRawCents = previousMonthPayouts.reduce(
       (acc, p) =>
         acc +
         (Math.max(0, Number(p.grossProfitCents || 0)) -
           Math.max(0, Number(p.tax7Cents || 0))),
       0
     );
-
-    const previousMonthProfitPercent =
-      previousMonthSoldWithoutFeeCents > 0
-        ? (previousMonthProfitAfterTaxWithoutFeeCents / previousMonthSoldWithoutFeeCents) * 100
-        : null;
-
-    const currentVsPreviousProfitDeltaCents =
-      currentMonthProfitAfterTaxWithoutFeeCents - previousMonthProfitAfterTaxWithoutFeeCents;
-
-    const currentVsPreviousProfitDeltaPercent =
-      previousMonthProfitAfterTaxWithoutFeeCents > 0
-        ? (currentVsPreviousProfitDeltaCents / previousMonthProfitAfterTaxWithoutFeeCents) * 100
-        : null;
 
     // =========================
     // 1) SALES (histórico p/ gráficos + mês selecionado)
@@ -628,6 +630,126 @@ export async function GET(req: NextRequest) {
       },
     });
 
+    const lossMonthKeys = Array.from(new Set([...monthKeys, currentMonth, previousMonth])).sort();
+    const lossByMonth = new Map<string, number>();
+    for (const k of lossMonthKeys) lossByMonth.set(k, 0);
+
+    const lossRangeStart = monthStartUTC(lossMonthKeys[0]);
+    const lossRangeEnd = addMonthsUTC(monthStartUTC(lossMonthKeys[lossMonthKeys.length - 1]), 1);
+
+    const lossPurchasesBase = await prisma.purchase.findMany({
+      where: {
+        status: "CLOSED",
+        finalizedAt: { not: null, gte: lossRangeStart, lt: lossRangeEnd },
+        cedente: { owner: { team } },
+      },
+      select: {
+        id: true,
+        numero: true,
+        metaMilheiroCents: true,
+        totalCents: true,
+        finalizedAt: true,
+      },
+    });
+
+    if (lossPurchasesBase.length > 0) {
+      const purchaseIds = lossPurchasesBase.map((p) => p.id);
+      const numeros = lossPurchasesBase.map((p) => String(p.numero || "").trim()).filter(Boolean);
+      const numerosUpper = Array.from(new Set(numeros.map((n) => n.toUpperCase())));
+      const numerosLower = Array.from(new Set(numeros.map((n) => n.toLowerCase())));
+      const numerosAll = Array.from(new Set([...numeros, ...numerosUpper, ...numerosLower]));
+
+      const idByNumeroUpper = new Map<string, string>(
+        lossPurchasesBase
+          .map((p) => [String(p.numero || "").trim().toUpperCase(), p.id] as const)
+          .filter(([k]) => !!k)
+      );
+      const purchaseById = new Map(lossPurchasesBase.map((p) => [p.id, p] as const));
+
+      const normalizePurchaseId = (raw: string) => {
+        const r = (raw || "").trim();
+        if (!r) return "";
+        const up = r.toUpperCase();
+        return idByNumeroUpper.get(up) || r;
+      };
+
+      const lossSales = await prisma.sale.findMany({
+        where: {
+          paymentStatus: { not: "CANCELED" as any },
+          OR: [{ purchaseId: { in: purchaseIds } }, { purchaseId: { in: numerosAll } }],
+        },
+        select: {
+          purchaseId: true,
+          points: true,
+          totalCents: true,
+          pointsValueCents: true,
+          embarqueFeeCents: true,
+        },
+      });
+
+      const lossAgg = new Map<string, { soldPoints: number; salesCount: number; salesTotalCents: number; salesPointsValueCents: number; bonusCents: number }>();
+
+      for (const s of lossSales) {
+        const pid = normalizePurchaseId(String(s.purchaseId || ""));
+        if (!pid) continue;
+
+        const totalCents = safeInt(s.totalCents, 0);
+        const feeCents = safeInt(s.embarqueFeeCents, 0);
+        let pvCents = safeInt(s.pointsValueCents, 0);
+        if (pvCents <= 0 && totalCents > 0) {
+          const cand = Math.max(totalCents - feeCents, 0);
+          pvCents = cand > 0 ? cand : totalCents;
+        }
+
+        const cur = lossAgg.get(pid) || {
+          soldPoints: 0,
+          salesCount: 0,
+          salesTotalCents: 0,
+          salesPointsValueCents: 0,
+          bonusCents: 0,
+        };
+
+        const points = safeInt(s.points, 0);
+        cur.soldPoints += points;
+        cur.salesCount += 1;
+        cur.salesTotalCents += totalCents;
+        cur.salesPointsValueCents += pvCents;
+
+        const p = purchaseById.get(pid);
+        if (p) {
+          const mil = milheiroFrom(points, pvCents);
+          cur.bonusCents += bonus30(points, mil, safeInt(p.metaMilheiroCents, 0));
+        }
+
+        lossAgg.set(pid, cur);
+      }
+
+      for (const p of lossPurchasesBase) {
+        const a = lossAgg.get(p.id) || {
+          soldPoints: 0,
+          salesCount: 0,
+          salesTotalCents: 0,
+          salesPointsValueCents: 0,
+          bonusCents: 0,
+        };
+
+        const hasSales =
+          safeInt(a.salesCount, 0) > 0 ||
+          safeInt(a.salesPointsValueCents, 0) > 0 ||
+          safeInt(a.salesTotalCents, 0) > 0 ||
+          safeInt(a.soldPoints, 0) > 0;
+        if (!hasSales) continue;
+
+        const profitBruto = safeInt(a.salesPointsValueCents, 0) - safeInt(p.totalCents, 0);
+        const profitLiquido = profitBruto - safeInt(a.bonusCents, 0);
+        if (profitLiquido >= 0) continue;
+
+        const mk = p.finalizedAt ? monthKeyUTC(new Date(p.finalizedAt as any)) : "";
+        if (!mk || !lossByMonth.has(mk)) continue;
+        lossByMonth.set(mk, (lossByMonth.get(mk) || 0) + profitLiquido);
+      }
+    }
+
     const aggByMonth = new Map<
       string,
       { gross: number; sales: number; pax: number; latam: number; smiles: number; livelo: number; esfera: number }
@@ -679,16 +801,49 @@ export async function GET(req: NextRequest) {
 
     const profitMonths = monthKeys.map((k) => {
       const sold = aggByMonth.get(k)?.gross || 0;
-      const profit = profitByMonth.get(k) || 0;
+      const loss = lossByMonth.get(k) || 0;
+      const profit = (profitByMonth.get(k) || 0) + loss;
       const profitPercent = sold > 0 ? (profit / sold) * 100 : null;
       return {
         key: k,
         label: monthLabelPT(k),
         soldWithoutFeeCents: sold,
         profitAfterTaxWithoutFeeCents: profit,
+        lossCents: loss,
         profitPercent,
       };
     });
+
+    const currentMonthLossCents = lossByMonth.get(currentMonth) || 0;
+    const previousMonthLossCents = lossByMonth.get(previousMonth) || 0;
+
+    const currentMonthProfitAfterTaxWithoutFeeCents =
+      currentMonthProfitAfterTaxWithoutFeeRawCents + currentMonthLossCents;
+    const previousMonthProfitAfterTaxWithoutFeeCents =
+      previousMonthProfitAfterTaxWithoutFeeRawCents + previousMonthLossCents;
+
+    const currentMonthSalesOverProfitRatio =
+      currentMonthSoldWithoutFeeCents > 0
+        ? currentMonthProfitAfterTaxWithoutFeeCents / currentMonthSoldWithoutFeeCents
+        : null;
+
+    const currentMonthSalesOverProfitPercent =
+      currentMonthSalesOverProfitRatio === null
+        ? null
+        : currentMonthSalesOverProfitRatio * 100;
+
+    const previousMonthProfitPercent =
+      previousMonthSoldWithoutFeeCents > 0
+        ? (previousMonthProfitAfterTaxWithoutFeeCents / previousMonthSoldWithoutFeeCents) * 100
+        : null;
+
+    const currentVsPreviousProfitDeltaCents =
+      currentMonthProfitAfterTaxWithoutFeeCents - previousMonthProfitAfterTaxWithoutFeeCents;
+
+    const currentVsPreviousProfitDeltaPercent =
+      previousMonthProfitAfterTaxWithoutFeeCents > 0
+        ? (currentVsPreviousProfitDeltaCents / previousMonthProfitAfterTaxWithoutFeeCents) * 100
+        : null;
 
     const avgMonthlyGrossCents =
       months.length > 0 ? Math.round(months.reduce((acc, m) => acc + (m.grossCents || 0), 0) / months.length) : 0;
@@ -864,6 +1019,7 @@ export async function GET(req: NextRequest) {
           month: currentMonth,
           soldWithoutFeeCents: currentMonthSoldWithoutFeeCents,
           profitAfterTaxWithoutFeeCents: currentMonthProfitAfterTaxWithoutFeeCents,
+          lossCents: currentMonthLossCents,
           salesOverProfitRatio: currentMonthSalesOverProfitRatio,
           salesOverProfitPercent: currentMonthSalesOverProfitPercent,
         },
@@ -873,11 +1029,13 @@ export async function GET(req: NextRequest) {
           current: {
             soldWithoutFeeCents: currentMonthSoldWithoutFeeCents,
             profitAfterTaxWithoutFeeCents: currentMonthProfitAfterTaxWithoutFeeCents,
+            lossCents: currentMonthLossCents,
             profitPercent: currentMonthSalesOverProfitPercent,
           },
           previous: {
             soldWithoutFeeCents: previousMonthSoldWithoutFeeCents,
             profitAfterTaxWithoutFeeCents: previousMonthProfitAfterTaxWithoutFeeCents,
+            lossCents: previousMonthLossCents,
             profitPercent: previousMonthProfitPercent,
           },
           delta: {

@@ -420,6 +420,7 @@ export default function AnaliseDadosClient() {
 
     const soldWithoutFeeCents = Number(p.soldWithoutFeeCents || 0);
     const profitAfterTaxWithoutFeeCents = Number(p.profitAfterTaxWithoutFeeCents || 0);
+    const lossCents = Number(p.lossCents || 0);
     const salesOverProfitPercent =
       typeof p.salesOverProfitPercent === "number" ? Number(p.salesOverProfitPercent) : null;
 
@@ -427,6 +428,7 @@ export default function AnaliseDadosClient() {
       month: String(p.month || ""),
       soldWithoutFeeCents,
       profitAfterTaxWithoutFeeCents,
+      lossCents,
       salesOverProfitPercent,
     };
   }, [data]);
@@ -435,11 +437,13 @@ export default function AnaliseDadosClient() {
     const rows = ((data as any)?.profitMonths || []) as any[];
     return rows.map((m) => {
       const profitAfterTaxWithoutFeeCents = Number(m.profitAfterTaxWithoutFeeCents || 0);
+      const lossCents = Number(m.lossCents || 0);
       const profitPercent = typeof m.profitPercent === "number" ? Number(m.profitPercent) : null;
       return {
         key: String(m.key || ""),
         x: String(m.label || m.key || ""),
         y: profitAfterTaxWithoutFeeCents,
+        lossCents,
         profitPercent,
       };
     });
@@ -454,6 +458,8 @@ export default function AnaliseDadosClient() {
       previousMonth: String(c.previousMonth || ""),
       currentProfitCents: Number(c.current?.profitAfterTaxWithoutFeeCents || 0),
       previousProfitCents: Number(c.previous?.profitAfterTaxWithoutFeeCents || 0),
+      currentLossCents: Number(c.current?.lossCents || 0),
+      previousLossCents: Number(c.previous?.lossCents || 0),
       currentProfitPercent:
         typeof c.current?.profitPercent === "number" ? Number(c.current.profitPercent) : null,
       previousProfitPercent:
@@ -691,32 +697,33 @@ export default function AnaliseDadosClient() {
             : "—"}
         </div>
         <div className="mt-1 text-sm text-indigo-900/80">
-          Lucro pós-imposto sem taxa ÷ Vendas sem taxa
+          Lucro pós-imposto com débito de prejuízo (sem taxa) ÷ Vendas sem taxa
         </div>
         <div className="mt-2 text-xs text-indigo-900/70">
           Vendas sem taxa: {fmtMoneyBR(currentMonthPerformance?.soldWithoutFeeCents || 0)} • Lucro total:{" "}
-          {fmtMoneyBR(currentMonthPerformance?.profitAfterTaxWithoutFeeCents || 0)}
+          {fmtMoneyBR(currentMonthPerformance?.profitAfterTaxWithoutFeeCents || 0)} • Prejuízo debitado:{" "}
+          {fmtMoneyBR(currentMonthPerformance?.lossCents || 0)}
         </div>
       </div>
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
         <Card
-          title={`Lucro ${currentVsPrevious?.currentMonth || "mês corrente"} (pós-imposto, sem taxa)`}
+          title={`Lucro ${currentVsPrevious?.currentMonth || "mês corrente"} (pós-imposto e prejuízo)`}
           value={fmtMoneyBR(currentVsPrevious?.currentProfitCents || 0)}
           sub={
             currentVsPrevious?.currentProfitPercent == null
-              ? "Margem: —"
-              : `Margem: ${fmtPctRaw(currentVsPrevious.currentProfitPercent)}`
+              ? `Margem: — • Prejuízo: ${fmtMoneyBR(currentVsPrevious?.currentLossCents || 0)}`
+              : `Margem: ${fmtPctRaw(currentVsPrevious.currentProfitPercent)} • Prejuízo: ${fmtMoneyBR(currentVsPrevious?.currentLossCents || 0)}`
           }
           tone="emerald"
         />
         <Card
-          title={`Lucro ${currentVsPrevious?.previousMonth || "mês anterior"} (pós-imposto, sem taxa)`}
+          title={`Lucro ${currentVsPrevious?.previousMonth || "mês anterior"} (pós-imposto e prejuízo)`}
           value={fmtMoneyBR(currentVsPrevious?.previousProfitCents || 0)}
           sub={
             currentVsPrevious?.previousProfitPercent == null
-              ? "Margem: —"
-              : `Margem: ${fmtPctRaw(currentVsPrevious.previousProfitPercent)}`
+              ? `Margem: — • Prejuízo: ${fmtMoneyBR(currentVsPrevious?.previousLossCents || 0)}`
+              : `Margem: ${fmtPctRaw(currentVsPrevious.previousProfitPercent)} • Prejuízo: ${fmtMoneyBR(currentVsPrevious?.previousLossCents || 0)}`
           }
           tone="sky"
         />
@@ -733,14 +740,17 @@ export default function AnaliseDadosClient() {
       </div>
 
       <SimpleLineChart
-        title="Timeline de lucro mensal (pós-imposto, sem taxa)"
+        title="Timeline de lucro mensal (pós-imposto com débito de prejuízo)"
         data={profitTimeline.map((m) => ({
           x: m.x,
           y: m.y,
-          sub: m.profitPercent == null ? "margem: —" : `margem: ${fmtPctRaw(m.profitPercent)}`,
+          sub:
+            m.profitPercent == null
+              ? `margem: — • prejuízo: ${fmtMoneyBR(m.lossCents)}`
+              : `margem: ${fmtPctRaw(m.profitPercent)} • prejuízo: ${fmtMoneyBR(m.lossCents)}`,
         }))}
         accent="text-emerald-700"
-        footer="Linha mensal de lucro para acompanhar tendência e sazonalidade."
+        footer="Linha mensal de lucro após impostos e já abatendo prejuízos do mês."
       />
 
       {/* Gráfico evolução */}
