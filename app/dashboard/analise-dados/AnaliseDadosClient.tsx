@@ -20,6 +20,14 @@ function fmtPctRaw(v: number) {
     maximumFractionDigits: 1,
   })}%`;
 }
+function fmtPctSigned(v: number) {
+  const n = Number(v || 0);
+  const sign = n > 0 ? "+" : "";
+  return `${sign}${n.toLocaleString("pt-BR", {
+    minimumFractionDigits: 1,
+    maximumFractionDigits: 1,
+  })}%`;
+}
 
 type Analytics = any;
 
@@ -423,6 +431,39 @@ export default function AnaliseDadosClient() {
     };
   }, [data]);
 
+  const profitTimeline = useMemo(() => {
+    const rows = ((data as any)?.profitMonths || []) as any[];
+    return rows.map((m) => {
+      const profitAfterTaxWithoutFeeCents = Number(m.profitAfterTaxWithoutFeeCents || 0);
+      const profitPercent = typeof m.profitPercent === "number" ? Number(m.profitPercent) : null;
+      return {
+        key: String(m.key || ""),
+        x: String(m.label || m.key || ""),
+        y: profitAfterTaxWithoutFeeCents,
+        profitPercent,
+      };
+    });
+  }, [data]);
+
+  const currentVsPrevious = useMemo(() => {
+    const c = (data as any)?.currentVsPrevious;
+    if (!c) return null;
+
+    return {
+      currentMonth: String(c.currentMonth || ""),
+      previousMonth: String(c.previousMonth || ""),
+      currentProfitCents: Number(c.current?.profitAfterTaxWithoutFeeCents || 0),
+      previousProfitCents: Number(c.previous?.profitAfterTaxWithoutFeeCents || 0),
+      currentProfitPercent:
+        typeof c.current?.profitPercent === "number" ? Number(c.current.profitPercent) : null,
+      previousProfitPercent:
+        typeof c.previous?.profitPercent === "number" ? Number(c.previous.profitPercent) : null,
+      deltaProfitCents: Number(c.delta?.profitCents || 0),
+      deltaProfitPercent:
+        typeof c.delta?.profitPercent === "number" ? Number(c.delta.profitPercent) : null,
+    };
+  }, [data]);
+
   const byEmployeeMonthPie = useMemo(() => {
     const rows = [...byEmployeeMonth].sort((a, b) => (b.grossCents || 0) - (a.grossCents || 0));
     const total = rows.reduce((acc, r) => acc + (r.grossCents || 0), 0);
@@ -457,6 +498,13 @@ export default function AnaliseDadosClient() {
     if (daysPreset === "CUSTOM" && dateFrom && dateTo) return `${dateFrom} → ${dateTo}`;
     return `últimos ${fmtInt(daysBack)} dias`;
   }, [chartMode, monthsBack, daysPreset, dateFrom, dateTo, daysBack]);
+
+  const comparisonTone: CardTone =
+    currentVsPrevious?.deltaProfitPercent == null
+      ? "slate"
+      : currentVsPrevious.deltaProfitPercent >= 0
+        ? "emerald"
+        : "rose";
 
   return (
     <div className="mx-auto w-full max-w-6xl space-y-6 p-4">
@@ -650,6 +698,50 @@ export default function AnaliseDadosClient() {
           {fmtMoneyBR(currentMonthPerformance?.profitAfterTaxWithoutFeeCents || 0)}
         </div>
       </div>
+
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <Card
+          title={`Lucro ${currentVsPrevious?.currentMonth || "mês corrente"} (pós-imposto, sem taxa)`}
+          value={fmtMoneyBR(currentVsPrevious?.currentProfitCents || 0)}
+          sub={
+            currentVsPrevious?.currentProfitPercent == null
+              ? "Margem: —"
+              : `Margem: ${fmtPctRaw(currentVsPrevious.currentProfitPercent)}`
+          }
+          tone="emerald"
+        />
+        <Card
+          title={`Lucro ${currentVsPrevious?.previousMonth || "mês anterior"} (pós-imposto, sem taxa)`}
+          value={fmtMoneyBR(currentVsPrevious?.previousProfitCents || 0)}
+          sub={
+            currentVsPrevious?.previousProfitPercent == null
+              ? "Margem: —"
+              : `Margem: ${fmtPctRaw(currentVsPrevious.previousProfitPercent)}`
+          }
+          tone="sky"
+        />
+        <Card
+          title="Comparação com mês anterior"
+          value={
+            currentVsPrevious?.deltaProfitPercent == null
+              ? "—"
+              : fmtPctSigned(currentVsPrevious.deltaProfitPercent)
+          }
+          sub={`Diferença de lucro: ${fmtMoneyBR(currentVsPrevious?.deltaProfitCents || 0)}`}
+          tone={comparisonTone}
+        />
+      </div>
+
+      <SimpleLineChart
+        title="Timeline de lucro mensal (pós-imposto, sem taxa)"
+        data={profitTimeline.map((m) => ({
+          x: m.x,
+          y: m.y,
+          sub: m.profitPercent == null ? "margem: —" : `margem: ${fmtPctRaw(m.profitPercent)}`,
+        }))}
+        accent="text-emerald-700"
+        footer="Linha mensal de lucro para acompanhar tendência e sazonalidade."
+      />
 
       {/* Gráfico evolução */}
       <SimpleLineChart

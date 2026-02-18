@@ -218,6 +218,9 @@ export async function GET(req: NextRequest) {
     const currentMonth = isoMonthNowSP();
     const currentMonthStart = monthStartUTC(currentMonth);
     const currentMonthEnd = addMonthsUTC(currentMonthStart, 1);
+    const previousMonthStart = addMonthsUTC(currentMonthStart, -1);
+    const previousMonthEnd = currentMonthStart;
+    const previousMonth = monthKeyUTC(previousMonthStart);
 
     const histStart = addMonthsUTC(mStart, -(monthsBack - 1));
     const histEnd = mEnd;
@@ -333,7 +336,7 @@ export async function GET(req: NextRequest) {
     // =========================
     // ✅ MÊS CORRENTE: vendas sem taxa vs lucro após imposto (sem taxa)
     // =========================
-    const [currentMonthSales, currentMonthPayouts] = await Promise.all([
+    const [currentMonthSales, currentMonthPayouts, previousMonthSales, previousMonthPayouts] = await Promise.all([
       prisma.sale.findMany({
         where: {
           date: { gte: currentMonthStart, lt: currentMonthEnd },
@@ -346,6 +349,24 @@ export async function GET(req: NextRequest) {
         where: {
           team,
           date: { startsWith: `${currentMonth}-` },
+        },
+        select: {
+          grossProfitCents: true,
+          tax7Cents: true,
+        },
+      }),
+      prisma.sale.findMany({
+        where: {
+          date: { gte: previousMonthStart, lt: previousMonthEnd },
+          ...saleTeamWhere(team),
+          ...notCanceled,
+        },
+        select: { points: true, milheiroCents: true },
+      }),
+      prisma.employeePayout.findMany({
+        where: {
+          team,
+          date: { startsWith: `${previousMonth}-` },
         },
         select: {
           grossProfitCents: true,
@@ -377,6 +398,33 @@ export async function GET(req: NextRequest) {
       currentMonthSalesOverProfitRatio === null
         ? null
         : currentMonthSalesOverProfitRatio * 100;
+
+    const previousMonthSoldWithoutFeeCents = previousMonthSales.reduce(
+      (acc, s) =>
+        acc + pointsValueCents(Number(s.points || 0), Number(s.milheiroCents || 0)),
+      0
+    );
+
+    const previousMonthProfitAfterTaxWithoutFeeCents = previousMonthPayouts.reduce(
+      (acc, p) =>
+        acc +
+        (Math.max(0, Number(p.grossProfitCents || 0)) -
+          Math.max(0, Number(p.tax7Cents || 0))),
+      0
+    );
+
+    const previousMonthProfitPercent =
+      previousMonthSoldWithoutFeeCents > 0
+        ? (previousMonthProfitAfterTaxWithoutFeeCents / previousMonthSoldWithoutFeeCents) * 100
+        : null;
+
+    const currentVsPreviousProfitDeltaCents =
+      currentMonthProfitAfterTaxWithoutFeeCents - previousMonthProfitAfterTaxWithoutFeeCents;
+
+    const currentVsPreviousProfitDeltaPercent =
+      previousMonthProfitAfterTaxWithoutFeeCents > 0
+        ? (currentVsPreviousProfitDeltaCents / previousMonthProfitAfterTaxWithoutFeeCents) * 100
+        : null;
 
     // =========================
     // 1) SALES (histórico p/ gráficos + mês selecionado)
@@ -565,6 +613,21 @@ export async function GET(req: NextRequest) {
       monthKeys.push(monthKeyUTC(addMonthsUTC(histStart, i)));
     }
 
+    const payoutHist = await prisma.employeePayout.findMany({
+      where: {
+        team,
+        date: {
+          gte: `${monthKeys[0]}-01`,
+          lt: `${monthKeyUTC(addMonthsUTC(monthStartUTC(monthKeys[monthKeys.length - 1]), 1))}-01`,
+        },
+      },
+      select: {
+        date: true,
+        grossProfitCents: true,
+        tax7Cents: true,
+      },
+    });
+
     const aggByMonth = new Map<
       string,
       { gross: number; sales: number; pax: number; latam: number; smiles: number; livelo: number; esfera: number }
@@ -600,6 +663,30 @@ export async function GET(req: NextRequest) {
         salesCount: cur.sales,
         passengers: cur.pax,
         byProgram: { LATAM: cur.latam, SMILES: cur.smiles, LIVELO: cur.livelo, ESFERA: cur.esfera },
+      };
+    });
+
+    const profitByMonth = new Map<string, number>();
+    for (const k of monthKeys) profitByMonth.set(k, 0);
+
+    for (const p of payoutHist) {
+      const k = String(p.date || "").slice(0, 7);
+      if (!profitByMonth.has(k)) continue;
+      const grossProfit = Math.max(0, Number(p.grossProfitCents || 0));
+      const tax = Math.max(0, Number(p.tax7Cents || 0));
+      profitByMonth.set(k, (profitByMonth.get(k) || 0) + (grossProfit - tax));
+    }
+
+    const profitMonths = monthKeys.map((k) => {
+      const sold = aggByMonth.get(k)?.gross || 0;
+      const profit = profitByMonth.get(k) || 0;
+      const profitPercent = sold > 0 ? (profit / sold) * 100 : null;
+      return {
+        key: k,
+        label: monthLabelPT(k),
+        soldWithoutFeeCents: sold,
+        profitAfterTaxWithoutFeeCents: profit,
+        profitPercent,
       };
     });
 
@@ -780,6 +867,24 @@ export async function GET(req: NextRequest) {
           salesOverProfitRatio: currentMonthSalesOverProfitRatio,
           salesOverProfitPercent: currentMonthSalesOverProfitPercent,
         },
+        currentVsPrevious: {
+          currentMonth,
+          previousMonth,
+          current: {
+            soldWithoutFeeCents: currentMonthSoldWithoutFeeCents,
+            profitAfterTaxWithoutFeeCents: currentMonthProfitAfterTaxWithoutFeeCents,
+            profitPercent: currentMonthSalesOverProfitPercent,
+          },
+          previous: {
+            soldWithoutFeeCents: previousMonthSoldWithoutFeeCents,
+            profitAfterTaxWithoutFeeCents: previousMonthProfitAfterTaxWithoutFeeCents,
+            profitPercent: previousMonthProfitPercent,
+          },
+          delta: {
+            profitCents: currentVsPreviousProfitDeltaCents,
+            profitPercent: currentVsPreviousProfitDeltaPercent,
+          },
+        },
 
         summary: {
           monthLabel: monthLabelPT(month),
@@ -797,6 +902,7 @@ export async function GET(req: NextRequest) {
         byEmployee,
 
         months,
+        profitMonths,
         avgMonthlyGrossCents,
 
         clubsByMonth,
