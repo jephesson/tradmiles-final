@@ -172,6 +172,41 @@ export default function BloqueiosClient() {
     return { openCount: open.length, pointsBlocked: points, valueBlockedCents: value };
   }, [rows]);
 
+  const sortedRows = useMemo(() => {
+    const rankStatus = (status: BlockRow["status"]) => {
+      if (status === "OPEN") return 0;
+      if (status === "CANCELED") return 1;
+      return 2; // UNBLOCKED sempre no final
+    };
+
+    return [...rows].sort((a, b) => {
+      const statusDiff = rankStatus(a.status) - rankStatus(b.status);
+      if (statusDiff !== 0) return statusDiff;
+
+      if (a.status === "OPEN" && b.status === "OPEN") {
+        const aHasUnlock = !!a.estimatedUnlockAt;
+        const bHasUnlock = !!b.estimatedUnlockAt;
+        if (aHasUnlock !== bHasUnlock) return aHasUnlock ? -1 : 1;
+
+        if (aHasUnlock && bHasUnlock) {
+          const aUnlock = new Date(a.estimatedUnlockAt as string).getTime();
+          const bUnlock = new Date(b.estimatedUnlockAt as string).getTime();
+          if (aUnlock !== bUnlock) return aUnlock - bUnlock; // mais próximo primeiro
+        }
+
+        return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+      }
+
+      if (a.status === "UNBLOCKED" && b.status === "UNBLOCKED") {
+        const aResolved = a.resolvedAt ? new Date(a.resolvedAt).getTime() : 0;
+        const bResolved = b.resolvedAt ? new Date(b.resolvedAt).getTime() : 0;
+        if (aResolved !== bResolved) return bResolved - aResolved;
+      }
+
+      return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+    });
+  }, [rows]);
+
   async function createBlock() {
     if (!cedenteId) return alert("Selecione a conta (cedente).");
 
@@ -388,7 +423,7 @@ export default function BloqueiosClient() {
         <div className="text-sm text-slate-600">Nenhum bloqueio cadastrado ainda.</div>
       ) : (
         <div className="space-y-4">
-          {rows.map((b) => {
+          {sortedRows.map((b) => {
             const badge = statusBadge(b);
 
             return (
