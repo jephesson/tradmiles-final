@@ -74,6 +74,22 @@ function dueTone(diff: number) {
   return "border-yellow-200 bg-yellow-50 text-yellow-700";
 }
 
+function cn(...xs: Array<string | false | null | undefined>) {
+  return xs.filter(Boolean).join(" ");
+}
+
+function debtStatusBadgeTone(status: Debt["status"]) {
+  if (status === "PAID") return "bg-emerald-50 border-emerald-200 text-emerald-700";
+  if (status === "OPEN") return "bg-amber-50 border-amber-200 text-amber-700";
+  return "bg-slate-100 border-slate-200 text-slate-600";
+}
+
+function debtCardTone(status: Debt["status"]) {
+  if (status === "PAID") return "border-emerald-100 bg-emerald-50/30";
+  if (status === "OPEN") return "border-slate-200 bg-white";
+  return "border-slate-200 bg-slate-50/60";
+}
+
 // ===== ordenação/status helpers =====
 const statusRank: Record<Debt["status"], number> = {
   OPEN: 0,
@@ -432,83 +448,105 @@ export default function DividasClient() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-bold">Dívidas</h1>
-          <p className="text-sm text-slate-600">Cadastre dívidas e vá registrando pagamentos com data/hora.</p>
+      <div className="rounded-3xl border border-slate-200 bg-gradient-to-r from-slate-50 to-white p-5 shadow-sm">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight text-slate-900">Dívidas</h1>
+            <p className="text-sm text-slate-600">Organize por pessoa, priorize vencimentos e registre pagamentos.</p>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <div className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs text-slate-600">
+              {filtered.length} item(ns) no filtro
+            </div>
+            <button
+              onClick={load}
+              className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-medium hover:bg-slate-50"
+              disabled={loading}
+            >
+              {loading ? "Atualizando..." : "Atualizar"}
+            </button>
+          </div>
         </div>
-        <button
-          onClick={load}
-          className="rounded-xl border px-4 py-2 text-sm hover:bg-slate-50"
-          disabled={loading}
-        >
-          {loading ? "Atualizando..." : "Atualizar"}
-        </button>
       </div>
 
       {/* Resumo */}
       <div className="grid gap-4 md:grid-cols-3">
-        <div className="rounded-2xl border bg-white p-4">
-          <div className="text-xs text-slate-600">Total em dívidas</div>
-          <div className="text-xl font-bold">{fmtMoney(totals.totalCents)}</div>
+        <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+          <div className="text-xs uppercase tracking-wide text-slate-500">Total em dívidas</div>
+          <div className="mt-1 text-2xl font-bold text-slate-900">{fmtMoney(totals.totalCents)}</div>
         </div>
-        <div className="rounded-2xl border bg-white p-4">
-          <div className="text-xs text-slate-600">Total pago</div>
-          <div className="text-xl font-bold">{fmtMoney(totals.paidCents)}</div>
+        <div className="rounded-2xl border border-emerald-200 bg-emerald-50/70 p-4 shadow-sm">
+          <div className="text-xs uppercase tracking-wide text-emerald-700">Total pago</div>
+          <div className="mt-1 text-2xl font-bold text-emerald-900">{fmtMoney(totals.paidCents)}</div>
         </div>
-        <div className="rounded-2xl border bg-white p-4">
-          <div className="text-xs text-slate-600">Saldo (aberto)</div>
-          <div className="text-xl font-bold">{fmtMoney(totals.balanceCents)}</div>
+        <div className="rounded-2xl border border-amber-200 bg-amber-50/80 p-4 shadow-sm">
+          <div className="text-xs uppercase tracking-wide text-amber-700">Saldo em aberto</div>
+          <div className="mt-1 text-2xl font-bold text-amber-900">{fmtMoney(totals.balanceCents)}</div>
         </div>
       </div>
 
       {/* ✅ Filtros */}
-      <div className="rounded-2xl border bg-white p-4">
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
-          <div className="font-semibold">Filtros</div>
-          <div className="flex flex-wrap gap-2">
+      <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+        <div className="grid gap-3 md:grid-cols-3">
+          <div className="space-y-1">
+            <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Status</div>
             <select
-              className="rounded-xl border bg-white px-3 py-2 text-sm"
+              className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm"
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value as StatusFilter)}
             >
-              <option value="ALL">Status: todas</option>
-              <option value="OPEN">Status: abertas</option>
-              <option value="PAID">Status: quitadas</option>
+              <option value="ALL">Todas</option>
+              <option value="OPEN">Abertas</option>
+              <option value="PAID">Quitadas</option>
             </select>
+          </div>
 
+          <div className="space-y-1 md:col-span-2">
+            <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Ordenação</div>
             <select
-              className="rounded-xl border bg-white px-3 py-2 text-sm"
+              className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm"
               value={sortMode}
               onChange={(e) => setSortMode(e.target.value as SortMode)}
             >
-              <option value="DUE_SOON">Ordenar: vencimento próximo</option>
-              <option value="BALANCE_DESC">Ordenar: maior saldo</option>
-              <option value="BALANCE_ASC">Ordenar: menor saldo</option>
-              <option value="NEWEST">Ordenar: mais recentes</option>
-              <option value="OLDEST">Ordenar: mais antigas</option>
-              <option value="TOTAL_DESC">Ordenar: maior total</option>
-              <option value="TOTAL_ASC">Ordenar: menor total</option>
+              <option value="DUE_SOON">Vencimento mais próximo</option>
+              <option value="BALANCE_DESC">Maior saldo</option>
+              <option value="BALANCE_ASC">Menor saldo</option>
+              <option value="NEWEST">Mais recentes</option>
+              <option value="OLDEST">Mais antigas</option>
+              <option value="TOTAL_DESC">Maior total</option>
+              <option value="TOTAL_ASC">Menor total</option>
             </select>
           </div>
         </div>
 
-        <div className="mt-2 text-xs text-slate-500">
-          * Sempre prioriza “Abertas” no topo. Depois aplica a ordenação selecionada.
+        <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
+          Abertas sempre ficam no topo. Depois aplica a ordenação selecionada.
         </div>
       </div>
 
       {isAdmin ? (
-        <div className="rounded-2xl border bg-white p-4">
-          <div className="font-semibold">Alertas de vencimento</div>
+        <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+          <div className="flex items-center justify-between gap-2">
+            <div className="font-semibold text-slate-900">Alertas de vencimento</div>
+            <div className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs text-slate-600">
+              {dueAlerts.length} alerta(s)
+            </div>
+          </div>
           {dueAlerts.length === 0 ? (
             <div className="mt-2 text-sm text-slate-600">Nenhuma dívida com alerta de vencimento.</div>
           ) : (
             <div className="mt-3 grid gap-2">
               {dueAlerts.map(({ debt, diff }) => (
-                <div key={debt.id} className="flex flex-wrap items-center justify-between gap-2 rounded-xl border p-3">
+                <div
+                  key={debt.id}
+                  className={cn(
+                    "flex flex-wrap items-center justify-between gap-2 rounded-xl border p-3",
+                    diff != null && diff < 0 ? "border-red-200 bg-red-50/60" : "border-slate-200 bg-white"
+                  )}
+                >
                   <div>
-                    <div className="text-sm font-semibold">{debt.title}</div>
+                    <div className="text-sm font-semibold text-slate-900">{debt.title}</div>
                     <div className="text-xs text-slate-600">
                       {debt.creditorName ? `Pessoa: ${debt.creditorName}` : "Pessoa: —"} • Vencimento:{" "}
                       {dateBR(debt.dueDate || null)}
@@ -518,7 +556,7 @@ export default function DividasClient() {
                     <div className={`text-xs px-2 py-1 rounded-full border ${dueTone(diff || 0)}`}>
                       {dueLabel(diff || 0)}
                     </div>
-                    <div className="text-sm font-semibold">{fmtMoney(debt.balanceCents)}</div>
+                    <div className="text-sm font-semibold text-slate-900">{fmtMoney(debt.balanceCents)}</div>
                   </div>
                 </div>
               ))}
@@ -528,14 +566,17 @@ export default function DividasClient() {
       ) : null}
 
       {/* Criar dívida */}
-      <div className="rounded-2xl border bg-white p-4 space-y-3">
-        <div className="font-semibold">Adicionar dívida</div>
+      <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm space-y-3">
+        <div className="flex items-center justify-between gap-2">
+          <div className="font-semibold text-slate-900">Adicionar dívida</div>
+          <div className="text-xs text-slate-500">Campos com * são recomendados para organização</div>
+        </div>
 
         <div className="grid gap-3 md:grid-cols-3">
           <div className="space-y-1">
-            <div className="text-xs text-slate-600">Descrição (título)</div>
+            <div className="text-xs font-medium text-slate-600">Descrição (título) *</div>
             <input
-              className="w-full rounded-xl border px-3 py-2 text-sm"
+              className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               placeholder="Ex: Cartão Inter / 123milhas / Empréstimo..."
@@ -543,9 +584,9 @@ export default function DividasClient() {
           </div>
 
           <div className="space-y-1">
-            <div className="text-xs text-slate-600">Valor total (R$)</div>
+            <div className="text-xs font-medium text-slate-600">Valor total (R$) *</div>
             <input
-              className="w-full rounded-xl border px-3 py-2 text-sm"
+              className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm"
               value={total}
               onChange={(e) => setTotal(e.target.value)}
               placeholder="Ex: 1500,00"
@@ -553,9 +594,9 @@ export default function DividasClient() {
           </div>
 
           <div className="space-y-1">
-            <div className="text-xs text-slate-600">Detalhes (opcional)</div>
+            <div className="text-xs font-medium text-slate-600">Detalhes (opcional)</div>
             <input
-              className="w-full rounded-xl border px-3 py-2 text-sm"
+              className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm"
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               placeholder="Ex: parcela 3/10, juros, etc."
@@ -563,9 +604,9 @@ export default function DividasClient() {
           </div>
 
           <div className="space-y-1">
-            <div className="text-xs text-slate-600">Pessoa (credor)</div>
+            <div className="text-xs font-medium text-slate-600">Pessoa (credor)</div>
             <input
-              className="w-full rounded-xl border px-3 py-2 text-sm"
+              className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm"
               value={creditorName}
               onChange={(e) => setCreditorName(e.target.value)}
               placeholder="Ex: Joyce"
@@ -573,21 +614,21 @@ export default function DividasClient() {
           </div>
 
           <div className="space-y-1">
-            <div className="text-xs text-slate-600">Vencimento</div>
+            <div className="text-xs font-medium text-slate-600">Vencimento</div>
             <input
               type="date"
-              className="w-full rounded-xl border px-3 py-2 text-sm"
+              className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm"
               value={dueDate}
               onChange={(e) => setDueDate(e.target.value)}
             />
           </div>
 
           <div className="space-y-1">
-            <div className="text-xs text-slate-600">Ordem de pagamento (opcional)</div>
+            <div className="text-xs font-medium text-slate-600">Ordem de pagamento (opcional)</div>
             <input
               type="number"
               min={1}
-              className="w-full rounded-xl border px-3 py-2 text-sm"
+              className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm"
               value={payOrder}
               onChange={(e) => setPayOrder(e.target.value)}
               placeholder="Ex: 1"
@@ -595,13 +636,15 @@ export default function DividasClient() {
           </div>
         </div>
 
-        <button
-          onClick={createDebt}
-          className="rounded-xl bg-black px-4 py-2 text-white text-sm hover:bg-gray-800"
-          disabled={loading}
-        >
-          Adicionar
-        </button>
+        <div className="flex justify-end">
+          <button
+            onClick={createDebt}
+            className="rounded-xl bg-slate-900 px-5 py-2 text-sm font-medium text-white hover:bg-slate-800"
+            disabled={loading}
+          >
+            Adicionar dívida
+          </button>
+        </div>
       </div>
 
       {/* Lista agrupada por pessoa */}
@@ -612,32 +655,32 @@ export default function DividasClient() {
       ) : (
         <div className="space-y-6">
           {grouped.map((g) => (
-            <div key={g.name} className="rounded-2xl border bg-white p-4 space-y-4">
+            <div key={g.name} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm space-y-4">
               <div className="flex items-start justify-between gap-3">
                 <div>
-                  <div className="text-lg font-semibold">{g.name}</div>
-                  <div className="text-xs text-slate-500">
+                  <div className="text-lg font-semibold text-slate-900">{g.name}</div>
+                  <div className="text-xs text-slate-500 mt-0.5">
                     {g.debts.length} dívida(s) • {g.debts.filter((d) => d.status === "OPEN").length} aberta(s)
                   </div>
                 </div>
                 <div className="text-right">
-                  <div className="text-xs text-slate-600">Saldo total</div>
-                  <div className="font-semibold">{fmtMoney(g.balanceCents)}</div>
+                  <div className="text-xs text-slate-500">Saldo total</div>
+                  <div className="font-semibold text-amber-700">{fmtMoney(g.balanceCents)}</div>
                 </div>
               </div>
 
               <div className="grid gap-3 md:grid-cols-3">
-                <div className="rounded-xl border p-3">
+                <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-3">
                   <div className="text-xs text-slate-600">Total</div>
-                  <div className="text-sm font-semibold">{fmtMoney(g.totalCents)}</div>
+                  <div className="text-sm font-semibold text-slate-900">{fmtMoney(g.totalCents)}</div>
                 </div>
-                <div className="rounded-xl border p-3">
+                <div className="rounded-xl border border-emerald-200 bg-emerald-50/60 p-3">
                   <div className="text-xs text-slate-600">Pago</div>
-                  <div className="text-sm font-semibold">{fmtMoney(g.paidCents)}</div>
+                  <div className="text-sm font-semibold text-emerald-800">{fmtMoney(g.paidCents)}</div>
                 </div>
-                <div className="rounded-xl border p-3">
+                <div className="rounded-xl border border-amber-200 bg-amber-50/70 p-3">
                   <div className="text-xs text-slate-600">Saldo</div>
-                  <div className="text-sm font-semibold">{fmtMoney(g.balanceCents)}</div>
+                  <div className="text-sm font-semibold text-amber-800">{fmtMoney(g.balanceCents)}</div>
                 </div>
               </div>
 
@@ -649,19 +692,13 @@ export default function DividasClient() {
                   const canEdit = d.status === "OPEN";
 
                   return (
-                    <div key={d.id} className="rounded-xl border p-4 space-y-3">
+                    <div key={d.id} className={cn("rounded-xl border p-4 space-y-3", debtCardTone(d.status))}>
                       <div className="flex items-start justify-between gap-3">
                         <div>
                           <div className="text-lg font-semibold">
                             {d.title}{" "}
                             <span
-                              className={`text-xs px-2 py-1 rounded-full border ${
-                                d.status === "PAID"
-                                  ? "bg-emerald-50"
-                                  : d.status === "OPEN"
-                                  ? "bg-yellow-50"
-                                  : "bg-slate-100"
-                              }`}
+                              className={cn("text-xs px-2 py-1 rounded-full border", debtStatusBadgeTone(d.status))}
                             >
                               {d.status === "PAID" ? "Quitada" : d.status === "OPEN" ? "Aberta" : "Cancelada"}
                             </span>
@@ -686,7 +723,7 @@ export default function DividasClient() {
 
                         <div className="text-right">
                           <div className="text-xs text-slate-600">Total</div>
-                          <div className="font-semibold">{fmtMoney(d.totalCents)}</div>
+                          <div className="font-semibold text-slate-900">{fmtMoney(d.totalCents)}</div>
                           {canEdit ? (
                             <button
                               onClick={() => startEdit(d)}
@@ -699,10 +736,10 @@ export default function DividasClient() {
                       </div>
 
                       {isEditing && draft ? (
-                        <div className="rounded-xl border bg-slate-50 p-3 space-y-2">
+                        <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 space-y-2">
                           <div className="grid gap-2 md:grid-cols-4">
                             <input
-                              className="rounded-xl border px-3 py-2 text-sm"
+                              className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm"
                               placeholder="Pessoa (credor)"
                               value={draft.creditorName}
                               onChange={(e) =>
@@ -714,7 +751,7 @@ export default function DividasClient() {
                             />
                             <input
                               type="date"
-                              className="rounded-xl border px-3 py-2 text-sm"
+                              className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm"
                               value={draft.dueDate}
                               onChange={(e) =>
                                 setDrafts((prev) => ({
@@ -726,7 +763,7 @@ export default function DividasClient() {
                             <input
                               type="number"
                               min={1}
-                              className="rounded-xl border px-3 py-2 text-sm"
+                              className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm"
                               placeholder="Ordem"
                               value={draft.payOrder}
                               onChange={(e) =>
@@ -737,7 +774,7 @@ export default function DividasClient() {
                               }
                             />
                             <input
-                              className="rounded-xl border px-3 py-2 text-sm"
+                              className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm"
                               placeholder="Descrição (opcional)"
                               value={draft.description}
                               onChange={(e) =>
@@ -767,15 +804,17 @@ export default function DividasClient() {
                       ) : null}
 
                       <div className="grid gap-3 md:grid-cols-3">
-                        <div className="rounded-xl border p-3">
+                        <div className="rounded-xl border border-slate-200 bg-white p-3">
                           <div className="text-xs text-slate-600">Pago</div>
                           <div className="text-sm font-semibold">{fmtMoney(d.paidCents)}</div>
                         </div>
-                        <div className="rounded-xl border p-3">
+                        <div className="rounded-xl border border-slate-200 bg-white p-3">
                           <div className="text-xs text-slate-600">Saldo</div>
-                          <div className="text-sm font-semibold">{fmtMoney(d.balanceCents)}</div>
+                          <div className={cn("text-sm font-semibold", d.balanceCents > 0 ? "text-amber-700" : "text-emerald-700")}>
+                            {fmtMoney(d.balanceCents)}
+                          </div>
                         </div>
-                        <div className="rounded-xl border p-3">
+                        <div className="rounded-xl border border-slate-200 bg-white p-3">
                           <div className="text-xs text-slate-600">Pagamentos</div>
                           <div className="text-sm font-semibold">{d.payments.length}</div>
                         </div>
@@ -783,17 +822,17 @@ export default function DividasClient() {
 
                       {/* Add payment */}
                       {d.status !== "PAID" && d.status !== "CANCELED" && (
-                        <div className="rounded-xl border bg-slate-50 p-3 space-y-2">
+                        <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 space-y-2">
                           <div className="text-sm font-semibold">Adicionar pagamento</div>
                           <div className="grid gap-2 md:grid-cols-3">
                             <input
-                              className="rounded-xl border px-3 py-2 text-sm"
+                              className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm"
                               placeholder="Valor (ex: 200,00)"
                               value={payAmount[d.id] ?? ""}
                               onChange={(e) => setPayAmount((prev) => ({ ...prev, [d.id]: e.target.value }))}
                             />
                             <input
-                              className="rounded-xl border px-3 py-2 text-sm"
+                              className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm"
                               placeholder="Obs (opcional)"
                               value={payNote[d.id] ?? ""}
                               onChange={(e) => setPayNote((prev) => ({ ...prev, [d.id]: e.target.value }))}
