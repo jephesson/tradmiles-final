@@ -105,14 +105,24 @@ function defaultMonthRef() {
 
 function buildPromoWhatsappText(linkUrl: string) {
   return [
-    "Grupo VIP WhatsApp - Vias Aéreas",
-    "Alertas de passagens 3x por semana.",
-    "1o mês: R$ 9,90 | Demais: R$ 14,90 via Pix.",
-    "Informe origem + até 3 destinos.",
-    "Sem fidelidade, com reembolso em 7 dias.",
-    "Vencimento a cada 30 dias (alerta 1 dia útil antes).",
-    "7 dias sem pagamento: remoção do acesso.",
-    `Cadastro: ${linkUrl}`,
+    "✈️ Grupo VIP WhatsApp – Vias Aéreas",
+    "Receba alertas de passagens 3x por semana com oportunidades selecionadas.",
+    "",
+    "💰 Promoção de entrada:",
+    "1º mês por R$ 9,90",
+    "Depois R$ 14,90/mês via Pix",
+    "",
+    "📍 Você informa:",
+    "",
+    "Origem",
+    "",
+    "Até 3 destinos de interesse",
+    "",
+    "✅ Sem fidelidade",
+    "✅ Reembolso em 7 dias",
+    "",
+    "🔗 Cadastro:",
+    linkUrl,
   ].join("\n");
 }
 
