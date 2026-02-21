@@ -20,6 +20,7 @@ const STRICT_NOQUERY_ACTIVE_PATHS = new Set<string>([
 ]);
 
 const VISUALIZAR_PONTOS_PATH = "/dashboard/cedentes/visualizar";
+const GRUPO_VIP_WHATSAPP_URL = "https://wa.me/5553999760707";
 
 type Accent =
   | "sky"
@@ -951,6 +952,12 @@ export default function Sidebar() {
           </NavLink>
         </Accordion>
 
+        <ExternalSectionLink
+          title="Grupo VIP WHATSAPP"
+          href={GRUPO_VIP_WHATSAPP_URL}
+          accent="blue"
+        />
+
         {/* ================= OUTROS ================= */}
         <Accordion
           title="Outros"
@@ -1156,5 +1163,32 @@ function SubAccordion({
 
       {open && <div className="pl-4 space-y-1">{children}</div>}
     </>
+  );
+}
+
+function ExternalSectionLink({
+  title,
+  href,
+  accent = "slate",
+}: {
+  title: string;
+  href: string;
+  accent?: Accent;
+}) {
+  return (
+    <div className="space-y-1" style={accentStyle(accent)}>
+      <a
+        href={href}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="group flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm font-semibold text-slate-800 transition-colors hover:bg-slate-100"
+      >
+        <span className="inline-flex items-center gap-2">
+          <span className="h-2 w-2 rounded-full bg-[var(--accent)]" />
+          <span>{title}</span>
+        </span>
+        <span className="text-xs text-slate-500 group-hover:text-slate-700">↗</span>
+      </a>
+    </div>
   );
 }
