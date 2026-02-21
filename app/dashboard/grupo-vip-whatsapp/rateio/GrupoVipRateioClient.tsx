@@ -14,6 +14,11 @@ type RateioResponse = {
       payoutDays: number[];
       updatedAt: string;
     };
+    employeeShares: Array<{
+      employee: { id: string; name: string; login: string };
+      percent: number;
+    }>;
+    employeeSharesSumPercent: number;
     payoutDates: string[];
   };
 };
@@ -32,6 +37,7 @@ type ClientesResponse = {
       employee: { id: string; name: string; login: string };
       earningCents: number;
       ownPaidCents: number;
+      othersSharePercent: number;
     }>;
   };
 };
@@ -41,6 +47,13 @@ type FormState = {
   othersPercent: string;
   taxPercent: string;
   payoutDays: string;
+};
+
+type EmployeeShareFormRow = {
+  employeeId: string;
+  name: string;
+  login: string;
+  percent: string;
 };
 
 function formatMoney(cents: number) {
@@ -86,6 +99,7 @@ export default function GrupoVipRateioClient() {
     taxPercent: "10",
     payoutDays: "1",
   });
+  const [employeeShares, setEmployeeShares] = useState<EmployeeShareFormRow[]>([]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -120,6 +134,14 @@ export default function GrupoVipRateioClient() {
         taxPercent: String(rateioJson.data.setting.taxPercent).replace(".", ","),
         payoutDays: rateioJson.data.setting.payoutDays.join(","),
       });
+      setEmployeeShares(
+        rateioJson.data.employeeShares.map((item) => ({
+          employeeId: item.employee.id,
+          name: item.employee.name,
+          login: item.employee.login,
+          percent: String(item.percent).replace(".", ","),
+        }))
+      );
     } catch (e) {
       setError(e instanceof Error ? e.message : "Erro ao carregar.");
       setSettingData(null);
@@ -137,6 +159,10 @@ export default function GrupoVipRateioClient() {
     () => parseDecimal(form.ownerPercent) + parseDecimal(form.othersPercent),
     [form.ownerPercent, form.othersPercent]
   );
+  const employeeSharesSum = useMemo(
+    () => employeeShares.reduce((acc, row) => acc + parseDecimal(row.percent), 0),
+    [employeeShares]
+  );
 
   async function save() {
     setSaving(true);
@@ -151,6 +177,10 @@ export default function GrupoVipRateioClient() {
           othersPercent: form.othersPercent,
           taxPercent: form.taxPercent,
           payoutDays: form.payoutDays,
+          employeeShares: employeeShares.map((row) => ({
+            employeeId: row.employeeId,
+            percent: row.percent,
+          })),
         }),
       });
       const json = (await res.json().catch(() => ({}))) as RateioResponse;
@@ -265,6 +295,49 @@ export default function GrupoVipRateioClient() {
         <div className="mt-1 text-xs font-medium text-slate-700">
           Soma atual: {sumPercent.toLocaleString("pt-BR", { maximumFractionDigits: 2 })}%
         </div>
+
+        <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-3">
+          <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-700">
+            Percentual por funcionário (pool dos demais)
+          </div>
+          <div className="grid gap-2">
+            {employeeShares.map((row) => (
+              <div
+                key={row.employeeId}
+                className="grid gap-2 rounded-lg border border-slate-200 bg-white p-2 md:grid-cols-[1fr_140px]"
+              >
+                <div>
+                  <div className="text-sm font-semibold text-slate-900">{row.name}</div>
+                  <div className="text-xs text-slate-500">@{row.login}</div>
+                </div>
+                <label className="block">
+                  <span className="mb-1 block text-xs font-medium text-slate-600">%</span>
+                  <input
+                    value={row.percent}
+                    onChange={(e) =>
+                      setEmployeeShares((prev) =>
+                        prev.map((item) =>
+                          item.employeeId === row.employeeId
+                            ? { ...item, percent: e.target.value }
+                            : item
+                        )
+                      )
+                    }
+                    className="w-full rounded-lg border border-slate-300 px-2 py-1.5 text-sm"
+                  />
+                </label>
+              </div>
+            ))}
+          </div>
+          <div className="mt-2 text-xs font-medium text-slate-700">
+            Soma dos funcionários:{" "}
+            {employeeSharesSum.toLocaleString("pt-BR", { maximumFractionDigits: 2 })}%
+          </div>
+          <div className="text-xs text-slate-500">
+            Essa soma deve ficar em 100%. Na distribuição, o responsável da venda é
+            excluído e os demais recebem proporcionalmente a esses percentuais.
+          </div>
+        </div>
       </section>
 
       <section className="rounded-2xl border border-slate-200 bg-white p-4">
@@ -328,6 +401,7 @@ export default function GrupoVipRateioClient() {
                 <thead className="bg-slate-100 text-slate-700">
                   <tr>
                     <th className="px-3 py-2 text-left">Funcionário</th>
+                    <th className="px-3 py-2 text-left">% funcionário</th>
                     <th className="px-3 py-2 text-left">Recebido (clientes dele)</th>
                     <th className="px-3 py-2 text-left">Ganho no mês</th>
                   </tr>
@@ -340,6 +414,13 @@ export default function GrupoVipRateioClient() {
                           {row.employee.name}
                         </div>
                         <div className="text-xs text-slate-500">@{row.employee.login}</div>
+                      </td>
+                      <td className="px-3 py-2 font-semibold text-slate-900">
+                        {row.othersSharePercent.toLocaleString("pt-BR", {
+                          minimumFractionDigits: 2,
+                          maximumFractionDigits: 2,
+                        })}
+                        %
                       </td>
                       <td className="px-3 py-2 font-semibold text-slate-900">
                         {formatMoney(row.ownPaidCents)}

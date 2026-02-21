@@ -193,6 +193,7 @@ model User {
   vipWhatsappLeads            VipWhatsappLead[]    @relation("VipWhatsappLeadEmployee")
   vipWhatsappLeadsApproved    VipWhatsappLead[]    @relation("VipWhatsappLeadApprovedBy")
   vipWhatsappPaymentsRecorded VipWhatsappPayment[] @relation("VipWhatsappPaymentRecordedBy")
+  vipWhatsappRateioShares     VipWhatsappRateioShare[] @relation("VipWhatsappRateioShareEmployee")
 
   /**
    * =========================
@@ -341,6 +342,24 @@ model VipWhatsappRateioSetting {
 
   @@index([team])
   @@map("vip_whatsapp_rateio_settings")
+}
+
+model VipWhatsappRateioShare {
+  id String @id @default(cuid())
+
+  team       String
+  employeeId String
+  shareBps   Int    @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  employee User @relation("VipWhatsappRateioShareEmployee", fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@unique([team, employeeId], map: "uniq_vip_whatsapp_rateio_share_team_employee")
+  @@index([team])
+  @@index([team, shareBps])
+  @@map("vip_whatsapp_rateio_shares")
 }
 
 /**

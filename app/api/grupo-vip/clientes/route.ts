@@ -3,6 +3,7 @@ import { requireSession } from "@/lib/auth-server";
 import { prisma } from "@/lib/prisma";
 import {
   computeVipRateioDistribution,
+  normalizeEmployeeShares,
   payoutDatesForReferenceMonth,
   resolveMonthRef,
   toRateioSetting,
@@ -39,7 +40,7 @@ export async function GET(req: NextRequest) {
     });
     const setting = toRateioSetting(settingRow);
 
-    const [employees, leads, payments] = await Promise.all([
+    const [employees, leads, payments, sharesRows] = await Promise.all([
       prisma.user.findMany({
         where: { team },
         select: { id: true, name: true, login: true },
@@ -59,7 +60,16 @@ export async function GET(req: NextRequest) {
           lead: { select: { employeeId: true } },
         },
       }),
+      prisma.vipWhatsappRateioShare.findMany({
+        where: { team },
+        select: { employeeId: true, shareBps: true },
+      }),
     ]);
+
+    const sharesMap = normalizeEmployeeShares(
+      employees.map((employee) => employee.id),
+      new Map(sharesRows.map((share) => [share.employeeId, share.shareBps]))
+    );
 
     const totalClientsByEmployee = new Map<string, number>();
     const approvedClientsByEmployee = new Map<string, number>();
@@ -83,6 +93,7 @@ export async function GET(req: NextRequest) {
       })),
       employeeIds: employees.map((employee) => employee.id),
       setting,
+      othersShareByEmployeeId: sharesMap,
     });
 
     const rows = employees
@@ -103,6 +114,7 @@ export async function GET(req: NextRequest) {
           clientsApproved,
           ownPaidCents,
           earningCents,
+          othersSharePercent: (sharesMap.get(employee.id) || 0) / 100,
         };
       })
       .sort((a, b) => b.earningCents - a.earningCents);

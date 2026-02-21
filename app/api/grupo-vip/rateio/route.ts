@@ -3,6 +3,7 @@ import { requireSession } from "@/lib/auth-server";
 import { prisma } from "@/lib/prisma";
 import {
   clampInt,
+  normalizeEmployeeShares,
   parsePayoutDaysCsv,
   payoutDatesForReferenceMonth,
   payoutDaysToCsv,
@@ -35,6 +36,24 @@ function parseDaysInput(input: unknown) {
   return parsePayoutDaysCsv(String(input ?? ""));
 }
 
+function parseEmployeeShares(input: unknown) {
+  if (!Array.isArray(input)) return [];
+
+  return input
+    .map((raw) => {
+      if (!raw || typeof raw !== "object") return null;
+      const source = raw as Record<string, unknown>;
+      const employeeId = String(source.employeeId || "").trim();
+      if (!employeeId) return null;
+
+      const percent = source.percent;
+      const percentBps = parsePercentToBps(percent, 0);
+
+      return { employeeId, shareBps: percentBps };
+    })
+    .filter((item): item is { employeeId: string; shareBps: number } => Boolean(item));
+}
+
 export async function GET(req: NextRequest) {
   try {
     const sess = await requireSession();
@@ -46,25 +65,49 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    const settingRow = await prisma.vipWhatsappRateioSetting.upsert({
-      where: { team },
-      create: { team },
-      update: {},
-      select: {
-        ownerPercentBps: true,
-        othersPercentBps: true,
-        taxPercentBps: true,
-        payoutDaysCsv: true,
-        updatedAt: true,
-      },
-    });
+    const month = resolveMonthRef(new URL(req.url).searchParams.get("month"));
+
+    const [settingRow, employees, sharesRows] = await Promise.all([
+      prisma.vipWhatsappRateioSetting.upsert({
+        where: { team },
+        create: { team },
+        update: {},
+        select: {
+          ownerPercentBps: true,
+          othersPercentBps: true,
+          taxPercentBps: true,
+          payoutDaysCsv: true,
+          updatedAt: true,
+        },
+      }),
+      prisma.user.findMany({
+        where: { team },
+        select: { id: true, name: true, login: true },
+        orderBy: { name: "asc" },
+      }),
+      prisma.vipWhatsappRateioShare.findMany({
+        where: { team },
+        select: { employeeId: true, shareBps: true },
+      }),
+    ]);
 
     const setting = toRateioSetting(settingRow);
-    const month = resolveMonthRef(new URL(req.url).searchParams.get("month"));
     const payoutDates = payoutDatesForReferenceMonth(
       month.monthRef,
       setting.payoutDays
     ).map((d) => d.toISOString());
+
+    const baseSharesMap = new Map<string, number>(
+      sharesRows.map((share) => [share.employeeId, share.shareBps])
+    );
+    const normalizedShares = normalizeEmployeeShares(
+      employees.map((employee) => employee.id),
+      baseSharesMap
+    );
+    const sumSharesBps = Array.from(normalizedShares.values()).reduce(
+      (acc, bps) => acc + bps,
+      0
+    );
 
     return NextResponse.json({
       ok: true,
@@ -77,6 +120,15 @@ export async function GET(req: NextRequest) {
           payoutDays: setting.payoutDays,
           updatedAt: settingRow.updatedAt.toISOString(),
         },
+        employeeShares: employees.map((employee) => ({
+          employee: {
+            id: employee.id,
+            name: employee.name,
+            login: employee.login,
+          },
+          percent: (normalizedShares.get(employee.id) || 0) / 100,
+        })),
+        employeeSharesSumPercent: sumSharesBps / 100,
         payoutDates,
       },
     });
@@ -99,18 +151,25 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const current = await prisma.vipWhatsappRateioSetting.upsert({
-      where: { team },
-      create: { team },
-      update: {},
-      select: {
-        ownerPercentBps: true,
-        othersPercentBps: true,
-        taxPercentBps: true,
-        payoutDaysCsv: true,
-      },
-    });
+    const [current, employees] = await Promise.all([
+      prisma.vipWhatsappRateioSetting.upsert({
+        where: { team },
+        create: { team },
+        update: {},
+        select: {
+          ownerPercentBps: true,
+          othersPercentBps: true,
+          taxPercentBps: true,
+          payoutDaysCsv: true,
+        },
+      }),
+      prisma.user.findMany({
+        where: { team },
+        select: { id: true, name: true, login: true },
+      }),
+    ]);
 
+    const employeeIds = new Set(employees.map((employee) => employee.id));
     const body = await req.json().catch(() => ({} as Record<string, unknown>));
 
     const ownerPercentBps = parsePercentToBps(
@@ -135,28 +194,73 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const updated = await prisma.vipWhatsappRateioSetting.upsert({
-      where: { team },
-      create: {
-        team,
-        ownerPercentBps,
-        othersPercentBps,
-        taxPercentBps,
-        payoutDaysCsv: payoutDaysToCsv(payoutDays),
-      },
-      update: {
-        ownerPercentBps,
-        othersPercentBps,
-        taxPercentBps,
-        payoutDaysCsv: payoutDaysToCsv(payoutDays),
-      },
-      select: {
-        ownerPercentBps: true,
-        othersPercentBps: true,
-        taxPercentBps: true,
-        payoutDaysCsv: true,
-        updatedAt: true,
-      },
+    const parsedShares = parseEmployeeShares(body.employeeShares);
+    const incomingShares = new Map<string, number>();
+    for (const share of parsedShares) {
+      if (!employeeIds.has(share.employeeId)) continue;
+      incomingShares.set(share.employeeId, share.shareBps);
+    }
+
+    const normalizedShares = normalizeEmployeeShares(
+      Array.from(employeeIds),
+      incomingShares
+    );
+    const sharesSumBps = Array.from(normalizedShares.values()).reduce(
+      (acc, bps) => acc + bps,
+      0
+    );
+    if (sharesSumBps !== 10000 && normalizedShares.size > 0) {
+      return NextResponse.json(
+        { ok: false, error: "A soma dos percentuais por funcionário deve ser 100%." },
+        { status: 400 }
+      );
+    }
+
+    const updated = await prisma.$transaction(async (tx) => {
+      const setting = await tx.vipWhatsappRateioSetting.upsert({
+        where: { team },
+        create: {
+          team,
+          ownerPercentBps,
+          othersPercentBps,
+          taxPercentBps,
+          payoutDaysCsv: payoutDaysToCsv(payoutDays),
+        },
+        update: {
+          ownerPercentBps,
+          othersPercentBps,
+          taxPercentBps,
+          payoutDaysCsv: payoutDaysToCsv(payoutDays),
+        },
+        select: {
+          ownerPercentBps: true,
+          othersPercentBps: true,
+          taxPercentBps: true,
+          payoutDaysCsv: true,
+          updatedAt: true,
+        },
+      });
+
+      for (const employee of employees) {
+        await tx.vipWhatsappRateioShare.upsert({
+          where: {
+            team_employeeId: {
+              team,
+              employeeId: employee.id,
+            },
+          },
+          create: {
+            team,
+            employeeId: employee.id,
+            shareBps: normalizedShares.get(employee.id) || 0,
+          },
+          update: {
+            shareBps: normalizedShares.get(employee.id) || 0,
+          },
+        });
+      }
+
+      return setting;
     });
 
     const setting = toRateioSetting(updated);

@@ -39,29 +39,29 @@ export function parsePayoutDaysCsv(input: string | null | undefined) {
     .map((v) => Number(v))
     .filter((n) => Number.isFinite(n));
 
-  const uniqueSorted = Array.from(new Set(raw.map((n) => clampInt(n, 1, 31)))).sort(
-    (a, b) => a - b
-  );
+  const uniqueSorted = Array.from(
+    new Set(raw.map((n) => clampInt(n, 1, 31)))
+  ).sort((a, b) => a - b);
 
   if (uniqueSorted.length === 0) return [1];
   return uniqueSorted;
 }
 
 export function payoutDaysToCsv(days: number[]) {
-  const normalized = Array.from(new Set(days.map((d) => clampInt(d, 1, 31)))).sort(
-    (a, b) => a - b
-  );
-  return normalized.length > 0
-    ? normalized.join(",")
-    : VIP_RATEIO_DEFAULT_PAYOUT_DAYS;
+  const normalized = Array.from(
+    new Set(days.map((d) => clampInt(d, 1, 31)))
+  ).sort((a, b) => a - b);
+  return normalized.length > 0 ? normalized.join(",") : VIP_RATEIO_DEFAULT_PAYOUT_DAYS;
 }
 
-export function toRateioSetting(input: {
-  ownerPercentBps?: number | null;
-  othersPercentBps?: number | null;
-  taxPercentBps?: number | null;
-  payoutDaysCsv?: string | null;
-} | null): VipRateioSettingValue {
+export function toRateioSetting(
+  input: {
+    ownerPercentBps?: number | null;
+    othersPercentBps?: number | null;
+    taxPercentBps?: number | null;
+    payoutDaysCsv?: string | null;
+  } | null
+): VipRateioSettingValue {
   const owner = clampInt(
     Number(input?.ownerPercentBps ?? VIP_RATEIO_DEFAULT_OWNER_BPS),
     0,
@@ -108,10 +108,7 @@ export function resolveMonthRef(input: string | null | undefined, now = new Date
   return { monthRef, start, nextStart, year, month };
 }
 
-export function payoutDatesForReferenceMonth(
-  monthRef: string,
-  payoutDays: number[]
-) {
+export function payoutDatesForReferenceMonth(monthRef: string, payoutDays: number[]) {
   const resolved = resolveMonthRef(monthRef);
   const payYear = resolved.month === 12 ? resolved.year + 1 : resolved.year;
   const payMonth = resolved.month === 12 ? 1 : resolved.month + 1;
@@ -124,15 +121,96 @@ export function payoutDatesForReferenceMonth(
   });
 }
 
+export function normalizeEmployeeShares(
+  employeeIds: string[],
+  input: Map<string, number> | null | undefined
+) {
+  const ordered = Array.from(new Set(employeeIds)).sort((a, b) => a.localeCompare(b));
+  const out = new Map<string, number>();
+
+  if (ordered.length === 0) return out;
+
+  if (!input || input.size === 0) {
+    const base = Math.floor(10000 / ordered.length);
+    let remainder = 10000 - base * ordered.length;
+    for (const id of ordered) {
+      out.set(id, base + (remainder > 0 ? 1 : 0));
+      if (remainder > 0) remainder -= 1;
+    }
+    return out;
+  }
+
+  for (const id of ordered) {
+    out.set(id, clampInt(Number(input.get(id) || 0), 0, 10000));
+  }
+  return out;
+}
+
+function splitByWeights(params: {
+  totalCents: number;
+  employeeIds: string[];
+  weightsByEmployeeId?: Map<string, number> | null;
+}) {
+  const total = Math.max(0, Math.trunc(params.totalCents));
+  const ids = params.employeeIds.slice().sort((a, b) => a.localeCompare(b));
+  const result = new Map<string, number>();
+  for (const id of ids) result.set(id, 0);
+  if (ids.length === 0 || total <= 0) return result;
+
+  const weights = ids.map((id) => {
+    const raw = params.weightsByEmployeeId?.get(id);
+    return clampInt(Number(raw || 0), 0, 100000000);
+  });
+  const sumWeights = weights.reduce((acc, value) => acc + value, 0);
+
+  if (sumWeights <= 0) {
+    const base = Math.floor(total / ids.length);
+    let remainder = total - base * ids.length;
+    for (const id of ids) {
+      result.set(id, base + (remainder > 0 ? 1 : 0));
+      if (remainder > 0) remainder -= 1;
+    }
+    return result;
+  }
+
+  const temp: Array<{ id: string; floor: number; fraction: number }> = [];
+  let floorSum = 0;
+  for (let i = 0; i < ids.length; i++) {
+    const weight = weights[i];
+    const exact = (total * weight) / sumWeights;
+    const floor = Math.floor(exact);
+    floorSum += floor;
+    temp.push({ id: ids[i], floor, fraction: exact - floor });
+  }
+
+  let remainder = total - floorSum;
+  temp.sort((a, b) => {
+    if (b.fraction !== a.fraction) return b.fraction - a.fraction;
+    return a.id.localeCompare(b.id);
+  });
+
+  for (const item of temp) {
+    const add = remainder > 0 ? 1 : 0;
+    if (remainder > 0) remainder -= 1;
+    result.set(item.id, item.floor + add);
+  }
+
+  return result;
+}
+
 export function computeVipRateioDistribution(params: {
   payments: VipRateioPaymentInput[];
   employeeIds: string[];
   setting: VipRateioSettingValue;
+  othersShareByEmployeeId?: Map<string, number> | null;
 }): VipRateioDistributionResult {
+  const allEmployeeIds = Array.from(new Set(params.employeeIds)).sort((a, b) =>
+    a.localeCompare(b)
+  );
   const earningsByEmployeeId = new Map<string, number>();
   const ownPaidByEmployeeId = new Map<string, number>();
 
-  for (const employeeId of params.employeeIds) {
+  for (const employeeId of allEmployeeIds) {
     earningsByEmployeeId.set(employeeId, 0);
     ownPaidByEmployeeId.set(employeeId, 0);
   }
@@ -143,6 +221,11 @@ export function computeVipRateioDistribution(params: {
   let totalOwnerShareCents = 0;
   let totalOthersShareCents = 0;
 
+  const normalizedShares = normalizeEmployeeShares(
+    allEmployeeIds,
+    params.othersShareByEmployeeId
+  );
+
   for (const payment of params.payments) {
     const amountCents = Math.max(0, Math.trunc(Number(payment.amountCents || 0)));
     const responsibleEmployeeId = String(payment.responsibleEmployeeId || "");
@@ -151,6 +234,7 @@ export function computeVipRateioDistribution(params: {
     if (!earningsByEmployeeId.has(responsibleEmployeeId)) {
       earningsByEmployeeId.set(responsibleEmployeeId, 0);
       ownPaidByEmployeeId.set(responsibleEmployeeId, 0);
+      normalizedShares.set(responsibleEmployeeId, 0);
     }
 
     totalPaidCents += amountCents;
@@ -169,20 +253,21 @@ export function computeVipRateioDistribution(params: {
     totalOwnerShareCents += ownerShareCents;
     totalOthersShareCents += othersShareCents;
 
-    const currentOwnPaid = ownPaidByEmployeeId.get(responsibleEmployeeId) || 0;
-    ownPaidByEmployeeId.set(responsibleEmployeeId, currentOwnPaid + amountCents);
-
-    const currentOwnerEarning = earningsByEmployeeId.get(responsibleEmployeeId) || 0;
-    earningsByEmployeeId.set(
+    ownPaidByEmployeeId.set(
       responsibleEmployeeId,
-      currentOwnerEarning + ownerShareCents
+      (ownPaidByEmployeeId.get(responsibleEmployeeId) || 0) + amountCents
     );
 
-    const others = Array.from(earningsByEmployeeId.keys())
+    earningsByEmployeeId.set(
+      responsibleEmployeeId,
+      (earningsByEmployeeId.get(responsibleEmployeeId) || 0) + ownerShareCents
+    );
+
+    const otherEmployeeIds = Array.from(earningsByEmployeeId.keys())
       .filter((id) => id !== responsibleEmployeeId)
       .sort((a, b) => a.localeCompare(b));
 
-    if (others.length === 0) {
+    if (otherEmployeeIds.length === 0) {
       earningsByEmployeeId.set(
         responsibleEmployeeId,
         (earningsByEmployeeId.get(responsibleEmployeeId) || 0) + othersShareCents
@@ -190,13 +275,17 @@ export function computeVipRateioDistribution(params: {
       continue;
     }
 
-    const base = Math.floor(othersShareCents / others.length);
-    let remainder = othersShareCents - base * others.length;
+    const othersSplit = splitByWeights({
+      totalCents: othersShareCents,
+      employeeIds: otherEmployeeIds,
+      weightsByEmployeeId: normalizedShares,
+    });
 
-    for (const otherId of others) {
-      const add = base + (remainder > 0 ? 1 : 0);
-      if (remainder > 0) remainder -= 1;
-      earningsByEmployeeId.set(otherId, (earningsByEmployeeId.get(otherId) || 0) + add);
+    for (const [employeeId, cents] of othersSplit.entries()) {
+      earningsByEmployeeId.set(
+        employeeId,
+        (earningsByEmployeeId.get(employeeId) || 0) + cents
+      );
     }
   }
 
