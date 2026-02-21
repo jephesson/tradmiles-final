@@ -188,6 +188,12 @@ model User {
   // ✅ WALLET (quem atualizou)
   walletBalancesUpdated WalletBalance[] @relation("WalletBalanceUpdatedBy")
 
+  // ✅ Grupo VIP WhatsApp (links, inscrições e pagamentos)
+  vipWhatsappLinks            VipWhatsappLink[]    @relation("VipWhatsappLinkEmployee")
+  vipWhatsappLeads            VipWhatsappLead[]    @relation("VipWhatsappLeadEmployee")
+  vipWhatsappLeadsApproved    VipWhatsappLead[]    @relation("VipWhatsappLeadApprovedBy")
+  vipWhatsappPaymentsRecorded VipWhatsappPayment[] @relation("VipWhatsappPaymentRecordedBy")
+
   /**
    * =========================
    * ✅ AGENDA (NOVO)
@@ -223,6 +229,101 @@ model EmployeeInvite {
   @@index([isActive])
   @@index([userId])
   @@map("employee_invites")
+}
+
+enum VipWhatsappLeadStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+model VipWhatsappLink {
+  id String @id @default(cuid())
+
+  team       String
+  employeeId String
+  code       String @unique
+
+  whatsappE164 String
+  isActive     Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  employee User              @relation("VipWhatsappLinkEmployee", fields: [employeeId], references: [id], onDelete: Cascade)
+  leads    VipWhatsappLead[]
+
+  @@unique([team, employeeId], map: "uniq_vip_whatsapp_link_team_employee")
+  @@index([team, isActive])
+  @@index([team, code])
+  @@map("vip_whatsapp_links")
+}
+
+model VipWhatsappLead {
+  id String @id @default(cuid())
+
+  team       String
+  linkId     String
+  employeeId String
+
+  fullName      String
+  birthDate     DateTime
+  countryCode   String
+  areaCode      String
+  phoneNumber   String
+  whatsappE164  String
+  originAirport String
+
+  destinationAirport1 String
+  destinationAirport2 String
+  destinationAirport3 String
+
+  firstMonthCents     Int @default(990)
+  recurringMonthCents Int @default(1490)
+
+  status VipWhatsappLeadStatus @default(PENDING)
+
+  approvedAt   DateTime?
+  approvedById String?
+
+  internalNotes String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  link       VipWhatsappLink      @relation(fields: [linkId], references: [id], onDelete: Restrict)
+  employee   User                 @relation("VipWhatsappLeadEmployee", fields: [employeeId], references: [id], onDelete: Restrict)
+  approvedBy User?                @relation("VipWhatsappLeadApprovedBy", fields: [approvedById], references: [id], onDelete: SetNull)
+  payments   VipWhatsappPayment[]
+
+  @@index([team, status, createdAt])
+  @@index([employeeId, createdAt])
+  @@index([linkId])
+  @@map("vip_whatsapp_leads")
+}
+
+model VipWhatsappPayment {
+  id String @id @default(cuid())
+
+  team   String
+  leadId String
+
+  monthRef    String?
+  amountCents Int
+  note        String?
+  paidAt      DateTime @default(now())
+
+  recordedById String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  lead       VipWhatsappLead @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  recordedBy User?           @relation("VipWhatsappPaymentRecordedBy", fields: [recordedById], references: [id], onDelete: SetNull)
+
+  @@index([team, paidAt])
+  @@index([leadId, paidAt])
+  @@map("vip_whatsapp_payments")
 }
 
 /**
