@@ -1214,6 +1214,7 @@ model BalcaoOperacao {
   customerChargeCents Int
   profitCents         Int
 
+  locator String?
   note String?
 
   createdAt DateTime @default(now())
@@ -1227,6 +1228,7 @@ model BalcaoOperacao {
   @@index([team, supplierClienteId])
   @@index([team, finalClienteId])
   @@index([team, employeeId])
+  @@index([team, locator])
   @@map("balcao_operacoes")
 }
 

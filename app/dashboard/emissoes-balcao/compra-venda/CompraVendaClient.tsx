@@ -34,6 +34,7 @@ type Row = {
   supplierPayCents: number;
   customerChargeCents: number;
   profitCents: number;
+  locator: string | null;
   note: string | null;
   createdAt: string;
   supplierCliente: ClienteOption;
@@ -56,6 +57,7 @@ type FormState = {
   buyRate: string;
   sellRate: string;
   boardingFee: string;
+  locator: string;
   note: string;
 };
 
@@ -155,6 +157,7 @@ export default function CompraVendaClient() {
     buyRate: "",
     sellRate: "",
     boardingFee: "0",
+    locator: "",
     note: "",
   });
 
@@ -354,6 +357,7 @@ export default function CompraVendaClient() {
           buyRate: form.buyRate,
           sellRate: form.sellRate,
           boardingFee: form.boardingFee,
+          locator: form.locator,
           note: form.note,
         }),
       });
@@ -370,6 +374,7 @@ export default function CompraVendaClient() {
       setForm((prev) => ({
         ...prev,
         points: "",
+        locator: "",
         note: "",
       }));
 
@@ -398,7 +403,7 @@ export default function CompraVendaClient() {
           <input
             value={q}
             onChange={(e) => setQ(e.target.value)}
-            placeholder="Buscar fornecedor, cliente ou funcionário..."
+            placeholder="Buscar fornecedor, cliente, funcionário ou localizador..."
             className="h-10 w-[320px] rounded border border-zinc-300 px-3 text-sm"
           />
           <button
@@ -546,6 +551,18 @@ export default function CompraVendaClient() {
               disabled={saving}
             />
           </label>
+
+          <label className="text-sm">
+            <span className="mb-1 block text-zinc-700">Localizador</span>
+            <input
+              value={form.locator}
+              onChange={(e) => setForm((prev) => ({ ...prev, locator: e.target.value.toUpperCase() }))}
+              placeholder="Ex: ABC123"
+              className="h-10 w-full rounded border border-zinc-300 px-3"
+              disabled={saving}
+              maxLength={32}
+            />
+          </label>
         </div>
 
         <label className="block text-sm">
@@ -586,7 +603,7 @@ export default function CompraVendaClient() {
       </form>
 
       <div className="rounded border border-zinc-200 bg-white overflow-x-auto">
-        <table className="min-w-[1380px] w-full text-sm">
+        <table className="min-w-[1480px] w-full text-sm">
           <thead className="bg-zinc-50">
             <tr className="text-left">
               <th className="p-3">Data</th>
@@ -599,6 +616,7 @@ export default function CompraVendaClient() {
               <th className="p-3">Taxa embarque</th>
               <th className="p-3">Pagar fornecedor</th>
               <th className="p-3">Receber cliente</th>
+              <th className="p-3">Localizador</th>
               <th className="p-3">Lucro (sem taxa)</th>
               <th className="p-3">Funcionário</th>
             </tr>
@@ -606,13 +624,13 @@ export default function CompraVendaClient() {
           <tbody>
             {loading ? (
               <tr>
-                <td className="p-4 text-zinc-600" colSpan={12}>
+                <td className="p-4 text-zinc-600" colSpan={13}>
                   Carregando...
                 </td>
               </tr>
             ) : rows.length === 0 ? (
               <tr>
-                <td className="p-4 text-zinc-600" colSpan={12}>
+                <td className="p-4 text-zinc-600" colSpan={13}>
                   Nenhuma operação registrada.
                 </td>
               </tr>
@@ -641,6 +659,7 @@ export default function CompraVendaClient() {
                   <td className="p-3 whitespace-nowrap">{formatMoney(row.boardingFeeCents)}</td>
                   <td className="p-3 whitespace-nowrap font-medium">{formatMoney(row.supplierPayCents)}</td>
                   <td className="p-3 whitespace-nowrap font-medium">{formatMoney(row.customerChargeCents)}</td>
+                  <td className="p-3 whitespace-nowrap font-medium">{row.locator || "—"}</td>
                   <td
                     className={`p-3 whitespace-nowrap font-semibold ${
                       row.profitCents >= 0 ? "text-emerald-700" : "text-red-700"
