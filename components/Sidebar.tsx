@@ -252,9 +252,7 @@ export default function Sidebar() {
   const isProtocolosRoute = pathname.startsWith("/dashboard/protocolos");
 
   // ✅ NOVO: Grupo VIP WhatsApp
-  const isGrupoVipWhatsappRoute = pathname.startsWith(
-    "/dashboard/grupo-vip-whatsapp"
-  );
+  const isGrupoVipWhatsappRoute = pathname.startsWith("/dashboard/grupo-vip-whatsapp");
 
   // ✅ NOVO: OUTROS
   const isAutomacaoRoute = pathname.startsWith("/dashboard/automacao");
@@ -367,6 +365,7 @@ export default function Sidebar() {
   const [openEmissoesBalcao, setOpenEmissoesBalcao] = useState(
     isEmissoesBalcaoRoute
   );
+  const [openGrupoVip, setOpenGrupoVip] = useState(isGrupoVipWhatsappRoute);
 
   useEffect(() => setOpenCadastro(isCadastroRoute), [isCadastroRoute]);
 
@@ -466,6 +465,10 @@ export default function Sidebar() {
   useEffect(() => {
     setOpenEmissoesBalcao(isEmissoesBalcaoRoute);
   }, [isEmissoesBalcaoRoute]);
+
+  useEffect(() => {
+    setOpenGrupoVip(isGrupoVipWhatsappRoute);
+  }, [isGrupoVipWhatsappRoute]);
 
   /* =========================
    * FILTRO (VISUALIZAR PONTOS)
@@ -956,12 +959,23 @@ export default function Sidebar() {
           </NavLink>
         </Accordion>
 
-        <SectionNavLink
+        <Accordion
           title="Grupo VIP WHATSAPP"
-          href="/dashboard/grupo-vip-whatsapp"
+          open={openGrupoVip}
+          onToggle={() => setOpenGrupoVip((v) => !v)}
           active={isGrupoVipWhatsappRoute}
           accent="blue"
-        />
+        >
+          <NavLink href="/dashboard/grupo-vip-whatsapp" exact>
+            Cadastros
+          </NavLink>
+          <NavLink href="/dashboard/grupo-vip-whatsapp/clientes" exact>
+            Clientes
+          </NavLink>
+          <NavLink href="/dashboard/grupo-vip-whatsapp/rateio" exact>
+            Rateio do lucro
+          </NavLink>
+        </Accordion>
 
         {/* ================= OUTROS ================= */}
         <Accordion
@@ -1168,37 +1182,5 @@ function SubAccordion({
 
       {open && <div className="pl-4 space-y-1">{children}</div>}
     </>
-  );
-}
-
-function SectionNavLink({
-  title,
-  href,
-  active,
-  accent = "slate",
-}: {
-  title: string;
-  href: string;
-  active?: boolean;
-  accent?: Accent;
-}) {
-  return (
-    <div className="space-y-1" style={accentStyle(accent)}>
-      <Link
-        href={href}
-        className={cn(
-          "group flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm font-semibold transition-colors",
-          active
-            ? "bg-[var(--accent-soft)] text-[var(--accent-text)] ring-1 ring-[var(--accent-border)]"
-            : "text-slate-800 hover:bg-slate-100"
-        )}
-      >
-        <span className="inline-flex items-center gap-2">
-          <span className="h-2 w-2 rounded-full bg-[var(--accent)]" />
-          <span>{title}</span>
-        </span>
-        <span className="text-xs text-slate-500 group-hover:text-slate-700">▸</span>
-      </Link>
-    </div>
   );
 }

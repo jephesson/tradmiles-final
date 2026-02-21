@@ -326,6 +326,23 @@ model VipWhatsappPayment {
   @@map("vip_whatsapp_payments")
 }
 
+model VipWhatsappRateioSetting {
+  id String @id @default(cuid())
+
+  team String @unique
+
+  ownerPercentBps Int    @default(7000)
+  othersPercentBps Int   @default(3000)
+  taxPercentBps    Int   @default(1000)
+  payoutDaysCsv    String @default("1")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([team])
+  @@map("vip_whatsapp_rateio_settings")
+}
+
 /**
  * =========================
  * RATEIO (BASE PERCENTUAL) — VERSIONADO POR DATA

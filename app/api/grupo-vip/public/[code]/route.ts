@@ -160,6 +160,7 @@ export async function POST(
     const destinationAirport3 = normalizeAirportCode(
       parseText(body.destinationAirport3, 10)
     );
+    const termsAccepted = body.termsAccepted === true;
 
     if (fullName.length < 3) {
       return NextResponse.json(
@@ -186,6 +187,13 @@ export async function POST(
     if (!countryCode || !areaCode || !phoneNumber) {
       return NextResponse.json(
         { ok: false, error: "Preencha código do país, DDD e número do WhatsApp." },
+        { status: 400, headers: noCacheHeaders() }
+      );
+    }
+
+    if (!termsAccepted) {
+      return NextResponse.json(
+        { ok: false, error: "Você precisa aceitar os termos de adesão." },
         { status: 400, headers: noCacheHeaders() }
       );
     }
