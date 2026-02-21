@@ -145,6 +145,17 @@ const AIRPORT_OPTIONS = [
   { code: "SCL", label: "SCL - Santiago" },
 ];
 
+const ADHESION_TEXT = [
+  "Ao aderir ao Grupo VIP WhatsApp da Vias Aéreas, você recebe alertas de preços 3x por semana.",
+  "Valor promocional de entrada: R$ 9,90 no primeiro mês.",
+  "A partir do segundo mês, mensalidade de R$ 14,90 via Pix.",
+  "Você informa 1 aeroporto de origem e até 3 aeroportos de destino.",
+  "A cobrança vence a cada 30 dias.",
+  "Enviamos alerta de vencimento 1 dia útil antes.",
+  "Se ficar 7 dias sem pagamento, o acesso é removido.",
+  "Sem fidelidade e com garantia de reembolso em até 7 dias.",
+].join(" ");
+
 function digitsOnly(v: string) {
   return (v || "").replace(/\D+/g, "");
 }
@@ -380,6 +391,13 @@ export default function VipPublicSignupClient({ code }: { code: string }) {
               </div>
               <div className="text-xs text-violet-700">{info.pix.label}</div>
             </div>
+          </div>
+
+          <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+            <div className="text-xs font-semibold uppercase tracking-wide text-slate-700">
+              Termos rápidos de adesão
+            </div>
+            <p className="mt-2 text-sm leading-relaxed text-slate-700">{ADHESION_TEXT}</p>
           </div>
         </section>
 

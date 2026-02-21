@@ -103,6 +103,19 @@ function defaultMonthRef() {
   return `${y}-${m}`;
 }
 
+function buildPromoWhatsappText(linkUrl: string) {
+  return [
+    "Grupo VIP WhatsApp - Vias Aéreas",
+    "Alertas de passagens 3x por semana.",
+    "1o mês: R$ 9,90 | Demais: R$ 14,90 via Pix.",
+    "Informe origem + até 3 destinos.",
+    "Sem fidelidade, com reembolso em 7 dias.",
+    "Vencimento a cada 30 dias (alerta 1 dia útil antes).",
+    "7 dias sem pagamento: remoção do acesso.",
+    `Cadastro: ${linkUrl}`,
+  ].join("\n");
+}
+
 function messageFromError(e: unknown, fallback: string) {
   if (e instanceof Error && e.message) return e.message;
   return fallback;
@@ -216,6 +229,24 @@ export default function GrupoVipWhatsappClient() {
     }
     return { total: leads.length, pending, approved, rejected, paid };
   }, [leads]);
+
+  const promoByEmployee = useMemo(() => {
+    return links.map((row) => {
+      const linkUrl =
+        row.link && publicOrigin
+          ? `${publicOrigin}/grupo-vip/${row.link.code}`
+          : row.link
+          ? `/grupo-vip/${row.link.code}`
+          : "";
+      return {
+        employeeId: row.employee.id,
+        employeeName: row.employee.name,
+        employeeLogin: row.employee.login,
+        linkUrl,
+        message: linkUrl ? buildPromoWhatsappText(linkUrl) : "",
+      };
+    });
+  }, [links, publicOrigin]);
 
   function updateLinkDraft(employeeId: string, patch: Partial<LinkDraft>) {
     setLinkDrafts((prev) => ({
@@ -553,6 +584,68 @@ export default function GrupoVipWhatsappClient() {
                 </div>
               );
             })}
+          </div>
+        )}
+      </section>
+
+      <section className="rounded-2xl border border-slate-200 bg-white p-4">
+        <div className="mb-3">
+          <h2 className="text-xl font-bold text-slate-900">
+            Mensagem de divulgação (WhatsApp)
+          </h2>
+          <p className="text-sm text-slate-500">
+            Texto curto por funcionário com link individual de cadastro.
+          </p>
+        </div>
+
+        {promoByEmployee.length === 0 ? (
+          <div className="rounded-xl border border-slate-200 px-4 py-6 text-sm text-slate-500">
+            Nenhum funcionário disponível.
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {promoByEmployee.map((item) => (
+              <div
+                key={item.employeeId}
+                className="rounded-xl border border-slate-200 bg-slate-50 p-3"
+              >
+                <div className="mb-2">
+                  <div className="font-semibold text-slate-900">{item.employeeName}</div>
+                  <div className="text-xs text-slate-500">@{item.employeeLogin}</div>
+                </div>
+
+                {item.linkUrl ? (
+                  <>
+                    <textarea
+                      readOnly
+                      value={item.message}
+                      rows={6}
+                      className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs text-slate-700"
+                    />
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={() => copyText(item.message)}
+                        className="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs hover:bg-slate-100"
+                      >
+                        Copiar mensagem
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => copyText(item.linkUrl)}
+                        className="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs hover:bg-slate-100"
+                      >
+                        Copiar só o link
+                      </button>
+                    </div>
+                  </>
+                ) : (
+                  <div className="text-xs text-slate-500">
+                    Salve o WhatsApp desse funcionário para gerar a mensagem com link.
+                  </div>
+                )}
+              </div>
+            ))}
           </div>
         )}
       </section>
