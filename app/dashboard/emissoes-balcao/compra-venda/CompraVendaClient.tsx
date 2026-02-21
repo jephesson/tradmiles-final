@@ -177,8 +177,8 @@ export default function CompraVendaClient() {
   );
 
   const previewProfitCents = useMemo(
-    () => previewCustomerChargeCents - previewSupplierPayCents,
-    [previewCustomerChargeCents, previewSupplierPayCents]
+    () => previewCustomerChargeCents - previewSupplierPayCents - boardingFeeCents,
+    [previewCustomerChargeCents, previewSupplierPayCents, boardingFeeCents]
   );
 
   const loadRows = useCallback(async (search = "") => {
@@ -427,7 +427,7 @@ export default function CompraVendaClient() {
           <div className="text-lg font-semibold">{formatMoney(resumo.totalCustomerChargeCents)}</div>
         </div>
         <div className="rounded border border-zinc-200 bg-white p-3">
-          <div className="text-xs text-zinc-500">Lucro total</div>
+          <div className="text-xs text-zinc-500">Lucro total (sem taxa)</div>
           <div className="text-lg font-semibold">{formatMoney(resumo.totalProfitCents)}</div>
         </div>
       </div>
@@ -569,7 +569,7 @@ export default function CompraVendaClient() {
             <div className="font-semibold">{formatMoney(previewCustomerChargeCents)}</div>
           </div>
           <div className="rounded border border-zinc-200 bg-zinc-50 p-3">
-            <div className="text-xs text-zinc-500">Lucro da operação</div>
+            <div className="text-xs text-zinc-500">Lucro da operação (sem taxa)</div>
             <div className="font-semibold">{formatMoney(previewProfitCents)}</div>
           </div>
         </div>
@@ -599,7 +599,7 @@ export default function CompraVendaClient() {
               <th className="p-3">Taxa embarque</th>
               <th className="p-3">Pagar fornecedor</th>
               <th className="p-3">Receber cliente</th>
-              <th className="p-3">Lucro</th>
+              <th className="p-3">Lucro (sem taxa)</th>
               <th className="p-3">Funcionário</th>
             </tr>
           </thead>

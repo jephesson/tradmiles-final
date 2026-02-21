@@ -68,12 +68,16 @@ function toRow(item: {
   supplierPayCents: number;
   customerChargeCents: number;
   profitCents: number;
+  locator: string | null;
   note: string | null;
   createdAt: Date;
   supplierCliente: { id: string; identificador: string; nome: string };
   finalCliente: { id: string; identificador: string; nome: string };
   employee: { id: string; name: string; login: string } | null;
 }) {
+  const normalizedProfitCents =
+    item.customerChargeCents - item.supplierPayCents - item.boardingFeeCents;
+
   return {
     id: item.id,
     airline: item.airline,
@@ -83,7 +87,8 @@ function toRow(item: {
     boardingFeeCents: item.boardingFeeCents,
     supplierPayCents: item.supplierPayCents,
     customerChargeCents: item.customerChargeCents,
-    profitCents: item.profitCents,
+    profitCents: normalizedProfitCents,
+    locator: item.locator,
     note: item.note,
     createdAt: item.createdAt.toISOString(),
     supplierCliente: item.supplierCliente,
@@ -111,6 +116,7 @@ export async function GET(req: NextRequest) {
               { finalCliente: { identificador: { contains: q, mode: "insensitive" } } },
               { employee: { name: { contains: q, mode: "insensitive" } } },
               { employee: { login: { contains: q, mode: "insensitive" } } },
+              { locator: { contains: q, mode: "insensitive" } },
               { note: { contains: q, mode: "insensitive" } },
             ],
           }
@@ -127,6 +133,7 @@ export async function GET(req: NextRequest) {
         supplierPayCents: true,
         customerChargeCents: true,
         profitCents: true,
+        locator: true,
         note: true,
         createdAt: true,
         supplierCliente: { select: { id: true, identificador: true, nome: true } },
@@ -176,6 +183,9 @@ export async function POST(req: NextRequest) {
     const buyRateCents = parseMoneyToCents(body?.buyRate);
     const sellRateCents = parseMoneyToCents(body?.sellRate);
     const boardingFeeCents = parseMoneyToCents(body?.boardingFee);
+    const locator = String(body?.locator || "")
+      .trim()
+      .toUpperCase() || null;
     const note = String(body?.note || "").trim() || null;
 
     if (!supplierClienteId) return bad("Selecione o fornecedor.");
@@ -192,6 +202,7 @@ export async function POST(req: NextRequest) {
     if (buyRateCents <= 0) return bad("Informe o milheiro de compra.");
     if (sellRateCents <= 0) return bad("Informe o milheiro de venda.");
     if (boardingFeeCents < 0) return bad("Taxa de embarque inválida.");
+    if (locator && locator.length > 32) return bad("Localizador muito longo.");
 
     const [supplier, customer] = await Promise.all([
       prisma.cliente.findUnique({
@@ -219,7 +230,7 @@ export async function POST(req: NextRequest) {
 
     const supplierPayCents = Math.round((points * buyRateCents) / 1000);
     const customerChargeCents = Math.round((points * sellRateCents) / 1000) + boardingFeeCents;
-    const profitCents = customerChargeCents - supplierPayCents;
+    const profitCents = customerChargeCents - supplierPayCents - boardingFeeCents;
 
     const created = await prisma.balcaoOperacao.create({
       data: {
@@ -235,6 +246,7 @@ export async function POST(req: NextRequest) {
         supplierPayCents,
         customerChargeCents,
         profitCents,
+        locator,
         note,
       },
       select: {
@@ -247,6 +259,7 @@ export async function POST(req: NextRequest) {
         supplierPayCents: true,
         customerChargeCents: true,
         profitCents: true,
+        locator: true,
         note: true,
         createdAt: true,
         supplierCliente: { select: { id: true, identificador: true, nome: true } },
