@@ -1,6 +1,14 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/auth-server";
+import {
+  balcaoProfitSemTaxaCents,
+  buildTaxRule,
+  netProfitAfterTaxCents,
+  recifeDateISO,
+  resolveTaxPercent,
+  taxFromProfitCents,
+} from "@/lib/balcao-commission";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -18,7 +26,7 @@ function monthISORecife() {
     month: "2-digit",
   })
     .formatToParts(d)
-    .reduce((acc: any, p) => {
+    .reduce((acc: Record<string, string>, p) => {
       acc[p.type] = p.value;
       return acc;
     }, {});
@@ -40,9 +48,9 @@ function nextMonthStart(month: string) {
 export async function GET(req: Request) {
   try {
     const sess = await requireSession();
-    const team = String((sess as any)?.team || "");
-    const meId = String((sess as any)?.id || "");
-    const role = String((sess as any)?.role || "");
+    const team = String((sess as { team?: unknown })?.team || "");
+    const meId = String((sess as { id?: unknown })?.id || "");
+    const role = String((sess as { role?: unknown })?.role || "");
 
     if (!team || !meId) {
       return NextResponse.json({ ok: false, error: "Não autenticado" }, { status: 401 });
@@ -58,25 +66,52 @@ export async function GET(req: Request) {
     const startDate = `${month}-01`;
     const endDate = nextMonthStart(month);
 
-    const users = await prisma.user.findMany({
-      where: { team },
-      select: { id: true, name: true, login: true, role: true },
-      orderBy: { name: "asc" },
-    });
+    const [users, payouts, settings] = await Promise.all([
+      prisma.user.findMany({
+        where: { team },
+        select: { id: true, name: true, login: true, role: true },
+        orderBy: { name: "asc" },
+      }),
+      prisma.employeePayout.findMany({
+        where: {
+          team,
+          date: { gte: startDate, lt: endDate },
+        },
+        select: {
+          userId: true,
+          date: true,
+          grossProfitCents: true,
+          tax7Cents: true,
+          feeCents: true,
+          netPayCents: true,
+          breakdown: true,
+        },
+      }),
+      prisma.settings.upsert({
+        where: { key: "default" },
+        create: { key: "default" },
+        update: {},
+        select: { taxPercent: true, taxEffectiveFrom: true },
+      }),
+    ]);
 
-    const payouts = await prisma.employeePayout.findMany({
+    const taxRule = buildTaxRule(settings);
+
+    const balcaoStart = new Date(`${month}-01T00:00:00-03:00`);
+    const balcaoEnd = new Date(`${endDate}T00:00:00-03:00`);
+
+    const balcaoOps = await prisma.balcaoOperacao.findMany({
       where: {
         team,
-        date: { gte: startDate, lt: endDate },
+        employeeId: { not: null },
+        createdAt: { gte: balcaoStart, lt: balcaoEnd },
       },
       select: {
-        userId: true,
-        date: true,
-        grossProfitCents: true,
-        tax7Cents: true,
-        feeCents: true,
-        netPayCents: true,
-        breakdown: true,
+        employeeId: true,
+        createdAt: true,
+        customerChargeCents: true,
+        supplierPayCents: true,
+        boardingFeeCents: true,
       },
     });
 
@@ -91,11 +126,16 @@ export async function GET(req: Request) {
         c3: number;
 
         gross: number;
-        tax: number;
+        payoutTax: number;
         fee: number;
 
-        netNoFee: number;   // ✅ líquido sem taxa (gross - tax)
-        netWithFee: number; // (opcional) líquido com taxa (netPayCents)
+        payoutNetNoFee: number;
+        netWithFee: number;
+
+        balcaoOps: number;
+        balcaoGross: number;
+        balcaoTax: number;
+        balcaoNetNoFee: number;
       }
     > = {};
 
@@ -107,36 +147,69 @@ export async function GET(req: Request) {
         c2: 0,
         c3: 0,
         gross: 0,
-        tax: 0,
+        payoutTax: 0,
         fee: 0,
-        netNoFee: 0,
+        payoutNetNoFee: 0,
         netWithFee: 0,
+        balcaoOps: 0,
+        balcaoGross: 0,
+        balcaoTax: 0,
+        balcaoNetNoFee: 0,
       });
     }
 
     for (const p of payouts) {
       const a = ensure(p.userId);
-      const b: any = p.breakdown || {};
+      const b = (p.breakdown || {}) as {
+        salesCount?: number;
+        commission1Cents?: number;
+        commission2Cents?: number;
+        commission3RateioCents?: number;
+      };
 
       const gross = safeInt(p.grossProfitCents, 0);
       const tax = safeInt(p.tax7Cents, 0);
       const fee = safeInt(p.feeCents, 0);
       const netWithFee = safeInt(p.netPayCents, 0);
-      const netNoFee = gross - tax; // ✅ aqui exclui taxa
+      const netNoFee = gross - tax;
 
       a.days += 1;
-      a.salesCount += safeInt(b?.salesCount, 0);
+      a.salesCount += safeInt(b.salesCount, 0);
 
-      a.c1 += safeInt(b?.commission1Cents, 0);
-      a.c2 += safeInt(b?.commission2Cents, 0);
-      a.c3 += safeInt(b?.commission3RateioCents, 0);
+      a.c1 += safeInt(b.commission1Cents, 0);
+      a.c2 += safeInt(b.commission2Cents, 0);
+      a.c3 += safeInt(b.commission3RateioCents, 0);
 
       a.gross += gross;
-      a.tax += tax;
+      a.payoutTax += tax;
       a.fee += fee;
 
-      a.netNoFee += netNoFee;
+      a.payoutNetNoFee += netNoFee;
       a.netWithFee += netWithFee;
+    }
+
+    for (const op of balcaoOps) {
+      const userId = String(op.employeeId || "").trim();
+      if (!userId) continue;
+
+      const a = ensure(userId);
+      const opDateISO = recifeDateISO(op.createdAt);
+      const taxPercent = resolveTaxPercent(opDateISO, taxRule);
+      const opGross = safeInt(
+        balcaoProfitSemTaxaCents({
+          customerChargeCents: op.customerChargeCents,
+          supplierPayCents: op.supplierPayCents,
+          boardingFeeCents: op.boardingFeeCents,
+        }),
+        0
+      );
+      const opTax = safeInt(taxFromProfitCents(opGross, taxPercent), 0);
+      const opNetNoFee = safeInt(netProfitAfterTaxCents(opGross, opTax), 0);
+
+      a.balcaoOps += 1;
+      a.balcaoGross += opGross;
+      a.balcaoTax += opTax;
+      a.balcaoNetNoFee += opNetNoFee;
     }
 
     const rows = users.map((u) => {
@@ -149,10 +222,14 @@ export async function GET(req: Request) {
           c2: 0,
           c3: 0,
           gross: 0,
-          tax: 0,
+          payoutTax: 0,
           fee: 0,
-          netNoFee: 0,
+          payoutNetNoFee: 0,
           netWithFee: 0,
+          balcaoOps: 0,
+          balcaoGross: 0,
+          balcaoTax: 0,
+          balcaoNetNoFee: 0,
         } as const);
 
       return {
@@ -165,11 +242,17 @@ export async function GET(req: Request) {
         commission3RateioCents: a.c3,
 
         grossCents: a.gross,
-        taxCents: a.tax,
+        taxCents: a.payoutTax + a.balcaoTax,
+        payoutTaxCents: a.payoutTax,
+        balcaoTaxCents: a.balcaoTax,
         feeCents: a.fee,
 
-        netNoFeeCents: a.netNoFee,     // ✅ novo (use esse no “líquido”)
-        netWithFeeCents: a.netWithFee, // opcional p/ conferência
+        balcaoOpsCount: a.balcaoOps,
+        balcaoGrossCents: a.balcaoGross,
+        balcaoNetNoFeeCents: a.balcaoNetNoFee,
+
+        netNoFeeCents: a.payoutNetNoFee + a.balcaoNetNoFee,
+        netWithFeeCents: a.netWithFee,
       };
     });
 
@@ -182,7 +265,12 @@ export async function GET(req: Request) {
         acc.c3 += r.commission3RateioCents;
         acc.gross += r.grossCents;
         acc.tax += r.taxCents;
+        acc.payoutTax += r.payoutTaxCents;
+        acc.balcaoTax += r.balcaoTaxCents;
         acc.fee += r.feeCents;
+        acc.balcaoOps += r.balcaoOpsCount;
+        acc.balcaoGross += r.balcaoGrossCents;
+        acc.balcaoNetNoFee += r.balcaoNetNoFeeCents;
         acc.netNoFee += r.netNoFeeCents;
         acc.netWithFee += r.netWithFeeCents;
         return acc;
@@ -195,7 +283,12 @@ export async function GET(req: Request) {
         c3: 0,
         gross: 0,
         tax: 0,
+        payoutTax: 0,
+        balcaoTax: 0,
         fee: 0,
+        balcaoOps: 0,
+        balcaoGross: 0,
+        balcaoNetNoFee: 0,
         netNoFee: 0,
         netWithFee: 0,
       }
@@ -209,9 +302,10 @@ export async function GET(req: Request) {
       rows,
       totals,
     });
-  } catch (e: any) {
-    const msg = e?.message === "UNAUTHENTICATED" ? "Não autenticado" : e?.message || String(e);
-    const status = e?.message === "UNAUTHENTICATED" ? 401 : 500;
-    return NextResponse.json({ ok: false, error: msg }, { status });
+  } catch (e: unknown) {
+    const msg = e instanceof Error && e.message ? e.message : String(e);
+    const normalized = msg === "UNAUTHENTICATED" ? "Não autenticado" : msg;
+    const status = msg === "UNAUTHENTICATED" ? 401 : 500;
+    return NextResponse.json({ ok: false, error: normalized }, { status });
   }
 }

@@ -13,9 +13,15 @@ type SummaryRow = {
 
   grossCents: number;
   taxCents: number;
+  payoutTaxCents: number;
+  balcaoTaxCents: number;
   feeCents: number;
 
-  netNoFeeCents: number; // gross - tax
+  balcaoOpsCount: number;
+  balcaoGrossCents: number;
+  balcaoNetNoFeeCents: number;
+
+  netNoFeeCents: number; // líquido sem taxa (milhas + balcão)
   netWithFeeCents: number; // gross - tax + fee
 };
 
@@ -33,7 +39,12 @@ type SummaryResp = {
     c3: number;
     gross: number;
     tax: number;
+    payoutTax: number;
+    balcaoTax: number;
     fee: number;
+    balcaoOps: number;
+    balcaoGross: number;
+    balcaoNetNoFee: number;
     netNoFee: number; // ✅ líquido total sem taxa
     netWithFee: number;
   };
@@ -60,7 +71,7 @@ function monthISORecifeClient() {
     month: "2-digit",
   })
     .formatToParts(d)
-    .reduce((acc: any, p) => {
+    .reduce((acc: Record<string, string>, p) => {
       acc[p.type] = p.value;
       return acc;
     }, {});
@@ -82,9 +93,9 @@ function prevMonth(m: string) {
 
 async function apiGet<T>(url: string): Promise<T> {
   const res = await fetch(url, { cache: "no-store", credentials: "include" });
-  let json: any = null;
+  let json: { ok?: boolean; error?: string } | null = null;
   try {
-    json = await res.json();
+    json = (await res.json()) as { ok?: boolean; error?: string };
   } catch {}
   if (!res.ok || !json?.ok) throw new Error(json?.error || `Erro (${res.status})`);
   return json as T;
@@ -116,7 +127,7 @@ function recifeDayOfMonthToday() {
     day: "2-digit",
   })
     .formatToParts(d)
-    .reduce((acc: any, p) => {
+    .reduce((acc: Record<string, string>, p) => {
       acc[p.type] = p.value;
       return acc;
     }, {});
@@ -136,9 +147,9 @@ export default function LucrosFuncionariosMesClient() {
     try {
       const out = await apiGet<SummaryResp>(`/api/payouts/funcionarios/month-summary?month=${encodeURIComponent(m)}`);
       setData(out);
-    } catch (e: any) {
+    } catch (e: unknown) {
       setData(null);
-      setErr(e?.message || "Erro ao carregar.");
+      setErr(e instanceof Error && e.message ? e.message : "Erro ao carregar.");
     } finally {
       setLoading(false);
     }
@@ -204,8 +215,8 @@ export default function LucrosFuncionariosMesClient() {
         <div className="space-y-1">
           <h2 className="text-lg font-semibold">Funcionários — análise do mês</h2>
           <p className="text-sm text-neutral-500">
-            Baseado nos dias <b>computados</b> em Comissões → Funcionários. <b>Líquido aqui é SEM taxa</b> (taxa aparece
-            separada).
+            Baseado nos dias <b>computados</b> em Comissões → Funcionários + lucro líquido de <b>Emissões no balcão</b>.
+            <b> Líquido aqui é SEM taxa de embarque</b>.
           </p>
         </div>
 
@@ -234,9 +245,10 @@ export default function LucrosFuncionariosMesClient() {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-2 md:grid-cols-6">
+      <div className="grid grid-cols-2 gap-2 md:grid-cols-7">
         <KPI label="Líquido total (sem taxa)" value={fmtMoneyBR(data?.totals.netNoFee || 0)} />
-        <KPI label="Imposto total" value={fmtMoneyBR(data?.totals.tax || 0)} />
+        <KPI label="Lucro balcão (líq.)" value={fmtMoneyBR(data?.totals.balcaoNetNoFee || 0)} />
+        <KPI label="Imposto total (milhas + balcão)" value={fmtMoneyBR(data?.totals.tax || 0)} />
         <KPI label="Taxas (reembolso)" value={fmtMoneyBR(data?.totals.fee || 0)} />
         <KPI label="Bruto (C1+C2+C3)" value={fmtMoneyBR(data?.totals.gross || 0)} />
         <KPI label="Vendas (mês)" value={String(data?.totals.salesCount || 0)} />
@@ -259,7 +271,8 @@ export default function LucrosFuncionariosMesClient() {
                 <th className="px-4 py-3">C3 (rateio)</th>
                 <th className="px-4 py-3">Imposto</th>
                 <th className="px-4 py-3">Taxa embarque</th>
-                <th className="px-4 py-3">Líquido (sem taxa)</th>
+                <th className="px-4 py-3">Balcão (líq.)</th>
+                <th className="px-4 py-3">Líquido total (sem taxa)</th>
               </tr>
             </thead>
 
@@ -282,6 +295,10 @@ export default function LucrosFuncionariosMesClient() {
 
                     <td className="px-4 py-3">{fmtMoneyBR(r.taxCents)}</td>
                     <td className="px-4 py-3">{fmtMoneyBR(r.feeCents)}</td>
+                    <td className="px-4 py-3">
+                      <div className="font-medium">{fmtMoneyBR(r.balcaoNetNoFeeCents)}</div>
+                      <div className="text-xs text-neutral-500">{r.balcaoOpsCount} ops</div>
+                    </td>
 
                     <td className="px-4 py-3 font-semibold">{fmtMoneyBR(r.netNoFeeCents)}</td>
                   </tr>
@@ -290,7 +307,7 @@ export default function LucrosFuncionariosMesClient() {
 
               {!rows.length ? (
                 <tr>
-                  <td className="px-4 py-6 text-sm text-neutral-500" colSpan={9}>
+                  <td className="px-4 py-6 text-sm text-neutral-500" colSpan={10}>
                     Nenhum dado para este mês (ou dias ainda não foram computados).
                   </td>
                 </tr>
