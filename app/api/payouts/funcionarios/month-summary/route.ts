@@ -7,6 +7,7 @@ import {
   netProfitAfterTaxCents,
   recifeDateISO,
   resolveTaxPercent,
+  sellerCommissionCentsFromNet,
   taxFromProfitCents,
 } from "@/lib/balcao-commission";
 
@@ -135,7 +136,7 @@ export async function GET(req: Request) {
         balcaoOps: number;
         balcaoGross: number;
         balcaoTax: number;
-        balcaoNetNoFee: number;
+        balcaoCommission: number;
       }
     > = {};
 
@@ -154,7 +155,7 @@ export async function GET(req: Request) {
         balcaoOps: 0,
         balcaoGross: 0,
         balcaoTax: 0,
-        balcaoNetNoFee: 0,
+        balcaoCommission: 0,
       });
     }
 
@@ -205,11 +206,12 @@ export async function GET(req: Request) {
       );
       const opTax = safeInt(taxFromProfitCents(opGross, taxPercent), 0);
       const opNetNoFee = safeInt(netProfitAfterTaxCents(opGross, opTax), 0);
+      const opCommission = safeInt(sellerCommissionCentsFromNet(opNetNoFee), 0);
 
       a.balcaoOps += 1;
       a.balcaoGross += opGross;
       a.balcaoTax += opTax;
-      a.balcaoNetNoFee += opNetNoFee;
+      a.balcaoCommission += opCommission;
     }
 
     const rows = users.map((u) => {
@@ -229,7 +231,7 @@ export async function GET(req: Request) {
           balcaoOps: 0,
           balcaoGross: 0,
           balcaoTax: 0,
-          balcaoNetNoFee: 0,
+          balcaoCommission: 0,
         } as const);
 
       return {
@@ -249,9 +251,9 @@ export async function GET(req: Request) {
 
         balcaoOpsCount: a.balcaoOps,
         balcaoGrossCents: a.balcaoGross,
-        balcaoNetNoFeeCents: a.balcaoNetNoFee,
+        balcaoCommissionCents: a.balcaoCommission,
 
-        netNoFeeCents: a.payoutNetNoFee + a.balcaoNetNoFee,
+        netNoFeeCents: a.payoutNetNoFee + a.balcaoCommission,
         netWithFeeCents: a.netWithFee,
       };
     });
@@ -270,7 +272,7 @@ export async function GET(req: Request) {
         acc.fee += r.feeCents;
         acc.balcaoOps += r.balcaoOpsCount;
         acc.balcaoGross += r.balcaoGrossCents;
-        acc.balcaoNetNoFee += r.balcaoNetNoFeeCents;
+        acc.balcaoCommission += r.balcaoCommissionCents;
         acc.netNoFee += r.netNoFeeCents;
         acc.netWithFee += r.netWithFeeCents;
         return acc;
@@ -288,7 +290,7 @@ export async function GET(req: Request) {
         fee: 0,
         balcaoOps: 0,
         balcaoGross: 0,
-        balcaoNetNoFee: 0,
+        balcaoCommission: 0,
         netNoFee: 0,
         netWithFee: 0,
       }
