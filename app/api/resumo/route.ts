@@ -2,9 +2,20 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/require-session";
+import {
+  BalcaoTaxRule,
+  balcaoProfitSemTaxaCents,
+  buildTaxRule,
+  netProfitAfterTaxCents,
+  recifeDateISO,
+  resolveTaxPercent,
+  sellerCommissionCentsFromNet,
+  taxFromProfitCents,
+} from "@/lib/balcao-commission";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+const TAX_TZ = "America/Recife";
 
 function safeInt(v: any) {
   if (typeof v === "bigint") return Number(v);
@@ -15,6 +26,54 @@ function toIntOrNull(v: any) {
   if (typeof v === "bigint") return Number(v);
   const n = Number(v);
   return Number.isFinite(n) ? Math.trunc(n) : null;
+}
+
+function recifeMonthKey(date: Date) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: TAX_TZ,
+    year: "numeric",
+    month: "2-digit",
+  })
+    .formatToParts(date)
+    .reduce((acc: Record<string, string>, p) => {
+      acc[p.type] = p.value;
+      return acc;
+    }, {} as Record<string, string>);
+
+  return `${parts.year}-${parts.month}`;
+}
+
+function parseTaxSnapshotComponents(payment: { totalTaxCents: number; breakdown: unknown }) {
+  const legacyTotal = safeInt(payment.totalTaxCents);
+  const raw = payment.breakdown;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    return {
+      payoutTaxCents: legacyTotal,
+      balcaoTaxCents: 0,
+      totalTaxCents: legacyTotal,
+    };
+  }
+
+  const anyRaw = raw as Record<string, unknown>;
+  const components = anyRaw.components;
+  if (!components || typeof components !== "object" || Array.isArray(components)) {
+    return {
+      payoutTaxCents: legacyTotal,
+      balcaoTaxCents: 0,
+      totalTaxCents: legacyTotal,
+    };
+  }
+
+  const anyComp = components as Record<string, unknown>;
+  const payoutTaxCents = safeInt(anyComp.payoutTaxCents);
+  const balcaoTaxCents = safeInt(anyComp.balcaoTaxCents);
+  const totalTaxCents = safeInt(payment.totalTaxCents || payoutTaxCents + balcaoTaxCents);
+
+  return {
+    payoutTaxCents,
+    balcaoTaxCents,
+    totalTaxCents,
+  };
 }
 
 export async function GET(req: Request) {
@@ -49,6 +108,8 @@ export async function GET(req: Request) {
         smilesRateCents: true,
         liveloRateCents: true,
         esferaRateCents: true,
+        taxPercent: true,
+        taxEffectiveFrom: true,
       },
     });
 
@@ -102,38 +163,135 @@ export async function GET(req: Request) {
     });
     const receivablesOpenCents = safeInt(receivablesAgg._sum.balanceCents);
 
-    // ✅ A PAGAR (funcionários): soma netPayCents pendente (paidAt null) do team
+    // ✅ A PAGAR (funcionários) = netPay pendente + comissão pendente do balcão
     const empPendingAgg = await prisma.employeePayout.aggregate({
       where: { team: session.team, paidAt: null },
       _sum: { netPayCents: true },
     });
-    const employeePayoutsPendingCents = safeInt(empPendingAgg._sum.netPayCents);
+    const employeePayoutsPendingBaseCents = safeInt(empPendingAgg._sum.netPayCents);
 
-    // ✅ IMPOSTOS pendentes: soma por mês de tax7Cents onde NÃO existe pagamento do mês (paidAt não preenchido)
-    const taxPendingRows = await prisma.$queryRaw<
-      Array<{ pendingTaxCents: bigint }>
-    >`
-      WITH m AS (
-        SELECT
-          substring(ep."date", 1, 7) AS "month",
-          COALESCE(SUM(ep."tax7Cents"), 0)::bigint AS "taxCents"
-        FROM "employee_payouts" ep
-        WHERE ep."team" = ${session.team}
-        GROUP BY 1
-      )
+    const taxRule: BalcaoTaxRule = buildTaxRule({
+      taxPercent: Number(settings.taxPercent || 0),
+      taxEffectiveFrom: settings.taxEffectiveFrom,
+    });
+
+    const paidPayoutRows = await prisma.employeePayout.findMany({
+      where: { team: session.team, paidAt: { not: null } },
+      select: { userId: true, date: true },
+    });
+    const paidKeys = new Set(paidPayoutRows.map((r) => `${r.userId}|${r.date}`));
+
+    const balcaoOpsWithEmployee = await prisma.balcaoOperacao.findMany({
+      where: { team: session.team, employeeId: { not: null } },
+      select: {
+        employeeId: true,
+        createdAt: true,
+        customerChargeCents: true,
+        supplierPayCents: true,
+        boardingFeeCents: true,
+      },
+    });
+
+    const employeePayoutsPendingBalcaoCents = balcaoOpsWithEmployee.reduce((acc, op) => {
+      const employeeId = String(op.employeeId || "").trim();
+      if (!employeeId) return acc;
+
+      const opDateISO = recifeDateISO(op.createdAt);
+      const key = `${employeeId}|${opDateISO}`;
+
+      // Se o dia/funcionário já está pago em payouts, considera balcão já liquidado.
+      if (paidKeys.has(key)) return acc;
+
+      const opTaxPercent = resolveTaxPercent(opDateISO, taxRule);
+      const opProfitCents = balcaoProfitSemTaxaCents({
+        customerChargeCents: op.customerChargeCents,
+        supplierPayCents: op.supplierPayCents,
+        boardingFeeCents: op.boardingFeeCents,
+      });
+      const opTaxCents = taxFromProfitCents(opProfitCents, opTaxPercent);
+      const opNetCents = netProfitAfterTaxCents(opProfitCents, opTaxCents);
+      const opCommissionCents = sellerCommissionCentsFromNet(opNetCents);
+
+      return acc + opCommissionCents;
+    }, 0);
+
+    const employeePayoutsPendingCents =
+      employeePayoutsPendingBaseCents + employeePayoutsPendingBalcaoCents;
+
+    // ✅ IMPOSTOS pendentes (igual /api/taxes/months):
+    // venda de milhas (tax7) + emissões no balcão (imposto sobre lucro), respeitando snapshot de mês pago.
+    const payoutRows = await prisma.$queryRaw<Array<{ month: string; taxCents: bigint }>>`
       SELECT
-        COALESCE(SUM(
-          CASE
-            WHEN tmp."paidAt" IS NULL THEN m."taxCents"
-            ELSE 0
-          END
-        ), 0)::bigint AS "pendingTaxCents"
-      FROM m
-      LEFT JOIN "tax_month_payments" tmp
-        ON tmp."team" = ${session.team}
-       AND tmp."month" = m."month"
+        substring(ep."date", 1, 7) AS "month",
+        COALESCE(SUM(ep."tax7Cents"), 0)::bigint AS "taxCents"
+      FROM "employee_payouts" ep
+      WHERE ep."team" = ${session.team}
+      GROUP BY 1
     `;
-    const taxesPendingCents = safeInt(taxPendingRows?.[0]?.pendingTaxCents);
+
+    const payoutByMonth = new Map<string, number>();
+    for (const row of payoutRows) payoutByMonth.set(row.month, safeInt(row.taxCents));
+
+    const balcaoOpsTax = await prisma.balcaoOperacao.findMany({
+      where: { team: session.team },
+      select: {
+        createdAt: true,
+        customerChargeCents: true,
+        supplierPayCents: true,
+        boardingFeeCents: true,
+      },
+    });
+
+    const balcaoTaxByMonth = new Map<string, number>();
+    for (const op of balcaoOpsTax) {
+      const dateISO = recifeDateISO(op.createdAt);
+      const month = recifeMonthKey(op.createdAt);
+      const opTaxPercent = resolveTaxPercent(dateISO, taxRule);
+      const opProfitCents = balcaoProfitSemTaxaCents({
+        customerChargeCents: op.customerChargeCents,
+        supplierPayCents: op.supplierPayCents,
+        boardingFeeCents: op.boardingFeeCents,
+      });
+      const opTaxCents = taxFromProfitCents(opProfitCents, opTaxPercent);
+      balcaoTaxByMonth.set(month, (balcaoTaxByMonth.get(month) || 0) + opTaxCents);
+    }
+
+    const allTaxMonths = Array.from(
+      new Set<string>([...payoutByMonth.keys(), ...balcaoTaxByMonth.keys()])
+    );
+
+    const taxPayments = await prisma.taxMonthPayment.findMany({
+      where: { team: session.team, month: { in: allTaxMonths.length ? allTaxMonths : ["__none__"] } },
+      select: { month: true, totalTaxCents: true, breakdown: true, paidAt: true },
+    });
+    const paidByMonth = new Map(taxPayments.map((p) => [p.month, p]));
+
+    let taxesPendingCents = 0;
+    let taxesPendingPayoutCents = 0;
+    let taxesPendingBalcaoCents = 0;
+
+    for (const month of allTaxMonths) {
+      const computedPayout = payoutByMonth.get(month) || 0;
+      const computedBalcao = balcaoTaxByMonth.get(month) || 0;
+      const payment = paidByMonth.get(month);
+
+      if (payment?.paidAt) continue;
+
+      if (payment) {
+        const snapshot = parseTaxSnapshotComponents({
+          totalTaxCents: safeInt(payment.totalTaxCents),
+          breakdown: payment.breakdown,
+        });
+        taxesPendingCents += snapshot.totalTaxCents;
+        taxesPendingPayoutCents += snapshot.payoutTaxCents;
+        taxesPendingBalcaoCents += snapshot.balcaoTaxCents;
+        continue;
+      }
+
+      taxesPendingPayoutCents += computedPayout;
+      taxesPendingBalcaoCents += computedBalcao;
+      taxesPendingCents += computedPayout + computedBalcao;
+    }
 
     const latestCashCents = safeInt(latest?.cashCents ?? 0);
 
@@ -171,7 +329,11 @@ export async function GET(req: Request) {
 
           // ✅ novos
           employeePayoutsPendingCents,
+          employeePayoutsPendingBaseCents,
+          employeePayoutsPendingBalcaoCents,
           taxesPendingCents,
+          taxesPendingPayoutCents,
+          taxesPendingBalcaoCents,
 
           // ✅ pronto pro front
           cashProjectedCents,

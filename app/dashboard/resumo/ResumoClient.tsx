@@ -467,7 +467,7 @@ export default function CedentesResumoClient() {
               <div className="text-xs text-slate-600">A pagar (funcionários)</div>
               <div className="text-xl font-bold">{fmtMoneyBR(employeePayoutsPendingCents)}</div>
               <div className="text-xs text-slate-500 mt-1">
-                soma netPayCents com <b>paidAt = null</b>
+                netPay pendente + comissão de balcão pendente
               </div>
             </div>
 
@@ -555,7 +555,12 @@ export default function CedentesResumoClient() {
             hint="status PENDING"
             tone="danger"
           />
-          <StatCard label="A PAGAR (funcionários)" value={`-${fmtMoneyBR(employeePayoutsPendingCents)}`} hint="paidAt = null" tone="danger" />
+          <StatCard
+            label="A PAGAR (funcionários)"
+            value={`-${fmtMoneyBR(employeePayoutsPendingCents)}`}
+            hint="netPay pendente + comissão balcão"
+            tone="danger"
+          />
           <StatCard label="IMPOSTOS PENDENTES" value={`-${fmtMoneyBR(taxesPendingCents)}`} hint="meses não pagos" tone="danger" />
         </div>
 

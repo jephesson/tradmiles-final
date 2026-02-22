@@ -619,7 +619,12 @@ export default function CaixaImediatoClient() {
                   tone="minus"
                   hint="status PENDING"
                 />
-                <Line label="A pagar (funcionários)" value={`-${fmtMoneyBR(employeePayoutsPendingCents)}`} tone="minus" hint="paidAt = null" />
+                <Line
+                  label="A pagar (funcionários)"
+                  value={`-${fmtMoneyBR(employeePayoutsPendingCents)}`}
+                  tone="minus"
+                  hint="netPay pendente + comissão balcão"
+                />
                 <Line label="Impostos pendentes" value={`-${fmtMoneyBR(taxesPendingCents)}`} tone="minus" hint="meses não pagos" />
               </div>
             </div>
