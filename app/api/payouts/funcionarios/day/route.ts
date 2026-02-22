@@ -1,6 +1,17 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { prisma } from "@/lib/prisma";
+import {
+  BALCAO_TAX_DEFAULT_PERCENT,
+  BalcaoTaxRule,
+  balcaoProfitSemTaxaCents,
+  buildTaxRule,
+  recifeDateISO,
+  resolveTaxPercent,
+  sellerCommissionCentsFromNet,
+  taxFromProfitCents,
+  netProfitAfterTaxCents,
+} from "@/lib/balcao-commission";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -89,6 +100,13 @@ function dayBoundsUTC(date: string) {
   return { start, end };
 }
 
+function dayBoundsRecife(date: string) {
+  const start = new Date(`${date}T00:00:00-03:00`);
+  const end = new Date(`${date}T00:00:00-03:00`);
+  end.setDate(end.getDate() + 1);
+  return { start, end };
+}
+
 function pointsValueCentsFallback(points: number, milheiroCents: number) {
   const denom = (points ?? 0) / 1000;
   if (denom <= 0) return 0;
@@ -173,11 +191,12 @@ export async function GET(req: Request) {
     const effectiveISO = settings.taxEffectiveFrom
       ? settings.taxEffectiveFrom.toISOString().slice(0, 10)
       : null;
-    const defaultPercent = 8;
+    const defaultPercent = BALCAO_TAX_DEFAULT_PERCENT;
     const configuredPercent = Number.isFinite(settings.taxPercent)
       ? Math.max(0, Math.min(100, Number(settings.taxPercent)))
       : defaultPercent;
     const taxPercent = effectiveISO && date >= effectiveISO ? configuredPercent : defaultPercent;
+    const taxRule: BalcaoTaxRule = buildTaxRule(settings);
 
     // Mantém aqui só pra não quebrar (e pra teu compute usar igual).
     // No DAY read-only a gente não usa start/end.
@@ -201,9 +220,47 @@ export async function GET(req: Request) {
 
     const byUserId = new Map(payouts.map((p) => [p.userId, p]));
 
+    const { start: balcaoStart, end: balcaoEnd } = dayBoundsRecife(date);
+    const balcaoOps = await prisma.balcaoOperacao.findMany({
+      where: {
+        team: session.team,
+        createdAt: { gte: balcaoStart, lt: balcaoEnd },
+        employeeId: { not: null },
+      },
+      select: {
+        employeeId: true,
+        createdAt: true,
+        customerChargeCents: true,
+        supplierPayCents: true,
+        boardingFeeCents: true,
+      },
+    });
+
+    const balcaoCommissionByUser = new Map<string, number>();
+    for (const op of balcaoOps) {
+      const employeeId = String(op.employeeId || "").trim();
+      if (!employeeId) continue;
+      const opDateISO = recifeDateISO(op.createdAt);
+      const opTaxPercent = resolveTaxPercent(opDateISO, taxRule);
+      const opProfitCents = balcaoProfitSemTaxaCents({
+        customerChargeCents: op.customerChargeCents,
+        supplierPayCents: op.supplierPayCents,
+        boardingFeeCents: op.boardingFeeCents,
+      });
+      const opTaxCents = taxFromProfitCents(opProfitCents, opTaxPercent);
+      const opNetCents = netProfitAfterTaxCents(opProfitCents, opTaxCents);
+      const opCommissionCents = sellerCommissionCentsFromNet(opNetCents);
+
+      balcaoCommissionByUser.set(
+        employeeId,
+        (balcaoCommissionByUser.get(employeeId) || 0) + opCommissionCents
+      );
+    }
+
     // 3) garante retorno de TODO MUNDO (mesmo sem movimento)
     const rows = users.map((u) => {
       const p = byUserId.get(u.id);
+      const balcaoCommissionCents = balcaoCommissionByUser.get(u.id) || 0;
 
       if (p) {
         return {
@@ -216,8 +273,9 @@ export async function GET(req: Request) {
           tax7Cents: safeInt(p.tax7Cents, 0),
           feeCents: safeInt(p.feeCents, 0),
           netPayCents: safeInt(p.netPayCents, 0),
+          balcaoCommissionCents,
 
-          breakdown: (p.breakdown as any) ?? null,
+          breakdown: (p.breakdown as unknown) ?? null,
 
           paidAt: p.paidAt ? p.paidAt.toISOString() : null,
           paidById: p.paidById ?? null,
@@ -237,6 +295,7 @@ export async function GET(req: Request) {
         tax7Cents: 0,
         feeCents: 0,
         netPayCents: 0,
+        balcaoCommissionCents,
 
         breakdown: {
           commission1Cents: 0,
@@ -262,12 +321,13 @@ export async function GET(req: Request) {
         acc.tax += safeInt(r.tax7Cents, 0);
         acc.fee += safeInt(r.feeCents, 0);
         acc.net += safeInt(r.netPayCents, 0);
+        acc.balcaoCommission += safeInt(r.balcaoCommissionCents, 0);
 
         if (r.paidById || r.paidAt) acc.paid += safeInt(r.netPayCents, 0);
 
         return acc;
       },
-      { gross: 0, tax: 0, fee: 0, net: 0, paid: 0, pending: 0 }
+      { gross: 0, tax: 0, fee: 0, net: 0, paid: 0, pending: 0, balcaoCommission: 0 }
     );
 
     totals.pending = totals.net - totals.paid;
@@ -344,9 +404,10 @@ export async function GET(req: Request) {
       totals,
       overdue,
     });
-  } catch (e: any) {
+  } catch (e: unknown) {
+    const message = e instanceof Error && e.message ? e.message : String(e);
     return NextResponse.json(
-      { ok: false, error: e?.message || String(e) },
+      { ok: false, error: message },
       { status: 500 }
     );
   }

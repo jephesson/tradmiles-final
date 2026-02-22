@@ -37,6 +37,7 @@ type Row = {
   taxPercent: number;
   taxCents: number;
   netProfitCents: number;
+  sellerCommissionCents: number;
   locator: string | null;
   note: string | null;
   createdAt: string;
@@ -51,6 +52,7 @@ type Resumo = {
   totalProfitCents: number;
   totalTaxCents: number;
   totalNetProfitCents: number;
+  totalSellerCommissionCents: number;
 };
 
 type TaxRule = {
@@ -182,6 +184,7 @@ export default function CompraVendaClient() {
     totalProfitCents: 0,
     totalTaxCents: 0,
     totalNetProfitCents: 0,
+    totalSellerCommissionCents: 0,
   });
   const [taxRule, setTaxRule] = useState<TaxRule>({
     defaultPercent: 8,
@@ -236,6 +239,10 @@ export default function CompraVendaClient() {
     () => previewProfitCents - previewTaxCents,
     [previewProfitCents, previewTaxCents]
   );
+  const previewSellerCommissionCents = useMemo(
+    () => Math.round(Math.max(0, previewNetProfitCents) * 0.6),
+    [previewNetProfitCents]
+  );
 
   const loadRows = useCallback(async (search = "") => {
     const query = search.trim();
@@ -261,6 +268,7 @@ export default function CompraVendaClient() {
       totalProfitCents: Number(data?.data?.resumo?.totalProfitCents || 0),
       totalTaxCents: Number(data?.data?.resumo?.totalTaxCents || 0),
       totalNetProfitCents: Number(data?.data?.resumo?.totalNetProfitCents || 0),
+      totalSellerCommissionCents: Number(data?.data?.resumo?.totalSellerCommissionCents || 0),
     });
     setTaxRule({
       defaultPercent: Number(data?.data?.taxRule?.defaultPercent || 8),
@@ -368,6 +376,7 @@ export default function CompraVendaClient() {
         totalProfitCents: 0,
         totalTaxCents: 0,
         totalNetProfitCents: 0,
+        totalSellerCommissionCents: 0,
       });
       setError(getErrorMessage(e, "Falha ao carregar dados da tela."));
     } finally {
@@ -487,7 +496,7 @@ export default function CompraVendaClient() {
         </div>
       )}
 
-      <div className="grid grid-cols-1 gap-3 md:grid-cols-5">
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-6">
         <div className="rounded border border-zinc-200 bg-white p-3">
           <div className="text-xs text-zinc-500">Total a pagar (fornecedores)</div>
           <div className="text-lg font-semibold">{formatMoney(resumo.totalSupplierPayCents)}</div>
@@ -507,6 +516,12 @@ export default function CompraVendaClient() {
         <div className="rounded border border-zinc-200 bg-white p-3">
           <div className="text-xs text-zinc-500">Lucro líquido (após imposto)</div>
           <div className="text-lg font-semibold text-emerald-700">{formatMoney(resumo.totalNetProfitCents)}</div>
+        </div>
+        <div className="rounded border border-zinc-200 bg-white p-3">
+          <div className="text-xs text-zinc-500">Comissão vendedor (60%)</div>
+          <div className="text-lg font-semibold text-blue-700">
+            {formatMoney(resumo.totalSellerCommissionCents)}
+          </div>
         </div>
       </div>
 
@@ -649,7 +664,7 @@ export default function CompraVendaClient() {
           />
         </label>
 
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-5">
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-6">
           <div className="rounded border border-zinc-200 bg-zinc-50 p-3">
             <div className="text-xs text-zinc-500">Valor a pagar ao fornecedor</div>
             <div className="font-semibold">{formatMoney(previewSupplierPayCents)}</div>
@@ -670,6 +685,10 @@ export default function CompraVendaClient() {
             <div className="text-xs text-zinc-500">Lucro líquido (após imposto)</div>
             <div className="font-semibold text-emerald-700">{formatMoney(previewNetProfitCents)}</div>
           </div>
+          <div className="rounded border border-zinc-200 bg-zinc-50 p-3">
+            <div className="text-xs text-zinc-500">Comissão vendedor (60%)</div>
+            <div className="font-semibold text-blue-700">{formatMoney(previewSellerCommissionCents)}</div>
+          </div>
         </div>
 
         <div className="text-xs text-zinc-500">
@@ -688,7 +707,7 @@ export default function CompraVendaClient() {
       </form>
 
       <div className="rounded border border-zinc-200 bg-white overflow-x-auto">
-        <table className="min-w-[1760px] w-full text-sm">
+        <table className="min-w-[1880px] w-full text-sm">
           <thead className="bg-zinc-50">
             <tr className="text-left">
               <th className="p-3">Data</th>
@@ -704,6 +723,7 @@ export default function CompraVendaClient() {
               <th className="p-3">Lucro (sem taxa)</th>
               <th className="p-3">Imposto</th>
               <th className="p-3">Lucro líquido</th>
+              <th className="p-3">Comissão vendedor</th>
               <th className="p-3">Localizador</th>
               <th className="p-3">Funcionário</th>
             </tr>
@@ -711,13 +731,13 @@ export default function CompraVendaClient() {
           <tbody>
             {loading ? (
               <tr>
-                <td className="p-4 text-zinc-600" colSpan={15}>
+                <td className="p-4 text-zinc-600" colSpan={16}>
                   Carregando...
                 </td>
               </tr>
             ) : rows.length === 0 ? (
               <tr>
-                <td className="p-4 text-zinc-600" colSpan={15}>
+                <td className="p-4 text-zinc-600" colSpan={16}>
                   Nenhuma operação registrada.
                 </td>
               </tr>
@@ -762,6 +782,9 @@ export default function CompraVendaClient() {
                     }`}
                   >
                     {formatMoney(row.netProfitCents)}
+                  </td>
+                  <td className="p-3 whitespace-nowrap font-semibold text-blue-700">
+                    {formatMoney(row.sellerCommissionCents)}
                   </td>
                   <td className="p-3 whitespace-nowrap font-medium">{row.locator || "—"}</td>
 

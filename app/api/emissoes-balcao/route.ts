@@ -2,6 +2,17 @@ import { NextRequest, NextResponse } from "next/server";
 import { BalcaoAirline } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/auth-server";
+import {
+  BALCAO_TAX_DEFAULT_PERCENT,
+  BalcaoTaxRule,
+  balcaoProfitSemTaxaCents,
+  buildTaxRule,
+  recifeDateISO,
+  resolveTaxPercent,
+  sellerCommissionCentsFromNet,
+  taxFromProfitCents,
+  netProfitAfterTaxCents,
+} from "@/lib/balcao-commission";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -17,14 +28,6 @@ const AIRLINES: BalcaoAirline[] = [
   "COPA_AIRLINES",
   "UNITED",
 ];
-
-const TAX_TZ = "America/Recife";
-const DEFAULT_TAX_PERCENT = 8;
-
-type TaxRule = {
-  configuredPercent: number;
-  effectiveISO: string | null;
-};
 
 function noCacheHeaders() {
   return {
@@ -66,46 +69,6 @@ function isAirline(v: unknown): v is BalcaoAirline {
   return AIRLINES.includes(String(v) as BalcaoAirline);
 }
 
-function normalizePercent(v: unknown, fallback = DEFAULT_TAX_PERCENT) {
-  const n = Number(v);
-  if (!Number.isFinite(n)) return fallback;
-  return Math.max(0, Math.min(100, Math.round(n)));
-}
-
-function isoDateRecife(date: Date) {
-  const parts = new Intl.DateTimeFormat("en-CA", {
-    timeZone: TAX_TZ,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  })
-    .formatToParts(date)
-    .reduce<Record<string, string>>((acc, p) => {
-      acc[p.type] = p.value;
-      return acc;
-    }, {});
-
-  return `${parts.year}-${parts.month}-${parts.day}`;
-}
-
-function buildTaxRule(settings: { taxPercent: number; taxEffectiveFrom: Date | null }): TaxRule {
-  return {
-    configuredPercent: normalizePercent(settings.taxPercent, DEFAULT_TAX_PERCENT),
-    effectiveISO: settings.taxEffectiveFrom
-      ? settings.taxEffectiveFrom.toISOString().slice(0, 10)
-      : null,
-  };
-}
-
-function resolveTaxPercent(dateISO: string, rule: TaxRule) {
-  if (!rule.effectiveISO) return DEFAULT_TAX_PERCENT;
-  return dateISO >= rule.effectiveISO ? rule.configuredPercent : DEFAULT_TAX_PERCENT;
-}
-
-function taxFromProfit(profitCents: number, percent: number) {
-  return Math.round(Math.max(0, Number(profitCents || 0)) * (percent / 100));
-}
-
 function toRow(item: {
   id: string;
   airline: BalcaoAirline;
@@ -122,13 +85,17 @@ function toRow(item: {
   supplierCliente: { id: string; identificador: string; nome: string };
   finalCliente: { id: string; identificador: string; nome: string };
   employee: { id: string; name: string; login: string } | null;
-}, rule: TaxRule) {
-  const normalizedProfitCents =
-    item.customerChargeCents - item.supplierPayCents - item.boardingFeeCents;
-  const dateISO = isoDateRecife(item.createdAt);
+}, rule: BalcaoTaxRule) {
+  const normalizedProfitCents = balcaoProfitSemTaxaCents({
+    customerChargeCents: item.customerChargeCents,
+    supplierPayCents: item.supplierPayCents,
+    boardingFeeCents: item.boardingFeeCents,
+  });
+  const dateISO = recifeDateISO(item.createdAt);
   const taxPercent = resolveTaxPercent(dateISO, rule);
-  const taxCents = taxFromProfit(normalizedProfitCents, taxPercent);
-  const netProfitCents = normalizedProfitCents - taxCents;
+  const taxCents = taxFromProfitCents(normalizedProfitCents, taxPercent);
+  const netProfitCents = netProfitAfterTaxCents(normalizedProfitCents, taxCents);
+  const sellerCommissionCents = sellerCommissionCentsFromNet(netProfitCents);
 
   return {
     id: item.id,
@@ -143,6 +110,7 @@ function toRow(item: {
     taxPercent,
     taxCents,
     netProfitCents,
+    sellerCommissionCents,
     locator: item.locator,
     note: item.note,
     createdAt: item.createdAt.toISOString(),
@@ -214,6 +182,7 @@ export async function GET(req: NextRequest) {
         acc.totalProfitCents += row.profitCents;
         acc.totalTaxCents += row.taxCents;
         acc.totalNetProfitCents += row.netProfitCents;
+        acc.totalSellerCommissionCents += row.sellerCommissionCents;
         return acc;
       },
       {
@@ -222,6 +191,7 @@ export async function GET(req: NextRequest) {
         totalProfitCents: 0,
         totalTaxCents: 0,
         totalNetProfitCents: 0,
+        totalSellerCommissionCents: 0,
       }
     );
 
@@ -229,7 +199,7 @@ export async function GET(req: NextRequest) {
       rows: data,
       resumo,
       taxRule: {
-        defaultPercent: DEFAULT_TAX_PERCENT,
+        defaultPercent: BALCAO_TAX_DEFAULT_PERCENT,
         configuredPercent: taxRule.configuredPercent,
         effectiveISO: taxRule.effectiveISO,
       },

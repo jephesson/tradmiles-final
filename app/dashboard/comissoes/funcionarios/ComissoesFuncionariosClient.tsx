@@ -26,6 +26,7 @@ type PayoutRow = {
   tax7Cents: number; // 8% (nome legado)
   feeCents: number; // reembolso taxa
   netPayCents: number;
+  balcaoCommissionCents?: number;
 
   breakdown: Breakdown | null;
 
@@ -41,6 +42,7 @@ type DayTotals = {
   tax: number;
   fee: number;
   net: number;
+  balcaoCommission?: number;
   paid: number;
   pending: number;
 };
@@ -110,8 +112,8 @@ type DetailsResponse = {
     paidById: string | null;
     paidBy: PaidByLite;
   } | null;
-  breakdown: any;
-  explain: any;
+  breakdown: unknown;
+  explain: unknown;
   lines?: { sales?: DetailSaleLine[] };
   audit?: {
     linesGrossCents: number;
@@ -150,7 +152,7 @@ function todayISORecife() {
     day: "2-digit",
   })
     .formatToParts(d)
-    .reduce((acc: any, p) => {
+    .reduce<Record<string, string>>((acc, p) => {
       acc[p.type] = p.value;
       return acc;
     }, {});
@@ -178,9 +180,9 @@ function fmtDateBR(isoDate?: string | null) {
 async function apiGet<T>(url: string): Promise<T> {
   const res = await fetch(url, { cache: "no-store", credentials: "include" });
 
-  let json: any = null;
+  let json: { ok?: boolean; error?: string } | null = null;
   try {
-    json = await res.json();
+    json = (await res.json()) as { ok?: boolean; error?: string };
   } catch {}
 
   if (!res.ok || !json?.ok) {
@@ -195,7 +197,7 @@ async function apiGet<T>(url: string): Promise<T> {
   return json as T;
 }
 
-async function apiPost<T>(url: string, body?: any): Promise<T> {
+async function apiPost<T>(url: string, body?: unknown): Promise<T> {
   const res = await fetch(url, {
     method: "POST",
     cache: "no-store",
@@ -204,9 +206,9 @@ async function apiPost<T>(url: string, body?: any): Promise<T> {
     body: body ? JSON.stringify(body) : "{}",
   });
 
-  let json: any = null;
+  let json: { ok?: boolean; error?: string } | null = null;
   try {
-    json = await res.json();
+    json = (await res.json()) as { ok?: boolean; error?: string };
   } catch {}
 
   if (!res.ok || !json?.ok) {
@@ -224,6 +226,11 @@ async function apiPost<T>(url: string, body?: any): Promise<T> {
 async function readApiError(res: Response) {
   const payload = (await res.json().catch(() => null)) as { error?: string } | null;
   return payload?.error || `Erro (${res.status})`;
+}
+
+function getErrorMessage(e: unknown, fallback: string) {
+  if (e instanceof Error && e.message) return e.message;
+  return fallback;
 }
 
 function KPI({ label, value }: { label: string; value: string }) {
@@ -252,7 +259,7 @@ function Pill({ kind, text }: { kind: "ok" | "warn" | "muted"; text: string }) {
  * - "A pagar (líquido)" = netPay (inclui reembolso taxa)
  */
 function lucroSemTaxaEmbarqueCents(r: PayoutRow) {
-  return (r.grossProfitCents || 0) - (r.tax7Cents || 0);
+  return (r.grossProfitCents || 0) - (r.tax7Cents || 0) + (r.balcaoCommissionCents || 0);
 }
 
 export default function ComissoesFuncionariosClient() {
@@ -313,7 +320,7 @@ export default function ComissoesFuncionariosClient() {
         `/api/payouts/funcionarios/day?date=${encodeURIComponent(d)}`
       );
       setDay(data);
-    } catch (e: any) {
+    } catch (e: unknown) {
       setDay({
         ok: true,
         date: d,
@@ -322,7 +329,7 @@ export default function ComissoesFuncionariosClient() {
       });
       setToast({
         title: "Não foi possível carregar o dia",
-        desc: e?.message || String(e),
+        desc: getErrorMessage(e, "Falha ao carregar o dia."),
       });
     } finally {
       setLoading(false);
@@ -334,7 +341,7 @@ export default function ComissoesFuncionariosClient() {
     const force = opts?.force ?? true;
 
     try {
-      await apiPost<any>(`/api/payouts/funcionarios/compute`, {
+      await apiPost<{ ok: boolean }>(`/api/payouts/funcionarios/compute`, {
         date: d,
         basis,
         force,
@@ -346,8 +353,8 @@ export default function ComissoesFuncionariosClient() {
         title: force ? "Dia recalculado!" : "Dia computado!",
         desc: `${d} • ${basisLabel}${force ? " • FORÇAR" : ""}`,
       });
-    } catch (e: any) {
-      setToast({ title: "Falha ao computar o dia", desc: e?.message || String(e) });
+    } catch (e: unknown) {
+      setToast({ title: "Falha ao computar o dia", desc: getErrorMessage(e, "Falha ao computar.") });
     } finally {
       setComputing(false);
     }
@@ -355,7 +362,7 @@ export default function ComissoesFuncionariosClient() {
 
   async function computeDaySilent(d: string) {
     try {
-      await apiPost<any>(`/api/payouts/funcionarios/compute`, {
+      await apiPost<{ ok: boolean }>(`/api/payouts/funcionarios/compute`, {
         date: d,
         basis,
         force: false,
@@ -379,8 +386,8 @@ export default function ComissoesFuncionariosClient() {
       }
 
       setToast({ title: "Pago!", desc: `Pagamento marcado para ${d}.` });
-    } catch (e: any) {
-      setToast({ title: "Falha ao pagar", desc: e?.message || String(e) });
+    } catch (e: unknown) {
+      setToast({ title: "Falha ao pagar", desc: getErrorMessage(e, "Falha ao pagar.") });
     } finally {
       setPayingKey(null);
     }
@@ -446,9 +453,9 @@ export default function ComissoesFuncionariosClient() {
         )}&month=${encodeURIComponent(mm)}`
       );
       setMonthData(data);
-    } catch (e: any) {
+    } catch (e: unknown) {
       setMonthData(null);
-      setToast({ title: "Falha ao carregar mês", desc: e?.message || String(e) });
+      setToast({ title: "Falha ao carregar mês", desc: getErrorMessage(e, "Falha ao carregar mês.") });
     } finally {
       setMonthLoading(false);
     }
@@ -463,9 +470,12 @@ export default function ComissoesFuncionariosClient() {
         )}&userId=${encodeURIComponent(userId)}&includeLines=1`
       );
       setDetails(data);
-    } catch (e: any) {
+    } catch (e: unknown) {
       setDetails(null);
-      setToast({ title: "Falha ao carregar detalhes", desc: e?.message || String(e) });
+      setToast({
+        title: "Falha ao carregar detalhes",
+        desc: getErrorMessage(e, "Falha ao carregar detalhes."),
+      });
     } finally {
       setDetailsLoading(false);
     }
@@ -537,7 +547,8 @@ export default function ComissoesFuncionariosClient() {
   const dayExtra = useMemo(() => {
     const rows = day?.rows || [];
     const lucroSemTaxa = rows.reduce((acc, r) => acc + lucroSemTaxaEmbarqueCents(r), 0);
-    return { lucroSemTaxa };
+    const balcaoCommission = rows.reduce((acc, r) => acc + (r.balcaoCommissionCents || 0), 0);
+    return { lucroSemTaxa, balcaoCommission };
   }, [day]);
 
   const dayTaxPercent = useMemo(() => {
@@ -551,7 +562,8 @@ export default function ComissoesFuncionariosClient() {
   const monthExtra = useMemo(() => {
     const rows = monthData?.days || [];
     const lucroSemTaxa = rows.reduce((acc, r) => acc + lucroSemTaxaEmbarqueCents(r), 0);
-    return { lucroSemTaxa };
+    const balcaoCommission = rows.reduce((acc, r) => acc + (r.balcaoCommissionCents || 0), 0);
+    return { lucroSemTaxa, balcaoCommission };
   }, [monthData]);
 
   // ✅ classes de destaque (azul / verde)
@@ -660,13 +672,14 @@ export default function ComissoesFuncionariosClient() {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-2 md:grid-cols-7">
+      <div className="grid grid-cols-2 gap-2 md:grid-cols-8">
         <KPI label="Bruto (C1+C2+C3)" value={fmtMoneyBR(day?.totals.gross || 0)} />
         <KPI
           label={`Imposto${dayTaxPercent ? ` (${dayTaxPercent}%)` : ""}`}
           value={fmtMoneyBR(day?.totals.tax || 0)}
         />
         <KPI label="Taxas (reembolso)" value={fmtMoneyBR(day?.totals.fee || 0)} />
+        <KPI label="Comissão balcão (60%)" value={fmtMoneyBR(dayExtra.balcaoCommission)} />
         <KPI label="Líquido total (a pagar)" value={fmtMoneyBR(day?.totals.net || 0)} />
         <KPI label="Lucro (sem taxa embarque)" value={fmtMoneyBR(dayExtra.lucroSemTaxa)} />
         <KPI label="Pago" value={fmtMoneyBR(day?.totals.paid || 0)} />
@@ -722,6 +735,7 @@ export default function ComissoesFuncionariosClient() {
                   Imposto{dayTaxPercent ? ` (${dayTaxPercent}%)` : ""}
                 </th>
                 <th className="px-4 py-3">Taxa embarque</th>
+                <th className="px-4 py-3">Comissão balcão</th>
 
                 <th className={`px-4 py-3 ${lucroCellCls}`}>Lucro s/ taxa</th>
                 <th className={`px-4 py-3 ${liquidoCellCls}`}>Líquido (a pagar)</th>
@@ -759,6 +773,7 @@ export default function ComissoesFuncionariosClient() {
 
                     <td className="px-4 py-3">{fmtMoneyBR(r.tax7Cents || 0)}</td>
                     <td className="px-4 py-3">{fmtMoneyBR(r.feeCents || 0)}</td>
+                    <td className="px-4 py-3">{fmtMoneyBR(r.balcaoCommissionCents || 0)}</td>
 
                     <td className={`px-4 py-3 font-semibold ${lucroCellCls}`}>
                       {fmtMoneyBR(lucroSemTaxa)}
@@ -816,7 +831,7 @@ export default function ComissoesFuncionariosClient() {
 
               {!day?.rows?.length && (
                 <tr>
-                  <td className="px-4 py-8 text-center text-sm text-neutral-500" colSpan={11}>
+                  <td className="px-4 py-8 text-center text-sm text-neutral-500" colSpan={12}>
                     Sem dados para este dia (ou ainda não autenticado).
                   </td>
                 </tr>
@@ -874,8 +889,9 @@ export default function ComissoesFuncionariosClient() {
       </div>
 
       <p className="text-xs text-neutral-500">
-        Nota: Bruto = C1+C2+C3. <b>Lucro s/ taxa</b> = bruto − imposto. <b>Líquido</b> continua sendo o total final a pagar
-        (inclui reembolso da taxa).
+        Nota: Bruto = C1+C2+C3. <b>Comissão balcão</b> = 60% do lucro líquido do balcão (já com imposto do balcão).
+        <b> Lucro s/ taxa</b> = bruto − imposto + comissão balcão. <b>Líquido</b> continua sendo o total final a pagar
+        (inclui reembolso da taxa de vendas).
       </p>
 
       {/* ===== Drawer Detalhes + Mês ===== */}
@@ -1126,10 +1142,11 @@ export default function ComissoesFuncionariosClient() {
 
                 </div>
 
-                <div className="grid grid-cols-2 gap-2 md:grid-cols-7">
+                <div className="grid grid-cols-2 gap-2 md:grid-cols-8">
                   <KPI label="Bruto" value={fmtMoneyBR(monthData?.totals.gross || 0)} />
                   <KPI label="Imposto" value={fmtMoneyBR(monthData?.totals.tax || 0)} />
                   <KPI label="Taxas" value={fmtMoneyBR(monthData?.totals.fee || 0)} />
+                  <KPI label="Comissão balcão" value={fmtMoneyBR(monthExtra.balcaoCommission)} />
                   <KPI label="Líquido (a pagar)" value={fmtMoneyBR(monthData?.totals.net || 0)} />
                   <KPI label="Lucro s/ taxa" value={fmtMoneyBR(monthExtra.lucroSemTaxa)} />
                   <KPI label="Pago" value={fmtMoneyBR(monthData?.totals.paid || 0)} />
@@ -1149,6 +1166,7 @@ export default function ComissoesFuncionariosClient() {
                             <th className="px-4 py-3">C3</th>
                             <th className="px-4 py-3">Imposto</th>
                             <th className="px-4 py-3">Taxa</th>
+                            <th className="px-4 py-3">Comissão balcão</th>
                             <th className={`px-4 py-3 ${lucroCellCls}`}>Lucro s/ taxa</th>
                             <th className={`px-4 py-3 ${liquidoCellCls}`}>Líquido</th>
                             <th className="px-4 py-3">Status</th>
@@ -1177,6 +1195,7 @@ export default function ComissoesFuncionariosClient() {
 
                                 <td className="px-4 py-3">{fmtMoneyBR(r.tax7Cents || 0)}</td>
                                 <td className="px-4 py-3">{fmtMoneyBR(r.feeCents || 0)}</td>
+                                <td className="px-4 py-3">{fmtMoneyBR(r.balcaoCommissionCents || 0)}</td>
 
                                 <td className={`px-4 py-3 font-semibold ${lucroCellCls}`}>
                                   {fmtMoneyBR(lucroSemTaxa)}
@@ -1230,7 +1249,7 @@ export default function ComissoesFuncionariosClient() {
 
                           {!monthData?.days?.length && (
                             <tr>
-                              <td className="px-4 py-8 text-center text-sm text-neutral-500" colSpan={11}>
+                              <td className="px-4 py-8 text-center text-sm text-neutral-500" colSpan={12}>
                                 Sem dados no mês selecionado.
                               </td>
                             </tr>
