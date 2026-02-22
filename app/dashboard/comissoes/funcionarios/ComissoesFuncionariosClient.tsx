@@ -255,11 +255,15 @@ function Pill({ kind, text }: { kind: "ok" | "warn" | "muted"; text: string }) {
 
 /**
  * ✅ REGRA FINAL (sem duplicar):
- * - "Lucro s/ taxa" = bruto - imposto (sem reembolso)
- * - "A pagar (líquido)" = netPay (inclui reembolso taxa)
+ * - "Lucro s/ taxa" = bruto - imposto + comissão balcão
+ * - "A pagar (líquido)" = netPay + comissão balcão (netPay já inclui reembolso taxa)
  */
 function lucroSemTaxaEmbarqueCents(r: PayoutRow) {
   return (r.grossProfitCents || 0) - (r.tax7Cents || 0) + (r.balcaoCommissionCents || 0);
+}
+
+function liquidoComBalcaoCents(r: PayoutRow) {
+  return (r.netPayCents || 0) + (r.balcaoCommissionCents || 0);
 }
 
 export default function ComissoesFuncionariosClient() {
@@ -548,7 +552,13 @@ export default function ComissoesFuncionariosClient() {
     const rows = day?.rows || [];
     const lucroSemTaxa = rows.reduce((acc, r) => acc + lucroSemTaxaEmbarqueCents(r), 0);
     const balcaoCommission = rows.reduce((acc, r) => acc + (r.balcaoCommissionCents || 0), 0);
-    return { lucroSemTaxa, balcaoCommission };
+    const liquidoTotal = rows.reduce((acc, r) => acc + liquidoComBalcaoCents(r), 0);
+    const pago = rows.reduce(
+      (acc, r) => acc + (r.paidById || r.paidAt ? liquidoComBalcaoCents(r) : 0),
+      0
+    );
+    const pendente = liquidoTotal - pago;
+    return { lucroSemTaxa, balcaoCommission, liquidoTotal, pago, pendente };
   }, [day]);
 
   const dayTaxPercent = useMemo(() => {
@@ -563,7 +573,13 @@ export default function ComissoesFuncionariosClient() {
     const rows = monthData?.days || [];
     const lucroSemTaxa = rows.reduce((acc, r) => acc + lucroSemTaxaEmbarqueCents(r), 0);
     const balcaoCommission = rows.reduce((acc, r) => acc + (r.balcaoCommissionCents || 0), 0);
-    return { lucroSemTaxa, balcaoCommission };
+    const liquidoTotal = rows.reduce((acc, r) => acc + liquidoComBalcaoCents(r), 0);
+    const pago = rows.reduce(
+      (acc, r) => acc + (r.paidById || r.paidAt ? liquidoComBalcaoCents(r) : 0),
+      0
+    );
+    const pendente = liquidoTotal - pago;
+    return { lucroSemTaxa, balcaoCommission, liquidoTotal, pago, pendente };
   }, [monthData]);
 
   // ✅ classes de destaque (azul / verde)
@@ -680,10 +696,10 @@ export default function ComissoesFuncionariosClient() {
         />
         <KPI label="Taxas (reembolso)" value={fmtMoneyBR(day?.totals.fee || 0)} />
         <KPI label="Comissão balcão (60%)" value={fmtMoneyBR(dayExtra.balcaoCommission)} />
-        <KPI label="Líquido total (a pagar)" value={fmtMoneyBR(day?.totals.net || 0)} />
+        <KPI label="Líquido total (a pagar)" value={fmtMoneyBR(dayExtra.liquidoTotal)} />
         <KPI label="Lucro (sem taxa embarque)" value={fmtMoneyBR(dayExtra.lucroSemTaxa)} />
-        <KPI label="Pago" value={fmtMoneyBR(day?.totals.paid || 0)} />
-        <KPI label="Pendente" value={fmtMoneyBR(day?.totals.pending || 0)} />
+        <KPI label="Pago" value={fmtMoneyBR(dayExtra.pago)} />
+        <KPI label="Pendente" value={fmtMoneyBR(dayExtra.pendente)} />
       </div>
 
       {isFutureOrToday ? (
@@ -780,7 +796,7 @@ export default function ComissoesFuncionariosClient() {
                     </td>
 
                     <td className={`px-4 py-3 font-bold ${liquidoCellCls}`}>
-                      {fmtMoneyBR(r.netPayCents || 0)}
+                      {fmtMoneyBR(liquidoComBalcaoCents(r))}
                     </td>
 
                     <td className="px-4 py-3">
@@ -890,8 +906,8 @@ export default function ComissoesFuncionariosClient() {
 
       <p className="text-xs text-neutral-500">
         Nota: Bruto = C1+C2+C3. <b>Comissão balcão</b> = 60% do lucro líquido do balcão (já com imposto do balcão).
-        <b> Lucro s/ taxa</b> = bruto − imposto + comissão balcão. <b>Líquido</b> continua sendo o total final a pagar
-        (inclui reembolso da taxa de vendas).
+        <b> Lucro s/ taxa</b> = bruto − imposto + comissão balcão. <b>Líquido</b> = netPay + comissão balcão
+        (netPay já inclui reembolso da taxa de vendas).
       </p>
 
       {/* ===== Drawer Detalhes + Mês ===== */}
@@ -1147,10 +1163,10 @@ export default function ComissoesFuncionariosClient() {
                   <KPI label="Imposto" value={fmtMoneyBR(monthData?.totals.tax || 0)} />
                   <KPI label="Taxas" value={fmtMoneyBR(monthData?.totals.fee || 0)} />
                   <KPI label="Comissão balcão" value={fmtMoneyBR(monthExtra.balcaoCommission)} />
-                  <KPI label="Líquido (a pagar)" value={fmtMoneyBR(monthData?.totals.net || 0)} />
+                  <KPI label="Líquido (a pagar)" value={fmtMoneyBR(monthExtra.liquidoTotal)} />
                   <KPI label="Lucro s/ taxa" value={fmtMoneyBR(monthExtra.lucroSemTaxa)} />
-                  <KPI label="Pago" value={fmtMoneyBR(monthData?.totals.paid || 0)} />
-                  <KPI label="Pendente" value={fmtMoneyBR(monthData?.totals.pending || 0)} />
+                  <KPI label="Pago" value={fmtMoneyBR(monthExtra.pago)} />
+                  <KPI label="Pendente" value={fmtMoneyBR(monthExtra.pendente)} />
                 </div>
 
                 <div className="overflow-hidden rounded-2xl border">
@@ -1202,7 +1218,7 @@ export default function ComissoesFuncionariosClient() {
                                 </td>
 
                                 <td className={`px-4 py-3 font-bold ${liquidoCellCls}`}>
-                                  {fmtMoneyBR(r.netPayCents || 0)}
+                                  {fmtMoneyBR(liquidoComBalcaoCents(r))}
                                 </td>
 
                                 <td className="px-4 py-3">
