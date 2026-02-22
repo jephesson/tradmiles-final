@@ -34,6 +34,9 @@ type Row = {
   supplierPayCents: number;
   customerChargeCents: number;
   profitCents: number;
+  taxPercent: number;
+  taxCents: number;
+  netProfitCents: number;
   locator: string | null;
   note: string | null;
   createdAt: string;
@@ -46,6 +49,14 @@ type Resumo = {
   totalSupplierPayCents: number;
   totalCustomerChargeCents: number;
   totalProfitCents: number;
+  totalTaxCents: number;
+  totalNetProfitCents: number;
+};
+
+type TaxRule = {
+  defaultPercent: number;
+  configuredPercent: number;
+  effectiveISO: string | null;
 };
 
 type FormState = {
@@ -127,6 +138,29 @@ function formatDateTime(iso: string) {
   return d.toLocaleString("pt-BR");
 }
 
+function todayISORecife() {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Recife",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  })
+    .formatToParts(new Date())
+    .reduce<Record<string, string>>((acc, p) => {
+      acc[p.type] = p.value;
+      return acc;
+    }, {});
+
+  return `${parts.year}-${parts.month}-${parts.day}`;
+}
+
+function resolveTaxPercentForDate(dateISO: string, rule: TaxRule) {
+  const defaultPercent = Number(rule?.defaultPercent || 8);
+  const configuredPercent = Number(rule?.configuredPercent || defaultPercent);
+  if (!rule?.effectiveISO) return defaultPercent;
+  return dateISO >= rule.effectiveISO ? configuredPercent : defaultPercent;
+}
+
 function getErrorMessage(e: unknown, fallback: string) {
   if (e instanceof Error && e.message) return e.message;
   return fallback;
@@ -146,6 +180,13 @@ export default function CompraVendaClient() {
     totalSupplierPayCents: 0,
     totalCustomerChargeCents: 0,
     totalProfitCents: 0,
+    totalTaxCents: 0,
+    totalNetProfitCents: 0,
+  });
+  const [taxRule, setTaxRule] = useState<TaxRule>({
+    defaultPercent: 8,
+    configuredPercent: 8,
+    effectiveISO: null,
   });
 
   const [form, setForm] = useState<FormState>({
@@ -183,6 +224,18 @@ export default function CompraVendaClient() {
     () => previewCustomerChargeCents - previewSupplierPayCents - boardingFeeCents,
     [previewCustomerChargeCents, previewSupplierPayCents, boardingFeeCents]
   );
+  const previewTaxPercent = useMemo(
+    () => resolveTaxPercentForDate(todayISORecife(), taxRule),
+    [taxRule]
+  );
+  const previewTaxCents = useMemo(
+    () => Math.round(Math.max(0, previewProfitCents) * (previewTaxPercent / 100)),
+    [previewProfitCents, previewTaxPercent]
+  );
+  const previewNetProfitCents = useMemo(
+    () => previewProfitCents - previewTaxCents,
+    [previewProfitCents, previewTaxCents]
+  );
 
   const loadRows = useCallback(async (search = "") => {
     const query = search.trim();
@@ -194,7 +247,7 @@ export default function CompraVendaClient() {
     const data = (await res.json().catch(() => ({}))) as {
       ok?: boolean;
       error?: string;
-      data?: { rows?: Row[]; resumo?: Resumo };
+      data?: { rows?: Row[]; resumo?: Resumo; taxRule?: Partial<TaxRule> };
     };
 
     if (!res.ok || !data?.ok) {
@@ -206,6 +259,16 @@ export default function CompraVendaClient() {
       totalSupplierPayCents: Number(data?.data?.resumo?.totalSupplierPayCents || 0),
       totalCustomerChargeCents: Number(data?.data?.resumo?.totalCustomerChargeCents || 0),
       totalProfitCents: Number(data?.data?.resumo?.totalProfitCents || 0),
+      totalTaxCents: Number(data?.data?.resumo?.totalTaxCents || 0),
+      totalNetProfitCents: Number(data?.data?.resumo?.totalNetProfitCents || 0),
+    });
+    setTaxRule({
+      defaultPercent: Number(data?.data?.taxRule?.defaultPercent || 8),
+      configuredPercent: Number(data?.data?.taxRule?.configuredPercent || 8),
+      effectiveISO:
+        typeof data?.data?.taxRule?.effectiveISO === "string"
+          ? data.data.taxRule.effectiveISO
+          : null,
     });
   }, []);
 
@@ -303,6 +366,8 @@ export default function CompraVendaClient() {
         totalSupplierPayCents: 0,
         totalCustomerChargeCents: 0,
         totalProfitCents: 0,
+        totalTaxCents: 0,
+        totalNetProfitCents: 0,
       });
       setError(getErrorMessage(e, "Falha ao carregar dados da tela."));
     } finally {
@@ -422,7 +487,7 @@ export default function CompraVendaClient() {
         </div>
       )}
 
-      <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-5">
         <div className="rounded border border-zinc-200 bg-white p-3">
           <div className="text-xs text-zinc-500">Total a pagar (fornecedores)</div>
           <div className="text-lg font-semibold">{formatMoney(resumo.totalSupplierPayCents)}</div>
@@ -432,8 +497,16 @@ export default function CompraVendaClient() {
           <div className="text-lg font-semibold">{formatMoney(resumo.totalCustomerChargeCents)}</div>
         </div>
         <div className="rounded border border-zinc-200 bg-white p-3">
-          <div className="text-xs text-zinc-500">Lucro total (sem taxa)</div>
+          <div className="text-xs text-zinc-500">Lucro bruto (sem taxa)</div>
           <div className="text-lg font-semibold">{formatMoney(resumo.totalProfitCents)}</div>
+        </div>
+        <div className="rounded border border-zinc-200 bg-white p-3">
+          <div className="text-xs text-zinc-500">Imposto balcão (lucro)</div>
+          <div className="text-lg font-semibold text-amber-700">{formatMoney(resumo.totalTaxCents)}</div>
+        </div>
+        <div className="rounded border border-zinc-200 bg-white p-3">
+          <div className="text-xs text-zinc-500">Lucro líquido (após imposto)</div>
+          <div className="text-lg font-semibold text-emerald-700">{formatMoney(resumo.totalNetProfitCents)}</div>
         </div>
       </div>
 
@@ -576,7 +649,7 @@ export default function CompraVendaClient() {
           />
         </label>
 
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-5">
           <div className="rounded border border-zinc-200 bg-zinc-50 p-3">
             <div className="text-xs text-zinc-500">Valor a pagar ao fornecedor</div>
             <div className="font-semibold">{formatMoney(previewSupplierPayCents)}</div>
@@ -589,6 +662,18 @@ export default function CompraVendaClient() {
             <div className="text-xs text-zinc-500">Lucro da operação (sem taxa)</div>
             <div className="font-semibold">{formatMoney(previewProfitCents)}</div>
           </div>
+          <div className="rounded border border-zinc-200 bg-zinc-50 p-3">
+            <div className="text-xs text-zinc-500">{`Imposto (${previewTaxPercent}%)`}</div>
+            <div className="font-semibold text-amber-700">{formatMoney(previewTaxCents)}</div>
+          </div>
+          <div className="rounded border border-zinc-200 bg-zinc-50 p-3">
+            <div className="text-xs text-zinc-500">Lucro líquido (após imposto)</div>
+            <div className="font-semibold text-emerald-700">{formatMoney(previewNetProfitCents)}</div>
+          </div>
+        </div>
+
+        <div className="text-xs text-zinc-500">
+          Regra de imposto: {taxRule.effectiveISO ? `${taxRule.configuredPercent}% desde ${taxRule.effectiveISO}` : `${taxRule.defaultPercent}% (padrão)`}.
         </div>
 
         <div className="flex justify-end">
@@ -603,7 +688,7 @@ export default function CompraVendaClient() {
       </form>
 
       <div className="rounded border border-zinc-200 bg-white overflow-x-auto">
-        <table className="min-w-[1480px] w-full text-sm">
+        <table className="min-w-[1760px] w-full text-sm">
           <thead className="bg-zinc-50">
             <tr className="text-left">
               <th className="p-3">Data</th>
@@ -616,21 +701,23 @@ export default function CompraVendaClient() {
               <th className="p-3">Taxa embarque</th>
               <th className="p-3">Pagar fornecedor</th>
               <th className="p-3">Receber cliente</th>
-              <th className="p-3">Localizador</th>
               <th className="p-3">Lucro (sem taxa)</th>
+              <th className="p-3">Imposto</th>
+              <th className="p-3">Lucro líquido</th>
+              <th className="p-3">Localizador</th>
               <th className="p-3">Funcionário</th>
             </tr>
           </thead>
           <tbody>
             {loading ? (
               <tr>
-                <td className="p-4 text-zinc-600" colSpan={13}>
+                <td className="p-4 text-zinc-600" colSpan={15}>
                   Carregando...
                 </td>
               </tr>
             ) : rows.length === 0 ? (
               <tr>
-                <td className="p-4 text-zinc-600" colSpan={13}>
+                <td className="p-4 text-zinc-600" colSpan={15}>
                   Nenhuma operação registrada.
                 </td>
               </tr>
@@ -659,7 +746,6 @@ export default function CompraVendaClient() {
                   <td className="p-3 whitespace-nowrap">{formatMoney(row.boardingFeeCents)}</td>
                   <td className="p-3 whitespace-nowrap font-medium">{formatMoney(row.supplierPayCents)}</td>
                   <td className="p-3 whitespace-nowrap font-medium">{formatMoney(row.customerChargeCents)}</td>
-                  <td className="p-3 whitespace-nowrap font-medium">{row.locator || "—"}</td>
                   <td
                     className={`p-3 whitespace-nowrap font-semibold ${
                       row.profitCents >= 0 ? "text-emerald-700" : "text-red-700"
@@ -667,6 +753,17 @@ export default function CompraVendaClient() {
                   >
                     {formatMoney(row.profitCents)}
                   </td>
+                  <td className="p-3 whitespace-nowrap font-semibold text-amber-700">
+                    {formatMoney(row.taxCents)}
+                  </td>
+                  <td
+                    className={`p-3 whitespace-nowrap font-semibold ${
+                      row.netProfitCents >= 0 ? "text-emerald-700" : "text-red-700"
+                    }`}
+                  >
+                    {formatMoney(row.netProfitCents)}
+                  </td>
+                  <td className="p-3 whitespace-nowrap font-medium">{row.locator || "—"}</td>
 
                   <td className="p-3">
                     {row.employee ? (

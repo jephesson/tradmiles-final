@@ -18,6 +18,14 @@ const AIRLINES: BalcaoAirline[] = [
   "UNITED",
 ];
 
+const TAX_TZ = "America/Recife";
+const DEFAULT_TAX_PERCENT = 8;
+
+type TaxRule = {
+  configuredPercent: number;
+  effectiveISO: string | null;
+};
+
 function noCacheHeaders() {
   return {
     "Content-Type": "application/json; charset=utf-8",
@@ -58,6 +66,46 @@ function isAirline(v: unknown): v is BalcaoAirline {
   return AIRLINES.includes(String(v) as BalcaoAirline);
 }
 
+function normalizePercent(v: unknown, fallback = DEFAULT_TAX_PERCENT) {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.max(0, Math.min(100, Math.round(n)));
+}
+
+function isoDateRecife(date: Date) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: TAX_TZ,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  })
+    .formatToParts(date)
+    .reduce<Record<string, string>>((acc, p) => {
+      acc[p.type] = p.value;
+      return acc;
+    }, {});
+
+  return `${parts.year}-${parts.month}-${parts.day}`;
+}
+
+function buildTaxRule(settings: { taxPercent: number; taxEffectiveFrom: Date | null }): TaxRule {
+  return {
+    configuredPercent: normalizePercent(settings.taxPercent, DEFAULT_TAX_PERCENT),
+    effectiveISO: settings.taxEffectiveFrom
+      ? settings.taxEffectiveFrom.toISOString().slice(0, 10)
+      : null,
+  };
+}
+
+function resolveTaxPercent(dateISO: string, rule: TaxRule) {
+  if (!rule.effectiveISO) return DEFAULT_TAX_PERCENT;
+  return dateISO >= rule.effectiveISO ? rule.configuredPercent : DEFAULT_TAX_PERCENT;
+}
+
+function taxFromProfit(profitCents: number, percent: number) {
+  return Math.round(Math.max(0, Number(profitCents || 0)) * (percent / 100));
+}
+
 function toRow(item: {
   id: string;
   airline: BalcaoAirline;
@@ -74,9 +122,13 @@ function toRow(item: {
   supplierCliente: { id: string; identificador: string; nome: string };
   finalCliente: { id: string; identificador: string; nome: string };
   employee: { id: string; name: string; login: string } | null;
-}) {
+}, rule: TaxRule) {
   const normalizedProfitCents =
     item.customerChargeCents - item.supplierPayCents - item.boardingFeeCents;
+  const dateISO = isoDateRecife(item.createdAt);
+  const taxPercent = resolveTaxPercent(dateISO, rule);
+  const taxCents = taxFromProfit(normalizedProfitCents, taxPercent);
+  const netProfitCents = normalizedProfitCents - taxCents;
 
   return {
     id: item.id,
@@ -88,6 +140,9 @@ function toRow(item: {
     supplierPayCents: item.supplierPayCents,
     customerChargeCents: item.customerChargeCents,
     profitCents: normalizedProfitCents,
+    taxPercent,
+    taxCents,
+    netProfitCents,
     locator: item.locator,
     note: item.note,
     createdAt: item.createdAt.toISOString(),
@@ -102,6 +157,14 @@ export async function GET(req: NextRequest) {
     const session = await requireSession();
     const team = session?.team;
     if (!team) return bad("Sessão inválida.", 401);
+
+    const settings = await prisma.settings.upsert({
+      where: { key: "default" },
+      create: { key: "default" },
+      update: {},
+      select: { taxPercent: true, taxEffectiveFrom: true },
+    });
+    const taxRule = buildTaxRule(settings);
 
     const q = new URL(req.url).searchParams.get("q")?.trim() || "";
 
@@ -142,23 +205,35 @@ export async function GET(req: NextRequest) {
       },
     });
 
-    const data = rows.map(toRow);
+    const data = rows.map((row) => toRow(row, taxRule));
 
     const resumo = data.reduce(
       (acc, row) => {
         acc.totalSupplierPayCents += row.supplierPayCents;
         acc.totalCustomerChargeCents += row.customerChargeCents;
         acc.totalProfitCents += row.profitCents;
+        acc.totalTaxCents += row.taxCents;
+        acc.totalNetProfitCents += row.netProfitCents;
         return acc;
       },
       {
         totalSupplierPayCents: 0,
         totalCustomerChargeCents: 0,
         totalProfitCents: 0,
+        totalTaxCents: 0,
+        totalNetProfitCents: 0,
       }
     );
 
-    return ok({ rows: data, resumo });
+    return ok({
+      rows: data,
+      resumo,
+      taxRule: {
+        defaultPercent: DEFAULT_TAX_PERCENT,
+        configuredPercent: taxRule.configuredPercent,
+        effectiveISO: taxRule.effectiveISO,
+      },
+    });
   } catch (e: unknown) {
     const message = e instanceof Error ? e.message : "Erro ao carregar emissões no balcão.";
     const status = message === "UNAUTHENTICATED" ? 401 : 500;
@@ -171,6 +246,14 @@ export async function POST(req: NextRequest) {
     const session = await requireSession();
     const team = session?.team;
     if (!team) return bad("Sessão inválida.", 401);
+
+    const settings = await prisma.settings.upsert({
+      where: { key: "default" },
+      create: { key: "default" },
+      update: {},
+      select: { taxPercent: true, taxEffectiveFrom: true },
+    });
+    const taxRule = buildTaxRule(settings);
 
     const body = await req.json().catch(() => ({}));
 
@@ -268,7 +351,7 @@ export async function POST(req: NextRequest) {
       },
     });
 
-    return ok({ row: toRow(created) }, 201);
+    return ok({ row: toRow(created, taxRule) }, 201);
   } catch (e: unknown) {
     const message = e instanceof Error ? e.message : "Erro ao cadastrar emissão no balcão.";
     const status = message === "UNAUTHENTICATED" ? 401 : 500;

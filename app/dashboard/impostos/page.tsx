@@ -7,14 +7,19 @@ type PaidByLite = { id: string; name: string } | null;
 type MonthRow = {
   month: string; // YYYY-MM
   taxCents: number;
+  payoutTaxCents: number;
+  balcaoTaxCents: number;
   usersCount: number;
   daysCount: number;
+  balcaoOpsCount: number;
 
   paidAt: string | null;
   paidBy: PaidByLite;
 
   // se pago, esse é o snapshot salvo
   snapshotTaxCents: number | null;
+  snapshotPayoutTaxCents: number | null;
+  snapshotBalcaoTaxCents: number | null;
 };
 
 type MonthsResponse = {
@@ -22,8 +27,14 @@ type MonthsResponse = {
   months: MonthRow[];
   totals: {
     tax: number;
+    taxPayout: number;
+    taxBalcao: number;
     paid: number;
+    paidPayout: number;
+    paidBalcao: number;
     pending: number;
+    pendingPayout: number;
+    pendingBalcao: number;
     monthsPaid: number;
     monthsPending: number;
   };
@@ -41,6 +52,9 @@ type MonthDetailResponse = {
   ok: true;
   month: string;
   totalTaxCents: number;
+  payoutTaxCents: number;
+  balcaoTaxCents: number;
+  balcaoOperationsCount: number;
   breakdown: MonthBreakItem[];
 
   paidAt: string | null;
@@ -72,7 +86,7 @@ function todayISORecife() {
     day: "2-digit",
   })
     .formatToParts(d)
-    .reduce((acc: any, p) => {
+    .reduce<Record<string, string>>((acc, p) => {
       acc[p.type] = p.value;
       return acc;
     }, {});
@@ -97,9 +111,9 @@ function toISODateInput(v?: string | null) {
 async function apiGet<T>(url: string): Promise<T> {
   const res = await fetch(url, { cache: "no-store", credentials: "include" });
 
-  let json: any = null;
+  let json: { ok?: boolean; error?: string } | null = null;
   try {
-    json = await res.json();
+    json = (await res.json()) as { ok?: boolean; error?: string };
   } catch {}
 
   if (!res.ok || !json?.ok) {
@@ -114,7 +128,7 @@ async function apiGet<T>(url: string): Promise<T> {
   return json as T;
 }
 
-async function apiPost<T>(url: string, body?: any): Promise<T> {
+async function apiPost<T>(url: string, body?: unknown): Promise<T> {
   const res = await fetch(url, {
     method: "POST",
     cache: "no-store",
@@ -123,9 +137,9 @@ async function apiPost<T>(url: string, body?: any): Promise<T> {
     body: body ? JSON.stringify(body) : "{}",
   });
 
-  let json: any = null;
+  let json: { ok?: boolean; error?: string } | null = null;
   try {
-    json = await res.json();
+    json = (await res.json()) as { ok?: boolean; error?: string };
   } catch {}
 
   if (!res.ok || !json?.ok) {
@@ -179,6 +193,11 @@ function Pill({ kind, text }: { kind: "ok" | "warn" | "muted"; text: string }) {
   return <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${cls}`}>{text}</span>;
 }
 
+function getErrorMessage(e: unknown) {
+  if (e instanceof Error && e.message) return e.message;
+  return String(e);
+}
+
 export default function ImpostosPage() {
   const [data, setData] = useState<MonthsResponse | null>(null);
   const [loading, setLoading] = useState(false);
@@ -206,12 +225,24 @@ export default function ImpostosPage() {
     try {
       const res = await apiGet<MonthsResponse>(`/api/taxes/months?limit=24`);
       setData(res);
-    } catch (e: any) {
-      setToast({ title: "Falha ao carregar impostos", desc: e?.message || String(e) });
+    } catch (e: unknown) {
+      setToast({ title: "Falha ao carregar impostos", desc: getErrorMessage(e) });
       setData({
         ok: true,
         months: [],
-        totals: { tax: 0, paid: 0, pending: 0, monthsPaid: 0, monthsPending: 0 },
+        totals: {
+          tax: 0,
+          taxPayout: 0,
+          taxBalcao: 0,
+          paid: 0,
+          paidPayout: 0,
+          paidBalcao: 0,
+          pending: 0,
+          pendingPayout: 0,
+          pendingBalcao: 0,
+          monthsPaid: 0,
+          monthsPending: 0,
+        },
       });
     } finally {
       setLoading(false);
@@ -226,8 +257,8 @@ export default function ImpostosPage() {
       );
       setTaxPercentInput(String(res.data.taxPercent ?? 8));
       setTaxEffectiveFromInput(toISODateInput(res.data.taxEffectiveFrom || null));
-    } catch (e: any) {
-      setToast({ title: "Falha ao carregar imposto", desc: e?.message || String(e) });
+    } catch (e: unknown) {
+      setToast({ title: "Falha ao carregar imposto", desc: getErrorMessage(e) });
     } finally {
       setSettingsLoading(false);
     }
@@ -242,8 +273,8 @@ export default function ImpostosPage() {
       });
       await loadSettings();
       setToast({ title: "Imposto atualizado", desc: "Percentual salvo com sucesso." });
-    } catch (e: any) {
-      setToast({ title: "Falha ao salvar imposto", desc: e?.message || String(e) });
+    } catch (e: unknown) {
+      setToast({ title: "Falha ao salvar imposto", desc: getErrorMessage(e) });
     } finally {
       setSettingsSaving(false);
     }
@@ -256,9 +287,9 @@ export default function ImpostosPage() {
         `/api/taxes/month?month=${encodeURIComponent(m)}`
       );
       setDetail(res);
-    } catch (e: any) {
+    } catch (e: unknown) {
       setDetail(null);
-      setToast({ title: "Falha ao carregar mês", desc: e?.message || String(e) });
+      setToast({ title: "Falha ao carregar mês", desc: getErrorMessage(e) });
     } finally {
       setDetailLoading(false);
     }
@@ -277,8 +308,8 @@ export default function ImpostosPage() {
       await loadMonths();
       if (open && month === m) await loadMonth(m);
       setToast({ title: "Pago!", desc: `Imposto do mês ${m} marcado como pago.` });
-    } catch (e: any) {
-      setToast({ title: "Falha ao pagar mês", desc: e?.message || String(e) });
+    } catch (e: unknown) {
+      setToast({ title: "Falha ao pagar mês", desc: getErrorMessage(e) });
     } finally {
       setPayingMonth(null);
     }
@@ -287,13 +318,18 @@ export default function ImpostosPage() {
   useEffect(() => {
     loadMonths();
     loadSettings();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const totals = data?.totals || {
     tax: 0,
+    taxPayout: 0,
+    taxBalcao: 0,
     paid: 0,
+    paidPayout: 0,
+    paidBalcao: 0,
     pending: 0,
+    pendingPayout: 0,
+    pendingBalcao: 0,
     monthsPaid: 0,
     monthsPending: 0,
   };
@@ -308,8 +344,8 @@ export default function ImpostosPage() {
         <div className="rounded-3xl border border-slate-200 bg-gradient-to-r from-slate-900 via-slate-800 to-slate-700 p-5 text-white shadow-sm">
           <h1 className="text-2xl font-bold tracking-tight">Impostos • Funcionários</h1>
           <p className="mt-2 max-w-2xl text-sm text-slate-200">
-            Consolida o <b>tax7Cents</b> dos <b>EmployeePayout</b>, agrupado por <b>mês</b>, com detalhamento por
-            funcionário e controle de pagamento mensal.
+            Consolida o imposto mensal somando <b>venda de milhas</b> (<b>tax7Cents</b> dos{" "}
+            <b>EmployeePayout</b>) + <b>emissões no balcão</b> (imposto sobre lucro), com controle de pagamento por mês.
           </p>
           <div className="mt-4 inline-flex rounded-full border border-white/20 bg-white/10 px-3 py-1 text-xs font-semibold">
             Regra atual: {taxRuleLabel}
@@ -361,10 +397,14 @@ export default function ImpostosPage() {
 
       <div className="grid grid-cols-2 gap-2 md:grid-cols-5">
         <KPI label="Imposto total (período)" value={fmtMoneyBR(totals.tax)} tone="blue" />
+        <KPI label="Imposto venda de milhas" value={fmtMoneyBR(totals.taxPayout)} tone="violet" />
+        <KPI label="Imposto emissões balcão" value={fmtMoneyBR(totals.taxBalcao)} tone="amber" />
         <KPI label="Imposto pago" value={fmtMoneyBR(totals.paid)} tone="emerald" />
-        <KPI label="Imposto pendente" value={fmtMoneyBR(totals.pending)} tone="amber" />
-        <KPI label="Meses pagos" value={String(totals.monthsPaid)} tone="violet" />
-        <KPI label="Meses pendentes" value={String(totals.monthsPending)} tone="slate" />
+        <KPI label="Imposto pendente" value={fmtMoneyBR(totals.pending)} tone="slate" />
+      </div>
+
+      <div className="text-xs text-slate-600">
+        Meses pagos: <b>{totals.monthsPaid}</b> • Meses pendentes: <b>{totals.monthsPending}</b>
       </div>
 
       <div className="rounded-3xl border border-amber-200 bg-gradient-to-r from-amber-50 via-orange-50 to-white p-4 shadow-sm">
@@ -424,8 +464,11 @@ export default function ImpostosPage() {
               <tr>
                 <th className="px-4 py-3">Mês</th>
                 <th className="px-4 py-3">Total imposto</th>
+                <th className="px-4 py-3">Venda milhas</th>
+                <th className="px-4 py-3">Emissões balcão</th>
                 <th className="px-4 py-3 text-right">Funcionários</th>
                 <th className="px-4 py-3 text-right">Dias</th>
+                <th className="px-4 py-3 text-right">Ops balcão</th>
                 <th className="px-4 py-3">Status</th>
                 <th className="px-4 py-3 text-right">Ações</th>
               </tr>
@@ -437,14 +480,26 @@ export default function ImpostosPage() {
                 const canPay = !isPaid && m.month < currentMonth;
                 const paying = payingMonth === m.month;
 
-                const shownTax = isPaid && (m.snapshotTaxCents ?? 0) > 0 ? m.snapshotTaxCents! : m.taxCents;
+                const shownTax =
+                  isPaid && m.snapshotTaxCents !== null ? m.snapshotTaxCents : m.taxCents;
+                const shownPayoutTax =
+                  isPaid && m.snapshotPayoutTaxCents !== null
+                    ? m.snapshotPayoutTaxCents
+                    : m.payoutTaxCents;
+                const shownBalcaoTax =
+                  isPaid && m.snapshotBalcaoTaxCents !== null
+                    ? m.snapshotBalcaoTaxCents
+                    : m.balcaoTaxCents;
 
                 return (
                   <tr key={m.month} className="border-t border-slate-100 transition-colors hover:bg-slate-50/70">
                     <td className="px-4 py-3 font-semibold text-slate-800">{m.month}</td>
                     <td className="px-4 py-3 font-semibold text-slate-800">{fmtMoneyBR(shownTax)}</td>
+                    <td className="px-4 py-3 font-semibold text-indigo-700">{fmtMoneyBR(shownPayoutTax)}</td>
+                    <td className="px-4 py-3 font-semibold text-amber-700">{fmtMoneyBR(shownBalcaoTax)}</td>
                     <td className="px-4 py-3 text-right tabular-nums text-slate-700">{m.usersCount}</td>
                     <td className="px-4 py-3 text-right tabular-nums text-slate-700">{m.daysCount}</td>
+                    <td className="px-4 py-3 text-right tabular-nums text-slate-700">{m.balcaoOpsCount}</td>
                     <td className="px-4 py-3">
                       {isPaid ? (
                         <div className="space-y-1">
@@ -489,7 +544,7 @@ export default function ImpostosPage() {
 
               {!data?.months?.length && (
                 <tr>
-                  <td className="px-4 py-8 text-center text-sm text-neutral-500" colSpan={6}>
+                  <td className="px-4 py-8 text-center text-sm text-neutral-500" colSpan={9}>
                     Sem dados (ou ainda não autenticado).
                   </td>
                 </tr>
@@ -500,8 +555,8 @@ export default function ImpostosPage() {
       </div>
 
       <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs text-slate-600">
-        Dica: o mês consolida os dias que existem em <b>employee_payouts</b>. Se um mês estiver zerado, é porque os
-        dias não foram computados em <b>/dashboard/comissoes</b>.
+        Dica: o total mensal soma <b>imposto da venda de milhas</b> (employee_payouts) + <b>imposto de emissões no
+        balcão</b> (sobre lucro sem taxa).
       </div>
 
       {/* Drawer mês */}
@@ -571,9 +626,27 @@ export default function ImpostosPage() {
                   </div>
                 </div>
 
+                <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                  <div className="rounded-xl border border-indigo-100 bg-indigo-50/70 px-2 py-1">
+                    <div className="text-[11px] text-slate-500">Venda de milhas</div>
+                    <div className="text-sm font-semibold text-indigo-700">
+                      {fmtMoneyBR(detail?.payoutTaxCents || 0)}
+                    </div>
+                  </div>
+                  <div className="rounded-xl border border-amber-100 bg-amber-50/80 px-2 py-1">
+                    <div className="text-[11px] text-slate-500">Emissões balcão</div>
+                    <div className="text-sm font-semibold text-amber-700">
+                      {fmtMoneyBR(detail?.balcaoTaxCents || 0)}
+                    </div>
+                  </div>
+                </div>
+
                 <div className="mt-1 text-xs text-neutral-500">
-                  Fonte: {detail?.source === "SNAPSHOT" ? "snapshot pago" : "calculado do employee_payouts"}{" "}
+                  Fonte: {detail?.source === "SNAPSHOT" ? "snapshot pago" : "calculado (employee_payouts + balcão)"}{" "}
                   {detail?.paidAt ? `• pago ${fmtDateTimeBR(detail.paidAt)}${detail?.paidBy?.name ? ` por ${detail.paidBy.name}` : ""}` : "• pendente"}
+                </div>
+                <div className="mt-1 text-xs text-neutral-500">
+                  Operações balcão no mês: <b>{detail?.balcaoOperationsCount || 0}</b>
                 </div>
               </div>
 
@@ -582,7 +655,7 @@ export default function ImpostosPage() {
                   <table className="w-full text-left text-sm">
                     <thead className="sticky top-0 bg-slate-100 text-xs font-semibold uppercase tracking-wide text-slate-600">
                       <tr>
-                        <th className="px-4 py-3">Funcionário</th>
+                        <th className="px-4 py-3">Funcionário (venda de milhas)</th>
                         <th className="px-4 py-3 text-right">Dias</th>
                         <th className="px-4 py-3 text-right">Imposto</th>
                       </tr>
@@ -604,7 +677,7 @@ export default function ImpostosPage() {
                       {!detail?.breakdown?.length && (
                         <tr>
                           <td className="px-4 py-8 text-center text-sm text-neutral-500" colSpan={3}>
-                            Sem dados no mês.
+                            Sem dados de venda de milhas neste mês.
                           </td>
                         </tr>
                       )}
@@ -614,7 +687,8 @@ export default function ImpostosPage() {
               </div>
 
               <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
-                O valor aqui é exatamente a soma de <b>tax7Cents</b> dos payouts do mês (percentual configurado).
+                Aqui você vê a composição: <b>venda de milhas</b> (tax7Cents dos payouts) + <b>emissões no balcão</b>
+                (imposto aplicado sobre lucro da operação).
               </div>
             </div>
           </div>
