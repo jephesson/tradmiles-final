@@ -259,7 +259,7 @@ export default function CedentesVisualizarLatamClient() {
                 <th className="text-right font-semibold px-4 py-3 w-[160px]">PENDENTES</th>
                 <th className="text-right font-semibold px-4 py-3 w-[180px]">TOTAL ESPERADO</th>
                 <th className="text-right font-semibold px-4 py-3 w-[190px]">PASSAGEIROS DISP.</th>
-                <th className="text-right font-semibold px-4 py-3 w-[320px]">AÇÕES</th>
+                <th className="text-right font-semibold px-4 py-3 w-[280px]">AÇÕES</th>
               </tr>
             </thead>
 
@@ -276,6 +276,20 @@ export default function CedentesVisualizarLatamClient() {
                 const blocked = isLatamBlocked(r);
                 const isEditing = editingId === r.id;
                 const waHref = whatsappHref(r.telefone);
+                const actionBtnBase =
+                  "inline-flex h-8 items-center justify-center rounded-md border px-2.5 text-xs font-medium transition-colors";
+                const neutralActionBtnCls = cn(
+                  actionBtnBase,
+                  blocked
+                    ? "border-red-300 text-red-700 hover:bg-red-100/70"
+                    : "border-slate-300 text-slate-700 hover:bg-slate-100"
+                );
+                const whatsappActionBtnCls = cn(
+                  actionBtnBase,
+                  blocked
+                    ? "border-red-300 text-red-700 hover:bg-red-100/70"
+                    : "border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+                );
 
                 return (
                   <tr
@@ -356,23 +370,20 @@ export default function CedentesVisualizarLatamClient() {
                     </td>
 
                     <td className="px-4 py-3">
-                      <div className="flex justify-end gap-2">
+                      <div className="flex flex-wrap justify-end gap-1.5">
                         {isEditing ? (
                           <>
                             <button
                               onClick={() => saveEdit(r.id)}
                               disabled={saving}
-                              className={cn(
-                                "border rounded-lg px-3 py-1.5 text-sm",
-                                saving ? "opacity-60" : "hover:bg-slate-50"
-                              )}
+                              className={cn(neutralActionBtnCls, saving && "opacity-60")}
                             >
                               {saving ? "Salvando..." : "Salvar"}
                             </button>
                             <button
                               onClick={cancelEdit}
                               disabled={saving}
-                              className="border rounded-lg px-3 py-1.5 text-sm hover:bg-slate-50"
+                              className={neutralActionBtnCls}
                             >
                               Cancelar
                             </button>
@@ -384,10 +395,7 @@ export default function CedentesVisualizarLatamClient() {
                                 href={waHref}
                                 target="_blank"
                                 rel="noreferrer"
-                                className={cn(
-                                  "border rounded-lg px-3 py-1.5 text-sm",
-                                  blocked ? "hover:bg-red-50" : "hover:bg-slate-50"
-                                )}
+                                className={whatsappActionBtnCls}
                                 title="Abrir conversa no WhatsApp do cedente"
                               >
                                 WhatsApp
@@ -396,20 +404,14 @@ export default function CedentesVisualizarLatamClient() {
 
                             <button
                               onClick={() => startEdit(r)}
-                              className={cn(
-                                "border rounded-lg px-3 py-1.5 text-sm",
-                                blocked ? "hover:bg-red-50" : "hover:bg-slate-50"
-                              )}
+                              className={neutralActionBtnCls}
                             >
                               Editar LATAM
                             </button>
 
                             <Link
                               href={`/dashboard/cedentes/visualizar/${r.id}`}
-                              className={cn(
-                                "border rounded-lg px-3 py-1.5 text-sm",
-                                blocked ? "hover:bg-red-50" : "hover:bg-slate-50"
-                              )}
+                              className={neutralActionBtnCls}
                             >
                               Ver
                             </Link>
@@ -418,10 +420,7 @@ export default function CedentesVisualizarLatamClient() {
                             <button
                               type="button"
                               onClick={() => router.push(`/dashboard/cedentes/${r.id}?edit=1`)}
-                              className={cn(
-                                "border rounded-lg px-3 py-1.5 text-sm",
-                                blocked ? "hover:bg-red-50" : "hover:bg-slate-50"
-                              )}
+                              className={neutralActionBtnCls}
                               title="Abrir detalhe em modo edição para ajustar pontos"
                             >
                               Editar pontos
