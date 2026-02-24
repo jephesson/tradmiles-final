@@ -13,6 +13,7 @@ type Row = {
   identificador: string;
   nomeCompleto: string;
   cpf: string;
+  telefone?: string | null;
 
   owner: Owner;
 
@@ -47,6 +48,17 @@ function isLatamBlocked(r: Row) {
 function onlyDigitsToInt(v: string) {
   const n = Number(String(v || "").replace(/\D+/g, ""));
   return Number.isFinite(n) ? Math.trunc(n) : 0;
+}
+
+function whatsappHref(telefone?: string | null) {
+  let d = String(telefone || "").replace(/\D+/g, "");
+  if (!d) return null;
+
+  while (d.startsWith("00")) d = d.slice(2);
+  if (d.length === 10 || d.length === 11) d = `55${d}`;
+  if (d.length < 12) return null;
+
+  return `https://wa.me/${d}`;
 }
 
 export default function CedentesVisualizarLatamClient() {
@@ -162,8 +174,8 @@ export default function CedentesVisualizarLatamClient() {
       );
 
       cancelEdit();
-    } catch (e: any) {
-      alert(e?.message || "Erro ao salvar.");
+    } catch (e: unknown) {
+      alert(e instanceof Error && e.message ? e.message : "Erro ao salvar.");
     } finally {
       setSaving(false);
     }
@@ -247,7 +259,7 @@ export default function CedentesVisualizarLatamClient() {
                 <th className="text-right font-semibold px-4 py-3 w-[160px]">PENDENTES</th>
                 <th className="text-right font-semibold px-4 py-3 w-[180px]">TOTAL ESPERADO</th>
                 <th className="text-right font-semibold px-4 py-3 w-[190px]">PASSAGEIROS DISP.</th>
-                <th className="text-right font-semibold px-4 py-3 w-[220px]">AÇÕES</th>
+                <th className="text-right font-semibold px-4 py-3 w-[320px]">AÇÕES</th>
               </tr>
             </thead>
 
@@ -263,6 +275,7 @@ export default function CedentesVisualizarLatamClient() {
               {visibleRows.map((r) => {
                 const blocked = isLatamBlocked(r);
                 const isEditing = editingId === r.id;
+                const waHref = whatsappHref(r.telefone);
 
                 return (
                   <tr
@@ -366,6 +379,21 @@ export default function CedentesVisualizarLatamClient() {
                           </>
                         ) : (
                           <>
+                            {waHref ? (
+                              <a
+                                href={waHref}
+                                target="_blank"
+                                rel="noreferrer"
+                                className={cn(
+                                  "border rounded-lg px-3 py-1.5 text-sm",
+                                  blocked ? "hover:bg-red-50" : "hover:bg-slate-50"
+                                )}
+                                title="Abrir conversa no WhatsApp do cedente"
+                              >
+                                WhatsApp
+                              </a>
+                            ) : null}
+
                             <button
                               onClick={() => startEdit(r)}
                               className={cn(

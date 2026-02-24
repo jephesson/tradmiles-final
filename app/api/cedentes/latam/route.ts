@@ -87,6 +87,7 @@ export async function GET(req: NextRequest) {
         identificador: true,
         nomeCompleto: true,
         cpf: true,
+        telefone: true,
         pontosLatam: true,
         owner: { select: { id: true, name: true, login: true } },
       },
@@ -180,6 +181,7 @@ export async function GET(req: NextRequest) {
         identificador: c.identificador,
         nomeCompleto: c.nomeCompleto,
         cpf: c.cpf,
+        telefone: c.telefone || null,
         owner: c.owner,
 
         latamAprovado: c.pontosLatam || 0,
