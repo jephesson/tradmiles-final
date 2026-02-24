@@ -50,6 +50,7 @@ function addMonthsUTC(d: Date, m: number) {
 ========================= */
 export async function GET(req: NextRequest) {
   try {
+    const session = await requireSession();
     const url = new URL(req.url);
     const q = (url.searchParams.get("q") || "").trim();
     const ownerId = (url.searchParams.get("ownerId") || "").trim();
@@ -60,6 +61,7 @@ export async function GET(req: NextRequest) {
 
     const whereCedente: any = {
       status: "APPROVED",
+      owner: { team: session.team },
       AND: [],
     };
 
@@ -88,6 +90,9 @@ export async function GET(req: NextRequest) {
         nomeCompleto: true,
         cpf: true,
         telefone: true,
+        emailCriado: true,
+        senhaEmail: true,
+        senhaLatamPass: true,
         pontosLatam: true,
         owner: { select: { id: true, name: true, login: true } },
       },
@@ -182,6 +187,9 @@ export async function GET(req: NextRequest) {
         nomeCompleto: c.nomeCompleto,
         cpf: c.cpf,
         telefone: c.telefone || null,
+        emailCriado: c.emailCriado || null,
+        senhaEmail: c.senhaEmail || null,
+        senhaLatamPass: c.senhaLatamPass || null,
         owner: c.owner,
 
         latamAprovado: c.pontosLatam || 0,
