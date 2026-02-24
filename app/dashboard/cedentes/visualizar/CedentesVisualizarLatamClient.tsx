@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import { Check, Coins, Eye, MessageCircle, Pencil, X } from "lucide-react";
 import { cn } from "@/lib/cn";
 
 type Program = "LATAM" | "SMILES" | "LIVELO" | "ESFERA";
@@ -259,7 +260,7 @@ export default function CedentesVisualizarLatamClient() {
                 <th className="text-right font-semibold px-4 py-3 w-[160px]">PENDENTES</th>
                 <th className="text-right font-semibold px-4 py-3 w-[180px]">TOTAL ESPERADO</th>
                 <th className="text-right font-semibold px-4 py-3 w-[190px]">PASSAGEIROS DISP.</th>
-                <th className="text-right font-semibold px-4 py-3 w-[280px]">AÇÕES</th>
+                <th className="text-right font-semibold px-4 py-3 w-[210px]">AÇÕES</th>
               </tr>
             </thead>
 
@@ -277,12 +278,12 @@ export default function CedentesVisualizarLatamClient() {
                 const isEditing = editingId === r.id;
                 const waHref = whatsappHref(r.telefone);
                 const actionBtnBase =
-                  "inline-flex h-8 items-center justify-center rounded-md border px-2.5 text-xs font-medium transition-colors";
+                  "inline-flex h-8 w-8 items-center justify-center rounded-md border transition-colors";
                 const neutralActionBtnCls = cn(
                   actionBtnBase,
                   blocked
                     ? "border-red-300 text-red-700 hover:bg-red-100/70"
-                    : "border-slate-300 text-slate-700 hover:bg-slate-100"
+                    : "border-slate-300 text-slate-600 hover:bg-slate-100 hover:text-slate-900"
                 );
                 const whatsappActionBtnCls = cn(
                   actionBtnBase,
@@ -370,22 +371,26 @@ export default function CedentesVisualizarLatamClient() {
                     </td>
 
                     <td className="px-4 py-3">
-                      <div className="flex flex-wrap justify-end gap-1.5">
+                      <div className="flex justify-end gap-1">
                         {isEditing ? (
                           <>
                             <button
                               onClick={() => saveEdit(r.id)}
                               disabled={saving}
                               className={cn(neutralActionBtnCls, saving && "opacity-60")}
+                              title="Salvar edição LATAM"
                             >
-                              {saving ? "Salvando..." : "Salvar"}
+                              <Check size={15} />
+                              <span className="sr-only">Salvar</span>
                             </button>
                             <button
                               onClick={cancelEdit}
                               disabled={saving}
                               className={neutralActionBtnCls}
+                              title="Cancelar edição"
                             >
-                              Cancelar
+                              <X size={15} />
+                              <span className="sr-only">Cancelar</span>
                             </button>
                           </>
                         ) : (
@@ -398,22 +403,27 @@ export default function CedentesVisualizarLatamClient() {
                                 className={whatsappActionBtnCls}
                                 title="Abrir conversa no WhatsApp do cedente"
                               >
-                                WhatsApp
+                                <MessageCircle size={15} />
+                                <span className="sr-only">WhatsApp</span>
                               </a>
                             ) : null}
 
                             <button
                               onClick={() => startEdit(r)}
                               className={neutralActionBtnCls}
+                              title="Editar LATAM"
                             >
-                              Editar LATAM
+                              <Pencil size={15} />
+                              <span className="sr-only">Editar LATAM</span>
                             </button>
 
                             <Link
                               href={`/dashboard/cedentes/visualizar/${r.id}`}
                               className={neutralActionBtnCls}
+                              title="Ver cedente"
                             >
-                              Ver
+                              <Eye size={15} />
+                              <span className="sr-only">Ver</span>
                             </Link>
 
                             {/* opcional: manter seu botão antigo */}
@@ -423,7 +433,8 @@ export default function CedentesVisualizarLatamClient() {
                               className={neutralActionBtnCls}
                               title="Abrir detalhe em modo edição para ajustar pontos"
                             >
-                              Editar pontos
+                              <Coins size={15} />
+                              <span className="sr-only">Editar pontos</span>
                             </button>
                           </>
                         )}
