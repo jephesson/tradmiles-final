@@ -199,6 +199,7 @@ export async function GET(req: Request) {
       paymentStatus: true,
       paidAt: true,
       locator: true,
+      purchaseCode: true,
       firstPassengerLastName: true,
       departureAirportIata: true,
       feeCardLabel: true,
@@ -267,6 +268,10 @@ export async function POST(req: Request) {
 
   const feeCardLabel = body.feeCardLabel ? String(body.feeCardLabel) : null;
   const locator = body.locator ? String(body.locator) : null;
+  const purchaseCodeRaw = body.purchaseCode
+    ? String(body.purchaseCode).trim()
+    : null;
+  const purchaseCode = purchaseCodeRaw ? purchaseCodeRaw.toUpperCase() : null;
   const firstPassengerLastName = body.firstPassengerLastName
     ? String(body.firstPassengerLastName).trim()
     : null;
@@ -295,13 +300,23 @@ export async function POST(req: Request) {
   if (pointsValueCentsIn <= 0 && totalCentsIn <= 0 && milheiroCents <= 0) {
     return NextResponse.json({ ok: false, error: "Milheiro inválido" }, { status: 400 });
   }
-  if (program === "SMILES") {
+  if (program === "SMILES" || program === "LATAM") {
     if (!firstPassengerLastName) {
       return NextResponse.json(
-        { ok: false, error: "Sobrenome do 1º passageiro é obrigatório para Smiles." },
+        { ok: false, error: "Sobrenome do 1º passageiro é obrigatório para Smiles e Latam." },
         { status: 400 }
       );
     }
+  }
+  if (program === "LATAM") {
+    if (!purchaseCode || !/^LA[A-Z0-9]*$/i.test(purchaseCode)) {
+      return NextResponse.json(
+        { ok: false, error: "Código de compra LATAM deve iniciar com LA." },
+        { status: 400 }
+      );
+    }
+  }
+  if (program === "SMILES") {
     if (!departureAirportIata || !/^[A-Z]{3}$/.test(departureAirportIata)) {
       return NextResponse.json(
         { ok: false, error: "Aeroporto de ida deve ter 3 letras (IATA) para Smiles." },
@@ -426,6 +441,7 @@ export async function POST(req: Request) {
 
           feeCardLabel,
           locator,
+          purchaseCode,
           firstPassengerLastName,
           departureAirportIata,
           paymentStatus: "PENDING",

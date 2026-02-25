@@ -385,6 +385,7 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
   const [milheiroStr, setMilheiroStr] = useState("0,00");
   const [embarqueStr, setEmbarqueStr] = useState("0,00");
   const [locator, setLocator] = useState("");
+  const [purchaseCode, setPurchaseCode] = useState("");
   const [firstPassengerLastName, setFirstPassengerLastName] = useState("");
   const [departureAirportIata, setDepartureAirportIata] = useState("");
 
@@ -894,7 +895,16 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
     if (pointsTotal <= 0 || passengers <= 0) return false;
     if (milheiroCents <= 0) return false;
     if (!locator?.trim()) return false; // ✅ obrigatório
-    if (program === "SMILES" && !firstPassengerLastName.trim()) return false;
+    if (
+      (program === "SMILES" || program === "LATAM") &&
+      !firstPassengerLastName.trim()
+    )
+      return false;
+    if (
+      program === "LATAM" &&
+      !/^LA[A-Z0-9]*$/i.test((purchaseCode || "").trim().toUpperCase())
+    )
+      return false;
     if (
       program === "SMILES" &&
       !/^[A-Z]{3}$/.test((departureAirportIata || "").trim().toUpperCase())
@@ -911,6 +921,7 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
     passengers,
     milheiroCents,
     locator,
+    purchaseCode,
     program,
     firstPassengerLastName,
     departureAirportIata,
@@ -1037,10 +1048,18 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
     if (milheiroCents <= 0) return alert("Milheiro inválido.");
     if (!locator?.trim())
       return alert("Informe o localizador (obrigatório).");
-    if (program === "SMILES" && !firstPassengerLastName.trim())
+    if (
+      (program === "SMILES" || program === "LATAM") &&
+      !firstPassengerLastName.trim()
+    )
       return alert(
-        "Informe o sobrenome do primeiro passageiro (obrigatório para Smiles)."
+        "Informe o sobrenome do primeiro passageiro (obrigatório para Smiles e Latam)."
       );
+    if (
+      program === "LATAM" &&
+      !/^LA[A-Z0-9]*$/i.test((purchaseCode || "").trim().toUpperCase())
+    )
+      return alert("Informe o código de compra LATAM iniciando com LA.");
     if (
       program === "SMILES" &&
       !/^[A-Z]{3}$/.test((departureAirportIata || "").trim().toUpperCase())
@@ -1063,6 +1082,7 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
       embarqueFeeCents,
       feeCardLabel: feeCardLabel || null,
       locator: locator?.trim() || null,
+      purchaseCode: (purchaseCode || "").trim().toUpperCase() || null,
       firstPassengerLastName: firstPassengerLastName.trim() || null,
       departureAirportIata: (departureAirportIata || "").trim().toUpperCase() || null,
     };
@@ -2058,8 +2078,28 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
                   />
                 </label>
 
-                {program === "SMILES" ? (
+                {program === "LATAM" || program === "SMILES" ? (
                   <>
+                    {program === "LATAM" ? (
+                      <label className="space-y-1">
+                        <div className="text-xs text-slate-600">
+                          Código de compra{" "}
+                          <span className="text-rose-600">*</span>
+                        </div>
+                        <input
+                          required
+                          className="w-full rounded-xl border px-3 py-2 text-sm font-mono uppercase"
+                          value={purchaseCode}
+                          onChange={(e) =>
+                            setPurchaseCode(
+                              e.target.value.replace(/[^a-zA-Z0-9]/g, "").toUpperCase()
+                            )
+                          }
+                          placeholder="Ex: LA123456"
+                        />
+                      </label>
+                    ) : null}
+
                     <label className="space-y-1">
                       <div className="text-xs text-slate-600">
                         Sobrenome do 1º passageiro{" "}
@@ -2074,24 +2114,26 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
                       />
                     </label>
 
-                    <label className="space-y-1">
-                      <div className="text-xs text-slate-600">
-                        Aeroporto de ida (IATA){" "}
-                        <span className="text-rose-600">*</span>
-                      </div>
-                      <input
-                        required
-                        maxLength={3}
-                        className="w-full rounded-xl border px-3 py-2 text-sm font-mono uppercase"
-                        value={departureAirportIata}
-                        onChange={(e) =>
-                          setDepartureAirportIata(
-                            e.target.value.replace(/[^a-zA-Z]/g, "").toUpperCase()
-                          )
-                        }
-                        placeholder="Ex: GRU"
-                      />
-                    </label>
+                    {program === "SMILES" ? (
+                      <label className="space-y-1">
+                        <div className="text-xs text-slate-600">
+                          Aeroporto de ida (IATA){" "}
+                          <span className="text-rose-600">*</span>
+                        </div>
+                        <input
+                          required
+                          maxLength={3}
+                          className="w-full rounded-xl border px-3 py-2 text-sm font-mono uppercase"
+                          value={departureAirportIata}
+                          onChange={(e) =>
+                            setDepartureAirportIata(
+                              e.target.value.replace(/[^a-zA-Z]/g, "").toUpperCase()
+                            )
+                          }
+                          placeholder="Ex: GRU"
+                        />
+                      </label>
+                    ) : null}
                   </>
                 ) : null}
               </div>
@@ -2371,18 +2413,28 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
                 <span className="text-slate-600">Localizador</span>
                 <b className="font-mono">{locator?.trim() || "—"}</b>
               </div>
-              {program === "SMILES" ? (
+              {program === "LATAM" || program === "SMILES" ? (
                 <>
+                  {program === "LATAM" ? (
+                    <div className="flex justify-between">
+                      <span className="text-slate-600">Código compra</span>
+                      <b className="font-mono">
+                        {(purchaseCode || "").trim().toUpperCase() || "—"}
+                      </b>
+                    </div>
+                  ) : null}
                   <div className="flex justify-between">
                     <span className="text-slate-600">Sobrenome (1º pax)</span>
                     <b>{firstPassengerLastName.trim() || "—"}</b>
                   </div>
-                  <div className="flex justify-between">
-                    <span className="text-slate-600">Aeroporto ida</span>
-                    <b className="font-mono">
-                      {(departureAirportIata || "").trim().toUpperCase() || "—"}
-                    </b>
-                  </div>
+                  {program === "SMILES" ? (
+                    <div className="flex justify-between">
+                      <span className="text-slate-600">Aeroporto ida</span>
+                      <b className="font-mono">
+                        {(departureAirportIata || "").trim().toUpperCase() || "—"}
+                      </b>
+                    </div>
+                  ) : null}
                 </>
               ) : null}
               <div className="flex justify-between">

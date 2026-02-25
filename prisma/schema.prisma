@@ -1160,6 +1160,7 @@ model Sale {
 
   feeCardLabel String?
   locator      String?
+  purchaseCode String?
   firstPassengerLastName String?
   departureAirportIata   String?
 
