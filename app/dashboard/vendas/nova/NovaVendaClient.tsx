@@ -388,6 +388,8 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
   const [purchaseCode, setPurchaseCode] = useState("");
   const [firstPassengerLastName, setFirstPassengerLastName] = useState("");
   const [departureAirportIata, setDepartureAirportIata] = useState("");
+  const [departureDate, setDepartureDate] = useState("");
+  const [returnDate, setReturnDate] = useState("");
 
   const milheiroCents = useMemo(() => moneyToCentsBR(milheiroStr), [milheiroStr]);
   const embarqueFeeCents = useMemo(
@@ -900,6 +902,7 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
       !firstPassengerLastName.trim()
     )
       return false;
+    if ((program === "SMILES" || program === "LATAM") && !departureDate) return false;
     if (
       program === "LATAM" &&
       !/^LA[A-Z0-9]*$/i.test((purchaseCode || "").trim().toUpperCase())
@@ -925,6 +928,7 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
     program,
     firstPassengerLastName,
     departureAirportIata,
+    departureDate,
     feeCardPreset,
     feeCardLabel,
   ]);
@@ -1055,6 +1059,8 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
       return alert(
         "Informe o sobrenome do primeiro passageiro (obrigatório para Smiles e Latam)."
       );
+    if ((program === "SMILES" || program === "LATAM") && !departureDate)
+      return alert("Informe a data de ida (obrigatória para Smiles e Latam).");
     if (
       program === "LATAM" &&
       !/^LA[A-Z0-9]*$/i.test((purchaseCode || "").trim().toUpperCase())
@@ -1085,6 +1091,8 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
       purchaseCode: (purchaseCode || "").trim().toUpperCase() || null,
       firstPassengerLastName: firstPassengerLastName.trim() || null,
       departureAirportIata: (departureAirportIata || "").trim().toUpperCase() || null,
+      departureDate: departureDate || null,
+      returnDate: returnDate || null,
     };
 
     setIsSaving(true);
@@ -2080,6 +2088,29 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
 
                 {program === "LATAM" || program === "SMILES" ? (
                   <>
+                    <label className="space-y-1">
+                      <div className="text-xs text-slate-600">
+                        Data de ida <span className="text-rose-600">*</span>
+                      </div>
+                      <input
+                        type="date"
+                        required
+                        className="w-full rounded-xl border px-3 py-2 text-sm"
+                        value={departureDate}
+                        onChange={(e) => setDepartureDate(e.target.value)}
+                      />
+                    </label>
+
+                    <label className="space-y-1">
+                      <div className="text-xs text-slate-600">Data de volta</div>
+                      <input
+                        type="date"
+                        className="w-full rounded-xl border px-3 py-2 text-sm"
+                        value={returnDate}
+                        onChange={(e) => setReturnDate(e.target.value)}
+                      />
+                    </label>
+
                     {program === "LATAM" ? (
                       <label className="space-y-1">
                         <div className="text-xs text-slate-600">
@@ -2415,6 +2446,14 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
               </div>
               {program === "LATAM" || program === "SMILES" ? (
                 <>
+                  <div className="flex justify-between">
+                    <span className="text-slate-600">Data ida</span>
+                    <b>{departureDate || "—"}</b>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-600">Data volta</span>
+                    <b>{returnDate || "—"}</b>
+                  </div>
                   {program === "LATAM" ? (
                     <div className="flex justify-between">
                       <span className="text-slate-600">Código compra</span>

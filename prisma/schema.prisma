@@ -1163,6 +1163,8 @@ model Sale {
   purchaseCode String?
   firstPassengerLastName String?
   departureAirportIata   String?
+  departureDate DateTime?
+  returnDate    DateTime?
 
   paymentStatus SalePaymentStatus @default(PENDING)
   paidAt        DateTime?
