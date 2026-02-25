@@ -76,6 +76,48 @@ function isLatamErrorPage(finalUrl: string, html: string) {
   );
 }
 
+async function verifyBoardingPassButton(checkUrl: string) {
+  const { chromium } = await import("playwright");
+  const browser = await chromium.launch({
+    headless: true,
+    args: ["--no-sandbox", "--disable-setuid-sandbox"],
+  });
+
+  try {
+    const context = await browser.newContext({
+      locale: "pt-BR",
+      userAgent:
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+    });
+    const page = await context.newPage();
+
+    await page.goto(checkUrl, {
+      waitUntil: "domcontentloaded",
+      timeout: 12000,
+    });
+
+    // pequena janela para a página hidratar e renderizar os CTAs
+    await page.waitForTimeout(1400);
+
+    const finalUrl = page.url();
+    const content = await page.content();
+    if (isLatamErrorPage(finalUrl, content)) {
+      return { ok: false as const, note: "LATAM retornou tela de erro/recarregar." };
+    }
+
+    const boardingBtnCount = await page
+      .locator("button:has-text('Cartão de embarque'), a:has-text('Cartão de embarque')")
+      .count();
+    if (boardingBtnCount > 0) {
+      return { ok: true as const, note: "Botão de cartão de embarque disponível." };
+    }
+
+    return { ok: false as const, note: "Botão de cartão de embarque não encontrado." };
+  } finally {
+    await browser.close();
+  }
+}
+
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
@@ -172,44 +214,20 @@ export async function POST(req: Request) {
   const checkUrl = buildLatamUrl(purchaseCode, lastName);
 
   let status = "ERROR";
-  let note = "Resposta não reconhecida da LATAM.";
+  let note = "Sem confirmação clara da LATAM.";
 
   try {
-    const ctrl = new AbortController();
-    const timeout = setTimeout(() => ctrl.abort(), 20000);
-    const res = await fetch(checkUrl, {
-      method: "GET",
-      redirect: "follow",
-      signal: ctrl.signal,
-      headers: {
-        "user-agent":
-          "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-        "accept-language": "pt-BR,pt;q=0.9,en;q=0.8",
-      },
-    });
-    clearTimeout(timeout);
-
-    const finalUrl = String(res.url || "");
-    const html = await res.text();
-    const htmlLow = html.toLowerCase();
-
-    if (isLatamErrorPage(finalUrl, html)) {
-      status = "ERROR";
-      note = "LATAM retornou tela de erro/recarregar.";
-    } else if (
-      htmlLow.includes("número de compra") ||
-      htmlLow.includes("administrar viagem") ||
-      htmlLow.includes(purchaseCode.toLowerCase())
-    ) {
+    const out = await verifyBoardingPassButton(checkUrl);
+    if (out.ok) {
       status = "CONFIRMED";
-      note = "Passagem localizada na LATAM.";
+      note = out.note;
     } else {
       status = "ERROR";
-      note = "Sem confirmação clara da LATAM.";
+      note = out.note;
     }
   } catch (e: any) {
     status = "ERROR";
-    note = e?.name === "AbortError" ? "Timeout na checagem LATAM." : e?.message || "Falha na checagem LATAM.";
+    note = e?.message || "Falha na checagem LATAM com navegador automatizado.";
   }
 
   const updated = await prisma.sale.update({

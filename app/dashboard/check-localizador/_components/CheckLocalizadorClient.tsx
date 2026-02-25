@@ -259,7 +259,7 @@ export default function CheckLocalizadorClient({ mode }: { mode: Mode }) {
                         }
                       >
                         {r.latamLocatorCheckStatus === "CONFIRMED"
-                          ? "Confirmada"
+                          ? "Confirmada (cartão disponível)"
                           : r.latamLocatorCheckStatus === "ERROR"
                           ? "Erro"
                           : "Não checada"}
