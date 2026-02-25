@@ -68,6 +68,13 @@ function statusLabel(v?: string | null) {
   return v;
 }
 
+function statusClass(v?: string | null) {
+  if (v === "CONFIRMADO") return "text-emerald-700";
+  if (v === "ALTERADO") return "text-amber-600";
+  if (v === "CANCELADO") return "text-rose-700";
+  return "text-slate-700";
+}
+
 export default function CheckLocalizadorClient({ mode }: { mode: Mode }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -205,7 +212,7 @@ export default function CheckLocalizadorClient({ mode }: { mode: Mode }) {
                   </td>
                   {mode === "latam" ? (
                     <td className="px-3 py-2">
-                      <div className="font-medium text-slate-700">
+                      <div className={`font-medium ${statusClass(r.latamLocatorCheckStatus)}`}>
                         {statusLabel(r.latamLocatorCheckStatus)}
                       </div>
                       <div className="text-xs text-slate-500">
