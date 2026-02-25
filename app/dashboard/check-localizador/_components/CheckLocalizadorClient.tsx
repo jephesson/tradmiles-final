@@ -152,6 +152,42 @@ export default function CheckLocalizadorClient({ mode }: { mode: Mode }) {
     }
   }
 
+  async function autoCheckStatus(saleId: string) {
+    setSavingId(saleId);
+    try {
+      const res = await fetch("/api/check-localizador/latam", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ saleId }),
+      });
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok || j?.ok === false) {
+        throw new Error(j?.error || `Erro ${res.status}`);
+      }
+
+      const row = j?.row || null;
+      if (row?.id) {
+        setRows((prev) =>
+          prev.map((r) =>
+            r.id === row.id
+              ? {
+                  ...r,
+                  latamLocatorCheckStatus: row.latamLocatorCheckStatus || null,
+                  latamLocatorCheckedAt: row.latamLocatorCheckedAt || null,
+                  latamLocatorCheckNote: row.latamLocatorCheckNote || null,
+                }
+              : r
+          )
+        );
+      }
+    } catch (e: any) {
+      alert(e?.message || "Falha ao checar automaticamente.");
+    } finally {
+      setSavingId(null);
+    }
+  }
+
   return (
     <div className="space-y-4">
       <div>
@@ -231,6 +267,14 @@ export default function CheckLocalizadorClient({ mode }: { mode: Mode }) {
                         >
                           Abrir LATAM
                         </a>
+                        <button
+                          type="button"
+                          onClick={() => autoCheckStatus(r.id)}
+                          disabled={savingId === r.id}
+                          className="rounded-lg border px-2 py-1 text-xs hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          Checar auto
+                        </button>
                         <select
                           className="rounded-lg border px-2 py-1 text-xs bg-white"
                           value={(r.latamLocatorCheckStatus || "") as string}

@@ -69,6 +69,53 @@ function buildLatamUrl(purchaseCode: string, lastName: string) {
   )}&lastname=${encodeURIComponent(lastName)}`;
 }
 
+function isLatamErrorPage(finalUrl: string, html: string) {
+  const lowHtml = (html || "").toLowerCase();
+  const lowUrl = (finalUrl || "").toLowerCase();
+  return (
+    lowUrl.includes("/minhas-viagens/error") ||
+    lowHtml.includes("precisamos recarregar a informação") ||
+    lowHtml.includes("temos um problema")
+  );
+}
+
+async function autoCheckWithBrowserless(checkUrl: string) {
+  const ws = String(process.env.BROWSERLESS_WS || "").trim();
+  if (!ws) throw new Error("BROWSERLESS_WS não configurado.");
+
+  const { chromium } = await import("playwright-core");
+  const browser = await chromium.connectOverCDP(ws);
+  try {
+    const context = await browser.newContext({
+      locale: "pt-BR",
+      userAgent:
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+    });
+    const page = await context.newPage();
+    await page.goto(checkUrl, { waitUntil: "domcontentloaded", timeout: 12000 });
+    await page.waitForTimeout(1500);
+
+    const finalUrl = page.url();
+    const html = await page.content();
+
+    if (isLatamErrorPage(finalUrl, html)) {
+      return { status: "ALTERADO" as const, note: "LATAM retornou tela de erro/recarregar." };
+    }
+
+    const boardingBtnCount = await page
+      .locator("button:has-text('Cartão de embarque'), a:has-text('Cartão de embarque')")
+      .count();
+
+    if (boardingBtnCount > 0) {
+      return { status: "CONFIRMADO" as const, note: "Cartão de embarque disponível." };
+    }
+
+    return { status: "CANCELADO" as const, note: "Cartão de embarque não encontrado." };
+  } finally {
+    await browser.close();
+  }
+}
+
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
@@ -130,30 +177,57 @@ export async function POST(req: Request) {
 
   const body = await req.json().catch(() => ({}));
   const saleId = String(body?.saleId || "").trim();
-  const status = String(body?.status || "").trim().toUpperCase() as ManualStatus;
+  const statusRaw = String(body?.status || "").trim().toUpperCase();
+  const status = statusRaw as ManualStatus;
 
   if (!saleId) {
     return NextResponse.json({ ok: false, error: "saleId obrigatório." }, { status: 400 });
   }
-  if (!MANUAL_STATUS.includes(status)) {
-    return NextResponse.json({ ok: false, error: "Status manual inválido." }, { status: 400 });
-  }
 
   const sale = await prisma.sale.findUnique({
     where: { id: saleId },
-    select: { id: true, program: true },
+    select: {
+      id: true,
+      program: true,
+      purchaseCode: true,
+      firstPassengerLastName: true,
+    },
   });
 
   if (!sale || sale.program !== "LATAM") {
     return NextResponse.json({ ok: false, error: "Venda LATAM não encontrada." }, { status: 404 });
   }
 
+  let finalStatus: string;
+  let note: string;
+
+  if (statusRaw) {
+    if (!MANUAL_STATUS.includes(status)) {
+      return NextResponse.json({ ok: false, error: "Status manual inválido." }, { status: 400 });
+    }
+    finalStatus = status;
+    note = "Atualização manual.";
+  } else {
+    const purchaseCode = String(sale.purchaseCode || "").trim().toUpperCase();
+    const lastName = String(sale.firstPassengerLastName || "").trim();
+    if (!purchaseCode || !/^LA[A-Z0-9]*$/i.test(purchaseCode) || !lastName) {
+      return NextResponse.json(
+        { ok: false, error: "Venda sem código LA/sobrenome válidos para checagem automática." },
+        { status: 400 }
+      );
+    }
+    const checkUrl = buildLatamUrl(purchaseCode, lastName);
+    const out = await autoCheckWithBrowserless(checkUrl);
+    finalStatus = out.status;
+    note = out.note;
+  }
+
   const updated = await prisma.sale.update({
     where: { id: saleId },
     data: {
-      latamLocatorCheckStatus: status,
+      latamLocatorCheckStatus: finalStatus,
       latamLocatorCheckedAt: new Date(),
-      latamLocatorCheckNote: "Atualização manual.",
+      latamLocatorCheckNote: note,
     },
     select: {
       id: true,
