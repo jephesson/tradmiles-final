@@ -101,8 +101,12 @@ async function autoCheckByRedirect(checkUrl: string) {
     const htmlLow = html.toLowerCase();
 
     if (finalLow.includes("/minhas-viagens/error") || isLatamErrorPage(finalUrl, html)) {
-      if (finalLow.includes("error=order_not_found") || htmlLow.includes("order_not_found")) {
-        return { status: "CANCELADO" as const, note: "LATAM retornou ORDER_NOT_FOUND." };
+      if (
+        finalLow.includes("error=order_not_found") ||
+        finalLow.includes("error=undefined") ||
+        htmlLow.includes("order_not_found")
+      ) {
+        return { status: "CANCELADO" as const, note: "LATAM retornou erro de pedido não encontrado." };
       }
       // regra de negócio: auto não usa "ALTERADO"
       return { status: "CONFIRMADO" as const, note: "LATAM retornou sem ORDER_NOT_FOUND." };
