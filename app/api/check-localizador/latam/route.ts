@@ -104,20 +104,16 @@ async function autoCheckByRedirect(checkUrl: string) {
       if (finalLow.includes("error=order_not_found") || htmlLow.includes("order_not_found")) {
         return { status: "CANCELADO" as const, note: "LATAM retornou ORDER_NOT_FOUND." };
       }
-      return { status: "ALTERADO" as const, note: "LATAM retornou página de erro." };
+      // regra de negócio: auto não usa "ALTERADO"
+      return { status: "CONFIRMADO" as const, note: "LATAM retornou sem ORDER_NOT_FOUND." };
     }
-
-    if (!res.ok) {
-      return { status: "ALTERADO" as const, note: `LATAM HTTP ${res.status}.` };
-    }
-
-    // Sem erro explícito no redirect -> considera confirmação.
     return { status: "CONFIRMADO" as const, note: "URL válida sem erro ORDER_NOT_FOUND." };
   } catch (e: any) {
+    // regra de negócio: auto não usa "ALTERADO"
     if (e?.name === "AbortError") {
-      return { status: "ALTERADO" as const, note: "Timeout curto na checagem automática." };
+      return { status: "CONFIRMADO" as const, note: "Timeout curto; mantido como confirmado." };
     }
-    return { status: "ALTERADO" as const, note: "Falha de rede na checagem automática." };
+    return { status: "CONFIRMADO" as const, note: "Falha de rede; mantido como confirmado." };
   } finally {
     clearTimeout(timeout);
   }
