@@ -199,6 +199,8 @@ export async function GET(req: Request) {
       paymentStatus: true,
       paidAt: true,
       locator: true,
+      firstPassengerLastName: true,
+      departureAirportIata: true,
       feeCardLabel: true,
       commissionCents: true,
       bonusCents: true,
@@ -265,6 +267,15 @@ export async function POST(req: Request) {
 
   const feeCardLabel = body.feeCardLabel ? String(body.feeCardLabel) : null;
   const locator = body.locator ? String(body.locator) : null;
+  const firstPassengerLastName = body.firstPassengerLastName
+    ? String(body.firstPassengerLastName).trim()
+    : null;
+  const departureAirportIataRaw = body.departureAirportIata
+    ? String(body.departureAirportIata).trim()
+    : null;
+  const departureAirportIata = departureAirportIataRaw
+    ? departureAirportIataRaw.toUpperCase()
+    : null;
 
   const date = parseDateISOToLocal(body.date);
 
@@ -283,6 +294,20 @@ export async function POST(req: Request) {
   // ✅ se o front não manda PV/total, exige milheiro
   if (pointsValueCentsIn <= 0 && totalCentsIn <= 0 && milheiroCents <= 0) {
     return NextResponse.json({ ok: false, error: "Milheiro inválido" }, { status: 400 });
+  }
+  if (program === "SMILES") {
+    if (!firstPassengerLastName) {
+      return NextResponse.json(
+        { ok: false, error: "Sobrenome do 1º passageiro é obrigatório para Smiles." },
+        { status: 400 }
+      );
+    }
+    if (!departureAirportIata || !/^[A-Z]{3}$/.test(departureAirportIata)) {
+      return NextResponse.json(
+        { ok: false, error: "Aeroporto de ida deve ter 3 letras (IATA) para Smiles." },
+        { status: 400 }
+      );
+    }
   }
 
   const yearStart = startOfYear();
@@ -401,6 +426,8 @@ export async function POST(req: Request) {
 
           feeCardLabel,
           locator,
+          firstPassengerLastName,
+          departureAirportIata,
           paymentStatus: "PENDING",
           cedenteId,
           clienteId,

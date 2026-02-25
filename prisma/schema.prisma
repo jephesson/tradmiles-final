@@ -1160,6 +1160,8 @@ model Sale {
 
   feeCardLabel String?
   locator      String?
+  firstPassengerLastName String?
+  departureAirportIata   String?
 
   paymentStatus SalePaymentStatus @default(PENDING)
   paidAt        DateTime?

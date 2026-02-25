@@ -5,6 +5,14 @@ import { useRouter } from "next/navigation";
 
 type Program = "LATAM" | "SMILES" | "LIVELO" | "ESFERA";
 type ClubStatus = "ACTIVE" | "PAUSED" | "CANCELED" | "NEVER";
+type SortField =
+  | "pontos"
+  | "nome"
+  | "responsavel"
+  | "identificador"
+  | "clubeTier"
+  | "statusClube";
+type SortDir = "asc" | "desc";
 
 type CedenteRow = {
   id: string;
@@ -41,6 +49,11 @@ function cn(...xs: Array<string | false | undefined | null>) {
   return xs.filter(Boolean).join(" ");
 }
 
+function getErrorMessage(error: unknown, fallback: string) {
+  if (error instanceof Error && error.message) return error.message;
+  return fallback;
+}
+
 function pillClass(status: ClubStatus) {
   if (status === "ACTIVE") return "border-green-200 bg-green-50 text-green-700";
   if (status === "PAUSED") return "border-yellow-200 bg-yellow-50 text-yellow-700";
@@ -67,6 +80,8 @@ export default function CedentesVisualizarLiveloClient() {
   // filtros
   const [q, setQ] = useState("");
   const [ownerFilter, setOwnerFilter] = useState("");
+  const [sortField, setSortField] = useState<SortField>("pontos");
+  const [sortDir, setSortDir] = useState<SortDir>("desc");
 
   // edição de pontos
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -108,8 +123,8 @@ export default function CedentesVisualizarLiveloClient() {
       setEditingId(null);
       setDraftPoints("");
       setSavingId(null);
-    } catch (e: any) {
-      alert(e?.message || "Erro ao carregar.");
+    } catch (e: unknown) {
+      alert(getErrorMessage(e, "Erro ao carregar."));
       setRows([]);
       setClubByCedente(new Map());
     } finally {
@@ -145,13 +160,54 @@ export default function CedentesVisualizarLiveloClient() {
 
   function clubStatus(r: CedenteRow): ClubStatus {
     const c = clubByCedente.get(r.id) || null;
-    return (c?.status as any) || "NEVER";
+    return c?.status || "NEVER";
   }
 
   function clubTierLabel(r: CedenteRow) {
     const c = clubByCedente.get(r.id) || null;
     return c ? `${c.tierK}k` : "Nunca assinado";
   }
+
+  const sortedRows = useMemo(() => {
+    const list = [...filtered];
+    const collator = new Intl.Collator("pt-BR", { sensitivity: "base", numeric: true });
+    const statusRank: Record<ClubStatus, number> = {
+      NEVER: 1,
+      CANCELED: 2,
+      PAUSED: 3,
+      ACTIVE: 4,
+    };
+
+    list.sort((a, b) => {
+      let cmp = 0;
+
+      if (sortField === "pontos") {
+        cmp = (a.pontosLivelo || 0) - (b.pontosLivelo || 0);
+      } else if (sortField === "nome") {
+        cmp = collator.compare(a.nomeCompleto || "", b.nomeCompleto || "");
+      } else if (sortField === "responsavel") {
+        cmp = collator.compare(a.owner?.name || "", b.owner?.name || "");
+      } else if (sortField === "identificador") {
+        cmp = collator.compare(a.identificador || "", b.identificador || "");
+      } else if (sortField === "clubeTier") {
+        const aTier = clubByCedente.get(a.id)?.tierK ?? 0;
+        const bTier = clubByCedente.get(b.id)?.tierK ?? 0;
+        cmp = aTier - bTier;
+      } else if (sortField === "statusClube") {
+        const aStatus = clubByCedente.get(a.id)?.status || "NEVER";
+        const bStatus = clubByCedente.get(b.id)?.status || "NEVER";
+        cmp = statusRank[aStatus] - statusRank[bStatus];
+      }
+
+      if (cmp === 0) {
+        cmp = collator.compare(a.nomeCompleto || "", b.nomeCompleto || "");
+      }
+
+      return sortDir === "asc" ? cmp : -cmp;
+    });
+
+    return list;
+  }, [filtered, sortField, sortDir, clubByCedente]);
 
   async function savePoints(cedenteId: string) {
     const n = Number(String(draftPoints || "").replace(/\D+/g, ""));
@@ -176,8 +232,8 @@ export default function CedentesVisualizarLiveloClient() {
 
       setEditingId(null);
       setDraftPoints("");
-    } catch (e: any) {
-      alert(e?.message || "Erro ao salvar pontos.");
+    } catch (e: unknown) {
+      alert(getErrorMessage(e, "Erro ao salvar pontos."));
     } finally {
       setSavingId(null);
     }
@@ -214,6 +270,28 @@ export default function CedentesVisualizarLiveloClient() {
             ))}
           </select>
 
+          <select
+            className="rounded-xl border px-3 py-2 text-sm"
+            value={sortField}
+            onChange={(e) => setSortField(e.target.value as SortField)}
+          >
+            <option value="pontos">Ordenar por: Pontos LIVelo</option>
+            <option value="nome">Ordenar por: Nome</option>
+            <option value="responsavel">Ordenar por: Responsável</option>
+            <option value="identificador">Ordenar por: Identificador</option>
+            <option value="clubeTier">Ordenar por: Tier do clube</option>
+            <option value="statusClube">Ordenar por: Status do clube</option>
+          </select>
+
+          <select
+            className="rounded-xl border px-3 py-2 text-sm"
+            value={sortDir}
+            onChange={(e) => setSortDir(e.target.value as SortDir)}
+          >
+            <option value="desc">Maior → menor (Z-A)</option>
+            <option value="asc">Menor → maior (A-Z)</option>
+          </select>
+
           <button
             onClick={load}
             className="rounded-xl border px-4 py-2 text-sm hover:bg-slate-50"
@@ -240,7 +318,7 @@ export default function CedentesVisualizarLiveloClient() {
           </thead>
 
           <tbody>
-            {!loading && filtered.length === 0 && (
+            {!loading && sortedRows.length === 0 && (
               <tr>
                 <td colSpan={6} className="px-6 py-10 text-center text-sm text-slate-500">
                   Nenhum cedente encontrado.
@@ -248,7 +326,7 @@ export default function CedentesVisualizarLiveloClient() {
               </tr>
             )}
 
-            {filtered.map((r) => {
+            {sortedRows.map((r) => {
               const s = clubStatus(r);
               const tier = clubTierLabel(r);
 
