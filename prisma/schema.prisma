@@ -1165,6 +1165,9 @@ model Sale {
   departureAirportIata   String?
   departureDate DateTime?
   returnDate    DateTime?
+  latamLocatorCheckStatus String?
+  latamLocatorCheckedAt   DateTime?
+  latamLocatorCheckNote   String?
 
   paymentStatus SalePaymentStatus @default(PENDING)
   paidAt        DateTime?

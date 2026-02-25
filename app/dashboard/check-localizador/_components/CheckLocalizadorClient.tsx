@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 type Mode = "latam" | "smiles";
 
@@ -13,6 +13,10 @@ type RowBase = {
   returnDate: string | null;
   createdAt: string;
   cedente: { identificador: string; nomeCompleto: string };
+  checkUrl?: string;
+  latamLocatorCheckStatus?: string | null;
+  latamLocatorCheckedAt?: string | null;
+  latamLocatorCheckNote?: string | null;
 };
 
 type LatamRow = RowBase & {
@@ -59,6 +63,10 @@ export default function CheckLocalizadorClient({ mode }: { mode: Mode }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [rows, setRows] = useState<Array<LatamRow | SmilesRow>>([]);
+  const [runningQueue, setRunningQueue] = useState(false);
+  const [pausedQueue, setPausedQueue] = useState(false);
+  const [checkingId, setCheckingId] = useState<string | null>(null);
+  const pausedRef = useRef(false);
 
   useEffect(() => {
     let active = true;
@@ -93,7 +101,67 @@ export default function CheckLocalizadorClient({ mode }: { mode: Mode }) {
     () => (mode === "latam" ? "Check Localizador - Latam" : "Check Localizador - Smiles"),
     [mode]
   );
-  const totalCols = mode === "latam" ? 7 : 8;
+  const totalCols = mode === "latam" ? 10 : 8;
+
+  async function checkOne(saleId: string) {
+    setCheckingId(saleId);
+    try {
+      const res = await fetch("/api/check-localizador/latam", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ saleId }),
+      });
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok || j?.ok === false) {
+        throw new Error(j?.error || `Erro ${res.status}`);
+      }
+
+      const row = j?.row || null;
+      if (row?.id) {
+        setRows((prev) =>
+          prev.map((r) =>
+            r.id === row.id
+              ? {
+                  ...r,
+                  latamLocatorCheckStatus: row.latamLocatorCheckStatus || null,
+                  latamLocatorCheckedAt: row.latamLocatorCheckedAt || null,
+                  latamLocatorCheckNote: row.latamLocatorCheckNote || null,
+                }
+              : r
+          )
+        );
+      }
+    } finally {
+      setCheckingId(null);
+    }
+  }
+
+  async function runQueueAll() {
+    if (mode !== "latam" || runningQueue) return;
+    setRunningQueue(true);
+    pausedRef.current = false;
+    setPausedQueue(false);
+
+    const ids = rows.map((r) => r.id);
+    for (const id of ids) {
+      while (pausedRef.current) {
+        await new Promise((resolve) => setTimeout(resolve, 250));
+      }
+      await checkOne(id);
+      await new Promise((resolve) => setTimeout(resolve, 350));
+    }
+
+    setRunningQueue(false);
+    pausedRef.current = false;
+    setPausedQueue(false);
+  }
+
+  function togglePauseQueue() {
+    const next = !pausedRef.current;
+    pausedRef.current = next;
+    setPausedQueue(next);
+  }
 
   return (
     <div className="space-y-4">
@@ -103,6 +171,32 @@ export default function CheckLocalizadorClient({ mode }: { mode: Mode }) {
           Ordenado por proximidade do próximo voo (ida ou volta).
         </p>
       </div>
+
+      {mode === "latam" ? (
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={runQueueAll}
+            disabled={runningQueue || !!checkingId || rows.length === 0}
+            className="rounded-xl border px-3 py-2 text-sm hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            Checar todas (fila)
+          </button>
+          <button
+            type="button"
+            onClick={togglePauseQueue}
+            disabled={!runningQueue}
+            className="rounded-xl border px-3 py-2 text-sm hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {pausedQueue ? "Continuar checagem" : "Pausar checagem"}
+          </button>
+          {runningQueue ? (
+            <span className="text-sm text-slate-600">
+              {pausedQueue ? "Fila pausada" : "Checando..."}
+            </span>
+          ) : null}
+        </div>
+      ) : null}
 
       {error ? <div className="text-sm text-rose-600">{error}</div> : null}
 
@@ -118,6 +212,8 @@ export default function CheckLocalizadorClient({ mode }: { mode: Mode }) {
               <th className="px-3 py-2 text-left">Data ida</th>
               <th className="px-3 py-2 text-left">Data volta</th>
               <th className="px-3 py-2 text-left">Cedente</th>
+              {mode === "latam" ? <th className="px-3 py-2 text-left">Status</th> : null}
+              {mode === "latam" ? <th className="px-3 py-2 text-left">Ação</th> : null}
             </tr>
           </thead>
           <tbody>
@@ -151,6 +247,53 @@ export default function CheckLocalizadorClient({ mode }: { mode: Mode }) {
                     <div className="font-medium">{r.cedente?.nomeCompleto || "-"}</div>
                     <div className="text-xs text-slate-500">{r.cedente?.identificador || "-"}</div>
                   </td>
+                  {mode === "latam" ? (
+                    <td className="px-3 py-2">
+                      <div
+                        className={
+                          r.latamLocatorCheckStatus === "CONFIRMED"
+                            ? "text-emerald-700 font-medium"
+                            : r.latamLocatorCheckStatus === "ERROR"
+                            ? "text-rose-700 font-medium"
+                            : "text-slate-500"
+                        }
+                      >
+                        {r.latamLocatorCheckStatus === "CONFIRMED"
+                          ? "Confirmada"
+                          : r.latamLocatorCheckStatus === "ERROR"
+                          ? "Erro"
+                          : "Não checada"}
+                      </div>
+                      <div className="text-xs text-slate-500">
+                        {fmtDateBR(r.latamLocatorCheckedAt)}
+                      </div>
+                      {r.latamLocatorCheckNote ? (
+                        <div className="text-xs text-slate-500">{r.latamLocatorCheckNote}</div>
+                      ) : null}
+                    </td>
+                  ) : null}
+                  {mode === "latam" ? (
+                    <td className="px-3 py-2">
+                      <div className="flex flex-wrap gap-2">
+                        <a
+                          href={r.checkUrl || "#"}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="rounded-lg border px-2 py-1 text-xs hover:bg-slate-50"
+                        >
+                          Abrir LATAM
+                        </a>
+                        <button
+                          type="button"
+                          onClick={() => checkOne(r.id)}
+                          disabled={!!checkingId || runningQueue}
+                          className="rounded-lg border px-2 py-1 text-xs hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          {checkingId === r.id ? "Checando..." : "Checar"}
+                        </button>
+                      </div>
+                    </td>
+                  ) : null}
                 </tr>
               ))
             )}
