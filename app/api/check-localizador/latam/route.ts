@@ -84,7 +84,30 @@ async function autoCheckWithBrowserless(checkUrl: string) {
   if (!ws) throw new Error("BROWSERLESS_WS não configurado.");
 
   const { chromium } = await import("playwright-core");
-  const browser = await chromium.connectOverCDP(ws);
+  let browser: any = null;
+  let errCdp = "";
+  let errWs = "";
+
+  try {
+    browser = await chromium.connectOverCDP(ws);
+  } catch (e: any) {
+    errCdp = e?.message || "falha connectOverCDP";
+  }
+
+  if (!browser) {
+    try {
+      browser = await chromium.connect(ws);
+    } catch (e: any) {
+      errWs = e?.message || "falha connect";
+    }
+  }
+
+  if (!browser) {
+    throw new Error(
+      `Não foi possível conectar ao Browserless. CDP: ${errCdp || "-"} | WS: ${errWs || "-"}`
+    );
+  }
+
   try {
     const context = await browser.newContext({
       locale: "pt-BR",
@@ -217,9 +240,19 @@ export async function POST(req: Request) {
       );
     }
     const checkUrl = buildLatamUrl(purchaseCode, lastName);
-    const out = await autoCheckWithBrowserless(checkUrl);
-    finalStatus = out.status;
-    note = out.note;
+    try {
+      const out = await autoCheckWithBrowserless(checkUrl);
+      finalStatus = out.status;
+      note = out.note;
+    } catch (e: any) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: `Falha na checagem automática: ${e?.message || "erro desconhecido"}`,
+        },
+        { status: 502 }
+      );
+    }
   }
 
   const updated = await prisma.sale.update({
