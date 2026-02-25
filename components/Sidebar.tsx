@@ -130,12 +130,19 @@ export default function Sidebar() {
 
   const isComprasRoute = pathname.startsWith("/dashboard/compras");
   const isVendasRoute = pathname.startsWith("/dashboard/vendas");
+  const isCheckLocalizadorRoute = pathname.startsWith(
+    "/dashboard/check-localizador"
+  );
 
   const isClubesRoute = pathname.startsWith("/dashboard/clubes");
 
   // ✅ Gestão de pontos engloba Visualizar, Compras, Vendas e Clubes
   const isGestaoPontosRoute =
-    isPontosVisualizarRoute || isComprasRoute || isVendasRoute || isClubesRoute;
+    isPontosVisualizarRoute ||
+    isComprasRoute ||
+    isVendasRoute ||
+    isClubesRoute ||
+    isCheckLocalizadorRoute;
 
   // ✅ Lucros/Comissões
   const isLucrosRoute =
@@ -309,6 +316,9 @@ export default function Sidebar() {
 
   const [openCompras, setOpenCompras] = useState(isComprasRoute);
   const [openVendas, setOpenVendas] = useState(isVendasRoute);
+  const [openCheckLocalizador, setOpenCheckLocalizador] = useState(
+    isCheckLocalizadorRoute
+  );
 
   const [openLucros, setOpenLucros] = useState(isLucrosRoute);
 
@@ -397,6 +407,10 @@ export default function Sidebar() {
 
   useEffect(() => setOpenCompras(isComprasRoute), [isComprasRoute]);
   useEffect(() => setOpenVendas(isVendasRoute), [isVendasRoute]);
+  useEffect(
+    () => setOpenCheckLocalizador(isCheckLocalizadorRoute),
+    [isCheckLocalizadorRoute]
+  );
 
   useEffect(() => setOpenLucros(isLucrosRoute), [isLucrosRoute]);
 
@@ -727,6 +741,15 @@ export default function Sidebar() {
             <NavLink href="/dashboard/vendas/compras-finalizadas">
               Compras finalizadas
             </NavLink>
+          </SubAccordion>
+
+          <SubAccordion
+            title="Check Localizador"
+            open={openCheckLocalizador}
+            onToggle={() => setOpenCheckLocalizador((v) => !v)}
+          >
+            <NavLink href="/dashboard/check-localizador/latam">Latam</NavLink>
+            <NavLink href="/dashboard/check-localizador/smiles">Smiles</NavLink>
           </SubAccordion>
         </Accordion>
 
