@@ -9,6 +9,9 @@ type Sess = {
   role: "admin" | "staff";
 };
 
+const MANUAL_STATUS = ["CANCELADO", "CONFIRMADO", "ALTERADO"] as const;
+type ManualStatus = (typeof MANUAL_STATUS)[number];
+
 function b64urlDecode(input: string) {
   const pad = input.length % 4 === 0 ? "" : "=".repeat(4 - (input.length % 4));
   const base64 = (input + pad).replace(/-/g, "+").replace(/_/g, "/");
@@ -66,58 +69,6 @@ function buildLatamUrl(purchaseCode: string, lastName: string) {
   )}&lastname=${encodeURIComponent(lastName)}`;
 }
 
-function isLatamErrorPage(finalUrl: string, html: string) {
-  const lowHtml = (html || "").toLowerCase();
-  const lowUrl = (finalUrl || "").toLowerCase();
-  return (
-    lowUrl.includes("/minhas-viagens/error") ||
-    lowHtml.includes("precisamos recarregar a informação") ||
-    lowHtml.includes("temos um problema")
-  );
-}
-
-async function verifyBoardingPassButton(checkUrl: string) {
-  const { chromium } = await import("playwright");
-  const browser = await chromium.launch({
-    headless: true,
-    args: ["--no-sandbox", "--disable-setuid-sandbox"],
-  });
-
-  try {
-    const context = await browser.newContext({
-      locale: "pt-BR",
-      userAgent:
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-    });
-    const page = await context.newPage();
-
-    await page.goto(checkUrl, {
-      waitUntil: "domcontentloaded",
-      timeout: 12000,
-    });
-
-    // pequena janela para a página hidratar e renderizar os CTAs
-    await page.waitForTimeout(1400);
-
-    const finalUrl = page.url();
-    const content = await page.content();
-    if (isLatamErrorPage(finalUrl, content)) {
-      return { ok: false as const, note: "LATAM retornou tela de erro/recarregar." };
-    }
-
-    const boardingBtnCount = await page
-      .locator("button:has-text('Cartão de embarque'), a:has-text('Cartão de embarque')")
-      .count();
-    if (boardingBtnCount > 0) {
-      return { ok: true as const, note: "Botão de cartão de embarque disponível." };
-    }
-
-    return { ok: false as const, note: "Botão de cartão de embarque não encontrado." };
-  } finally {
-    await browser.close();
-  }
-}
-
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
@@ -155,13 +106,8 @@ export async function GET() {
     ...r,
     departureDate: r.departureDate ? r.departureDate.toISOString() : null,
     returnDate: r.returnDate ? r.returnDate.toISOString() : null,
-    checkUrl: buildLatamUrl(
-      String(r.purchaseCode || ""),
-      String(r.firstPassengerLastName || "")
-    ),
-    latamLocatorCheckedAt: r.latamLocatorCheckedAt
-      ? r.latamLocatorCheckedAt.toISOString()
-      : null,
+    checkUrl: buildLatamUrl(String(r.purchaseCode || ""), String(r.firstPassengerLastName || "")),
+    latamLocatorCheckedAt: r.latamLocatorCheckedAt ? r.latamLocatorCheckedAt.toISOString() : null,
     createdAt: r.createdAt.toISOString(),
   }));
 
@@ -184,50 +130,22 @@ export async function POST(req: Request) {
 
   const body = await req.json().catch(() => ({}));
   const saleId = String(body?.saleId || "").trim();
+  const status = String(body?.status || "").trim().toUpperCase() as ManualStatus;
+
   if (!saleId) {
     return NextResponse.json({ ok: false, error: "saleId obrigatório." }, { status: 400 });
+  }
+  if (!MANUAL_STATUS.includes(status)) {
+    return NextResponse.json({ ok: false, error: "Status manual inválido." }, { status: 400 });
   }
 
   const sale = await prisma.sale.findUnique({
     where: { id: saleId },
-    select: {
-      id: true,
-      program: true,
-      purchaseCode: true,
-      firstPassengerLastName: true,
-    },
+    select: { id: true, program: true },
   });
 
   if (!sale || sale.program !== "LATAM") {
     return NextResponse.json({ ok: false, error: "Venda LATAM não encontrada." }, { status: 404 });
-  }
-
-  const purchaseCode = String(sale.purchaseCode || "").trim().toUpperCase();
-  const lastName = String(sale.firstPassengerLastName || "").trim();
-  if (!purchaseCode || !/^LA[A-Z0-9]*$/i.test(purchaseCode) || !lastName) {
-    return NextResponse.json(
-      { ok: false, error: "Venda sem código LA/sobrenome válidos para checagem." },
-      { status: 400 }
-    );
-  }
-
-  const checkUrl = buildLatamUrl(purchaseCode, lastName);
-
-  let status = "ERROR";
-  let note = "Sem confirmação clara da LATAM.";
-
-  try {
-    const out = await verifyBoardingPassButton(checkUrl);
-    if (out.ok) {
-      status = "CONFIRMED";
-      note = out.note;
-    } else {
-      status = "ERROR";
-      note = out.note;
-    }
-  } catch (e: any) {
-    status = "ERROR";
-    note = e?.message || "Falha na checagem LATAM com navegador automatizado.";
   }
 
   const updated = await prisma.sale.update({
@@ -235,7 +153,7 @@ export async function POST(req: Request) {
     data: {
       latamLocatorCheckStatus: status,
       latamLocatorCheckedAt: new Date(),
-      latamLocatorCheckNote: note,
+      latamLocatorCheckNote: "Atualização manual.",
     },
     select: {
       id: true,

@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 type Mode = "latam" | "smiles";
+type ManualStatus = "CANCELADO" | "CONFIRMADO" | "ALTERADO";
 
 type RowBase = {
   id: string;
@@ -59,14 +60,19 @@ function nextFlightLabel(v1?: string | null, v2?: string | null) {
   return `${chosen.label} (${new Date(chosen.ms).toLocaleDateString("pt-BR")})`;
 }
 
+function statusLabel(v?: string | null) {
+  if (!v) return "Não definido";
+  if (v === "CONFIRMADO") return "Confirmado";
+  if (v === "CANCELADO") return "Cancelado";
+  if (v === "ALTERADO") return "Alterado";
+  return v;
+}
+
 export default function CheckLocalizadorClient({ mode }: { mode: Mode }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [rows, setRows] = useState<Array<LatamRow | SmilesRow>>([]);
-  const [runningQueue, setRunningQueue] = useState(false);
-  const [pausedQueue, setPausedQueue] = useState(false);
-  const [checkingId, setCheckingId] = useState<string | null>(null);
-  const pausedRef = useRef(false);
+  const [savingId, setSavingId] = useState<string | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -103,14 +109,14 @@ export default function CheckLocalizadorClient({ mode }: { mode: Mode }) {
   );
   const totalCols = mode === "latam" ? 10 : 8;
 
-  async function checkOne(saleId: string) {
-    setCheckingId(saleId);
+  async function updateManualStatus(saleId: string, status: ManualStatus) {
+    setSavingId(saleId);
     try {
       const res = await fetch("/api/check-localizador/latam", {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ saleId }),
+        body: JSON.stringify({ saleId, status }),
       });
       const j = await res.json().catch(() => ({}));
       if (!res.ok || j?.ok === false) {
@@ -132,35 +138,11 @@ export default function CheckLocalizadorClient({ mode }: { mode: Mode }) {
           )
         );
       }
+    } catch (e: any) {
+      alert(e?.message || "Falha ao atualizar status.");
     } finally {
-      setCheckingId(null);
+      setSavingId(null);
     }
-  }
-
-  async function runQueueAll() {
-    if (mode !== "latam" || runningQueue) return;
-    setRunningQueue(true);
-    pausedRef.current = false;
-    setPausedQueue(false);
-
-    const ids = rows.map((r) => r.id);
-    for (const id of ids) {
-      while (pausedRef.current) {
-        await new Promise((resolve) => setTimeout(resolve, 250));
-      }
-      await checkOne(id);
-      await new Promise((resolve) => setTimeout(resolve, 350));
-    }
-
-    setRunningQueue(false);
-    pausedRef.current = false;
-    setPausedQueue(false);
-  }
-
-  function togglePauseQueue() {
-    const next = !pausedRef.current;
-    pausedRef.current = next;
-    setPausedQueue(next);
   }
 
   return (
@@ -171,32 +153,6 @@ export default function CheckLocalizadorClient({ mode }: { mode: Mode }) {
           Ordenado por proximidade do próximo voo (ida ou volta).
         </p>
       </div>
-
-      {mode === "latam" ? (
-        <div className="flex flex-wrap gap-2">
-          <button
-            type="button"
-            onClick={runQueueAll}
-            disabled={runningQueue || !!checkingId || rows.length === 0}
-            className="rounded-xl border px-3 py-2 text-sm hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            Checar todas (fila)
-          </button>
-          <button
-            type="button"
-            onClick={togglePauseQueue}
-            disabled={!runningQueue}
-            className="rounded-xl border px-3 py-2 text-sm hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {pausedQueue ? "Continuar checagem" : "Pausar checagem"}
-          </button>
-          {runningQueue ? (
-            <span className="text-sm text-slate-600">
-              {pausedQueue ? "Fila pausada" : "Checando..."}
-            </span>
-          ) : null}
-        </div>
-      ) : null}
 
       {error ? <div className="text-sm text-rose-600">{error}</div> : null}
 
@@ -249,32 +205,17 @@ export default function CheckLocalizadorClient({ mode }: { mode: Mode }) {
                   </td>
                   {mode === "latam" ? (
                     <td className="px-3 py-2">
-                      <div
-                        className={
-                          r.latamLocatorCheckStatus === "CONFIRMED"
-                            ? "text-emerald-700 font-medium"
-                            : r.latamLocatorCheckStatus === "ERROR"
-                            ? "text-rose-700 font-medium"
-                            : "text-slate-500"
-                        }
-                      >
-                        {r.latamLocatorCheckStatus === "CONFIRMED"
-                          ? "Confirmada (cartão disponível)"
-                          : r.latamLocatorCheckStatus === "ERROR"
-                          ? "Erro"
-                          : "Não checada"}
+                      <div className="font-medium text-slate-700">
+                        {statusLabel(r.latamLocatorCheckStatus)}
                       </div>
                       <div className="text-xs text-slate-500">
                         {fmtDateBR(r.latamLocatorCheckedAt)}
                       </div>
-                      {r.latamLocatorCheckNote ? (
-                        <div className="text-xs text-slate-500">{r.latamLocatorCheckNote}</div>
-                      ) : null}
                     </td>
                   ) : null}
                   {mode === "latam" ? (
                     <td className="px-3 py-2">
-                      <div className="flex flex-wrap gap-2">
+                      <div className="flex flex-wrap gap-2 items-center">
                         <a
                           href={r.checkUrl || "#"}
                           target="_blank"
@@ -283,14 +224,21 @@ export default function CheckLocalizadorClient({ mode }: { mode: Mode }) {
                         >
                           Abrir LATAM
                         </a>
-                        <button
-                          type="button"
-                          onClick={() => checkOne(r.id)}
-                          disabled={!!checkingId || runningQueue}
-                          className="rounded-lg border px-2 py-1 text-xs hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                        <select
+                          className="rounded-lg border px-2 py-1 text-xs bg-white"
+                          value={(r.latamLocatorCheckStatus || "") as string}
+                          disabled={savingId === r.id}
+                          onChange={(e) => {
+                            const v = String(e.target.value || "") as ManualStatus;
+                            if (!v) return;
+                            updateManualStatus(r.id, v);
+                          }}
                         >
-                          {checkingId === r.id ? "Checando..." : "Checar"}
-                        </button>
+                          <option value="">Selecionar...</option>
+                          <option value="CANCELADO">Cancelado</option>
+                          <option value="CONFIRMADO">Confirmado</option>
+                          <option value="ALTERADO">Alterado</option>
+                        </select>
                       </div>
                     </td>
                   ) : null}
