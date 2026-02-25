@@ -79,63 +79,47 @@ function isLatamErrorPage(finalUrl: string, html: string) {
   );
 }
 
-async function autoCheckWithBrowserless(checkUrl: string) {
-  const ws = String(process.env.BROWSERLESS_WS || "").trim();
-  if (!ws) throw new Error("BROWSERLESS_WS não configurado.");
-
-  const { chromium } = await import("playwright-core");
-  let browser: any = null;
-  let errCdp = "";
-  let errWs = "";
-
+async function autoCheckByRedirect(checkUrl: string) {
+  const ac = new AbortController();
+  const timeout = setTimeout(() => ac.abort(), 5500);
   try {
-    browser = await chromium.connectOverCDP(ws);
-  } catch (e: any) {
-    errCdp = e?.message || "falha connectOverCDP";
-  }
-
-  if (!browser) {
-    try {
-      browser = await chromium.connect(ws);
-    } catch (e: any) {
-      errWs = e?.message || "falha connect";
-    }
-  }
-
-  if (!browser) {
-    throw new Error(
-      `Não foi possível conectar ao Browserless. CDP: ${errCdp || "-"} | WS: ${errWs || "-"}`
-    );
-  }
-
-  try {
-    const context = await browser.newContext({
-      locale: "pt-BR",
-      userAgent:
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+    const res = await fetch(checkUrl, {
+      method: "GET",
+      redirect: "follow",
+      signal: ac.signal,
+      headers: {
+        "user-agent":
+          "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+        "accept-language": "pt-BR,pt;q=0.9,en;q=0.8",
+        "cache-control": "no-cache",
+      },
     });
-    const page = await context.newPage();
-    await page.goto(checkUrl, { waitUntil: "domcontentloaded", timeout: 12000 });
-    await page.waitForTimeout(1500);
 
-    const finalUrl = page.url();
-    const html = await page.content();
+    const finalUrl = String(res.url || "");
+    const finalLow = finalUrl.toLowerCase();
+    const html = await res.text();
+    const htmlLow = html.toLowerCase();
 
-    if (isLatamErrorPage(finalUrl, html)) {
-      return { status: "ALTERADO" as const, note: "LATAM retornou tela de erro/recarregar." };
+    if (finalLow.includes("/minhas-viagens/error") || isLatamErrorPage(finalUrl, html)) {
+      if (finalLow.includes("error=order_not_found") || htmlLow.includes("order_not_found")) {
+        return { status: "CANCELADO" as const, note: "LATAM retornou ORDER_NOT_FOUND." };
+      }
+      return { status: "ALTERADO" as const, note: "LATAM retornou página de erro." };
     }
 
-    const boardingBtnCount = await page
-      .locator("button:has-text('Cartão de embarque'), a:has-text('Cartão de embarque')")
-      .count();
-
-    if (boardingBtnCount > 0) {
-      return { status: "CONFIRMADO" as const, note: "Cartão de embarque disponível." };
+    if (!res.ok) {
+      return { status: "ALTERADO" as const, note: `LATAM HTTP ${res.status}.` };
     }
 
-    return { status: "CANCELADO" as const, note: "Cartão de embarque não encontrado." };
+    // Sem erro explícito no redirect -> considera confirmação.
+    return { status: "CONFIRMADO" as const, note: "URL válida sem erro ORDER_NOT_FOUND." };
+  } catch (e: any) {
+    if (e?.name === "AbortError") {
+      return { status: "ALTERADO" as const, note: "Timeout curto na checagem automática." };
+    }
+    return { status: "ALTERADO" as const, note: "Falha de rede na checagem automática." };
   } finally {
-    await browser.close();
+    clearTimeout(timeout);
   }
 }
 
@@ -240,19 +224,9 @@ export async function POST(req: Request) {
       );
     }
     const checkUrl = buildLatamUrl(purchaseCode, lastName);
-    try {
-      const out = await autoCheckWithBrowserless(checkUrl);
-      finalStatus = out.status;
-      note = out.note;
-    } catch (e: any) {
-      return NextResponse.json(
-        {
-          ok: false,
-          error: `Falha na checagem automática: ${e?.message || "erro desconhecido"}`,
-        },
-        { status: 502 }
-      );
-    }
+    const out = await autoCheckByRedirect(checkUrl);
+    finalStatus = out.status;
+    note = out.note;
   }
 
   const updated = await prisma.sale.update({
