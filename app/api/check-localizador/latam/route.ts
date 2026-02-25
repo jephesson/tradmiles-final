@@ -69,60 +69,6 @@ function buildLatamUrl(purchaseCode: string, lastName: string) {
   )}&lastname=${encodeURIComponent(lastName)}`;
 }
 
-function isLatamErrorPage(finalUrl: string, html: string) {
-  const lowHtml = (html || "").toLowerCase();
-  const lowUrl = (finalUrl || "").toLowerCase();
-  return (
-    lowUrl.includes("/minhas-viagens/error") ||
-    lowHtml.includes("precisamos recarregar a informação") ||
-    lowHtml.includes("temos um problema")
-  );
-}
-
-async function autoCheckByRedirect(checkUrl: string) {
-  const ac = new AbortController();
-  const timeout = setTimeout(() => ac.abort(), 5500);
-  try {
-    const res = await fetch(checkUrl, {
-      method: "GET",
-      redirect: "follow",
-      signal: ac.signal,
-      headers: {
-        "user-agent":
-          "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-        "accept-language": "pt-BR,pt;q=0.9,en;q=0.8",
-        "cache-control": "no-cache",
-      },
-    });
-
-    const finalUrl = String(res.url || "");
-    const finalLow = finalUrl.toLowerCase();
-    const html = await res.text();
-    const htmlLow = html.toLowerCase();
-
-    if (finalLow.includes("/minhas-viagens/error") || isLatamErrorPage(finalUrl, html)) {
-      if (
-        finalLow.includes("error=order_not_found") ||
-        finalLow.includes("error=undefined") ||
-        htmlLow.includes("order_not_found")
-      ) {
-        return { status: "CANCELADO" as const, note: "LATAM retornou erro de pedido não encontrado." };
-      }
-      // regra de negócio: auto não usa "ALTERADO"
-      return { status: "CONFIRMADO" as const, note: "LATAM retornou sem ORDER_NOT_FOUND." };
-    }
-    return { status: "CONFIRMADO" as const, note: "URL válida sem erro ORDER_NOT_FOUND." };
-  } catch (e: any) {
-    // regra de negócio: auto não usa "ALTERADO"
-    if (e?.name === "AbortError") {
-      return { status: "CONFIRMADO" as const, note: "Timeout curto; mantido como confirmado." };
-    }
-    return { status: "CONFIRMADO" as const, note: "Falha de rede; mantido como confirmado." };
-  } finally {
-    clearTimeout(timeout);
-  }
-}
-
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
@@ -190,14 +136,21 @@ export async function POST(req: Request) {
   if (!saleId) {
     return NextResponse.json({ ok: false, error: "saleId obrigatório." }, { status: 400 });
   }
+  if (!statusRaw) {
+    return NextResponse.json(
+      { ok: false, error: "Informe o status manual (CANCELADO/CONFIRMADO/ALTERADO)." },
+      { status: 400 }
+    );
+  }
+  if (!MANUAL_STATUS.includes(status)) {
+    return NextResponse.json({ ok: false, error: "Status manual inválido." }, { status: 400 });
+  }
 
   const sale = await prisma.sale.findUnique({
     where: { id: saleId },
     select: {
       id: true,
       program: true,
-      purchaseCode: true,
-      firstPassengerLastName: true,
     },
   });
 
@@ -205,36 +158,12 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: "Venda LATAM não encontrada." }, { status: 404 });
   }
 
-  let finalStatus: string;
-  let note: string;
-
-  if (statusRaw) {
-    if (!MANUAL_STATUS.includes(status)) {
-      return NextResponse.json({ ok: false, error: "Status manual inválido." }, { status: 400 });
-    }
-    finalStatus = status;
-    note = "Atualização manual.";
-  } else {
-    const purchaseCode = String(sale.purchaseCode || "").trim().toUpperCase();
-    const lastName = String(sale.firstPassengerLastName || "").trim();
-    if (!purchaseCode || !/^LA[A-Z0-9]*$/i.test(purchaseCode) || !lastName) {
-      return NextResponse.json(
-        { ok: false, error: "Venda sem código LA/sobrenome válidos para checagem automática." },
-        { status: 400 }
-      );
-    }
-    const checkUrl = buildLatamUrl(purchaseCode, lastName);
-    const out = await autoCheckByRedirect(checkUrl);
-    finalStatus = out.status;
-    note = out.note;
-  }
-
   const updated = await prisma.sale.update({
     where: { id: saleId },
     data: {
-      latamLocatorCheckStatus: finalStatus,
+      latamLocatorCheckStatus: status,
       latamLocatorCheckedAt: new Date(),
-      latamLocatorCheckNote: note,
+      latamLocatorCheckNote: "Atualização manual.",
     },
     select: {
       id: true,
