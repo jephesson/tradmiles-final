@@ -18,6 +18,11 @@ type Suggestion = {
     identificador: string;
     nomeCompleto: string;
     cpf: string;
+    biometriaHorario: {
+      turnoManha: boolean;
+      turnoTarde: boolean;
+      turnoNoite: boolean;
+    } | null;
     owner: Owner;
   };
   program: Program;
@@ -92,6 +97,22 @@ function normStr(v?: string) {
 }
 function onlyDigits(v: any) {
   return String(v ?? "").replace(/\D+/g, "");
+}
+function biometriaTurnosShort(
+  horarios:
+    | {
+        turnoManha: boolean;
+        turnoTarde: boolean;
+        turnoNoite: boolean;
+      }
+    | null
+) {
+  if (!horarios) return "—";
+  const out: string[] = [];
+  if (horarios.turnoManha) out.push("M");
+  if (horarios.turnoTarde) out.push("T");
+  if (horarios.turnoNoite) out.push("N");
+  return out.length ? out.join("/") : "—";
 }
 function withTs(url: string) {
   const ts = Date.now();
@@ -1540,6 +1561,13 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
                     <b className="tabular-nums">{fmtInt(sel.leftoverPoints)}</b>
                   </span>
 
+                  {program === "LATAM" ? (
+                    <span className="rounded-full border bg-white px-2 py-1">
+                      Biometria:{" "}
+                      <b>{biometriaTurnosShort(sel.cedente.biometriaHorario)}</b>
+                    </span>
+                  ) : null}
+
                   <span
                     className={cn(
                       "rounded-full border px-2 py-1",
@@ -1782,6 +1810,9 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
                     <th className="text-right font-semibold px-4 py-3 w-[140px]">
                       PTS
                     </th>
+                    <th className="text-left font-semibold px-4 py-3 w-[110px]">
+                      BIOMETRIA
+                    </th>
                     <th className="text-right font-semibold px-4 py-3 w-[260px]">
                       PAX DISP. (após)
                     </th>
@@ -1797,7 +1828,7 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
                 <tbody>
                   {!loadingSug && suggestions.length === 0 ? (
                     <tr>
-                      <td colSpan={7} className="px-4 py-8 text-slate-500">
+                      <td colSpan={8} className="px-4 py-8 text-slate-500">
                         Informe pontos e passageiros para ver sugestões.
                       </td>
                     </tr>
@@ -1807,7 +1838,7 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
                   suggestions.length > 0 &&
                   visibleSuggestions.length === 0 ? (
                     <tr>
-                      <td colSpan={7} className="px-4 py-8 text-slate-500">
+                      <td colSpan={8} className="px-4 py-8 text-slate-500">
                         Nenhum cedente encontrado para essa busca.
                       </td>
                     </tr>
@@ -1836,6 +1867,15 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
                           <div className="text-xs text-slate-500">@{s.cedente.owner.login}</div>
                         </td>
                         <td className="px-4 py-3 text-right tabular-nums">{fmtInt(s.pts)}</td>
+                        <td className="px-4 py-3 text-left">
+                          {program === "LATAM" ? (
+                            <span className="inline-flex rounded-full border px-2 py-1 text-xs">
+                              {biometriaTurnosShort(s.cedente.biometriaHorario)}
+                            </span>
+                          ) : (
+                            <span className="text-slate-400">—</span>
+                          )}
+                        </td>
                         <td className="px-4 py-3 text-right tabular-nums">
                           <span className={cn(paxAfter < 0 ? "text-rose-600 font-semibold" : "")}>
                             {fmtInt(paxAfterClamped)}
@@ -1870,7 +1910,7 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
 
                   {loadingSug ? (
                     <tr>
-                      <td colSpan={7} className="px-4 py-8 text-slate-500">
+                      <td colSpan={8} className="px-4 py-8 text-slate-500">
                         Carregando...
                       </td>
                     </tr>

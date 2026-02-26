@@ -57,6 +57,13 @@ export async function GET(req: Request) {
       pontosSmiles: true,
       pontosLivelo: true,
       pontosEsfera: true,
+      biometriaHorario: {
+        select: {
+          turnoManha: true,
+          turnoTarde: true,
+          turnoNoite: true,
+        },
+      },
       owner: { select: { id: true, name: true, login: true } },
     },
     take: 3000,
@@ -67,7 +74,13 @@ export async function GET(req: Request) {
   const rows = cedentes
     .filter((c) => !blockedSet.has(c.id))
     .map((c) => {
-      const pts = clampInt((c as any)[field]);
+      const ptsByProgram: Record<typeof field, number> = {
+        pontosLatam: c.pontosLatam,
+        pontosSmiles: c.pontosSmiles,
+        pontosLivelo: c.pontosLivelo,
+        pontosEsfera: c.pontosEsfera,
+      };
+      const pts = clampInt(ptsByProgram[field]);
       const used = usedMap.get(c.id) || 0;
       const availablePax = Math.max(0, paxLimit - used);
 
@@ -90,6 +103,13 @@ export async function GET(req: Request) {
           identificador: c.identificador,
           nomeCompleto: c.nomeCompleto,
           cpf: c.cpf,
+          biometriaHorario: c.biometriaHorario
+            ? {
+                turnoManha: Boolean(c.biometriaHorario.turnoManha),
+                turnoTarde: Boolean(c.biometriaHorario.turnoTarde),
+                turnoNoite: Boolean(c.biometriaHorario.turnoNoite),
+              }
+            : null,
           owner: c.owner,
         },
         program,
