@@ -11,42 +11,59 @@ export async function GET() {
   try {
     const session = await requireSession();
 
-    // ✅ Purchase NÃO tem team -> filtra pelo team do dono do cedente
-    const compras = await prisma.purchase.findMany({
+    // Usa a mesma base dos "pendentes" do painel LATAM:
+    // purchase_items PENDING + compra não cancelada + cedente do time
+    const pendingItems = await prisma.purchaseItem.findMany({
       where: {
-        status: "OPEN",
-        ciaAerea: { in: [LoyaltyProgram.LATAM, LoyaltyProgram.SMILES] },
-        pontosCiaTotal: { gt: 0 },
-        cedente: {
-          owner: { team: session.team },
+        status: "PENDING",
+        pointsFinal: { gt: 0 },
+        purchase: {
+          status: { not: "CANCELED" },
+          cedente: {
+            owner: { team: session.team },
+          },
         },
+        OR: [
+          { programTo: { in: [LoyaltyProgram.LATAM, LoyaltyProgram.SMILES] } },
+          { purchase: { ciaAerea: { in: [LoyaltyProgram.LATAM, LoyaltyProgram.SMILES] } } },
+        ],
       },
-      select: { ciaAerea: true, pontosCiaTotal: true },
+      select: {
+        programTo: true,
+        pointsFinal: true,
+        purchaseId: true,
+        purchase: { select: { ciaAerea: true } },
+      },
     });
 
     let latamPoints = 0;
     let smilesPoints = 0;
-    let latamCount = 0;
-    let smilesCount = 0;
+    const latamPurchases = new Set<string>();
+    const smilesPurchases = new Set<string>();
 
-    for (const c of compras) {
-      const pts = Number(c.pontosCiaTotal || 0);
+    for (const item of pendingItems) {
+      const pts = Number(item.pointsFinal || 0);
       if (!pts) continue;
 
-      if (c.ciaAerea === LoyaltyProgram.LATAM) {
+      const program = item.programTo ?? item.purchase.ciaAerea ?? null;
+      if (program === LoyaltyProgram.LATAM) {
         latamPoints += pts;
-        latamCount += 1;
-      } else if (c.ciaAerea === LoyaltyProgram.SMILES) {
+        latamPurchases.add(item.purchaseId);
+      } else if (program === LoyaltyProgram.SMILES) {
         smilesPoints += pts;
-        smilesCount += 1;
+        smilesPurchases.add(item.purchaseId);
       }
     }
 
+    const latamCount = latamPurchases.size;
+    const smilesCount = smilesPurchases.size;
+
     // ✅ padrão do teu sistema: { ok:true, data:{...} }
     return ok({ latamPoints, smilesPoints, latamCount, smilesCount });
-  } catch (e: any) {
+  } catch (e: unknown) {
+    const detail = e instanceof Error ? e.message : String(e || "");
     return serverError("Falha ao calcular pontos pendentes (compras OPEN).", {
-      detail: e?.message,
+      detail,
     });
   }
 }
