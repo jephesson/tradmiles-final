@@ -71,6 +71,12 @@ type PendingPointsResponse = {
   };
 };
 
+type LatamVisualizarResponse = {
+  ok?: boolean;
+  rows?: Array<{ latamPendente?: number }>;
+  error?: string;
+};
+
 function fmtMoneyBR(cents: number) {
   const v = (cents || 0) / 100;
   return v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -221,7 +227,7 @@ export default function CaixaImediatoClient() {
   async function loadAll() {
     setLoading(true);
     try {
-      const [rResumo, rCedentes, rBloq, rCx, rDAR, rPendingPts] = await Promise.all([
+      const [rResumo, rCedentes, rBloq, rCx, rDAR, rPendingPts, rLatamVisualizar] = await Promise.all([
         fetch("/api/resumo", { cache: "no-store" }),
         fetch("/api/cedentes/options", { cache: "no-store" }),
         fetch("/api/bloqueios", { cache: "no-store" }),
@@ -230,6 +236,8 @@ export default function CaixaImediatoClient() {
         fetch("/api/dividas-a-receber?take=1", { cache: "no-store" }),
         // ✅ NOVO: compras OPEN de pontos (pendentes de liberação)
         fetch("/api/compras/pending-points", { cache: "no-store" }),
+        // ✅ fallback da mesma fonte da tela "Cedentes • Latam"
+        fetch("/api/cedentes/latam", { cache: "no-store" }),
       ]);
 
       const jResumo = await rResumo.json();
@@ -238,6 +246,7 @@ export default function CaixaImediatoClient() {
       const jCx = await rCx.json();
       const jDAR = (await rDAR.json()) as DARResponse;
       const jPending = (await rPendingPts.json()) as PendingPointsResponse;
+      const jLatamVisualizar = (await rLatamVisualizar.json()) as LatamVisualizarResponse;
 
       if (!jResumo?.ok) throw new Error(jResumo?.error || "Erro ao carregar resumo");
       if (!jCed?.ok) throw new Error(jCed?.error || "Erro ao carregar cedentes");
@@ -274,9 +283,31 @@ export default function CaixaImediatoClient() {
       setDividasAReceberOpenCents(Number.isFinite(darOpen) ? darOpen : 0);
 
       // ✅ PONTOS PENDENTES (COMPRAS OPEN)
-      setPendingPurchaseLatamPoints(Number(jPending.data?.latamPoints || 0));
+      const pendingLatamFromCompras = Number(jPending.data?.latamPoints || 0);
+      const pendingLatamCountFromCompras = Number(jPending.data?.latamCount || 0);
+
+      // Se a API de compras vier zerada e a tela LATAM tiver pendente, usa o total da tela LATAM.
+      let pendingLatamFromVisualizar = 0;
+      let pendingLatamCountFromVisualizar = 0;
+      if (rLatamVisualizar.ok && jLatamVisualizar?.ok && Array.isArray(jLatamVisualizar.rows)) {
+        pendingLatamFromVisualizar = jLatamVisualizar.rows.reduce(
+          (acc, row) => acc + Number(row?.latamPendente || 0),
+          0
+        );
+        pendingLatamCountFromVisualizar = jLatamVisualizar.rows.filter(
+          (row) => Number(row?.latamPendente || 0) > 0
+        ).length;
+      }
+
+      if (pendingLatamFromVisualizar > pendingLatamFromCompras) {
+        setPendingPurchaseLatamPoints(pendingLatamFromVisualizar);
+        setPendingPurchaseLatamCount(pendingLatamCountFromVisualizar);
+      } else {
+        setPendingPurchaseLatamPoints(pendingLatamFromCompras);
+        setPendingPurchaseLatamCount(pendingLatamCountFromCompras);
+      }
+
       setPendingPurchaseSmilesPoints(Number(jPending.data?.smilesPoints || 0));
-      setPendingPurchaseLatamCount(Number(jPending.data?.latamCount || 0));
       setPendingPurchaseSmilesCount(Number(jPending.data?.smilesCount || 0));
     } catch (e: any) {
       alert(e.message);
