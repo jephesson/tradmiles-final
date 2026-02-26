@@ -115,6 +115,7 @@ function resolveBrowserlessWs() {
 
   try {
     const u = new URL(ws);
+    if (!u.pathname) u.pathname = "/";
     if (!u.searchParams.has("stealth")) u.searchParams.set("stealth", "true");
     if (!u.searchParams.has("blockAds")) u.searchParams.set("blockAds", "true");
     return u.toString();
@@ -222,6 +223,62 @@ async function waitForStableUrl(page: Page, maxWaitMs = 4000) {
   return page.url();
 }
 
+function isRetriableNavigationError(error: unknown) {
+  const msg = getErrorMessage(error, "").toLowerCase();
+  if (!msg) return false;
+  return (
+    msg.includes("err_http2_protocol_error") ||
+    msg.includes("err_connection_reset") ||
+    msg.includes("err_incomplete_chunked_encoding") ||
+    msg.includes("navigation timeout") ||
+    msg.includes("target closed")
+  );
+}
+
+async function gotoLatamWithRetries(page: Page, url: string, timeoutMs: number) {
+  const attempts: Array<{
+    warmup: boolean;
+    waitUntil: "domcontentloaded" | "load";
+  }> = [
+    { warmup: false, waitUntil: "domcontentloaded" },
+    { warmup: true, waitUntil: "domcontentloaded" },
+    { warmup: true, waitUntil: "load" },
+  ];
+
+  let lastError: unknown = null;
+
+  for (let i = 0; i < attempts.length; i++) {
+    const attempt = attempts[i];
+    try {
+      if (attempt.warmup) {
+        await page
+          .goto("https://www.latamairlines.com/br/pt/minhas-viagens", {
+            waitUntil: "domcontentloaded",
+            timeout: Math.min(12000, timeoutMs),
+          })
+          .catch(() => null);
+        await page.waitForTimeout(450);
+      }
+
+      await page.goto(url, {
+        waitUntil: attempt.waitUntil,
+        timeout: timeoutMs,
+      });
+      return;
+    } catch (error: unknown) {
+      lastError = error;
+      if (!isRetriableNavigationError(error)) {
+        throw error;
+      }
+      await page.waitForTimeout(650 + i * 350);
+    }
+  }
+
+  throw lastError instanceof Error
+    ? lastError
+    : new Error("Falha ao abrir URL LATAM após tentativas.");
+}
+
 async function detectBaggageModal(page: Page) {
   const currentUrl = page.url();
   const urlHint = BAGGAGE_MODAL_URL_HINTS.some((h) =>
@@ -295,16 +352,22 @@ async function connectBrowserless(wsEndpoint: string): Promise<{ browser: Browse
     }
   }
 
-  const existing = browser.contexts()[0];
-  if (existing) return { browser, context: existing };
-
-  const context = await browser.newContext({
-    locale: "pt-BR",
-    viewport: { width: 1366, height: 900 },
-    userAgent:
-      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-  });
-  return { browser, context };
+  try {
+    const context = await browser.newContext({
+      locale: "pt-BR",
+      ignoreHTTPSErrors: true,
+      viewport: { width: 1366, height: 900 },
+      userAgent:
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    });
+    return { browser, context };
+  } catch {
+    const existing = browser.contexts()[0];
+    if (!existing) {
+      throw new Error("Sessão Browserless sem contexto disponível.");
+    }
+    return { browser, context: existing };
+  }
 }
 
 async function autoCheckLatam(params: {
@@ -329,10 +392,9 @@ async function autoCheckLatam(params: {
 
     await page.setExtraHTTPHeaders({
       "accept-language": "pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7",
-      "upgrade-insecure-requests": "1",
     });
 
-    await page.goto(checkUrl, { waitUntil: "domcontentloaded", timeout: params.timeoutMs });
+    await gotoLatamWithRetries(page, checkUrl, params.timeoutMs);
     await page.waitForTimeout(850);
     await acceptCookiesIfPresent(page);
 
