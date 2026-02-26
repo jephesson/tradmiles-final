@@ -6,6 +6,15 @@ function fmtMoneyBR(cents: number) {
   const v = (cents || 0) / 100;
   return v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
+function fmtMoneyCompactBR(cents: number) {
+  const v = (cents || 0) / 100;
+  return v.toLocaleString("pt-BR", {
+    style: "currency",
+    currency: "BRL",
+    notation: "compact",
+    maximumFractionDigits: 1,
+  });
+}
 function fmtInt(n: number) {
   return new Intl.NumberFormat("pt-BR").format(n || 0);
 }
@@ -86,8 +95,10 @@ function Card({
 function SimpleLineChart({
   title,
   data,
-  height = 160,
+  height = 190,
   extraLine,
+  trendLine,
+  summary,
   footer,
   accent = "text-slate-900",
 }: {
@@ -95,56 +106,176 @@ function SimpleLineChart({
   data: ChartPointWithSub[];
   height?: number;
   extraLine?: ChartPoint[];
+  trendLine?: ChartPoint[];
+  summary?: ReactNode;
   footer?: ReactNode;
   accent?: string;
 }) {
-  const w = 900;
+  const w = 980;
   const h = height;
-  const pad = 24;
+  const leftPad = 20;
+  const rightPad = 70;
+  const topPad = 14;
+  const bottomPad = 22;
+  const plotW = w - leftPad - rightPad;
+  const plotH = h - topPad - bottomPad;
+  const baseY = topPad + plotH;
 
   const ysBase = data.map((d) => d.y);
   const ysExtra = (extraLine || []).map((d) => d.y);
-  const ysAll = [...ysBase, ...ysExtra];
+  const ysTrend = (trendLine || []).map((d) => d.y);
+  const ysAll = [...ysBase, ...ysExtra, ...ysTrend];
 
   const ymin = Math.min(...ysAll, 0);
   const ymax = Math.max(...ysAll, 1);
 
-  const dx = data.length <= 1 ? 1 : (w - pad * 2) / (data.length - 1);
+  const dx = data.length <= 1 ? 0 : plotW / (data.length - 1);
   const scaleY = (v: number) => {
     const t = (v - ymin) / (ymax - ymin || 1);
-    return h - pad - t * (h - pad * 2);
+    return topPad + plotH - t * plotH;
   };
 
-  const pointsBase = data.map((d, i) => `${pad + i * dx},${scaleY(d.y)}`).join(" ");
-  const pointsExtra = extraLine ? extraLine.map((d, i) => `${pad + i * dx},${scaleY(d.y)}`).join(" ") : "";
+  const pointsBase = data.map((d, i) => `${leftPad + i * dx},${scaleY(d.y)}`).join(" ");
+  const pointsExtra = extraLine
+    ? extraLine.map((d, i) => `${leftPad + i * dx},${scaleY(d.y)}`).join(" ")
+    : "";
+  const pointsTrend = trendLine
+    ? trendLine.map((d, i) => `${leftPad + i * dx},${scaleY(d.y)}`).join(" ")
+    : "";
+
+  const areaPath = data.length
+    ? [
+        `M ${leftPad} ${baseY}`,
+        ...data.map((d, i) => `L ${leftPad + i * dx} ${scaleY(d.y)}`),
+        `L ${leftPad + (data.length - 1) * dx} ${baseY}`,
+        "Z",
+      ].join(" ")
+    : "";
+
+  const yTicks = [ymax, (ymax + ymin) / 2, ymin];
 
   return (
     <div className="rounded-2xl border bg-white p-4 shadow-sm">
       <div className="mb-1 text-sm font-semibold">{title}</div>
+      {summary ? <div className="mb-3">{summary}</div> : null}
+      <div className="mb-2 flex flex-wrap gap-2 text-[11px] text-neutral-600">
+        <span className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5">
+          <span className="h-2 w-2 rounded-full bg-sky-500" />
+          Série principal
+        </span>
+        {extraLine?.length ? (
+          <span className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5">
+            <span className="h-2 w-2 rounded-full bg-neutral-400" />
+            Média móvel
+          </span>
+        ) : null}
+        {trendLine?.length ? (
+          <span className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5">
+            <span className="h-0 w-3 border-t border-dashed border-indigo-400" />
+            Tendência
+          </span>
+        ) : null}
+      </div>
 
       <svg viewBox={`0 0 ${w} ${h}`} className="w-full">
+        {/* grade horizontal */}
+        {yTicks.map((v, i) => (
+          <line
+            key={`grid-${i}`}
+            x1={leftPad}
+            x2={leftPad + plotW}
+            y1={scaleY(v)}
+            y2={scaleY(v)}
+            stroke="#e5e7eb"
+            strokeWidth="1"
+          />
+        ))}
+
+        {/* labels Y */}
+        {yTicks.map((v, i) => (
+          <text
+            key={`ylabel-${i}`}
+            x={leftPad + plotW + 6}
+            y={scaleY(v) + 3}
+            fontSize="10"
+            fill="#64748b"
+          >
+            {fmtMoneyCompactBR(Math.round(v))}
+          </text>
+        ))}
+
+        {/* área */}
+        {areaPath ? <path d={areaPath} fill="#0ea5e91A" /> : null}
+
         {/* linha principal */}
-        <polyline fill="none" stroke="currentColor" strokeWidth="2" points={pointsBase} className={accent} />
+        <polyline
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2.2"
+          points={pointsBase}
+          className={accent}
+        />
         {data.map((d, i) => (
-          <circle key={`${d.x}-${i}`} cx={pad + i * dx} cy={scaleY(d.y)} r="2.5" className={accent} />
+          <circle
+            key={`${d.x}-${i}`}
+            cx={leftPad + i * dx}
+            cy={scaleY(d.y)}
+            r="2.5"
+            className={accent}
+          />
         ))}
 
         {/* linha extra (média móvel) */}
         {extraLine?.length ? (
-          <polyline fill="none" stroke="currentColor" strokeWidth="2" points={pointsExtra} className="text-neutral-400" />
+          <polyline
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            points={pointsExtra}
+            className="text-neutral-400"
+          />
+        ) : null}
+
+        {/* linha de tendência */}
+        {trendLine?.length ? (
+          <polyline
+            fill="none"
+            stroke="#818cf8"
+            strokeWidth="1.8"
+            strokeDasharray="5 4"
+            points={pointsTrend}
+          />
         ) : null}
       </svg>
 
-      {/* chips */}
-      <div className="mt-2 flex flex-wrap gap-2">
-        {data.map((d) => (
-          <div key={d.x} className="rounded-xl border px-2 py-1 text-[11px]">
-            <div className="text-neutral-600">{d.x}</div>
-            <div className="font-medium">{fmtMoneyBR(d.y)}</div>
-            {d.sub ? <div className="text-[10px] text-neutral-500">{d.sub}</div> : null}
+      {/* detalhes */}
+      {data.length ? (
+        <details className="mt-3 rounded-xl border border-neutral-200 bg-neutral-50/60 p-2">
+          <summary className="cursor-pointer text-xs font-medium text-neutral-700">
+            Ver detalhes por ponto ({data.length})
+          </summary>
+          <div className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+            {data.map((d) => {
+              const subClass = d.sub
+                ? d.sub.includes("+")
+                  ? "text-emerald-700"
+                  : d.sub.includes("-")
+                    ? "text-rose-700"
+                    : "text-neutral-500"
+                : "text-neutral-500";
+              return (
+                <div key={d.x} className="rounded-xl border bg-white px-2 py-1 text-[11px]">
+                  <div className="text-neutral-600">{d.x}</div>
+                  <div className="font-medium">{fmtMoneyBR(d.y)}</div>
+                  {d.sub ? <div className={`text-[10px] ${subClass}`}>{d.sub}</div> : null}
+                </div>
+              );
+            })}
           </div>
-        ))}
-      </div>
+        </details>
+      ) : (
+        <div className="mt-2 text-xs text-neutral-500">Sem dados no período selecionado.</div>
+      )}
 
       {footer ? <div className="mt-3 text-xs text-neutral-600">{footer}</div> : null}
     </div>
@@ -190,7 +321,24 @@ function SimplePieChart({
 }) {
   const total = data.reduce((acc, d) => acc + d.value, 0);
   const radius = 15.915;
-  let accPct = 0;
+  const finalSegments = data.reduce<
+    Array<{ key: string; color: string; dash: string; dashOffset: number; accPct100: number }>
+  >((acc, s, i) => {
+    const prevAcc = i === 0 ? 0 : acc[i - 1].accPct100;
+    const pct100 = Math.max(0, Math.min(100, s.pct * 100));
+    const dash = `${pct100} ${100 - pct100}`;
+    const dashOffset = 25 - prevAcc;
+    return [
+      ...acc,
+      {
+        key: `${s.label}-${i}`,
+        color: s.color,
+        dash,
+        dashOffset,
+        accPct100: prevAcc + pct100,
+      },
+    ];
+  }, []);
 
   return (
     <div className="rounded-2xl border bg-white p-4 shadow-sm">
@@ -203,25 +351,19 @@ function SimplePieChart({
           <div className="flex items-center justify-center">
             <svg viewBox="0 0 36 36" className="h-40 w-40">
               <circle cx="18" cy="18" r={radius} fill="none" stroke="#e5e7eb" strokeWidth="6" />
-              {data.map((s, i) => {
-                const pct100 = Math.max(0, Math.min(100, s.pct * 100));
-                const dash = `${pct100} ${100 - pct100}`;
-                const dashOffset = 25 - accPct * 100;
-                accPct += s.pct;
-                return (
-                  <circle
-                    key={`${s.label}-${i}`}
-                    cx="18"
-                    cy="18"
-                    r={radius}
-                    fill="none"
-                    stroke={s.color}
-                    strokeWidth="6"
-                    strokeDasharray={dash}
-                    strokeDashoffset={dashOffset}
-                  />
-                );
-              })}
+              {finalSegments.map((s) => (
+                <circle
+                  key={s.key}
+                  cx="18"
+                  cy="18"
+                  r={radius}
+                  fill="none"
+                  stroke={s.color}
+                  strokeWidth="6"
+                  strokeDasharray={s.dash}
+                  strokeDashoffset={s.dashOffset}
+                />
+              ))}
             </svg>
           </div>
 
@@ -385,6 +527,51 @@ export default function AnaliseDadosClient() {
     const ma = movingAverage(ys, maWindow);
     return chartPoints.map((p, i) => ({ x: p.x, y: ma[i] || 0 }));
   }, [chartPoints, chartMode, maWindow]);
+
+  const trendLine = useMemo<ChartPoint[] | undefined>(() => {
+    if (chartPoints.length < 2) return undefined;
+
+    const n = chartPoints.length;
+    let sumX = 0;
+    let sumY = 0;
+    let sumXY = 0;
+    let sumXX = 0;
+
+    chartPoints.forEach((p, i) => {
+      sumX += i;
+      sumY += p.y;
+      sumXY += i * p.y;
+      sumXX += i * i;
+    });
+
+    const denom = n * sumXX - sumX * sumX;
+    const slope = denom === 0 ? 0 : (n * sumXY - sumX * sumY) / denom;
+    const intercept = (sumY - slope * sumX) / n;
+
+    return chartPoints.map((p, i) => ({ x: p.x, y: Math.round(intercept + slope * i) }));
+  }, [chartPoints]);
+
+  const chartTrend = useMemo(() => {
+    if (!chartPoints.length) return null;
+    const ys = chartPoints.map((p) => p.y);
+    const first = ys[0] || 0;
+    const last = ys[ys.length - 1] || 0;
+    const delta = last - first;
+    const deltaPct = first > 0 ? delta / first : null;
+    const max = Math.max(...ys);
+    const min = Math.min(...ys);
+    const direction = delta > 0 ? "Alta" : delta < 0 ? "Baixa" : "Estável";
+
+    return {
+      first,
+      last,
+      delta,
+      deltaPct,
+      max,
+      min,
+      direction,
+    };
+  }, [chartPoints]);
 
   const weekdayBars = useMemo(() => {
     return (data?.byDow || []).map((d: any) => ({
@@ -758,10 +945,63 @@ export default function AnaliseDadosClient() {
         title={chartMode === "DAY" ? "Evolução diária" : "Evolução mês a mês"}
         data={chartWithDelta}
         extraLine={extraLine}
+        trendLine={trendLine}
+        summary={
+          <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
+            <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+              <div className="text-[11px] text-slate-500">Tendência</div>
+              <div
+                className={`text-sm font-semibold ${
+                  (chartTrend?.delta || 0) > 0
+                    ? "text-emerald-700"
+                    : (chartTrend?.delta || 0) < 0
+                      ? "text-rose-700"
+                      : "text-slate-700"
+                }`}
+              >
+                {chartTrend?.direction || "—"}
+                {chartTrend?.deltaPct != null ? ` • ${fmtPct(chartTrend.deltaPct)}` : ""}
+              </div>
+            </div>
+
+            <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+              <div className="text-[11px] text-slate-500">Variação no período</div>
+              <div
+                className={`text-sm font-semibold ${
+                  (chartTrend?.delta || 0) > 0
+                    ? "text-emerald-700"
+                    : (chartTrend?.delta || 0) < 0
+                      ? "text-rose-700"
+                      : "text-slate-700"
+                }`}
+              >
+                {chartTrend ? fmtMoneyBR(chartTrend.delta) : "—"}
+              </div>
+            </div>
+
+            <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+              <div className="text-[11px] text-slate-500">
+                Maior {chartMode === "DAY" ? "dia" : "mês"}
+              </div>
+              <div className="text-sm font-semibold text-slate-800">
+                {chartTrend ? fmtMoneyBR(chartTrend.max) : "—"}
+              </div>
+            </div>
+
+            <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+              <div className="text-[11px] text-slate-500">
+                Menor {chartMode === "DAY" ? "dia" : "mês"}
+              </div>
+              <div className="text-sm font-semibold text-slate-800">
+                {chartTrend ? fmtMoneyBR(chartTrend.min) : "—"}
+              </div>
+            </div>
+          </div>
+        }
         accent="text-sky-900"
         footer={
           chartMode === "DAY"
-            ? `Média diária no período: ${fmtMoneyBR(avgInChart)}${maWindow ? ` • Linha cinza = média móvel ${maWindow}d` : ""}`
+            ? `Média diária no período: ${fmtMoneyBR(avgInChart)}${maWindow ? ` • Linha cinza = média móvel ${maWindow}d` : ""} • Linha pontilhada = tendência`
             : `Média mensal no período: ${fmtMoneyBR(data?.avgMonthlyGrossCents || 0)}`
         }
       />
