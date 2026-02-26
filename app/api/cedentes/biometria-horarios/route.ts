@@ -17,7 +17,7 @@ function noCacheHeaders() {
   };
 }
 
-function ok(data: any) {
+function ok(data: unknown) {
   return NextResponse.json({ ok: true, data }, { headers: noCacheHeaders() });
 }
 
@@ -29,6 +29,17 @@ function asBool(v: unknown) {
   return v === true || v === "true" || v === 1 || v === "1";
 }
 
+function isTruthy(v: string | null) {
+  const s = String(v || "").trim().toLowerCase();
+  return s === "1" || s === "true" || s === "yes" || s === "on";
+}
+
+function getErrorMessage(error: unknown, fallback: string) {
+  if (error instanceof Error && error.message) return error.message;
+  if (typeof error === "string" && error.trim()) return error;
+  return fallback;
+}
+
 export async function GET(req: NextRequest) {
   const session = await getSessionServer();
   if (!session?.id) return bad("Não autenticado.", 401);
@@ -36,17 +47,22 @@ export async function GET(req: NextRequest) {
   try {
     const url = new URL(req.url);
     const termoVersao = (url.searchParams.get("versao") || TERMO_VERSAO).trim();
+    const includeAll = isTruthy(url.searchParams.get("all"));
 
     const cedentes = await prisma.cedente.findMany({
       where: {
         status: "APPROVED",
         owner: { team: session.team },
-        termReviews: {
-          some: {
-            termoVersao,
-            aceiteLatam: "YES",
-          },
-        },
+        ...(includeAll
+          ? {}
+          : {
+              termReviews: {
+                some: {
+                  termoVersao,
+                  aceiteLatam: "YES",
+                },
+              },
+            }),
       },
       orderBy: { nomeCompleto: "asc" },
       select: {
@@ -86,9 +102,9 @@ export async function GET(req: NextRequest) {
     }));
 
     return ok({ termoVersao, items });
-  } catch (e: any) {
-    console.error("GET /api/cedentes/biometria-horarios ERROR:", e);
-    return bad(e?.message || "Erro interno.", 500);
+  } catch (error: unknown) {
+    console.error("GET /api/cedentes/biometria-horarios ERROR:", error);
+    return bad(getErrorMessage(error, "Erro interno."), 500);
   }
 }
 
@@ -143,8 +159,8 @@ export async function POST(req: NextRequest) {
         updatedAt: row.updatedAt?.toISOString() ?? null,
       },
     });
-  } catch (e: any) {
-    console.error("POST /api/cedentes/biometria-horarios ERROR:", e);
-    return bad(e?.message || "Erro interno.", 500);
+  } catch (error: unknown) {
+    console.error("POST /api/cedentes/biometria-horarios ERROR:", error);
+    return bad(getErrorMessage(error, "Erro interno."), 500);
   }
 }
