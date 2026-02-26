@@ -557,21 +557,48 @@ export default function AnaliseDadosClient() {
     const first = ys[0] || 0;
     const last = ys[ys.length - 1] || 0;
     const delta = last - first;
-    const deltaPct = first > 0 ? delta / first : null;
+    const avg = ys.reduce((acc, v) => acc + v, 0) / ys.length;
+    const trendStart = trendLine?.[0]?.y ?? first;
+    const trendEnd = trendLine?.[trendLine.length - 1]?.y ?? last;
+    const trendDelta = trendEnd - trendStart;
+    const deltaPct = avg > 0 ? trendDelta / avg : null;
     const max = Math.max(...ys);
     const min = Math.min(...ys);
-    const direction = delta > 0 ? "Alta" : delta < 0 ? "Baixa" : "Estável";
+
+    let r2 = 0;
+    if (trendLine?.length === chartPoints.length) {
+      let ssRes = 0;
+      let ssTot = 0;
+      chartPoints.forEach((p, i) => {
+        const pred = trendLine[i]?.y ?? p.y;
+        ssRes += (p.y - pred) * (p.y - pred);
+        ssTot += (p.y - avg) * (p.y - avg);
+      });
+      r2 = ssTot <= 0 ? 1 : Math.max(0, 1 - ssRes / ssTot);
+    }
+
+    const absPct = Math.abs(deltaPct || 0);
+    let direction = "Lateral";
+    if (r2 >= 0.18 && absPct >= 0.04) {
+      direction = (deltaPct || 0) > 0 ? "Alta" : "Baixa";
+    } else if (r2 >= 0.1 && absPct >= 0.02) {
+      direction = (deltaPct || 0) > 0 ? "Alta leve" : "Baixa leve";
+    }
 
     return {
       first,
       last,
       delta,
+      trendStart,
+      trendEnd,
+      trendDelta,
       deltaPct,
       max,
       min,
       direction,
+      fit: r2,
     };
-  }, [chartPoints]);
+  }, [chartPoints, trendLine]);
 
   const weekdayBars = useMemo(() => {
     return (data?.byDow || []).map((d: any) => ({
@@ -952,9 +979,9 @@ export default function AnaliseDadosClient() {
               <div className="text-[11px] text-slate-500">Tendência</div>
               <div
                 className={`text-sm font-semibold ${
-                  (chartTrend?.delta || 0) > 0
+                  (chartTrend?.deltaPct || 0) > 0
                     ? "text-emerald-700"
-                    : (chartTrend?.delta || 0) < 0
+                    : (chartTrend?.deltaPct || 0) < 0
                       ? "text-rose-700"
                       : "text-slate-700"
                 }`}
@@ -962,20 +989,23 @@ export default function AnaliseDadosClient() {
                 {chartTrend?.direction || "—"}
                 {chartTrend?.deltaPct != null ? ` • ${fmtPct(chartTrend.deltaPct)}` : ""}
               </div>
+              <div className="text-[10px] text-slate-500">
+                qualidade: {chartTrend ? fmtPctRaw(chartTrend.fit * 100) : "—"}
+              </div>
             </div>
 
             <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
-              <div className="text-[11px] text-slate-500">Variação no período</div>
+              <div className="text-[11px] text-slate-500">Variação da tendência</div>
               <div
                 className={`text-sm font-semibold ${
-                  (chartTrend?.delta || 0) > 0
+                  (chartTrend?.trendDelta || 0) > 0
                     ? "text-emerald-700"
-                    : (chartTrend?.delta || 0) < 0
+                    : (chartTrend?.trendDelta || 0) < 0
                       ? "text-rose-700"
                       : "text-slate-700"
                 }`}
               >
-                {chartTrend ? fmtMoneyBR(chartTrend.delta) : "—"}
+                {chartTrend ? fmtMoneyBR(chartTrend.trendDelta) : "—"}
               </div>
             </div>
 
