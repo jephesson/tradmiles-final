@@ -80,7 +80,6 @@ export default function CheckLocalizadorClient({ mode }: { mode: Mode }) {
   const [error, setError] = useState("");
   const [rows, setRows] = useState<Array<LatamRow | SmilesRow>>([]);
   const [savingId, setSavingId] = useState<string | null>(null);
-  const [autoCheckingId, setAutoCheckingId] = useState<string | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -154,44 +153,6 @@ export default function CheckLocalizadorClient({ mode }: { mode: Mode }) {
       alert(msg);
     } finally {
       setSavingId(null);
-    }
-  }
-
-  async function runAutoCheck(saleId: string) {
-    setAutoCheckingId(saleId);
-    try {
-      const res = await fetch("/api/check-localizador/latam", {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ saleId, action: "AUTO" }),
-      });
-      const j = await res.json().catch(() => ({}));
-      if (!res.ok || j?.ok === false) {
-        throw new Error(j?.error || `Erro ${res.status}`);
-      }
-
-      const row = j?.row || null;
-      if (row?.id) {
-        setRows((prev) =>
-          prev.map((r) =>
-            r.id === row.id
-              ? {
-                  ...r,
-                  latamLocatorCheckStatus: row.latamLocatorCheckStatus || null,
-                  latamLocatorCheckedAt: row.latamLocatorCheckedAt || null,
-                  latamLocatorCheckNote: row.latamLocatorCheckNote || null,
-                }
-              : r
-          )
-        );
-      }
-    } catch (e: unknown) {
-      const msg =
-        e instanceof Error && e.message ? e.message : "Falha na checagem automática.";
-      alert(msg);
-    } finally {
-      setAutoCheckingId(null);
     }
   }
 
@@ -279,18 +240,10 @@ export default function CheckLocalizadorClient({ mode }: { mode: Mode }) {
                         >
                           Abrir LATAM
                         </a>
-                        <button
-                          type="button"
-                          className="rounded-lg border px-2 py-1 text-xs hover:bg-slate-50 disabled:opacity-50"
-                          onClick={() => runAutoCheck(r.id)}
-                          disabled={autoCheckingId === r.id || savingId === r.id}
-                        >
-                          {autoCheckingId === r.id ? "Checando..." : "Checar auto"}
-                        </button>
                         <select
                           className="rounded-lg border px-2 py-1 text-xs bg-white"
                           value={(r.latamLocatorCheckStatus || "") as string}
-                          disabled={savingId === r.id || autoCheckingId === r.id}
+                          disabled={savingId === r.id}
                           onChange={(e) => {
                             const v = String(e.target.value || "") as ManualStatus;
                             if (!v) return;
