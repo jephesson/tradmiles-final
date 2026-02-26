@@ -583,6 +583,10 @@ export default function Sidebar() {
               Histórico de cadastro
             </NavLink>
 
+            <NavLink href="/dashboard/cedentes/exclusao-definitiva">
+              Exclusão definitiva
+            </NavLink>
+
             <NavLink href="/dashboard/bloqueios">Contas bloqueadas</NavLink>
           </SubAccordion>
 

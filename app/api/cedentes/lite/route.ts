@@ -20,7 +20,10 @@ export async function GET() {
   const session = await requireSession();
 
   const rows = await prisma.cedente.findMany({
-    where: { owner: { team: session.team } },
+    where: {
+      owner: { team: session.team },
+      status: { in: ["PENDING", "APPROVED"] },
+    },
     select: {
       id: true,
       identificador: true,

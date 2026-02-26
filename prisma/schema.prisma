@@ -19,6 +19,11 @@ enum CedenteStatus {
   REJECTED
 }
 
+enum CedenteExclusionScope {
+  ACCOUNT
+  PROGRAM
+}
+
 enum PixTipo {
   CPF
   CNPJ
@@ -125,6 +130,9 @@ model User {
 
   // Cedentes que ele revisou (aprovou/reprovou)
   cedentesReviewed Cedente[] @relation("CedenteReviewedBy")
+
+  // ✅ Exclusões definitivas de cedentes (auditoria)
+  cedenteExclusionsPerformed CedenteExclusion[] @relation("CedenteExclusionDeletedBy")
 
   // Dívidas criadas por este usuário
   debtsCreated Debt[]
@@ -489,6 +497,33 @@ model Cedente {
   @@index([inviteId])
   @@index([createdAt])
   @@map("cedentes")
+}
+
+model CedenteExclusion {
+  id String @id @default(cuid())
+
+  team String
+
+  cedenteId            String
+  cedenteIdentificador String
+  cedenteNomeCompleto  String
+  cedenteCpf           String
+
+  scope   CedenteExclusionScope
+  program LoyaltyProgram?
+
+  details Json?
+
+  deletedById String?
+  deletedBy   User? @relation("CedenteExclusionDeletedBy", fields: [deletedById], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+
+  @@index([cedenteId])
+  @@index([team, createdAt])
+  @@index([scope, program])
+  @@index([createdAt])
+  @@map("cedente_exclusions")
 }
 
 model CedenteTermAcceptance {
