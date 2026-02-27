@@ -310,6 +310,7 @@ function MilheiroLineChart({
   const plotW = w - leftPad - rightPad;
   const plotH = h - topPad - bottomPad;
   const baseY = topPad + plotH;
+  const [hoveredIdx, setHoveredIdx] = useState<number | null>(null);
 
   const ys = data.flatMap((d) => [d.latam, d.smiles]);
   const ymin = Math.min(...ys, 0);
@@ -323,6 +324,20 @@ function MilheiroLineChart({
   const latamPoints = data.map((d, i) => `${leftPad + i * dx},${scaleY(d.latam)}`).join(" ");
   const smilesPoints = data.map((d, i) => `${leftPad + i * dx},${scaleY(d.smiles)}`).join(" ");
   const yTicks = [ymax, (ymax + ymin) / 2, ymin];
+  const hitW = data.length <= 1 ? plotW : Math.max(10, plotW / data.length);
+  const hovered = hoveredIdx != null ? data[hoveredIdx] : null;
+  const hoverX = hoveredIdx != null ? leftPad + hoveredIdx * dx : leftPad;
+  const hoverAvg = hovered
+    ? (() => {
+        const vals = [hovered.latam, hovered.smiles].filter((v) => v > 0);
+        if (!vals.length) return 0;
+        return Math.round(vals.reduce((acc, v) => acc + v, 0) / vals.length);
+      })()
+    : 0;
+  const tipW = 220;
+  const tipH = 68;
+  const tipX = Math.max(leftPad, Math.min(hoverX - tipW / 2, leftPad + plotW - tipW));
+  const tipY = topPad + 8;
 
   return (
     <div className="rounded-2xl border bg-white p-4 shadow-sm">
@@ -338,7 +353,7 @@ function MilheiroLineChart({
         </span>
       </div>
 
-      <svg viewBox={`0 0 ${w} ${h}`} className="w-full">
+      <svg viewBox={`0 0 ${w} ${h}`} className="w-full" onMouseLeave={() => setHoveredIdx(null)}>
         {yTicks.map((v, i) => (
           <line
             key={`grid-${i}`}
@@ -369,11 +384,46 @@ function MilheiroLineChart({
         <polyline fill="none" stroke="#10b981" strokeWidth="2.2" points={smilesPoints} />
 
         {data.map((d, i) => (
-          <circle key={`${d.key}-latam`} cx={leftPad + i * dx} cy={scaleY(d.latam)} r="2.5" fill="#0ea5e9" />
+          <circle key={`${d.key}-latam`} cx={leftPad + i * dx} cy={scaleY(d.latam)} r="2.5" fill="#0ea5e9">
+            <title>{`${d.x} • LATAM: ${fmtMoneyBR(d.latam)}`}</title>
+          </circle>
         ))}
         {data.map((d, i) => (
-          <circle key={`${d.key}-smiles`} cx={leftPad + i * dx} cy={scaleY(d.smiles)} r="2.5" fill="#10b981" />
+          <circle key={`${d.key}-smiles`} cx={leftPad + i * dx} cy={scaleY(d.smiles)} r="2.5" fill="#10b981">
+            <title>{`${d.x} • Smiles: ${fmtMoneyBR(d.smiles)}`}</title>
+          </circle>
         ))}
+
+        {data.map((d, i) => {
+          const x = leftPad + i * dx - hitW / 2;
+          return (
+            <rect
+              key={`${d.key}-hit`}
+              x={x}
+              y={topPad}
+              width={hitW}
+              height={plotH}
+              fill="transparent"
+              onMouseEnter={() => setHoveredIdx(i)}
+            />
+          );
+        })}
+
+        {hovered ? (
+          <>
+            <line x1={hoverX} x2={hoverX} y1={topPad} y2={baseY} stroke="#cbd5e1" strokeDasharray="4 3" strokeWidth="1" />
+            <rect x={tipX} y={tipY} width={tipW} height={tipH} rx="8" fill="white" stroke="#cbd5e1" />
+            <text x={tipX + 10} y={tipY + 17} fontSize="10" fill="#334155">
+              {hovered.x}
+            </text>
+            <text x={tipX + 10} y={tipY + 34} fontSize="11" fill="#0c4a6e">
+              {`LATAM: ${fmtMoneyBR(hovered.latam)} • Smiles: ${fmtMoneyBR(hovered.smiles)}`}
+            </text>
+            <text x={tipX + 10} y={tipY + 51} fontSize="11" fill="#0f766e">
+              {`Média milheiro: ${fmtMoneyBR(hoverAvg)}`}
+            </text>
+          </>
+        ) : null}
       </svg>
 
       {data.length ? (
@@ -426,6 +476,7 @@ function MilheiroMonthlyBarChart({
   const plotW = w - leftPad - rightPad;
   const plotH = h - topPad - bottomPad;
   const baseY = topPad + plotH;
+  const [hoveredIdx, setHoveredIdx] = useState<number | null>(null);
   const maxV = Math.max(1, ...data.flatMap((d) => [d.latam, d.smiles]));
   const groupW = data.length ? plotW / data.length : plotW;
   const barW = Math.max(6, Math.min(18, groupW * 0.28));
@@ -433,6 +484,19 @@ function MilheiroMonthlyBarChart({
 
   const scaleY = (v: number) => topPad + plotH - (v / maxV) * plotH;
   const yTicks = [maxV, maxV / 2, 0];
+  const hovered = hoveredIdx != null ? data[hoveredIdx] : null;
+  const hoverAvg = hovered
+    ? (() => {
+        const vals = [hovered.latam, hovered.smiles].filter((v) => v > 0);
+        if (!vals.length) return 0;
+        return Math.round(vals.reduce((acc, v) => acc + v, 0) / vals.length);
+      })()
+    : 0;
+  const hoverX = hoveredIdx != null ? leftPad + hoveredIdx * groupW + groupW / 2 : leftPad;
+  const tipW = 220;
+  const tipH = 68;
+  const tipX = Math.max(leftPad, Math.min(hoverX - tipW / 2, leftPad + plotW - tipW));
+  const tipY = topPad + 8;
 
   return (
     <div className="rounded-2xl border bg-white p-4 shadow-sm">
@@ -448,7 +512,7 @@ function MilheiroMonthlyBarChart({
         </span>
       </div>
 
-      <svg viewBox={`0 0 ${w} ${h}`} className="w-full">
+      <svg viewBox={`0 0 ${w} ${h}`} className="w-full" onMouseLeave={() => setHoveredIdx(null)}>
         {yTicks.map((v, i) => (
           <line
             key={`grid-${i}`}
@@ -474,6 +538,7 @@ function MilheiroMonthlyBarChart({
 
         {data.map((d, i) => {
           const gx = leftPad + i * groupW + groupW / 2;
+          const groupX = leftPad + i * groupW;
           const hLatam = (d.latam / maxV) * plotH;
           const hSmiles = (d.smiles / maxV) * plotH;
           const xLatam = gx - barW - 2;
@@ -482,8 +547,20 @@ function MilheiroMonthlyBarChart({
           const ySmiles = baseY - hSmiles;
           return (
             <g key={d.key}>
-              <rect x={xLatam} y={yLatam} width={barW} height={Math.max(1, hLatam)} rx="2" fill="#0ea5e9" />
-              <rect x={xSmiles} y={ySmiles} width={barW} height={Math.max(1, hSmiles)} rx="2" fill="#10b981" />
+              <rect x={xLatam} y={yLatam} width={barW} height={Math.max(1, hLatam)} rx="2" fill="#0ea5e9">
+                <title>{`${d.x} • LATAM: ${fmtMoneyBR(d.latam)}`}</title>
+              </rect>
+              <rect x={xSmiles} y={ySmiles} width={barW} height={Math.max(1, hSmiles)} rx="2" fill="#10b981">
+                <title>{`${d.x} • Smiles: ${fmtMoneyBR(d.smiles)}`}</title>
+              </rect>
+              <rect
+                x={groupX}
+                y={topPad}
+                width={groupW}
+                height={plotH}
+                fill="transparent"
+                onMouseEnter={() => setHoveredIdx(i)}
+              />
               {i % labelStep === 0 || i === data.length - 1 ? (
                 <text x={gx} y={h - 10} textAnchor="middle" fontSize="10" fill="#64748b">
                   {d.x}
@@ -492,6 +569,22 @@ function MilheiroMonthlyBarChart({
             </g>
           );
         })}
+
+        {hovered ? (
+          <>
+            <line x1={hoverX} x2={hoverX} y1={topPad} y2={baseY} stroke="#cbd5e1" strokeDasharray="4 3" strokeWidth="1" />
+            <rect x={tipX} y={tipY} width={tipW} height={tipH} rx="8" fill="white" stroke="#cbd5e1" />
+            <text x={tipX + 10} y={tipY + 17} fontSize="10" fill="#334155">
+              {hovered.x}
+            </text>
+            <text x={tipX + 10} y={tipY + 34} fontSize="11" fill="#0c4a6e">
+              {`LATAM: ${fmtMoneyBR(hovered.latam)} • Smiles: ${fmtMoneyBR(hovered.smiles)}`}
+            </text>
+            <text x={tipX + 10} y={tipY + 51} fontSize="11" fill="#0f766e">
+              {`Média milheiro: ${fmtMoneyBR(hoverAvg)}`}
+            </text>
+          </>
+        ) : null}
       </svg>
 
       {data.length ? (
