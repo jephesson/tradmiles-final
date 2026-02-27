@@ -463,59 +463,103 @@ export async function GET(req: NextRequest) {
     // =========================
     // ✅ 1b) SÉRIE DIÁRIA (para gráfico diário)
     // =========================
-    let dailyStart: Date | null = null;
-    let dailyEndExclusive: Date | null = null;
+    let dailyStart: Date;
+    let dailyEndExclusive: Date;
 
-    if (chart === "DAY") {
-      if (isYYYYMMDD(fromQ) && isYYYYMMDD(toQ)) {
-        let a = dayStartUTC(fromQ);
-        let b = dayStartUTC(toQ);
-        if (a.getTime() > b.getTime()) {
-          const tmp = a;
-          a = b;
-          b = tmp;
-        }
-        dailyStart = a;
-        dailyEndExclusive = addDaysUTC(b, 1);
-
-        const maxEnd = addDaysUTC(dailyStart, 365);
-        if (dailyEndExclusive.getTime() > maxEnd.getTime()) {
-          dailyEndExclusive = maxEnd;
-        }
-      } else {
-        const { end } = dayBoundsUTC(todayISO);
-        dailyEndExclusive = end;
-        dailyStart = addDaysUTC(dailyEndExclusive, -daysBack);
+    if (isYYYYMMDD(fromQ) && isYYYYMMDD(toQ)) {
+      let a = dayStartUTC(fromQ);
+      let b = dayStartUTC(toQ);
+      if (a.getTime() > b.getTime()) {
+        const tmp = a;
+        a = b;
+        b = tmp;
       }
+      dailyStart = a;
+      dailyEndExclusive = addDaysUTC(b, 1);
+
+      const maxEnd = addDaysUTC(dailyStart, 365);
+      if (dailyEndExclusive.getTime() > maxEnd.getTime()) {
+        dailyEndExclusive = maxEnd;
+      }
+    } else {
+      const { end } = dayBoundsUTC(todayISO);
+      dailyEndExclusive = end;
+      dailyStart = addDaysUTC(dailyEndExclusive, -daysBack);
     }
 
     let days: Array<{ key: string; label: string; grossCents: number }> = [];
-    if (chart === "DAY" && dailyStart && dailyEndExclusive) {
-      const dailySales = await prisma.sale.findMany({
-        where: {
-          date: { gte: dailyStart, lt: dailyEndExclusive },
-          ...(program !== "ALL" ? { program } : {}),
-          ...saleTeamWhere(team),
-          ...notCanceled,
-        },
-        select: { date: true, points: true, milheiroCents: true },
-        orderBy: { date: "asc" },
-      });
+    let milheiroDaily: Array<{
+      key: string;
+      label: string;
+      latamMilheiroCents: number;
+      smilesMilheiroCents: number;
+    }> = [];
+    const dailySales = await prisma.sale.findMany({
+      where: {
+        date: { gte: dailyStart, lt: dailyEndExclusive },
+        ...(program !== "ALL" ? { program } : {}),
+        ...saleTeamWhere(team),
+        ...notCanceled,
+      },
+      select: { date: true, points: true, milheiroCents: true, program: true },
+      orderBy: { date: "asc" },
+    });
 
-      const agg = new Map<string, number>();
-      for (const s of dailySales) {
-        const k = isoDayUTC(new Date(s.date as any));
-        const gross = pointsValueCents(Number(s.points || 0), Number(s.milheiroCents || 0));
-        agg.set(k, (agg.get(k) || 0) + gross);
+    const agg = new Map<string, number>();
+    const aggMilheiro = new Map<
+      string,
+      { latamPoints: number; latamValueCents: number; smilesPoints: number; smilesValueCents: number }
+    >();
+    for (const s of dailySales) {
+      const k = isoDayUTC(new Date(s.date as any));
+      const points = Number(s.points || 0);
+      const gross = pointsValueCents(points, Number(s.milheiroCents || 0));
+      agg.set(k, (agg.get(k) || 0) + gross);
+
+      const cur = aggMilheiro.get(k) || {
+        latamPoints: 0,
+        latamValueCents: 0,
+        smilesPoints: 0,
+        smilesValueCents: 0,
+      };
+
+      if (s.program === "LATAM") {
+        cur.latamPoints += Math.max(0, points);
+        cur.latamValueCents += gross;
+      } else if (s.program === "SMILES") {
+        cur.smilesPoints += Math.max(0, points);
+        cur.smilesValueCents += gross;
       }
 
-      const out: Array<{ key: string; label: string; grossCents: number }> = [];
-      for (let d = new Date(dailyStart); d < dailyEndExclusive; d = addDaysUTC(d, 1)) {
-        const k = isoDayUTC(d);
-        out.push({ key: k, label: dayLabelPT(k), grossCents: agg.get(k) || 0 });
-      }
-      days = out;
+      aggMilheiro.set(k, cur);
     }
+
+    const out: Array<{ key: string; label: string; grossCents: number }> = [];
+    const outMil: Array<{
+      key: string;
+      label: string;
+      latamMilheiroCents: number;
+      smilesMilheiroCents: number;
+    }> = [];
+    for (let d = new Date(dailyStart); d < dailyEndExclusive; d = addDaysUTC(d, 1)) {
+      const k = isoDayUTC(d);
+      out.push({ key: k, label: dayLabelPT(k), grossCents: agg.get(k) || 0 });
+
+      const rowMil = aggMilheiro.get(k) || {
+        latamPoints: 0,
+        latamValueCents: 0,
+        smilesPoints: 0,
+        smilesValueCents: 0,
+      };
+      outMil.push({
+        key: k,
+        label: dayLabelPT(k),
+        latamMilheiroCents: milheiroFrom(rowMil.latamPoints, rowMil.latamValueCents),
+        smilesMilheiroCents: milheiroFrom(rowMil.smilesPoints, rowMil.smilesValueCents),
+      });
+    }
+    days = out;
+    milheiroDaily = outMil;
 
     // =========================
     // 2) RESUMO DO MÊS
@@ -752,11 +796,35 @@ export async function GET(req: NextRequest) {
 
     const aggByMonth = new Map<
       string,
-      { gross: number; sales: number; pax: number; latam: number; smiles: number; livelo: number; esfera: number }
+      {
+        gross: number;
+        sales: number;
+        pax: number;
+        latam: number;
+        smiles: number;
+        livelo: number;
+        esfera: number;
+        latamPoints: number;
+        latamValueCents: number;
+        smilesPoints: number;
+        smilesValueCents: number;
+      }
     >();
 
     for (const k of monthKeys) {
-      aggByMonth.set(k, { gross: 0, sales: 0, pax: 0, latam: 0, smiles: 0, livelo: 0, esfera: 0 });
+      aggByMonth.set(k, {
+        gross: 0,
+        sales: 0,
+        pax: 0,
+        latam: 0,
+        smiles: 0,
+        livelo: 0,
+        esfera: 0,
+        latamPoints: 0,
+        latamValueCents: 0,
+        smilesPoints: 0,
+        smilesValueCents: 0,
+      });
     }
 
     for (const s of salesHist) {
@@ -765,14 +833,21 @@ export async function GET(req: NextRequest) {
       const cur = aggByMonth.get(k);
       if (!cur) continue;
 
-      const gross = pointsValueCents(Number(s.points || 0), Number(s.milheiroCents || 0));
+      const points = Number(s.points || 0);
+      const gross = pointsValueCents(points, Number(s.milheiroCents || 0));
       cur.gross += gross;
       cur.sales += 1;
       cur.pax += Math.max(0, Number(s.passengers || 0));
 
-      if (s.program === "LATAM") cur.latam += gross;
-      else if (s.program === "SMILES") cur.smiles += gross;
-      else if (s.program === "LIVELO") cur.livelo += gross;
+      if (s.program === "LATAM") {
+        cur.latam += gross;
+        cur.latamPoints += Math.max(0, points);
+        cur.latamValueCents += gross;
+      } else if (s.program === "SMILES") {
+        cur.smiles += gross;
+        cur.smilesPoints += Math.max(0, points);
+        cur.smilesValueCents += gross;
+      } else if (s.program === "LIVELO") cur.livelo += gross;
       else if (s.program === "ESFERA") cur.esfera += gross;
     }
 
@@ -785,6 +860,20 @@ export async function GET(req: NextRequest) {
         salesCount: cur.sales,
         passengers: cur.pax,
         byProgram: { LATAM: cur.latam, SMILES: cur.smiles, LIVELO: cur.livelo, ESFERA: cur.esfera },
+        milheiroByProgram: {
+          LATAM: milheiroFrom(cur.latamPoints, cur.latamValueCents),
+          SMILES: milheiroFrom(cur.smilesPoints, cur.smilesValueCents),
+        },
+      };
+    });
+
+    const milheiroMonthly = monthKeys.map((k) => {
+      const cur = aggByMonth.get(k)!;
+      return {
+        key: k,
+        label: monthLabelPT(k),
+        latamMilheiroCents: milheiroFrom(cur.latamPoints, cur.latamValueCents),
+        smilesMilheiroCents: milheiroFrom(cur.smilesPoints, cur.smilesValueCents),
       };
     });
 
@@ -1055,11 +1144,13 @@ export async function GET(req: NextRequest) {
         },
 
         days,
+        milheiroDaily,
 
         byDow: byDowArr,
         byEmployee,
 
         months,
+        milheiroMonthly,
         profitMonths,
         avgMonthlyGrossCents,
 

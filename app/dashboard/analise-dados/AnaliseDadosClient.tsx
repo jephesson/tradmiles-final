@@ -46,6 +46,14 @@ type MAWindow = 0 | 7 | 15 | 30;
 
 type ChartPoint = { x: string; y: number };
 type ChartPointWithSub = ChartPoint & { sub?: string };
+type MilheiroPoint = {
+  key: string;
+  x: string;
+  latam: number;
+  smiles: number;
+  subLatam?: string;
+  subSmiles?: string;
+};
 
 type CardTone = "sky" | "emerald" | "amber" | "rose" | "slate" | "teal";
 
@@ -271,6 +279,240 @@ function SimpleLineChart({
                 </div>
               );
             })}
+          </div>
+        </details>
+      ) : (
+        <div className="mt-2 text-xs text-neutral-500">Sem dados no período selecionado.</div>
+      )}
+
+      {footer ? <div className="mt-3 text-xs text-neutral-600">{footer}</div> : null}
+    </div>
+  );
+}
+
+function MilheiroLineChart({
+  title,
+  data,
+  height = 210,
+  footer,
+}: {
+  title: string;
+  data: MilheiroPoint[];
+  height?: number;
+  footer?: ReactNode;
+}) {
+  const w = 980;
+  const h = height;
+  const leftPad = 20;
+  const rightPad = 70;
+  const topPad = 14;
+  const bottomPad = 22;
+  const plotW = w - leftPad - rightPad;
+  const plotH = h - topPad - bottomPad;
+  const baseY = topPad + plotH;
+
+  const ys = data.flatMap((d) => [d.latam, d.smiles]);
+  const ymin = Math.min(...ys, 0);
+  const ymax = Math.max(...ys, 1);
+  const dx = data.length <= 1 ? 0 : plotW / (data.length - 1);
+  const scaleY = (v: number) => {
+    const t = (v - ymin) / (ymax - ymin || 1);
+    return topPad + plotH - t * plotH;
+  };
+
+  const latamPoints = data.map((d, i) => `${leftPad + i * dx},${scaleY(d.latam)}`).join(" ");
+  const smilesPoints = data.map((d, i) => `${leftPad + i * dx},${scaleY(d.smiles)}`).join(" ");
+  const yTicks = [ymax, (ymax + ymin) / 2, ymin];
+
+  return (
+    <div className="rounded-2xl border bg-white p-4 shadow-sm">
+      <div className="mb-2 text-sm font-semibold">{title}</div>
+      <div className="mb-2 flex flex-wrap gap-2 text-[11px] text-neutral-600">
+        <span className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5">
+          <span className="h-2 w-2 rounded-full bg-sky-500" />
+          LATAM
+        </span>
+        <span className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5">
+          <span className="h-2 w-2 rounded-full bg-emerald-500" />
+          Smiles
+        </span>
+      </div>
+
+      <svg viewBox={`0 0 ${w} ${h}`} className="w-full">
+        {yTicks.map((v, i) => (
+          <line
+            key={`grid-${i}`}
+            x1={leftPad}
+            x2={leftPad + plotW}
+            y1={scaleY(v)}
+            y2={scaleY(v)}
+            stroke="#e5e7eb"
+            strokeWidth="1"
+          />
+        ))}
+
+        {yTicks.map((v, i) => (
+          <text
+            key={`ylabel-${i}`}
+            x={leftPad + plotW + 6}
+            y={scaleY(v) + 3}
+            fontSize="10"
+            fill="#64748b"
+          >
+            {fmtMoneyCompactBR(Math.round(v))}
+          </text>
+        ))}
+
+        <line x1={leftPad} x2={leftPad + plotW} y1={baseY} y2={baseY} stroke="#e5e7eb" strokeWidth="1" />
+
+        <polyline fill="none" stroke="#0ea5e9" strokeWidth="2.2" points={latamPoints} />
+        <polyline fill="none" stroke="#10b981" strokeWidth="2.2" points={smilesPoints} />
+
+        {data.map((d, i) => (
+          <circle key={`${d.key}-latam`} cx={leftPad + i * dx} cy={scaleY(d.latam)} r="2.5" fill="#0ea5e9" />
+        ))}
+        {data.map((d, i) => (
+          <circle key={`${d.key}-smiles`} cx={leftPad + i * dx} cy={scaleY(d.smiles)} r="2.5" fill="#10b981" />
+        ))}
+      </svg>
+
+      {data.length ? (
+        <details className="mt-3 rounded-xl border border-neutral-200 bg-neutral-50/60 p-2">
+          <summary className="cursor-pointer text-xs font-medium text-neutral-700">
+            Ver detalhes por dia ({data.length})
+          </summary>
+          <div className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+            {data.map((d) => (
+              <div key={d.key} className="rounded-xl border bg-white px-2 py-1 text-[11px]">
+                <div className="text-neutral-600">{d.x}</div>
+                <div className="mt-0.5">
+                  <span className="font-medium text-sky-700">LATAM:</span> {fmtMoneyBR(d.latam)}
+                </div>
+                {d.subLatam ? <div className="text-[10px] text-neutral-500">{d.subLatam}</div> : null}
+                <div className="mt-0.5">
+                  <span className="font-medium text-emerald-700">Smiles:</span> {fmtMoneyBR(d.smiles)}
+                </div>
+                {d.subSmiles ? <div className="text-[10px] text-neutral-500">{d.subSmiles}</div> : null}
+              </div>
+            ))}
+          </div>
+        </details>
+      ) : (
+        <div className="mt-2 text-xs text-neutral-500">Sem dados no período selecionado.</div>
+      )}
+
+      {footer ? <div className="mt-3 text-xs text-neutral-600">{footer}</div> : null}
+    </div>
+  );
+}
+
+function MilheiroMonthlyBarChart({
+  title,
+  data,
+  height = 240,
+  footer,
+}: {
+  title: string;
+  data: MilheiroPoint[];
+  height?: number;
+  footer?: ReactNode;
+}) {
+  const w = 980;
+  const h = height;
+  const leftPad = 24;
+  const rightPad = 70;
+  const topPad = 14;
+  const bottomPad = 40;
+  const plotW = w - leftPad - rightPad;
+  const plotH = h - topPad - bottomPad;
+  const baseY = topPad + plotH;
+  const maxV = Math.max(1, ...data.flatMap((d) => [d.latam, d.smiles]));
+  const groupW = data.length ? plotW / data.length : plotW;
+  const barW = Math.max(6, Math.min(18, groupW * 0.28));
+  const labelStep = data.length > 12 ? Math.ceil(data.length / 12) : 1;
+
+  const scaleY = (v: number) => topPad + plotH - (v / maxV) * plotH;
+  const yTicks = [maxV, maxV / 2, 0];
+
+  return (
+    <div className="rounded-2xl border bg-white p-4 shadow-sm">
+      <div className="mb-2 text-sm font-semibold">{title}</div>
+      <div className="mb-2 flex flex-wrap gap-2 text-[11px] text-neutral-600">
+        <span className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5">
+          <span className="h-2 w-2 rounded-full bg-sky-500" />
+          LATAM
+        </span>
+        <span className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5">
+          <span className="h-2 w-2 rounded-full bg-emerald-500" />
+          Smiles
+        </span>
+      </div>
+
+      <svg viewBox={`0 0 ${w} ${h}`} className="w-full">
+        {yTicks.map((v, i) => (
+          <line
+            key={`grid-${i}`}
+            x1={leftPad}
+            x2={leftPad + plotW}
+            y1={scaleY(v)}
+            y2={scaleY(v)}
+            stroke="#e5e7eb"
+            strokeWidth="1"
+          />
+        ))}
+        {yTicks.map((v, i) => (
+          <text
+            key={`ylabel-${i}`}
+            x={leftPad + plotW + 6}
+            y={scaleY(v) + 3}
+            fontSize="10"
+            fill="#64748b"
+          >
+            {fmtMoneyCompactBR(Math.round(v))}
+          </text>
+        ))}
+
+        {data.map((d, i) => {
+          const gx = leftPad + i * groupW + groupW / 2;
+          const hLatam = (d.latam / maxV) * plotH;
+          const hSmiles = (d.smiles / maxV) * plotH;
+          const xLatam = gx - barW - 2;
+          const xSmiles = gx + 2;
+          const yLatam = baseY - hLatam;
+          const ySmiles = baseY - hSmiles;
+          return (
+            <g key={d.key}>
+              <rect x={xLatam} y={yLatam} width={barW} height={Math.max(1, hLatam)} rx="2" fill="#0ea5e9" />
+              <rect x={xSmiles} y={ySmiles} width={barW} height={Math.max(1, hSmiles)} rx="2" fill="#10b981" />
+              {i % labelStep === 0 || i === data.length - 1 ? (
+                <text x={gx} y={h - 10} textAnchor="middle" fontSize="10" fill="#64748b">
+                  {d.x}
+                </text>
+              ) : null}
+            </g>
+          );
+        })}
+      </svg>
+
+      {data.length ? (
+        <details className="mt-3 rounded-xl border border-neutral-200 bg-neutral-50/60 p-2">
+          <summary className="cursor-pointer text-xs font-medium text-neutral-700">
+            Ver detalhes por mês ({data.length})
+          </summary>
+          <div className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+            {data.map((d) => (
+              <div key={d.key} className="rounded-xl border bg-white px-2 py-1 text-[11px]">
+                <div className="text-neutral-600">{d.x}</div>
+                <div>
+                  <span className="font-medium text-sky-700">LATAM:</span> {fmtMoneyBR(d.latam)}
+                </div>
+                {d.subLatam ? <div className="text-[10px] text-neutral-500">{d.subLatam}</div> : null}
+                <div>
+                  <span className="font-medium text-emerald-700">Smiles:</span> {fmtMoneyBR(d.smiles)}
+                </div>
+                {d.subSmiles ? <div className="text-[10px] text-neutral-500">{d.subSmiles}</div> : null}
+              </div>
+            ))}
           </div>
         </details>
       ) : (
@@ -560,8 +802,19 @@ export default function AnaliseDadosClient() {
     const avg = ys.reduce((acc, v) => acc + v, 0) / ys.length;
     const trendStart = trendLine?.[0]?.y ?? first;
     const trendEnd = trendLine?.[trendLine.length - 1]?.y ?? last;
-    const trendDelta = trendEnd - trendStart;
-    const deltaPct = avg > 0 ? trendDelta / avg : null;
+
+    // Tendência do período: média do início vs média do fim da janela exibida.
+    // Isso evita distorção quando o primeiro/último ponto é um outlier.
+    const segmentSize = Math.max(2, Math.floor(ys.length / 3));
+    const firstSegment = ys.slice(0, segmentSize);
+    const lastSegment = ys.slice(-segmentSize);
+    const segmentStartAvg =
+      firstSegment.reduce((acc, v) => acc + v, 0) / Math.max(1, firstSegment.length);
+    const segmentEndAvg =
+      lastSegment.reduce((acc, v) => acc + v, 0) / Math.max(1, lastSegment.length);
+
+    const trendDelta = segmentEndAvg - segmentStartAvg;
+    const deltaPct = segmentStartAvg > 0 ? trendDelta / segmentStartAvg : null;
     const max = Math.max(...ys);
     const min = Math.min(...ys);
 
@@ -593,6 +846,9 @@ export default function AnaliseDadosClient() {
       trendEnd,
       trendDelta,
       deltaPct,
+      segmentSize,
+      segmentStartAvg,
+      segmentEndAvg,
       max,
       min,
       direction,
@@ -615,6 +871,85 @@ export default function AnaliseDadosClient() {
       SMILES: Number(m.byProgram?.SMILES || 0),
     }));
   }, [data]);
+
+  const milheiroDailyPoints = useMemo<MilheiroPoint[]>(() => {
+    const rows = ((data as any)?.milheiroDaily || []) as any[];
+    return rows.map((r) => ({
+      key: String(r.key || ""),
+      x: String(r.label || r.key || ""),
+      latam: Number(r.latamMilheiroCents || 0),
+      smiles: Number(r.smilesMilheiroCents || 0),
+    }));
+  }, [data]);
+
+  const milheiroMonthlyPoints = useMemo<MilheiroPoint[]>(() => {
+    const rows = ((data as any)?.milheiroMonthly || []) as any[];
+    return rows.map((r) => ({
+      key: String(r.key || ""),
+      x: String(r.label || r.key || ""),
+      latam: Number(r.latamMilheiroCents || 0),
+      smiles: Number(r.smilesMilheiroCents || 0),
+    }));
+  }, [data]);
+
+  const milheiroDailyWithDelta = useMemo<MilheiroPoint[]>(() => {
+    return milheiroDailyPoints.map((row, i) => {
+      if (i === 0) return row;
+      const prev = milheiroDailyPoints[i - 1];
+      const latamPrev = prev?.latam || 0;
+      const smilesPrev = prev?.smiles || 0;
+      return {
+        ...row,
+        subLatam: latamPrev > 0 ? `vs ant: ${fmtPct((row.latam - latamPrev) / latamPrev)}` : "vs ant: —",
+        subSmiles: smilesPrev > 0 ? `vs ant: ${fmtPct((row.smiles - smilesPrev) / smilesPrev)}` : "vs ant: —",
+      };
+    });
+  }, [milheiroDailyPoints]);
+
+  const milheiroMonthlyWithDelta = useMemo<MilheiroPoint[]>(() => {
+    return milheiroMonthlyPoints.map((row, i) => {
+      if (i === 0) return row;
+      const prev = milheiroMonthlyPoints[i - 1];
+      const latamPrev = prev?.latam || 0;
+      const smilesPrev = prev?.smiles || 0;
+      return {
+        ...row,
+        subLatam: latamPrev > 0 ? `vs mês ant: ${fmtPct((row.latam - latamPrev) / latamPrev)}` : "vs mês ant: —",
+        subSmiles: smilesPrev > 0 ? `vs mês ant: ${fmtPct((row.smiles - smilesPrev) / smilesPrev)}` : "vs mês ant: —",
+      };
+    });
+  }, [milheiroMonthlyPoints]);
+
+  const milheiroComparison = useMemo(() => {
+    const build = (rows: MilheiroPoint[], key: "latam" | "smiles") => {
+      if (!rows.length) return null;
+      const currentRow = rows[rows.length - 1];
+      const prevRow = rows.length > 1 ? rows[rows.length - 2] : null;
+      const current = key === "latam" ? currentRow.latam : currentRow.smiles;
+      const previous = prevRow ? (key === "latam" ? prevRow.latam : prevRow.smiles) : 0;
+      const delta = current - previous;
+      const deltaPct = previous > 0 ? delta / previous : null;
+      return {
+        current,
+        currentLabel: currentRow.x,
+        previous,
+        previousLabel: prevRow?.x || "—",
+        delta,
+        deltaPct,
+      };
+    };
+
+    return {
+      daily: {
+        latam: build(milheiroDailyPoints, "latam"),
+        smiles: build(milheiroDailyPoints, "smiles"),
+      },
+      monthly: {
+        latam: build(milheiroMonthlyPoints, "latam"),
+        smiles: build(milheiroMonthlyPoints, "smiles"),
+      },
+    };
+  }, [milheiroDailyPoints, milheiroMonthlyPoints]);
 
   const topClients = useMemo(() => {
     return (data?.topClients || []) as any[];
@@ -725,6 +1060,23 @@ export default function AnaliseDadosClient() {
       : currentVsPrevious.deltaProfitPercent >= 0
         ? "emerald"
         : "rose";
+
+  const milheiroTone = (deltaPct: number | null | undefined, delta: number | undefined): CardTone => {
+    if (deltaPct == null || delta == null) return "slate";
+    return delta >= 0 ? "emerald" : "rose";
+  };
+
+  const milheiroSub = (
+    prevLabel: string,
+    delta: number | undefined,
+    deltaPct: number | null | undefined,
+    periodLabel: "dia" | "mês"
+  ) => {
+    if (delta == null) return `Sem base para comparação de ${periodLabel}.`;
+    const deltaSign = delta > 0 ? "+" : "";
+    const pctText = deltaPct == null ? "—" : fmtPct(deltaPct);
+    return `vs ${periodLabel} anterior (${prevLabel}): ${deltaSign}${fmtMoneyBR(delta)} (${pctText})`;
+  };
 
   return (
     <div className="mx-auto w-full max-w-6xl space-y-6 p-4">
@@ -976,7 +1328,7 @@ export default function AnaliseDadosClient() {
         summary={
           <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
             <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
-              <div className="text-[11px] text-slate-500">Tendência</div>
+              <div className="text-[11px] text-slate-500">Tendência (período)</div>
               <div
                 className={`text-sm font-semibold ${
                   (chartTrend?.deltaPct || 0) > 0
@@ -995,7 +1347,7 @@ export default function AnaliseDadosClient() {
             </div>
 
             <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
-              <div className="text-[11px] text-slate-500">Variação da tendência</div>
+              <div className="text-[11px] text-slate-500">Variação no período</div>
               <div
                 className={`text-sm font-semibold ${
                   (chartTrend?.trendDelta || 0) > 0
@@ -1031,9 +1383,93 @@ export default function AnaliseDadosClient() {
         accent="text-sky-900"
         footer={
           chartMode === "DAY"
-            ? `Média diária no período: ${fmtMoneyBR(avgInChart)}${maWindow ? ` • Linha cinza = média móvel ${maWindow}d` : ""} • Linha pontilhada = tendência`
+            ? `Média diária no período: ${fmtMoneyBR(avgInChart)}${
+                chartTrend
+                  ? ` • Tendência: média dos primeiros ${chartTrend.segmentSize} vs últimos ${chartTrend.segmentSize} dias`
+                  : ""
+              }${maWindow ? ` • Linha cinza = média móvel ${maWindow}d` : ""} • Linha pontilhada = tendência`
             : `Média mensal no período: ${fmtMoneyBR(data?.avgMonthlyGrossCents || 0)}`
         }
+      />
+
+      <div className="rounded-2xl border bg-white p-4 shadow-sm">
+        <div className="text-sm font-semibold">Milheiro vendido (LATAM e Smiles)</div>
+        <div className="mt-1 text-xs text-neutral-500">
+          Comparativo diário e mensal do valor de milheiro efetivamente vendido.
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <Card
+          title={`LATAM (dia ${milheiroComparison.daily.latam?.currentLabel || "—"})`}
+          value={fmtMoneyBR(milheiroComparison.daily.latam?.current || 0)}
+          sub={milheiroSub(
+            milheiroComparison.daily.latam?.previousLabel || "—",
+            milheiroComparison.daily.latam?.delta,
+            milheiroComparison.daily.latam?.deltaPct,
+            "dia"
+          )}
+          tone={milheiroTone(
+            milheiroComparison.daily.latam?.deltaPct,
+            milheiroComparison.daily.latam?.delta
+          )}
+        />
+        <Card
+          title={`Smiles (dia ${milheiroComparison.daily.smiles?.currentLabel || "—"})`}
+          value={fmtMoneyBR(milheiroComparison.daily.smiles?.current || 0)}
+          sub={milheiroSub(
+            milheiroComparison.daily.smiles?.previousLabel || "—",
+            milheiroComparison.daily.smiles?.delta,
+            milheiroComparison.daily.smiles?.deltaPct,
+            "dia"
+          )}
+          tone={milheiroTone(
+            milheiroComparison.daily.smiles?.deltaPct,
+            milheiroComparison.daily.smiles?.delta
+          )}
+        />
+        <Card
+          title={`LATAM (mês ${milheiroComparison.monthly.latam?.currentLabel || "—"})`}
+          value={fmtMoneyBR(milheiroComparison.monthly.latam?.current || 0)}
+          sub={milheiroSub(
+            milheiroComparison.monthly.latam?.previousLabel || "—",
+            milheiroComparison.monthly.latam?.delta,
+            milheiroComparison.monthly.latam?.deltaPct,
+            "mês"
+          )}
+          tone={milheiroTone(
+            milheiroComparison.monthly.latam?.deltaPct,
+            milheiroComparison.monthly.latam?.delta
+          )}
+        />
+        <Card
+          title={`Smiles (mês ${milheiroComparison.monthly.smiles?.currentLabel || "—"})`}
+          value={fmtMoneyBR(milheiroComparison.monthly.smiles?.current || 0)}
+          sub={milheiroSub(
+            milheiroComparison.monthly.smiles?.previousLabel || "—",
+            milheiroComparison.monthly.smiles?.delta,
+            milheiroComparison.monthly.smiles?.deltaPct,
+            "mês"
+          )}
+          tone={milheiroTone(
+            milheiroComparison.monthly.smiles?.deltaPct,
+            milheiroComparison.monthly.smiles?.delta
+          )}
+        />
+      </div>
+
+      <MilheiroLineChart
+        title="Milheiro vendido por dia (linha)"
+        data={milheiroDailyWithDelta}
+        footer={`Comparação diária entre LATAM e Smiles no período de ${
+          milheiroDailyWithDelta.length ? fmtInt(milheiroDailyWithDelta.length) : "0"
+        } dias.`}
+      />
+
+      <MilheiroMonthlyBarChart
+        title="Milheiro vendido por mês (barras)"
+        data={milheiroMonthlyWithDelta}
+        footer={`Comparação mensal LATAM x Smiles nos últimos ${fmtInt(milheiroMonthlyWithDelta.length || 0)} meses.`}
       />
 
       {/* Dias da semana */}
