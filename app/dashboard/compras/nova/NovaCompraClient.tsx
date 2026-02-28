@@ -84,6 +84,7 @@ type ClubMeta = {
   priceCents: number;
   renewalDay: number;
   startDateISO: string;
+  bonusPoints: number;
 };
 
 function fmtMoneyBR(cents: number) {
@@ -609,6 +610,7 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
       priceCents: 0,
       renewalDay: new Date().getDate(),
       startDateISO: isoToday(),
+      bonusPoints: 0,
     };
 
     const item: PurchaseItem = {
@@ -618,9 +620,9 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
       programFrom: null,
       programTo: meta.program,
       pointsBase: meta.tierK * 1000,
-      bonusMode: "",
-      bonusValue: 0,
-      pointsFinal: meta.tierK * 1000,
+      bonusMode: "TOTAL",
+      bonusValue: meta.bonusPoints,
+      pointsFinal: meta.tierK * 1000 + Math.max(0, clampInt(meta.bonusPoints)),
       transferMode: null,
       pointsDebitedFromOrigin: 0,
       amountCents: meta.priceCents,
@@ -659,10 +661,21 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
     if (merged.type === "CLUB") {
       const meta = safeJsonParse<ClubMeta>(merged.details) || null;
       if (meta) {
+        const bonusPoints = Math.max(0, clampInt(meta.bonusPoints ?? 0));
+        const pointsBase = Math.max(0, clampInt(meta.tierK) * 1000);
         merged.title = `Clube ${PROGRAM_LABEL[meta.program]} ${meta.tierK}k`;
         merged.programTo = meta.program;
-        merged.pointsBase = meta.tierK * 1000;
-        merged.pointsFinal = allowManual ? merged.pointsFinal : meta.tierK * 1000;
+        merged.pointsBase = pointsBase;
+        merged.bonusMode = "TOTAL";
+        merged.bonusValue = bonusPoints;
+        merged.pointsFinal = allowManual
+          ? merged.pointsFinal
+          : calcItemPointsFinal({
+              ...merged,
+              pointsBase,
+              bonusMode: "TOTAL",
+              bonusValue: bonusPoints,
+            });
         merged.amountCents = meta.priceCents;
       }
     }
@@ -1029,7 +1042,9 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
                     <th className="p-2">Valor (R$)</th>
                     <th className="p-2">Renova (dia)</th>
                     <th className="p-2">Data assinatura</th>
-                    <th className="p-2">Pts/mês</th>
+                    <th className="p-2">Base pts/mês</th>
+                    <th className="p-2">Bônus (milhas)</th>
+                    <th className="p-2">Total pts/mês</th>
                     <th className="p-2"></th>
                   </tr>
                 </thead>
@@ -1037,19 +1052,30 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
                   {(draft.items ?? []).map((it, realIdx) => {
                     if (it.type !== "CLUB") return null;
 
-                    const meta =
-                      safeJsonParse<ClubMeta>(it.details) || {
-                        program: (it.programTo ||
-                          "LIVELO") as LoyaltyProgram,
-                        tierK:
-                          Math.max(
-                            1,
-                            Math.round((it.pointsFinal || 0) / 1000) || 10
-                          ) || 10,
-                        priceCents: it.amountCents || 0,
-                        renewalDay: new Date().getDate(),
-                        startDateISO: isoToday(),
-                      };
+                    const bonusFromItem =
+                      (it.bonusMode === "TOTAL" ? clampInt(it.bonusValue || 0) : 0) || 0;
+
+                    const parsedMeta = safeJsonParse<ClubMeta>(it.details);
+                    const meta = parsedMeta
+                      ? {
+                          ...parsedMeta,
+                          bonusPoints: Math.max(
+                            0,
+                            clampInt(parsedMeta.bonusPoints ?? bonusFromItem)
+                          ),
+                        }
+                      : {
+                          program: (it.programTo || "LIVELO") as LoyaltyProgram,
+                          tierK:
+                            Math.max(
+                              1,
+                              Math.round((it.pointsFinal || 0) / 1000) || 10
+                            ) || 10,
+                          priceCents: it.amountCents || 0,
+                          renewalDay: new Date().getDate(),
+                          startDateISO: isoToday(),
+                          bonusPoints: Math.max(0, bonusFromItem),
+                        };
 
                     return (
                       <tr key={realIdx} className="border-t">
@@ -1162,6 +1188,41 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
                         <td className="p-2 font-mono">{meta.tierK * 1000}</td>
 
                         <td className="p-2">
+                          <input
+                            type="number"
+                            min={0}
+                            value={Math.max(0, clampInt(meta.bonusPoints || 0))}
+                            disabled={!!isReleased}
+                            onChange={(e) => {
+                              const bonusPoints = Math.max(
+                                0,
+                                clampInt(e.target.value || 0)
+                              );
+                              const next: ClubMeta = {
+                                ...meta,
+                                bonusPoints,
+                              };
+                              updateItem(realIdx, {
+                                details: JSON.stringify(next),
+                                bonusMode: "TOTAL",
+                                bonusValue: bonusPoints,
+                                pointsFinal: calcItemPointsFinal({
+                                  ...it,
+                                  pointsBase: next.tierK * 1000,
+                                  bonusMode: "TOTAL",
+                                  bonusValue: bonusPoints,
+                                }),
+                              });
+                            }}
+                            className="w-full rounded-md border px-2 py-1"
+                          />
+                        </td>
+
+                        <td className="p-2 font-mono">
+                          {Math.max(0, clampInt(it.pointsFinal || 0)).toLocaleString("pt-BR")}
+                        </td>
+
+                        <td className="p-2">
                           <button
                             type="button"
                             onClick={() => removeItemByIndex(realIdx)}
@@ -1180,7 +1241,7 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
           )}
 
           <div className="text-xs text-gray-600">
-            Clubes são itens <b>CLUB</b> e entram no custo/total automaticamente.
+            Clubes são itens <b>CLUB</b>, entram no custo/total e o bônus em milhas soma no total de pontos do item.
           </div>
         </div>
       )}
