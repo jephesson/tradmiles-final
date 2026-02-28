@@ -219,6 +219,15 @@
       );
     }, [panel]);
 
+    const issuedThisMonthTotal = useMemo(() => {
+      if (!panel) return 0;
+      const key = panel.currentMonthKey;
+      return panel.rows.reduce(
+        (acc, r) => acc + Number(r.perMonth?.[key] || 0),
+        0
+      );
+    }, [panel]);
+
     return (
       <div className="space-y-6">
         {/* Header */}
@@ -265,8 +274,8 @@
           </div>
         </div>
 
-        {/* Top summary (3 cards) */}
-        <div className="grid gap-3 md:grid-cols-3">
+        {/* Top summary */}
+        <div className="grid gap-3 md:grid-cols-4">
           <CardStat
             label="Cedentes"
             value={cedentesLoading ? "…" : fmtInt(cedentes.length)}
@@ -276,6 +285,12 @@
             label="Total (janela do painel)"
             value={panel ? fmtInt(panel.totals.total) : "—"}
             strong
+          />
+
+          <CardStat
+            label="Passageiros emitidos no mês"
+            value={panel ? fmtInt(issuedThisMonthTotal) : "—"}
+            sub={panel ? `Base: ${panel.currentMonthKey}` : undefined}
           />
 
           <CardStat
