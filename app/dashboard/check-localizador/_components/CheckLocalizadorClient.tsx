@@ -75,6 +75,73 @@ function statusClass(v?: string | null) {
   return "text-slate-700";
 }
 
+type SmilesFlightStatus = {
+  label: string;
+  hint?: string;
+  textClass: string;
+  badgeClass: string;
+};
+
+const FORTY_EIGHT_HOURS_MS = 48 * 60 * 60 * 1000;
+
+function getSmilesFlightStatus(
+  departureDate?: string | null,
+  returnDate?: string | null
+): SmilesFlightStatus {
+  const nowMs = Date.now();
+
+  const segments = [departureDate, returnDate]
+    .map((v) => parseDateMs(v))
+    .filter((x): x is number => x != null)
+    .sort((a, b) => a - b);
+
+  if (!segments.length) {
+    return {
+      label: "Sem data",
+      textClass: "text-slate-700",
+      badgeClass: "bg-slate-100 text-slate-700 border-slate-200",
+    };
+  }
+
+  const pastCount = segments.filter((ms) => ms < nowMs).length;
+  const upcoming = segments.filter((ms) => ms >= nowMs);
+
+  if (!upcoming.length) {
+    return {
+      label: "Trechos voados",
+      hint: "Tudo concluído",
+      textClass: "text-emerald-700",
+      badgeClass: "bg-emerald-100 text-emerald-700 border-emerald-200",
+    };
+  }
+
+  const nextDiff = upcoming[0] - nowMs;
+  if (nextDiff <= FORTY_EIGHT_HOURS_MS) {
+    return {
+      label: "Voo em até 48h",
+      hint: "Checagem prioritária",
+      textClass: "text-sky-700",
+      badgeClass: "bg-sky-100 text-sky-700 border-sky-200",
+    };
+  }
+
+  if (segments.length >= 2 && pastCount === 1) {
+    return {
+      label: "Ida voada",
+      hint: "Aguardando volta",
+      textClass: "text-amber-700",
+      badgeClass: "bg-amber-100 text-amber-700 border-amber-200",
+    };
+  }
+
+  return {
+    label: "Aguardando voo",
+    hint: "Fora da janela de 48h",
+    textClass: "text-slate-700",
+    badgeClass: "bg-slate-100 text-slate-700 border-slate-200",
+  };
+}
+
 export default function CheckLocalizadorClient({ mode }: { mode: Mode }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -116,7 +183,7 @@ export default function CheckLocalizadorClient({ mode }: { mode: Mode }) {
     () => (mode === "latam" ? "Check Localizador - Latam" : "Check Localizador - Smiles"),
     [mode]
   );
-  const totalCols = mode === "latam" ? 10 : 8;
+  const totalCols = mode === "latam" ? 9 : 8;
 
   async function updateManualStatus(saleId: string, status: ManualStatus) {
     setSavingId(saleId);
@@ -163,6 +230,12 @@ export default function CheckLocalizadorClient({ mode }: { mode: Mode }) {
         <p className="text-sm text-slate-500">
           Ordenado por proximidade do próximo voo (ida ou volta).
         </p>
+        {mode === "smiles" ? (
+          <p className="text-xs text-slate-500 mt-1">
+            Azul: próximo trecho em até 48h • Amarelo: ida já voada e aguardando volta • Verde:
+            trechos voados
+          </p>
+        ) : null}
       </div>
 
       {error ? <div className="text-sm text-rose-600">{error}</div> : null}
@@ -180,6 +253,7 @@ export default function CheckLocalizadorClient({ mode }: { mode: Mode }) {
               <th className="px-3 py-2 text-left">Data volta</th>
               <th className="px-3 py-2 text-left">Cedente</th>
               {mode === "latam" ? <th className="px-3 py-2 text-left">Status</th> : null}
+              {mode === "smiles" ? <th className="px-3 py-2 text-left">Status voo</th> : null}
               {mode === "latam" ? <th className="px-3 py-2 text-left">Ação</th> : null}
             </tr>
           </thead>
@@ -197,7 +271,13 @@ export default function CheckLocalizadorClient({ mode }: { mode: Mode }) {
                 </td>
               </tr>
             ) : (
-              rows.map((r) => (
+              rows.map((r) => {
+                const smilesFlightStatus =
+                  mode === "smiles"
+                    ? getSmilesFlightStatus(r.departureDate, r.returnDate)
+                    : null;
+
+                return (
                 <tr key={r.id} className="border-b last:border-b-0">
                   <td className="px-3 py-2">{nextFlightLabel(r.departureDate, r.returnDate)}</td>
                   {mode === "latam" ? (
@@ -214,6 +294,20 @@ export default function CheckLocalizadorClient({ mode }: { mode: Mode }) {
                     <div className="font-medium">{r.cedente?.nomeCompleto || "-"}</div>
                     <div className="text-xs text-slate-500">{r.cedente?.identificador || "-"}</div>
                   </td>
+                  {mode === "smiles" && smilesFlightStatus ? (
+                    <td className="px-3 py-2">
+                      <div
+                        className={`inline-flex rounded-full border px-2 py-0.5 text-xs font-medium ${smilesFlightStatus.badgeClass}`}
+                      >
+                        {smilesFlightStatus.label}
+                      </div>
+                      {smilesFlightStatus.hint ? (
+                        <div className={`mt-1 text-xs ${smilesFlightStatus.textClass}`}>
+                          {smilesFlightStatus.hint}
+                        </div>
+                      ) : null}
+                    </td>
+                  ) : null}
                   {mode === "latam" ? (
                     <td className="px-3 py-2">
                       <div className={`font-medium ${statusClass(r.latamLocatorCheckStatus)}`}>
@@ -259,7 +353,8 @@ export default function CheckLocalizadorClient({ mode }: { mode: Mode }) {
                     </td>
                   ) : null}
                 </tr>
-              ))
+              );
+              })
             )}
           </tbody>
         </table>
