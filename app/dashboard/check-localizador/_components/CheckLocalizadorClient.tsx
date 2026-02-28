@@ -35,6 +35,13 @@ function fmtDateBR(v?: string | null) {
   return d.toLocaleDateString("pt-BR");
 }
 
+function parseDateMs(v?: string | null) {
+  if (!v) return null;
+  const dt = new Date(v);
+  if (Number.isNaN(dt.getTime())) return null;
+  return dt.getTime();
+}
+
 function nextFlightLabel(v1?: string | null, v2?: string | null) {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
