@@ -96,19 +96,39 @@ export async function POST(req: NextRequest) {
     // mês atual (UTC) - coluna verde
     const now = new Date();
     const curMonthStart = startOfMonthUTC(now);
-    const curMonthEnd = endOfMonthUTC(now);
     const currentMonthKey = monthKeyUTC(curMonthStart);
 
     // meses exibidos (do mais antigo ao mais novo)
     const monthsArr: Array<{ key: string; label: string; start: Date; end: Date }> = [];
-    for (let i = months - 1; i >= 0; i--) {
-      const mStart = addMonthsUTC(curMonthStart, -i);
-      const mEnd = endOfMonthUTC(mStart);
-      monthsArr.push({ key: monthKeyUTC(mStart), label: monthLabelPT(mStart), start: mStart, end: mEnd });
+
+    if (program === LoyaltyProgram.SMILES) {
+      // SMILES: janela fixa do ano calendário (01/01 a 31/12 do ano atual)
+      const yearStart = new Date(Date.UTC(now.getUTCFullYear(), 0, 1, 0, 0, 0, 0));
+      for (let i = 0; i < 12; i++) {
+        const mStart = addMonthsUTC(yearStart, i);
+        const mEnd = endOfMonthUTC(mStart);
+        monthsArr.push({
+          key: monthKeyUTC(mStart),
+          label: monthLabelPT(mStart),
+          start: mStart,
+          end: mEnd,
+        });
+      }
+    } else {
+      for (let i = months - 1; i >= 0; i--) {
+        const mStart = addMonthsUTC(curMonthStart, -i);
+        const mEnd = endOfMonthUTC(mStart);
+        monthsArr.push({
+          key: monthKeyUTC(mStart),
+          label: monthLabelPT(mStart),
+          start: mStart,
+          end: mEnd,
+        });
+      }
     }
 
     const rangeStart = monthsArr[0].start;
-    const rangeEnd = monthsArr[monthsArr.length - 1].end; // fim do mês atual
+    const rangeEnd = monthsArr[monthsArr.length - 1].end;
 
     // "Renovam no fim do mês" (LATAM): coluna do mesmo mês do ano anterior (mês-12)
     const renewMonthStart = addMonthsUTC(curMonthStart, -12);
