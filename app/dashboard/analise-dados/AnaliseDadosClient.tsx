@@ -819,6 +819,11 @@ export default function AnaliseDadosClient() {
   }, [data, focusYM]);
 
   const today = (data as any)?.today || null;
+  const balcaoToday = (data as any)?.balcao?.today || null;
+  const balcaoMonth = (data as any)?.balcao?.month || null;
+  const balcaoByAirline = ((data as any)?.balcao?.byAirline || []) as any[];
+  const balcaoByEmployee = ((data as any)?.balcao?.byEmployee || []) as any[];
+  const consolidated = (data as any)?.consolidated || null;
 
   // ✅ FIX: total por funcionário HOJE (API manda "todayByEmployee")
   // Mantém fallback em "byEmployeeToday" pra não quebrar deploy antigo.
@@ -1267,7 +1272,7 @@ export default function AnaliseDadosClient() {
       </div>
 
       {/* HOJE */}
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <Card
           title={today?.date ? `Total vendido hoje (${today.date})` : "Total vendido hoje"}
           value={fmtMoneyBR(today?.grossCents || 0)}
@@ -1285,6 +1290,14 @@ export default function AnaliseDadosClient() {
           value={data?.summary?.monthLabel || (data?.filters?.month || focusYM) || "—"}
           sub={`Período no gráfico: ${chartPeriodLabel}`}
           tone="amber"
+        />
+        <Card
+          title="Balcão hoje (valor vendido)"
+          value={fmtMoneyBR(balcaoToday?.customerChargeCents || 0)}
+          sub={`${fmtInt(balcaoToday?.operationsCount || 0)} operações • lucro líquido: ${fmtMoneyBR(
+            balcaoToday?.netProfitCents || 0
+          )}`}
+          tone="teal"
         />
       </div>
 
@@ -1344,6 +1357,41 @@ export default function AnaliseDadosClient() {
           value={`${fmtMoneyBR(kpis?.latam || 0)} / ${fmtMoneyBR(kpis?.smiles || 0)}`}
           sub={`Clubes: LATAM ${fmtInt(kpis?.clubsLatam || 0)} | SMILES ${fmtInt(kpis?.clubsSmiles || 0)}`}
           tone="rose"
+        />
+      </div>
+
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <Card
+          title="Balcão no mês (valor vendido)"
+          value={fmtMoneyBR(balcaoMonth?.customerChargeCents || 0)}
+          sub={`${fmtInt(balcaoMonth?.operationsCount || 0)} operações • ${fmtInt(
+            balcaoMonth?.points || 0
+          )} pontos`}
+          tone="amber"
+        />
+        <Card
+          title="Balcão no mês (lucro líquido)"
+          value={fmtMoneyBR(balcaoMonth?.netProfitCents || 0)}
+          sub={`Lucro bruto: ${fmtMoneyBR(balcaoMonth?.profitCents || 0)} • Imposto: ${fmtMoneyBR(
+            balcaoMonth?.taxCents || 0
+          )}`}
+          tone="emerald"
+        />
+        <Card
+          title="Total mês (milhas + balcão)"
+          value={fmtMoneyBR(consolidated?.soldTotalCents || 0)}
+          sub={`Milhas: ${fmtMoneyBR(consolidated?.soldSalesCents || 0)} • Balcão: ${fmtMoneyBR(
+            consolidated?.soldBalcaoCents || 0
+          )}`}
+          tone="teal"
+        />
+        <Card
+          title="Lucro mês (milhas + balcão)"
+          value={fmtMoneyBR(consolidated?.profitTotalAfterTaxCents || 0)}
+          sub={`Milhas: ${fmtMoneyBR(
+            consolidated?.profitSalesAfterTaxWithoutFeeCents || 0
+          )} • Balcão: ${fmtMoneyBR(consolidated?.profitBalcaoAfterTaxCents || 0)}`}
+          tone="sky"
         />
       </div>
 
@@ -1648,6 +1696,86 @@ export default function AnaliseDadosClient() {
                   <tr>
                     <td className="py-4 text-sm text-neutral-500" colSpan={4}>
                       Sem vendas no mês foco.
+                    </td>
+                  </tr>
+                ) : null}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      {/* Emissões de balcão (mês foco) */}
+      <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+        <div className="rounded-2xl border bg-white p-4 shadow-sm">
+          <div className="mb-2 flex items-center justify-between">
+            <div className="text-sm font-semibold">Emissões de balcão por cia (mês {monthLabel})</div>
+          </div>
+          <div className="overflow-auto">
+            <table className="w-full min-w-[640px] text-sm">
+              <thead>
+                <tr className="border-b text-left text-xs text-neutral-500">
+                  <th className="py-2">CIA</th>
+                  <th className="py-2">Ops</th>
+                  <th className="py-2">Pontos</th>
+                  <th className="py-2 text-right">Valor vendido</th>
+                  <th className="py-2 text-right">Lucro líquido</th>
+                </tr>
+              </thead>
+              <tbody>
+                {balcaoByAirline.map((r: any) => (
+                  <tr key={r.airline} className="border-b">
+                    <td className="py-2 font-medium">{String(r.airline || "—").replaceAll("_", " ")}</td>
+                    <td className="py-2">{fmtInt(r.operationsCount || 0)}</td>
+                    <td className="py-2">{fmtInt(r.points || 0)}</td>
+                    <td className="py-2 text-right font-semibold">{fmtMoneyBR(r.customerChargeCents || 0)}</td>
+                    <td className="py-2 text-right font-semibold">{fmtMoneyBR(r.netProfitCents || 0)}</td>
+                  </tr>
+                ))}
+                {!balcaoByAirline.length ? (
+                  <tr>
+                    <td className="py-4 text-sm text-neutral-500" colSpan={5}>
+                      Sem emissões de balcão no mês foco.
+                    </td>
+                  </tr>
+                ) : null}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div className="rounded-2xl border bg-white p-4 shadow-sm">
+          <div className="mb-2 flex items-center justify-between">
+            <div className="text-sm font-semibold">Emissões de balcão por funcionário (mês {monthLabel})</div>
+          </div>
+          <div className="overflow-auto">
+            <table className="w-full min-w-[700px] text-sm">
+              <thead>
+                <tr className="border-b text-left text-xs text-neutral-500">
+                  <th className="py-2">Funcionário</th>
+                  <th className="py-2">Ops</th>
+                  <th className="py-2">Pontos</th>
+                  <th className="py-2 text-right">Valor vendido</th>
+                  <th className="py-2 text-right">Lucro líquido</th>
+                </tr>
+              </thead>
+              <tbody>
+                {balcaoByEmployee.map((r: any) => (
+                  <tr key={r.id} className="border-b">
+                    <td className="py-2">
+                      <div className="font-medium">{r.name || "—"}</div>
+                      <div className="text-xs text-neutral-500">{r.login || "—"}</div>
+                    </td>
+                    <td className="py-2">{fmtInt(r.operationsCount || 0)}</td>
+                    <td className="py-2">{fmtInt(r.points || 0)}</td>
+                    <td className="py-2 text-right font-semibold">{fmtMoneyBR(r.customerChargeCents || 0)}</td>
+                    <td className="py-2 text-right font-semibold">{fmtMoneyBR(r.netProfitCents || 0)}</td>
+                  </tr>
+                ))}
+                {!balcaoByEmployee.length ? (
+                  <tr>
+                    <td className="py-4 text-sm text-neutral-500" colSpan={5}>
+                      Sem emissões de balcão no mês foco.
                     </td>
                   </tr>
                 ) : null}

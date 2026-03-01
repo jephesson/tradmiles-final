@@ -3,6 +3,14 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/auth-server";
 import type { Prisma } from "@prisma/client";
+import {
+  balcaoProfitSemTaxaCents,
+  buildTaxRule,
+  netProfitAfterTaxCents,
+  recifeDateISO,
+  resolveTaxPercent,
+  taxFromProfitCents,
+} from "@/lib/balcao-commission";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -178,6 +186,30 @@ type EmpRow = {
   passengers: number;
 };
 
+type BalcaoAgg = {
+  operationsCount: number;
+  points: number;
+  supplierPayCents: number;
+  customerChargeCents: number;
+  boardingFeeCents: number;
+  profitCents: number;
+  taxCents: number;
+  netProfitCents: number;
+};
+
+type BalcaoRowLite = {
+  id: string;
+  airline: string;
+  employeeId: string | null;
+  points: number;
+  supplierPayCents: number;
+  customerChargeCents: number;
+  boardingFeeCents: number;
+  profitCents: number;
+  createdAt: Date;
+  employee: { id: string; name: string; login: string } | null;
+};
+
 function seedEmpMap(users: Array<{ id: string; name: string; login: string }>) {
   const map = new Map<string, EmpRow>();
   for (const u of users) {
@@ -192,6 +224,32 @@ function ensureUnassigned(map: Map<string, EmpRow>) {
     map.set(key, { id: key, name: "Sem vendedor", login: "—", grossCents: 0, salesCount: 0, passengers: 0 });
   }
   return key;
+}
+
+function emptyBalcaoAgg(): BalcaoAgg {
+  return {
+    operationsCount: 0,
+    points: 0,
+    supplierPayCents: 0,
+    customerChargeCents: 0,
+    boardingFeeCents: 0,
+    profitCents: 0,
+    taxCents: 0,
+    netProfitCents: 0,
+  };
+}
+
+function toBalcaoSummaryOut(v: BalcaoAgg) {
+  return {
+    operationsCount: v.operationsCount,
+    points: v.points,
+    supplierPayCents: v.supplierPayCents,
+    customerChargeCents: v.customerChargeCents,
+    boardingFeeCents: v.boardingFeeCents,
+    profitCents: v.profitCents,
+    taxCents: v.taxCents,
+    netProfitCents: v.netProfitCents,
+  };
 }
 
 export async function GET(req: NextRequest) {
@@ -903,8 +961,174 @@ export async function GET(req: NextRequest) {
       };
     });
 
+    // =========================
+    // 5b) EMISSÕES DE BALCÃO (separado)
+    // =========================
+    const balcaoSettings = await prisma.settings.upsert({
+      where: { key: "default" },
+      create: { key: "default" },
+      update: {},
+      select: { taxPercent: true, taxEffectiveFrom: true },
+    });
+    const balcaoTaxRule = buildTaxRule(balcaoSettings);
+
+    const balcaoRangeStart = [histStart, previousMonthStart, currentMonthStart, tStart].reduce(
+      (min, d) => (d.getTime() < min.getTime() ? d : min),
+      histStart
+    );
+    const balcaoRangeEnd = [histEnd, previousMonthEnd, currentMonthEnd, tEnd].reduce(
+      (max, d) => (d.getTime() > max.getTime() ? d : max),
+      histEnd
+    );
+
+    const balcaoOps = await prisma.balcaoOperacao.findMany({
+      where: {
+        team,
+        createdAt: { gte: balcaoRangeStart, lt: balcaoRangeEnd },
+      },
+      select: {
+        id: true,
+        airline: true,
+        employeeId: true,
+        points: true,
+        supplierPayCents: true,
+        customerChargeCents: true,
+        boardingFeeCents: true,
+        profitCents: true,
+        createdAt: true,
+        employee: { select: { id: true, name: true, login: true } },
+      },
+      orderBy: { createdAt: "asc" },
+    });
+
+    const balcaoTodayAgg = emptyBalcaoAgg();
+    const balcaoMonthAgg = emptyBalcaoAgg();
+    const balcaoCurrentMonthAgg = emptyBalcaoAgg();
+    const balcaoPreviousMonthAgg = emptyBalcaoAgg();
+
+    const balcaoByMonth = new Map<string, BalcaoAgg>();
+    for (const k of monthKeys) balcaoByMonth.set(k, emptyBalcaoAgg());
+
+    const balcaoByAirline = new Map<string, BalcaoAgg>();
+    const balcaoByEmployee = new Map<
+      string,
+      BalcaoAgg & { id: string; name: string; login: string }
+    >();
+
+    function inRange(d: Date, start: Date, end: Date) {
+      const t = d.getTime();
+      return t >= start.getTime() && t < end.getTime();
+    }
+
+    function accumulateBalcao(
+      target: BalcaoAgg,
+      row: BalcaoRowLite,
+      computed: { profitCents: number; taxCents: number; netProfitCents: number }
+    ) {
+      target.operationsCount += 1;
+      target.points += Math.max(0, Number(row.points || 0));
+      target.supplierPayCents += Math.max(0, Number(row.supplierPayCents || 0));
+      target.customerChargeCents += Math.max(0, Number(row.customerChargeCents || 0));
+      target.boardingFeeCents += Math.max(0, Number(row.boardingFeeCents || 0));
+      target.profitCents += computed.profitCents;
+      target.taxCents += computed.taxCents;
+      target.netProfitCents += computed.netProfitCents;
+    }
+
+    for (const op of balcaoOps) {
+      const row: BalcaoRowLite = {
+        id: op.id,
+        airline: String(op.airline || ""),
+        employeeId: op.employeeId || null,
+        points: Number(op.points || 0),
+        supplierPayCents: Number(op.supplierPayCents || 0),
+        customerChargeCents: Number(op.customerChargeCents || 0),
+        boardingFeeCents: Number(op.boardingFeeCents || 0),
+        profitCents: Number(op.profitCents || 0),
+        createdAt: op.createdAt,
+        employee: op.employee || null,
+      };
+
+      const normalizedProfitCents = balcaoProfitSemTaxaCents({
+        customerChargeCents: row.customerChargeCents,
+        supplierPayCents: row.supplierPayCents,
+        boardingFeeCents: row.boardingFeeCents,
+      });
+      const taxPercent = resolveTaxPercent(recifeDateISO(row.createdAt), balcaoTaxRule);
+      const taxCents = taxFromProfitCents(normalizedProfitCents, taxPercent);
+      const netProfitCents = netProfitAfterTaxCents(normalizedProfitCents, taxCents);
+      const computed = {
+        profitCents: normalizedProfitCents,
+        taxCents,
+        netProfitCents,
+      };
+
+      if (inRange(row.createdAt, tStart, tEnd)) {
+        accumulateBalcao(balcaoTodayAgg, row, computed);
+      }
+      if (inRange(row.createdAt, mStart, mEnd)) {
+        accumulateBalcao(balcaoMonthAgg, row, computed);
+
+        const airlineAgg = balcaoByAirline.get(row.airline) || emptyBalcaoAgg();
+        accumulateBalcao(airlineAgg, row, computed);
+        balcaoByAirline.set(row.airline, airlineAgg);
+
+        const empId = row.employee?.id || "__NO_EMPLOYEE__";
+        const empAgg = balcaoByEmployee.get(empId) || {
+          id: empId,
+          name: row.employee?.name || "Sem funcionário",
+          login: row.employee?.login || "—",
+          ...emptyBalcaoAgg(),
+        };
+        accumulateBalcao(empAgg, row, computed);
+        balcaoByEmployee.set(empId, empAgg);
+      }
+      if (inRange(row.createdAt, currentMonthStart, currentMonthEnd)) {
+        accumulateBalcao(balcaoCurrentMonthAgg, row, computed);
+      }
+      if (inRange(row.createdAt, previousMonthStart, previousMonthEnd)) {
+        accumulateBalcao(balcaoPreviousMonthAgg, row, computed);
+      }
+
+      const mk = monthKeyUTC(row.createdAt);
+      if (balcaoByMonth.has(mk)) {
+        const monthAgg = balcaoByMonth.get(mk)!;
+        accumulateBalcao(monthAgg, row, computed);
+        balcaoByMonth.set(mk, monthAgg);
+      }
+    }
+
+    const balcaoByAirlineRows = Array.from(balcaoByAirline.entries())
+      .map(([airline, agg]) => ({
+        airline,
+        ...toBalcaoSummaryOut(agg),
+      }))
+      .sort((a, b) => b.customerChargeCents - a.customerChargeCents);
+
+    const balcaoByEmployeeRows = Array.from(balcaoByEmployee.values())
+      .map((r) => ({
+        id: r.id,
+        name: r.name,
+        login: r.login,
+        ...toBalcaoSummaryOut(r),
+      }))
+      .sort((a, b) => b.customerChargeCents - a.customerChargeCents);
+
+    const balcaoMonths = monthKeys.map((k) => ({
+      key: k,
+      label: monthLabelPT(k),
+      ...toBalcaoSummaryOut(balcaoByMonth.get(k) || emptyBalcaoAgg()),
+    }));
+
     const currentMonthLossCents = lossByMonth.get(currentMonth) || 0;
     const previousMonthLossCents = lossByMonth.get(previousMonth) || 0;
+
+    const selectedMonthSalesProfitAfterTaxWithoutFeeCents =
+      (profitByMonth.get(month) || 0) + (lossByMonth.get(month) || 0);
+    const selectedMonthConsolidatedSoldCents =
+      grossMonth + balcaoMonthAgg.customerChargeCents;
+    const selectedMonthConsolidatedProfitAfterTaxCents =
+      selectedMonthSalesProfitAfterTaxWithoutFeeCents + balcaoMonthAgg.netProfitCents;
 
     const currentMonthProfitAfterTaxWithoutFeeCents =
       currentMonthProfitAfterTaxWithoutFeeRawCents + currentMonthLossCents;
@@ -1098,6 +1322,44 @@ export async function GET(req: NextRequest) {
           totalCents: totalToday,
           salesCount: todaySales.length,
           passengers: paxToday,
+        },
+
+        balcao: {
+          taxRule: {
+            configuredPercent: balcaoTaxRule.configuredPercent,
+            effectiveISO: balcaoTaxRule.effectiveISO,
+          },
+          today: toBalcaoSummaryOut(balcaoTodayAgg),
+          month: {
+            key: month,
+            label: monthLabelPT(month),
+            ...toBalcaoSummaryOut(balcaoMonthAgg),
+          },
+          currentMonth: {
+            key: currentMonth,
+            label: monthLabelPT(currentMonth),
+            ...toBalcaoSummaryOut(balcaoCurrentMonthAgg),
+          },
+          previousMonth: {
+            key: previousMonth,
+            label: monthLabelPT(previousMonth),
+            ...toBalcaoSummaryOut(balcaoPreviousMonthAgg),
+          },
+          months: balcaoMonths,
+          byAirline: balcaoByAirlineRows,
+          byEmployee: balcaoByEmployeeRows,
+        },
+
+        consolidated: {
+          month,
+          label: monthLabelPT(month),
+          soldSalesCents: grossMonth,
+          soldBalcaoCents: balcaoMonthAgg.customerChargeCents,
+          soldTotalCents: selectedMonthConsolidatedSoldCents,
+          profitSalesAfterTaxWithoutFeeCents:
+            selectedMonthSalesProfitAfterTaxWithoutFeeCents,
+          profitBalcaoAfterTaxCents: balcaoMonthAgg.netProfitCents,
+          profitTotalAfterTaxCents: selectedMonthConsolidatedProfitAfterTaxCents,
         },
 
         // ✅ HOJE POR FUNCIONÁRIO (com aliases)
