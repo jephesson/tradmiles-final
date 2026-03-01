@@ -341,6 +341,15 @@ export default function DividasClient() {
       });
   }, [debts, isAdmin]);
 
+  const creditorOptions = useMemo(() => {
+    const set = new Set<string>();
+    for (const d of debts) {
+      const name = String(d.creditorName || "").trim();
+      if (name) set.add(name);
+    }
+    return Array.from(set).sort((a, b) => a.localeCompare(b, "pt-BR"));
+  }, [debts]);
+
   async function createDebt() {
     const cents = toCentsFromInput(total);
     if (!title.trim()) return alert("Informe a descrição/título.");
@@ -605,12 +614,26 @@ export default function DividasClient() {
 
           <div className="space-y-1">
             <div className="text-xs font-medium text-slate-600">Pessoa (credor)</div>
-            <input
-              className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm"
-              value={creditorName}
-              onChange={(e) => setCreditorName(e.target.value)}
-              placeholder="Ex: Joyce"
-            />
+            <div className="space-y-2">
+              <select
+                className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm"
+                value={creditorOptions.includes(creditorName.trim()) ? creditorName.trim() : ""}
+                onChange={(e) => setCreditorName(e.target.value)}
+              >
+                <option value="">Selecionar credor já cadastrado...</option>
+                {creditorOptions.map((name) => (
+                  <option key={name} value={name}>
+                    {name}
+                  </option>
+                ))}
+              </select>
+              <input
+                className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm"
+                value={creditorName}
+                onChange={(e) => setCreditorName(e.target.value)}
+                placeholder="Ou digite um novo credor (ex: Joyce)"
+              />
+            </div>
           </div>
 
           <div className="space-y-1">
