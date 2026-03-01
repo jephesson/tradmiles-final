@@ -344,11 +344,6 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
   const [latamPaxLoading, setLatamPaxLoading] = useState(false);
   const [latamPaxError, setLatamPaxError] = useState("");
 
-  const sugIdsKey = useMemo(() => {
-    const ids = suggestions.map((s) => s.cedente.id).slice().sort();
-    return ids.join("|");
-  }, [suggestions]);
-
   // busca cedente
   const [cedenteQ, setCedenteQ] = useState("");
 
@@ -629,6 +624,8 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
       if (pointsTotal <= 0 || passengers <= 0) {
         setSuggestions([]);
         setSel(null);
+        setLatamPaxLoading(false);
+        setLatamPaxError("");
         return;
       }
 
@@ -644,14 +641,55 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
           signal: ac.signal,
         } as any);
 
-        const list = out.suggestions || [];
-        setSuggestions(list);
+        let nextList = out.suggestions || [];
 
-        if (
-          sel?.cedente?.id &&
-          !list.some((x) => x.cedente.id === sel.cedente.id)
-        ) {
-          clearSelection();
+        // Mantém o cálculo de PAX LATAM sempre alinhado ao painel (janela 365d).
+        if (program === "LATAM" && nextList.length) {
+          setLatamPaxLoading(true);
+          setLatamPaxError("");
+          try {
+            const ids = nextList.map((s) => s.cedente.id);
+
+            const panel = await api<EmissionsPanelResp>("/api/emissions/panel", {
+              method: "POST",
+              body: JSON.stringify({
+                programa: programToKey(program),
+                months: 13,
+                cedenteIds: ids,
+              }),
+              signal: ac.signal,
+            } as any);
+
+            const map = new Map<string, number>();
+            for (const r of panel?.rows || []) {
+              map.set(String(r.cedenteId), Number(r.total || 0));
+            }
+
+            nextList = nextList.map((s) => {
+              const used = map.get(s.cedente.id);
+              if (used == null) return s;
+              return applyLatamWindow(s, used);
+            });
+          } catch (e: any) {
+            if (e?.name !== "AbortError") {
+              setLatamPaxError(
+                e?.message || "Falha ao ajustar PAX (janela 365 dias)."
+              );
+            }
+          } finally {
+            if (!ac.signal.aborted) setLatamPaxLoading(false);
+          }
+        } else {
+          setLatamPaxLoading(false);
+          setLatamPaxError("");
+        }
+
+        setSuggestions(nextList);
+
+        if (sel?.cedente?.id) {
+          const selected = nextList.find((x) => x.cedente.id === sel.cedente.id);
+          if (!selected) clearSelection();
+          else setSel(selected);
         }
       } catch (e: any) {
         if (e?.name !== "AbortError") {
@@ -670,63 +708,6 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [program, pointsTotal, passengers]);
-
-  // ✅ LATAM: após carregar sugestões, recalcula usados/disp. na janela (365d ~ painel)
-  useEffect(() => {
-    if (program !== "LATAM") return;
-    if (!suggestions.length) return;
-
-    const ac = new AbortController();
-    setLatamPaxLoading(true);
-    setLatamPaxError("");
-
-    (async () => {
-      try {
-        const ids = suggestions.map((s) => s.cedente.id);
-
-        const out = await api<EmissionsPanelResp>("/api/emissions/panel", {
-          method: "POST",
-          body: JSON.stringify({
-            programa: programToKey(program),
-            months: 13,
-            cedenteIds: ids,
-          }),
-          signal: ac.signal,
-        } as any);
-
-        const map = new Map<string, number>();
-        for (const r of out?.rows || []) {
-          map.set(String(r.cedenteId), Number(r.total || 0));
-        }
-
-        setSuggestions((prev) =>
-          prev.map((s) => {
-            const used = map.get(s.cedente.id);
-            if (used == null) return s;
-            return applyLatamWindow(s, used);
-          })
-        );
-
-        setSel((prevSel) => {
-          if (!prevSel) return prevSel;
-          const used = map.get(prevSel.cedente.id);
-          if (used == null) return prevSel;
-          return applyLatamWindow(prevSel, used);
-        });
-      } catch (e: any) {
-        if (e?.name !== "AbortError") {
-          setLatamPaxError(
-            e?.message || "Falha ao ajustar PAX (janela 365 dias)."
-          );
-        }
-      } finally {
-        if (!ac.signal.aborted) setLatamPaxLoading(false);
-      }
-    })();
-
-    return () => ac.abort();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [program, sugIdsKey]);
 
   // ✅ mantém selectedCliente em sync quando escolhe no select
   useEffect(() => {
