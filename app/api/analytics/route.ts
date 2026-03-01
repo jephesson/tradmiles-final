@@ -293,6 +293,7 @@ export async function GET(req: NextRequest) {
     const chart: ChartMode = chartParam === "DAY" ? "DAY" : "MONTH";
 
     const daysBack = clampInt(searchParams.get("daysBack"), 30, 1, 365);
+    const milheiroDaysBack = clampInt(searchParams.get("milheiroDaysBack"), 30, 1, 365);
     const fromQ = (searchParams.get("from") || "").trim(); // YYYY-MM-DD
     const toQ = (searchParams.get("to") || "").trim(); // YYYY-MM-DD
 
@@ -552,9 +553,38 @@ export async function GET(req: NextRequest) {
       latamMilheiroCents: number;
       smilesMilheiroCents: number;
     }> = [];
+
     const dailySales = await prisma.sale.findMany({
       where: {
         date: { gte: dailyStart, lt: dailyEndExclusive },
+        ...(program !== "ALL" ? { program } : {}),
+        ...saleTeamWhere(team),
+        ...notCanceled,
+      },
+      select: { date: true, points: true, milheiroCents: true },
+      orderBy: { date: "asc" },
+    });
+
+    const agg = new Map<string, number>();
+    for (const s of dailySales) {
+      const k = isoDayUTC(new Date(s.date as any));
+      const points = Number(s.points || 0);
+      const gross = pointsValueCents(points, Number(s.milheiroCents || 0));
+      agg.set(k, (agg.get(k) || 0) + gross);
+    }
+
+    const out: Array<{ key: string; label: string; grossCents: number }> = [];
+    for (let d = new Date(dailyStart); d < dailyEndExclusive; d = addDaysUTC(d, 1)) {
+      const k = isoDayUTC(d);
+      out.push({ key: k, label: dayLabelPT(k), grossCents: agg.get(k) || 0 });
+    }
+    days = out;
+
+    const { end: milheiroEndExclusive } = dayBoundsUTC(todayISO);
+    const milheiroStart = addDaysUTC(milheiroEndExclusive, -milheiroDaysBack);
+    const milheiroSales = await prisma.sale.findMany({
+      where: {
+        date: { gte: milheiroStart, lt: milheiroEndExclusive },
         ...(program !== "ALL" ? { program } : {}),
         ...saleTeamWhere(team),
         ...notCanceled,
@@ -563,17 +593,14 @@ export async function GET(req: NextRequest) {
       orderBy: { date: "asc" },
     });
 
-    const agg = new Map<string, number>();
     const aggMilheiro = new Map<
       string,
       { latamPoints: number; latamValueCents: number; smilesPoints: number; smilesValueCents: number }
     >();
-    for (const s of dailySales) {
+    for (const s of milheiroSales) {
       const k = isoDayUTC(new Date(s.date as any));
       const points = Number(s.points || 0);
       const gross = pointsValueCents(points, Number(s.milheiroCents || 0));
-      agg.set(k, (agg.get(k) || 0) + gross);
-
       const cur = aggMilheiro.get(k) || {
         latamPoints: 0,
         latamValueCents: 0,
@@ -592,17 +619,14 @@ export async function GET(req: NextRequest) {
       aggMilheiro.set(k, cur);
     }
 
-    const out: Array<{ key: string; label: string; grossCents: number }> = [];
     const outMil: Array<{
       key: string;
       label: string;
       latamMilheiroCents: number;
       smilesMilheiroCents: number;
     }> = [];
-    for (let d = new Date(dailyStart); d < dailyEndExclusive; d = addDaysUTC(d, 1)) {
+    for (let d = new Date(milheiroStart); d < milheiroEndExclusive; d = addDaysUTC(d, 1)) {
       const k = isoDayUTC(d);
-      out.push({ key: k, label: dayLabelPT(k), grossCents: agg.get(k) || 0 });
-
       const rowMil = aggMilheiro.get(k) || {
         latamPoints: 0,
         latamValueCents: 0,
@@ -616,7 +640,6 @@ export async function GET(req: NextRequest) {
         smilesMilheiroCents: milheiroFrom(rowMil.smilesPoints, rowMil.smilesValueCents),
       });
     }
-    days = out;
     milheiroDaily = outMil;
 
     // =========================
@@ -1332,6 +1355,7 @@ export async function GET(req: NextRequest) {
           daysBack: chart === "DAY" ? daysBack : undefined,
           from: chart === "DAY" ? (isYYYYMMDD(fromQ) ? fromQ : chartFrom) : undefined,
           to: chart === "DAY" ? (isYYYYMMDD(toQ) ? toQ : chartTo) : undefined,
+          milheiroDaysBack,
         },
 
         today: {

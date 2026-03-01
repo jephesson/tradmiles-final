@@ -38,6 +38,18 @@ function fmtPctSigned(v: number) {
   })}%`;
 }
 
+function daysInMonthFromKey(monthKey?: string | null) {
+  const raw = String(monthKey || "").trim();
+  const m = raw.match(/^(\d{4})-(\d{2})$/);
+  if (!m) return 30;
+  const year = Number(m[1]);
+  const month = Number(m[2]);
+  if (!Number.isFinite(year) || !Number.isFinite(month) || month < 1 || month > 12) {
+    return 30;
+  }
+  return new Date(Date.UTC(year, month, 0)).getUTCDate();
+}
+
 type Analytics = any;
 
 type ChartMode = "MONTH" | "DAY";
@@ -109,6 +121,7 @@ function SimpleLineChart({
   summary,
   footer,
   accent = "text-slate-900",
+  valueLabel = "Valor",
 }: {
   title: string;
   data: ChartPointWithSub[];
@@ -118,6 +131,7 @@ function SimpleLineChart({
   summary?: ReactNode;
   footer?: ReactNode;
   accent?: string;
+  valueLabel?: string;
 }) {
   const w = 980;
   const h = height;
@@ -161,6 +175,14 @@ function SimpleLineChart({
     : "";
 
   const yTicks = [ymax, (ymax + ymin) / 2, ymin];
+  const [hoveredIdx, setHoveredIdx] = useState<number | null>(null);
+  const hitW = data.length <= 1 ? plotW : Math.max(10, plotW / data.length);
+  const hovered = hoveredIdx != null ? data[hoveredIdx] : null;
+  const hoverX = hoveredIdx != null ? leftPad + hoveredIdx * dx : leftPad;
+  const tipW = 230;
+  const tipH = hovered?.sub ? 68 : 52;
+  const tipX = Math.max(leftPad, Math.min(hoverX - tipW / 2, leftPad + plotW - tipW));
+  const tipY = topPad + 8;
 
   return (
     <div className="rounded-2xl border bg-white p-4 shadow-sm">
@@ -185,7 +207,7 @@ function SimpleLineChart({
         ) : null}
       </div>
 
-      <svg viewBox={`0 0 ${w} ${h}`} className="w-full">
+      <svg viewBox={`0 0 ${w} ${h}`} className="w-full" onMouseLeave={() => setHoveredIdx(null)}>
         {/* grade horizontal */}
         {yTicks.map((v, i) => (
           <line
@@ -230,8 +252,25 @@ function SimpleLineChart({
             cy={scaleY(d.y)}
             r="2.5"
             className={accent}
-          />
+          >
+            <title>{`${d.x} • ${valueLabel}: ${fmtMoneyBR(d.y)}`}</title>
+          </circle>
         ))}
+
+        {data.map((d, i) => {
+          const x = leftPad + i * dx - hitW / 2;
+          return (
+            <rect
+              key={`${d.x}-${i}-hit`}
+              x={x}
+              y={topPad}
+              width={hitW}
+              height={plotH}
+              fill="transparent"
+              onMouseEnter={() => setHoveredIdx(i)}
+            />
+          );
+        })}
 
         {/* linha extra (média móvel) */}
         {extraLine?.length ? (
@@ -253,6 +292,32 @@ function SimpleLineChart({
             strokeDasharray="5 4"
             points={pointsTrend}
           />
+        ) : null}
+
+        {hovered ? (
+          <>
+            <line
+              x1={hoverX}
+              x2={hoverX}
+              y1={topPad}
+              y2={baseY}
+              stroke="#cbd5e1"
+              strokeDasharray="4 3"
+              strokeWidth="1"
+            />
+            <rect x={tipX} y={tipY} width={tipW} height={tipH} rx="8" fill="white" stroke="#cbd5e1" />
+            <text x={tipX + 10} y={tipY + 17} fontSize="10" fill="#334155">
+              {hovered.x}
+            </text>
+            <text x={tipX + 10} y={tipY + 34} fontSize="11" fill="#0f172a">
+              {`${valueLabel}: ${fmtMoneyBR(hovered.y)}`}
+            </text>
+            {hovered.sub ? (
+              <text x={tipX + 10} y={tipY + 51} fontSize="10" fill="#475569">
+                {hovered.sub}
+              </text>
+            ) : null}
+          </>
         ) : null}
       </svg>
 
@@ -295,11 +360,13 @@ function MilheiroLineChart({
   data,
   height = 210,
   footer,
+  toolbar,
 }: {
   title: string;
   data: MilheiroPoint[];
   height?: number;
   footer?: ReactNode;
+  toolbar?: ReactNode;
 }) {
   const w = 980;
   const h = height;
@@ -341,7 +408,10 @@ function MilheiroLineChart({
 
   return (
     <div className="rounded-2xl border bg-white p-4 shadow-sm">
-      <div className="mb-2 text-sm font-semibold">{title}</div>
+      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+        <div className="text-sm font-semibold">{title}</div>
+        {toolbar ? <div>{toolbar}</div> : null}
+      </div>
       <div className="mb-2 flex flex-wrap gap-2 text-[11px] text-neutral-600">
         <span className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5">
           <span className="h-2 w-2 rounded-full bg-sky-500" />
@@ -746,6 +816,7 @@ export default function AnaliseDadosClient() {
   // ✅ range diário
   const [daysPreset, setDaysPreset] = useState<DaysPreset>(30);
   const [daysBack, setDaysBack] = useState<number>(30);
+  const [milheiroDaysBack, setMilheiroDaysBack] = useState<number>(30);
   const [dateFrom, setDateFrom] = useState<string>(""); // YYYY-MM-DD
   const [dateTo, setDateTo] = useState<string>(""); // YYYY-MM-DD
 
@@ -779,6 +850,7 @@ export default function AnaliseDadosClient() {
         }
         if (maWindow) qs.set("ma", String(maWindow));
       }
+      qs.set("milheiroDaysBack", String(milheiroDaysBack));
 
       const res = await fetch(`/api/analytics?${qs.toString()}`, { cache: "no-store" });
       const j = await res.json();
@@ -793,7 +865,7 @@ export default function AnaliseDadosClient() {
   useEffect(() => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [monthsBack, focusYM, topPeriod, topProgram, chartMode, daysPreset, daysBack, dateFrom, dateTo, maWindow]);
+  }, [monthsBack, focusYM, topPeriod, topProgram, chartMode, daysPreset, daysBack, dateFrom, dateTo, maWindow, milheiroDaysBack]);
 
   const monthOptions = useMemo<string[]>(() => {
     const arr = (data?.months || []) as any[];
@@ -897,6 +969,13 @@ export default function AnaliseDadosClient() {
     );
     return Math.round(sum / rows.length);
   }, [data, balcaoMonthSoldByKey]);
+
+  const avgMonthlySalesCents = useMemo(() => {
+    const rows = (data?.months || []) as any[];
+    if (!rows.length) return 0;
+    const sum = rows.reduce((acc, row) => acc + Number(row?.grossCents || 0), 0);
+    return Math.round(sum / rows.length);
+  }, [data]);
 
   // ✅ % vs dia anterior (só no diário) (TIPADO)
   const chartWithDelta = useMemo<ChartPointWithSub[]>(() => {
@@ -1227,6 +1306,30 @@ export default function AnaliseDadosClient() {
     };
   }, [data]);
 
+  const profitPerDayComparison = useMemo(() => {
+    if (!currentVsPrevious) return null;
+    const currentMonthDays = daysInMonthFromKey(currentVsPrevious.currentMonth);
+    const previousMonthDays = daysInMonthFromKey(currentVsPrevious.previousMonth);
+    const currentPerDay =
+      currentMonthDays > 0
+        ? Math.round((currentVsPrevious.currentProfitCents || 0) / currentMonthDays)
+        : 0;
+    const previousPerDay =
+      previousMonthDays > 0
+        ? Math.round((currentVsPrevious.previousProfitCents || 0) / previousMonthDays)
+        : 0;
+    const delta = currentPerDay - previousPerDay;
+    const deltaPct = previousPerDay > 0 ? delta / previousPerDay : null;
+    return {
+      currentMonth: currentVsPrevious.currentMonth,
+      previousMonth: currentVsPrevious.previousMonth,
+      currentPerDay,
+      previousPerDay,
+      delta,
+      deltaPct,
+    };
+  }, [currentVsPrevious]);
+
   const byEmployeeMonthPie = useMemo(() => {
     const rows = [...byEmployeeMonth].sort((a, b) => (b.grossCents || 0) - (a.grossCents || 0));
     const total = rows.reduce((acc, r) => acc + (r.grossCents || 0), 0);
@@ -1455,11 +1558,11 @@ export default function AnaliseDadosClient() {
       {/* KPIs */}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <Card
-          title="Total vendido no mês (milhas + balcão)"
-          value={fmtMoneyBR(consolidated?.soldTotalCents || kpis?.gross || 0)}
-          sub={`Média mensal no período: ${fmtMoneyBR(avgMonthlyTotalCents)} • Milhas: ${fmtMoneyBR(
-            consolidated?.soldSalesCents || 0
-          )} • Balcão: ${fmtMoneyBR(consolidated?.soldBalcaoCents || 0)}`}
+          title="Total vendido no mês (milhas)"
+          value={fmtMoneyBR(consolidated?.soldSalesCents || kpis?.gross || 0)}
+          sub={`Média mensal (milhas): ${fmtMoneyBR(avgMonthlySalesCents)} • Total com balcão: ${fmtMoneyBR(
+            consolidated?.soldTotalCents || kpis?.gross || 0
+          )}`}
           tone="teal"
         />
         <Card title="Quantidade de vendas no mês" value={fmtInt(kpis?.count || 0)} tone="sky" />
@@ -1491,13 +1594,20 @@ export default function AnaliseDadosClient() {
           <div className="inline-flex rounded-full border border-emerald-300 bg-emerald-100 px-2 py-0.5 text-[11px] font-semibold text-emerald-700">
             Principal
           </div>
-          <div className="mt-2 text-xs uppercase tracking-wide text-emerald-700">Lucro mês (milhas + balcão)</div>
+          <div className="mt-2 text-xs uppercase tracking-wide text-emerald-700">Lucro/dia (média mensal)</div>
           <div className="mt-1 text-3xl font-bold text-emerald-950">
-            {fmtMoneyBR(consolidated?.profitTotalAfterTaxCents || 0)}
+            {fmtMoneyBR(profitPerDayComparison?.currentPerDay || 0)}
           </div>
           <div className="mt-2 text-sm text-emerald-900/80">
-            Milhas: {fmtMoneyBR(consolidated?.profitSalesAfterTaxWithoutFeeCents || 0)} • Balcão:{" "}
-            {fmtMoneyBR(consolidated?.profitBalcaoAfterTaxCents || 0)}
+            {profitPerDayComparison
+              ? `Mês ${profitPerDayComparison.currentMonth || "atual"}: ${fmtMoneyBR(
+                  profitPerDayComparison.currentPerDay
+                )} • Mês ${profitPerDayComparison.previousMonth || "anterior"}: ${fmtMoneyBR(
+                  profitPerDayComparison.previousPerDay
+                )} • Δ: ${(profitPerDayComparison.delta || 0) > 0 ? "+" : ""}${fmtMoneyBR(
+                  profitPerDayComparison.delta || 0
+                )}${profitPerDayComparison.deltaPct == null ? " (—)" : ` (${fmtPct(profitPerDayComparison.deltaPct)})`}`
+              : "Sem base para comparação."}
           </div>
         </div>
       </div>
@@ -1603,6 +1713,7 @@ export default function AnaliseDadosClient() {
                 )} • Balcão: ${fmtMoneyBR(m.profitBalcaoCents)} • prejuízo (milhas): ${fmtMoneyBR(m.lossCents)}`,
         }))}
         accent="text-emerald-700"
+        valueLabel="Lucro do mês"
         footer="Linha mensal de lucro total (milhas + balcão), após impostos e já abatendo prejuízos do mês nas milhas."
       />
 
@@ -1668,6 +1779,7 @@ export default function AnaliseDadosClient() {
           </div>
         }
         accent="text-sky-900"
+        valueLabel={chartMode === "DAY" ? "Total vendido no dia" : "Total vendido no mês"}
         footer={
           chartMode === "DAY"
             ? `Média diária no período: ${fmtMoneyBR(avgInChart)}${
@@ -1748,6 +1860,23 @@ export default function AnaliseDadosClient() {
       <MilheiroLineChart
         title="Milheiro vendido por dia (linha)"
         data={milheiroDailyWithDelta}
+        toolbar={
+          <div className="flex items-center gap-2 text-xs">
+            <span className="text-neutral-500">Período:</span>
+            <select
+              className="rounded-lg border bg-white px-2 py-1 text-xs"
+              value={milheiroDaysBack}
+              onChange={(e) => setMilheiroDaysBack(Number(e.target.value))}
+            >
+              <option value={7}>7 dias</option>
+              <option value={15}>15 dias</option>
+              <option value={30}>30 dias</option>
+              <option value={60}>60 dias</option>
+              <option value={90}>90 dias</option>
+              <option value={180}>180 dias</option>
+            </select>
+          </div>
+        }
         footer={`Comparação diária entre LATAM e Smiles no período de ${
           milheiroDailyWithDelta.length ? fmtInt(milheiroDailyWithDelta.length) : "0"
         } dias.`}
