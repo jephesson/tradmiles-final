@@ -972,11 +972,11 @@ export async function GET(req: NextRequest) {
     });
     const balcaoTaxRule = buildTaxRule(balcaoSettings);
 
-    const balcaoRangeStart = [histStart, previousMonthStart, currentMonthStart, tStart].reduce(
+    const balcaoRangeStart = [histStart, previousMonthStart, currentMonthStart, tStart, dailyStart].reduce(
       (min, d) => (d.getTime() < min.getTime() ? d : min),
       histStart
     );
-    const balcaoRangeEnd = [histEnd, previousMonthEnd, currentMonthEnd, tEnd].reduce(
+    const balcaoRangeEnd = [histEnd, previousMonthEnd, currentMonthEnd, tEnd, dailyEndExclusive].reduce(
       (max, d) => (d.getTime() > max.getTime() ? d : max),
       histEnd
     );
@@ -1008,6 +1008,12 @@ export async function GET(req: NextRequest) {
 
     const balcaoByMonth = new Map<string, BalcaoAgg>();
     for (const k of monthKeys) balcaoByMonth.set(k, emptyBalcaoAgg());
+
+    const balcaoByDay = new Map<string, BalcaoAgg>();
+    for (let d = new Date(dailyStart); d < dailyEndExclusive; d = addDaysUTC(d, 1)) {
+      const dk = isoDayUTC(d);
+      balcaoByDay.set(dk, emptyBalcaoAgg());
+    }
 
     const balcaoByAirline = new Map<string, BalcaoAgg>();
     const balcaoByEmployee = new Map<
@@ -1096,6 +1102,13 @@ export async function GET(req: NextRequest) {
         accumulateBalcao(monthAgg, row, computed);
         balcaoByMonth.set(mk, monthAgg);
       }
+
+      const dk = isoDayUTC(row.createdAt);
+      if (balcaoByDay.has(dk)) {
+        const dayAgg = balcaoByDay.get(dk)!;
+        accumulateBalcao(dayAgg, row, computed);
+        balcaoByDay.set(dk, dayAgg);
+      }
     }
 
     const balcaoByAirlineRows = Array.from(balcaoByAirline.entries())
@@ -1118,6 +1131,12 @@ export async function GET(req: NextRequest) {
       key: k,
       label: monthLabelPT(k),
       ...toBalcaoSummaryOut(balcaoByMonth.get(k) || emptyBalcaoAgg()),
+    }));
+
+    const balcaoDays = Array.from(balcaoByDay.entries()).map(([k, agg]) => ({
+      key: k,
+      label: dayLabelPT(k),
+      ...toBalcaoSummaryOut(agg),
     }));
 
     const currentMonthLossCents = lossByMonth.get(currentMonth) || 0;
@@ -1345,6 +1364,7 @@ export async function GET(req: NextRequest) {
             label: monthLabelPT(previousMonth),
             ...toBalcaoSummaryOut(balcaoPreviousMonthAgg),
           },
+          days: balcaoDays,
           months: balcaoMonths,
           byAirline: balcaoByAirlineRows,
           byEmployee: balcaoByEmployeeRows,

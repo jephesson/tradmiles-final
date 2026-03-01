@@ -821,6 +821,8 @@ export default function AnaliseDadosClient() {
   const today = (data as any)?.today || null;
   const balcaoToday = (data as any)?.balcao?.today || null;
   const balcaoMonth = (data as any)?.balcao?.month || null;
+  const balcaoDays = useMemo(() => (((data as any)?.balcao?.days || []) as any[]), [data]);
+  const balcaoMonths = useMemo(() => (((data as any)?.balcao?.months || []) as any[]), [data]);
   const balcaoByAirline = ((data as any)?.balcao?.byAirline || []) as any[];
   const balcaoByEmployee = ((data as any)?.balcao?.byEmployee || []) as any[];
   const consolidated = (data as any)?.consolidated || null;
@@ -834,14 +836,67 @@ export default function AnaliseDadosClient() {
 
   const todayLabel = today?.date ? String(today.date) : "";
 
+  const balcaoDaySoldByKey = useMemo(() => {
+    const m = new Map<string, number>();
+    balcaoDays.forEach((row) => {
+      const key = String(row?.key || "");
+      if (!key) return;
+      m.set(key, Number(row?.customerChargeCents || 0));
+    });
+    return m;
+  }, [balcaoDays]);
+
+  const balcaoMonthByKey = useMemo(() => {
+    const m = new Map<string, any>();
+    balcaoMonths.forEach((row) => {
+      const key = String(row?.key || "");
+      if (!key) return;
+      m.set(key, row);
+    });
+    return m;
+  }, [balcaoMonths]);
+
+  const balcaoMonthSoldByKey = useMemo(() => {
+    const m = new Map<string, number>();
+    balcaoMonthByKey.forEach((row, key) => {
+      m.set(key, Number(row?.customerChargeCents || 0));
+    });
+    return m;
+  }, [balcaoMonthByKey]);
+
+  const balcaoMonthProfitByKey = useMemo(() => {
+    const m = new Map<string, number>();
+    balcaoMonthByKey.forEach((row, key) => {
+      m.set(key, Number(row?.netProfitCents || 0));
+    });
+    return m;
+  }, [balcaoMonthByKey]);
+
   // ✅ Fonte do gráfico depende do modo (TIPADO)
   const chartPoints = useMemo<ChartPoint[]>(() => {
     const src = (chartMode === "DAY" ? (data?.days || []) : (data?.months || [])) as any[];
     return src.map((m: any): ChartPoint => ({
       x: String(m.label || m.key || ""),
-      y: Number(m.grossCents || 0),
+      y:
+        Number(m.grossCents || 0) +
+        (chartMode === "DAY"
+          ? Number(balcaoDaySoldByKey.get(String(m.key || "")) || 0)
+          : Number(balcaoMonthSoldByKey.get(String(m.key || "")) || 0)),
     }));
-  }, [data, chartMode]);
+  }, [data, chartMode, balcaoDaySoldByKey, balcaoMonthSoldByKey]);
+
+  const avgMonthlyTotalCents = useMemo(() => {
+    const rows = (data?.months || []) as any[];
+    if (!rows.length) return 0;
+    const sum = rows.reduce(
+      (acc, row) =>
+        acc +
+        Number(row?.grossCents || 0) +
+        Number(balcaoMonthSoldByKey.get(String(row?.key || "")) || 0),
+      0
+    );
+    return Math.round(sum / rows.length);
+  }, [data, balcaoMonthSoldByKey]);
 
   // ✅ % vs dia anterior (só no diário) (TIPADO)
   const chartWithDelta = useMemo<ChartPointWithSub[]>(() => {
@@ -1063,18 +1118,31 @@ export default function AnaliseDadosClient() {
 
   const currentMonthPerformance = useMemo(() => {
     const p = (data as any)?.currentMonthPerformance;
-    if (!p) return null;
+    const b = (data as any)?.balcao?.currentMonth || null;
+    if (!p && !b) return null;
 
-    const soldWithoutFeeCents = Number(p.soldWithoutFeeCents || 0);
-    const profitAfterTaxWithoutFeeCents = Number(p.profitAfterTaxWithoutFeeCents || 0);
-    const lossCents = Number(p.lossCents || 0);
+    const soldSalesCents = Number(p?.soldWithoutFeeCents || 0);
+    const soldBalcaoCents = Number(b?.customerChargeCents || 0);
+    const soldWithoutFeeCents = soldSalesCents + soldBalcaoCents;
+
+    const profitSalesCents = Number(p?.profitAfterTaxWithoutFeeCents || 0);
+    const profitBalcaoCents = Number(b?.netProfitCents || 0);
+    const profitAfterTaxWithoutFeeCents = profitSalesCents + profitBalcaoCents;
+
+    const lossCents = Number(p?.lossCents || 0);
     const salesOverProfitPercent =
-      typeof p.salesOverProfitPercent === "number" ? Number(p.salesOverProfitPercent) : null;
+      soldWithoutFeeCents > 0
+        ? (profitAfterTaxWithoutFeeCents / soldWithoutFeeCents) * 100
+        : null;
 
     return {
-      month: String(p.month || ""),
+      month: String(p?.month || b?.key || ""),
       soldWithoutFeeCents,
+      soldSalesCents,
+      soldBalcaoCents,
       profitAfterTaxWithoutFeeCents,
+      profitSalesCents,
+      profitBalcaoCents,
       lossCents,
       salesOverProfitPercent,
     };
@@ -1083,37 +1151,79 @@ export default function AnaliseDadosClient() {
   const profitTimeline = useMemo(() => {
     const rows = ((data as any)?.profitMonths || []) as any[];
     return rows.map((m) => {
-      const profitAfterTaxWithoutFeeCents = Number(m.profitAfterTaxWithoutFeeCents || 0);
+      const key = String(m.key || "");
+      const soldSalesCents = Number(m.soldWithoutFeeCents || 0);
+      const soldBalcaoCents = Number(balcaoMonthSoldByKey.get(key) || 0);
+      const soldTotalCents = soldSalesCents + soldBalcaoCents;
+
+      const profitSalesCents = Number(m.profitAfterTaxWithoutFeeCents || 0);
+      const profitBalcaoCents = Number(balcaoMonthProfitByKey.get(key) || 0);
+      const profitAfterTaxWithoutFeeCents = profitSalesCents + profitBalcaoCents;
+
       const lossCents = Number(m.lossCents || 0);
-      const profitPercent = typeof m.profitPercent === "number" ? Number(m.profitPercent) : null;
+      const profitPercent =
+        soldTotalCents > 0 ? (profitAfterTaxWithoutFeeCents / soldTotalCents) * 100 : null;
       return {
-        key: String(m.key || ""),
+        key,
         x: String(m.label || m.key || ""),
         y: profitAfterTaxWithoutFeeCents,
         lossCents,
+        soldTotalCents,
+        soldSalesCents,
+        soldBalcaoCents,
+        profitSalesCents,
+        profitBalcaoCents,
         profitPercent,
       };
     });
-  }, [data]);
+  }, [data, balcaoMonthSoldByKey, balcaoMonthProfitByKey]);
 
   const currentVsPrevious = useMemo(() => {
     const c = (data as any)?.currentVsPrevious;
-    if (!c) return null;
+    const bCurrent = (data as any)?.balcao?.currentMonth || null;
+    const bPrevious = (data as any)?.balcao?.previousMonth || null;
+    if (!c && !bCurrent && !bPrevious) return null;
+
+    const currentProfitSalesCents = Number(c?.current?.profitAfterTaxWithoutFeeCents || 0);
+    const previousProfitSalesCents = Number(c?.previous?.profitAfterTaxWithoutFeeCents || 0);
+    const currentProfitBalcaoCents = Number(bCurrent?.netProfitCents || 0);
+    const previousProfitBalcaoCents = Number(bPrevious?.netProfitCents || 0);
+
+    const currentProfitCents = currentProfitSalesCents + currentProfitBalcaoCents;
+    const previousProfitCents = previousProfitSalesCents + previousProfitBalcaoCents;
+
+    const currentSoldSalesCents = Number(c?.current?.soldWithoutFeeCents || 0);
+    const previousSoldSalesCents = Number(c?.previous?.soldWithoutFeeCents || 0);
+    const currentSoldBalcaoCents = Number(bCurrent?.customerChargeCents || 0);
+    const previousSoldBalcaoCents = Number(bPrevious?.customerChargeCents || 0);
+
+    const currentSoldTotalCents = currentSoldSalesCents + currentSoldBalcaoCents;
+    const previousSoldTotalCents = previousSoldSalesCents + previousSoldBalcaoCents;
+
+    const currentProfitPercent =
+      currentSoldTotalCents > 0 ? (currentProfitCents / currentSoldTotalCents) * 100 : null;
+    const previousProfitPercent =
+      previousSoldTotalCents > 0 ? (previousProfitCents / previousSoldTotalCents) * 100 : null;
+
+    const deltaProfitCents = currentProfitCents - previousProfitCents;
+    const deltaProfitPercent =
+      previousProfitCents !== 0 ? (deltaProfitCents / Math.abs(previousProfitCents)) * 100 : null;
 
     return {
-      currentMonth: String(c.currentMonth || ""),
-      previousMonth: String(c.previousMonth || ""),
-      currentProfitCents: Number(c.current?.profitAfterTaxWithoutFeeCents || 0),
-      previousProfitCents: Number(c.previous?.profitAfterTaxWithoutFeeCents || 0),
-      currentLossCents: Number(c.current?.lossCents || 0),
-      previousLossCents: Number(c.previous?.lossCents || 0),
-      currentProfitPercent:
-        typeof c.current?.profitPercent === "number" ? Number(c.current.profitPercent) : null,
-      previousProfitPercent:
-        typeof c.previous?.profitPercent === "number" ? Number(c.previous.profitPercent) : null,
-      deltaProfitCents: Number(c.delta?.profitCents || 0),
-      deltaProfitPercent:
-        typeof c.delta?.profitPercent === "number" ? Number(c.delta.profitPercent) : null,
+      currentMonth: String(c?.currentMonth || bCurrent?.key || ""),
+      previousMonth: String(c?.previousMonth || bPrevious?.key || ""),
+      currentProfitCents,
+      previousProfitCents,
+      currentProfitSalesCents,
+      previousProfitSalesCents,
+      currentProfitBalcaoCents,
+      previousProfitBalcaoCents,
+      currentLossCents: Number(c?.current?.lossCents || 0),
+      previousLossCents: Number(c?.previous?.lossCents || 0),
+      currentProfitPercent,
+      previousProfitPercent,
+      deltaProfitCents,
+      deltaProfitPercent,
     };
   }, [data]);
 
@@ -1345,9 +1455,11 @@ export default function AnaliseDadosClient() {
       {/* KPIs */}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <Card
-          title="Total vendido no mês (sem taxa embarque)"
-          value={fmtMoneyBR(kpis?.gross || 0)}
-          sub={`Média mensal no período: ${fmtMoneyBR(data?.avgMonthlyGrossCents || 0)}`}
+          title="Total vendido no mês (milhas + balcão)"
+          value={fmtMoneyBR(consolidated?.soldTotalCents || kpis?.gross || 0)}
+          sub={`Média mensal no período: ${fmtMoneyBR(avgMonthlyTotalCents)} • Milhas: ${fmtMoneyBR(
+            consolidated?.soldSalesCents || 0
+          )} • Balcão: ${fmtMoneyBR(consolidated?.soldBalcaoCents || 0)}`}
           tone="teal"
         />
         <Card title="Quantidade de vendas no mês" value={fmtInt(kpis?.count || 0)} tone="sky" />
@@ -1360,7 +1472,37 @@ export default function AnaliseDadosClient() {
         />
       </div>
 
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+        <div className="rounded-2xl border-2 border-indigo-200 bg-gradient-to-br from-indigo-50 via-white to-sky-50 p-5 shadow-sm">
+          <div className="inline-flex rounded-full border border-indigo-300 bg-indigo-100 px-2 py-0.5 text-[11px] font-semibold text-indigo-700">
+            Principal
+          </div>
+          <div className="mt-2 text-xs uppercase tracking-wide text-indigo-700">Total mês (milhas + balcão)</div>
+          <div className="mt-1 text-3xl font-bold text-indigo-950">
+            {fmtMoneyBR(consolidated?.soldTotalCents || 0)}
+          </div>
+          <div className="mt-2 text-sm text-indigo-900/80">
+            Milhas: {fmtMoneyBR(consolidated?.soldSalesCents || 0)} • Balcão:{" "}
+            {fmtMoneyBR(consolidated?.soldBalcaoCents || 0)}
+          </div>
+        </div>
+
+        <div className="rounded-2xl border-2 border-emerald-200 bg-gradient-to-br from-emerald-50 via-white to-teal-50 p-5 shadow-sm">
+          <div className="inline-flex rounded-full border border-emerald-300 bg-emerald-100 px-2 py-0.5 text-[11px] font-semibold text-emerald-700">
+            Principal
+          </div>
+          <div className="mt-2 text-xs uppercase tracking-wide text-emerald-700">Lucro mês (milhas + balcão)</div>
+          <div className="mt-1 text-3xl font-bold text-emerald-950">
+            {fmtMoneyBR(consolidated?.profitTotalAfterTaxCents || 0)}
+          </div>
+          <div className="mt-2 text-sm text-emerald-900/80">
+            Milhas: {fmtMoneyBR(consolidated?.profitSalesAfterTaxWithoutFeeCents || 0)} • Balcão:{" "}
+            {fmtMoneyBR(consolidated?.profitBalcaoAfterTaxCents || 0)}
+          </div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <Card
           title="Balcão no mês (valor vendido)"
           value={fmtMoneyBR(balcaoMonth?.customerChargeCents || 0)}
@@ -1377,22 +1519,6 @@ export default function AnaliseDadosClient() {
           )}`}
           tone="emerald"
         />
-        <Card
-          title="Total mês (milhas + balcão)"
-          value={fmtMoneyBR(consolidated?.soldTotalCents || 0)}
-          sub={`Milhas: ${fmtMoneyBR(consolidated?.soldSalesCents || 0)} • Balcão: ${fmtMoneyBR(
-            consolidated?.soldBalcaoCents || 0
-          )}`}
-          tone="teal"
-        />
-        <Card
-          title="Lucro mês (milhas + balcão)"
-          value={fmtMoneyBR(consolidated?.profitTotalAfterTaxCents || 0)}
-          sub={`Milhas: ${fmtMoneyBR(
-            consolidated?.profitSalesAfterTaxWithoutFeeCents || 0
-          )} • Balcão: ${fmtMoneyBR(consolidated?.profitBalcaoAfterTaxCents || 0)}`}
-          tone="sky"
-        />
       </div>
 
       <div className="rounded-2xl border border-indigo-100 bg-gradient-to-br from-indigo-50/90 to-white p-4 shadow-sm">
@@ -1407,8 +1533,12 @@ export default function AnaliseDadosClient() {
           Lucro pós-imposto com débito de prejuízo (sem taxa) ÷ Vendas sem taxa
         </div>
         <div className="mt-2 text-xs text-indigo-900/70">
-          Vendas sem taxa: {fmtMoneyBR(currentMonthPerformance?.soldWithoutFeeCents || 0)} • Lucro total:{" "}
-          {fmtMoneyBR(currentMonthPerformance?.profitAfterTaxWithoutFeeCents || 0)} • Prejuízo debitado:{" "}
+          Vendas totais: {fmtMoneyBR(currentMonthPerformance?.soldWithoutFeeCents || 0)} (Milhas:{" "}
+          {fmtMoneyBR(currentMonthPerformance?.soldSalesCents || 0)} • Balcão:{" "}
+          {fmtMoneyBR(currentMonthPerformance?.soldBalcaoCents || 0)}) • Lucro total:{" "}
+          {fmtMoneyBR(currentMonthPerformance?.profitAfterTaxWithoutFeeCents || 0)} (Milhas:{" "}
+          {fmtMoneyBR(currentMonthPerformance?.profitSalesCents || 0)} • Balcão:{" "}
+          {fmtMoneyBR(currentMonthPerformance?.profitBalcaoCents || 0)}) • Prejuízo debitado (milhas):{" "}
           {fmtMoneyBR(currentMonthPerformance?.lossCents || 0)}
         </div>
       </div>
@@ -1419,8 +1549,14 @@ export default function AnaliseDadosClient() {
           value={fmtMoneyBR(currentVsPrevious?.currentProfitCents || 0)}
           sub={
             currentVsPrevious?.currentProfitPercent == null
-              ? `Margem: — • Prejuízo: ${fmtMoneyBR(currentVsPrevious?.currentLossCents || 0)}`
-              : `Margem: ${fmtPctRaw(currentVsPrevious.currentProfitPercent)} • Prejuízo: ${fmtMoneyBR(currentVsPrevious?.currentLossCents || 0)}`
+              ? `Milhas: ${fmtMoneyBR(currentVsPrevious?.currentProfitSalesCents || 0)} • Balcão: ${fmtMoneyBR(
+                  currentVsPrevious?.currentProfitBalcaoCents || 0
+                )} • Prejuízo (milhas): ${fmtMoneyBR(currentVsPrevious?.currentLossCents || 0)}`
+              : `Milhas: ${fmtMoneyBR(currentVsPrevious?.currentProfitSalesCents || 0)} • Balcão: ${fmtMoneyBR(
+                  currentVsPrevious?.currentProfitBalcaoCents || 0
+                )} • Margem total: ${fmtPctRaw(currentVsPrevious.currentProfitPercent)} • Prejuízo (milhas): ${fmtMoneyBR(
+                  currentVsPrevious?.currentLossCents || 0
+                )}`
           }
           tone="emerald"
         />
@@ -1429,8 +1565,14 @@ export default function AnaliseDadosClient() {
           value={fmtMoneyBR(currentVsPrevious?.previousProfitCents || 0)}
           sub={
             currentVsPrevious?.previousProfitPercent == null
-              ? `Margem: — • Prejuízo: ${fmtMoneyBR(currentVsPrevious?.previousLossCents || 0)}`
-              : `Margem: ${fmtPctRaw(currentVsPrevious.previousProfitPercent)} • Prejuízo: ${fmtMoneyBR(currentVsPrevious?.previousLossCents || 0)}`
+              ? `Milhas: ${fmtMoneyBR(currentVsPrevious?.previousProfitSalesCents || 0)} • Balcão: ${fmtMoneyBR(
+                  currentVsPrevious?.previousProfitBalcaoCents || 0
+                )} • Prejuízo (milhas): ${fmtMoneyBR(currentVsPrevious?.previousLossCents || 0)}`
+              : `Milhas: ${fmtMoneyBR(currentVsPrevious?.previousProfitSalesCents || 0)} • Balcão: ${fmtMoneyBR(
+                  currentVsPrevious?.previousProfitBalcaoCents || 0
+                )} • Margem total: ${fmtPctRaw(currentVsPrevious.previousProfitPercent)} • Prejuízo (milhas): ${fmtMoneyBR(
+                  currentVsPrevious?.previousLossCents || 0
+                )}`
           }
           tone="sky"
         />
@@ -1441,28 +1583,32 @@ export default function AnaliseDadosClient() {
               ? "—"
               : fmtPctSigned(currentVsPrevious.deltaProfitPercent)
           }
-          sub={`Diferença de lucro: ${fmtMoneyBR(currentVsPrevious?.deltaProfitCents || 0)}`}
+          sub={`Diferença de lucro total: ${fmtMoneyBR(currentVsPrevious?.deltaProfitCents || 0)}`}
           tone={comparisonTone}
         />
       </div>
 
       <SimpleLineChart
-        title="Timeline de lucro mensal (pós-imposto com débito de prejuízo)"
+        title="Timeline de lucro mensal total (milhas + balcão)"
         data={profitTimeline.map((m) => ({
           x: m.x,
           y: m.y,
           sub:
             m.profitPercent == null
-              ? `margem: — • prejuízo: ${fmtMoneyBR(m.lossCents)}`
-              : `margem: ${fmtPctRaw(m.profitPercent)} • prejuízo: ${fmtMoneyBR(m.lossCents)}`,
+              ? `Milhas: ${fmtMoneyBR(m.profitSalesCents)} • Balcão: ${fmtMoneyBR(
+                  m.profitBalcaoCents
+                )} • prejuízo (milhas): ${fmtMoneyBR(m.lossCents)}`
+              : `Margem total: ${fmtPctRaw(m.profitPercent)} • Milhas: ${fmtMoneyBR(
+                  m.profitSalesCents
+                )} • Balcão: ${fmtMoneyBR(m.profitBalcaoCents)} • prejuízo (milhas): ${fmtMoneyBR(m.lossCents)}`,
         }))}
         accent="text-emerald-700"
-        footer="Linha mensal de lucro após impostos e já abatendo prejuízos do mês."
+        footer="Linha mensal de lucro total (milhas + balcão), após impostos e já abatendo prejuízos do mês nas milhas."
       />
 
       {/* Gráfico evolução */}
       <SimpleLineChart
-        title={chartMode === "DAY" ? "Evolução diária" : "Evolução mês a mês"}
+        title={chartMode === "DAY" ? "Evolução diária (milhas + balcão)" : "Evolução mês a mês (milhas + balcão)"}
         data={chartWithDelta}
         extraLine={extraLine}
         trendLine={trendLine}
@@ -1528,8 +1674,8 @@ export default function AnaliseDadosClient() {
                 chartTrend
                   ? ` • Tendência: média dos primeiros ${chartTrend.segmentSize} vs últimos ${chartTrend.segmentSize} dias`
                   : ""
-              }${maWindow ? ` • Linha cinza = média móvel ${maWindow}d` : ""} • Linha pontilhada = tendência`
-            : `Média mensal no período: ${fmtMoneyBR(data?.avgMonthlyGrossCents || 0)}`
+              }${maWindow ? ` • Linha cinza = média móvel ${maWindow}d` : ""} • Linha pontilhada = tendência • Valores consolidados de milhas + balcão`
+            : `Média mensal no período (milhas + balcão): ${fmtMoneyBR(avgMonthlyTotalCents)}`
         }
       />
 
