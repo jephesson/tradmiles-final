@@ -466,6 +466,9 @@ model Cedente {
   // ✅ NOVO: reviews/score de termo por versão
   termReviews CedenteTermReview[]
 
+  // ✅ score operacional do cedente (0-10 por critério)
+  score CedenteScore?
+
   // ✅ horários de biometria (LATAM)
   biometriaHorario CedenteBiometriaHorario?
 
@@ -574,6 +577,24 @@ model CedenteTermReview {
   @@index([termoVersao])
   @@index([cedenteId])
   @@map("cedente_term_reviews")
+}
+
+model CedenteScore {
+  id        String @id @default(uuid())
+  cedenteId String @unique
+
+  rapidezBiometria  Float @default(0)
+  rapidezSms        Float @default(0)
+  resolucaoProblema Float @default(0)
+  confianca         Float @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  cedente Cedente @relation(fields: [cedenteId], references: [id], onDelete: Cascade)
+
+  @@index([updatedAt])
+  @@map("cedente_scores")
 }
 
 /**

@@ -574,6 +574,10 @@ export default function Sidebar() {
               Histórico de cadastro
             </NavLink>
 
+            <NavLink href="/dashboard/cedentes/score">
+              Score cedentes
+            </NavLink>
+
             <NavLink href="/dashboard/cedentes/exclusao-definitiva">
               Exclusão definitiva
             </NavLink>
