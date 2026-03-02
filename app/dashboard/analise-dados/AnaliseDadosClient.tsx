@@ -50,6 +50,22 @@ function daysInMonthFromKey(monthKey?: string | null) {
   return new Date(Date.UTC(year, month, 0)).getUTCDate();
 }
 
+function elapsedDaysInMonthFromKey(monthKey?: string | null, todayISO?: string | null) {
+  const key = String(monthKey || "").trim();
+  const totalDays = daysInMonthFromKey(key);
+  const todayRaw = String(todayISO || "").trim();
+  const todayMatch = todayRaw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!todayMatch || !/^\d{4}-\d{2}$/.test(key)) return totalDays;
+
+  const todayKey = `${todayMatch[1]}-${todayMatch[2]}`;
+  if (key < todayKey) return totalDays;
+  if (key > todayKey) return 0;
+
+  const day = Number(todayMatch[3]);
+  if (!Number.isFinite(day)) return totalDays;
+  return Math.max(1, Math.min(totalDays, day));
+}
+
 type Analytics = any;
 
 type ChartMode = "MONTH" | "DAY";
@@ -1308,8 +1324,15 @@ export default function AnaliseDadosClient() {
 
   const profitPerDayComparison = useMemo(() => {
     if (!currentVsPrevious) return null;
-    const currentMonthDays = daysInMonthFromKey(currentVsPrevious.currentMonth);
-    const previousMonthDays = daysInMonthFromKey(currentVsPrevious.previousMonth);
+    const todayISO = String(today?.date || "");
+    const currentMonthDays = elapsedDaysInMonthFromKey(
+      currentVsPrevious.currentMonth,
+      todayISO
+    );
+    const previousMonthDays = elapsedDaysInMonthFromKey(
+      currentVsPrevious.previousMonth,
+      todayISO
+    );
     const currentPerDay =
       currentMonthDays > 0
         ? Math.round((currentVsPrevious.currentProfitCents || 0) / currentMonthDays)
@@ -1327,8 +1350,10 @@ export default function AnaliseDadosClient() {
       previousPerDay,
       delta,
       deltaPct,
+      currentMonthDays,
+      previousMonthDays,
     };
-  }, [currentVsPrevious]);
+  }, [currentVsPrevious, today?.date]);
 
   const byEmployeeMonthPie = useMemo(() => {
     const rows = [...byEmployeeMonth].sort((a, b) => (b.grossCents || 0) - (a.grossCents || 0));
@@ -1594,20 +1619,26 @@ export default function AnaliseDadosClient() {
           <div className="inline-flex rounded-full border border-emerald-300 bg-emerald-100 px-2 py-0.5 text-[11px] font-semibold text-emerald-700">
             Principal
           </div>
-          <div className="mt-2 text-xs uppercase tracking-wide text-emerald-700">Lucro/dia (média mensal)</div>
+          <div className="mt-2 text-xs uppercase tracking-wide text-emerald-700">
+            Lucro mês (milhas + balcão)
+          </div>
           <div className="mt-1 text-3xl font-bold text-emerald-950">
-            {fmtMoneyBR(profitPerDayComparison?.currentPerDay || 0)}
+            {fmtMoneyBR(consolidated?.profitTotalAfterTaxCents || 0)}
           </div>
           <div className="mt-2 text-sm text-emerald-900/80">
+            Milhas: {fmtMoneyBR(consolidated?.profitSalesAfterTaxWithoutFeeCents || 0)} • Balcão:{" "}
+            {fmtMoneyBR(consolidated?.profitBalcaoAfterTaxCents || 0)}
             {profitPerDayComparison
-              ? `Mês ${profitPerDayComparison.currentMonth || "atual"}: ${fmtMoneyBR(
+              ? ` • Lucro/dia (${profitPerDayComparison.currentMonth}, ${fmtInt(
+                  profitPerDayComparison.currentMonthDays || 0
+                )} dias corridos): ${fmtMoneyBR(
                   profitPerDayComparison.currentPerDay
-                )} • Mês ${profitPerDayComparison.previousMonth || "anterior"}: ${fmtMoneyBR(
+                )} • Mês ${profitPerDayComparison.previousMonth}: ${fmtMoneyBR(
                   profitPerDayComparison.previousPerDay
                 )} • Δ: ${(profitPerDayComparison.delta || 0) > 0 ? "+" : ""}${fmtMoneyBR(
                   profitPerDayComparison.delta || 0
                 )}${profitPerDayComparison.deltaPct == null ? " (—)" : ` (${fmtPct(profitPerDayComparison.deltaPct)})`}`
-              : "Sem base para comparação."}
+              : ""}
           </div>
         </div>
       </div>
