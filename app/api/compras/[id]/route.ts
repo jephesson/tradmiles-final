@@ -68,6 +68,35 @@ function mapItemCreate(it: any) {
   };
 }
 
+function scoreMedia(score?: {
+  rapidezBiometria?: number;
+  rapidezSms?: number;
+  resolucaoProblema?: number;
+  confianca?: number;
+} | null) {
+  const a = Number(score?.rapidezBiometria || 0);
+  const b = Number(score?.rapidezSms || 0);
+  const c = Number(score?.resolucaoProblema || 0);
+  const d = Number(score?.confianca || 0);
+  const avg = (a + b + c + d) / 4;
+  return Math.round(avg * 100) / 100;
+}
+
+function mapCedenteWithScore(cedente: any) {
+  if (!cedente) return null;
+  return {
+    id: cedente.id,
+    identificador: cedente.identificador,
+    nomeCompleto: cedente.nomeCompleto,
+    cpf: cedente.cpf,
+    pontosLatam: Number(cedente.pontosLatam || 0),
+    pontosSmiles: Number(cedente.pontosSmiles || 0),
+    pontosLivelo: Number(cedente.pontosLivelo || 0),
+    pontosEsfera: Number(cedente.pontosEsfera || 0),
+    scoreMedia: scoreMedia(cedente.score),
+  };
+}
+
 /**
  * =========================
  * GET
@@ -91,6 +120,14 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
             pontosSmiles: true,
             pontosLivelo: true,
             pontosEsfera: true,
+            score: {
+              select: {
+                rapidezBiometria: true,
+                rapidezSms: true,
+                resolucaoProblema: true,
+                confianca: true,
+              },
+            },
           },
         },
         items: true,
@@ -98,7 +135,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
     });
 
     if (!compra) return notFound("Compra não encontrada.");
-    return ok({ compra: mapDbToUi(compra), cedente: compra.cedente });
+    return ok({ compra: mapDbToUi(compra), cedente: mapCedenteWithScore(compra.cedente) });
   } catch (e: any) {
     return serverError("Falha ao buscar compra.", { detail: e?.message });
   }
@@ -206,6 +243,14 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
             pontosSmiles: true,
             pontosLivelo: true,
             pontosEsfera: true,
+            score: {
+              select: {
+                rapidezBiometria: true,
+                rapidezSms: true,
+                resolucaoProblema: true,
+                confianca: true,
+              },
+            },
           },
         },
         items: true,
@@ -213,7 +258,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
     });
 
     if (!compraFinal) return notFound("Compra não encontrada.");
-    return ok({ compra: mapDbToUi(compraFinal), cedente: compraFinal.cedente });
+    return ok({ compra: mapDbToUi(compraFinal), cedente: mapCedenteWithScore(compraFinal.cedente) });
   } catch (e: any) {
     return serverError("Falha ao atualizar compra.", { detail: e?.message });
   }

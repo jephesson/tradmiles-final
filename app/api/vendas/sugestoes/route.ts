@@ -4,6 +4,20 @@ import { clampInt, endOfYearExclusive, passengerLimit, pointsField, startOfYear 
 
 type Program = "LATAM" | "SMILES" | "LIVELO" | "ESFERA";
 
+function scoreMedia(score?: {
+  rapidezBiometria?: number;
+  rapidezSms?: number;
+  resolucaoProblema?: number;
+  confianca?: number;
+} | null) {
+  const a = Number(score?.rapidezBiometria || 0);
+  const b = Number(score?.rapidezSms || 0);
+  const c = Number(score?.resolucaoProblema || 0);
+  const d = Number(score?.confianca || 0);
+  const avg = (a + b + c + d) / 4;
+  return Math.round(avg * 100) / 100;
+}
+
 function priorityBucket(leftover: number) {
   if (leftover >= 0 && leftover <= 2000) return { bucket: 0, label: "MAX" as const };
   if (leftover >= 3000 && leftover <= 10000) return { bucket: 3, label: "BAIXA" as const };
@@ -64,6 +78,14 @@ export async function GET(req: Request) {
           turnoNoite: true,
         },
       },
+      score: {
+        select: {
+          rapidezBiometria: true,
+          rapidezSms: true,
+          resolucaoProblema: true,
+          confianca: true,
+        },
+      },
       owner: { select: { id: true, name: true, login: true } },
     },
     take: 3000,
@@ -103,6 +125,7 @@ export async function GET(req: Request) {
           identificador: c.identificador,
           nomeCompleto: c.nomeCompleto,
           cpf: c.cpf,
+          scoreMedia: scoreMedia(c.score),
           biometriaHorario: c.biometriaHorario
             ? {
                 turnoManha: Boolean(c.biometriaHorario.turnoManha),

@@ -14,6 +14,7 @@ type Cedente = {
   pontosSmiles: number;
   pontosLivelo: number;
   pontosEsfera: number;
+  scoreMedia?: number;
 };
 
 type PurchaseStatus = "OPEN" | "DRAFT" | "READY" | "CLOSED" | "CANCELED";
@@ -90,6 +91,24 @@ type ClubMeta = {
 function fmtMoneyBR(cents: number) {
   const v = (cents || 0) / 100;
   return v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+}
+function normalizeScore(v: unknown) {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return 0;
+  return Math.max(0, Math.min(10, Math.round(n * 100) / 100));
+}
+function fmtScore(v: unknown) {
+  return normalizeScore(v).toLocaleString("pt-BR", {
+    minimumFractionDigits: 1,
+    maximumFractionDigits: 1,
+  });
+}
+function scoreBadgeClass(v: unknown) {
+  const s = normalizeScore(v);
+  if (s >= 8) return "border-emerald-200 bg-emerald-50 text-emerald-700";
+  if (s >= 6) return "border-amber-200 bg-amber-50 text-amber-700";
+  if (s >= 4) return "border-orange-200 bg-orange-50 text-orange-700";
+  return "border-rose-200 bg-rose-50 text-rose-700";
 }
 function clampInt(n: any) {
   const x = Number(n);
@@ -838,6 +857,13 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
                       </div>
                     </div>
                     <div className="text-xs text-gray-500 text-right">
+                      <div
+                        className={`inline-flex rounded-full border px-2 py-0.5 ${scoreBadgeClass(
+                          c.scoreMedia
+                        )}`}
+                      >
+                        Score {fmtScore(c.scoreMedia)}
+                      </div>
                       <div>LATAM {c.pontosLatam}</div>
                       <div>SMILES {c.pontosSmiles}</div>
                     </div>
@@ -859,6 +885,15 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
                 <div className="font-medium">{cedenteSel.nomeCompleto}</div>
                 <div className="text-xs text-gray-500">
                   CPF {cedenteSel.cpf} · {cedenteSel.identificador}
+                </div>
+                <div className="text-xs">
+                  <span
+                    className={`inline-flex rounded-full border px-2 py-0.5 ${scoreBadgeClass(
+                      cedenteSel.scoreMedia
+                    )}`}
+                  >
+                    Score médio {fmtScore(cedenteSel.scoreMedia)}/10
+                  </span>
                 </div>
                 <div className="text-xs text-gray-500">
                   Saldos atuais: LATAM {cedenteSel.pontosLatam} · SMILES{" "}

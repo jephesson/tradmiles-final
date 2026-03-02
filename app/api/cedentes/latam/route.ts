@@ -38,6 +38,20 @@ function safeInt(v: any, fb = 0) {
   return Number.isFinite(n) ? Math.trunc(n) : fb;
 }
 
+function scoreMedia(score?: {
+  rapidezBiometria?: number;
+  rapidezSms?: number;
+  resolucaoProblema?: number;
+  confianca?: number;
+} | null) {
+  const a = Number(score?.rapidezBiometria || 0);
+  const b = Number(score?.rapidezSms || 0);
+  const c = Number(score?.resolucaoProblema || 0);
+  const d = Number(score?.confianca || 0);
+  const avg = (a + b + c + d) / 4;
+  return Math.round(avg * 100) / 100;
+}
+
 function startOfMonthUTC(d = new Date()) {
   return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1, 0, 0, 0, 0));
 }
@@ -94,6 +108,14 @@ export async function GET(req: NextRequest) {
         senhaEmail: true,
         senhaLatamPass: true,
         pontosLatam: true,
+        score: {
+          select: {
+            rapidezBiometria: true,
+            rapidezSms: true,
+            resolucaoProblema: true,
+            confianca: true,
+          },
+        },
         owner: { select: { id: true, name: true, login: true } },
       },
       orderBy: { nomeCompleto: "asc" },
@@ -191,6 +213,7 @@ export async function GET(req: NextRequest) {
         senhaEmail: c.senhaEmail || null,
         senhaLatamPass: c.senhaLatamPass || null,
         owner: c.owner,
+        scoreMedia: scoreMedia(c.score),
 
         latamAprovado: c.pontosLatam || 0,
         latamPendente: pend,

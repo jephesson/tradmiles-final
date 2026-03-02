@@ -11,6 +11,7 @@ type Row = {
   identificador: string;
   nomeCompleto: string;
   cpf: string;
+  scoreMedia?: number;
 
   owner: Owner;
 
@@ -29,6 +30,24 @@ type SortBy = "aprovado" | "esperado";
 
 function fmtInt(n: number) {
   return (n || 0).toLocaleString("pt-BR");
+}
+function normalizeScore(v: unknown) {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return 0;
+  return Math.max(0, Math.min(10, Math.round(n * 100) / 100));
+}
+function fmtScore(v: unknown) {
+  return normalizeScore(v).toLocaleString("pt-BR", {
+    minimumFractionDigits: 1,
+    maximumFractionDigits: 1,
+  });
+}
+function scorePillClass(v: unknown) {
+  const s = normalizeScore(v);
+  if (s >= 8) return "border-emerald-200 bg-emerald-50 text-emerald-700";
+  if (s >= 6) return "border-amber-200 bg-amber-50 text-amber-700";
+  if (s >= 4) return "border-orange-200 bg-orange-50 text-orange-700";
+  return "border-rose-200 bg-rose-50 text-rose-700";
 }
 
 function maskCpf(cpf: string) {
@@ -226,6 +245,7 @@ export default function CedentesVisualizarSmilesClient() {
               <tr className="text-slate-600">
                 <th className="text-left font-semibold px-4 py-3 w-[380px]">NOME</th>
                 <th className="text-left font-semibold px-4 py-3 w-[260px]">RESPONSÁVEL</th>
+                <th className="text-right font-semibold px-4 py-3 w-[120px]">SCORE</th>
 
                 <th className="text-right font-semibold px-4 py-3 w-[160px]">SMILES</th>
                 <th className="text-right font-semibold px-4 py-3 w-[160px]">PENDENTES</th>
@@ -241,7 +261,7 @@ export default function CedentesVisualizarSmilesClient() {
             <tbody>
               {sortedRows.length === 0 && !loading ? (
                 <tr>
-                  <td className="px-4 py-6 text-slate-500" colSpan={7}>
+                  <td className="px-4 py-6 text-slate-500" colSpan={8}>
                     Nenhum resultado.
                   </td>
                 </tr>
@@ -262,6 +282,17 @@ export default function CedentesVisualizarSmilesClient() {
                     <td className="px-4 py-3">
                       <div className="font-medium">{r.owner.name}</div>
                       <div className="text-xs text-slate-500">@{r.owner.login}</div>
+                    </td>
+
+                    <td className="px-4 py-3 text-right">
+                      <span
+                        className={cn(
+                          "inline-flex rounded-full border px-2 py-1 text-xs",
+                          scorePillClass(r.scoreMedia)
+                        )}
+                      >
+                        {fmtScore(r.scoreMedia)}
+                      </span>
                     </td>
 
                     <td className="px-4 py-3 text-right tabular-nums">
@@ -344,7 +375,7 @@ export default function CedentesVisualizarSmilesClient() {
 
               {loading ? (
                 <tr>
-                  <td className="px-4 py-6 text-slate-500" colSpan={7}>
+                  <td className="px-4 py-6 text-slate-500" colSpan={8}>
                     Carregando...
                   </td>
                 </tr>

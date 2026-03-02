@@ -18,6 +18,7 @@ type Suggestion = {
     identificador: string;
     nomeCompleto: string;
     cpf: string;
+    scoreMedia?: number;
     biometriaHorario: {
       turnoManha: boolean;
       turnoTarde: boolean;
@@ -68,6 +69,24 @@ function clampInt(v: any) {
 }
 function fmtInt(n: number) {
   return (n || 0).toLocaleString("pt-BR");
+}
+function normalizeScore(v: unknown) {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return 0;
+  return Math.max(0, Math.min(10, Math.round(n * 100) / 100));
+}
+function fmtScore(v: unknown) {
+  return normalizeScore(v).toLocaleString("pt-BR", {
+    minimumFractionDigits: 1,
+    maximumFractionDigits: 1,
+  });
+}
+function scoreBadgeClass(v: unknown) {
+  const s = normalizeScore(v);
+  if (s >= 8) return "border-emerald-200 bg-emerald-50 text-emerald-700";
+  if (s >= 6) return "border-amber-200 bg-amber-50 text-amber-700";
+  if (s >= 4) return "border-orange-200 bg-orange-50 text-orange-700";
+  return "border-rose-200 bg-rose-50 text-rose-700";
 }
 function fmtMoneyBR(cents: number) {
   return ((cents || 0) / 100).toLocaleString("pt-BR", {
@@ -1542,6 +1561,15 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
                     <b className="tabular-nums">{fmtInt(sel.leftoverPoints)}</b>
                   </span>
 
+                  <span
+                    className={cn(
+                      "rounded-full border px-2 py-1",
+                      scoreBadgeClass(sel.cedente.scoreMedia)
+                    )}
+                  >
+                    Score: <b>{fmtScore(sel.cedente.scoreMedia)}</b>/10
+                  </span>
+
                   {program === "LATAM" ? (
                     <span className="rounded-full border bg-white px-2 py-1">
                       Biometria:{" "}
@@ -1788,6 +1816,9 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
                     <th className="text-left font-semibold px-4 py-3 w-[220px]">
                       RESPONSÁVEL
                     </th>
+                    <th className="text-right font-semibold px-4 py-3 w-[110px]">
+                      SCORE
+                    </th>
                     <th className="text-right font-semibold px-4 py-3 w-[140px]">
                       PTS
                     </th>
@@ -1809,7 +1840,7 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
                 <tbody>
                   {!loadingSug && suggestions.length === 0 ? (
                     <tr>
-                      <td colSpan={8} className="px-4 py-8 text-slate-500">
+                      <td colSpan={9} className="px-4 py-8 text-slate-500">
                         Informe pontos e passageiros para ver sugestões.
                       </td>
                     </tr>
@@ -1819,7 +1850,7 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
                   suggestions.length > 0 &&
                   visibleSuggestions.length === 0 ? (
                     <tr>
-                      <td colSpan={8} className="px-4 py-8 text-slate-500">
+                      <td colSpan={9} className="px-4 py-8 text-slate-500">
                         Nenhum cedente encontrado para essa busca.
                       </td>
                     </tr>
@@ -1846,6 +1877,16 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
                         <td className="px-4 py-3">
                           <div className="font-medium">{s.cedente.owner.name}</div>
                           <div className="text-xs text-slate-500">@{s.cedente.owner.login}</div>
+                        </td>
+                        <td className="px-4 py-3 text-right">
+                          <span
+                            className={cn(
+                              "inline-flex rounded-full border px-2 py-1 text-xs",
+                              scoreBadgeClass(s.cedente.scoreMedia)
+                            )}
+                          >
+                            {fmtScore(s.cedente.scoreMedia)}
+                          </span>
                         </td>
                         <td className="px-4 py-3 text-right tabular-nums">{fmtInt(s.pts)}</td>
                         <td className="px-4 py-3 text-left">
@@ -1891,7 +1932,7 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
 
                   {loadingSug ? (
                     <tr>
-                      <td colSpan={8} className="px-4 py-8 text-slate-500">
+                      <td colSpan={9} className="px-4 py-8 text-slate-500">
                         Carregando...
                       </td>
                     </tr>

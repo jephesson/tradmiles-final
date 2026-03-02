@@ -4,15 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
 type Program = "LATAM" | "SMILES" | "LIVELO" | "ESFERA";
-type ClubStatus = "ACTIVE" | "PAUSED" | "CANCELED" | "NEVER";
-type SortField =
-  | "pontos"
-  | "score"
-  | "nome"
-  | "responsavel"
-  | "identificador"
-  | "clubeTier"
-  | "statusClube";
+type SortField = "pontos" | "score" | "nome" | "responsavel" | "identificador";
 type SortDir = "asc" | "desc";
 
 type CedenteRow = {
@@ -20,43 +12,14 @@ type CedenteRow = {
   identificador: string;
   nomeCompleto: string;
   cpf: string;
-
-  pontosLivelo: number;
+  pontosEsfera: number;
   scoreMedia?: number;
-
   owner: { id: string; name: string; login: string };
   blockedPrograms?: Program[];
 };
 
-type ClubItem = {
-  id: string;
-  cedenteId: string;
-  program: Program;
-  tierK: number;
-  status: "ACTIVE" | "PAUSED" | "CANCELED";
-  subscribedAt: string;
-};
-
 function fmtInt(n: number) {
   return new Intl.NumberFormat("pt-BR").format(n || 0);
-}
-function normalizeScore(v: unknown) {
-  const n = Number(v);
-  if (!Number.isFinite(n)) return 0;
-  return Math.max(0, Math.min(10, Math.round(n * 100) / 100));
-}
-function fmtScore(v: unknown) {
-  return normalizeScore(v).toLocaleString("pt-BR", {
-    minimumFractionDigits: 1,
-    maximumFractionDigits: 1,
-  });
-}
-function scorePillClass(v: unknown) {
-  const s = normalizeScore(v);
-  if (s >= 8) return "border-emerald-200 bg-emerald-50 text-emerald-700";
-  if (s >= 6) return "border-amber-200 bg-amber-50 text-amber-700";
-  if (s >= 4) return "border-orange-200 bg-orange-50 text-orange-700";
-  return "border-rose-200 bg-rose-50 text-rose-700";
 }
 
 function maskCpf(cpf: string) {
@@ -69,41 +32,47 @@ function cn(...xs: Array<string | false | undefined | null>) {
   return xs.filter(Boolean).join(" ");
 }
 
+function normalizeScore(v: unknown) {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return 0;
+  return Math.max(0, Math.min(10, Math.round(n * 100) / 100));
+}
+
+function fmtScore(v: unknown) {
+  return normalizeScore(v).toLocaleString("pt-BR", {
+    minimumFractionDigits: 1,
+    maximumFractionDigits: 1,
+  });
+}
+
+function scorePillClass(v: unknown) {
+  const s = normalizeScore(v);
+  if (s >= 8) return "border-emerald-200 bg-emerald-50 text-emerald-700";
+  if (s >= 6) return "border-amber-200 bg-amber-50 text-amber-700";
+  if (s >= 4) return "border-orange-200 bg-orange-50 text-orange-700";
+  return "border-rose-200 bg-rose-50 text-rose-700";
+}
+
+function isEsferaBlocked(r: CedenteRow) {
+  return (r.blockedPrograms || []).includes("ESFERA");
+}
+
 function getErrorMessage(error: unknown, fallback: string) {
   if (error instanceof Error && error.message) return error.message;
   return fallback;
 }
 
-function pillClass(status: ClubStatus) {
-  if (status === "ACTIVE") return "border-green-200 bg-green-50 text-green-700";
-  if (status === "PAUSED") return "border-yellow-200 bg-yellow-50 text-yellow-700";
-  if (status === "CANCELED") return "border-red-200 bg-red-50 text-red-700";
-  return "border-neutral-200 bg-neutral-50 text-neutral-600";
-}
-
-function statusLabel(s: ClubStatus) {
-  if (s === "NEVER") return "NUNCA";
-  if (s === "ACTIVE") return "ATIVO";
-  if (s === "PAUSED") return "PAUSADO";
-  return "CANCELADO";
-}
-
-export default function CedentesVisualizarLiveloClient() {
+export default function CedentesVisualizarEsferaClient() {
   const router = useRouter();
 
   const [rows, setRows] = useState<CedenteRow[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // clubes LIV ELO (último por cedente)
-  const [clubByCedente, setClubByCedente] = useState<Map<string, ClubItem | null>>(new Map());
-
-  // filtros
   const [q, setQ] = useState("");
   const [ownerFilter, setOwnerFilter] = useState("");
   const [sortField, setSortField] = useState<SortField>("pontos");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
 
-  // edição de pontos
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draftPoints, setDraftPoints] = useState<string>("");
   const [savingId, setSavingId] = useState<string | null>(null);
@@ -111,42 +80,18 @@ export default function CedentesVisualizarLiveloClient() {
   async function load() {
     setLoading(true);
     try {
-      // 1) cedentes
-      const r1 = await fetch("/api/cedentes/approved", { cache: "no-store" });
-      const j1 = await r1.json();
-      if (!j1?.ok) throw new Error(j1?.error || "Falha ao carregar cedentes");
+      const r = await fetch("/api/cedentes/approved", { cache: "no-store" });
+      const j = await r.json();
+      if (!j?.ok) throw new Error(j?.error || "Falha ao carregar cedentes");
 
-      const cedentes: CedenteRow[] = j1.data || [];
+      const cedentes: CedenteRow[] = j.data || [];
       setRows(cedentes);
-
-      // 2) clubes LIVELO
-      const r2 = await fetch("/api/clubes?program=LIVELO", { cache: "no-store" });
-      const j2 = await r2.json().catch(() => null);
-
-      const items: ClubItem[] = j2?.ok ? (j2.items || []) : [];
-
-      // items já vem orderBy subscribedAt desc; pega o primeiro por cedente
-      const map = new Map<string, ClubItem | null>();
-      for (const it of items) {
-        if (it.program !== "LIVELO") continue;
-        if (!map.has(it.cedenteId)) map.set(it.cedenteId, it);
-      }
-
-      // completa com null para quem não tem clube
-      for (const c of cedentes) {
-        if (!map.has(c.id)) map.set(c.id, null);
-      }
-
-      setClubByCedente(map);
-
-      // limpa edição
       setEditingId(null);
       setDraftPoints("");
       setSavingId(null);
     } catch (e: unknown) {
       alert(getErrorMessage(e, "Erro ao carregar."));
       setRows([]);
-      setClubByCedente(new Map());
     } finally {
       setLoading(false);
     }
@@ -164,11 +109,9 @@ export default function CedentesVisualizarLiveloClient() {
 
   const filtered = useMemo(() => {
     const s = q.trim().toLowerCase();
-
     return rows.filter((r) => {
       if (ownerFilter && r.owner?.id !== ownerFilter) return false;
       if (!s) return true;
-
       return (
         r.nomeCompleto.toLowerCase().includes(s) ||
         r.identificador.toLowerCase().includes(s) ||
@@ -178,31 +121,14 @@ export default function CedentesVisualizarLiveloClient() {
     });
   }, [rows, q, ownerFilter]);
 
-  function clubStatus(r: CedenteRow): ClubStatus {
-    const c = clubByCedente.get(r.id) || null;
-    return c?.status || "NEVER";
-  }
-
-  function clubTierLabel(r: CedenteRow) {
-    const c = clubByCedente.get(r.id) || null;
-    return c ? `${c.tierK}k` : "Nunca assinado";
-  }
-
   const sortedRows = useMemo(() => {
     const list = [...filtered];
     const collator = new Intl.Collator("pt-BR", { sensitivity: "base", numeric: true });
-    const statusRank: Record<ClubStatus, number> = {
-      NEVER: 1,
-      CANCELED: 2,
-      PAUSED: 3,
-      ACTIVE: 4,
-    };
 
     list.sort((a, b) => {
       let cmp = 0;
-
       if (sortField === "pontos") {
-        cmp = (a.pontosLivelo || 0) - (b.pontosLivelo || 0);
+        cmp = (a.pontosEsfera || 0) - (b.pontosEsfera || 0);
       } else if (sortField === "score") {
         cmp = normalizeScore(a.scoreMedia) - normalizeScore(b.scoreMedia);
       } else if (sortField === "nome") {
@@ -211,25 +137,14 @@ export default function CedentesVisualizarLiveloClient() {
         cmp = collator.compare(a.owner?.name || "", b.owner?.name || "");
       } else if (sortField === "identificador") {
         cmp = collator.compare(a.identificador || "", b.identificador || "");
-      } else if (sortField === "clubeTier") {
-        const aTier = clubByCedente.get(a.id)?.tierK ?? 0;
-        const bTier = clubByCedente.get(b.id)?.tierK ?? 0;
-        cmp = aTier - bTier;
-      } else if (sortField === "statusClube") {
-        const aStatus = clubByCedente.get(a.id)?.status || "NEVER";
-        const bStatus = clubByCedente.get(b.id)?.status || "NEVER";
-        cmp = statusRank[aStatus] - statusRank[bStatus];
       }
 
-      if (cmp === 0) {
-        cmp = collator.compare(a.nomeCompleto || "", b.nomeCompleto || "");
-      }
-
+      if (cmp === 0) cmp = collator.compare(a.nomeCompleto || "", b.nomeCompleto || "");
       return sortDir === "asc" ? cmp : -cmp;
     });
 
     return list;
-  }, [filtered, sortField, sortDir, clubByCedente]);
+  }, [filtered, sortField, sortDir]);
 
   async function savePoints(cedenteId: string) {
     const n = Number(String(draftPoints || "").replace(/\D+/g, ""));
@@ -243,15 +158,14 @@ export default function CedentesVisualizarLiveloClient() {
       const res = await fetch(`/api/cedentes/${cedenteId}/pontos`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ program: "LIVELO", points: Math.trunc(n) }),
+        body: JSON.stringify({ program: "ESFERA", points: Math.trunc(n) }),
       });
       const json = await res.json().catch(() => null);
       if (!res.ok || !json?.ok) throw new Error(json?.error || "Falha ao salvar pontos");
 
       setRows((prev) =>
-        prev.map((r) => (r.id === cedenteId ? { ...r, pontosLivelo: json.points } : r))
+        prev.map((r) => (r.id === cedenteId ? { ...r, pontosEsfera: json.points } : r))
       );
-
       setEditingId(null);
       setDraftPoints("");
     } catch (e: unknown) {
@@ -265,9 +179,9 @@ export default function CedentesVisualizarLiveloClient() {
     <div className="max-w-6xl">
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold">Cedentes • Livelo</h1>
+          <h1 className="text-2xl font-bold">Cedentes • Esfera</h1>
           <p className="text-sm text-slate-600">
-            Pontos Livelo + status do clube + último tier (se não existir, “Nunca assinado”).
+            Pontos Esfera com score médio operacional (0 a 10).
           </p>
         </div>
 
@@ -297,13 +211,11 @@ export default function CedentesVisualizarLiveloClient() {
             value={sortField}
             onChange={(e) => setSortField(e.target.value as SortField)}
           >
-            <option value="pontos">Ordenar por: Pontos LIVelo</option>
+            <option value="pontos">Ordenar por: Pontos Esfera</option>
             <option value="score">Ordenar por: Score médio</option>
             <option value="nome">Ordenar por: Nome</option>
             <option value="responsavel">Ordenar por: Responsável</option>
             <option value="identificador">Ordenar por: Identificador</option>
-            <option value="clubeTier">Ordenar por: Tier do clube</option>
-            <option value="statusClube">Ordenar por: Status do clube</option>
           </select>
 
           <select
@@ -332,9 +244,7 @@ export default function CedentesVisualizarLiveloClient() {
               <Th>Nome</Th>
               <Th>Responsável</Th>
               <ThRight>Score</ThRight>
-              <ThRight>Pontos (LIVELO)</ThRight>
-              <Th>Clube (último)</Th>
-              <Th>Status clube</Th>
+              <ThRight>Pontos (Esfera)</ThRight>
               <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wide text-slate-600 text-right">
                 Ações
               </th>
@@ -344,20 +254,28 @@ export default function CedentesVisualizarLiveloClient() {
           <tbody>
             {!loading && sortedRows.length === 0 && (
               <tr>
-                <td colSpan={7} className="px-6 py-10 text-center text-sm text-slate-500">
+                <td colSpan={5} className="px-6 py-10 text-center text-sm text-slate-500">
                   Nenhum cedente encontrado.
                 </td>
               </tr>
             )}
 
             {sortedRows.map((r) => {
-              const s = clubStatus(r);
-              const tier = clubTierLabel(r);
-
+              const blocked = isEsferaBlocked(r);
               return (
-                <tr key={r.id} className="border-t hover:bg-slate-50">
+                <tr
+                  key={r.id}
+                  className={cn("border-t", blocked ? "bg-red-50 hover:bg-red-100" : "hover:bg-slate-50")}
+                >
                   <td className="px-4 py-3">
-                    <div className="font-medium">{r.nomeCompleto}</div>
+                    <div className="font-medium flex items-center gap-2">
+                      <span>{r.nomeCompleto}</span>
+                      {blocked ? (
+                        <span className="text-[10px] font-semibold uppercase tracking-wide border border-red-300 rounded px-2 py-0.5 text-red-700">
+                          Bloqueado
+                        </span>
+                      ) : null}
+                    </div>
                     <div className="text-xs text-slate-500">
                       {r.identificador} • CPF: {maskCpf(r.cpf)}
                     </div>
@@ -409,21 +327,10 @@ export default function CedentesVisualizarLiveloClient() {
                         </button>
                       </div>
                     ) : (
-                      <span className="font-medium">{fmtInt(r.pontosLivelo)}</span>
+                      <span className={cn("font-medium", blocked ? "text-red-700" : "")}>
+                        {fmtInt(r.pontosEsfera)}
+                      </span>
                     )}
-                  </td>
-
-                  <td className="px-4 py-3">
-                    <span className="font-medium">{tier}</span>
-                  </td>
-
-                  <td className="px-4 py-3">
-                    <span
-                      className={cn("inline-flex items-center rounded-full px-2 py-0.5 text-xs border", pillClass(s))}
-                      title={s === "NEVER" ? "Nunca assinado" : `LIVELO • ${s}`}
-                    >
-                      {statusLabel(s)}
-                    </span>
                   </td>
 
                   <td className="px-4 py-3 text-right" onClick={(e) => e.stopPropagation()}>
@@ -441,7 +348,7 @@ export default function CedentesVisualizarLiveloClient() {
                         className="rounded-lg border px-3 py-1 text-xs hover:bg-slate-50"
                         onClick={() => {
                           setEditingId(r.id);
-                          setDraftPoints(String(r.pontosLivelo || 0));
+                          setDraftPoints(String(r.pontosEsfera || 0));
                         }}
                         disabled={savingId === r.id}
                       >

@@ -5,6 +5,20 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
+function scoreMedia(score?: {
+  rapidezBiometria?: number;
+  rapidezSms?: number;
+  resolucaoProblema?: number;
+  confianca?: number;
+} | null) {
+  const a = Number(score?.rapidezBiometria || 0);
+  const b = Number(score?.rapidezSms || 0);
+  const c = Number(score?.resolucaoProblema || 0);
+  const d = Number(score?.confianca || 0);
+  const avg = (a + b + c + d) / 4;
+  return Math.round(avg * 100) / 100;
+}
+
 function noCacheHeaders() {
   return {
     "Content-Type": "application/json; charset=utf-8",
@@ -33,6 +47,14 @@ export async function GET() {
         owner: {
           select: { id: true, name: true, login: true },
         },
+        score: {
+          select: {
+            rapidezBiometria: true,
+            rapidezSms: true,
+            resolucaoProblema: true,
+            confianca: true,
+          },
+        },
 
         // ✅ pega bloqueios em aberto e devolve os programas
         blockedAccounts: {
@@ -51,6 +73,7 @@ export async function GET() {
       pontosSmiles: r.pontosSmiles,
       pontosLivelo: r.pontosLivelo,
       pontosEsfera: r.pontosEsfera,
+      scoreMedia: scoreMedia(r.score),
       createdAt: r.createdAt.toISOString(),
       owner: r.owner,
       blockedPrograms: (r.blockedAccounts || []).map((b) => b.program), // ["LATAM","SMILES"...]

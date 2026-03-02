@@ -22,6 +22,20 @@ function safeInt(v: unknown, fb = 0) {
   return Number.isFinite(n) ? Math.trunc(n) : fb;
 }
 
+function scoreMedia(score?: {
+  rapidezBiometria?: number;
+  rapidezSms?: number;
+  resolucaoProblema?: number;
+  confianca?: number;
+} | null) {
+  const a = Number(score?.rapidezBiometria || 0);
+  const b = Number(score?.rapidezSms || 0);
+  const c = Number(score?.resolucaoProblema || 0);
+  const d = Number(score?.confianca || 0);
+  const avg = (a + b + c + d) / 4;
+  return Math.round(avg * 100) / 100;
+}
+
 const SMILES_PASSENGERS_LIMIT_PER_YEAR = 25; // ajuste se sua regra mudar
 const YEAR = 2026;
 
@@ -59,6 +73,14 @@ export async function GET(req: NextRequest) {
         nomeCompleto: true,
         cpf: true,
         pontosSmiles: true,
+        score: {
+          select: {
+            rapidezBiometria: true,
+            rapidezSms: true,
+            resolucaoProblema: true,
+            confianca: true,
+          },
+        },
         owner: { select: { id: true, name: true, login: true } },
       },
     });
@@ -99,6 +121,7 @@ export async function GET(req: NextRequest) {
         nomeCompleto: r.nomeCompleto,
         cpf: r.cpf,
         owner: r.owner,
+        scoreMedia: scoreMedia(r.score),
 
         smilesAprovado: aprovado,
         smilesPendente: pendente,

@@ -14,6 +14,7 @@ type Row = {
   pontosSmiles: number;
   pontosLivelo: number;
   pontosEsfera: number;
+  scoreMedia?: number;
   createdAt: string;
   owner: { id: string; name: string; login: string };
 
@@ -21,11 +22,29 @@ type Row = {
   blockedPrograms?: Program[];
 };
 
-type SortKey = "nome" | "latam" | "smiles" | "livelo" | "esfera";
+type SortKey = "nome" | "score" | "latam" | "smiles" | "livelo" | "esfera";
 type SortDir = "asc" | "desc";
 
 function fmtInt(n: number) {
   return new Intl.NumberFormat("pt-BR").format(n || 0);
+}
+function normalizeScore(v: unknown) {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return 0;
+  return Math.max(0, Math.min(10, Math.round(n * 100) / 100));
+}
+function fmtScore(v: unknown) {
+  return normalizeScore(v).toLocaleString("pt-BR", {
+    minimumFractionDigits: 1,
+    maximumFractionDigits: 1,
+  });
+}
+function scorePillClass(v: unknown) {
+  const s = normalizeScore(v);
+  if (s >= 8) return "border-emerald-200 bg-emerald-50 text-emerald-700";
+  if (s >= 6) return "border-amber-200 bg-amber-50 text-amber-700";
+  if (s >= 4) return "border-orange-200 bg-orange-50 text-orange-700";
+  return "border-rose-200 bg-rose-50 text-rose-700";
 }
 
 function maskCpf(cpf: string) {
@@ -181,6 +200,10 @@ export default function CedentesVisualizarClient() {
             va = a.nomeCompleto.toLowerCase();
             vb = b.nomeCompleto.toLowerCase();
             break;
+          case "score":
+            va = normalizeScore(a.scoreMedia);
+            vb = normalizeScore(b.scoreMedia);
+            break;
           case "latam":
             va = a.pontosLatam;
             vb = b.pontosLatam;
@@ -297,6 +320,7 @@ export default function CedentesVisualizarClient() {
 
               <Th onClick={() => toggleSort("nome")}>Nome{arrow("nome")}</Th>
               <Th>Responsável</Th>
+              <ThRight onClick={() => toggleSort("score")}>Score{arrow("score")}</ThRight>
 
               <ThRight onClick={() => toggleSort("latam")}>LATAM{arrow("latam")}</ThRight>
               <ThRight onClick={() => toggleSort("smiles")}>SMILES{arrow("smiles")}</ThRight>
@@ -312,7 +336,7 @@ export default function CedentesVisualizarClient() {
           <tbody>
             {!loading && filtered.length === 0 && (
               <tr>
-                <td colSpan={8} className="px-6 py-10 text-center text-sm text-slate-500">
+                <td colSpan={9} className="px-6 py-10 text-center text-sm text-slate-500">
                   Nenhum cedente encontrado.
                 </td>
               </tr>
@@ -349,6 +373,17 @@ export default function CedentesVisualizarClient() {
                     <div className="font-medium">{r.owner?.name}</div>
                     <div className="text-xs text-slate-500">@{r.owner?.login}</div>
                   </td>
+
+                  <TdRight>
+                    <span
+                      className={cn(
+                        "inline-flex rounded-full border px-2 py-1 text-xs",
+                        scorePillClass(r.scoreMedia)
+                      )}
+                    >
+                      {fmtScore(r.scoreMedia)}
+                    </span>
+                  </TdRight>
 
                   <TdRight className={isBlocked(r, "LATAM") ? "text-red-600 font-semibold" : ""}>
                     {fmtInt(r.pontosLatam)}
