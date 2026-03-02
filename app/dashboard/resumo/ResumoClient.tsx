@@ -66,6 +66,14 @@ type LatamVisualizarResponse = {
   error?: string;
 };
 
+type CaixaImediatoResponse = {
+  ok?: boolean;
+  data?: {
+    snapshots?: Snapshot[];
+  };
+  error?: string;
+};
+
 function fmtMoneyBR(cents: number) {
   const v = (cents || 0) / 100;
   return v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -73,9 +81,23 @@ function fmtMoneyBR(cents: number) {
 function fmtInt(n: number) {
   return new Intl.NumberFormat("pt-BR").format(n || 0);
 }
-function dateBR(iso: string) {
-  const d = new Date(iso);
-  return d.toLocaleDateString("pt-BR");
+function isoDateKey(raw: string) {
+  const s = String(raw || "");
+  const m = s.match(/^(\d{4}-\d{2}-\d{2})/);
+  if (m?.[1]) return m[1];
+
+  const d = new Date(s);
+  if (!Number.isFinite(d.getTime())) return s;
+
+  const y = d.getUTCFullYear();
+  const mm = String(d.getUTCMonth() + 1).padStart(2, "0");
+  const dd = String(d.getUTCDate()).padStart(2, "0");
+  return `${y}-${mm}-${dd}`;
+}
+function dateBRFromKey(key: string) {
+  const m = String(key).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return key;
+  return `${m[3]}/${m[2]}/${m[1]}`;
 }
 function toCentsFromInput(s: string) {
   const cleaned = (s || "").trim();
@@ -176,6 +198,7 @@ export default function CedentesResumoClient() {
   });
 
   const [snapshots, setSnapshots] = useState<Snapshot[]>([]);
+  const [caixaImediatoSnapshots, setCaixaImediatoSnapshots] = useState<Snapshot[]>([]);
   const [cashInput, setCashInput] = useState<string>("");
   const [cedentes, setCedentes] = useState<CedenteOpt[]>([]);
   const [blockedRows, setBlockedRows] = useState<BlockRow[]>([]);
@@ -216,7 +239,7 @@ export default function CedentesResumoClient() {
   async function load() {
     setLoading(true);
     try {
-      const [rResumo, rDAR, rCedentes, rBloq, rPendingPts, rLatamVisualizar] = await Promise.all([
+      const [rResumo, rDAR, rCedentes, rBloq, rPendingPts, rLatamVisualizar, rCaixaImediato] = await Promise.all([
         fetch("/api/resumo", { cache: "no-store" }),
         // ✅ se teu endpoint suportar, pode reduzir payload (totalsOpen continua vindo)
         fetch("/api/dividas-a-receber?take=1", { cache: "no-store" }),
@@ -224,6 +247,7 @@ export default function CedentesResumoClient() {
         fetch("/api/bloqueios", { cache: "no-store" }),
         fetch("/api/compras/pending-points", { cache: "no-store" }),
         fetch("/api/cedentes/latam", { cache: "no-store" }),
+        fetch("/api/caixa-imediato", { cache: "no-store" }),
       ]);
 
       const j = await rResumo.json();
@@ -232,15 +256,18 @@ export default function CedentesResumoClient() {
       const jBloq = await rBloq.json();
       const jPending = (await rPendingPts.json()) as PendingPointsResponse;
       const jLatam = (await rLatamVisualizar.json()) as LatamVisualizarResponse;
+      const jCaixaImediato = (await rCaixaImediato.json()) as CaixaImediatoResponse;
 
       if (!j?.ok) throw new Error(j?.error || "Erro ao carregar resumo");
       if (!jDAR?.ok) throw new Error(jDAR?.error || "Erro ao carregar dívidas a receber");
       if (!jCed?.ok) throw new Error(jCed?.error || "Erro ao carregar cedentes");
       if (!jBloq?.ok) throw new Error(jBloq?.error || "Erro ao carregar bloqueios");
       if (!jPending?.ok) throw new Error((jPending as any)?.error || "Erro ao carregar pontos pendentes");
+      if (!jCaixaImediato?.ok) throw new Error(jCaixaImediato?.error || "Erro ao carregar caixa imediato");
 
       setPoints(j.data.points);
       setSnapshots(j.data.snapshots);
+      setCaixaImediatoSnapshots(jCaixaImediato.data?.snapshots || []);
       setCedentes(jCed.data || []);
       setBlockedRows(jBloq.data?.rows || []);
 
@@ -552,49 +579,78 @@ export default function CedentesResumoClient() {
     cashProjectedFromApiCents,
   ]);
 
-  async function salvarCaixaHoje() {
-    try {
-      const res = await fetch("/api/resumo/snapshot", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          cashCents: calc.cashCents,
-          totalBrutoCents: calc.totalGrossCents, // ✅ bruto inclui DAR
-          totalDividasCents: debtsOpenCents,
-          totalLiquidoCents: calc.totalNetCents, // ✅ bruto − dívidas
-        }),
-      });
+  const snapshotRows = useMemo(() => {
+    const byDate = new Map<
+      string,
+      { dateKey: string; resumoTotalLiquidoCents: number | null; caixaImediatoTotalLiquidoCents: number | null }
+    >();
 
-      const j = await res.json();
-      if (!j?.ok) throw new Error(j?.error || "Erro ao salvar snapshot");
-      await load();
-      alert("✅ Snapshot do dia salvo!");
-    } catch (e: any) {
-      alert(e.message);
+    for (const s of snapshots) {
+      const dateKey = isoDateKey(s.date);
+      if (!dateKey) continue;
+      const row = byDate.get(dateKey) || {
+        dateKey,
+        resumoTotalLiquidoCents: null,
+        caixaImediatoTotalLiquidoCents: null,
+      };
+      row.resumoTotalLiquidoCents = Number(s.totalLiquido || 0);
+      byDate.set(dateKey, row);
     }
-  }
 
-  async function salvarCaixaImediatoHoje() {
+    for (const s of caixaImediatoSnapshots) {
+      const dateKey = isoDateKey(s.date);
+      if (!dateKey) continue;
+      const row = byDate.get(dateKey) || {
+        dateKey,
+        resumoTotalLiquidoCents: null,
+        caixaImediatoTotalLiquidoCents: null,
+      };
+      row.caixaImediatoTotalLiquidoCents = Number(s.totalLiquido || 0);
+      byDate.set(dateKey, row);
+    }
+
+    return Array.from(byDate.values())
+      .sort((a, b) => (a.dateKey < b.dateKey ? 1 : a.dateKey > b.dateKey ? -1 : 0))
+      .slice(0, 60);
+  }, [snapshots, caixaImediatoSnapshots]);
+
+  async function salvarSnapshotsHoje() {
     try {
-      const res = await fetch("/api/caixa-imediato/snapshot", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          cashCents: caixaImediatoCalc.cashCents,
-          cutoffPoints: eligible.cutoff,
-          totalBrutoCents: caixaImediatoCalc.totalGrossCents,
-          totalDividasCents: debtsOpenCents,
-          totalLiquidoCents: caixaImediatoCalc.totalImmediateCents,
+      const [resResumo, resCaixaImediato] = await Promise.all([
+        fetch("/api/resumo/snapshot", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            cashCents: calc.cashCents,
+            totalBrutoCents: calc.totalGrossCents,
+            totalDividasCents: debtsOpenCents,
+            totalLiquidoCents: calc.totalNetCents,
+          }),
         }),
-      });
+        fetch("/api/caixa-imediato/snapshot", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            cashCents: caixaImediatoCalc.cashCents,
+            cutoffPoints: eligible.cutoff,
+            totalBrutoCents: caixaImediatoCalc.totalGrossCents,
+            totalDividasCents: debtsOpenCents,
+            totalLiquidoCents: caixaImediatoCalc.totalImmediateCents,
+          }),
+        }),
+      ]);
 
-      const j = await res.json().catch(() => null);
-      if (!j?.ok) throw new Error(j?.error || "Erro ao salvar snapshot do caixa imediato");
+      const [jResumo, jCaixaImediato] = await Promise.all([
+        resResumo.json().catch(() => null),
+        resCaixaImediato.json().catch(() => null),
+      ]);
+      if (!jResumo?.ok) throw new Error(jResumo?.error || "Erro ao salvar snapshot do resumo");
+      if (!jCaixaImediato?.ok) throw new Error(jCaixaImediato?.error || "Erro ao salvar snapshot do caixa imediato");
 
       await load();
-      alert("✅ Snapshot do Caixa Imediato salvo!");
+      alert("✅ Snapshots do resumo e do caixa imediato salvos!");
     } catch (e: any) {
-      alert(e?.message || "Erro ao salvar snapshot do caixa imediato.");
+      alert(e?.message || "Erro ao salvar snapshots.");
     }
   }
 
@@ -756,10 +812,10 @@ export default function CedentesResumoClient() {
               </div>
             </div>
             <button
-              onClick={salvarCaixaImediatoHoje}
+              onClick={salvarSnapshotsHoje}
               className="rounded-xl bg-black px-4 py-2 text-white text-sm hover:bg-gray-800"
             >
-              Salvar snapshot do caixa imediato
+              Salvar snapshots (total + imediato)
             </button>
           </div>
 
@@ -854,10 +910,10 @@ export default function CedentesResumoClient() {
       <div className="rounded-2xl border bg-white p-4 space-y-3">
         <div className="flex items-center justify-between gap-3">
           <div className="font-semibold">Histórico do caixa (por dia)</div>
-          <div className="text-xs text-slate-500">últimos {Math.min(60, snapshots.length)} dias</div>
+          <div className="text-xs text-slate-500">últimos {Math.min(60, snapshotRows.length)} dias</div>
         </div>
 
-        {snapshots.length === 0 ? (
+        {snapshotRows.length === 0 ? (
           <div className="text-sm text-slate-600">Nenhum snapshot salvo ainda.</div>
         ) : (
           <div className="max-h-80 overflow-auto rounded-xl border">
@@ -865,14 +921,22 @@ export default function CedentesResumoClient() {
               <thead className="sticky top-0 bg-slate-50">
                 <tr>
                   <th className="px-3 py-2 text-left">Dia</th>
-                  <th className="px-3 py-2 text-right">Total líquido (snapshot)</th>
+                  <th className="px-3 py-2 text-right">Resumo (snapshot)</th>
+                  <th className="px-3 py-2 text-right">Caixa imediato (snapshot)</th>
                 </tr>
               </thead>
               <tbody>
-                {snapshots.map((s) => (
-                  <tr key={s.id} className="border-t">
-                    <td className="px-3 py-2">{dateBR(s.date)}</td>
-                    <td className="px-3 py-2 text-right">{fmtMoneyBR(s.totalLiquido)}</td>
+                {snapshotRows.map((row) => (
+                  <tr key={row.dateKey} className="border-t">
+                    <td className="px-3 py-2">{dateBRFromKey(row.dateKey)}</td>
+                    <td className="px-3 py-2 text-right">
+                      {row.resumoTotalLiquidoCents == null ? "—" : fmtMoneyBR(row.resumoTotalLiquidoCents)}
+                    </td>
+                    <td className="px-3 py-2 text-right">
+                      {row.caixaImediatoTotalLiquidoCents == null
+                        ? "—"
+                        : fmtMoneyBR(row.caixaImediatoTotalLiquidoCents)}
+                    </td>
                   </tr>
                 ))}
               </tbody>
