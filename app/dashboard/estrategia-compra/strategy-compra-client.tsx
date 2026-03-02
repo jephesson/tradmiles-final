@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 
 type Program = "LATAM" | "SMILES" | "LIVELO" | "ESFERA";
-type Mode = "AVAILABILITY" | "CLUB" | "COMBINED" | "BIRTHDAY_TURBO";
+type Mode = "AVAILABILITY" | "CLUB" | "COMBINED" | "BIRTHDAY_TURBO" | "BIRTHDAY_LATAM";
 
 type ClubStatus = "ACTIVE" | "PAUSED" | "CANCELED" | "NONE";
 
@@ -47,7 +47,19 @@ type BirthdayTurboRow = {
   };
 };
 
-type StrategyRow = ResultRow | BirthdayTurboRow;
+type BirthdayLatamRow = {
+  cedenteId: string;
+  cedenteNome: string;
+  cedenteIdentificador?: string | null;
+  cpf: string;
+  owner: Owner;
+  birthDay: string | null; // DD/MM
+  cpfAvailableLatam: number;
+  clubStatus: ClubStatus;
+  clubPlan: string | null;
+};
+
+type StrategyRow = ResultRow | BirthdayTurboRow | BirthdayLatamRow;
 
 function n(v: any) {
   const x = Number(v);
@@ -71,7 +83,7 @@ function fmtDateBR(iso: string | null | undefined) {
 }
 
 export default function StrategyCompraClient() {
-  const [mode, setMode] = useState<Mode>("BIRTHDAY_TURBO");
+  const [mode, setMode] = useState<Mode>("BIRTHDAY_LATAM");
 
   // Disponibilidade
   const [cia, setCia] = useState<Program>("LATAM");
@@ -98,7 +110,7 @@ export default function StrategyCompraClient() {
   const [error, setError] = useState<string | null>(null);
 
   const payload = useMemo(() => {
-    if (mode === "BIRTHDAY_TURBO") {
+    if (mode === "BIRTHDAY_TURBO" || mode === "BIRTHDAY_LATAM") {
       return { mode };
     }
     if (mode === "AVAILABILITY") {
@@ -178,14 +190,23 @@ export default function StrategyCompraClient() {
     }
   }
 
-  const birthdayRows = useMemo(() => {
+  const birthdayTurboRows = useMemo(() => {
     if (mode !== "BIRTHDAY_TURBO") return [];
     return rows as BirthdayTurboRow[];
   }, [rows, mode]);
 
+  const birthdayLatamRows = useMemo(() => {
+    if (mode !== "BIRTHDAY_LATAM") return [];
+    return rows as BirthdayLatamRow[];
+  }, [rows, mode]);
+
   const totalBirthdayRemaining = useMemo(() => {
-    return birthdayRows.reduce((acc, r) => acc + (r.turbo?.remainingPoints || 0), 0);
-  }, [birthdayRows]);
+    return birthdayTurboRows.reduce((acc, r) => acc + (r.turbo?.remainingPoints || 0), 0);
+  }, [birthdayTurboRows]);
+
+  const totalBirthdayCpfAvailable = useMemo(() => {
+    return birthdayLatamRows.reduce((acc, r) => acc + (r.cpfAvailableLatam || 0), 0);
+  }, [birthdayLatamRows]);
 
   return (
     <div className="p-6 space-y-6">
@@ -216,6 +237,7 @@ export default function StrategyCompraClient() {
               onChange={(e) => setMode(e.target.value as Mode)}
               className="mt-1 w-full border rounded-lg px-3 py-2"
             >
+              <option value="BIRTHDAY_LATAM">Aniversário+Latam</option>
               <option value="BIRTHDAY_TURBO">Aniversário Livelo + Latam Turbo</option>
               <option value="AVAILABILITY">Estratégia por disponibilidade</option>
               <option value="CLUB">Estratégia por clube</option>
@@ -261,6 +283,15 @@ export default function StrategyCompraClient() {
             </>
           )}
         </div>
+
+        {mode === "BIRTHDAY_LATAM" && (
+          <div className="rounded-lg border bg-slate-50 p-3 text-sm text-slate-700">
+            <div className="font-medium">Regras deste modo</div>
+            <div>1) Lista aniversariantes do mês corrente</div>
+            <div>2) Mostra CPF disponível LATAM (base 365 dias + ajuste manual)</div>
+            <div>3) Exibe status atual do clube LATAM</div>
+          </div>
+        )}
 
         {mode === "BIRTHDAY_TURBO" && (
           <div className="rounded-lg border bg-slate-50 p-3 text-sm text-slate-700">
@@ -399,13 +430,25 @@ export default function StrategyCompraClient() {
             <div className="flex flex-wrap items-center gap-4 text-sm text-neutral-600">
               <div>
                 Resultados:{" "}
-                <span className="font-semibold text-neutral-900">{birthdayRows.length}</span>
+                <span className="font-semibold text-neutral-900">{birthdayTurboRows.length}</span>
               </div>
               <div>
                 Total pode transferir:{" "}
                 <span className="font-semibold text-neutral-900">
                   {fmtInt(totalBirthdayRemaining)}
                 </span>
+              </div>
+              {meta?.monthKey && <div>Mês: {meta.monthKey}</div>}
+            </div>
+          ) : mode === "BIRTHDAY_LATAM" ? (
+            <div className="flex flex-wrap items-center gap-4 text-sm text-neutral-600">
+              <div>
+                Aniversariantes:{" "}
+                <span className="font-semibold text-neutral-900">{birthdayLatamRows.length}</span>
+              </div>
+              <div>
+                CPF disponível LATAM (total):{" "}
+                <span className="font-semibold text-neutral-900">{fmtInt(totalBirthdayCpfAvailable)}</span>
               </div>
               {meta?.monthKey && <div>Mês: {meta.monthKey}</div>}
             </div>
@@ -432,7 +475,7 @@ export default function StrategyCompraClient() {
                 </tr>
               </thead>
               <tbody>
-                {birthdayRows.map((r) => (
+                {birthdayTurboRows.map((r) => (
                   <tr key={r.cedenteId} className="border-t">
                     <td className="p-3">
                       <div className="font-medium">{r.cedenteNome}</div>
@@ -466,10 +509,69 @@ export default function StrategyCompraClient() {
                   </tr>
                 ))}
 
-                {!birthdayRows.length && (
+                {!birthdayTurboRows.length && (
                   <tr>
                     <td className="p-6 text-neutral-500" colSpan={8}>
                       Nenhum resultado ainda. Clique em <b>Buscar</b>.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          ) : mode === "BIRTHDAY_LATAM" ? (
+            <table className="min-w-[980px] w-full text-sm">
+              <thead className="bg-neutral-50">
+                <tr className="text-left">
+                  <th className="p-3">Cedente</th>
+                  <th className="p-3">Responsável</th>
+                  <th className="p-3">Aniversário</th>
+                  <th className="p-3">CPF disponível LATAM</th>
+                  <th className="p-3">Status do clube</th>
+                  <th className="p-3">Plano</th>
+                </tr>
+              </thead>
+              <tbody>
+                {birthdayLatamRows.map((r) => (
+                  <tr key={r.cedenteId} className="border-t">
+                    <td className="p-3">
+                      <div className="font-medium">{r.cedenteNome}</div>
+                      {r.cedenteIdentificador ? (
+                        <div className="text-xs text-neutral-500">{r.cedenteIdentificador}</div>
+                      ) : null}
+                    </td>
+                    <td className="p-3">
+                      <div className="font-medium">{r.owner?.name || "-"}</div>
+                      <div className="text-xs text-neutral-500">@{r.owner?.login || "-"}</div>
+                    </td>
+                    <td className="p-3">{fmtBirthDay(r.birthDay)}</td>
+                    <td className="p-3 font-semibold">{fmtInt(r.cpfAvailableLatam || 0)}</td>
+                    <td className="p-3">
+                      {r.clubStatus === "ACTIVE" ? (
+                        <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-xs text-emerald-700">
+                          ACTIVE
+                        </span>
+                      ) : r.clubStatus === "PAUSED" ? (
+                        <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs text-amber-700">
+                          PAUSED
+                        </span>
+                      ) : r.clubStatus === "CANCELED" ? (
+                        <span className="rounded-full border border-rose-200 bg-rose-50 px-2 py-0.5 text-xs text-rose-700">
+                          CANCELED
+                        </span>
+                      ) : (
+                        <span className="rounded-full border border-neutral-200 bg-neutral-50 px-2 py-0.5 text-xs text-neutral-700">
+                          NONE
+                        </span>
+                      )}
+                    </td>
+                    <td className="p-3">{r.clubPlan || "-"}</td>
+                  </tr>
+                ))}
+
+                {!birthdayLatamRows.length && (
+                  <tr>
+                    <td className="p-6 text-neutral-500" colSpan={6}>
+                      Nenhum aniversariante encontrado neste mês. Clique em <b>Buscar</b>.
                     </td>
                   </tr>
                 )}

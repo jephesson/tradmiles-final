@@ -12,7 +12,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-type Mode = "AVAILABILITY" | "CLUB" | "COMBINED" | "BIRTHDAY_TURBO";
+type Mode = "AVAILABILITY" | "CLUB" | "COMBINED" | "BIRTHDAY_TURBO" | "BIRTHDAY_LATAM";
 type ClubStatusOut = "ACTIVE" | "PAUSED" | "CANCELED" | "NONE";
 
 const TURBO_MONTH_LIMIT = 100_000;
@@ -233,8 +233,9 @@ export async function POST(req: NextRequest) {
   const mode: Mode = body.mode;
   if (!mode) return bad("mode obrigatório");
 
-  // ======= MODE: Aniversário Livelo + Latam Turbo
-  if (mode === "BIRTHDAY_TURBO") {
+  // ======= MODES: Aniversário + LATAM
+  if (mode === "BIRTHDAY_TURBO" || mode === "BIRTHDAY_LATAM") {
+    const isTurboMode = mode === "BIRTHDAY_TURBO";
     const monthKey = monthKeyUTC(new Date());
     const monthStart = startOfMonthUTCFromKey(monthKey);
     const monthEnd = endOfMonthUTCFromKey(monthKey);
@@ -272,8 +273,12 @@ export async function POST(req: NextRequest) {
           rows: [],
           meta: {
             monthKey,
-            limitPoints: TURBO_MONTH_LIMIT,
-            minTransferred: TURBO_MIN_TRANSFERRED,
+            ...(isTurboMode
+              ? {
+                  limitPoints: TURBO_MONTH_LIMIT,
+                  minTransferred: TURBO_MIN_TRANSFERRED,
+                }
+              : {}),
           },
         },
         { headers: noCacheHeaders() }
@@ -291,6 +296,7 @@ export async function POST(req: NextRequest) {
       select: {
         id: true,
         cedenteId: true,
+        program: true,
         status: true,
         tierK: true,
         subscribedAt: true,
@@ -307,17 +313,27 @@ export async function POST(req: NextRequest) {
       if (!latestClubByCedente.has(c.cedenteId)) latestClubByCedente.set(c.cedenteId, c);
     }
 
-    const monthMarks = await prisma.latamTurboMonth.findMany({
-      where: {
-        team,
-        monthKey,
-        cedenteId: { in: birthdayIds },
-      },
-      select: { cedenteId: true, status: true, points: true, updatedAt: true },
-    });
-
-    const markByCedente = new Map<string, (typeof monthMarks)[number]>();
-    for (const m of monthMarks) markByCedente.set(m.cedenteId, m);
+    const markByCedente = new Map<
+      string,
+      { cedenteId: string; status: string; points: number }
+    >();
+    if (isTurboMode) {
+      const monthMarks = await prisma.latamTurboMonth.findMany({
+        where: {
+          team,
+          monthKey,
+          cedenteId: { in: birthdayIds },
+        },
+        select: { cedenteId: true, status: true, points: true },
+      });
+      for (const m of monthMarks) {
+        markByCedente.set(m.cedenteId, {
+          cedenteId: m.cedenteId,
+          status: m.status,
+          points: m.points,
+        });
+      }
+    }
 
     const accounts = await prisma.latamTurboAccount.findMany({
       where: { team, cedenteId: { in: birthdayIds } },
@@ -344,37 +360,49 @@ export async function POST(req: NextRequest) {
 
     const rows = birthdayCedentes
       .map((c) => {
-        const club = latestClubByCedente.get(c.id);
-        if (!club) return null;
+        const club = latestClubByCedente.get(c.id) || null;
 
-        const auto = computeLatamAutoDates({
-          subscribedAt: club.subscribedAt,
-          renewalDay: clampInt(Number(club.renewalDay) || 1, 1, 31),
-          lastRenewedAt: club.lastRenewedAt,
-        });
+        let effectiveStatus: ClubStatusOut = "NONE";
+        let clubPlan: string | null = null;
+        let inactiveInMonth = false;
+        let cancelAtIso: string | null = null;
 
-        let effectiveStatus = club.status as ClubSubscriptionStatus;
-        if (effectiveStatus !== "CANCELED") {
-          if (today.getTime() >= startUTC(auto.cancelAt).getTime()) {
-            effectiveStatus = "CANCELED";
-          } else if (
-            today.getTime() >= startUTC(auto.inactiveAt).getTime() &&
-            effectiveStatus === "ACTIVE"
-          ) {
-            effectiveStatus = "PAUSED";
+        if (club) {
+          const auto = computeLatamAutoDates({
+            subscribedAt: club.subscribedAt,
+            renewalDay: clampInt(Number(club.renewalDay) || 1, 1, 31),
+            lastRenewedAt: club.lastRenewedAt,
+          });
+
+          let st = club.status as ClubSubscriptionStatus;
+          if (st !== "CANCELED") {
+            if (today.getTime() >= startUTC(auto.cancelAt).getTime()) {
+              st = "CANCELED";
+            } else if (
+              today.getTime() >= startUTC(auto.inactiveAt).getTime() &&
+              st === "ACTIVE"
+            ) {
+              st = "PAUSED";
+            }
           }
+
+          effectiveStatus =
+            st === "ACTIVE" ? "ACTIVE" : st === "PAUSED" ? "PAUSED" : "CANCELED";
+          clubPlan = `${programLabel(club.program)} ${club.tierK || 0}k`;
+
+          inactiveInMonth =
+            Boolean(monthStart && monthEnd) &&
+            isBetweenUTC(auto.inactiveAt, monthStart!, monthEnd!);
+          cancelAtIso = inactiveInMonth ? auto.cancelAt.toISOString() : null;
         }
 
-        if (effectiveStatus !== "ACTIVE") return null;
-
-        const inactiveInMonth =
-          Boolean(monthStart && monthEnd) && isBetweenUTC(auto.inactiveAt, monthStart!, monthEnd!);
+        if (isTurboMode && effectiveStatus !== "ACTIVE") return null;
 
         const mark = markByCedente.get(c.id) || null;
         const transferredPoints =
           mark && mark.status !== "SKIPPED" ? safeInt(mark.points, 0) : 0;
 
-        if (transferredPoints >= TURBO_MIN_TRANSFERRED) return null;
+        if (isTurboMode && transferredPoints >= TURBO_MIN_TRANSFERRED) return null;
 
         const remainingPoints = Math.max(0, TURBO_MONTH_LIMIT - transferredPoints);
 
@@ -385,7 +413,7 @@ export async function POST(req: NextRequest) {
         const cpfUsed = Math.max(usedCalc, usedManual);
         const cpfFree = Math.max(0, cpfLimit - cpfUsed);
 
-        return {
+        const baseRow = {
           cedenteId: c.id,
           cedenteNome: c.nomeCompleto,
           cedenteIdentificador: c.identificador,
@@ -393,26 +421,50 @@ export async function POST(req: NextRequest) {
           owner: c.owner,
           birthDay: c.dataNascimento ? birthDayLabel(c.dataNascimento, BIRTHDAY_TZ) : null,
           paxAvailable: cpfFree,
+          cpfAvailableLatam: cpfFree,
+          clubStatus: effectiveStatus,
+          clubPlan,
+        };
+
+        if (!isTurboMode) return baseRow;
+
+        return {
+          ...baseRow,
           turbo: {
             status: mark?.status || "NONE",
             transferredPoints,
             remainingPoints,
             willInactivate: inactiveInMonth,
-            cancelAt: inactiveInMonth ? auto.cancelAt.toISOString() : null,
+            cancelAt: cancelAtIso,
           },
         };
       })
       .filter(Boolean) as any[];
 
-    rows.sort((a, b) => {
-      const ra = Number(a?.turbo?.remainingPoints || 0);
-      const rb = Number(b?.turbo?.remainingPoints || 0);
-      if (rb !== ra) return rb - ra;
-      const da = a?.birthDay ? a.birthDay : "";
-      const db = b?.birthDay ? b.birthDay : "";
-      if (da !== db) return da.localeCompare(db);
-      return String(a?.cedenteNome || "").localeCompare(String(b?.cedenteNome || ""));
-    });
+    if (isTurboMode) {
+      rows.sort((a, b) => {
+        const ra = Number(a?.turbo?.remainingPoints || 0);
+        const rb = Number(b?.turbo?.remainingPoints || 0);
+        if (rb !== ra) return rb - ra;
+        const da = a?.birthDay ? a.birthDay : "";
+        const db = b?.birthDay ? b.birthDay : "";
+        if (da !== db) return da.localeCompare(db);
+        return String(a?.cedenteNome || "").localeCompare(String(b?.cedenteNome || ""));
+      });
+    } else {
+      rows.sort((a, b) => {
+        const sa = a?.clubStatus === "ACTIVE" ? 3 : a?.clubStatus === "PAUSED" ? 2 : a?.clubStatus === "NONE" ? 1 : 0;
+        const sb = b?.clubStatus === "ACTIVE" ? 3 : b?.clubStatus === "PAUSED" ? 2 : b?.clubStatus === "NONE" ? 1 : 0;
+        if (sb !== sa) return sb - sa;
+        const ca = Number(a?.cpfAvailableLatam || 0);
+        const cb = Number(b?.cpfAvailableLatam || 0);
+        if (cb !== ca) return cb - ca;
+        const da = a?.birthDay ? a.birthDay : "";
+        const db = b?.birthDay ? b.birthDay : "";
+        if (da !== db) return da.localeCompare(db);
+        return String(a?.cedenteNome || "").localeCompare(String(b?.cedenteNome || ""));
+      });
+    }
 
     return NextResponse.json(
       {
@@ -420,8 +472,12 @@ export async function POST(req: NextRequest) {
         rows,
         meta: {
           monthKey,
-          limitPoints: TURBO_MONTH_LIMIT,
-          minTransferred: TURBO_MIN_TRANSFERRED,
+          ...(isTurboMode
+            ? {
+                limitPoints: TURBO_MONTH_LIMIT,
+                minTransferred: TURBO_MIN_TRANSFERRED,
+              }
+            : {}),
         },
       },
       { headers: noCacheHeaders() }
