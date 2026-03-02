@@ -353,9 +353,9 @@ export default function ConviteClient({ code }: { code: string }) {
     : responsavel.name;
 
   return (
-    <div className="min-h-screen bg-slate-50 flex justify-center p-6">
+    <div className="min-h-screen bg-slate-50 text-slate-900 flex justify-center p-4 pb-24 md:p-6 [&_input]:bg-white [&_input]:text-slate-900 [&_input::placeholder]:text-slate-400 [&_select]:bg-white [&_select]:text-slate-900">
       <div className="w-full max-w-3xl">
-        <h1 className="mb-2 text-2xl font-bold text-center">Cadastro de cedente</h1>
+        <h1 className="mb-2 text-2xl font-bold text-center text-slate-900">Cadastro de cedente</h1>
 
         <div className="mb-6 rounded-2xl border bg-white p-4">
           <div className="text-sm font-semibold">Responsável</div>
