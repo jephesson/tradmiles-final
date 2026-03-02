@@ -74,6 +74,8 @@ type CaixaImediatoResponse = {
   error?: string;
 };
 
+const FIXED_CUTOFF_POINTS = 3000;
+
 function fmtMoneyBR(cents: number) {
   const v = (cents || 0) / 100;
   return v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -188,7 +190,6 @@ function computeDividasAReceberOpenCents(list: DividaAReceberRow[]) {
 
 export default function CedentesResumoClient() {
   const [loading, setLoading] = useState(false);
-  const [cutoffInput, setCutoffInput] = useState<string>("5000");
 
   const [points, setPoints] = useState<Points>({
     latam: 0,
@@ -376,7 +377,7 @@ export default function CedentesResumoClient() {
   }, [blockedRows]);
 
   const eligible = useMemo(() => {
-    const cutoff = Math.max(0, safeInt(cutoffInput, 0));
+    const cutoff = FIXED_CUTOFF_POINTS;
 
     let pts: Points = { latam: 0, smiles: 0, livelo: 0, esfera: 0 };
     let counts = { latam: 0, smiles: 0, livelo: 0, esfera: 0 };
@@ -406,7 +407,7 @@ export default function CedentesResumoClient() {
     }
 
     return { cutoff, pts, counts };
-  }, [cedentes, cutoffInput]);
+  }, [cedentes]);
 
   const caixaImediatoCalc = useMemo(() => {
     const milLatam = Math.floor((eligible.pts.latam || 0) / 1000);
@@ -716,12 +717,10 @@ export default function CedentesResumoClient() {
           </div>
 
           <Input label="Saldo atual (R$)" value={cashInput} onChange={setCashInput} placeholder="Ex: 12345,67" />
-          <Input
-            label="Ponto de corte (pts) para caixa imediato"
-            value={cutoffInput}
-            onChange={setCutoffInput}
-            placeholder="Ex: 5000"
-          />
+
+          <div className="text-xs text-slate-600">
+            Ponto de corte fixo para caixa imediato: <b>{fmtInt(FIXED_CUTOFF_POINTS)} pts</b>
+          </div>
 
           <div className="rounded-xl border bg-slate-50 p-3">
             <div className="text-xs text-slate-600">Caixa projetado</div>

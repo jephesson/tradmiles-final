@@ -864,7 +864,6 @@ export default function Sidebar() {
           accent="orange"
         >
           <NavLink href="/dashboard/resumo">Resumo</NavLink>
-          <NavLink href="/dashboard/caixa-imediato">Caixa imediato</NavLink>
 
           {/* ✅ NOVO: Prejuízo */}
           <NavLink href="/dashboard/prejuizo">Prejuízo</NavLink>
