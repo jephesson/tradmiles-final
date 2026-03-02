@@ -675,6 +675,14 @@ export default function CedentesResumoClient() {
             </div>
           </div>
 
+          <div className="rounded-xl border bg-slate-50 p-3">
+            <div className="text-xs text-slate-600">Caixa total (sem corte)</div>
+            <div className="text-xl font-bold">{fmtMoneyBR(calc.totalAfterPendingsCents)}</div>
+            <div className="text-xs text-slate-500 mt-1">
+              milhas totais + caixa + a receber − dívidas − pendências
+            </div>
+          </div>
+
           <div className="text-xs text-slate-600">
             Elegíveis no corte: LATAM {fmtInt(eligible.counts.latam)} • Smiles {fmtInt(eligible.counts.smiles)} •
             Livelo {fmtInt(eligible.counts.livelo)} • Esfera {fmtInt(eligible.counts.esfera)}
@@ -834,9 +842,9 @@ export default function CedentesResumoClient() {
               <div className="text-xs opacity-70 mt-1">entradas − (dívidas + bloqueios + pendências)</div>
             </div>
             <div className="rounded-2xl border bg-slate-50 p-4">
-              <div className="text-xs text-slate-600">Caixa projetado (Inter)</div>
-              <div className="text-xl font-bold">{fmtMoneyBR(caixaImediatoCalc.cashProjectedInterCents)}</div>
-              <div className="text-xs text-slate-500 mt-1">caixa + a receber − (funcionários + impostos)</div>
+              <div className="text-xs text-slate-600">Caixa total (sem corte)</div>
+              <div className="text-xl font-bold">{fmtMoneyBR(calc.totalAfterPendingsCents)}</div>
+              <div className="text-xs text-slate-500 mt-1">milhas totais + caixa + a receber − dívidas − pendências</div>
             </div>
           </div>
         </div>
