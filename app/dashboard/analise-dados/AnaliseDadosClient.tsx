@@ -125,6 +125,21 @@ const LEGACY_MONTHLY_SALES_CENTS: Record<string, number> = {
   "2026-01": 7547272, // jan/26 (parcial antigo) -> soma ao que já existe no TradeMiles
 };
 
+// Histórico legado de lucro mensal (2025), em centavos.
+const LEGACY_MONTHLY_PROFIT_CENTS: Record<string, number> = {
+  "2025-01": 533075, // jan/25
+  "2025-02": 1245457, // fev/25
+  "2025-03": 1180895, // mar/25
+  "2025-04": 896038, // abr/25
+  "2025-05": 1983573, // mai/25
+  "2025-06": 946926, // jun/25
+  "2025-08": 1546795, // ago/25
+  "2025-09": 1510788, // set/25
+  "2025-10": 1122731, // out/25
+  "2025-11": 2251929, // nov/25
+  "2025-12": 1455849, // dez/25
+};
+
 function Card({
   title,
   value,
@@ -1273,7 +1288,9 @@ export default function AnaliseDadosClient() {
       const soldBalcaoCents = Number(balcaoMonthSoldByKey.get(key) || 0);
       const soldTotalCents = soldSalesCents + soldBalcaoCents;
 
-      const profitSalesCents = Number(m.profitAfterTaxWithoutFeeCents || 0);
+      const profitSalesCents =
+        Number(m.profitAfterTaxWithoutFeeCents || 0) +
+        Number(LEGACY_MONTHLY_PROFIT_CENTS[key] || 0);
       const profitBalcaoCents = Number(balcaoMonthProfitByKey.get(key) || 0);
       const profitAfterTaxWithoutFeeCents = profitSalesCents + profitBalcaoCents;
 
