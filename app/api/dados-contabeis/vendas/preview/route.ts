@@ -406,8 +406,31 @@ export async function GET(req: Request) {
       orderBy: [{ date: "asc" }, { numero: "asc" }],
     });
 
+    // ✅ operações de balcão no mesmo período (filtro por dia de Recife)
+    const balcaoStart = recifeStartDate(startDate);
+    const balcaoEnd = recifeStartDate(endExclusive);
+    const balcaoOps = await prisma.balcaoOperacao.findMany({
+      where: {
+        team,
+        createdAt: { gte: balcaoStart, lt: balcaoEnd },
+      },
+      select: {
+        id: true,
+        locator: true,
+        createdAt: true,
+        customerChargeCents: true,
+        finalCliente: {
+          select: { nome: true, identificador: true, cpfCnpj: true },
+        },
+      },
+      orderBy: [{ createdAt: "asc" }],
+    });
+
     const salesCount = sales.length;
-    const totalSoldCents = sales.reduce((a, s) => a + (s.totalCents || 0), 0);
+    const balcaoOpsCount = balcaoOps.length;
+    const totalSoldSalesCents = sales.reduce((a, s) => a + (s.totalCents || 0), 0);
+    const totalSoldBalcaoCents = balcaoOps.reduce((a, op) => a + (op.customerChargeCents || 0), 0);
+    const totalSoldCents = totalSoldSalesCents + totalSoldBalcaoCents;
 
     // ✅ lucro do período (vendas) = soma grossProfitCents (SEM 8%)
     const lucroAgg = await prisma.employeePayout.aggregate({
@@ -438,19 +461,24 @@ export async function GET(req: Request) {
     // =========================
     // RAW: UMA LINHA POR VENDA
     // =========================
-    const profitBySale = splitProfitProportional(
-      sales.map((s) => ({ key: s.id, totalCents: s.totalCents || 0 })),
+    const splitItems = [
+      ...sales.map((s) => ({ key: `SALE:${s.id}`, totalCents: s.totalCents || 0 })),
+      ...balcaoOps.map((op) => ({ key: `BALCAO:${op.id}`, totalCents: op.customerChargeCents || 0 })),
+    ];
+
+    const profitByItem = splitProfitProportional(
+      splitItems,
       profitAfterLossCents
     );
 
-    const rowsRaw = sales.map((s) => {
+    const rowsRawSales = sales.map((s) => {
       const cpfCnpjDisplay = s?.cliente?.cpfCnpj || s?.cliente?.identificador || "—";
       const nome = s?.cliente?.nome || "—";
-      const profitCents = profitBySale.get(s.id) || 0;
+      const profitCents = profitByItem.get(`SALE:${s.id}`) || 0;
       const deductionCents = Math.max(0, (s.totalCents || 0) - profitCents);
 
       return {
-        saleId: s.id,
+        saleId: `SALE:${s.id}`,
         date: isoDateOnlyUTC(s.date),
         numero: s.numero || "—",
         paymentStatus: String((s as any)?.paymentStatus || "—"),
@@ -460,6 +488,35 @@ export async function GET(req: Request) {
         deductionCents,
         profitCents,
       };
+    });
+
+    const rowsRawBalcao = balcaoOps.map((op) => {
+      const cpfCnpjDisplay =
+        op.finalCliente?.cpfCnpj || op.finalCliente?.identificador || "—";
+      const nome = op.finalCliente?.nome || "—";
+      const totalServiceCents = safeInt(op.customerChargeCents, 0);
+      const profitCents = profitByItem.get(`BALCAO:${op.id}`) || 0;
+      const deductionCents = Math.max(0, totalServiceCents - profitCents);
+      const numero =
+        (op.locator || "").trim() ||
+        `BALCAO-${String(op.id || "").slice(-6).toUpperCase()}`;
+
+      return {
+        saleId: `BALCAO:${op.id}`,
+        date: recifeDateISO(op.createdAt),
+        numero,
+        paymentStatus: "BALCAO",
+        cpfCnpj: cpfCnpjDisplay,
+        nome,
+        totalServiceCents,
+        deductionCents,
+        profitCents,
+      };
+    });
+
+    const rowsRaw = [...rowsRawSales, ...rowsRawBalcao].sort((a, b) => {
+      if (a.date !== b.date) return a.date.localeCompare(b.date);
+      return String(a.numero || "").localeCompare(String(b.numero || ""));
     });
 
     const totalDeductionRawCents = rowsRaw.reduce((a, r) => a + (r.deductionCents || 0), 0);
@@ -487,6 +544,25 @@ export async function GET(req: Request) {
       };
 
       prev.totalServiceCents += s.totalCents || 0;
+      prev.salesCount += 1;
+      map.set(key, prev);
+    }
+
+    for (const op of balcaoOps) {
+      const doc = cleanDoc(op?.finalCliente?.cpfCnpj || op?.finalCliente?.identificador || "") || "";
+      const cpfCnpjDisplay = op?.finalCliente?.cpfCnpj || op?.finalCliente?.identificador || "—";
+      const nome = op?.finalCliente?.nome || "—";
+      const key = `${doc}::${nome}`;
+
+      const prev = map.get(key) || {
+        key,
+        cpfCnpj: cpfCnpjDisplay,
+        nome,
+        totalServiceCents: 0,
+        salesCount: 0,
+      };
+
+      prev.totalServiceCents += safeInt(op.customerChargeCents, 0);
       prev.salesCount += 1;
       map.set(key, prev);
     }
@@ -534,7 +610,10 @@ export async function GET(req: Request) {
       endDate,
       totals: {
         salesCount,
+        balcaoOpsCount,
         totalSoldCents,
+        totalSoldSalesCents,
+        totalSoldBalcaoCents,
         profitTotalCents, // SEM 8%
         salesProfitTotalCents,
         balcaoNetProfitCents,

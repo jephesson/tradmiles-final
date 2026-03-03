@@ -187,7 +187,10 @@ function addResumoSheet(
     startDate: string;
     endDate: string;
     salesCount: number;
+    balcaoOpsCount: number;
     totalSoldCents: number;
+    totalSoldSalesCents: number;
+    totalSoldBalcaoCents: number;
     salesProfitTotalCents: number;
     balcaoNetProfitCents: number;
     profitTotalCents: number;
@@ -212,9 +215,12 @@ function addResumoSheet(
   ws.addRow({ campo: "Período (início)", valor: args.startDate });
   ws.addRow({ campo: "Período (fim)", valor: args.endDate });
   ws.addRow({ campo: "Nº de vendas", valor: args.salesCount });
+  ws.addRow({ campo: "Nº de operações balcão", valor: args.balcaoOpsCount });
 
-  const moneyRowsStart = ws.lastRow ? ws.lastRow.number + 1 : 7;
-  ws.addRow({ campo: "Total vendido (vendas)", valor: args.totalSoldCents / 100 });
+  const moneyRowsStart = ws.lastRow ? ws.lastRow.number + 1 : 8;
+  ws.addRow({ campo: "Total vendido (vendas)", valor: args.totalSoldSalesCents / 100 });
+  ws.addRow({ campo: "Total vendido (balcão)", valor: args.totalSoldBalcaoCents / 100 });
+  ws.addRow({ campo: "Total vendido (geral)", valor: args.totalSoldCents / 100 });
   ws.addRow({ campo: "Lucro vendas (sem 8%)", valor: args.salesProfitTotalCents / 100 });
   ws.addRow({ campo: "Lucro líquido balcão", valor: args.balcaoNetProfitCents / 100 });
   ws.addRow({ campo: "Lucro total período", valor: args.profitTotalCents / 100 });
@@ -224,7 +230,7 @@ function addResumoSheet(
   for (let r = 2; r < moneyRowsStart; r++) {
     ws.getCell(`B${r}`).alignment = { horizontal: "left", vertical: "middle" };
   }
-  for (let r = moneyRowsStart; r < moneyRowsStart + 6; r++) {
+  for (let r = moneyRowsStart; r < moneyRowsStart + 8; r++) {
     ws.getCell(`B${r}`).numFmt = '"R$"#,##0.00;[Red]-"R$"#,##0.00';
     ws.getCell(`B${r}`).alignment = { horizontal: "right", vertical: "middle" };
   }
@@ -507,6 +513,30 @@ export async function GET(req: Request) {
       take: 50000,
     });
 
+    // operações de balcão no mesmo período (filtro por dia de Recife)
+    const balcaoStart = recifeStartDate(startDate);
+    const balcaoEnd = recifeStartDate(endExclusive);
+    const balcaoOps = await prisma.balcaoOperacao.findMany({
+      where: {
+        team,
+        createdAt: { gte: balcaoStart, lt: balcaoEnd },
+      },
+      select: {
+        id: true,
+        locator: true,
+        createdAt: true,
+        customerChargeCents: true,
+        finalCliente: {
+          select: { nome: true, identificador: true, cpfCnpj: true },
+        },
+      },
+      orderBy: [{ createdAt: "asc" }],
+    });
+
+    const totalSoldSalesCents = sales.reduce((acc, s) => acc + (s.totalCents || 0), 0);
+    const totalSoldBalcaoCents = balcaoOps.reduce((acc, op) => acc + (op.customerChargeCents || 0), 0);
+    const totalSoldCents = totalSoldSalesCents + totalSoldBalcaoCents;
+
     if (mode === "model") {
       // ✅ igual preview: agrupa por doc + nome (não por cliente.id)
       const map = new Map<
@@ -529,6 +559,25 @@ export async function GET(req: Request) {
         };
 
         prev.totalServiceCents += s.totalCents || 0;
+        prev.salesCount += 1;
+        map.set(key, prev);
+      }
+
+      for (const op of balcaoOps) {
+        const doc = cleanDoc(op?.finalCliente?.cpfCnpj || op?.finalCliente?.identificador || "") || "";
+        const cpfCnpjDisplay = op?.finalCliente?.cpfCnpj || op?.finalCliente?.identificador || "—";
+        const nome = op?.finalCliente?.nome || "—";
+        const key = `${doc}::${nome}`;
+
+        const prev = map.get(key) || {
+          key,
+          cpfCnpj: cpfCnpjDisplay,
+          nome,
+          totalServiceCents: 0,
+          salesCount: 0,
+        };
+
+        prev.totalServiceCents += safeInt(op.customerChargeCents, 0);
         prev.salesCount += 1;
         map.set(key, prev);
       }
@@ -600,7 +649,10 @@ export async function GET(req: Request) {
         startDate,
         endDate,
         salesCount: sales.length,
-        totalSoldCents: sales.reduce((acc, s) => acc + (s.totalCents || 0), 0),
+        balcaoOpsCount: balcaoOps.length,
+        totalSoldCents,
+        totalSoldSalesCents,
+        totalSoldBalcaoCents,
         salesProfitTotalCents,
         balcaoNetProfitCents,
         profitTotalCents,
@@ -628,15 +680,20 @@ export async function GET(req: Request) {
     }
 
     // RAW (detalhado): rateia por venda
-    const profitBySale = splitProfitProportional(
-      sales.map((s) => ({ key: s.id, totalCents: s.totalCents || 0 })),
+    const splitItems = [
+      ...sales.map((s) => ({ key: `SALE:${s.id}`, totalCents: s.totalCents || 0 })),
+      ...balcaoOps.map((op) => ({ key: `BALCAO:${op.id}`, totalCents: op.customerChargeCents || 0 })),
+    ];
+
+    const profitByItem = splitProfitProportional(
+      splitItems,
       profitAfterLossCents
     );
 
-    const rowsRaw = sales.map((s) => {
+    const rowsRawSales = sales.map((s) => {
       const cpfCnpjDisplay = s?.cliente?.cpfCnpj || s?.cliente?.identificador || "—";
       const nome = s?.cliente?.nome || "—";
-      const lucroCents = profitBySale.get(s.id) || 0;
+      const lucroCents = profitByItem.get(`SALE:${s.id}`) || 0;
 
       // ✅ igual preview: não deixa dedução negativa
       const deducaoCents = Math.max(0, (s.totalCents || 0) - lucroCents);
@@ -651,6 +708,34 @@ export async function GET(req: Request) {
         deducaoCents,
         lucroCents,
       };
+    });
+
+    const rowsRawBalcao = balcaoOps.map((op) => {
+      const cpfCnpjDisplay =
+        op.finalCliente?.cpfCnpj || op.finalCliente?.identificador || "—";
+      const nome = op.finalCliente?.nome || "—";
+      const totalCents = safeInt(op.customerChargeCents, 0);
+      const lucroCents = profitByItem.get(`BALCAO:${op.id}`) || 0;
+      const deducaoCents = Math.max(0, totalCents - lucroCents);
+      const numero =
+        (op.locator || "").trim() ||
+        `BALCAO-${String(op.id || "").slice(-6).toUpperCase()}`;
+
+      return {
+        date: recifeDateISO(op.createdAt),
+        numero,
+        status: "BALCAO",
+        cpfCnpj: cpfCnpjDisplay,
+        nome,
+        totalCents,
+        deducaoCents,
+        lucroCents,
+      };
+    });
+
+    const rowsRaw = [...rowsRawSales, ...rowsRawBalcao].sort((a, b) => {
+      if (a.date !== b.date) return a.date.localeCompare(b.date);
+      return String(a.numero || "").localeCompare(String(b.numero || ""));
     });
 
     const wb = new ExcelJS.Workbook();
@@ -697,7 +782,10 @@ export async function GET(req: Request) {
       startDate,
       endDate,
       salesCount: sales.length,
-      totalSoldCents: sales.reduce((acc, s) => acc + (s.totalCents || 0), 0),
+      balcaoOpsCount: balcaoOps.length,
+      totalSoldCents,
+      totalSoldSalesCents,
+      totalSoldBalcaoCents,
       salesProfitTotalCents,
       balcaoNetProfitCents,
       profitTotalCents,
