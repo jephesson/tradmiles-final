@@ -107,6 +107,24 @@ const CHART_COLORS = [
   "#64748b",
 ];
 
+// Histórico legado (planilhas, antes da adoção completa do sistema).
+// Valores em centavos para somar no gráfico mensal de vendas totais.
+const LEGACY_MONTHLY_SALES_CENTS: Record<string, number> = {
+  "2025-01": 10725068, // jan/25
+  "2025-02": 21868580, // fev/25
+  "2025-03": 18793356, // mar/25
+  "2025-04": 18580911, // abr/25
+  "2025-05": 32062719, // mai/25
+  "2025-06": 19673470, // jun/25
+  "2025-07": 31298648, // jul/25
+  "2025-08": 30523430, // ago/25
+  "2025-09": 26890103, // set/25
+  "2025-10": 24495860, // out/25
+  "2025-11": 37839903, // nov/25
+  "2025-12": 24039846, // dez/25
+  "2026-01": 7547272, // jan/26 (parcial antigo) -> soma ao que já existe no TradeMiles
+};
+
 function Card({
   title,
   value,
@@ -967,6 +985,9 @@ export default function AnaliseDadosClient() {
       x: String(m.label || m.key || ""),
       y:
         Number(m.grossCents || 0) +
+        (chartMode === "MONTH"
+          ? Number(LEGACY_MONTHLY_SALES_CENTS[String(m.key || "")] || 0)
+          : 0) +
         (chartMode === "DAY"
           ? Number(balcaoDaySoldByKey.get(String(m.key || "")) || 0)
           : Number(balcaoMonthSoldByKey.get(String(m.key || "")) || 0)),
@@ -980,6 +1001,7 @@ export default function AnaliseDadosClient() {
       (acc, row) =>
         acc +
         Number(row?.grossCents || 0) +
+        Number(LEGACY_MONTHLY_SALES_CENTS[String(row?.key || "")] || 0) +
         Number(balcaoMonthSoldByKey.get(String(row?.key || "")) || 0),
       0
     );
