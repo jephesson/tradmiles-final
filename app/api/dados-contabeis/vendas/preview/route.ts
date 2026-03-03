@@ -2,6 +2,14 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/auth-server";
+import {
+  balcaoProfitSemTaxaCents,
+  buildTaxRule,
+  netProfitAfterTaxCents,
+  recifeDateISO,
+  resolveTaxPercent,
+  taxFromProfitCents,
+} from "@/lib/balcao-commission";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -61,6 +69,54 @@ function cleanDoc(v: string) {
 function safeInt(v: unknown, fb = 0) {
   const n = Number(v);
   return Number.isFinite(n) ? Math.trunc(n) : fb;
+}
+
+function recifeStartDate(isoDate: string) {
+  return new Date(`${isoDate}T00:00:00-03:00`);
+}
+
+async function computeBalcaoNetProfitCents(
+  team: string,
+  startDateISO: string,
+  endExclusiveISO: string
+) {
+  const settings = await prisma.settings.upsert({
+    where: { key: "default" },
+    create: { key: "default" },
+    update: {},
+    select: { taxPercent: true, taxEffectiveFrom: true },
+  });
+  const taxRule = buildTaxRule(settings);
+
+  const rangeStart = recifeStartDate(startDateISO);
+  const rangeEnd = recifeStartDate(endExclusiveISO);
+
+  const rows = await prisma.balcaoOperacao.findMany({
+    where: {
+      team,
+      createdAt: { gte: rangeStart, lt: rangeEnd },
+    },
+    select: {
+      createdAt: true,
+      customerChargeCents: true,
+      supplierPayCents: true,
+      boardingFeeCents: true,
+    },
+  });
+
+  let totalNet = 0;
+  for (const row of rows) {
+    const gross = balcaoProfitSemTaxaCents({
+      customerChargeCents: row.customerChargeCents,
+      supplierPayCents: row.supplierPayCents,
+      boardingFeeCents: row.boardingFeeCents,
+    });
+    const taxPercent = resolveTaxPercent(recifeDateISO(row.createdAt), taxRule);
+    const taxCents = taxFromProfitCents(gross, taxPercent);
+    totalNet += netProfitAfterTaxCents(gross, taxCents);
+  }
+
+  return totalNet;
 }
 
 /**
@@ -353,12 +409,22 @@ export async function GET(req: Request) {
     const salesCount = sales.length;
     const totalSoldCents = sales.reduce((a, s) => a + (s.totalCents || 0), 0);
 
-    // ✅ lucro do período (time) = soma grossProfitCents (SEM 8%)
+    // ✅ lucro do período (vendas) = soma grossProfitCents (SEM 8%)
     const lucroAgg = await prisma.employeePayout.aggregate({
       where: { team, date: { gte: startDate, lt: endExclusive } },
       _sum: { grossProfitCents: true },
     });
-    const profitTotalCents = Number(lucroAgg._sum.grossProfitCents || 0);
+    const salesProfitTotalCents = Number(lucroAgg._sum.grossProfitCents || 0);
+
+    // ✅ lucro líquido do balcão no mesmo período
+    const balcaoNetProfitCents = await computeBalcaoNetProfitCents(
+      team,
+      startDate,
+      endExclusive
+    );
+
+    // ✅ lucro total = vendas + balcão
+    const profitTotalCents = salesProfitTotalCents + balcaoNetProfitCents;
 
     // ✅ PREJUÍZO DO MÊS (idêntico ao /prejuizo) — só quando filtro é mês inteiro
     const applyLoss = !date;
@@ -470,6 +536,8 @@ export async function GET(req: Request) {
         salesCount,
         totalSoldCents,
         profitTotalCents, // SEM 8%
+        salesProfitTotalCents,
+        balcaoNetProfitCents,
         lossTotalCents, // ✅ igual /prejuizo
         profitAfterLossCents,
         totalDeductionCents: mode === "raw" ? totalDeductionRawCents : totalDeductionModelCents,

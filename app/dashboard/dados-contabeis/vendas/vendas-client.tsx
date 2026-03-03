@@ -99,8 +99,10 @@ type PreviewResp = {
     salesCount: number;
     totalSoldCents: number;
 
-    // ✅ lucro do período (sem 8%)
+    // ✅ lucro do período (vendas sem 8% + balcão líquido)
     profitTotalCents: number;
+    salesProfitTotalCents?: number;
+    balcaoNetProfitCents?: number;
 
     // ✅ prejuízo do mês (negativo ou 0) e lucro tributável (>= 0)
     lossTotalCents: number;
@@ -200,7 +202,7 @@ export default function VendasDadosContabeisClient() {
         <div className="space-y-1">
           <h1 className="text-lg font-semibold">Dados contábeis — Vendas</h1>
           <p className="text-sm text-neutral-500">
-            Lucro do período = <b>soma do grossProfitCents (SEM 8%)</b>. <br />
+            Lucro do período = <b>vendas (grossProfitCents, sem 8%) + balcão (líquido)</b>. <br />
             Lucro tributável = <b>lucro − prejuízos do mês</b> (compras finalizadas com lucro negativo).{" "}
             {isModel ? (
               <>O rateio é proporcional ao total vendido por cliente.</>
@@ -362,14 +364,15 @@ export default function VendasDadosContabeisClient() {
       </div>
 
       {/* KPIs */}
-      <div className="grid grid-cols-2 gap-2 md:grid-cols-5">
+      <div className="grid grid-cols-2 gap-2 md:grid-cols-6">
         <KPI label="Nº de vendas" value={String(totals.salesCount || 0)} />
         <KPI label="Total vendido" value={fmtMoneyBRFromCents(totals.totalSoldCents || 0)} />
-        <KPI label="Lucro (sem 8%)" value={fmtMoneyBRFromCents(totals.profitTotalCents || 0)} />
+        <KPI label="Lucro vendas (sem 8%)" value={fmtMoneyBRFromCents(totals.salesProfitTotalCents || 0)} />
+        <KPI label="Lucro líquido balcão" value={fmtMoneyBRFromCents(totals.balcaoNetProfitCents || 0)} />
+        <KPI label="Lucro total período" value={fmtMoneyBRFromCents(totals.profitTotalCents || 0)} />
 
         {/* Observação: mesmo filtrando por DIA, o prejuízo é do MÊS (pra base fiscal) */}
         <KPI label="Prejuízo do mês" value={fmtMoneyBRFromCents(totals.lossTotalCents || 0)} />
-
         <KPI label="Lucro tributável" value={fmtMoneyBRFromCents(totals.profitAfterLossCents || 0)} />
       </div>
 

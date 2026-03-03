@@ -2,6 +2,14 @@ import { NextResponse } from "next/server";
 import ExcelJS from "exceljs";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/auth-server";
+import {
+  balcaoProfitSemTaxaCents,
+  buildTaxRule,
+  netProfitAfterTaxCents,
+  recifeDateISO,
+  resolveTaxPercent,
+  taxFromProfitCents,
+} from "@/lib/balcao-commission";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -64,6 +72,54 @@ function safeInt(v: unknown, fb = 0) {
   return Number.isFinite(n) ? Math.trunc(n) : fb;
 }
 
+function recifeStartDate(isoDate: string) {
+  return new Date(`${isoDate}T00:00:00-03:00`);
+}
+
+async function computeBalcaoNetProfitCents(
+  team: string,
+  startDateISO: string,
+  endExclusiveISO: string
+) {
+  const settings = await prisma.settings.upsert({
+    where: { key: "default" },
+    create: { key: "default" },
+    update: {},
+    select: { taxPercent: true, taxEffectiveFrom: true },
+  });
+  const taxRule = buildTaxRule(settings);
+
+  const rangeStart = recifeStartDate(startDateISO);
+  const rangeEnd = recifeStartDate(endExclusiveISO);
+
+  const rows = await prisma.balcaoOperacao.findMany({
+    where: {
+      team,
+      createdAt: { gte: rangeStart, lt: rangeEnd },
+    },
+    select: {
+      createdAt: true,
+      customerChargeCents: true,
+      supplierPayCents: true,
+      boardingFeeCents: true,
+    },
+  });
+
+  let totalNet = 0;
+  for (const row of rows) {
+    const gross = balcaoProfitSemTaxaCents({
+      customerChargeCents: row.customerChargeCents,
+      supplierPayCents: row.supplierPayCents,
+      boardingFeeCents: row.boardingFeeCents,
+    });
+    const taxPercent = resolveTaxPercent(recifeDateISO(row.createdAt), taxRule);
+    const taxCents = taxFromProfitCents(gross, taxPercent);
+    totalNet += netProfitAfterTaxCents(gross, taxCents);
+  }
+
+  return totalNet;
+}
+
 /**
  * ✅ Rateio proporcional (idêntico ao preview)
  * Só rateia se totalProfitCents > 0, senão tudo 0
@@ -118,6 +174,59 @@ function styleHeaderRow(ws: ExcelJS.Worksheet, lastCol: number) {
       bottom: { style: "thin", color: { argb: "FFBDBDBD" } },
       right: { style: "thin", color: { argb: "FFBDBDBD" } },
     };
+  }
+}
+
+function addResumoSheet(
+  wb: ExcelJS.Workbook,
+  args: {
+    scopeMonth: string;
+    date: string;
+    status: string;
+    mode: "model" | "raw";
+    startDate: string;
+    endDate: string;
+    salesCount: number;
+    totalSoldCents: number;
+    salesProfitTotalCents: number;
+    balcaoNetProfitCents: number;
+    profitTotalCents: number;
+    lossTotalCents: number;
+    profitAfterLossCents: number;
+  }
+) {
+  const ws = wb.addWorksheet("Resumo");
+
+  ws.columns = [
+    { header: "Campo", key: "campo", width: 42 },
+    { header: "Valor", key: "valor", width: 30 },
+  ];
+  styleHeaderRow(ws, 2);
+
+  const modeLabel = args.mode === "model" ? "Modelo (agrupado por cliente)" : "Detalhado (uma linha por venda)";
+  const scopeLabel = args.date ? `Dia ${args.date}` : `Mês ${args.scopeMonth}`;
+
+  ws.addRow({ campo: "Escopo", valor: scopeLabel });
+  ws.addRow({ campo: "Status (filtro de vendas)", valor: args.status });
+  ws.addRow({ campo: "Visualização", valor: modeLabel });
+  ws.addRow({ campo: "Período (início)", valor: args.startDate });
+  ws.addRow({ campo: "Período (fim)", valor: args.endDate });
+  ws.addRow({ campo: "Nº de vendas", valor: args.salesCount });
+
+  const moneyRowsStart = ws.lastRow ? ws.lastRow.number + 1 : 7;
+  ws.addRow({ campo: "Total vendido (vendas)", valor: args.totalSoldCents / 100 });
+  ws.addRow({ campo: "Lucro vendas (sem 8%)", valor: args.salesProfitTotalCents / 100 });
+  ws.addRow({ campo: "Lucro líquido balcão", valor: args.balcaoNetProfitCents / 100 });
+  ws.addRow({ campo: "Lucro total período", valor: args.profitTotalCents / 100 });
+  ws.addRow({ campo: "Prejuízo do mês", valor: args.lossTotalCents / 100 });
+  ws.addRow({ campo: "Lucro tributável", valor: args.profitAfterLossCents / 100 });
+
+  for (let r = 2; r < moneyRowsStart; r++) {
+    ws.getCell(`B${r}`).alignment = { horizontal: "left", vertical: "middle" };
+  }
+  for (let r = moneyRowsStart; r < moneyRowsStart + 6; r++) {
+    ws.getCell(`B${r}`).numFmt = '"R$"#,##0.00;[Red]-"R$"#,##0.00';
+    ws.getCell(`B${r}`).alignment = { horizontal: "right", vertical: "middle" };
   }
 }
 
@@ -353,12 +462,22 @@ export async function GET(req: Request) {
     const paymentStatusWhere =
       status === "PAID" ? "PAID" : status === "PENDING" ? "PENDING" : undefined;
 
-    // ✅ lucro do período (SEM 8%) — igual preview
+    // ✅ lucro do período (vendas, SEM 8%) — igual preview
     const lucroAgg = await prisma.employeePayout.aggregate({
       where: { team, date: { gte: startDate, lt: endExclusive } },
       _sum: { grossProfitCents: true },
     });
-    const profitTotalCents = Number(lucroAgg._sum.grossProfitCents || 0);
+    const salesProfitTotalCents = Number(lucroAgg._sum.grossProfitCents || 0);
+
+    // ✅ lucro líquido do balcão no mesmo período
+    const balcaoNetProfitCents = await computeBalcaoNetProfitCents(
+      team,
+      startDate,
+      endExclusive
+    );
+
+    // ✅ lucro total = vendas + balcão
+    const profitTotalCents = salesProfitTotalCents + balcaoNetProfitCents;
 
     // ✅ prejuízo do mês — IGUAL preview (/prejuizo-like) e só quando é mês inteiro
     const applyLoss = !date;
@@ -472,6 +591,23 @@ export async function GET(req: Request) {
 
       ws.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: 6 } };
 
+      const endDate = addDaysISO(endExclusive, -1);
+      addResumoSheet(wb, {
+        scopeMonth,
+        date,
+        status,
+        mode,
+        startDate,
+        endDate,
+        salesCount: sales.length,
+        totalSoldCents: sales.reduce((acc, s) => acc + (s.totalCents || 0), 0),
+        salesProfitTotalCents,
+        balcaoNetProfitCents,
+        profitTotalCents,
+        lossTotalCents,
+        profitAfterLossCents,
+      });
+
       const buf = await wb.xlsx.writeBuffer();
       const label = date ? `vendas_${date}` : `vendas_${scopeMonth}`;
 
@@ -483,6 +619,8 @@ export async function GET(req: Request) {
           "Content-Disposition": `attachment; filename="${label}.xlsx"`,
           "Cache-Control": "no-store",
           "X-TM-Profit-Total": String(profitTotalCents),
+          "X-TM-Sales-Profit-Total": String(salesProfitTotalCents),
+          "X-TM-Balcao-Net-Profit-Total": String(balcaoNetProfitCents),
           "X-TM-Loss-Total": String(lossTotalCents),
           "X-TM-Profit-After-Loss": String(profitAfterLossCents),
         },
@@ -550,6 +688,23 @@ export async function GET(req: Request) {
 
     ws.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: 8 } };
 
+    const endDate = addDaysISO(endExclusive, -1);
+    addResumoSheet(wb, {
+      scopeMonth,
+      date,
+      status,
+      mode,
+      startDate,
+      endDate,
+      salesCount: sales.length,
+      totalSoldCents: sales.reduce((acc, s) => acc + (s.totalCents || 0), 0),
+      salesProfitTotalCents,
+      balcaoNetProfitCents,
+      profitTotalCents,
+      lossTotalCents,
+      profitAfterLossCents,
+    });
+
     const buf = await wb.xlsx.writeBuffer();
     const label = date ? `vendas_${date}_raw` : `vendas_${scopeMonth}_raw`;
 
@@ -561,6 +716,8 @@ export async function GET(req: Request) {
         "Content-Disposition": `attachment; filename="${label}.xlsx"`,
         "Cache-Control": "no-store",
         "X-TM-Profit-Total": String(profitTotalCents),
+        "X-TM-Sales-Profit-Total": String(salesProfitTotalCents),
+        "X-TM-Balcao-Net-Profit-Total": String(balcaoNetProfitCents),
         "X-TM-Loss-Total": String(lossTotalCents),
         "X-TM-Profit-After-Loss": String(profitAfterLossCents),
       },
