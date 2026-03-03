@@ -90,6 +90,10 @@ function n(v: any) {
   return Number.isFinite(x) ? x : 0;
 }
 
+function cpfDisponivel(limit: number, used: number) {
+  return Math.max(0, n(limit) - n(used));
+}
+
 function fmtInt(n: number) {
   return new Intl.NumberFormat("pt-BR").format(n || 0);
 }
@@ -665,7 +669,7 @@ export default function StrategyCompraClient() {
                   <th className="p-3">Resolução</th>
                   <th className="p-3">Confiança</th>
                   <th className="p-3">CPF disponível LATAM</th>
-                  <th className="p-3">Limite/Usado</th>
+                  <th className="p-3">Disponível</th>
                 </tr>
               </thead>
               <tbody>
@@ -691,8 +695,8 @@ export default function StrategyCompraClient() {
                     <td className="p-3">{fmtScore(r.score?.resolucaoProblema)}</td>
                     <td className="p-3">{fmtScore(r.score?.confianca)}</td>
                     <td className="p-3 font-semibold">{fmtInt(r.cpfAvailableLatam || 0)}</td>
-                    <td className="p-3">
-                      {fmtInt(r.cpfLimit || 0)} / {fmtInt(r.cpfUsed || 0)}
+                    <td className="p-3 font-semibold">
+                      {fmtInt(cpfDisponivel(r.cpfLimit || 0, r.cpfUsed || 0))}
                     </td>
                   </tr>
                 ))}
