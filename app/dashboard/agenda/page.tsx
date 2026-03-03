@@ -53,12 +53,10 @@ function isoFromBR(br: string) {
   const [d, m, y] = br.split("/");
   return `${y}-${m}-${d}`;
 }
-function weekdayMonIndexUTC(iso: string) {
-  // 0 = Monday ... 6 = Sunday
+function weekdaySunIndexUTC(iso: string) {
+  // 0 = Sunday ... 6 = Saturday
   const dt = new Date(`${iso}T12:00:00.000Z`);
-  const js = dt.getUTCDay(); // 0 Sunday ... 6 Saturday
-  const mon = (js + 6) % 7;
-  return mon;
+  return dt.getUTCDay();
 }
 function hexToRgba(hex: string, a: number) {
   const h = hex.replace("#", "");
@@ -252,7 +250,7 @@ export default function AgendaPage() {
     const m = Number(mStr);
 
     const firstISO = isoFromYMD(y, m, 1);
-    const offset = weekdayMonIndexUTC(firstISO); // quantos vazios antes do dia 1 (segunda=0)
+    const offset = weekdaySunIndexUTC(firstISO); // quantos vazios antes do dia 1 (domingo=0)
     const cells: Array<{ iso: string | null; day: number | null }> = [];
 
     for (let i = 0; i < offset; i++) cells.push({ iso: null, day: null });
@@ -342,7 +340,7 @@ export default function AgendaPage() {
       {view === "MES" && (
         <div className="border rounded-xl p-4">
           <div className="grid grid-cols-7 gap-2 text-xs font-semibold text-slate-600 mb-2">
-            <div>Seg</div><div>Ter</div><div>Qua</div><div>Qui</div><div>Sex</div><div>Sáb</div><div>Dom</div>
+            <div>Dom</div><div>Seg</div><div>Ter</div><div>Qua</div><div>Qui</div><div>Sex</div><div>Sáb</div>
           </div>
 
           <div className="grid grid-cols-7 gap-2">
@@ -693,11 +691,10 @@ function WeekList({
   onPick: (ev: AgendaEvent) => void;
   onJump: (iso: string) => void;
 }) {
-  // segunda-feira da semana do selectedISO
+  // domingo da semana do selectedISO
   const dt = new Date(`${selectedISO}T12:00:00.000Z`);
-  const js = dt.getUTCDay(); // 0..6 (dom..sab)
-  const monShift = (js + 6) % 7; // 0 se já for segunda
-  dt.setUTCDate(dt.getUTCDate() - monShift);
+  const sunShift = dt.getUTCDay(); // 0..6 (dom..sab)
+  dt.setUTCDate(dt.getUTCDate() - sunShift);
 
   const days = Array.from({ length: 7 }).map((_, i) => {
     const d = new Date(dt.getTime());
