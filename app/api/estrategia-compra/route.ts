@@ -12,7 +12,13 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-type Mode = "AVAILABILITY" | "CLUB" | "COMBINED" | "BIRTHDAY_TURBO" | "BIRTHDAY_LATAM";
+type Mode =
+  | "AVAILABILITY"
+  | "CLUB"
+  | "COMBINED"
+  | "BIRTHDAY_TURBO"
+  | "BIRTHDAY_LATAM"
+  | "HIGH_SCORE_CPF";
 type ClubStatusOut = "ACTIVE" | "PAUSED" | "CANCELED" | "NONE";
 
 const TURBO_MONTH_LIMIT = 100_000;
@@ -215,6 +221,20 @@ function scoreRow(opts: {
   if (row.clubStatus === "PAUSED") score += 35;
 
   return score;
+}
+
+function scoreMediaCedente(score?: {
+  rapidezBiometria?: number;
+  rapidezSms?: number;
+  resolucaoProblema?: number;
+  confianca?: number;
+} | null) {
+  const a = Number(score?.rapidezBiometria || 0);
+  const b = Number(score?.rapidezSms || 0);
+  const c = Number(score?.resolucaoProblema || 0);
+  const d = Number(score?.confianca || 0);
+  const avg = (a + b + c + d) / 4;
+  return Math.round(avg * 100) / 100;
 }
 
 export async function POST(req: NextRequest) {
@@ -479,6 +499,107 @@ export async function POST(req: NextRequest) {
               }
             : {}),
         },
+      },
+      { headers: noCacheHeaders() }
+    );
+  }
+
+  // ======= MODE: Score alto + maior CPF LATAM disponível
+  if (mode === "HIGH_SCORE_CPF") {
+    const cedentes = await prisma.cedente.findMany({
+      where: {
+        status: CedenteStatus.APPROVED,
+        owner: { team },
+      },
+      select: {
+        id: true,
+        identificador: true,
+        nomeCompleto: true,
+        cpf: true,
+        owner: { select: { id: true, name: true, login: true } },
+        score: {
+          select: {
+            rapidezBiometria: true,
+            rapidezSms: true,
+            resolucaoProblema: true,
+            confianca: true,
+          },
+        },
+        latamTurboAccount: {
+          select: { cpfLimit: true, cpfUsed: true },
+        },
+      },
+      orderBy: [{ nomeCompleto: "asc" }],
+    });
+
+    if (!cedentes.length) {
+      return NextResponse.json(
+        {
+          ok: true,
+          rows: [],
+          meta: { base: "LATAM_365D" },
+        },
+        { headers: noCacheHeaders() }
+      );
+    }
+
+    const cedenteIds = cedentes.map((c) => c.id);
+    const { start: yStart, end: yEnd } = boundsLast365UTC();
+
+    const usedAgg = await prisma.emissionEvent.groupBy({
+      by: ["cedenteId"],
+      where: {
+        program: LoyaltyProgram.LATAM,
+        issuedAt: { gte: yStart, lte: yEnd },
+        cedenteId: { in: cedenteIds },
+      },
+      _sum: { passengersCount: true },
+    });
+
+    const usedCalcByCedente = new Map<string, number>(
+      usedAgg.map((x) => [x.cedenteId, Number(x._sum.passengersCount || 0)])
+    );
+
+    const rows = cedentes.map((c) => {
+      const scoreMedia = scoreMediaCedente(c.score);
+
+      const acc = c.latamTurboAccount || { cpfLimit: 25, cpfUsed: 0 };
+      const cpfLimit = clampInt(safeInt(acc.cpfLimit, 25), 0, 999);
+      const usedCalc = clampInt(safeInt(usedCalcByCedente.get(c.id) ?? 0, 0), 0, 999);
+      const usedManual = clampInt(safeInt(acc.cpfUsed, 0), 0, 999);
+      const cpfUsed = Math.max(usedCalc, usedManual);
+      const cpfAvailableLatam = Math.max(0, cpfLimit - cpfUsed);
+
+      return {
+        cedenteId: c.id,
+        cedenteNome: c.nomeCompleto,
+        cedenteIdentificador: c.identificador,
+        cpf: c.cpf,
+        owner: c.owner,
+        scoreMedia,
+        score: {
+          rapidezBiometria: Number(c.score?.rapidezBiometria || 0),
+          rapidezSms: Number(c.score?.rapidezSms || 0),
+          resolucaoProblema: Number(c.score?.resolucaoProblema || 0),
+          confianca: Number(c.score?.confianca || 0),
+        },
+        cpfLimit,
+        cpfUsed,
+        cpfAvailableLatam,
+      };
+    });
+
+    rows.sort((a, b) => {
+      if (b.scoreMedia !== a.scoreMedia) return b.scoreMedia - a.scoreMedia;
+      if (b.cpfAvailableLatam !== a.cpfAvailableLatam) return b.cpfAvailableLatam - a.cpfAvailableLatam;
+      return a.cedenteNome.localeCompare(b.cedenteNome);
+    });
+
+    return NextResponse.json(
+      {
+        ok: true,
+        rows,
+        meta: { base: "LATAM_365D" },
       },
       { headers: noCacheHeaders() }
     );

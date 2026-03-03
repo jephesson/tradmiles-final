@@ -3,7 +3,13 @@
 import { useMemo, useState } from "react";
 
 type Program = "LATAM" | "SMILES" | "LIVELO" | "ESFERA";
-type Mode = "AVAILABILITY" | "CLUB" | "COMBINED" | "BIRTHDAY_TURBO" | "BIRTHDAY_LATAM";
+type Mode =
+  | "AVAILABILITY"
+  | "CLUB"
+  | "COMBINED"
+  | "BIRTHDAY_TURBO"
+  | "BIRTHDAY_LATAM"
+  | "HIGH_SCORE_CPF";
 
 type ClubStatus = "ACTIVE" | "PAUSED" | "CANCELED" | "NONE";
 
@@ -59,7 +65,25 @@ type BirthdayLatamRow = {
   clubPlan: string | null;
 };
 
-type StrategyRow = ResultRow | BirthdayTurboRow | BirthdayLatamRow;
+type HighScoreCpfRow = {
+  cedenteId: string;
+  cedenteNome: string;
+  cedenteIdentificador?: string | null;
+  cpf: string;
+  owner: Owner;
+  scoreMedia: number;
+  score: {
+    rapidezBiometria: number;
+    rapidezSms: number;
+    resolucaoProblema: number;
+    confianca: number;
+  };
+  cpfLimit: number;
+  cpfUsed: number;
+  cpfAvailableLatam: number;
+};
+
+type StrategyRow = ResultRow | BirthdayTurboRow | BirthdayLatamRow | HighScoreCpfRow;
 
 function n(v: any) {
   const x = Number(v);
@@ -80,6 +104,27 @@ function fmtDateBR(iso: string | null | undefined) {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "-";
   return d.toLocaleDateString("pt-BR");
+}
+
+function normalizeScore(v: unknown) {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return 0;
+  return Math.max(0, Math.min(10, Math.round(n * 100) / 100));
+}
+
+function fmtScore(v: unknown) {
+  return normalizeScore(v).toLocaleString("pt-BR", {
+    minimumFractionDigits: 1,
+    maximumFractionDigits: 1,
+  });
+}
+
+function scoreBadgeClass(v: unknown) {
+  const s = normalizeScore(v);
+  if (s >= 8) return "border-emerald-200 bg-emerald-50 text-emerald-700";
+  if (s >= 6) return "border-amber-200 bg-amber-50 text-amber-700";
+  if (s >= 4) return "border-orange-200 bg-orange-50 text-orange-700";
+  return "border-rose-200 bg-rose-50 text-rose-700";
 }
 
 export default function StrategyCompraClient() {
@@ -110,7 +155,7 @@ export default function StrategyCompraClient() {
   const [error, setError] = useState<string | null>(null);
 
   const payload = useMemo(() => {
-    if (mode === "BIRTHDAY_TURBO" || mode === "BIRTHDAY_LATAM") {
+    if (mode === "BIRTHDAY_TURBO" || mode === "BIRTHDAY_LATAM" || mode === "HIGH_SCORE_CPF") {
       return { mode };
     }
     if (mode === "AVAILABILITY") {
@@ -208,6 +253,15 @@ export default function StrategyCompraClient() {
     return birthdayLatamRows.reduce((acc, r) => acc + (r.cpfAvailableLatam || 0), 0);
   }, [birthdayLatamRows]);
 
+  const highScoreCpfRows = useMemo(() => {
+    if (mode !== "HIGH_SCORE_CPF") return [];
+    return rows as HighScoreCpfRow[];
+  }, [rows, mode]);
+
+  const totalHighScoreCpfAvailable = useMemo(() => {
+    return highScoreCpfRows.reduce((acc, r) => acc + (r.cpfAvailableLatam || 0), 0);
+  }, [highScoreCpfRows]);
+
   return (
     <div className="p-6 space-y-6">
       <div className="flex items-start justify-between gap-4">
@@ -238,6 +292,7 @@ export default function StrategyCompraClient() {
               className="mt-1 w-full border rounded-lg px-3 py-2"
             >
               <option value="BIRTHDAY_LATAM">Aniversário+Latam</option>
+              <option value="HIGH_SCORE_CPF">Score Alto + maior CPF disponível</option>
               <option value="BIRTHDAY_TURBO">Aniversário Livelo + Latam Turbo</option>
               <option value="AVAILABILITY">Estratégia por disponibilidade</option>
               <option value="CLUB">Estratégia por clube</option>
@@ -300,6 +355,15 @@ export default function StrategyCompraClient() {
             <div>2) Latam Turbo ativo no mês (se inativar, mostra a data de cancelamento)</div>
             <div>3) Transferido no mês &lt; 85.000</div>
             <div>Limite Latam Turbo: 100.000 por mês (1º ao último dia)</div>
+          </div>
+        )}
+
+        {mode === "HIGH_SCORE_CPF" && (
+          <div className="rounded-lg border bg-slate-50 p-3 text-sm text-slate-700">
+            <div className="font-medium">Regras deste modo</div>
+            <div>1) Ordena por score médio do cedente (0 a 10)</div>
+            <div>2) Critério de desempate: maior CPF disponível LATAM</div>
+            <div>3) Base do CPF disponível: janela LATAM de 365 dias + ajuste manual</div>
           </div>
         )}
 
@@ -452,6 +516,18 @@ export default function StrategyCompraClient() {
               </div>
               {meta?.monthKey && <div>Mês: {meta.monthKey}</div>}
             </div>
+          ) : mode === "HIGH_SCORE_CPF" ? (
+            <div className="flex flex-wrap items-center gap-4 text-sm text-neutral-600">
+              <div>
+                Cedentes:{" "}
+                <span className="font-semibold text-neutral-900">{highScoreCpfRows.length}</span>
+              </div>
+              <div>
+                CPF disponível LATAM (total):{" "}
+                <span className="font-semibold text-neutral-900">{fmtInt(totalHighScoreCpfAvailable)}</span>
+              </div>
+              <div>Ordenação: score médio ↓ e CPF disponível ↓</div>
+            </div>
           ) : (
             <div className="text-sm text-neutral-600">
               Resultados: <span className="font-semibold text-neutral-900">{rows.length}</span>
@@ -572,6 +648,59 @@ export default function StrategyCompraClient() {
                   <tr>
                     <td className="p-6 text-neutral-500" colSpan={6}>
                       Nenhum aniversariante encontrado neste mês. Clique em <b>Buscar</b>.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          ) : mode === "HIGH_SCORE_CPF" ? (
+            <table className="min-w-[1080px] w-full text-sm">
+              <thead className="bg-neutral-50">
+                <tr className="text-left">
+                  <th className="p-3">Cedente</th>
+                  <th className="p-3">Responsável</th>
+                  <th className="p-3">Score médio</th>
+                  <th className="p-3">Rapidez biometria</th>
+                  <th className="p-3">Rapidez SMS</th>
+                  <th className="p-3">Resolução</th>
+                  <th className="p-3">Confiança</th>
+                  <th className="p-3">CPF disponível LATAM</th>
+                  <th className="p-3">Limite/Usado</th>
+                </tr>
+              </thead>
+              <tbody>
+                {highScoreCpfRows.map((r) => (
+                  <tr key={r.cedenteId} className="border-t">
+                    <td className="p-3">
+                      <div className="font-medium">{r.cedenteNome}</div>
+                      {r.cedenteIdentificador ? (
+                        <div className="text-xs text-neutral-500">{r.cedenteIdentificador}</div>
+                      ) : null}
+                    </td>
+                    <td className="p-3">
+                      <div className="font-medium">{r.owner?.name || "-"}</div>
+                      <div className="text-xs text-neutral-500">@{r.owner?.login || "-"}</div>
+                    </td>
+                    <td className="p-3">
+                      <span className={`inline-flex rounded-full border px-2 py-0.5 text-xs font-semibold ${scoreBadgeClass(r.scoreMedia)}`}>
+                        {fmtScore(r.scoreMedia)}/10
+                      </span>
+                    </td>
+                    <td className="p-3">{fmtScore(r.score?.rapidezBiometria)}</td>
+                    <td className="p-3">{fmtScore(r.score?.rapidezSms)}</td>
+                    <td className="p-3">{fmtScore(r.score?.resolucaoProblema)}</td>
+                    <td className="p-3">{fmtScore(r.score?.confianca)}</td>
+                    <td className="p-3 font-semibold">{fmtInt(r.cpfAvailableLatam || 0)}</td>
+                    <td className="p-3">
+                      {fmtInt(r.cpfLimit || 0)} / {fmtInt(r.cpfUsed || 0)}
+                    </td>
+                  </tr>
+                ))}
+
+                {!highScoreCpfRows.length && (
+                  <tr>
+                    <td className="p-6 text-neutral-500" colSpan={9}>
+                      Nenhum resultado ainda. Clique em <b>Buscar</b>.
                     </td>
                   </tr>
                 )}
