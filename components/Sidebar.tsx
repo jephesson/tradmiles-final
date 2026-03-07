@@ -841,6 +841,9 @@ export default function Sidebar() {
               <NavLink href="/dashboard/contas-selecionadas/livelo/aniversario">
                 Aniversário
               </NavLink>
+              <NavLink href="/dashboard/contas-selecionadas/livelo/bonus-clube">
+                Bônus clube Livelo
+              </NavLink>
             </SubAccordion>
           </SubAccordion>
         </Accordion>

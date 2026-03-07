@@ -643,6 +643,7 @@ model ClubSubscription {
 
   subscribedAt DateTime
   renewalDay   Int @default(1)
+  monthlyBonusPoints Int @default(0)
 
   // controle operacional
   lastRenewedAt    DateTime?
