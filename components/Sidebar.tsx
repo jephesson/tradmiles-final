@@ -268,6 +268,9 @@ export default function Sidebar() {
   // ✅ NOVO: Agenda
   const isAgendaRoute = pathname.startsWith("/dashboard/agenda");
 
+  // ✅ NOVO: Anotações
+  const isAnotacoesRoute = pathname.startsWith("/dashboard/anotacoes");
+
   // ✅ NOVO: Atualização dos termos (em OUTROS)
   const isAtualizacaoTermosRoute = pathname.startsWith(
     "/dashboard/atualizacao-termos"
@@ -287,6 +290,7 @@ export default function Sidebar() {
     isAutomacaoRoute ||
     isWalletRoute ||
     isAgendaRoute ||
+    isAnotacoesRoute ||
     isAtualizacaoTermosRoute ||
     isHorarioBiometriaRoute;
 
@@ -1010,6 +1014,8 @@ export default function Sidebar() {
 
           {/* ✅ NOVO: Agenda */}
           <NavLink href="/dashboard/agenda">Agenda</NavLink>
+
+          <NavLink href="/dashboard/anotacoes">Anotações</NavLink>
 
           {/* ✅ NOVO: Atualização dos termos */}
           <NavLink href="/dashboard/atualizacao-termos">

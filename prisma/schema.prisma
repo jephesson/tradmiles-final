@@ -214,6 +214,7 @@ model User {
   agendaEventsCanceled AgendaEvent[]       @relation("AgendaEventCanceledBy")
   agendaAuditsActor    AgendaAudit[]       @relation("AgendaAuditActor")
   agendaMemberColors   AgendaMemberColor[] @relation("AgendaMemberColorUser")
+  anotacoesCreated     Anotacao[]          @relation("AnotacaoCreatedBy")
 
   @@index([team])
   @@index([role])
@@ -471,6 +472,9 @@ model Cedente {
 
   // ✅ horários de biometria (LATAM)
   biometriaHorario CedenteBiometriaHorario?
+
+  // ✅ anotações operacionais por conta
+  anotacoes Anotacao[]
 
   blockedAccounts    BlockedAccount[]
   purchases          Purchase[]
@@ -1526,6 +1530,11 @@ enum AgendaAuditAction {
   SWAP
 }
 
+enum AnotacaoStatus {
+  PENDENTE
+  RESOLVIDO
+}
+
 model AgendaEvent {
   id     String            @id @default(cuid())
   team   String
@@ -1601,4 +1610,29 @@ model AgendaMemberColor {
   @@unique([team, userId], map: "uniq_agenda_member_color_team_user")
   @@index([team])
   @@map("agenda_member_colors")
+}
+
+model Anotacao {
+  id     String         @id @default(cuid())
+  team   String
+  status AnotacaoStatus @default(PENDENTE)
+
+  cedenteId String
+  cedente   Cedente @relation(fields: [cedenteId], references: [id], onDelete: Cascade)
+
+  texto String
+
+  resolvedAt DateTime?
+
+  createdById String
+  createdBy   User @relation("AnotacaoCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([team, status])
+  @@index([team, resolvedAt])
+  @@index([team, createdAt])
+  @@index([cedenteId])
+  @@map("anotacoes")
 }
