@@ -21,9 +21,11 @@ export async function GET(req: Request) {
 
     const takeRaw = Number(url.searchParams.get("take") || 50);
     const skipRaw = Number(url.searchParams.get("skip") || 0);
+    const topWindowDaysRaw = Number(url.searchParams.get("topWindowDays") || 30);
 
     const take = clampInt(takeRaw, 1, 200);
     const skip = clampInt(skipRaw, 0, 1_000_000);
+    const topWindowDays = clampInt(topWindowDaysRaw, 30, 365);
 
     const where: any = {};
 
@@ -43,7 +45,9 @@ export async function GET(req: Request) {
       if (to) where.generatedAt.lte = endOfDay(parseDateOnly(to));
     }
 
-    const [items, total] = await prisma.$transaction([
+    const topPaidFrom = daysAgo(topWindowDays);
+
+    const [items, total, topRecebedores] = await prisma.$transaction([
       prisma.cedenteCommission.findMany({
         where,
         orderBy: { generatedAt: "desc" },
@@ -57,9 +61,55 @@ export async function GET(req: Request) {
         },
       }),
       prisma.cedenteCommission.count({ where }),
+      prisma.cedenteCommission.groupBy({
+        by: ["cedenteId"],
+        where: {
+          status: "PAID",
+          paidAt: { gte: topPaidFrom },
+        },
+        _sum: { amountCents: true },
+        _count: { _all: true },
+        orderBy: {
+          _sum: { amountCents: "desc" },
+        },
+        take: 50,
+      }),
     ]);
 
-    return ok({ total, take, skip, items });
+    const cedenteIds = topRecebedores
+      .map((row) => row.cedenteId)
+      .filter((id): id is string => Boolean(id));
+
+    const cedentes = cedenteIds.length
+      ? await prisma.cedente.findMany({
+          where: { id: { in: cedenteIds } },
+          select: {
+            id: true,
+            nomeCompleto: true,
+            cpf: true,
+            identificador: true,
+          },
+        })
+      : [];
+
+    const cedenteMap = new Map(cedentes.map((c) => [c.id, c]));
+
+    return ok({
+      total,
+      take,
+      skip,
+      items,
+      topRecebedores: topRecebedores.map((row) => ({
+        cedenteId: row.cedenteId,
+        totalCents: row._sum?.amountCents || 0,
+        count:
+          typeof row._count === "object" && row._count && "_all" in row._count
+            ? row._count._all || 0
+            : 0,
+        cedente: row.cedenteId ? cedenteMap.get(row.cedenteId) || null : null,
+      })),
+      topWindowDays,
+    });
   } catch (e: any) {
     return serverError("Falha ao listar comissões.", { detail: e?.message });
   }
@@ -82,4 +132,11 @@ function endOfDay(d: Date) {
   const x = new Date(d);
   x.setUTCHours(23, 59, 59, 999);
   return x;
+}
+
+function daysAgo(days: number) {
+  const d = new Date();
+  d.setUTCDate(d.getUTCDate() - Math.max(0, days));
+  d.setUTCHours(0, 0, 0, 0);
+  return d;
 }

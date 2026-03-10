@@ -37,6 +37,20 @@ type ListResp = {
   take: number;
   skip: number;
   items: CommissionItem[];
+  topWindowDays?: number;
+  topRecebedores?: TopRecebedor[];
+};
+
+type TopRecebedor = {
+  cedenteId: string | null;
+  totalCents: number;
+  count: number;
+  cedente?: {
+    id: string;
+    nomeCompleto: string;
+    cpf: string;
+    identificador: string;
+  } | null;
 };
 
 function fmtMoneyBR(cents: number) {
@@ -78,6 +92,7 @@ export default function CedenteCommissionsClient() {
   const [q, setQ] = useState<string>(""); // filtro local (nome/cpf/ID/numero)
   const [take, setTake] = useState<number>(50);
   const [skip, setSkip] = useState<number>(0);
+  const [topWindowDays, setTopWindowDays] = useState<number>(30);
 
   const [data, setData] = useState<ListResp>({
     total: 0,
@@ -95,6 +110,7 @@ export default function CedenteCommissionsClient() {
       if (status) params.set("status", status);
       if (from) params.set("from", from);
       if (to) params.set("to", to);
+      params.set("topWindowDays", String(topWindowDays));
       params.set("take", String(clampInt(take, 1, 200)));
       params.set("skip", String(clampInt(skip, 0, 1_000_000)));
 
@@ -119,7 +135,7 @@ export default function CedenteCommissionsClient() {
   useEffect(() => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [status, from, to, take, skip]);
+  }, [status, from, to, take, skip, topWindowDays]);
 
   const filteredItems = useMemo(() => {
     const s = (q || "").trim().toLowerCase();
@@ -146,6 +162,8 @@ export default function CedenteCommissionsClient() {
   const pageSum = useMemo(() => {
     return filteredItems.reduce((acc, it) => acc + (it.amountCents || 0), 0);
   }, [filteredItems]);
+
+  const topRecebedores = data.topRecebedores || [];
 
   const totalPages = useMemo(() => {
     const t = data?.total || 0;
@@ -459,6 +477,78 @@ export default function CedenteCommissionsClient() {
               Próxima
             </button>
           </div>
+        </div>
+      </div>
+
+      <div className="rounded-2xl border bg-white p-4 shadow-sm">
+        <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+          <div>
+            <h2 className="text-lg font-semibold text-neutral-900">
+              Quem mais recebeu dinheiro
+            </h2>
+            <p className="text-sm text-neutral-500">
+              Lista de comissoes pagas por cedente no periodo selecionado.
+            </p>
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            {[30, 60, 90, 180, 365].map((days) => (
+              <button
+                key={days}
+                type="button"
+                onClick={() => setTopWindowDays(days)}
+                className={[
+                  "rounded-full border px-3 py-1.5 text-sm transition",
+                  topWindowDays === days
+                    ? "border-black bg-black text-white"
+                    : "border-neutral-300 bg-white text-neutral-700 hover:bg-neutral-50",
+                ].join(" ")}
+              >
+                {days === 365 ? "1 ano" : `${days} dias`}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="mt-4 overflow-x-auto">
+          <table className="min-w-full text-sm">
+            <thead className="border-b bg-neutral-50 text-neutral-600">
+              <tr className="text-left">
+                <th className="px-4 py-3">Cedente</th>
+                <th className="px-4 py-3">ID</th>
+                <th className="px-4 py-3">CPF</th>
+                <th className="px-4 py-3">Qtd. pagas</th>
+                <th className="px-4 py-3">Total recebido</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y">
+              {topRecebedores.length === 0 ? (
+                <tr>
+                  <td className="px-4 py-6 text-neutral-500" colSpan={5}>
+                    Nenhuma comissao paga neste periodo.
+                  </td>
+                </tr>
+              ) : (
+                topRecebedores.map((item) => (
+                  <tr key={item.cedenteId || `sem-cedente-${item.totalCents}`} className="hover:bg-neutral-50">
+                    <td className="px-4 py-3 font-medium text-neutral-900">
+                      {item.cedente?.nomeCompleto || "—"}
+                    </td>
+                    <td className="px-4 py-3 text-neutral-700">
+                      {item.cedente?.identificador || "—"}
+                    </td>
+                    <td className="px-4 py-3 text-neutral-700">
+                      {item.cedente?.cpf || "—"}
+                    </td>
+                    <td className="px-4 py-3 text-neutral-700">{item.count}</td>
+                    <td className="px-4 py-3 font-medium text-neutral-900">
+                      {fmtMoneyBR(item.totalCents)}
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
         </div>
       </div>
     </div>
