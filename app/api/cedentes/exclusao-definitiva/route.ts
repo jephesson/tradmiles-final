@@ -12,8 +12,20 @@ type SessionCookie = {
 
 type Program = "LATAM" | "SMILES" | "LIVELO" | "ESFERA";
 type ScopeMode = "ACCOUNT" | "PROGRAM";
+type ExclusionReasonCode =
+  | "LATAM_FACE_NO_RESPONSE"
+  | "LATAM_FACE_IMPOSSIBLE"
+  | "DATA_DELETION_REQUEST";
 
 const PROGRAMS: Program[] = ["LATAM", "SMILES", "LIVELO", "ESFERA"];
+const EXCLUSION_REASON_TEXT: Record<ExclusionReasonCode, string> = {
+  LATAM_FACE_NO_RESPONSE:
+    "Ausência de resposta e/ou conclusão da biometria facial exigida pela LATAM, impossibilitando a movimentação da conta e acarretando prejuízo financeiro à empresa.",
+  LATAM_FACE_IMPOSSIBLE:
+    "Impossibilidade operacional de realização da biometria facial exigida pela LATAM, o que inviabiliza a continuidade das operações com segurança.",
+  DATA_DELETION_REQUEST:
+    "Solicitação expressa de exclusão dos dados e encerramento do vínculo operacional, com encerramento da parceria e remoção das credenciais sob nossa custódia.",
+};
 
 function sha256(s: string) {
   return crypto.createHash("sha256").update(s).digest("hex");
@@ -73,11 +85,60 @@ function getErrorMessage(error: unknown, fallback: string) {
   return fallback;
 }
 
+function isReasonCode(value: string): value is ExclusionReasonCode {
+  return value in EXCLUSION_REASON_TEXT;
+}
+
 export async function GET(req: Request) {
   try {
     const session = getSession(req);
     if (!session?.id) {
       return NextResponse.json({ ok: false, error: "Não autenticado." }, { status: 401 });
+    }
+
+    const { searchParams } = new URL(req.url);
+    const cedenteId = String(searchParams.get("cedenteId") || "").trim();
+
+    if (cedenteId) {
+      const cedente = await prisma.cedente.findFirst({
+        where: {
+          id: cedenteId,
+          owner: { team: session.team },
+        },
+        select: {
+          id: true,
+          identificador: true,
+          nomeCompleto: true,
+          cpf: true,
+          telefone: true,
+          emailCriado: true,
+          senhaEmail: true,
+          senhaSmiles: true,
+          senhaLatamPass: true,
+          senhaLivelo: true,
+          senhaEsfera: true,
+          pontosLatam: true,
+          pontosSmiles: true,
+          pontosLivelo: true,
+          pontosEsfera: true,
+        },
+      });
+
+      if (!cedente) {
+        return NextResponse.json(
+          { ok: false, error: "Cedente não encontrado." },
+          { status: 404 }
+        );
+      }
+
+      return NextResponse.json({
+        ok: true,
+        preview: cedente,
+        reasons: Object.entries(EXCLUSION_REASON_TEXT).map(([code, text]) => ({
+          code,
+          text,
+        })),
+      });
     }
 
     const rows = await prisma.cedenteExclusion.findMany({
@@ -116,6 +177,8 @@ export async function POST(req: Request) {
     const mode = String(body?.mode || "").trim().toUpperCase() as ScopeMode;
     const program = String(body?.program || "").trim().toUpperCase() as Program;
     const password = String(body?.password || "").trim();
+    const reasonCodeRaw = String(body?.reasonCode || "").trim().toUpperCase();
+    const reasonCode = reasonCodeRaw as ExclusionReasonCode;
 
     if (!cedenteId) {
       return NextResponse.json({ ok: false, error: "cedenteId obrigatório." }, { status: 400 });
@@ -128,6 +191,9 @@ export async function POST(req: Request) {
     }
     if (!password) {
       return NextResponse.json({ ok: false, error: "Senha obrigatória." }, { status: 400 });
+    }
+    if (!reasonCode || !isReasonCode(reasonCode)) {
+      return NextResponse.json({ ok: false, error: "Motivo obrigatório e inválido." }, { status: 400 });
     }
 
     const auth = await requirePassword(req, password);
@@ -193,6 +259,8 @@ export async function POST(req: Request) {
 
         const details = {
           mode,
+          reasonCode,
+          reasonText: EXCLUSION_REASON_TEXT[reasonCode],
           historyPreserved: true,
           salesPreserved,
           receivablesPreserved,
@@ -279,6 +347,8 @@ export async function POST(req: Request) {
       const details = {
         mode,
         program,
+        reasonCode,
+        reasonText: EXCLUSION_REASON_TEXT[reasonCode],
         historyPreserved: true,
         salesPreserved,
         receivablesPreserved,

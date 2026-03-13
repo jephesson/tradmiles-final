@@ -4,6 +4,10 @@ import { useEffect, useMemo, useState } from "react";
 
 type Program = "LATAM" | "SMILES" | "LIVELO" | "ESFERA";
 type ScopeMode = "ACCOUNT" | "PROGRAM";
+type ExclusionReasonCode =
+  | "LATAM_FACE_NO_RESPONSE"
+  | "LATAM_FACE_IMPOSSIBLE"
+  | "DATA_DELETION_REQUEST";
 
 type CedenteLite = {
   id: string;
@@ -36,11 +40,54 @@ type ActionResponse = {
   error?: string;
 };
 
+type CedentePreview = {
+  id: string;
+  identificador: string;
+  nomeCompleto: string;
+  cpf: string;
+  telefone: string | null;
+  emailCriado: string | null;
+  senhaEmail: string | null;
+  senhaSmiles: string | null;
+  senhaLatamPass: string | null;
+  senhaLivelo: string | null;
+  senhaEsfera: string | null;
+  pontosLatam: number;
+  pontosSmiles: number;
+  pontosLivelo: number;
+  pontosEsfera: number;
+};
+
+const EXCLUSION_REASONS: Array<{ code: ExclusionReasonCode; label: string; text: string }> = [
+  {
+    code: "LATAM_FACE_NO_RESPONSE",
+    label: "Ausência de resposta para biometria facial",
+    text:
+      "Ausência de resposta e/ou conclusão da biometria facial exigida pela LATAM, impossibilitando a movimentação da conta e acarretando prejuízo financeiro à empresa.",
+  },
+  {
+    code: "LATAM_FACE_IMPOSSIBLE",
+    label: "Impossibilidade de fazer facial",
+    text:
+      "Impossibilidade operacional de realização da biometria facial exigida pela LATAM, o que inviabiliza a continuidade das operações com segurança.",
+  },
+  {
+    code: "DATA_DELETION_REQUEST",
+    label: "Solicitou exclusão dos dados",
+    text:
+      "Solicitação expressa de exclusão dos dados e encerramento do vínculo operacional, com encerramento da parceria e remoção das credenciais sob nossa custódia.",
+  },
+];
+
 function fmtDateTime(v?: string | null) {
   if (!v) return "-";
   const d = new Date(v);
   if (Number.isNaN(d.getTime())) return "-";
   return d.toLocaleString("pt-BR");
+}
+
+function fmtPoints(v?: number | null) {
+  return new Intl.NumberFormat("pt-BR").format(Number(v || 0));
 }
 
 function maskCpf(cpf?: string | null) {
@@ -58,14 +105,18 @@ function getErrorMessage(error: unknown, fallback: string) {
 export default function CedentesExclusaoDefinitivaClient() {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [previewLoading, setPreviewLoading] = useState(false);
 
   const [cedentes, setCedentes] = useState<CedenteLite[]>([]);
   const [excluded, setExcluded] = useState<ExclusionRow[]>([]);
+  const [preview, setPreview] = useState<CedentePreview | null>(null);
 
   const [cedenteId, setCedenteId] = useState("");
   const [mode, setMode] = useState<ScopeMode>("ACCOUNT");
   const [program, setProgram] = useState<Program>("LATAM");
   const [password, setPassword] = useState("");
+  const [reasonCode, setReasonCode] =
+    useState<ExclusionReasonCode>("LATAM_FACE_NO_RESPONSE");
 
   const [q, setQ] = useState("");
 
@@ -105,6 +156,50 @@ export default function CedentesExclusaoDefinitivaClient() {
     loadAll();
   }, []);
 
+  useEffect(() => {
+    let active = true;
+
+    async function loadPreview() {
+      if (!cedenteId) {
+        setPreview(null);
+        return;
+      }
+
+      setPreviewLoading(true);
+      try {
+        const res = await fetch(
+          `/api/cedentes/exclusao-definitiva?cedenteId=${encodeURIComponent(cedenteId)}`,
+          {
+            cache: "no-store",
+            credentials: "include",
+          }
+        );
+
+        const json = await res.json().catch(() => ({}));
+        if (!res.ok || json?.ok === false) {
+          throw new Error(json?.error || "Falha ao carregar preview do cedente.");
+        }
+
+        if (active) {
+          setPreview((json?.preview || null) as CedentePreview | null);
+        }
+      } catch (error: unknown) {
+        if (active) {
+          setPreview(null);
+          alert(getErrorMessage(error, "Falha ao carregar dados do cedente."));
+        }
+      } finally {
+        if (active) setPreviewLoading(false);
+      }
+    }
+
+    loadPreview();
+
+    return () => {
+      active = false;
+    };
+  }, [cedenteId]);
+
   const cedentesFiltrados = useMemo(() => {
     const s = q.trim().toLowerCase();
     if (!s) return cedentes;
@@ -118,6 +213,127 @@ export default function CedentesExclusaoDefinitivaClient() {
     () => cedentes.find((c) => c.id === cedenteId) || null,
     [cedentes, cedenteId]
   );
+
+  const selectedReason = useMemo(
+    () => EXCLUSION_REASONS.find((item) => item.code === reasonCode) || EXCLUSION_REASONS[0],
+    [reasonCode]
+  );
+
+  const whatsappMessage = useMemo(() => {
+    if (!preview) return "";
+
+    const programRows =
+      mode === "ACCOUNT"
+        ? [
+            {
+              title: "LATAM Pass",
+              login: preview.cpf || "Não informado",
+              password: preview.senhaLatamPass || "Não cadastrada",
+              points: preview.pontosLatam,
+            },
+            {
+              title: "Smiles",
+              login: preview.cpf || "Não informado",
+              password: preview.senhaSmiles || "Não cadastrada",
+              points: preview.pontosSmiles,
+            },
+            {
+              title: "Livelo",
+              login: preview.cpf || "Não informado",
+              password: preview.senhaLivelo || "Não cadastrada",
+              points: preview.pontosLivelo,
+            },
+            {
+              title: "Esfera",
+              login: preview.cpf || "Não informado",
+              password: preview.senhaEsfera || "Não cadastrada",
+              points: preview.pontosEsfera,
+            },
+          ]
+        : [
+            {
+              title:
+                program === "LATAM"
+                  ? "LATAM Pass"
+                  : program === "SMILES"
+                  ? "Smiles"
+                  : program === "LIVELO"
+                  ? "Livelo"
+                  : "Esfera",
+              login: preview.cpf || "Não informado",
+              password:
+                program === "LATAM"
+                  ? preview.senhaLatamPass || "Não cadastrada"
+                  : program === "SMILES"
+                  ? preview.senhaSmiles || "Não cadastrada"
+                  : program === "LIVELO"
+                  ? preview.senhaLivelo || "Não cadastrada"
+                  : preview.senhaEsfera || "Não cadastrada",
+              points:
+                program === "LATAM"
+                  ? preview.pontosLatam
+                  : program === "SMILES"
+                  ? preview.pontosSmiles
+                  : program === "LIVELO"
+                  ? preview.pontosLivelo
+                  : preview.pontosEsfera,
+            },
+          ];
+
+    const lines = [
+      "Assunto: Notificação de Exclusão Definitiva de Conta e Encerramento de Vínculo",
+      "",
+      `Prezado(a) ${preview.nomeCompleto},`,
+      "",
+      "Informamos que a Vias Aéreas Viagens e Turismo LTDA, inscrita no CNPJ 63.817.773/0001-85, está procedendo com a exclusão definitiva da conta em nossa plataforma.",
+      "",
+      "Motivo da exclusão:",
+      selectedReason.text,
+      "",
+      "Dados da conta (acesso e saldo):",
+      `Titular: ${preview.nomeCompleto}`,
+      `Identificador interno: ${preview.identificador}`,
+      `CPF: ${preview.cpf || "Não informado"}`,
+      `E-mail/login criado: ${preview.emailCriado || "Não informado"}`,
+      `Senha atual do e-mail: ${preview.senhaEmail || "Não cadastrada"}`,
+    ];
+
+    for (const row of programRows) {
+      lines.push("");
+      lines.push(`${row.title}:`);
+      lines.push(`Login: ${row.login}`);
+      lines.push(`Senha atual: ${row.password}`);
+      lines.push(`Saldo de pontos/milhas: ${fmtPoints(row.points)}`);
+    }
+
+    lines.push("");
+    lines.push(
+      "Recomendação de segurança: solicitamos a troca imediata de todas as senhas e dados de recuperação vinculados ao e-mail e aos portais relacionados, para garantir a integridade dos seus dados após este encerramento."
+    );
+    lines.push("");
+    lines.push(
+      "Observação: esta mensagem serve como comprovante de entrega das credenciais e de encerramento de responsabilidade da Vias Aéreas sobre a conta mencionada."
+    );
+    lines.push("");
+    lines.push("Atenciosamente,");
+    lines.push("Vias Aéreas Viagens e Turismo LTDA");
+    lines.push("CNPJ: 63.817.773/0001-85");
+
+    return lines.join("\n");
+  }, [mode, preview, program, selectedReason]);
+
+  async function copyWhatsappMessage() {
+    if (!whatsappMessage) {
+      alert("Selecione um cedente para gerar a mensagem.");
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(whatsappMessage);
+      alert("Mensagem copiada.");
+    } catch {
+      alert("Não foi possível copiar automaticamente.");
+    }
+  }
 
   async function executarExclusao() {
     if (!cedenteId) return alert("Selecione um cedente.");
@@ -142,6 +358,7 @@ export default function CedentesExclusaoDefinitivaClient() {
           cedenteId,
           mode,
           program: mode === "PROGRAM" ? program : undefined,
+          reasonCode,
           password: password.trim(),
         }),
       });
@@ -241,6 +458,22 @@ export default function CedentesExclusaoDefinitivaClient() {
               placeholder="Digite sua senha"
             />
           </label>
+
+          <label className="space-y-1 md:col-span-2">
+            <div className="text-xs text-slate-600">Motivo da exclusão</div>
+            <select
+              className="w-full rounded-xl border px-3 py-2 text-sm bg-white"
+              value={reasonCode}
+              onChange={(e) => setReasonCode(e.target.value as ExclusionReasonCode)}
+            >
+              {EXCLUSION_REASONS.map((item) => (
+                <option key={item.code} value={item.code}>
+                  {item.label}
+                </option>
+              ))}
+            </select>
+            <div className="text-xs text-slate-500">{selectedReason.text}</div>
+          </label>
         </div>
 
         {cedSel ? (
@@ -267,6 +500,60 @@ export default function CedentesExclusaoDefinitivaClient() {
             Atualizar
           </button>
         </div>
+      </div>
+
+      <div className="rounded-2xl border bg-white p-5 space-y-4">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <div className="font-medium">Mensagem pronta para WhatsApp</div>
+            <div className="text-xs text-slate-500">
+              Texto para copiar e enviar ao cliente com o motivo selecionado.
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={copyWhatsappMessage}
+            disabled={!whatsappMessage}
+            className="rounded-xl border px-4 py-2 text-sm hover:bg-slate-50 disabled:opacity-50"
+          >
+            Copiar mensagem
+          </button>
+        </div>
+
+        {previewLoading ? (
+          <div className="text-sm text-slate-500">Carregando dados do cedente...</div>
+        ) : !preview ? (
+          <div className="text-sm text-slate-500">
+            Selecione um cedente para gerar a mensagem.
+          </div>
+        ) : (
+          <>
+            <div className="grid gap-3 md:grid-cols-4 text-sm">
+              <div className="rounded-xl border bg-slate-50 px-3 py-2">
+                <div className="text-xs text-slate-500">LATAM</div>
+                <div className="font-medium">{fmtPoints(preview.pontosLatam)}</div>
+              </div>
+              <div className="rounded-xl border bg-slate-50 px-3 py-2">
+                <div className="text-xs text-slate-500">Smiles</div>
+                <div className="font-medium">{fmtPoints(preview.pontosSmiles)}</div>
+              </div>
+              <div className="rounded-xl border bg-slate-50 px-3 py-2">
+                <div className="text-xs text-slate-500">Livelo</div>
+                <div className="font-medium">{fmtPoints(preview.pontosLivelo)}</div>
+              </div>
+              <div className="rounded-xl border bg-slate-50 px-3 py-2">
+                <div className="text-xs text-slate-500">Esfera</div>
+                <div className="font-medium">{fmtPoints(preview.pontosEsfera)}</div>
+              </div>
+            </div>
+
+            <textarea
+              readOnly
+              value={whatsappMessage}
+              className="min-h-[420px] w-full rounded-xl border px-3 py-3 text-sm"
+            />
+          </>
+        )}
       </div>
 
       <div className="rounded-2xl border bg-white overflow-x-auto">
