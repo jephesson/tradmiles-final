@@ -573,6 +573,10 @@ export default function Sidebar() {
             {/* ✅ NOVO */}
             <NavLink href="/dashboard/cedentes/whatsapp">Whatsapp</NavLink>
 
+            <NavLink href="/dashboard/cedentes/mensagem-pronta">
+              Mensagem pronta
+            </NavLink>
+
             {/* ✅ NOVO */}
             <NavLink href="/dashboard/cedentes/historico-cadastro">
               Histórico de cadastro
