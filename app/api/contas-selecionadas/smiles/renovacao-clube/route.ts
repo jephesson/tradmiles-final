@@ -10,6 +10,39 @@ function bad(message: string, status = 400) {
   return NextResponse.json({ ok: false, error: message }, { status });
 }
 
+function monthKeyUTC(d: Date) {
+  const y = d.getUTCFullYear();
+  const m = String(d.getUTCMonth() + 1).padStart(2, "0");
+  return `${y}-${m}`;
+}
+
+function parseMonthKeyUTC(key: string) {
+  const m = /^(\d{4})-(\d{2})$/.exec((key || "").trim());
+  if (!m) return null;
+  const y = Number(m[1]);
+  const mm = Number(m[2]);
+  if (!Number.isFinite(y) || !Number.isFinite(mm) || mm < 1 || mm > 12) return null;
+  return { y, m0: mm - 1 };
+}
+
+function startOfMonthUTCFromKey(key: string) {
+  const p = parseMonthKeyUTC(key);
+  if (!p) return null;
+  return new Date(Date.UTC(p.y, p.m0, 1, 0, 0, 0, 0));
+}
+
+function endOfMonthUTCFromKey(key: string) {
+  const p = parseMonthKeyUTC(key);
+  if (!p) return null;
+  return new Date(Date.UTC(p.y, p.m0 + 1, 0, 23, 59, 59, 999));
+}
+
+function addMonthsUTC(base: Date, months: number) {
+  return new Date(
+    Date.UTC(base.getUTCFullYear(), base.getUTCMonth() + months, base.getUTCDate(), 0, 0, 0, 0)
+  );
+}
+
 export async function GET(req: Request) {
   const session = await getSessionServer();
   if (!session) return bad("Não autenticado", 401);
@@ -21,6 +54,24 @@ export async function GET(req: Request) {
      */
     const url = new URL(req.url);
     const includeCanceled = url.searchParams.get("includeCanceled") !== "0";
+    const monthKey =
+      (url.searchParams.get("monthKey") || "").trim() || monthKeyUTC(new Date());
+
+    const selectedMonthStart = startOfMonthUTCFromKey(monthKey);
+    const selectedMonthEnd = endOfMonthUTCFromKey(monthKey);
+    if (!selectedMonthStart || !selectedMonthEnd) {
+      return bad("monthKey inválido (use YYYY-MM)");
+    }
+
+    const previousMonthStart = startOfMonthUTCFromKey(
+      monthKeyUTC(addMonthsUTC(selectedMonthStart, -1))
+    );
+    const previousMonthEnd = endOfMonthUTCFromKey(
+      monthKeyUTC(addMonthsUTC(selectedMonthStart, -1))
+    );
+    if (!previousMonthStart || !previousMonthEnd) {
+      return bad("Falha ao calcular mês anterior.");
+    }
 
     const statusIn = includeCanceled
       ? (["ACTIVE", "PAUSED", "CANCELED"] as const)
@@ -82,7 +133,63 @@ export async function GET(req: Request) {
       return String(b.id).localeCompare(String(a.id));
     });
 
-    return NextResponse.json({ ok: true, items: unique });
+    const recentOrCarryOver = await prisma.cedente.findMany({
+      where: {
+        owner: { team: session.team },
+        createdAt: { gte: previousMonthStart, lte: selectedMonthEnd },
+        clubSubscriptions: {
+          none: {
+            program: "SMILES",
+          },
+        },
+      },
+      orderBy: [{ createdAt: "desc" }, { nomeCompleto: "asc" }],
+      select: {
+        id: true,
+        identificador: true,
+        nomeCompleto: true,
+        cpf: true,
+        status: true,
+        createdAt: true,
+        pontosSmiles: true,
+        owner: { select: { id: true, name: true, login: true } },
+      },
+    });
+
+    const pendingAvailable = recentOrCarryOver
+      .map((row) => {
+        const createdMonthKey = monthKeyUTC(row.createdAt);
+        if (createdMonthKey === monthKey) {
+          return {
+            cedenteId: row.id,
+            createdAt: row.createdAt.toISOString(),
+            bucket: "RECENT" as const,
+            cedente: row,
+          };
+        }
+
+        if (
+          row.createdAt >= previousMonthStart &&
+          row.createdAt <= previousMonthEnd
+        ) {
+          return {
+            cedenteId: row.id,
+            createdAt: row.createdAt.toISOString(),
+            bucket: "PREVIOUS_MONTH_PENDING" as const,
+            cedente: row,
+          };
+        }
+
+        return null;
+      })
+      .filter((row): row is NonNullable<typeof row> => Boolean(row));
+
+    return NextResponse.json({
+      ok: true,
+      monthKey,
+      items: unique,
+      pendingAvailable,
+    });
   } catch (e) {
     console.error(e);
     return bad("Falha ao carregar renovação do clube (Smiles).", 500);

@@ -23,6 +23,22 @@ type Item = {
   };
 };
 
+type PendingAvailableItem = {
+  cedenteId: string;
+  createdAt: string;
+  bucket: "RECENT" | "PREVIOUS_MONTH_PENDING";
+  cedente: {
+    id: string;
+    identificador: string;
+    nomeCompleto: string;
+    cpf: string;
+    status: "PENDING" | "APPROVED" | "REJECTED";
+    createdAt: string;
+    pontosSmiles: number;
+    owner: Owner;
+  };
+};
+
 function ymdFromISO(iso: string) {
   return String(iso || "").slice(0, 10); // YYYY-MM-DD
 }
@@ -110,6 +126,7 @@ function dedupLatestByCedente(list: Item[]) {
 
 export default function SmilesRenovacaoClubeClient() {
   const [items, setItems] = useState<Item[]>([]);
+  const [pendingAvailable, setPendingAvailable] = useState<PendingAvailableItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
@@ -125,23 +142,29 @@ export default function SmilesRenovacaoClubeClient() {
   const currentYM = todayYMD.slice(0, 7);
 
   // ✅ mês selecionado (YYYY-MM) — default será sempre o mês atual
-  const [selectedYM, setSelectedYM] = useState<string>("");
+  const [selectedYM, setSelectedYM] = useState<string>(currentYM);
+  const [showPendingAvailable, setShowPendingAvailable] = useState(true);
 
-  async function load() {
+  async function load(monthKey = selectedYM || currentYM) {
     setLoading(true);
     setErr(null);
     try {
-      const r = await fetch("/api/contas-selecionadas/smiles/renovacao-clube", {
-        cache: "no-store",
-      });
+      const r = await fetch(
+        `/api/contas-selecionadas/smiles/renovacao-clube?monthKey=${encodeURIComponent(monthKey)}`,
+        { cache: "no-store" }
+      );
       const json = await r.json().catch(() => null);
       if (!r.ok || !json?.ok) throw new Error(json?.error || "Falha ao carregar");
 
       const raw: Item[] = Array.isArray(json.items) ? json.items : [];
       const dedup = dedupLatestByCedente(raw);
       setItems(dedup);
+      setPendingAvailable(
+        Array.isArray(json.pendingAvailable) ? json.pendingAvailable : []
+      );
     } catch (e: any) {
       setItems([]);
+      setPendingAvailable([]);
       setErr(e?.message || "Falha ao carregar");
     } finally {
       setLoading(false);
@@ -149,8 +172,8 @@ export default function SmilesRenovacaoClubeClient() {
   }
 
   useEffect(() => {
-    load();
-  }, []);
+    load(selectedYM || currentYM);
+  }, [selectedYM, currentYM]);
 
   // ✅ meses vindos dos dados (ordenado asc)
   const monthsFromData = useMemo(() => {
@@ -162,15 +185,10 @@ export default function SmilesRenovacaoClubeClient() {
   // ✅ opções do select SEMPRE incluem o mês atual, mesmo que não tenha dados
   // e deixam o mês atual no topo.
   const monthOptions = useMemo(() => {
-    const all = new Set<string>([currentYM, ...monthsFromData]);
+    const all = new Set<string>([currentYM, selectedYM, ...monthsFromData]);
     const sorted = Array.from(all).sort((a, b) => a.localeCompare(b));
     return [currentYM, ...sorted.filter((k) => k !== currentYM)];
-  }, [currentYM, monthsFromData]);
-
-  // ✅ default do select: mês atual (sempre)
-  useEffect(() => {
-    if (!selectedYM) setSelectedYM(currentYM);
-  }, [selectedYM, currentYM]);
+  }, [currentYM, monthsFromData, selectedYM]);
 
   // ✅ se por algum motivo o mês selecionado não existir nas opções, volta pro mês atual
   useEffect(() => {
@@ -203,6 +221,23 @@ export default function SmilesRenovacaoClubeClient() {
   }, [groupedByMonth, selectedYM]);
 
   const selectedIsCurrentMonth = selectedYM === currentYM;
+
+  const pendingStats = useMemo(() => {
+    const recent = pendingAvailable.filter((it) => it.bucket === "RECENT");
+    const carryOver = pendingAvailable.filter(
+      (it) => it.bucket === "PREVIOUS_MONTH_PENDING"
+    );
+    const totalPoints = pendingAvailable.reduce(
+      (acc, it) => acc + (it.cedente?.pontosSmiles || 0),
+      0
+    );
+    return {
+      total: pendingAvailable.length,
+      totalPoints,
+      recentCount: recent.length,
+      carryOverCount: carryOver.length,
+    };
+  }, [pendingAvailable]);
 
   const selectedStats = useMemo(() => {
     const totalCedentes = selectedItems.length;
@@ -257,7 +292,7 @@ export default function SmilesRenovacaoClubeClient() {
 
         <div className="flex items-center gap-2">
           <button
-            onClick={load}
+            onClick={() => load(selectedYM || currentYM)}
             className={cn(
               "border rounded-lg px-4 py-2 text-sm",
               loading ? "opacity-60" : "hover:bg-slate-50"
@@ -301,6 +336,15 @@ export default function SmilesRenovacaoClubeClient() {
         <div className="text-xs text-slate-500">
           Hoje (UTC): {fmtDateBR(`${todayYMD}T12:00:00.000Z`)}
         </div>
+
+        <label className="ml-auto inline-flex items-center gap-2 text-sm text-slate-600">
+          <input
+            type="checkbox"
+            checked={showPendingAvailable}
+            onChange={(e) => setShowPendingAvailable(e.target.checked)}
+          />
+          Mostrar não assinadas (mês atual + anterior)
+        </label>
       </div>
 
       {/* Summary */}
@@ -433,6 +477,122 @@ export default function SmilesRenovacaoClubeClient() {
                 </tbody>
               </table>
             </div>
+          </div>
+        </div>
+      ) : null}
+
+      {showPendingAvailable ? (
+        <div className="rounded-2xl border bg-white overflow-hidden">
+          <div className="px-4 py-3 border-b flex items-center justify-between gap-3">
+            <div>
+              <div className="text-sm font-semibold">
+                Disponíveis para assinatura em {monthLabelPT(selectedYM || currentYM)}
+              </div>
+              <div className="text-xs text-neutral-500">
+                Cadastros do mês selecionado + contas do mês anterior ainda sem clube
+                SMILES.
+              </div>
+            </div>
+
+            <div className="text-xs text-neutral-500 text-right">
+              <div>Registros: {fmtInt(pendingStats.total)}</div>
+              <div>
+                Recentes: {fmtInt(pendingStats.recentCount)} • Pendentes do mês anterior:{" "}
+                {fmtInt(pendingStats.carryOverCount)}
+              </div>
+            </div>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="min-w-[980px] w-full text-sm">
+              <thead className="bg-neutral-50 text-neutral-600">
+                <tr>
+                  <th className="text-left px-4 py-2">Cedente</th>
+                  <th className="text-left px-4 py-2">Responsável</th>
+                  <th className="text-left px-4 py-2">Cadastrado em</th>
+                  <th className="text-left px-4 py-2">Faixa</th>
+                  <th className="text-right px-4 py-2">Pontos Smiles</th>
+                  <th className="text-left px-4 py-2">Situação</th>
+                  <th className="text-right px-4 py-2">Ação</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y">
+                {pendingAvailable.length === 0 && !loading ? (
+                  <tr>
+                    <td className="px-4 py-8 text-neutral-500" colSpan={7}>
+                      Nenhuma conta recente ou pendente do mês anterior sem assinatura.
+                    </td>
+                  </tr>
+                ) : null}
+
+                {pendingAvailable.map((it) => (
+                  <tr key={it.cedenteId} className="hover:bg-neutral-50">
+                    <td className="px-4 py-2">
+                      <div className="font-medium">{it.cedente.nomeCompleto}</div>
+                      <div className="text-xs text-neutral-500">
+                        {it.cedente.identificador} • CPF {maskCpf(it.cedente.cpf)}
+                      </div>
+                    </td>
+
+                    <td className="px-4 py-2">
+                      <div className="font-medium">{it.cedente.owner?.name}</div>
+                      <div className="text-xs text-neutral-500">
+                        @{it.cedente.owner?.login}
+                      </div>
+                    </td>
+
+                    <td className="px-4 py-2">{fmtDateBR(it.createdAt)}</td>
+
+                    <td className="px-4 py-2">
+                      <span
+                        className={cn(
+                          "inline-flex items-center rounded-full px-2 py-0.5 text-xs border",
+                          it.bucket === "RECENT"
+                            ? "border-sky-200 bg-sky-50 text-sky-700"
+                            : "border-amber-200 bg-amber-50 text-amber-700"
+                        )}
+                      >
+                        {it.bucket === "RECENT"
+                          ? "CADASTRO RECENTE"
+                          : "MÊS ANTERIOR"}
+                      </span>
+                    </td>
+
+                    <td className="px-4 py-2 text-right tabular-nums">
+                      {fmtInt(it.cedente.pontosSmiles)}
+                    </td>
+
+                    <td className="px-4 py-2">
+                      <span className="inline-flex items-center rounded-full px-2 py-0.5 text-xs border border-emerald-200 bg-emerald-50 text-emerald-700">
+                        DISPONÍVEL P/ ASSINAR
+                      </span>
+                      <span className="ml-2 inline-flex items-center rounded-full px-2 py-0.5 text-xs border border-slate-200 bg-slate-50 text-slate-700">
+                        {it.cedente.status}
+                      </span>
+                    </td>
+
+                    <td className="px-4 py-2 text-right">
+                      <Link
+                        href={`/dashboard/clubes/cadastrar?program=SMILES&cedenteId=${encodeURIComponent(
+                          it.cedenteId
+                        )}`}
+                        className="inline-flex items-center rounded-lg border px-3 py-2 text-sm hover:bg-slate-50"
+                      >
+                        Assinar
+                      </Link>
+                    </td>
+                  </tr>
+                ))}
+
+                {loading ? (
+                  <tr>
+                    <td className="px-4 py-8 text-neutral-500" colSpan={7}>
+                      Carregando...
+                    </td>
+                  </tr>
+                ) : null}
+              </tbody>
+            </table>
           </div>
         </div>
       ) : null}
@@ -598,7 +758,8 @@ export default function SmilesRenovacaoClubeClient() {
 
       <div className="text-xs text-neutral-500">
         Fonte: ClubSubscription (SMILES) + campo <code>smilesBonusEligibleAt</code> + pontos do
-        cedente (<code>pontosSmiles</code>).
+        cedente (<code>pontosSmiles</code>). A seção de disponíveis usa{" "}
+        <code>Cedente.createdAt</code> + ausência de clube SMILES.
       </div>
     </div>
   );

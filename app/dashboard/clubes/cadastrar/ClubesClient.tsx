@@ -1,5 +1,6 @@
 "use client";
 
+import { useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 
 type Program = "LATAM" | "SMILES" | "LIVELO" | "ESFERA";
@@ -189,6 +190,7 @@ export default function ClubesClient({
   initialCedentes: CedenteLite[];
   initialClubes: ClubeRow[];
 }) {
+  const searchParams = useSearchParams();
   const [cedentes, setCedentes] = useState<CedenteLite[]>(initialCedentes || []);
   const [clubes, setClubes] = useState<ClubeRow[]>(initialClubes || []);
 
@@ -218,6 +220,44 @@ export default function ClubesClient({
   );
 
   const [form, setForm] = useState(emptyForm);
+
+  useEffect(() => {
+    if (editingId) return;
+
+    const cedenteIdFromQuery = (searchParams.get("cedenteId") || "").trim();
+    const programFromQuery = (searchParams.get("program") || "").trim().toUpperCase();
+
+    const nextCedenteId = cedentes.some((c) => c.id === cedenteIdFromQuery)
+      ? cedenteIdFromQuery
+      : "";
+
+    const nextProgram: Program | null =
+      programFromQuery === "LATAM" ||
+      programFromQuery === "SMILES" ||
+      programFromQuery === "LIVELO" ||
+      programFromQuery === "ESFERA"
+        ? (programFromQuery as Program)
+        : null;
+
+    if (!nextCedenteId && !nextProgram) return;
+
+    setForm((prev) => {
+      const draft = { ...prev };
+      let changed = false;
+
+      if (nextCedenteId && prev.cedenteId !== nextCedenteId) {
+        draft.cedenteId = nextCedenteId;
+        changed = true;
+      }
+
+      if (nextProgram && prev.program !== nextProgram) {
+        draft.program = nextProgram;
+        changed = true;
+      }
+
+      return changed ? draft : prev;
+    });
+  }, [searchParams, cedentes, editingId]);
 
   useEffect(() => {
     setForm((f) => ({ ...emptyForm, ...f }));
