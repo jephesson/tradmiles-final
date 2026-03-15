@@ -72,43 +72,80 @@ function makeIdentifier(nomeCompleto: string) {
   return `${prefix}-${time}${rnd}`;
 }
 
-async function createCedenteWithRetry(tx: any, data: any, retries = 6) {
+async function createCedenteWithRetry(tx: any, data: any) {
+  const identificador = makeIdentifier(data.nomeCompleto);
+
+  return tx.cedente.create({
+    data: {
+      ...data,
+      identificador,
+    },
+    select: {
+      id: true,
+      identificador: true,
+      nomeCompleto: true,
+      cpf: true,
+      ownerId: true,
+      inviteId: true,
+      createdAt: true,
+    },
+  });
+}
+
+function getUniqueTarget(error: any) {
+  return Array.isArray(error?.meta?.target)
+    ? error.meta.target.join(",")
+    : String(error?.meta?.target || "");
+}
+
+async function createCedenteSignupWithRetry(args: {
+  baseCedenteData: any;
+  termoVersao: string;
+  ip: string | null;
+  userAgent: string | null;
+  inviteId: string;
+  retries?: number;
+}) {
+  const {
+    baseCedenteData,
+    termoVersao,
+    ip,
+    userAgent,
+    inviteId,
+    retries = 6,
+  } = args;
+
   let lastErr: any = null;
 
   for (let i = 0; i < retries; i++) {
     try {
-      const identificador = makeIdentifier(data.nomeCompleto);
+      return await prisma.$transaction(async (tx) => {
+        const cedente = await createCedenteWithRetry(tx, baseCedenteData);
 
-      const cedente = await tx.cedente.create({
-        data: {
-          ...data,
-          identificador,
-        },
-        select: {
-          id: true,
-          identificador: true,
-          nomeCompleto: true,
-          cpf: true,
-          ownerId: true,
-          inviteId: true,
-          createdAt: true,
-        },
+        await tx.cedenteTermAcceptance.create({
+          data: {
+            cedenteId: cedente.id,
+            termoVersao,
+            ip: ip || null,
+            userAgent: userAgent || null,
+          },
+        });
+
+        await tx.employeeInvite.update({
+          where: { id: inviteId },
+          data: { uses: { increment: 1 }, lastUsedAt: new Date() },
+        });
+
+        return cedente;
       });
-
-      return cedente;
     } catch (e: any) {
       lastErr = e;
 
       if (e?.code === "P2002") {
-        const target = Array.isArray(e?.meta?.target)
-          ? e.meta.target.join(",")
-          : String(e?.meta?.target || "");
+        const target = getUniqueTarget(e);
 
-        // CPF duplicado não adianta retry
         if (target.includes("cpf")) throw e;
-
-        // identificador (ou outro unique) -> tenta de novo
-        continue;
+        if (target.includes("identificador")) continue;
       }
 
       throw e;
@@ -259,24 +296,13 @@ export async function POST(
       inviteId: invite.id,
     };
 
-    const created = await prisma.$transaction(async (tx) => {
-      const cedente = await createCedenteWithRetry(tx, baseCedenteData, 6);
-
-      await tx.cedenteTermAcceptance.create({
-        data: {
-          cedenteId: cedente.id,
-          termoVersao,
-          ip: ip || null,
-          userAgent: userAgent || null,
-        },
-      });
-
-      await tx.employeeInvite.update({
-        where: { id: invite.id },
-        data: { uses: { increment: 1 }, lastUsedAt: new Date() },
-      });
-
-      return cedente;
+    const created = await createCedenteSignupWithRetry({
+      baseCedenteData,
+      termoVersao,
+      ip,
+      userAgent,
+      inviteId: invite.id,
+      retries: 6,
     });
 
     return NextResponse.json(
