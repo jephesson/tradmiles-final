@@ -93,7 +93,7 @@ type InviteResp = {
 
 type Responsavel = NonNullable<InviteResp["data"]>["responsavel"];
 
-const TERMO_VERSAO = "v1-2025-12";
+const TERMO_VERSAO = "v2-2026-03";
 
 /**
  * ✅ TERMO COMPLETO (texto integral)
@@ -139,6 +139,8 @@ O TITULAR declara ciência de que as plataformas Livelo, LATAM Pass e Smiles pod
 • Envio de códigos por SMS;
 • Confirmações por ligação telefônica ou aplicativos oficiais.
 O TITULAR compromete-se a fornecer tais validações sempre que solicitado, de forma tempestiva e verdadeira, ciente de que a negativa, omissão ou recusa poderá resultar em bloqueio ou suspensão da conta junto às plataformas.
+No caso específico da LATAM, o TITULAR declara ciência de que a biometria facial poderá ser obrigatória para viabilizar a venda e emissão de passagens com os pontos da conta. Nessa hipótese, quando houver pagamento antecipado de R$ 80,00 (oitenta reais) ao TITULAR no momento da compra dos pontos, o TITULAR assume a obrigação de realizar as até 6 (seis) biometrias faciais necessárias para conclusão das operações vinculadas àquela venda.
+O TITULAR declara ainda ciência de que a recusa, omissão, atraso injustificado ou não realização das biometrias faciais solicitadas pela LATAM autoriza o cancelamento imediato deste vínculo/termo, uma vez que tal conduta gera prejuízo operacional e financeiro direto à Vias Aéreas.
 
 6. DA PROTEÇÃO E TRATAMENTO DE DADOS
 Os dados pessoais fornecidos pelo TITULAR serão armazenados em ambiente seguro, em banco de dados protegido (OneDrive corporativo da Vias Aéreas).
@@ -158,7 +160,8 @@ A negativa injustificada, omissão ou recusa no fornecimento das validações de
 • Bloqueio ou suspensão da conta do TITULAR;
 • Cancelamento de operações em andamento;
 • Prejuízo financeiro direto à Vias Aéreas.
-Nessas hipóteses, o TITULAR declara ciência de que seus dados serão removidos do banco de dados e ficará impedido de futuras negociações.
+No caso de pagamento antecipado vinculado à operação LATAM, a recusa em realizar as biometrias faciais exigidas para conclusão da venda implicará cancelamento imediato deste termo e encerramento da parceria operacional.
+Nessas hipóteses, o TITULAR declara ciência de que seus dados poderão ser removidos do banco de dados e ficará impedido de futuras negociações.
 
 9. DO IMPOSTO DE RENDA
 Os valores eventualmente recebidos pelo TITULAR possuem caráter eventual, não configurando vínculo empregatício.
