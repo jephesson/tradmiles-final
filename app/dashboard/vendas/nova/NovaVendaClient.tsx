@@ -196,11 +196,22 @@ type EmissionsPanelResp = {
   totals: { total: number; manual: number; renewEndOfMonth: number };
 };
 
+const PASSENGER_ALERT_MIN_LEFTOVER_POINTS = 4000;
+const PASSENGER_ALERT_MESSAGE =
+  "Alerta: após esta venda não haverá mais CPF disponível e há risco de bloqueio por 180 dias.";
+
 function programToKey(p: Program): ProgramKey {
   if (p === "LATAM") return "latam";
   if (p === "SMILES") return "smiles";
   if (p === "LIVELO") return "livelo";
   return "esfera";
+}
+
+function priorityBucket(leftover: number) {
+  if (leftover >= 0 && leftover <= 2000) return { bucket: 0, label: "MAX" as const };
+  if (leftover >= 3000 && leftover <= 10000) return { bucket: 3, label: "BAIXA" as const };
+  if (leftover > 10000) return { bucket: 1, label: "OK" as const };
+  return { bucket: 2, label: "MEIO" as const };
 }
 
 // ✅ aplica janela LATAM (painel) numa sugestão
@@ -210,11 +221,18 @@ function applyLatamWindow(s: Suggestion, usedRaw: number): Suggestion {
   const available = Math.max(0, paxLimit - used);
 
   const paxNeed = Math.max(0, Math.trunc(Number(s.passengersNeeded || 0)));
+  const paxAfter = available - paxNeed;
   const paxOk = available >= paxNeed;
+  const hasPts = Number(s.pts || 0) >= Number(s.pointsNeeded || 0);
+  const alertPassengerOverflow =
+    paxAfter <= 0 &&
+    Number(s.leftoverPoints || 0) > PASSENGER_ALERT_MIN_LEFTOVER_POINTS;
+  const eligible = hasPts && (paxOk || alertPassengerOverflow);
+  const pri = priorityBucket(Number(s.leftoverPoints || 0));
 
   let alerts = Array.isArray(s.alerts) ? [...s.alerts] : [];
   alerts = alerts.filter((a) => a !== "PASSAGEIROS_ESTOURADOS_COM_PONTOS");
-  if (!paxOk && Number(s.leftoverPoints || 0) > 3000) {
+  if (alertPassengerOverflow) {
     alerts.push("PASSAGEIROS_ESTOURADOS_COM_PONTOS");
   }
 
@@ -222,7 +240,8 @@ function applyLatamWindow(s: Suggestion, usedRaw: number): Suggestion {
     ...s,
     usedPassengersYear: used,
     availablePassengersYear: available,
-    eligible: Boolean(s.eligible) && paxOk,
+    eligible,
+    priorityLabel: eligible ? pri.label : "INELIGIVEL",
     alerts,
   };
 }
@@ -1543,7 +1562,10 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
                     <b
                       className={cn(
                         "tabular-nums",
-                        selPaxAfter < 0 ? "text-rose-600" : ""
+                        selPaxAfter < 0 ||
+                          sel.alerts.includes("PASSAGEIROS_ESTOURADOS_COM_PONTOS")
+                          ? "text-rose-600"
+                          : ""
                       )}
                     >
                       {fmtInt(Math.max(0, selPaxAfter))}
@@ -1589,8 +1611,7 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
 
                 {sel.alerts.includes("PASSAGEIROS_ESTOURADOS_COM_PONTOS") ? (
                   <div className="mt-2 text-[11px] text-rose-600">
-                    Alerta: limite de passageiros estoura e ainda sobraria &gt;
-                    3.000 pts.
+                    {PASSENGER_ALERT_MESSAGE}
                   </div>
                 ) : null}
 
@@ -1870,7 +1891,7 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
                           <div className="text-xs text-slate-500">{s.cedente.identificador}</div>
                           {s.alerts.includes("PASSAGEIROS_ESTOURADOS_COM_PONTOS") ? (
                             <div className="mt-1 text-[11px] text-rose-600">
-                              Alerta: limite de passageiros estoura e ainda sobraria &gt; 3.000 pts.
+                              {PASSENGER_ALERT_MESSAGE}
                             </div>
                           ) : null}
                         </td>
@@ -1899,7 +1920,14 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
                           )}
                         </td>
                         <td className="px-4 py-3 text-right tabular-nums">
-                          <span className={cn(paxAfter < 0 ? "text-rose-600 font-semibold" : "")}>
+                          <span
+                            className={cn(
+                              paxAfter < 0 ||
+                                s.alerts.includes("PASSAGEIROS_ESTOURADOS_COM_PONTOS")
+                                ? "text-rose-600 font-semibold"
+                                : ""
+                            )}
+                          >
                             {fmtInt(paxAfterClamped)}
                           </span>
                           <span className="text-xs text-slate-500">
