@@ -94,24 +94,24 @@ function pointsValueCentsFallback(points: number, milheiroCents: number) {
 }
 
 /** ✅ PV sem taxa (fallback): (milheiro*pts/1000) - fee */
-function pointsValueNoFeeFallback(points: number, milheiroCents: number, feeCents: number) {
+export function pointsValueNoFeeFallback(points: number, milheiroCents: number, feeCents: number) {
   const gross = pointsValueCentsFallback(points, milheiroCents);
   return Math.max(0, gross - (feeCents ?? 0));
 }
 
 /** milheiro derivado do PV sem taxa (pra bônus não “contaminar”) */
-function milheiroNoFeeFromPv(points: number, pvNoFeeCents: number) {
+export function milheiroNoFeeFromPv(points: number, pvNoFeeCents: number) {
   const denom = (points ?? 0) / 1000;
   if (denom <= 0) return 0;
   return Math.round((pvNoFeeCents ?? 0) / denom);
 }
 
-function commission1Fallback(pointsValueNoFeeCents: number) {
+export function commission1Fallback(pointsValueNoFeeCents: number) {
   return Math.round((pointsValueNoFeeCents ?? 0) * 0.01);
 }
 
 /** bônus 30% do excedente acima da meta (milheiro SEM taxa) */
-function bonusFallback(args: {
+export function bonusFallback(args: {
   points: number;
   milheiroNoFeeCents: number;
   metaMilheiroCents: number | null | undefined;
@@ -136,19 +136,19 @@ function bonusFallback(args: {
  * - pointsValueCents no banco deve ser PV SEM taxa (se estiver >0, confia)
  * - se PV vier 0, calcula PV sem taxa pelo fallback (milheiro*pts/1000 - fee)
  */
-function choosePvNoFee(points: number, pvDb: number, milheiroCents: number, feeCents: number) {
+export function choosePvNoFee(points: number, pvDb: number, milheiroCents: number, feeCents: number) {
   if ((pvDb ?? 0) > 0) return pvDb;
   if ((points ?? 0) > 0) return pointsValueNoFeeFallback(points, milheiroCents, feeCents);
   return 0;
 }
 
-function chooseC1(points: number, c1Db: number, pvNoFee: number) {
+export function chooseC1(points: number, c1Db: number, pvNoFee: number) {
   if ((c1Db ?? 0) > 0) return c1Db;
   if ((points ?? 0) > 0 && (pvNoFee ?? 0) > 0) return commission1Fallback(pvNoFee);
   return 0;
 }
 
-function chooseC2(
+export function chooseC2(
   points: number,
   c2Db: number,
   milheiroNoFeeCents: number,
@@ -164,7 +164,7 @@ function chooseCostMilheiro(program: LoyaltyProgram, costDb: number, settings: S
   return costFromSettings(program, settings);
 }
 
-function chooseMetaMilheiro(metaSaleOrPurchase: number | null | undefined) {
+export function chooseMetaMilheiro(metaSaleOrPurchase: number | null | undefined) {
   const v = Number(metaSaleOrPurchase ?? 0);
   return v > 0 ? v : 0;
 }

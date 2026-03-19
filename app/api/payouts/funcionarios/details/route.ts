@@ -2,6 +2,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/auth-server";
+import {
+  chooseC1,
+  chooseC2,
+  chooseMetaMilheiro,
+  choosePvNoFee,
+  milheiroNoFeeFromPv,
+} from "@/lib/payouts/employeePayouts";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -52,26 +59,6 @@ function monthBoundsUTC(month: string) {
   const start = new Date(Date.UTC(yy, mm - 1, 1));
   const end = new Date(Date.UTC(yy, mm, 1)); // 1º do mês seguinte
   return { start, end };
-}
-
-/**
- * ⚠️ Se você já tem essas regras num arquivo shared, importe de lá.
- * Aqui deixei simples pra não depender do compute/day.
- */
-function commission1Fallback(pointsValueCents: number) {
-  // 1%
-  return Math.round(Math.max(0, safeInt(pointsValueCents, 0)) * 0.01);
-}
-
-function pointsValueCentsFallback(points: number, milheiroCents: number) {
-  const denom = (safeInt(points, 0) || 0) / 1000;
-  if (denom <= 0) return 0;
-  return Math.round(denom * safeInt(milheiroCents, 0));
-}
-
-// se você tiver regra real do bônus (C2), plugue aqui
-function bonusFallback(/* sale */ _s: any) {
-  return 0;
 }
 
 function isoDayUTC(d: Date) {
@@ -197,27 +184,45 @@ export async function GET(req: NextRequest) {
       points: true,
       milheiroCents: true,
       pointsValueCents: true,
+      commissionCents: true,
+      bonusCents: true,
+      metaMilheiroCents: true,
       embarqueFeeCents: true,
+      purchase: {
+        select: {
+          metaMilheiroCents: true,
+        },
+      },
     },
     orderBy: { date: "asc" },
     take: 5000,
   });
 
   const lineFromSale = (s: any) => {
-    const pvc =
-      safeInt(s.pointsValueCents, 0) ||
-      pointsValueCentsFallback(safeInt(s.points, 0), safeInt(s.milheiroCents, 0));
-
-    const c1 = commission1Fallback(pvc);
-    const c2 = bonusFallback(s);
     const fee = safeInt(s.embarqueFeeCents, 0);
+    const points = safeInt(s.points, 0);
+    const pvNoFee = choosePvNoFee(
+      points,
+      safeInt(s.pointsValueCents, 0),
+      safeInt(s.milheiroCents, 0),
+      fee
+    );
+    const milheiroNoFee = milheiroNoFeeFromPv(points, pvNoFee);
+    const meta = chooseMetaMilheiro(
+      safeInt(s.metaMilheiroCents, 0) > 0
+        ? safeInt(s.metaMilheiroCents, 0)
+        : safeInt(s.purchase?.metaMilheiroCents, 0)
+    );
+
+    const c1 = chooseC1(points, safeInt(s.commissionCents, 0), pvNoFee);
+    const c2 = chooseC2(points, safeInt(s.bonusCents, 0), milheiroNoFee, meta);
 
     return {
       ref: { type: "sale", id: s.id },
       numero: s.numero,
       locator: s.locator || null,
-      points: safeInt(s.points, 0),
-      pointsValueCents: pvc,
+      points,
+      pointsValueCents: pvNoFee,
       c1Cents: c1,
       c2Cents: c2,
       c3Cents: 0, // ⚠️ C3 depende da sua regra real

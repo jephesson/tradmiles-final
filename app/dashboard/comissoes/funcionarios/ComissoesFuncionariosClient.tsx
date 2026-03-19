@@ -1043,8 +1043,8 @@ export default function ComissoesFuncionariosClient() {
                     </div>
 
                     <div className="mt-2 text-xs text-neutral-500">
-                      Se houver diferença, normalmente é porque C2/C3/fee estão sendo calculados no compute com uma regra
-                      diferente da auditoria.
+                      Se houver diferença, normalmente é porque o C3 (rateio) não aparece integralmente nesta
+                      auditoria por vendas.
                     </div>
                   </div>
                 ) : null}
