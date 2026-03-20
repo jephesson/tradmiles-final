@@ -1008,53 +1008,39 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
     if (args.vendedorNome) lines.push(`👤 Vendedor: ${cap1(args.vendedorNome)}`);
     if (args.cliente) lines.push(`🧾 Cliente: ${args.cliente.nome}`);
 
-    lines.push(`✈️ Programa: ${args.program}`);
+    lines.push(
+      `🎯 Pontos: ${fmtInt(args.pointsTotal)} (👥 PAX: ${fmtInt(
+        args.passengers
+      )}) - ✈️ Programa: ${args.program} - 💸 Milheiro: ${fmtMoneyBR(
+        args.milheiroCents
+      )}`
+    );
 
-    // ✅ pontos ida/volta
-    if (args.tripKind === "IDA_VOLTA") {
-      const idaDesc =
-        args.idaMode === "POR_PAX"
-          ? `${fmtInt(args.idaInput)}/pax x ${fmtInt(
-              args.passengers
-            )} = ${fmtInt(args.idaTotalPoints)}`
-          : `${fmtInt(args.idaTotalPoints)}`;
-
-      const voltaDesc =
-        args.voltaMode === "POR_PAX"
-          ? `${fmtInt(args.voltaInput)}/pax x ${fmtInt(
-              args.passengers
-            )} = ${fmtInt(args.voltaTotalPoints)}`
-          : `${fmtInt(args.voltaTotalPoints)}`;
-
-      lines.push(
-        `🎯 Pontos: ${fmtInt(args.pointsTotal)} (ida ${idaDesc} + volta ${voltaDesc})`
-      );
-    } else {
-      const idaDesc =
-        args.idaMode === "POR_PAX"
-          ? `${fmtInt(args.idaTotalPoints)} (${fmtInt(
-              args.idaInput
-            )}/pax x ${fmtInt(args.passengers)})`
-          : `${fmtInt(args.idaTotalPoints)}`;
-      lines.push(`🎯 Pontos: ${idaDesc}`);
-    }
-
-    lines.push(`👥 PAX: ${fmtInt(args.passengers)}`);
-    lines.push(`💸 Milheiro: ${fmtMoneyBR(args.milheiroCents)}`);
-    lines.push(`🧮 Valor pontos: ${fmtMoneyBR(args.pointsValueCents)}`);
-    lines.push(`🛄 Taxa embarque: ${fmtMoneyBR(args.embarqueFeeCents)}`);
-    lines.push(`💰 Total: ${fmtMoneyBR(args.totalCents)}`);
-    lines.push(`Cartão usado: ${args.feeCardLabel || "—"}`);
+    lines.push(
+      `💰 Total: ${fmtMoneyBR(args.totalCents)} (Pontos: ${fmtMoneyBR(
+        args.pointsValueCents
+      )} + Taxa ${fmtMoneyBR(args.embarqueFeeCents)})`
+    );
+    lines.push(`Cartão Taxa de embarque: 💳 ${args.feeCardLabel || "—"}`);
 
     if (args.locator?.trim())
       lines.push(`🔎 Localizador: ${args.locator.trim()}`);
 
     lines.push("");
-    lines.push("Dados para pagamento");
-    lines.push("Pix: 63817773000185 (CNPJ)");
-    lines.push("Nome: Vias Aereas");
-    lines.push("Banco: Inter");
+    lines.push("💳 Pagamento via Pix - Vias Aéreas — Inter");
+    lines.push("CNPJ: 63817773000185");
     lines.push(`Total a pagar: ${fmtMoneyBR(args.totalCents)}`);
+    lines.push("");
+    lines.push("⚠️ Confira datas, horários e dados do passageiro.");
+    lines.push(
+      "Informe divergências em até 24h após a emissão. Após esse prazo, ajustes podem ter custo (R$ 30)."
+    );
+    lines.push("");
+    lines.push(
+      "📌 Emissões feitas com menos de 24h ou até 7 dias do voo podem gerar taxas extras (Res. ANAC 400)."
+    );
+    lines.push("");
+    lines.push("Estamos à disposição.");
 
     return lines.join("\n");
   }
