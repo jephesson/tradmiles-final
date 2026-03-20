@@ -210,6 +210,11 @@ type BalcaoRowLite = {
   employee: { id: string; name: string; login: string } | null;
 };
 
+type DailyHistoryAgg = {
+  salesCents: number;
+  balcaoCents: number;
+};
+
 function seedEmpMap(users: Array<{ id: string; name: string; login: string }>) {
   const map = new Map<string, EmpRow>();
   for (const u of users) {
@@ -1338,6 +1343,110 @@ export async function GET(req: NextRequest) {
         passengers: x.pax,
       }));
 
+    // =========================
+    // 8) HISTÓRICO COMPLETO CONSOLIDADO POR DIA (milhas + balcão)
+    // =========================
+    const [allSalesHistory, allBalcaoHistory] = await Promise.all([
+      prisma.sale.findMany({
+        where: {
+          ...(program !== "ALL" ? { program } : {}),
+          ...saleTeamWhere(team),
+          ...notCanceled,
+        },
+        select: {
+          date: true,
+          points: true,
+          milheiroCents: true,
+        },
+        orderBy: { date: "asc" },
+      }),
+      prisma.balcaoOperacao.findMany({
+        where: { team },
+        select: {
+          createdAt: true,
+          customerChargeCents: true,
+        },
+        orderBy: { createdAt: "asc" },
+      }),
+    ]);
+
+    const dailyHistoryAgg = new Map<string, DailyHistoryAgg>();
+
+    function ensureDailyHistory(key: string) {
+      const cur = dailyHistoryAgg.get(key) || { salesCents: 0, balcaoCents: 0 };
+      dailyHistoryAgg.set(key, cur);
+      return cur;
+    }
+
+    for (const s of allSalesHistory) {
+      const key = isoDayUTC(new Date(s.date as any));
+      const cur = ensureDailyHistory(key);
+      cur.salesCents += pointsValueCents(Number(s.points || 0), Number(s.milheiroCents || 0));
+      dailyHistoryAgg.set(key, cur);
+    }
+
+    for (const op of allBalcaoHistory) {
+      const key = isoDayUTC(new Date(op.createdAt as any));
+      const cur = ensureDailyHistory(key);
+      cur.balcaoCents += Math.max(0, Number(op.customerChargeCents || 0));
+      dailyHistoryAgg.set(key, cur);
+    }
+
+    const firstSalesDate = allSalesHistory.length
+      ? dayStartUTC(isoDayUTC(new Date(allSalesHistory[0].date as any)))
+      : null;
+    const firstBalcaoDate = allBalcaoHistory.length
+      ? dayStartUTC(isoDayUTC(new Date(allBalcaoHistory[0].createdAt as any)))
+      : null;
+    const lastSalesDate = allSalesHistory.length
+      ? dayStartUTC(isoDayUTC(new Date(allSalesHistory[allSalesHistory.length - 1].date as any)))
+      : null;
+    const lastBalcaoDate = allBalcaoHistory.length
+      ? dayStartUTC(
+          isoDayUTC(new Date(allBalcaoHistory[allBalcaoHistory.length - 1].createdAt as any))
+        )
+      : null;
+
+    const historyStart =
+      firstSalesDate && firstBalcaoDate
+        ? firstSalesDate.getTime() <= firstBalcaoDate.getTime()
+          ? firstSalesDate
+          : firstBalcaoDate
+        : firstSalesDate || firstBalcaoDate || dayStartUTC(todayISO);
+
+    let historyEndExclusive = addDaysUTC(
+      lastSalesDate && lastBalcaoDate
+        ? lastSalesDate.getTime() >= lastBalcaoDate.getTime()
+          ? lastSalesDate
+          : lastBalcaoDate
+        : lastSalesDate || lastBalcaoDate || dayStartUTC(todayISO),
+      1
+    );
+    const todayEndExclusive = dayBoundsUTC(todayISO).end;
+    if (historyEndExclusive.getTime() < todayEndExclusive.getTime()) {
+      historyEndExclusive = todayEndExclusive;
+    }
+
+    const salesDailyHistory: Array<{
+      key: string;
+      label: string;
+      salesCents: number;
+      balcaoCents: number;
+      grossCents: number;
+    }> = [];
+
+    for (let d = new Date(historyStart); d < historyEndExclusive; d = addDaysUTC(d, 1)) {
+      const key = isoDayUTC(d);
+      const cur = dailyHistoryAgg.get(key) || { salesCents: 0, balcaoCents: 0 };
+      salesDailyHistory.push({
+        key,
+        label: key,
+        salesCents: cur.salesCents,
+        balcaoCents: cur.balcaoCents,
+        grossCents: cur.salesCents + cur.balcaoCents,
+      });
+    }
+
     const chartFrom = chart === "DAY" && dailyStart ? isoDayUTC(dailyStart) : null;
     const chartTo = chart === "DAY" && dailyEndExclusive ? isoDayUTC(addDaysUTC(dailyEndExclusive, -1)) : null;
 
@@ -1462,6 +1571,7 @@ export async function GET(req: NextRequest) {
 
         clubsByMonth,
         topClients,
+        salesDailyHistory,
       },
       {
         headers: {

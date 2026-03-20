@@ -66,11 +66,37 @@ function elapsedDaysInMonthFromKey(monthKey?: string | null, todayISO?: string |
   return Math.max(1, Math.min(totalDays, day));
 }
 
+function monthLabelLongPT(monthKey?: string | null) {
+  const raw = String(monthKey || "").trim();
+  const m = raw.match(/^(\d{4})-(\d{2})$/);
+  if (!m) return raw || "—";
+  const dt = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, 1));
+  return new Intl.DateTimeFormat("pt-BR", {
+    month: "long",
+    year: "numeric",
+    timeZone: "UTC",
+  }).format(dt);
+}
+
+function dayLabelLongPT(dayKey?: string | null) {
+  const raw = String(dayKey || "").trim();
+  const m = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return raw || "—";
+  const dt = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
+  return new Intl.DateTimeFormat("pt-BR", {
+    day: "2-digit",
+    month: "long",
+    year: "numeric",
+    timeZone: "UTC",
+  }).format(dt);
+}
+
 type Analytics = any;
 
 type ChartMode = "MONTH" | "DAY";
 type DaysPreset = 7 | 15 | 30 | "CUSTOM";
 type MAWindow = 0 | 7 | 15 | 30;
+type SalesDailyHistoryRange = 30 | 60 | 90 | 180 | 365 | "ALL";
 
 type ChartPoint = { x: string; y: number };
 type ChartPointWithSub = ChartPoint & { sub?: string };
@@ -871,6 +897,8 @@ export default function AnaliseDadosClient() {
 
   // ✅ média móvel (linha cinza)
   const [maWindow, setMaWindow] = useState<MAWindow>(0);
+  const [salesDailyHistoryRange, setSalesDailyHistoryRange] =
+    useState<SalesDailyHistoryRange>(30);
 
   useEffect(() => {
     if (daysPreset !== "CUSTOM") setDaysBack(daysPreset);
@@ -992,6 +1020,84 @@ export default function AnaliseDadosClient() {
     });
     return m;
   }, [balcaoMonthByKey]);
+
+  const salesDailyHistory = useMemo(() => {
+    return ((((data as any)?.salesDailyHistory || []) as any[]).map((row) => ({
+      key: String(row?.key || ""),
+      label: String(row?.label || row?.key || ""),
+      salesCents: Number(row?.salesCents || 0),
+      balcaoCents: Number(row?.balcaoCents || 0),
+      grossCents: Number(row?.grossCents || 0),
+    })));
+  }, [data]);
+
+  const filteredSalesDailyHistory = useMemo(() => {
+    if (salesDailyHistoryRange === "ALL") return salesDailyHistory;
+    return salesDailyHistory.slice(-salesDailyHistoryRange);
+  }, [salesDailyHistory, salesDailyHistoryRange]);
+
+  const salesDailyHistoryChart = useMemo<ChartPointWithSub[]>(() => {
+    return filteredSalesDailyHistory.map((row, idx) => {
+      const prev = idx > 0 ? filteredSalesDailyHistory[idx - 1] : null;
+      const subParts = [
+        `Milhas: ${fmtMoneyBR(row.salesCents)}`,
+        `Balcão: ${fmtMoneyBR(row.balcaoCents)}`,
+      ];
+      if (prev && prev.grossCents > 0) {
+        subParts.push(`vs ant: ${fmtPct((row.grossCents - prev.grossCents) / prev.grossCents)}`);
+      } else if (prev) {
+        subParts.push("vs ant: —");
+      }
+      return {
+        x: row.key,
+        y: row.grossCents,
+        sub: subParts.join(" • "),
+      };
+    });
+  }, [filteredSalesDailyHistory]);
+
+  const salesDailyHistorySummary = useMemo(() => {
+    if (!salesDailyHistory.length) return null;
+    return salesDailyHistory.reduce(
+      (best, row) => (row.grossCents > best.grossCents ? row : best),
+      salesDailyHistory[0]
+    );
+  }, [salesDailyHistory]);
+
+  const salesMonthlyHistorySummary = useMemo(() => {
+    const monthly = new Map<string, number>();
+
+    salesDailyHistory.forEach((row) => {
+      const key = String(row.key || "").slice(0, 7);
+      if (!key) return;
+      monthly.set(key, (monthly.get(key) || 0) + row.grossCents);
+    });
+
+    Object.entries(LEGACY_MONTHLY_SALES_CENTS).forEach(([key, cents]) => {
+      monthly.set(key, (monthly.get(key) || 0) + Number(cents || 0));
+    });
+
+    const rows = Array.from(monthly.entries())
+      .map(([key, grossCents]) => ({
+        key,
+        label: monthLabelLongPT(key),
+        grossCents,
+      }))
+      .sort((a, b) => a.key.localeCompare(b.key));
+
+    if (!rows.length) return null;
+    return rows.reduce((best, row) => (row.grossCents > best.grossCents ? row : best), rows[0]);
+  }, [salesDailyHistory]);
+
+  const salesDailyHistoryTotal = useMemo(() => {
+    if (!filteredSalesDailyHistory.length) return 0;
+    return filteredSalesDailyHistory.reduce((acc, row) => acc + row.grossCents, 0);
+  }, [filteredSalesDailyHistory]);
+
+  const salesDailyHistoryAverage = useMemo(() => {
+    if (!filteredSalesDailyHistory.length) return 0;
+    return Math.round(salesDailyHistoryTotal / filteredSalesDailyHistory.length);
+  }, [filteredSalesDailyHistory, salesDailyHistoryTotal]);
 
   // ✅ Fonte do gráfico depende do modo (TIPADO)
   const chartPoints = useMemo<ChartPoint[]>(() => {
@@ -1578,6 +1684,25 @@ export default function AnaliseDadosClient() {
         />
       </div>
 
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <Card
+          title="Maior dia vendido (histórico)"
+          value={fmtMoneyBR(salesDailyHistorySummary?.grossCents || 0)}
+          sub={
+            salesDailyHistorySummary
+              ? dayLabelLongPT(salesDailyHistorySummary.key)
+              : "Sem histórico suficiente"
+          }
+          tone="sky"
+        />
+        <Card
+          title="Maior mês vendido (histórico)"
+          value={fmtMoneyBR(salesMonthlyHistorySummary?.grossCents || 0)}
+          sub={salesMonthlyHistorySummary ? salesMonthlyHistorySummary.label : "Sem histórico suficiente"}
+          tone="emerald"
+        />
+      </div>
+
       {/* HOJE por funcionário */}
       <div className="rounded-2xl border bg-white p-4 shadow-sm">
         <div className="mb-2 flex items-center justify-between">
@@ -1859,6 +1984,80 @@ export default function AnaliseDadosClient() {
               }${maWindow ? ` • Linha cinza = média móvel ${maWindow}d` : ""} • Linha pontilhada = tendência • Valores consolidados de milhas + balcão`
             : `Média mensal no período (milhas + balcão): ${fmtMoneyBR(avgMonthlyTotalCents)}`
         }
+      />
+
+      <SimpleLineChart
+        title="Venda por dia (milhas + balcão)"
+        data={salesDailyHistoryChart}
+        summary={
+          <div className="grid grid-cols-1 gap-3 lg:grid-cols-[auto,1fr] lg:items-center">
+            <div className="flex items-center gap-2 text-xs">
+              <span className="text-neutral-500">Período:</span>
+              <select
+                className="rounded-lg border bg-white px-2 py-1 text-xs"
+                value={salesDailyHistoryRange}
+                onChange={(e) =>
+                  setSalesDailyHistoryRange(
+                    e.target.value === "ALL"
+                      ? "ALL"
+                      : (Number(e.target.value) as SalesDailyHistoryRange)
+                  )
+                }
+              >
+                <option value={30}>30 dias</option>
+                <option value={60}>60 dias</option>
+                <option value={90}>90 dias</option>
+                <option value={180}>180 dias</option>
+                <option value={365}>365 dias</option>
+                <option value="ALL">Todo período</option>
+              </select>
+            </div>
+
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+              <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+                <div className="text-[11px] text-slate-500">Total do período</div>
+                <div className="text-sm font-semibold text-slate-800">
+                  {fmtMoneyBR(salesDailyHistoryTotal)}
+                </div>
+              </div>
+              <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+                <div className="text-[11px] text-slate-500">Média por dia</div>
+                <div className="text-sm font-semibold text-slate-800">
+                  {fmtMoneyBR(salesDailyHistoryAverage)}
+                </div>
+              </div>
+              <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+                <div className="text-[11px] text-slate-500">Maior dia no período</div>
+                {filteredSalesDailyHistory.length ? (
+                  <div className="text-[10px] text-slate-500">
+                    {dayLabelLongPT(
+                      filteredSalesDailyHistory.reduce(
+                        (best, row) => (row.grossCents > best.grossCents ? row : best),
+                        filteredSalesDailyHistory[0]
+                      ).key
+                    )}
+                  </div>
+                ) : null}
+                <div className="text-sm font-semibold text-slate-800">
+                  {filteredSalesDailyHistory.length
+                    ? fmtMoneyBR(
+                        filteredSalesDailyHistory.reduce(
+                          (best, row) => (row.grossCents > best.grossCents ? row : best),
+                          filteredSalesDailyHistory[0]
+                        ).grossCents
+                      )
+                    : "—"}
+                </div>
+              </div>
+            </div>
+          </div>
+        }
+        valueLabel="Total vendido no dia"
+        footer={`Período exibido: ${
+          salesDailyHistoryRange === "ALL"
+            ? "todo o histórico compilado"
+            : `últimos ${fmtInt(Number(salesDailyHistoryRange))} dias`
+        } • Valores consolidados de milhas + balcão.`}
       />
 
       <div className="rounded-2xl border bg-white p-4 shadow-sm">
