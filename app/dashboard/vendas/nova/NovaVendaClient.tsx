@@ -246,26 +246,6 @@ function applyLatamWindow(s: Suggestion, usedRaw: number): Suggestion {
   };
 }
 
-const LATAM_BIOMETRIA_AVISO = `⚠️ AVISO IMPORTANTE – NOVO PROTOCOLO LATAM (BIOMETRIA FACIAL)
-
-A LATAM passou a exigir biometria facial do titular da conta sempre que houver resgate/emissão de passagens com pontos para terceiros.
-
-Atualmente, para que a emissão seja feita sem travar nessa etapa, será necessário:
-
-✅ Caso a reserva seja para mais de um passageiro, inserir temporariamente o CPF do titular da conta nos dados só do primeiro passageiro
-✅ ajustar a nacionalidade, para evitar o check-in automático
-
-📌 Importante:
-Caso o cliente autorize esse procedimento, será obrigatório que os dados sejam corrigidos posteriormente pelo próprio cliente ou pela agência responsável, alterando novamente para o CPF e nacionalidade corretos do passageiro, o que pode ser feito:
-
-1 - no autoatendimento do aeroporto
-
-2 - ou até 48h antes do voo
-
-➡️ Se essa autorização não for dada durante o preenchimento dos dados do passageiro, a emissão será feita via biometria facial, o que poderá demorar mais do que o normal, pois a biometria só pode ser feita pelo titular da conta.
-
-Pedimos compreensão e paciência, pois trata-se de uma nova medida de segurança implantada pela companhia aérea.`;
-
 export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) {
   const detailsRef = useRef<HTMLDivElement | null>(null);
 
@@ -1239,7 +1219,7 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
   );
 
   // ======================================================
-  // ✅ WhatsApp do cedente (somente LATAM) + modal aviso
+  // ✅ WhatsApp do cedente (somente LATAM)
   // ======================================================
   const [waMap, setWaMap] = useState<
     Record<
@@ -1249,9 +1229,6 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
   >({});
   const [waLoading, setWaLoading] = useState(false);
   const [waError, setWaError] = useState("");
-
-  const [latamAvisoOpen, setLatamAvisoOpen] = useState(false);
-  const lastLatamCedenteRef = useRef<string | null>(null);
 
   const selWhatsApp = useMemo(() => {
     const id = sel?.cedente?.id;
@@ -1294,17 +1271,6 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
       if (!signal?.aborted) setWaLoading(false);
     }
   }
-
-  // ✅ abre pop-up automaticamente ao selecionar cedente na LATAM (1x por cedente)
-  useEffect(() => {
-    if (program !== "LATAM") return;
-    const id = sel?.cedente?.id;
-    if (!id) return;
-    if (lastLatamCedenteRef.current !== id) {
-      lastLatamCedenteRef.current = id;
-      setLatamAvisoOpen(true);
-    }
-  }, [program, sel?.cedente?.id]);
 
   // ✅ carrega WhatsApp uma vez (quando selecionar LATAM)
   useEffect(() => {
@@ -1705,15 +1671,6 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
                       </div>
 
                       <div className="flex items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={() => setLatamAvisoOpen(true)}
-                          className="rounded-lg border bg-white px-2 py-1 text-[11px] hover:bg-slate-50"
-                          title="Abrir o aviso de biometria novamente"
-                        >
-                          Aviso LATAM
-                        </button>
-
                         <button
                           type="button"
                           disabled={!selWhatsApp?.whatsappUrl}
@@ -2678,60 +2635,6 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
         </div>
       ) : null}
 
-      {/* ✅ MODAL AVISO LATAM (biometria) */}
-      {latamAvisoOpen && program === "LATAM" ? (
-        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/40 p-4">
-          <div className="w-full max-w-2xl rounded-2xl bg-white border p-5">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <div className="text-lg font-semibold">
-                  Aviso LATAM — Biometria facial
-                </div>
-                <div className="text-xs text-slate-500">
-                  Copie e envie para o cliente antes de prosseguir.
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setLatamAvisoOpen(false)}
-                className="rounded-lg border px-2 py-1 text-sm hover:bg-slate-50"
-              >
-                ✕
-              </button>
-            </div>
-
-            <div className="mt-4">
-              <div className="text-xs text-slate-600 mb-1">Mensagem</div>
-              <textarea
-                className="w-full min-h-[260px] rounded-xl border p-3 text-sm whitespace-pre-wrap"
-                readOnly
-                value={LATAM_BIOMETRIA_AVISO}
-              />
-            </div>
-
-            <div className="mt-5 flex justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => setLatamAvisoOpen(false)}
-                className="rounded-xl border px-4 py-2 text-sm hover:bg-slate-50"
-              >
-                Fechar
-              </button>
-
-              <button
-                type="button"
-                onClick={async () => {
-                  await copySilent(LATAM_BIOMETRIA_AVISO);
-                  setLatamAvisoOpen(false); // ✅ copia e fecha automático
-                }}
-                className="rounded-xl bg-black px-4 py-2 text-sm text-white hover:bg-gray-800"
-              >
-                Copiar
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
     </div>
   );
 }
