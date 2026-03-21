@@ -78,12 +78,6 @@ function dateBR(iso: string | null | undefined) {
   return d.toLocaleDateString("pt-BR");
 }
 
-function dateTimeBR(iso: string | null | undefined) {
-  if (!iso) return "—";
-  const d = new Date(iso);
-  return d.toLocaleString("pt-BR");
-}
-
 function dateLabelLong(isoDate: string) {
   const [y, m, d] = isoDate.split("-").map(Number);
   if (!y || !m || !d) return isoDate;
@@ -221,7 +215,6 @@ function Section({
               <th className="py-2 pr-3 text-right">LIVELO</th>
               <th className="py-2 pr-3 text-right">CPF disp.</th>
               <th className="py-2 pr-3 text-right">Score</th>
-              <th className="py-2 pr-3">Adicionado em</th>
               <th className="py-2 pr-3">Status</th>
               <th className="py-2 pr-3">Ações</th>
             </tr>
@@ -261,25 +254,17 @@ function Section({
                     </span>
                   </td>
                   <td className="py-3 pr-3">
-                    <div>{dateTimeBR(item.createdAt)}</div>
-                    <div className="text-xs text-slate-500">
-                      por @{item.addedBy?.login || "sistema"}
-                    </div>
-                  </td>
-                  <td className="py-3 pr-3">
                     <span className={`inline-flex rounded-full border px-2 py-1 text-xs ${meta.cls}`}>
                       {meta.label}
                     </span>
-                    {item.reviewedBy ? (
-                      <div className="mt-1 text-xs text-slate-500">
-                        @{item.reviewedBy.login}
-                        {item.status === "USED" && item.usedAt ? ` • ${dateTimeBR(item.usedAt)}` : ""}
-                        {item.status !== "USED" && item.resolvedAt ? ` • ${dateTimeBR(item.resolvedAt)}` : ""}
-                      </div>
-                    ) : null}
+                    <div className="mt-1 text-xs text-slate-500">
+                      {item.reviewedBy
+                        ? `@${item.reviewedBy.login}`
+                        : `por @${item.addedBy?.login || "sistema"}`}
+                    </div>
                   </td>
                   <td className="py-3 pr-3">
-                    <div className="flex flex-wrap gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
                       {waHref ? (
                         <a
                           href={waHref}
@@ -294,7 +279,7 @@ function Section({
 
                       {item.status !== "PENDING" ? (
                         <button
-                          className="rounded-xl border px-3 py-1.5 text-xs hover:bg-neutral-50"
+                          className="rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-50"
                           onClick={() => onChangeStatus(item.id, "PENDING")}
                         >
                           Desfazer
@@ -310,9 +295,9 @@ function Section({
                         </button>
                       ) : null}
 
-                      {item.status !== "DENIED" ? (
+                      {item.status === "PENDING" ? (
                         <button
-                          className="rounded-xl border px-3 py-1.5 text-xs hover:bg-neutral-50"
+                          className="rounded-xl border border-rose-200 bg-white px-3 py-1.5 text-xs text-rose-700 hover:bg-rose-50"
                           onClick={() => onChangeStatus(item.id, "DENIED")}
                         >
                           Negar
@@ -321,7 +306,7 @@ function Section({
 
                       {item.status === "ELIGIBLE" ? (
                         <button
-                          className="rounded-xl border border-sky-300 bg-sky-50 px-3 py-1.5 text-xs text-sky-700 hover:bg-sky-100"
+                          className="rounded-xl border border-sky-300 bg-sky-50 px-3 py-1.5 text-xs font-medium text-sky-700 hover:bg-sky-100"
                           onClick={() => onChangeStatus(item.id, "USED")}
                         >
                           Marcar usado
@@ -335,7 +320,7 @@ function Section({
 
             {!filteredAndSorted.length ? (
               <tr>
-                <td className="py-8 text-center text-sm text-slate-500" colSpan={9}>
+                <td className="py-8 text-center text-sm text-slate-500" colSpan={8}>
                   {emptyText}
                 </td>
               </tr>
