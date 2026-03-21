@@ -292,6 +292,15 @@ function Section({
                         </a>
                       ) : null}
 
+                      {item.status !== "PENDING" ? (
+                        <button
+                          className="rounded-xl border px-3 py-1.5 text-xs hover:bg-neutral-50"
+                          onClick={() => onChangeStatus(item.id, "PENDING")}
+                        >
+                          Desfazer
+                        </button>
+                      ) : null}
+
                       {item.status !== "ELIGIBLE" ? (
                         <button
                           className="rounded-xl border px-3 py-1.5 text-xs hover:bg-neutral-50"
@@ -316,15 +325,6 @@ function Section({
                           onClick={() => onChangeStatus(item.id, "USED")}
                         >
                           Marcar usado
-                        </button>
-                      ) : null}
-
-                      {item.status !== "PENDING" ? (
-                        <button
-                          className="rounded-xl border px-3 py-1.5 text-xs hover:bg-neutral-50"
-                          onClick={() => onChangeStatus(item.id, "PENDING")}
-                        >
-                          Voltar
                         </button>
                       ) : null}
                     </div>
