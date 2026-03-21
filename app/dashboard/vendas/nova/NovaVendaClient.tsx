@@ -1016,7 +1016,7 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
     lines.push(`🧮 Valor pontos: ${fmtMoneyBR(args.pointsValueCents)}`);
     lines.push(`🛄 Taxa embarque: ${fmtMoneyBR(args.embarqueFeeCents)}`);
     lines.push(`💰 Total: ${fmtMoneyBR(args.totalCents)}`);
-    lines.push(`💳 ${args.feeCardLabel || "—"}`);
+    lines.push(`Cartão usado: ${args.feeCardLabel || "—"}`);
 
     if (args.locator?.trim())
       lines.push(`🔎 Localizador: ${args.locator.trim()}`);
@@ -1037,7 +1037,7 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
       "📌 Emissões feitas com menos de 24h ou até 7 dias do voo podem gerar taxas extras (Res. ANAC 400)."
     );
     lines.push("");
-    lines.push("Estamos à disposição.");
+    lines.push("Em caso de dúvida, estamos à disposição. ✈️");
 
     return lines.join("\n");
   }
