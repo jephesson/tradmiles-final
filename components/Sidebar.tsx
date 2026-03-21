@@ -814,6 +814,9 @@ export default function Sidebar() {
               variant="nav"
               active={isContasSelecionadasLatamRoute}
             >
+              <NavLink href="/dashboard/contas-selecionadas/latam/lista-promo">
+                Lista promo
+              </NavLink>
               <NavLink href="/dashboard/contas-selecionadas/latam/turbo">
                 Turbo Latam
               </NavLink>

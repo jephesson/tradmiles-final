@@ -215,6 +215,8 @@ model User {
   agendaAuditsActor    AgendaAudit[]       @relation("AgendaAuditActor")
   agendaMemberColors   AgendaMemberColor[] @relation("AgendaMemberColorUser")
   anotacoesCreated     Anotacao[]          @relation("AnotacaoCreatedBy")
+  latamPromoListItemsAdded    LatamPromoListItem[] @relation("LatamPromoListItemAddedBy")
+  latamPromoListItemsReviewed LatamPromoListItem[] @relation("LatamPromoListItemReviewedBy")
 
   @@index([team])
   @@index([role])
@@ -489,6 +491,7 @@ model Cedente {
   latamTurboMonths LatamTurboMonth[] @relation("LatamTurboMonthCedente")
 
   latamTurboAccount LatamTurboAccount? @relation("LatamTurboAccountCedente")
+  latamPromoListItems LatamPromoListItem[] @relation("LatamPromoListItemCedente")
 
   // ✅ PROTOCOLOS
   protocols Protocol[]
@@ -1385,6 +1388,13 @@ enum LatamTurboStatus {
   SKIPPED
 }
 
+enum LatamPromoListStatus {
+  PENDING
+  ELIGIBLE
+  DENIED
+  USED
+}
+
 model LatamTurboMonth {
   id        String @id @default(cuid())
   team      String
@@ -1419,6 +1429,36 @@ model LatamTurboAccount {
 
   @@index([team])
   @@map("latam_turbo_accounts")
+}
+
+model LatamPromoListItem {
+  id       String              @id @default(cuid())
+  team     String
+  listDate String
+  status   LatamPromoListStatus @default(PENDING)
+
+  cedenteId String
+  cedente   Cedente @relation("LatamPromoListItemCedente", fields: [cedenteId], references: [id], onDelete: Cascade)
+
+  addedById String?
+  addedBy   User? @relation("LatamPromoListItemAddedBy", fields: [addedById], references: [id], onDelete: SetNull)
+
+  reviewedById String?
+  reviewedBy   User? @relation("LatamPromoListItemReviewedBy", fields: [reviewedById], references: [id], onDelete: SetNull)
+
+  resolvedAt DateTime?
+  usedAt     DateTime?
+  notes      String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([team, listDate, cedenteId], name: "team_listDate_cedenteId")
+  @@index([team, listDate, status])
+  @@index([cedenteId])
+  @@index([addedById])
+  @@index([reviewedById])
+  @@map("latam_promo_list_items")
 }
 
 /**

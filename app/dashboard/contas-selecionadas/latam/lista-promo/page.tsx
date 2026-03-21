@@ -1,0 +1,450 @@
+"use client";
+
+import { useEffect, useMemo, useState } from "react";
+
+type PromoStatus = "PENDING" | "ELIGIBLE" | "DENIED" | "USED";
+
+type Item = {
+  id: string;
+  listDate: string;
+  status: PromoStatus;
+  createdAt: string;
+  updatedAt: string;
+  resolvedAt: string | null;
+  usedAt: string | null;
+  scoreMedia: number;
+  cedente: {
+    id: string;
+    identificador: string;
+    nomeCompleto: string;
+    cpf: string;
+    pontosLatam: number;
+    owner: { id: string; name: string; login: string };
+  };
+  addedBy: null | { id: string; name: string; login: string };
+  reviewedBy: null | { id: string; name: string; login: string };
+};
+
+type ApiResp = {
+  ok: true;
+  listDate: string;
+  today: string;
+  recentDates: string[];
+  summary: {
+    total: number;
+    pending: number;
+    eligible: number;
+    denied: number;
+    used: number;
+  };
+  groups: {
+    eligible: Item[];
+    pending: Item[];
+    denied: Item[];
+    used: Item[];
+  };
+};
+
+function fmtInt(n: number) {
+  return new Intl.NumberFormat("pt-BR").format(n || 0);
+}
+
+function maskCpf(cpf: string) {
+  const d = (cpf || "").replace(/\D+/g, "").slice(0, 11);
+  if (d.length !== 11) return cpf;
+  return `***.***.${d.slice(6, 9)}-${d.slice(9, 11)}`;
+}
+
+function dateBR(iso: string | null | undefined) {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  return d.toLocaleDateString("pt-BR");
+}
+
+function dateTimeBR(iso: string | null | undefined) {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  return d.toLocaleString("pt-BR");
+}
+
+function dateLabelLong(isoDate: string) {
+  const [y, m, d] = isoDate.split("-").map(Number);
+  if (!y || !m || !d) return isoDate;
+  return new Intl.DateTimeFormat("pt-BR", {
+    day: "2-digit",
+    month: "long",
+    year: "numeric",
+    timeZone: "UTC",
+  }).format(new Date(Date.UTC(y, m - 1, d)));
+}
+
+function normalizeScore(v: unknown) {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return 0;
+  return Math.max(0, Math.min(10, Math.round(n * 100) / 100));
+}
+
+function fmtScore(v: unknown) {
+  return normalizeScore(v).toLocaleString("pt-BR", {
+    minimumFractionDigits: 1,
+    maximumFractionDigits: 1,
+  });
+}
+
+function scorePillClass(v: unknown) {
+  const s = normalizeScore(v);
+  if (s >= 8) return "border-emerald-200 bg-emerald-50 text-emerald-700";
+  if (s >= 6) return "border-amber-200 bg-amber-50 text-amber-700";
+  if (s >= 4) return "border-orange-200 bg-orange-50 text-orange-700";
+  return "border-rose-200 bg-rose-50 text-rose-700";
+}
+
+function statusMeta(status: PromoStatus) {
+  if (status === "ELIGIBLE") {
+    return {
+      label: "Apto",
+      cls: "border-emerald-200 bg-emerald-50 text-emerald-700",
+    };
+  }
+  if (status === "DENIED") {
+    return {
+      label: "Negado",
+      cls: "border-rose-200 bg-rose-50 text-rose-700",
+    };
+  }
+  if (status === "USED") {
+    return {
+      label: "Usado",
+      cls: "border-sky-200 bg-sky-50 text-sky-700",
+    };
+  }
+  return {
+    label: "Aguardando",
+    cls: "border-amber-200 bg-amber-50 text-amber-700",
+  };
+}
+
+function SummaryCard({
+  title,
+  value,
+  tone,
+}: {
+  title: string;
+  value: string;
+  tone: "slate" | "emerald" | "amber" | "rose" | "sky";
+}) {
+  const toneClass =
+    tone === "emerald"
+      ? "border-emerald-100 bg-emerald-50/70"
+      : tone === "amber"
+        ? "border-amber-100 bg-amber-50/70"
+        : tone === "rose"
+          ? "border-rose-100 bg-rose-50/70"
+          : tone === "sky"
+            ? "border-sky-100 bg-sky-50/70"
+            : "border-slate-200 bg-white";
+
+  return (
+    <div className={`rounded-2xl border p-4 shadow-sm ${toneClass}`}>
+      <div className="text-xs text-slate-500">{title}</div>
+      <div className="mt-1 text-2xl font-semibold text-slate-900">{value}</div>
+    </div>
+  );
+}
+
+function Section({
+  title,
+  rows,
+  emptyText,
+  onChangeStatus,
+}: {
+  title: string;
+  rows: Item[];
+  emptyText: string;
+  onChangeStatus: (itemId: string, status: PromoStatus) => Promise<void>;
+}) {
+  const sorted = useMemo(() => {
+    return [...rows].sort((a, b) => {
+      const ownerCmp = a.cedente.owner.name.localeCompare(b.cedente.owner.name, "pt-BR");
+      if (ownerCmp !== 0) return ownerCmp;
+      return a.cedente.nomeCompleto.localeCompare(b.cedente.nomeCompleto, "pt-BR");
+    });
+  }, [rows]);
+
+  return (
+    <div className="rounded-2xl border bg-white p-4 shadow-sm">
+      <div className="flex items-center justify-between">
+        <div className="text-sm font-semibold">{title}</div>
+        <div className="text-xs text-neutral-500">{sorted.length} contas</div>
+      </div>
+
+      <div className="mt-3 overflow-x-auto">
+        <table className="w-full min-w-[1020px] text-sm">
+          <thead>
+            <tr className="border-b text-left text-xs text-neutral-500">
+              <th className="py-2 pr-3">Cedente</th>
+              <th className="py-2 pr-3">Responsável</th>
+              <th className="py-2 pr-3 text-right">LATAM</th>
+              <th className="py-2 pr-3 text-right">Score</th>
+              <th className="py-2 pr-3">Adicionado em</th>
+              <th className="py-2 pr-3">Status</th>
+              <th className="py-2 pr-3">Ações</th>
+            </tr>
+          </thead>
+          <tbody>
+            {sorted.map((item) => {
+              const meta = statusMeta(item.status);
+
+              return (
+                <tr key={item.id} className="border-b last:border-b-0">
+                  <td className="py-3 pr-3">
+                    <div className="font-medium">{item.cedente.nomeCompleto}</div>
+                    <div className="text-xs text-slate-500">
+                      {item.cedente.identificador} • CPF: {maskCpf(item.cedente.cpf)}
+                    </div>
+                  </td>
+                  <td className="py-3 pr-3">
+                    <div className="font-medium">{item.cedente.owner.name}</div>
+                    <div className="text-xs text-slate-500">@{item.cedente.owner.login}</div>
+                  </td>
+                  <td className="py-3 pr-3 text-right font-medium tabular-nums">
+                    {fmtInt(item.cedente.pontosLatam || 0)}
+                  </td>
+                  <td className="py-3 pr-3 text-right">
+                    <span
+                      className={`inline-flex rounded-full border px-2 py-1 text-xs ${scorePillClass(
+                        item.scoreMedia
+                      )}`}
+                    >
+                      {fmtScore(item.scoreMedia)}
+                    </span>
+                  </td>
+                  <td className="py-3 pr-3">
+                    <div>{dateTimeBR(item.createdAt)}</div>
+                    <div className="text-xs text-slate-500">
+                      por @{item.addedBy?.login || "sistema"}
+                    </div>
+                  </td>
+                  <td className="py-3 pr-3">
+                    <span className={`inline-flex rounded-full border px-2 py-1 text-xs ${meta.cls}`}>
+                      {meta.label}
+                    </span>
+                    {item.reviewedBy ? (
+                      <div className="mt-1 text-xs text-slate-500">
+                        @{item.reviewedBy.login}
+                        {item.status === "USED" && item.usedAt ? ` • ${dateTimeBR(item.usedAt)}` : ""}
+                        {item.status !== "USED" && item.resolvedAt ? ` • ${dateTimeBR(item.resolvedAt)}` : ""}
+                      </div>
+                    ) : null}
+                  </td>
+                  <td className="py-3 pr-3">
+                    <div className="flex flex-wrap gap-2">
+                      {item.status !== "ELIGIBLE" ? (
+                        <button
+                          className="rounded-xl border px-3 py-1.5 text-xs hover:bg-neutral-50"
+                          onClick={() => onChangeStatus(item.id, "ELIGIBLE")}
+                        >
+                          Apto
+                        </button>
+                      ) : null}
+
+                      {item.status !== "DENIED" ? (
+                        <button
+                          className="rounded-xl border px-3 py-1.5 text-xs hover:bg-neutral-50"
+                          onClick={() => onChangeStatus(item.id, "DENIED")}
+                        >
+                          Negar
+                        </button>
+                      ) : null}
+
+                      {item.status === "ELIGIBLE" ? (
+                        <button
+                          className="rounded-xl border border-sky-300 bg-sky-50 px-3 py-1.5 text-xs text-sky-700 hover:bg-sky-100"
+                          onClick={() => onChangeStatus(item.id, "USED")}
+                        >
+                          Marcar usado
+                        </button>
+                      ) : null}
+
+                      {item.status !== "PENDING" ? (
+                        <button
+                          className="rounded-xl border px-3 py-1.5 text-xs hover:bg-neutral-50"
+                          onClick={() => onChangeStatus(item.id, "PENDING")}
+                        >
+                          Voltar
+                        </button>
+                      ) : null}
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
+
+            {!sorted.length ? (
+              <tr>
+                <td className="py-8 text-center text-sm text-slate-500" colSpan={7}>
+                  {emptyText}
+                </td>
+              </tr>
+            ) : null}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+export default function LatamListaPromoPage() {
+  const [data, setData] = useState<ApiResp | null>(null);
+  const [listDate, setListDate] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  async function load(dateOverride?: string) {
+    const targetDate = dateOverride || listDate;
+    setLoading(true);
+    setError("");
+    try {
+      const qs = targetDate ? `?date=${encodeURIComponent(targetDate)}` : "";
+      const res = await fetch(`/api/contas-selecionadas/latam/lista-promo${qs}`, {
+        cache: "no-store",
+      });
+      const json = await res.json().catch(() => null);
+      if (!res.ok || !json?.ok) throw new Error(json?.error || "Falha ao carregar lista promo.");
+
+      setData(json);
+      setListDate(String(json.listDate || ""));
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Falha ao carregar lista promo.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  async function changeStatus(itemId: string, status: PromoStatus) {
+    try {
+      const res = await fetch("/api/contas-selecionadas/latam/lista-promo", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ itemId, status }),
+      });
+      const json = await res.json().catch(() => null);
+      if (!res.ok || !json?.ok) throw new Error(json?.error || "Falha ao atualizar status.");
+      await load(listDate);
+    } catch (e: unknown) {
+      alert(e instanceof Error ? e.message : "Falha ao atualizar status.");
+    }
+  }
+
+  if (loading && !data) {
+    return <div className="p-6 text-sm text-neutral-600">Carregando…</div>;
+  }
+
+  return (
+    <div className="p-6">
+      <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+        <div>
+          <div className="text-2xl font-semibold">Lista promo • Latam</div>
+          <div className="text-sm text-neutral-500">
+            Cada data funciona como uma lista separada. O atalho em cedentes LATAM adiciona a conta na lista do dia.
+          </div>
+        </div>
+
+        <div className="flex flex-col gap-2 md:flex-row md:items-center">
+          <input
+            type="date"
+            value={listDate}
+            onChange={(e) => setListDate(e.target.value)}
+            className="rounded-2xl border bg-white px-4 py-2 text-sm outline-none"
+          />
+          <button
+            className="rounded-2xl border bg-white px-4 py-2 text-sm hover:bg-neutral-50"
+            onClick={() => data?.today && load(data.today)}
+          >
+            Hoje
+          </button>
+          <button
+            className="rounded-2xl border bg-black px-4 py-2 text-sm text-white hover:opacity-90"
+            onClick={() => load(listDate)}
+          >
+            Atualizar
+          </button>
+        </div>
+      </div>
+
+      {data ? (
+        <div className="mb-4 rounded-2xl border bg-white p-4 shadow-sm">
+          <div className="text-sm font-semibold">Lista selecionada</div>
+          <div className="mt-1 text-sm text-neutral-600">{dateLabelLong(data.listDate)}</div>
+
+          {data.recentDates.length ? (
+            <div className="mt-3 flex flex-wrap gap-2">
+              {data.recentDates.map((date) => (
+                <button
+                  key={date}
+                  className={`rounded-full border px-3 py-1 text-xs ${
+                    data.listDate === date
+                      ? "border-black bg-black text-white"
+                      : "bg-white text-slate-700 hover:bg-slate-50"
+                  }`}
+                  onClick={() => load(date)}
+                >
+                  {date}
+                </button>
+              ))}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+
+      {error ? (
+        <div className="mb-4 rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">
+          {error}
+        </div>
+      ) : null}
+
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
+        <SummaryCard title="Total na lista" value={fmtInt(data?.summary.total || 0)} tone="slate" />
+        <SummaryCard title="Aptos" value={fmtInt(data?.summary.eligible || 0)} tone="emerald" />
+        <SummaryCard title="Aguardando" value={fmtInt(data?.summary.pending || 0)} tone="amber" />
+        <SummaryCard title="Negados" value={fmtInt(data?.summary.denied || 0)} tone="rose" />
+        <SummaryCard title="Usados" value={fmtInt(data?.summary.used || 0)} tone="sky" />
+      </div>
+
+      <div className="mt-4 grid gap-4">
+        <Section
+          title="Aptos para promoção"
+          rows={data?.groups.eligible || []}
+          emptyText="Nenhuma conta apta nesta lista."
+          onChangeStatus={changeStatus}
+        />
+
+        <Section
+          title="Aguardando decisão"
+          rows={data?.groups.pending || []}
+          emptyText="Nenhuma conta aguardando nesta lista."
+          onChangeStatus={changeStatus}
+        />
+
+        <Section
+          title="Negados"
+          rows={data?.groups.denied || []}
+          emptyText="Nenhuma conta negada nesta lista."
+          onChangeStatus={changeStatus}
+        />
+
+        <Section
+          title="Usados"
+          rows={data?.groups.used || []}
+          emptyText="Nenhuma conta marcada como usada nesta lista."
+          onChangeStatus={changeStatus}
+        />
+      </div>
+    </div>
+  );
+}

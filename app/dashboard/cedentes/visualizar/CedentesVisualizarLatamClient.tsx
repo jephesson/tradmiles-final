@@ -9,6 +9,7 @@ import {
   Copy,
   Eye,
   KeyRound,
+  ListPlus,
   MessageCircle,
   Pencil,
   X,
@@ -40,6 +41,7 @@ type Row = {
 
   latamBloqueado?: boolean;
   blockedPrograms?: Program[];
+  onPromoListToday?: boolean;
 };
 
 type SortBy = "aprovado" | "esperado";
@@ -119,6 +121,7 @@ export default function CedentesVisualizarLatamClient() {
   const [saving, setSaving] = useState(false);
   const [credentialsRow, setCredentialsRow] = useState<Row | null>(null);
   const [copiedField, setCopiedField] = useState("");
+  const [promoSavingId, setPromoSavingId] = useState<string | null>(null);
 
   async function load() {
     setLoading(true);
@@ -237,6 +240,32 @@ export default function CedentesVisualizarLatamClient() {
     }
   }
 
+  async function addToPromoList(r: Row) {
+    if (r.onPromoListToday) return;
+
+    setPromoSavingId(r.id);
+    try {
+      const res = await fetch("/api/contas-selecionadas/latam/lista-promo", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ cedenteId: r.id }),
+      });
+
+      const json = await res.json().catch(() => null);
+      if (!res.ok || !json?.ok) throw new Error(json?.error || "Falha ao adicionar na lista promo.");
+
+      setRows((prev) =>
+        prev.map((item) =>
+          item.id === r.id ? { ...item, onPromoListToday: true } : item
+        )
+      );
+    } catch (e: unknown) {
+      alert(e instanceof Error ? e.message : "Falha ao adicionar na lista promo.");
+    } finally {
+      setPromoSavingId(null);
+    }
+  }
+
   return (
     <div className="p-6">
       {/* Header */}
@@ -346,6 +375,14 @@ export default function CedentesVisualizarLatamClient() {
                   blocked
                     ? "border-red-300 text-red-700 hover:bg-red-100/70"
                     : "border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+                );
+                const promoActionBtnCls = cn(
+                  actionBtnBase,
+                  r.onPromoListToday
+                    ? "border-indigo-300 bg-indigo-50 text-indigo-700 hover:bg-indigo-100"
+                    : blocked
+                      ? "border-red-300 text-red-700 hover:bg-red-100/70"
+                      : "border-violet-300 bg-violet-50 text-violet-700 hover:bg-violet-100"
                 );
 
                 return (
@@ -477,6 +514,32 @@ export default function CedentesVisualizarLatamClient() {
                                 <ActionTooltip label="WhatsApp" />
                               </a>
                             ) : null}
+
+                            <button
+                              type="button"
+                              disabled={promoSavingId === r.id}
+                              onClick={() => addToPromoList(r)}
+                              className={cn(
+                                promoActionBtnCls,
+                                "group relative",
+                                promoSavingId === r.id && "opacity-60"
+                              )}
+                              title={
+                                r.onPromoListToday
+                                  ? "Já está na lista promo de hoje"
+                                  : "Adicionar na lista promo de hoje"
+                              }
+                            >
+                              <ListPlus size={15} />
+                              <span className="sr-only">Lista promo</span>
+                              <ActionTooltip
+                                label={
+                                  r.onPromoListToday
+                                    ? "Já na lista promo de hoje"
+                                    : "Lista promo"
+                                }
+                              />
+                            </button>
 
                             <button
                               onClick={() => startEdit(r)}

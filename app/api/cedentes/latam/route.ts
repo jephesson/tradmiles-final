@@ -59,6 +59,22 @@ function addMonthsUTC(d: Date, m: number) {
   return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + m, 1, 0, 0, 0, 0));
 }
 
+function isoDateNowSP() {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Sao_Paulo",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  })
+    .formatToParts(new Date())
+    .reduce<Record<string, string>>((acc, p) => {
+      if (p.type !== "literal") acc[p.type] = p.value;
+      return acc;
+    }, {});
+
+  return `${parts.year}-${parts.month}-${parts.day}`;
+}
+
 /* =========================
    GET
 ========================= */
@@ -193,6 +209,17 @@ export async function GET(req: NextRequest) {
       usedMap.set(g.cedenteId, Number(g._sum.passengersCount || 0));
     }
 
+    const promoDate = isoDateNowSP();
+    const promoTodayItems = await prisma.latamPromoListItem.findMany({
+      where: {
+        team: session.team,
+        listDate: promoDate,
+        cedenteId: { in: ids },
+      },
+      select: { cedenteId: true },
+    });
+    const promoTodaySet = new Set(promoTodayItems.map((item) => item.cedenteId));
+
     // =========================
     // Monta resposta
     // =========================
@@ -224,6 +251,7 @@ export async function GET(req: NextRequest) {
 
         latamBloqueado,
         blockedPrograms: latamBloqueado ? (["LATAM"] as const) : [],
+        onPromoListToday: promoTodaySet.has(c.id),
       };
     });
 
