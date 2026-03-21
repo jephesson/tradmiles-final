@@ -1009,25 +1009,27 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
     if (args.cliente) lines.push(`🧾 Cliente: ${args.cliente.nome}`);
 
     lines.push(
-      `🎯 Pontos: ${fmtInt(args.pointsTotal)} (👥 PAX: ${fmtInt(
+      `🎯 Pontos (${args.program}): ${fmtInt(args.pointsTotal)} (👥 PAX: ${fmtInt(
         args.passengers
-      )}) - ✈️ Programa: ${args.program} - 💸 Milheiro: ${fmtMoneyBR(
-        args.milheiroCents
+      )})`
+    );
+    lines.push(`💸 Milheiro: ${fmtMoneyBR(args.milheiroCents)}`);
+    lines.push(
+      `💸 Detalhes da cobrança: ${fmtMoneyBR(args.pointsValueCents)} + Taxa ${fmtMoneyBR(
+        args.embarqueFeeCents
       )}`
     );
 
-    lines.push(
-      `💰 Total: ${fmtMoneyBR(args.totalCents)} (Pontos: ${fmtMoneyBR(
-        args.pointsValueCents
-      )} + Taxa ${fmtMoneyBR(args.embarqueFeeCents)})`
-    );
-    lines.push(`Cartão Taxa de embarque: 💳 ${args.feeCardLabel || "—"}`);
+    lines.push(`💰 Total: ${fmtMoneyBR(args.totalCents)}`);
+    lines.push(`💳 ${args.feeCardLabel || "—"}`);
 
     if (args.locator?.trim())
       lines.push(`🔎 Localizador: ${args.locator.trim()}`);
 
     lines.push("");
-    lines.push("💳 Pagamento via Pix - Vias Aéreas — Inter");
+    lines.push("💳 Pagamento via Pix -");
+    lines.push("Nome: Vias Aéreas");
+    lines.push("Banco: Inter");
     lines.push("CNPJ: 63817773000185");
     lines.push(`Total a pagar: ${fmtMoneyBR(args.totalCents)}`);
     lines.push("");
