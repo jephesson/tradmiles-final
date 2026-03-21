@@ -65,8 +65,16 @@ export async function GET(req: NextRequest) {
               identificador: true,
               nomeCompleto: true,
               cpf: true,
+              telefone: true,
               pontosLatam: true,
+              pontosLivelo: true,
               owner: { select: { id: true, name: true, login: true } },
+              latamTurboAccount: {
+                select: {
+                  cpfLimit: true,
+                  cpfUsed: true,
+                },
+              },
               score: {
                 select: {
                   rapidezBiometria: true,
@@ -109,7 +117,14 @@ export async function GET(req: NextRequest) {
         resolvedAt: item.resolvedAt,
         usedAt: item.usedAt,
         scoreMedia: Math.round(avg * 100) / 100,
-        cedente: item.cedente,
+        cedente: {
+          ...item.cedente,
+          cpfDisponivel: Math.max(
+            0,
+            Number(item.cedente.latamTurboAccount?.cpfLimit || 25) -
+              Number(item.cedente.latamTurboAccount?.cpfUsed || 0)
+          ),
+        },
         addedBy: item.addedBy,
         reviewedBy: item.reviewedBy,
       };

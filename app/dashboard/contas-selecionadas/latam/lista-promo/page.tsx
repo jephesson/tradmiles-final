@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { MessageCircle } from "lucide-react";
 
 type PromoStatus = "PENDING" | "ELIGIBLE" | "DENIED" | "USED";
 
@@ -18,12 +19,17 @@ type Item = {
     identificador: string;
     nomeCompleto: string;
     cpf: string;
+    telefone?: string | null;
     pontosLatam: number;
+    pontosLivelo: number;
+    cpfDisponivel: number;
     owner: { id: string; name: string; login: string };
   };
   addedBy: null | { id: string; name: string; login: string };
   reviewedBy: null | { id: string; name: string; login: string };
 };
+
+type SortBy = "ALPHA" | "SCORE" | "LATAM" | "LIVELO" | "CPF";
 
 type ApiResp = {
   ok: true;
@@ -53,6 +59,17 @@ function maskCpf(cpf: string) {
   const d = (cpf || "").replace(/\D+/g, "").slice(0, 11);
   if (d.length !== 11) return cpf;
   return `***.***.${d.slice(6, 9)}-${d.slice(9, 11)}`;
+}
+
+function whatsappHref(telefone?: string | null) {
+  let d = String(telefone || "").replace(/\D+/g, "");
+  if (!d) return null;
+
+  while (d.startsWith("00")) d = d.slice(2);
+  if (d.length === 10 || d.length === 11) d = `55${d}`;
+  if (d.length < 12) return null;
+
+  return `https://wa.me/${d}`;
 }
 
 function dateBR(iso: string | null | undefined) {
@@ -157,25 +174,41 @@ function Section({
   rows,
   emptyText,
   onChangeStatus,
+  sortBy,
+  ownerId,
 }: {
   title: string;
   rows: Item[];
   emptyText: string;
   onChangeStatus: (itemId: string, status: PromoStatus) => Promise<void>;
+  sortBy: SortBy;
+  ownerId: string;
 }) {
-  const sorted = useMemo(() => {
-    return [...rows].sort((a, b) => {
-      const ownerCmp = a.cedente.owner.name.localeCompare(b.cedente.owner.name, "pt-BR");
-      if (ownerCmp !== 0) return ownerCmp;
+  const filteredAndSorted = useMemo(() => {
+    const filtered = ownerId
+      ? rows.filter((row) => row.cedente.owner.id === ownerId)
+      : rows;
+
+    return [...filtered].sort((a, b) => {
+      if (sortBy === "SCORE" && b.scoreMedia !== a.scoreMedia) return b.scoreMedia - a.scoreMedia;
+      if (sortBy === "LATAM" && b.cedente.pontosLatam !== a.cedente.pontosLatam) {
+        return b.cedente.pontosLatam - a.cedente.pontosLatam;
+      }
+      if (sortBy === "LIVELO" && b.cedente.pontosLivelo !== a.cedente.pontosLivelo) {
+        return b.cedente.pontosLivelo - a.cedente.pontosLivelo;
+      }
+      if (sortBy === "CPF" && b.cedente.cpfDisponivel !== a.cedente.cpfDisponivel) {
+        return b.cedente.cpfDisponivel - a.cedente.cpfDisponivel;
+      }
       return a.cedente.nomeCompleto.localeCompare(b.cedente.nomeCompleto, "pt-BR");
     });
-  }, [rows]);
+  }, [rows, sortBy, ownerId]);
 
   return (
     <div className="rounded-2xl border bg-white p-4 shadow-sm">
       <div className="flex items-center justify-between">
         <div className="text-sm font-semibold">{title}</div>
-        <div className="text-xs text-neutral-500">{sorted.length} contas</div>
+        <div className="text-xs text-neutral-500">{filteredAndSorted.length} contas</div>
       </div>
 
       <div className="mt-3 overflow-x-auto">
@@ -185,6 +218,8 @@ function Section({
               <th className="py-2 pr-3">Cedente</th>
               <th className="py-2 pr-3">Responsável</th>
               <th className="py-2 pr-3 text-right">LATAM</th>
+              <th className="py-2 pr-3 text-right">LIVELO</th>
+              <th className="py-2 pr-3 text-right">CPF disp.</th>
               <th className="py-2 pr-3 text-right">Score</th>
               <th className="py-2 pr-3">Adicionado em</th>
               <th className="py-2 pr-3">Status</th>
@@ -192,8 +227,9 @@ function Section({
             </tr>
           </thead>
           <tbody>
-            {sorted.map((item) => {
+            {filteredAndSorted.map((item) => {
               const meta = statusMeta(item.status);
+              const waHref = whatsappHref(item.cedente.telefone);
 
               return (
                 <tr key={item.id} className="border-b last:border-b-0">
@@ -204,11 +240,16 @@ function Section({
                     </div>
                   </td>
                   <td className="py-3 pr-3">
-                    <div className="font-medium">{item.cedente.owner.name}</div>
-                    <div className="text-xs text-slate-500">@{item.cedente.owner.login}</div>
+                    <div className="font-medium">@{item.cedente.owner.login}</div>
                   </td>
                   <td className="py-3 pr-3 text-right font-medium tabular-nums">
                     {fmtInt(item.cedente.pontosLatam || 0)}
+                  </td>
+                  <td className="py-3 pr-3 text-right font-medium tabular-nums">
+                    {fmtInt(item.cedente.pontosLivelo || 0)}
+                  </td>
+                  <td className="py-3 pr-3 text-right font-medium tabular-nums">
+                    {fmtInt(item.cedente.cpfDisponivel || 0)}
                   </td>
                   <td className="py-3 pr-3 text-right">
                     <span
@@ -239,6 +280,18 @@ function Section({
                   </td>
                   <td className="py-3 pr-3">
                     <div className="flex flex-wrap gap-2">
+                      {waHref ? (
+                        <a
+                          href={waHref}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+                          title="WhatsApp"
+                        >
+                          <MessageCircle size={16} />
+                        </a>
+                      ) : null}
+
                       {item.status !== "ELIGIBLE" ? (
                         <button
                           className="rounded-xl border px-3 py-1.5 text-xs hover:bg-neutral-50"
@@ -280,9 +333,9 @@ function Section({
               );
             })}
 
-            {!sorted.length ? (
+            {!filteredAndSorted.length ? (
               <tr>
-                <td className="py-8 text-center text-sm text-slate-500" colSpan={7}>
+                <td className="py-8 text-center text-sm text-slate-500" colSpan={9}>
                   {emptyText}
                 </td>
               </tr>
@@ -299,6 +352,29 @@ export default function LatamListaPromoPage() {
   const [listDate, setListDate] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [sortBy, setSortBy] = useState<SortBy>("ALPHA");
+  const [ownerId, setOwnerId] = useState("");
+
+  const ownerOptions = useMemo(() => {
+    const map = new Map<string, { id: string; login: string }>();
+    const rows = [
+      ...(data?.groups.eligible || []),
+      ...(data?.groups.pending || []),
+      ...(data?.groups.denied || []),
+      ...(data?.groups.used || []),
+    ];
+
+    rows.forEach((row) => {
+      map.set(row.cedente.owner.id, {
+        id: row.cedente.owner.id,
+        login: row.cedente.owner.login,
+      });
+    });
+
+    return Array.from(map.values()).sort((a, b) =>
+      a.login.localeCompare(b.login, "pt-BR")
+    );
+  }, [data]);
 
   async function load(dateOverride?: string) {
     const targetDate = dateOverride || listDate;
@@ -379,8 +455,41 @@ export default function LatamListaPromoPage() {
 
       {data ? (
         <div className="mb-4 rounded-2xl border bg-white p-4 shadow-sm">
-          <div className="text-sm font-semibold">Lista selecionada</div>
-          <div className="mt-1 text-sm text-neutral-600">{dateLabelLong(data.listDate)}</div>
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+            <div>
+              <div className="text-sm font-semibold">Lista selecionada</div>
+              <div className="mt-1 text-sm text-neutral-600">{dateLabelLong(data.listDate)}</div>
+            </div>
+
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+              <span className="text-xs text-neutral-500">Responsável:</span>
+              <select
+                className="rounded-xl border bg-white px-3 py-2 text-sm outline-none"
+                value={ownerId}
+                onChange={(e) => setOwnerId(e.target.value)}
+              >
+                <option value="">Todos</option>
+                {ownerOptions.map((owner) => (
+                  <option key={owner.id} value={owner.id}>
+                    @{owner.login}
+                  </option>
+                ))}
+              </select>
+
+              <span className="text-xs text-neutral-500">Ordenar por:</span>
+              <select
+                className="rounded-xl border bg-white px-3 py-2 text-sm outline-none"
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value as SortBy)}
+              >
+                <option value="ALPHA">Ordem alfabética</option>
+                <option value="SCORE">Score</option>
+                <option value="LATAM">Pontos LATAM</option>
+                <option value="LIVELO">Pontos LIVELO</option>
+                <option value="CPF">CPF disponível</option>
+              </select>
+            </div>
+          </div>
 
           {data.recentDates.length ? (
             <div className="mt-3 flex flex-wrap gap-2">
@@ -422,6 +531,8 @@ export default function LatamListaPromoPage() {
           rows={data?.groups.eligible || []}
           emptyText="Nenhuma conta apta nesta lista."
           onChangeStatus={changeStatus}
+          sortBy={sortBy}
+          ownerId={ownerId}
         />
 
         <Section
@@ -429,6 +540,8 @@ export default function LatamListaPromoPage() {
           rows={data?.groups.pending || []}
           emptyText="Nenhuma conta aguardando nesta lista."
           onChangeStatus={changeStatus}
+          sortBy={sortBy}
+          ownerId={ownerId}
         />
 
         <Section
@@ -436,6 +549,8 @@ export default function LatamListaPromoPage() {
           rows={data?.groups.denied || []}
           emptyText="Nenhuma conta negada nesta lista."
           onChangeStatus={changeStatus}
+          sortBy={sortBy}
+          ownerId={ownerId}
         />
 
         <Section
@@ -443,6 +558,8 @@ export default function LatamListaPromoPage() {
           rows={data?.groups.used || []}
           emptyText="Nenhuma conta marcada como usada nesta lista."
           onChangeStatus={changeStatus}
+          sortBy={sortBy}
+          ownerId={ownerId}
         />
       </div>
     </div>
