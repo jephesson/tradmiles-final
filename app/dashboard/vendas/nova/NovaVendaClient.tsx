@@ -1002,24 +1002,19 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
     const lines: string[] = [];
 
     lines.push("Parabéns, sua passagem foi emitida com sucesso!");
+    lines.push("");
 
     lines.push(`📅 Data: ${toBRDate(args.dateISO)}`);
 
     if (args.vendedorNome) lines.push(`👤 Vendedor: ${cap1(args.vendedorNome)}`);
     if (args.cliente) lines.push(`🧾 Cliente: ${args.cliente.nome}`);
 
-    lines.push(
-      `🎯 Pontos (${args.program}): ${fmtInt(args.pointsTotal)} (👥 PAX: ${fmtInt(
-        args.passengers
-      )})`
-    );
+    lines.push(`✈️ Programa: ${args.program}`);
+    lines.push(`🎯 Pontos: ${fmtInt(args.pointsTotal)}`);
+    lines.push(`👥 PAX: ${fmtInt(args.passengers)}`);
     lines.push(`💸 Milheiro: ${fmtMoneyBR(args.milheiroCents)}`);
-    lines.push(
-      `💸 Detalhes da cobrança: ${fmtMoneyBR(args.pointsValueCents)} + Taxa ${fmtMoneyBR(
-        args.embarqueFeeCents
-      )}`
-    );
-
+    lines.push(`🧮 Valor pontos: ${fmtMoneyBR(args.pointsValueCents)}`);
+    lines.push(`🛄 Taxa embarque: ${fmtMoneyBR(args.embarqueFeeCents)}`);
     lines.push(`💰 Total: ${fmtMoneyBR(args.totalCents)}`);
     lines.push(`💳 ${args.feeCardLabel || "—"}`);
 
@@ -1027,10 +1022,10 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
       lines.push(`🔎 Localizador: ${args.locator.trim()}`);
 
     lines.push("");
-    lines.push("💳 Pagamento via Pix -");
-    lines.push("Nome: Vias Aéreas");
+    lines.push("Dados para pagamento");
+    lines.push("Pix: 63817773000185 (CNPJ)");
+    lines.push("Nome: Vias Aereas");
     lines.push("Banco: Inter");
-    lines.push("CNPJ: 63817773000185");
     lines.push(`Total a pagar: ${fmtMoneyBR(args.totalCents)}`);
     lines.push("");
     lines.push("⚠️ Confira datas, horários e dados do passageiro.");
