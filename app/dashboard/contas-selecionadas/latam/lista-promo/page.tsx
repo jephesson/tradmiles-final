@@ -22,14 +22,14 @@ type Item = {
     telefone?: string | null;
     pontosLatam: number;
     pontosLivelo: number;
-    cpfDisponivel: number;
+    paxDisponivel: number;
     owner: { id: string; name: string; login: string };
   };
   addedBy: null | { id: string; name: string; login: string };
   reviewedBy: null | { id: string; name: string; login: string };
 };
 
-type SortBy = "ALPHA" | "SCORE" | "LATAM" | "LIVELO" | "CPF";
+type SortBy = "ALPHA" | "SCORE" | "LATAM" | "LIVELO" | "PAX";
 
 type ApiResp = {
   ok: true;
@@ -191,8 +191,8 @@ function Section({
       if (sortBy === "LIVELO" && b.cedente.pontosLivelo !== a.cedente.pontosLivelo) {
         return b.cedente.pontosLivelo - a.cedente.pontosLivelo;
       }
-      if (sortBy === "CPF" && b.cedente.cpfDisponivel !== a.cedente.cpfDisponivel) {
-        return b.cedente.cpfDisponivel - a.cedente.cpfDisponivel;
+      if (sortBy === "PAX" && b.cedente.paxDisponivel !== a.cedente.paxDisponivel) {
+        return b.cedente.paxDisponivel - a.cedente.paxDisponivel;
       }
       return a.cedente.nomeCompleto.localeCompare(b.cedente.nomeCompleto, "pt-BR");
     });
@@ -213,7 +213,7 @@ function Section({
               <th className="py-2 pr-3">Responsável</th>
               <th className="py-2 pr-3 text-right">LATAM</th>
               <th className="py-2 pr-3 text-right">LIVELO</th>
-              <th className="py-2 pr-3 text-right">CPF disp.</th>
+              <th className="py-2 pr-3 text-right">PAX disp.</th>
               <th className="py-2 pr-3 text-right">Score</th>
               <th className="py-2 pr-3">Status</th>
               <th className="py-2 pr-3">Ações</th>
@@ -242,7 +242,7 @@ function Section({
                     {fmtInt(item.cedente.pontosLivelo || 0)}
                   </td>
                   <td className="py-3 pr-3 text-right font-medium tabular-nums">
-                    {fmtInt(item.cedente.cpfDisponivel || 0)}
+                    {fmtInt(item.cedente.paxDisponivel || 0)}
                   </td>
                   <td className="py-3 pr-3 text-right">
                     <span
@@ -471,7 +471,7 @@ export default function LatamListaPromoPage() {
                 <option value="SCORE">Score</option>
                 <option value="LATAM">Pontos LATAM</option>
                 <option value="LIVELO">Pontos LIVELO</option>
-                <option value="CPF">CPF disponível</option>
+                <option value="PAX">PAX disponível</option>
               </select>
             </div>
           </div>

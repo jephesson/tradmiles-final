@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/auth-server";
+import { LoyaltyProgram } from "@prisma/client";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -35,6 +36,20 @@ function normalizeStatus(v: unknown): PromoStatus | null {
   const s = String(v || "").trim().toUpperCase();
   if (s === "PENDING" || s === "ELIGIBLE" || s === "DENIED" || s === "USED") return s;
   return null;
+}
+
+function boundsLast365UTC() {
+  const now = new Date();
+
+  const end = new Date(
+    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 23, 59, 59, 999)
+  );
+
+  const start = new Date(end);
+  start.setUTCDate(start.getUTCDate() - 364);
+  start.setUTCHours(0, 0, 0, 0);
+
+  return { start, end };
 }
 
 export async function GET(req: NextRequest) {
@@ -98,6 +113,25 @@ export async function GET(req: NextRequest) {
       }),
     ]);
 
+    const cedenteIds = items.map((item) => item.cedente.id);
+    const { start: yStart, end: yEnd } = boundsLast365UTC();
+
+    const usedAgg = cedenteIds.length
+      ? await prisma.emissionEvent.groupBy({
+          by: ["cedenteId"],
+          where: {
+            program: LoyaltyProgram.LATAM,
+            issuedAt: { gte: yStart, lte: yEnd },
+            cedenteId: { in: cedenteIds },
+          },
+          _sum: { passengersCount: true },
+        })
+      : [];
+
+    const usedCalcByCedente = new Map<string, number>(
+      usedAgg.map((x) => [x.cedenteId, Number(x._sum.passengersCount || 0)])
+    );
+
     const rows = items.map((item) => {
       const score = item.cedente.score;
       const avg = score
@@ -107,6 +141,10 @@ export async function GET(req: NextRequest) {
             Number(score.confianca || 0)) /
           4
         : 0;
+      const paxLimit = Number(item.cedente.latamTurboAccount?.cpfLimit || 25);
+      const usedCalc = Number(usedCalcByCedente.get(item.cedente.id) || 0);
+      const usedManual = Number(item.cedente.latamTurboAccount?.cpfUsed || 0);
+      const paxUsed = Math.max(usedCalc, usedManual);
 
       return {
         id: item.id,
@@ -119,11 +157,7 @@ export async function GET(req: NextRequest) {
         scoreMedia: Math.round(avg * 100) / 100,
         cedente: {
           ...item.cedente,
-          cpfDisponivel: Math.max(
-            0,
-            Number(item.cedente.latamTurboAccount?.cpfLimit || 25) -
-              Number(item.cedente.latamTurboAccount?.cpfUsed || 0)
-          ),
+          paxDisponivel: Math.max(0, paxLimit - paxUsed),
         },
         addedBy: item.addedBy,
         reviewedBy: item.reviewedBy,
