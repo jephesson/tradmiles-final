@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { MessageCircle } from "lucide-react";
+import { Copy, KeyRound, MessageCircle, X } from "lucide-react";
 
 type PromoStatus = "PENDING" | "ELIGIBLE" | "DENIED" | "USED";
 
@@ -49,6 +49,17 @@ type ApiResp = {
     denied: Item[];
     used: Item[];
   };
+};
+
+type CredentialsState = {
+  cedenteId: string;
+  nomeCompleto: string;
+  identificador: string;
+  cpf: string;
+  email: string | null;
+  senhaEmail: string | null;
+  senhaLatam: string | null;
+  senhaLivelo: string | null;
 };
 
 function fmtInt(n: number) {
@@ -168,6 +179,7 @@ function Section({
   rows,
   emptyText,
   onChangeStatus,
+  onOpenCredentials,
   sortBy,
   ownerId,
 }: {
@@ -175,6 +187,7 @@ function Section({
   rows: Item[];
   emptyText: string;
   onChangeStatus: (itemId: string, status: PromoStatus) => Promise<void>;
+  onOpenCredentials: (item: Item) => void;
   sortBy: SortBy;
   ownerId: string;
 }) {
@@ -277,6 +290,15 @@ function Section({
                         </a>
                       ) : null}
 
+                      <button
+                        type="button"
+                        className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
+                        title="Credenciais"
+                        onClick={() => onOpenCredentials(item)}
+                      >
+                        <KeyRound size={16} />
+                      </button>
+
                       {item.status !== "PENDING" ? (
                         <button
                           className="rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-50"
@@ -337,6 +359,10 @@ export default function LatamListaPromoPage() {
   const [listDate, setListDate] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [credentials, setCredentials] = useState<CredentialsState | null>(null);
+  const [credentialsLoading, setCredentialsLoading] = useState(false);
+  const [credentialsError, setCredentialsError] = useState("");
+  const [copiedField, setCopiedField] = useState("");
   const [sortBy, setSortBy] = useState<SortBy>("ALPHA");
   const [ownerId, setOwnerId] = useState("");
 
@@ -399,6 +425,81 @@ export default function LatamListaPromoPage() {
       await load(listDate);
     } catch (e: unknown) {
       alert(e instanceof Error ? e.message : "Falha ao atualizar status.");
+    }
+  }
+
+  async function copyValue(fieldId: string, value?: string | null) {
+    const text = String(value || "").trim();
+    if (!text) return;
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedField(fieldId);
+      window.setTimeout(() => {
+        setCopiedField((curr) => (curr === fieldId ? "" : curr));
+      }, 1400);
+    } catch {
+      // noop
+    }
+  }
+
+  async function openCredentials(item: Item) {
+    setCredentials({
+      cedenteId: item.cedente.id,
+      nomeCompleto: item.cedente.nomeCompleto,
+      identificador: item.cedente.identificador,
+      cpf: item.cedente.cpf,
+      email: null,
+      senhaEmail: null,
+      senhaLatam: null,
+      senhaLivelo: null,
+    });
+    setCredentialsError("");
+    setCredentialsLoading(true);
+
+    try {
+      const [latamRes, liveloRes] = await Promise.all([
+        fetch(
+          `/api/cedentes/credentials?cedenteId=${encodeURIComponent(
+            item.cedente.id
+          )}&program=LATAM`,
+          { cache: "no-store" }
+        ),
+        fetch(
+          `/api/cedentes/credentials?cedenteId=${encodeURIComponent(
+            item.cedente.id
+          )}&program=LIVELO`,
+          { cache: "no-store" }
+        ),
+      ]);
+
+      const [latamJson, liveloJson] = await Promise.all([
+        latamRes.json().catch(() => null),
+        liveloRes.json().catch(() => null),
+      ]);
+
+      if (!latamRes.ok || !latamJson?.ok) {
+        throw new Error(latamJson?.error || "Falha ao carregar credenciais LATAM.");
+      }
+      if (!liveloRes.ok || !liveloJson?.ok) {
+        throw new Error(liveloJson?.error || "Falha ao carregar credenciais LIVELO.");
+      }
+
+      setCredentials({
+        cedenteId: item.cedente.id,
+        nomeCompleto: item.cedente.nomeCompleto,
+        identificador: item.cedente.identificador,
+        cpf: String(latamJson.data?.cpf || item.cedente.cpf || ""),
+        email: latamJson.data?.email ?? liveloJson.data?.email ?? null,
+        senhaEmail: latamJson.data?.senhaEmail ?? liveloJson.data?.senhaEmail ?? null,
+        senhaLatam: latamJson.data?.senhaPrograma ?? null,
+        senhaLivelo: liveloJson.data?.senhaPrograma ?? null,
+      });
+    } catch (e: unknown) {
+      setCredentialsError(
+        e instanceof Error ? e.message : "Falha ao carregar credenciais."
+      );
+    } finally {
+      setCredentialsLoading(false);
     }
   }
 
@@ -516,6 +617,7 @@ export default function LatamListaPromoPage() {
           rows={data?.groups.eligible || []}
           emptyText="Nenhuma conta apta nesta lista."
           onChangeStatus={changeStatus}
+          onOpenCredentials={openCredentials}
           sortBy={sortBy}
           ownerId={ownerId}
         />
@@ -525,6 +627,7 @@ export default function LatamListaPromoPage() {
           rows={data?.groups.pending || []}
           emptyText="Nenhuma conta aguardando nesta lista."
           onChangeStatus={changeStatus}
+          onOpenCredentials={openCredentials}
           sortBy={sortBy}
           ownerId={ownerId}
         />
@@ -534,6 +637,7 @@ export default function LatamListaPromoPage() {
           rows={data?.groups.denied || []}
           emptyText="Nenhuma conta negada nesta lista."
           onChangeStatus={changeStatus}
+          onOpenCredentials={openCredentials}
           sortBy={sortBy}
           ownerId={ownerId}
         />
@@ -543,10 +647,122 @@ export default function LatamListaPromoPage() {
           rows={data?.groups.used || []}
           emptyText="Nenhuma conta marcada como usada nesta lista."
           onChangeStatus={changeStatus}
+          onOpenCredentials={openCredentials}
           sortBy={sortBy}
           ownerId={ownerId}
         />
       </div>
+
+      {credentials ? (
+        <div className="fixed inset-0 z-50">
+          <button
+            type="button"
+            className="absolute inset-0 bg-black/45"
+            aria-label="Fechar credenciais"
+            onClick={() => {
+              setCredentials(null);
+              setCredentialsError("");
+              setCopiedField("");
+            }}
+          />
+          <div className="absolute left-1/2 top-1/2 w-[min(94vw,700px)] -translate-x-1/2 -translate-y-1/2 rounded-2xl border bg-white p-5 shadow-2xl">
+            <div className="mb-4 flex items-start justify-between gap-3">
+              <div>
+                <div className="text-lg font-semibold">Credenciais</div>
+                <div className="text-sm text-slate-500">
+                  {credentials.nomeCompleto} • {credentials.identificador}
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setCredentials(null);
+                  setCredentialsError("");
+                  setCopiedField("");
+                }}
+                className="inline-flex h-8 w-8 items-center justify-center rounded-md border text-slate-600 hover:bg-slate-100"
+                title="Fechar"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            {credentialsError ? (
+              <div className="mb-3 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
+                {credentialsError}
+              </div>
+            ) : null}
+
+            {credentialsLoading ? (
+              <div className="rounded-xl border bg-slate-50 px-4 py-8 text-center text-sm text-slate-500">
+                Carregando credenciais…
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                <div className="rounded-xl border bg-slate-50 p-3">
+                  <div className="text-xs uppercase tracking-wide text-slate-500">CPF (login)</div>
+                  <div className="mt-1 break-all font-medium">{credentials.cpf || "-"}</div>
+                  <button
+                    type="button"
+                    onClick={() => copyValue("cpf", credentials.cpf)}
+                    className="mt-2 inline-flex items-center gap-1 text-xs text-slate-600 hover:text-slate-900"
+                  >
+                    <Copy size={13} /> {copiedField === "cpf" ? "Copiado" : "Copiar"}
+                  </button>
+                </div>
+
+                <div className="rounded-xl border bg-slate-50 p-3">
+                  <div className="text-xs uppercase tracking-wide text-slate-500">Senha LATAM</div>
+                  <div className="mt-1 break-all font-medium">{credentials.senhaLatam || "-"}</div>
+                  <button
+                    type="button"
+                    onClick={() => copyValue("senhaLatam", credentials.senhaLatam)}
+                    className="mt-2 inline-flex items-center gap-1 text-xs text-slate-600 hover:text-slate-900"
+                  >
+                    <Copy size={13} /> {copiedField === "senhaLatam" ? "Copiado" : "Copiar"}
+                  </button>
+                </div>
+
+                <div className="rounded-xl border bg-slate-50 p-3">
+                  <div className="text-xs uppercase tracking-wide text-slate-500">Senha LIVELO</div>
+                  <div className="mt-1 break-all font-medium">{credentials.senhaLivelo || "-"}</div>
+                  <button
+                    type="button"
+                    onClick={() => copyValue("senhaLivelo", credentials.senhaLivelo)}
+                    className="mt-2 inline-flex items-center gap-1 text-xs text-slate-600 hover:text-slate-900"
+                  >
+                    <Copy size={13} /> {copiedField === "senhaLivelo" ? "Copiado" : "Copiar"}
+                  </button>
+                </div>
+
+                <div className="rounded-xl border bg-slate-50 p-3">
+                  <div className="text-xs uppercase tracking-wide text-slate-500">E-mail</div>
+                  <div className="mt-1 break-all font-medium">{credentials.email || "-"}</div>
+                  <button
+                    type="button"
+                    onClick={() => copyValue("email", credentials.email)}
+                    className="mt-2 inline-flex items-center gap-1 text-xs text-slate-600 hover:text-slate-900"
+                  >
+                    <Copy size={13} /> {copiedField === "email" ? "Copiado" : "Copiar"}
+                  </button>
+                </div>
+
+                <div className="rounded-xl border bg-slate-50 p-3 md:col-span-2">
+                  <div className="text-xs uppercase tracking-wide text-slate-500">Senha do e-mail</div>
+                  <div className="mt-1 break-all font-medium">{credentials.senhaEmail || "-"}</div>
+                  <button
+                    type="button"
+                    onClick={() => copyValue("senhaEmail", credentials.senhaEmail)}
+                    className="mt-2 inline-flex items-center gap-1 text-xs text-slate-600 hover:text-slate-900"
+                  >
+                    <Copy size={13} /> {copiedField === "senhaEmail" ? "Copiado" : "Copiar"}
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
