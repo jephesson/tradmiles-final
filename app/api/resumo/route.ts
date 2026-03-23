@@ -130,6 +130,20 @@ export async function GET(req: Request) {
 
     const latest = snapshots[0] ?? null;
 
+    const creditCards = await prisma.creditCardBalance.findMany({
+      where: { team: session.team },
+      orderBy: [{ createdAt: "asc" }, { description: "asc" }],
+      select: {
+        id: true,
+        description: true,
+        amountCents: true,
+      },
+    });
+    const creditCardsTotalCents = creditCards.reduce(
+      (sum: number, card: { amountCents: number }) => sum + safeInt(card.amountCents),
+      0
+    );
+
     // saldo total das dívidas em aberto (OPEN): total - pagamentos
     const openDebts = await prisma.debt.findMany({
       where: { status: "OPEN" },
@@ -298,6 +312,7 @@ export async function GET(req: Request) {
     // ✅ caixa projetado (pra você já usar no front)
     const cashProjectedCents =
       latestCashCents +
+      creditCardsTotalCents +
       receivablesOpenCents -
       employeePayoutsPendingCents -
       taxesPendingCents;
@@ -310,6 +325,12 @@ export async function GET(req: Request) {
           ratesCents: settings,
 
           latestCashCents,
+          creditCards: creditCards.map((card: { id: string; description: string; amountCents: number }) => ({
+            id: card.id,
+            description: card.description,
+            amountCents: safeInt(card.amountCents),
+          })),
+          creditCardsTotalCents,
           latestTotalLiquidoCents: safeInt(latest?.totalLiquido ?? 0),
 
           snapshots: snapshots.map((s) => ({

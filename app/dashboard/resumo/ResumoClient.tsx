@@ -12,6 +12,12 @@ type Snapshot = {
   totalLiquido: number;
 };
 
+type CreditCard = {
+  id: string;
+  description: string;
+  amountCents: number;
+};
+
 type CedenteOpt = {
   id: string;
   nomeCompleto: string;
@@ -201,6 +207,10 @@ export default function CedentesResumoClient() {
   const [snapshots, setSnapshots] = useState<Snapshot[]>([]);
   const [caixaImediatoSnapshots, setCaixaImediatoSnapshots] = useState<Snapshot[]>([]);
   const [cashInput, setCashInput] = useState<string>("");
+  const [creditCards, setCreditCards] = useState<CreditCard[]>([]);
+  const [creditCardDescription, setCreditCardDescription] = useState("");
+  const [creditCardAmount, setCreditCardAmount] = useState("");
+  const [savingCreditCard, setSavingCreditCard] = useState(false);
   const [cedentes, setCedentes] = useState<CedenteOpt[]>([]);
   const [blockedRows, setBlockedRows] = useState<BlockRow[]>([]);
 
@@ -269,6 +279,7 @@ export default function CedentesResumoClient() {
       setPoints(j.data.points);
       setSnapshots(j.data.snapshots);
       setCaixaImediatoSnapshots(jCaixaImediato.data?.snapshots || []);
+      setCreditCards(Array.isArray(j.data.creditCards) ? j.data.creditCards : []);
       setCedentes(jCed.data || []);
       setBlockedRows(jBloq.data?.rows || []);
 
@@ -409,6 +420,64 @@ export default function CedentesResumoClient() {
     return { cutoff, pts, counts };
   }, [cedentes]);
 
+  const creditCardsTotalCents = useMemo(
+    () => creditCards.reduce((sum, card) => sum + Number(card.amountCents || 0), 0),
+    [creditCards]
+  );
+
+  async function addCreditCard() {
+    const description = creditCardDescription.trim();
+    const amountCents = toCentsFromInput(creditCardAmount);
+
+    if (!description) {
+      alert("Informe a descrição do cartão.");
+      return;
+    }
+    if (amountCents < 0) {
+      alert("Informe um valor válido para o cartão.");
+      return;
+    }
+
+    try {
+      setSavingCreditCard(true);
+      const res = await fetch("/api/resumo/cards", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          description,
+          amountCents,
+        }),
+      });
+      const j = await res.json();
+      if (!j?.ok) throw new Error(j?.error || "Erro ao adicionar cartão.");
+
+      setCreditCardDescription("");
+      setCreditCardAmount("");
+      await load();
+    } catch (e: any) {
+      alert(e?.message || "Erro ao adicionar cartão.");
+    } finally {
+      setSavingCreditCard(false);
+    }
+  }
+
+  async function removeCreditCard(id: string) {
+    try {
+      setSavingCreditCard(true);
+      const res = await fetch(`/api/resumo/cards?id=${encodeURIComponent(id)}`, {
+        method: "DELETE",
+      });
+      const j = await res.json();
+      if (!j?.ok) throw new Error(j?.error || "Erro ao remover cartão.");
+
+      await load();
+    } catch (e: any) {
+      alert(e?.message || "Erro ao remover cartão.");
+    } finally {
+      setSavingCreditCard(false);
+    }
+  }
+
   const caixaImediatoCalc = useMemo(() => {
     const milLatam = Math.floor((eligible.pts.latam || 0) / 1000);
     const milSmiles = Math.floor((eligible.pts.smiles || 0) / 1000);
@@ -434,13 +503,14 @@ export default function CedentesResumoClient() {
     const pendingPurchasesValueCents = pendingLatamValueCents + pendingSmilesValueCents;
 
     const cashCents = toCentsFromInput(cashInput);
+    const cashAndCardsCents = cashCents + creditCardsTotalCents;
     const receivableSalesCents = Number(receivablesOpenCents || 0);
     const receivableDARcents = Number(dividasAReceberOpenCents || 0);
 
     const totalGrossCents =
       milesValueEligibleCents +
       pendingPurchasesValueCents +
-      cashCents +
+      cashAndCardsCents +
       receivableSalesCents +
       receivableDARcents;
 
@@ -454,7 +524,7 @@ export default function CedentesResumoClient() {
     const totalImmediateCents = totalGrossCents - outCents;
 
     const cashProjectedInterCents =
-      cashCents +
+      cashAndCardsCents +
       receivableSalesCents +
       receivableDARcents -
       (employeePayoutsPendingCents || 0) -
@@ -472,6 +542,7 @@ export default function CedentesResumoClient() {
       pendingSmilesValueCents,
       pendingPurchasesValueCents,
       cashCents,
+      cashAndCardsCents,
       receivableSalesCents,
       receivableDARcents,
       totalGrossCents,
@@ -488,6 +559,7 @@ export default function CedentesResumoClient() {
     pendingPurchaseLatamPoints,
     pendingPurchaseSmilesPoints,
     cashInput,
+    creditCardsTotalCents,
     receivablesOpenCents,
     dividasAReceberOpenCents,
     debtsOpenCents,
@@ -514,6 +586,7 @@ export default function CedentesResumoClient() {
     const vEsferaCents = Math.round(milEsfera * rEsfera * 100);
 
     const cashCents = toCentsFromInput(cashInput);
+    const cashAndCardsCents = cashCents + creditCardsTotalCents;
 
     const receivableSalesCents = Number(receivablesOpenCents || 0);
     const receivableDARcents = Number(dividasAReceberOpenCents || 0);
@@ -523,7 +596,7 @@ export default function CedentesResumoClient() {
       vSmilesCents +
       vLiveloCents +
       vEsferaCents +
-      cashCents +
+      cashAndCardsCents +
       receivableSalesCents +
       receivableDARcents;
 
@@ -536,7 +609,7 @@ export default function CedentesResumoClient() {
       (taxesPendingCents || 0);
 
     const cashProjectedCalcCents =
-      cashCents +
+      cashAndCardsCents +
       receivableSalesCents +
       receivableDARcents -
       (employeePayoutsPendingCents || 0) -
@@ -555,6 +628,7 @@ export default function CedentesResumoClient() {
       vLiveloCents,
       vEsferaCents,
       cashCents,
+      cashAndCardsCents,
 
       receivableSalesCents,
       receivableDARcents,
@@ -571,6 +645,7 @@ export default function CedentesResumoClient() {
     rateLivelo,
     rateEsfera,
     cashInput,
+    creditCardsTotalCents,
     debtsOpenCents,
     pendingCedenteCommissionsCents,
     receivablesOpenCents,
@@ -662,8 +737,8 @@ export default function CedentesResumoClient() {
         <div>
           <h1 className="text-2xl font-bold">Resumo</h1>
           <p className="text-sm text-slate-600">
-            Patrimônio estimado: milhas (por milheiro) + caixa + a receber (vendas) + dívidas a receber − dívidas −
-            pendências (comissões/funcionários/impostos).
+            Patrimônio estimado: milhas (por milheiro) + inter + cartões + a receber (vendas) + dívidas a receber −
+            dívidas − pendências (comissões/funcionários/impostos).
           </p>
         </div>
 
@@ -710,13 +785,73 @@ export default function CedentesResumoClient() {
         {/* Caixa */}
         <div className="rounded-2xl border bg-white p-4 space-y-3">
           <div className="flex items-center justify-between">
-            <div className="font-semibold">Caixa (Inter)</div>
+            <div className="font-semibold">Caixa (Inter + cartões)</div>
             <span className="text-[11px] rounded-full bg-slate-100 px-2 py-1 text-slate-600">
               referência operacional
             </span>
           </div>
 
           <Input label="Saldo atual (R$)" value={cashInput} onChange={setCashInput} placeholder="Ex: 12345,67" />
+
+          <div className="rounded-xl border bg-slate-50 p-3 space-y-3">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <div className="text-sm font-semibold text-slate-900">Cartões de crédito</div>
+                <div className="text-xs text-slate-500">Adicione saldos disponíveis para compor o caixa.</div>
+              </div>
+              <div className="text-sm font-semibold text-slate-900">{fmtMoneyBR(creditCardsTotalCents)}</div>
+            </div>
+
+            <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_180px_auto]">
+              <Input
+                label="Descrição"
+                value={creditCardDescription}
+                onChange={setCreditCardDescription}
+                placeholder="Ex: Nubank final 1234"
+              />
+              <Input
+                label="Valor disponível (R$)"
+                value={creditCardAmount}
+                onChange={setCreditCardAmount}
+                placeholder="Ex: 1500,00"
+              />
+              <button
+                onClick={addCreditCard}
+                disabled={savingCreditCard}
+                className="self-end rounded-xl border px-4 py-2 text-sm hover:bg-white disabled:opacity-60"
+              >
+                {savingCreditCard ? "Salvando..." : "Adicionar cartão"}
+              </button>
+            </div>
+
+            {creditCards.length ? (
+              <div className="space-y-2">
+                {creditCards.map((card) => (
+                  <div
+                    key={card.id}
+                    className="flex items-center justify-between gap-3 rounded-xl border bg-white px-3 py-2"
+                  >
+                    <div className="min-w-0">
+                      <div className="text-sm font-medium text-slate-900">{card.description}</div>
+                      <div className="text-xs text-slate-500">Saldo disponível no cartão</div>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <div className="text-sm font-semibold text-slate-900">{fmtMoneyBR(card.amountCents)}</div>
+                      <button
+                        onClick={() => removeCreditCard(card.id)}
+                        disabled={savingCreditCard}
+                        className="rounded-xl border px-3 py-1.5 text-sm hover:bg-slate-50 disabled:opacity-60"
+                      >
+                        Remover
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="text-xs text-slate-500">Nenhum cartão cadastrado ainda.</div>
+            )}
+          </div>
 
           <div className="text-xs text-slate-600">
             Ponto de corte fixo para caixa imediato: <b>{fmtInt(FIXED_CUTOFF_POINTS)} pts</b>
@@ -726,7 +861,7 @@ export default function CedentesResumoClient() {
             <div className="text-xs text-slate-600">Caixa projetado</div>
             <div className="text-xl font-bold">{fmtMoneyBR(caixaImediatoCalc.cashProjectedInterCents)}</div>
             <div className="text-xs text-slate-500 mt-1">
-              caixa + a receber (vendas) + dívidas a receber − (a pagar funcionários + impostos)
+              inter + cartões + a receber (vendas) + dívidas a receber − (a pagar funcionários + impostos)
             </div>
           </div>
 
@@ -734,7 +869,7 @@ export default function CedentesResumoClient() {
             <div className="text-xs text-slate-600">Caixa total (sem corte)</div>
             <div className="text-xl font-bold">{fmtMoneyBR(calc.totalAfterPendingsCents)}</div>
             <div className="text-xs text-slate-500 mt-1">
-              milhas totais + caixa + a receber − dívidas − pendências
+              milhas totais + inter + cartões + a receber − dívidas − pendências
             </div>
           </div>
 
@@ -850,6 +985,12 @@ export default function CedentesResumoClient() {
                   )} compras`}
                 />
                 <Line label="Caixa (Inter)" value={`+${fmtMoneyBR(caixaImediatoCalc.cashCents)}`} tone="plus" />
+                <Line
+                  label="Cartões de crédito"
+                  value={`+${fmtMoneyBR(creditCardsTotalCents)}`}
+                  tone="plus"
+                  hint={`${fmtInt(creditCards.length)} cartões`}
+                />
                 <Line label="A receber (Vendas)" value={`+${fmtMoneyBR(caixaImediatoCalc.receivableSalesCents)}`} tone="plus" />
                 <Line
                   label="Dívidas a receber"
@@ -899,7 +1040,9 @@ export default function CedentesResumoClient() {
             <div className="rounded-2xl border bg-slate-50 p-4">
               <div className="text-xs text-slate-600">Caixa total (sem corte)</div>
               <div className="text-xl font-bold">{fmtMoneyBR(calc.totalAfterPendingsCents)}</div>
-              <div className="text-xs text-slate-500 mt-1">milhas totais + caixa + a receber − dívidas − pendências</div>
+              <div className="text-xs text-slate-500 mt-1">
+                milhas totais + inter + cartões + a receber − dívidas − pendências
+              </div>
             </div>
           </div>
         </div>
