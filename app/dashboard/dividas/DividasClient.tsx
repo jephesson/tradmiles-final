@@ -18,6 +18,19 @@ type Debt = {
   payments: Payment[];
 };
 
+type CreditorGroup = {
+  key: string;
+  name: string;
+  debts: Debt[];
+  totalCents: number;
+  paidCents: number;
+  balanceCents: number;
+  openCount: number;
+  nextDueDate: string | null;
+};
+
+const EMPTY_CREDITOR_KEY = "__SEM_PESSOA__";
+
 function fmtMoney(cents: number) {
   return ((cents || 0) / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
@@ -130,6 +143,8 @@ export default function DividasClient() {
   >({});
 
   const [meRole, setMeRole] = useState<"admin" | "staff" | null>(null);
+  const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
+  const [payingGroupKey, setPayingGroupKey] = useState<string | null>(null);
 
   // ✅ filtros/ordenação
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("ALL");
@@ -184,28 +199,39 @@ export default function DividasClient() {
     return arr;
   }, [debts, statusFilter]);
 
-  const grouped = useMemo(() => {
-    const map = new Map<
-      string,
-      {
-        name: string;
-        debts: Debt[];
-        totalCents: number;
-        paidCents: number;
-        balanceCents: number;
-      }
-    >();
+  const grouped = useMemo<CreditorGroup[]>(() => {
+    const map = new Map<string, CreditorGroup>();
 
     for (const d of filtered) {
-      const key = (d.creditorName || "").trim() || "Sem pessoa";
+      const key = (d.creditorName || "").trim();
+      const name = key || "Sem pessoa";
       if (!map.has(key)) {
-        map.set(key, { name: key, debts: [], totalCents: 0, paidCents: 0, balanceCents: 0 });
+        map.set(key, {
+          key,
+          name,
+          debts: [],
+          totalCents: 0,
+          paidCents: 0,
+          balanceCents: 0,
+          openCount: 0,
+          nextDueDate: null,
+        });
       }
       const g = map.get(key)!;
       g.debts.push(d);
       g.totalCents += d.totalCents || 0;
       g.paidCents += d.paidCents || 0;
       g.balanceCents += d.balanceCents || 0;
+      if (d.status === "OPEN") {
+        g.openCount += 1;
+        if (d.dueDate) {
+          const dueTs = new Date(d.dueDate).getTime();
+          const currentTs = g.nextDueDate ? new Date(g.nextDueDate).getTime() : Number.POSITIVE_INFINITY;
+          if (Number.isFinite(dueTs) && dueTs < currentTs) {
+            g.nextDueDate = d.dueDate;
+          }
+        }
+      }
     }
 
     const groups = Array.from(map.values());
@@ -272,10 +298,9 @@ export default function DividasClient() {
       g.debts.sort(sortDebts);
     }
 
-    function groupDueValue(g: (typeof groups)[number]) {
-      const openWithDue = g.debts.filter((d) => d.status === "OPEN" && d.dueDate);
-      if (!openWithDue.length) return Number.POSITIVE_INFINITY;
-      return Math.min(...openWithDue.map((d) => dueValue(d)));
+    function groupDueValue(g: CreditorGroup) {
+      if (!g.nextDueDate) return Number.POSITIVE_INFINITY;
+      return dueValue({ dueDate: g.nextDueDate } as Debt);
     }
 
     groups.sort((a, b) => {
@@ -321,6 +346,15 @@ export default function DividasClient() {
 
     return groups;
   }, [filtered, sortMode]);
+
+  function groupActionKey(groupKey: string) {
+    return groupKey || EMPTY_CREDITOR_KEY;
+  }
+
+  function toggleGroup(groupKey: string) {
+    const key = groupActionKey(groupKey);
+    setExpandedGroups((prev) => ({ ...prev, [key]: !prev[key] }));
+  }
 
   const isAdmin = meRole === "admin";
 
@@ -408,6 +442,39 @@ export default function DividasClient() {
       alert(e.message);
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function payCreditorGroup(group: CreditorGroup) {
+    const actionKey = groupActionKey(group.key);
+    if (group.balanceCents <= 0 || group.openCount <= 0) return;
+    const confirmed = window.confirm(
+      `Quitar todas as ${group.openCount} dívida(s) abertas de ${group.name} por ${fmtMoney(group.balanceCents)}?`
+    );
+    if (!confirmed) return;
+
+    setPayingGroupKey(actionKey);
+    try {
+      const r = await fetch("/api/dividas/pagar-credor", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          groupKey: actionKey,
+          note: `Quitação em lote de ${group.name}`,
+        }),
+      });
+      const j = await r.json();
+      if (!j?.ok) throw new Error(j?.error || "Erro ao quitar credor");
+      await load();
+      alert(
+        `${group.name}: ${j?.data?.debtsCount || group.openCount} dívida(s) quitada(s), total ${fmtMoney(
+          j?.data?.totalPaidCents || group.balanceCents
+        )}.`
+      );
+    } catch (e: any) {
+      alert(e.message || "Erro ao quitar dívidas do credor.");
+    } finally {
+      setPayingGroupKey(null);
     }
   }
 
@@ -670,244 +737,324 @@ export default function DividasClient() {
         </div>
       </div>
 
-      {/* Lista agrupada por pessoa */}
+      {/* Resumo por credor */}
       {grouped.length === 0 ? (
         <div className="text-sm text-slate-600">
           Nenhuma dívida encontrada para o filtro atual.
         </div>
       ) : (
         <div className="space-y-6">
-          {grouped.map((g) => (
-            <div key={g.name} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm space-y-4">
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <div className="text-lg font-semibold text-slate-900">{g.name}</div>
-                  <div className="text-xs text-slate-500 mt-0.5">
-                    {g.debts.length} dívida(s) • {g.debts.filter((d) => d.status === "OPEN").length} aberta(s)
+          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+            <div className="flex items-center justify-between gap-2">
+              <div>
+                <div className="font-semibold text-slate-900">Resumo por credor</div>
+                <div className="text-sm text-slate-600">
+                  Veja quanto deve para cada pessoa e abra somente o que quiser detalhar.
+                </div>
+              </div>
+              <div className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs text-slate-600">
+                {grouped.length} credor(es)
+              </div>
+            </div>
+
+            <div className="mt-4 overflow-x-auto">
+              <table className="min-w-full text-sm">
+                <thead className="bg-slate-50">
+                  <tr className="text-left text-slate-600">
+                    <th className="rounded-l-xl px-3 py-2 font-medium">Credor</th>
+                    <th className="px-3 py-2 font-medium">Dívidas</th>
+                    <th className="px-3 py-2 font-medium">Próx. vencimento</th>
+                    <th className="px-3 py-2 font-medium text-right">Total</th>
+                    <th className="px-3 py-2 font-medium text-right">Pago</th>
+                    <th className="px-3 py-2 font-medium text-right">Saldo</th>
+                    <th className="rounded-r-xl px-3 py-2 font-medium text-right">Ações</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {grouped.map((g) => {
+                    const actionKey = groupActionKey(g.key);
+                    const isExpanded = !!expandedGroups[actionKey];
+                    return (
+                      <tr key={actionKey} className="border-t border-slate-100 align-top">
+                        <td className="px-3 py-3">
+                          <div className="font-semibold text-slate-900">{g.name}</div>
+                          <div className="text-xs text-slate-500">
+                            {g.debts.length} dívida(s) • {g.openCount} aberta(s)
+                          </div>
+                        </td>
+                        <td className="px-3 py-3 text-slate-700">{g.debts.length}</td>
+                        <td className="px-3 py-3 text-slate-700">{dateBR(g.nextDueDate)}</td>
+                        <td className="px-3 py-3 text-right font-medium text-slate-900">{fmtMoney(g.totalCents)}</td>
+                        <td className="px-3 py-3 text-right font-medium text-emerald-700">{fmtMoney(g.paidCents)}</td>
+                        <td className="px-3 py-3 text-right font-semibold text-amber-700">{fmtMoney(g.balanceCents)}</td>
+                        <td className="px-3 py-3">
+                          <div className="flex flex-wrap justify-end gap-2">
+                            <button
+                              onClick={() => toggleGroup(g.key)}
+                              className="rounded-xl border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium hover:bg-slate-50"
+                            >
+                              {isExpanded ? "Fechar detalhes" : "Abrir detalhes"}
+                            </button>
+                            <button
+                              onClick={() => payCreditorGroup(g)}
+                              className="rounded-xl border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-700 hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-50"
+                              disabled={loading || payingGroupKey === actionKey || g.balanceCents <= 0 || g.openCount === 0}
+                            >
+                              {payingGroupKey === actionKey ? "Quitando..." : "Quitar tudo"}
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div className="space-y-6">
+            {grouped
+              .filter((g) => expandedGroups[groupActionKey(g.key)])
+              .map((g) => (
+                <div key={groupActionKey(g.key)} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm space-y-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <div className="text-lg font-semibold text-slate-900">{g.name}</div>
+                      <div className="text-xs text-slate-500 mt-0.5">
+                        {g.debts.length} dívida(s) • {g.openCount} aberta(s)
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <div className="text-xs text-slate-500">Saldo total</div>
+                      <div className="font-semibold text-amber-700">{fmtMoney(g.balanceCents)}</div>
+                    </div>
                   </div>
-                </div>
-                <div className="text-right">
-                  <div className="text-xs text-slate-500">Saldo total</div>
-                  <div className="font-semibold text-amber-700">{fmtMoney(g.balanceCents)}</div>
-                </div>
-              </div>
 
-              <div className="grid gap-3 md:grid-cols-3">
-                <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-3">
-                  <div className="text-xs text-slate-600">Total</div>
-                  <div className="text-sm font-semibold text-slate-900">{fmtMoney(g.totalCents)}</div>
-                </div>
-                <div className="rounded-xl border border-emerald-200 bg-emerald-50/60 p-3">
-                  <div className="text-xs text-slate-600">Pago</div>
-                  <div className="text-sm font-semibold text-emerald-800">{fmtMoney(g.paidCents)}</div>
-                </div>
-                <div className="rounded-xl border border-amber-200 bg-amber-50/70 p-3">
-                  <div className="text-xs text-slate-600">Saldo</div>
-                  <div className="text-sm font-semibold text-amber-800">{fmtMoney(g.balanceCents)}</div>
-                </div>
-              </div>
+                  <div className="grid gap-3 md:grid-cols-4">
+                    <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-3">
+                      <div className="text-xs text-slate-600">Total</div>
+                      <div className="text-sm font-semibold text-slate-900">{fmtMoney(g.totalCents)}</div>
+                    </div>
+                    <div className="rounded-xl border border-emerald-200 bg-emerald-50/60 p-3">
+                      <div className="text-xs text-slate-600">Pago</div>
+                      <div className="text-sm font-semibold text-emerald-800">{fmtMoney(g.paidCents)}</div>
+                    </div>
+                    <div className="rounded-xl border border-amber-200 bg-amber-50/70 p-3">
+                      <div className="text-xs text-slate-600">Saldo</div>
+                      <div className="text-sm font-semibold text-amber-800">{fmtMoney(g.balanceCents)}</div>
+                    </div>
+                    <div className="rounded-xl border border-slate-200 bg-white p-3">
+                      <div className="text-xs text-slate-600">Próx. vencimento</div>
+                      <div className="text-sm font-semibold text-slate-900">{dateBR(g.nextDueDate)}</div>
+                    </div>
+                  </div>
 
-              <div className="space-y-3">
-                {g.debts.map((d) => {
+                  <div className="space-y-3">
+                    {g.debts.map((d) => {
                   const isEditing = editingId === d.id;
                   const draft = drafts[d.id];
                   const diff = daysDiffFromToday(d.dueDate || null);
                   const canEdit = d.status === "OPEN";
 
-                  return (
-                    <div key={d.id} className={cn("rounded-xl border p-4 space-y-3", debtCardTone(d.status))}>
-                      <div className="flex items-start justify-between gap-3">
-                        <div>
-                          <div className="text-lg font-semibold">
-                            {d.title}{" "}
-                            <span
-                              className={cn("text-xs px-2 py-1 rounded-full border", debtStatusBadgeTone(d.status))}
-                            >
-                              {d.status === "PAID" ? "Quitada" : d.status === "OPEN" ? "Aberta" : "Cancelada"}
-                            </span>
-                          </div>
-                          {d.description ? <div className="text-sm text-slate-600">{d.description}</div> : null}
-                          <div className="text-xs text-slate-500">Criada em {dateTimeBR(d.createdAt)}</div>
+                      return (
+                        <div key={d.id} className={cn("rounded-xl border p-4 space-y-3", debtCardTone(d.status))}>
+                          <div className="flex items-start justify-between gap-3">
+                            <div>
+                              <div className="text-lg font-semibold">
+                                {d.title}{" "}
+                                <span
+                                  className={cn("text-xs px-2 py-1 rounded-full border", debtStatusBadgeTone(d.status))}
+                                >
+                                  {d.status === "PAID" ? "Quitada" : d.status === "OPEN" ? "Aberta" : "Cancelada"}
+                                </span>
+                              </div>
+                              {d.description ? <div className="text-sm text-slate-600">{d.description}</div> : null}
+                              <div className="mt-2 flex flex-wrap gap-2 text-xs">
+                                <span className="rounded-full border px-2 py-1">
+                                  Vencimento: {dateBR(d.dueDate || null)}
+                                </span>
+                                {typeof d.payOrder === "number" ? (
+                                  <span className="rounded-full border px-2 py-1">Ordem: {d.payOrder}</span>
+                                ) : null}
+                                {typeof diff === "number" ? (
+                                  <span className={`rounded-full border px-2 py-1 ${dueTone(diff)}`}>
+                                    {dueLabel(diff)}
+                                  </span>
+                                ) : null}
+                              </div>
+                            </div>
 
-                          <div className="mt-2 flex flex-wrap gap-2 text-xs">
-                            <span className="rounded-full border px-2 py-1">
-                              Vencimento: {dateBR(d.dueDate || null)}
-                            </span>
-                            {typeof d.payOrder === "number" ? (
-                              <span className="rounded-full border px-2 py-1">Ordem: {d.payOrder}</span>
-                            ) : null}
-                            {typeof diff === "number" ? (
-                              <span className={`rounded-full border px-2 py-1 ${dueTone(diff)}`}>
-                                {dueLabel(diff)}
-                              </span>
-                            ) : null}
+                            <div className="text-right">
+                              <div className="text-xs text-slate-600">Total</div>
+                              <div className="font-semibold text-slate-900">{fmtMoney(d.totalCents)}</div>
+                              {canEdit ? (
+                                <button
+                                  onClick={() => startEdit(d)}
+                                  className="mt-2 rounded-lg border px-3 py-1.5 text-xs hover:bg-slate-50"
+                                >
+                                  Editar dados
+                                </button>
+                              ) : null}
+                            </div>
                           </div>
-                        </div>
 
-                        <div className="text-right">
-                          <div className="text-xs text-slate-600">Total</div>
-                          <div className="font-semibold text-slate-900">{fmtMoney(d.totalCents)}</div>
-                          {canEdit ? (
-                            <button
-                              onClick={() => startEdit(d)}
-                              className="mt-2 rounded-lg border px-3 py-1.5 text-xs hover:bg-slate-50"
-                            >
-                              Editar dados
-                            </button>
+                          {isEditing && draft ? (
+                            <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 space-y-2">
+                              <div className="grid gap-2 md:grid-cols-4">
+                                <input
+                                  className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm"
+                                  placeholder="Pessoa (credor)"
+                                  value={draft.creditorName}
+                                  onChange={(e) =>
+                                    setDrafts((prev) => ({
+                                      ...prev,
+                                      [d.id]: { ...draft, creditorName: e.target.value },
+                                    }))
+                                  }
+                                />
+                                <input
+                                  type="date"
+                                  className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm"
+                                  value={draft.dueDate}
+                                  onChange={(e) =>
+                                    setDrafts((prev) => ({
+                                      ...prev,
+                                      [d.id]: { ...draft, dueDate: e.target.value },
+                                    }))
+                                  }
+                                />
+                                <input
+                                  type="number"
+                                  min={1}
+                                  className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm"
+                                  placeholder="Ordem"
+                                  value={draft.payOrder}
+                                  onChange={(e) =>
+                                    setDrafts((prev) => ({
+                                      ...prev,
+                                      [d.id]: { ...draft, payOrder: e.target.value },
+                                    }))
+                                  }
+                                />
+                                <input
+                                  className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm"
+                                  placeholder="Descrição (opcional)"
+                                  value={draft.description}
+                                  onChange={(e) =>
+                                    setDrafts((prev) => ({
+                                      ...prev,
+                                      [d.id]: { ...draft, description: e.target.value },
+                                    }))
+                                  }
+                                />
+                              </div>
+                              <div className="flex gap-2">
+                                <button
+                                  onClick={() => saveEdit(d.id)}
+                                  className="rounded-xl bg-black px-4 py-2 text-white text-sm hover:bg-gray-800"
+                                  disabled={loading}
+                                >
+                                  Salvar
+                                </button>
+                                <button
+                                  onClick={cancelEdit}
+                                  className="rounded-xl border px-4 py-2 text-sm hover:bg-slate-50"
+                                >
+                                  Cancelar
+                                </button>
+                              </div>
+                            </div>
                           ) : null}
-                        </div>
-                      </div>
 
-                      {isEditing && draft ? (
-                        <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 space-y-2">
-                          <div className="grid gap-2 md:grid-cols-4">
-                            <input
-                              className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm"
-                              placeholder="Pessoa (credor)"
-                              value={draft.creditorName}
-                              onChange={(e) =>
-                                setDrafts((prev) => ({
-                                  ...prev,
-                                  [d.id]: { ...draft, creditorName: e.target.value },
-                                }))
-                              }
-                            />
-                            <input
-                              type="date"
-                              className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm"
-                              value={draft.dueDate}
-                              onChange={(e) =>
-                                setDrafts((prev) => ({
-                                  ...prev,
-                                  [d.id]: { ...draft, dueDate: e.target.value },
-                                }))
-                              }
-                            />
-                            <input
-                              type="number"
-                              min={1}
-                              className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm"
-                              placeholder="Ordem"
-                              value={draft.payOrder}
-                              onChange={(e) =>
-                                setDrafts((prev) => ({
-                                  ...prev,
-                                  [d.id]: { ...draft, payOrder: e.target.value },
-                                }))
-                              }
-                            />
-                            <input
-                              className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm"
-                              placeholder="Descrição (opcional)"
-                              value={draft.description}
-                              onChange={(e) =>
-                                setDrafts((prev) => ({
-                                  ...prev,
-                                  [d.id]: { ...draft, description: e.target.value },
-                                }))
-                              }
-                            />
+                          <div className="grid gap-3 md:grid-cols-3">
+                            <div className="rounded-xl border border-slate-200 bg-white p-3">
+                              <div className="text-xs text-slate-600">Pago</div>
+                              <div className="text-sm font-semibold">{fmtMoney(d.paidCents)}</div>
+                            </div>
+                            <div className="rounded-xl border border-slate-200 bg-white p-3">
+                              <div className="text-xs text-slate-600">Saldo</div>
+                              <div className={cn("text-sm font-semibold", d.balanceCents > 0 ? "text-amber-700" : "text-emerald-700")}>
+                                {fmtMoney(d.balanceCents)}
+                              </div>
+                            </div>
+                            <div className="rounded-xl border border-slate-200 bg-white p-3">
+                              <div className="text-xs text-slate-600">Pagamentos</div>
+                              <div className="text-sm font-semibold">{d.payments.length}</div>
+                            </div>
                           </div>
-                          <div className="flex gap-2">
-                            <button
-                              onClick={() => saveEdit(d.id)}
-                              className="rounded-xl bg-black px-4 py-2 text-white text-sm hover:bg-gray-800"
-                              disabled={loading}
-                            >
-                              Salvar
-                            </button>
-                            <button
-                              onClick={cancelEdit}
-                              className="rounded-xl border px-4 py-2 text-sm hover:bg-slate-50"
-                            >
-                              Cancelar
-                            </button>
-                          </div>
-                        </div>
-                      ) : null}
 
-                      <div className="grid gap-3 md:grid-cols-3">
-                        <div className="rounded-xl border border-slate-200 bg-white p-3">
-                          <div className="text-xs text-slate-600">Pago</div>
-                          <div className="text-sm font-semibold">{fmtMoney(d.paidCents)}</div>
-                        </div>
-                        <div className="rounded-xl border border-slate-200 bg-white p-3">
-                          <div className="text-xs text-slate-600">Saldo</div>
-                          <div className={cn("text-sm font-semibold", d.balanceCents > 0 ? "text-amber-700" : "text-emerald-700")}>
-                            {fmtMoney(d.balanceCents)}
-                          </div>
-                        </div>
-                        <div className="rounded-xl border border-slate-200 bg-white p-3">
-                          <div className="text-xs text-slate-600">Pagamentos</div>
-                          <div className="text-sm font-semibold">{d.payments.length}</div>
-                        </div>
-                      </div>
+                          {/* Add payment */}
+                          {d.status !== "PAID" && d.status !== "CANCELED" && (
+                            <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 space-y-2">
+                              <div className="text-sm font-semibold">Adicionar pagamento</div>
+                              <div className="grid gap-2 md:grid-cols-3">
+                                <input
+                                  className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm"
+                                  placeholder="Valor (ex: 200,00)"
+                                  value={payAmount[d.id] ?? ""}
+                                  onChange={(e) => setPayAmount((prev) => ({ ...prev, [d.id]: e.target.value }))}
+                                />
+                                <input
+                                  className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm"
+                                  placeholder="Obs (opcional)"
+                                  value={payNote[d.id] ?? ""}
+                                  onChange={(e) => setPayNote((prev) => ({ ...prev, [d.id]: e.target.value }))}
+                                />
+                                <button
+                                  onClick={() => addPayment(d.id)}
+                                  className="rounded-xl bg-black px-4 py-2 text-white text-sm hover:bg-gray-800"
+                                  disabled={loading}
+                                >
+                                  Registrar
+                                </button>
+                              </div>
+                              <div className="text-xs text-slate-600">
+                                * grava automaticamente data e hora do registro.
+                              </div>
+                            </div>
+                          )}
 
-                      {/* Add payment */}
-                      {d.status !== "PAID" && d.status !== "CANCELED" && (
-                        <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 space-y-2">
-                          <div className="text-sm font-semibold">Adicionar pagamento</div>
-                          <div className="grid gap-2 md:grid-cols-3">
-                            <input
-                              className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm"
-                              placeholder="Valor (ex: 200,00)"
-                              value={payAmount[d.id] ?? ""}
-                              onChange={(e) => setPayAmount((prev) => ({ ...prev, [d.id]: e.target.value }))}
-                            />
-                            <input
-                              className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm"
-                              placeholder="Obs (opcional)"
-                              value={payNote[d.id] ?? ""}
-                              onChange={(e) => setPayNote((prev) => ({ ...prev, [d.id]: e.target.value }))}
-                            />
-                            <button
-                              onClick={() => addPayment(d.id)}
-                              className="rounded-xl bg-black px-4 py-2 text-white text-sm hover:bg-gray-800"
-                              disabled={loading}
-                            >
-                              Registrar
-                            </button>
-                          </div>
-                          <div className="text-xs text-slate-600">
-                            * grava automaticamente data e hora do registro.
+                          {/* History */}
+                          <div className="space-y-2">
+                            <div className="text-sm font-semibold">Histórico</div>
+                            {d.payments.length === 0 ? (
+                              <div className="text-sm text-slate-600">Nenhum pagamento registrado.</div>
+                            ) : (
+                              <div className="max-h-56 overflow-auto rounded-xl border">
+                                <table className="w-full text-sm">
+                                  <thead className="sticky top-0 bg-slate-50">
+                                    <tr>
+                                      <th className="px-3 py-2 text-left">Data/hora</th>
+                                      <th className="px-3 py-2 text-right">Valor</th>
+                                      <th className="px-3 py-2 text-left">Obs</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {d.payments.map((p) => (
+                                      <tr key={p.id} className="border-t">
+                                        <td className="px-3 py-2">{dateTimeBR(p.paidAt)}</td>
+                                        <td className="px-3 py-2 text-right">{fmtMoney(p.amountCents)}</td>
+                                        <td className="px-3 py-2">{p.note || "-"}</td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                              </div>
+                            )}
                           </div>
                         </div>
-                      )}
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
+          </div>
 
-                      {/* History */}
-                      <div className="space-y-2">
-                        <div className="text-sm font-semibold">Histórico</div>
-                        {d.payments.length === 0 ? (
-                          <div className="text-sm text-slate-600">Nenhum pagamento registrado.</div>
-                        ) : (
-                          <div className="max-h-56 overflow-auto rounded-xl border">
-                            <table className="w-full text-sm">
-                              <thead className="sticky top-0 bg-slate-50">
-                                <tr>
-                                  <th className="px-3 py-2 text-left">Data/hora</th>
-                                  <th className="px-3 py-2 text-right">Valor</th>
-                                  <th className="px-3 py-2 text-left">Obs</th>
-                                </tr>
-                              </thead>
-                              <tbody>
-                                {d.payments.map((p) => (
-                                  <tr key={p.id} className="border-t">
-                                    <td className="px-3 py-2">{dateTimeBR(p.paidAt)}</td>
-                                    <td className="px-3 py-2 text-right">{fmtMoney(p.amountCents)}</td>
-                                    <td className="px-3 py-2">{p.note || "-"}</td>
-                                  </tr>
-                                ))}
-                              </tbody>
-                            </table>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
+          {grouped.some((g) => expandedGroups[groupActionKey(g.key)]) ? null : (
+            <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50/60 p-6 text-center text-sm text-slate-600">
+              Abra um credor no resumo acima para ver as dívidas específicas e registrar pagamentos individuais.
             </div>
-          ))}
+          )}
         </div>
       )}
     </div>
