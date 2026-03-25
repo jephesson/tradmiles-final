@@ -217,8 +217,7 @@ export default function CedentesVisualizarLiveloClient() {
       return (
         r.nomeCompleto.toLowerCase().includes(s) ||
         r.identificador.toLowerCase().includes(s) ||
-        String(r.cpf || "").includes(s) ||
-        r.owner?.name?.toLowerCase().includes(s)
+        String(r.cpf || "").includes(s)
       );
     });
   }, [rows, q, ownerFilter]);

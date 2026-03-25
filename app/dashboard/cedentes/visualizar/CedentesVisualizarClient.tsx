@@ -187,8 +187,7 @@ export default function CedentesVisualizarClient() {
         return (
           r.nomeCompleto.toLowerCase().includes(s) ||
           r.identificador.toLowerCase().includes(s) ||
-          String(r.cpf || "").includes(s) ||
-          r.owner?.name?.toLowerCase().includes(s)
+          String(r.cpf || "").includes(s)
         );
       })
       .sort((a, b) => {

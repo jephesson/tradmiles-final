@@ -206,7 +206,6 @@ export default function CedentesResumoClient() {
 
   const [snapshots, setSnapshots] = useState<Snapshot[]>([]);
   const [caixaImediatoSnapshots, setCaixaImediatoSnapshots] = useState<Snapshot[]>([]);
-  const [cashInput, setCashInput] = useState<string>("");
   const [creditCards, setCreditCards] = useState<CreditCard[]>([]);
   const [creditCardDescription, setCreditCardDescription] = useState("");
   const [creditCardAmount, setCreditCardAmount] = useState("");
@@ -238,8 +237,6 @@ export default function CedentesResumoClient() {
   const [pendingPurchaseSmilesCount, setPendingPurchaseSmilesCount] = useState(0);
 
   // ✅ opcional: se o backend mandar pronto, usamos (senão calculamos)
-  const [cashProjectedFromApiCents, setCashProjectedFromApiCents] = useState<number | null>(null);
-
   const [rateLatam, setRateLatam] = useState("20,00");
   const [rateSmiles, setRateSmiles] = useState("18,00");
   const [rateLivelo, setRateLivelo] = useState("22,00");
@@ -283,9 +280,6 @@ export default function CedentesResumoClient() {
       setCedentes(jCed.data || []);
       setBlockedRows(jBloq.data?.rows || []);
 
-      const latestCashCents = Number(j.data.latestCashCents ?? 0);
-      setCashInput(String((latestCashCents / 100).toFixed(2)).replace(".", ","));
-
       const rates = j.data.ratesCents;
       if (rates) {
         setRateLatam(centsToRateInput(rates.latamRateCents));
@@ -300,9 +294,6 @@ export default function CedentesResumoClient() {
 
       setEmployeePayoutsPendingCents(Number(j.data.employeePayoutsPendingCents || 0));
       setTaxesPendingCents(Number(j.data.taxesPendingCents || 0));
-
-      const apiProjected = j.data.cashProjectedCents;
-      setCashProjectedFromApiCents(apiProjected == null ? null : Number(apiProjected || 0));
 
       /**
        * ✅ DÍVIDAS A RECEBER:
@@ -502,8 +493,8 @@ export default function CedentesResumoClient() {
     const pendingSmilesValueCents = pendingSmilesMil * rateSmilesCents;
     const pendingPurchasesValueCents = pendingLatamValueCents + pendingSmilesValueCents;
 
-    const cashCents = toCentsFromInput(cashInput);
-    const cashAndCardsCents = cashCents + creditCardsTotalCents;
+    const cashCents = 0;
+    const cashAndCardsCents = creditCardsTotalCents;
     const receivableSalesCents = Number(receivablesOpenCents || 0);
     const receivableDARcents = Number(dividasAReceberOpenCents || 0);
 
@@ -558,7 +549,6 @@ export default function CedentesResumoClient() {
     rateEsfera,
     pendingPurchaseLatamPoints,
     pendingPurchaseSmilesPoints,
-    cashInput,
     creditCardsTotalCents,
     receivablesOpenCents,
     dividasAReceberOpenCents,
@@ -585,8 +575,8 @@ export default function CedentesResumoClient() {
     const vLiveloCents = Math.round(milLivelo * rLivelo * 100);
     const vEsferaCents = Math.round(milEsfera * rEsfera * 100);
 
-    const cashCents = toCentsFromInput(cashInput);
-    const cashAndCardsCents = cashCents + creditCardsTotalCents;
+    const cashCents = 0;
+    const cashAndCardsCents = creditCardsTotalCents;
 
     const receivableSalesCents = Number(receivablesOpenCents || 0);
     const receivableDARcents = Number(dividasAReceberOpenCents || 0);
@@ -608,15 +598,12 @@ export default function CedentesResumoClient() {
       (employeePayoutsPendingCents || 0) -
       (taxesPendingCents || 0);
 
-    const cashProjectedCalcCents =
+    const cashProjectedCents =
       cashAndCardsCents +
       receivableSalesCents +
       receivableDARcents -
       (employeePayoutsPendingCents || 0) -
       (taxesPendingCents || 0);
-
-    const cashProjectedCents =
-      cashProjectedFromApiCents != null ? cashProjectedFromApiCents : cashProjectedCalcCents;
 
     return {
       milLatam,
@@ -644,7 +631,6 @@ export default function CedentesResumoClient() {
     rateSmiles,
     rateLivelo,
     rateEsfera,
-    cashInput,
     creditCardsTotalCents,
     debtsOpenCents,
     pendingCedenteCommissionsCents,
@@ -652,7 +638,6 @@ export default function CedentesResumoClient() {
     dividasAReceberOpenCents,
     employeePayoutsPendingCents,
     taxesPendingCents,
-    cashProjectedFromApiCents,
   ]);
 
   const snapshotRows = useMemo(() => {
@@ -737,7 +722,7 @@ export default function CedentesResumoClient() {
         <div>
           <h1 className="text-2xl font-bold">Resumo</h1>
           <p className="text-sm text-slate-600">
-            Patrimônio estimado: milhas (por milheiro) + inter + cartões + a receber (vendas) + dívidas a receber −
+            Patrimônio estimado: milhas (por milheiro) + saldos + a receber (vendas) + dívidas a receber −
             dívidas − pendências (comissões/funcionários/impostos).
           </p>
         </div>
@@ -785,19 +770,17 @@ export default function CedentesResumoClient() {
         {/* Caixa */}
         <div className="rounded-2xl border bg-white p-4 space-y-3">
           <div className="flex items-center justify-between">
-            <div className="font-semibold">Caixa (Inter + cartões)</div>
+            <div className="font-semibold">Caixa (saldos)</div>
             <span className="text-[11px] rounded-full bg-slate-100 px-2 py-1 text-slate-600">
               referência operacional
             </span>
           </div>
 
-          <Input label="Saldo atual (R$)" value={cashInput} onChange={setCashInput} placeholder="Ex: 12345,67" />
-
           <div className="rounded-xl border bg-slate-50 p-3 space-y-3">
             <div className="flex items-center justify-between gap-3">
               <div>
-                <div className="text-sm font-semibold text-slate-900">Cartões de crédito</div>
-                <div className="text-xs text-slate-500">Adicione saldos disponíveis para compor o caixa.</div>
+                <div className="text-sm font-semibold text-slate-900">Saldos</div>
+                <div className="text-xs text-slate-500">Adicione e remova saldos disponíveis para compor o caixa.</div>
               </div>
               <div className="text-sm font-semibold text-slate-900">{fmtMoneyBR(creditCardsTotalCents)}</div>
             </div>
@@ -807,7 +790,7 @@ export default function CedentesResumoClient() {
                 label="Descrição"
                 value={creditCardDescription}
                 onChange={setCreditCardDescription}
-                placeholder="Ex: Nubank final 1234"
+                placeholder="Ex: Inter / Nubank final 1234 / Caixa Lucas"
               />
               <Input
                 label="Valor disponível (R$)"
@@ -820,7 +803,7 @@ export default function CedentesResumoClient() {
                 disabled={savingCreditCard}
                 className="self-end rounded-xl border px-4 py-2 text-sm hover:bg-white disabled:opacity-60"
               >
-                {savingCreditCard ? "Salvando..." : "Adicionar cartão"}
+                {savingCreditCard ? "Salvando..." : "Adicionar saldo"}
               </button>
             </div>
 
@@ -833,7 +816,7 @@ export default function CedentesResumoClient() {
                   >
                     <div className="min-w-0">
                       <div className="text-sm font-medium text-slate-900">{card.description}</div>
-                      <div className="text-xs text-slate-500">Saldo disponível no cartão</div>
+                      <div className="text-xs text-slate-500">Saldo disponível</div>
                     </div>
                     <div className="flex items-center gap-3">
                       <div className="text-sm font-semibold text-slate-900">{fmtMoneyBR(card.amountCents)}</div>
@@ -849,7 +832,7 @@ export default function CedentesResumoClient() {
                 ))}
               </div>
             ) : (
-              <div className="text-xs text-slate-500">Nenhum cartão cadastrado ainda.</div>
+              <div className="text-xs text-slate-500">Nenhum saldo cadastrado ainda.</div>
             )}
           </div>
 
@@ -861,7 +844,7 @@ export default function CedentesResumoClient() {
             <div className="text-xs text-slate-600">Caixa projetado</div>
             <div className="text-xl font-bold">{fmtMoneyBR(caixaImediatoCalc.cashProjectedInterCents)}</div>
             <div className="text-xs text-slate-500 mt-1">
-              inter + cartões + a receber (vendas) + dívidas a receber − (a pagar funcionários + impostos)
+              saldos + a receber (vendas) + dívidas a receber − (a pagar funcionários + impostos)
             </div>
           </div>
 
@@ -869,7 +852,7 @@ export default function CedentesResumoClient() {
             <div className="text-xs text-slate-600">Caixa total (sem corte)</div>
             <div className="text-xl font-bold">{fmtMoneyBR(calc.totalAfterPendingsCents)}</div>
             <div className="text-xs text-slate-500 mt-1">
-              milhas totais + inter + cartões + a receber − dívidas − pendências
+              milhas totais + saldos + a receber − dívidas − pendências
             </div>
           </div>
 
@@ -984,12 +967,11 @@ export default function CedentesResumoClient() {
                     pendingPurchaseSmilesCount
                   )} compras`}
                 />
-                <Line label="Caixa (Inter)" value={`+${fmtMoneyBR(caixaImediatoCalc.cashCents)}`} tone="plus" />
                 <Line
-                  label="Cartões de crédito"
+                  label="Saldos"
                   value={`+${fmtMoneyBR(creditCardsTotalCents)}`}
                   tone="plus"
-                  hint={`${fmtInt(creditCards.length)} cartões`}
+                  hint={`${fmtInt(creditCards.length)} saldo(s)`}
                 />
                 <Line label="A receber (Vendas)" value={`+${fmtMoneyBR(caixaImediatoCalc.receivableSalesCents)}`} tone="plus" />
                 <Line
@@ -1041,7 +1023,7 @@ export default function CedentesResumoClient() {
               <div className="text-xs text-slate-600">Caixa total (sem corte)</div>
               <div className="text-xl font-bold">{fmtMoneyBR(calc.totalAfterPendingsCents)}</div>
               <div className="text-xs text-slate-500 mt-1">
-                milhas totais + inter + cartões + a receber − dívidas − pendências
+                milhas totais + saldos + a receber − dívidas − pendências
               </div>
             </div>
           </div>
