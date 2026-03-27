@@ -876,6 +876,29 @@ function movingAverage(values: number[], windowSize: number) {
   });
 }
 
+function buildTrendLine(points: ChartPoint[]): ChartPoint[] | undefined {
+  if (points.length < 2) return undefined;
+
+  const n = points.length;
+  let sumX = 0;
+  let sumY = 0;
+  let sumXY = 0;
+  let sumXX = 0;
+
+  points.forEach((p, i) => {
+    sumX += i;
+    sumY += p.y;
+    sumXY += i * p.y;
+    sumXX += i * i;
+  });
+
+  const denom = n * sumXX - sumX * sumX;
+  const slope = denom === 0 ? 0 : (n * sumXY - sumX * sumY) / denom;
+  const intercept = (sumY - slope * sumX) / n;
+
+  return points.map((p, i) => ({ x: p.x, y: Math.round(intercept + slope * i) }));
+}
+
 export default function AnaliseDadosClient() {
   const [monthsBack, setMonthsBack] = useState<number>(12);
   const [focusYM, setFocusYM] = useState<string>(""); // YYYY-MM
@@ -1056,6 +1079,14 @@ export default function AnaliseDadosClient() {
     });
   }, [filteredSalesDailyHistory]);
 
+  const salesDailyHistoryTrendLine = useMemo<ChartPoint[] | undefined>(() => {
+    const points = filteredSalesDailyHistory.map((row) => ({
+      x: row.key,
+      y: row.grossCents,
+    }));
+    return buildTrendLine(points);
+  }, [filteredSalesDailyHistory]);
+
   const salesDailyHistorySummary = useMemo(() => {
     if (!salesDailyHistory.length) return null;
     return salesDailyHistory.reduce(
@@ -1162,26 +1193,7 @@ export default function AnaliseDadosClient() {
   }, [chartPoints, chartMode, maWindow]);
 
   const trendLine = useMemo<ChartPoint[] | undefined>(() => {
-    if (chartPoints.length < 2) return undefined;
-
-    const n = chartPoints.length;
-    let sumX = 0;
-    let sumY = 0;
-    let sumXY = 0;
-    let sumXX = 0;
-
-    chartPoints.forEach((p, i) => {
-      sumX += i;
-      sumY += p.y;
-      sumXY += i * p.y;
-      sumXX += i * i;
-    });
-
-    const denom = n * sumXX - sumX * sumX;
-    const slope = denom === 0 ? 0 : (n * sumXY - sumX * sumY) / denom;
-    const intercept = (sumY - slope * sumX) / n;
-
-    return chartPoints.map((p, i) => ({ x: p.x, y: Math.round(intercept + slope * i) }));
+    return buildTrendLine(chartPoints);
   }, [chartPoints]);
 
   const chartTrend = useMemo(() => {
@@ -1989,6 +2001,7 @@ export default function AnaliseDadosClient() {
       <SimpleLineChart
         title="Venda por dia (milhas + balcão)"
         data={salesDailyHistoryChart}
+        trendLine={salesDailyHistoryTrendLine}
         summary={
           <div className="grid grid-cols-1 gap-3 lg:grid-cols-[auto,1fr] lg:items-center">
             <div className="flex items-center gap-2 text-xs">
@@ -2057,7 +2070,7 @@ export default function AnaliseDadosClient() {
           salesDailyHistoryRange === "ALL"
             ? "todo o histórico compilado"
             : `últimos ${fmtInt(Number(salesDailyHistoryRange))} dias`
-        } • Valores consolidados de milhas + balcão.`}
+        } • Linha pontilhada = tendência • Valores consolidados de milhas + balcão.`}
       />
 
       <div className="rounded-2xl border bg-white p-4 shadow-sm">
