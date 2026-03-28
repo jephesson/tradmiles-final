@@ -96,7 +96,13 @@ type Analytics = any;
 type ChartMode = "MONTH" | "DAY";
 type DaysPreset = 7 | 15 | 30 | "CUSTOM";
 type MAWindow = 0 | 7 | 15 | 30;
-type SalesDailyHistoryRange = 30 | 60 | 90 | 180 | 365 | "ALL";
+type SalesDailyHistoryRange = 30 | 60 | 90 | 120 | 180 | 365 | "ALL";
+
+function salesDailyRangeLabel(range: SalesDailyHistoryRange) {
+  if (range === "ALL") return "Todo período";
+  if (range === 365) return "1 ano";
+  return `${fmtInt(Number(range))} dias`;
+}
 
 type ChartPoint = { x: string; y: number };
 type ChartPointWithSub = ChartPoint & { sub?: string };
@@ -1130,6 +1136,12 @@ export default function AnaliseDadosClient() {
     return Math.round(salesDailyHistoryTotal / filteredSalesDailyHistory.length);
   }, [filteredSalesDailyHistory, salesDailyHistoryTotal]);
 
+  function downloadSalesDailyXlsx() {
+    const qs = new URLSearchParams();
+    qs.set("range", String(salesDailyHistoryRange));
+    window.location.href = `/api/analytics/sales-daily-export?${qs.toString()}`;
+  }
+
   // ✅ Fonte do gráfico depende do modo (TIPADO)
   const chartPoints = useMemo<ChartPoint[]>(() => {
     const src = (chartMode === "DAY" ? (data?.days || []) : (data?.months || [])) as any[];
@@ -2004,7 +2016,7 @@ export default function AnaliseDadosClient() {
         trendLine={salesDailyHistoryTrendLine}
         summary={
           <div className="grid grid-cols-1 gap-3 lg:grid-cols-[auto,1fr] lg:items-center">
-            <div className="flex items-center gap-2 text-xs">
+            <div className="flex flex-wrap items-center gap-2 text-xs">
               <span className="text-neutral-500">Período:</span>
               <select
                 className="rounded-lg border bg-white px-2 py-1 text-xs"
@@ -2020,10 +2032,18 @@ export default function AnaliseDadosClient() {
                 <option value={30}>30 dias</option>
                 <option value={60}>60 dias</option>
                 <option value={90}>90 dias</option>
+                <option value={120}>120 dias</option>
                 <option value={180}>180 dias</option>
-                <option value={365}>365 dias</option>
+                <option value={365}>1 ano</option>
                 <option value="ALL">Todo período</option>
               </select>
+              <button
+                type="button"
+                onClick={downloadSalesDailyXlsx}
+                className="rounded-lg border border-slate-300 bg-white px-3 py-1 font-medium text-slate-700 transition hover:border-slate-400 hover:bg-slate-50"
+              >
+                Baixar XLSX
+              </button>
             </div>
 
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
@@ -2069,7 +2089,7 @@ export default function AnaliseDadosClient() {
         footer={`Período exibido: ${
           salesDailyHistoryRange === "ALL"
             ? "todo o histórico compilado"
-            : `últimos ${fmtInt(Number(salesDailyHistoryRange))} dias`
+            : `últimos ${salesDailyRangeLabel(salesDailyHistoryRange).toLowerCase()}`
         } • Linha pontilhada = tendência • Valores consolidados de milhas + balcão.`}
       />
 
