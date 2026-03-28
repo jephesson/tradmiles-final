@@ -108,7 +108,7 @@ export default function VendasClient() {
 
   // ✅ filtros
   const [clientId, setClientId] = useState<string>("ALL");
-  const [status, setStatus] = useState<StatusFilter>("ALL");
+  const [status, setStatus] = useState<StatusFilter>("PENDING");
 
   const [updatingId, setUpdatingId] = useState<string | null>(null);
 
@@ -433,12 +433,12 @@ export default function VendasClient() {
           className="border rounded-xl px-3 py-2 text-sm w-[520px]"
         />
 
-        {(clientId !== "ALL" || status !== "ALL" || q.trim()) && (
+        {(clientId !== "ALL" || status !== "PENDING" || q.trim()) && (
           <button
             className="rounded-xl border px-3 py-2 text-sm hover:bg-slate-50"
             onClick={() => {
               setClientId("ALL");
-              setStatus("ALL");
+              setStatus("PENDING");
               setQ("");
             }}
           >
