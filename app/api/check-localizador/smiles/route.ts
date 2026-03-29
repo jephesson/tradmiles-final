@@ -131,13 +131,7 @@ export async function POST(req: Request) {
   if (!saleId) {
     return NextResponse.json({ ok: false, error: "saleId obrigatório." }, { status: 400 });
   }
-  if (!statusRaw) {
-    return NextResponse.json(
-      { ok: false, error: "Informe o status manual (CONFIRMADO ou DERRUBADO)." },
-      { status: 400 }
-    );
-  }
-  if (!SMILES_MANUAL_STATUS.includes(status)) {
+  if (statusRaw && !SMILES_MANUAL_STATUS.includes(status)) {
     return NextResponse.json({ ok: false, error: "Status manual inválido." }, { status: 400 });
   }
 
@@ -153,8 +147,8 @@ export async function POST(req: Request) {
   const updated = await prisma.sale.update({
     where: { id: saleId },
     data: {
-      smilesLocatorManualStatus: status,
-      smilesLocatorManualCheckedAt: new Date(),
+      smilesLocatorManualStatus: statusRaw ? status : null,
+      smilesLocatorManualCheckedAt: statusRaw ? new Date() : null,
     },
     select: {
       id: true,

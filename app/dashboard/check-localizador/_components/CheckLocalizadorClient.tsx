@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 
 type Mode = "latam" | "smiles";
 type LatamManualStatus = "CANCELADO" | "CONFIRMADO" | "ALTERADO";
-type SmilesManualStatus = "CONFIRMADO" | "DERRUBADO";
+type SmilesManualStatus = "" | "CONFIRMADO" | "DERRUBADO";
 
 type RowBase = {
   id: string;
@@ -337,8 +337,13 @@ export default function CheckLocalizadorClient({ mode }: { mode: Mode }) {
                     ? getSmilesFlightStatus(r.departureDate, r.returnDate)
                     : null;
 
+                const smilesManualRowClass =
+                  mode === "smiles" && r.smilesLocatorManualStatus === "DERRUBADO"
+                    ? "bg-rose-50/70"
+                    : "";
+
                 return (
-                <tr key={r.id} className="border-b last:border-b-0">
+                <tr key={r.id} className={`border-b last:border-b-0 ${smilesManualRowClass}`}>
                   <td className="px-3 py-2">{nextFlightLabel(r.departureDate, r.returnDate)}</td>
                   {mode === "latam" ? (
                     <td className="px-3 py-2 font-mono">{(r as LatamRow).purchaseCode || "-"}</td>
@@ -378,24 +383,27 @@ export default function CheckLocalizadorClient({ mode }: { mode: Mode }) {
                         >
                           {smilesManualStatusLabel(r.smilesLocatorManualStatus)}
                         </div>
-                        <div className="flex flex-wrap gap-2">
-                          <button
-                            type="button"
-                            className="rounded-lg border border-emerald-300 px-2 py-1 text-xs text-emerald-700 hover:bg-emerald-50 disabled:opacity-50"
-                            disabled={savingId === r.id}
-                            onClick={() => updateSmilesManualCheck(r.id, "CONFIRMADO")}
-                          >
-                            Confirmado
-                          </button>
-                          <button
-                            type="button"
-                            className="rounded-lg border border-rose-300 px-2 py-1 text-xs text-rose-700 hover:bg-rose-50 disabled:opacity-50"
-                            disabled={savingId === r.id}
-                            onClick={() => updateSmilesManualCheck(r.id, "DERRUBADO")}
-                          >
-                            Derrubado
-                          </button>
-                        </div>
+                        <select
+                          className={`rounded-lg border px-2 py-1 text-xs bg-white min-w-[140px] ${
+                            r.smilesLocatorManualStatus === "DERRUBADO"
+                              ? "border-rose-300 text-rose-700 bg-rose-50"
+                              : r.smilesLocatorManualStatus === "CONFIRMADO"
+                                ? "border-emerald-300 text-emerald-700 bg-emerald-50"
+                                : "border-slate-300 text-slate-700"
+                          }`}
+                          value={(r.smilesLocatorManualStatus || "") as string}
+                          disabled={savingId === r.id}
+                          onChange={(e) =>
+                            updateSmilesManualCheck(
+                              r.id,
+                              String(e.target.value || "") as SmilesManualStatus
+                            )
+                          }
+                        >
+                          <option value="">Não marcado</option>
+                          <option value="CONFIRMADO">Confirmado</option>
+                          <option value="DERRUBADO">Derrubado</option>
+                        </select>
                       </div>
                     </td>
                   ) : null}
