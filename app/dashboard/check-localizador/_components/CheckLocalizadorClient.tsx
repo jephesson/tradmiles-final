@@ -3,7 +3,8 @@
 import { useEffect, useMemo, useState } from "react";
 
 type Mode = "latam" | "smiles";
-type ManualStatus = "CANCELADO" | "CONFIRMADO" | "ALTERADO";
+type LatamManualStatus = "CANCELADO" | "CONFIRMADO" | "ALTERADO";
+type SmilesManualStatus = "CONFIRMADO" | "DERRUBADO";
 
 type RowBase = {
   id: string;
@@ -18,6 +19,8 @@ type RowBase = {
   latamLocatorCheckStatus?: string | null;
   latamLocatorCheckedAt?: string | null;
   latamLocatorCheckNote?: string | null;
+  smilesLocatorManualStatus?: string | null;
+  smilesLocatorManualCheckedAt?: string | null;
 };
 
 type LatamRow = RowBase & {
@@ -80,6 +83,18 @@ function statusClass(v?: string | null) {
   if (v === "ALTERADO") return "text-amber-600";
   if (v === "CANCELADO") return "text-rose-700";
   return "text-slate-700";
+}
+
+function smilesManualStatusLabel(v?: string | null) {
+  if (v === "CONFIRMADO") return "Confirmado";
+  if (v === "DERRUBADO") return "Derrubado";
+  return "Não marcado";
+}
+
+function smilesManualStatusClass(v?: string | null) {
+  if (v === "CONFIRMADO") return "bg-emerald-100 text-emerald-700 border-emerald-200";
+  if (v === "DERRUBADO") return "bg-rose-100 text-rose-700 border-rose-200";
+  return "bg-slate-100 text-slate-600 border-slate-200";
 }
 
 type SmilesFlightStatus = {
@@ -190,9 +205,9 @@ export default function CheckLocalizadorClient({ mode }: { mode: Mode }) {
     () => (mode === "latam" ? "Check Localizador - Latam" : "Check Localizador - Smiles"),
     [mode]
   );
-  const totalCols = mode === "latam" ? 9 : 8;
+  const totalCols = mode === "latam" ? 9 : 9;
 
-  async function updateManualStatus(saleId: string, status: ManualStatus) {
+  async function updateManualStatus(saleId: string, status: LatamManualStatus) {
     setSavingId(saleId);
     try {
       const res = await fetch("/api/check-localizador/latam", {
@@ -230,6 +245,43 @@ export default function CheckLocalizadorClient({ mode }: { mode: Mode }) {
     }
   }
 
+  async function updateSmilesManualCheck(saleId: string, status: SmilesManualStatus) {
+    setSavingId(saleId);
+    try {
+      const res = await fetch("/api/check-localizador/smiles", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ saleId, status }),
+      });
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok || j?.ok === false) {
+        throw new Error(j?.error || `Erro ${res.status}`);
+      }
+
+      const row = j?.row || null;
+      if (row?.id) {
+        setRows((prev) =>
+          prev.map((r) =>
+            r.id === row.id
+              ? {
+                  ...r,
+                  smilesLocatorManualStatus: row.smilesLocatorManualStatus || null,
+                  smilesLocatorManualCheckedAt: row.smilesLocatorManualCheckedAt || null,
+                }
+              : r
+          )
+        );
+      }
+    } catch (e: unknown) {
+      const msg =
+        e instanceof Error && e.message ? e.message : "Falha ao atualizar check manual.";
+      alert(msg);
+    } finally {
+      setSavingId(null);
+    }
+  }
+
   return (
     <div className="space-y-4">
       <div>
@@ -261,6 +313,7 @@ export default function CheckLocalizadorClient({ mode }: { mode: Mode }) {
               <th className="px-3 py-2 text-left">Cedente</th>
               {mode === "latam" ? <th className="px-3 py-2 text-left">Status</th> : null}
               {mode === "smiles" ? <th className="px-3 py-2 text-left">Status voo</th> : null}
+              {mode === "smiles" ? <th className="px-3 py-2 text-left">Check manual</th> : null}
               {mode === "latam" ? <th className="px-3 py-2 text-left">Ação</th> : null}
             </tr>
           </thead>
@@ -315,6 +368,37 @@ export default function CheckLocalizadorClient({ mode }: { mode: Mode }) {
                       ) : null}
                     </td>
                   ) : null}
+                  {mode === "smiles" ? (
+                    <td className="px-3 py-2">
+                      <div className="space-y-2">
+                        <div
+                          className={`inline-flex rounded-full border px-2 py-0.5 text-xs font-medium ${smilesManualStatusClass(
+                            r.smilesLocatorManualStatus
+                          )}`}
+                        >
+                          {smilesManualStatusLabel(r.smilesLocatorManualStatus)}
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          <button
+                            type="button"
+                            className="rounded-lg border border-emerald-300 px-2 py-1 text-xs text-emerald-700 hover:bg-emerald-50 disabled:opacity-50"
+                            disabled={savingId === r.id}
+                            onClick={() => updateSmilesManualCheck(r.id, "CONFIRMADO")}
+                          >
+                            Confirmado
+                          </button>
+                          <button
+                            type="button"
+                            className="rounded-lg border border-rose-300 px-2 py-1 text-xs text-rose-700 hover:bg-rose-50 disabled:opacity-50"
+                            disabled={savingId === r.id}
+                            onClick={() => updateSmilesManualCheck(r.id, "DERRUBADO")}
+                          >
+                            Derrubado
+                          </button>
+                        </div>
+                      </div>
+                    </td>
+                  ) : null}
                   {mode === "latam" ? (
                     <td className="px-3 py-2">
                       <div className={`font-medium ${statusClass(r.latamLocatorCheckStatus)}`}>
@@ -346,7 +430,7 @@ export default function CheckLocalizadorClient({ mode }: { mode: Mode }) {
                           value={(r.latamLocatorCheckStatus || "") as string}
                           disabled={savingId === r.id}
                           onChange={(e) => {
-                            const v = String(e.target.value || "") as ManualStatus;
+                            const v = String(e.target.value || "") as LatamManualStatus;
                             if (!v) return;
                             updateManualStatus(r.id, v);
                           }}

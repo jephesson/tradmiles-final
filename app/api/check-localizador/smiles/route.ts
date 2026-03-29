@@ -9,6 +9,9 @@ type Sess = {
   role: "admin" | "staff";
 };
 
+const SMILES_MANUAL_STATUS = ["CONFIRMADO", "DERRUBADO"] as const;
+type SmilesManualStatus = (typeof SMILES_MANUAL_STATUS)[number];
+
 function b64urlDecode(input: string) {
   const pad = input.length % 4 === 0 ? "" : "=".repeat(4 - (input.length % 4));
   const base64 = (input + pad).replace(/-/g, "+").replace(/_/g, "/");
@@ -84,6 +87,8 @@ export async function GET() {
       departureAirportIata: true,
       departureDate: true,
       returnDate: true,
+      smilesLocatorManualStatus: true,
+      smilesLocatorManualCheckedAt: true,
       cedente: { select: { identificador: true, nomeCompleto: true } },
       createdAt: true,
     },
@@ -94,6 +99,10 @@ export async function GET() {
     ...r,
     departureDate: r.departureDate ? r.departureDate.toISOString() : null,
     returnDate: r.returnDate ? r.returnDate.toISOString() : null,
+    smilesLocatorManualStatus: r.smilesLocatorManualStatus || null,
+    smilesLocatorManualCheckedAt: r.smilesLocatorManualCheckedAt
+      ? r.smilesLocatorManualCheckedAt.toISOString()
+      : null,
     createdAt: r.createdAt.toISOString(),
   }));
 
@@ -106,4 +115,62 @@ export async function GET() {
   });
 
   return NextResponse.json({ ok: true, rows: mapped });
+}
+
+export async function POST(req: Request) {
+  const session = await getServerSession();
+  if (!session?.id) {
+    return NextResponse.json({ ok: false, error: "Não autenticado" }, { status: 401 });
+  }
+
+  const body = await req.json().catch(() => ({}));
+  const saleId = String(body?.saleId || "").trim();
+  const statusRaw = String(body?.status || "").trim().toUpperCase();
+  const status = statusRaw as SmilesManualStatus;
+
+  if (!saleId) {
+    return NextResponse.json({ ok: false, error: "saleId obrigatório." }, { status: 400 });
+  }
+  if (!statusRaw) {
+    return NextResponse.json(
+      { ok: false, error: "Informe o status manual (CONFIRMADO ou DERRUBADO)." },
+      { status: 400 }
+    );
+  }
+  if (!SMILES_MANUAL_STATUS.includes(status)) {
+    return NextResponse.json({ ok: false, error: "Status manual inválido." }, { status: 400 });
+  }
+
+  const sale = await prisma.sale.findUnique({
+    where: { id: saleId },
+    select: { id: true, program: true },
+  });
+
+  if (!sale || sale.program !== "SMILES") {
+    return NextResponse.json({ ok: false, error: "Venda SMILES não encontrada." }, { status: 404 });
+  }
+
+  const updated = await prisma.sale.update({
+    where: { id: saleId },
+    data: {
+      smilesLocatorManualStatus: status,
+      smilesLocatorManualCheckedAt: new Date(),
+    },
+    select: {
+      id: true,
+      smilesLocatorManualStatus: true,
+      smilesLocatorManualCheckedAt: true,
+    },
+  });
+
+  return NextResponse.json({
+    ok: true,
+    row: {
+      id: updated.id,
+      smilesLocatorManualStatus: updated.smilesLocatorManualStatus || null,
+      smilesLocatorManualCheckedAt: updated.smilesLocatorManualCheckedAt
+        ? updated.smilesLocatorManualCheckedAt.toISOString()
+        : null,
+    },
+  });
 }
