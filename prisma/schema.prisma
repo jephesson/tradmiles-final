@@ -1247,6 +1247,7 @@ model Sale {
   latamLocatorCheckNote   String?
   smilesLocatorManualStatus    String?
   smilesLocatorManualCheckedAt DateTime?
+  smilesLocatorLossCents       Int      @default(0)
 
   paymentStatus SalePaymentStatus @default(PENDING)
   paidAt        DateTime?

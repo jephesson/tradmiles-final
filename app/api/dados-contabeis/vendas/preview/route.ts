@@ -196,6 +196,19 @@ async function computeLossTotalCentsLikePrejuizo(team: string, scopeMonth: strin
   const start = new Date(`${mb.startISO}T00:00:00.000Z`);
   const end = new Date(`${mb.endISO}T00:00:00.000Z`);
 
+  const saleDb = prisma.sale as any;
+  const manualLossAgg = await saleDb.aggregate({
+    where: {
+      program: "SMILES",
+      smilesLocatorManualStatus: "DERRUBADO",
+      smilesLocatorManualCheckedAt: { not: null, gte: start, lt: end },
+      smilesLocatorLossCents: { gt: 0 },
+      cedente: { owner: { team } },
+    },
+    _sum: { smilesLocatorLossCents: true },
+  });
+  const manualLossTotalCents = safeInt(manualLossAgg?._sum?.smilesLocatorLossCents, 0);
+
   // purchases fechadas no mês (já filtrado por mês, diferente do /prejuizo que busca tudo e filtra depois)
   const purchasesBase = await prisma.purchase.findMany({
     where: {
@@ -214,7 +227,7 @@ async function computeLossTotalCentsLikePrejuizo(team: string, scopeMonth: strin
     },
   });
 
-  if (purchasesBase.length === 0) return 0;
+  if (purchasesBase.length === 0) return -manualLossTotalCents;
 
   const ids = purchasesBase.map((p) => p.id);
   const numeros = purchasesBase.map((p) => String(p.numero || "").trim()).filter(Boolean);
@@ -342,7 +355,7 @@ async function computeLossTotalCentsLikePrejuizo(team: string, scopeMonth: strin
     if (profitLiquido < 0) lossTotalCents += profitLiquido;
   }
 
-  return lossTotalCents;
+  return lossTotalCents - manualLossTotalCents;
 }
 
 export async function GET(req: Request) {

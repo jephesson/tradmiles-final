@@ -21,6 +21,7 @@ type RowBase = {
   latamLocatorCheckNote?: string | null;
   smilesLocatorManualStatus?: string | null;
   smilesLocatorManualCheckedAt?: string | null;
+  smilesLocatorLossCents?: number;
 };
 
 type LatamRow = RowBase & {
@@ -95,6 +96,22 @@ function smilesManualStatusClass(v?: string | null) {
   if (v === "CONFIRMADO") return "bg-emerald-100 text-emerald-700 border-emerald-200";
   if (v === "DERRUBADO") return "bg-rose-100 text-rose-700 border-rose-200";
   return "bg-slate-100 text-slate-600 border-slate-200";
+}
+
+function fmtMoneyBR(cents?: number | null) {
+  const v = Number(cents || 0) / 100;
+  return v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+}
+
+function parseMoneyToCents(input: string) {
+  const normalized = String(input || "")
+    .trim()
+    .replace(/\s/g, "")
+    .replace(/\./g, "")
+    .replace(",", ".");
+  const n = Number(normalized);
+  if (!Number.isFinite(n) || n <= 0) return 0;
+  return Math.round(n * 100);
 }
 
 type SmilesFlightStatus = {
@@ -245,14 +262,18 @@ export default function CheckLocalizadorClient({ mode }: { mode: Mode }) {
     }
   }
 
-  async function updateSmilesManualCheck(saleId: string, status: SmilesManualStatus) {
+  async function updateSmilesManualCheck(
+    saleId: string,
+    status: SmilesManualStatus,
+    lossCents = 0
+  ) {
     setSavingId(saleId);
     try {
       const res = await fetch("/api/check-localizador/smiles", {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ saleId, status }),
+        body: JSON.stringify({ saleId, status, lossCents }),
       });
       const j = await res.json().catch(() => ({}));
       if (!res.ok || j?.ok === false) {
@@ -268,6 +289,7 @@ export default function CheckLocalizadorClient({ mode }: { mode: Mode }) {
                   ...r,
                   smilesLocatorManualStatus: row.smilesLocatorManualStatus || null,
                   smilesLocatorManualCheckedAt: row.smilesLocatorManualCheckedAt || null,
+                  smilesLocatorLossCents: Number(row.smilesLocatorLossCents || 0),
                 }
               : r
           )
@@ -376,13 +398,6 @@ export default function CheckLocalizadorClient({ mode }: { mode: Mode }) {
                   {mode === "smiles" ? (
                     <td className="px-3 py-2">
                       <div className="space-y-2">
-                        <div
-                          className={`inline-flex rounded-full border px-2 py-0.5 text-xs font-medium ${smilesManualStatusClass(
-                            r.smilesLocatorManualStatus
-                          )}`}
-                        >
-                          {smilesManualStatusLabel(r.smilesLocatorManualStatus)}
-                        </div>
                         <select
                           className={`rounded-lg border px-2 py-1 text-xs bg-white min-w-[140px] ${
                             r.smilesLocatorManualStatus === "DERRUBADO"
@@ -393,17 +408,39 @@ export default function CheckLocalizadorClient({ mode }: { mode: Mode }) {
                           }`}
                           value={(r.smilesLocatorManualStatus || "") as string}
                           disabled={savingId === r.id}
-                          onChange={(e) =>
-                            updateSmilesManualCheck(
-                              r.id,
-                              String(e.target.value || "") as SmilesManualStatus
-                            )
-                          }
+                          onChange={(e) => {
+                            const next = String(e.target.value || "") as SmilesManualStatus;
+                            if (next === "DERRUBADO") {
+                              const suggested = r.smilesLocatorLossCents
+                                ? String((r.smilesLocatorLossCents / 100).toFixed(2)).replace(".", ",")
+                                : "";
+                              const raw = window.prompt(
+                                "Qual o valor do prejuízo (R$) para lançar no prejuízo e abater nos impostos?",
+                                suggested
+                              );
+                              if (raw === null) return;
+                              const parsed = parseMoneyToCents(raw);
+                              if (parsed <= 0) {
+                                window.alert("Informe um valor de prejuízo maior que zero.");
+                                return;
+                              }
+                              updateSmilesManualCheck(r.id, "DERRUBADO", parsed);
+                              return;
+                            }
+
+                            updateSmilesManualCheck(r.id, next, 0);
+                          }}
                         >
                           <option value="">Não marcado</option>
                           <option value="CONFIRMADO">Confirmado</option>
                           <option value="DERRUBADO">Derrubado</option>
                         </select>
+                        {r.smilesLocatorManualStatus === "DERRUBADO" &&
+                        Number(r.smilesLocatorLossCents || 0) > 0 ? (
+                          <div className="text-xs font-medium text-rose-700">
+                            Prejuízo: {fmtMoneyBR(r.smilesLocatorLossCents || 0)}
+                          </div>
+                        ) : null}
                       </div>
                     </td>
                   ) : null}

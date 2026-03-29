@@ -43,6 +43,11 @@ function parseDateMs(v?: string | null) {
   return dt.getTime();
 }
 
+function safeInt(v: unknown, fb = 0) {
+  const n = Number(v);
+  return Number.isFinite(n) ? Math.trunc(n) : fb;
+}
+
 function proximityKey(args: { departureDate?: string | null; returnDate?: string | null }) {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
@@ -72,7 +77,8 @@ export async function GET() {
     return NextResponse.json({ ok: false, error: "Não autenticado" }, { status: 401 });
   }
 
-  const rows = await prisma.sale.findMany({
+  const saleDb = prisma.sale as any;
+  const rows = await saleDb.findMany({
     where: {
       program: "SMILES",
       locator: { not: null },
@@ -89,13 +95,14 @@ export async function GET() {
       returnDate: true,
       smilesLocatorManualStatus: true,
       smilesLocatorManualCheckedAt: true,
+      smilesLocatorLossCents: true,
       cedente: { select: { identificador: true, nomeCompleto: true } },
       createdAt: true,
     },
     take: 5000,
   });
 
-  const mapped = rows.map((r) => ({
+  const mapped = rows.map((r: any) => ({
     ...r,
     departureDate: r.departureDate ? r.departureDate.toISOString() : null,
     returnDate: r.returnDate ? r.returnDate.toISOString() : null,
@@ -103,10 +110,11 @@ export async function GET() {
     smilesLocatorManualCheckedAt: r.smilesLocatorManualCheckedAt
       ? r.smilesLocatorManualCheckedAt.toISOString()
       : null,
+    smilesLocatorLossCents: safeInt(r.smilesLocatorLossCents, 0),
     createdAt: r.createdAt.toISOString(),
   }));
 
-  mapped.sort((a, b) => {
+  mapped.sort((a: any, b: any) => {
     const ka = proximityKey({ departureDate: a.departureDate, returnDate: a.returnDate });
     const kb = proximityKey({ departureDate: b.departureDate, returnDate: b.returnDate });
     if (ka.hasUpcoming !== kb.hasUpcoming) return kb.hasUpcoming - ka.hasUpcoming;
@@ -127,6 +135,7 @@ export async function POST(req: Request) {
   const saleId = String(body?.saleId || "").trim();
   const statusRaw = String(body?.status || "").trim().toUpperCase();
   const status = statusRaw as SmilesManualStatus;
+  const lossCents = Math.max(0, safeInt(body?.lossCents, 0));
 
   if (!saleId) {
     return NextResponse.json({ ok: false, error: "saleId obrigatório." }, { status: 400 });
@@ -134,8 +143,15 @@ export async function POST(req: Request) {
   if (statusRaw && !SMILES_MANUAL_STATUS.includes(status)) {
     return NextResponse.json({ ok: false, error: "Status manual inválido." }, { status: 400 });
   }
+  if (status === "DERRUBADO" && lossCents <= 0) {
+    return NextResponse.json(
+      { ok: false, error: "Informe o valor do prejuízo para marcar como derrubado." },
+      { status: 400 }
+    );
+  }
 
-  const sale = await prisma.sale.findUnique({
+  const saleDb = prisma.sale as any;
+  const sale = await saleDb.findUnique({
     where: { id: saleId },
     select: { id: true, program: true },
   });
@@ -144,16 +160,18 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: "Venda SMILES não encontrada." }, { status: 404 });
   }
 
-  const updated = await prisma.sale.update({
+  const updated = await saleDb.update({
     where: { id: saleId },
     data: {
       smilesLocatorManualStatus: statusRaw ? status : null,
       smilesLocatorManualCheckedAt: statusRaw ? new Date() : null,
+      smilesLocatorLossCents: status === "DERRUBADO" ? lossCents : 0,
     },
     select: {
       id: true,
       smilesLocatorManualStatus: true,
       smilesLocatorManualCheckedAt: true,
+      smilesLocatorLossCents: true,
     },
   });
 
@@ -165,6 +183,7 @@ export async function POST(req: Request) {
       smilesLocatorManualCheckedAt: updated.smilesLocatorManualCheckedAt
         ? updated.smilesLocatorManualCheckedAt.toISOString()
         : null,
+      smilesLocatorLossCents: safeInt(updated.smilesLocatorLossCents, 0),
     },
   });
 }

@@ -177,6 +177,37 @@ export async function GET(req: NextRequest) {
       },
     });
 
+    const saleDb = prisma.sale as any;
+    const manualLossSales = await saleDb.findMany({
+      where: {
+        program: "SMILES",
+        smilesLocatorManualStatus: "DERRUBADO",
+        smilesLocatorManualCheckedAt: { not: null },
+        smilesLocatorLossCents: { gt: 0 },
+        cedente: { owner: { team: session.team } },
+        ...(q
+          ? {
+              OR: [
+                { locator: { contains: q, mode: "insensitive" } },
+                { cedente: { identificador: { contains: q, mode: "insensitive" } } },
+                { cedente: { nomeCompleto: { contains: q, mode: "insensitive" } } },
+              ],
+            }
+          : {}),
+      },
+      orderBy: [{ smilesLocatorManualCheckedAt: "desc" }, { updatedAt: "desc" }],
+      select: {
+        id: true,
+        locator: true,
+        smilesLocatorManualCheckedAt: true,
+        smilesLocatorLossCents: true,
+        updatedAt: true,
+        createdAt: true,
+        cedente: { select: { id: true, identificador: true, nomeCompleto: true } },
+      },
+      take: 5000,
+    });
+
     function normalizePurchaseId(raw: string) {
       const r = (raw || "").trim();
       if (!r) return "";
@@ -307,7 +338,7 @@ export async function GET(req: NextRequest) {
     });
 
     // ✅ agora sim: filtra prejuízo (<0) e remove “sem venda” (se não estiver em modo auditoria)
-    const allNeg = computed.filter((r) => {
+    const purchaseNeg = computed.filter((r) => {
       const profit = safeInt((r as any).finalProfitCents, 0);
       if (profit >= 0) return false;
 
@@ -320,6 +351,33 @@ export async function GET(req: NextRequest) {
 
       return cnt > 0 || pv > 0 || tot > 0 || pts > 0;
     });
+
+    const manualNeg = manualLossSales.map((s: any) => ({
+      id: `smiles-loss-${s.id}`,
+      numero: s.locator ? `DERRUBADO ${s.locator}` : `DERRUBADO ${s.id.slice(0, 8)}`,
+      status: "CLOSED" as const,
+      ciaAerea: "SMILES" as const,
+      pontosCiaTotal: 0,
+      finalSalesCents: 0,
+      finalSalesPointsValueCents: 0,
+      finalSalesTaxesCents: 0,
+      finalProfitBrutoCents: -safeInt(s.smilesLocatorLossCents, 0),
+      finalBonusCents: 0,
+      finalProfitCents: -safeInt(s.smilesLocatorLossCents, 0),
+      finalSoldPoints: 0,
+      finalPax: 0,
+      finalAvgMilheiroCents: null,
+      finalRemainingPoints: null,
+      finalizedAt: s.smilesLocatorManualCheckedAt ? new Date(s.smilesLocatorManualCheckedAt).toISOString() : null,
+      finalizedBy: null,
+      cedente: s.cedente,
+      _count: { sales: 0 },
+      sales: [],
+      createdAt: s.createdAt.toISOString(),
+      updatedAt: s.updatedAt.toISOString(),
+    }));
+
+    const allNeg = [...purchaseNeg, ...manualNeg];
 
     // meses (do ALL prejuízo)
     const monthMap = new Map<string, MonthAgg>();
