@@ -48,6 +48,8 @@ export async function GET(req: NextRequest) {
     // opcional: filtro simples por q
     const { searchParams } = new URL(req.url);
     const q = (searchParams.get("q") || "").trim();
+    const limitRaw = Number(searchParams.get("limit") || "100");
+    const limit = Math.min(500, Math.max(1, Number.isFinite(limitRaw) ? Math.trunc(limitRaw) : 100));
 
     const where = q
       ? {
@@ -62,7 +64,7 @@ export async function GET(req: NextRequest) {
     const clientes = await prisma.cliente.findMany({
       where,
       orderBy: { createdAt: "desc" },
-      take: 100,
+      take: limit,
       select: {
         id: true,
         identificador: true,

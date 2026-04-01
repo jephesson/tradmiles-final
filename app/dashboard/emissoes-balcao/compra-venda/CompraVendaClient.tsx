@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { Dispatch, FormEvent, SetStateAction, useCallback, useEffect, useMemo, useState } from "react";
 
 type Airline =
   | "LATAM"
@@ -16,6 +16,8 @@ type ClienteOption = {
   id: string;
   identificador: string;
   nome: string;
+  cpfCnpj?: string | null;
+  telefone?: string | null;
 };
 
 type EmployeeOption = {
@@ -78,6 +80,8 @@ type ClienteApiItem = {
   id?: unknown;
   identificador?: unknown;
   nome?: unknown;
+  cpfCnpj?: unknown;
+  telefone?: unknown;
 };
 
 type FuncionarioApiItem = {
@@ -169,7 +173,16 @@ function getErrorMessage(e: unknown, fallback: string) {
 }
 
 export default function CompraVendaClient() {
-  const [clientes, setClientes] = useState<ClienteOption[]>([]);
+  const [supplierOptions, setSupplierOptions] = useState<ClienteOption[]>([]);
+  const [finalClientOptions, setFinalClientOptions] = useState<ClienteOption[]>([]);
+  const [supplierQ, setSupplierQ] = useState("");
+  const [finalClientQ, setFinalClientQ] = useState("");
+  const [selectedSupplier, setSelectedSupplier] = useState<ClienteOption | null>(null);
+  const [selectedFinalClient, setSelectedFinalClient] = useState<ClienteOption | null>(null);
+  const [loadingSupplierOptions, setLoadingSupplierOptions] = useState(false);
+  const [loadingFinalClientOptions, setLoadingFinalClientOptions] = useState(false);
+  const [supplierOptionsError, setSupplierOptionsError] = useState("");
+  const [finalClientOptionsError, setFinalClientOptionsError] = useState("");
   const [funcionarios, setFuncionarios] = useState<EmployeeOption[]>([]);
   const [rows, setRows] = useState<Row[]>([]);
 
@@ -285,42 +298,22 @@ export default function CompraVendaClient() {
     setError(null);
 
     try {
-      const [clientesRes, funcionariosRes, sessionRes] = await Promise.all([
-        fetch("/api/clientes", { cache: "no-store" }),
+      const [funcionariosRes, sessionRes] = await Promise.all([
         fetch("/api/funcionarios", { cache: "no-store" }),
         fetch("/api/session", { cache: "no-store" }),
       ]);
 
-      const [clientesJson, funcionariosJson, sessionJson] = await Promise.all([
-        clientesRes.json().catch(() => ({})),
+      const [funcionariosJson, sessionJson] = await Promise.all([
         funcionariosRes.json().catch(() => ({})),
         sessionRes.json().catch(() => ({})),
       ]);
 
-      if (!clientesRes.ok || !clientesJson?.ok) {
-        throw new Error(clientesJson?.error || "Erro ao carregar clientes.");
-      }
       if (!funcionariosRes.ok || !funcionariosJson?.ok) {
         throw new Error(funcionariosJson?.error || "Erro ao carregar funcionários.");
       }
 
       const sessionTeam = String(sessionJson?.user?.team || "");
       const sessionUserId = String(sessionJson?.user?.id || "");
-
-      const rawClientes: ClienteApiItem[] = Array.isArray(clientesJson?.data?.clientes)
-        ? (clientesJson.data.clientes as ClienteApiItem[])
-        : [];
-
-      const listClientes: ClienteOption[] = rawClientes
-            .map((c) => ({
-              id: String(c?.id || ""),
-              identificador: String(c?.identificador || ""),
-              nome: String(c?.nome || ""),
-            }))
-            .filter((c: ClienteOption) => c.id && c.nome)
-            .sort((a: ClienteOption, b: ClienteOption) =>
-              a.nome.localeCompare(b.nome, "pt-BR")
-            );
 
       const rawFuncionarios: FuncionarioApiItem[] = Array.isArray(funcionariosJson?.data)
         ? (funcionariosJson.data as FuncionarioApiItem[])
@@ -341,21 +334,10 @@ export default function CompraVendaClient() {
               a.name.localeCompare(b.name, "pt-BR")
             );
 
-      setClientes(listClientes);
       setFuncionarios(listFuncionarios);
 
       setForm((prev) => {
         const next = { ...prev };
-
-        if (!next.supplierClienteId && listClientes.length > 0) {
-          next.supplierClienteId = listClientes[0].id;
-        }
-
-        if (!next.finalClienteId && listClientes.length > 1) {
-          next.finalClienteId = listClientes[1].id;
-        } else if (!next.finalClienteId && listClientes.length === 1) {
-          next.finalClienteId = listClientes[0].id;
-        }
 
         const hasSessionUser = listFuncionarios.some((f) => f.id === sessionUserId);
         if (!next.employeeId) {
@@ -384,9 +366,116 @@ export default function CompraVendaClient() {
     }
   }, [loadRows]);
 
+  const searchClientOptions = useCallback(
+    async (
+      search: string,
+      setter: Dispatch<SetStateAction<ClienteOption[]>>,
+      setLoadingState: Dispatch<SetStateAction<boolean>>,
+      setErrorState: Dispatch<SetStateAction<string>>,
+      selected: ClienteOption | null
+    ) => {
+      const query = search.trim();
+      const isRecent = query.length < 2;
+
+      setLoadingState(true);
+      setErrorState("");
+
+      try {
+        const url = isRecent
+          ? "/api/clientes/search?recent=1&limit=30"
+          : `/api/clientes/search?q=${encodeURIComponent(query)}&limit=30`;
+
+        const res = await fetch(url, { cache: "no-store" });
+        const data = (await res.json().catch(() => ({}))) as {
+          ok?: boolean;
+          clientes?: ClienteApiItem[];
+          error?: string;
+        };
+
+        if (!res.ok || !data?.ok) {
+          throw new Error(data?.error || "Erro ao buscar clientes.");
+        }
+
+        let list: ClienteOption[] = Array.isArray(data?.clientes)
+          ? data.clientes
+              .map((c) => ({
+                id: String(c?.id || ""),
+                identificador: String(c?.identificador || ""),
+                nome: String(c?.nome || ""),
+                cpfCnpj: typeof c?.cpfCnpj === "string" ? c.cpfCnpj : null,
+                telefone: typeof c?.telefone === "string" ? c.telefone : null,
+              }))
+              .filter((c) => c.id && c.nome)
+          : [];
+
+        if (selected?.id && !list.some((c) => c.id === selected.id)) {
+          list = [selected, ...list];
+        }
+
+        setter(list);
+      } catch (e: unknown) {
+        setter(selected ? [selected] : []);
+        if (!isRecent) {
+          setErrorState(getErrorMessage(e, "Erro ao buscar clientes."));
+        }
+      } finally {
+        setLoadingState(false);
+      }
+    },
+    []
+  );
+
   useEffect(() => {
     loadAll();
   }, [loadAll]);
+
+  useEffect(() => {
+    if (!form.supplierClienteId) {
+      setSelectedSupplier(null);
+      return;
+    }
+
+    const found = supplierOptions.find((c) => c.id === form.supplierClienteId);
+    if (found) setSelectedSupplier(found);
+  }, [form.supplierClienteId, supplierOptions]);
+
+  useEffect(() => {
+    if (!form.finalClienteId) {
+      setSelectedFinalClient(null);
+      return;
+    }
+
+    const found = finalClientOptions.find((c) => c.id === form.finalClienteId);
+    if (found) setSelectedFinalClient(found);
+  }, [form.finalClienteId, finalClientOptions]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      searchClientOptions(
+        supplierQ,
+        setSupplierOptions,
+        setLoadingSupplierOptions,
+        setSupplierOptionsError,
+        selectedSupplier
+      ).catch(() => undefined);
+    }, 250);
+
+    return () => clearTimeout(timer);
+  }, [searchClientOptions, selectedSupplier, supplierQ]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      searchClientOptions(
+        finalClientQ,
+        setFinalClientOptions,
+        setLoadingFinalClientOptions,
+        setFinalClientOptionsError,
+        selectedFinalClient
+      ).catch(() => undefined);
+    }, 250);
+
+    return () => clearTimeout(timer);
+  }, [finalClientQ, searchClientOptions, selectedFinalClient]);
 
   async function onSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -460,8 +549,8 @@ export default function CompraVendaClient() {
     }
   }
 
-  const suppliers = clientes;
-  const finalClients = clientes;
+  const suppliers = supplierOptions;
+  const finalClients = finalClientOptions;
 
   return (
     <div className="space-y-4 p-6">
@@ -527,39 +616,67 @@ export default function CompraVendaClient() {
 
       <form onSubmit={onSubmit} className="rounded border border-zinc-200 bg-white p-4 space-y-4">
         <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
-          <label className="text-sm">
-            <span className="mb-1 block text-zinc-700">Fornecedor</span>
+          <div className="space-y-2 text-sm">
+            <span className="block text-zinc-700">Fornecedor</span>
+            <input
+              value={supplierQ}
+              onChange={(e) => setSupplierQ(e.target.value)}
+              placeholder="Buscar fornecedor por nome / ID / CPF / telefone..."
+              className="h-10 w-full rounded border border-zinc-300 px-3"
+              disabled={saving}
+            />
             <select
               value={form.supplierClienteId}
-              onChange={(e) => setForm((prev) => ({ ...prev, supplierClienteId: e.target.value }))}
+              onChange={(e) =>
+                setForm((prev) => ({ ...prev, supplierClienteId: e.target.value }))
+              }
               className="h-10 w-full rounded border border-zinc-300 px-3"
               disabled={loading || saving}
             >
-              <option value="">Selecione...</option>
+              <option value="">
+                {loadingSupplierOptions ? "Buscando fornecedores..." : "Selecione..."}
+              </option>
               {suppliers.map((c) => (
                 <option key={c.id} value={c.id}>
                   {c.identificador} - {c.nome}
                 </option>
               ))}
             </select>
-          </label>
+            {supplierOptionsError ? (
+              <div className="text-[11px] text-rose-600">{supplierOptionsError}</div>
+            ) : null}
+          </div>
 
-          <label className="text-sm">
-            <span className="mb-1 block text-zinc-700">Cliente final</span>
+          <div className="space-y-2 text-sm">
+            <span className="block text-zinc-700">Cliente final</span>
+            <input
+              value={finalClientQ}
+              onChange={(e) => setFinalClientQ(e.target.value)}
+              placeholder="Buscar cliente por nome / ID / CPF / telefone..."
+              className="h-10 w-full rounded border border-zinc-300 px-3"
+              disabled={saving}
+            />
             <select
               value={form.finalClienteId}
-              onChange={(e) => setForm((prev) => ({ ...prev, finalClienteId: e.target.value }))}
+              onChange={(e) =>
+                setForm((prev) => ({ ...prev, finalClienteId: e.target.value }))
+              }
               className="h-10 w-full rounded border border-zinc-300 px-3"
               disabled={loading || saving}
             >
-              <option value="">Selecione...</option>
+              <option value="">
+                {loadingFinalClientOptions ? "Buscando clientes..." : "Selecione..."}
+              </option>
               {finalClients.map((c) => (
                 <option key={c.id} value={c.id}>
                   {c.identificador} - {c.nome}
                 </option>
               ))}
             </select>
-          </label>
+            {finalClientOptionsError ? (
+              <div className="text-[11px] text-rose-600">{finalClientOptionsError}</div>
+            ) : null}
+          </div>
 
           <label className="text-sm">
             <span className="mb-1 block text-zinc-700">Funcionário</span>

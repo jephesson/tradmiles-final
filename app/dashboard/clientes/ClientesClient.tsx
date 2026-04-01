@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 type ClienteOrigem = "BALCAO_MILHAS" | "PARTICULAR" | "SITE" | "OUTROS";
 type ClienteTipo = "PESSOA" | "EMPRESA";
@@ -33,36 +33,37 @@ export default function ClientesClient() {
   const [loading, setLoading] = useState(false);
   const [rows, setRows] = useState<ClienteRow[]>([]);
   const [q, setQ] = useState("");
+  const [error, setError] = useState("");
 
-  async function load() {
+  const load = useCallback(async (search = "") => {
     setLoading(true);
+    setError("");
     try {
-      const r = await fetch("/api/clientes", { cache: "no-store" });
+      const params = new URLSearchParams();
+      params.set("limit", "200");
+      if (search.trim()) params.set("q", search.trim());
+
+      const r = await fetch(`/api/clientes?${params.toString()}`, {
+        cache: "no-store",
+      });
       const j = await r.json();
       if (!j?.ok) throw new Error(j?.error || "Erro ao carregar clientes");
       setRows(j.data.clientes || []);
     } catch (e: any) {
-      alert(e.message);
+      setRows([]);
+      setError(e.message || "Erro ao carregar clientes.");
     } finally {
       setLoading(false);
     }
-  }
-
-  useEffect(() => {
-    load();
   }, []);
 
-  const filtered = useMemo(() => {
-    const s = q.trim().toLowerCase();
-    if (!s) return rows;
-    return rows.filter((c) => {
-      const a = (c.nome || "").toLowerCase();
-      const b = (c.identificador || "").toLowerCase();
-      const d = (c.cpfCnpj || "").toLowerCase();
-      const t = (c.telefone || "").toLowerCase();
-      return a.includes(s) || b.includes(s) || d.includes(s) || t.includes(s);
-    });
-  }, [rows, q]);
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      load(q);
+    }, 250);
+
+    return () => clearTimeout(timer);
+  }, [load, q]);
 
   const canExport = rows.length > 0;
 
@@ -79,7 +80,7 @@ export default function ClientesClient() {
 
         <div className="flex flex-wrap gap-2">
           <button
-            onClick={load}
+            onClick={() => load(q)}
             disabled={loading}
             className="rounded-xl border px-4 py-2 text-sm hover:bg-slate-50 disabled:opacity-60"
           >
@@ -111,7 +112,9 @@ export default function ClientesClient() {
         <div className="mb-1 flex items-center justify-between gap-3">
           <div className="text-xs text-slate-600">Buscar</div>
           <div className="text-xs text-slate-500">
-            {filtered.length} / {rows.length}
+            {q.trim()
+              ? `${rows.length} resultado(s)`
+              : `Mostrando até ${rows.length} cliente(s) mais recentes`}
           </div>
         </div>
 
@@ -121,15 +124,20 @@ export default function ClientesClient() {
           onChange={(e) => setQ(e.target.value)}
           placeholder="Nome, CL00001, CPF/CNPJ, telefone..."
         />
+
+        {error ? <div className="mt-2 text-xs text-rose-600">{error}</div> : null}
+        {!error && q.trim() && (
+          <div className="mt-2 text-xs text-slate-500">
+            Busca no banco inteiro por nome, ID, CPF/CNPJ ou telefone.
+          </div>
+        )}
       </div>
 
       {/* Table */}
       <div className="rounded-2xl border bg-white p-4">
-        {filtered.length === 0 ? (
+        {rows.length === 0 ? (
           <div className="text-sm text-slate-600">
-            {rows.length === 0
-              ? "Nenhum cliente cadastrado ainda."
-              : "Nenhum resultado para a busca."}
+            {q.trim() ? "Nenhum resultado para a busca." : "Nenhum cliente cadastrado ainda."}
           </div>
         ) : (
           <div className="overflow-auto rounded-xl border">
@@ -148,7 +156,7 @@ export default function ClientesClient() {
               </thead>
 
               <tbody>
-                {filtered.map((c) => (
+                {rows.map((c) => (
                   <tr key={c.id} className="border-t hover:bg-slate-50">
                     <td className="px-3 py-2 font-medium">{c.identificador}</td>
                     <td className="px-3 py-2">{c.nome}</td>
