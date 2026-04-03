@@ -256,8 +256,9 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   const session = await getServerSession();
   const userId = session?.id ?? null;
+  const sessionTeam = session?.team ?? null;
 
-  if (!userId) {
+  if (!userId || !sessionTeam) {
     return NextResponse.json({ ok: false, error: "Não autenticado" }, { status: 401 });
   }
 
@@ -278,6 +279,7 @@ export async function POST(req: Request) {
   const cedenteKey = String(body.cedenteId || "").trim();
   const clienteId = String(body.clienteId || "").trim();
   const purchaseKey = String(body.purchaseNumero || body.purchaseId || "").trim();
+  const sellerIdRaw = String(body.sellerId || "").trim();
 
   const feeCardLabel = body.feeCardLabel ? String(body.feeCardLabel) : null;
   const locator = body.locator ? String(body.locator) : null;
@@ -354,6 +356,13 @@ export async function POST(req: Request) {
 
   try {
     const result = await prisma.$transaction(async (tx) => {
+      const effectiveSellerId = sellerIdRaw || userId;
+      const seller = await tx.user.findFirst({
+        where: { id: effectiveSellerId, team: sessionTeam },
+        select: { id: true },
+      });
+      if (!seller) throw new Error("Vendedor não encontrado.");
+
       const cedenteId = await resolveCedenteId(tx, cedenteKey);
       if (!cedenteId) throw new Error("Cedente não encontrado.");
 
@@ -473,7 +482,7 @@ export async function POST(req: Request) {
           cedenteId,
           clienteId,
           purchaseId: purchaseIdReal,
-          sellerId: userId,
+          sellerId: seller.id,
           receivableId: receivable.id,
         },
         select: { id: true, numero: true },

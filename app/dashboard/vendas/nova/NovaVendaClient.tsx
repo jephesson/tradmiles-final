@@ -409,6 +409,10 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
   // funcionários (para cartão)
   const [users, setUsers] = useState<UserLite[]>([]);
 
+  // vendedor da venda (por padrão: usuário logado)
+  const [assignSellerOpen, setAssignSellerOpen] = useState(false);
+  const [assignedSellerId, setAssignedSellerId] = useState("");
+
   // cartão da taxa (dropdown único)
   // SELF | VIAS | USER:<id> | MANUAL
   const [feeCardPreset, setFeeCardPreset] = useState<string>("SELF");
@@ -631,6 +635,16 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
     }
     return me?.name ? `Cartão ${me.name}` : "Cartão do vendedor";
   }, [feeCardPreset, feeCardManual, users, me?.name]);
+
+  const effectiveSeller = useMemo(() => {
+    if (!assignedSellerId) return me;
+    return users.find((x) => x.id === assignedSellerId) || me;
+  }, [assignedSellerId, users, me]);
+
+  const effectiveSellerLabel = useMemo(() => {
+    if (!effectiveSeller?.id) return "Usuário logado";
+    return `${effectiveSeller.name} (@${effectiveSeller.login})`;
+  }, [effectiveSeller]);
 
   // sugestões (debounce + abort)
   useEffect(() => {
@@ -1091,6 +1105,7 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
       embarqueFeeCents,
       feeCardLabel: feeCardLabel || null,
       locator: locator?.trim() || null,
+      sellerId: effectiveSeller?.id || null,
       purchaseCode: (purchaseCode || "").trim().toUpperCase() || null,
       firstPassengerLastName: firstPassengerLastName.trim() || null,
       departureAirportIata: (departureAirportIata || "").trim().toUpperCase() || null,
@@ -1149,7 +1164,7 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
         responsavelNome: sel.cedente.owner.name,
         feeCardLabel: feeCardLabel || "—",
         dateISO,
-        vendedorNome: me?.name || null,
+        vendedorNome: effectiveSeller?.name || me?.name || null,
       });
 
       setPostSaveMsg(msg);
@@ -1200,6 +1215,11 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
     () => (me?.name ? `Meu cartão (${me.name})` : "Meu cartão"),
     [me?.name]
   );
+
+  const selfSellerLabel = useMemo(() => {
+    if (!me?.id) return "Usuário logado";
+    return `${me.name} (@${me.login})`;
+  }, [me]);
 
   // ======================================================
   // ✅ WhatsApp do cedente (somente LATAM)
@@ -2073,35 +2093,96 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
                   />
                 </label>
 
-                <label className="space-y-1">
-                  <div className="text-xs text-slate-600">Cartão da taxa</div>
-                  <select
-                    className="w-full rounded-xl border px-3 py-2 text-sm bg-white"
-                    value={feeCardPreset}
-                    onChange={(e) => setFeeCardPreset(e.target.value)}
-                  >
-                    <option value="SELF">{selfLabel}</option>
-                    <option value="VIAS">Vias Aéreas</option>
-                    {users.length ? <option disabled>────────────</option> : null}
-                    {users.map((u) => (
-                      <option key={u.id} value={`USER:${u.id}`}>
-                        {u.name} (@{u.login})
-                      </option>
-                    ))}
-                    <option value="MANUAL">Manual</option>
-                  </select>
+                <div className="space-y-3 md:col-span-2">
+                  <div className="rounded-2xl border border-dashed p-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div>
+                        <div className="text-xs text-slate-600">Vendedor da venda</div>
+                        <div className="text-sm font-medium text-slate-900">
+                          {effectiveSellerLabel}
+                        </div>
+                        <div className="text-[11px] text-slate-500">
+                          Por padrão, a venda fica com o usuário logado.
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setAssignSellerOpen((v) => !v)}
+                        className="rounded-xl border px-3 py-2 text-sm hover:bg-slate-50"
+                      >
+                        {assignedSellerId
+                          ? "Trocar atribuição"
+                          : "Atribuir venda a outro vendedor"}
+                      </button>
+                    </div>
 
-                  {feeCardPreset === "MANUAL" ? (
-                    <input
-                      className="mt-2 w-full rounded-xl border px-3 py-2 text-sm"
-                      value={feeCardManual}
-                      onChange={(e) => setFeeCardManual(e.target.value)}
-                      placeholder="Ex: Cartão Inter PJ"
-                    />
-                  ) : (
-                    <div className="mt-2 text-xs text-slate-500">Selecionado: {feeCardLabel || "—"}</div>
-                  )}
-                </label>
+                    {assignSellerOpen ? (
+                      <div className="mt-3 flex flex-wrap items-center gap-2">
+                        <select
+                          className="min-w-[260px] flex-1 rounded-xl border px-3 py-2 text-sm bg-white"
+                          value={assignedSellerId || "SELF"}
+                          onChange={(e) =>
+                            setAssignedSellerId(
+                              e.target.value === "SELF" ? "" : e.target.value
+                            )
+                          }
+                        >
+                          <option value="SELF">{selfSellerLabel}</option>
+                          {users.length ? <option disabled>────────────</option> : null}
+                          {users
+                            .filter((u) => u.id !== me?.id)
+                            .map((u) => (
+                              <option key={u.id} value={u.id}>
+                                {u.name} (@{u.login})
+                              </option>
+                            ))}
+                        </select>
+                        {assignedSellerId ? (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setAssignedSellerId("");
+                              setAssignSellerOpen(false);
+                            }}
+                            className="rounded-xl border px-3 py-2 text-sm hover:bg-slate-50"
+                          >
+                            Voltar ao logado
+                          </button>
+                        ) : null}
+                      </div>
+                    ) : null}
+                  </div>
+
+                  <label className="space-y-1">
+                    <div className="text-xs text-slate-600">Cartão da taxa</div>
+                    <select
+                      className="w-full rounded-xl border px-3 py-2 text-sm bg-white"
+                      value={feeCardPreset}
+                      onChange={(e) => setFeeCardPreset(e.target.value)}
+                    >
+                      <option value="SELF">{selfLabel}</option>
+                      <option value="VIAS">Vias Aéreas</option>
+                      {users.length ? <option disabled>────────────</option> : null}
+                      {users.map((u) => (
+                        <option key={u.id} value={`USER:${u.id}`}>
+                          {u.name} (@{u.login})
+                        </option>
+                      ))}
+                      <option value="MANUAL">Manual</option>
+                    </select>
+
+                    {feeCardPreset === "MANUAL" ? (
+                      <input
+                        className="mt-2 w-full rounded-xl border px-3 py-2 text-sm"
+                        value={feeCardManual}
+                        onChange={(e) => setFeeCardManual(e.target.value)}
+                        placeholder="Ex: Cartão Inter PJ"
+                      />
+                    ) : (
+                      <div className="mt-2 text-xs text-slate-500">Selecionado: {feeCardLabel || "—"}</div>
+                    )}
+                  </label>
+                </div>
 
                 <label className="space-y-1">
                   <div className="text-xs text-slate-600">
@@ -2462,6 +2543,10 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
             </div>
 
             <div className="mt-4 space-y-2 text-sm">
+              <div className="flex justify-between">
+                <span className="text-slate-600">Vendedor da venda</span>
+                <b>{effectiveSellerLabel}</b>
+              </div>
               <div className="flex justify-between">
                 <span className="text-slate-600">Total</span>
                 <b>{fmtMoneyBR(totalCents)}</b>
