@@ -2,6 +2,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
+import { releaseExcludedCpfIfNeeded } from "@/lib/cedentes/releaseExcludedCpf";
 import { PixTipo, CedenteStatus } from "@prisma/client";
 
 export const runtime = "nodejs";
@@ -123,49 +124,52 @@ export async function POST(req: NextRequest) {
       (typeof body?.identificador === "string" ? body.identificador.trim() : "") ||
       `CED-${Date.now().toString().slice(-6)}`;
 
-    const cedente = await prisma.cedente.create({
-      data: {
-        identificador,
-        nomeCompleto,
-        cpf,
-        dataNascimento,
+    const cedente = await prisma.$transaction(async (tx) => {
+      await releaseExcludedCpfIfNeeded(tx, cpf);
 
-        telefone: asTrimOrNull(body?.telefone),
-        emailCriado: asTrimOrNull(body?.emailCriado),
+      return tx.cedente.create({
+        data: {
+          identificador,
+          nomeCompleto,
+          cpf,
+          dataNascimento,
 
-        banco,
-        chavePix,
-        pixTipo,
-        titularConfirmado: true,
+          telefone: asTrimOrNull(body?.telefone),
+          emailCriado: asTrimOrNull(body?.emailCriado),
 
-        // ✅ SENHAS (SEM ENC)
-        senhaEmail: asTrimOrNull(body?.senhaEmail),
-        senhaSmiles: asTrimOrNull(body?.senhaSmiles),
-        senhaLatamPass: asTrimOrNull(body?.senhaLatamPass),
-        senhaLivelo: asTrimOrNull(body?.senhaLivelo),
-        senhaEsfera: asTrimOrNull(body?.senhaEsfera),
+          banco,
+          chavePix,
+          pixTipo,
+          titularConfirmado: true,
 
-        pontosLatam: asIntNonNeg(body?.pontosLatam),
-        pontosSmiles: asIntNonNeg(body?.pontosSmiles),
-        pontosLivelo: asIntNonNeg(body?.pontosLivelo),
-        pontosEsfera: asIntNonNeg(body?.pontosEsfera),
+          // ✅ SENHAS (SEM ENC)
+          senhaEmail: asTrimOrNull(body?.senhaEmail),
+          senhaSmiles: asTrimOrNull(body?.senhaSmiles),
+          senhaLatamPass: asTrimOrNull(body?.senhaLatamPass),
+          senhaLivelo: asTrimOrNull(body?.senhaLivelo),
+          senhaEsfera: asTrimOrNull(body?.senhaEsfera),
 
-        status,
+          pontosLatam: asIntNonNeg(body?.pontosLatam),
+          pontosSmiles: asIntNonNeg(body?.pontosSmiles),
+          pontosLivelo: asIntNonNeg(body?.pontosLivelo),
+          pontosEsfera: asIntNonNeg(body?.pontosEsfera),
 
-        // ✅ relação
-        owner: {
-          connect: { id: ownerId },
+          status,
+
+          owner: {
+            connect: { id: ownerId },
+          },
         },
-      },
-      select: {
-        id: true,
-        identificador: true,
-        nomeCompleto: true,
-        cpf: true,
-        status: true,
-        createdAt: true,
-        ownerId: true,
-      },
+        select: {
+          id: true,
+          identificador: true,
+          nomeCompleto: true,
+          cpf: true,
+          status: true,
+          createdAt: true,
+          ownerId: true,
+        },
+      });
     });
 
     return NextResponse.json({ ok: true, data: cedente }, { status: 201 });

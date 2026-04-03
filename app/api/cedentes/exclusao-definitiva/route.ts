@@ -243,6 +243,7 @@ export async function POST(req: Request) {
           where: { id: cedenteId },
           data: {
             status: "REJECTED",
+            cpf: `EXCL-${cedenteId}`,
             telefone: null,
             emailCriado: null,
             pontosLatam: 0,

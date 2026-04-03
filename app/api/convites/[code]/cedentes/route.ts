@@ -1,6 +1,7 @@
 // app/api/convites/[code]/cedentes/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { releaseExcludedCpfIfNeeded } from "@/lib/cedentes/releaseExcludedCpf";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -120,6 +121,8 @@ async function createCedenteSignupWithRetry(args: {
   for (let i = 0; i < retries; i++) {
     try {
       return await prisma.$transaction(async (tx) => {
+        await releaseExcludedCpfIfNeeded(tx, baseCedenteData.cpf);
+
         const cedente = await createCedenteWithRetry(tx, baseCedenteData);
 
         await tx.cedenteTermAcceptance.create({
