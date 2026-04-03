@@ -72,6 +72,17 @@ function brToIsoDate(br: string): string | null {
   return `${yyyy}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
 }
 
+function formatFieldValue(v: unknown) {
+  if (v === null || v === undefined || v === "") return "—";
+  return String(v);
+}
+
+function formatCedenteStatus(status: DuplicateCedente["status"]) {
+  if (status === "APPROVED") return "Aprovado";
+  if (status === "REJECTED") return "Rejeitado";
+  return "Pendente";
+}
+
 type InviteResp = {
   ok: boolean;
   error?: string;
@@ -92,6 +103,34 @@ type InviteResp = {
 };
 
 type Responsavel = NonNullable<InviteResp["data"]>["responsavel"];
+
+type DuplicateCedente = {
+  id: string;
+  identificador: string;
+  nomeCompleto: string;
+  cpf: string;
+  telefone: string | null;
+  emailCriado: string | null;
+  banco: string;
+  pixTipo: Exclude<PixTipo, "">;
+  chavePix: string;
+  pontosLatam: number;
+  pontosSmiles: number;
+  pontosLivelo: number;
+  pontosEsfera: number;
+  status: "PENDING" | "APPROVED" | "REJECTED";
+  owner: { id: string; name: string; login: string };
+  createdAt: string;
+  updatedAt: string;
+};
+
+type CedenteSignupResp = {
+  ok: boolean;
+  error?: string;
+  data?: { id: string; identificador: string; updatedExisting?: boolean };
+  duplicate?: DuplicateCedente | null;
+  updateAllowed?: boolean;
+};
 
 const TERMO_VERSAO = "v2-2026-03";
 
@@ -205,9 +244,120 @@ export default function ConviteClient({ code }: { code: string }) {
 
   const [termoAceito, setTermoAceito] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [duplicateInfo, setDuplicateInfo] = useState<{
+    existing: DuplicateCedente;
+    updateAllowed: boolean;
+    error: string;
+  } | null>(null);
 
   function setField<K extends keyof FormState>(key: K, value: FormState[K]) {
     setForm((prev) => ({ ...prev, [key]: value }));
+  }
+
+  function resetForm() {
+    setForm({
+      nomeCompleto: "",
+      dataNascimento: "",
+      cpf: "",
+      telefone: "",
+      emailCriado: "",
+      senhaEmail: "",
+      senhaSmiles: "",
+      senhaLatamPass: "",
+      senhaLivelo: "",
+      senhaEsfera: "",
+      chavePix: "",
+      banco: "",
+      pixTipo: "",
+      pontosLatam: "",
+      pontosSmiles: "",
+      pontosLivelo: "",
+      pontosEsfera: "",
+    });
+    setTermoAceito(false);
+  }
+
+  function buildPayload(overrides?: {
+    overwriteExisting?: boolean;
+    existingCedenteId?: string;
+  }) {
+    return {
+      nomeCompleto: form.nomeCompleto.trim(),
+      cpf: normalizeCpf(form.cpf),
+      dataNascimento: form.dataNascimento.trim() ? brToIsoDate(form.dataNascimento) : null,
+      telefone: normalizeTelefone(form.telefone),
+      emailCriado: form.emailCriado.trim() || null,
+      banco: form.banco.trim(),
+      pixTipo: form.pixTipo,
+      chavePix: form.chavePix.trim(),
+      senhaEmailEnc: form.senhaEmail || null,
+      senhaSmilesEnc: form.senhaSmiles || null,
+      senhaLatamPassEnc: form.senhaLatamPass || null,
+      senhaLiveloEnc: form.senhaLivelo || null,
+      senhaEsferaEnc: form.senhaEsfera || null,
+      pontosLatam: Number(form.pontosLatam || 0),
+      pontosSmiles: Number(form.pontosSmiles || 0),
+      pontosLivelo: Number(form.pontosLivelo || 0),
+      pontosEsfera: Number(form.pontosEsfera || 0),
+      termoAceito: true,
+      termoVersao: TERMO_VERSAO,
+      titularConfirmado: true,
+      overwriteExisting: Boolean(overrides?.overwriteExisting),
+      existingCedenteId: overrides?.existingCedenteId || null,
+    };
+  }
+
+  async function submitCadastro(overrides?: {
+    overwriteExisting?: boolean;
+    existingCedenteId?: string;
+  }) {
+    const res = await fetch(`/api/convites/${encodeURIComponent(code)}/cedentes`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(buildPayload(overrides)),
+    });
+
+    const json: CedenteSignupResp = await res.json().catch(() => ({
+      ok: false,
+      error: "Falha ao cadastrar.",
+    }));
+
+    if (!json?.ok) {
+      if (json?.duplicate) {
+        setDuplicateInfo({
+          existing: json.duplicate,
+          updateAllowed: Boolean(json.updateAllowed),
+          error:
+            json.error ||
+            "Encontramos um cadastro com este CPF. Revise os dados e, se fizer sentido, atualize o cadastro existente.",
+        });
+      }
+      const err: any = new Error(json?.error || "Falha ao cadastrar.");
+      err.isDuplicate = Boolean(json?.duplicate);
+      throw err;
+    }
+
+    return json;
+  }
+
+  async function handleDuplicateUpdate() {
+    if (!duplicateInfo?.updateAllowed) return;
+    try {
+      setSaving(true);
+      const json = await submitCadastro({
+        overwriteExisting: true,
+        existingCedenteId: duplicateInfo.existing.id,
+      });
+
+      alert(json.data?.updatedExisting ? "Cadastro existente atualizado ✅" : "Cadastro enviado ✅");
+      setDuplicateInfo(null);
+      resetForm();
+    } catch (e: any) {
+      if (e?.isDuplicate) return;
+      alert(e?.message || "Erro ao atualizar cadastro.");
+    } finally {
+      setSaving(false);
+    }
   }
 
   async function loadInvite() {
@@ -235,6 +385,7 @@ export default function ConviteClient({ code }: { code: string }) {
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
+    setDuplicateInfo(null);
 
     if (!responsavel) return alert("Convite inválido.");
     if (!form.nomeCompleto.trim()) return alert("Informe o nome completo.");
@@ -257,72 +408,11 @@ export default function ConviteClient({ code }: { code: string }) {
 
     try {
       setSaving(true);
-
-      const payload = {
-        nomeCompleto: form.nomeCompleto.trim(),
-        cpf: normalizeCpf(form.cpf),
-        dataNascimento: isoNascimento,
-
-        // ✅ ADICIONADO
-        telefone: tel,
-
-        emailCriado: form.emailCriado.trim() || null,
-
-        banco: form.banco.trim(),
-        pixTipo: form.pixTipo,
-        chavePix: form.chavePix.trim(),
-
-        senhaEmailEnc: form.senhaEmail || null,
-        senhaSmilesEnc: form.senhaSmiles || null,
-        senhaLatamPassEnc: form.senhaLatamPass || null,
-        senhaLiveloEnc: form.senhaLivelo || null,
-        senhaEsferaEnc: form.senhaEsfera || null,
-
-        pontosLatam: Number(form.pontosLatam || 0),
-        pontosSmiles: Number(form.pontosSmiles || 0),
-        pontosLivelo: Number(form.pontosLivelo || 0),
-        pontosEsfera: Number(form.pontosEsfera || 0),
-
-        termoAceito: true,
-        termoVersao: TERMO_VERSAO,
-        titularConfirmado: true,
-      };
-
-      const res = await fetch(`/api/convites/${encodeURIComponent(code)}/cedentes`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-
-      const json = await res.json().catch(() => null);
-      if (!json?.ok) throw new Error(json?.error || "Falha ao cadastrar.");
-
-      alert("Cadastro enviado ✅");
-
-      setForm({
-        nomeCompleto: "",
-        dataNascimento: "",
-        cpf: "",
-
-        // ✅ ADICIONADO
-        telefone: "",
-
-        emailCriado: "",
-        senhaEmail: "",
-        senhaSmiles: "",
-        senhaLatamPass: "",
-        senhaLivelo: "",
-        senhaEsfera: "",
-        chavePix: "",
-        banco: "",
-        pixTipo: "",
-        pontosLatam: "",
-        pontosSmiles: "",
-        pontosLivelo: "",
-        pontosEsfera: "",
-      });
-      setTermoAceito(false);
+      const json = await submitCadastro();
+      alert(json.data?.updatedExisting ? "Cadastro existente atualizado ✅" : "Cadastro enviado ✅");
+      resetForm();
     } catch (e: any) {
+      if (e?.isDuplicate) return;
       alert(e?.message || "Erro ao enviar.");
     } finally {
       setSaving(false);
@@ -547,6 +637,75 @@ export default function ConviteClient({ code }: { code: string }) {
             </div>
           </section>
 
+          {duplicateInfo ? (
+            <section className="rounded-2xl border border-amber-300 bg-amber-50 p-4 space-y-4">
+              <div>
+                <h2 className="font-semibold text-amber-900">Duplicidade encontrada</h2>
+                <p className="text-sm text-amber-800">{duplicateInfo.error}</p>
+              </div>
+
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                <div className="rounded-xl border border-amber-200 bg-white p-3">
+                  <div className="mb-2 text-sm font-semibold">Cadastro atual</div>
+                  <div className="space-y-1 text-sm text-slate-700">
+                    <div><b>Nome:</b> {duplicateInfo.existing.nomeCompleto}</div>
+                    <div><b>ID:</b> {duplicateInfo.existing.identificador}</div>
+                    <div><b>Status:</b> {formatCedenteStatus(duplicateInfo.existing.status)}</div>
+                    <div><b>Responsável:</b> @{duplicateInfo.existing.owner.login}</div>
+                    <div><b>Telefone:</b> {formatFieldValue(duplicateInfo.existing.telefone)}</div>
+                    <div><b>E-mail:</b> {formatFieldValue(duplicateInfo.existing.emailCriado)}</div>
+                    <div><b>Banco:</b> {formatFieldValue(duplicateInfo.existing.banco)}</div>
+                    <div><b>PIX:</b> {duplicateInfo.existing.pixTipo} • {formatFieldValue(duplicateInfo.existing.chavePix)}</div>
+                    <div><b>Latam:</b> {duplicateInfo.existing.pontosLatam}</div>
+                    <div><b>Smiles:</b> {duplicateInfo.existing.pontosSmiles}</div>
+                    <div><b>Livelo:</b> {duplicateInfo.existing.pontosLivelo}</div>
+                    <div><b>Esfera:</b> {duplicateInfo.existing.pontosEsfera}</div>
+                  </div>
+                </div>
+
+                <div className="rounded-xl border border-emerald-200 bg-white p-3">
+                  <div className="mb-2 text-sm font-semibold">O que vai atualizar</div>
+                  <div className="space-y-1 text-sm text-slate-700">
+                    <FieldDiff label="Nome" current={duplicateInfo.existing.nomeCompleto} next={form.nomeCompleto.trim()} />
+                    <FieldDiff label="Telefone" current={duplicateInfo.existing.telefone} next={normalizeTelefone(form.telefone)} />
+                    <FieldDiff label="E-mail" current={duplicateInfo.existing.emailCriado} next={form.emailCriado.trim() || null} />
+                    <FieldDiff label="Banco" current={duplicateInfo.existing.banco} next={form.banco.trim()} />
+                    <FieldDiff label="PIX" current={`${duplicateInfo.existing.pixTipo} • ${duplicateInfo.existing.chavePix}`} next={`${form.pixTipo || "—"} • ${form.chavePix.trim() || "—"}`} />
+                    <FieldDiff label="Latam" current={duplicateInfo.existing.pontosLatam} next={Number(form.pontosLatam || 0)} />
+                    <FieldDiff label="Smiles" current={duplicateInfo.existing.pontosSmiles} next={Number(form.pontosSmiles || 0)} />
+                    <FieldDiff label="Livelo" current={duplicateInfo.existing.pontosLivelo} next={Number(form.pontosLivelo || 0)} />
+                    <FieldDiff label="Esfera" current={duplicateInfo.existing.pontosEsfera} next={Number(form.pontosEsfera || 0)} />
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap gap-3">
+                {duplicateInfo.updateAllowed ? (
+                  <button
+                    type="button"
+                    disabled={saving}
+                    onClick={handleDuplicateUpdate}
+                    className="rounded-xl bg-amber-600 px-4 py-2 text-sm text-white hover:bg-amber-700 disabled:opacity-60"
+                  >
+                    {saving ? "Atualizando..." : "Atualizar cadastro existente"}
+                  </button>
+                ) : (
+                  <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700">
+                    Este CPF já está em um cadastro ativo. Revise o cadastro atual antes de prosseguir.
+                  </div>
+                )}
+
+                <button
+                  type="button"
+                  onClick={() => setDuplicateInfo(null)}
+                  className="rounded-xl border px-4 py-2 text-sm hover:bg-white"
+                >
+                  Fechar aviso
+                </button>
+              </div>
+            </section>
+          ) : null}
+
           <button
             type="submit"
             disabled={saving}
@@ -583,6 +742,27 @@ function FieldNumber({
         value={value}
         onChange={(e) => onChange(e.target.value === "" ? "" : Number(e.target.value))}
       />
+    </div>
+  );
+}
+
+function FieldDiff({
+  label,
+  current,
+  next,
+}: {
+  label: string;
+  current: unknown;
+  next: unknown;
+}) {
+  const currentLabel = formatFieldValue(current);
+  const nextLabel = formatFieldValue(next);
+  const changed = currentLabel !== nextLabel;
+
+  return (
+    <div className={changed ? "rounded-lg bg-emerald-50 px-2 py-1" : "rounded-lg px-2 py-1"}>
+      <b>{label}:</b> {currentLabel} {" → "} {nextLabel}
+      {changed ? <span className="ml-2 text-xs font-medium text-emerald-700">vai mudar</span> : null}
     </div>
   );
 }

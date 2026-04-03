@@ -99,12 +99,41 @@ function getUniqueTarget(error: any) {
     : String(error?.meta?.target || "");
 }
 
+const DUPLICATE_SELECT = {
+  id: true,
+  identificador: true,
+  nomeCompleto: true,
+  cpf: true,
+  telefone: true,
+  emailCriado: true,
+  banco: true,
+  pixTipo: true,
+  chavePix: true,
+  pontosLatam: true,
+  pontosSmiles: true,
+  pontosLivelo: true,
+  pontosEsfera: true,
+  status: true,
+  owner: { select: { id: true, name: true, login: true } },
+  createdAt: true,
+  updatedAt: true,
+} as const;
+
+async function findCedenteByCpf(cpf: string) {
+  return prisma.cedente.findUnique({
+    where: { cpf },
+    select: DUPLICATE_SELECT,
+  });
+}
+
 async function createCedenteSignupWithRetry(args: {
   baseCedenteData: any;
   termoVersao: string;
   ip: string | null;
   userAgent: string | null;
   inviteId: string;
+  overwriteExisting?: boolean;
+  existingCedenteId?: string | null;
   retries?: number;
 }) {
   const {
@@ -113,6 +142,8 @@ async function createCedenteSignupWithRetry(args: {
     ip,
     userAgent,
     inviteId,
+    overwriteExisting = false,
+    existingCedenteId = null,
     retries = 6,
   } = args;
 
@@ -122,6 +153,67 @@ async function createCedenteSignupWithRetry(args: {
     try {
       return await prisma.$transaction(async (tx) => {
         await releaseExcludedCpfIfNeeded(tx, baseCedenteData.cpf);
+
+        if (overwriteExisting && existingCedenteId) {
+          const existing = await tx.cedente.findUnique({
+            where: { id: existingCedenteId },
+            select: {
+              id: true,
+              cpf: true,
+              status: true,
+            },
+          });
+
+          if (!existing || existing.cpf !== baseCedenteData.cpf) {
+            throw new Error("Cadastro duplicado não encontrado para atualização.");
+          }
+
+          if (existing.status === "APPROVED") {
+            const err: any = new Error("Já existe um cadastro ativo com este CPF.");
+            err.code = "DUPLICATE_APPROVED";
+            throw err;
+          }
+
+          const nextStatus =
+            existing.status === "REJECTED" ? "PENDING" : existing.status;
+
+          const cedente = await tx.cedente.update({
+            where: { id: existingCedenteId },
+            data: {
+              ...baseCedenteData,
+              status: nextStatus,
+              reviewedAt: null,
+              reviewedById: null,
+              ownerId: baseCedenteData.ownerId,
+              inviteId: baseCedenteData.inviteId,
+            },
+            select: {
+              id: true,
+              identificador: true,
+              nomeCompleto: true,
+              cpf: true,
+              ownerId: true,
+              inviteId: true,
+              createdAt: true,
+            },
+          });
+
+          await tx.cedenteTermAcceptance.create({
+            data: {
+              cedenteId: cedente.id,
+              termoVersao,
+              ip: ip || null,
+              userAgent: userAgent || null,
+            },
+          });
+
+          await tx.employeeInvite.update({
+            where: { id: inviteId },
+            data: { uses: { increment: 1 }, lastUsedAt: new Date() },
+          });
+
+          return { ...cedente, updatedExisting: true };
+        }
 
         const cedente = await createCedenteWithRetry(tx, baseCedenteData);
 
@@ -139,7 +231,7 @@ async function createCedenteSignupWithRetry(args: {
           data: { uses: { increment: 1 }, lastUsedAt: new Date() },
         });
 
-        return cedente;
+        return { ...cedente, updatedExisting: false };
       });
     } catch (e: any) {
       lastErr = e;
@@ -163,6 +255,7 @@ export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ code: string }> }
 ) {
+  let submittedCpf = "";
   try {
     const { code } = await params;
     const body = await req.json().catch(() => ({} as any));
@@ -193,6 +286,7 @@ export async function POST(
     // ✅ campos mínimos
     const nomeCompleto = String(body?.nomeCompleto || "").trim();
     const cpf = onlyDigits(String(body?.cpf || "")).slice(0, 11);
+    submittedCpf = cpf;
 
     if (!nomeCompleto) {
       return NextResponse.json(
@@ -257,6 +351,9 @@ export async function POST(
 
     const ip = getClientIp(req);
     const userAgent = req.headers.get("user-agent");
+    const overwriteExisting = Boolean(body?.overwriteExisting);
+    const existingCedenteId =
+      typeof body?.existingCedenteId === "string" ? body.existingCedenteId : null;
 
     /**
      * ✅ AJUSTE DEFINITIVO:
@@ -305,6 +402,8 @@ export async function POST(
       ip,
       userAgent,
       inviteId: invite.id,
+      overwriteExisting,
+      existingCedenteId,
       retries: 6,
     });
 
@@ -315,9 +414,31 @@ export async function POST(
   } catch (e: any) {
     console.error("Erro POST /api/convites/[code]/cedentes:", e);
 
-    if (e?.code === "P2002") {
+    if (e?.code === "DUPLICATE_APPROVED") {
+      const existing = submittedCpf ? await findCedenteByCpf(submittedCpf) : null;
       return NextResponse.json(
-        { ok: false, error: "Já existe um cadastro com esses dados (CPF ou identificador)." },
+        {
+          ok: false,
+          error: "Já existe um cadastro ativo com este CPF.",
+          duplicate: existing,
+          updateAllowed: false,
+        },
+        { status: 409, headers: noCacheHeaders() }
+      );
+    }
+
+    if (e?.code === "P2002") {
+      const existing = submittedCpf ? await findCedenteByCpf(submittedCpf) : null;
+
+      return NextResponse.json(
+        {
+          ok: false,
+          error: existing
+            ? "Encontramos um cadastro com este CPF. Você pode revisar os dados e atualizar esse cadastro."
+            : "Já existe um cadastro com esses dados (CPF ou identificador).",
+          duplicate: existing,
+          updateAllowed: existing ? existing.status !== "APPROVED" : false,
+        },
         { status: 409, headers: noCacheHeaders() }
       );
     }
