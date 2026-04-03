@@ -72,6 +72,10 @@ export async function GET(req: NextRequest) {
         identificador: true,
         nomeCompleto: true,
         cpf: true,
+        telefone: true,
+        emailCriado: true,
+        senhaEmail: true,
+        senhaSmiles: true,
         pontosSmiles: true,
         score: {
           select: {
@@ -120,6 +124,10 @@ export async function GET(req: NextRequest) {
         identificador: r.identificador,
         nomeCompleto: r.nomeCompleto,
         cpf: r.cpf,
+        telefone: r.telefone,
+        emailCriado: r.emailCriado,
+        senhaEmail: r.senhaEmail,
+        senhaSmiles: r.senhaSmiles,
         owner: r.owner,
         scoreMedia: scoreMedia(r.score),
 
