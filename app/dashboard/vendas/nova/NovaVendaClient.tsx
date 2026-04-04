@@ -1951,9 +1951,101 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
                 </label>
 
                 <div className="space-y-1">
-                  <div className="text-xs text-slate-600">Vendedor</div>
-                  <div className="rounded-xl border px-3 py-2 text-sm bg-slate-50">
-                    {me?.name ? `${me.name} (@${me.login})` : "—"}
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="text-xs text-slate-600">Vendedor</div>
+                    <button
+                      type="button"
+                      onClick={() => setAssignSellerOpen((v) => !v)}
+                      className="rounded-lg border px-2.5 py-1 text-xs hover:bg-slate-50"
+                    >
+                      {assignedSellerId ? "Trocar" : "Atribuir"}
+                    </button>
+                  </div>
+                  <div className="rounded-xl border bg-slate-50 px-3 py-2">
+                    <div className="text-sm font-medium text-slate-900">
+                      {effectiveSellerLabel}
+                    </div>
+                    <div className="text-[11px] text-slate-500">
+                      {assignedSellerId
+                        ? "Venda atribuída manualmente."
+                        : "Usuário logado por padrão."}
+                    </div>
+                  </div>
+                  {assignSellerOpen ? (
+                    <div className="rounded-xl border border-dashed p-2.5">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <select
+                          className="min-w-[260px] flex-1 rounded-xl border px-3 py-2 text-sm bg-white"
+                          value={assignedSellerId || "SELF"}
+                          onChange={(e) =>
+                            setAssignedSellerId(
+                              e.target.value === "SELF" ? "" : e.target.value
+                            )
+                          }
+                        >
+                          <option value="SELF">{selfSellerLabel}</option>
+                          {users.length ? <option disabled>────────────</option> : null}
+                          {users
+                            .filter((u) => u.id !== me?.id)
+                            .map((u) => (
+                              <option key={u.id} value={u.id}>
+                                {u.name} (@{u.login})
+                              </option>
+                            ))}
+                        </select>
+                        {assignedSellerId ? (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setAssignedSellerId("");
+                              setAssignSellerOpen(false);
+                            }}
+                            className="rounded-xl border px-3 py-2 text-sm hover:bg-slate-50"
+                          >
+                            Voltar ao logado
+                          </button>
+                        ) : null}
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+
+                <div className="space-y-1 md:col-span-2">
+                  <div className="text-xs text-slate-600">Compra LIBERADA (do cedente)</div>
+                  <div className="grid gap-2 md:grid-cols-[minmax(0,1fr)_auto]">
+                    <select
+                      className="w-full rounded-xl border px-3 py-2 text-sm bg-white"
+                      value={purchaseNumero}
+                      onChange={(e) => setPurchaseNumero(e.target.value)}
+                      disabled={loadingCompras}
+                    >
+                      <option value="">
+                        {loadingCompras
+                          ? "Carregando compras liberadas..."
+                          : compras.length
+                          ? "Selecione..."
+                          : "Nenhuma compra liberada"}
+                      </option>
+                      {compras.map((c) => (
+                        <option key={c.id} value={c.numero}>
+                          {c.numero} • meta{" "}
+                          {((c.metaMilheiroCents || 0) / 100).toFixed(2).replace(".", ",")}
+                        </option>
+                      ))}
+                    </select>
+
+                    <button
+                      type="button"
+                      className="rounded-xl border px-3 py-2 text-sm hover:bg-slate-50"
+                      onClick={() => setComprasReloadTick((x) => x + 1)}
+                      disabled={loadingCompras}
+                    >
+                      Recarregar
+                    </button>
+                  </div>
+
+                  <div className="text-[11px] text-slate-500 mt-1">
+                    A venda só deixa salvar se a compra estiver LIBERADA (status CLOSED) e for do mesmo cedente.
                   </div>
                 </div>
 
@@ -2021,9 +2113,11 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
                           setNovoCliente((p) => ({ ...p, nome: clienteQ.trim() }));
                           setClienteModalOpen(true);
                         }}
-                        className="rounded-xl border px-3 py-2 text-sm hover:bg-slate-50"
+                        className="rounded-xl border px-3 py-2 text-base leading-none hover:bg-slate-50"
+                        title="Cadastrar cliente"
+                        aria-label="Cadastrar cliente"
                       >
-                        Novo
+                        +
                       </button>
                     </div>
 
@@ -2034,44 +2128,6 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
                     ) : null}
                   </label>
                 </div>
-
-                <label className="space-y-1 md:col-span-2">
-                  <div className="text-xs text-slate-600">Compra LIBERADA (do cedente)</div>
-                  <select
-                    className="w-full rounded-xl border px-3 py-2 text-sm bg-white"
-                    value={purchaseNumero}
-                    onChange={(e) => setPurchaseNumero(e.target.value)}
-                    disabled={loadingCompras}
-                  >
-                    <option value="">
-                      {loadingCompras
-                        ? "Carregando compras liberadas..."
-                        : compras.length
-                        ? "Selecione..."
-                        : "Nenhuma compra liberada"}
-                    </option>
-                    {compras.map((c) => (
-                      <option key={c.id} value={c.numero}>
-                        {c.numero} • meta{" "}
-                        {((c.metaMilheiroCents || 0) / 100).toFixed(2).replace(".", ",")}
-                      </option>
-                    ))}
-                  </select>
-
-                  <div className="text-[11px] text-slate-500 mt-1">
-                    A venda só deixa salvar se a compra estiver LIBERADA (status CLOSED) e for do mesmo cedente.
-                  </div>
-
-                  {/* ✅ refresh manual real */}
-                  <button
-                    type="button"
-                    className="mt-2 rounded-xl border px-3 py-1.5 text-sm hover:bg-slate-50"
-                    onClick={() => setComprasReloadTick((x) => x + 1)}
-                    disabled={loadingCompras}
-                  >
-                    Recarregar compras
-                  </button>
-                </label>
 
                 <label className="space-y-1">
                   <div className="text-xs text-slate-600">Milheiro (R$)</div>
@@ -2093,96 +2149,35 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
                   />
                 </label>
 
-                <div className="space-y-3 md:col-span-2">
-                  <div className="rounded-2xl border border-dashed p-3">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <div>
-                        <div className="text-xs text-slate-600">Vendedor da venda</div>
-                        <div className="text-sm font-medium text-slate-900">
-                          {effectiveSellerLabel}
-                        </div>
-                        <div className="text-[11px] text-slate-500">
-                          Por padrão, a venda fica com o usuário logado.
-                        </div>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => setAssignSellerOpen((v) => !v)}
-                        className="rounded-xl border px-3 py-2 text-sm hover:bg-slate-50"
-                      >
-                        {assignedSellerId
-                          ? "Trocar atribuição"
-                          : "Atribuir venda a outro vendedor"}
-                      </button>
-                    </div>
+                <label className="space-y-1 md:col-span-2">
+                  <div className="text-xs text-slate-600">Cartão da taxa</div>
+                  <select
+                    className="w-full rounded-xl border px-3 py-2 text-sm bg-white"
+                    value={feeCardPreset}
+                    onChange={(e) => setFeeCardPreset(e.target.value)}
+                  >
+                    <option value="SELF">{selfLabel}</option>
+                    <option value="VIAS">Vias Aéreas</option>
+                    {users.length ? <option disabled>────────────</option> : null}
+                    {users.map((u) => (
+                      <option key={u.id} value={`USER:${u.id}`}>
+                        {u.name} (@{u.login})
+                      </option>
+                    ))}
+                    <option value="MANUAL">Manual</option>
+                  </select>
 
-                    {assignSellerOpen ? (
-                      <div className="mt-3 flex flex-wrap items-center gap-2">
-                        <select
-                          className="min-w-[260px] flex-1 rounded-xl border px-3 py-2 text-sm bg-white"
-                          value={assignedSellerId || "SELF"}
-                          onChange={(e) =>
-                            setAssignedSellerId(
-                              e.target.value === "SELF" ? "" : e.target.value
-                            )
-                          }
-                        >
-                          <option value="SELF">{selfSellerLabel}</option>
-                          {users.length ? <option disabled>────────────</option> : null}
-                          {users
-                            .filter((u) => u.id !== me?.id)
-                            .map((u) => (
-                              <option key={u.id} value={u.id}>
-                                {u.name} (@{u.login})
-                              </option>
-                            ))}
-                        </select>
-                        {assignedSellerId ? (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setAssignedSellerId("");
-                              setAssignSellerOpen(false);
-                            }}
-                            className="rounded-xl border px-3 py-2 text-sm hover:bg-slate-50"
-                          >
-                            Voltar ao logado
-                          </button>
-                        ) : null}
-                      </div>
-                    ) : null}
-                  </div>
-
-                  <label className="space-y-1">
-                    <div className="text-xs text-slate-600">Cartão da taxa</div>
-                    <select
-                      className="w-full rounded-xl border px-3 py-2 text-sm bg-white"
-                      value={feeCardPreset}
-                      onChange={(e) => setFeeCardPreset(e.target.value)}
-                    >
-                      <option value="SELF">{selfLabel}</option>
-                      <option value="VIAS">Vias Aéreas</option>
-                      {users.length ? <option disabled>────────────</option> : null}
-                      {users.map((u) => (
-                        <option key={u.id} value={`USER:${u.id}`}>
-                          {u.name} (@{u.login})
-                        </option>
-                      ))}
-                      <option value="MANUAL">Manual</option>
-                    </select>
-
-                    {feeCardPreset === "MANUAL" ? (
-                      <input
-                        className="mt-2 w-full rounded-xl border px-3 py-2 text-sm"
-                        value={feeCardManual}
-                        onChange={(e) => setFeeCardManual(e.target.value)}
-                        placeholder="Ex: Cartão Inter PJ"
-                      />
-                    ) : (
-                      <div className="mt-2 text-xs text-slate-500">Selecionado: {feeCardLabel || "—"}</div>
-                    )}
-                  </label>
-                </div>
+                  {feeCardPreset === "MANUAL" ? (
+                    <input
+                      className="mt-2 w-full rounded-xl border px-3 py-2 text-sm"
+                      value={feeCardManual}
+                      onChange={(e) => setFeeCardManual(e.target.value)}
+                      placeholder="Ex: Cartão Inter PJ"
+                    />
+                  ) : (
+                    <div className="mt-2 text-xs text-slate-500">Selecionado: {feeCardLabel || "—"}</div>
+                  )}
+                </label>
 
                 <label className="space-y-1">
                   <div className="text-xs text-slate-600">
