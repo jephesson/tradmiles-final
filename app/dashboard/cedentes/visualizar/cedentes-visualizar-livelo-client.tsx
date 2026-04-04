@@ -385,7 +385,7 @@ export default function CedentesVisualizarLiveloClient() {
         <div className="flex flex-wrap gap-2">
           <input
             className="rounded-xl border px-3 py-2 text-sm"
-            placeholder="Buscar..."
+            placeholder="Buscar nome / identificador / CPF..."
             value={q}
             onChange={(e) => setQ(e.target.value)}
           />

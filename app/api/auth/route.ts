@@ -45,7 +45,7 @@ const SEED_USERS: Array<{
     login: "lucas",
     name: "Lucas Henrique Floriano de Araújo",
     email: "luucasaraujo97@gmail.com",
-    role: "staff",
+    role: "admin",
     password: "1234",
   },
   {
@@ -59,7 +59,7 @@ const SEED_USERS: Array<{
     login: "eduarda",
     name: "Eduarda Vargas de Freitas",
     email: "eduarda.jeph@gmail.com",
-    role: "staff",
+    role: "admin",
     password: "1234",
   },
 ];

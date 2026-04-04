@@ -136,6 +136,7 @@ export async function GET(req: Request) {
     const recentOrCarryOver = await prisma.cedente.findMany({
       where: {
         owner: { team: session.team },
+        status: { in: ["PENDING", "APPROVED"] },
         createdAt: { gte: previousMonthStart, lte: selectedMonthEnd },
         clubSubscriptions: {
           none: {

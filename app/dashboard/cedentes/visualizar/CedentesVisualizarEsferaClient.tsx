@@ -115,8 +115,7 @@ export default function CedentesVisualizarEsferaClient() {
       return (
         r.nomeCompleto.toLowerCase().includes(s) ||
         r.identificador.toLowerCase().includes(s) ||
-        String(r.cpf || "").includes(s) ||
-        r.owner?.name?.toLowerCase().includes(s)
+        String(r.cpf || "").includes(s)
       );
     });
   }, [rows, q, ownerFilter]);
@@ -188,7 +187,7 @@ export default function CedentesVisualizarEsferaClient() {
         <div className="flex flex-wrap gap-2">
           <input
             className="rounded-xl border px-3 py-2 text-sm"
-            placeholder="Buscar..."
+            placeholder="Buscar nome / identificador / CPF..."
             value={q}
             onChange={(e) => setQ(e.target.value)}
           />

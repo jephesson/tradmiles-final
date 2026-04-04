@@ -295,7 +295,7 @@ export default function CedentesVisualizarLatamClient() {
         <input
           value={q}
           onChange={(e) => setQ(e.target.value)}
-          placeholder="Buscar..."
+          placeholder="Buscar nome / identificador / CPF..."
           className="border rounded-lg px-3 py-2 text-sm w-64"
         />
 
