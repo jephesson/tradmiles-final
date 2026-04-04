@@ -405,9 +405,6 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
   const [purchaseNumero, setPurchaseNumero] = useState(""); // guarda ID00018
   const [loadingCompras, setLoadingCompras] = useState(false);
 
-  // ✅ tick pra recarregar compras (botão)
-  const [comprasReloadTick, setComprasReloadTick] = useState(0);
-
   // funcionários (para cartão)
   const [users, setUsers] = useState<UserLite[]>([]);
 
@@ -938,7 +935,7 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
     })();
 
     return () => ac.abort();
-  }, [sel?.cedente?.id, program, comprasReloadTick]);
+  }, [sel?.cedente?.id, program]);
 
   // ✅ helper: formata input de pontos e manda pro setter certo
   function onChangePoints(setter: (v: string) => void, v: string) {
@@ -1986,15 +1983,20 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
                       {assignedSellerId ? "Trocar" : "Atribuir"}
                     </button>
                   </div>
-                  <div className="rounded-xl border bg-slate-50 px-3 py-2">
-                    <div className="text-sm font-medium text-slate-900">
+                  <div className="flex min-h-[48px] items-center justify-between rounded-xl border bg-slate-50 px-3 py-2">
+                    <div className="truncate pr-3 text-sm font-medium text-slate-900">
                       {effectiveSellerLabel}
                     </div>
-                    <div className="text-[11px] text-slate-500">
-                      {assignedSellerId
-                        ? "Venda atribuída manualmente."
-                        : "Usuário logado por padrão."}
-                    </div>
+                    <span
+                      className={cn(
+                        "shrink-0 rounded-full border px-2 py-1 text-[11px]",
+                        assignedSellerId
+                          ? "border-amber-200 bg-amber-50 text-amber-700"
+                          : "border-slate-200 bg-white text-slate-600"
+                      )}
+                    >
+                      {assignedSellerId ? "Atribuída" : "Logado"}
+                    </span>
                   </div>
                   {assignSellerOpen ? (
                     <div className="rounded-xl border border-dashed p-2.5">
@@ -2033,75 +2035,6 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
                       </div>
                     </div>
                   ) : null}
-                </div>
-
-                <div className="md:col-span-2 grid gap-4 md:grid-cols-[minmax(0,1.2fr)_minmax(280px,0.8fr)]">
-                  <div className="space-y-1">
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="text-xs text-slate-600">Compra LIBERADA</div>
-                      <button
-                        type="button"
-                        className="rounded-lg border px-2.5 py-1 text-xs hover:bg-slate-50"
-                        onClick={() => setComprasReloadTick((x) => x + 1)}
-                        disabled={loadingCompras}
-                      >
-                        Recarregar
-                      </button>
-                    </div>
-                    <select
-                      className="w-full rounded-xl border px-3 py-2 text-sm bg-white"
-                      value={purchaseNumero}
-                      onChange={(e) => setPurchaseNumero(e.target.value)}
-                      disabled={loadingCompras}
-                    >
-                      <option value="">
-                        {loadingCompras
-                          ? "Carregando compras liberadas..."
-                          : compras.length
-                          ? "Selecione..."
-                          : "Nenhuma compra liberada"}
-                      </option>
-                      {compras.map((c) => (
-                        <option key={c.id} value={c.numero}>
-                          {c.numero} • meta{" "}
-                          {((c.metaMilheiroCents || 0) / 100)
-                            .toFixed(2)
-                            .replace(".", ",")}
-                        </option>
-                      ))}
-                    </select>
-                    <div className="text-[11px] text-slate-500">
-                      A compra precisa estar LIBERADA e pertencer ao mesmo cedente.
-                    </div>
-                  </div>
-
-                  <label className="space-y-1">
-                    <div className="text-xs text-slate-600">Cartão da taxa</div>
-                    <select
-                      className="w-full rounded-xl border px-3 py-2 text-sm bg-white"
-                      value={feeCardPreset}
-                      onChange={(e) => setFeeCardPreset(e.target.value)}
-                    >
-                      <option value="SELF">{selfLabel}</option>
-                      <option value="VIAS">Vias Aéreas</option>
-                      {users.length ? <option disabled>────────────</option> : null}
-                      {users.map((u) => (
-                        <option key={u.id} value={`USER:${u.id}`}>
-                          {u.name} (@{u.login})
-                        </option>
-                      ))}
-                      <option value="MANUAL">Manual</option>
-                    </select>
-
-                    {feeCardPreset === "MANUAL" ? (
-                      <input
-                        className="w-full rounded-xl border px-3 py-2 text-sm"
-                        value={feeCardManual}
-                        onChange={(e) => setFeeCardManual(e.target.value)}
-                        placeholder="Ex: Cartão Inter PJ"
-                      />
-                    ) : null}
-                  </label>
                 </div>
 
                 <div ref={clientComboboxRef} className="md:col-span-2 space-y-1">
@@ -2204,21 +2137,73 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
                     <div className="text-[11px] text-rose-600">{clientesError}</div>
                   ) : null}
 
-                  {!loadingClientes &&
-                  clienteQ.trim().length < 2 &&
-                  clientes.length > 0 &&
-                  clientDropdownOpen ? (
-                    <div className="text-[11px] text-slate-500">
-                      Mostrando últimos clientes cadastrados.
-                    </div>
-                  ) : null}
-
                   {selectedCliente?.id ? (
                     <div className="text-[11px] text-slate-500">
                       Selecionado: <b>{selectedCliente.nome}</b> ({selectedCliente.identificador || "—"})
                     </div>
                   ) : null}
                 </div>
+
+                <div className="space-y-1">
+                  <div className="text-xs text-slate-600">Compra LIBERADA</div>
+                  <select
+                    className="w-full rounded-xl border px-3 py-2 text-sm bg-white"
+                    value={purchaseNumero}
+                    onChange={(e) => setPurchaseNumero(e.target.value)}
+                    disabled={loadingCompras}
+                  >
+                    <option value="">
+                      {loadingCompras
+                        ? "Carregando compras liberadas..."
+                        : compras.length
+                        ? "Selecione..."
+                        : "Nenhuma compra liberada"}
+                    </option>
+                    {compras.map((c) => (
+                      <option key={c.id} value={c.numero}>
+                        {c.numero} • meta{" "}
+                        {((c.metaMilheiroCents || 0) / 100)
+                          .toFixed(2)
+                          .replace(".", ",")}
+                      </option>
+                    ))}
+                  </select>
+                  <div className="text-[11px] text-slate-500">
+                    Precisa estar LIBERADA e ser do mesmo cedente.
+                  </div>
+                </div>
+
+                <label className="space-y-1">
+                  <div className="text-xs text-slate-600">Cartão da taxa</div>
+                  <select
+                    className="w-full rounded-xl border px-3 py-2 text-sm bg-white"
+                    value={feeCardPreset}
+                    onChange={(e) => setFeeCardPreset(e.target.value)}
+                  >
+                    <option value="SELF">{selfLabel}</option>
+                    <option value="VIAS">Vias Aéreas</option>
+                    {users.length ? <option disabled>────────────</option> : null}
+                    {users.map((u) => (
+                      <option key={u.id} value={`USER:${u.id}`}>
+                        {u.name} (@{u.login})
+                      </option>
+                    ))}
+                    <option value="MANUAL">Manual</option>
+                  </select>
+
+                  {feeCardPreset === "MANUAL" ? (
+                    <input
+                      className="w-full rounded-xl border px-3 py-2 text-sm"
+                      value={feeCardManual}
+                      onChange={(e) => setFeeCardManual(e.target.value)}
+                      placeholder="Ex: Cartão Inter PJ"
+                    />
+                  ) : (
+                    <div className="text-[11px] text-slate-500">
+                      {feeCardLabel || "—"}
+                    </div>
+                  )}
+                </label>
 
                 <label className="space-y-1">
                   <div className="text-xs text-slate-600">Milheiro (R$)</div>
