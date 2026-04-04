@@ -248,6 +248,7 @@ function applyLatamWindow(s: Suggestion, usedRaw: number): Suggestion {
 
 export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) {
   const detailsRef = useRef<HTMLDivElement | null>(null);
+  const clientComboboxRef = useRef<HTMLDivElement | null>(null);
 
   // ✅ agora vem do SERVER (cookie tm.session)
   const [me, setMe] = useState<UserLite | null>(initialMe);
@@ -371,6 +372,7 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
   const [clienteId, setClienteId] = useState("");
   const [loadingClientes, setLoadingClientes] = useState(false);
   const [clientesError, setClientesError] = useState<string>("");
+  const [clientDropdownOpen, setClientDropdownOpen] = useState(false);
 
   // ✅ âncora: sempre manter o selecionado no dropdown
   const [selectedCliente, setSelectedCliente] = useState<ClienteLite | null>(
@@ -584,6 +586,7 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
     setClientes([]);
     setSelectedCliente(null);
     setClientesError("");
+    setClientDropdownOpen(false);
 
     // ✅ também limpa credenciais
     setRevealCreds(false);
@@ -803,6 +806,27 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
     };
   }, [clienteQ, sel?.cedente?.id, selectedCliente?.id]);
 
+  useEffect(() => {
+    function handleOutsideClick(ev: MouseEvent) {
+      if (!clientComboboxRef.current) return;
+      if (!clientComboboxRef.current.contains(ev.target as Node)) {
+        setClientDropdownOpen(false);
+      }
+    }
+
+    document.addEventListener("mousedown", handleOutsideClick);
+    return () => document.removeEventListener("mousedown", handleOutsideClick);
+  }, []);
+
+  function handleSelectCliente(cliente: ClienteLite) {
+    setClienteId(cliente.id);
+    setSelectedCliente(cliente);
+    setClienteQ(cliente.nome);
+    setClientes((prev) => [cliente, ...prev.filter((x) => x.id !== cliente.id)]);
+    setClientDropdownOpen(false);
+    setClientesError("");
+  }
+
   async function criarClienteRapido() {
     setCreateClienteError("");
 
@@ -846,6 +870,7 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
       setClienteId(created.id);
       setSelectedCliente(created);
       setClienteQ(created.nome);
+      setClientDropdownOpen(false);
 
       setClientes((prev) => {
         const exists = prev.some((x) => x.id === created.id);
@@ -2010,9 +2035,19 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
                   ) : null}
                 </div>
 
-                <div className="space-y-1 md:col-span-2">
-                  <div className="text-xs text-slate-600">Compra LIBERADA (do cedente)</div>
-                  <div className="grid gap-2 md:grid-cols-[minmax(0,1fr)_auto]">
+                <div className="md:col-span-2 grid gap-4 md:grid-cols-[minmax(0,1.2fr)_minmax(280px,0.8fr)]">
+                  <div className="space-y-1">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="text-xs text-slate-600">Compra LIBERADA</div>
+                      <button
+                        type="button"
+                        className="rounded-lg border px-2.5 py-1 text-xs hover:bg-slate-50"
+                        onClick={() => setComprasReloadTick((x) => x + 1)}
+                        disabled={loadingCompras}
+                      >
+                        Recarregar
+                      </button>
+                    </div>
                     <select
                       className="w-full rounded-xl border px-3 py-2 text-sm bg-white"
                       value={purchaseNumero}
@@ -2029,82 +2064,65 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
                       {compras.map((c) => (
                         <option key={c.id} value={c.numero}>
                           {c.numero} • meta{" "}
-                          {((c.metaMilheiroCents || 0) / 100).toFixed(2).replace(".", ",")}
+                          {((c.metaMilheiroCents || 0) / 100)
+                            .toFixed(2)
+                            .replace(".", ",")}
                         </option>
                       ))}
                     </select>
-
-                    <button
-                      type="button"
-                      className="rounded-xl border px-3 py-2 text-sm hover:bg-slate-50"
-                      onClick={() => setComprasReloadTick((x) => x + 1)}
-                      disabled={loadingCompras}
-                    >
-                      Recarregar
-                    </button>
+                    <div className="text-[11px] text-slate-500">
+                      A compra precisa estar LIBERADA e pertencer ao mesmo cedente.
+                    </div>
                   </div>
 
-                  <div className="text-[11px] text-slate-500 mt-1">
-                    A venda só deixa salvar se a compra estiver LIBERADA (status CLOSED) e for do mesmo cedente.
-                  </div>
-                </div>
-
-                <div className="md:col-span-2 grid gap-2 md:grid-cols-2">
                   <label className="space-y-1">
-                    <div className="text-xs text-slate-600">Buscar cliente</div>
-                    <input
-                      className="w-full rounded-xl border px-3 py-2 text-sm"
-                      value={clienteQ}
-                      onChange={(e) => setClienteQ(e.target.value)}
-                      placeholder="Nome / CPF/CNPJ / telefone..."
-                    />
-                    {loadingClientes ? (
-                      <div className="text-[11px] text-slate-500">Buscando...</div>
-                    ) : null}
-                    {clientesError ? (
-                      <div className="text-[11px] text-rose-600">{clientesError}</div>
-                    ) : null}
+                    <div className="text-xs text-slate-600">Cartão da taxa</div>
+                    <select
+                      className="w-full rounded-xl border px-3 py-2 text-sm bg-white"
+                      value={feeCardPreset}
+                      onChange={(e) => setFeeCardPreset(e.target.value)}
+                    >
+                      <option value="SELF">{selfLabel}</option>
+                      <option value="VIAS">Vias Aéreas</option>
+                      {users.length ? <option disabled>────────────</option> : null}
+                      {users.map((u) => (
+                        <option key={u.id} value={`USER:${u.id}`}>
+                          {u.name} (@{u.login})
+                        </option>
+                      ))}
+                      <option value="MANUAL">Manual</option>
+                    </select>
 
-                    {!loadingClientes && clienteQ.trim().length >= 2 && clientes.length === 0 ? (
-                      <div className="text-[11px] text-slate-600">
-                        Nenhum cliente encontrado.{" "}
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setCreateClienteError("");
-                            setNovoCliente((p) => ({ ...p, nome: clienteQ.trim() }));
-                            setClienteModalOpen(true);
-                          }}
-                          className="underline"
-                        >
-                          Cadastrar agora
-                        </button>
-                      </div>
-                    ) : null}
-
-                    {!loadingClientes && clienteQ.trim().length < 2 && clientes.length > 0 ? (
-                      <div className="text-[11px] text-slate-500">
-                        Mostrando últimos clientes cadastrados.
-                      </div>
+                    {feeCardPreset === "MANUAL" ? (
+                      <input
+                        className="w-full rounded-xl border px-3 py-2 text-sm"
+                        value={feeCardManual}
+                        onChange={(e) => setFeeCardManual(e.target.value)}
+                        placeholder="Ex: Cartão Inter PJ"
+                      />
                     ) : null}
                   </label>
+                </div>
 
-                  <label className="space-y-1">
-                    <div className="text-xs text-slate-600">Selecionar cliente</div>
-
+                <div ref={clientComboboxRef} className="md:col-span-2 space-y-1">
+                  <div className="text-xs text-slate-600">Cliente</div>
+                  <div className="relative">
                     <div className="flex gap-2">
-                      <select
-                        className="flex-1 rounded-xl border px-3 py-2 text-sm bg-white"
-                        value={clienteId}
-                        onChange={(e) => setClienteId(e.target.value)}
-                      >
-                        <option value="">Selecione...</option>
-                        {clientes.map((c) => (
-                          <option key={c.id} value={c.id}>
-                            {c.nome} ({c.identificador || "—"})
-                          </option>
-                        ))}
-                      </select>
+                      <input
+                        className="w-full rounded-xl border px-3 py-2 text-sm"
+                        value={clienteQ}
+                        onFocus={() => setClientDropdownOpen(true)}
+                        onChange={(e) => {
+                          const next = e.target.value;
+                          setClienteQ(next);
+                          setClientDropdownOpen(true);
+                          if (selectedCliente && normStr(next) !== normStr(selectedCliente.nome)) {
+                            setClienteId("");
+                            setSelectedCliente(null);
+                          }
+                        }}
+                        placeholder="Buscar cliente por nome / CPF/CNPJ / telefone..."
+                      />
 
                       <button
                         type="button"
@@ -2121,12 +2139,85 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
                       </button>
                     </div>
 
-                    {selectedCliente?.id ? (
-                      <div className="mt-1 text-[11px] text-slate-500">
-                        Selecionado: <b>{selectedCliente.nome}</b> ({selectedCliente.identificador || "—"})
+                    {clientDropdownOpen ? (
+                      <div className="absolute z-20 mt-2 w-full overflow-hidden rounded-2xl border bg-white shadow-lg">
+                        <div className="max-h-72 overflow-auto py-1">
+                          {loadingClientes ? (
+                            <div className="px-3 py-2 text-sm text-slate-500">Buscando...</div>
+                          ) : null}
+
+                          {clientes.map((c) => (
+                            <button
+                              key={c.id}
+                              type="button"
+                              onClick={() => handleSelectCliente(c)}
+                              className={cn(
+                                "flex w-full items-start justify-between gap-3 px-3 py-2 text-left hover:bg-slate-50",
+                                selectedCliente?.id === c.id ? "bg-slate-50" : ""
+                              )}
+                            >
+                              <div className="min-w-0">
+                                <div className="truncate text-sm font-medium text-slate-900">
+                                  {c.nome}
+                                </div>
+                                <div className="text-xs text-slate-500">
+                                  {c.identificador || "—"}
+                                  {c.cpfCnpj ? ` • ${c.cpfCnpj}` : ""}
+                                  {c.telefone ? ` • ${c.telefone}` : ""}
+                                </div>
+                              </div>
+                              {selectedCliente?.id === c.id ? (
+                                <span className="text-xs font-medium text-emerald-700">
+                                  Selecionado
+                                </span>
+                              ) : null}
+                            </button>
+                          ))}
+
+                          {!loadingClientes &&
+                          clienteQ.trim().length >= 2 &&
+                          clientes.length === 0 ? (
+                            <div className="px-3 py-2 text-sm text-slate-600">
+                              Nenhum cliente encontrado.{" "}
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setCreateClienteError("");
+                                  setNovoCliente((p) => ({
+                                    ...p,
+                                    nome: clienteQ.trim(),
+                                  }));
+                                  setClienteModalOpen(true);
+                                }}
+                                className="underline"
+                              >
+                                Cadastrar agora
+                              </button>
+                            </div>
+                          ) : null}
+                        </div>
                       </div>
                     ) : null}
-                  </label>
+                  </div>
+
+                  {clientesError ? (
+                    <div className="text-[11px] text-rose-600">{clientesError}</div>
+                  ) : null}
+
+                  {!loadingClientes &&
+                  clienteQ.trim().length < 2 &&
+                  clientes.length > 0 &&
+                  clientDropdownOpen ? (
+                    <div className="text-[11px] text-slate-500">
+                      Mostrando últimos clientes cadastrados.
+                    </div>
+                  ) : null}
+
+                  {selectedCliente?.id ? (
+                    <div className="text-[11px] text-slate-500">
+                      Selecionado: <b>{selectedCliente.nome}</b> ({selectedCliente.identificador || "—"})
+                    </div>
+                  ) : null}
                 </div>
 
                 <label className="space-y-1">
@@ -2147,36 +2238,6 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
                     onChange={(e) => setEmbarqueStr(e.target.value)}
                     placeholder="Ex: 78,34"
                   />
-                </label>
-
-                <label className="space-y-1 md:col-span-2">
-                  <div className="text-xs text-slate-600">Cartão da taxa</div>
-                  <select
-                    className="w-full rounded-xl border px-3 py-2 text-sm bg-white"
-                    value={feeCardPreset}
-                    onChange={(e) => setFeeCardPreset(e.target.value)}
-                  >
-                    <option value="SELF">{selfLabel}</option>
-                    <option value="VIAS">Vias Aéreas</option>
-                    {users.length ? <option disabled>────────────</option> : null}
-                    {users.map((u) => (
-                      <option key={u.id} value={`USER:${u.id}`}>
-                        {u.name} (@{u.login})
-                      </option>
-                    ))}
-                    <option value="MANUAL">Manual</option>
-                  </select>
-
-                  {feeCardPreset === "MANUAL" ? (
-                    <input
-                      className="mt-2 w-full rounded-xl border px-3 py-2 text-sm"
-                      value={feeCardManual}
-                      onChange={(e) => setFeeCardManual(e.target.value)}
-                      placeholder="Ex: Cartão Inter PJ"
-                    />
-                  ) : (
-                    <div className="mt-2 text-xs text-slate-500">Selecionado: {feeCardLabel || "—"}</div>
-                  )}
                 </label>
 
                 <label className="space-y-1">
