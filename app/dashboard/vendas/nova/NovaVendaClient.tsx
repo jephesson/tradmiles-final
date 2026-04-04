@@ -1973,30 +1973,32 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
                 </label>
 
                 <div className="space-y-1">
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="text-xs text-slate-600">Vendedor</div>
-                    <button
-                      type="button"
-                      onClick={() => setAssignSellerOpen((v) => !v)}
-                      className="rounded-lg border px-2.5 py-1 text-xs hover:bg-slate-50"
-                    >
-                      {assignedSellerId ? "Trocar" : "Atribuir"}
-                    </button>
-                  </div>
-                  <div className="flex min-h-[48px] items-center justify-between rounded-xl border bg-slate-50 px-3 py-2">
-                    <div className="truncate pr-3 text-sm font-medium text-slate-900">
-                      {effectiveSellerLabel}
+                  <div className="text-xs text-slate-600">Vendedor</div>
+                  <div className="rounded-xl border bg-slate-50 px-3 py-2">
+                    <div className="flex min-h-[32px] items-center justify-between gap-3">
+                      <div className="truncate text-sm font-medium text-slate-900">
+                        {effectiveSellerLabel}
+                      </div>
+                      <div className="flex shrink-0 items-center gap-2">
+                        <span
+                          className={cn(
+                            "rounded-full border px-2 py-1 text-[11px]",
+                            assignedSellerId
+                              ? "border-amber-200 bg-amber-50 text-amber-700"
+                              : "border-slate-200 bg-white text-slate-600"
+                          )}
+                        >
+                          {assignedSellerId ? "Atribuída" : "Logado"}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setAssignSellerOpen((v) => !v)}
+                          className="rounded-lg border bg-white px-2.5 py-1 text-xs hover:bg-slate-100"
+                        >
+                          Trocar
+                        </button>
+                      </div>
                     </div>
-                    <span
-                      className={cn(
-                        "shrink-0 rounded-full border px-2 py-1 text-[11px]",
-                        assignedSellerId
-                          ? "border-amber-200 bg-amber-50 text-amber-700"
-                          : "border-slate-200 bg-white text-slate-600"
-                      )}
-                    >
-                      {assignedSellerId ? "Atribuída" : "Logado"}
-                    </span>
                   </div>
                   {assignSellerOpen ? (
                     <div className="rounded-xl border border-dashed p-2.5">
