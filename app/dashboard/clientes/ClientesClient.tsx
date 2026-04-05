@@ -40,7 +40,7 @@ export default function ClientesClient() {
     setError("");
     try {
       const params = new URLSearchParams();
-      params.set("limit", "200");
+      params.set("limit", "all");
       if (search.trim()) params.set("q", search.trim());
 
       const r = await fetch(`/api/clientes?${params.toString()}`, {
@@ -114,7 +114,7 @@ export default function ClientesClient() {
           <div className="text-xs text-slate-500">
             {q.trim()
               ? `${rows.length} resultado(s)`
-              : `Mostrando até ${rows.length} cliente(s) mais recentes`}
+              : `Mostrando ${rows.length} cliente(s)`}
           </div>
         </div>
 

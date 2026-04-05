@@ -48,8 +48,10 @@ export async function GET(req: NextRequest) {
     // opcional: filtro simples por q
     const { searchParams } = new URL(req.url);
     const q = (searchParams.get("q") || "").trim();
-    const limitRaw = Number(searchParams.get("limit") || "100");
-    const limit = Math.min(500, Math.max(1, Number.isFinite(limitRaw) ? Math.trunc(limitRaw) : 100));
+    const limitParam = (searchParams.get("limit") || "").trim().toLowerCase();
+    const limitRaw = Number(limitParam || "100");
+    const useAll = limitParam === "all";
+    const limit = Math.min(5000, Math.max(1, Number.isFinite(limitRaw) ? Math.trunc(limitRaw) : 100));
 
     const where = q
       ? {
@@ -64,7 +66,7 @@ export async function GET(req: NextRequest) {
     const clientes = await prisma.cliente.findMany({
       where,
       orderBy: { createdAt: "desc" },
-      take: limit,
+      ...(useAll ? {} : { take: limit }),
       select: {
         id: true,
         identificador: true,
