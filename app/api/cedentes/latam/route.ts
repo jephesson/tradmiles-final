@@ -8,6 +8,7 @@ export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 const LATAM_ANUAL_PASSAGEIROS_LIMITE = 25;
+const LATAM_CANCEL_AFTER_INACTIVE_DAYS = 10;
 
 function noCacheHeaders() {
   return {
@@ -36,6 +37,56 @@ function bad(message: string, status = 400) {
 function safeInt(v: any, fb = 0) {
   const n = Number(v);
   return Number.isFinite(n) ? Math.trunc(n) : fb;
+}
+
+function startUTC(d: Date) {
+  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+}
+
+function addDaysUTC(base: Date, days: number) {
+  const d = startUTC(base);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d;
+}
+
+function daysInMonthUTC(year: number, month0: number) {
+  return new Date(Date.UTC(year, month0 + 1, 0)).getUTCDate();
+}
+
+function nextMonthOnDayUTC(base: Date, day: number) {
+  const y0 = base.getUTCFullYear();
+  const m0 = base.getUTCMonth();
+
+  let y = y0;
+  let m = m0 + 1;
+  if (m > 11) {
+    m = 0;
+    y += 1;
+  }
+
+  const last = daysInMonthUTC(y, m);
+  const dd = Math.min(Math.max(1, day), last);
+
+  return new Date(Date.UTC(y, m, dd));
+}
+
+function clampInt(n: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, n));
+}
+
+function computeLatamAutoDates(input: {
+  subscribedAt: Date;
+  renewalDay: number;
+  lastRenewedAt: Date | null;
+}) {
+  const renewalDay = clampInt(Number(input.renewalDay) || 1, 1, 31);
+  const base = input.lastRenewedAt ?? input.subscribedAt;
+  const nextRenewalAt = nextMonthOnDayUTC(base, renewalDay);
+  const inactiveAt = addDaysUTC(nextRenewalAt, 1);
+  const activeUntil = addDaysUTC(inactiveAt, -1);
+  const cancelAt = addDaysUTC(inactiveAt, LATAM_CANCEL_AFTER_INACTIVE_DAYS);
+
+  return { nextRenewalAt, inactiveAt, activeUntil, cancelAt };
 }
 
 function scoreMedia(score?: {
@@ -220,6 +271,32 @@ export async function GET(req: NextRequest) {
     });
     const promoTodaySet = new Set(promoTodayItems.map((item) => item.cedenteId));
 
+    const latamClubs = await prisma.clubSubscription.findMany({
+      where: {
+        team: session.team,
+        program: "LATAM",
+        cedenteId: { in: ids },
+      },
+      select: {
+        cedenteId: true,
+        status: true,
+        subscribedAt: true,
+        renewalDay: true,
+        lastRenewedAt: true,
+        createdAt: true,
+      },
+      orderBy: [{ subscribedAt: "desc" }, { createdAt: "desc" }],
+    });
+
+    const latestLatamClubByCedente = new Map<string, (typeof latamClubs)[number]>();
+    for (const club of latamClubs) {
+      if (!latestLatamClubByCedente.has(club.cedenteId)) {
+        latestLatamClubByCedente.set(club.cedenteId, club);
+      }
+    }
+
+    const today = startUTC(new Date());
+
     // =========================
     // Monta resposta
     // =========================
@@ -229,6 +306,30 @@ export async function GET(req: NextRequest) {
       const available = Math.max(0, LATAM_ANUAL_PASSAGEIROS_LIMITE - used);
 
       const latamBloqueado = blockedSet.has(c.id);
+      const latestLatamClub = latestLatamClubByCedente.get(c.id);
+
+      let latamClubAtivoAgora = false;
+      if (latestLatamClub) {
+        let desiredStatus = latestLatamClub.status;
+        if (desiredStatus !== "CANCELED") {
+          const auto = computeLatamAutoDates({
+            subscribedAt: latestLatamClub.subscribedAt,
+            renewalDay: latestLatamClub.renewalDay,
+            lastRenewedAt: latestLatamClub.lastRenewedAt,
+          });
+
+          if (today.getTime() >= startUTC(auto.cancelAt).getTime()) {
+            desiredStatus = "CANCELED";
+          } else if (
+            today.getTime() >= startUTC(auto.inactiveAt).getTime() &&
+            desiredStatus === "ACTIVE"
+          ) {
+            desiredStatus = "PAUSED";
+          }
+        }
+
+        latamClubAtivoAgora = desiredStatus === "ACTIVE";
+      }
 
       return {
         id: c.id,
@@ -250,6 +351,7 @@ export async function GET(req: NextRequest) {
         passageirosDisponiveisAno: available,
 
         latamBloqueado,
+        latamClubAtivoAgora,
         blockedPrograms: latamBloqueado ? (["LATAM"] as const) : [],
         onPromoListToday: promoTodaySet.has(c.id),
       };

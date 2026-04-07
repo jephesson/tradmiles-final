@@ -12,6 +12,7 @@ import {
   ListPlus,
   MessageCircle,
   Pencil,
+  Star,
   X,
 } from "lucide-react";
 import { cn } from "@/lib/cn";
@@ -40,6 +41,7 @@ type Row = {
   passageirosDisponiveisAno: number;
 
   latamBloqueado?: boolean;
+  latamClubAtivoAgora?: boolean;
   blockedPrograms?: Program[];
   onPromoListToday?: boolean;
 };
@@ -398,6 +400,14 @@ export default function CedentesVisualizarLatamClient() {
                     <td className="px-4 py-3">
                       <div className="font-medium flex items-center gap-2">
                         <span>{r.nomeCompleto}</span>
+                        {r.latamClubAtivoAgora ? (
+                          <span
+                            title="Clube LATAM ativo"
+                            className="inline-flex text-amber-500"
+                          >
+                            <Star size={15} className="fill-current" />
+                          </span>
+                        ) : null}
                         {blocked ? (
                           <span className="text-[10px] font-semibold uppercase tracking-wide border border-red-300 rounded px-2 py-0.5">
                             Bloqueado
