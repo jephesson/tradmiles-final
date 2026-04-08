@@ -50,6 +50,24 @@ type SummaryResp = {
   };
 };
 
+type HistoryPoint = {
+  month: string;
+  netNoFeeCents: number;
+};
+
+type HistorySeries = {
+  user: { id: string; name: string; login: string; role: string };
+  points: HistoryPoint[];
+};
+
+type HistoryResp = {
+  ok: true;
+  months: string[];
+  series: HistorySeries[];
+};
+
+const CHART_COLORS = ["#0ea5e9", "#22c55e", "#f59e0b", "#ef4444", "#8b5cf6", "#14b8a6"];
+
 function fmtMoneyBR(cents: number) {
   return ((cents || 0) / 100).toLocaleString("pt-BR", {
     style: "currency",
@@ -57,10 +75,30 @@ function fmtMoneyBR(cents: number) {
   });
 }
 
+function fmtMoneyCompactBR(cents: number) {
+  return (cents / 100).toLocaleString("pt-BR", {
+    style: "currency",
+    currency: "BRL",
+    notation: "compact",
+    maximumFractionDigits: 1,
+  });
+}
+
 function firstName(full?: string, fallback?: string) {
   const s = String(full || "").trim();
   if (!s) return fallback || "-";
   return s.split(/\s+/)[0] || fallback || "-";
+}
+
+function monthLabelBR(month: string) {
+  const date = new Date(`${month}-01T12:00:00Z`);
+  return new Intl.DateTimeFormat("pt-BR", {
+    month: "short",
+    year: "2-digit",
+    timeZone: "UTC",
+  })
+    .format(date)
+    .replace(".", "");
 }
 
 function monthISORecifeClient() {
@@ -110,6 +148,127 @@ function KPI({ label, value }: { label: string; value: string }) {
   );
 }
 
+function LucroHistoryChart({
+  months,
+  series,
+}: {
+  months: string[];
+  series: HistorySeries[];
+}) {
+  if (!months.length || !series.length) {
+    return (
+      <div className="rounded-2xl border bg-white p-4">
+        <div className="text-sm font-semibold">Histórico mensal por funcionário</div>
+        <div className="mt-1 text-xs text-neutral-500">Líquido sem taxa por mês, usando a mesma base da tabela.</div>
+        <div className="mt-4 text-sm text-neutral-500">Ainda não há histórico suficiente para montar o gráfico.</div>
+      </div>
+    );
+  }
+
+  const width = 980;
+  const height = 270;
+  const leftPad = 48;
+  const rightPad = 18;
+  const topPad = 18;
+  const bottomPad = 34;
+  const plotW = width - leftPad - rightPad;
+  const plotH = height - topPad - bottomPad;
+
+  const allValues = series.flatMap((row) => row.points.map((p) => p.netNoFeeCents));
+  const minY = Math.min(0, ...allValues);
+  const maxY = Math.max(1, ...allValues);
+  const dx = months.length <= 1 ? 0 : plotW / (months.length - 1);
+  const scaleY = (value: number) => {
+    const t = (value - minY) / (maxY - minY || 1);
+    return topPad + plotH - t * plotH;
+  };
+
+  const tickValues = Array.from({ length: 4 }, (_, idx) => maxY - ((maxY - minY) * idx) / 3);
+  const xLabelStep = months.length > 18 ? 3 : months.length > 12 ? 2 : 1;
+
+  return (
+    <div className="rounded-2xl border bg-white p-4">
+      <div className="text-sm font-semibold">Histórico mensal por funcionário</div>
+      <div className="mt-1 text-xs text-neutral-500">Líquido sem taxa por mês, usando a mesma base da tabela.</div>
+
+      <div className="mt-3 flex flex-wrap gap-2 text-[11px] text-neutral-600">
+        {series.map((row, idx) => (
+          <span key={row.user.id} className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5">
+            <span className="h-2 w-2 rounded-full" style={{ backgroundColor: CHART_COLORS[idx % CHART_COLORS.length] }} />
+            {firstName(row.user.name, row.user.login)}
+          </span>
+        ))}
+      </div>
+
+      <svg viewBox={`0 0 ${width} ${height}`} className="mt-4 w-full">
+        {tickValues.map((tick, idx) => (
+          <line
+            key={`grid-${idx}`}
+            x1={leftPad}
+            x2={leftPad + plotW}
+            y1={scaleY(tick)}
+            y2={scaleY(tick)}
+            stroke="#e5e7eb"
+            strokeWidth="1"
+          />
+        ))}
+
+        {tickValues.map((tick, idx) => (
+          <text
+            key={`label-y-${idx}`}
+            x={4}
+            y={scaleY(tick) + 4}
+            fontSize="10"
+            fill="#64748b"
+          >
+            {fmtMoneyCompactBR(Math.round(tick))}
+          </text>
+        ))}
+
+        {series.map((row, idx) => {
+          const color = CHART_COLORS[idx % CHART_COLORS.length];
+          const points = row.points
+            .map((point, pointIdx) => `${leftPad + pointIdx * dx},${scaleY(point.netNoFeeCents)}`)
+            .join(" ");
+
+          return (
+            <g key={row.user.id}>
+              <polyline fill="none" stroke={color} strokeWidth="2.5" points={points} />
+              {row.points.map((point, pointIdx) => (
+                <circle
+                  key={`${row.user.id}-${point.month}`}
+                  cx={leftPad + pointIdx * dx}
+                  cy={scaleY(point.netNoFeeCents)}
+                  r="3"
+                  fill={color}
+                >
+                  <title>{`${firstName(row.user.name, row.user.login)} • ${monthLabelBR(point.month)} • ${fmtMoneyBR(point.netNoFeeCents)}`}</title>
+                </circle>
+              ))}
+            </g>
+          );
+        })}
+
+        {months.map((month, idx) => {
+          if (idx % xLabelStep !== 0 && idx !== months.length - 1) return null;
+          return (
+            <text
+              key={`label-x-${month}`}
+              x={leftPad + idx * dx}
+              y={topPad + plotH + 18}
+              textAnchor={idx === months.length - 1 ? "end" : idx === 0 ? "start" : "middle"}
+              fontSize="10"
+              fill="#64748b"
+            >
+              {monthLabelBR(month)}
+            </text>
+          );
+        })}
+      </svg>
+    </div>
+  );
+}
+
 /** ✅ dias no mês do tipo "YYYY-MM" (UTC safe) */
 function daysInMonth(yyyyMm: string) {
   const [yStr, mStr] = String(yyyyMm || "").split("-");
@@ -140,6 +299,9 @@ export default function LucrosFuncionariosMesClient() {
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState("");
   const [data, setData] = useState<SummaryResp | null>(null);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyErr, setHistoryErr] = useState("");
+  const [history, setHistory] = useState<HistoryResp | null>(null);
 
   async function load(m = month) {
     setLoading(true);
@@ -155,8 +317,23 @@ export default function LucrosFuncionariosMesClient() {
     }
   }
 
+  async function loadHistory() {
+    setHistoryLoading(true);
+    setHistoryErr("");
+    try {
+      const out = await apiGet<HistoryResp>("/api/payouts/funcionarios/history");
+      setHistory(out);
+    } catch (e: unknown) {
+      setHistory(null);
+      setHistoryErr(e instanceof Error && e.message ? e.message : "Erro ao carregar histórico.");
+    } finally {
+      setHistoryLoading(false);
+    }
+  }
+
   useEffect(() => {
     load(month);
+    loadHistory();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [month]);
 
@@ -256,6 +433,14 @@ export default function LucrosFuncionariosMesClient() {
       </div>
 
       {err ? <div className="rounded-2xl border bg-rose-50 p-3 text-sm text-rose-800">{err}</div> : null}
+
+      {historyErr ? <div className="rounded-2xl border bg-rose-50 p-3 text-sm text-rose-800">{historyErr}</div> : null}
+
+      {historyLoading && !history ? (
+        <div className="rounded-2xl border bg-white p-4 text-sm text-neutral-500">Carregando histórico mensal...</div>
+      ) : (
+        <LucroHistoryChart months={history?.months || []} series={history?.series || []} />
+      )}
 
       {/* ======= TABELA PRINCIPAL ======= */}
       <div className="overflow-hidden rounded-2xl border bg-white">

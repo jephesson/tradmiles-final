@@ -994,7 +994,19 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
 
   // ✅ confirmação + overlay saving
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [confirmZeroFee, setConfirmZeroFee] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const feeIsZero = embarqueFeeCents <= 0;
+
+  function openConfirmModal() {
+    setConfirmZeroFee(false);
+    setConfirmOpen(true);
+  }
+
+  function closeConfirmModal() {
+    setConfirmZeroFee(false);
+    setConfirmOpen(false);
+  }
 
   function toBRDate(iso: string) {
     const m = String(iso || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
@@ -2404,7 +2416,7 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
 
             <button
               type="button"
-              onClick={() => setConfirmOpen(true)}
+              onClick={openConfirmModal}
               disabled={!canSave || isSaving}
               className={cn(
                 "mt-3 w-full rounded-xl px-4 py-2 text-sm text-white",
@@ -2577,7 +2589,7 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
               </div>
               <button
                 type="button"
-                onClick={() => setConfirmOpen(false)}
+                onClick={closeConfirmModal}
                 className="rounded-lg border px-2 py-1 text-sm hover:bg-slate-50"
                 disabled={isSaving}
               >
@@ -2644,10 +2656,30 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
               </div>
             </div>
 
+            {feeIsZero ? (
+              <div className="mt-4 rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+                <div className="font-medium">Taxa de embarque zerada</div>
+                <div className="mt-1">
+                  Confirme abaixo se esta venda realmente nao tera cobranca de taxa de embarque.
+                </div>
+                <label className="mt-3 flex items-start gap-2">
+                  <input
+                    type="checkbox"
+                    checked={confirmZeroFee}
+                    onChange={(e) => setConfirmZeroFee(e.target.checked)}
+                    className="mt-0.5 h-4 w-4 rounded border-slate-300"
+                  />
+                  <span>
+                    Confirmo que nao vou cobrar taxa de embarque nesta venda.
+                  </span>
+                </label>
+              </div>
+            ) : null}
+
             <div className="mt-5 flex justify-end gap-2">
               <button
                 type="button"
-                onClick={() => setConfirmOpen(false)}
+                onClick={closeConfirmModal}
                 className="rounded-xl border px-4 py-2 text-sm hover:bg-slate-50"
                 disabled={isSaving}
               >
@@ -2656,18 +2688,22 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
               <button
                 type="button"
                 onClick={async () => {
-                  setConfirmOpen(false);
+                  closeConfirmModal();
                   await doSave();
                 }}
-                disabled={!canSave || isSaving}
+                disabled={!canSave || isSaving || (feeIsZero && !confirmZeroFee)}
                 className={cn(
                   "rounded-xl px-4 py-2 text-sm text-white",
-                  !canSave || isSaving
+                  !canSave || isSaving || (feeIsZero && !confirmZeroFee)
                     ? "bg-slate-400 cursor-not-allowed"
                     : "bg-black hover:bg-gray-800"
                 )}
               >
-                {isSaving ? "Salvando..." : "Confirmar e salvar"}
+                {isSaving
+                  ? "Salvando..."
+                  : feeIsZero
+                    ? "Confirmar sem taxa e salvar"
+                    : "Confirmar e salvar"}
               </button>
             </div>
           </div>
