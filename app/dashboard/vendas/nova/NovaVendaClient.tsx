@@ -196,9 +196,8 @@ type EmissionsPanelResp = {
   totals: { total: number; manual: number; renewEndOfMonth: number };
 };
 
-const PASSENGER_ALERT_MIN_LEFTOVER_POINTS = 4000;
 const PASSENGER_ALERT_MESSAGE =
-  "Alerta: após esta venda não haverá mais CPF disponível e há risco de bloqueio por 180 dias.";
+  "Alerta: esta venda excede o PAX disponível e pode gerar bloqueio nas próximas 12h.";
 
 function programToKey(p: Program): ProgramKey {
   if (p === "LATAM") return "latam";
@@ -224,11 +223,9 @@ function applyLatamWindow(s: Suggestion, usedRaw: number): Suggestion {
   const paxAfter = available - paxNeed;
   const paxOk = available >= paxNeed;
   const hasPts = Number(s.pts || 0) >= Number(s.pointsNeeded || 0);
-  const alertPassengerOverflow =
-    paxAfter <= 0 &&
-    Number(s.leftoverPoints || 0) > PASSENGER_ALERT_MIN_LEFTOVER_POINTS;
-  const eligible = hasPts && (paxOk || alertPassengerOverflow);
-  const pri = priorityBucket(Number(s.leftoverPoints || 0));
+      const alertPassengerOverflow = !paxOk;
+      const eligible = hasPts;
+      const pri = priorityBucket(Number(s.leftoverPoints || 0));
 
   let alerts = Array.isArray(s.alerts) ? [...s.alerts] : [];
   alerts = alerts.filter((a) => a !== "PASSAGEIROS_ESTOURADOS_COM_PONTOS");
@@ -237,13 +234,13 @@ function applyLatamWindow(s: Suggestion, usedRaw: number): Suggestion {
   }
 
   return {
-    ...s,
-    usedPassengersYear: used,
-    availablePassengersYear: available,
-    eligible,
-    priorityLabel: eligible ? pri.label : "INELIGIVEL",
-    alerts,
-  };
+        ...s,
+        usedPassengersYear: used,
+        availablePassengersYear: available,
+        eligible,
+        priorityLabel: hasPts ? pri.label : "INELIGIVEL",
+        alerts,
+      };
 }
 
 export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) {
@@ -995,16 +992,20 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
   // ✅ confirmação + overlay saving
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [confirmZeroFee, setConfirmZeroFee] = useState(false);
+  const [confirmPassengerRisk, setConfirmPassengerRisk] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const feeIsZero = embarqueFeeCents <= 0;
+  const passengerRisk = Boolean(sel?.alerts?.includes("PASSAGEIROS_ESTOURADOS_COM_PONTOS"));
 
   function openConfirmModal() {
     setConfirmZeroFee(false);
+    setConfirmPassengerRisk(false);
     setConfirmOpen(true);
   }
 
   function closeConfirmModal() {
     setConfirmZeroFee(false);
+    setConfirmPassengerRisk(false);
     setConfirmOpen(false);
   }
 
@@ -2675,6 +2676,25 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
                 </label>
               </div>
             ) : null}
+            {passengerRisk ? (
+              <div className="mt-4 rounded-xl border border-rose-300 bg-rose-50 p-3 text-sm text-rose-900">
+                <div className="font-medium">Risco por PAX indisponivel</div>
+                <div className="mt-1">
+                  Esta venda excede o PAX disponivel e pode gerar bloqueio nas proximas 12h.
+                </div>
+                <label className="mt-3 flex items-start gap-2">
+                  <input
+                    type="checkbox"
+                    checked={confirmPassengerRisk}
+                    onChange={(e) => setConfirmPassengerRisk(e.target.checked)}
+                    className="mt-0.5 h-4 w-4 rounded border-slate-300"
+                  />
+                  <span>
+                    Estou ciente do risco de bloqueio nas proximas 12h e quero continuar com a venda.
+                  </span>
+                </label>
+              </div>
+            ) : null}
 
             <div className="mt-5 flex justify-end gap-2">
               <button
@@ -2691,10 +2711,18 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
                   closeConfirmModal();
                   await doSave();
                 }}
-                disabled={!canSave || isSaving || (feeIsZero && !confirmZeroFee)}
+                disabled={
+                  !canSave ||
+                  isSaving ||
+                  (feeIsZero && !confirmZeroFee) ||
+                  (passengerRisk && !confirmPassengerRisk)
+                }
                 className={cn(
                   "rounded-xl px-4 py-2 text-sm text-white",
-                  !canSave || isSaving || (feeIsZero && !confirmZeroFee)
+                  !canSave ||
+                    isSaving ||
+                    (feeIsZero && !confirmZeroFee) ||
+                    (passengerRisk && !confirmPassengerRisk)
                     ? "bg-slate-400 cursor-not-allowed"
                     : "bg-black hover:bg-gray-800"
                 )}
@@ -2703,6 +2731,8 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
                   ? "Salvando..."
                   : feeIsZero
                     ? "Confirmar sem taxa e salvar"
+                    : passengerRisk
+                      ? "Confirmar risco e salvar"
                     : "Confirmar e salvar"}
               </button>
             </div>

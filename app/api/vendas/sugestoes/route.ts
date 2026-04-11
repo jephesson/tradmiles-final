@@ -4,8 +4,6 @@ import { clampInt, endOfYearExclusive, passengerLimit, pointsField, startOfYear 
 
 type Program = "LATAM" | "SMILES" | "LIVELO" | "ESFERA";
 
-const PASSENGER_ALERT_MIN_LEFTOVER_POINTS = 4000;
-
 function scoreMedia(score?: {
   rapidezBiometria?: number;
   rapidezSms?: number;
@@ -114,12 +112,8 @@ export async function GET(req: Request) {
       const hasPts = pts >= pointsNeeded;
       const hasPax = availablePax >= passengersNeeded;
 
-      // permite usar no limite/estouro apenas quando ainda sobrariam muitos pontos,
-      // mas sinaliza risco operacional para o cedente.
-      const alertPassengerOverflow =
-        leftoverPax <= 0 &&
-        leftoverPoints > PASSENGER_ALERT_MIN_LEFTOVER_POINTS;
-      const eligible = hasPts && (hasPax || alertPassengerOverflow);
+      const alertPassengerOverflow = !hasPax;
+      const eligible = hasPts;
 
       const pri = priorityBucket(leftoverPoints);
 
@@ -149,12 +143,11 @@ export async function GET(req: Request) {
         leftoverPoints,
         leftoverPax,
         eligible,
-        priorityBucket: eligible ? pri.bucket : 99,
-        priorityLabel: eligible ? pri.label : ("INELIGIVEL" as const),
+        priorityBucket: hasPts ? pri.bucket : 99,
+        priorityLabel: hasPts ? pri.label : ("INELIGIVEL" as const),
         alerts: [
           ...(alertPassengerOverflow ? ["PASSAGEIROS_ESTOURADOS_COM_PONTOS"] : []),
           ...(hasPts ? [] : ["PONTOS_INSUFICIENTES"]),
-          ...(hasPax ? [] : ["PASSAGEIROS_INSUFICIENTES"]),
         ],
       };
     });

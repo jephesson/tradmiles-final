@@ -8,10 +8,7 @@ import {
   calcPointsValueCents,
   clampInt,
   formatSaleNumber,
-  passengerLimit,
   pointsField,
-  startOfYear,
-  endOfYearExclusive,
 } from "../_helpers/sales";
 
 export const runtime = "nodejs";
@@ -350,10 +347,6 @@ export async function POST(req: Request) {
     }
   }
 
-  const yearStart = startOfYear();
-  const yearEnd = endOfYearExclusive();
-  const paxLimit = passengerLimit(program);
-
   try {
     const result = await prisma.$transaction(async (tx) => {
       const effectiveSellerId = sellerIdRaw || userId;
@@ -385,14 +378,6 @@ export async function POST(req: Request) {
       });
       if (!ced) throw new Error("Cedente não encontrado.");
       if (ced.status !== "APPROVED") throw new Error("Cedente não aprovado.");
-
-      const usedAgg = await tx.emissionEvent.aggregate({
-        where: { cedenteId, program, issuedAt: { gte: yearStart, lt: yearEnd } },
-        _sum: { passengersCount: true },
-      });
-      const used = clampInt(usedAgg._sum.passengersCount);
-      const availablePax = Math.max(0, paxLimit - used);
-      if (availablePax < passengers) throw new Error("Passageiros insuficientes no ano.");
 
       const field = pointsField(program) as keyof typeof ced;
       const availablePts = clampInt((ced as any)[field]);
