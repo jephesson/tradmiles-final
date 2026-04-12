@@ -20,6 +20,7 @@ export async function PATCH(
 
     const passengersCount = body?.passengersCount;
     const note = body?.note;
+    const issuedDate = body?.issuedDate;
 
     const data: any = {};
 
@@ -35,6 +36,19 @@ export async function PATCH(
       if (note === null) data.note = null;
       else if (typeof note === "string") data.note = note.trim() ? note.trim() : null;
       else data.note = null;
+    }
+
+    if (issuedDate !== undefined) {
+      if (
+        typeof issuedDate !== "string" ||
+        !/^\d{4}-\d{2}-\d{2}$/.test(issuedDate)
+      ) {
+        return NextResponse.json(
+          { ok: false, error: "issuedDate inválida (YYYY-MM-DD)." },
+          { status: 400 }
+        );
+      }
+      data.issuedAt = new Date(`${issuedDate}T12:00:00.000Z`);
     }
 
     const updated = await prisma.emissionEvent.update({

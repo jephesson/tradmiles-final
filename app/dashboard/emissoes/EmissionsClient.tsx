@@ -51,6 +51,10 @@ function fmtDateBR(iso: string) {
   return d.toLocaleDateString("pt-BR");
 }
 
+function isoToYMD(iso: string) {
+  return new Date(iso).toISOString().slice(0, 10);
+}
+
 const PROGRAMS: Array<{ key: ProgramKey; label: string; hint: string }> = [
   { key: "latam", label: "LATAM", hint: "Janela móvel 365 dias" },
   { key: "smiles", label: "Smiles", hint: "Zera em 01/01" },
@@ -98,6 +102,7 @@ export default function EmissionsClient({
   // edição
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editPassengers, setEditPassengers] = useState<number>(1);
+  const [editIssuedDate, setEditIssuedDate] = useState<string>(todayYYYYMMDD());
   const [editNote, setEditNote] = useState<string>("");
 
   // ✅ seleção (para apagar selecionados)
@@ -295,18 +300,21 @@ export default function EmissionsClient({
   function startEdit(r: EmissionEventRow) {
     setEditingId(r.id);
     setEditPassengers(r.passengersCount);
+    setEditIssuedDate(isoToYMD(r.issuedAt));
     setEditNote(r.note || "");
   }
 
   function cancelEdit() {
     setEditingId(null);
     setEditPassengers(1);
+    setEditIssuedDate(todayYYYYMMDD());
     setEditNote("");
   }
 
   async function saveEdit(id: string) {
     if (!Number.isFinite(editPassengers) || editPassengers < 1)
       return alert("Passageiros inválido (>= 1).");
+    if (!editIssuedDate) return alert("Data inválida.");
 
     try {
       const res = await fetch(`/api/emissions/${id}`, {
@@ -315,6 +323,7 @@ export default function EmissionsClient({
         cache: "no-store",
         body: JSON.stringify({
           passengersCount: editPassengers,
+          issuedDate: editIssuedDate,
           note: editNote?.trim() ? editNote.trim() : null,
         }),
       });
@@ -716,7 +725,18 @@ export default function EmissionsClient({
                         />
                       </td>
 
-                      <td className="border-b border-zinc-100 p-2 font-medium">{fmtDateBR(r.issuedAt)}</td>
+                      <td className="border-b border-zinc-100 p-2 font-medium">
+                        {isEditing ? (
+                          <input
+                            type="date"
+                            value={editIssuedDate}
+                            onChange={(e) => setEditIssuedDate(e.target.value)}
+                            className="h-9 rounded-lg border border-zinc-200 bg-white px-2 text-sm shadow-sm outline-none focus:border-zinc-300"
+                          />
+                        ) : (
+                          fmtDateBR(r.issuedAt)
+                        )}
+                      </td>
 
                       <td className="border-b border-zinc-100 p-2">
                         {isEditing ? (
