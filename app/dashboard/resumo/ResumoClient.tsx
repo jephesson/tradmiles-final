@@ -324,7 +324,10 @@ export default function CedentesResumoClient() {
         ).length;
       }
 
-      if (pendingLatamFromVisualizar > pendingLatamFromCompras) {
+      const shouldUseLatamVisualizarFallback =
+        pendingLatamFromCompras <= 0 && pendingLatamFromVisualizar > 0;
+
+      if (shouldUseLatamVisualizarFallback) {
         setPendingPurchaseLatamPoints(pendingLatamFromVisualizar);
         setPendingPurchaseLatamCount(pendingLatamCountFromVisualizar);
       } else {
@@ -381,8 +384,8 @@ export default function CedentesResumoClient() {
   const eligible = useMemo(() => {
     const cutoff = FIXED_CUTOFF_POINTS;
 
-    let pts: Points = { latam: 0, smiles: 0, livelo: 0, esfera: 0 };
-    let counts = { latam: 0, smiles: 0, livelo: 0, esfera: 0 };
+    const pts: Points = { latam: 0, smiles: 0, livelo: 0, esfera: 0 };
+    const counts = { latam: 0, smiles: 0, livelo: 0, esfera: 0 };
 
     for (const c of cedentes) {
       const pLatam = Number(c.pontosLatam || 0);

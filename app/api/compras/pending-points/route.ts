@@ -39,18 +39,21 @@ export async function GET() {
       return ok({ latamPoints: 0, smilesPoints: 0, latamCount: 0, smilesCount: 0 });
     }
 
-    // Base principal: itens pendentes por compra.
+    // Base principal: itens pendentes de compras OPEN.
     const pendingItems = await prisma.purchaseItem.findMany({
       where: {
         status: "PENDING",
         pointsFinal: { gt: 0 },
         purchase: {
-          status: { not: "CANCELED" },
+          status: "OPEN",
           cedenteId: { in: allCedenteIds },
         },
         OR: [
           { programTo: { in: [LoyaltyProgram.LATAM, LoyaltyProgram.SMILES] } },
-          { purchase: { ciaAerea: { in: [LoyaltyProgram.LATAM, LoyaltyProgram.SMILES] } } },
+          {
+            programTo: null,
+            purchase: { ciaAerea: { in: [LoyaltyProgram.LATAM, LoyaltyProgram.SMILES] } },
+          },
         ],
       },
       select: {

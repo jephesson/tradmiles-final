@@ -219,11 +219,12 @@ export async function GET(req: NextRequest) {
     const pendingItems = await prisma.purchaseItem.findMany({
       where: {
         status: "PENDING",
+        pointsFinal: { gt: 0 },
         purchase: {
           cedenteId: { in: ids },
-          status: { not: "CANCELED" },
+          status: "OPEN",
         },
-        OR: [{ programTo: "LATAM" }, { purchase: { ciaAerea: "LATAM" } }],
+        OR: [{ programTo: "LATAM" }, { programTo: null, purchase: { ciaAerea: "LATAM" } }],
       },
       select: {
         pointsFinal: true,
