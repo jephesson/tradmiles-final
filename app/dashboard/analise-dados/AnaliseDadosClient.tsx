@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { Download } from "lucide-react";
 
 function fmtMoneyBR(cents: number) {
   const v = (cents || 0) / 100;
@@ -1142,6 +1143,10 @@ export default function AnaliseDadosClient() {
     window.location.href = `/api/analytics/sales-daily-export?${qs.toString()}`;
   }
 
+  function downloadCompanyXlsx() {
+    window.location.href = "/api/analytics/company-export";
+  }
+
   // ✅ Fonte do gráfico depende do modo (TIPADO)
   const chartPoints = useMemo<ChartPoint[]>(() => {
     const src = (chartMode === "DAY" ? (data?.days || []) : (data?.months || [])) as any[];
@@ -1674,6 +1679,16 @@ export default function AnaliseDadosClient() {
 
           <button className="rounded-xl border bg-white px-3 py-2 text-sm" onClick={load} disabled={loading}>
             {loading ? "Carregando..." : "Atualizar"}
+          </button>
+
+          <button
+            type="button"
+            className="inline-flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-800 transition hover:border-emerald-300 hover:bg-emerald-100"
+            onClick={downloadCompanyXlsx}
+            title="Baixar Excel completo da análise da empresa"
+          >
+            <Download className="h-4 w-4" aria-hidden="true" />
+            Excel completo
           </button>
         </div>
       </div>
