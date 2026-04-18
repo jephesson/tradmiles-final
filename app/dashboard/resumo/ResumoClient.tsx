@@ -7,6 +7,8 @@ type Points = { latam: number; smiles: number; livelo: number; esfera: number };
 type Snapshot = {
   id: string;
   date: string;
+  createdAt?: string;
+  cashCents?: number;
   totalBruto: number;
   totalDividas: number;
   totalLiquido: number;
@@ -80,6 +82,15 @@ type CaixaImediatoResponse = {
   error?: string;
 };
 
+type SnapshotHistoryRow = {
+  momentKey: string;
+  capturedAt: string;
+  resumoTotalLiquidoCents: number | null;
+  caixaImediatoTotalLiquidoCents: number | null;
+};
+
+type SnapshotChartRange = 30 | 60 | 90 | 180 | 360;
+
 const FIXED_CUTOFF_POINTS = 3000;
 
 function fmtMoneyBR(cents: number) {
@@ -89,23 +100,28 @@ function fmtMoneyBR(cents: number) {
 function fmtInt(n: number) {
   return new Intl.NumberFormat("pt-BR").format(n || 0);
 }
-function isoDateKey(raw: string) {
-  const s = String(raw || "");
-  const m = s.match(/^(\d{4}-\d{2}-\d{2})/);
-  if (m?.[1]) return m[1];
-
-  const d = new Date(s);
-  if (!Number.isFinite(d.getTime())) return s;
-
-  const y = d.getUTCFullYear();
-  const mm = String(d.getUTCMonth() + 1).padStart(2, "0");
-  const dd = String(d.getUTCDate()).padStart(2, "0");
-  return `${y}-${mm}-${dd}`;
+function dateTimeBR(raw: string) {
+  const d = new Date(raw);
+  if (!Number.isFinite(d.getTime())) return raw || "-";
+  return d.toLocaleString("pt-BR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 }
-function dateBRFromKey(key: string) {
-  const m = String(key).match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (!m) return key;
-  return `${m[3]}/${m[2]}/${m[1]}`;
+function snapshotMomentKey(snapshot: Snapshot) {
+  const raw = snapshot.date || snapshot.createdAt || "";
+  const d = new Date(raw);
+  if (!Number.isFinite(d.getTime())) return raw || snapshot.id;
+  return d.toISOString();
+}
+function snapshotCutoffISO(days: SnapshotChartRange) {
+  const d = new Date();
+  d.setDate(d.getDate() - (days - 1));
+  d.setHours(0, 0, 0, 0);
+  return d.toISOString();
 }
 function toCentsFromInput(s: string) {
   const cleaned = (s || "").trim();
@@ -114,13 +130,136 @@ function toCentsFromInput(s: string) {
   const n = Number(normalized);
   return Number.isFinite(n) ? Math.round(n * 100) : 0;
 }
-function safeInt(v: unknown, fb = 0) {
-  const n = Number(String(v ?? "").replace(/\D/g, ""));
-  return Number.isFinite(n) ? Math.trunc(n) : fb;
-}
 function centsToRateInput(cents: number) {
   const v = (Number(cents || 0) / 100).toFixed(2);
   return v.replace(".", ",");
+}
+
+function SnapshotEvolutionChart({
+  rows,
+  range,
+}: {
+  rows: SnapshotHistoryRow[];
+  range: SnapshotChartRange;
+}) {
+  const data = useMemo(() => {
+    const cutoff = snapshotCutoffISO(range);
+    return [...rows]
+      .filter((row) => row.capturedAt >= cutoff)
+      .sort((a, b) => a.capturedAt.localeCompare(b.capturedAt));
+  }, [rows, range]);
+
+  const width = 900;
+  const height = 260;
+  const padLeft = 64;
+  const padRight = 24;
+  const padTop = 22;
+  const padBottom = 44;
+  const plotW = width - padLeft - padRight;
+  const plotH = height - padTop - padBottom;
+
+  const values = data.flatMap((row) => [
+    row.resumoTotalLiquidoCents,
+    row.caixaImediatoTotalLiquidoCents,
+  ]).filter((v): v is number => typeof v === "number" && Number.isFinite(v));
+
+  if (!data.length || !values.length) {
+    return (
+      <div className="rounded-xl border bg-slate-50 p-4 text-sm text-slate-600">
+        Sem snapshots manuais nos últimos {range} dias.
+      </div>
+    );
+  }
+
+  const minValue = Math.min(...values);
+  const maxValue = Math.max(...values);
+  const span = Math.max(1, maxValue - minValue);
+  const minY = minValue - Math.round(span * 0.08);
+  const maxY = maxValue + Math.round(span * 0.08);
+  const ySpan = Math.max(1, maxY - minY);
+
+  const xFor = (idx: number) => padLeft + (data.length <= 1 ? plotW / 2 : (idx / (data.length - 1)) * plotW);
+  const yFor = (value: number) => padTop + ((maxY - value) / ySpan) * plotH;
+
+  const buildPath = (key: "resumoTotalLiquidoCents" | "caixaImediatoTotalLiquidoCents") => {
+    let path = "";
+    data.forEach((row, idx) => {
+      const value = row[key];
+      if (value == null) return;
+      const cmd = path ? "L" : "M";
+      path += `${cmd}${xFor(idx).toFixed(1)},${yFor(value).toFixed(1)} `;
+    });
+    return path.trim();
+  };
+
+  const resumoPath = buildPath("resumoTotalLiquidoCents");
+  const caixaPath = buildPath("caixaImediatoTotalLiquidoCents");
+  const latest = data[data.length - 1];
+  const first = data[0];
+  const midY = Math.round((minY + maxY) / 2);
+
+  return (
+    <div className="rounded-xl border bg-white p-4">
+      <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <div className="text-sm font-semibold">Evolução dos snapshots manuais</div>
+          <div className="text-xs text-slate-500">
+            {data.length} registro(s) em {range} dias • último: {dateTimeBR(latest.capturedAt)}
+          </div>
+        </div>
+        <div className="flex flex-wrap gap-3 text-xs">
+          <span className="inline-flex items-center gap-1 text-sky-700">
+            <span className="h-2 w-5 rounded-full bg-sky-500" /> Resumo
+          </span>
+          <span className="inline-flex items-center gap-1 text-emerald-700">
+            <span className="h-2 w-5 rounded-full bg-emerald-500" /> Caixa imediato
+          </span>
+        </div>
+      </div>
+
+      <div className="overflow-x-auto">
+        <svg viewBox={`0 0 ${width} ${height}`} className="min-w-[720px]">
+          <line x1={padLeft} y1={padTop} x2={padLeft} y2={padTop + plotH} stroke="#cbd5e1" />
+          <line x1={padLeft} y1={padTop + plotH} x2={padLeft + plotW} y2={padTop + plotH} stroke="#cbd5e1" />
+          {[maxY, midY, minY].map((tick) => {
+            const y = yFor(tick);
+            return (
+              <g key={tick}>
+                <line x1={padLeft} y1={y} x2={padLeft + plotW} y2={y} stroke="#e2e8f0" strokeDasharray="4 5" />
+                <text x={padLeft - 8} y={y + 4} textAnchor="end" className="fill-slate-500 text-[11px]">
+                  {fmtMoneyBR(tick)}
+                </text>
+              </g>
+            );
+          })}
+
+          {resumoPath ? <path d={resumoPath} fill="none" stroke="#0ea5e9" strokeWidth="3" strokeLinecap="round" /> : null}
+          {caixaPath ? <path d={caixaPath} fill="none" stroke="#10b981" strokeWidth="3" strokeLinecap="round" /> : null}
+
+          {data.map((row, idx) => {
+            const x = xFor(idx);
+            return (
+              <g key={row.momentKey}>
+                {row.resumoTotalLiquidoCents != null ? (
+                  <circle cx={x} cy={yFor(row.resumoTotalLiquidoCents)} r="3.5" fill="#0ea5e9" />
+                ) : null}
+                {row.caixaImediatoTotalLiquidoCents != null ? (
+                  <circle cx={x} cy={yFor(row.caixaImediatoTotalLiquidoCents)} r="3.5" fill="#10b981" />
+                ) : null}
+              </g>
+            );
+          })}
+
+          <text x={padLeft} y={height - 16} className="fill-slate-500 text-[11px]">
+            {dateTimeBR(first.capturedAt)}
+          </text>
+          <text x={padLeft + plotW} y={height - 16} textAnchor="end" className="fill-slate-500 text-[11px]">
+            {dateTimeBR(latest.capturedAt)}
+          </text>
+        </svg>
+      </div>
+    </div>
+  );
 }
 
 function Input({
@@ -206,6 +345,7 @@ export default function CedentesResumoClient() {
 
   const [snapshots, setSnapshots] = useState<Snapshot[]>([]);
   const [caixaImediatoSnapshots, setCaixaImediatoSnapshots] = useState<Snapshot[]>([]);
+  const [snapshotChartRange, setSnapshotChartRange] = useState<SnapshotChartRange>(30);
   const [creditCards, setCreditCards] = useState<CreditCard[]>([]);
   const [creditCardDescription, setCreditCardDescription] = useState("");
   const [creditCardAmount, setCreditCardAmount] = useState("");
@@ -646,59 +786,70 @@ export default function CedentesResumoClient() {
   const snapshotRows = useMemo(() => {
     const byDate = new Map<
       string,
-      { dateKey: string; resumoTotalLiquidoCents: number | null; caixaImediatoTotalLiquidoCents: number | null }
+      SnapshotHistoryRow
     >();
 
     for (const s of snapshots) {
-      const dateKey = isoDateKey(s.date);
-      if (!dateKey) continue;
-      const row = byDate.get(dateKey) || {
-        dateKey,
+      const momentKey = snapshotMomentKey(s);
+      if (!momentKey) continue;
+      const row = byDate.get(momentKey) || {
+        momentKey,
+        capturedAt: momentKey,
         resumoTotalLiquidoCents: null,
         caixaImediatoTotalLiquidoCents: null,
       };
       row.resumoTotalLiquidoCents = Number(s.totalLiquido || 0);
-      byDate.set(dateKey, row);
+      byDate.set(momentKey, row);
     }
 
     for (const s of caixaImediatoSnapshots) {
-      const dateKey = isoDateKey(s.date);
-      if (!dateKey) continue;
-      const row = byDate.get(dateKey) || {
-        dateKey,
+      const momentKey = snapshotMomentKey(s);
+      if (!momentKey) continue;
+      const row = byDate.get(momentKey) || {
+        momentKey,
+        capturedAt: momentKey,
         resumoTotalLiquidoCents: null,
         caixaImediatoTotalLiquidoCents: null,
       };
       row.caixaImediatoTotalLiquidoCents = Number(s.totalLiquido || 0);
-      byDate.set(dateKey, row);
+      byDate.set(momentKey, row);
     }
 
     return Array.from(byDate.values())
-      .sort((a, b) => (a.dateKey < b.dateKey ? 1 : a.dateKey > b.dateKey ? -1 : 0))
-      .slice(0, 60);
+      .sort((a, b) => b.capturedAt.localeCompare(a.capturedAt))
+      .slice(0, 500);
   }, [snapshots, caixaImediatoSnapshots]);
 
   async function salvarSnapshotsHoje() {
     try {
+      const capturedAt = new Date().toISOString();
+      const resumoSaidasCents =
+        (debtsOpenCents || 0) +
+        (pendingCedenteCommissionsCents || 0) +
+        (employeePayoutsPendingCents || 0) +
+        (taxesPendingCents || 0);
+
       const [resResumo, resCaixaImediato] = await Promise.all([
         fetch("/api/resumo/snapshot", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
+            capturedAt,
             cashCents: calc.cashCents,
             totalBrutoCents: calc.totalGrossCents,
-            totalDividasCents: debtsOpenCents,
-            totalLiquidoCents: calc.totalNetCents,
+            totalDividasCents: resumoSaidasCents,
+            totalLiquidoCents: calc.totalAfterPendingsCents,
           }),
         }),
         fetch("/api/caixa-imediato/snapshot", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
+            capturedAt,
             cashCents: caixaImediatoCalc.cashCents,
             cutoffPoints: eligible.cutoff,
             totalBrutoCents: caixaImediatoCalc.totalGrossCents,
-            totalDividasCents: debtsOpenCents,
+            totalDividasCents: caixaImediatoCalc.outCents,
             totalLiquidoCents: caixaImediatoCalc.totalImmediateCents,
           }),
         }),
@@ -712,7 +863,7 @@ export default function CedentesResumoClient() {
       if (!jCaixaImediato?.ok) throw new Error(jCaixaImediato?.error || "Erro ao salvar snapshot do caixa imediato");
 
       await load();
-      alert("✅ Snapshots do resumo e do caixa imediato salvos!");
+      alert("✅ Snapshot manual do resumo e do caixa imediato salvo!");
     } catch (e: any) {
       alert(e?.message || "Erro ao salvar snapshots.");
     }
@@ -935,7 +1086,7 @@ export default function CedentesResumoClient() {
               onClick={salvarSnapshotsHoje}
               className="rounded-xl bg-black px-4 py-2 text-white text-sm hover:bg-gray-800"
             >
-              Salvar snapshots (total + imediato)
+              Salvar snapshot manual
             </button>
           </div>
 
@@ -1036,8 +1187,12 @@ export default function CedentesResumoClient() {
       {/* Histórico */}
       <div className="rounded-2xl border bg-white p-4 space-y-3">
         <div className="flex items-center justify-between gap-3">
-          <div className="font-semibold">Histórico do caixa (por dia)</div>
-          <div className="text-xs text-slate-500">últimos {Math.min(60, snapshotRows.length)} dias</div>
+          <div>
+            <div className="font-semibold">Histórico manual do caixa</div>
+            <div className="text-xs text-slate-500">
+              últimos {Math.min(500, snapshotRows.length)} snapshots salvos manualmente
+            </div>
+          </div>
         </div>
 
         {snapshotRows.length === 0 ? (
@@ -1047,15 +1202,15 @@ export default function CedentesResumoClient() {
             <table className="w-full text-sm">
               <thead className="sticky top-0 bg-slate-50">
                 <tr>
-                  <th className="px-3 py-2 text-left">Dia</th>
+                  <th className="px-3 py-2 text-left">Data e hora</th>
                   <th className="px-3 py-2 text-right">Resumo (snapshot)</th>
                   <th className="px-3 py-2 text-right">Caixa imediato (snapshot)</th>
                 </tr>
               </thead>
               <tbody>
                 {snapshotRows.map((row) => (
-                  <tr key={row.dateKey} className="border-t">
-                    <td className="px-3 py-2">{dateBRFromKey(row.dateKey)}</td>
+                  <tr key={row.momentKey} className="border-t">
+                    <td className="px-3 py-2">{dateTimeBR(row.capturedAt)}</td>
                     <td className="px-3 py-2 text-right">
                       {row.resumoTotalLiquidoCents == null ? "—" : fmtMoneyBR(row.resumoTotalLiquidoCents)}
                     </td>
@@ -1071,9 +1226,25 @@ export default function CedentesResumoClient() {
           </div>
         )}
 
-        <div className="text-xs text-slate-600">
-          Se quiser “automático no fim do dia”, dá pra colocar um Cron na Vercel chamando um endpoint.
+        <div className="flex flex-wrap items-center gap-2 pt-2">
+          <span className="text-xs text-slate-500">Gráfico:</span>
+          {([30, 60, 90, 180, 360] as SnapshotChartRange[]).map((range) => (
+            <button
+              key={range}
+              type="button"
+              onClick={() => setSnapshotChartRange(range)}
+              className={`rounded-lg border px-3 py-1 text-xs font-medium transition ${
+                snapshotChartRange === range
+                  ? "border-slate-900 bg-slate-900 text-white"
+                  : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+              }`}
+            >
+              {range} dias
+            </button>
+          ))}
         </div>
+
+        <SnapshotEvolutionChart rows={snapshotRows} range={snapshotChartRange} />
       </div>
     </div>
   );

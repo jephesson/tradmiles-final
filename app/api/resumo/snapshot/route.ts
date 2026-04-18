@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { requireSession } from "@/lib/require-session";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -9,8 +10,15 @@ function toInt(v: any) {
   return Number.isFinite(n) ? Math.trunc(n) : null;
 }
 
+function parseCapturedAt(raw: unknown) {
+  if (typeof raw !== "string" || !raw.trim()) return new Date();
+  const d = new Date(raw);
+  return Number.isFinite(d.getTime()) ? d : new Date();
+}
+
 export async function POST(req: Request) {
   try {
+    const session = await requireSession(req);
     const body = await req.json();
 
     // ✅ Aceita 2 formatos:
@@ -34,20 +42,12 @@ export async function POST(req: Request) {
       );
     }
 
-    // 📅 usa o dia atual (00:00)
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    const capturedAt = parseCapturedAt(body.capturedAt);
 
-    await prisma.cashSnapshot.upsert({
-      where: { date: today },
-      create: {
-        date: today,
-        cashCents,
-        totalBruto: totalBrutoCents,
-        totalDividas: totalDividasCents,
-        totalLiquido: totalLiquidoCents,
-      },
-      update: {
+    await prisma.cashSnapshot.create({
+      data: {
+        team: session.team,
+        date: capturedAt,
         cashCents,
         totalBruto: totalBrutoCents,
         totalDividas: totalDividasCents,

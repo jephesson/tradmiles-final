@@ -43,15 +43,16 @@ export async function GET() {
 
   const rows = await prisma.caixaImediatoSnapshot.findMany({
     where: { team: session.team },
-    orderBy: [{ date: "desc" }],
-    take: 60,
+    orderBy: [{ createdAt: "desc" }, { date: "desc" }],
+    take: 2000,
     select: {
       id: true,
       date: true,
+      createdAt: true,
+      cashCents: true,
       totalBrutoCents: true,
       totalDividasCents: true,
       totalLiquidoCents: true,
-      cashCents: true,
     },
   });
 
@@ -63,10 +64,15 @@ export async function GET() {
       latestCashCents: latest?.cashCents ?? 0,
       snapshots: rows.map((r) => ({
         id: r.id,
-        date: `${r.date}T00:00:00.000Z`, // pro dateBR funcionar sem mudar seu client
+        date: r.date,
+        createdAt: r.createdAt.toISOString(),
+        cashCents: r.cashCents,
         totalBruto: r.totalBrutoCents,
         totalDividas: r.totalDividasCents,
         totalLiquido: r.totalLiquidoCents,
+        totalBrutoCents: r.totalBrutoCents,
+        totalDividasCents: r.totalDividasCents,
+        totalImediatoCents: r.totalLiquidoCents,
       })),
     },
   });

@@ -742,7 +742,8 @@ model WalletBalance {
  */
 model CashSnapshot {
   id   String   @id @default(cuid())
-  date DateTime @unique
+  team String
+  date DateTime
 
   cashCents Int @default(0)
 
@@ -753,7 +754,8 @@ model CashSnapshot {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  @@index([date])
+  @@index([team, date])
+  @@index([team, createdAt])
   @@map("cash_snapshots")
 }
 
@@ -1393,8 +1395,8 @@ model CaixaImediatoSnapshot {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  @@unique([team, date])
   @@index([team, date])
+  @@index([team, createdAt])
   @@map("caixa_imediato_snapshots")
 }
 

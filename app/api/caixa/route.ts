@@ -1,22 +1,25 @@
 // app/api/caixa/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { requireSession } from "@/lib/require-session";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-
-function startOfDayUTC(date = new Date()) {
-  // normaliza para 00:00 UTC do dia (evita duplicar “por horário”)
-  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
-}
 
 function toInt(v: any) {
   const n = Number(v);
   return Number.isFinite(n) ? Math.trunc(n) : 0;
 }
 
+function parseCapturedAt(raw: unknown) {
+  if (typeof raw !== "string" || !raw.trim()) return new Date();
+  const d = new Date(raw);
+  return Number.isFinite(d.getTime()) ? d : new Date();
+}
+
 export async function POST(req: NextRequest) {
   try {
+    const session = await requireSession(req);
     const body = await req.json().catch(() => ({}));
 
     // Agora o endpoint grava o HISTÓRICO DO TOTAL (principalmente o líquido).
@@ -26,12 +29,10 @@ export async function POST(req: NextRequest) {
     const totalDividas = toInt(body?.totalDividas);
     const totalLiquido = toInt(body?.totalLiquido);
 
-    const date = startOfDayUTC(new Date());
+    const date = parseCapturedAt(body?.capturedAt);
 
-    const upserted = await prisma.cashSnapshot.upsert({
-      where: { date },
-      create: { date, totalBruto, totalDividas, totalLiquido },
-      update: { totalBruto, totalDividas, totalLiquido },
+    const created = await prisma.cashSnapshot.create({
+      data: { team: session.team, date, totalBruto, totalDividas, totalLiquido },
       select: { id: true, date: true, totalBruto: true, totalDividas: true, totalLiquido: true },
     });
 
@@ -39,11 +40,11 @@ export async function POST(req: NextRequest) {
       {
         ok: true,
         data: {
-          id: upserted.id,
-          date: upserted.date.toISOString(),
-          totalBruto: upserted.totalBruto,
-          totalDividas: upserted.totalDividas,
-          totalLiquido: upserted.totalLiquido,
+          id: created.id,
+          date: created.date.toISOString(),
+          totalBruto: created.totalBruto,
+          totalDividas: created.totalDividas,
+          totalLiquido: created.totalLiquido,
         },
       },
       { status: 200 }

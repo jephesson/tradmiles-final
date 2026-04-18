@@ -35,20 +35,10 @@ async function getServerSession(): Promise<Sess | null> {
   return readSessionCookie(raw);
 }
 
-function todayISORecife() {
-  const d = new Date();
-  const parts = new Intl.DateTimeFormat("en-CA", {
-    timeZone: "America/Recife",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  })
-    .formatToParts(d)
-    .reduce((acc: any, p) => {
-      acc[p.type] = p.value;
-      return acc;
-    }, {});
-  return `${parts.year}-${parts.month}-${parts.day}`; // YYYY-MM-DD
+function parseCapturedAt(raw: unknown) {
+  if (typeof raw !== "string" || !raw.trim()) return new Date();
+  const d = new Date(raw);
+  return Number.isFinite(d.getTime()) ? d : new Date();
 }
 
 function safeInt(v: unknown, fb = 0) {
@@ -65,24 +55,18 @@ export async function POST(req: Request) {
   const body = await req.json().catch(() => null);
   if (!body) return NextResponse.json({ ok: false, error: "Body inválido" }, { status: 400 });
 
-  const date = todayISORecife();
+  const capturedAt = parseCapturedAt(body.capturedAt);
+  const date = capturedAt.toISOString();
 
   const cashCents = safeInt(body.cashCents, 0);
   const totalBrutoCents = safeInt(body.totalBrutoCents, 0);
   const totalDividasCents = safeInt(body.totalDividasCents, 0);
-  const totalLiquidoCents = safeInt(body.totalLiquidoCents, 0);
+  const totalLiquidoCents = safeInt(body.totalLiquidoCents ?? body.totalImediatoCents, 0);
 
-  await prisma.caixaImediatoSnapshot.upsert({
-    where: { team_date: { team: session.team, date } },
-    create: {
+  await prisma.caixaImediatoSnapshot.create({
+    data: {
       team: session.team,
       date,
-      cashCents,
-      totalBrutoCents,
-      totalDividasCents,
-      totalLiquidoCents,
-    },
-    update: {
       cashCents,
       totalBrutoCents,
       totalDividasCents,

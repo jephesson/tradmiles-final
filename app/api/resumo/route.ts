@@ -115,10 +115,12 @@ export async function GET(req: Request) {
 
     // histórico (bruto/dividas/liquido + cashCents)
     const snapshots = await prisma.cashSnapshot.findMany({
-      orderBy: { date: "desc" },
-      take: 60,
+      where: { team: session.team },
+      orderBy: [{ createdAt: "desc" }, { date: "desc" }],
+      take: 2000,
       select: {
         id: true,
+        team: true,
         date: true,
         cashCents: true,
         totalBruto: true,
@@ -336,6 +338,7 @@ export async function GET(req: Request) {
           snapshots: snapshots.map((s) => ({
             id: s.id,
             date: s.date.toISOString(),
+            createdAt: s.createdAt.toISOString(),
             cashCents: safeInt(s.cashCents),
             totalBruto: safeInt(s.totalBruto),
             totalDividas: safeInt(s.totalDividas),
@@ -373,6 +376,7 @@ export async function GET(req: Request) {
 
 export async function POST(req: Request) {
   try {
+    const session = await requireSession(req);
     const body = await req.json();
 
     const cashCents = toIntOrNull(body.cashCents ?? body.caixaCents ?? 0);
@@ -390,19 +394,14 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: "Valores inválidos." }, { status: 400 });
     }
 
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    const capturedAtRaw = typeof body.capturedAt === "string" ? body.capturedAt : "";
+    const capturedAt = capturedAtRaw ? new Date(capturedAtRaw) : new Date();
+    const date = Number.isFinite(capturedAt.getTime()) ? capturedAt : new Date();
 
-    await prisma.cashSnapshot.upsert({
-      where: { date: today },
-      create: {
-        date: today,
-        cashCents,
-        totalBruto: totalBrutoCents,
-        totalDividas: totalDividasCents,
-        totalLiquido: totalLiquidoCents,
-      },
-      update: {
+    await prisma.cashSnapshot.create({
+      data: {
+        team: session.team,
+        date,
         cashCents,
         totalBruto: totalBrutoCents,
         totalDividas: totalDividasCents,

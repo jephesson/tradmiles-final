@@ -10,6 +10,7 @@ type Points = { latam: number; smiles: number; livelo: number; esfera: number };
 type Snapshot = {
   id: string;
   date: string; // ISO
+  createdAt?: string;
   cashCents: number;
   cutoffPoints: number;
 
@@ -84,9 +85,16 @@ function fmtMoneyBR(cents: number) {
 function fmtInt(n: number) {
   return new Intl.NumberFormat("pt-BR").format(n || 0);
 }
-function dateBR(iso: string) {
+function dateTimeBR(iso: string) {
   const d = new Date(iso);
-  return d.toLocaleDateString("pt-BR");
+  if (!Number.isFinite(d.getTime())) return iso || "-";
+  return d.toLocaleString("pt-BR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 }
 function safeInt(v: unknown, fb = 0) {
   const n = Number(String(v ?? "").replace(/\D/g, ""));
@@ -484,16 +492,18 @@ export default function CaixaImediatoClient() {
 
   async function salvarCaixaHoje() {
     try {
+      const capturedAt = new Date().toISOString();
       const res = await fetch("/api/caixa-imediato/snapshot", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          capturedAt,
           cashCents: calc.cashCents,
           cutoffPoints: eligible.cutoff,
 
           // ✅ bruto inclui dívidas a receber + compras pendentes
           totalBrutoCents: calc.totalGrossCents,
-          totalDividasCents: debtsOpenCents,
+          totalDividasCents: calc.outCents,
 
           totalBloqueadoCents: blockedTotals.valueBlockedCents,
           pendingCedenteCommissionsCents,
@@ -507,7 +517,7 @@ export default function CaixaImediatoClient() {
       const j = await res.json();
       if (!j?.ok) throw new Error(j?.error || "Erro ao salvar snapshot");
       await loadAll();
-      alert("✅ Snapshot do Caixa Imediato salvo!");
+      alert("✅ Snapshot manual do Caixa Imediato salvo!");
     } catch (e: any) {
       alert(e.message);
     }
@@ -579,7 +589,7 @@ export default function CaixaImediatoClient() {
             </div>
 
             <button onClick={salvarCaixaHoje} className="rounded-xl bg-black px-4 py-2 text-white text-sm hover:bg-gray-800">
-              Salvar snapshot do dia
+              Salvar snapshot manual
             </button>
           </div>
 
@@ -688,8 +698,8 @@ export default function CaixaImediatoClient() {
       {/* Histórico */}
       <div className="rounded-2xl border bg-white p-4 space-y-3">
         <div className="flex items-center justify-between gap-3">
-          <div className="font-semibold">Histórico (snapshot diário)</div>
-          <div className="text-xs text-slate-500">últimos {Math.min(60, snapshots.length)} dias</div>
+          <div className="font-semibold">Histórico manual</div>
+          <div className="text-xs text-slate-500">últimos {Math.min(500, snapshots.length)} snapshots</div>
         </div>
 
         {snapshots.length === 0 ? (
@@ -699,14 +709,14 @@ export default function CaixaImediatoClient() {
             <table className="w-full text-sm">
               <thead className="sticky top-0 bg-slate-50">
                 <tr>
-                  <th className="px-3 py-2 text-left">Dia</th>
+                  <th className="px-3 py-2 text-left">Data e hora</th>
                   <th className="px-3 py-2 text-right">Caixa imediato</th>
                 </tr>
               </thead>
               <tbody>
                 {snapshots.map((s) => (
                   <tr key={s.id} className="border-t">
-                    <td className="px-3 py-2">{dateBR(s.date)}</td>
+                    <td className="px-3 py-2">{dateTimeBR(s.date)}</td>
                     <td className="px-3 py-2 text-right">{fmtMoneyBR(s.totalImediatoCents)}</td>
                   </tr>
                 ))}
