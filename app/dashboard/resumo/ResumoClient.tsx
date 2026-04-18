@@ -59,13 +59,14 @@ type DARResponse = {
 };
 
 type PendingPointsResponse = {
-  ok: true;
-  data: {
+  ok?: boolean;
+  data?: {
     latamPoints: number;
     smilesPoints: number;
     latamCount: number;
     smilesCount: number;
   };
+  error?: string;
 };
 
 type LatamVisualizarResponse = {
@@ -99,6 +100,11 @@ function fmtMoneyBR(cents: number) {
 }
 function fmtInt(n: number) {
   return new Intl.NumberFormat("pt-BR").format(n || 0);
+}
+function getErrorMessage(error: unknown, fallback: string) {
+  if (error instanceof Error && error.message) return error.message;
+  if (typeof error === "string" && error.trim()) return error;
+  return fallback;
 }
 function dateTimeBR(raw: string) {
   const d = new Date(raw);
@@ -410,7 +416,7 @@ export default function CedentesResumoClient() {
       if (!jDAR?.ok) throw new Error(jDAR?.error || "Erro ao carregar dívidas a receber");
       if (!jCed?.ok) throw new Error(jCed?.error || "Erro ao carregar cedentes");
       if (!jBloq?.ok) throw new Error(jBloq?.error || "Erro ao carregar bloqueios");
-      if (!jPending?.ok) throw new Error((jPending as any)?.error || "Erro ao carregar pontos pendentes");
+      if (!jPending?.ok) throw new Error(jPending?.error || "Erro ao carregar pontos pendentes");
       if (!jCaixaImediato?.ok) throw new Error(jCaixaImediato?.error || "Erro ao carregar caixa imediato");
 
       setPoints(j.data.points);
@@ -479,8 +485,8 @@ export default function CedentesResumoClient() {
       setPendingPurchaseSmilesCount(Number(jPending.data?.smilesCount || 0));
 
       setDidLoad(true);
-    } catch (e: any) {
-      alert(e.message);
+    } catch (e: unknown) {
+      alert(getErrorMessage(e, "Erro ao carregar resumo"));
     } finally {
       setLoading(false);
     }
@@ -588,8 +594,8 @@ export default function CedentesResumoClient() {
       setCreditCardDescription("");
       setCreditCardAmount("");
       await load();
-    } catch (e: any) {
-      alert(e?.message || "Erro ao adicionar cartão.");
+    } catch (e: unknown) {
+      alert(getErrorMessage(e, "Erro ao adicionar cartão."));
     } finally {
       setSavingCreditCard(false);
     }
@@ -605,8 +611,8 @@ export default function CedentesResumoClient() {
       if (!j?.ok) throw new Error(j?.error || "Erro ao remover cartão.");
 
       await load();
-    } catch (e: any) {
-      alert(e?.message || "Erro ao remover cartão.");
+    } catch (e: unknown) {
+      alert(getErrorMessage(e, "Erro ao remover cartão."));
     } finally {
       setSavingCreditCard(false);
     }
@@ -718,6 +724,12 @@ export default function CedentesResumoClient() {
     const vLiveloCents = Math.round(milLivelo * rLivelo * 100);
     const vEsferaCents = Math.round(milEsfera * rEsfera * 100);
 
+    const pendingLatamMil = Math.floor((pendingPurchaseLatamPoints || 0) / 1000);
+    const pendingSmilesMil = Math.floor((pendingPurchaseSmilesPoints || 0) / 1000);
+    const pendingLatamValueCents = Math.round(pendingLatamMil * rLatam * 100);
+    const pendingSmilesValueCents = Math.round(pendingSmilesMil * rSmiles * 100);
+    const pendingPurchasesValueCents = pendingLatamValueCents + pendingSmilesValueCents;
+
     const cashCents = 0;
     const cashAndCardsCents = creditCardsTotalCents;
 
@@ -729,6 +741,7 @@ export default function CedentesResumoClient() {
       vSmilesCents +
       vLiveloCents +
       vEsferaCents +
+      pendingPurchasesValueCents +
       cashAndCardsCents +
       receivableSalesCents +
       receivableDARcents;
@@ -757,6 +770,11 @@ export default function CedentesResumoClient() {
       vSmilesCents,
       vLiveloCents,
       vEsferaCents,
+      pendingLatamMil,
+      pendingSmilesMil,
+      pendingLatamValueCents,
+      pendingSmilesValueCents,
+      pendingPurchasesValueCents,
       cashCents,
       cashAndCardsCents,
 
@@ -774,6 +792,8 @@ export default function CedentesResumoClient() {
     rateSmiles,
     rateLivelo,
     rateEsfera,
+    pendingPurchaseLatamPoints,
+    pendingPurchaseSmilesPoints,
     creditCardsTotalCents,
     debtsOpenCents,
     pendingCedenteCommissionsCents,
@@ -864,8 +884,8 @@ export default function CedentesResumoClient() {
 
       await load();
       alert("✅ Snapshot manual do resumo e do caixa imediato salvo!");
-    } catch (e: any) {
-      alert(e?.message || "Erro ao salvar snapshots.");
+    } catch (e: unknown) {
+      alert(getErrorMessage(e, "Erro ao salvar snapshots."));
     }
   }
 
@@ -1006,7 +1026,7 @@ export default function CedentesResumoClient() {
             <div className="text-xs text-slate-600">Caixa total (sem corte)</div>
             <div className="text-xl font-bold">{fmtMoneyBR(calc.totalAfterPendingsCents)}</div>
             <div className="text-xs text-slate-500 mt-1">
-              milhas totais + saldos + a receber − dívidas − pendências
+              milhas totais + pontos pendentes + saldos + a receber − dívidas − pendências
             </div>
           </div>
 
@@ -1030,8 +1050,8 @@ export default function CedentesResumoClient() {
               try {
                 await salvarRates();
                 alert("✅ Milheiros salvos!");
-              } catch (e: any) {
-                alert(e.message);
+              } catch (e: unknown) {
+                alert(getErrorMessage(e, "Erro ao salvar milheiros."));
               }
             }}
             className="rounded-xl border px-4 py-2 text-sm hover:bg-slate-50"
@@ -1177,7 +1197,7 @@ export default function CedentesResumoClient() {
               <div className="text-xs text-slate-600">Caixa total (sem corte)</div>
               <div className="text-xl font-bold">{fmtMoneyBR(calc.totalAfterPendingsCents)}</div>
               <div className="text-xs text-slate-500 mt-1">
-                milhas totais + saldos + a receber − dívidas − pendências
+                milhas totais + pontos pendentes + saldos + a receber − dívidas − pendências
               </div>
             </div>
           </div>
