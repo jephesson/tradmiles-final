@@ -25,8 +25,11 @@ type ExclusionRow = {
   scope: ScopeMode;
   program: Program | null;
   details: unknown;
+  restoredAt?: string | null;
+  restoreDetails?: unknown;
   createdAt: string;
   deletedBy?: { id: string; name: string; login: string } | null;
+  restoredBy?: { id: string; name: string; login: string } | null;
 };
 
 type ListResponse<T> = {
@@ -105,6 +108,7 @@ function getErrorMessage(error: unknown, fallback: string) {
 export default function CedentesExclusaoDefinitivaClient() {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [restoringId, setRestoringId] = useState<string | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
 
   const [cedentes, setCedentes] = useState<CedenteLite[]>([]);
@@ -378,6 +382,55 @@ export default function CedentesExclusaoDefinitivaClient() {
     }
   }
 
+  async function restaurarCedente(row: ExclusionRow) {
+    if (row.scope !== "ACCOUNT") {
+      alert("Somente exclusões de conta inteira podem restaurar CPF e cadastro.");
+      return;
+    }
+    if (row.restoredAt) {
+      alert("Este cedente já foi restaurado.");
+      return;
+    }
+    if (!password.trim()) {
+      alert("Informe sua senha de confirmação para restaurar.");
+      return;
+    }
+
+    if (
+      !confirm(
+        `Confirma restaurar ${row.cedenteNomeCompleto} (${row.cedenteIdentificador})?\n\nO CPF original será recolocado no cadastro antigo. Vendas, compras, comissões e emissões continuam vinculadas ao mesmo histórico. Dados de acesso, pontos e registros operacionais apagados na exclusão não voltam automaticamente.`
+      )
+    ) {
+      return;
+    }
+
+    setRestoringId(row.id);
+    try {
+      const res = await fetch("/api/cedentes/exclusao-definitiva", {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          exclusionId: row.id,
+          password: password.trim(),
+        }),
+      });
+
+      const json = (await res.json().catch(() => ({}))) as ActionResponse;
+      if (!res.ok || json?.ok === false) {
+        throw new Error(json?.error || `Erro ${res.status}`);
+      }
+
+      setPassword("");
+      await loadAll();
+      alert("Cedente restaurado com CPF e histórico preservado.");
+    } catch (error: unknown) {
+      alert(getErrorMessage(error, "Falha ao restaurar cedente."));
+    } finally {
+      setRestoringId(null);
+    }
+  }
+
   return (
     <div className="space-y-6">
       <div>
@@ -566,12 +619,13 @@ export default function CedentesExclusaoDefinitivaClient() {
               <th className="px-3 py-2 text-left">Escopo</th>
               <th className="px-3 py-2 text-left">Programa</th>
               <th className="px-3 py-2 text-left">Responsável</th>
+              <th className="px-3 py-2 text-left">Status</th>
             </tr>
           </thead>
           <tbody>
             {excluded.length === 0 ? (
               <tr>
-                <td className="px-3 py-6 text-slate-500" colSpan={5}>
+                <td className="px-3 py-6 text-slate-500" colSpan={6}>
                   Nenhum registro em excluídos.
                 </td>
               </tr>
@@ -592,6 +646,28 @@ export default function CedentesExclusaoDefinitivaClient() {
                     {r.deletedBy?.login ? (
                       <span className="text-xs text-slate-500"> (@{r.deletedBy.login})</span>
                     ) : null}
+                  </td>
+                  <td className="px-3 py-2">
+                    {r.restoredAt ? (
+                      <div>
+                        <div className="font-medium text-emerald-700">Restaurado</div>
+                        <div className="text-xs text-slate-500">
+                          {fmtDateTime(r.restoredAt)}
+                          {r.restoredBy?.login ? ` por @${r.restoredBy.login}` : ""}
+                        </div>
+                      </div>
+                    ) : r.scope === "ACCOUNT" ? (
+                      <button
+                        type="button"
+                        onClick={() => restaurarCedente(r)}
+                        disabled={saving || loading || restoringId === r.id}
+                        className="rounded-xl border border-emerald-200 px-3 py-1.5 text-xs font-medium text-emerald-700 hover:bg-emerald-50 disabled:opacity-50"
+                      >
+                        {restoringId === r.id ? "Restaurando..." : "Restaurar"}
+                      </button>
+                    ) : (
+                      <span className="text-xs text-slate-500">Histórico preservado</span>
+                    )}
                   </td>
                 </tr>
               ))

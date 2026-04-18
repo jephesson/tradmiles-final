@@ -133,6 +133,7 @@ model User {
 
   // ✅ Exclusões definitivas de cedentes (auditoria)
   cedenteExclusionsPerformed CedenteExclusion[] @relation("CedenteExclusionDeletedBy")
+  cedenteExclusionsRestored  CedenteExclusion[] @relation("CedenteExclusionRestoredBy")
 
   // Dívidas criadas por este usuário
   debtsCreated Debt[]
@@ -527,11 +528,17 @@ model CedenteExclusion {
   deletedById String?
   deletedBy   User? @relation("CedenteExclusionDeletedBy", fields: [deletedById], references: [id], onDelete: SetNull)
 
+  restoredAt      DateTime?
+  restoredById    String?
+  restoredBy      User?     @relation("CedenteExclusionRestoredBy", fields: [restoredById], references: [id], onDelete: SetNull)
+  restoreDetails  Json?
+
   createdAt DateTime @default(now())
 
   @@index([cedenteId])
   @@index([team, createdAt])
   @@index([scope, program])
+  @@index([restoredAt])
   @@index([createdAt])
   @@map("cedente_exclusions")
 }

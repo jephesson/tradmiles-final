@@ -85,6 +85,25 @@ function getErrorMessage(error: unknown, fallback: string) {
   return fallback;
 }
 
+function httpError(message: string, status: number) {
+  const err = new Error(message) as Error & { status?: number };
+  err.status = status;
+  return err;
+}
+
+function getHttpStatus(error: unknown, fallback = 500) {
+  if (error && typeof error === "object" && "status" in error) {
+    const status = Number((error as { status?: unknown }).status);
+    if (Number.isInteger(status) && status >= 400 && status <= 599) return status;
+  }
+  if (error && typeof error === "object" && "code" in error) {
+    const code = String((error as { code?: unknown }).code || "");
+    if (code === "P2002") return 409;
+    if (code === "P2025") return 404;
+  }
+  return fallback;
+}
+
 function isReasonCode(value: string): value is ExclusionReasonCode {
   return value in EXCLUSION_REASON_TEXT;
 }
@@ -155,8 +174,11 @@ export async function GET(req: Request) {
         scope: true,
         program: true,
         details: true,
+        restoredAt: true,
+        restoreDetails: true,
         createdAt: true,
         deletedBy: { select: { id: true, name: true, login: true } },
+        restoredBy: { select: { id: true, name: true, login: true } },
       },
     });
 
@@ -385,6 +407,182 @@ export async function POST(req: Request) {
     return NextResponse.json(
       { ok: false, error: getErrorMessage(error, "Falha na exclusão definitiva.") },
       { status: 500 }
+    );
+  }
+}
+
+export async function PATCH(req: Request) {
+  try {
+    const body = await req.json().catch(() => null);
+
+    const exclusionId = String(body?.exclusionId || "").trim();
+    const password = String(body?.password || "").trim();
+
+    if (!exclusionId) {
+      return NextResponse.json({ ok: false, error: "exclusionId obrigatório." }, { status: 400 });
+    }
+    if (!password) {
+      return NextResponse.json({ ok: false, error: "Senha obrigatória." }, { status: 400 });
+    }
+
+    const auth = await requirePassword(req, password);
+    if (!auth.ok) {
+      return NextResponse.json({ ok: false, error: auth.error }, { status: auth.status });
+    }
+
+    const result = await prisma.$transaction(async (tx) => {
+      const exclusion = await tx.cedenteExclusion.findFirst({
+        where: { id: exclusionId, team: auth.team },
+        select: {
+          id: true,
+          team: true,
+          cedenteId: true,
+          cedenteIdentificador: true,
+          cedenteNomeCompleto: true,
+          cedenteCpf: true,
+          scope: true,
+          program: true,
+          restoredAt: true,
+        },
+      });
+
+      if (!exclusion) {
+        throw httpError("Registro de exclusão não encontrado.", 404);
+      }
+      if (exclusion.scope !== "ACCOUNT") {
+        throw httpError(
+          "Somente exclusões de conta inteira podem restaurar CPF e histórico do cedente.",
+          400
+        );
+      }
+      if (exclusion.restoredAt) {
+        throw httpError("Este cedente já foi restaurado.", 409);
+      }
+
+      const originalCpf = String(exclusion.cedenteCpf || "").replace(/\D+/g, "").slice(0, 11);
+      if (originalCpf.length !== 11) {
+        throw httpError("CPF original inválido no registro de exclusão.", 400);
+      }
+
+      const cedente = await tx.cedente.findUnique({
+        where: { id: exclusion.cedenteId },
+        select: {
+          id: true,
+          identificador: true,
+          nomeCompleto: true,
+          cpf: true,
+          status: true,
+          owner: { select: { team: true } },
+        },
+      });
+
+      if (!cedente) {
+        throw httpError(
+          "O cadastro-base do cedente não existe mais. Para restaurar completo, será necessário usar backup.",
+          404
+        );
+      }
+      if (cedente.owner.team !== auth.team) {
+        throw httpError("Sem permissão para restaurar cedente de outro time.", 403);
+      }
+
+      const cpfOwner = await tx.cedente.findUnique({
+        where: { cpf: originalCpf },
+        select: {
+          id: true,
+          identificador: true,
+          nomeCompleto: true,
+          status: true,
+        },
+      });
+
+      if (cpfOwner && cpfOwner.id !== cedente.id) {
+        throw httpError(
+          `CPF já está em uso no cadastro ${cpfOwner.identificador} (${cpfOwner.nomeCompleto}).`,
+          409
+        );
+      }
+
+      const [
+        salesPreserved,
+        purchasesPreserved,
+        commissionsPreserved,
+        emissionsPreserved,
+        receivablesPreserved,
+      ] = await Promise.all([
+        tx.sale.count({ where: { cedenteId: cedente.id } }),
+        tx.purchase.count({ where: { cedenteId: cedente.id } }),
+        tx.cedenteCommission.count({ where: { cedenteId: cedente.id } }),
+        tx.emissionEvent.count({ where: { cedenteId: cedente.id } }),
+        tx.receivable.count({ where: { sale: { is: { cedenteId: cedente.id } } } }),
+      ]);
+
+      const restoredAt = new Date();
+      const restoredCedente = await tx.cedente.update({
+        where: { id: cedente.id },
+        data: {
+          cpf: originalCpf,
+          status: "APPROVED",
+        },
+        select: {
+          id: true,
+          identificador: true,
+          nomeCompleto: true,
+          cpf: true,
+          status: true,
+          reviewedAt: true,
+        },
+      });
+
+      const restoreDetails = {
+        cpfRestored: true,
+        originalCpf,
+        previousCpf: cedente.cpf,
+        statusBefore: cedente.status,
+        statusAfter: "APPROVED",
+        reviewedAtPreserved: true,
+        historyPreserved: true,
+        salesPreserved,
+        receivablesPreserved,
+        purchasesPreserved,
+        commissionsPreserved,
+        emissionsPreserved,
+        notRestored: [
+          "telefone",
+          "emailCriado",
+          "senhas",
+          "pontos",
+          "bloqueios",
+          "protocolos",
+          "clubes",
+          "saldos de carteira",
+          "controles LATAM Turbo",
+        ],
+      };
+
+      const restoredMark = await tx.cedenteExclusion.updateMany({
+        where: { id: exclusion.id, restoredAt: null },
+        data: {
+          restoredAt,
+          restoredById: auth.userId,
+          restoreDetails,
+        },
+      });
+      if (restoredMark.count !== 1) {
+        throw httpError("Este cedente já foi restaurado.", 409);
+      }
+
+      return {
+        cedente: restoredCedente,
+        restoreDetails,
+      };
+    });
+
+    return NextResponse.json({ ok: true, restored: result });
+  } catch (error: unknown) {
+    return NextResponse.json(
+      { ok: false, error: getErrorMessage(error, "Falha ao restaurar cedente.") },
+      { status: getHttpStatus(error) }
     );
   }
 }
