@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { BalcaoAirline } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/auth-server";
+import { triggerEmployeePayoutAutoCompute } from "@/lib/payouts/autoCompute";
 import {
   BALCAO_TAX_DEFAULT_PERCENT,
   BalcaoTaxRule,
@@ -321,7 +322,12 @@ export async function POST(req: NextRequest) {
       },
     });
 
-    return ok({ row: toRow(created, taxRule) }, 201);
+    const payoutAutoCompute = await triggerEmployeePayoutAutoCompute(req, {
+      team,
+      fallbackBasis: "SALE_DATE",
+    });
+
+    return ok({ row: toRow(created, taxRule), payoutAutoCompute }, 201);
   } catch (e: unknown) {
     const message = e instanceof Error ? e.message : "Erro ao cadastrar emissão no balcão.";
     const status = message === "UNAUTHENTICATED" ? 401 : 500;

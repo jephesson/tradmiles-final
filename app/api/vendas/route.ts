@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { prisma } from "@/lib/prisma";
-import { Prisma } from "@prisma/client";
+import { Prisma, SalePaymentStatus } from "@prisma/client";
+import { triggerEmployeePayoutAutoCompute } from "@/lib/payouts/autoCompute";
 import {
   calcBonusCents,
   calcCommissionCents,
@@ -15,6 +16,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 type Program = "LATAM" | "SMILES" | "LIVELO" | "ESFERA";
+type CedentePointsField = "pontosLatam" | "pontosSmiles" | "pontosLivelo" | "pontosEsfera";
 
 type Sess = {
   id: string;
@@ -53,7 +55,7 @@ function isPurchaseNumero(v: string) {
   return /^ID\d{5}$/i.test((v || "").trim());
 }
 
-function parseDateISOToLocal(v?: any): Date {
+function parseDateISOToLocal(v?: unknown): Date {
   const s = String(v || "").trim();
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
   if (!m) return new Date();
@@ -63,7 +65,7 @@ function parseDateISOToLocal(v?: any): Date {
   return new Date(y, mm - 1, d);
 }
 
-function parseDateISOToLocalOrNull(v?: any): Date | null {
+function parseDateISOToLocalOrNull(v?: unknown): Date | null {
   const s = String(v || "").trim();
   if (!s) return null;
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
@@ -101,6 +103,12 @@ async function resolveCedenteId(tx: Prisma.TransactionClient, cedenteKey: string
   });
 
   return ced?.id ?? null;
+}
+
+function getErrorMessage(error: unknown, fallback: string) {
+  if (error instanceof Error && error.message) return error.message;
+  if (typeof error === "string" && error.trim()) return error;
+  return fallback;
 }
 
 /**
@@ -170,7 +178,7 @@ export async function GET(req: Request) {
 
   if (status && status !== "ALL") {
     if (status === "PENDING" || status === "PAID" || status === "CANCELED") {
-      where.paymentStatus = status as any;
+      where.paymentStatus = status as SalePaymentStatus;
     }
   }
 
@@ -379,8 +387,8 @@ export async function POST(req: Request) {
       if (!ced) throw new Error("Cedente não encontrado.");
       if (ced.status !== "APPROVED") throw new Error("Cedente não aprovado.");
 
-      const field = pointsField(program) as keyof typeof ced;
-      const availablePts = clampInt((ced as any)[field]);
+      const field = pointsField(program) as CedentePointsField;
+      const availablePts = clampInt(ced[field]);
       if (availablePts < points) throw new Error("Pontos insuficientes.");
 
       const purchase = isPurchaseNumero(purchaseKey)
@@ -473,8 +481,9 @@ export async function POST(req: Request) {
         select: { id: true, numero: true },
       });
 
-      const decData: any = {};
-      decData[field] = { decrement: points };
+      const decData = {
+        [field]: { decrement: points },
+      } as Prisma.CedenteUpdateInput;
 
       await tx.cedente.update({
         where: { id: cedenteId },
@@ -495,10 +504,15 @@ export async function POST(req: Request) {
       return sale;
     });
 
-    return NextResponse.json({ ok: true, sale: result });
-  } catch (e: any) {
+    const payoutAutoCompute = await triggerEmployeePayoutAutoCompute(req, {
+      team: sessionTeam,
+      fallbackBasis: "SALE_DATE",
+    });
+
+    return NextResponse.json({ ok: true, sale: result, payoutAutoCompute });
+  } catch (e: unknown) {
     return NextResponse.json(
-      { ok: false, error: e?.message || "Erro ao criar venda" },
+      { ok: false, error: getErrorMessage(e, "Erro ao criar venda") },
       { status: 400 }
     );
   }

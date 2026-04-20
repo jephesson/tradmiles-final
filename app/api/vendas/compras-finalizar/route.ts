@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { prisma } from "@/lib/prisma";
+import { triggerEmployeePayoutAutoCompute, todayISORecife } from "@/lib/payouts/autoCompute";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -27,6 +28,12 @@ async function getServerSession(): Promise<Sess | null> {
   const store = await cookies();
   const raw = store.get("tm.session")?.value;
   return readSessionCookie(raw);
+}
+
+function getErrorMessage(error: unknown, fallback: string) {
+  if (error instanceof Error && error.message) return error.message;
+  if (typeof error === "string" && error.trim()) return error;
+  return fallback;
 }
 
 export async function PATCH(req: Request) {
@@ -77,10 +84,12 @@ export async function PATCH(req: Request) {
 
       const profitCents = salesTotalCents - (purchase.totalCents || 0);
 
+      const finalizedAt = new Date();
+
       const updated = await tx.purchase.update({
         where: { id: purchaseId },
         data: {
-          finalizedAt: new Date(),
+          finalizedAt,
           finalizedById: session.id,
           finalSalesCents: salesTotalCents,
           finalProfitCents: profitCents,
@@ -103,10 +112,16 @@ export async function PATCH(req: Request) {
       return updated;
     });
 
-    return NextResponse.json({ ok: true, purchase: out });
-  } catch (e: any) {
+    const payoutAutoCompute = await triggerEmployeePayoutAutoCompute(req, {
+      team: session.team,
+      date: todayISORecife(),
+      fallbackBasis: "PURCHASE_FINALIZED",
+    });
+
+    return NextResponse.json({ ok: true, purchase: out, payoutAutoCompute });
+  } catch (e: unknown) {
     return NextResponse.json(
-      { ok: false, error: e?.message || "Erro ao finalizar" },
+      { ok: false, error: getErrorMessage(e, "Erro ao finalizar") },
       { status: 400 }
     );
   }

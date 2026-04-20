@@ -46,6 +46,11 @@ function bonusFallback(args: { points: number; milheiroCents: number; metaMilhei
   return Math.round(diffTotal * 0.3);
 }
 
+function getErrorMessage(error: unknown) {
+  if (error instanceof Error) return error.message;
+  return String(error);
+}
+
 /* =========================
   ✅ PV SEM TAXA
   - pointsValueCents (se vier)
@@ -283,9 +288,9 @@ type Basis = "PURCHASE_FINALIZED" | "SALE_DATE";
 export async function POST(req: Request) {
   try {
     const sess = await requireSession();
-    const team = String((sess as any)?.team || "");
-    const meId = String((sess as any)?.id || "");
-    const role = String((sess as any)?.role || "");
+    const team = String(sess.team || "");
+    const meId = String(sess.id || "");
+    const role = String(sess.role || "");
     const isAdmin = role === "admin";
 
     if (!team || !meId) return NextResponse.json({ ok: false, error: "Não autenticado" }, { status: 401 });
@@ -552,7 +557,13 @@ export async function POST(req: Request) {
 
     const byUser: Record<string, Agg> = {};
     const ensure = (u: string) =>
-      (byUser[u] ||= { commission1Cents: 0, commission2Cents: 0, commission3RateioCents: 0, feeCents: 0, salesCount: 0 });
+      (byUser[u] ||= {
+        commission1Cents: 0,
+        commission2Cents: 0,
+        commission3RateioCents: 0,
+        feeCents: 0,
+        salesCount: 0,
+      });
 
     /* =========================
        5) SALES que entram em C1/C2/FEE
@@ -746,6 +757,23 @@ export async function POST(req: Request) {
       }
     }
 
+    const balcaoOps = await prisma.balcaoOperacao.findMany({
+      where: {
+        team,
+        createdAt: { gte: start, lt: end },
+        employeeId: { not: null },
+      },
+      select: {
+        employeeId: true,
+      },
+    });
+
+    for (const op of balcaoOps) {
+      const employeeId = String(op.employeeId || "").trim();
+      if (!employeeId) continue;
+      ensure(employeeId);
+    }
+
     const computedUserIds = Object.keys(byUser);
 
     if (!computedUserIds.length) {
@@ -760,6 +788,7 @@ export async function POST(req: Request) {
         purchasesFinalized: purchasesFinalized.length,
         salesForCommission: salesForCommission.length,
         salesForFinalizedPurchases: salesForFinalizedPurchases.length,
+        balcaoOps: balcaoOps.length,
       });
     }
 
@@ -833,10 +862,12 @@ export async function POST(req: Request) {
       purchasesFinalized: purchasesFinalized.length,
       salesForCommission: salesForCommission.length,
       salesForFinalizedPurchases: salesForFinalizedPurchases.length,
+      balcaoOps: balcaoOps.length,
     });
-  } catch (e: any) {
-    const msg = e?.message === "UNAUTHENTICATED" ? "Não autenticado" : e?.message || String(e);
-    const status = e?.message === "UNAUTHENTICATED" ? 401 : 500;
+  } catch (e: unknown) {
+    const errorMessage = getErrorMessage(e);
+    const msg = errorMessage === "UNAUTHENTICATED" ? "Não autenticado" : errorMessage;
+    const status = errorMessage === "UNAUTHENTICATED" ? 401 : 500;
     return NextResponse.json({ ok: false, error: msg }, { status });
   }
 }
