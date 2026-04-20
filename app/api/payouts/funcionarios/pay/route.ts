@@ -10,6 +10,11 @@ function isISODate(v: string) {
   return /^\d{4}-\d{2}-\d{2}$/.test((v || "").trim());
 }
 
+function readBasis(breakdown: unknown): "SALE_DATE" | "PURCHASE_FINALIZED" {
+  const basis = (breakdown as { basis?: unknown } | null)?.basis;
+  return basis === "PURCHASE_FINALIZED" ? "PURCHASE_FINALIZED" : "SALE_DATE";
+}
+
 export async function POST(req: Request) {
   try {
     const sess = await requireSession();
@@ -43,6 +48,44 @@ export async function POST(req: Request) {
         { ok: false, error: "Só paga dia fechado (apenas dias anteriores a hoje)." },
         { status: 400 }
       );
+    }
+
+    const current = await prisma.employeePayout.findFirst({
+      where: { team, date, userId },
+      select: {
+        id: true,
+        paidById: true,
+        breakdown: true,
+      },
+    });
+
+    if (!current) {
+      return NextResponse.json({ ok: false, error: "Payout não encontrado." }, { status: 404 });
+    }
+
+    if (!current.paidById) {
+      const computeUrl = new URL("/api/payouts/funcionarios/compute", req.url);
+      const recompute = await fetch(computeUrl, {
+        method: "POST",
+        cache: "no-store",
+        headers: {
+          "Content-Type": "application/json",
+          cookie: req.headers.get("cookie") || "",
+        },
+        body: JSON.stringify({
+          date,
+          basis: readBasis(current.breakdown),
+          force: false,
+        }),
+      });
+
+      if (!recompute.ok) {
+        const payload = (await recompute.json().catch(() => null)) as { error?: string } | null;
+        return NextResponse.json(
+          { ok: false, error: payload?.error || "Falha ao recalcular o dia antes de pagar." },
+          { status: recompute.status || 500 }
+        );
+      }
     }
 
     // 1) tenta pagar de forma atômica (evita corrida)

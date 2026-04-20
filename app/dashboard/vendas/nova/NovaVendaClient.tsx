@@ -628,10 +628,14 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
     if (feeCardPreset.startsWith("USER:")) {
       const id = feeCardPreset.slice("USER:".length);
       const u = users.find((x) => x.id === id);
-      return u ? `Cartão ${u.name}` : "";
+      if (!u) return "";
+      return u.login ? `Cartão ${u.name} (@${u.login})` : `Cartão ${u.name}`;
     }
-    return me?.name ? `Cartão ${me.name}` : "Cartão do vendedor";
-  }, [feeCardPreset, feeCardManual, users, me?.name]);
+    if (me?.name) {
+      return me.login ? `Cartão ${me.name} (@${me.login})` : `Cartão ${me.name}`;
+    }
+    return "Cartão do vendedor";
+  }, [feeCardPreset, feeCardManual, users, me?.name, me?.login]);
 
   const effectiveSeller = useMemo(() => {
     if (!assignedSellerId) return me;
