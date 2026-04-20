@@ -85,12 +85,26 @@ type DetailSaleLine = {
   ref: { type: "sale"; id: string };
   numero: string;
   locator: string | null;
+  date: string;
+  sellerId: string | null;
+  seller: UserLite | null;
+  cliente: { id: string; identificador: string; nome: string } | null;
+  cedente: { id: string; identificador: string; nomeCompleto: string } | null;
+  purchase: { id: string; numero: string } | null;
+  feeCardLabel: string | null;
+  role: { seller: boolean; feePayer: boolean };
+  feePayer: {
+    resolvedUserId: string | null;
+    source: "card" | "fallback" | "company" | "none";
+    ignoredCompanyCard: boolean;
+  };
   points: number;
   pointsValueCents: number;
   c1Cents: number;
   c2Cents: number;
   c3Cents: number;
   feeCents: number;
+  saleFeeCents: number;
 };
 
 type DetailsResponse = {
@@ -175,6 +189,20 @@ function fmtDateBR(isoDate?: string | null) {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(isoDate));
   if (!m) return String(isoDate);
   return `${m[3]}/${m[2]}/${m[1]}`;
+}
+
+function roleLabel(role?: DetailSaleLine["role"]) {
+  if (role?.seller && role?.feePayer) return "Venda + taxa";
+  if (role?.feePayer) return "Taxa/cartão";
+  if (role?.seller) return "Venda";
+  return "-";
+}
+
+function feeSourceLabel(line: DetailSaleLine) {
+  if (!line.feeCents) return "-";
+  if (line.feePayer.source === "card") return "cartão identificado";
+  if (line.feePayer.source === "fallback") return "fallback vendedor";
+  return "cartão";
 }
 
 async function apiGet<T>(url: string): Promise<T> {
@@ -598,10 +626,12 @@ export default function ComissoesFuncionariosClient() {
         a.fee += s.feeCents || 0;
         a.pointsValue += s.pointsValueCents || 0;
         a.sales += 1;
+        if (s.role?.seller) a.sellerLines += 1;
+        if (s.role?.feePayer) a.feeLines += 1;
         a.points += s.points || 0;
         return a;
       },
-      { c1: 0, c2: 0, c3: 0, fee: 0, pointsValue: 0, sales: 0, points: 0 }
+      { c1: 0, c2: 0, c3: 0, fee: 0, pointsValue: 0, sales: 0, sellerLines: 0, feeLines: 0, points: 0 }
     );
     return { ...acc, gross: acc.c1 + acc.c2 + acc.c3 };
   }, [detailsSales]);
@@ -994,6 +1024,9 @@ export default function ComissoesFuncionariosClient() {
                     <li>
                       A lista abaixo é uma <b>explicação/auditoria</b> (de onde veio).
                     </li>
+                    <li>
+                      Reembolso de taxa aparece pelo <b>cartão/pagador</b>, mesmo quando a venda foi feita por outro funcionário.
+                    </li>
                   </ul>
                 </div>
 
@@ -1053,16 +1086,19 @@ export default function ComissoesFuncionariosClient() {
                   <div className="px-4 py-3 border-b flex items-center justify-between">
                     <div className="text-sm font-semibold">Linhas (de onde veio)</div>
                     <div className="text-xs text-neutral-500">
-                      {detailsSum.sales} vendas • {fmtInt(detailsSum.points)} pontos • PV:{" "}
-                      {fmtMoneyBR(detailsSum.pointsValue)}
+                      {detailsSum.sales} linha(s) • {detailsSum.sellerLines} venda(s) •{" "}
+                      {detailsSum.feeLines} reembolso(s) • PV: {fmtMoneyBR(detailsSum.pointsValue)}
                     </div>
                   </div>
 
                   <div className="overflow-x-auto">
-                    <table className="min-w-[980px] w-full text-left text-sm">
+                    <table className="min-w-[1280px] w-full text-left text-sm">
                       <thead className="bg-neutral-50 text-xs text-neutral-600">
                         <tr>
                           <th className="px-4 py-3">Venda</th>
+                          <th className="px-4 py-3">Vendedor</th>
+                          <th className="px-4 py-3">Cartão/taxa</th>
+                          <th className="px-4 py-3">Papel</th>
                           <th className="px-4 py-3">Localizador</th>
                           <th className="px-4 py-3 text-right">Pontos</th>
                           <th className="px-4 py-3">Valor pontos</th>
@@ -1076,7 +1112,40 @@ export default function ComissoesFuncionariosClient() {
                       <tbody>
                         {(detailsSales || []).map((s) => (
                           <tr key={s.ref.id} className="border-t">
-                            <td className="px-4 py-3 font-medium">{s.numero}</td>
+                            <td className="px-4 py-3">
+                              <div className="font-medium">{s.numero}</div>
+                              <div className="text-xs text-neutral-500">
+                                {s.purchase?.numero ? `Compra ${s.purchase.numero}` : s.cliente?.identificador || ""}
+                              </div>
+                            </td>
+                            <td className="px-4 py-3">
+                              <div className="font-medium">{firstName(s.seller?.name, s.seller?.login || "-")}</div>
+                              <div className="text-xs text-neutral-500">
+                                {s.seller?.login ? `@${s.seller.login}` : "-"}
+                              </div>
+                            </td>
+                            <td className="px-4 py-3">
+                              <div className="max-w-[220px] truncate font-medium" title={s.feeCardLabel || ""}>
+                                {s.feeCardLabel || "-"}
+                              </div>
+                              {s.feeCents ? (
+                                <div className="text-xs text-neutral-500">{feeSourceLabel(s)}</div>
+                              ) : null}
+                            </td>
+                            <td className="px-4 py-3">
+                              <span
+                                className={[
+                                  "inline-flex rounded-full border px-2 py-0.5 text-xs",
+                                  s.role?.feePayer && !s.role?.seller
+                                    ? "border-amber-200 bg-amber-50 text-amber-700"
+                                    : s.role?.feePayer
+                                    ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                                    : "border-sky-200 bg-sky-50 text-sky-700",
+                                ].join(" ")}
+                              >
+                                {roleLabel(s.role)}
+                              </span>
+                            </td>
                             <td className="px-4 py-3 text-neutral-600">{s.locator || "-"}</td>
                             <td className="px-4 py-3 text-right tabular-nums">{fmtInt(s.points || 0)}</td>
                             <td className="px-4 py-3">{fmtMoneyBR(s.pointsValueCents || 0)}</td>
@@ -1089,13 +1158,13 @@ export default function ComissoesFuncionariosClient() {
 
                         {!detailsSales?.length ? (
                           <tr>
-                            <td className="px-4 py-8 text-center text-sm text-neutral-500" colSpan={8}>
+                            <td className="px-4 py-8 text-center text-sm text-neutral-500" colSpan={11}>
                               Sem linhas para este dia (ou compute não conseguiu auditar).
                             </td>
                           </tr>
                         ) : (
                           <tr className="border-t bg-neutral-50">
-                            <td className="px-4 py-3 font-semibold" colSpan={4}>
+                            <td className="px-4 py-3 font-semibold" colSpan={7}>
                               Totais (linhas)
                             </td>
                             <td className="px-4 py-3 font-semibold">{fmtMoneyBR(detailsSum.c1)}</td>
