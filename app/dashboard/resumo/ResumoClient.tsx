@@ -91,6 +91,22 @@ type SnapshotHistoryRow = {
 };
 
 type SnapshotChartRange = 30 | 60 | 90 | 180 | 360;
+type SnapshotSeriesKey = "resumoTotalLiquidoCents" | "caixaImediatoTotalLiquidoCents";
+
+type SnapshotSeriesStats = {
+  latest: number | null;
+  min: number | null;
+  max: number | null;
+};
+
+type SnapshotDayPoint = {
+  dayKey: string;
+  label: string;
+  capturedAt: string;
+  rows: SnapshotHistoryRow[];
+  resumo: SnapshotSeriesStats;
+  caixaImediato: SnapshotSeriesStats;
+};
 
 const FIXED_CUTOFF_POINTS = 3000;
 
@@ -117,6 +133,24 @@ function dateTimeBR(raw: string) {
     minute: "2-digit",
   });
 }
+function timeBR(raw: string) {
+  const d = new Date(raw);
+  if (!Number.isFinite(d.getTime())) return raw || "-";
+  return d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+}
+function snapshotDayKey(raw: string) {
+  const d = new Date(raw);
+  if (!Number.isFinite(d.getTime())) return raw.slice(0, 10);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+function dayLabelBR(dayKey: string) {
+  const [y, m, d] = dayKey.split("-");
+  if (!y || !m || !d) return dayKey;
+  return `${d}/${m}/${y}`;
+}
 function snapshotMomentKey(snapshot: Snapshot) {
   const raw = snapshot.date || snapshot.createdAt || "";
   const d = new Date(raw);
@@ -141,6 +175,20 @@ function centsToRateInput(cents: number) {
   return v.replace(".", ",");
 }
 
+function snapshotStats(rows: SnapshotHistoryRow[], key: SnapshotSeriesKey): SnapshotSeriesStats {
+  const values = rows
+    .map((row) => row[key])
+    .filter((value): value is number => typeof value === "number" && Number.isFinite(value));
+
+  if (!values.length) return { latest: null, min: null, max: null };
+
+  return {
+    latest: values[values.length - 1],
+    min: Math.min(...values),
+    max: Math.max(...values),
+  };
+}
+
 function SnapshotEvolutionChart({
   rows,
   range,
@@ -148,12 +196,39 @@ function SnapshotEvolutionChart({
   rows: SnapshotHistoryRow[];
   range: SnapshotChartRange;
 }) {
-  const data = useMemo(() => {
+  const [selectedDayKey, setSelectedDayKey] = useState<string | null>(null);
+
+  const rawData = useMemo(() => {
     const cutoff = snapshotCutoffISO(range);
     return [...rows]
       .filter((row) => row.capturedAt >= cutoff)
       .sort((a, b) => a.capturedAt.localeCompare(b.capturedAt));
   }, [rows, range]);
+
+  const data = useMemo<SnapshotDayPoint[]>(() => {
+    const byDay = new Map<string, SnapshotHistoryRow[]>();
+
+    for (const row of rawData) {
+      const dayKey = snapshotDayKey(row.capturedAt);
+      const bucket = byDay.get(dayKey) || [];
+      bucket.push(row);
+      byDay.set(dayKey, bucket);
+    }
+
+    return Array.from(byDay.entries()).map(([dayKey, dayRows]) => {
+      const sortedRows = [...dayRows].sort((a, b) => a.capturedAt.localeCompare(b.capturedAt));
+      const latest = sortedRows[sortedRows.length - 1];
+
+      return {
+        dayKey,
+        label: dayLabelBR(dayKey),
+        capturedAt: latest?.capturedAt || dayKey,
+        rows: sortedRows,
+        resumo: snapshotStats(sortedRows, "resumoTotalLiquidoCents"),
+        caixaImediato: snapshotStats(sortedRows, "caixaImediatoTotalLiquidoCents"),
+      };
+    });
+  }, [rawData]);
 
   const width = 900;
   const height = 260;
@@ -164,10 +239,16 @@ function SnapshotEvolutionChart({
   const plotW = width - padLeft - padRight;
   const plotH = height - padTop - padBottom;
 
-  const values = data.flatMap((row) => [
-    row.resumoTotalLiquidoCents,
-    row.caixaImediatoTotalLiquidoCents,
-  ]).filter((v): v is number => typeof v === "number" && Number.isFinite(v));
+  const values = data
+    .flatMap((day) => [
+      day.resumo.latest,
+      day.resumo.min,
+      day.resumo.max,
+      day.caixaImediato.latest,
+      day.caixaImediato.min,
+      day.caixaImediato.max,
+    ])
+    .filter((v): v is number => typeof v === "number" && Number.isFinite(v));
 
   if (!data.length || !values.length) {
     return (
@@ -187,10 +268,10 @@ function SnapshotEvolutionChart({
   const xFor = (idx: number) => padLeft + (data.length <= 1 ? plotW / 2 : (idx / (data.length - 1)) * plotW);
   const yFor = (value: number) => padTop + ((maxY - value) / ySpan) * plotH;
 
-  const buildPath = (key: "resumoTotalLiquidoCents" | "caixaImediatoTotalLiquidoCents") => {
+  const buildPath = (key: "resumo" | "caixaImediato") => {
     let path = "";
-    data.forEach((row, idx) => {
-      const value = row[key];
+    data.forEach((day, idx) => {
+      const value = day[key].latest;
       if (value == null) return;
       const cmd = path ? "L" : "M";
       path += `${cmd}${xFor(idx).toFixed(1)},${yFor(value).toFixed(1)} `;
@@ -198,11 +279,29 @@ function SnapshotEvolutionChart({
     return path.trim();
   };
 
-  const resumoPath = buildPath("resumoTotalLiquidoCents");
-  const caixaPath = buildPath("caixaImediatoTotalLiquidoCents");
+  const resumoPath = buildPath("resumo");
+  const caixaPath = buildPath("caixaImediato");
   const latest = data[data.length - 1];
   const first = data[0];
   const midY = Math.round((minY + maxY) / 2);
+  const selectedDay = selectedDayKey ? data.find((day) => day.dayKey === selectedDayKey) || null : null;
+
+  const dayTitle = (day: SnapshotDayPoint) => {
+    const resumoRange =
+      day.resumo.min == null || day.resumo.max == null
+        ? "Resumo: sem valor"
+        : `Resumo: ultimo ${fmtMoneyBR(day.resumo.latest || 0)} | min ${fmtMoneyBR(day.resumo.min)} | max ${fmtMoneyBR(
+            day.resumo.max
+          )}`;
+    const caixaRange =
+      day.caixaImediato.min == null || day.caixaImediato.max == null
+        ? "Caixa imediato: sem valor"
+        : `Caixa imediato: ultimo ${fmtMoneyBR(day.caixaImediato.latest || 0)} | min ${fmtMoneyBR(
+            day.caixaImediato.min
+          )} | max ${fmtMoneyBR(day.caixaImediato.max)}`;
+
+    return `${day.label}\n${day.rows.length} medicao(oes)\n${resumoRange}\n${caixaRange}`;
+  };
 
   return (
     <div className="rounded-xl border bg-white p-4">
@@ -210,7 +309,7 @@ function SnapshotEvolutionChart({
         <div>
           <div className="text-sm font-semibold">Evolução dos snapshots manuais</div>
           <div className="text-xs text-slate-500">
-            {data.length} registro(s) em {range} dias • último: {dateTimeBR(latest.capturedAt)}
+            {data.length} dia(s), {rawData.length} medição(ões) em {range} dias • último: {dateTimeBR(latest.capturedAt)}
           </div>
         </div>
         <div className="flex flex-wrap gap-3 text-xs">
@@ -242,28 +341,145 @@ function SnapshotEvolutionChart({
           {resumoPath ? <path d={resumoPath} fill="none" stroke="#0ea5e9" strokeWidth="3" strokeLinecap="round" /> : null}
           {caixaPath ? <path d={caixaPath} fill="none" stroke="#10b981" strokeWidth="3" strokeLinecap="round" /> : null}
 
-          {data.map((row, idx) => {
+          {data.map((day, idx) => {
             const x = xFor(idx);
+            const selected = selectedDayKey === day.dayKey;
             return (
-              <g key={row.momentKey}>
-                {row.resumoTotalLiquidoCents != null ? (
-                  <circle cx={x} cy={yFor(row.resumoTotalLiquidoCents)} r="3.5" fill="#0ea5e9" />
+              <g
+                key={day.dayKey}
+                role="button"
+                tabIndex={0}
+                className="cursor-pointer outline-none"
+                onClick={() => setSelectedDayKey(day.dayKey)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    setSelectedDayKey(day.dayKey);
+                  }
+                }}
+              >
+                <title>{dayTitle(day)}</title>
+                <rect x={x - 12} y={padTop} width="24" height={plotH} fill="transparent" />
+                {day.resumo.min != null && day.resumo.max != null ? (
+                  <line
+                    x1={x - 5}
+                    y1={yFor(day.resumo.min)}
+                    x2={x - 5}
+                    y2={yFor(day.resumo.max)}
+                    stroke="#0ea5e9"
+                    strokeWidth={selected ? "4" : "2"}
+                    strokeOpacity="0.38"
+                    strokeLinecap="round"
+                  />
                 ) : null}
-                {row.caixaImediatoTotalLiquidoCents != null ? (
-                  <circle cx={x} cy={yFor(row.caixaImediatoTotalLiquidoCents)} r="3.5" fill="#10b981" />
+                {day.caixaImediato.min != null && day.caixaImediato.max != null ? (
+                  <line
+                    x1={x + 5}
+                    y1={yFor(day.caixaImediato.min)}
+                    x2={x + 5}
+                    y2={yFor(day.caixaImediato.max)}
+                    stroke="#10b981"
+                    strokeWidth={selected ? "4" : "2"}
+                    strokeOpacity="0.38"
+                    strokeLinecap="round"
+                  />
+                ) : null}
+                {day.resumo.latest != null ? (
+                  <circle
+                    cx={x}
+                    cy={yFor(day.resumo.latest)}
+                    r={selected ? "5" : "3.5"}
+                    fill="#0ea5e9"
+                    stroke={selected ? "#075985" : "#ffffff"}
+                    strokeWidth={selected ? "2" : "0"}
+                  />
+                ) : null}
+                {day.caixaImediato.latest != null ? (
+                  <circle
+                    cx={x}
+                    cy={yFor(day.caixaImediato.latest)}
+                    r={selected ? "5" : "3.5"}
+                    fill="#10b981"
+                    stroke={selected ? "#047857" : "#ffffff"}
+                    strokeWidth={selected ? "2" : "0"}
+                  />
                 ) : null}
               </g>
             );
           })}
 
           <text x={padLeft} y={height - 16} className="fill-slate-500 text-[11px]">
-            {dateTimeBR(first.capturedAt)}
+            {first.label}
           </text>
           <text x={padLeft + plotW} y={height - 16} textAnchor="end" className="fill-slate-500 text-[11px]">
-            {dateTimeBR(latest.capturedAt)}
+            {latest.label}
           </text>
         </svg>
       </div>
+
+      {selectedDay ? (
+        <div className="mt-3 rounded-xl border bg-slate-50 p-3">
+          <div className="mb-2 flex items-start justify-between gap-3">
+            <div>
+              <div className="text-sm font-semibold">{selectedDay.label}</div>
+              <div className="text-xs text-slate-500">
+                {selectedDay.rows.length} medição(ões) • último ponto: {timeBR(selectedDay.capturedAt)}
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setSelectedDayKey(null)}
+              className="rounded-lg border bg-white px-2 py-1 text-xs text-slate-600 hover:bg-slate-100"
+            >
+              Fechar
+            </button>
+          </div>
+
+          <div className="mb-3 grid gap-2 md:grid-cols-2">
+            <div className="rounded-lg border bg-white p-2 text-xs">
+              <div className="font-medium text-sky-700">Resumo</div>
+              <div className="text-slate-600">
+                último {selectedDay.resumo.latest == null ? "—" : fmtMoneyBR(selectedDay.resumo.latest)} • mín{" "}
+                {selectedDay.resumo.min == null ? "—" : fmtMoneyBR(selectedDay.resumo.min)} • máx{" "}
+                {selectedDay.resumo.max == null ? "—" : fmtMoneyBR(selectedDay.resumo.max)}
+              </div>
+            </div>
+            <div className="rounded-lg border bg-white p-2 text-xs">
+              <div className="font-medium text-emerald-700">Caixa imediato</div>
+              <div className="text-slate-600">
+                último {selectedDay.caixaImediato.latest == null ? "—" : fmtMoneyBR(selectedDay.caixaImediato.latest)} •
+                mín {selectedDay.caixaImediato.min == null ? "—" : fmtMoneyBR(selectedDay.caixaImediato.min)} • máx{" "}
+                {selectedDay.caixaImediato.max == null ? "—" : fmtMoneyBR(selectedDay.caixaImediato.max)}
+              </div>
+            </div>
+          </div>
+
+          <div className="max-h-56 overflow-auto rounded-lg border bg-white">
+            <table className="w-full text-xs">
+              <thead className="sticky top-0 bg-white">
+                <tr>
+                  <th className="px-2 py-1.5 text-left">Hora</th>
+                  <th className="px-2 py-1.5 text-right">Resumo</th>
+                  <th className="px-2 py-1.5 text-right">Caixa imediato</th>
+                </tr>
+              </thead>
+              <tbody>
+                {[...selectedDay.rows].reverse().map((row) => (
+                  <tr key={row.momentKey} className="border-t">
+                    <td className="px-2 py-1.5">{timeBR(row.capturedAt)}</td>
+                    <td className="px-2 py-1.5 text-right">
+                      {row.resumoTotalLiquidoCents == null ? "—" : fmtMoneyBR(row.resumoTotalLiquidoCents)}
+                    </td>
+                    <td className="px-2 py-1.5 text-right">
+                      {row.caixaImediatoTotalLiquidoCents == null ? "—" : fmtMoneyBR(row.caixaImediatoTotalLiquidoCents)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
