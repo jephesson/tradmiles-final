@@ -230,27 +230,11 @@ function SnapshotEvolutionChart({
     });
   }, [rawData]);
 
-  const width = 900;
-  const height = 260;
-  const padLeft = 64;
-  const padRight = 24;
-  const padTop = 22;
-  const padBottom = 44;
-  const plotW = width - padLeft - padRight;
-  const plotH = height - padTop - padBottom;
+  const hasValues = data.some(
+    (day) => day.resumo.latest != null || day.caixaImediato.latest != null
+  );
 
-  const values = data
-    .flatMap((day) => [
-      day.resumo.latest,
-      day.resumo.min,
-      day.resumo.max,
-      day.caixaImediato.latest,
-      day.caixaImediato.min,
-      day.caixaImediato.max,
-    ])
-    .filter((v): v is number => typeof v === "number" && Number.isFinite(v));
-
-  if (!data.length || !values.length) {
+  if (!data.length || !hasValues) {
     return (
       <div className="rounded-xl border bg-slate-50 p-4 text-sm text-slate-600">
         Sem snapshots manuais nos últimos {range} dias.
@@ -258,33 +242,91 @@ function SnapshotEvolutionChart({
     );
   }
 
-  const minValue = Math.min(...values);
-  const maxValue = Math.max(...values);
-  const span = Math.max(1, maxValue - minValue);
-  const minY = minValue - Math.round(span * 0.08);
-  const maxY = maxValue + Math.round(span * 0.08);
-  const ySpan = Math.max(1, maxY - minY);
+  const width = 940;
+  const height = 356;
+  const padLeft = 86;
+  const padRight = 34;
+  const padTop = 30;
+  const padBottom = 42;
+  const laneGap = 30;
+  const laneH = (height - padTop - padBottom - laneGap) / 2;
+  const plotW = width - padLeft - padRight;
+  const xPad = 22;
+  const plotInnerW = plotW - xPad * 2;
 
-  const xFor = (idx: number) => padLeft + (data.length <= 1 ? plotW / 2 : (idx / (data.length - 1)) * plotW);
-  const yFor = (value: number) => padTop + ((maxY - value) / ySpan) * plotH;
+  const lanes = [
+    {
+      key: "resumo" as const,
+      label: "Resumo",
+      color: "#0ea5e9",
+      dark: "#0369a1",
+      fill: "#f0f9ff",
+      y: padTop,
+    },
+    {
+      key: "caixaImediato" as const,
+      label: "Caixa imediato",
+      color: "#10b981",
+      dark: "#047857",
+      fill: "#ecfdf5",
+      y: padTop + laneH + laneGap,
+    },
+  ];
 
-  const buildPath = (key: "resumo" | "caixaImediato") => {
+  function seriesValues(key: "resumo" | "caixaImediato") {
+    return data
+      .flatMap((day) => [day[key].latest, day[key].min, day[key].max])
+      .filter((value): value is number => typeof value === "number" && Number.isFinite(value));
+  }
+
+  function scaleFor(key: "resumo" | "caixaImediato") {
+    const values = seriesValues(key);
+    if (!values.length) return { min: 0, max: 1, span: 1 };
+
+    const rawMin = Math.min(...values);
+    const rawMax = Math.max(...values);
+    const rawSpan = Math.max(1, rawMax - rawMin);
+    const pad = Math.max(1000, Math.round(rawSpan * 0.18), Math.round(Math.abs(rawMax) * 0.004));
+    const min = rawMin - pad;
+    const max = rawMax + pad;
+    return { min, max, span: Math.max(1, max - min) };
+  }
+
+  const scales = {
+    resumo: scaleFor("resumo"),
+    caixaImediato: scaleFor("caixaImediato"),
+  };
+
+  const xFor = (idx: number) =>
+    padLeft +
+    xPad +
+    (data.length <= 1 ? plotInnerW / 2 : (idx / (data.length - 1)) * plotInnerW);
+  const yFor = (
+    value: number,
+    lane: (typeof lanes)[number],
+    scale: { min: number; max: number; span: number }
+  ) => lane.y + ((scale.max - value) / scale.span) * laneH;
+
+  const buildPath = (
+    key: "resumo" | "caixaImediato",
+    lane: (typeof lanes)[number],
+    scale: { min: number; max: number; span: number }
+  ) => {
     let path = "";
     data.forEach((day, idx) => {
       const value = day[key].latest;
       if (value == null) return;
       const cmd = path ? "L" : "M";
-      path += `${cmd}${xFor(idx).toFixed(1)},${yFor(value).toFixed(1)} `;
+      path += `${cmd}${xFor(idx).toFixed(1)},${yFor(value, lane, scale).toFixed(1)} `;
     });
     return path.trim();
   };
 
-  const resumoPath = buildPath("resumo");
-  const caixaPath = buildPath("caixaImediato");
+  const resumoPath = buildPath("resumo", lanes[0], scales.resumo);
+  const caixaPath = buildPath("caixaImediato", lanes[1], scales.caixaImediato);
   const latest = data[data.length - 1];
-  const first = data[0];
-  const midY = Math.round((minY + maxY) / 2);
   const selectedDay = selectedDayKey ? data.find((day) => day.dayKey === selectedDayKey) || null : null;
+  const xLabelStep = Math.max(1, Math.ceil(data.length / 6));
 
   const dayTitle = (day: SnapshotDayPoint) => {
     const resumoRange =
@@ -304,7 +346,7 @@ function SnapshotEvolutionChart({
   };
 
   return (
-    <div className="rounded-xl border bg-white p-4">
+    <div className="rounded-xl border bg-white p-4 shadow-sm">
       <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <div className="text-sm font-semibold">Evolução dos snapshots manuais</div>
@@ -312,34 +354,100 @@ function SnapshotEvolutionChart({
             {data.length} dia(s), {rawData.length} medição(ões) em {range} dias • último: {dateTimeBR(latest.capturedAt)}
           </div>
         </div>
-        <div className="flex flex-wrap gap-3 text-xs">
-          <span className="inline-flex items-center gap-1 text-sky-700">
-            <span className="h-2 w-5 rounded-full bg-sky-500" /> Resumo
+        <div className="flex flex-wrap items-center gap-2 text-xs">
+          <span className="inline-flex items-center gap-2 rounded-full border border-sky-100 bg-sky-50 px-3 py-1 text-sky-700">
+            <span className="h-2 w-2 rounded-full bg-sky-500" /> Resumo
+            <b>{latest.resumo.latest == null ? "—" : fmtMoneyBR(latest.resumo.latest)}</b>
           </span>
-          <span className="inline-flex items-center gap-1 text-emerald-700">
-            <span className="h-2 w-5 rounded-full bg-emerald-500" /> Caixa imediato
+          <span className="inline-flex items-center gap-2 rounded-full border border-emerald-100 bg-emerald-50 px-3 py-1 text-emerald-700">
+            <span className="h-2 w-2 rounded-full bg-emerald-500" /> Caixa imediato
+            <b>{latest.caixaImediato.latest == null ? "—" : fmtMoneyBR(latest.caixaImediato.latest)}</b>
           </span>
         </div>
       </div>
 
       <div className="overflow-x-auto">
-        <svg viewBox={`0 0 ${width} ${height}`} className="min-w-[720px]">
-          <line x1={padLeft} y1={padTop} x2={padLeft} y2={padTop + plotH} stroke="#cbd5e1" />
-          <line x1={padLeft} y1={padTop + plotH} x2={padLeft + plotW} y2={padTop + plotH} stroke="#cbd5e1" />
-          {[maxY, midY, minY].map((tick) => {
-            const y = yFor(tick);
+        <svg viewBox={`0 0 ${width} ${height}`} className="min-w-[760px]">
+          <defs>
+            <filter id="snapshot-dot-shadow" x="-40%" y="-40%" width="180%" height="180%">
+              <feDropShadow dx="0" dy="2" stdDeviation="2" floodColor="#0f172a" floodOpacity="0.16" />
+            </filter>
+          </defs>
+
+          {lanes.map((lane) => {
+            const scale = scales[lane.key];
+            const ticks = [scale.max, (scale.max + scale.min) / 2, scale.min];
             return (
-              <g key={tick}>
-                <line x1={padLeft} y1={y} x2={padLeft + plotW} y2={y} stroke="#e2e8f0" strokeDasharray="4 5" />
-                <text x={padLeft - 8} y={y + 4} textAnchor="end" className="fill-slate-500 text-[11px]">
-                  {fmtMoneyBR(tick)}
+              <g key={lane.key}>
+                <rect
+                  x={padLeft}
+                  y={lane.y - 12}
+                  width={plotW}
+                  height={laneH + 24}
+                  rx="14"
+                  fill={lane.fill}
+                  stroke="#e2e8f0"
+                />
+                <text x={padLeft + 14} y={lane.y + 8} className="fill-slate-700 text-[12px] font-semibold">
+                  {lane.label}
                 </text>
+                {ticks.map((tick) => {
+                  const y = yFor(tick, lane, scale);
+                  return (
+                    <g key={`${lane.key}-${tick}`}>
+                      <line
+                        x1={padLeft + 16}
+                        y1={y}
+                        x2={padLeft + plotW - 16}
+                        y2={y}
+                        stroke="#cbd5e1"
+                        strokeOpacity="0.65"
+                        strokeDasharray="4 6"
+                      />
+                      <text x={padLeft - 10} y={y + 4} textAnchor="end" className="fill-slate-500 text-[11px]">
+                        {fmtMoneyBR(Math.round(tick))}
+                      </text>
+                    </g>
+                  );
+                })}
               </g>
             );
           })}
 
-          {resumoPath ? <path d={resumoPath} fill="none" stroke="#0ea5e9" strokeWidth="3" strokeLinecap="round" /> : null}
-          {caixaPath ? <path d={caixaPath} fill="none" stroke="#10b981" strokeWidth="3" strokeLinecap="round" /> : null}
+          {data.map((day, idx) => {
+            const x = xFor(idx);
+            const selected = selectedDayKey === day.dayKey;
+            return (
+              <g key={`${day.dayKey}-guide`}>
+                {selected ? (
+                  <line
+                    x1={x}
+                    y1={padTop - 12}
+                    x2={x}
+                    y2={padTop + laneH * 2 + laneGap + 12}
+                    stroke="#0f172a"
+                    strokeOpacity="0.18"
+                    strokeDasharray="3 5"
+                  />
+                ) : null}
+              </g>
+            );
+          })}
+
+          {lanes.map((lane) => {
+            const path = lane.key === "resumo" ? resumoPath : caixaPath;
+            return path ? (
+              <path
+                key={`${lane.key}-path`}
+                d={path}
+                fill="none"
+                stroke={lane.color}
+                strokeWidth="3.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            ) : null;
+          })}
 
           {data.map((day, idx) => {
             const x = xFor(idx);
@@ -359,67 +467,76 @@ function SnapshotEvolutionChart({
                 }}
               >
                 <title>{dayTitle(day)}</title>
-                <rect x={x - 12} y={padTop} width="24" height={plotH} fill="transparent" />
-                {day.resumo.min != null && day.resumo.max != null ? (
-                  <line
-                    x1={x - 5}
-                    y1={yFor(day.resumo.min)}
-                    x2={x - 5}
-                    y2={yFor(day.resumo.max)}
-                    stroke="#0ea5e9"
-                    strokeWidth={selected ? "4" : "2"}
-                    strokeOpacity="0.38"
-                    strokeLinecap="round"
-                  />
-                ) : null}
-                {day.caixaImediato.min != null && day.caixaImediato.max != null ? (
-                  <line
-                    x1={x + 5}
-                    y1={yFor(day.caixaImediato.min)}
-                    x2={x + 5}
-                    y2={yFor(day.caixaImediato.max)}
-                    stroke="#10b981"
-                    strokeWidth={selected ? "4" : "2"}
-                    strokeOpacity="0.38"
-                    strokeLinecap="round"
-                  />
-                ) : null}
-                {day.resumo.latest != null ? (
-                  <circle
-                    cx={x}
-                    cy={yFor(day.resumo.latest)}
-                    r={selected ? "5" : "3.5"}
-                    fill="#0ea5e9"
-                    stroke={selected ? "#075985" : "#ffffff"}
-                    strokeWidth={selected ? "2" : "0"}
-                  />
-                ) : null}
-                {day.caixaImediato.latest != null ? (
-                  <circle
-                    cx={x}
-                    cy={yFor(day.caixaImediato.latest)}
-                    r={selected ? "5" : "3.5"}
-                    fill="#10b981"
-                    stroke={selected ? "#047857" : "#ffffff"}
-                    strokeWidth={selected ? "2" : "0"}
-                  />
-                ) : null}
+                <rect x={x - 18} y={padTop - 16} width="36" height={laneH * 2 + laneGap + 32} fill="transparent" />
+                {lanes.map((lane) => {
+                  const stats = day[lane.key];
+                  const scale = scales[lane.key];
+                  if (stats.min == null || stats.max == null || stats.latest == null) return null;
+
+                  const yMin = yFor(stats.min, lane, scale);
+                  const yMax = yFor(stats.max, lane, scale);
+                  const yLatest = yFor(stats.latest, lane, scale);
+
+                  return (
+                    <g key={`${day.dayKey}-${lane.key}`}>
+                      <line
+                        x1={x}
+                        y1={yMax}
+                        x2={x}
+                        y2={yMin}
+                        stroke={lane.color}
+                        strokeWidth={selected ? "10" : "7"}
+                        strokeOpacity={selected ? "0.28" : "0.18"}
+                        strokeLinecap="round"
+                      />
+                      <circle
+                        cx={x}
+                        cy={yLatest}
+                        r={selected ? "6.2" : "4.8"}
+                        fill={lane.color}
+                        stroke="#ffffff"
+                        strokeWidth="2.5"
+                        filter="url(#snapshot-dot-shadow)"
+                      />
+                      {selected ? (
+                        <circle
+                          cx={x}
+                          cy={yLatest}
+                          r="9"
+                          fill="none"
+                          stroke={lane.dark}
+                          strokeOpacity="0.28"
+                          strokeWidth="2"
+                        />
+                      ) : null}
+                    </g>
+                  );
+                })}
               </g>
             );
           })}
 
-          <text x={padLeft} y={height - 16} className="fill-slate-500 text-[11px]">
-            {first.label}
-          </text>
-          <text x={padLeft + plotW} y={height - 16} textAnchor="end" className="fill-slate-500 text-[11px]">
-            {latest.label}
-          </text>
+          {data.map((day, idx) => {
+            if (idx !== 0 && idx !== data.length - 1 && idx % xLabelStep !== 0) return null;
+            const x = xFor(idx);
+            return (
+              <text
+                key={`${day.dayKey}-label`}
+                x={x}
+                y={height - 16}
+                textAnchor={idx === 0 ? "start" : idx === data.length - 1 ? "end" : "middle"}
+                className="fill-slate-500 text-[11px]"
+              >
+                {idx === 0 || idx === data.length - 1 ? day.label : day.label.slice(0, 5)}
+              </text>
+            );
+          })}
         </svg>
       </div>
 
       {selectedDay ? (
-        <div className="mt-3 rounded-xl border bg-slate-50 p-3">
-          <div className="mb-2 flex items-start justify-between gap-3">
+        <div className="mt-4 border-t border-slate-200 pt-3">
+          <div className="mb-3 flex items-start justify-between gap-3">
             <div>
               <div className="text-sm font-semibold">{selectedDay.label}</div>
               <div className="text-xs text-slate-500">
@@ -429,14 +546,14 @@ function SnapshotEvolutionChart({
             <button
               type="button"
               onClick={() => setSelectedDayKey(null)}
-              className="rounded-lg border bg-white px-2 py-1 text-xs text-slate-600 hover:bg-slate-100"
+              className="rounded-lg border bg-white px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-100"
             >
               Fechar
             </button>
           </div>
 
           <div className="mb-3 grid gap-2 md:grid-cols-2">
-            <div className="rounded-lg border bg-white p-2 text-xs">
+            <div className="border-l-4 border-sky-500 pl-3 text-xs">
               <div className="font-medium text-sky-700">Resumo</div>
               <div className="text-slate-600">
                 último {selectedDay.resumo.latest == null ? "—" : fmtMoneyBR(selectedDay.resumo.latest)} • mín{" "}
@@ -444,7 +561,7 @@ function SnapshotEvolutionChart({
                 {selectedDay.resumo.max == null ? "—" : fmtMoneyBR(selectedDay.resumo.max)}
               </div>
             </div>
-            <div className="rounded-lg border bg-white p-2 text-xs">
+            <div className="border-l-4 border-emerald-500 pl-3 text-xs">
               <div className="font-medium text-emerald-700">Caixa imediato</div>
               <div className="text-slate-600">
                 último {selectedDay.caixaImediato.latest == null ? "—" : fmtMoneyBR(selectedDay.caixaImediato.latest)} •
