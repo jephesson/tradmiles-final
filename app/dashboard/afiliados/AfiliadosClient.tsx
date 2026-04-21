@@ -6,18 +6,44 @@ type AffiliateRow = {
   id: string;
   name: string;
   document: string;
+  login: string | null;
   flightSalesLink: string | null;
   pointsPurchaseLink: string | null;
   commissionBps: number;
   isActive: boolean;
+  hasAccess?: boolean;
+  lastLoginAt: string | null;
   createdAt: string;
   updatedAt: string;
   _count?: { clients?: number };
+  metrics?: {
+    clientsCount: number;
+    salesCount: number;
+    totalSalesCents: number;
+    totalProfitCents: number;
+    totalCommissionCents: number;
+    sales?: AffiliateSaleRow[];
+  };
+};
+
+type AffiliateSaleRow = {
+  id: string;
+  numero: string;
+  date: string;
+  program: string;
+  clientName: string;
+  clientIdentifier: string;
+  totalCents: number;
+  profitCents: number;
+  affiliateCommissionCents: number;
+  paymentStatus: string;
 };
 
 type FormState = {
   name: string;
   document: string;
+  login: string;
+  password: string;
   flightSalesLink: string;
   pointsPurchaseLink: string;
   commissionPercent: string;
@@ -27,9 +53,11 @@ type FormState = {
 const EMPTY_FORM: FormState = {
   name: "",
   document: "",
+  login: "",
+  password: "",
   flightSalesLink: "",
   pointsPurchaseLink: "",
-  commissionPercent: "",
+  commissionPercent: "20",
   isActive: true,
 };
 
@@ -55,8 +83,21 @@ function formatPercent(bps: number) {
   })}%`;
 }
 
+function formatMoney(cents: number) {
+  return (Number(cents || 0) / 100).toLocaleString("pt-BR", {
+    style: "currency",
+    currency: "BRL",
+  });
+}
+
 function dateBR(iso: string) {
   return new Date(iso).toLocaleDateString("pt-BR");
+}
+
+function saleStatus(value: string) {
+  if (value === "PAID") return "Pago";
+  if (value === "CANCELED") return "Cancelado";
+  return "Pendente";
 }
 
 function errorMessage(error: unknown, fallback: string) {
@@ -104,11 +145,33 @@ export default function AfiliadosClient() {
   const [error, setError] = useState("");
   const [q, setQ] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [detailsId, setDetailsId] = useState<string | null>(null);
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
+  const [portalUrl, setPortalUrl] = useState("/afiliado/login");
 
   const editing = useMemo(
     () => rows.find((row) => row.id === editingId) || null,
     [editingId, rows]
+  );
+  const detailsAffiliate = useMemo(
+    () => rows.find((row) => row.id === detailsId) || null,
+    [detailsId, rows]
+  );
+
+  const totals = useMemo(
+    () =>
+      rows.reduce(
+        (acc, row) => {
+          acc.clients += row.metrics?.clientsCount || row._count?.clients || 0;
+          acc.sales += row.metrics?.salesCount || 0;
+          acc.salesCents += row.metrics?.totalSalesCents || 0;
+          acc.profitCents += row.metrics?.totalProfitCents || 0;
+          acc.commissionCents += row.metrics?.totalCommissionCents || 0;
+          return acc;
+        },
+        { clients: 0, sales: 0, salesCents: 0, profitCents: 0, commissionCents: 0 }
+      ),
+    [rows]
   );
 
   const load = useCallback(async (search = "") => {
@@ -116,6 +179,7 @@ export default function AfiliadosClient() {
     setError("");
     try {
       const params = new URLSearchParams();
+      params.set("withSales", "1");
       if (search.trim()) params.set("q", search.trim());
 
       const r = await fetch(`/api/afiliados?${params.toString()}`, {
@@ -139,6 +203,10 @@ export default function AfiliadosClient() {
     return () => clearTimeout(timer);
   }, [load, q]);
 
+  useEffect(() => {
+    setPortalUrl(`${window.location.origin}/afiliado/login`);
+  }, []);
+
   function setField<K extends keyof FormState>(key: K, value: FormState[K]) {
     setForm((current) => ({ ...current, [key]: value }));
   }
@@ -154,6 +222,8 @@ export default function AfiliadosClient() {
     setForm({
       name: row.name || "",
       document: row.document || "",
+      login: row.login || "",
+      password: "",
       flightSalesLink: row.flightSalesLink || "",
       pointsPurchaseLink: row.pointsPurchaseLink || "",
       commissionPercent: String(row.commissionBps / 100).replace(".", ","),
@@ -169,6 +239,8 @@ export default function AfiliadosClient() {
       const payload = {
         name: form.name.trim(),
         document: onlyDigits(form.document),
+        login: form.login.trim(),
+        password: form.password,
         flightSalesLink: form.flightSalesLink.trim() || null,
         pointsPurchaseLink: form.pointsPurchaseLink.trim() || null,
         commissionPercent: form.commissionPercent.trim(),
@@ -208,9 +280,12 @@ export default function AfiliadosClient() {
     }
   }
 
+  const passwordRequired = !editing || !editing.hasAccess;
   const canSave =
     form.name.trim().length > 1 &&
     (onlyDigits(form.document).length === 11 || onlyDigits(form.document).length === 14) &&
+    form.login.trim().length >= 3 &&
+    (!passwordRequired || form.password.length >= 4) &&
     form.flightSalesLink.trim().length > 0 &&
     form.pointsPurchaseLink.trim().length > 0 &&
     form.commissionPercent.trim().length > 0;
@@ -244,6 +319,31 @@ export default function AfiliadosClient() {
         </div>
       </div>
 
+      <div className="grid gap-3 md:grid-cols-5">
+        <div className="rounded-2xl border bg-white p-4">
+          <div className="text-xs text-slate-500">Clientes indicados</div>
+          <div className="mt-1 text-xl font-semibold">{totals.clients}</div>
+        </div>
+        <div className="rounded-2xl border bg-white p-4">
+          <div className="text-xs text-slate-500">Vendas indicadas</div>
+          <div className="mt-1 text-xl font-semibold">{totals.sales}</div>
+        </div>
+        <div className="rounded-2xl border bg-white p-4">
+          <div className="text-xs text-slate-500">Total vendido</div>
+          <div className="mt-1 text-xl font-semibold">{formatMoney(totals.salesCents)}</div>
+        </div>
+        <div className="rounded-2xl border bg-white p-4">
+          <div className="text-xs text-slate-500">Lucro dos indicados</div>
+          <div className="mt-1 text-xl font-semibold">{formatMoney(totals.profitCents)}</div>
+        </div>
+        <div className="rounded-2xl border bg-white p-4">
+          <div className="text-xs text-slate-500">Comissão prevista</div>
+          <div className="mt-1 text-xl font-semibold text-emerald-700">
+            {formatMoney(totals.commissionCents)}
+          </div>
+        </div>
+      </div>
+
       <div className="rounded-2xl border bg-white p-5 space-y-5">
         <div className="flex items-start justify-between gap-4">
           <div>
@@ -251,7 +351,8 @@ export default function AfiliadosClient() {
               {editing ? "Editar afiliado" : "Cadastrar afiliado"}
             </h2>
             <p className="text-xs text-slate-500">
-              A comissão fica salva no afiliado e poderá ser usada nas vendas futuras.
+              Link do portal para enviar ao afiliado:{" "}
+              <span className="font-medium text-slate-700">{portalUrl}</span>
             </p>
           </div>
           {editing ? (
@@ -273,6 +374,20 @@ export default function AfiliadosClient() {
             value={form.document}
             onChange={(value) => setField("document", value)}
             placeholder="Somente números ou formatado"
+          />
+          <Input
+            label="Login do afiliado"
+            value={form.login}
+            onChange={(value) => setField("login", value)}
+            placeholder="Ex: parceiro.sul"
+          />
+          <Input
+            label={editing ? "Nova senha" : "Senha"}
+            value={form.password}
+            onChange={(value) => setField("password", value)}
+            placeholder={editing ? "Deixe em branco para manter" : "Mínimo 4 caracteres"}
+            optional={Boolean(editing?.hasAccess)}
+            type="password"
           />
           <Input
             label="Link para venda de passagens"
@@ -354,7 +469,9 @@ export default function AfiliadosClient() {
                 <tr>
                   <th className="px-3 py-2 text-left">Nome</th>
                   <th className="px-3 py-2 text-left">CPF/CNPJ</th>
+                  <th className="px-3 py-2 text-left">Login</th>
                   <th className="px-3 py-2 text-left">Comissão</th>
+                  <th className="px-3 py-2 text-left">Performance</th>
                   <th className="px-3 py-2 text-left">Links</th>
                   <th className="px-3 py-2 text-left">Clientes</th>
                   <th className="px-3 py-2 text-left">Status</th>
@@ -367,7 +484,22 @@ export default function AfiliadosClient() {
                   <tr key={row.id} className="border-t hover:bg-slate-50">
                     <td className="px-3 py-2 font-medium">{row.name}</td>
                     <td className="px-3 py-2">{formatDocument(row.document)}</td>
+                    <td className="px-3 py-2">
+                      <div>{row.login || "-"}</div>
+                      <div className="text-xs text-slate-500">
+                        {row.hasAccess ? "acesso liberado" : "sem senha"}
+                      </div>
+                    </td>
                     <td className="px-3 py-2">{formatPercent(row.commissionBps)}</td>
+                    <td className="px-3 py-2">
+                      <div>{row.metrics?.salesCount || 0} venda(s)</div>
+                      <div className="text-xs text-slate-500">
+                        Vendido {formatMoney(row.metrics?.totalSalesCents || 0)}
+                      </div>
+                      <div className="text-xs text-emerald-700">
+                        Comissão {formatMoney(row.metrics?.totalCommissionCents || 0)}
+                      </div>
+                    </td>
                     <td className="px-3 py-2">
                       <div className="flex flex-wrap gap-2">
                         {row.flightSalesLink ? (
@@ -418,6 +550,13 @@ export default function AfiliadosClient() {
                         </button>
                         <button
                           type="button"
+                          onClick={() => setDetailsId((current) => (current === row.id ? null : row.id))}
+                          className="rounded-lg border px-3 py-1.5 text-xs hover:bg-white"
+                        >
+                          Detalhes
+                        </button>
+                        <button
+                          type="button"
                           onClick={() => toggleActive(row)}
                           className="rounded-lg border px-3 py-1.5 text-xs hover:bg-white"
                         >
@@ -431,6 +570,70 @@ export default function AfiliadosClient() {
             </table>
           </div>
         )}
+
+        {detailsAffiliate ? (
+          <div className="mt-5 rounded-2xl border p-4">
+            <div className="mb-3 flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+              <div>
+                <h3 className="text-base font-semibold">{detailsAffiliate.name}</h3>
+                <p className="text-xs text-slate-500">
+                  Clientes indicados: {detailsAffiliate.metrics?.clientsCount || 0} · vendas:{" "}
+                  {detailsAffiliate.metrics?.salesCount || 0} · comissão:{" "}
+                  {formatMoney(detailsAffiliate.metrics?.totalCommissionCents || 0)}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setDetailsId(null)}
+                className="rounded-lg border px-3 py-1.5 text-xs hover:bg-white"
+              >
+                Fechar
+              </button>
+            </div>
+
+            {(detailsAffiliate.metrics?.sales || []).length === 0 ? (
+              <div className="text-sm text-slate-600">
+                Nenhuma venda encontrada para os clientes indicados por este afiliado.
+              </div>
+            ) : (
+              <div className="overflow-auto rounded-xl border">
+                <table className="w-full text-sm">
+                  <thead className="bg-slate-50">
+                    <tr>
+                      <th className="px-3 py-2 text-left">Data</th>
+                      <th className="px-3 py-2 text-left">Venda</th>
+                      <th className="px-3 py-2 text-left">Cliente</th>
+                      <th className="px-3 py-2 text-left">Programa</th>
+                      <th className="px-3 py-2 text-right">Total</th>
+                      <th className="px-3 py-2 text-right">Lucro</th>
+                      <th className="px-3 py-2 text-right">Comissão</th>
+                      <th className="px-3 py-2 text-left">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(detailsAffiliate.metrics?.sales || []).map((sale) => (
+                      <tr key={sale.id} className="border-t hover:bg-slate-50">
+                        <td className="px-3 py-2">{dateBR(sale.date)}</td>
+                        <td className="px-3 py-2 font-medium">{sale.numero}</td>
+                        <td className="px-3 py-2">
+                          <div>{sale.clientName}</div>
+                          <div className="text-xs text-slate-500">{sale.clientIdentifier}</div>
+                        </td>
+                        <td className="px-3 py-2">{sale.program}</td>
+                        <td className="px-3 py-2 text-right font-medium">{formatMoney(sale.totalCents)}</td>
+                        <td className="px-3 py-2 text-right">{formatMoney(sale.profitCents)}</td>
+                        <td className="px-3 py-2 text-right font-semibold text-emerald-700">
+                          {formatMoney(sale.affiliateCommissionCents)}
+                        </td>
+                        <td className="px-3 py-2">{saleStatus(sale.paymentStatus)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        ) : null}
       </div>
     </div>
   );

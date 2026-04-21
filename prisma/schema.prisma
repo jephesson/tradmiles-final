@@ -1148,11 +1148,14 @@ model Affiliate {
   team     String
   name     String
   document String
+  login    String? @unique
 
   flightSalesLink    String?
   pointsPurchaseLink String?
   commissionBps      Int     @default(0)
   isActive           Boolean @default(true)
+  passwordHash       String?
+  lastLoginAt        DateTime?
 
   clients Cliente[]
 
@@ -1161,6 +1164,7 @@ model Affiliate {
 
   @@index([team])
   @@index([team, document])
+  @@index([team, login])
   @@index([team, isActive])
   @@map("affiliates")
 }
