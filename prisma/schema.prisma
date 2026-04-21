@@ -1123,6 +1123,9 @@ model Cliente {
   origem          ClienteOrigem
   origemDescricao String?
 
+  affiliateId String?
+  affiliate   Affiliate? @relation(fields: [affiliateId], references: [id], onDelete: SetNull)
+
   createdById String?
   createdBy   User? @relation("ClienteCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
 
@@ -1134,8 +1137,32 @@ model Cliente {
   updatedAt DateTime @updatedAt
 
   @@index([origem])
+  @@index([affiliateId])
   @@index([createdAt])
   @@map("clientes")
+}
+
+model Affiliate {
+  id String @id @default(cuid())
+
+  team     String
+  name     String
+  document String
+
+  flightSalesLink    String?
+  pointsPurchaseLink String?
+  commissionBps      Int     @default(0)
+  isActive           Boolean @default(true)
+
+  clients Cliente[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([team])
+  @@index([team, document])
+  @@index([team, isActive])
+  @@map("affiliates")
 }
 
 /**

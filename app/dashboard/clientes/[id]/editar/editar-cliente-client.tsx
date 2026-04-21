@@ -6,9 +6,22 @@ import { useRouter } from "next/navigation";
 
 type ClienteTipo = "PESSOA" | "EMPRESA";
 type ClienteOrigem = "BALCAO_MILHAS" | "PARTICULAR" | "SITE" | "OUTROS";
+type AffiliateOption = {
+  id: string;
+  name: string;
+  document: string;
+  commissionBps: number;
+  isActive?: boolean;
+};
 
 function onlyDigits(v: string) {
   return (v || "").replace(/\D+/g, "");
+}
+
+function errorMessage(error: unknown, fallback: string) {
+  if (error instanceof Error && error.message) return error.message;
+  if (typeof error === "string" && error.trim()) return error;
+  return fallback;
 }
 
 function Input({
@@ -45,11 +58,14 @@ export default function EditarClienteClient({ id }: { id: string }) {
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [affiliates, setAffiliates] = useState<AffiliateOption[]>([]);
+  const [currentAffiliate, setCurrentAffiliate] = useState<AffiliateOption | null>(null);
 
   const [tipo, setTipo] = useState<ClienteTipo>("PESSOA");
   const [nome, setNome] = useState("");
   const [cpfCnpj, setCpfCnpj] = useState("");
   const [telefone, setTelefone] = useState("");
+  const [affiliateId, setAffiliateId] = useState("");
 
   const [origem, setOrigem] = useState<ClienteOrigem>("BALCAO_MILHAS");
   const [origemDescricao, setOrigemDescricao] = useState("");
@@ -58,6 +74,22 @@ export default function EditarClienteClient({ id }: { id: string }) {
     const d = onlyDigits(cpfCnpj);
     return d.length ? d : "";
   }, [cpfCnpj]);
+
+  const affiliateOptions = useMemo(() => {
+    if (!currentAffiliate) return affiliates;
+    if (affiliates.some((affiliate) => affiliate.id === currentAffiliate.id)) return affiliates;
+    return [currentAffiliate, ...affiliates];
+  }, [affiliates, currentAffiliate]);
+
+  async function loadAffiliates() {
+    try {
+      const r = await fetch("/api/afiliados?active=1", { cache: "no-store" });
+      const j = await r.json();
+      if (j?.ok) setAffiliates(j.data.affiliates || []);
+    } catch {
+      setAffiliates([]);
+    }
+  }
 
   async function load() {
     setLoading(true);
@@ -73,8 +105,10 @@ export default function EditarClienteClient({ id }: { id: string }) {
       setTelefone(c.telefone || "");
       setOrigem(c.origem);
       setOrigemDescricao(c.origemDescricao || "");
-    } catch (e: any) {
-      alert(e.message);
+      setAffiliateId(c.affiliateId || "");
+      setCurrentAffiliate(c.affiliate || null);
+    } catch (e: unknown) {
+      alert(errorMessage(e, "Erro ao carregar cliente"));
       router.push("/dashboard/clientes");
     } finally {
       setLoading(false);
@@ -82,6 +116,7 @@ export default function EditarClienteClient({ id }: { id: string }) {
   }
 
   useEffect(() => {
+    loadAffiliates();
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
@@ -96,6 +131,7 @@ export default function EditarClienteClient({ id }: { id: string }) {
         telefone: onlyDigits(telefone) || null,
         origem,
         origemDescricao: origem === "OUTROS" ? origemDescricao.trim() : null,
+        affiliateId: affiliateId || null,
       };
 
       const r = await fetch(`/api/clientes/${id}`, {
@@ -109,8 +145,8 @@ export default function EditarClienteClient({ id }: { id: string }) {
 
       router.push("/dashboard/clientes");
       router.refresh();
-    } catch (e: any) {
-      alert(e.message);
+    } catch (e: unknown) {
+      alert(errorMessage(e, "Erro ao atualizar cliente"));
     } finally {
       setSaving(false);
     }
@@ -193,6 +229,26 @@ export default function EditarClienteClient({ id }: { id: string }) {
             placeholder="Opcional"
             optional
           />
+
+          <label className="space-y-1 md:col-span-2">
+            <div className="flex items-center justify-between">
+              <div className="text-xs text-slate-600">Indicação</div>
+              <div className="text-[11px] text-slate-400">Opcional</div>
+            </div>
+            <select
+              className="w-full rounded-xl border bg-white px-3 py-2 text-sm"
+              value={affiliateId}
+              onChange={(e) => setAffiliateId(e.target.value)}
+            >
+              <option value="">Sem indicação de afiliado</option>
+              {affiliateOptions.map((affiliate) => (
+                <option key={affiliate.id} value={affiliate.id}>
+                  {affiliate.name} - {(affiliate.commissionBps / 100).toLocaleString("pt-BR")}%
+                  {affiliate.isActive === false ? " (inativo)" : ""}
+                </option>
+              ))}
+            </select>
+          </label>
 
           <label className="space-y-1 md:col-span-2">
             <div className="text-xs text-slate-600">Origem</div>

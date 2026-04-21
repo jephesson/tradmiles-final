@@ -15,6 +15,13 @@ type ClienteRow = {
   telefone: string | null;
   origem: ClienteOrigem;
   origemDescricao: string | null;
+  affiliateId: string | null;
+  affiliate: {
+    id: string;
+    name: string;
+    commissionBps: number;
+    isActive: boolean;
+  } | null;
   createdAt: string;
 };
 
@@ -27,6 +34,12 @@ function origemLabel(o: ClienteOrigem, desc?: string | null) {
   if (o === "PARTICULAR") return "Particular";
   if (o === "SITE") return "Site";
   return desc ? `Outros — ${desc}` : "Outros";
+}
+
+function errorMessage(error: unknown, fallback: string) {
+  if (error instanceof Error && error.message) return error.message;
+  if (typeof error === "string" && error.trim()) return error;
+  return fallback;
 }
 
 export default function ClientesClient() {
@@ -49,9 +62,9 @@ export default function ClientesClient() {
       const j = await r.json();
       if (!j?.ok) throw new Error(j?.error || "Erro ao carregar clientes");
       setRows(j.data.clientes || []);
-    } catch (e: any) {
+    } catch (e: unknown) {
       setRows([]);
-      setError(e.message || "Erro ao carregar clientes.");
+      setError(errorMessage(e, "Erro ao carregar clientes."));
     } finally {
       setLoading(false);
     }
@@ -87,16 +100,19 @@ export default function ClientesClient() {
             {loading ? "Atualizando..." : "Atualizar"}
           </button>
 
-          <a
-            href="/api/clientes/export"
-            aria-disabled={!canExport}
+          <button
+            type="button"
+            onClick={() => {
+              window.location.href = "/api/clientes/export";
+            }}
+            disabled={!canExport}
             className={[
               "rounded-xl border px-4 py-2 text-sm hover:bg-slate-50",
-              !canExport ? "pointer-events-none opacity-50" : "",
+              !canExport ? "opacity-50" : "",
             ].join(" ")}
           >
             Baixar XLS
-          </a>
+          </button>
 
           <Link
             href="/dashboard/clientes/novo"
@@ -122,13 +138,13 @@ export default function ClientesClient() {
           className="w-full rounded-xl border px-3 py-2 text-sm"
           value={q}
           onChange={(e) => setQ(e.target.value)}
-          placeholder="Nome, CL00001, CPF/CNPJ, telefone..."
+          placeholder="Nome, CL00001, CPF/CNPJ, telefone, afiliado..."
         />
 
         {error ? <div className="mt-2 text-xs text-rose-600">{error}</div> : null}
         {!error && q.trim() && (
           <div className="mt-2 text-xs text-slate-500">
-            Busca no banco inteiro por nome, ID, CPF/CNPJ ou telefone.
+            Busca no banco inteiro por nome, ID, CPF/CNPJ, telefone ou afiliado.
           </div>
         )}
       </div>
@@ -150,6 +166,7 @@ export default function ClientesClient() {
                   <th className="px-3 py-2 text-left">CPF/CNPJ</th>
                   <th className="px-3 py-2 text-left">Telefone</th>
                   <th className="px-3 py-2 text-left">Origem</th>
+                  <th className="px-3 py-2 text-left">Indicação</th>
                   <th className="px-3 py-2 text-left">Criado em</th>
                   <th className="px-3 py-2 text-right">Ações</th>
                 </tr>
@@ -167,6 +184,18 @@ export default function ClientesClient() {
                     <td className="px-3 py-2">{c.telefone || "-"}</td>
                     <td className="px-3 py-2">
                       {origemLabel(c.origem, c.origemDescricao)}
+                    </td>
+                    <td className="px-3 py-2">
+                      {c.affiliate ? (
+                        <div>
+                          <div>{c.affiliate.name}</div>
+                          <div className="text-xs text-slate-500">
+                            {(c.affiliate.commissionBps / 100).toLocaleString("pt-BR")}% comissão
+                          </div>
+                        </div>
+                      ) : (
+                        "-"
+                      )}
                     </td>
                     <td className="px-3 py-2">{dateBR(c.createdAt)}</td>
                     <td className="px-3 py-2 text-right">

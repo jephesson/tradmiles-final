@@ -5,11 +5,11 @@ import { prisma } from "@/lib/prisma";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-function dateBR(iso: string) {
+function dateBR(value: string | Date) {
   try {
-    return new Date(iso).toLocaleDateString("pt-BR");
+    return new Date(value).toLocaleDateString("pt-BR");
   } catch {
-    return iso;
+    return String(value);
   }
 }
 
@@ -21,6 +21,21 @@ function origemLabel(
   if (o === "PARTICULAR") return "Particular";
   if (o === "SITE") return "Site";
   return desc ? `Outros — ${desc}` : "Outros";
+}
+
+type ExcelCellLike = {
+  border?: unknown;
+  fill?: unknown;
+};
+
+type ExcelRowLike = {
+  eachCell: (callback: (cell: ExcelCellLike) => void) => void;
+};
+
+function errorMessage(error: unknown, fallback: string) {
+  if (error instanceof Error && error.message) return error.message;
+  if (typeof error === "string" && error.trim()) return error;
+  return fallback;
 }
 
 export async function GET() {
@@ -39,6 +54,12 @@ export async function GET() {
         telefone: true,
         origem: true,
         origemDescricao: true,
+        affiliate: {
+          select: {
+            name: true,
+            commissionBps: true,
+          },
+        },
         createdAt: true,
       },
     });
@@ -56,6 +77,8 @@ export async function GET() {
       { header: "CPF/CNPJ", key: "cpfCnpj", width: 20 },
       { header: "Telefone", key: "telefone", width: 18 },
       { header: "Origem", key: "origem", width: 22 },
+      { header: "Indicação", key: "affiliate", width: 28 },
+      { header: "Comissão afiliado", key: "affiliateCommission", width: 18 },
       { header: "Criado em", key: "createdAt", width: 14 },
     ];
 
@@ -70,14 +93,18 @@ export async function GET() {
         tipo: c.tipo === "EMPRESA" ? "Empresa" : "Pessoa",
         cpfCnpj: c.cpfCnpj || "",
         telefone: c.telefone || "",
-        origem: origemLabel(c.origem as any, c.origemDescricao),
-        createdAt: dateBR(c.createdAt as any),
+        origem: origemLabel(c.origem, c.origemDescricao),
+        affiliate: c.affiliate?.name || "",
+        affiliateCommission: c.affiliate
+          ? `${(c.affiliate.commissionBps / 100).toLocaleString("pt-BR")}%`
+          : "",
+        createdAt: dateBR(c.createdAt),
       });
     }
 
     // bordas leves
-    ws.eachRow((row: any, rowNumber: number) => {
-      row.eachCell((cell: any) => {
+    ws.eachRow((row: ExcelRowLike, rowNumber: number) => {
+      row.eachCell((cell) => {
         cell.border = {
           top: { style: "thin", color: { argb: "FFE5E7EB" } },
           left: { style: "thin", color: { argb: "FFE5E7EB" } },
@@ -111,9 +138,9 @@ export async function GET() {
         "Cache-Control": "no-store",
       },
     });
-  } catch (e: any) {
+  } catch (e: unknown) {
     return NextResponse.json(
-      { ok: false, error: e?.message || "Falha ao exportar XLSX" },
+      { ok: false, error: errorMessage(e, "Falha ao exportar XLSX") },
       { status: 500 }
     );
   }

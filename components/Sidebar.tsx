@@ -124,6 +124,7 @@ export default function Sidebar() {
   // ✅ Cadastro NÃO deve “pegar” Visualizar cedentes
   const isCadastroRoute =
     (pathname.startsWith("/dashboard/cedentes") && !isPontosVisualizarRoute) ||
+    pathname.startsWith("/dashboard/afiliados") ||
     pathname.startsWith("/dashboard/clientes") ||
     pathname.startsWith("/dashboard/funcionarios") ||
     pathname.startsWith("/dashboard/bloqueios");
@@ -310,6 +311,9 @@ export default function Sidebar() {
   const [openClientes, setOpenClientes] = useState(
     pathname.startsWith("/dashboard/clientes")
   );
+  const [openAfiliados, setOpenAfiliados] = useState(
+    pathname.startsWith("/dashboard/afiliados")
+  );
 
   const [openGestaoPontos, setOpenGestaoPontos] = useState(isGestaoPontosRoute);
   const [openPontosVisualizar, setOpenPontosVisualizar] = useState(
@@ -396,6 +400,10 @@ export default function Sidebar() {
 
   useEffect(() => {
     setOpenClientes(pathname.startsWith("/dashboard/clientes"));
+  }, [pathname]);
+
+  useEffect(() => {
+    setOpenAfiliados(pathname.startsWith("/dashboard/afiliados"));
   }, [pathname]);
 
   useEffect(
@@ -620,6 +628,16 @@ export default function Sidebar() {
 
             <NavLink href="/dashboard/clientes" exact>
               Visualizar clientes
+            </NavLink>
+          </SubAccordion>
+
+          <SubAccordion
+            title="Afiliados"
+            open={openAfiliados}
+            onToggle={() => setOpenAfiliados((v) => !v)}
+          >
+            <NavLink href="/dashboard/afiliados" exact>
+              Gerenciar afiliados
             </NavLink>
           </SubAccordion>
         </Accordion>

@@ -1,14 +1,26 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
 type ClienteTipo = "PESSOA" | "EMPRESA";
 type ClienteOrigem = "BALCAO_MILHAS" | "PARTICULAR" | "SITE" | "OUTROS";
+type AffiliateOption = {
+  id: string;
+  name: string;
+  document: string;
+  commissionBps: number;
+};
 
 function onlyDigits(v: string) {
   return (v || "").replace(/\D+/g, "");
+}
+
+function errorMessage(error: unknown, fallback: string) {
+  if (error instanceof Error && error.message) return error.message;
+  if (typeof error === "string" && error.trim()) return error;
+  return fallback;
 }
 
 function Input({
@@ -44,11 +56,13 @@ export default function NovoClienteClient() {
   const router = useRouter();
 
   const [saving, setSaving] = useState(false);
+  const [affiliates, setAffiliates] = useState<AffiliateOption[]>([]);
 
   const [tipo, setTipo] = useState<ClienteTipo>("PESSOA");
   const [nome, setNome] = useState("");
   const [cpfCnpj, setCpfCnpj] = useState("");
   const [telefone, setTelefone] = useState("");
+  const [affiliateId, setAffiliateId] = useState("");
 
   const [origem, setOrigem] = useState<ClienteOrigem>("BALCAO_MILHAS");
   const [origemDescricao, setOrigemDescricao] = useState("");
@@ -57,6 +71,20 @@ export default function NovoClienteClient() {
     const d = onlyDigits(cpfCnpj);
     return d.length ? d : "";
   }, [cpfCnpj]);
+
+  useEffect(() => {
+    async function loadAffiliates() {
+      try {
+        const r = await fetch("/api/afiliados?active=1", { cache: "no-store" });
+        const j = await r.json();
+        if (j?.ok) setAffiliates(j.data.affiliates || []);
+      } catch {
+        setAffiliates([]);
+      }
+    }
+
+    loadAffiliates();
+  }, []);
 
   async function salvar() {
     setSaving(true);
@@ -68,6 +96,7 @@ export default function NovoClienteClient() {
         telefone: onlyDigits(telefone) || null,
         origem,
         origemDescricao: origem === "OUTROS" ? origemDescricao.trim() : null,
+        affiliateId: affiliateId || null,
       };
 
       const r = await fetch("/api/clientes", {
@@ -81,8 +110,8 @@ export default function NovoClienteClient() {
 
       router.push("/dashboard/clientes");
       router.refresh();
-    } catch (e: any) {
-      alert(e.message);
+    } catch (e: unknown) {
+      alert(errorMessage(e, "Erro ao criar cliente"));
     } finally {
       setSaving(false);
     }
@@ -159,6 +188,25 @@ export default function NovoClienteClient() {
             placeholder="Opcional"
             optional
           />
+
+          <label className="space-y-1 md:col-span-2">
+            <div className="flex items-center justify-between">
+              <div className="text-xs text-slate-600">Indicação</div>
+              <div className="text-[11px] text-slate-400">Opcional</div>
+            </div>
+            <select
+              className="w-full rounded-xl border bg-white px-3 py-2 text-sm"
+              value={affiliateId}
+              onChange={(e) => setAffiliateId(e.target.value)}
+            >
+              <option value="">Sem indicação de afiliado</option>
+              {affiliates.map((affiliate) => (
+                <option key={affiliate.id} value={affiliate.id}>
+                  {affiliate.name} - {(affiliate.commissionBps / 100).toLocaleString("pt-BR")}%
+                </option>
+              ))}
+            </select>
+          </label>
 
           <label className="space-y-1 md:col-span-2">
             <div className="text-xs text-slate-600">Origem</div>

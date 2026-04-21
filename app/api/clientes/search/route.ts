@@ -7,6 +7,12 @@ function onlyDigits(v: string) {
   return (v || "").replace(/\D+/g, "");
 }
 
+function errorMessage(error: unknown, fallback: string) {
+  if (error instanceof Error && error.message) return error.message;
+  if (typeof error === "string" && error.trim()) return error;
+  return fallback;
+}
+
 export async function GET(req: Request) {
   try {
     const { searchParams } = new URL(req.url);
@@ -28,6 +34,15 @@ export async function GET(req: Request) {
           nome: true,
           cpfCnpj: true,
           telefone: true,
+          affiliateId: true,
+          affiliate: {
+            select: {
+              id: true,
+              name: true,
+              commissionBps: true,
+              isActive: true,
+            },
+          },
         },
       });
 
@@ -40,6 +55,7 @@ export async function GET(req: Request) {
       OR: [
         { nome: { contains: q, mode } },
         { identificador: { contains: q, mode } },
+        { affiliate: { name: { contains: q, mode } } },
         ...(digits
           ? [
               { cpfCnpj: { contains: digits } },
@@ -59,13 +75,22 @@ export async function GET(req: Request) {
         nome: true,
         cpfCnpj: true,
         telefone: true,
+        affiliateId: true,
+        affiliate: {
+          select: {
+            id: true,
+            name: true,
+            commissionBps: true,
+            isActive: true,
+          },
+        },
       },
     });
 
     return NextResponse.json({ ok: true, clientes });
-  } catch (e: any) {
+  } catch (e: unknown) {
     return NextResponse.json(
-      { ok: false, error: e?.message || "Erro ao buscar clientes." },
+      { ok: false, error: errorMessage(e, "Erro ao buscar clientes.") },
       { status: 500 }
     );
   }
