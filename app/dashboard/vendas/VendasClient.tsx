@@ -88,6 +88,13 @@ function errorMessage(error: unknown, fallback: string) {
   return fallback;
 }
 
+const CARD_MANUAL_VALUE = "__MANUAL__";
+const CARD_NONE_VALUE = "__NONE__";
+
+function cardLabelForUser(user: { name: string; login: string }) {
+  return user.login ? `Cartão ${user.name} (@${user.login})` : `Cartão ${user.name}`;
+}
+
 async function api<T>(url: string, init?: RequestInit): Promise<T> {
   const r = await fetch(url, {
     cache: "no-store",
@@ -144,6 +151,17 @@ type UserSession = {
   role: "admin" | "staff";
   team: string;
   name?: string;
+};
+
+type UserLite = {
+  id: string;
+  name: string;
+  login: string;
+};
+
+type CardOption = {
+  value: string;
+  label: string;
 };
 
 type SaleAuditSnapshot = {
@@ -247,6 +265,7 @@ export default function VendasClient() {
 
   const [updatingId, setUpdatingId] = useState<string | null>(null);
   const [user, setUser] = useState<UserSession | null>(null);
+  const [users, setUsers] = useState<UserLite[]>([]);
 
   // ✅ modal de detalhes
   const [detailsId, setDetailsId] = useState<string | null>(null);
@@ -269,6 +288,27 @@ export default function VendasClient() {
   const [editPoints, setEditPoints] = useState("");
   const [editMilheiro, setEditMilheiro] = useState("");
   const [editNote, setEditNote] = useState("");
+
+  const cardOptions = useMemo<CardOption[]>(() => {
+    const map = new Map<string, string>();
+    map.set("Cartão Vias Aéreas", "Vias Aéreas");
+
+    for (const u of users) {
+      if (!u?.name) continue;
+      const value = cardLabelForUser({ name: u.name, login: u.login || "" });
+      map.set(value, u.login ? `${u.name} (@${u.login})` : u.name);
+    }
+
+    return Array.from(map.entries()).map(([value, label]) => ({ value, label }));
+  }, [users]);
+
+  const editCardSelectValue = useMemo(() => {
+    const label = editFeeCardLabel.trim();
+    if (!label) return CARD_NONE_VALUE;
+    return cardOptions.some((option) => option.value === label)
+      ? label
+      : CARD_MANUAL_VALUE;
+  }, [cardOptions, editFeeCardLabel]);
 
   async function load(opts?: { append?: boolean }) {
     const append = Boolean(opts?.append);
@@ -364,6 +404,25 @@ export default function VendasClient() {
       })
       .catch(() => {
         if (alive) setUser(null);
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    let alive = true;
+    api<{ ok: true; users: UserLite[] }>("/api/users/simple")
+      .then((out) => {
+        if (!alive) return;
+        setUsers(
+          (out.users || [])
+            .filter((u) => u?.id && u?.name)
+            .map((u) => ({ id: u.id, name: u.name, login: u.login || "" }))
+        );
+      })
+      .catch(() => {
+        if (alive) setUsers([]);
       });
     return () => {
       alive = false;
@@ -1005,12 +1064,42 @@ export default function VendasClient() {
                   <div className="mt-4 grid gap-3 md:grid-cols-3">
                     <label className="text-xs text-slate-600">
                       Cartão usado
-                      <input
-                        value={editFeeCardLabel}
-                        onChange={(e) => setEditFeeCardLabel(e.target.value)}
+                      <select
+                        value={editCardSelectValue}
+                        onChange={(e) => {
+                          const value = e.target.value;
+                          if (value === CARD_NONE_VALUE) {
+                            setEditFeeCardLabel("");
+                            return;
+                          }
+                          if (value === CARD_MANUAL_VALUE) {
+                            if (editCardSelectValue !== CARD_MANUAL_VALUE) setEditFeeCardLabel("");
+                            return;
+                          }
+                          setEditFeeCardLabel(value);
+                        }}
                         className="mt-1 w-full rounded-xl border bg-white px-3 py-2 text-sm text-slate-900"
-                        placeholder="Cartão / responsável"
-                      />
+                      >
+                        <option value={CARD_NONE_VALUE}>Sem cartão</option>
+                        {cardOptions.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                        <option value={CARD_MANUAL_VALUE}>Manual</option>
+                      </select>
+                      {editCardSelectValue === CARD_MANUAL_VALUE ? (
+                        <input
+                          value={editFeeCardLabel}
+                          onChange={(e) => setEditFeeCardLabel(e.target.value)}
+                          className="mt-2 w-full rounded-xl border bg-white px-3 py-2 text-sm text-slate-900"
+                          placeholder="Ex: Cartão Inter PJ"
+                        />
+                      ) : (
+                        <div className="mt-1 text-[11px] text-slate-500">
+                          {editFeeCardLabel || "—"}
+                        </div>
+                      )}
                     </label>
 
                     <label className="text-xs text-slate-600">
