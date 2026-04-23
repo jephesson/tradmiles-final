@@ -132,17 +132,17 @@ const FOLDER_TEMPLATE_BY_TYPE: Record<"passagens" | "compra-pontos", FolderTempl
     src: "/affiliate-folder-passagem.png",
     baseWidth: 1122,
     baseHeight: 1402,
-    qrX: 570,
-    qrY: 962,
-    qrSize: 248,
+    qrX: 577,
+    qrY: 976,
+    qrSize: 239,
   },
   "compra-pontos": {
     src: "/affiliate-folder-venda-pontos.png",
-    baseWidth: 1080,
-    baseHeight: 1350,
-    qrX: 576,
-    qrY: 934,
-    qrSize: 226,
+    baseWidth: 819,
+    baseHeight: 1024,
+    qrX: 442,
+    qrY: 701,
+    qrSize: 170,
   },
 };
 
@@ -164,17 +164,128 @@ async function makeFolderDataUrl(url: string, folderType: "passagens" | "compra-
 
   const scaleX = canvas.width / templateConfig.baseWidth;
   const scaleY = canvas.height / templateConfig.baseHeight;
-  const qrBox = {
+  const fallbackQrBox = {
     x: templateConfig.qrX * scaleX,
     y: templateConfig.qrY * scaleY,
     size: templateConfig.qrSize * Math.min(scaleX, scaleY),
   };
+  const detectedBox = detectQrPlaceholderBox(ctx, canvas.width, canvas.height);
+  const qrBox = detectedBox
+    ? {
+        x: detectedBox.x,
+        y: detectedBox.y,
+        size: Math.min(detectedBox.width, detectedBox.height),
+      }
+    : fallbackQrBox;
+
+  const innerPadding = Math.max(4, Math.round(qrBox.size * 0.08));
+  const drawSize = Math.max(24, Math.round(qrBox.size - innerPadding * 2));
+  const drawX = Math.round(qrBox.x + (qrBox.size - drawSize) / 2);
+  const drawY = Math.round(qrBox.y + (qrBox.size - drawSize) / 2);
 
   ctx.fillStyle = "#ffffff";
-  ctx.fillRect(qrBox.x - 8 * scaleX, qrBox.y - 8 * scaleY, qrBox.size + 16 * scaleX, qrBox.size + 16 * scaleY);
-  ctx.drawImage(qr, qrBox.x, qrBox.y, qrBox.size, qrBox.size);
+  ctx.fillRect(drawX - 2, drawY - 2, drawSize + 4, drawSize + 4);
+  ctx.drawImage(qr, drawX, drawY, drawSize, drawSize);
 
   return canvas.toDataURL("image/png");
+}
+
+type Box = { x: number; y: number; width: number; height: number };
+
+function detectQrPlaceholderBox(
+  ctx: CanvasRenderingContext2D,
+  width: number,
+  height: number,
+): Box | null {
+  const { data } = ctx.getImageData(0, 0, width, height);
+  const visited = new Uint8Array(width * height);
+  const queue = new Int32Array(width * height);
+  const candidates: Array<Box & { area: number }> = [];
+
+  function isPlaceholderPixel(offset: number) {
+    const r = data[offset];
+    const g = data[offset + 1];
+    const b = data[offset + 2];
+    const max = Math.max(r, g, b);
+    const min = Math.min(r, g, b);
+    const brightness = (r + g + b) / 3;
+    const saturation = max === 0 ? 0 : (max - min) / max;
+    return brightness >= 195 && saturation <= 0.12;
+  }
+
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const start = y * width + x;
+      if (visited[start]) continue;
+      visited[start] = 1;
+      if (!isPlaceholderPixel(start * 4)) continue;
+
+      let head = 0;
+      let tail = 0;
+      queue[tail++] = start;
+
+      let minX = x;
+      let maxX = x;
+      let minY = y;
+      let maxY = y;
+      let area = 0;
+
+      while (head < tail) {
+        const current = queue[head++];
+        const cx = current % width;
+        const cy = (current - cx) / width;
+        area++;
+
+        if (cx < minX) minX = cx;
+        if (cx > maxX) maxX = cx;
+        if (cy < minY) minY = cy;
+        if (cy > maxY) maxY = cy;
+
+        if (cx > 0) {
+          const left = current - 1;
+          if (!visited[left]) {
+            visited[left] = 1;
+            if (isPlaceholderPixel(left * 4)) queue[tail++] = left;
+          }
+        }
+        if (cx + 1 < width) {
+          const right = current + 1;
+          if (!visited[right]) {
+            visited[right] = 1;
+            if (isPlaceholderPixel(right * 4)) queue[tail++] = right;
+          }
+        }
+        if (cy > 0) {
+          const up = current - width;
+          if (!visited[up]) {
+            visited[up] = 1;
+            if (isPlaceholderPixel(up * 4)) queue[tail++] = up;
+          }
+        }
+        if (cy + 1 < height) {
+          const down = current + width;
+          if (!visited[down]) {
+            visited[down] = 1;
+            if (isPlaceholderPixel(down * 4)) queue[tail++] = down;
+          }
+        }
+      }
+
+      const componentWidth = maxX - minX + 1;
+      const componentHeight = maxY - minY + 1;
+      if (area < 12000) continue;
+      if (componentWidth < 120 || componentHeight < 120) continue;
+      const ratio = componentWidth / componentHeight;
+      if (ratio < 0.7 || ratio > 1.4) continue;
+      if (minX < width * 0.25 || minY < height * 0.45) continue;
+      candidates.push({ x: minX, y: minY, width: componentWidth, height: componentHeight, area });
+    }
+  }
+
+  if (!candidates.length) return null;
+  candidates.sort((a, b) => b.area - a.area);
+  const best = candidates[0];
+  return { x: best.x, y: best.y, width: best.width, height: best.height };
 }
 
 function safeFilePart(value: string) {
