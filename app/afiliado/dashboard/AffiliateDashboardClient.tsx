@@ -46,6 +46,12 @@ type DashboardData = {
     commissionBps: number;
     sales: SaleRow[];
   };
+  clients: Array<{
+    id: string;
+    nome: string;
+    identificador: string;
+    createdAt: string;
+  }>;
 };
 
 function fmtMoney(cents: number) {
@@ -288,7 +294,20 @@ export default function AffiliateDashboardClient() {
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [copiedKey, setCopiedKey] = useState("");
   const router = useRouter();
+
+  async function copyLink(value: string, key: string) {
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopiedKey(key);
+      window.setTimeout(() => {
+        setCopiedKey((current) => (current === key ? "" : current));
+      }, 1200);
+    } catch {
+      setError("Não foi possível copiar o link.");
+    }
+  }
 
   async function load() {
     setLoading(true);
@@ -418,29 +437,87 @@ export default function AffiliateDashboardClient() {
           </p>
           <div className="mt-3 flex flex-wrap gap-2">
             {data.affiliate.promotionalYoutubeLink ? (
-              <a
-                href={data.affiliate.promotionalYoutubeLink}
-                target="_blank"
-                rel="noreferrer"
-                className="rounded-xl border px-3 py-2 text-xs hover:bg-slate-50"
-              >
-                Abrir vídeo no YouTube
-              </a>
+              <>
+                <a
+                  href={data.affiliate.promotionalYoutubeLink}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="rounded-xl border px-3 py-2 text-xs hover:bg-slate-50"
+                >
+                  Abrir vídeo no YouTube
+                </a>
+                <button
+                  type="button"
+                  onClick={() => copyLink(data.affiliate.promotionalYoutubeLink || "", "yt")}
+                  className="rounded-xl border px-3 py-2 text-xs hover:bg-slate-50"
+                >
+                  {copiedKey === "yt" ? "Copiado" : "Copiar link YouTube"}
+                </button>
+              </>
             ) : null}
             {data.affiliate.promotionalDriveLink ? (
-              <a
-                href={data.affiliate.promotionalDriveLink}
-                target="_blank"
-                rel="noreferrer"
-                className="rounded-xl border px-3 py-2 text-xs hover:bg-slate-50"
-              >
-                Abrir vídeo no Google Drive
-              </a>
+              <>
+                <a
+                  href={data.affiliate.promotionalDriveLink}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="rounded-xl border px-3 py-2 text-xs hover:bg-slate-50"
+                >
+                  Abrir vídeo no Google Drive
+                </a>
+                <button
+                  type="button"
+                  onClick={() => copyLink(data.affiliate.promotionalDriveLink || "", "drive")}
+                  className="rounded-xl border px-3 py-2 text-xs hover:bg-slate-50"
+                >
+                  {copiedKey === "drive" ? "Copiado" : "Copiar link Drive"}
+                </button>
+              </>
             ) : null}
             {!data.affiliate.promotionalYoutubeLink && !data.affiliate.promotionalDriveLink ? (
               <span className="text-xs text-slate-500">Nenhum material disponível no momento.</span>
             ) : null}
           </div>
+        </section>
+
+        <section className="rounded-2xl border bg-white p-4">
+          <div className="mb-3 flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <h2 className="text-base font-semibold text-slate-950">Clientes vinculados</h2>
+              <p className="text-xs text-slate-500">
+                Estes clientes estão vinculados ao seu código e podem gerar sua comissão de{" "}
+                {fmtPercent(data.affiliate.commissionBps)} sobre lucro positivo.
+              </p>
+            </div>
+            <div className="text-xs text-slate-500">{data.clients.length} cliente(s)</div>
+          </div>
+
+          {data.clients.length === 0 ? (
+            <div className="rounded-xl border p-4 text-sm text-slate-600">
+              Você ainda não possui clientes vinculados.
+            </div>
+          ) : (
+            <div className="overflow-auto rounded-xl border">
+              <table className="w-full text-sm">
+                <thead className="bg-slate-50">
+                  <tr>
+                    <th className="px-3 py-2 text-left">Nome</th>
+                    <th className="px-3 py-2 text-left">Identificador</th>
+                    <th className="px-3 py-2 text-left">Vinculado em</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.clients.map((client) => (
+                    <tr key={client.id} className="border-t hover:bg-slate-50">
+                      <td className="px-3 py-2 font-medium">{client.nome}</td>
+                      <td className="px-3 py-2">{client.identificador}</td>
+                      <td className="px-3 py-2">{fmtDate(client.createdAt)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </section>
 
         <section className="rounded-2xl border bg-white p-4">

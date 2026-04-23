@@ -42,12 +42,24 @@ export async function GET() {
     }
 
     const metrics = await getAffiliateMetrics(affiliate, { includeSales: true, saleLimit: 500 });
+    const clients = await prisma.cliente.findMany({
+      where: { affiliateId: affiliate.id },
+      orderBy: [{ createdAt: "desc" }],
+      select: {
+        id: true,
+        nome: true,
+        identificador: true,
+        createdAt: true,
+      },
+      take: 500,
+    });
 
     return NextResponse.json({
       ok: true,
       data: {
         affiliate,
         metrics,
+        clients,
       },
     });
   } catch (error: unknown) {
