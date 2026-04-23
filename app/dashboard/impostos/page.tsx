@@ -3,18 +3,29 @@
 import { useEffect, useMemo, useState } from "react";
 
 type PaidByLite = { id: string; name: string } | null;
+type TaxPaymentEntry = {
+  id: string;
+  amountCents: number;
+  paidAt: string;
+  paidById: string | null;
+  paidByName?: string | null;
+  kind?: "PARTIAL" | "FULL";
+};
 
 type MonthRow = {
   month: string; // YYYY-MM
   taxCents: number;
   payoutTaxCents: number;
   balcaoTaxCents: number;
+  paidCents: number;
+  pendingCents: number;
   usersCount: number;
   daysCount: number;
   balcaoOpsCount: number;
 
   paidAt: string | null;
   paidBy: PaidByLite;
+  latestPayment: TaxPaymentEntry | null;
 
   // se pago, esse é o snapshot salvo
   snapshotTaxCents: number | null;
@@ -36,6 +47,7 @@ type MonthsResponse = {
     pendingPayout: number;
     pendingBalcao: number;
     monthsPaid: number;
+    monthsPartial: number;
     monthsPending: number;
   };
 };
@@ -54,6 +66,9 @@ type MonthDetailResponse = {
   totalTaxCents: number;
   payoutTaxCents: number;
   balcaoTaxCents: number;
+  paidCents: number;
+  pendingCents: number;
+  payments: TaxPaymentEntry[];
   balcaoOperationsCount: number;
   breakdown: MonthBreakItem[];
 
@@ -68,6 +83,16 @@ function fmtMoneyBR(cents: number) {
     style: "currency",
     currency: "BRL",
   });
+}
+
+function moneyInputToCents(v: string) {
+  const normalized = String(v || "")
+    .trim()
+    .replace(/[^\d,.-]/g, "")
+    .replace(/\./g, "")
+    .replace(",", ".");
+  const n = Number(normalized);
+  return Number.isFinite(n) ? Math.round(n * 100) : 0;
 }
 
 function fmtDateTimeBR(iso?: string | null) {
@@ -216,6 +241,8 @@ export default function ImpostosPage() {
 
   // “Pagando...” por mês
   const [payingMonth, setPayingMonth] = useState<string | null>(null);
+  const [withdrawingMonth, setWithdrawingMonth] = useState<string | null>(null);
+  const [withdrawInput, setWithdrawInput] = useState("");
 
   const currentMonth = useMemo(() => monthFromISODate(todayISORecife()), []);
   const canPayMonth = useMemo(() => month < currentMonth, [month, currentMonth]);
@@ -241,6 +268,7 @@ export default function ImpostosPage() {
           pendingPayout: 0,
           pendingBalcao: 0,
           monthsPaid: 0,
+          monthsPartial: 0,
           monthsPending: 0,
         },
       });
@@ -307,11 +335,32 @@ export default function ImpostosPage() {
       await apiPost<{ ok: true }>(`/api/taxes/pay`, { month: m });
       await loadMonths();
       if (open && month === m) await loadMonth(m);
-      setToast({ title: "Pago!", desc: `Imposto do mês ${m} marcado como pago.` });
+      setToast({ title: "Quitado!", desc: `Imposto do mês ${m} marcado como quitado.` });
     } catch (e: unknown) {
-      setToast({ title: "Falha ao pagar mês", desc: getErrorMessage(e) });
+      setToast({ title: "Falha ao quitar mês", desc: getErrorMessage(e) });
     } finally {
       setPayingMonth(null);
+    }
+  }
+
+  async function withdrawPartial(m: string) {
+    const amountCents = moneyInputToCents(withdrawInput);
+    if (amountCents <= 0) {
+      setToast({ title: "Valor inválido", desc: "Informe um valor maior que zero para retirar." });
+      return;
+    }
+
+    setWithdrawingMonth(m);
+    try {
+      await apiPost<{ ok: true }>(`/api/taxes/pay`, { month: m, amountCents });
+      await loadMonths();
+      if (open && month === m) await loadMonth(m);
+      setWithdrawInput("");
+      setToast({ title: "Retirada registrada", desc: `${fmtMoneyBR(amountCents)} abatido do mês ${m}.` });
+    } catch (e: unknown) {
+      setToast({ title: "Falha ao registrar retirada", desc: getErrorMessage(e) });
+    } finally {
+      setWithdrawingMonth(null);
     }
   }
 
@@ -331,12 +380,17 @@ export default function ImpostosPage() {
     pendingPayout: 0,
     pendingBalcao: 0,
     monthsPaid: 0,
+    monthsPartial: 0,
     monthsPending: 0,
   };
 
   const taxRuleLabel = `${taxPercentInput || "8"}%${
     taxEffectiveFromInput ? ` desde ${toISODateInput(taxEffectiveFromInput)}` : ""
   }`;
+  const detailPaidCents = detail?.paidCents || 0;
+  const detailPendingCents =
+    detail?.pendingCents ?? Math.max(0, (detail?.totalTaxCents || 0) - detailPaidCents);
+  const detailIsSettled = !!detail?.paidAt;
 
   return (
     <div className="space-y-5 bg-gradient-to-br from-sky-50/40 via-white to-emerald-50/30 p-4 md:p-5">
@@ -386,12 +440,29 @@ export default function ImpostosPage() {
             className="mt-3 h-11 w-full rounded-xl bg-slate-900 px-4 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-50"
             title={
               canPayMonth
-                ? "Marcar imposto do mês como pago"
-                : "Só paga mês fechado (anterior ao mês atual)"
+                ? "Quitar imposto do mês"
+                : "Só quita mês fechado (anterior ao mês atual)"
             }
           >
-            {payingMonth === month ? "Pagando..." : "Pagar mês"}
+            {payingMonth === month ? "Quitando..." : "Quitar mês"}
           </button>
+
+          <div className="mt-3 grid gap-2 sm:grid-cols-[1fr_auto]">
+            <input
+              value={withdrawInput}
+              onChange={(e) => setWithdrawInput(e.target.value)}
+              placeholder="Retirada parcial"
+              inputMode="decimal"
+              className="h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm"
+            />
+            <button
+              onClick={() => withdrawPartial(month)}
+              disabled={withdrawingMonth === month}
+              className="h-11 rounded-xl border border-emerald-200 bg-emerald-50 px-4 text-sm font-semibold text-emerald-800 hover:bg-emerald-100 disabled:opacity-50"
+            >
+              {withdrawingMonth === month ? "Retirando..." : "Retirar"}
+            </button>
+          </div>
         </div>
       </div>
 
@@ -399,12 +470,13 @@ export default function ImpostosPage() {
         <KPI label="Imposto total (período)" value={fmtMoneyBR(totals.tax)} tone="blue" />
         <KPI label="Imposto venda de milhas" value={fmtMoneyBR(totals.taxPayout)} tone="violet" />
         <KPI label="Imposto emissões balcão" value={fmtMoneyBR(totals.taxBalcao)} tone="amber" />
-        <KPI label="Imposto pago" value={fmtMoneyBR(totals.paid)} tone="emerald" />
+        <KPI label="Imposto retirado/pago" value={fmtMoneyBR(totals.paid)} tone="emerald" />
         <KPI label="Imposto pendente" value={fmtMoneyBR(totals.pending)} tone="slate" />
       </div>
 
       <div className="text-xs text-slate-600">
-        Meses pagos: <b>{totals.monthsPaid}</b> • Meses pendentes: <b>{totals.monthsPending}</b>
+        Meses pagos: <b>{totals.monthsPaid}</b> • Parciais: <b>{totals.monthsPartial}</b> • Meses pendentes:{" "}
+        <b>{totals.monthsPending}</b>
       </div>
 
       <div className="rounded-3xl border border-amber-200 bg-gradient-to-r from-amber-50 via-orange-50 to-white p-4 shadow-sm">
@@ -464,6 +536,8 @@ export default function ImpostosPage() {
               <tr>
                 <th className="px-4 py-3">Mês</th>
                 <th className="px-4 py-3">Total imposto</th>
+                <th className="px-4 py-3">Retirado</th>
+                <th className="px-4 py-3">Pendente</th>
                 <th className="px-4 py-3">Venda milhas</th>
                 <th className="px-4 py-3">Emissões balcão</th>
                 <th className="px-4 py-3 text-right">Funcionários</th>
@@ -476,25 +550,31 @@ export default function ImpostosPage() {
 
             <tbody>
               {(data?.months || []).map((m) => {
-                const isPaid = !!m.paidAt;
-                const canPay = !isPaid && m.month < currentMonth;
                 const paying = payingMonth === m.month;
-
                 const shownTax =
-                  isPaid && m.snapshotTaxCents !== null ? m.snapshotTaxCents : m.taxCents;
+                  m.paidAt && m.snapshotTaxCents !== null ? m.snapshotTaxCents : m.taxCents;
                 const shownPayoutTax =
-                  isPaid && m.snapshotPayoutTaxCents !== null
+                  m.paidAt && m.snapshotPayoutTaxCents !== null
                     ? m.snapshotPayoutTaxCents
                     : m.payoutTaxCents;
                 const shownBalcaoTax =
-                  isPaid && m.snapshotBalcaoTaxCents !== null
+                  m.paidAt && m.snapshotBalcaoTaxCents !== null
                     ? m.snapshotBalcaoTaxCents
                     : m.balcaoTaxCents;
+                const paidCents = m.paidCents || 0;
+                const pendingCents = Math.max(0, m.pendingCents ?? shownTax - paidCents);
+                const isPaid = !!m.paidAt;
+                const isCovered = !isPaid && paidCents > 0 && shownTax > 0 && pendingCents <= 0;
+                const isPartial = paidCents > 0 && pendingCents > 0;
+                const canPay = !isPaid && m.month < currentMonth;
+                const canWithdraw = !isPaid && shownTax > 0 && pendingCents > 0;
 
                 return (
                   <tr key={m.month} className="border-t border-slate-100 transition-colors hover:bg-slate-50/70">
                     <td className="px-4 py-3 font-semibold text-slate-800">{m.month}</td>
                     <td className="px-4 py-3 font-semibold text-slate-800">{fmtMoneyBR(shownTax)}</td>
+                    <td className="px-4 py-3 font-semibold text-emerald-700">{fmtMoneyBR(paidCents)}</td>
+                    <td className="px-4 py-3 font-semibold text-rose-700">{fmtMoneyBR(pendingCents)}</td>
                     <td className="px-4 py-3 font-semibold text-indigo-700">{fmtMoneyBR(shownPayoutTax)}</td>
                     <td className="px-4 py-3 font-semibold text-amber-700">{fmtMoneyBR(shownBalcaoTax)}</td>
                     <td className="px-4 py-3 text-right tabular-nums text-slate-700">{m.usersCount}</td>
@@ -507,6 +587,22 @@ export default function ImpostosPage() {
                           <div className="text-xs text-neutral-500">
                             {m.paidBy?.name ? `por ${m.paidBy.name}` : ""}
                             {m.paidAt ? ` • ${fmtDateTimeBR(m.paidAt)}` : ""}
+                          </div>
+                        </div>
+                      ) : isCovered ? (
+                        <div className="space-y-1">
+                          <Pill kind="ok" text="RETIRADO" />
+                          <div className="text-xs text-neutral-500">
+                            {m.latestPayment?.paidByName ? `por ${m.latestPayment.paidByName}` : ""}
+                            {m.latestPayment?.paidAt ? ` • ${fmtDateTimeBR(m.latestPayment.paidAt)}` : ""}
+                          </div>
+                        </div>
+                      ) : isPartial ? (
+                        <div className="space-y-1">
+                          <Pill kind="warn" text="PARCIAL" />
+                          <div className="text-xs text-neutral-500">
+                            {m.latestPayment?.paidByName ? `por ${m.latestPayment.paidByName}` : ""}
+                            {m.latestPayment?.paidAt ? ` • ${fmtDateTimeBR(m.latestPayment.paidAt)}` : ""}
                           </div>
                         </div>
                       ) : (
@@ -523,18 +619,30 @@ export default function ImpostosPage() {
                         </button>
 
                         <button
+                          onClick={() => {
+                            setWithdrawInput("");
+                            openMonth(m.month);
+                          }}
+                          disabled={!canWithdraw || withdrawingMonth === m.month}
+                          className="h-9 rounded-xl border border-emerald-200 bg-emerald-50 px-3 text-xs font-semibold text-emerald-800 hover:bg-emerald-100 disabled:opacity-50"
+                          title={canWithdraw ? "Registrar retirada parcial" : "Sem saldo para retirada"}
+                        >
+                          Retirar
+                        </button>
+
+                        <button
                           onClick={() => payMonth(m.month)}
                           disabled={!canPay || paying}
                           className="h-9 rounded-xl bg-slate-900 px-3 text-xs font-semibold text-white hover:bg-slate-800 disabled:opacity-50"
                           title={
                             canPay
-                              ? "Marcar mês como pago"
+                              ? "Quitar mês"
                               : isPaid
-                              ? "Já pago"
-                              : "Só paga mês fechado (anterior ao mês atual)"
+                              ? "Já quitado"
+                              : "Só quita mês fechado (anterior ao mês atual)"
                           }
                         >
-                          {paying ? "Pagando..." : "Pagar"}
+                          {paying ? "Quitando..." : "Quitar"}
                         </button>
                       </div>
                     </td>
@@ -544,7 +652,7 @@ export default function ImpostosPage() {
 
               {!data?.months?.length && (
                 <tr>
-                  <td className="px-4 py-8 text-center text-sm text-neutral-500" colSpan={9}>
+                  <td className="px-4 py-8 text-center text-sm text-neutral-500" colSpan={11}>
                     Sem dados (ou ainda não autenticado).
                   </td>
                 </tr>
@@ -605,17 +713,34 @@ export default function ImpostosPage() {
 
                   <button
                     onClick={() => payMonth(month)}
-                    disabled={!canPayMonth || payingMonth === month}
+                    disabled={!canPayMonth || detailIsSettled || payingMonth === month}
                     className="h-10 rounded-xl bg-slate-900 px-4 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-50"
                     title={
                       canPayMonth
-                        ? "Marcar imposto do mês como pago"
-                        : "Só paga mês fechado (anterior ao mês atual)"
+                        ? "Quitar imposto do mês"
+                        : "Só quita mês fechado (anterior ao mês atual)"
                     }
                   >
-                    {payingMonth === month ? "Pagando..." : "Pagar mês"}
+                    {payingMonth === month ? "Quitando..." : "Quitar mês"}
                   </button>
                 </div>
+              </div>
+
+              <div className="grid gap-2 rounded-2xl border border-emerald-200 bg-emerald-50/70 p-3 sm:grid-cols-[1fr_auto]">
+                <input
+                  value={withdrawInput}
+                  onChange={(e) => setWithdrawInput(e.target.value)}
+                  placeholder="Valor da retirada parcial"
+                  inputMode="decimal"
+                  className="h-11 w-full rounded-xl border border-emerald-200 bg-white px-3 text-sm"
+                />
+                <button
+                  onClick={() => withdrawPartial(month)}
+                  disabled={detailIsSettled || detailPendingCents <= 0 || withdrawingMonth === month}
+                  className="h-11 rounded-xl bg-emerald-700 px-4 text-sm font-semibold text-white hover:bg-emerald-800 disabled:opacity-50"
+                >
+                  {withdrawingMonth === month ? "Retirando..." : "Registrar retirada"}
+                </button>
               </div>
 
               <div className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
@@ -627,6 +752,18 @@ export default function ImpostosPage() {
                 </div>
 
                 <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                  <div className="rounded-xl border border-emerald-100 bg-emerald-50/70 px-2 py-1">
+                    <div className="text-[11px] text-slate-500">Retirado/pago</div>
+                    <div className="text-sm font-semibold text-emerald-700">
+                      {fmtMoneyBR(detailPaidCents)}
+                    </div>
+                  </div>
+                  <div className="rounded-xl border border-rose-100 bg-rose-50/70 px-2 py-1">
+                    <div className="text-[11px] text-slate-500">Pendente</div>
+                    <div className="text-sm font-semibold text-rose-700">
+                      {fmtMoneyBR(detailPendingCents)}
+                    </div>
+                  </div>
                   <div className="rounded-xl border border-indigo-100 bg-indigo-50/70 px-2 py-1">
                     <div className="text-[11px] text-slate-500">Venda de milhas</div>
                     <div className="text-sm font-semibold text-indigo-700">
@@ -643,12 +780,40 @@ export default function ImpostosPage() {
 
                 <div className="mt-1 text-xs text-neutral-500">
                   Fonte: {detail?.source === "SNAPSHOT" ? "snapshot pago" : "calculado (employee_payouts + balcão)"}{" "}
-                  {detail?.paidAt ? `• pago ${fmtDateTimeBR(detail.paidAt)}${detail?.paidBy?.name ? ` por ${detail.paidBy.name}` : ""}` : "• pendente"}
+                  {detail?.paidAt
+                    ? `• quitado ${fmtDateTimeBR(detail.paidAt)}${detail?.paidBy?.name ? ` por ${detail.paidBy.name}` : ""}`
+                    : detailPaidCents > 0
+                    ? "• parcial"
+                    : "• pendente"}
                 </div>
                 <div className="mt-1 text-xs text-neutral-500">
                   Operações balcão no mês: <b>{detail?.balcaoOperationsCount || 0}</b>
                 </div>
               </div>
+
+              {detail?.payments?.length ? (
+                <div className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
+                  <div className="text-sm font-semibold text-slate-900">Retiradas</div>
+                  <div className="mt-2 space-y-2">
+                    {detail.payments.map((payment) => (
+                      <div
+                        key={payment.id}
+                        className="flex items-center justify-between gap-3 rounded-xl border border-slate-100 bg-slate-50 px-3 py-2"
+                      >
+                        <div className="min-w-0">
+                          <div className="text-sm font-semibold text-slate-800">
+                            {fmtMoneyBR(payment.amountCents)}
+                          </div>
+                          <div className="truncate text-xs text-slate-500">
+                            {payment.paidByName || "-"} • {fmtDateTimeBR(payment.paidAt)}
+                          </div>
+                        </div>
+                        <Pill kind={payment.kind === "FULL" ? "ok" : "warn"} text={payment.kind === "FULL" ? "QUITAÇÃO" : "PARCIAL"} />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
 
               <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
                 <div className="max-h-[62vh] overflow-auto">

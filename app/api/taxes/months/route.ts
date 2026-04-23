@@ -1,6 +1,11 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/require-session";
+import {
+  taxPaidCentsFromPayment,
+  taxPaymentEntriesFromBreakdown,
+  taxPendingCents,
+} from "@/lib/taxes";
 
 const TAX_TZ = "America/Recife";
 const DEFAULT_TAX_PERCENT = 8;
@@ -175,14 +180,8 @@ export async function GET(req: Request) {
       balcaoByMonth.set(month, current);
     }
 
-    const allMonths = Array.from(
-      new Set<string>([...payoutByMonth.keys(), ...balcaoByMonth.keys()])
-    )
-      .sort((a, b) => b.localeCompare(a))
-      .slice(0, limit);
-
     const payments = await prisma.taxMonthPayment.findMany({
-      where: { team: session.team, month: { in: allMonths.length ? allMonths : ["__none__"] } },
+      where: { team: session.team },
       select: {
         month: true,
         totalTaxCents: true,
@@ -191,6 +190,16 @@ export async function GET(req: Request) {
         paidBy: { select: { id: true, name: true } },
       },
     });
+
+    const allMonths = Array.from(
+      new Set<string>([
+        ...payoutByMonth.keys(),
+        ...balcaoByMonth.keys(),
+        ...payments.map((payment) => payment.month),
+      ])
+    )
+      .sort((a, b) => b.localeCompare(a))
+      .slice(0, limit);
 
     const payByMonth = new Map(payments.map((p) => [p.month, p]));
 
@@ -206,17 +215,24 @@ export async function GET(req: Request) {
       const payoutTaxCents = snapshot ? snapshot.payoutTaxCents : payout.payoutTaxCents;
       const balcaoTaxCents = snapshot ? snapshot.balcaoTaxCents : balcao.balcaoTaxCents;
       const taxCents = snapshot ? snapshot.totalTaxCents : computedTotal;
+      const paidCents = payment ? taxPaidCentsFromPayment(payment) : 0;
+      const pendingCents = taxPendingCents(taxCents, paidCents);
+      const paymentsHistory = payment ? taxPaymentEntriesFromBreakdown(payment.breakdown) : [];
+      const latestPayment = paymentsHistory[paymentsHistory.length - 1] || null;
 
       return {
         month,
         taxCents,
         payoutTaxCents,
         balcaoTaxCents,
+        paidCents,
+        pendingCents,
         usersCount: payout.usersCount,
         daysCount: payout.daysCount,
         balcaoOpsCount: balcao.balcaoOpsCount,
         paidAt,
         paidBy: payment?.paidBy ? { id: payment.paidBy.id, name: payment.paidBy.name } : null,
+        latestPayment,
         snapshotTaxCents: payment?.paidAt ? toNumber(payment.totalTaxCents) : null,
         snapshotPayoutTaxCents: payment?.paidAt ? payoutTaxCents : null,
         snapshotBalcaoTaxCents: payment?.paidAt ? balcaoTaxCents : null,
@@ -227,16 +243,21 @@ export async function GET(req: Request) {
     const totalPayoutTax = monthsOut.reduce((acc, m) => acc + m.payoutTaxCents, 0);
     const totalBalcaoTax = monthsOut.reduce((acc, m) => acc + m.balcaoTaxCents, 0);
 
-    const paidTax = monthsOut.reduce((acc, m) => acc + (m.paidAt ? m.taxCents : 0), 0);
-    const paidPayoutTax = monthsOut.reduce((acc, m) => acc + (m.paidAt ? m.payoutTaxCents : 0), 0);
-    const paidBalcaoTax = monthsOut.reduce((acc, m) => acc + (m.paidAt ? m.balcaoTaxCents : 0), 0);
+    const paidTax = monthsOut.reduce((acc, m) => acc + m.paidCents, 0);
+    const pendingTax = monthsOut.reduce((acc, m) => acc + m.pendingCents, 0);
 
-    const pendingTax = Math.max(0, totalTax - paidTax);
+    const paidPayoutTax = monthsOut.reduce((acc, m) => {
+      if (m.taxCents <= 0 || m.paidCents <= 0) return acc;
+      return acc + Math.min(m.payoutTaxCents, Math.round((m.payoutTaxCents * m.paidCents) / m.taxCents));
+    }, 0);
+    const paidBalcaoTax = Math.max(0, paidTax - paidPayoutTax);
+
     const pendingPayoutTax = Math.max(0, totalPayoutTax - paidPayoutTax);
     const pendingBalcaoTax = Math.max(0, totalBalcaoTax - paidBalcaoTax);
 
     const monthsPaid = monthsOut.filter((m) => !!m.paidAt).length;
-    const monthsPending = monthsOut.length - monthsPaid;
+    const monthsPartial = monthsOut.filter((m) => !m.paidAt && m.paidCents > 0).length;
+    const monthsPending = monthsOut.filter((m) => m.pendingCents > 0).length;
 
     return NextResponse.json({
       ok: true,
@@ -252,6 +273,7 @@ export async function GET(req: Request) {
         pendingPayout: pendingPayoutTax,
         pendingBalcao: pendingBalcaoTax,
         monthsPaid,
+        monthsPartial,
         monthsPending,
       },
     });

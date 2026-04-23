@@ -12,20 +12,25 @@ import {
   sellerCommissionCentsFromNet,
   taxFromProfitCents,
 } from "@/lib/balcao-commission";
+import { taxPaidCentsFromPayment, taxPendingCents } from "@/lib/taxes";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 const TAX_TZ = "America/Recife";
 
-function safeInt(v: any) {
+function safeInt(v: unknown) {
   if (typeof v === "bigint") return Number(v);
   const n = Number(v);
   return Number.isFinite(n) ? Math.trunc(n) : 0;
 }
-function toIntOrNull(v: any) {
+function toIntOrNull(v: unknown) {
   if (typeof v === "bigint") return Number(v);
   const n = Number(v);
   return Number.isFinite(n) ? Math.trunc(n) : null;
+}
+
+function errorMessage(e: unknown, fallback: string) {
+  return e instanceof Error && e.message ? e.message : fallback;
 }
 
 function recifeMonthKey(date: Date) {
@@ -41,39 +46,6 @@ function recifeMonthKey(date: Date) {
     }, {} as Record<string, string>);
 
   return `${parts.year}-${parts.month}`;
-}
-
-function parseTaxSnapshotComponents(payment: { totalTaxCents: number; breakdown: unknown }) {
-  const legacyTotal = safeInt(payment.totalTaxCents);
-  const raw = payment.breakdown;
-  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
-    return {
-      payoutTaxCents: legacyTotal,
-      balcaoTaxCents: 0,
-      totalTaxCents: legacyTotal,
-    };
-  }
-
-  const anyRaw = raw as Record<string, unknown>;
-  const components = anyRaw.components;
-  if (!components || typeof components !== "object" || Array.isArray(components)) {
-    return {
-      payoutTaxCents: legacyTotal,
-      balcaoTaxCents: 0,
-      totalTaxCents: legacyTotal,
-    };
-  }
-
-  const anyComp = components as Record<string, unknown>;
-  const payoutTaxCents = safeInt(anyComp.payoutTaxCents);
-  const balcaoTaxCents = safeInt(anyComp.balcaoTaxCents);
-  const totalTaxCents = safeInt(payment.totalTaxCents || payoutTaxCents + balcaoTaxCents);
-
-  return {
-    payoutTaxCents,
-    balcaoTaxCents,
-    totalTaxCents,
-  };
 }
 
 export async function GET(req: Request) {
@@ -272,14 +244,19 @@ export async function GET(req: Request) {
       balcaoTaxByMonth.set(month, (balcaoTaxByMonth.get(month) || 0) + opTaxCents);
     }
 
-    const allTaxMonths = Array.from(
-      new Set<string>([...payoutByMonth.keys(), ...balcaoTaxByMonth.keys()])
-    );
-
     const taxPayments = await prisma.taxMonthPayment.findMany({
-      where: { team: session.team, month: { in: allTaxMonths.length ? allTaxMonths : ["__none__"] } },
+      where: { team: session.team },
       select: { month: true, totalTaxCents: true, breakdown: true, paidAt: true },
     });
+
+    const allTaxMonths = Array.from(
+      new Set<string>([
+        ...payoutByMonth.keys(),
+        ...balcaoTaxByMonth.keys(),
+        ...taxPayments.map((payment) => payment.month),
+      ])
+    );
+
     const paidByMonth = new Map(taxPayments.map((p) => [p.month, p]));
 
     let taxesPendingCents = 0;
@@ -293,20 +270,19 @@ export async function GET(req: Request) {
 
       if (payment?.paidAt) continue;
 
-      if (payment) {
-        const snapshot = parseTaxSnapshotComponents({
-          totalTaxCents: safeInt(payment.totalTaxCents),
-          breakdown: payment.breakdown,
-        });
-        taxesPendingCents += snapshot.totalTaxCents;
-        taxesPendingPayoutCents += snapshot.payoutTaxCents;
-        taxesPendingBalcaoCents += snapshot.balcaoTaxCents;
-        continue;
-      }
+      const totalTaxCents = computedPayout + computedBalcao;
+      const paidCents = payment ? taxPaidCentsFromPayment(payment) : 0;
+      const pendingCents = taxPendingCents(totalTaxCents, paidCents);
+      if (pendingCents <= 0) continue;
 
-      taxesPendingPayoutCents += computedPayout;
-      taxesPendingBalcaoCents += computedBalcao;
-      taxesPendingCents += computedPayout + computedBalcao;
+      const pendingPayoutCents =
+        totalTaxCents > 0
+          ? Math.min(computedPayout, Math.round((computedPayout * pendingCents) / totalTaxCents))
+          : 0;
+
+      taxesPendingPayoutCents += pendingPayoutCents;
+      taxesPendingBalcaoCents += Math.max(0, pendingCents - pendingPayoutCents);
+      taxesPendingCents += pendingCents;
     }
 
     const latestCashCents = safeInt(latest?.cashCents ?? 0);
@@ -365,10 +341,10 @@ export async function GET(req: Request) {
       },
       { status: 200 }
     );
-  } catch (e: any) {
+  } catch (e: unknown) {
     console.error(e);
     return NextResponse.json(
-      { ok: false, error: e?.message || "Erro ao carregar resumo." },
+      { ok: false, error: errorMessage(e, "Erro ao carregar resumo.") },
       { status: 500 }
     );
   }
@@ -377,7 +353,7 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   try {
     const session = await requireSession(req);
-    const body = await req.json();
+    const body = (await req.json()) as Record<string, unknown>;
 
     const cashCents = toIntOrNull(body.cashCents ?? body.caixaCents ?? 0);
 
@@ -410,10 +386,10 @@ export async function POST(req: Request) {
     });
 
     return NextResponse.json({ ok: true });
-  } catch (e: any) {
+  } catch (e: unknown) {
     console.error(e);
     return NextResponse.json(
-      { ok: false, error: e?.message || "Erro ao salvar histórico." },
+      { ok: false, error: errorMessage(e, "Erro ao salvar histórico.") },
       { status: 500 }
     );
   }

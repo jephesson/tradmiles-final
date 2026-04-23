@@ -1,6 +1,14 @@
 import { NextResponse } from "next/server";
+import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/require-session";
+import {
+  TaxPaymentEntry,
+  buildTaxBreakdownSnapshot,
+  safeTaxInt,
+  taxPaidCentsFromPayment,
+  taxPendingCents,
+} from "@/lib/taxes";
 
 const TAX_TZ = "America/Recife";
 const DEFAULT_TAX_PERCENT = 8;
@@ -163,19 +171,70 @@ export async function POST(req: Request) {
     const month = String(body?.month || "").slice(0, 7);
     if (!isValidMonth(month)) return bad(400, "Body month inválido. Use YYYY-MM.");
 
+    const hasPartialAmount = body?.amountCents !== undefined && body?.amountCents !== null && body?.amountCents !== "";
+    const requestedAmountCents = hasPartialAmount ? safeTaxInt(body.amountCents) : null;
+    if (hasPartialAmount && (!requestedAmountCents || requestedAmountCents <= 0)) {
+      return bad(400, "Valor da retirada inválido.");
+    }
+
     const cur = currentMonthRecife();
-    if (month >= cur) return bad(400, "Só é permitido pagar mês fechado (anterior ao mês atual).");
+    const isPartialWithdrawal = requestedAmountCents !== null;
+    if (!isPartialWithdrawal && month >= cur) {
+      return bad(400, "Só é permitido quitar mês fechado (anterior ao mês atual).");
+    }
 
     const existing = await prisma.taxMonthPayment.findUnique({
       where: { team_month: { team: session.team, month } },
-      select: { paidAt: true },
+      select: { totalTaxCents: true, breakdown: true, paidAt: true, paidById: true },
     });
 
     if (existing?.paidAt) {
+      if (isPartialWithdrawal) return bad(400, "Este mês já está quitado.");
       return NextResponse.json({ ok: true });
     }
 
     const computed = await computeMonth(session.team, month);
+    const alreadyPaidCents = taxPaidCentsFromPayment(existing);
+    const pendingBeforeCents = taxPendingCents(computed.totalTaxCents, alreadyPaidCents);
+
+    if (isPartialWithdrawal && computed.totalTaxCents <= 0) {
+      return bad(400, "Não há imposto calculado para este mês.");
+    }
+    if (isPartialWithdrawal && pendingBeforeCents <= 0) {
+      return bad(400, "Este mês já está sem saldo pendente.");
+    }
+    if (isPartialWithdrawal && requestedAmountCents > pendingBeforeCents) {
+      return bad(400, "Valor da retirada maior que o saldo pendente.");
+    }
+
+    const amountToRegister = isPartialWithdrawal ? requestedAmountCents : pendingBeforeCents;
+    const canSettleMonth = month < cur;
+    const shouldSettleMonth =
+      canSettleMonth && (!isPartialWithdrawal || amountToRegister >= pendingBeforeCents);
+    const now = new Date();
+    const actor = await prisma.user.findUnique({
+      where: { id: session.userId },
+      select: { name: true, login: true },
+    });
+    const paymentEntry: TaxPaymentEntry | null =
+      amountToRegister > 0
+        ? {
+            id: crypto.randomUUID(),
+            amountCents: amountToRegister,
+            paidAt: now.toISOString(),
+            paidById: session.userId,
+            paidByName: actor?.name || actor?.login || session.login,
+            kind: shouldSettleMonth ? "FULL" : "PARTIAL",
+          }
+        : null;
+    const breakdown = buildTaxBreakdownSnapshot({
+      existingBreakdown: existing?.breakdown,
+      payoutBreakdown: computed.payoutBreakdown,
+      payoutTaxCents: computed.payoutTaxCents,
+      balcaoTaxCents: computed.balcaoTaxCents,
+      balcaoOperationsCount: computed.balcaoOperationsCount,
+      paymentEntry,
+    });
 
     await prisma.taxMonthPayment.upsert({
       where: { team_month: { team: session.team, month } },
@@ -183,33 +242,25 @@ export async function POST(req: Request) {
         team: session.team,
         month,
         totalTaxCents: computed.totalTaxCents,
-        breakdown: {
-          payoutBreakdown: computed.payoutBreakdown,
-          components: {
-            payoutTaxCents: computed.payoutTaxCents,
-            balcaoTaxCents: computed.balcaoTaxCents,
-            balcaoOperationsCount: computed.balcaoOperationsCount,
-          },
-        },
-        paidAt: new Date(),
-        paidById: session.userId,
+        breakdown: breakdown as Prisma.InputJsonValue,
+        paidAt: shouldSettleMonth ? now : null,
+        paidById: shouldSettleMonth ? session.userId : null,
       },
       update: {
         totalTaxCents: computed.totalTaxCents,
-        breakdown: {
-          payoutBreakdown: computed.payoutBreakdown,
-          components: {
-            payoutTaxCents: computed.payoutTaxCents,
-            balcaoTaxCents: computed.balcaoTaxCents,
-            balcaoOperationsCount: computed.balcaoOperationsCount,
-          },
-        },
-        paidAt: new Date(),
-        paidById: session.userId,
+        breakdown: breakdown as Prisma.InputJsonValue,
+        paidAt: shouldSettleMonth ? now : null,
+        paidById: shouldSettleMonth ? session.userId : existing?.paidById ?? null,
       },
     });
 
-    return NextResponse.json({ ok: true });
+    const paidCents = alreadyPaidCents + amountToRegister;
+    return NextResponse.json({
+      ok: true,
+      paidCents,
+      pendingCents: taxPendingCents(computed.totalTaxCents, paidCents),
+      settled: shouldSettleMonth,
+    });
   } catch (e: unknown) {
     const msg = e instanceof Error && e.message ? e.message : String(e);
     const status = msg.includes("Não autenticado") ? 401 : 500;

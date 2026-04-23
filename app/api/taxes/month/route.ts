@@ -1,6 +1,11 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/require-session";
+import {
+  taxPaidCentsFromPayment,
+  taxPaymentEntriesFromBreakdown,
+  taxPendingCents,
+} from "@/lib/taxes";
 
 const TAX_TZ = "America/Recife";
 const DEFAULT_TAX_PERCENT = 8;
@@ -209,12 +214,16 @@ export async function GET(req: Request) {
 
     if (payment?.paidAt) {
       const parsed = parseSnapshot(payment);
+      const paidCents = taxPaidCentsFromPayment(payment);
       return NextResponse.json({
         ok: true,
         month,
         totalTaxCents: parsed.totalTaxCents,
         payoutTaxCents: parsed.payoutTaxCents,
         balcaoTaxCents: parsed.balcaoTaxCents,
+        paidCents,
+        pendingCents: taxPendingCents(parsed.totalTaxCents, paidCents),
+        payments: taxPaymentEntriesFromBreakdown(payment.breakdown),
         balcaoOperationsCount: parsed.balcaoOperationsCount,
         breakdown: parsed.payoutBreakdown,
         paidAt: payment.paidAt.toISOString(),
@@ -224,6 +233,7 @@ export async function GET(req: Request) {
     }
 
     const computed = await computeMonth(session.team, month);
+    const paidCents = payment ? taxPaidCentsFromPayment(payment) : 0;
 
     return NextResponse.json({
       ok: true,
@@ -231,6 +241,9 @@ export async function GET(req: Request) {
       totalTaxCents: computed.totalTaxCents,
       payoutTaxCents: computed.payoutTaxCents,
       balcaoTaxCents: computed.balcaoTaxCents,
+      paidCents,
+      pendingCents: taxPendingCents(computed.totalTaxCents, paidCents),
+      payments: payment ? taxPaymentEntriesFromBreakdown(payment.breakdown) : [],
       balcaoOperationsCount: computed.balcaoOperationsCount,
       breakdown: computed.payoutBreakdown,
       paidAt: payment?.paidAt ? payment.paidAt.toISOString() : null,
