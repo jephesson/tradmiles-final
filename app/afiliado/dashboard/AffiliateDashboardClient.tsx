@@ -124,17 +124,17 @@ const FOLDER_TEMPLATE_BY_TYPE: Record<"passagens" | "compra-pontos", FolderTempl
     src: "/affiliate-folder-passagem.png",
     baseWidth: 1122,
     baseHeight: 1402,
-    qrX: 556,
-    qrY: 948,
-    qrSize: 286,
+    qrX: 570,
+    qrY: 962,
+    qrSize: 248,
   },
   "compra-pontos": {
     src: "/affiliate-folder-venda-pontos.png",
     baseWidth: 1080,
     baseHeight: 1350,
-    qrX: 558,
-    qrY: 920,
-    qrSize: 255,
+    qrX: 576,
+    qrY: 934,
+    qrSize: 226,
   },
 };
 

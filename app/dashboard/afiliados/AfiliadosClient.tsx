@@ -166,6 +166,7 @@ export default function AfiliadosClient() {
   const [detailsId, setDetailsId] = useState<string | null>(null);
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
   const [portalUrl, setPortalUrl] = useState("/afiliado/login");
+  const [copiedLink, setCopiedLink] = useState("");
 
   const editing = useMemo(
     () => rows.find((row) => row.id === editingId) || null,
@@ -224,6 +225,26 @@ export default function AfiliadosClient() {
   useEffect(() => {
     setPortalUrl(`${window.location.origin}/afiliado/login`);
   }, []);
+
+  const signupUrl = useMemo(() => {
+    if (!portalUrl.startsWith("http")) return "/afiliado/cadastro";
+    return portalUrl.replace("/afiliado/login", "/afiliado/cadastro");
+  }, [portalUrl]);
+
+  const referralApiExample = useMemo(() => {
+    if (!portalUrl.startsWith("http")) return "/api/afiliado/referral?ref=seu-ref";
+    return portalUrl.replace("/afiliado/login", "/api/afiliado/referral?ref=seu-ref");
+  }, [portalUrl]);
+
+  async function copyToClipboard(value: string, key: string) {
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopiedLink(key);
+      window.setTimeout(() => setCopiedLink((current) => (current === key ? "" : current)), 1200);
+    } catch {
+      setError("Não foi possível copiar o link.");
+    }
+  }
 
   function setField<K extends keyof FormState>(key: K, value: FormState[K]) {
     setForm((current) => ({ ...current, [key]: value }));
@@ -378,6 +399,45 @@ export default function AfiliadosClient() {
               Editando {editing.name}
             </span>
           ) : null}
+        </div>
+
+        <div className="rounded-xl border bg-slate-50 p-3 space-y-3">
+          <h3 className="text-sm font-semibold text-slate-900">Links para encaminhar aos afiliados</h3>
+          <div className="grid gap-2 md:grid-cols-3">
+            <div className="rounded-lg border bg-white p-2">
+              <div className="text-[11px] text-slate-500">Cadastro</div>
+              <div className="mt-1 break-all text-xs font-medium text-slate-900">{signupUrl}</div>
+              <button
+                type="button"
+                onClick={() => copyToClipboard(signupUrl, "signup")}
+                className="mt-2 rounded-lg border px-2 py-1 text-xs hover:bg-slate-50"
+              >
+                {copiedLink === "signup" ? "Copiado" : "Copiar"}
+              </button>
+            </div>
+            <div className="rounded-lg border bg-white p-2">
+              <div className="text-[11px] text-slate-500">Login</div>
+              <div className="mt-1 break-all text-xs font-medium text-slate-900">{portalUrl}</div>
+              <button
+                type="button"
+                onClick={() => copyToClipboard(portalUrl, "login")}
+                className="mt-2 rounded-lg border px-2 py-1 text-xs hover:bg-slate-50"
+              >
+                {copiedLink === "login" ? "Copiado" : "Copiar"}
+              </button>
+            </div>
+            <div className="rounded-lg border bg-white p-2">
+              <div className="text-[11px] text-slate-500">API referral (exemplo)</div>
+              <div className="mt-1 break-all text-xs font-medium text-slate-900">{referralApiExample}</div>
+              <button
+                type="button"
+                onClick={() => copyToClipboard(referralApiExample, "referral")}
+                className="mt-2 rounded-lg border px-2 py-1 text-xs hover:bg-slate-50"
+              >
+                {copiedLink === "referral" ? "Copiado" : "Copiar"}
+              </button>
+            </div>
+          </div>
         </div>
 
         <div className="grid gap-4 md:grid-cols-2">
