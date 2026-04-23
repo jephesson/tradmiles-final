@@ -1151,6 +1151,7 @@ model Affiliate {
   document String
   login    String? @unique
   pixKey   String?
+  bankName String?
   status   String  @default("APPROVED")
 
   flightSalesLink    String?
@@ -1160,6 +1161,8 @@ model Affiliate {
   passwordHash       String?
   lastLoginAt        DateTime?
   approvedAt         DateTime?
+  termsAcceptedAt    DateTime?
+  termsVersion       String?
 
   clients Cliente[]
 

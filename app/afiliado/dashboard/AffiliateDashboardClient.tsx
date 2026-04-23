@@ -110,9 +110,38 @@ async function makeQrDataUrl(url: string, width = 360) {
   });
 }
 
-async function makeFolderDataUrl(url: string) {
+type FolderTemplateConfig = {
+  src: string;
+  baseWidth: number;
+  baseHeight: number;
+  qrX: number;
+  qrY: number;
+  qrSize: number;
+};
+
+const FOLDER_TEMPLATE_BY_TYPE: Record<"passagens" | "compra-pontos", FolderTemplateConfig> = {
+  passagens: {
+    src: "/affiliate-folder-passagem.png",
+    baseWidth: 1122,
+    baseHeight: 1402,
+    qrX: 556,
+    qrY: 948,
+    qrSize: 286,
+  },
+  "compra-pontos": {
+    src: "/affiliate-folder-venda-pontos.png",
+    baseWidth: 1080,
+    baseHeight: 1350,
+    qrX: 558,
+    qrY: 920,
+    qrSize: 255,
+  },
+};
+
+async function makeFolderDataUrl(url: string, folderType: "passagens" | "compra-pontos") {
+  const templateConfig = FOLDER_TEMPLATE_BY_TYPE[folderType];
   const [template, qr] = await Promise.all([
-    loadImage("/affiliate-folder-passagem.png"),
+    loadImage(templateConfig.src),
     loadImage(await makeQrDataUrl(url, 900)),
   ]);
 
@@ -125,14 +154,12 @@ async function makeFolderDataUrl(url: string) {
 
   ctx.drawImage(template, 0, 0, canvas.width, canvas.height);
 
-  const baseWidth = 1122;
-  const baseHeight = 1402;
-  const scaleX = canvas.width / baseWidth;
-  const scaleY = canvas.height / baseHeight;
+  const scaleX = canvas.width / templateConfig.baseWidth;
+  const scaleY = canvas.height / templateConfig.baseHeight;
   const qrBox = {
-    x: 566 * scaleX,
-    y: 958 * scaleY,
-    size: 270 * Math.min(scaleX, scaleY),
+    x: templateConfig.qrX * scaleX,
+    y: templateConfig.qrY * scaleY,
+    size: templateConfig.qrSize * Math.min(scaleX, scaleY),
   };
 
   ctx.fillStyle = "#ffffff";
@@ -156,10 +183,12 @@ function ReferralQrCard({
   label,
   url,
   filePrefix,
+  folderType,
 }: {
   label: string;
   url: string | null;
   filePrefix: string;
+  folderType: "passagens" | "compra-pontos";
 }) {
   const [qr, setQr] = useState("");
   const [loadingFolder, setLoadingFolder] = useState(false);
@@ -195,7 +224,7 @@ function ReferralQrCard({
     setLoadingFolder(true);
     setError("");
     try {
-      const dataUrl = await makeFolderDataUrl(url);
+      const dataUrl = await makeFolderDataUrl(url, folderType);
       downloadDataUrl(dataUrl, `${filePrefix}-folder-com-qr-code.png`);
     } catch {
       setError("Não foi possível gerar o folder.");
@@ -369,11 +398,13 @@ export default function AffiliateDashboardClient() {
             label="Passagens"
             url={data.affiliate.flightSalesLink}
             filePrefix={`${fileBase}-passagens`}
+            folderType="passagens"
           />
           <ReferralQrCard
             label="Compra de pontos"
             url={data.affiliate.pointsPurchaseLink}
             filePrefix={`${fileBase}-compra-pontos`}
+            folderType="compra-pontos"
           />
         </section>
 

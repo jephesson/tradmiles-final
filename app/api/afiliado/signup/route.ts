@@ -10,6 +10,7 @@ import {
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+const AFFILIATE_TERMS_VERSION = "2026-04-23";
 
 function sha256(value: string) {
   return crypto.createHash("sha256").update(value).digest("hex");
@@ -48,7 +49,9 @@ export async function POST(req: Request) {
     const name = String(body.name ?? "").trim();
     const document = onlyDigits(body.cpf ?? body.document);
     const pixKey = String(body.pixKey ?? body.pix ?? "").trim();
+    const bankName = String(body.bankName ?? "").trim();
     const password = String(body.password ?? "");
+    const acceptedTerms = Boolean(body.acceptedTerms);
 
     if (name.length < 3) {
       return NextResponse.json(
@@ -71,9 +74,23 @@ export async function POST(req: Request) {
       );
     }
 
+    if (bankName.length < 2) {
+      return NextResponse.json(
+        { ok: false, error: "Informe o banco para recebimento." },
+        { status: 400, headers: noCacheHeaders() }
+      );
+    }
+
     if (password.length < 4) {
       return NextResponse.json(
         { ok: false, error: "Senha deve ter pelo menos 4 caracteres." },
+        { status: 400, headers: noCacheHeaders() }
+      );
+    }
+
+    if (!acceptedTerms) {
+      return NextResponse.json(
+        { ok: false, error: "Você precisa aceitar o Termo de Adesão para continuar." },
         { status: 400, headers: noCacheHeaders() }
       );
     }
@@ -98,11 +115,14 @@ export async function POST(req: Request) {
         name,
         document,
         pixKey,
+        bankName,
         login,
         passwordHash: sha256(password),
         status: AFFILIATE_STATUS.PENDING,
         isActive: false,
         commissionBps: 0,
+        termsAcceptedAt: new Date(),
+        termsVersion: AFFILIATE_TERMS_VERSION,
       },
       select: {
         id: true,
