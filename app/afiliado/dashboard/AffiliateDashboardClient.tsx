@@ -33,6 +33,8 @@ type DashboardData = {
     document: string;
     flightSalesLink: string | null;
     pointsPurchaseLink: string | null;
+    promotionalYoutubeLink: string | null;
+    promotionalDriveLink: string | null;
     commissionBps: number;
   };
   metrics: {
@@ -406,6 +408,39 @@ export default function AffiliateDashboardClient() {
             filePrefix={`${fileBase}-compra-pontos`}
             folderType="compra-pontos"
           />
+        </section>
+
+        <section className="rounded-2xl border bg-white p-4">
+          <h2 className="text-base font-semibold text-slate-950">Materiais promocionais</h2>
+          <p className="mt-1 text-xs text-slate-500">
+            Use os materiais oficiais para divulgação. Se os links não aparecerem, peça para o
+            administrador atualizar no painel de afiliados.
+          </p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {data.affiliate.promotionalYoutubeLink ? (
+              <a
+                href={data.affiliate.promotionalYoutubeLink}
+                target="_blank"
+                rel="noreferrer"
+                className="rounded-xl border px-3 py-2 text-xs hover:bg-slate-50"
+              >
+                Abrir vídeo no YouTube
+              </a>
+            ) : null}
+            {data.affiliate.promotionalDriveLink ? (
+              <a
+                href={data.affiliate.promotionalDriveLink}
+                target="_blank"
+                rel="noreferrer"
+                className="rounded-xl border px-3 py-2 text-xs hover:bg-slate-50"
+              >
+                Abrir vídeo no Google Drive
+              </a>
+            ) : null}
+            {!data.affiliate.promotionalYoutubeLink && !data.affiliate.promotionalDriveLink ? (
+              <span className="text-xs text-slate-500">Nenhum material disponível no momento.</span>
+            ) : null}
+          </div>
         </section>
 
         <section className="rounded-2xl border bg-white p-4">

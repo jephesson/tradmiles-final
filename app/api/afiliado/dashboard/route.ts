@@ -29,6 +29,8 @@ export async function GET() {
         document: true,
         flightSalesLink: true,
         pointsPurchaseLink: true,
+        promotionalYoutubeLink: true,
+        promotionalDriveLink: true,
         commissionBps: true,
         isActive: true,
         updatedAt: true,

@@ -71,6 +71,8 @@ const affiliateSelect = {
   status: true,
   flightSalesLink: true,
   pointsPurchaseLink: true,
+  promotionalYoutubeLink: true,
+  promotionalDriveLink: true,
   commissionBps: true,
   isActive: true,
   passwordHash: true,
@@ -146,6 +148,14 @@ export async function PUT(req: NextRequest, ctx: Ctx) {
     if (pointsPurchaseLink === "__INVALID__") {
       return NextResponse.json({ ok: false, error: "Link de compra de pontos inválido." }, { status: 400 });
     }
+    const promotionalYoutubeLink = cleanOptionalUrl(body.promotionalYoutubeLink);
+    if (promotionalYoutubeLink === "__INVALID__") {
+      return NextResponse.json({ ok: false, error: "Link do YouTube inválido." }, { status: 400 });
+    }
+    const promotionalDriveLink = cleanOptionalUrl(body.promotionalDriveLink);
+    if (promotionalDriveLink === "__INVALID__") {
+      return NextResponse.json({ ok: false, error: "Link do Google Drive inválido." }, { status: 400 });
+    }
 
     const commissionBps = parseCommissionBps(body.commissionPercent);
     if (commissionBps === null) {
@@ -189,6 +199,8 @@ export async function PUT(req: NextRequest, ctx: Ctx) {
         ...(password ? { passwordHash: sha256(password) } : {}),
         flightSalesLink: flightSalesLink || generatedLinks.flightSalesLink,
         pointsPurchaseLink: pointsPurchaseLink || generatedLinks.pointsPurchaseLink,
+        promotionalYoutubeLink,
+        promotionalDriveLink,
         commissionBps,
         isActive: body.isActive === false ? false : true,
         status:

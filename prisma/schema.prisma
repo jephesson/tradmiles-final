@@ -1156,6 +1156,8 @@ model Affiliate {
 
   flightSalesLink    String?
   pointsPurchaseLink String?
+  promotionalYoutubeLink String?
+  promotionalDriveLink   String?
   commissionBps      Int     @default(0)
   isActive           Boolean @default(true)
   passwordHash       String?

@@ -11,6 +11,8 @@ type AffiliateRow = {
   login: string | null;
   flightSalesLink: string | null;
   pointsPurchaseLink: string | null;
+  promotionalYoutubeLink: string | null;
+  promotionalDriveLink: string | null;
   commissionBps: number;
   isActive: boolean;
   hasAccess?: boolean;
@@ -50,6 +52,8 @@ type FormState = {
   password: string;
   flightSalesLink: string;
   pointsPurchaseLink: string;
+  promotionalYoutubeLink: string;
+  promotionalDriveLink: string;
   commissionPercent: string;
   isActive: boolean;
 };
@@ -62,6 +66,8 @@ const EMPTY_FORM: FormState = {
   password: "",
   flightSalesLink: "",
   pointsPurchaseLink: "",
+  promotionalYoutubeLink: "",
+  promotionalDriveLink: "",
   commissionPercent: "20",
   isActive: true,
 };
@@ -266,6 +272,8 @@ export default function AfiliadosClient() {
       password: "",
       flightSalesLink: row.flightSalesLink || "",
       pointsPurchaseLink: row.pointsPurchaseLink || "",
+      promotionalYoutubeLink: row.promotionalYoutubeLink || "",
+      promotionalDriveLink: row.promotionalDriveLink || "",
       commissionPercent: String(row.commissionBps / 100).replace(".", ","),
       isActive: row.isActive,
     });
@@ -284,6 +292,8 @@ export default function AfiliadosClient() {
         password: form.password,
         flightSalesLink: form.flightSalesLink.trim() || null,
         pointsPurchaseLink: form.pointsPurchaseLink.trim() || null,
+        promotionalYoutubeLink: form.promotionalYoutubeLink.trim() || null,
+        promotionalDriveLink: form.promotionalDriveLink.trim() || null,
         commissionPercent: form.commissionPercent.trim(),
         isActive: form.isActive,
       };
@@ -496,6 +506,22 @@ export default function AfiliadosClient() {
             onChange={(value) => setField("commissionPercent", value)}
             placeholder="Ex: 5 ou 2,5"
           />
+          <Input
+            label="Vídeo promocional (YouTube)"
+            value={form.promotionalYoutubeLink}
+            onChange={(value) => setField("promotionalYoutubeLink", value)}
+            placeholder="https://youtube.com/..."
+            type="url"
+            optional
+          />
+          <Input
+            label="Vídeo promocional (Google Drive)"
+            value={form.promotionalDriveLink}
+            onChange={(value) => setField("promotionalDriveLink", value)}
+            placeholder="https://drive.google.com/..."
+            type="url"
+            optional
+          />
           <label className="flex items-center gap-2 pt-6 text-sm text-slate-700">
             <input
               type="checkbox"
@@ -615,7 +641,32 @@ export default function AfiliadosClient() {
                             Pontos
                           </a>
                         ) : null}
-                        {!row.flightSalesLink && !row.pointsPurchaseLink ? "-" : null}
+                        {row.promotionalYoutubeLink ? (
+                          <a
+                            href={row.promotionalYoutubeLink}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="rounded-lg border px-2 py-1 text-xs hover:bg-white"
+                          >
+                            YouTube
+                          </a>
+                        ) : null}
+                        {row.promotionalDriveLink ? (
+                          <a
+                            href={row.promotionalDriveLink}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="rounded-lg border px-2 py-1 text-xs hover:bg-white"
+                          >
+                            Drive
+                          </a>
+                        ) : null}
+                        {!row.flightSalesLink &&
+                        !row.pointsPurchaseLink &&
+                        !row.promotionalYoutubeLink &&
+                        !row.promotionalDriveLink
+                          ? "-"
+                          : null}
                       </div>
                     </td>
                     <td className="px-3 py-2">{row._count?.clients || 0}</td>
