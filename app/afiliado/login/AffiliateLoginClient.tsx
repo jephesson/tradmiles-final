@@ -1,6 +1,7 @@
 "use client";
 
 import Image from "next/image";
+import Link from "next/link";
 import { useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
@@ -69,7 +70,7 @@ export default function AffiliateLoginClient() {
           <div className="space-y-3 pt-2">
             <input
               className="w-full rounded-xl border px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-black/10"
-              placeholder="Login"
+              placeholder="Login ou CPF"
               value={login}
               onChange={(e) => setLogin(e.target.value)}
               autoComplete="username"
@@ -102,6 +103,16 @@ export default function AffiliateLoginClient() {
             >
               {loading ? "Entrando..." : "Entrar"}
             </button>
+
+            <div className="text-center text-xs text-slate-600">
+              Ainda não é afiliado?{" "}
+              <Link
+                href="/afiliado/cadastro"
+                className="font-medium text-slate-950 underline-offset-4 hover:underline"
+              >
+                Cadastre-se
+              </Link>
+            </div>
           </div>
 
           <footer className="pt-3 text-center text-[11px] text-slate-500">

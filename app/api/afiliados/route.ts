@@ -3,6 +3,10 @@ import crypto from "node:crypto";
 import { prisma } from "@/lib/prisma";
 import { getSessionServer } from "@/lib/auth-server";
 import { getAffiliateMetrics } from "@/lib/affiliates/metrics";
+import {
+  AFFILIATE_STATUS,
+  buildAffiliateReferralLinks,
+} from "@/lib/affiliates/referral";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -28,6 +32,11 @@ function cleanOptionalUrl(value: unknown) {
   } catch {
     return "__INVALID__";
   }
+}
+
+function cleanOptionalText(value: unknown) {
+  const raw = String(value ?? "").trim();
+  return raw || null;
 }
 
 function parseCommissionBps(value: unknown) {
@@ -58,12 +67,15 @@ const affiliateSelect = {
   name: true,
   document: true,
   login: true,
+  pixKey: true,
+  status: true,
   flightSalesLink: true,
   pointsPurchaseLink: true,
   commissionBps: true,
   isActive: true,
   passwordHash: true,
   lastLoginAt: true,
+  approvedAt: true,
   createdAt: true,
   updatedAt: true,
   _count: { select: { clients: true } },
@@ -104,6 +116,8 @@ export async function GET(req: NextRequest) {
               OR: [
                 { name: { contains: q, mode: "insensitive" } },
                 { login: { contains: q, mode: "insensitive" } },
+                { pixKey: { contains: q, mode: "insensitive" } },
+                { status: { contains: q.toUpperCase(), mode: "insensitive" } },
                 { document: { contains: onlyDigits(q) } },
                 { flightSalesLink: { contains: q, mode: "insensitive" } },
                 { pointsPurchaseLink: { contains: q, mode: "insensitive" } },
@@ -144,6 +158,7 @@ export async function POST(req: NextRequest) {
     if (document === "__INVALID__") {
       return NextResponse.json({ ok: false, error: "CPF/CNPJ inválido." }, { status: 400 });
     }
+    const pixKey = cleanOptionalText(body.pixKey ?? body.pix);
 
     const login = normLogin(body.login);
     if (!login) {
@@ -169,20 +184,16 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: false, error: "Já existe afiliado com este login." }, { status: 409 });
     }
 
+    const generatedLinks = buildAffiliateReferralLinks(login);
+
     const flightSalesLink = cleanOptionalUrl(body.flightSalesLink);
     if (flightSalesLink === "__INVALID__") {
       return NextResponse.json({ ok: false, error: "Link de venda de passagens inválido." }, { status: 400 });
-    }
-    if (!flightSalesLink) {
-      return NextResponse.json({ ok: false, error: "Informe o link de venda de passagens." }, { status: 400 });
     }
 
     const pointsPurchaseLink = cleanOptionalUrl(body.pointsPurchaseLink);
     if (pointsPurchaseLink === "__INVALID__") {
       return NextResponse.json({ ok: false, error: "Link de compra de pontos inválido." }, { status: 400 });
-    }
-    if (!pointsPurchaseLink) {
-      return NextResponse.json({ ok: false, error: "Informe o link de compra de pontos." }, { status: 400 });
     }
 
     const commissionBps = parseCommissionBps(body.commissionPercent);
@@ -198,12 +209,15 @@ export async function POST(req: NextRequest) {
         team,
         name,
         document,
+        pixKey,
         login,
         passwordHash: sha256(password),
-        flightSalesLink,
-        pointsPurchaseLink,
+        flightSalesLink: flightSalesLink || generatedLinks.flightSalesLink,
+        pointsPurchaseLink: pointsPurchaseLink || generatedLinks.pointsPurchaseLink,
         commissionBps,
         isActive: body.isActive === false ? false : true,
+        status: AFFILIATE_STATUS.APPROVED,
+        approvedAt: new Date(),
       },
       select: affiliateSelect,
     });

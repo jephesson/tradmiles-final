@@ -3,6 +3,7 @@
 import Image from "next/image";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import QRCode from "qrcode";
 
 type SaleRow = {
   id: string;
@@ -79,6 +80,179 @@ function Kpi({ label, value, hint }: { label: string; value: string; hint?: stri
   );
 }
 
+function downloadDataUrl(dataUrl: string, filename: string) {
+  const a = document.createElement("a");
+  a.href = dataUrl;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+}
+
+function loadImage(src: string) {
+  return new Promise<HTMLImageElement>((resolve, reject) => {
+    const img = new window.Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error("Não foi possível carregar a imagem."));
+    img.src = src;
+  });
+}
+
+async function makeQrDataUrl(url: string, width = 360) {
+  return QRCode.toDataURL(url, {
+    errorCorrectionLevel: "M",
+    margin: 1,
+    width,
+    color: {
+      dark: "#031f4d",
+      light: "#ffffff",
+    },
+  });
+}
+
+async function makeFolderDataUrl(url: string) {
+  const [template, qr] = await Promise.all([
+    loadImage("/affiliate-folder-passagem.png"),
+    loadImage(await makeQrDataUrl(url, 900)),
+  ]);
+
+  const canvas = document.createElement("canvas");
+  canvas.width = template.naturalWidth || template.width;
+  canvas.height = template.naturalHeight || template.height;
+
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("Canvas indisponível.");
+
+  ctx.drawImage(template, 0, 0, canvas.width, canvas.height);
+
+  const baseWidth = 1122;
+  const baseHeight = 1402;
+  const scaleX = canvas.width / baseWidth;
+  const scaleY = canvas.height / baseHeight;
+  const qrBox = {
+    x: 566 * scaleX,
+    y: 958 * scaleY,
+    size: 270 * Math.min(scaleX, scaleY),
+  };
+
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(qrBox.x - 8 * scaleX, qrBox.y - 8 * scaleY, qrBox.size + 16 * scaleX, qrBox.size + 16 * scaleY);
+  ctx.drawImage(qr, qrBox.x, qrBox.y, qrBox.size, qrBox.size);
+
+  return canvas.toDataURL("image/png");
+}
+
+function safeFilePart(value: string) {
+  return String(value || "afiliado")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 48) || "afiliado";
+}
+
+function ReferralQrCard({
+  label,
+  url,
+  filePrefix,
+}: {
+  label: string;
+  url: string | null;
+  filePrefix: string;
+}) {
+  const [qr, setQr] = useState("");
+  const [loadingFolder, setLoadingFolder] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let active = true;
+    setQr("");
+    setError("");
+
+    if (!url) return;
+
+    makeQrDataUrl(url, 320)
+      .then((dataUrl) => {
+        if (active) setQr(dataUrl);
+      })
+      .catch(() => {
+        if (active) setError("Não foi possível gerar o QR Code.");
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [url]);
+
+  async function downloadQr() {
+    if (!qr) return;
+    downloadDataUrl(qr, `${filePrefix}-qr-code.png`);
+  }
+
+  async function downloadFolder() {
+    if (!url) return;
+    setLoadingFolder(true);
+    setError("");
+    try {
+      const dataUrl = await makeFolderDataUrl(url);
+      downloadDataUrl(dataUrl, `${filePrefix}-folder-com-qr-code.png`);
+    } catch {
+      setError("Não foi possível gerar o folder.");
+    } finally {
+      setLoadingFolder(false);
+    }
+  }
+
+  return (
+    <div className="rounded-2xl border bg-white p-4">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
+        <div className="grid h-36 w-36 place-items-center rounded-xl border bg-white p-2">
+          {qr ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={qr} alt={`QR Code - ${label}`} className="h-full w-full" />
+          ) : (
+            <span className="text-center text-xs text-slate-500">
+              {url ? "Gerando QR..." : "Sem link"}
+            </span>
+          )}
+        </div>
+
+        <div className="min-w-0 flex-1">
+          <div className="text-sm font-semibold text-slate-950">{label}</div>
+          <a
+            href={url || "#"}
+            target="_blank"
+            rel="noreferrer"
+            className="mt-1 block break-all text-xs font-medium text-sky-700"
+          >
+            {url || "Link não cadastrado"}
+          </a>
+          {error ? <p className="mt-2 text-xs text-rose-600">{error}</p> : null}
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={downloadQr}
+              disabled={!qr}
+              className="rounded-xl border px-3 py-2 text-xs hover:bg-slate-50 disabled:opacity-50"
+            >
+              Baixar QR
+            </button>
+            <button
+              type="button"
+              onClick={downloadFolder}
+              disabled={!url || loadingFolder}
+              className="rounded-xl bg-black px-3 py-2 text-xs text-white hover:bg-slate-800 disabled:opacity-50"
+            >
+              {loadingFolder ? "Gerando..." : "Baixar folder"}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function AffiliateDashboardClient() {
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -145,6 +319,8 @@ export default function AffiliateDashboardClient() {
     );
   }
 
+  const fileBase = safeFilePart(data.affiliate.login || data.affiliate.name);
+
   return (
     <main className="min-h-screen bg-slate-50 p-4 sm:p-6">
       <div className="mx-auto max-w-7xl space-y-6">
@@ -188,29 +364,17 @@ export default function AffiliateDashboardClient() {
           />
         </section>
 
-        <section className="grid gap-3 md:grid-cols-2">
-          <div className="rounded-2xl border bg-white p-4">
-            <div className="text-xs text-slate-500">Link para indicação de passagens</div>
-            <a
-              href={data.affiliate.flightSalesLink || "#"}
-              target="_blank"
-              rel="noreferrer"
-              className="mt-1 block break-all text-sm font-medium text-sky-700"
-            >
-              {data.affiliate.flightSalesLink || "Não cadastrado"}
-            </a>
-          </div>
-          <div className="rounded-2xl border bg-white p-4">
-            <div className="text-xs text-slate-500">Link para indicação de compra de pontos</div>
-            <a
-              href={data.affiliate.pointsPurchaseLink || "#"}
-              target="_blank"
-              rel="noreferrer"
-              className="mt-1 block break-all text-sm font-medium text-sky-700"
-            >
-              {data.affiliate.pointsPurchaseLink || "Não cadastrado"}
-            </a>
-          </div>
+        <section className="grid gap-3 lg:grid-cols-2">
+          <ReferralQrCard
+            label="Passagens"
+            url={data.affiliate.flightSalesLink}
+            filePrefix={`${fileBase}-passagens`}
+          />
+          <ReferralQrCard
+            label="Compra de pontos"
+            url={data.affiliate.pointsPurchaseLink}
+            filePrefix={`${fileBase}-compra-pontos`}
+          />
         </section>
 
         <section className="rounded-2xl border bg-white p-4">

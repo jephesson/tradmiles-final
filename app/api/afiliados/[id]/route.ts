@@ -3,6 +3,10 @@ import crypto from "node:crypto";
 import { prisma } from "@/lib/prisma";
 import { getSessionServer } from "@/lib/auth-server";
 import { getAffiliateMetrics } from "@/lib/affiliates/metrics";
+import {
+  AFFILIATE_STATUS,
+  buildAffiliateReferralLinks,
+} from "@/lib/affiliates/referral";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -28,6 +32,11 @@ function cleanOptionalUrl(value: unknown) {
   } catch {
     return "__INVALID__";
   }
+}
+
+function cleanOptionalText(value: unknown) {
+  const raw = String(value ?? "").trim();
+  return raw || null;
 }
 
 function parseCommissionBps(value: unknown) {
@@ -58,12 +67,15 @@ const affiliateSelect = {
   name: true,
   document: true,
   login: true,
+  pixKey: true,
+  status: true,
   flightSalesLink: true,
   pointsPurchaseLink: true,
   commissionBps: true,
   isActive: true,
   passwordHash: true,
   lastLoginAt: true,
+  approvedAt: true,
   createdAt: true,
   updatedAt: true,
   _count: { select: { clients: true } },
@@ -110,6 +122,7 @@ export async function PUT(req: NextRequest, ctx: Ctx) {
     if (document === "__INVALID__") {
       return NextResponse.json({ ok: false, error: "CPF/CNPJ inválido." }, { status: 400 });
     }
+    const pixKey = cleanOptionalText(body.pixKey ?? body.pix);
 
     const login = normLogin(body.login);
     if (!login) {
@@ -122,20 +135,16 @@ export async function PUT(req: NextRequest, ctx: Ctx) {
       );
     }
 
+    const generatedLinks = buildAffiliateReferralLinks(login);
+
     const flightSalesLink = cleanOptionalUrl(body.flightSalesLink);
     if (flightSalesLink === "__INVALID__") {
       return NextResponse.json({ ok: false, error: "Link de venda de passagens inválido." }, { status: 400 });
-    }
-    if (!flightSalesLink) {
-      return NextResponse.json({ ok: false, error: "Informe o link de venda de passagens." }, { status: 400 });
     }
 
     const pointsPurchaseLink = cleanOptionalUrl(body.pointsPurchaseLink);
     if (pointsPurchaseLink === "__INVALID__") {
       return NextResponse.json({ ok: false, error: "Link de compra de pontos inválido." }, { status: 400 });
-    }
-    if (!pointsPurchaseLink) {
-      return NextResponse.json({ ok: false, error: "Informe o link de compra de pontos." }, { status: 400 });
     }
 
     const commissionBps = parseCommissionBps(body.commissionPercent);
@@ -148,7 +157,7 @@ export async function PUT(req: NextRequest, ctx: Ctx) {
 
     const existing = await prisma.affiliate.findFirst({
       where: { id, team },
-      select: { id: true, passwordHash: true },
+      select: { id: true, passwordHash: true, status: true, approvedAt: true },
     });
     if (!existing) {
       return NextResponse.json({ ok: false, error: "Afiliado não encontrado." }, { status: 404 });
@@ -175,12 +184,21 @@ export async function PUT(req: NextRequest, ctx: Ctx) {
       data: {
         name,
         document,
+        pixKey,
         login,
         ...(password ? { passwordHash: sha256(password) } : {}),
-        flightSalesLink,
-        pointsPurchaseLink,
+        flightSalesLink: flightSalesLink || generatedLinks.flightSalesLink,
+        pointsPurchaseLink: pointsPurchaseLink || generatedLinks.pointsPurchaseLink,
         commissionBps,
         isActive: body.isActive === false ? false : true,
+        status:
+          body.isActive === false && existing.status === AFFILIATE_STATUS.PENDING
+            ? AFFILIATE_STATUS.PENDING
+            : AFFILIATE_STATUS.APPROVED,
+        approvedAt:
+          body.isActive === false && existing.status === AFFILIATE_STATUS.PENDING
+            ? null
+            : existing.approvedAt || new Date(),
       },
       select: affiliateSelect,
     });
@@ -208,16 +226,38 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
     const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
     const existing = await prisma.affiliate.findFirst({
       where: { id, team },
-      select: { id: true },
+      select: {
+        id: true,
+        login: true,
+        status: true,
+        approvedAt: true,
+        flightSalesLink: true,
+        pointsPurchaseLink: true,
+      },
     });
     if (!existing) {
       return NextResponse.json({ ok: false, error: "Afiliado não encontrado." }, { status: 404 });
     }
 
+    const isActive = body.isActive === false ? false : true;
+    const generatedLinks = existing.login
+      ? buildAffiliateReferralLinks(existing.login)
+      : null;
+
     const affiliate = await prisma.affiliate.update({
       where: { id },
       data: {
-        isActive: body.isActive === false ? false : true,
+        isActive,
+        ...(isActive
+          ? {
+              status: AFFILIATE_STATUS.APPROVED,
+              approvedAt: existing.approvedAt || new Date(),
+              flightSalesLink:
+                existing.flightSalesLink || generatedLinks?.flightSalesLink || null,
+              pointsPurchaseLink:
+                existing.pointsPurchaseLink || generatedLinks?.pointsPurchaseLink || null,
+            }
+          : {}),
       },
       select: affiliateSelect,
     });

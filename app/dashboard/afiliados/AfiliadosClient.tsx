@@ -6,6 +6,8 @@ type AffiliateRow = {
   id: string;
   name: string;
   document: string;
+  pixKey: string | null;
+  status: string;
   login: string | null;
   flightSalesLink: string | null;
   pointsPurchaseLink: string | null;
@@ -13,6 +15,7 @@ type AffiliateRow = {
   isActive: boolean;
   hasAccess?: boolean;
   lastLoginAt: string | null;
+  approvedAt: string | null;
   createdAt: string;
   updatedAt: string;
   _count?: { clients?: number };
@@ -42,6 +45,7 @@ type AffiliateSaleRow = {
 type FormState = {
   name: string;
   document: string;
+  pixKey: string;
   login: string;
   password: string;
   flightSalesLink: string;
@@ -53,6 +57,7 @@ type FormState = {
 const EMPTY_FORM: FormState = {
   name: "",
   document: "",
+  pixKey: "",
   login: "",
   password: "",
   flightSalesLink: "",
@@ -98,6 +103,19 @@ function saleStatus(value: string) {
   if (value === "PAID") return "Pago";
   if (value === "CANCELED") return "Cancelado";
   return "Pendente";
+}
+
+function affiliateStatusLabel(row: AffiliateRow) {
+  if (row.status === "PENDING") return "PENDENTE";
+  if (row.status === "REJECTED") return "RECUSADO";
+  return row.isActive ? "APROVADO" : "INATIVO";
+}
+
+function affiliateStatusClass(row: AffiliateRow) {
+  if (row.status === "PENDING") return "bg-amber-50 text-amber-700";
+  if (row.status === "REJECTED") return "bg-rose-50 text-rose-700";
+  if (row.isActive) return "bg-emerald-50 text-emerald-700";
+  return "bg-slate-100 text-slate-600";
 }
 
 function errorMessage(error: unknown, fallback: string) {
@@ -222,6 +240,7 @@ export default function AfiliadosClient() {
     setForm({
       name: row.name || "",
       document: row.document || "",
+      pixKey: row.pixKey || "",
       login: row.login || "",
       password: "",
       flightSalesLink: row.flightSalesLink || "",
@@ -239,6 +258,7 @@ export default function AfiliadosClient() {
       const payload = {
         name: form.name.trim(),
         document: onlyDigits(form.document),
+        pixKey: form.pixKey.trim() || null,
         login: form.login.trim(),
         password: form.password,
         flightSalesLink: form.flightSalesLink.trim() || null,
@@ -286,8 +306,6 @@ export default function AfiliadosClient() {
     (onlyDigits(form.document).length === 11 || onlyDigits(form.document).length === 14) &&
     form.login.trim().length >= 3 &&
     (!passwordRequired || form.password.length >= 4) &&
-    form.flightSalesLink.trim().length > 0 &&
-    form.pointsPurchaseLink.trim().length > 0 &&
     form.commissionPercent.trim().length > 0;
 
   return (
@@ -376,6 +394,13 @@ export default function AfiliadosClient() {
             placeholder="Somente números ou formatado"
           />
           <Input
+            label="Chave Pix"
+            value={form.pixKey}
+            onChange={(value) => setField("pixKey", value)}
+            placeholder="CPF, e-mail, telefone ou chave aleatória"
+            optional
+          />
+          <Input
             label="Login do afiliado"
             value={form.login}
             onChange={(value) => setField("login", value)}
@@ -395,6 +420,7 @@ export default function AfiliadosClient() {
             onChange={(value) => setField("flightSalesLink", value)}
             placeholder="https://..."
             type="url"
+            optional
           />
           <Input
             label="Link para compra de pontos"
@@ -402,6 +428,7 @@ export default function AfiliadosClient() {
             onChange={(value) => setField("pointsPurchaseLink", value)}
             placeholder="https://..."
             type="url"
+            optional
           />
           <Input
             label="Percentual de comissão"
@@ -454,7 +481,7 @@ export default function AfiliadosClient() {
             className="w-full rounded-xl border px-3 py-2 text-sm sm:max-w-sm"
             value={q}
             onChange={(e) => setQ(e.target.value)}
-            placeholder="Buscar por nome, CPF/CNPJ ou link..."
+            placeholder="Buscar por nome, CPF/CNPJ, Pix ou status..."
           />
         </div>
 
@@ -469,6 +496,7 @@ export default function AfiliadosClient() {
                 <tr>
                   <th className="px-3 py-2 text-left">Nome</th>
                   <th className="px-3 py-2 text-left">CPF/CNPJ</th>
+                  <th className="px-3 py-2 text-left">Pix</th>
                   <th className="px-3 py-2 text-left">Login</th>
                   <th className="px-3 py-2 text-left">Comissão</th>
                   <th className="px-3 py-2 text-left">Performance</th>
@@ -484,10 +512,15 @@ export default function AfiliadosClient() {
                   <tr key={row.id} className="border-t hover:bg-slate-50">
                     <td className="px-3 py-2 font-medium">{row.name}</td>
                     <td className="px-3 py-2">{formatDocument(row.document)}</td>
+                    <td className="px-3 py-2">{row.pixKey || "-"}</td>
                     <td className="px-3 py-2">
                       <div>{row.login || "-"}</div>
                       <div className="text-xs text-slate-500">
-                        {row.hasAccess ? "acesso liberado" : "sem senha"}
+                        {row.status === "PENDING"
+                          ? "em análise"
+                          : row.hasAccess
+                          ? "acesso liberado"
+                          : "sem senha"}
                       </div>
                     </td>
                     <td className="px-3 py-2">{formatPercent(row.commissionBps)}</td>
@@ -530,12 +563,10 @@ export default function AfiliadosClient() {
                       <span
                         className={[
                           "rounded-full px-2 py-1 text-xs",
-                          row.isActive
-                            ? "bg-emerald-50 text-emerald-700"
-                            : "bg-slate-100 text-slate-600",
+                          affiliateStatusClass(row),
                         ].join(" ")}
                       >
-                        {row.isActive ? "ATIVO" : "INATIVO"}
+                        {affiliateStatusLabel(row)}
                       </span>
                     </td>
                     <td className="px-3 py-2">{dateBR(row.createdAt)}</td>
@@ -560,7 +591,11 @@ export default function AfiliadosClient() {
                           onClick={() => toggleActive(row)}
                           className="rounded-lg border px-3 py-1.5 text-xs hover:bg-white"
                         >
-                          {row.isActive ? "Inativar" : "Ativar"}
+                          {row.status === "PENDING"
+                            ? "Aprovar"
+                            : row.isActive
+                            ? "Inativar"
+                            : "Ativar"}
                         </button>
                       </div>
                     </td>
@@ -577,7 +612,8 @@ export default function AfiliadosClient() {
               <div>
                 <h3 className="text-base font-semibold">{detailsAffiliate.name}</h3>
                 <p className="text-xs text-slate-500">
-                  Clientes indicados: {detailsAffiliate.metrics?.clientsCount || 0} · vendas:{" "}
+                  {affiliateStatusLabel(detailsAffiliate)} · clientes indicados:{" "}
+                  {detailsAffiliate.metrics?.clientsCount || 0} · vendas:{" "}
                   {detailsAffiliate.metrics?.salesCount || 0} · comissão:{" "}
                   {formatMoney(detailsAffiliate.metrics?.totalCommissionCents || 0)}
                 </p>

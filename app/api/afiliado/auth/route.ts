@@ -5,6 +5,11 @@ import {
   clearAffiliateSessionCookie,
   setAffiliateSessionCookie,
 } from "@/lib/affiliates/session";
+import {
+  AFFILIATE_STATUS,
+  normalizeAffiliateLogin,
+  onlyDigits,
+} from "@/lib/affiliates/referral";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -15,10 +20,6 @@ type ApiBody = ApiLogin | ApiLogout;
 
 function sha256(value: string) {
   return crypto.createHash("sha256").update(value).digest("hex");
-}
-
-function norm(value: unknown) {
-  return String(value ?? "").trim().toLowerCase();
 }
 
 function noCacheHeaders() {
@@ -53,22 +54,30 @@ export async function POST(req: Request) {
       return res;
     }
 
-    const login = norm(body.login);
+    const login = normalizeAffiliateLogin(body.login);
+    const document = onlyDigits(body.login);
     const password = String(body.password ?? "");
     if (!login || !password) {
       return NextResponse.json(
-        { ok: false, error: "Informe login e senha." },
+        { ok: false, error: "Informe login ou CPF e senha." },
         { status: 400, headers: noCacheHeaders() }
       );
     }
 
     const affiliate = await prisma.affiliate.findFirst({
-      where: { login, isActive: true },
+      where: {
+        OR: [
+          { login },
+          ...(document.length === 11 ? [{ document }] : []),
+        ],
+      },
       select: {
         id: true,
         team: true,
         name: true,
         login: true,
+        status: true,
+        isActive: true,
         passwordHash: true,
       },
     });
@@ -77,6 +86,20 @@ export async function POST(req: Request) {
       return NextResponse.json(
         { ok: false, error: "Afiliado não encontrado ou sem acesso liberado." },
         { status: 401, headers: noCacheHeaders() }
+      );
+    }
+
+    if (affiliate.status === AFFILIATE_STATUS.PENDING) {
+      return NextResponse.json(
+        { ok: false, error: "Seu cadastro ainda está em análise pela nossa equipe." },
+        { status: 403, headers: noCacheHeaders() }
+      );
+    }
+
+    if (!affiliate.isActive || affiliate.status === AFFILIATE_STATUS.REJECTED) {
+      return NextResponse.json(
+        { ok: false, error: "Acesso do afiliado ainda não liberado." },
+        { status: 403, headers: noCacheHeaders() }
       );
     }
 

@@ -1150,6 +1150,8 @@ model Affiliate {
   name     String
   document String
   login    String? @unique
+  pixKey   String?
+  status   String  @default("APPROVED")
 
   flightSalesLink    String?
   pointsPurchaseLink String?
@@ -1157,6 +1159,7 @@ model Affiliate {
   isActive           Boolean @default(true)
   passwordHash       String?
   lastLoginAt        DateTime?
+  approvedAt         DateTime?
 
   clients Cliente[]
 
@@ -1167,6 +1170,7 @@ model Affiliate {
   @@index([team, document])
   @@index([team, login])
   @@index([team, isActive])
+  @@index([team, status])
   @@map("affiliates")
 }
 
