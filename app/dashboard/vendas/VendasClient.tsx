@@ -14,6 +14,33 @@ function fmtInt(n: number) {
   return (n || 0).toLocaleString("pt-BR");
 }
 
+function intInputBR(n: number) {
+  return Math.max(0, n || 0).toLocaleString("pt-BR");
+}
+
+function moneyInputBR(cents: number) {
+  return ((cents || 0) / 100).toLocaleString("pt-BR", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+}
+
+function moneyToCentsBR(input: string) {
+  const raw = String(input || "").trim();
+  if (!raw) return 0;
+  const normalized = raw.includes(",") ? raw.replace(/\./g, "").replace(",", ".") : raw;
+  const n = Number(normalized);
+  if (!Number.isFinite(n)) return 0;
+  return Math.round(n * 100);
+}
+
+function intFromBR(input: string) {
+  const digits = String(input || "").replace(/\D+/g, "");
+  if (!digits) return 0;
+  const n = Number(digits);
+  return Number.isFinite(n) ? Math.trunc(n) : 0;
+}
+
 // ✅ evita “voltar 1 dia” quando vier ISO em UTC
 function fmtDateBR(v: string) {
   if (!v) return "—";
@@ -37,6 +64,30 @@ function fmtDateTimeBR(v: string) {
   return dt.toLocaleString("pt-BR");
 }
 
+function ymdSaoPaulo(v: string | Date) {
+  const dt = v instanceof Date ? v : new Date(String(v));
+  if (Number.isNaN(dt.getTime())) return "";
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Sao_Paulo",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(dt);
+  const map: Record<string, string> = {};
+  for (const part of parts) map[part.type] = part.value;
+  return `${map.year}-${map.month}-${map.day}`;
+}
+
+function isTodaySaoPaulo(v: string) {
+  return Boolean(v) && ymdSaoPaulo(v) === ymdSaoPaulo(new Date());
+}
+
+function errorMessage(error: unknown, fallback: string) {
+  if (error instanceof Error && error.message) return error.message;
+  if (typeof error === "string" && error.trim()) return error;
+  return fallback;
+}
+
 async function api<T>(url: string, init?: RequestInit): Promise<T> {
   const r = await fetch(url, {
     cache: "no-store",
@@ -44,9 +95,8 @@ async function api<T>(url: string, init?: RequestInit): Promise<T> {
     headers: { "Content-Type": "application/json", ...(init?.headers || {}) },
     ...init,
   });
-  const j = await r.json().catch(() => ({}));
-  if (!r.ok || (j as any)?.ok === false)
-    throw new Error((j as any)?.error || `Erro ${r.status}`);
+  const j = (await r.json().catch(() => ({}))) as { ok?: boolean; error?: string };
+  if (!r.ok || j.ok === false) throw new Error(j.error || `Erro ${r.status}`);
   return j as T;
 }
 
@@ -60,8 +110,13 @@ type SaleRow = {
   milheiroCents: number;
   passengers: number;
 
+  pointsValueCents?: number;
+  commissionCents?: number;
+  bonusCents?: number;
+  metaMilheiroCents?: number;
   totalCents: number;
   paymentStatus: "PENDING" | "PAID" | "CANCELED";
+  paidAt?: string | null;
   locator: string | null;
 
   // ✅ vem da API (aparece só no modal)
@@ -83,6 +138,44 @@ type SaleRow = {
   createdAt: string;
 };
 
+type UserSession = {
+  id: string;
+  login: string;
+  role: "admin" | "staff";
+  team: string;
+  name?: string;
+};
+
+type SaleAuditSnapshot = {
+  feeCardLabel?: string | null;
+  points?: number;
+  milheiroCents?: number;
+  embarqueFeeCents?: number;
+  pointsValueCents?: number;
+  totalCents?: number;
+  commissionCents?: number;
+  bonusCents?: number;
+  metaMilheiroCents?: number;
+  paymentStatus?: string;
+  receivable?: {
+    totalCents?: number;
+    receivedCents?: number;
+    balanceCents?: number;
+    status?: string;
+  } | null;
+};
+
+type SaleAuditLog = {
+  id: string;
+  action: string;
+  actorLogin: string | null;
+  note: string | null;
+  before: SaleAuditSnapshot | null;
+  after: SaleAuditSnapshot | null;
+  createdAt: string;
+  actor?: { id: string; name: string; login: string } | null;
+};
+
 type StatusFilter = "ALL" | "PENDING" | "PAID" | "CANCELED";
 
 function pendingCentsOfSale(r: SaleRow) {
@@ -99,6 +192,48 @@ function feeCentsOfSale(r: SaleRow) {
   return typeof v === "number" ? Math.max(0, v) : null;
 }
 
+function textOrDash(value: string | null | undefined) {
+  const s = String(value || "").trim();
+  return s || "—";
+}
+
+function auditChanges(log: SaleAuditLog) {
+  const before = log.before || {};
+  const after = log.after || {};
+  const changes: string[] = [];
+
+  if (before.feeCardLabel !== after.feeCardLabel) {
+    changes.push(`Cartão: ${textOrDash(before.feeCardLabel)} → ${textOrDash(after.feeCardLabel)}`);
+  }
+  if (before.points !== after.points) {
+    changes.push(`Pontos: ${fmtInt(before.points || 0)} → ${fmtInt(after.points || 0)}`);
+  }
+  if (before.milheiroCents !== after.milheiroCents) {
+    changes.push(
+      `Milheiro: ${fmtMoneyBR(before.milheiroCents || 0)} → ${fmtMoneyBR(after.milheiroCents || 0)}`
+    );
+  }
+  if (before.pointsValueCents !== after.pointsValueCents) {
+    changes.push(
+      `Valor pontos: ${fmtMoneyBR(before.pointsValueCents || 0)} → ${fmtMoneyBR(
+        after.pointsValueCents || 0
+      )}`
+    );
+  }
+  if (before.totalCents !== after.totalCents) {
+    changes.push(`Total: ${fmtMoneyBR(before.totalCents || 0)} → ${fmtMoneyBR(after.totalCents || 0)}`);
+  }
+  if (before.receivable?.balanceCents !== after.receivable?.balanceCents) {
+    changes.push(
+      `Saldo recebível: ${fmtMoneyBR(before.receivable?.balanceCents || 0)} → ${fmtMoneyBR(
+        after.receivable?.balanceCents || 0
+      )}`
+    );
+  }
+
+  return changes.length ? changes : ["Ajuste registrado."];
+}
+
 export default function VendasClient() {
   const [loading, setLoading] = useState(false);
   const [rows, setRows] = useState<SaleRow[]>([]);
@@ -111,6 +246,7 @@ export default function VendasClient() {
   const [status, setStatus] = useState<StatusFilter>("PENDING");
 
   const [updatingId, setUpdatingId] = useState<string | null>(null);
+  const [user, setUser] = useState<UserSession | null>(null);
 
   // ✅ modal de detalhes
   const [detailsId, setDetailsId] = useState<string | null>(null);
@@ -118,6 +254,21 @@ export default function VendasClient() {
     () => (detailsId ? rows.find((r) => r.id === detailsId) || null : null),
     [rows, detailsId]
   );
+  const isAdmin = user?.role === "admin";
+  const canEditDetails =
+    Boolean(details) &&
+    isAdmin &&
+    details?.paymentStatus !== "CANCELED" &&
+    isTodaySaoPaulo(details?.createdAt || "");
+
+  const [auditLogs, setAuditLogs] = useState<SaleAuditLog[]>([]);
+  const [loadingAudit, setLoadingAudit] = useState(false);
+  const [editingSale, setEditingSale] = useState(false);
+  const [savingEdit, setSavingEdit] = useState(false);
+  const [editFeeCardLabel, setEditFeeCardLabel] = useState("");
+  const [editPoints, setEditPoints] = useState("");
+  const [editMilheiro, setEditMilheiro] = useState("");
+  const [editNote, setEditNote] = useState("");
 
   async function load(opts?: { append?: boolean }) {
     const append = Boolean(opts?.append);
@@ -156,6 +307,84 @@ export default function VendasClient() {
       else setLoading(false);
     }
   }
+
+  async function loadAudit(saleId: string) {
+    setLoadingAudit(true);
+    try {
+      const out = await api<{ ok: true; logs: SaleAuditLog[] }>(`/api/vendas/${saleId}/audit`);
+      setAuditLogs(out.logs || []);
+    } catch {
+      setAuditLogs([]);
+    } finally {
+      setLoadingAudit(false);
+    }
+  }
+
+  async function saveAdminEdit() {
+    if (!details || savingEdit) return;
+
+    if (!canEditDetails) {
+      alert("Essa venda só pode ser ajustada pelo admin no mesmo dia em que foi criada.");
+      return;
+    }
+
+    const points = intFromBR(editPoints);
+    const milheiroCents = moneyToCentsBR(editMilheiro);
+    if (points <= 0) return alert("Quantidade de pontos inválida.");
+    if (milheiroCents <= 0) return alert("Valor do milheiro inválido.");
+
+    setSavingEdit(true);
+    try {
+      const out = await api<{ ok: true; sale: SaleRow }>(`/api/vendas/${details.id}/admin-edit`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          feeCardLabel: editFeeCardLabel.trim() || null,
+          points,
+          milheiroCents,
+          note: editNote.trim() || null,
+        }),
+      });
+
+      setRows((prev) => prev.map((x) => (x.id === out.sale.id ? out.sale : x)));
+      setEditingSale(false);
+      setEditNote("");
+      await loadAudit(details.id);
+    } catch (error: unknown) {
+      alert(errorMessage(error, "Falha ao ajustar venda."));
+    } finally {
+      setSavingEdit(false);
+    }
+  }
+
+  useEffect(() => {
+    let alive = true;
+    api<{ ok: true; hasSession: boolean; user: UserSession | null }>("/api/session")
+      .then((out) => {
+        if (alive) setUser(out.user || null);
+      })
+      .catch(() => {
+        if (alive) setUser(null);
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!details) {
+      setAuditLogs([]);
+      setEditingSale(false);
+      return;
+    }
+
+    setEditingSale(false);
+    setEditFeeCardLabel(details.feeCardLabel || "");
+    setEditPoints(intInputBR(details.points));
+    setEditMilheiro(moneyInputBR(details.milheiroCents));
+    setEditNote("");
+    loadAudit(details.id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [details?.id]);
 
   // ✅ busca no servidor (inclusive localizador) com debounce
   useEffect(() => {
@@ -267,8 +496,8 @@ export default function VendasClient() {
             : x
         )
       );
-    } catch (e: any) {
-      alert(e?.message || "Falha ao atualizar status.");
+    } catch (error: unknown) {
+      alert(errorMessage(error, "Falha ao atualizar status."));
     } finally {
       setUpdatingId(null);
     }
@@ -318,8 +547,8 @@ export default function VendasClient() {
             : x
         )
       );
-    } catch (e: any) {
-      alert(e?.message || "Falha ao cancelar venda.");
+    } catch (error: unknown) {
+      alert(errorMessage(error, "Falha ao cancelar venda."));
     } finally {
       setUpdatingId(null);
     }
@@ -671,12 +900,36 @@ export default function VendasClient() {
                 </div>
               </div>
 
-              <button
-                className="rounded-xl border px-3 py-2 text-sm hover:bg-slate-50"
-                onClick={() => setDetailsId(null)}
-              >
-                Fechar
-              </button>
+              <div className="flex items-center gap-2">
+                {isAdmin && details.paymentStatus !== "CANCELED" ? (
+                  <button
+                    className={cn(
+                      "rounded-xl border px-3 py-2 text-sm",
+                      canEditDetails
+                        ? "hover:bg-slate-50"
+                        : "cursor-not-allowed border-slate-200 text-slate-400"
+                    )}
+                    onClick={() => {
+                      if (canEditDetails) setEditingSale((v) => !v);
+                    }}
+                    disabled={!canEditDetails}
+                    title={
+                      canEditDetails
+                        ? "Ajustar venda"
+                        : "Ajuste disponível só no dia em que a venda foi criada"
+                    }
+                  >
+                    {editingSale ? "Ocultar ajuste" : "Ajustar"}
+                  </button>
+                ) : null}
+
+                <button
+                  className="rounded-xl border px-3 py-2 text-sm hover:bg-slate-50"
+                  onClick={() => setDetailsId(null)}
+                >
+                  Fechar
+                </button>
+              </div>
             </div>
 
             <div className="p-5 space-y-4">
@@ -734,6 +987,92 @@ export default function VendasClient() {
                   </div>
                 </div>
               </div>
+
+              {editingSale ? (
+                <div className="rounded-2xl border border-amber-200 bg-amber-50/40 p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <div className="text-sm font-semibold">Ajuste administrativo</div>
+                      <div className="text-xs text-slate-500">
+                        Alterações ficam registradas no histórico da venda.
+                      </div>
+                    </div>
+                    <span className="rounded-full border border-amber-200 bg-white px-2 py-1 text-xs text-amber-700">
+                      Hoje
+                    </span>
+                  </div>
+
+                  <div className="mt-4 grid gap-3 md:grid-cols-3">
+                    <label className="text-xs text-slate-600">
+                      Cartão usado
+                      <input
+                        value={editFeeCardLabel}
+                        onChange={(e) => setEditFeeCardLabel(e.target.value)}
+                        className="mt-1 w-full rounded-xl border bg-white px-3 py-2 text-sm text-slate-900"
+                        placeholder="Cartão / responsável"
+                      />
+                    </label>
+
+                    <label className="text-xs text-slate-600">
+                      Pontos
+                      <input
+                        value={editPoints}
+                        onChange={(e) => setEditPoints(e.target.value)}
+                        className="mt-1 w-full rounded-xl border bg-white px-3 py-2 text-sm text-slate-900"
+                        inputMode="numeric"
+                        placeholder="23.720"
+                      />
+                    </label>
+
+                    <label className="text-xs text-slate-600">
+                      Milheiro
+                      <input
+                        value={editMilheiro}
+                        onChange={(e) => setEditMilheiro(e.target.value)}
+                        className="mt-1 w-full rounded-xl border bg-white px-3 py-2 text-sm text-slate-900"
+                        inputMode="decimal"
+                        placeholder="28,00"
+                      />
+                    </label>
+                  </div>
+
+                  <label className="mt-3 block text-xs text-slate-600">
+                    Observação
+                    <input
+                      value={editNote}
+                      onChange={(e) => setEditNote(e.target.value)}
+                      className="mt-1 w-full rounded-xl border bg-white px-3 py-2 text-sm text-slate-900"
+                      placeholder="Motivo do ajuste"
+                    />
+                  </label>
+
+                  <div className="mt-4 flex flex-wrap justify-end gap-2">
+                    <button
+                      className="rounded-xl border bg-white px-4 py-2 text-sm hover:bg-slate-50"
+                      onClick={() => {
+                        setEditingSale(false);
+                        setEditFeeCardLabel(details.feeCardLabel || "");
+                        setEditPoints(intInputBR(details.points));
+                        setEditMilheiro(moneyInputBR(details.milheiroCents));
+                        setEditNote("");
+                      }}
+                      disabled={savingEdit}
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      className={cn(
+                        "rounded-xl bg-black px-4 py-2 text-sm text-white",
+                        savingEdit ? "cursor-not-allowed opacity-60" : "hover:bg-gray-800"
+                      )}
+                      onClick={() => saveAdminEdit()}
+                      disabled={savingEdit}
+                    >
+                      {savingEdit ? "Salvando..." : "Salvar ajuste"}
+                    </button>
+                  </div>
+                </div>
+              ) : null}
 
               <div className="grid gap-3 md:grid-cols-2">
                 <div className="rounded-2xl border p-4">
@@ -806,6 +1145,37 @@ export default function VendasClient() {
                     )}
                   </div>
                 </div>
+              </div>
+
+              <div className="rounded-2xl border p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="text-sm font-semibold">Histórico de alterações</div>
+                  {loadingAudit ? <div className="text-xs text-slate-500">Carregando...</div> : null}
+                </div>
+
+                {auditLogs.length ? (
+                  <div className="mt-3 space-y-2">
+                    {auditLogs.map((log) => (
+                      <div key={log.id} className="rounded-xl border bg-slate-50 px-3 py-2">
+                        <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500">
+                          <span>
+                            {fmtDateTimeBR(log.createdAt)} •{" "}
+                            {log.actor?.name || log.actorLogin || "admin"}
+                          </span>
+                          <span className="font-mono">{log.action}</span>
+                        </div>
+                        <div className="mt-1 text-sm text-slate-800">
+                          {auditChanges(log).join(" • ")}
+                        </div>
+                        {log.note ? <div className="mt-1 text-xs text-slate-500">{log.note}</div> : null}
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="mt-3 text-sm text-slate-500">
+                    {loadingAudit ? "Buscando histórico..." : "Nenhum ajuste registrado."}
+                  </div>
+                )}
               </div>
 
               <div className="flex flex-wrap gap-2 justify-end border-t pt-4">

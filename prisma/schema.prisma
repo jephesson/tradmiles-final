@@ -159,6 +159,7 @@ model User {
 
   // Vendas feitas por este usuário
   salesSold Sale[] @relation("SaleSeller")
+  saleAuditLogs SaleAuditLog[] @relation("SaleAuditActor")
 
   // Emissões no balcão (compra e venda)
   balcaoOperations BalcaoOperacao[] @relation("BalcaoEmployee")
@@ -1306,6 +1307,7 @@ model Sale {
 
   receivableId String? @unique
   receivable   Receivable? @relation("SaleReceivable", fields: [receivableId], references: [id], onDelete: SetNull)
+  auditLogs    SaleAuditLog[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1316,6 +1318,28 @@ model Sale {
   @@index([clienteId])
   @@index([purchaseId])
   @@map("sales")
+}
+
+model SaleAuditLog {
+  id String @id @default(cuid())
+
+  saleId String
+  sale   Sale @relation(fields: [saleId], references: [id], onDelete: Cascade)
+
+  actorId String?
+  actor   User? @relation("SaleAuditActor", fields: [actorId], references: [id], onDelete: SetNull)
+
+  actorLogin String?
+  action     String
+  before     Json?
+  after      Json?
+  note       String?
+
+  createdAt DateTime @default(now())
+
+  @@index([saleId, createdAt])
+  @@index([actorId])
+  @@map("sale_audit_logs")
 }
 
 /**
