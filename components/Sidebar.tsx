@@ -574,11 +574,6 @@ export default function Sidebar() {
             </NavLink>
 
             {/* ✅ NOVO */}
-            <NavLink href="/dashboard/cedentes/revisao">
-              Revisão de cedentes
-            </NavLink>
-
-            {/* ✅ NOVO */}
             <NavLink href="/dashboard/cedentes/whatsapp">Whatsapp</NavLink>
 
             <NavLink href="/dashboard/cedentes/mensagem-pronta">
