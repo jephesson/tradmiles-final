@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 
 type PixTipo = "CPF" | "CNPJ" | "EMAIL" | "TELEFONE" | "ALEATORIA" | "";
 
@@ -83,6 +83,10 @@ function formatCedenteStatus(status: DuplicateCedente["status"]) {
   return "Pendente";
 }
 
+function escapeRegex(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 type InviteResp = {
   ok: boolean;
   error?: string;
@@ -141,6 +145,48 @@ const PROGRAMAS_FIDELIDADE = [
   { nome: "Esfera", url: "https://www.esfera.com.vc/" },
   { nome: "Smiles", url: "https://www.smiles.com.br/home" },
 ] as const;
+
+const PALAVRAS_CHAVE_IMPORTANTES = [
+  "LATAM Pass",
+  "Livelo",
+  "Esfera",
+  "Smiles",
+  "PIX",
+  "SMS",
+  "WhatsApp",
+  "biometria facial",
+  "score interno",
+  "e-mail",
+  "telefone",
+  "CPF",
+  "gov.br",
+  "OneDrive",
+  "R$ 20,00",
+  "R$ 30,00",
+  "R$ 50,00",
+  "R$ 80,00",
+  "R$ 3.200,00",
+  "130.000 pontos/milhas",
+  "não solicita dinheiro",
+  "não solicita PIX",
+  "não solicita transferência",
+  "não solicita depósito",
+  "não solicita pagamento antecipado",
+  "não solicita qualquer investimento financeiro",
+  "não solicita qualquer tipo de investimento financeiro",
+] as const;
+
+const PALAVRAS_CHAVE_LOOKUP = new Set(
+  [...PALAVRAS_CHAVE_IMPORTANTES].map((termo) => termo.toLowerCase())
+);
+
+const PALAVRAS_CHAVE_REGEX = new RegExp(
+  `(${[...PALAVRAS_CHAVE_IMPORTANTES]
+    .sort((a, b) => b.length - a.length)
+    .map(escapeRegex)
+    .join("|")})`,
+  "gi"
+);
 
 const ORIENTACOES_TEXTO = `ORIENTAÇÕES PARA CADASTRO NOS PROGRAMAS DE FIDELIDADE
 VIAS AÉREAS VIAGENS E TURISMO LTDA
@@ -660,6 +706,114 @@ Declaro que li, compreendi e concordo com todos os termos acima.
 
 Declaro, ainda, estar ciente de que a Vias Aéreas não solicita dinheiro, PIX, transferência, depósito, pagamento antecipado ou qualquer investimento financeiro para participação nas operações, sendo todo investimento realizado exclusivamente pela empresa.`;
 
+function highlightImportantTerms(text: string, keyPrefix: string) {
+  return text.split(PALAVRAS_CHAVE_REGEX).map((part, index) => {
+    if (PALAVRAS_CHAVE_LOOKUP.has(part.toLowerCase())) {
+      return (
+        <strong key={`${keyPrefix}-strong-${index}`} className="font-semibold text-slate-950">
+          {part}
+        </strong>
+      );
+    }
+
+    return <span key={`${keyPrefix}-text-${index}`}>{part}</span>;
+  });
+}
+
+function LegalTextBlock({ text, blockId }: { text: string; blockId: string }) {
+  const lines = text.split("\n");
+  const nodes: ReactNode[] = [];
+  let listItems: string[] = [];
+
+  function flushList(groupIndex: number) {
+    if (!listItems.length) return;
+
+    nodes.push(
+      <ul
+        key={`${blockId}-list-${groupIndex}`}
+        className="list-disc space-y-1 pl-5 text-slate-700"
+      >
+        {listItems.map((item, itemIndex) => (
+          <li key={`${blockId}-list-${groupIndex}-${itemIndex}`}>
+            {highlightImportantTerms(item, `${blockId}-list-${groupIndex}-${itemIndex}`)}
+          </li>
+        ))}
+      </ul>
+    );
+
+    listItems = [];
+  }
+
+  lines.forEach((rawLine, index) => {
+    const line = rawLine.trim();
+
+    if (!line) {
+      flushList(index);
+      nodes.push(<div key={`${blockId}-space-${index}`} className="h-1.5" />);
+      return;
+    }
+
+    const isMainTitle = index === 0;
+    const isSubTitle = index === 1;
+    const isSectionTitle = /^\d+\.\s/.test(line);
+    const isLabel = line.endsWith(":");
+    const isListItem = !isMainTitle && !isSubTitle && !isSectionTitle && !isLabel && /;$/.test(line);
+
+    if (isListItem) {
+      listItems.push(line.replace(/;$/, ""));
+      return;
+    }
+
+    flushList(index);
+
+    if (isMainTitle) {
+      nodes.push(
+        <p key={`${blockId}-title-${index}`} className="font-semibold text-slate-950">
+          {highlightImportantTerms(line, `${blockId}-title-${index}`)}
+        </p>
+      );
+      return;
+    }
+
+    if (isSubTitle) {
+      nodes.push(
+        <p key={`${blockId}-subtitle-${index}`} className="font-medium text-slate-700">
+          {highlightImportantTerms(line, `${blockId}-subtitle-${index}`)}
+        </p>
+      );
+      return;
+    }
+
+    if (isSectionTitle) {
+      nodes.push(
+        <p key={`${blockId}-section-${index}`} className="pt-2 font-semibold text-slate-950">
+          {highlightImportantTerms(line, `${blockId}-section-${index}`)}
+        </p>
+      );
+      return;
+    }
+
+    if (isLabel) {
+      nodes.push(
+        <p key={`${blockId}-label-${index}`} className="font-medium text-slate-900">
+          {highlightImportantTerms(line, `${blockId}-label-${index}`)}
+        </p>
+      );
+      return;
+    }
+
+    nodes.push(
+      <p key={`${blockId}-line-${index}`} className="text-slate-700">
+        {highlightImportantTerms(line, `${blockId}-line-${index}`)}
+      </p>
+    );
+  });
+
+  flushList(lines.length);
+
+  return <div className="space-y-2 text-xs leading-relaxed">{nodes}</div>;
+}
+
 export default function ConviteClient({ code }: { code: string }) {
   const [form, setForm] = useState<FormState>({
     nomeCompleto: "",
@@ -920,8 +1074,8 @@ export default function ConviteClient({ code }: { code: string }) {
             ))}
           </div>
 
-          <div className="rounded-xl border bg-slate-50 p-3 text-xs whitespace-pre-wrap leading-relaxed max-h-[360px] overflow-auto">
-            {ORIENTACOES_TEXTO}
+          <div className="rounded-xl border bg-slate-50 p-3 max-h-[360px] overflow-auto">
+            <LegalTextBlock text={ORIENTACOES_TEXTO} blockId="orientacoes" />
           </div>
         </div>
 
@@ -930,8 +1084,8 @@ export default function ConviteClient({ code }: { code: string }) {
           <div className="text-sm font-semibold">Termo de ciência e autorização</div>
           <div className="text-xs text-slate-500">Versão: {TERMO_VERSAO}</div>
 
-          <div className="rounded-xl border bg-slate-50 p-3 text-xs whitespace-pre-wrap leading-relaxed max-h-[320px] overflow-auto">
-            {TERMO_TEXTO}
+          <div className="rounded-xl border bg-slate-50 p-3 max-h-[320px] overflow-auto">
+            <LegalTextBlock text={TERMO_TEXTO} blockId="termo" />
           </div>
 
           <label className="flex items-start gap-2 text-sm">
