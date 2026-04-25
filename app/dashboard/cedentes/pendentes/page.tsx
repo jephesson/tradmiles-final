@@ -11,6 +11,11 @@ type Item = {
 
   telefone: string | null;
   emailCriado: string | null;
+  senhaEmail: string | null;
+  senhaSmiles: string | null;
+  senhaLatamPass: string | null;
+  senhaLivelo: string | null;
+  senhaEsfera: string | null;
 
   banco: string | null;
   pixTipo: string | null;
@@ -42,14 +47,16 @@ function labelMissing(c: Item) {
 
   if (!c.telefone?.trim()) miss.push("Telefone");
   if (!c.emailCriado?.trim()) miss.push("E-mail criado");
+  if (!c.senhaEmail?.trim()) miss.push("Senha do e-mail");
+  if (!c.senhaSmiles?.trim()) miss.push("Senha Smiles");
+  if (!c.senhaLatamPass?.trim()) miss.push("Senha Latam Pass");
+  if (!c.senhaLivelo?.trim()) miss.push("Senha Livelo");
+  if (!c.senhaEsfera?.trim()) miss.push("Senha Esfera");
 
   if (!c.banco?.trim()) miss.push("Banco");
   if (!c.chavePix?.trim()) miss.push("Chave PIX");
   if (!c.pixTipo?.trim()) miss.push("Tipo PIX");
   if (!c.titularConfirmado) miss.push("Titular não confirmado");
-
-  // senhas (se você quiser exigir, descomente e adapte os campos no Item)
-  // if (!c.senhaEmailEnc) miss.push("Senha do e-mail");
 
   return miss;
 }
@@ -212,6 +219,18 @@ export default function CedentesPendentesPage() {
               </div>
 
               <div className="mt-4 rounded-2xl border p-4">
+                <div className="mb-4 font-semibold">Credenciais para revisão</div>
+
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                  <FieldText label="Senha do e-mail" value={c.senhaEmail} />
+                  <FieldText label="Senha Smiles" value={c.senhaSmiles} />
+                  <FieldText label="Senha Latam Pass" value={c.senhaLatamPass} />
+                  <FieldText label="Senha Livelo" value={c.senhaLivelo} />
+                  <FieldText label="Senha Esfera" value={c.senhaEsfera} />
+                </div>
+              </div>
+
+              <div className="mt-4 rounded-2xl border p-4">
                 <div className="mb-2 font-semibold">Pontos (preencher antes de aprovar)</div>
 
                 <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
@@ -280,6 +299,17 @@ function FieldNumber({
         value={value}
         onChange={(e) => onChange(e.target.value === "" ? "" : Number(e.target.value))}
       />
+    </div>
+  );
+}
+
+function FieldText({ label, value }: { label: string; value: string | null }) {
+  return (
+    <div>
+      <div className="mb-1 block text-sm">{label}</div>
+      <div className="rounded-xl border bg-slate-50 px-3 py-2 text-sm text-slate-900 break-all">
+        {value?.trim() || "-"}
+      </div>
     </div>
   );
 }

@@ -29,6 +29,11 @@ export async function GET() {
 
         telefone: true,
         emailCriado: true,
+        senhaEmail: true,
+        senhaSmiles: true,
+        senhaLatamPass: true,
+        senhaLivelo: true,
+        senhaEsfera: true,
 
         banco: true,
         pixTipo: true,
