@@ -132,87 +132,293 @@ type CedenteSignupResp = {
   updateAllowed?: boolean;
 };
 
-const TERMO_VERSAO = "v2-2026-03";
+const TERMO_VERSAO = "v3-2026-04";
 
 /**
  * ✅ TERMO COMPLETO (texto integral)
  * - fica no client só pra exibir pro cedente
  * - a prova/registro fica no backend com termoVersao + ip + userAgent
  */
-const TERMO_TEXTO = `TERMO DE CIÊNCIA E AUTORIZAÇÃO – VIAS AÉREAS
+const TERMO_TEXTO = `TERMO DE CIÊNCIA, AUTORIZAÇÃO E RESPONSABILIDADE OPERACIONAL
+VIAS AÉREAS VIAGENS E TURISMO LTDA
 
-Este Termo tem por finalidade registrar a ciência expressa e autorização do TITULAR da conta para participação nas operações de compra e venda de milhas realizadas pela VIAS AÉREAS VIAGENS E TURISMO LTDA, inscrita no CNPJ sob nº 63.817.773/0001-85.
+Este Termo tem por finalidade registrar a ciência expressa, autorização e concordância do TITULAR da conta para participação nas operações comerciais realizadas pela VIAS AÉREAS VIAGENS E TURISMO LTDA, inscrita no CNPJ sob nº 63.817.773/0001-85, envolvendo programas de fidelidade, aquisição de pontos/milhas, validações de identidade, emissão de passagens e comercialização em plataformas especializadas.
+
+A Vias Aéreas não solicita dinheiro, PIX, transferência, depósito, pagamento antecipado, investimento ou qualquer valor financeiro do TITULAR para participação nas operações. Todo investimento necessário para aquisição de pontos, adesão a clubes, compra de milhas ou realização das operações é feito exclusivamente pela Vias Aéreas, com recursos próprios.
 
 1. OBJETO E FUNCIONAMENTO DAS OPERAÇÕES
-A Vias Aéreas atua na intermediação de passagens aéreas emitidas por meio dos programas de fidelidade Livelo, LATAM Pass e Smiles.
-Para viabilizar operações com margem de lucro, podem ser necessárias as seguintes etapas:
-• Adesão a clubes de pontos/milhas (Livelo, LATAM Pass e Smiles);
-• Aquisição de pontos e milhas com recursos próprios da Vias Aéreas;
-• Transferências internas de pontos;
-• Emissão de passagens aéreas;
-• Comercialização dessas passagens em balcões especializados de milhas.
 
-2. DO INVESTIMENTO E AUSÊNCIA DE PREJUÍZO AO CEDENTE
-Todo o capital investido nas operações é exclusivamente da Vias Aéreas. O TITULAR declara ciência de que:
-• Não realiza qualquer pagamento, PIX, transferência ou investimento;
-• Não assume risco financeiro;
-• Não sofre prejuízo patrimonial;
-• Não possui responsabilidade por atrasos, cancelamentos ou falhas operacionais.
+A Vias Aéreas atua na intermediação, organização e comercialização de passagens aéreas emitidas por meio de programas de fidelidade, incluindo, mas não se limitando a:
+
+Livelo;
+LATAM Pass;
+Smiles;
+Outros programas parceiros ou equivalentes.
+
+Para viabilizar operações com margem comercial, poderão ser necessárias as seguintes etapas:
+
+Adesão a clubes de pontos/milhas;
+Aquisição de pontos ou milhas com recursos próprios da Vias Aéreas;
+Transferências internas de pontos;
+Emissão de passagens aéreas;
+Comercialização dessas passagens em balcões especializados de milhas;
+Validações de identidade, SMS, biometria, documentação ou auditorias solicitadas pelos programas.
+
+O TITULAR declara ciência de que a utilização da conta poderá ocorrer de acordo com as oportunidades comerciais, campanhas promocionais, margem de lucro estimada, disponibilidade da conta e regras internas dos programas de fidelidade.
+
+2. DO INVESTIMENTO, AUSÊNCIA DE COBRANÇA E RISCO FINANCEIRO
+
+Todo o capital utilizado para aquisição de pontos, adesão a clubes, compra de milhas ou realização de operações comerciais será de responsabilidade exclusiva da Vias Aéreas.
+
+O TITULAR declara ciência expressa de que:
+
+A Vias Aéreas não solicita dinheiro ao TITULAR;
+A Vias Aéreas não solicita PIX ao TITULAR;
+A Vias Aéreas não solicita transferência bancária ao TITULAR;
+A Vias Aéreas não solicita depósito ao TITULAR;
+A Vias Aéreas não solicita pagamento antecipado ao TITULAR;
+A Vias Aéreas não solicita qualquer tipo de investimento financeiro ao TITULAR;
+O TITULAR não realiza pagamento à Vias Aéreas;
+O TITULAR não assume risco financeiro direto;
+O TITULAR não participa do custo de aquisição dos pontos;
+O TITULAR não possui obrigação de reembolsar a empresa por investimentos feitos regularmente;
+Todo o risco financeiro do investimento é exclusivo da Vias Aéreas;
+O TITULAR não é responsável por prejuízos decorrentes de variações comerciais, promoções, desvalorização de milhas, atrasos sistêmicos, cancelamentos ou falhas operacionais das plataformas.
+
+Em média, cada operação poderá envolver a aquisição aproximada de 130.000 pontos/milhas, com investimento médio estimado de R$ 3.200,00 por parte da Vias Aéreas, podendo esse valor variar conforme promoções, campanhas, clubes, bonificações, regras vigentes dos programas e condições comerciais do momento.
+
+O TITULAR declara ciência de que sua obrigação principal é colaborar com as validações necessárias para conclusão das operações previamente autorizadas, e não realizar qualquer pagamento financeiro à Vias Aéreas.
 
 3. DO PAGAMENTO AO TITULAR
-Os valores pagos ao TITULAR correspondem à antecipação de lucro pela utilização da conta nos programas de fidelidade.
-O pagamento:
-• Será realizado exclusivamente ao TITULAR da conta;
-• Será feito via PIX em conta bancária de mesma titularidade;
-• Não será realizado pagamento em conta de terceiros.
 
-4. DA AQUISIÇÃO DE PONTOS
-O TITULAR declara ciência de que a aquisição de pontos e milhas realizada pela Vias Aéreas não gera qualquer dívida, obrigação financeira ou responsabilidade tributária ao TITULAR.
+Os valores pagos ao TITULAR correspondem à remuneração pela autorização de uso operacional da conta, colaboração com validações e participação nas operações comerciais da Vias Aéreas.
 
-5. DAS VALIDAÇÕES DE IDENTIDADE E DOCUMENTAÇÃO
-O TITULAR declara ciência de que as plataformas Livelo, LATAM Pass e Smiles poderão, a qualquer tempo, solicitar validações adicionais de identidade, conforme suas políticas internas, incluindo, sem se limitar a:
-• Documento oficial de identificação com foto (RG ou CNH) emitido há menos de 10 (dez) anos;
-• Comprovante de residência atualizado;
-• Selfie para conferência facial;
-• Biometria facial;
-• Envio de códigos por SMS;
-• Confirmações por ligação telefônica ou aplicativos oficiais.
-O TITULAR compromete-se a fornecer tais validações sempre que solicitado, de forma tempestiva e verdadeira, ciente de que a negativa, omissão ou recusa poderá resultar em bloqueio ou suspensão da conta junto às plataformas.
-No caso específico da LATAM, o TITULAR declara ciência de que a biometria facial poderá ser obrigatória para viabilizar a venda e emissão de passagens com os pontos da conta. Nessa hipótese, quando houver pagamento antecipado de R$ 80,00 (oitenta reais) ao TITULAR no momento da compra dos pontos, o TITULAR assume a obrigação de realizar as até 6 (seis) biometrias faciais necessárias para conclusão das operações vinculadas àquela venda.
-O TITULAR declara ainda ciência de que a recusa, omissão, atraso injustificado ou não realização das biometrias faciais solicitadas pela LATAM autoriza o cancelamento imediato deste vínculo/termo, uma vez que tal conduta gera prejuízo operacional e financeiro direto à Vias Aéreas.
+O pagamento será realizado:
 
-6. DA PROTEÇÃO E TRATAMENTO DE DADOS
-Os dados pessoais fornecidos pelo TITULAR serão armazenados em ambiente seguro, em banco de dados protegido (OneDrive corporativo da Vias Aéreas).
-O TITULAR poderá solicitar, a qualquer momento, a exclusão definitiva e irrevogável de seus dados. Ciente, contudo, de que:
-• A exclusão inviabiliza novo ingresso;
-• Não será permitida nova indicação;
-• O vínculo operacional será encerrado permanentemente.
+Exclusivamente ao TITULAR da conta;
+Via PIX;
+Em conta bancária de mesma titularidade;
+Nunca em conta de terceiros.
 
-7. DA INDICAÇÃO DE NOVOS CEDENTES
-Para unificação de novos cedentes, poderá ser pago o valor de R$ 20,00 (vinte reais) por indicação válida.
-Caso o cedente indicado descumpra o presente termo e gere prejuízo à Vias Aéreas, o TITULAR que realizou a indicação ficará impossibilitado de realizar novas indicações.
+No caso de operações envolvendo LATAM Pass, o pagamento regular ao TITULAR será de R$ 50,00 por bloco operacional de pontos/milhas adquirido ou utilizado pela Vias Aéreas.
 
-8. DA RESCISÃO E DAS CONSEQUÊNCIAS DA NEGATIVA DE VALIDAÇÃO
+Caso a operação LATAM exija biometria facial, será acrescentado o valor de R$ 30,00, totalizando R$ 80,00 para aquele bloco operacional.
+
+O valor adicional de R$ 30,00 não corresponde ao pagamento por cada biometria individual, mas sim à remuneração complementar pelo conjunto operacional médio de validações biométricas necessárias para conclusão da operação vinculada àquele bloco de pontos/milhas.
+
+Os valores de R$ 50,00 e R$ 80,00 representam valores médios e regulares praticados pela Vias Aéreas. Em campanhas promocionais mais agressivas, operações com maior margem de lucro, oportunidades comerciais específicas ou condições excepcionais de mercado, a Vias Aéreas poderá, a seu exclusivo critério, oferecer comissão superior ao TITULAR.
+
+A definição do valor exato a ser pago em cada operação caberá exclusivamente à Vias Aéreas, conforme programa utilizado, campanha vigente, margem de lucro estimada, necessidade de validações e viabilidade comercial da operação.
+
+O pagamento é feito por bloco de operação ou aquisição de pontos/milhas, conforme análise comercial da Vias Aéreas, não representando salário, vínculo empregatício, comissão fixa ou obrigação de pagamento recorrente.
+
+4. DA AQUISIÇÃO DE PONTOS E AUTORIZAÇÃO DE INVESTIMENTO
+
+O TITULAR declara estar ciente de que, após autorizar a Vias Aéreas a realizar investimento em sua conta, incluindo aquisição de pontos, adesão a clubes ou participação em campanhas promocionais, a empresa poderá assumir custos relevantes para viabilizar a operação.
+
+A partir da autorização de investimento pela Vias Aéreas, o TITULAR compromete-se a colaborar com todas as etapas necessárias para conclusão da operação, incluindo validações por SMS, envio de documentos, confirmação de identidade, desbloqueios, auditorias e biometria facial, quando solicitados.
+
+A recusa injustificada, omissão, atraso excessivo ou não colaboração após o investimento realizado poderá gerar prejuízo financeiro direto à Vias Aéreas e poderá resultar em:
+
+Cancelamento imediato da parceria;
+Exclusão definitiva do cadastro;
+Impedimento de futuras negociações;
+Remoção da conta da lista de contas aptas a novas operações.
+
+Fica expressamente esclarecido que a colaboração exigida do TITULAR refere-se às validações operacionais necessárias à conclusão da operação, e não ao pagamento de valores, PIX, transferências ou qualquer aporte financeiro.
+
+5. DAS VALIDAÇÕES DE IDENTIDADE, SMS E DOCUMENTAÇÃO
+
+O TITULAR declara ciência de que as plataformas Livelo, LATAM Pass, Smiles e demais programas poderão solicitar, a qualquer tempo, validações adicionais de identidade, conforme suas próprias políticas internas.
+
+Essas validações podem incluir, entre outras:
+
+Documento oficial de identificação com foto, como RG ou CNH;
+Documento emitido preferencialmente há menos de 10 anos;
+Comprovante de residência atualizado;
+Selfie para conferência facial;
+Biometria facial;
+Envio de códigos por SMS;
+Confirmações por ligação telefônica;
+Confirmações por aplicativos oficiais;
+Questionários, auditorias ou conferências de segurança.
+
+O TITULAR compromete-se a fornecer as validações necessárias de forma verdadeira, tempestiva e compatível com as solicitações das plataformas.
+
+A negativa, omissão, atraso injustificado ou fornecimento incorreto de informações poderá resultar em bloqueio, suspensão da conta, cancelamento de passagens, perda de oportunidade comercial e prejuízo financeiro à Vias Aéreas.
+
+6. DA BIOMETRIA FACIAL NA LATAM PASS
+
+No caso específico da LATAM Pass, o TITULAR declara ciência de que a biometria facial poderá ser obrigatória para viabilizar a emissão, venda ou utilização dos pontos da conta.
+
+Nas operações LATAM, o pagamento regular será de R$ 50,00 por bloco operacional. Caso seja necessária a realização de biometria facial, será acrescido o valor de R$ 30,00, totalizando R$ 80,00 pelo bloco operacional vinculado àquela operação.
+
+O acréscimo de R$ 30,00 refere-se ao conjunto médio de validações biométricas necessárias para conclusão da operação, e não a cada biometria realizada individualmente.
+
+O TITULAR declara ciência de que, após a Vias Aéreas realizar investimento na conta, comprar pontos, aderir a clubes ou iniciar operação comercial, não poderá se recusar injustificadamente a realizar as biometrias necessárias para conclusão da operação.
+
+A recusa, omissão, atraso injustificado ou não realização das biometrias solicitadas poderá gerar prejuízo financeiro direto à Vias Aéreas, especialmente porque a empresa já poderá ter realizado investimento médio aproximado de R$ 3.200,00 por bloco de pontos/milhas adquirido.
+
+Nessas hipóteses, a Vias Aéreas poderá:
+
+Encerrar imediatamente a parceria operacional;
+Excluir definitivamente o TITULAR do cadastro;
+Impedir futuras compras, indicações ou negociações;
+Priorizar outras contas mais colaborativas em campanhas futuras.
+
+7. DAS AUDITORIAS E BLOQUEIOS NA SMILES
+
+O TITULAR declara ciência de que, no programa Smiles, algumas contas poderão passar por auditoria, especialmente após adesão a clubes, compras promocionais, transferências, emissões ou movimentações consideradas relevantes pela plataforma.
+
+Durante eventual auditoria, a conta poderá sofrer:
+
+Bloqueio temporário;
+Restrição de emissão;
+Solicitação de documentos;
+Solicitação de confirmação cadastral;
+Cancelamento ou análise de passagens;
+Necessidade de contato com a central oficial da Smiles.
+
+Caso a conta passe por auditoria, bloqueio ou solicitação de documentação, o TITULAR compromete-se a colaborar com o envio dos documentos e informações necessárias para desbloqueio da conta e regularização da operação.
+
+A recusa injustificada, omissão ou atraso no fornecimento dos documentos solicitados poderá resultar em prejuízo à Vias Aéreas, cancelamento de operações em andamento e exclusão definitiva do TITULAR da parceria.
+
+8. DO SCORE INTERNO DA VIAS AÉREAS
+
+A Vias Aéreas poderá manter um score interno operacional dos titulares cadastrados, utilizado exclusivamente para organização, priorização e seleção de contas em campanhas futuras.
+
+Esse score poderá considerar diversos fatores, incluindo, mas não se limitando a:
+
+Agilidade para responder mensagens;
+Cumprimento de validações por SMS;
+Disponibilidade para realizar biometria facial;
+Envio correto e rápido de documentos;
+Histórico de colaboração em auditorias;
+Ausência de recusas injustificadas;
+Confiabilidade operacional da conta;
+Participação anterior em campanhas;
+Capacidade de viabilizar operações com segurança.
+
+O TITULAR declara ciência de que esse score interno poderá influenciar a prioridade da conta em campanhas promocionais da LATAM Pass, Smiles, Livelo ou outros programas.
+
+Contas com maior colaboração, agilidade e confiabilidade poderão ser priorizadas em novas compras de pontos, campanhas promocionais e oportunidades futuras.
+
+Contas com atrasos recorrentes, recusas, falta de resposta, descumprimento de validações ou baixa colaboração poderão deixar de ser priorizadas ou ser removidas definitivamente do cadastro operacional.
+
+9. DA PROTEÇÃO E TRATAMENTO DE DADOS
+
+Os dados pessoais fornecidos pelo TITULAR serão utilizados exclusivamente para fins operacionais relacionados às atividades descritas neste termo, incluindo cadastro, validação, organização interna, controle de operações e comunicação com o TITULAR.
+
+Os dados poderão incluir:
+
+Nome completo;
+CPF;
+Telefone;
+E-mail;
+Dados bancários para pagamento;
+Dados de acesso ou identificação dos programas de fidelidade, quando necessários;
+Documentos enviados voluntariamente para validação ou desbloqueio.
+
+Os dados serão armazenados em ambiente seguro, em banco de dados protegido da Vias Aéreas, incluindo armazenamento em ambiente corporativo seguro, como OneDrive corporativo ou ferramenta equivalente.
+
+O TITULAR poderá solicitar, a qualquer momento, a exclusão definitiva de seus dados, ciente de que a exclusão poderá implicar:
+
+Encerramento definitivo da parceria;
+Impossibilidade de novas operações;
+Remoção do cadastro da empresa;
+Impossibilidade de novas indicações;
+Perda de histórico operacional e score interno.
+
+A exclusão dos dados poderá ser limitada quando houver necessidade de preservação de informações para cumprimento de obrigação legal, regulatória, contábil, fiscal, defesa de direitos ou comprovação de operações já realizadas.
+
+10. DA INDICAÇÃO DE NOVOS CEDENTES
+
+A Vias Aéreas poderá pagar ao TITULAR o valor de R$ 20,00 por indicação válida de novo cedente, desde que o indicado seja aprovado, cadastrado e considerado apto para participação nas operações.
+
+A indicação somente será considerada válida após análise interna da Vias Aéreas.
+
+Caso o cedente indicado descumpra este termo, recuse validações, gere prejuízo operacional ou financeiro, ou apresente conduta incompatível com a parceria, o TITULAR que realizou a indicação poderá ficar impedido de realizar novas indicações.
+
+A Vias Aéreas reserva-se o direito de aceitar, recusar ou suspender indicações conforme critérios internos de segurança, confiabilidade e viabilidade operacional.
+
+11. DA RESCISÃO E ENCERRAMENTO DA PARCERIA
+
 Este termo poderá ser rescindido a qualquer momento por qualquer das partes.
-Caso o TITULAR opte por não prosseguir com as operações, a Vias Aéreas poderá apenas consumir os pontos e milhas já adquiridos, a fim de evitar prejuízo financeiro.
-A negativa injustificada, omissão ou recusa no fornecimento das validações descritas neste termo poderá resultar em:
-• Bloqueio ou suspensão da conta do TITULAR;
-• Cancelamento de operações em andamento;
-• Prejuízo financeiro direto à Vias Aéreas.
-No caso de pagamento antecipado vinculado à operação LATAM, a recusa em realizar as biometrias faciais exigidas para conclusão da venda implicará cancelamento imediato deste termo e encerramento da parceria operacional.
-Nessas hipóteses, o TITULAR declara ciência de que seus dados poderão ser removidos do banco de dados e ficará impedido de futuras negociações.
 
-9. DO IMPOSTO DE RENDA
-Os valores eventualmente recebidos pelo TITULAR possuem caráter eventual, não configurando vínculo empregatício.
-Cabe ao TITULAR avaliar eventual obrigação de declaração à Receita Federal.
+Caso o TITULAR opte por não prosseguir com a parceria antes de qualquer investimento realizado pela Vias Aéreas, o vínculo poderá ser encerrado sem penalidade.
 
-10. DA VERACIDADE E CIÊNCIA EXPRESSA
-Para fins de verificação pública e transparência, o TITULAR poderá consultar o perfil oficial da empresa no Instagram: @viasaereastrip.
-Ao manifestar concordância, o TITULAR declara que:
-• Leu integralmente este termo;
-• Compreendeu seu funcionamento;
-• Não sofreu indução, erro ou coação;
-• Autoriza expressamente a utilização de sua conta conforme descrito.`;
+Caso já tenha havido aquisição de pontos, adesão a clubes, investimento financeiro, emissão de passagens ou operação em andamento, o TITULAR compromete-se a colaborar com as etapas necessárias para finalização da operação, a fim de evitar prejuízo financeiro à Vias Aéreas.
+
+A Vias Aéreas poderá encerrar imediatamente a parceria em caso de:
+
+Recusa injustificada de biometria;
+Recusa de envio de documentos;
+Não colaboração em auditorias;
+Atrasos recorrentes;
+Falta de resposta;
+Fornecimento de informações falsas;
+Risco operacional relevante;
+Descumprimento deste termo.
+
+O encerramento da parceria poderá resultar na exclusão definitiva do cadastro e impedimento de futuras negociações.
+
+12. DO IMPOSTO DE RENDA E AUSÊNCIA DE VÍNCULO EMPREGATÍCIO
+
+Os valores eventualmente recebidos pelo TITULAR possuem caráter eventual e não configuram vínculo empregatício, sociedade, representação comercial, prestação de serviço contínua ou relação de subordinação com a Vias Aéreas.
+
+Cabe ao TITULAR avaliar eventual necessidade de declaração dos valores recebidos perante a Receita Federal, conforme sua realidade fiscal e legislação aplicável.
+
+A Vias Aéreas não se responsabiliza por obrigações tributárias pessoais do TITULAR.
+
+13. DA VERACIDADE DAS INFORMAÇÕES
+
+O TITULAR declara que todas as informações fornecidas à Vias Aéreas são verdadeiras, completas e atualizadas.
+
+O fornecimento de informações falsas, documentos inconsistentes, dados bancários de terceiros ou informações divergentes poderá resultar no encerramento imediato da parceria e exclusão definitiva do cadastro.
+
+14. DA CIÊNCIA SOBRE RISCOS OPERACIONAIS DAS PLATAFORMAS
+
+O TITULAR declara ciência de que os programas de fidelidade, companhias aéreas e plataformas parceiras possuem regras próprias, políticas internas de segurança, mecanismos antifraude e critérios independentes de validação.
+
+Assim, podem ocorrer situações como:
+
+Bloqueio temporário da conta;
+Solicitação de documentação adicional;
+Suspensão de emissões;
+Cancelamento de passagens;
+Auditoria de movimentações;
+Exigência de confirmação por SMS;
+Exigência de biometria facial;
+Alteração de regras promocionais;
+Indisponibilidade temporária de sistemas.
+
+O TITULAR declara ciência de que tais situações são determinadas pelas plataformas responsáveis e não pela Vias Aéreas, comprometendo-se a colaborar com as medidas necessárias para regularização das operações.
+
+15. DA CIÊNCIA EXPRESSA E AUTORIZAÇÃO
+
+Para fins de transparência, o TITULAR poderá consultar o perfil oficial da empresa no Instagram:
+
+@viasaereastrip
+
+Ao manifestar concordância com este termo, o TITULAR declara que:
+
+Leu integralmente o presente documento;
+Compreendeu o funcionamento das operações;
+Entendeu que a Vias Aéreas poderá investir valores próprios na conta;
+Entendeu que a Vias Aéreas não solicita dinheiro, PIX, transferência, depósito, pagamento antecipado ou qualquer investimento financeiro do TITULAR;
+Está ciente de que todo risco financeiro do investimento é exclusivo da Vias Aéreas;
+Está ciente da obrigação de colaborar com SMS, documentos, auditorias e biometria;
+Está ciente de que a recusa injustificada após investimento poderá gerar exclusão definitiva;
+Entendeu a existência de score interno operacional;
+Está ciente de que os valores pagos podem variar conforme margem, campanha e viabilidade comercial;
+Não sofreu indução, erro, coação ou pressão indevida;
+Autoriza expressamente a utilização operacional da conta conforme descrito neste termo.
+
+16. ACEITE
+
+Declaro que li, compreendi e concordo com todos os termos acima.
+
+Declaro, ainda, estar ciente de que a Vias Aéreas não solicita dinheiro, PIX, transferência, depósito, pagamento antecipado ou qualquer investimento financeiro para participação nas operações, sendo todo investimento realizado exclusivamente pela empresa.`;
 
 export default function ConviteClient({ code }: { code: string }) {
   const [form, setForm] = useState<FormState>({
