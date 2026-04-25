@@ -133,6 +133,246 @@ type CedenteSignupResp = {
 };
 
 const TERMO_VERSAO = "v3-2026-04";
+const ORIENTACOES_VERSAO = "v1-2026-04";
+
+const PROGRAMAS_FIDELIDADE = [
+  { nome: "LATAM Pass", url: "https://latampass.latam.com/pt_br/" },
+  { nome: "Livelo", url: "https://livelo.com.br/" },
+  { nome: "Esfera", url: "https://www.esfera.com.vc/" },
+  { nome: "Smiles", url: "https://www.smiles.com.br/home" },
+] as const;
+
+const ORIENTACOES_TEXTO = `ORIENTAÇÕES PARA CADASTRO NOS PROGRAMAS DE FIDELIDADE
+VIAS AÉREAS VIAGENS E TURISMO LTDA
+
+Olá! Para participar das operações da Vias Aéreas, será necessário criar ou disponibilizar contas em programas de fidelidade utilizados para compra, transferência e emissão de passagens com pontos/milhas.
+
+Os cadastros podem ser feitos tanto pelo aplicativo oficial de cada programa quanto pelo navegador de internet, acessando os sites oficiais informados abaixo.
+
+1. CRIAÇÃO DE E-MAIL EXCLUSIVO
+
+O participante deverá criar um e-mail exclusivo para utilização nas operações dos programas de fidelidade.
+
+Esse e-mail será utilizado para cadastro, recebimento de notificações, confirmações de segurança e recuperação de acesso das contas.
+
+Recomendamos que o e-mail criado:
+
+Seja novo e exclusivo para essa finalidade;
+Não seja o e-mail pessoal principal do participante;
+Não contenha senhas já utilizadas em outros serviços;
+Seja informado corretamente no cadastro da Vias Aéreas;
+Permita acesso pela equipe da Vias Aéreas, quando necessário para fins operacionais.
+
+Exemplo de e-mail:
+
+nome.sobrenome.viagens@gmail.com
+
+A senha do e-mail deverá ser criada exclusivamente para essa finalidade e não deve ser igual a senhas pessoais, bancárias, redes sociais, gov.br ou outros serviços do participante.
+
+2. NÚMERO DE TELEFONE COM SMS E WHATSAPP
+
+O participante deverá possuir um número de telefone ativo, capaz de receber:
+
+SMS;
+Ligações;
+Mensagens por WhatsApp;
+Códigos de verificação;
+Confirmações de segurança.
+
+Esse número será utilizado pelos programas de fidelidade para validações de identidade e segurança.
+
+É importante que o telefone esteja sempre acessível, pois em algumas operações podem ser solicitados códigos por SMS ou confirmações rápidas.
+
+A demora no envio de códigos ou ausência de resposta poderá prejudicar a operação e afetar o score interno da conta.
+
+3. PROGRAMAS QUE DEVEM SER CADASTRADOS
+
+O participante deverá criar cadastro nos seguintes programas de fidelidade:
+
+LATAM Pass
+Livelo
+Esfera
+Smiles
+
+O cadastro também pode ser feito pelo aplicativo oficial de cada programa, disponível para celular.
+
+Sempre que possível, os cadastros devem ser feitos com os mesmos dados pessoais do titular:
+
+Nome completo;
+CPF;
+Data de nascimento;
+E-mail criado para a operação;
+Número de telefone ativo;
+Endereço atualizado.
+
+Os dados devem ser verdadeiros e compatíveis com os documentos do titular.
+
+Informações incorretas, divergentes ou incompletas podem gerar bloqueios, auditorias ou dificuldade de validação nas plataformas.
+
+4. CADASTRO NA LATAM PASS
+
+O participante deverá criar sua conta na LATAM Pass pelo aplicativo oficial ou pelo navegador de internet.
+
+Durante o cadastro, poderá ser solicitado:
+
+CPF;
+Nome completo;
+Data de nascimento;
+E-mail;
+Telefone;
+Endereço;
+Criação de senha;
+Confirmação por SMS ou e-mail.
+
+O participante declara ciência de que a LATAM Pass poderá solicitar validações adicionais, incluindo biometria facial, selfie, documento de identificação, SMS ou outros mecanismos de segurança.
+
+Caso a conta seja utilizada em operação da Vias Aéreas e seja solicitada biometria, o participante deverá realizar a validação conforme previsto no Termo de Ciência e Autorização.
+
+5. CADASTRO NA LIVELO
+
+O participante deverá criar sua conta na Livelo pelo aplicativo oficial ou pelo navegador de internet.
+
+Durante o cadastro, poderá ser solicitado:
+
+CPF;
+Nome completo;
+E-mail;
+Telefone;
+Data de nascimento;
+Criação de senha;
+Confirmação por SMS ou e-mail.
+
+Após concluir o cadastro, o participante deverá guardar as credenciais criadas para posterior preenchimento no link de convite/cadastro da Vias Aéreas.
+
+6. CADASTRO NA ESFERA
+
+O participante deverá criar sua conta na Esfera pelo aplicativo oficial ou pelo navegador de internet.
+
+Durante o cadastro, poderá ser solicitado:
+
+CPF;
+Nome completo;
+E-mail;
+Telefone;
+Data de nascimento;
+Criação de senha;
+Confirmação por SMS ou e-mail.
+
+Após concluir o cadastro, o participante deverá guardar as credenciais criadas para posterior preenchimento no link de convite/cadastro da Vias Aéreas.
+
+7. CADASTRO NA SMILES
+
+O participante deverá criar sua conta na Smiles pelo aplicativo oficial ou pelo navegador de internet.
+
+Durante o cadastro, poderá ser solicitado:
+
+CPF;
+Nome completo;
+Data de nascimento;
+E-mail;
+Telefone;
+Endereço;
+Criação de senha;
+Confirmação por SMS ou e-mail.
+
+O participante declara ciência de que a Smiles poderá realizar auditorias, bloqueios preventivos ou solicitações adicionais de documentos, especialmente após adesão a clubes, compras promocionais, movimentações de pontos ou emissões.
+
+Caso isso ocorra, o participante deverá colaborar com o envio dos documentos e confirmações necessárias para desbloqueio da conta.
+
+8. PREENCHIMENTO DAS CREDENCIAIS NO LINK DE CONVITE DA VIAS AÉREAS
+
+Após criar os cadastros nos programas de fidelidade, o participante deverá retornar ao link de convite/cadastro da Vias Aéreas e preencher as credenciais criadas nos campos indicados.
+
+As informações poderão incluir:
+
+Programa de fidelidade;
+Login;
+E-mail cadastrado;
+Senha criada;
+Número de telefone vinculado;
+Observações relevantes, se houver.
+
+As credenciais devem ser preenchidas exclusivamente nos campos do próprio link de convite/cadastro da Vias Aéreas.
+
+O participante deve evitar o envio de senhas, prints, dados de acesso ou informações sensíveis por WhatsApp, mensagens, redes sociais ou outros canais informais.
+
+O participante deverá utilizar senhas criadas exclusivamente para essas contas, não devendo repetir senhas pessoais, bancárias, profissionais, redes sociais, gov.br ou contas de uso privado.
+
+Ao preencher as credenciais no link de convite/cadastro, o participante declara que as informações são verdadeiras, atualizadas e correspondem às contas criadas em seu próprio nome.
+
+9. CUIDADOS IMPORTANTES DE SEGURANÇA
+
+Para segurança do participante, recomendamos:
+
+Não utilizar senha pessoal já usada em outros serviços;
+Não cadastrar e-mail pessoal principal;
+Não informar senha de banco, cartão, gov.br ou aplicativos financeiros;
+Não enviar documentos fora dos canais orientados pela Vias Aéreas;
+Manter o telefone ativo para recebimento de SMS e WhatsApp;
+Informar imediatamente caso perca acesso ao e-mail ou telefone cadastrado.
+
+A Vias Aéreas não solicita dados bancários sensíveis, senhas de banco, senhas de cartão, código de segurança de cartão, acesso a aplicativo bancário ou qualquer valor financeiro do participante.
+
+A Vias Aéreas também não solicita dinheiro, PIX, transferência, depósito, pagamento antecipado ou qualquer investimento financeiro. Todo investimento para compra de pontos/milhas é feito exclusivamente pela empresa.
+
+10. RESPONSABILIDADE SOBRE OS DADOS INFORMADOS
+
+O participante declara que os dados utilizados nos cadastros são verdadeiros, atualizados e pertencem ao próprio titular.
+
+Não é permitido cadastrar contas com dados de terceiros sem autorização.
+
+O participante também declara ciência de que divergências cadastrais podem causar bloqueios, atrasos, auditorias ou impedimento de utilização da conta.
+
+11. COLABORAÇÃO COM VALIDAÇÕES
+
+Após a criação das contas, os programas poderão solicitar validações a qualquer momento.
+
+Essas validações podem incluir:
+
+Código por SMS;
+Código por e-mail;
+Confirmação por WhatsApp;
+Selfie;
+Biometria facial;
+Documento de identificação;
+Comprovante de residência;
+Ligação de confirmação;
+Auditoria cadastral.
+
+O participante compromete-se a colaborar com essas validações sempre que solicitado, de forma ágil e verdadeira.
+
+A agilidade no envio de códigos, documentos e confirmações poderá influenciar o score interno da Vias Aéreas e a prioridade da conta em futuras campanhas.
+
+12. SCORE INTERNO E PRIORIDADE EM CAMPANHAS
+
+A Vias Aéreas poderá manter um score interno para avaliar a confiabilidade operacional da conta.
+
+Esse score poderá considerar:
+
+Agilidade nas respostas;
+Envio rápido de SMS;
+Realização de biometria quando solicitada;
+Colaboração em auditorias;
+Regularidade dos dados cadastrais;
+Histórico de operações anteriores;
+Ausência de recusas injustificadas;
+Facilidade de comunicação pelo WhatsApp.
+
+Contas com melhor score poderão ser priorizadas em campanhas promocionais da LATAM Pass, Smiles, Livelo e Esfera.
+
+13. CONFIRMAÇÃO FINAL
+
+Após criar os cadastros na LATAM Pass, Livelo, Esfera e Smiles, o participante deverá retornar ao link de convite/cadastro da Vias Aéreas e preencher as informações solicitadas.
+
+Ao finalizar o preenchimento, o participante declara que:
+
+Criou os cadastros com dados verdadeiros;
+Utilizou e-mail e senha próprios para essa finalidade;
+Possui telefone ativo para SMS e WhatsApp;
+Está ciente da necessidade de colaborar com validações;
+Está ciente de que não deve utilizar senhas pessoais, bancárias ou gov.br;
+Está ciente de que a Vias Aéreas não solicita dinheiro, PIX, depósito, transferência ou investimento financeiro;
+Autoriza a utilização operacional das contas conforme o Termo de Ciência e Autorização.`;
 
 /**
  * ✅ TERMO COMPLETO (texto integral)
@@ -660,6 +900,29 @@ export default function ConviteClient({ code }: { code: string }) {
           <div className="text-sm font-semibold">Responsável</div>
           <div className="text-sm text-slate-600">{responsavelLabel}</div>
           <div className="text-xs text-slate-500 mt-1">(No caso: quem forneceu o link de indicação)</div>
+        </div>
+
+        <div className="mb-6 rounded-2xl border bg-white p-4 space-y-3">
+          <div className="text-sm font-semibold">Orientações para cadastro nas plataformas</div>
+          <div className="text-xs text-slate-500">Versão: {ORIENTACOES_VERSAO}</div>
+
+          <div className="grid gap-2 md:grid-cols-2">
+            {PROGRAMAS_FIDELIDADE.map((programa) => (
+              <a
+                key={programa.nome}
+                href={programa.url}
+                target="_blank"
+                rel="noreferrer"
+                className="rounded-xl border px-3 py-2 text-sm font-medium text-sky-700 hover:bg-slate-50"
+              >
+                {programa.nome}
+              </a>
+            ))}
+          </div>
+
+          <div className="rounded-xl border bg-slate-50 p-3 text-xs whitespace-pre-wrap leading-relaxed max-h-[360px] overflow-auto">
+            {ORIENTACOES_TEXTO}
+          </div>
         </div>
 
         {/* ✅ TERMO + ACEITE */}
