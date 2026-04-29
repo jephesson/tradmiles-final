@@ -329,7 +329,7 @@ export async function GET(req: NextRequest) {
           }
         }
 
-        latamClubAtivoAgora = desiredStatus === "ACTIVE";
+        latamClubAtivoAgora = desiredStatus !== "CANCELED";
       }
 
       return {

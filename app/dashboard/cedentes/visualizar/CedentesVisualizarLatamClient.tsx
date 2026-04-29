@@ -402,7 +402,7 @@ export default function CedentesVisualizarLatamClient() {
                         <span>{r.nomeCompleto}</span>
                         {r.latamClubAtivoAgora ? (
                           <span
-                            title="Clube LATAM ativo"
+                            title="Clube LATAM ativo ou pausado"
                             className="inline-flex text-amber-500"
                           >
                             <Star size={15} className="fill-current" />
