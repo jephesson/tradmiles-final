@@ -453,6 +453,7 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
   );
 
   const metaMilheiroCents = compraSel?.metaMilheiroCents || 0;
+  const compraMilheiroCents = compraSel?.custoMilheiroCents || 0;
 
   const bonusCents = useMemo(() => {
     if (!metaMilheiroCents) return 0;
@@ -2190,6 +2191,18 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
                   <div className="text-[11px] text-slate-500">
                     Precisa estar LIBERADA e ser do mesmo cedente.
                   </div>
+                  {compraSel ? (
+                    <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-[11px] text-slate-700">
+                      <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+                        <span>
+                          <b>Milheiro de compra:</b> {fmtMoneyBR(compraMilheiroCents)}
+                        </span>
+                        <span>
+                          <b>Meta da compra:</b> {fmtMoneyBR(metaMilheiroCents)}
+                        </span>
+                      </div>
+                    </div>
+                  ) : null}
                 </div>
 
                 <label className="space-y-1">
@@ -2408,6 +2421,10 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
               <div className="flex justify-between">
                 <span className="text-slate-600">Comissão (1%)</span>
                 <b>{fmtMoneyBR(commissionCents)}</b>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-600">Milheiro de compra</span>
+                <b>{compraSel ? fmtMoneyBR(compraMilheiroCents) : "—"}</b>
               </div>
               <div className="flex justify-between">
                 <span className="text-slate-600">Meta (compra)</span>
