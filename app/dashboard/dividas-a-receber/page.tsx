@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { ReactNode, useEffect, useMemo, useState } from "react";
 
 type ReceberStatus = "OPEN" | "PARTIAL" | "PAID" | "CANCELED";
 type ReceberCategoria = "EMPRESTIMO" | "CARTAO" | "PARCELAMENTO" | "SERVICO" | "OUTROS";
@@ -67,12 +67,7 @@ function toCentsFromInput(s: string) {
   if (!Number.isFinite(n)) return 0;
   return Math.round(n * 100);
 }
-function fromCentsToInput(cents: number) {
-  const v = (cents || 0) / 100;
-  return v.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-}
-
-function Pill({ children, kind }: { children: any; kind: "open" | "partial" | "paid" | "canceled" }) {
+function Pill({ children, kind }: { children: ReactNode; kind: "open" | "partial" | "paid" | "canceled" }) {
   const cls =
     kind === "paid"
       ? "bg-green-50 text-green-700 border-green-200"
@@ -88,6 +83,7 @@ function Pill({ children, kind }: { children: any; kind: "open" | "partial" | "p
 export default function DividasAReceberPage() {
   const [rows, setRows] = useState<Row[]>([]);
   const [loading, setLoading] = useState(false);
+  const [detailsId, setDetailsId] = useState<string | null>(null);
 
   const [statusFilter, setStatusFilter] = useState<"" | ReceberStatus>("");
   const [q, setQ] = useState("");
@@ -171,7 +167,7 @@ export default function DividasAReceberPage() {
     load();
   }
 
-  async function patch(id: string, data: any) {
+  async function patch(id: string, data: Partial<Pick<Row, "status">>) {
     const r = await fetch(`/api/dividas-a-receber/${id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -243,6 +239,11 @@ export default function DividasAReceberPage() {
     load();
   }
 
+  const detailRow = useMemo(
+    () => rows.find((row) => row.id === detailsId) || null,
+    [rows, detailsId]
+  );
+
   return (
     <div className="p-6 space-y-6">
       <div className="flex items-start justify-between gap-4">
@@ -282,7 +283,7 @@ export default function DividasAReceberPage() {
         <div className="flex gap-2 items-center">
           <select
             value={statusFilter}
-            onChange={(e) => setStatusFilter((e.target.value || "") as any)}
+            onChange={(e) => setStatusFilter((e.target.value || "") as "" | ReceberStatus)}
             className="rounded-xl border px-3 py-2 text-sm bg-white"
           >
             <option value="">Todos</option>
@@ -376,6 +377,13 @@ export default function DividasAReceberPage() {
 
                       <td className="p-3">
                         <div className="flex flex-wrap gap-2">
+                          <button
+                            onClick={() => setDetailsId(r.id)}
+                            className="rounded-lg border px-3 py-1 text-xs hover:bg-neutral-50"
+                          >
+                            Detalhes
+                          </button>
+
                           <button
                             onClick={() => {
                               setPayingForId(r.id);
@@ -480,7 +488,7 @@ export default function DividasAReceberPage() {
 
               <div>
                 <label className="text-xs text-neutral-500">Categoria</label>
-                <select value={category} onChange={(e) => setCategory(e.target.value as any)} className="w-full rounded-xl border px-3 py-2 text-sm bg-white">
+                <select value={category} onChange={(e) => setCategory(e.target.value as ReceberCategoria)} className="w-full rounded-xl border px-3 py-2 text-sm bg-white">
                   <option value="EMPRESTIMO">Empréstimo</option>
                   <option value="CARTAO">Cartão</option>
                   <option value="PARCELAMENTO">Parcelamento</option>
@@ -491,7 +499,7 @@ export default function DividasAReceberPage() {
 
               <div>
                 <label className="text-xs text-neutral-500">Método esperado</label>
-                <select value={method} onChange={(e) => setMethod(e.target.value as any)} className="w-full rounded-xl border px-3 py-2 text-sm bg-white">
+                <select value={method} onChange={(e) => setMethod(e.target.value as ReceberMetodo)} className="w-full rounded-xl border px-3 py-2 text-sm bg-white">
                   <option value="PIX">PIX</option>
                   <option value="TRANSFERENCIA">Transferência</option>
                   <option value="DINHEIRO">Dinheiro</option>
@@ -524,6 +532,103 @@ export default function DividasAReceberPage() {
         </div>
       ) : null}
 
+      {/* MODAL DETALHES */}
+      {detailRow ? (
+        <div className="fixed inset-0 bg-black/30 flex items-center justify-center p-4 z-50">
+          <div className="w-full max-w-4xl rounded-2xl bg-white shadow-xl border">
+            <div className="p-4 border-b flex items-center justify-between">
+              <div>
+                <div className="font-semibold text-lg">{detailRow.title}</div>
+                <div className="text-sm text-neutral-500">
+                  {detailRow.debtorName} • {detailRow.sourceLabel || "Sem origem informada"}
+                </div>
+              </div>
+              <button
+                onClick={() => setDetailsId(null)}
+                className="text-sm text-neutral-600 hover:underline"
+              >
+                fechar
+              </button>
+            </div>
+
+            <div className="p-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="rounded-2xl border p-4">
+                <div className="mb-3 text-sm font-semibold">Dados do lançamento</div>
+                <div className="space-y-2 text-sm">
+                  <div><span className="text-neutral-500">Status:</span> <span className="font-medium">{detailRow.status === "OPEN" ? "Em aberto" : detailRow.status === "PARTIAL" ? "Parcial" : detailRow.status === "PAID" ? "Quitado" : "Cancelado"}</span></div>
+                  <div><span className="text-neutral-500">Categoria:</span> <span className="font-medium">{detailRow.category}</span></div>
+                  <div><span className="text-neutral-500">Método esperado:</span> <span className="font-medium">{detailRow.method}</span></div>
+                  <div><span className="text-neutral-500">Total:</span> <span className="font-medium">{fmtMoneyBR(detailRow.totalCents)}</span></div>
+                  <div><span className="text-neutral-500">Recebido:</span> <span className="font-medium">{fmtMoneyBR(detailRow.receivedCents)}</span></div>
+                  <div><span className="text-neutral-500">Saldo:</span> <span className="font-medium">{fmtMoneyBR(Math.max(0, detailRow.totalCents - detailRow.receivedCents))}</span></div>
+                  <div><span className="text-neutral-500">Vencimento:</span> <span className="font-medium">{fmtDateBR(detailRow.dueDate)}</span></div>
+                  <div><span className="text-neutral-500">Criado em:</span> <span className="font-medium">{fmtDateBR(detailRow.createdAt)}</span></div>
+                  <div><span className="text-neutral-500">Atualizado em:</span> <span className="font-medium">{fmtDateBR(detailRow.updatedAt)}</span></div>
+                </div>
+              </div>
+
+              <div className="rounded-2xl border p-4">
+                <div className="mb-3 text-sm font-semibold">Dados do devedor</div>
+                <div className="space-y-2 text-sm">
+                  <div><span className="text-neutral-500">Nome:</span> <span className="font-medium">{detailRow.debtorName}</span></div>
+                  <div><span className="text-neutral-500">Documento:</span> <span className="font-medium">{detailRow.debtorDoc || "-"}</span></div>
+                  <div><span className="text-neutral-500">Telefone:</span> <span className="font-medium">{detailRow.debtorPhone || "-"}</span></div>
+                  <div><span className="text-neutral-500">E-mail:</span> <span className="font-medium">{detailRow.debtorEmail || "-"}</span></div>
+                  <div><span className="text-neutral-500">Responsável:</span> <span className="font-medium">{detailRow.owner?.name || "-"}</span></div>
+                  <div><span className="text-neutral-500">Login:</span> <span className="font-medium">@{detailRow.owner?.login || "-"}</span></div>
+                </div>
+              </div>
+
+              <div className="rounded-2xl border p-4 md:col-span-2">
+                <div className="mb-2 text-sm font-semibold">Descrição</div>
+                <div className="whitespace-pre-wrap text-sm text-neutral-700">
+                  {detailRow.description || "Sem descrição."}
+                </div>
+              </div>
+
+              <div className="rounded-2xl border p-4 md:col-span-2">
+                <div className="mb-3 text-sm font-semibold">Recebimentos lançados</div>
+                {detailRow.payments?.length ? (
+                  <div className="overflow-x-auto">
+                    <table className="min-w-full text-sm">
+                      <thead className="bg-neutral-50">
+                        <tr className="text-left">
+                          <th className="px-3 py-2">Valor</th>
+                          <th className="px-3 py-2">Data</th>
+                          <th className="px-3 py-2">Método</th>
+                          <th className="px-3 py-2">Observação</th>
+                          <th className="px-3 py-2 text-right">Ação</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {detailRow.payments.map((payment) => (
+                          <tr key={payment.id} className="border-t">
+                            <td className="px-3 py-2 font-medium">{fmtMoneyBR(payment.amountCents)}</td>
+                            <td className="px-3 py-2">{fmtDateBR(payment.receivedAt)}</td>
+                            <td className="px-3 py-2">{payment.method}</td>
+                            <td className="px-3 py-2 text-neutral-600">{payment.note || "-"}</td>
+                            <td className="px-3 py-2 text-right">
+                              <button
+                                onClick={() => deletePayment(payment.id)}
+                                className="text-xs text-red-600 hover:underline"
+                              >
+                                remover
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <div className="text-sm text-neutral-500">Nenhum recebimento lançado ainda.</div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       {/* MODAL PAGAMENTO */}
       {payingForId ? (
         <div className="fixed inset-0 bg-black/30 flex items-center justify-center p-4 z-50">
@@ -543,7 +648,7 @@ export default function DividasAReceberPage() {
 
               <div>
                 <label className="text-xs text-neutral-500">Método</label>
-                <select value={payMethod} onChange={(e) => setPayMethod(e.target.value as any)} className="w-full rounded-xl border px-3 py-2 text-sm bg-white">
+                <select value={payMethod} onChange={(e) => setPayMethod(e.target.value as ReceberMetodo)} className="w-full rounded-xl border px-3 py-2 text-sm bg-white">
                   <option value="PIX">PIX</option>
                   <option value="TRANSFERENCIA">Transferência</option>
                   <option value="DINHEIRO">Dinheiro</option>
