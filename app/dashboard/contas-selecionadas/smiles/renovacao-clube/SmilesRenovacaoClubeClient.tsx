@@ -46,6 +46,10 @@ function ymFromISO(iso: string) {
   return String(iso || "").slice(0, 7); // YYYY-MM
 }
 
+function compareYM(a: string, b: string) {
+  return a.localeCompare(b);
+}
+
 function monthLabelPT(ym: string) {
   // ym: YYYY-MM
   const [y, m] = ym.split("-").map((x) => Number(x));
@@ -217,8 +221,25 @@ export default function SmilesRenovacaoClubeClient() {
   }, [items]);
 
   const selectedItems = useMemo(() => {
-    return groupedByMonth.get(selectedYM) || [];
-  }, [groupedByMonth, selectedYM]);
+    const exactMonth = groupedByMonth.get(selectedYM) || [];
+
+    if (selectedYM !== currentYM) {
+      return exactMonth;
+    }
+
+    return [...items]
+      .filter((it) => compareYM(ymFromISO(it.smilesBonusEligibleAt), selectedYM) <= 0)
+      .sort((a, b) => {
+        const aCarryOver = ymFromISO(a.smilesBonusEligibleAt) < selectedYM ? 0 : 1;
+        const bCarryOver = ymFromISO(b.smilesBonusEligibleAt) < selectedYM ? 0 : 1;
+        if (aCarryOver !== bCarryOver) return aCarryOver - bCarryOver;
+
+        const av = ymdFromISO(a.smilesBonusEligibleAt);
+        const bv = ymdFromISO(b.smilesBonusEligibleAt);
+        if (av !== bv) return av.localeCompare(bv);
+        return a.cedente.nomeCompleto.localeCompare(b.cedente.nomeCompleto);
+      });
+  }, [groupedByMonth, selectedYM, currentYM, items]);
 
   const selectedIsCurrentMonth = selectedYM === currentYM;
 
@@ -605,7 +626,9 @@ export default function SmilesRenovacaoClubeClient() {
               Cedentes aptos em {monthLabelPT(selectedYM || currentYM)}
             </div>
             <div className="text-xs text-neutral-500">
-              Ordenado pela data Promo SMILES dentro do mês
+              {selectedIsCurrentMonth
+                ? "Inclui liberados de meses anteriores que ainda não foram usados"
+                : "Ordenado pela data Promo SMILES dentro do mês"}
             </div>
           </div>
 
@@ -638,6 +661,7 @@ export default function SmilesRenovacaoClubeClient() {
 
               {selectedItems.map((it) => {
                 const eligible = ymdFromISO(it.smilesBonusEligibleAt) <= todayYMD;
+                const carryOver = selectedIsCurrentMonth && ymFromISO(it.smilesBonusEligibleAt) < selectedYM;
 
                 return (
                   <tr key={it.id} className="hover:bg-neutral-50">
@@ -657,7 +681,14 @@ export default function SmilesRenovacaoClubeClient() {
 
                     <td className="px-4 py-2">{it.tierK}k</td>
 
-                    <td className="px-4 py-2">{fmtDateBR(it.smilesBonusEligibleAt)}</td>
+                    <td className="px-4 py-2">
+                      {fmtDateBR(it.smilesBonusEligibleAt)}
+                      {carryOver ? (
+                        <span className="ml-2 inline-flex items-center rounded-full px-2 py-0.5 text-xs border border-sky-200 bg-sky-50 text-sky-700">
+                          saldo do mes anterior
+                        </span>
+                      ) : null}
+                    </td>
 
                     <td className="px-4 py-2 text-right tabular-nums">
                       {fmtInt(it.cedente.pontosSmiles)}
