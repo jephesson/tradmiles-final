@@ -108,7 +108,7 @@ export async function getAffiliateMetrics(
   let totalProfitCents = 0;
   let totalCommissionCents = 0;
 
-  const rows = commissionRows.map((row) => {
+  const rows: AffiliateSaleMetric[] = commissionRows.map((row) => {
     const sale = row.sale;
     const balcao = row.balcaoOperation;
     const isBalcao = !sale && !!balcao;
