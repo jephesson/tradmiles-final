@@ -3,16 +3,13 @@ import { BalcaoAirline } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/auth-server";
 import { triggerEmployeePayoutAutoCompute } from "@/lib/payouts/autoCompute";
+import { affiliateCommissionCents } from "@/lib/affiliates/commission";
 import {
   BALCAO_TAX_DEFAULT_PERCENT,
   BalcaoTaxRule,
-  balcaoProfitSemTaxaCents,
   buildTaxRule,
+  buildBalcaoComputedValues,
   recifeDateISO,
-  resolveTaxPercent,
-  sellerCommissionCentsFromNet,
-  taxFromProfitCents,
-  netProfitAfterTaxCents,
 } from "@/lib/balcao-commission";
 
 export const runtime = "nodejs";
@@ -84,19 +81,41 @@ function toRow(item: {
   note: string | null;
   createdAt: Date;
   supplierCliente: { id: string; identificador: string; nome: string };
-  finalCliente: { id: string; identificador: string; nome: string };
+  finalCliente: {
+    id: string;
+    identificador: string;
+    nome: string;
+    affiliateId?: string | null;
+    affiliate?: {
+      id: string;
+      name: string;
+      commissionBps: number;
+      isActive: boolean;
+      status?: string | null;
+    } | null;
+  };
   employee: { id: string; name: string; login: string } | null;
+  affiliateCommission?: {
+    id: string;
+    amountCents: number;
+    commissionBps: number;
+    status: string;
+    affiliate: {
+      id: string;
+      name: string;
+      login: string | null;
+    };
+  } | null;
 }, rule: BalcaoTaxRule) {
-  const normalizedProfitCents = balcaoProfitSemTaxaCents({
+  const dateISO = recifeDateISO(item.createdAt);
+  const computed = buildBalcaoComputedValues({
     customerChargeCents: item.customerChargeCents,
     supplierPayCents: item.supplierPayCents,
     boardingFeeCents: item.boardingFeeCents,
+    dateISO,
+    taxRule: rule,
+    affiliateCommissionCents: item.affiliateCommission?.amountCents || 0,
   });
-  const dateISO = recifeDateISO(item.createdAt);
-  const taxPercent = resolveTaxPercent(dateISO, rule);
-  const taxCents = taxFromProfitCents(normalizedProfitCents, taxPercent);
-  const netProfitCents = netProfitAfterTaxCents(normalizedProfitCents, taxCents);
-  const sellerCommissionCents = sellerCommissionCentsFromNet(netProfitCents);
 
   return {
     id: item.id,
@@ -107,17 +126,19 @@ function toRow(item: {
     boardingFeeCents: item.boardingFeeCents,
     supplierPayCents: item.supplierPayCents,
     customerChargeCents: item.customerChargeCents,
-    profitCents: normalizedProfitCents,
-    taxPercent,
-    taxCents,
-    netProfitCents,
-    sellerCommissionCents,
+    profitCents: computed.profitCents,
+    taxPercent: computed.taxPercent,
+    taxCents: computed.taxCents,
+    netProfitCents: computed.netProfitCents,
+    sellerCommissionCents: computed.sellerCommissionCents,
+    affiliateCommissionCents: computed.affiliateCommissionCents,
     locator: item.locator,
     note: item.note,
     createdAt: item.createdAt.toISOString(),
     supplierCliente: item.supplierCliente,
     finalCliente: item.finalCliente,
     employee: item.employee,
+    affiliateCommission: item.affiliateCommission || null,
   };
 }
 
@@ -169,8 +190,27 @@ export async function GET(req: NextRequest) {
         note: true,
         createdAt: true,
         supplierCliente: { select: { id: true, identificador: true, nome: true } },
-        finalCliente: { select: { id: true, identificador: true, nome: true } },
+        finalCliente: {
+          select: {
+            id: true,
+            identificador: true,
+            nome: true,
+            affiliateId: true,
+            affiliate: {
+              select: { id: true, name: true, commissionBps: true, isActive: true, status: true },
+            },
+          },
+        },
         employee: { select: { id: true, name: true, login: true } },
+        affiliateCommission: {
+          select: {
+            id: true,
+            amountCents: true,
+            commissionBps: true,
+            status: true,
+            affiliate: { select: { id: true, name: true, login: true } },
+          },
+        },
       },
     });
 
@@ -184,6 +224,7 @@ export async function GET(req: NextRequest) {
         acc.totalTaxCents += row.taxCents;
         acc.totalNetProfitCents += row.netProfitCents;
         acc.totalSellerCommissionCents += row.sellerCommissionCents;
+        acc.totalAffiliateCommissionCents += row.affiliateCommissionCents || 0;
         return acc;
       },
       {
@@ -193,6 +234,7 @@ export async function GET(req: NextRequest) {
         totalTaxCents: 0,
         totalNetProfitCents: 0,
         totalSellerCommissionCents: 0,
+        totalAffiliateCommissionCents: 0,
       }
     );
 
@@ -265,7 +307,20 @@ export async function POST(req: NextRequest) {
       }),
       prisma.cliente.findUnique({
         where: { id: finalClienteId },
-        select: { id: true },
+        select: {
+          id: true,
+          affiliateId: true,
+          affiliate: {
+            select: {
+              id: true,
+              name: true,
+              login: true,
+              commissionBps: true,
+              isActive: true,
+              status: true,
+            },
+          },
+        },
       }),
     ]);
 
@@ -286,40 +341,124 @@ export async function POST(req: NextRequest) {
     const customerChargeCents = Math.round((points * sellRateCents) / 1000) + boardingFeeCents;
     const profitCents = customerChargeCents - supplierPayCents - boardingFeeCents;
 
-    const created = await prisma.balcaoOperacao.create({
-      data: {
-        team,
-        supplierClienteId,
-        finalClienteId,
-        employeeId: employee.id,
-        airline: airlineRaw,
-        points,
-        buyRateCents,
-        sellRateCents,
-        boardingFeeCents,
-        supplierPayCents,
-        customerChargeCents,
-        profitCents,
-        locator,
-        note,
-      },
-      select: {
-        id: true,
-        airline: true,
-        points: true,
-        buyRateCents: true,
-        sellRateCents: true,
-        boardingFeeCents: true,
-        supplierPayCents: true,
-        customerChargeCents: true,
-        profitCents: true,
-        locator: true,
-        note: true,
-        createdAt: true,
-        supplierCliente: { select: { id: true, identificador: true, nome: true } },
-        finalCliente: { select: { id: true, identificador: true, nome: true } },
-        employee: { select: { id: true, name: true, login: true } },
-      },
+    const created = await prisma.$transaction(async (tx) => {
+      const createdOp = await tx.balcaoOperacao.create({
+        data: {
+          team,
+          supplierClienteId,
+          finalClienteId,
+          employeeId: employee.id,
+          airline: airlineRaw,
+          points,
+          buyRateCents,
+          sellRateCents,
+          boardingFeeCents,
+          supplierPayCents,
+          customerChargeCents,
+          profitCents,
+          locator,
+          note,
+        },
+        select: {
+          id: true,
+          airline: true,
+          points: true,
+          buyRateCents: true,
+          sellRateCents: true,
+          boardingFeeCents: true,
+          supplierPayCents: true,
+          customerChargeCents: true,
+          profitCents: true,
+          locator: true,
+          note: true,
+          createdAt: true,
+          supplierCliente: { select: { id: true, identificador: true, nome: true } },
+          finalCliente: {
+            select: {
+              id: true,
+              identificador: true,
+              nome: true,
+              affiliateId: true,
+              affiliate: {
+                select: { id: true, name: true, login: true, commissionBps: true, isActive: true, status: true },
+              },
+            },
+          },
+          employee: { select: { id: true, name: true, login: true } },
+        },
+      });
+
+      const affiliate = customer.affiliate;
+      if (
+        customer.affiliateId &&
+        affiliate &&
+        affiliate.isActive &&
+        String(affiliate.status || "").toUpperCase() === "APPROVED"
+      ) {
+        const amountCents = affiliateCommissionCents({
+          profitCents,
+          commissionBps: Number(affiliate.commissionBps || 0),
+        });
+
+        await tx.affiliateCommission.create({
+          data: {
+            affiliateId: affiliate.id,
+            clienteId: customer.id,
+            balcaoOperationId: createdOp.id,
+            commissionBps: Number(affiliate.commissionBps || 0),
+            costCents: supplierPayCents,
+            bonusCents: 0,
+            profitCents,
+            amountCents,
+            generatedById: session.id,
+            status: "PENDING",
+            note:
+              amountCents > 0
+                ? "Gerada automaticamente na emissão de balcão."
+                : "Emissão de balcão vinculada ao afiliado sem comissão positiva.",
+          },
+        });
+      }
+
+      return tx.balcaoOperacao.findUniqueOrThrow({
+        where: { id: createdOp.id },
+        select: {
+          id: true,
+          airline: true,
+          points: true,
+          buyRateCents: true,
+          sellRateCents: true,
+          boardingFeeCents: true,
+          supplierPayCents: true,
+          customerChargeCents: true,
+          profitCents: true,
+          locator: true,
+          note: true,
+          createdAt: true,
+          supplierCliente: { select: { id: true, identificador: true, nome: true } },
+          finalCliente: {
+            select: {
+              id: true,
+              identificador: true,
+              nome: true,
+              affiliateId: true,
+              affiliate: {
+                select: { id: true, name: true, commissionBps: true, isActive: true, status: true },
+              },
+            },
+          },
+          employee: { select: { id: true, name: true, login: true } },
+          affiliateCommission: {
+            select: {
+              id: true,
+              amountCents: true,
+              commissionBps: true,
+              status: true,
+              affiliate: { select: { id: true, name: true, login: true } },
+            },
+          },
+        },
+      });
     });
 
     const payoutAutoCompute = await triggerEmployeePayoutAutoCompute(req, {

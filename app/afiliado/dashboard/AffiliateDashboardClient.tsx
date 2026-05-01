@@ -75,6 +75,7 @@ function fmtDate(value: string) {
 }
 
 function statusLabel(value: string) {
+  if (value === "BALCAO") return "Balcão";
   if (value === "PAID") return "Pago";
   if (value === "CANCELED") return "Cancelado";
   return "Pendente";

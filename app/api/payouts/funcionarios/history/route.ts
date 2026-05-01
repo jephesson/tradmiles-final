@@ -2,13 +2,9 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/auth-server";
 import {
-  balcaoProfitSemTaxaCents,
   buildTaxRule,
-  netProfitAfterTaxCents,
+  buildBalcaoComputedValues,
   recifeDateISO,
-  resolveTaxPercent,
-  sellerCommissionCentsFromNet,
-  taxFromProfitCents,
 } from "@/lib/balcao-commission";
 
 export const runtime = "nodejs";
@@ -71,6 +67,7 @@ export async function GET() {
         customerChargeCents: true,
         supplierPayCents: true,
         boardingFeeCents: true,
+        affiliateCommission: { select: { amountCents: true } },
       },
     });
 
@@ -111,18 +108,15 @@ export async function GET() {
       if (!isMonthISO(month)) continue;
 
       const opDateISO = recifeDateISO(op.createdAt);
-      const taxPercent = resolveTaxPercent(opDateISO, taxRule);
-      const opGross = safeInt(
-        balcaoProfitSemTaxaCents({
-          customerChargeCents: op.customerChargeCents,
-          supplierPayCents: op.supplierPayCents,
-          boardingFeeCents: op.boardingFeeCents,
-        }),
-        0
-      );
-      const opTax = safeInt(taxFromProfitCents(opGross, taxPercent), 0);
-      const opNetNoFee = safeInt(netProfitAfterTaxCents(opGross, opTax), 0);
-      const opCommission = safeInt(sellerCommissionCentsFromNet(opNetNoFee), 0);
+      const computed = buildBalcaoComputedValues({
+        customerChargeCents: op.customerChargeCents,
+        supplierPayCents: op.supplierPayCents,
+        boardingFeeCents: op.boardingFeeCents,
+        dateISO: opDateISO,
+        taxRule,
+        affiliateCommissionCents: op.affiliateCommission?.amountCents || 0,
+      });
+      const opCommission = safeInt(computed.sellerCommissionCents, 0);
 
       const bucket = ensure(userId, month);
       bucket.balcaoCommission += opCommission;

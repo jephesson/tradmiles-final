@@ -1,6 +1,10 @@
 "use client";
 
 import { Dispatch, FormEvent, SetStateAction, useCallback, useEffect, useMemo, useState } from "react";
+import {
+  affiliateCommissionCents as calcAffiliateCommissionCents,
+  affiliateNetProfitAfterCommissionCents,
+} from "@/lib/affiliates/commission";
 
 type Airline =
   | "LATAM"
@@ -18,6 +22,13 @@ type ClienteOption = {
   nome: string;
   cpfCnpj?: string | null;
   telefone?: string | null;
+  affiliateId?: string | null;
+  affiliate?: {
+    id: string;
+    name: string;
+    commissionBps: number;
+    isActive: boolean;
+  } | null;
 };
 
 type EmployeeOption = {
@@ -40,12 +51,24 @@ type Row = {
   taxCents: number;
   netProfitCents: number;
   sellerCommissionCents: number;
+  affiliateCommissionCents: number;
   locator: string | null;
   note: string | null;
   createdAt: string;
   supplierCliente: ClienteOption;
   finalCliente: ClienteOption;
   employee: EmployeeOption | null;
+  affiliateCommission?: {
+    id: string;
+    amountCents: number;
+    commissionBps: number;
+    status: string;
+    affiliate: {
+      id: string;
+      name: string;
+      login: string | null;
+    };
+  } | null;
 };
 
 type Resumo = {
@@ -55,6 +78,7 @@ type Resumo = {
   totalTaxCents: number;
   totalNetProfitCents: number;
   totalSellerCommissionCents: number;
+  totalAffiliateCommissionCents: number;
 };
 
 type TaxRule = {
@@ -82,6 +106,13 @@ type ClienteApiItem = {
   nome?: unknown;
   cpfCnpj?: unknown;
   telefone?: unknown;
+  affiliateId?: unknown;
+  affiliate?: {
+    id?: unknown;
+    name?: unknown;
+    commissionBps?: unknown;
+    isActive?: unknown;
+  } | null;
 };
 
 type FuncionarioApiItem = {
@@ -198,6 +229,7 @@ export default function CompraVendaClient() {
     totalTaxCents: 0,
     totalNetProfitCents: 0,
     totalSellerCommissionCents: 0,
+    totalAffiliateCommissionCents: 0,
   });
   const [taxRule, setTaxRule] = useState<TaxRule>({
     defaultPercent: 8,
@@ -252,9 +284,28 @@ export default function CompraVendaClient() {
     () => previewProfitCents - previewTaxCents,
     [previewProfitCents, previewTaxCents]
   );
+  const selectedAffiliate =
+    selectedFinalClient?.affiliate && selectedFinalClient.affiliate.isActive
+      ? selectedFinalClient.affiliate
+      : null;
+  const previewAffiliateCommissionCents = useMemo(() => {
+    if (!selectedAffiliate) return 0;
+    return calcAffiliateCommissionCents({
+      profitCents: previewProfitCents,
+      commissionBps: selectedAffiliate.commissionBps,
+    });
+  }, [selectedAffiliate, previewProfitCents]);
+  const previewRealNetProfitCents = useMemo(
+    () =>
+      affiliateNetProfitAfterCommissionCents({
+        profitCents: previewNetProfitCents,
+        affiliateCommissionCents: previewAffiliateCommissionCents,
+      }),
+    [previewNetProfitCents, previewAffiliateCommissionCents]
+  );
   const previewSellerCommissionCents = useMemo(
-    () => Math.round(Math.max(0, previewNetProfitCents) * 0.6),
-    [previewNetProfitCents]
+    () => Math.round(Math.max(0, previewRealNetProfitCents) * 0.6),
+    [previewRealNetProfitCents]
   );
 
   const loadRows = useCallback(async (search = "") => {
@@ -282,6 +333,9 @@ export default function CompraVendaClient() {
       totalTaxCents: Number(data?.data?.resumo?.totalTaxCents || 0),
       totalNetProfitCents: Number(data?.data?.resumo?.totalNetProfitCents || 0),
       totalSellerCommissionCents: Number(data?.data?.resumo?.totalSellerCommissionCents || 0),
+      totalAffiliateCommissionCents: Number(
+        data?.data?.resumo?.totalAffiliateCommissionCents || 0
+      ),
     });
     setTaxRule({
       defaultPercent: Number(data?.data?.taxRule?.defaultPercent || 8),
@@ -359,6 +413,7 @@ export default function CompraVendaClient() {
         totalTaxCents: 0,
         totalNetProfitCents: 0,
         totalSellerCommissionCents: 0,
+        totalAffiliateCommissionCents: 0,
       });
       setError(getErrorMessage(e, "Falha ao carregar dados da tela."));
     } finally {
@@ -404,6 +459,15 @@ export default function CompraVendaClient() {
                 nome: String(c?.nome || ""),
                 cpfCnpj: typeof c?.cpfCnpj === "string" ? c.cpfCnpj : null,
                 telefone: typeof c?.telefone === "string" ? c.telefone : null,
+                affiliateId: typeof c?.affiliateId === "string" ? c.affiliateId : null,
+                affiliate: c?.affiliate
+                  ? {
+                      id: String(c.affiliate.id || ""),
+                      name: String(c.affiliate.name || ""),
+                      commissionBps: Number(c.affiliate.commissionBps || 0),
+                      isActive: Boolean(c.affiliate.isActive),
+                    }
+                  : null,
               }))
               .filter((c) => c.id && c.nome)
           : [];
@@ -585,7 +649,7 @@ export default function CompraVendaClient() {
         </div>
       )}
 
-      <div className="grid grid-cols-1 gap-3 md:grid-cols-6">
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-7">
         <div className="rounded border border-zinc-200 bg-white p-3">
           <div className="text-xs text-zinc-500">Total a pagar (fornecedores)</div>
           <div className="text-lg font-semibold">{formatMoney(resumo.totalSupplierPayCents)}</div>
@@ -603,8 +667,14 @@ export default function CompraVendaClient() {
           <div className="text-lg font-semibold text-amber-700">{formatMoney(resumo.totalTaxCents)}</div>
         </div>
         <div className="rounded border border-zinc-200 bg-white p-3">
-          <div className="text-xs text-zinc-500">Lucro líquido (após imposto)</div>
+          <div className="text-xs text-zinc-500">Lucro líquido real</div>
           <div className="text-lg font-semibold text-emerald-700">{formatMoney(resumo.totalNetProfitCents)}</div>
+        </div>
+        <div className="rounded border border-zinc-200 bg-white p-3">
+          <div className="text-xs text-zinc-500">Comissão afiliados</div>
+          <div className="text-lg font-semibold text-violet-700">
+            {formatMoney(resumo.totalAffiliateCommissionCents)}
+          </div>
         </div>
         <div className="rounded border border-zinc-200 bg-white p-3">
           <div className="text-xs text-zinc-500">Comissão vendedor (60%)</div>
@@ -803,6 +873,23 @@ export default function CompraVendaClient() {
             <div className="font-semibold text-emerald-700">{formatMoney(previewNetProfitCents)}</div>
           </div>
           <div className="rounded border border-zinc-200 bg-zinc-50 p-3">
+            <div className="text-xs text-zinc-500">Comissão afiliado</div>
+            <div className="font-semibold text-violet-700">
+              {selectedAffiliate ? formatMoney(previewAffiliateCommissionCents) : "—"}
+            </div>
+            {selectedAffiliate ? (
+              <div className="mt-1 text-xs text-zinc-500">
+                {selectedAffiliate.name} • {(selectedAffiliate.commissionBps / 100).toLocaleString("pt-BR")}%
+              </div>
+            ) : null}
+          </div>
+          <div className="rounded border border-zinc-200 bg-zinc-50 p-3">
+            <div className="text-xs text-zinc-500">Lucro real após afiliado</div>
+            <div className="font-semibold text-emerald-700">
+              {formatMoney(previewRealNetProfitCents)}
+            </div>
+          </div>
+          <div className="rounded border border-zinc-200 bg-zinc-50 p-3">
             <div className="text-xs text-zinc-500">Comissão vendedor (60%)</div>
             <div className="font-semibold text-blue-700">{formatMoney(previewSellerCommissionCents)}</div>
           </div>
@@ -824,7 +911,7 @@ export default function CompraVendaClient() {
       </form>
 
       <div className="rounded border border-zinc-200 bg-white overflow-x-auto">
-        <table className="min-w-[1880px] w-full text-sm">
+        <table className="min-w-[2100px] w-full text-sm">
           <thead className="bg-zinc-50">
             <tr className="text-left">
               <th className="p-3">Data</th>
@@ -839,7 +926,8 @@ export default function CompraVendaClient() {
               <th className="p-3">Receber cliente</th>
               <th className="p-3">Lucro (sem taxa)</th>
               <th className="p-3">Imposto</th>
-              <th className="p-3">Lucro líquido</th>
+              <th className="p-3">Lucro líquido real</th>
+              <th className="p-3">Comissão afiliado</th>
               <th className="p-3">Comissão vendedor</th>
               <th className="p-3">Localizador</th>
               <th className="p-3">Funcionário</th>
@@ -848,13 +936,13 @@ export default function CompraVendaClient() {
           <tbody>
             {loading ? (
               <tr>
-                <td className="p-4 text-zinc-600" colSpan={16}>
+                <td className="p-4 text-zinc-600" colSpan={17}>
                   Carregando...
                 </td>
               </tr>
             ) : rows.length === 0 ? (
               <tr>
-                <td className="p-4 text-zinc-600" colSpan={16}>
+                <td className="p-4 text-zinc-600" colSpan={17}>
                   Nenhuma operação registrada.
                 </td>
               </tr>
@@ -899,6 +987,9 @@ export default function CompraVendaClient() {
                     }`}
                   >
                     {formatMoney(row.netProfitCents)}
+                  </td>
+                  <td className="p-3 whitespace-nowrap font-semibold text-violet-700">
+                    {formatMoney(row.affiliateCommissionCents)}
                   </td>
                   <td className="p-3 whitespace-nowrap font-semibold text-blue-700">
                     {formatMoney(row.sellerCommissionCents)}

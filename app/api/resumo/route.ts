@@ -4,12 +4,10 @@ import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/require-session";
 import {
   BalcaoTaxRule,
-  balcaoProfitSemTaxaCents,
   buildTaxRule,
-  netProfitAfterTaxCents,
+  buildBalcaoComputedValues,
   recifeDateISO,
   resolveTaxPercent,
-  sellerCommissionCentsFromNet,
   taxFromProfitCents,
 } from "@/lib/balcao-commission";
 import { taxPaidCentsFromPayment, taxPendingCents } from "@/lib/taxes";
@@ -177,6 +175,7 @@ export async function GET(req: Request) {
         customerChargeCents: true,
         supplierPayCents: true,
         boardingFeeCents: true,
+        affiliateCommission: { select: { amountCents: true } },
       },
     });
 
@@ -190,17 +189,16 @@ export async function GET(req: Request) {
       // Se o dia/funcionário já está pago em payouts, considera balcão já liquidado.
       if (paidKeys.has(key)) return acc;
 
-      const opTaxPercent = resolveTaxPercent(opDateISO, taxRule);
-      const opProfitCents = balcaoProfitSemTaxaCents({
+      const computed = buildBalcaoComputedValues({
         customerChargeCents: op.customerChargeCents,
         supplierPayCents: op.supplierPayCents,
         boardingFeeCents: op.boardingFeeCents,
+        dateISO: opDateISO,
+        taxRule,
+        affiliateCommissionCents: op.affiliateCommission?.amountCents || 0,
       });
-      const opTaxCents = taxFromProfitCents(opProfitCents, opTaxPercent);
-      const opNetCents = netProfitAfterTaxCents(opProfitCents, opTaxCents);
-      const opCommissionCents = sellerCommissionCentsFromNet(opNetCents);
 
-      return acc + opCommissionCents;
+      return acc + computed.sellerCommissionCents;
     }, 0);
 
     const employeePayoutsPendingCents =

@@ -2,13 +2,9 @@ import ExcelJS from "exceljs";
 import type { Prisma } from "@prisma/client";
 import { NextResponse } from "next/server";
 import {
-  balcaoProfitSemTaxaCents,
   buildTaxRule,
-  netProfitAfterTaxCents,
+  buildBalcaoComputedValues,
   recifeDateISO,
-  resolveTaxPercent,
-  sellerCommissionCentsFromNet,
-  taxFromProfitCents,
 } from "@/lib/balcao-commission";
 import { requireSession } from "@/lib/auth-server";
 import { prisma } from "@/lib/prisma";
@@ -430,21 +426,22 @@ function makeBalcaoComputed(op: {
   customerChargeCents: number;
   supplierPayCents: number;
   boardingFeeCents: number;
+  affiliateCommission?: { amountCents: number } | null;
 }, taxRule: ReturnType<typeof buildTaxRule>): BalcaoComputed {
-  const profitCents = balcaoProfitSemTaxaCents({
+  const computed = buildBalcaoComputedValues({
     customerChargeCents: safeInt(op.customerChargeCents, 0),
     supplierPayCents: safeInt(op.supplierPayCents, 0),
     boardingFeeCents: safeInt(op.boardingFeeCents, 0),
+    dateISO: recifeDateISO(op.createdAt),
+    taxRule,
+    affiliateCommissionCents: op.affiliateCommission?.amountCents || 0,
   });
-  const taxPercent = resolveTaxPercent(recifeDateISO(op.createdAt), taxRule);
-  const taxCents = taxFromProfitCents(profitCents, taxPercent);
-  const netProfitCents = netProfitAfterTaxCents(profitCents, taxCents);
   return {
-    profitCents,
-    taxCents,
-    netProfitCents,
-    sellerCommissionCents: sellerCommissionCentsFromNet(netProfitCents),
-    taxPercent,
+    profitCents: computed.profitCents,
+    taxCents: computed.taxCents,
+    netProfitCents: computed.netProfitCents,
+    sellerCommissionCents: computed.sellerCommissionCents,
+    taxPercent: computed.taxPercent,
   };
 }
 
@@ -522,6 +519,7 @@ export async function GET() {
           employee: { select: { id: true, name: true, login: true } },
           supplierCliente: { select: { nome: true, identificador: true, cpfCnpj: true } },
           finalCliente: { select: { nome: true, identificador: true, cpfCnpj: true } },
+          affiliateCommission: { select: { amountCents: true } },
         },
         orderBy: [{ createdAt: "asc" }],
       }),

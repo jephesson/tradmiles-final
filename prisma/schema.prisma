@@ -1101,8 +1101,11 @@ model AffiliateCommission {
   clienteId String
   cliente   Cliente @relation(fields: [clienteId], references: [id], onDelete: Restrict)
 
-  saleId String @unique
-  sale   Sale   @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  saleId String? @unique
+  sale   Sale?   @relation(fields: [saleId], references: [id], onDelete: Cascade)
+
+  balcaoOperationId String?          @unique
+  balcaoOperation   BalcaoOperacao?  @relation(fields: [balcaoOperationId], references: [id], onDelete: Cascade)
 
   purchaseId String?
   purchase   Purchase? @relation(fields: [purchaseId], references: [id], onDelete: SetNull)
@@ -1131,6 +1134,7 @@ model AffiliateCommission {
   @@index([affiliateId, status, generatedAt])
   @@index([clienteId, generatedAt])
   @@index([purchaseId, generatedAt])
+  @@index([balcaoOperationId, generatedAt])
   @@index([paidAt])
   @@map("affiliate_commissions")
 }
@@ -1439,6 +1443,7 @@ model BalcaoOperacao {
   supplierCliente Cliente @relation("BalcaoSupplierCliente", fields: [supplierClienteId], references: [id], onDelete: Restrict)
   finalCliente    Cliente @relation("BalcaoFinalCliente", fields: [finalClienteId], references: [id], onDelete: Restrict)
   employee        User?   @relation("BalcaoEmployee", fields: [employeeId], references: [id], onDelete: SetNull)
+  affiliateCommission AffiliateCommission?
 
   @@index([team, createdAt])
   @@index([team, supplierClienteId])

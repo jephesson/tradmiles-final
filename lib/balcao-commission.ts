@@ -63,9 +63,52 @@ export function netProfitAfterTaxCents(profitCents: number, taxCents: number) {
   return Number(profitCents || 0) - Number(taxCents || 0);
 }
 
+export function netProfitAfterAffiliateCents(
+  netProfitBeforeAffiliateCents: number,
+  affiliateCommissionCents: number
+) {
+  return (
+    Number(netProfitBeforeAffiliateCents || 0) -
+    Math.max(0, Number(affiliateCommissionCents || 0))
+  );
+}
+
 export function sellerCommissionCentsFromNet(netProfitCents: number) {
   return Math.round(
     Math.max(0, Number(netProfitCents || 0)) *
       (BALCAO_SELLER_COMMISSION_PERCENT / 100)
   );
+}
+
+export function buildBalcaoComputedValues(args: {
+  customerChargeCents: number;
+  supplierPayCents: number;
+  boardingFeeCents: number;
+  dateISO: string;
+  taxRule: BalcaoTaxRule;
+  affiliateCommissionCents?: number;
+}) {
+  const profitCents = balcaoProfitSemTaxaCents({
+    customerChargeCents: args.customerChargeCents,
+    supplierPayCents: args.supplierPayCents,
+    boardingFeeCents: args.boardingFeeCents,
+  });
+  const taxPercent = resolveTaxPercent(args.dateISO, args.taxRule);
+  const taxCents = taxFromProfitCents(profitCents, taxPercent);
+  const netProfitBeforeAffiliateCents = netProfitAfterTaxCents(profitCents, taxCents);
+  const affiliateCommissionCents = Math.max(0, Number(args.affiliateCommissionCents || 0));
+  const netProfitCents = netProfitAfterAffiliateCents(
+    netProfitBeforeAffiliateCents,
+    affiliateCommissionCents
+  );
+
+  return {
+    profitCents,
+    taxPercent,
+    taxCents,
+    netProfitBeforeAffiliateCents,
+    affiliateCommissionCents,
+    netProfitCents,
+    sellerCommissionCents: sellerCommissionCentsFromNet(netProfitCents),
+  };
 }

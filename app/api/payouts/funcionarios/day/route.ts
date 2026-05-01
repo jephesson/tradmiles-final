@@ -4,13 +4,9 @@ import { prisma } from "@/lib/prisma";
 import {
   BALCAO_TAX_DEFAULT_PERCENT,
   BalcaoTaxRule,
-  balcaoProfitSemTaxaCents,
   buildTaxRule,
+  buildBalcaoComputedValues,
   recifeDateISO,
-  resolveTaxPercent,
-  sellerCommissionCentsFromNet,
-  taxFromProfitCents,
-  netProfitAfterTaxCents,
 } from "@/lib/balcao-commission";
 
 export const runtime = "nodejs";
@@ -233,6 +229,7 @@ export async function GET(req: Request) {
         customerChargeCents: true,
         supplierPayCents: true,
         boardingFeeCents: true,
+        affiliateCommission: { select: { amountCents: true } },
       },
     });
 
@@ -241,19 +238,18 @@ export async function GET(req: Request) {
       const employeeId = String(op.employeeId || "").trim();
       if (!employeeId) continue;
       const opDateISO = recifeDateISO(op.createdAt);
-      const opTaxPercent = resolveTaxPercent(opDateISO, taxRule);
-      const opProfitCents = balcaoProfitSemTaxaCents({
+      const computed = buildBalcaoComputedValues({
         customerChargeCents: op.customerChargeCents,
         supplierPayCents: op.supplierPayCents,
         boardingFeeCents: op.boardingFeeCents,
+        dateISO: opDateISO,
+        taxRule,
+        affiliateCommissionCents: op.affiliateCommission?.amountCents || 0,
       });
-      const opTaxCents = taxFromProfitCents(opProfitCents, opTaxPercent);
-      const opNetCents = netProfitAfterTaxCents(opProfitCents, opTaxCents);
-      const opCommissionCents = sellerCommissionCentsFromNet(opNetCents);
 
       balcaoCommissionByUser.set(
         employeeId,
-        (balcaoCommissionByUser.get(employeeId) || 0) + opCommissionCents
+        (balcaoCommissionByUser.get(employeeId) || 0) + computed.sellerCommissionCents
       );
     }
 

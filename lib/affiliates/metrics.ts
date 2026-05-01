@@ -11,6 +11,7 @@ export type AffiliateSaleMetric = {
   numero: string;
   date: Date;
   program: string;
+  operationType?: "SALE" | "BALCAO";
   clientName: string;
   clientIdentifier: string;
   points: number;
@@ -87,6 +88,17 @@ export async function getAffiliateMetrics(
             locator: true,
           },
         },
+        balcaoOperation: {
+          select: {
+            id: true,
+            airline: true,
+            points: true,
+            customerChargeCents: true,
+            supplierPayCents: true,
+            locator: true,
+            createdAt: true,
+          },
+        },
         cliente: { select: { identificador: true, nome: true } },
       },
     }),
@@ -98,6 +110,8 @@ export async function getAffiliateMetrics(
 
   const rows = commissionRows.map((row) => {
     const sale = row.sale;
+    const balcao = row.balcaoOperation;
+    const isBalcao = !sale && !!balcao;
     const totalCents = safeInt(sale?.totalCents);
     const points = safeInt(sale?.points);
     const pointsValueCents = safeInt(sale?.pointsValueCents);
@@ -112,16 +126,20 @@ export async function getAffiliateMetrics(
     totalCommissionCents += affiliateCommissionCents;
 
     return {
-      id: sale?.id || row.id,
-      numero: sale?.numero || "-",
-      date: sale?.date || row.generatedAt,
-      program: sale?.program || "-",
+      id: sale?.id || balcao?.id || row.id,
+      numero:
+        sale?.numero ||
+        balcao?.locator ||
+        (balcao?.id ? `BALCAO-${String(balcao.id).slice(-6).toUpperCase()}` : "-"),
+      date: sale?.date || balcao?.createdAt || row.generatedAt,
+      program: sale?.program || balcao?.airline || "-",
+      operationType: isBalcao ? "BALCAO" : "SALE",
       clientName: row.cliente?.nome || "-",
       clientIdentifier: row.cliente?.identificador || "-",
-      points,
-      passengers: safeInt(sale?.passengers),
-      totalCents,
-      pointsValueCents,
+      points: isBalcao ? safeInt(balcao?.points) : points,
+      passengers: isBalcao ? 1 : safeInt(sale?.passengers),
+      totalCents: isBalcao ? safeInt(balcao?.customerChargeCents) : totalCents,
+      pointsValueCents: isBalcao ? safeInt(balcao?.customerChargeCents) : pointsValueCents,
       costCents,
       profitBrutoCents,
       bonusCents,
@@ -129,8 +147,8 @@ export async function getAffiliateMetrics(
       affiliateCommissionCents,
       commissionStatus: row.status,
       commissionPaidAt: row.paidAt,
-      paymentStatus: sale?.paymentStatus || "PENDING",
-      locator: sale?.locator || null,
+      paymentStatus: sale?.paymentStatus || (isBalcao ? "BALCAO" : "PENDING"),
+      locator: sale?.locator || balcao?.locator || null,
     };
   });
 

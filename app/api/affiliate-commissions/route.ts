@@ -106,6 +106,16 @@ export async function GET(req: Request) {
               paymentStatus: true,
             },
           },
+          balcaoOperation: {
+            select: {
+              id: true,
+              airline: true,
+              points: true,
+              customerChargeCents: true,
+              locator: true,
+              createdAt: true,
+            },
+          },
           purchase: {
             select: {
               id: true,

@@ -4,12 +4,9 @@ import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/auth-server";
 import type { Prisma } from "@prisma/client";
 import {
-  balcaoProfitSemTaxaCents,
   buildTaxRule,
-  netProfitAfterTaxCents,
+  buildBalcaoComputedValues,
   recifeDateISO,
-  resolveTaxPercent,
-  taxFromProfitCents,
 } from "@/lib/balcao-commission";
 
 export const runtime = "nodejs";
@@ -206,6 +203,7 @@ type BalcaoRowLite = {
   customerChargeCents: number;
   boardingFeeCents: number;
   profitCents: number;
+  affiliateCommissionCents: number;
   createdAt: Date;
   employee: { id: string; name: string; login: string } | null;
 };
@@ -1025,6 +1023,7 @@ export async function GET(req: NextRequest) {
         profitCents: true,
         createdAt: true,
         employee: { select: { id: true, name: true, login: true } },
+        affiliateCommission: { select: { amountCents: true } },
       },
       orderBy: { createdAt: "asc" },
     });
@@ -1079,23 +1078,19 @@ export async function GET(req: NextRequest) {
         customerChargeCents: Number(op.customerChargeCents || 0),
         boardingFeeCents: Number(op.boardingFeeCents || 0),
         profitCents: Number(op.profitCents || 0),
+        affiliateCommissionCents: Number(op.affiliateCommission?.amountCents || 0),
         createdAt: op.createdAt,
         employee: op.employee || null,
       };
 
-      const normalizedProfitCents = balcaoProfitSemTaxaCents({
+      const computed = buildBalcaoComputedValues({
         customerChargeCents: row.customerChargeCents,
         supplierPayCents: row.supplierPayCents,
         boardingFeeCents: row.boardingFeeCents,
+        dateISO: recifeDateISO(row.createdAt),
+        taxRule: balcaoTaxRule,
+        affiliateCommissionCents: row.affiliateCommissionCents,
       });
-      const taxPercent = resolveTaxPercent(recifeDateISO(row.createdAt), balcaoTaxRule);
-      const taxCents = taxFromProfitCents(normalizedProfitCents, taxPercent);
-      const netProfitCents = netProfitAfterTaxCents(normalizedProfitCents, taxCents);
-      const computed = {
-        profitCents: normalizedProfitCents,
-        taxCents,
-        netProfitCents,
-      };
 
       if (inRange(row.createdAt, tStart, tEnd)) {
         accumulateBalcao(balcaoTodayAgg, row, computed);

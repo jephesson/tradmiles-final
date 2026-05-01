@@ -3,13 +3,9 @@ import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/auth-server";
 import {
   BalcaoTaxRule,
-  balcaoProfitSemTaxaCents,
   buildTaxRule,
+  buildBalcaoComputedValues,
   recifeDateISO,
-  resolveTaxPercent,
-  sellerCommissionCentsFromNet,
-  taxFromProfitCents,
-  netProfitAfterTaxCents,
 } from "@/lib/balcao-commission";
 
 export const runtime = "nodejs";
@@ -64,22 +60,25 @@ export async function GET(req: Request) {
         customerChargeCents: true,
         supplierPayCents: true,
         boardingFeeCents: true,
+        affiliateCommission: { select: { amountCents: true } },
       },
     });
 
     const balcaoByDate = new Map<string, number>();
     for (const op of balcaoOps) {
       const dateISO = recifeDateISO(op.createdAt);
-      const percent = resolveTaxPercent(dateISO, taxRule);
-      const profitCents = balcaoProfitSemTaxaCents({
+      const computed = buildBalcaoComputedValues({
         customerChargeCents: op.customerChargeCents,
         supplierPayCents: op.supplierPayCents,
         boardingFeeCents: op.boardingFeeCents,
+        dateISO,
+        taxRule,
+        affiliateCommissionCents: op.affiliateCommission?.amountCents || 0,
       });
-      const taxCents = taxFromProfitCents(profitCents, percent);
-      const netCents = netProfitAfterTaxCents(profitCents, taxCents);
-      const commissionCents = sellerCommissionCentsFromNet(netCents);
-      balcaoByDate.set(dateISO, (balcaoByDate.get(dateISO) || 0) + commissionCents);
+      balcaoByDate.set(
+        dateISO,
+        (balcaoByDate.get(dateISO) || 0) + computed.sellerCommissionCents
+      );
     }
 
     const dbDays = await prisma.employeePayout.findMany({

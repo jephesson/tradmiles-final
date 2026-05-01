@@ -40,6 +40,14 @@ type CommissionItem = {
     locator: string | null;
     paymentStatus: string;
   } | null;
+  balcaoOperation?: {
+    id: string;
+    airline: string;
+    points: number;
+    customerChargeCents: number;
+    locator: string | null;
+    createdAt: string;
+  } | null;
   purchase?: {
     id: string;
     numero: string;
@@ -166,6 +174,8 @@ export default function AffiliateCommissionsPage() {
         item.cliente?.identificador,
         item.sale?.numero,
         item.sale?.locator,
+        item.balcaoOperation?.locator,
+        item.balcaoOperation?.airline,
         item.purchase?.numero,
         item.note,
       ]
@@ -330,7 +340,7 @@ export default function AffiliateCommissionsPage() {
               className="w-full rounded-xl border px-3 py-2 text-sm"
               value={q}
               onChange={(e) => setQ(e.target.value)}
-              placeholder="Afiliado, cliente, venda, locator..."
+              placeholder="Afiliado, cliente, venda, balcão, locator..."
             />
           </label>
 
@@ -394,15 +404,25 @@ export default function AffiliateCommissionsPage() {
                       <div className="text-xs text-slate-500">{item.cliente?.identificador || "-"}</div>
                     </td>
                     <td className="px-3 py-2">
-                      <div className="font-medium">{item.sale?.numero || "-"}</div>
-                      <div className="text-xs text-slate-500">
-                        {item.sale?.program || "-"} • {fmtDateTimeBR(item.sale?.date || item.generatedAt)}
-                      </div>
-                      <div className="text-xs text-slate-500">
-                        Compra {item.purchase?.numero || "-"}
-                        {item.sale?.locator ? ` • ${item.sale.locator}` : ""}
-                      </div>
-                    </td>
+                        <div className="font-medium">
+                          {item.sale?.numero ||
+                            item.balcaoOperation?.locator ||
+                            (item.balcaoOperation?.id
+                              ? `BALCAO-${item.balcaoOperation.id.slice(-6).toUpperCase()}`
+                              : "-")}
+                        </div>
+                        <div className="text-xs text-slate-500">
+                          {item.sale?.program || item.balcaoOperation?.airline || "-"} •{" "}
+                          {fmtDateTimeBR(
+                            item.sale?.date || item.balcaoOperation?.createdAt || item.generatedAt
+                          )}
+                        </div>
+                        <div className="text-xs text-slate-500">
+                          {item.sale
+                            ? `Compra ${item.purchase?.numero || "-"}${item.sale?.locator ? ` • ${item.sale.locator}` : ""}`
+                            : `Emissão balcão${item.balcaoOperation?.locator ? ` • ${item.balcaoOperation.locator}` : ""}`}
+                        </div>
+                      </td>
                     <td className="px-3 py-2 text-right">
                       <div>{fmtMoneyBR(item.profitCents)}</div>
                       <div className="text-xs text-slate-500">

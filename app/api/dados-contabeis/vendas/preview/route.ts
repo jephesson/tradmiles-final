@@ -3,12 +3,9 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/auth-server";
 import {
-  balcaoProfitSemTaxaCents,
   buildTaxRule,
-  netProfitAfterTaxCents,
+  buildBalcaoComputedValues,
   recifeDateISO,
-  resolveTaxPercent,
-  taxFromProfitCents,
 } from "@/lib/balcao-commission";
 
 export const runtime = "nodejs";
@@ -101,19 +98,21 @@ async function computeBalcaoNetProfitCents(
       customerChargeCents: true,
       supplierPayCents: true,
       boardingFeeCents: true,
+      affiliateCommission: { select: { amountCents: true } },
     },
   });
 
   let totalNet = 0;
   for (const row of rows) {
-    const gross = balcaoProfitSemTaxaCents({
+    const computed = buildBalcaoComputedValues({
       customerChargeCents: row.customerChargeCents,
       supplierPayCents: row.supplierPayCents,
       boardingFeeCents: row.boardingFeeCents,
+      dateISO: recifeDateISO(row.createdAt),
+      taxRule,
+      affiliateCommissionCents: row.affiliateCommission?.amountCents || 0,
     });
-    const taxPercent = resolveTaxPercent(recifeDateISO(row.createdAt), taxRule);
-    const taxCents = taxFromProfitCents(gross, taxPercent);
-    totalNet += netProfitAfterTaxCents(gross, taxCents);
+    totalNet += computed.netProfitCents;
   }
 
   return totalNet;
