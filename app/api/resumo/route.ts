@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/require-session";
 import {
   BalcaoTaxRule,
+  balcaoProfitSemTaxaCents,
   buildTaxRule,
   buildBalcaoComputedValues,
   recifeDateISO,
