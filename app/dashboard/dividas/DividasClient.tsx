@@ -584,6 +584,9 @@ export default function DividasClient() {
                     {d.description ? <div className="text-sm text-slate-600">{d.description}</div> : null}
                     <div className="mt-2 flex flex-wrap gap-2 text-xs">
                       <span className="rounded-full border px-2 py-1">
+                        Inserida em: {dateBR(d.createdAt)}
+                      </span>
+                      <span className="rounded-full border px-2 py-1">
                         Vencimento: {dateBR(d.dueDate || null)}
                       </span>
                       {typeof d.payOrder === "number" ? (
