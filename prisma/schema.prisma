@@ -62,6 +62,12 @@ enum CedenteCommissionStatus {
   CANCELED
 }
 
+enum AffiliateCommissionStatus {
+  PENDING
+  PAID
+  CANCELED
+}
+
 /**
  * =========================
  * ✅ CLUBES (ASSINATURAS)
@@ -98,10 +104,10 @@ enum TermTriState {
 }
 
 enum TermResponseTime {
-  H1   // 30
-  H2   // 20
-  H3   // 10
-  GT3  // 0
+  H1 // 30
+  H2 // 20
+  H3 // 10
+  GT3 // 0
 }
 
 /**
@@ -151,14 +157,16 @@ model User {
   comprasFinalizadas Purchase[] @relation("PurchaseFinalizedBy")
 
   // Comissões de cedente (geradas / pagas)
-  cedenteCommissionsGenerated CedenteCommission[] @relation("CedenteCommissionGeneratedBy")
-  cedenteCommissionsPaid      CedenteCommission[] @relation("CedenteCommissionPaidBy")
+  cedenteCommissionsGenerated   CedenteCommission[]   @relation("CedenteCommissionGeneratedBy")
+  cedenteCommissionsPaid        CedenteCommission[]   @relation("CedenteCommissionPaidBy")
+  affiliateCommissionsGenerated AffiliateCommission[] @relation("AffiliateCommissionGeneratedBy")
+  affiliateCommissionsPaid      AffiliateCommission[] @relation("AffiliateCommissionPaidBy")
 
   // Clientes criados por este usuário
   clientesCreated Cliente[] @relation("ClienteCreatedBy")
 
   // Vendas feitas por este usuário
-  salesSold Sale[] @relation("SaleSeller")
+  salesSold     Sale[]         @relation("SaleSeller")
   saleAuditLogs SaleAuditLog[] @relation("SaleAuditActor")
 
   // Emissões no balcão (compra e venda)
@@ -199,10 +207,10 @@ model User {
   walletBalancesUpdated WalletBalance[] @relation("WalletBalanceUpdatedBy")
 
   // ✅ Grupo VIP WhatsApp (links, inscrições e pagamentos)
-  vipWhatsappLinks            VipWhatsappLink[]    @relation("VipWhatsappLinkEmployee")
-  vipWhatsappLeads            VipWhatsappLead[]    @relation("VipWhatsappLeadEmployee")
-  vipWhatsappLeadsApproved    VipWhatsappLead[]    @relation("VipWhatsappLeadApprovedBy")
-  vipWhatsappPaymentsRecorded VipWhatsappPayment[] @relation("VipWhatsappPaymentRecordedBy")
+  vipWhatsappLinks            VipWhatsappLink[]        @relation("VipWhatsappLinkEmployee")
+  vipWhatsappLeads            VipWhatsappLead[]        @relation("VipWhatsappLeadEmployee")
+  vipWhatsappLeadsApproved    VipWhatsappLead[]        @relation("VipWhatsappLeadApprovedBy")
+  vipWhatsappPaymentsRecorded VipWhatsappPayment[]     @relation("VipWhatsappPaymentRecordedBy")
   vipWhatsappRateioShares     VipWhatsappRateioShare[] @relation("VipWhatsappRateioShareEmployee")
 
   /**
@@ -211,12 +219,12 @@ model User {
    * =========================
    * IMPORTANTE: estes back-relations evitam erro "missing opposite field"
    */
-  agendaEvents         AgendaEvent[]       @relation("AgendaEventUser")
-  agendaEventsCreated  AgendaEvent[]       @relation("AgendaEventCreatedBy")
-  agendaEventsCanceled AgendaEvent[]       @relation("AgendaEventCanceledBy")
-  agendaAuditsActor    AgendaAudit[]       @relation("AgendaAuditActor")
-  agendaMemberColors   AgendaMemberColor[] @relation("AgendaMemberColorUser")
-  anotacoesCreated     Anotacao[]          @relation("AnotacaoCreatedBy")
+  agendaEvents                AgendaEvent[]        @relation("AgendaEventUser")
+  agendaEventsCreated         AgendaEvent[]        @relation("AgendaEventCreatedBy")
+  agendaEventsCanceled        AgendaEvent[]        @relation("AgendaEventCanceledBy")
+  agendaAuditsActor           AgendaAudit[]        @relation("AgendaAuditActor")
+  agendaMemberColors          AgendaMemberColor[]  @relation("AgendaMemberColorUser")
+  anotacoesCreated            Anotacao[]           @relation("AnotacaoCreatedBy")
   latamPromoListItemsAdded    LatamPromoListItem[] @relation("LatamPromoListItemAddedBy")
   latamPromoListItemsReviewed LatamPromoListItem[] @relation("LatamPromoListItemReviewedBy")
 
@@ -345,9 +353,9 @@ model VipWhatsappRateioSetting {
 
   team String @unique
 
-  ownerPercentBps Int    @default(7000)
-  othersPercentBps Int   @default(3000)
-  taxPercentBps    Int   @default(1000)
+  ownerPercentBps  Int    @default(7000)
+  othersPercentBps Int    @default(3000)
+  taxPercentBps    Int    @default(1000)
   payoutDaysCsv    String @default("1")
 
   createdAt DateTime @default(now())
@@ -433,7 +441,7 @@ model Cedente {
 
   nomeCompleto   String
   dataNascimento DateTime?
-  cpf            String @unique
+  cpf            String    @unique
 
   telefone    String?
   emailCriado String?
@@ -458,10 +466,10 @@ model Cedente {
   reviewedAt DateTime?
 
   reviewedById String?
-  reviewedBy   User? @relation("CedenteReviewedBy", fields: [reviewedById], references: [id], onDelete: SetNull)
+  reviewedBy   User?   @relation("CedenteReviewedBy", fields: [reviewedById], references: [id], onDelete: SetNull)
 
   ownerId String
-  owner   User @relation("CedenteOwner", fields: [ownerId], references: [id], onDelete: Restrict)
+  owner   User   @relation("CedenteOwner", fields: [ownerId], references: [id], onDelete: Restrict)
 
   inviteId String?
   invite   EmployeeInvite? @relation(fields: [inviteId], references: [id], onDelete: SetNull)
@@ -492,7 +500,7 @@ model Cedente {
   // ✅ marcações do Turbo LATAM por mês
   latamTurboMonths LatamTurboMonth[] @relation("LatamTurboMonthCedente")
 
-  latamTurboAccount LatamTurboAccount? @relation("LatamTurboAccountCedente")
+  latamTurboAccount   LatamTurboAccount?   @relation("LatamTurboAccountCedente")
   latamPromoListItems LatamPromoListItem[] @relation("LatamPromoListItemCedente")
 
   // ✅ PROTOCOLOS
@@ -527,12 +535,12 @@ model CedenteExclusion {
   details Json?
 
   deletedById String?
-  deletedBy   User? @relation("CedenteExclusionDeletedBy", fields: [deletedById], references: [id], onDelete: SetNull)
+  deletedBy   User?   @relation("CedenteExclusionDeletedBy", fields: [deletedById], references: [id], onDelete: SetNull)
 
-  restoredAt      DateTime?
-  restoredById    String?
-  restoredBy      User?     @relation("CedenteExclusionRestoredBy", fields: [restoredById], references: [id], onDelete: SetNull)
-  restoreDetails  Json?
+  restoredAt     DateTime?
+  restoredById   String?
+  restoredBy     User?     @relation("CedenteExclusionRestoredBy", fields: [restoredById], references: [id], onDelete: SetNull)
+  restoreDetails Json?
 
   createdAt DateTime @default(now())
 
@@ -652,9 +660,9 @@ model ClubSubscription {
   tierK      Int @default(0)
   priceCents Int @default(0)
 
-  subscribedAt DateTime
-  renewalDay   Int @default(1)
-  monthlyBonusPoints Int @default(0)
+  subscribedAt       DateTime
+  renewalDay         Int      @default(1)
+  monthlyBonusPoints Int      @default(0)
 
   // controle operacional
   lastRenewedAt    DateTime?
@@ -666,7 +674,7 @@ model ClubSubscription {
 
   notes String?
 
-  sourcePurchaseItemId String? @unique
+  sourcePurchaseItemId String?       @unique
   sourcePurchaseItem   PurchaseItem? @relation("ClubSubFromPurchaseItem", fields: [sourcePurchaseItemId], references: [id], onDelete: SetNull)
 
   createdAt DateTime @default(now())
@@ -701,10 +709,10 @@ model Protocol {
   cedente   Cedente @relation(fields: [cedenteId], references: [id], onDelete: Cascade)
 
   createdById String?
-  createdBy   User? @relation("ProtocolCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  createdBy   User?   @relation("ProtocolCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
 
   updatedById String?
-  updatedBy   User? @relation("ProtocolUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+  updatedBy   User?   @relation("ProtocolUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -730,7 +738,7 @@ model WalletBalance {
   amountCents Int @default(0)
 
   updatedById String?
-  updatedBy   User? @relation("WalletBalanceUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+  updatedBy   User?   @relation("WalletBalanceUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -789,7 +797,7 @@ model Settings {
   liveloRateCents Int @default(2200)
   esferaRateCents Int @default(1700)
 
-  taxPercent       Int      @default(8)
+  taxPercent       Int       @default(8)
   taxEffectiveFrom DateTime?
 
   createdAt DateTime @default(now())
@@ -821,7 +829,7 @@ model Debt {
   payOrder     Int?
 
   createdById String?
-  createdBy   User? @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  createdBy   User?   @relation(fields: [createdById], references: [id], onDelete: SetNull)
 
   payments DebtPayment[]
 
@@ -862,13 +870,13 @@ model BlockedAccount {
 
   cedenteId String
   program   LoyaltyProgram
-  status    BlockStatus @default(OPEN)
+  status    BlockStatus    @default(OPEN)
 
   note              String?
   estimatedUnlockAt DateTime?
 
   createdById String?
-  createdBy   User? @relation("BlockedCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  createdBy   User?   @relation("BlockedCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
 
   resolvedAt   DateTime?
   observations BlockObservation[]
@@ -892,7 +900,7 @@ model BlockObservation {
   text      String
 
   createdById String?
-  createdBy   User? @relation("BlockedObsCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  createdBy   User?   @relation("BlockedObsCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -941,7 +949,7 @@ model Purchase {
   status    PurchaseStatus @default(OPEN)
 
   ciaAerea       LoyaltyProgram?
-  pontosCiaTotal Int @default(0)
+  pontosCiaTotal Int             @default(0)
 
   cedentePayCents     Int @default(0)
   vendorCommissionBps Int @default(100)
@@ -966,11 +974,11 @@ model Purchase {
 
   liberadoEm    DateTime?
   liberadoPorId String?
-  liberadoPor   User? @relation("CompraLiberadaPor", fields: [liberadoPorId], references: [id], onDelete: SetNull)
+  liberadoPor   User?     @relation("CompraLiberadaPor", fields: [liberadoPorId], references: [id], onDelete: SetNull)
 
   finalizedAt   DateTime?
   finalizedById String?
-  finalizedBy   User? @relation("PurchaseFinalizedBy", fields: [finalizedById], references: [id], onDelete: SetNull)
+  finalizedBy   User?     @relation("PurchaseFinalizedBy", fields: [finalizedById], references: [id], onDelete: SetNull)
 
   finalSalesCents            Int?
   finalSalesPointsValueCents Int?
@@ -994,7 +1002,8 @@ model Purchase {
   items   PurchaseItem[]
   sales   Sale[]
 
-  cedenteCommission CedenteCommission? @relation("PurchaseCedenteCommission")
+  cedenteCommission    CedenteCommission?    @relation("PurchaseCedenteCommission")
+  affiliateCommissions AffiliateCommission[]
 
   @@index([cedenteId])
   @@index([status])
@@ -1013,12 +1022,12 @@ model PurchaseItem {
   programFrom LoyaltyProgram?
   programTo   LoyaltyProgram?
 
-  pointsBase  Int @default(0)
+  pointsBase  Int     @default(0)
   bonusMode   String?
   bonusValue  Int?
-  pointsFinal Int @default(0)
+  pointsFinal Int     @default(0)
 
-  amountCents  Int @default(0)
+  amountCents  Int           @default(0)
   transferMode TransferMode?
 
   pointsDebitedFromOrigin Int @default(0)
@@ -1059,7 +1068,7 @@ model CedenteCommission {
   cedenteId String
   cedente   Cedente @relation(fields: [cedenteId], references: [id], onDelete: Cascade)
 
-  purchaseId String? @unique
+  purchaseId String?   @unique
   purchase   Purchase? @relation("PurchaseCedenteCommission", fields: [purchaseId], references: [id], onDelete: SetNull)
 
   amountCents Int
@@ -1067,11 +1076,11 @@ model CedenteCommission {
 
   generatedAt   DateTime @default(now())
   generatedById String?
-  generatedBy   User? @relation("CedenteCommissionGeneratedBy", fields: [generatedById], references: [id], onDelete: SetNull)
+  generatedBy   User?    @relation("CedenteCommissionGeneratedBy", fields: [generatedById], references: [id], onDelete: SetNull)
 
   paidAt   DateTime?
   paidById String?
-  paidBy   User? @relation("CedenteCommissionPaidBy", fields: [paidById], references: [id], onDelete: SetNull)
+  paidBy   User?     @relation("CedenteCommissionPaidBy", fields: [paidById], references: [id], onDelete: SetNull)
 
   note String?
 
@@ -1081,6 +1090,49 @@ model CedenteCommission {
   @@index([cedenteId, status, generatedAt])
   @@index([paidAt])
   @@map("cedente_commissions")
+}
+
+model AffiliateCommission {
+  id String @id @default(cuid())
+
+  affiliateId String
+  affiliate   Affiliate @relation(fields: [affiliateId], references: [id], onDelete: Cascade)
+
+  clienteId String
+  cliente   Cliente @relation(fields: [clienteId], references: [id], onDelete: Restrict)
+
+  saleId String @unique
+  sale   Sale   @relation(fields: [saleId], references: [id], onDelete: Cascade)
+
+  purchaseId String?
+  purchase   Purchase? @relation(fields: [purchaseId], references: [id], onDelete: SetNull)
+
+  commissionBps Int @default(0)
+  costCents     Int @default(0)
+  bonusCents    Int @default(0)
+  profitCents   Int @default(0)
+  amountCents   Int @default(0)
+
+  status AffiliateCommissionStatus @default(PENDING)
+
+  generatedAt   DateTime @default(now())
+  generatedById String?
+  generatedBy   User?    @relation("AffiliateCommissionGeneratedBy", fields: [generatedById], references: [id], onDelete: SetNull)
+
+  paidAt   DateTime?
+  paidById String?
+  paidBy   User?     @relation("AffiliateCommissionPaidBy", fields: [paidById], references: [id], onDelete: SetNull)
+
+  note String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([affiliateId, status, generatedAt])
+  @@index([clienteId, generatedAt])
+  @@index([purchaseId, generatedAt])
+  @@index([paidAt])
+  @@map("affiliate_commissions")
 }
 
 /**
@@ -1128,11 +1180,12 @@ model Cliente {
   affiliate   Affiliate? @relation(fields: [affiliateId], references: [id], onDelete: SetNull)
 
   createdById String?
-  createdBy   User? @relation("ClienteCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  createdBy   User?   @relation("ClienteCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
 
-  sales Sale[]
-  balcaoOperationsAsSupplier BalcaoOperacao[] @relation("BalcaoSupplierCliente")
-  balcaoOperationsAsFinal    BalcaoOperacao[] @relation("BalcaoFinalCliente")
+  sales                      Sale[]
+  affiliateCommissions       AffiliateCommission[]
+  balcaoOperationsAsSupplier BalcaoOperacao[]      @relation("BalcaoSupplierCliente")
+  balcaoOperationsAsFinal    BalcaoOperacao[]      @relation("BalcaoFinalCliente")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1154,19 +1207,20 @@ model Affiliate {
   bankName String?
   status   String  @default("APPROVED")
 
-  flightSalesLink    String?
-  pointsPurchaseLink String?
+  flightSalesLink        String?
+  pointsPurchaseLink     String?
   promotionalYoutubeLink String?
   promotionalDriveLink   String?
-  commissionBps      Int     @default(0)
-  isActive           Boolean @default(true)
-  passwordHash       String?
-  lastLoginAt        DateTime?
-  approvedAt         DateTime?
-  termsAcceptedAt    DateTime?
-  termsVersion       String?
+  commissionBps          Int       @default(0)
+  isActive               Boolean   @default(true)
+  passwordHash           String?
+  lastLoginAt            DateTime?
+  approvedAt             DateTime?
+  termsAcceptedAt        DateTime?
+  termsVersion           String?
 
-  clients Cliente[]
+  clients     Cliente[]
+  commissions AffiliateCommission[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1195,7 +1249,7 @@ model Receivable {
   title         String
   description   String?
   totalCents    Int
-  receivedCents Int @default(0)
+  receivedCents Int              @default(0)
   balanceCents  Int
   status        ReceivableStatus @default(OPEN)
 
@@ -1203,7 +1257,7 @@ model Receivable {
   updatedAt DateTime @default(now()) @updatedAt
 
   receipts Receipt[]
-  sale     Sale? @relation("SaleReceivable")
+  sale     Sale?     @relation("SaleReceivable")
 
   @@index([status])
   @@index([createdAt])
@@ -1245,7 +1299,7 @@ model EmissionEvent {
   cedente   Cedente @relation(fields: [cedenteId], references: [id], onDelete: Cascade)
 
   program         LoyaltyProgram
-  passengersCount Int @default(1)
+  passengersCount Int            @default(1)
 
   issuedAt DateTime
   source   EmissionSource @default(SALE)
@@ -1285,19 +1339,19 @@ model Sale {
 
   metaMilheiroCents Int @default(0)
 
-  feeCardLabel String?
-  locator      String?
-  purchaseCode String?
-  firstPassengerLastName String?
-  departureAirportIata   String?
-  departureDate DateTime?
-  returnDate    DateTime?
-  latamLocatorCheckStatus String?
-  latamLocatorCheckedAt   DateTime?
-  latamLocatorCheckNote   String?
+  feeCardLabel                 String?
+  locator                      String?
+  purchaseCode                 String?
+  firstPassengerLastName       String?
+  departureAirportIata         String?
+  departureDate                DateTime?
+  returnDate                   DateTime?
+  latamLocatorCheckStatus      String?
+  latamLocatorCheckedAt        DateTime?
+  latamLocatorCheckNote        String?
   smilesLocatorManualStatus    String?
   smilesLocatorManualCheckedAt DateTime?
-  smilesLocatorLossCents       Int      @default(0)
+  smilesLocatorLossCents       Int       @default(0)
 
   paymentStatus SalePaymentStatus @default(PENDING)
   paidAt        DateTime?
@@ -1308,14 +1362,15 @@ model Sale {
   clienteId String
   cliente   Cliente @relation(fields: [clienteId], references: [id], onDelete: Restrict)
 
-  purchaseId String?
-  purchase   Purchase? @relation(fields: [purchaseId], references: [id], onDelete: SetNull)
+  purchaseId          String?
+  purchase            Purchase?            @relation(fields: [purchaseId], references: [id], onDelete: SetNull)
+  affiliateCommission AffiliateCommission?
 
   sellerId String?
-  seller   User? @relation("SaleSeller", fields: [sellerId], references: [id], onDelete: SetNull)
+  seller   User?   @relation("SaleSeller", fields: [sellerId], references: [id], onDelete: SetNull)
 
-  receivableId String? @unique
-  receivable   Receivable? @relation("SaleReceivable", fields: [receivableId], references: [id], onDelete: SetNull)
+  receivableId String?        @unique
+  receivable   Receivable?    @relation("SaleReceivable", fields: [receivableId], references: [id], onDelete: SetNull)
   auditLogs    SaleAuditLog[]
 
   createdAt DateTime @default(now())
@@ -1333,10 +1388,10 @@ model SaleAuditLog {
   id String @id @default(cuid())
 
   saleId String
-  sale   Sale @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  sale   Sale   @relation(fields: [saleId], references: [id], onDelete: Cascade)
 
   actorId String?
-  actor   User? @relation("SaleAuditActor", fields: [actorId], references: [id], onDelete: SetNull)
+  actor   User?   @relation("SaleAuditActor", fields: [actorId], references: [id], onDelete: SetNull)
 
   actorLogin String?
   action     String
@@ -1376,7 +1431,7 @@ model BalcaoOperacao {
   profitCents         Int
 
   locator String?
-  note String?
+  note    String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1438,12 +1493,12 @@ model TaxMonthPayment {
   team  String
   month String
 
-  totalTaxCents Int @default(0)
+  totalTaxCents Int   @default(0)
   breakdown     Json?
 
   paidAt   DateTime?
   paidById String?
-  paidBy   User? @relation("TaxMonthPaidBy", fields: [paidById], references: [id], onDelete: SetNull)
+  paidBy   User?     @relation("TaxMonthPaidBy", fields: [paidById], references: [id], onDelete: SetNull)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1458,10 +1513,10 @@ model CaixaImediatoSnapshot {
   id                String @id @default(cuid())
   team              String
   date              String
-  cashCents         Int @default(0)
-  totalBrutoCents   Int @default(0)
-  totalDividasCents Int @default(0)
-  totalLiquidoCents Int @default(0)
+  cashCents         Int    @default(0)
+  totalBrutoCents   Int    @default(0)
+  totalDividasCents Int    @default(0)
+  totalLiquidoCents Int    @default(0)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1485,15 +1540,15 @@ enum LatamPromoListStatus {
 }
 
 model LatamTurboMonth {
-  id        String @id @default(cuid())
+  id        String           @id @default(cuid())
   team      String
   monthKey  String
   cedenteId String
   status    LatamTurboStatus @default(PENDING)
-  points    Int @default(0)
+  points    Int              @default(0)
   notes     String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
 
   cedente Cedente @relation("LatamTurboMonthCedente", fields: [cedenteId], references: [id], onDelete: Cascade)
 
@@ -1521,7 +1576,7 @@ model LatamTurboAccount {
 }
 
 model LatamPromoListItem {
-  id       String              @id @default(cuid())
+  id       String               @id @default(cuid())
   team     String
   listDate String
   status   LatamPromoListStatus @default(PENDING)
@@ -1530,10 +1585,10 @@ model LatamPromoListItem {
   cedente   Cedente @relation("LatamPromoListItemCedente", fields: [cedenteId], references: [id], onDelete: Cascade)
 
   addedById String?
-  addedBy   User? @relation("LatamPromoListItemAddedBy", fields: [addedById], references: [id], onDelete: SetNull)
+  addedBy   User?   @relation("LatamPromoListItemAddedBy", fields: [addedById], references: [id], onDelete: SetNull)
 
   reviewedById String?
-  reviewedBy   User? @relation("LatamPromoListItemReviewedBy", fields: [reviewedById], references: [id], onDelete: SetNull)
+  reviewedBy   User?   @relation("LatamPromoListItemReviewedBy", fields: [reviewedById], references: [id], onDelete: SetNull)
 
   resolvedAt DateTime?
   usedAt     DateTime?
@@ -1583,7 +1638,7 @@ model DividaAReceber {
   id String @id @default(cuid())
 
   ownerId String
-  owner   User @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  owner   User   @relation(fields: [ownerId], references: [id], onDelete: Cascade)
 
   team String
 
@@ -1596,7 +1651,7 @@ model DividaAReceber {
   description String?
 
   category ReceberCategoria @default(OUTROS)
-  method   ReceberMetodo @default(PIX)
+  method   ReceberMetodo    @default(PIX)
 
   totalCents    Int
   receivedCents Int @default(0)
@@ -1679,14 +1734,14 @@ model AgendaEvent {
   note String?
 
   userId String
-  user   User @relation("AgendaEventUser", fields: [userId], references: [id], onDelete: Cascade)
+  user   User   @relation("AgendaEventUser", fields: [userId], references: [id], onDelete: Cascade)
 
   createdById String
-  createdBy   User @relation("AgendaEventCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  createdBy   User   @relation("AgendaEventCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
 
   canceledAt   DateTime?
   canceledById String?
-  canceledBy   User? @relation("AgendaEventCanceledBy", fields: [canceledById], references: [id], onDelete: SetNull)
+  canceledBy   User?     @relation("AgendaEventCanceledBy", fields: [canceledById], references: [id], onDelete: SetNull)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1700,15 +1755,15 @@ model AgendaEvent {
 }
 
 model AgendaAudit {
-  id      String           @id @default(cuid())
+  id      String      @id @default(cuid())
   team    String
   eventId String
-  event   AgendaEvent      @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  event   AgendaEvent @relation(fields: [eventId], references: [id], onDelete: Cascade)
 
   action AgendaAuditAction
 
   actorId String
-  actor   User @relation("AgendaAuditActor", fields: [actorId], references: [id], onDelete: Restrict)
+  actor   User   @relation("AgendaAuditActor", fields: [actorId], references: [id], onDelete: Restrict)
 
   fromUserId   String?
   toUserId     String?
@@ -1755,7 +1810,7 @@ model Anotacao {
   resolvedAt DateTime?
 
   createdById String
-  createdBy   User @relation("AnotacaoCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  createdBy   User   @relation("AnotacaoCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

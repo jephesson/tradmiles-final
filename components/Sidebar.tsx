@@ -240,8 +240,13 @@ export default function Sidebar() {
   const isComissoesFuncionariosRoute = pathname.startsWith(
     "/dashboard/comissoes/funcionarios"
   );
+  const isComissoesAfiliadosRoute = pathname.startsWith(
+    "/dashboard/comissoes/afiliados"
+  );
   const isComissoesSubRoute =
-    isComissoesCedentesRoute || isComissoesFuncionariosRoute;
+    isComissoesCedentesRoute ||
+    isComissoesFuncionariosRoute ||
+    isComissoesAfiliadosRoute;
 
   // ✅ Rotas / queries do submenu "Emissões por cedente"
   const isEmissoesBasePath = pathname === "/dashboard/emissoes";
@@ -791,6 +796,7 @@ export default function Sidebar() {
             active={pathname.startsWith("/dashboard/comissoes")}
           >
             <NavLink href="/dashboard/comissoes/cedentes">Cedentes</NavLink>
+            <NavLink href="/dashboard/comissoes/afiliados">Afiliados</NavLink>
             <NavLink href="/dashboard/comissoes/funcionarios">
               Funcionários
             </NavLink>

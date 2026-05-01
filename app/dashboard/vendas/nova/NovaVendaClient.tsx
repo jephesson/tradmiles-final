@@ -4,6 +4,11 @@ import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { cn } from "@/lib/cn";
 import { getSession } from "@/lib/auth";
+import {
+  affiliateCommissionCents as calcAffiliateCommissionCents,
+  affiliateNetProfitAfterCommissionCents,
+  affiliateProfitBaseCents,
+} from "@/lib/affiliates/commission";
 
 type Program = "LATAM" | "SMILES" | "LIVELO" | "ESFERA";
 type PointsMode = "TOTAL" | "POR_PAX";
@@ -45,6 +50,13 @@ type ClienteLite = {
   nome: string;
   cpfCnpj: string | null;
   telefone: string | null;
+  affiliateId?: string | null;
+  affiliate?: {
+    id: string;
+    name: string;
+    commissionBps: number;
+    isActive: boolean;
+  } | null;
 };
 
 type CompraLiberada = {
@@ -93,6 +105,12 @@ function fmtMoneyBR(cents: number) {
     style: "currency",
     currency: "BRL",
   });
+}
+function fmtPercent(bps: number) {
+  return `${(Number(bps || 0) / 100).toLocaleString("pt-BR", {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2,
+  })}%`;
 }
 function moneyToCentsBR(input: string) {
   const s = (input || "").trim().replace(/\./g, "").replace(",", ".");
@@ -454,7 +472,6 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
 
   const metaMilheiroCents = compraSel?.metaMilheiroCents || 0;
   const compraMilheiroCents = compraSel?.custoMilheiroCents || 0;
-
   const bonusCents = useMemo(() => {
     if (!metaMilheiroCents) return 0;
     const diff = milheiroCents - metaMilheiroCents;
@@ -463,6 +480,35 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
     const diffTotal = Math.round(denom * diff);
     return Math.round(diffTotal * 0.3);
   }, [milheiroCents, metaMilheiroCents, pointsTotal]);
+  const selectedAffiliate =
+    selectedCliente?.affiliate && selectedCliente.affiliate.isActive
+      ? selectedCliente.affiliate
+      : null;
+  const affiliateProfitPreview = useMemo(
+    () =>
+      affiliateProfitBaseCents({
+        pointsValueCents,
+        points: pointsTotal,
+        costPerKiloCents: compraMilheiroCents,
+        bonusCents,
+      }),
+    [pointsValueCents, pointsTotal, compraMilheiroCents, bonusCents]
+  );
+  const affiliateCommissionPreviewCents = useMemo(() => {
+    if (!selectedAffiliate) return 0;
+    return calcAffiliateCommissionCents({
+      profitCents: affiliateProfitPreview.profitCents,
+      commissionBps: selectedAffiliate.commissionBps,
+    });
+  }, [selectedAffiliate, affiliateProfitPreview.profitCents]);
+  const realProfitAfterAffiliateCents = useMemo(
+    () =>
+      affiliateNetProfitAfterCommissionCents({
+        profitCents: affiliateProfitPreview.profitCents,
+        affiliateCommissionCents: affiliateCommissionPreviewCents,
+      }),
+    [affiliateProfitPreview.profitCents, affiliateCommissionPreviewCents]
+  );
 
   // ✅ ajuste de PAX disponível (após esta venda) — usando passengersNeeded da sugestão
   const selPaxAfter = useMemo(() => {
@@ -2162,6 +2208,18 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
                       Selecionado: <b>{selectedCliente.nome}</b> ({selectedCliente.identificador || "—"})
                     </div>
                   ) : null}
+                  {selectedAffiliate ? (
+                    <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-[11px] text-emerald-800">
+                      <div>
+                        <b>Cliente indicado por:</b> {selectedAffiliate.name} (
+                        {fmtPercent(selectedAffiliate.commissionBps)})
+                      </div>
+                      <div className="mt-1">
+                        <b>Comissão prevista do afiliado:</b>{" "}
+                        {compraSel ? fmtMoneyBR(affiliateCommissionPreviewCents) : "Selecione a compra"}
+                      </div>
+                    </div>
+                  ) : null}
                 </div>
 
                 <div className="space-y-1">
@@ -2429,6 +2487,20 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
               <div className="flex justify-between">
                 <span className="text-slate-600">Meta (compra)</span>
                 <b>{metaMilheiroCents ? fmtMoneyBR(metaMilheiroCents) : "—"}</b>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-600">Lucro base afiliado</span>
+                <b>{compraSel ? fmtMoneyBR(affiliateProfitPreview.profitCents) : "—"}</b>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-600">Comissão afiliado</span>
+                <b className={selectedAffiliate ? "text-emerald-700" : ""}>
+                  {selectedAffiliate && compraSel ? fmtMoneyBR(affiliateCommissionPreviewCents) : "—"}
+                </b>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-600">Lucro real após afiliado</span>
+                <b>{selectedAffiliate && compraSel ? fmtMoneyBR(realProfitAfterAffiliateCents) : "—"}</b>
               </div>
               <div className="flex justify-between">
                 <span className="text-slate-600">Bônus (30%)</span>

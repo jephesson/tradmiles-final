@@ -22,6 +22,8 @@ export type AffiliateSaleMetric = {
   bonusCents: number;
   profitCents: number;
   affiliateCommissionCents: number;
+  commissionStatus: string;
+  commissionPaidAt: Date | null;
   paymentStatus: string;
   locator: string | null;
 };
@@ -42,21 +44,6 @@ function safeInt(value: unknown) {
   return Math.trunc(n);
 }
 
-function choosePointsValueCents(args: {
-  pointsValueCents: number;
-  totalCents: number;
-  embarqueFeeCents: number;
-}) {
-  if (args.pointsValueCents > 0) return args.pointsValueCents;
-  return Math.max(0, args.totalCents - args.embarqueFeeCents);
-}
-
-function costForSale(points: number, custoMilheiroCents: number) {
-  const factor = safeInt(points) / 1000;
-  if (factor <= 0 || custoMilheiroCents <= 0) return 0;
-  return Math.round(factor * custoMilheiroCents);
-}
-
 export async function getAffiliateMetrics(
   affiliate: AffiliateLike,
   options: { includeSales?: boolean; saleLimit?: number } = {}
@@ -64,39 +51,43 @@ export async function getAffiliateMetrics(
   const includeSales = options.includeSales !== false;
   const saleLimit = Math.max(1, Math.min(1000, safeInt(options.saleLimit || 500)));
 
-  const [clientsCount, sales] = await Promise.all([
+  const [clientsCount, commissionRows] = await Promise.all([
     prisma.cliente.count({
       where: {
         affiliateId: affiliate.id,
         affiliate: { team: affiliate.team },
       },
     }),
-    prisma.sale.findMany({
+    prisma.affiliateCommission.findMany({
       where: {
-        cliente: {
-          affiliateId: affiliate.id,
-          affiliate: { team: affiliate.team },
-        },
-        cedente: {
-          owner: { team: affiliate.team },
-        },
+        affiliateId: affiliate.id,
+        affiliate: { team: affiliate.team },
       },
-      orderBy: [{ date: "desc" }, { createdAt: "desc" }],
+      orderBy: [{ generatedAt: "desc" }, { createdAt: "desc" }],
       select: {
         id: true,
-        numero: true,
-        date: true,
-        program: true,
-        points: true,
-        passengers: true,
-        embarqueFeeCents: true,
-        pointsValueCents: true,
-        totalCents: true,
+        generatedAt: true,
         bonusCents: true,
-        paymentStatus: true,
-        locator: true,
+        costCents: true,
+        profitCents: true,
+        amountCents: true,
+        status: true,
+        paidAt: true,
+        sale: {
+          select: {
+            id: true,
+            numero: true,
+            date: true,
+            program: true,
+            points: true,
+            passengers: true,
+            totalCents: true,
+            pointsValueCents: true,
+            paymentStatus: true,
+            locator: true,
+          },
+        },
         cliente: { select: { identificador: true, nome: true } },
-        purchase: { select: { custoMilheiroCents: true } },
       },
     }),
   ]);
@@ -105,35 +96,30 @@ export async function getAffiliateMetrics(
   let totalProfitCents = 0;
   let totalCommissionCents = 0;
 
-  const rows = sales.map((sale) => {
-    const totalCents = safeInt(sale.totalCents);
-    const points = safeInt(sale.points);
-    const pointsValueCents = choosePointsValueCents({
-      pointsValueCents: safeInt(sale.pointsValueCents),
-      totalCents,
-      embarqueFeeCents: safeInt(sale.embarqueFeeCents),
-    });
-    const costCents = costForSale(points, safeInt(sale.purchase?.custoMilheiroCents));
-    const bonusCents = safeInt(sale.bonusCents);
-    const profitBrutoCents = pointsValueCents - costCents;
-    const profitCents = profitBrutoCents - bonusCents;
-    const affiliateCommissionCents = Math.round(
-      Math.max(0, profitCents) * (safeInt(affiliate.commissionBps) / 10000)
-    );
+  const rows = commissionRows.map((row) => {
+    const sale = row.sale;
+    const totalCents = safeInt(sale?.totalCents);
+    const points = safeInt(sale?.points);
+    const pointsValueCents = safeInt(sale?.pointsValueCents);
+    const costCents = safeInt(row.costCents);
+    const bonusCents = safeInt(row.bonusCents);
+    const profitCents = safeInt(row.profitCents);
+    const profitBrutoCents = profitCents + bonusCents;
+    const affiliateCommissionCents = safeInt(row.amountCents);
 
     totalSalesCents += totalCents;
-    totalProfitCents += profitCents;
+    totalProfitCents += profitCents - affiliateCommissionCents;
     totalCommissionCents += affiliateCommissionCents;
 
     return {
-      id: sale.id,
-      numero: sale.numero,
-      date: sale.date,
-      program: sale.program,
-      clientName: sale.cliente?.nome || "-",
-      clientIdentifier: sale.cliente?.identificador || "-",
+      id: sale?.id || row.id,
+      numero: sale?.numero || "-",
+      date: sale?.date || row.generatedAt,
+      program: sale?.program || "-",
+      clientName: row.cliente?.nome || "-",
+      clientIdentifier: row.cliente?.identificador || "-",
       points,
-      passengers: safeInt(sale.passengers),
+      passengers: safeInt(sale?.passengers),
       totalCents,
       pointsValueCents,
       costCents,
@@ -141,18 +127,22 @@ export async function getAffiliateMetrics(
       bonusCents,
       profitCents,
       affiliateCommissionCents,
-      paymentStatus: sale.paymentStatus,
-      locator: sale.locator,
+      commissionStatus: row.status,
+      commissionPaidAt: row.paidAt,
+      paymentStatus: sale?.paymentStatus || "PENDING",
+      locator: sale?.locator || null,
     };
   });
 
+  const sales = rows.sort((a, b) => b.date.getTime() - a.date.getTime()).slice(0, saleLimit);
+
   return {
     clientsCount,
-    salesCount: rows.length,
+    salesCount: commissionRows.length,
     totalSalesCents,
     totalProfitCents,
     totalCommissionCents,
     commissionBps: safeInt(affiliate.commissionBps),
-    sales: includeSales ? rows.slice(0, saleLimit) : [],
+    sales: includeSales ? sales : [],
   };
 }

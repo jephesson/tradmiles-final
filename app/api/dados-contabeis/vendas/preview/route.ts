@@ -264,6 +264,7 @@ async function computeLossTotalCentsLikePrejuizo(team: string, scopeMonth: strin
       pointsValueCents: true,
       embarqueFeeCents: true,
       passengers: true,
+      affiliateCommission: { select: { amountCents: true } },
     },
   });
 
@@ -276,6 +277,7 @@ async function computeLossTotalCentsLikePrejuizo(team: string, scopeMonth: strin
       salesPointsValueCents: number;
       salesTaxesCents: number;
       bonusCents: number;
+      affiliateCommissionCents: number;
       salesCount: number;
     }
   >();
@@ -304,6 +306,7 @@ async function computeLossTotalCentsLikePrejuizo(team: string, scopeMonth: strin
         salesPointsValueCents: 0,
         salesTaxesCents: 0,
         bonusCents: 0,
+        affiliateCommissionCents: 0,
         salesCount: 0,
       };
 
@@ -312,6 +315,7 @@ async function computeLossTotalCentsLikePrejuizo(team: string, scopeMonth: strin
     cur.salesTotalCents += totalCents;
     cur.salesPointsValueCents += pvCents;
     cur.salesTaxesCents += taxes;
+    cur.affiliateCommissionCents += safeInt(s.affiliateCommission?.amountCents, 0);
     cur.salesCount += 1;
 
     // bônus por venda
@@ -336,12 +340,13 @@ async function computeLossTotalCentsLikePrejuizo(team: string, scopeMonth: strin
         salesPointsValueCents: 0,
         salesTaxesCents: 0,
         bonusCents: 0,
+        affiliateCommissionCents: 0,
         salesCount: 0,
       };
 
     const purchaseTotalCents = safeInt(p.totalCents, 0);
     const profitBruto = a.salesPointsValueCents - purchaseTotalCents;
-    const profitLiquido = profitBruto - a.bonusCents;
+    const profitLiquido = profitBruto - a.bonusCents - a.affiliateCommissionCents;
 
     // remove “sem venda” (includeZeroSales=false)
     const hasSales =

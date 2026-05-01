@@ -4,6 +4,10 @@ import { prisma } from "@/lib/prisma";
 import { getSessionServer } from "@/lib/auth-server";
 import { triggerEmployeePayoutAutoCompute } from "@/lib/payouts/autoCompute";
 import {
+  affiliateCommissionCents,
+  affiliateProfitBaseCents,
+} from "@/lib/affiliates/commission";
+import {
   calcBonusCents,
   calcCommissionCents,
   calcPointsValueCents,
@@ -197,7 +201,36 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
           metaMilheiroCents: true,
           feeCardLabel: true,
           paymentStatus: true,
+          clienteId: true,
+          purchaseId: true,
           cedenteId: true,
+          cliente: {
+            select: {
+              affiliateId: true,
+              affiliate: {
+                select: {
+                  id: true,
+                  commissionBps: true,
+                  isActive: true,
+                  status: true,
+                },
+              },
+            },
+          },
+          purchase: {
+            select: {
+              id: true,
+              custoMilheiroCents: true,
+            },
+          },
+          affiliateCommission: {
+            select: {
+              id: true,
+              affiliateId: true,
+              commissionBps: true,
+              status: true,
+            },
+          },
           receivable: {
             select: {
               id: true,
@@ -316,6 +349,63 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
           },
         },
       });
+
+      const clientAffiliate = sale.cliente?.affiliate;
+      const shouldHaveAffiliateCommission =
+        sale.cliente?.affiliateId &&
+        clientAffiliate &&
+        clientAffiliate.isActive &&
+        String(clientAffiliate.status || "").toUpperCase() === "APPROVED";
+
+      const affiliateBase = affiliateProfitBaseCents({
+        pointsValueCents: nextPointsValueCents,
+        points: nextPoints,
+        costPerKiloCents: clampInt(sale.purchase?.custoMilheiroCents),
+        bonusCents: nextBonusCents,
+      });
+
+      if (sale.affiliateCommission?.status === "PAID") {
+        // Mantém histórico do pagamento já realizado.
+      } else if (sale.affiliateCommission) {
+        const nextAmountCents = affiliateCommissionCents({
+          profitCents: affiliateBase.profitCents,
+          commissionBps: clampInt(sale.affiliateCommission.commissionBps),
+        });
+
+        await tx.affiliateCommission.update({
+          where: { id: sale.affiliateCommission.id },
+          data: {
+            purchaseId: sale.purchaseId,
+            costCents: affiliateBase.costCents,
+            bonusCents: nextBonusCents,
+            profitCents: affiliateBase.profitCents,
+            amountCents: nextAmountCents,
+          },
+        });
+      } else if (shouldHaveAffiliateCommission && clientAffiliate) {
+        const commissionBps = clampInt(clientAffiliate.commissionBps);
+        const nextAmountCents = affiliateCommissionCents({
+          profitCents: affiliateBase.profitCents,
+          commissionBps,
+        });
+
+        await tx.affiliateCommission.create({
+          data: {
+            affiliateId: clientAffiliate.id,
+            clienteId: sale.clienteId,
+            saleId: sale.id,
+            purchaseId: sale.purchaseId,
+            commissionBps,
+            costCents: affiliateBase.costCents,
+            bonusCents: nextBonusCents,
+            profitCents: affiliateBase.profitCents,
+            amountCents: nextAmountCents,
+            generatedById: session.id,
+            status: "PENDING",
+            note: "Gerada automaticamente após ajuste administrativo da venda.",
+          },
+        });
+      }
 
       await tx.saleAuditLog.create({
         data: {

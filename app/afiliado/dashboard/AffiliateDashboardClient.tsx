@@ -21,6 +21,8 @@ type SaleRow = {
   bonusCents: number;
   profitCents: number;
   affiliateCommissionCents: number;
+  commissionStatus: string;
+  commissionPaidAt: string | null;
   paymentStatus: string;
   locator: string | null;
 };
@@ -676,7 +678,7 @@ export default function AffiliateDashboardClient() {
                       <td className="px-3 py-2 text-right font-semibold text-emerald-700">
                         {fmtMoney(sale.affiliateCommissionCents)}
                       </td>
-                      <td className="px-3 py-2">{statusLabel(sale.paymentStatus)}</td>
+                      <td className="px-3 py-2">{statusLabel(sale.commissionStatus)}</td>
                     </tr>
                   ))}
                 </tbody>

@@ -84,6 +84,17 @@ export async function POST(req: Request) {
       },
     });
 
+    await prisma.affiliateCommission.updateMany({
+      where: {
+        saleId: venda.id,
+        status: "PENDING",
+      },
+      data: {
+        status: "CANCELED",
+        note: "Comissão cancelada automaticamente após cancelamento da venda.",
+      },
+    });
+
     return ok({ ok: true, removedEmission });
   } catch (e: any) {
     console.error(e);

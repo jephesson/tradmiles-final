@@ -41,6 +41,7 @@ type AffiliateSaleRow = {
   totalCents: number;
   profitCents: number;
   affiliateCommissionCents: number;
+  commissionStatus: string;
   paymentStatus: string;
 };
 
@@ -754,7 +755,7 @@ export default function AfiliadosClient() {
                       <th className="px-3 py-2 text-right">Total</th>
                       <th className="px-3 py-2 text-right">Lucro</th>
                       <th className="px-3 py-2 text-right">Comissão</th>
-                      <th className="px-3 py-2 text-left">Status</th>
+                      <th className="px-3 py-2 text-left">Status comissão</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -772,7 +773,7 @@ export default function AfiliadosClient() {
                         <td className="px-3 py-2 text-right font-semibold text-emerald-700">
                           {formatMoney(sale.affiliateCommissionCents)}
                         </td>
-                        <td className="px-3 py-2">{saleStatus(sale.paymentStatus)}</td>
+                        <td className="px-3 py-2">{saleStatus(sale.commissionStatus)}</td>
                       </tr>
                     ))}
                   </tbody>

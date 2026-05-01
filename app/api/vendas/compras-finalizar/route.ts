@@ -73,16 +73,27 @@ export async function PATCH(req: Request) {
         where: { purchaseId, paymentStatus: { not: "CANCELED" } },
         _sum: { points: true, passengers: true, totalCents: true, pointsValueCents: true },
       });
+      const affiliateAgg = await tx.affiliateCommission.aggregate({
+        where: {
+          purchaseId,
+          sale: {
+            paymentStatus: { not: "CANCELED" },
+          },
+        },
+        _sum: { amountCents: true },
+      });
 
       const soldPoints = agg._sum.points ?? 0;
       const pax = agg._sum.passengers ?? 0;
       const salesTotalCents = agg._sum.totalCents ?? 0;
       const pointsValueCents = agg._sum.pointsValueCents ?? 0;
+      const affiliateCommissionCents = affiliateAgg._sum.amountCents ?? 0;
 
       const avgMilheiroCents =
         soldPoints > 0 ? Math.round((pointsValueCents * 1000) / soldPoints) : 0;
 
-      const profitCents = salesTotalCents - (purchase.totalCents || 0);
+      const profitCents =
+        salesTotalCents - (purchase.totalCents || 0) - affiliateCommissionCents;
 
       const finalizedAt = new Date();
 

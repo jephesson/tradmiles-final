@@ -171,6 +171,7 @@ export async function GET(req: NextRequest) {
         totalCents: true,
         pointsValueCents: true,
         embarqueFeeCents: true,
+        affiliateCommission: { select: { amountCents: true } },
         locator: true,
         paymentStatus: true,
         createdAt: true,
@@ -224,6 +225,7 @@ export async function GET(req: NextRequest) {
         salesPointsValueCents: number;
         salesTaxesCents: number;
         bonusCents: number;
+        affiliateCommissionCents: number;
         salesCount: number;
       }
     >();
@@ -254,6 +256,7 @@ export async function GET(req: NextRequest) {
           salesPointsValueCents: 0,
           salesTaxesCents: 0,
           bonusCents: 0,
+          affiliateCommissionCents: 0,
           salesCount: 0,
         };
 
@@ -263,6 +266,7 @@ export async function GET(req: NextRequest) {
       cur.salesTotalCents += totalCents;
       cur.salesPointsValueCents += pvCents;
       cur.salesTaxesCents += taxes;
+      cur.affiliateCommissionCents += safeInt(s.affiliateCommission?.amountCents, 0);
 
       cur.salesCount += 1;
       agg.set(pid, cur);
@@ -300,12 +304,13 @@ export async function GET(req: NextRequest) {
           salesPointsValueCents: 0,
           salesTaxesCents: 0,
           bonusCents: 0,
+          affiliateCommissionCents: 0,
           salesCount: 0,
         };
 
       const purchaseTotalCents = safeInt(p.totalCents, 0);
       const profitBruto = a.salesPointsValueCents - purchaseTotalCents;
-      const profitLiquido = profitBruto - a.bonusCents;
+      const profitLiquido = profitBruto - a.bonusCents - a.affiliateCommissionCents;
 
       const avgMilheiro =
         a.soldPoints > 0 && a.salesPointsValueCents > 0
@@ -328,6 +333,7 @@ export async function GET(req: NextRequest) {
 
         finalProfitBrutoCents: profitBruto,
         finalBonusCents: a.bonusCents,
+        finalAffiliateCommissionCents: a.affiliateCommissionCents,
         finalProfitCents: profitLiquido,
 
         finalSoldPoints: a.soldPoints,

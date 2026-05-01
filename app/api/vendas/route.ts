@@ -4,6 +4,10 @@ import { prisma } from "@/lib/prisma";
 import { Prisma, SalePaymentStatus } from "@prisma/client";
 import { triggerEmployeePayoutAutoCompute } from "@/lib/payouts/autoCompute";
 import {
+  affiliateCommissionCents,
+  affiliateProfitBaseCents,
+} from "@/lib/affiliates/commission";
+import {
   calcBonusCents,
   calcCommissionCents,
   calcPointsValueCents,
@@ -224,6 +228,17 @@ export async function GET(req: Request) {
       commissionCents: true,
       bonusCents: true,
       metaMilheiroCents: true,
+      affiliateCommission: {
+        select: {
+          id: true,
+          amountCents: true,
+          profitCents: true,
+          status: true,
+          affiliate: {
+            select: { id: true, name: true, login: true },
+          },
+        },
+      },
 
       cliente: { select: { id: true, identificador: true, nome: true } },
       cedente: { select: { id: true, identificador: true, nomeCompleto: true } },
@@ -394,11 +409,23 @@ export async function POST(req: Request) {
       const purchase = isPurchaseNumero(purchaseKey)
         ? await tx.purchase.findFirst({
             where: { numero: purchaseKey.toUpperCase(), cedenteId },
-            select: { id: true, cedenteId: true, status: true, metaMilheiroCents: true },
+            select: {
+              id: true,
+              cedenteId: true,
+              status: true,
+              metaMilheiroCents: true,
+              custoMilheiroCents: true,
+            },
           })
         : await tx.purchase.findUnique({
             where: { id: purchaseKey },
-            select: { id: true, cedenteId: true, status: true, metaMilheiroCents: true },
+            select: {
+              id: true,
+              cedenteId: true,
+              status: true,
+              metaMilheiroCents: true,
+              custoMilheiroCents: true,
+            },
           });
 
       if (!purchase) throw new Error("Compra não encontrada.");
@@ -430,7 +457,19 @@ export async function POST(req: Request) {
 
       const cliente = await tx.cliente.findUnique({
         where: { id: clienteId },
-        select: { nome: true },
+        select: {
+          id: true,
+          nome: true,
+          affiliateId: true,
+          affiliate: {
+            select: {
+              id: true,
+              commissionBps: true,
+              isActive: true,
+              status: true,
+            },
+          },
+        },
       });
       if (!cliente) throw new Error("Cliente não encontrado.");
 
@@ -480,6 +519,45 @@ export async function POST(req: Request) {
         },
         select: { id: true, numero: true },
       });
+
+      const affiliate = cliente.affiliate;
+      if (
+        cliente.affiliateId &&
+        affiliate &&
+        affiliate.isActive &&
+        String(affiliate.status || "").toUpperCase() === "APPROVED"
+      ) {
+        const commissionBase = affiliateProfitBaseCents({
+          pointsValueCents,
+          points,
+          costPerKiloCents: clampInt(purchase.custoMilheiroCents),
+          bonusCents,
+        });
+        const amountCents = affiliateCommissionCents({
+          profitCents: commissionBase.profitCents,
+          commissionBps: clampInt(affiliate.commissionBps),
+        });
+
+        await tx.affiliateCommission.create({
+          data: {
+            affiliateId: affiliate.id,
+            clienteId: cliente.id,
+            saleId: sale.id,
+            purchaseId: purchaseIdReal,
+            commissionBps: clampInt(affiliate.commissionBps),
+            costCents: commissionBase.costCents,
+            bonusCents,
+            profitCents: commissionBase.profitCents,
+            amountCents,
+            status: "PENDING",
+            generatedById: seller.id,
+            note:
+              amountCents > 0
+                ? `Gerada automaticamente na venda ${sale.numero}.`
+                : "Venda vinculada ao afiliado sem comissão positiva.",
+          },
+        });
+      }
 
       const decData = {
         [field]: { decrement: points },
