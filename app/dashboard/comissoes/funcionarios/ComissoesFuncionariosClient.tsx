@@ -1,6 +1,16 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import {
+  AlertTriangle,
+  Calculator,
+  FileDown,
+  Info,
+  RefreshCw,
+  RotateCcw,
+  Users,
+} from "lucide-react";
+import { cn } from "@/lib/cn";
 
 type Basis = "SALE_DATE" | "PURCHASE_FINALIZED";
 
@@ -261,11 +271,37 @@ function getErrorMessage(e: unknown, fallback: string) {
   return fallback;
 }
 
-function KPI({ label, value }: { label: string; value: string }) {
+const FIELD_LABEL = "text-[11px] font-semibold uppercase tracking-wide text-slate-500";
+const CONTROL_INPUT =
+  "h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-medium text-slate-900 shadow-sm outline-none transition focus:border-slate-300 focus:ring-2 focus:ring-slate-900/10";
+const CONTROL_SELECT =
+  "h-10 w-full min-w-[12rem] rounded-xl border border-slate-200 bg-white px-3 text-sm font-medium text-slate-900 shadow-sm outline-none transition focus:border-slate-300 focus:ring-2 focus:ring-slate-900/10";
+
+function KPI({
+  label,
+  value,
+  emphasis = "default",
+}: {
+  label: string;
+  value: string;
+  emphasis?: "default" | "net" | "profit";
+}) {
+  const bar =
+    emphasis === "net"
+      ? "bg-emerald-500"
+      : emphasis === "profit"
+        ? "bg-sky-500"
+        : "bg-slate-300";
+
   return (
-    <div className="rounded-2xl border bg-white p-3">
-      <div className="text-xs text-neutral-500">{label}</div>
-      <div className="text-sm font-semibold">{value}</div>
+    <div className="relative overflow-hidden rounded-2xl border border-slate-200/80 bg-gradient-to-br from-white to-slate-50/70 p-3.5 shadow-sm shadow-slate-200/35">
+      <div className={cn("absolute left-0 top-0 h-full w-1 rounded-r", bar)} aria-hidden />
+      <div className="pl-2.5">
+        <div className="text-[10px] font-semibold uppercase leading-snug tracking-wide text-slate-500">
+          {label}
+        </div>
+        <div className="mt-1.5 text-sm font-bold tabular-nums tracking-tight text-slate-900">{value}</div>
+      </div>
     </div>
   );
 }
@@ -273,12 +309,14 @@ function KPI({ label, value }: { label: string; value: string }) {
 function Pill({ kind, text }: { kind: "ok" | "warn" | "muted"; text: string }) {
   const cls =
     kind === "ok"
-      ? "bg-emerald-50 text-emerald-700"
+      ? "bg-emerald-50 text-emerald-800 ring-1 ring-emerald-200/80"
       : kind === "warn"
-      ? "bg-amber-50 text-amber-700"
-      : "bg-neutral-100 text-neutral-700";
+        ? "bg-amber-50 text-amber-900 ring-1 ring-amber-200/80"
+        : "bg-slate-100 text-slate-700 ring-1 ring-slate-200/80";
 
-  return <span className={`rounded-full px-2 py-1 text-xs ${cls}`}>{text}</span>;
+  return (
+    <span className={cn("inline-flex rounded-full px-2.5 py-1 text-[11px] font-semibold", cls)}>{text}</span>
+  );
 }
 
 /**
@@ -611,8 +649,8 @@ export default function ComissoesFuncionariosClient() {
   }, [monthData]);
 
   // ✅ classes de destaque (azul / verde)
-  const lucroCellCls = "bg-sky-50 text-sky-900 ring-1 ring-inset ring-sky-200";
-  const liquidoCellCls = "bg-emerald-50 text-emerald-900 ring-1 ring-inset ring-emerald-200";
+  const lucroCellCls = "bg-sky-50/90 text-sky-950 ring-1 ring-inset ring-sky-200/90";
+  const liquidoCellCls = "bg-emerald-50/90 text-emerald-950 ring-1 ring-inset ring-emerald-200/90";
 
   // ===== detalhes (helpers) =====
   const detailsSales = useMemo(() => details?.lines?.sales || [], [details]);
@@ -658,32 +696,33 @@ export default function ComissoesFuncionariosClient() {
   }, [reportUsers, reportUserId]);
 
   return (
-    <div className="space-y-4 p-4">
-      <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
-        <div className="space-y-1">
-          <h1 className="text-xl font-semibold">Comissões — Funcionários</h1>
-          <p className="text-sm text-neutral-500">
-            Comissão 1 (1%) + colunas de Comissão 2 (bônus) e Comissão 3 (rateio).
-          </p>
+    <div className="mx-auto max-w-[1600px] space-y-6 p-4 pb-10">
+      <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
+        <div className="min-w-0 space-y-3">
+          <div className="inline-flex items-center gap-2 rounded-full border border-slate-200/90 bg-white px-3 py-1 text-[11px] font-semibold uppercase tracking-wider text-slate-500 shadow-sm">
+            <Users className="h-3.5 w-3.5 text-slate-400" strokeWidth={2} aria-hidden />
+            Comissões
+          </div>
+          <div>
+            <h1 className="text-3xl font-bold tracking-tight text-slate-900">Comissões — Funcionários</h1>
+            <p className="mt-2 max-w-2xl text-sm leading-relaxed text-slate-600">
+              Comissão 1 (1%) + colunas de Comissão 2 (bônus) e Comissão 3 (rateio).
+            </p>
+          </div>
         </div>
 
-        <div className="flex flex-wrap items-end gap-2">
-          <div className="flex flex-col">
-            <label className="text-xs text-neutral-500">Dia</label>
-            <input
-              type="date"
-              value={date}
-              onChange={(e) => setDate(e.target.value)}
-              className="h-10 rounded-xl border px-3 text-sm"
-            />
+        <div className="flex flex-wrap items-end gap-2.5">
+          <div className="flex flex-col gap-1">
+            <label className={FIELD_LABEL}>Dia</label>
+            <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className={CONTROL_INPUT} />
           </div>
 
-          <div className="flex flex-col">
-            <label className="text-xs text-neutral-500">Base</label>
+          <div className="flex flex-col gap-1">
+            <label className={FIELD_LABEL}>Base</label>
             <select
               value={basis}
               onChange={(e) => setBasis(e.target.value as Basis)}
-              className="h-10 rounded-xl border px-3 text-sm"
+              className={CONTROL_SELECT}
             >
               <option value="SALE_DATE">SALE_DATE (vendas do dia)</option>
               <option value="PURCHASE_FINALIZED">PURCHASE_FINALIZED (compras finalizadas)</option>
@@ -691,34 +730,40 @@ export default function ComissoesFuncionariosClient() {
           </div>
 
           <button
+            type="button"
             onClick={() => loadDay(date)}
             disabled={loading}
-            className="h-10 rounded-xl border px-4 text-sm hover:bg-neutral-50 disabled:opacity-50"
+            className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-medium text-slate-800 shadow-sm transition hover:border-slate-300 hover:bg-slate-50 disabled:pointer-events-none disabled:opacity-50"
           >
+            <RefreshCw className={cn("h-4 w-4 text-slate-500", loading && "animate-spin")} strokeWidth={2} aria-hidden />
             {loading ? "Carregando..." : "Atualizar"}
           </button>
 
           <button
+            type="button"
             onClick={() => computeDay(date, { force: false })}
             disabled={!canCompute || computing}
-            className="h-10 rounded-xl border px-4 text-sm hover:bg-neutral-50 disabled:opacity-50"
+            className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-medium text-slate-800 shadow-sm transition hover:border-slate-300 hover:bg-slate-50 disabled:pointer-events-none disabled:opacity-50"
             title={`Computa sem apagar pendentes • ${computeTitle}`}
           >
+            <Calculator className="h-4 w-4 text-slate-500" strokeWidth={2} aria-hidden />
             {computing ? "Computando..." : "Computar"}
           </button>
 
           <button
+            type="button"
             onClick={() => computeDay(date, { force: true })}
             disabled={!canCompute || computing}
-            className="h-10 rounded-xl bg-black px-4 text-sm text-white hover:bg-neutral-800 disabled:opacity-50"
+            className="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-slate-900 px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800 disabled:pointer-events-none disabled:opacity-50"
             title={`FORÇAR: apaga payouts não pagos e refaz • ${computeTitle}`}
           >
+            <RotateCcw className="h-4 w-4 shrink-0 opacity-90" strokeWidth={2} aria-hidden />
             {computing ? "Recalculando..." : "Recalcular (FORÇAR)"}
           </button>
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-2 md:grid-cols-8">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-8">
         <KPI label="Bruto (C1+C2+C3)" value={fmtMoneyBR(day?.totals.gross || 0)} />
         <KPI
           label={`Imposto${dayTaxPercent ? ` (${dayTaxPercent}%)` : ""}`}
@@ -726,20 +771,30 @@ export default function ComissoesFuncionariosClient() {
         />
         <KPI label="Taxas (reembolso)" value={fmtMoneyBR(day?.totals.fee || 0)} />
         <KPI label="Comissão balcão (60%)" value={fmtMoneyBR(dayExtra.balcaoCommission)} />
-        <KPI label="Líquido total (a pagar)" value={fmtMoneyBR(dayExtra.liquidoTotal)} />
-        <KPI label="Lucro (sem taxa embarque)" value={fmtMoneyBR(dayExtra.lucroSemTaxa)} />
+        <KPI label="Líquido total (a pagar)" value={fmtMoneyBR(dayExtra.liquidoTotal)} emphasis="net" />
+        <KPI label="Lucro (sem taxa embarque)" value={fmtMoneyBR(dayExtra.lucroSemTaxa)} emphasis="profit" />
         <KPI label="Pago" value={fmtMoneyBR(dayExtra.pago)} />
         <KPI label="Pendente" value={fmtMoneyBR(dayExtra.pendente)} />
       </div>
 
       {isFutureOrToday ? (
-        <div className="rounded-2xl border bg-amber-50 p-3 text-sm text-amber-800">
-          Observação: você selecionou <b>hoje ou futuro</b>. As vendas do dia ainda podem mudar.
+        <div className="flex gap-3 rounded-2xl border border-amber-200/90 bg-gradient-to-r from-amber-50 to-amber-50/40 p-4 shadow-sm">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-amber-100 text-amber-700 ring-1 ring-amber-200/80">
+            <Info className="h-5 w-5" strokeWidth={2} aria-hidden />
+          </div>
+          <p className="text-sm leading-relaxed text-amber-950">
+            <span className="font-semibold">Observação:</span> você selecionou <b>hoje ou futuro</b>. As vendas do
+            dia ainda podem mudar.
+          </p>
         </div>
       ) : null}
 
       {day?.overdue?.hasOverdue ? (
-        <div className="rounded-2xl border border-red-200 bg-red-50 p-3 text-sm text-red-800">
+        <div className="flex gap-3 rounded-2xl border border-red-200/90 bg-red-50/90 p-4 shadow-sm">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-red-100 text-red-700 ring-1 ring-red-200/80">
+            <AlertTriangle className="h-5 w-5" strokeWidth={2} aria-hidden />
+          </div>
+          <div className="min-w-0 text-sm text-red-950">
           <div className="font-semibold">
             Alerta de atraso: existem pagamentos pendentes há mais de 48h.
           </div>
@@ -754,7 +809,7 @@ export default function ComissoesFuncionariosClient() {
             ) : null}
           </div>
           {day.overdue.byDay?.length ? (
-            <div className="mt-2 text-xs text-red-700">
+            <div className="mt-2 text-xs text-red-800/90">
               {day.overdue.byDay.slice(0, 5).map((d) => (
                 <div key={d.date}>
                   {fmtDateBR(d.date)}: {d.rowsCount} pendência(s) • {fmtMoneyBR(d.totalNetCents)}
@@ -762,13 +817,14 @@ export default function ComissoesFuncionariosClient() {
               ))}
             </div>
           ) : null}
+          </div>
         </div>
       ) : null}
 
-      <div className="overflow-hidden rounded-2xl border bg-white">
+      <div className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm shadow-slate-200/40">
         <div className="overflow-x-auto">
           <table className="w-full text-left text-sm">
-            <thead className="bg-neutral-50 text-xs text-neutral-600">
+            <thead className="border-b border-slate-200 bg-slate-50/95 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
               <tr>
                 <th className="px-4 py-3">Funcionário</th>
                 <th className="px-4 py-3 text-right">Vendas</th>
@@ -791,7 +847,7 @@ export default function ComissoesFuncionariosClient() {
               </tr>
             </thead>
 
-            <tbody>
+            <tbody className="divide-y divide-slate-100">
               {(day?.rows || []).map((r) => {
                 const b = r.breakdown;
 
@@ -805,27 +861,27 @@ export default function ComissoesFuncionariosClient() {
                 const lucroSemTaxa = lucroSemTaxaEmbarqueCents(r);
 
                 return (
-                  <tr key={r.id} className="border-t">
+                  <tr key={r.id} className="transition hover:bg-slate-50/80">
                     <td className="px-4 py-3">
-                      <div className="font-medium">{displayName}</div>
-                      <div className="text-xs text-neutral-500">{r.user.login}</div>
+                      <div className="font-semibold text-slate-900">{displayName}</div>
+                      <div className="text-xs text-slate-500">{r.user.login}</div>
                     </td>
 
-                    <td className="px-4 py-3 text-right tabular-nums">{b?.salesCount ?? 0}</td>
+                    <td className="px-4 py-3 text-right tabular-nums text-slate-800">{b?.salesCount ?? 0}</td>
 
-                    <td className="px-4 py-3">{fmtMoneyBR(b?.commission1Cents ?? 0)}</td>
-                    <td className="px-4 py-3">{fmtMoneyBR(b?.commission2Cents ?? 0)}</td>
-                    <td className="px-4 py-3">{fmtMoneyBR(b?.commission3RateioCents ?? 0)}</td>
+                    <td className="px-4 py-3 tabular-nums text-slate-800">{fmtMoneyBR(b?.commission1Cents ?? 0)}</td>
+                    <td className="px-4 py-3 tabular-nums text-slate-800">{fmtMoneyBR(b?.commission2Cents ?? 0)}</td>
+                    <td className="px-4 py-3 tabular-nums text-slate-800">{fmtMoneyBR(b?.commission3RateioCents ?? 0)}</td>
 
-                    <td className="px-4 py-3">{fmtMoneyBR(r.tax7Cents || 0)}</td>
-                    <td className="px-4 py-3">{fmtMoneyBR(r.feeCents || 0)}</td>
-                    <td className="px-4 py-3">{fmtMoneyBR(r.balcaoCommissionCents || 0)}</td>
+                    <td className="px-4 py-3 tabular-nums text-slate-800">{fmtMoneyBR(r.tax7Cents || 0)}</td>
+                    <td className="px-4 py-3 tabular-nums text-slate-800">{fmtMoneyBR(r.feeCents || 0)}</td>
+                    <td className="px-4 py-3 tabular-nums text-slate-800">{fmtMoneyBR(r.balcaoCommissionCents || 0)}</td>
 
-                    <td className={`px-4 py-3 font-semibold ${lucroCellCls}`}>
+                    <td className={cn("px-4 py-3 font-semibold tabular-nums", lucroCellCls)}>
                       {fmtMoneyBR(lucroSemTaxa)}
                     </td>
 
-                    <td className={`px-4 py-3 font-bold ${liquidoCellCls}`}>
+                    <td className={cn("px-4 py-3 font-bold tabular-nums", liquidoCellCls)}>
                       {fmtMoneyBR(liquidoComBalcaoCents(r))}
                     </td>
 
@@ -833,7 +889,7 @@ export default function ComissoesFuncionariosClient() {
                       {isPaid ? (
                         <div className="space-y-1">
                           <Pill kind="ok" text="PAGO" />
-                          <div className="text-xs text-neutral-500">
+                          <div className="text-xs text-slate-500">
                             {r.paidBy?.name ? `por ${r.paidBy.name}` : ""}
                             {r.paidAt ? ` • ${fmtDateTimeBR(r.paidAt)}` : ""}
                           </div>
@@ -844,19 +900,21 @@ export default function ComissoesFuncionariosClient() {
                     </td>
 
                     <td className="px-4 py-3 text-right">
-                      <div className="flex justify-end gap-2">
+                      <div className="flex flex-wrap justify-end gap-2">
                         <button
+                          type="button"
                           onClick={() => openDetailsDrawer(r.user)}
-                          className="h-9 rounded-xl border px-3 text-xs hover:bg-neutral-50"
+                          className="h-9 rounded-xl border border-slate-200 bg-white px-3 text-xs font-medium text-slate-800 shadow-sm transition hover:border-slate-300 hover:bg-slate-50"
                           title="Ver detalhes (de onde veio cada valor)"
                         >
                           Detalhes
                         </button>
 
                         <button
+                          type="button"
                           onClick={() => payRow(date, r.userId)}
                           disabled={!canPay || paying}
-                          className="h-9 rounded-xl bg-black px-3 text-xs text-white hover:bg-neutral-800 disabled:opacity-50"
+                          className="h-9 rounded-xl bg-slate-900 px-3 text-xs font-semibold text-white shadow-sm transition hover:bg-slate-800 disabled:pointer-events-none disabled:opacity-50"
                           title={
                             canPay
                               ? "Marcar como pago"
@@ -877,8 +935,16 @@ export default function ComissoesFuncionariosClient() {
 
               {!day?.rows?.length && (
                 <tr>
-                  <td className="px-4 py-8 text-center text-sm text-neutral-500" colSpan={12}>
-                    Sem dados para este dia (ou ainda não autenticado).
+                  <td className="px-4 py-0" colSpan={12}>
+                    <div className="flex flex-col items-center justify-center gap-2 py-14 text-center">
+                      <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-100 text-slate-400 ring-1 ring-slate-200/80">
+                        <Users className="h-6 w-6" strokeWidth={1.75} aria-hidden />
+                      </div>
+                      <p className="text-sm font-semibold text-slate-700">Sem dados para este dia</p>
+                      <p className="max-w-md text-xs leading-relaxed text-slate-500">
+                        Não há comissões computadas para a data selecionada ou você ainda não está autenticado.
+                      </p>
+                    </div>
                   </td>
                 </tr>
               )}
@@ -887,25 +953,27 @@ export default function ComissoesFuncionariosClient() {
         </div>
       </div>
 
-      <div className="rounded-2xl border bg-white p-4">
-        <div className="text-sm font-semibold">Gerar relatório</div>
-        <div className="mt-3 flex flex-wrap items-end gap-3">
-          <div className="flex flex-col">
-            <label className="text-xs text-neutral-500">Mês</label>
+      <div className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm shadow-slate-200/40">
+        <div className="mb-4 border-b border-slate-100 pb-3 text-sm font-semibold tracking-tight text-slate-900">
+          Gerar relatório
+        </div>
+        <div className="flex flex-wrap items-end gap-3">
+          <div className="flex flex-col gap-1">
+            <label className={FIELD_LABEL}>Mês</label>
             <input
               type="month"
               value={reportMonth}
               onChange={(e) => setReportMonth(e.target.value.slice(0, 7))}
-              className="h-10 rounded-xl border px-3 text-sm"
+              className={cn(CONTROL_INPUT, "w-auto min-w-[11rem]")}
             />
           </div>
 
-          <div className="flex min-w-[280px] flex-col">
-            <label className="text-xs text-neutral-500">Funcionário</label>
+          <div className="flex min-w-[280px] flex-col gap-1">
+            <label className={FIELD_LABEL}>Funcionário</label>
             <select
               value={reportUserId}
               onChange={(e) => setReportUserId(e.target.value)}
-              className="h-10 rounded-xl border px-3 text-sm"
+              className={CONTROL_SELECT}
             >
               {reportUsers.map((u) => (
                 <option key={u.id} value={u.id}>
@@ -916,6 +984,7 @@ export default function ComissoesFuncionariosClient() {
           </div>
 
           <button
+            type="button"
             onClick={() => {
               const user = reportUsers.find((u) => u.id === reportUserId);
               if (!user) return;
@@ -925,8 +994,9 @@ export default function ComissoesFuncionariosClient() {
               !reportUserId ||
               downloadingPdfKey === `${reportUserId}|${reportMonth}`
             }
-            className="h-10 rounded-xl border px-4 text-sm hover:bg-neutral-50 disabled:opacity-50"
+            className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-800 shadow-sm transition hover:border-slate-300 hover:bg-slate-50 disabled:pointer-events-none disabled:opacity-50"
           >
+            <FileDown className="h-4 w-4 text-slate-500" strokeWidth={2} aria-hidden />
             {downloadingPdfKey === `${reportUserId}|${reportMonth}`
               ? "Baixando PDF..."
               : "Baixar PDF"}
@@ -934,11 +1004,12 @@ export default function ComissoesFuncionariosClient() {
         </div>
       </div>
 
-      <p className="text-xs text-neutral-500">
-        Nota: Bruto = C1+C2+C3. <b>Comissão balcão</b> = 60% do lucro líquido do balcão (já com imposto do balcão).
-        <b> Lucro s/ taxa</b> = bruto − imposto + comissão balcão. <b>Líquido</b> = netPay + comissão balcão
-        (netPay já inclui reembolso da taxa de vendas).
-      </p>
+      <div className="rounded-2xl border border-slate-200/70 bg-slate-50/80 px-4 py-3 text-xs leading-relaxed text-slate-600">
+        <span className="font-semibold text-slate-700">Nota:</span> Bruto = C1+C2+C3. <b>Comissão balcão</b> = 60% do
+        lucro líquido do balcão (já com imposto do balcão).
+        <b> Lucro s/ taxa</b> = bruto − imposto + comissão balcão. <b>Líquido</b> = netPay + comissão balcão (netPay já
+        inclui reembolso da taxa de vendas).
+      </div>
 
       {/* ===== Drawer Detalhes + Mês ===== */}
       {drawerOpen && (
@@ -1356,13 +1427,14 @@ export default function ComissoesFuncionariosClient() {
       )}
 
       {toast && (
-        <div className="fixed bottom-4 right-4 z-50 w-[360px] rounded-2xl border bg-white p-3 shadow-xl">
-          <div className="text-sm font-semibold">{toast.title}</div>
-          {toast.desc ? <div className="text-xs text-neutral-600">{toast.desc}</div> : null}
-          <div className="mt-2 flex justify-end">
+        <div className="fixed bottom-4 right-4 z-50 w-[min(360px,calc(100vw-2rem))] rounded-2xl border border-slate-200/90 bg-white p-4 shadow-xl shadow-slate-900/10">
+          <div className="text-sm font-semibold text-slate-900">{toast.title}</div>
+          {toast.desc ? <div className="mt-1 text-xs leading-relaxed text-slate-600">{toast.desc}</div> : null}
+          <div className="mt-3 flex justify-end">
             <button
+              type="button"
               onClick={() => setToast(null)}
-              className="rounded-xl border px-3 py-1 text-xs hover:bg-neutral-50"
+              className="rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-800 shadow-sm transition hover:bg-slate-50"
             >
               OK
             </button>

@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import { FilterX, Plus, RefreshCw, Search, ShoppingBag } from "lucide-react";
 import { cn } from "@/lib/cn";
 
 function fmtMoneyBR(cents: number) {
@@ -86,6 +87,39 @@ function errorMessage(error: unknown, fallback: string) {
   if (error instanceof Error && error.message) return error.message;
   if (typeof error === "string" && error.trim()) return error;
   return fallback;
+}
+
+const FIELD_LABEL = "text-[11px] font-semibold uppercase tracking-wide text-slate-500";
+const CONTROL_SELECT =
+  "min-w-[280px] rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-medium text-slate-900 shadow-sm outline-none transition focus:border-slate-300 focus:ring-2 focus:ring-slate-900/10";
+const CONTROL_INPUT =
+  "w-full min-w-[240px] flex-1 rounded-xl border border-slate-200 bg-white px-3 py-2.5 pl-10 text-sm text-slate-900 shadow-sm outline-none transition placeholder:text-slate-400 focus:border-slate-300 focus:ring-2 focus:ring-slate-900/10";
+
+const SUMMARY_BAR: Record<"slate" | "sky" | "amber" | "emerald", string> = {
+  slate: "bg-slate-400",
+  sky: "bg-sky-500",
+  amber: "bg-amber-500",
+  emerald: "bg-emerald-500",
+};
+
+function SummaryStat({
+  label,
+  value,
+  accent,
+}: {
+  label: string;
+  value: string;
+  accent: keyof typeof SUMMARY_BAR;
+}) {
+  return (
+    <div className="relative overflow-hidden rounded-2xl border border-slate-200/80 bg-gradient-to-br from-white to-slate-50/70 p-4 shadow-sm shadow-slate-200/35">
+      <div className={cn("absolute left-0 top-0 h-full w-1 rounded-r", SUMMARY_BAR[accent])} aria-hidden />
+      <div className="pl-3">
+        <div className="text-[11px] font-semibold uppercase leading-snug tracking-wide text-slate-500">{label}</div>
+        <div className="mt-1.5 text-lg font-bold tabular-nums tracking-tight text-slate-900">{value}</div>
+      </div>
+    </div>
+  );
 }
 
 const CARD_MANUAL_VALUE = "__MANUAL__";
@@ -615,10 +649,10 @@ export default function VendasClient() {
 
   function statusBadge(r: SaleRow) {
     return r.paymentStatus === "PAID"
-      ? "bg-emerald-50 border-emerald-200 text-emerald-700"
+      ? "bg-emerald-50 border-emerald-200/80 text-emerald-800 ring-1 ring-emerald-200/70"
       : r.paymentStatus === "CANCELED"
-      ? "bg-slate-100 border-slate-200 text-slate-600"
-      : "bg-amber-50 border-amber-200 text-amber-700";
+        ? "bg-slate-100 border-slate-200/80 text-slate-700 ring-1 ring-slate-200/70"
+        : "bg-amber-50 border-amber-200/80 text-amber-900 ring-1 ring-amber-200/70";
   }
 
   function statusLabel(r: SaleRow) {
@@ -631,8 +665,10 @@ export default function VendasClient() {
 
   function chip(active: boolean) {
     return cn(
-      "rounded-full border px-3 py-1.5 text-xs",
-      active ? "bg-black text-white border-black" : "bg-white text-slate-700 hover:bg-slate-50"
+      "rounded-full border px-3 py-1.5 text-xs font-semibold shadow-sm transition",
+      active
+        ? "border-slate-900 bg-slate-900 text-white shadow-slate-900/20"
+        : "border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50"
     );
   }
 
@@ -649,147 +685,166 @@ export default function VendasClient() {
   }, [detailsId]);
 
   return (
-    <div className="p-6 space-y-4">
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-semibold">Vendas{headerSuffix}</h1>
-          <p className="text-sm text-slate-500">
-            Filtre por cliente e status para ver pendências e pagamentos.
-          </p>
+    <div className="mx-auto max-w-[1800px] space-y-6 p-4 pb-10 sm:p-6">
+      <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
+        <div className="min-w-0 space-y-3">
+          <div className="inline-flex items-center gap-2 rounded-full border border-slate-200/90 bg-white px-3 py-1 text-[11px] font-semibold uppercase tracking-wider text-slate-500 shadow-sm">
+            <ShoppingBag className="h-3.5 w-3.5 text-slate-400" strokeWidth={2} aria-hidden />
+            Gestão de pontos
+          </div>
+          <div>
+            <h1 className="text-3xl font-bold tracking-tight text-slate-900">Vendas{headerSuffix}</h1>
+            <p className="mt-2 max-w-2xl text-sm leading-relaxed text-slate-600">
+              Filtre por cliente e status para ver pendências e pagamentos.
+            </p>
+          </div>
         </div>
 
-        <div className="flex gap-2">
+        <div className="flex shrink-0 flex-wrap gap-2.5">
           <button
+            type="button"
             onClick={() => load()}
-            className={cn(
-              "rounded-xl border px-4 py-2 text-sm",
-              loading ? "opacity-60" : "hover:bg-slate-50"
-            )}
+            className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-medium text-slate-800 shadow-sm transition hover:border-slate-300 hover:bg-slate-50 disabled:pointer-events-none disabled:opacity-55"
+            disabled={loading}
           >
+            <RefreshCw className={cn("h-4 w-4 text-slate-500", loading && "animate-spin")} strokeWidth={2} aria-hidden />
             {loading ? "Atualizando..." : "Atualizar"}
           </button>
           <Link
             href="/dashboard/vendas/nova"
-            className="rounded-xl bg-black px-4 py-2 text-sm text-white hover:bg-gray-800"
+            className="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-slate-900 px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800"
           >
-            + Nova venda
+            <Plus className="h-4 w-4 shrink-0" strokeWidth={2} aria-hidden />
+            Nova venda
           </Link>
         </div>
       </div>
 
       {/* filtros */}
-      <div className="flex flex-wrap items-center gap-3">
-        {/* cliente */}
-        <div className="flex items-center gap-2">
-          <div className="text-xs text-slate-500">Cliente</div>
-          <select
-            value={clientId}
-            onChange={(e) => setClientId(e.target.value)}
-            className="border rounded-xl px-3 py-2 text-sm min-w-[320px] bg-white"
-          >
-            <option value="ALL">Todos os clientes</option>
-            {clients.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.nome} ({c.identificador})
-              </option>
-            ))}
-          </select>
+      <div className="rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm shadow-slate-200/40 sm:p-5">
+        <div className="flex flex-col gap-4 xl:flex-row xl:flex-wrap xl:items-end">
+          <div className="flex min-w-0 flex-col gap-1.5">
+            <span className={FIELD_LABEL}>Cliente</span>
+            <select
+              value={clientId}
+              onChange={(e) => setClientId(e.target.value)}
+              className={cn(CONTROL_SELECT, "min-w-[min(100%,320px)] w-full xl:w-auto")}
+            >
+              <option value="ALL">Todos os clientes</option>
+              {clients.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.nome} ({c.identificador})
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="flex min-w-0 flex-col gap-1.5">
+            <span className={FIELD_LABEL}>Status</span>
+            <div className="flex flex-wrap gap-2">
+              <button type="button" className={chip(status === "ALL")} onClick={() => setStatus("ALL")}>
+                Todos
+              </button>
+              <button type="button" className={chip(status === "PENDING")} onClick={() => setStatus("PENDING")}>
+                Pendentes
+              </button>
+              <button type="button" className={chip(status === "PAID")} onClick={() => setStatus("PAID")}>
+                Pagos
+              </button>
+              <button type="button" className={chip(status === "CANCELED")} onClick={() => setStatus("CANCELED")}>
+                Cancelados
+              </button>
+            </div>
+          </div>
+
+          <div className="flex min-w-0 flex-1 flex-col gap-1.5 basis-full lg:basis-[min(100%,32rem)]">
+            <span className={FIELD_LABEL}>Busca</span>
+            <div className="relative">
+              <Search
+                className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"
+                strokeWidth={2}
+                aria-hidden
+              />
+              <input
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+                placeholder="Cliente, número, localizador, cedente, cartão..."
+                className={CONTROL_INPUT}
+              />
+            </div>
+          </div>
+
+          {(clientId !== "ALL" || status !== "PENDING" || q.trim()) && (
+            <button
+              type="button"
+              className="inline-flex h-10 items-center justify-center gap-2 self-start rounded-xl border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 shadow-sm transition hover:bg-slate-50 xl:self-end"
+              onClick={() => {
+                setClientId("ALL");
+                setStatus("PENDING");
+                setQ("");
+              }}
+            >
+              <FilterX className="h-4 w-4 text-slate-500" strokeWidth={2} aria-hidden />
+              Limpar filtros
+            </button>
+          )}
         </div>
-
-        {/* status */}
-        <div className="flex items-center gap-2">
-          <div className="text-xs text-slate-500">Status</div>
-          <button className={chip(status === "ALL")} onClick={() => setStatus("ALL")}>
-            Todos
-          </button>
-          <button className={chip(status === "PENDING")} onClick={() => setStatus("PENDING")}>
-            Pendentes
-          </button>
-          <button className={chip(status === "PAID")} onClick={() => setStatus("PAID")}>
-            Pagos
-          </button>
-          <button className={chip(status === "CANCELED")} onClick={() => setStatus("CANCELED")}>
-            Cancelados
-          </button>
-        </div>
-
-        {/* busca */}
-        <input
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-          placeholder="Buscar por cliente / número / localizador / cedente / cartão..."
-          className="border rounded-xl px-3 py-2 text-sm w-[520px]"
-        />
-
-        {(clientId !== "ALL" || status !== "PENDING" || q.trim()) && (
-          <button
-            className="rounded-xl border px-3 py-2 text-sm hover:bg-slate-50"
-            onClick={() => {
-              setClientId("ALL");
-              setStatus("PENDING");
-              setQ("");
-            }}
-          >
-            Limpar filtros
-          </button>
-        )}
       </div>
 
       {/* resumo */}
-      <div className="grid gap-3 md:grid-cols-4">
-        <div className="rounded-2xl border bg-white p-4">
-          <div className="text-xs text-slate-500">Vendas (filtro)</div>
-          <div className="text-lg font-semibold">{fmtInt(totals.count)}</div>
-        </div>
-
-        <div className="rounded-2xl border bg-white p-4">
-          <div className="text-xs text-slate-500">
-            {selectedClient ? "Total no filtro (cliente)" : "Total no filtro"}
-          </div>
-          <div className="text-lg font-semibold">{fmtMoneyBR(totals.totalGeral)}</div>
-        </div>
-
-        <div className="rounded-2xl border bg-white p-4">
-          <div className="text-xs text-slate-500">
-            {selectedClient ? "Total pendente a receber (cliente)" : "Total pendente a receber"}
-          </div>
-          <div className="text-lg font-semibold">{fmtMoneyBR(totals.totalPend)}</div>
-        </div>
-
-        <div className="rounded-2xl border bg-white p-4">
-          <div className="text-xs text-slate-500">
-            {selectedClient ? "Total pago (cliente)" : "Total pago"}
-          </div>
-          <div className="text-lg font-semibold">{fmtMoneyBR(totals.totalPago)}</div>
-        </div>
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <SummaryStat label="Vendas (filtro)" value={fmtInt(totals.count)} accent="slate" />
+        <SummaryStat
+          label={selectedClient ? "Total no filtro (cliente)" : "Total no filtro"}
+          value={fmtMoneyBR(totals.totalGeral)}
+          accent="sky"
+        />
+        <SummaryStat
+          label={selectedClient ? "Total pendente a receber (cliente)" : "Total pendente a receber"}
+          value={fmtMoneyBR(totals.totalPend)}
+          accent="amber"
+        />
+        <SummaryStat
+          label={selectedClient ? "Total pago (cliente)" : "Total pago"}
+          value={fmtMoneyBR(totals.totalPago)}
+          accent="emerald"
+        />
       </div>
 
-      <div className="rounded-2xl border bg-white overflow-hidden">
+      <div className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm shadow-slate-200/40">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
-            <thead className="bg-slate-50 border-b">
-              <tr className="text-slate-600">
-                <th className="text-left font-semibold px-4 py-3 w-[120px]">DATA</th>
-                <th className="text-left font-semibold px-4 py-3 w-[130px]">VENDA</th>
-                <th className="text-left font-semibold px-4 py-3 w-[260px]">CLIENTE</th>
-                <th className="text-left font-semibold px-4 py-3 w-[280px]">CEDENTE</th>
-                <th className="text-left font-semibold px-4 py-3 w-[120px]">PROGRAMA</th>
-                <th className="text-right font-semibold px-4 py-3 w-[140px]">PONTOS</th>
-                <th className="text-right font-semibold px-4 py-3 w-[130px]">MILHEIRO</th>
-                <th className="text-right font-semibold px-4 py-3 w-[100px]">PAX</th>
-                <th className="text-right font-semibold px-4 py-3 w-[160px]">TOTAL</th>
-                <th className="text-right font-semibold px-4 py-3 w-[170px]">A RECEBER</th>
-                <th className="text-left font-semibold px-4 py-3 w-[140px]">STATUS</th>
-                <th className="text-left font-semibold px-4 py-3 w-[140px]">LOC</th>
-                <th className="text-right font-semibold px-4 py-3 w-[200px]">AÇÃO</th>
+            <thead className="border-b border-slate-200 bg-slate-50/95">
+              <tr className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                <th className="w-[120px] px-4 py-3 text-left">Data</th>
+                <th className="w-[130px] px-4 py-3 text-left">Venda</th>
+                <th className="w-[260px] px-4 py-3 text-left">Cliente</th>
+                <th className="w-[280px] px-4 py-3 text-left">Cedente</th>
+                <th className="w-[120px] px-4 py-3 text-left">Programa</th>
+                <th className="w-[140px] px-4 py-3 text-right">Pontos</th>
+                <th className="w-[130px] px-4 py-3 text-right">Milheiro</th>
+                <th className="w-[100px] px-4 py-3 text-right">Pax</th>
+                <th className="w-[160px] px-4 py-3 text-right">Total</th>
+                <th className="w-[170px] px-4 py-3 text-right">A receber</th>
+                <th className="w-[140px] px-4 py-3 text-left">Status</th>
+                <th className="w-[140px] px-4 py-3 text-left">Loc</th>
+                <th className="w-[200px] px-4 py-3 text-right">Ação</th>
               </tr>
             </thead>
 
-            <tbody>
+            <tbody className="divide-y divide-slate-100">
               {filtered.length === 0 && !loading ? (
                 <tr>
-                  <td colSpan={13} className="px-4 py-8 text-slate-500">
-                    Nenhum resultado.
+                  <td colSpan={13} className="px-4 py-0">
+                    <div className="flex flex-col items-center justify-center gap-2 py-14 text-center">
+                      <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-100 text-slate-400 ring-1 ring-slate-200/80">
+                        <ShoppingBag className="h-6 w-6" strokeWidth={1.75} aria-hidden />
+                      </div>
+                      <p className="text-sm font-semibold text-slate-700">Nenhum resultado</p>
+                      <p className="max-w-md text-xs leading-relaxed text-slate-500">
+                        Ajuste os filtros ou a busca para encontrar vendas.
+                      </p>
+                    </div>
                   </td>
                 </tr>
               ) : null}
@@ -801,7 +856,7 @@ export default function VendasClient() {
                 return (
                   <tr
                     key={r.id}
-                    className="border-b last:border-b-0 hover:bg-slate-50 cursor-pointer"
+                    className="cursor-pointer transition hover:bg-slate-50/90"
                     onClick={() => setDetailsId(r.id)}
                     title="Clique para ver detalhes"
                   >
@@ -820,7 +875,7 @@ export default function VendasClient() {
                     </td>
 
                     <td className="px-4 py-3">
-                      <div className="font-medium">{r.cliente.nome}</div>
+                      <div className="font-semibold text-slate-900">{r.cliente.nome}</div>
                       <div className="text-xs text-slate-500">{r.cliente.identificador}</div>
                     </td>
 
@@ -842,12 +897,14 @@ export default function VendasClient() {
                     </td>
                     <td className="px-4 py-3 text-right tabular-nums">{fmtInt(r.passengers)}</td>
 
-                    <td className="px-4 py-3 text-right font-semibold">{fmtMoneyBR(r.totalCents)}</td>
+                    <td className="px-4 py-3 text-right font-semibold tabular-nums text-slate-900">
+                      {fmtMoneyBR(r.totalCents)}
+                    </td>
 
                     <td
                       className={cn(
-                        "px-4 py-3 text-right font-semibold",
-                        pend > 0 ? "text-amber-700" : "text-slate-700"
+                        "px-4 py-3 text-right font-semibold tabular-nums",
+                        pend > 0 ? "text-amber-800" : "text-slate-600"
                       )}
                     >
                       {fmtMoneyBR(pend)}
@@ -855,7 +912,10 @@ export default function VendasClient() {
 
                     <td className="px-4 py-3">
                       <span
-                        className={cn("inline-flex rounded-full border px-2 py-1 text-xs", statusBadge(r))}
+                        className={cn(
+                          "inline-flex rounded-full border px-2.5 py-1 text-[11px] font-semibold",
+                          statusBadge(r)
+                        )}
                       >
                         {statusLabel(r)}
                       </span>
@@ -872,11 +932,12 @@ export default function VendasClient() {
                       ) : (
                         <div className="flex justify-end gap-2">
                           <button
+                            type="button"
                             onClick={() => togglePago(r)}
                             disabled={isBusy}
                             className={cn(
-                              "rounded-xl border px-3 py-1.5 text-sm",
-                              isBusy ? "opacity-60 cursor-not-allowed" : "hover:bg-slate-50"
+                              "rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-800 shadow-sm transition",
+                              isBusy ? "cursor-not-allowed opacity-60" : "hover:border-slate-300 hover:bg-slate-50"
                             )}
                             title={r.paymentStatus === "PAID" ? "Marcar como pendente" : "Marcar como pago"}
                           >
@@ -888,11 +949,12 @@ export default function VendasClient() {
                           </button>
 
                           <button
+                            type="button"
                             onClick={() => cancelSale(r)}
                             disabled={isBusy}
                             className={cn(
-                              "rounded-xl border px-3 py-1.5 text-sm border-red-300 text-red-700",
-                              isBusy ? "opacity-60 cursor-not-allowed" : "hover:bg-red-50"
+                              "rounded-xl border border-red-200 bg-white px-3 py-1.5 text-sm font-medium text-red-800 shadow-sm transition",
+                              isBusy ? "cursor-not-allowed opacity-60" : "hover:border-red-300 hover:bg-red-50"
                             )}
                             title="Cancelar venda (estorna pontos e opcionalmente reseta passageiros)"
                           >
@@ -907,8 +969,11 @@ export default function VendasClient() {
 
               {loading ? (
                 <tr>
-                  <td colSpan={13} className="px-4 py-8 text-slate-500">
-                    Carregando...
+                  <td colSpan={13} className="px-4 py-10 text-center">
+                    <span className="inline-flex items-center gap-2 text-sm font-medium text-slate-600">
+                      <RefreshCw className="h-4 w-4 animate-spin text-slate-400" strokeWidth={2} aria-hidden />
+                      Carregando...
+                    </span>
                   </td>
                 </tr>
               ) : null}
@@ -916,25 +981,39 @@ export default function VendasClient() {
           </table>
         </div>
 
-        <div className="border-t px-4 py-3 text-xs text-slate-500">
-          “A receber” = Receivable.balanceCents (se existir) senão usa Total quando status for Pendente.
+        <div className="border-t border-slate-100 bg-slate-50/80 px-4 py-3 text-xs leading-relaxed text-slate-600">
+          <span className="font-semibold text-slate-700">A receber:</span> usa{" "}
+          <code className="rounded bg-white px-1 py-0.5 text-[10px] text-slate-700 ring-1 ring-slate-200/80">
+            Receivable.balanceCents
+          </code>{" "}
+          quando existir; caso contrário, o total da venda quando o status for Pendente.
         </div>
       </div>
 
-      <div className="flex justify-center">
+      <div className="flex justify-center pb-2">
         {nextCursor ? (
           <button
+            type="button"
             onClick={() => load({ append: true })}
             className={cn(
-              "rounded-xl border px-4 py-2 text-sm",
-              loadingMore ? "opacity-60" : "hover:bg-slate-50"
+              "rounded-xl border border-slate-200 bg-white px-5 py-2.5 text-sm font-medium text-slate-800 shadow-sm transition hover:border-slate-300 hover:bg-slate-50",
+              loadingMore && "pointer-events-none opacity-60"
             )}
             disabled={loadingMore}
           >
-            {loadingMore ? "Carregando..." : "Carregar mais"}
+            {loadingMore ? (
+              <span className="inline-flex items-center gap-2">
+                <RefreshCw className="h-4 w-4 animate-spin" strokeWidth={2} aria-hidden />
+                Carregando...
+              </span>
+            ) : (
+              "Carregar mais"
+            )}
           </button>
         ) : (
-          <div className="text-xs text-slate-500">Fim do histórico.</div>
+          <div className="rounded-full border border-slate-200/80 bg-slate-50 px-4 py-1.5 text-xs font-medium text-slate-500">
+            Fim do histórico
+          </div>
         )}
       </div>
 
