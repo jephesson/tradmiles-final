@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { History, Landmark, PieChart, RefreshCw, Save, Wallet } from "lucide-react";
+import { cn } from "@/lib/cn";
 
 type Points = { latam: number; smiles: number; livelo: number; esfera: number };
 
@@ -236,7 +238,7 @@ function SnapshotEvolutionChart({
 
   if (!data.length || !hasValues) {
     return (
-      <div className="rounded-xl border bg-slate-50 p-4 text-sm text-slate-600">
+      <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50/80 p-6 text-center text-sm text-slate-600">
         Sem snapshots manuais nos últimos {range} dias.
       </div>
     );
@@ -346,10 +348,10 @@ function SnapshotEvolutionChart({
   };
 
   return (
-    <div className="rounded-xl border bg-white p-4 shadow-sm">
-      <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+    <div className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm shadow-slate-200/50">
+      <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <div className="text-sm font-semibold">Evolução dos snapshots manuais</div>
+          <div className="text-sm font-semibold tracking-tight text-slate-900">Evolução dos snapshots manuais</div>
           <div className="text-xs text-slate-500">
             {data.length} dia(s), {rawData.length} medição(ões) em {range} dias • último: {dateTimeBR(latest.capturedAt)}
           </div>
@@ -613,10 +615,12 @@ function Input({
   placeholder?: string;
 }) {
   return (
-    <label className="space-y-1">
-      <div className="text-xs text-slate-600">{label}</div>
+    <label className="block space-y-1.5">
+      <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+        {label}
+      </span>
       <input
-        className="w-full rounded-xl border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-black/10"
+        className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 shadow-sm outline-none transition placeholder:text-slate-400 focus:border-slate-300 focus:ring-2 focus:ring-slate-900/10"
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
@@ -644,12 +648,12 @@ function Line({
       : "font-semibold text-slate-900";
 
   return (
-    <div className="flex items-start justify-between gap-3 py-2">
+    <div className="flex items-start justify-between gap-3 py-2.5 first:pt-0 last:pb-0">
       <div className="min-w-0">
-        <div className="text-sm text-slate-700">{label}</div>
-        {hint ? <div className="text-xs text-slate-500">{hint}</div> : null}
+        <div className="text-[13px] font-medium text-slate-700">{label}</div>
+        {hint ? <div className="mt-0.5 text-xs leading-snug text-slate-500">{hint}</div> : null}
       </div>
-      <div className={`shrink-0 text-sm ${vCls}`}>{value}</div>
+      <div className={cn("shrink-0 text-[13px] tabular-nums", vCls)}>{value}</div>
     </div>
   );
 }
@@ -1223,73 +1227,114 @@ export default function CedentesResumoClient() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-8 pb-8">
       {/* Header */}
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-bold">Resumo</h1>
-          <p className="text-sm text-slate-600">
-            Patrimônio estimado: milhas (por milheiro) + saldos + a receber (vendas) + dívidas a receber −
-            dívidas − pendências (comissões/funcionários/impostos).
-          </p>
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0 space-y-3">
+          <div className="inline-flex items-center gap-2 rounded-full border border-slate-200/90 bg-white px-3 py-1 text-[11px] font-semibold uppercase tracking-wider text-slate-500 shadow-sm">
+            <PieChart className="h-3.5 w-3.5 text-slate-400" strokeWidth={2} aria-hidden />
+            Visão geral
+          </div>
+          <div>
+            <h1 className="text-3xl font-bold tracking-tight text-slate-900">Resumo</h1>
+            <p className="mt-2 max-w-2xl text-sm leading-relaxed text-slate-600">
+              Patrimônio estimado: milhas (por milheiro) + saldos + a receber (vendas) + dívidas a receber −
+              dívidas − pendências (comissões/funcionários/impostos).
+            </p>
+          </div>
         </div>
 
         <button
+          type="button"
           onClick={load}
-          className="rounded-xl border px-4 py-2 text-sm hover:bg-slate-50 disabled:opacity-60"
+          className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-800 shadow-sm transition hover:border-slate-300 hover:bg-slate-50 disabled:pointer-events-none disabled:opacity-55"
           disabled={loading}
         >
+          <RefreshCw
+            className={cn("h-4 w-4 text-slate-500", loading && "animate-spin")}
+            strokeWidth={2}
+            aria-hidden
+          />
           {loading ? "Atualizando..." : "Atualizar"}
         </button>
       </div>
 
       {/* Top cards */}
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className="grid gap-5 lg:grid-cols-2">
         {/* Milhas */}
-        <div className="rounded-2xl border bg-white p-4 space-y-3">
-          <div className="flex items-center justify-between">
-            <div className="font-semibold">Milhas atuais</div>
-            <span className="text-[11px] rounded-full bg-slate-100 px-2 py-1 text-slate-600">
+        <div className="space-y-4 rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm shadow-slate-200/40">
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex items-center gap-2.5">
+              <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-sky-50 text-sky-600 ring-1 ring-sky-100">
+                <Wallet className="h-4 w-4" strokeWidth={2} aria-hidden />
+              </div>
+              <div>
+                <div className="font-semibold tracking-tight text-slate-900">Milhas atuais</div>
+                <div className="text-xs text-slate-500">Somatório dos cedentes</div>
+              </div>
+            </div>
+            <span className="shrink-0 rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-medium text-slate-600">
               somatório cedentes
             </span>
           </div>
 
-          <div className="grid gap-2 sm:grid-cols-2 text-sm">
-            <div>
-              LATAM: <b>{fmtInt(points.latam)}</b>
-            </div>
-            <div>
-              Smiles: <b>{fmtInt(points.smiles)}</b>
-            </div>
-            <div>
-              Livelo: <b>{fmtInt(points.livelo)}</b>
-            </div>
-            <div>
-              Esfera: <b>{fmtInt(points.esfera)}</b>
-            </div>
+          <div className="grid gap-3 sm:grid-cols-2">
+            {(
+              [
+                { label: "LATAM", value: points.latam, bar: "bg-sky-500" },
+                { label: "Smiles", value: points.smiles, bar: "bg-rose-500" },
+                { label: "Livelo", value: points.livelo, bar: "bg-violet-500" },
+                { label: "Esfera", value: points.esfera, bar: "bg-amber-500" },
+              ] as const
+            ).map((row) => (
+              <div
+                key={row.label}
+                className="relative overflow-hidden rounded-xl border border-slate-100 bg-gradient-to-br from-slate-50/90 to-white px-4 py-3 shadow-sm"
+              >
+                <div className={cn("absolute left-0 top-0 h-full w-1 rounded-r", row.bar)} aria-hidden />
+                <div className="pl-2">
+                  <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">{row.label}</div>
+                  <div className="mt-1 text-lg font-bold tabular-nums tracking-tight text-slate-900">
+                    {fmtInt(row.value)}
+                  </div>
+                </div>
+              </div>
+            ))}
           </div>
 
-          <div className="text-xs text-slate-600">
-            * cálculo usa milheiros inteiros (pontos/1000 arredondado para baixo).
-          </div>
+          <p className="rounded-xl bg-slate-50 px-3 py-2 text-xs leading-snug text-slate-600">
+            * Cálculo usa milheiros inteiros (pontos/1000 arredondado para baixo).
+          </p>
         </div>
 
         {/* Caixa */}
-        <div className="rounded-2xl border bg-white p-4 space-y-3">
-          <div className="flex items-center justify-between">
-            <div className="font-semibold">Caixa (saldos)</div>
-            <span className="text-[11px] rounded-full bg-slate-100 px-2 py-1 text-slate-600">
+        <div className="space-y-4 rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm shadow-slate-200/40">
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex items-center gap-2.5">
+              <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-emerald-50 text-emerald-700 ring-1 ring-emerald-100">
+                <Landmark className="h-4 w-4" strokeWidth={2} aria-hidden />
+              </div>
+              <div>
+                <div className="font-semibold tracking-tight text-slate-900">Caixa (saldos)</div>
+                <div className="text-xs text-slate-500">Referência operacional</div>
+              </div>
+            </div>
+            <span className="shrink-0 rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-medium text-slate-600">
               referência operacional
             </span>
           </div>
 
-          <div className="rounded-xl border bg-slate-50 p-3 space-y-3">
-            <div className="flex items-center justify-between gap-3">
+          <div className="space-y-4 rounded-xl border border-slate-100 bg-slate-50/80 p-4">
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200/60 pb-3">
               <div>
                 <div className="text-sm font-semibold text-slate-900">Saldos</div>
-                <div className="text-xs text-slate-500">Adicione e remova saldos disponíveis para compor o caixa.</div>
+                <div className="text-xs text-slate-500">
+                  Adicione e remova saldos disponíveis para compor o caixa.
+                </div>
               </div>
-              <div className="text-sm font-semibold text-slate-900">{fmtMoneyBR(creditCardsTotalCents)}</div>
+              <div className="text-base font-bold tabular-nums text-slate-900">
+                {fmtMoneyBR(creditCardsTotalCents)}
+              </div>
             </div>
 
             <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_180px_auto]">
@@ -1306,9 +1351,10 @@ export default function CedentesResumoClient() {
                 placeholder="Ex: 1500,00"
               />
               <button
+                type="button"
                 onClick={addCreditCard}
                 disabled={savingCreditCard}
-                className="self-end rounded-xl border px-4 py-2 text-sm hover:bg-white disabled:opacity-60"
+                className="self-end rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-medium text-white shadow-sm transition hover:bg-slate-800 disabled:opacity-60"
               >
                 {savingCreditCard ? "Salvando..." : "Adicionar saldo"}
               </button>
@@ -1319,18 +1365,21 @@ export default function CedentesResumoClient() {
                 {creditCards.map((card) => (
                   <div
                     key={card.id}
-                    className="flex items-center justify-between gap-3 rounded-xl border bg-white px-3 py-2"
+                    className="flex items-center justify-between gap-3 rounded-xl border border-slate-200/80 bg-white px-4 py-3 shadow-sm"
                   >
                     <div className="min-w-0">
-                      <div className="text-sm font-medium text-slate-900">{card.description}</div>
+                      <div className="text-sm font-semibold text-slate-900">{card.description}</div>
                       <div className="text-xs text-slate-500">Saldo disponível</div>
                     </div>
                     <div className="flex items-center gap-3">
-                      <div className="text-sm font-semibold text-slate-900">{fmtMoneyBR(card.amountCents)}</div>
+                      <div className="text-sm font-bold tabular-nums text-slate-900">
+                        {fmtMoneyBR(card.amountCents)}
+                      </div>
                       <button
+                        type="button"
                         onClick={() => removeCreditCard(card.id)}
                         disabled={savingCreditCard}
-                        className="rounded-xl border px-3 py-1.5 text-sm hover:bg-slate-50 disabled:opacity-60"
+                        className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:opacity-60"
                       >
                         Remover
                       </button>
@@ -1339,46 +1388,61 @@ export default function CedentesResumoClient() {
                 ))}
               </div>
             ) : (
-              <div className="text-xs text-slate-500">Nenhum saldo cadastrado ainda.</div>
+              <div className="rounded-lg border border-dashed border-slate-200 bg-white/60 px-3 py-4 text-center text-xs text-slate-500">
+                Nenhum saldo cadastrado ainda.
+              </div>
             )}
           </div>
 
-          <div className="text-xs text-slate-600">
-            Ponto de corte fixo para caixa imediato: <b>{fmtInt(FIXED_CUTOFF_POINTS)} pts</b>
-          </div>
+          <p className="text-xs text-slate-600">
+            Ponto de corte fixo para caixa imediato:{" "}
+            <span className="font-semibold text-slate-900">{fmtInt(FIXED_CUTOFF_POINTS)} pts</span>
+          </p>
 
-          <div className="rounded-xl border bg-slate-50 p-3">
-            <div className="text-xs text-slate-600">Caixa projetado</div>
-            <div className="text-xl font-bold">{fmtMoneyBR(caixaImediatoCalc.cashProjectedInterCents)}</div>
-            <div className="text-xs text-slate-500 mt-1">
-              saldos + a receber (vendas) + dívidas a receber − (a pagar funcionários + impostos)
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="rounded-xl border border-slate-100 bg-gradient-to-br from-emerald-50/50 to-white p-4 shadow-sm">
+              <div className="text-xs font-medium text-emerald-800/90">Caixa projetado</div>
+              <div className="mt-1 text-2xl font-bold tabular-nums tracking-tight text-slate-900">
+                {fmtMoneyBR(caixaImediatoCalc.cashProjectedInterCents)}
+              </div>
+              <div className="mt-2 text-xs leading-snug text-slate-600">
+                saldos + a receber (vendas) + dívidas a receber − (a pagar funcionários + impostos)
+              </div>
+            </div>
+
+            <div className="rounded-xl border border-slate-100 bg-gradient-to-br from-slate-50 to-white p-4 shadow-sm">
+              <div className="text-xs font-medium text-slate-600">Caixa total (sem corte)</div>
+              <div className="mt-1 text-2xl font-bold tabular-nums tracking-tight text-slate-900">
+                {fmtMoneyBR(calc.totalAfterPendingsCents)}
+              </div>
+              <div className="mt-2 text-xs leading-snug text-slate-600">
+                milhas totais + pontos pendentes + saldos + a receber − dívidas − pendências
+              </div>
             </div>
           </div>
 
-          <div className="rounded-xl border bg-slate-50 p-3">
-            <div className="text-xs text-slate-600">Caixa total (sem corte)</div>
-            <div className="text-xl font-bold">{fmtMoneyBR(calc.totalAfterPendingsCents)}</div>
-            <div className="text-xs text-slate-500 mt-1">
-              milhas totais + pontos pendentes + saldos + a receber − dívidas − pendências
-            </div>
-          </div>
-
-          <div className="text-xs text-slate-600">
+          <p className="rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-600">
             Elegíveis no corte: LATAM {fmtInt(eligible.counts.latam)} • Smiles {fmtInt(eligible.counts.smiles)} •
             Livelo {fmtInt(eligible.counts.livelo)} • Esfera {fmtInt(eligible.counts.esfera)}
-          </div>
+          </p>
         </div>
       </div>
 
       {/* Milheiro */}
-      <div className="rounded-2xl border bg-white p-4 space-y-4">
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <div className="font-semibold">Valor do milheiro</div>
-            <div className="text-xs text-slate-600">R$/1000</div>
+      <div className="space-y-5 rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm shadow-slate-200/40">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-amber-50 text-amber-700 ring-1 ring-amber-100">
+              <PieChart className="h-5 w-5" strokeWidth={2} aria-hidden />
+            </div>
+            <div>
+              <div className="font-semibold tracking-tight text-slate-900">Valor do milheiro</div>
+              <div className="text-xs text-slate-500">Taxa em R$ por 1.000 pontos</div>
+            </div>
           </div>
 
           <button
+            type="button"
             onClick={async () => {
               try {
                 await salvarRates();
@@ -1387,13 +1451,14 @@ export default function CedentesResumoClient() {
                 alert(getErrorMessage(e, "Erro ao salvar milheiros."));
               }
             }}
-            className="rounded-xl border px-4 py-2 text-sm hover:bg-slate-50"
+            className="inline-flex items-center justify-center gap-2 rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-medium text-white shadow-sm transition hover:bg-slate-800"
           >
+            <Save className="h-4 w-4" strokeWidth={2} aria-hidden />
             Salvar milheiros
           </button>
         </div>
 
-        <div className="grid gap-3 sm:grid-cols-2">
+        <div className="grid gap-4 sm:grid-cols-2">
           <Input label="LATAM" value={rateLatam} onChange={setRateLatam} />
           <Input label="Smiles" value={rateSmiles} onChange={setRateSmiles} />
           <Input label="Livelo" value={rateLivelo} onChange={setRateLivelo} />
@@ -1401,57 +1466,62 @@ export default function CedentesResumoClient() {
         </div>
 
         <div className="grid gap-3 sm:grid-cols-2">
-          <div className="rounded-xl border p-3">
-            <div className="text-xs text-slate-600">LATAM</div>
-            <div className="text-sm">
-              Milheiros: <b>{fmtInt(calc.milLatam)}</b> • Valor: <b>{fmtMoneyBR(calc.vLatamCents)}</b>
+          {(
+            [
+              { label: "LATAM", mil: calc.milLatam, val: calc.vLatamCents, accent: "border-sky-100 bg-sky-50/30" },
+              { label: "Smiles", mil: calc.milSmiles, val: calc.vSmilesCents, accent: "border-rose-100 bg-rose-50/30" },
+              { label: "Livelo", mil: calc.milLivelo, val: calc.vLiveloCents, accent: "border-violet-100 bg-violet-50/30" },
+              { label: "Esfera", mil: calc.milEsfera, val: calc.vEsferaCents, accent: "border-amber-100 bg-amber-50/30" },
+            ] as const
+          ).map((row) => (
+            <div
+              key={row.label}
+              className={cn(
+                "rounded-xl border p-4 shadow-sm transition hover:shadow-md",
+                row.accent
+              )}
+            >
+              <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">{row.label}</div>
+              <div className="mt-2 text-sm leading-snug text-slate-800">
+                Milheiros: <span className="font-bold tabular-nums">{fmtInt(row.mil)}</span>
+                <span className="mx-1.5 text-slate-300">•</span>
+                Valor:{" "}
+                <span className="font-bold tabular-nums text-slate-900">{fmtMoneyBR(row.val)}</span>
+              </div>
             </div>
-          </div>
-          <div className="rounded-xl border p-3">
-            <div className="text-xs text-slate-600">Smiles</div>
-            <div className="text-sm">
-              Milheiros: <b>{fmtInt(calc.milSmiles)}</b> • Valor: <b>{fmtMoneyBR(calc.vSmilesCents)}</b>
-            </div>
-          </div>
-          <div className="rounded-xl border p-3">
-            <div className="text-xs text-slate-600">Livelo</div>
-            <div className="text-sm">
-              Milheiros: <b>{fmtInt(calc.milLivelo)}</b> • Valor: <b>{fmtMoneyBR(calc.vLiveloCents)}</b>
-            </div>
-          </div>
-          <div className="rounded-xl border p-3">
-            <div className="text-xs text-slate-600">Esfera</div>
-            <div className="text-sm">
-              Milheiros: <b>{fmtInt(calc.milEsfera)}</b> • Valor: <b>{fmtMoneyBR(calc.vEsferaCents)}</b>
-            </div>
-          </div>
+          ))}
         </div>
 
-        <div className="rounded-2xl border bg-white p-4">
-          <div className="flex items-start justify-between gap-3">
+        <div className="rounded-2xl border border-slate-200/70 bg-slate-50/40 p-5">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
             <div>
-              <div className="font-semibold">Caixa imediato (integrado)</div>
-              <div className="text-xs text-slate-500 mt-0.5">
+              <div className="font-semibold tracking-tight text-slate-900">Caixa imediato (integrado)</div>
+              <div className="mt-1 max-w-xl text-xs leading-relaxed text-slate-500">
                 Entradas e saídas consolidadas em lista para leitura rápida.
               </div>
             </div>
             <button
+              type="button"
               onClick={salvarSnapshotsHoje}
-              className="rounded-xl bg-black px-4 py-2 text-white text-sm hover:bg-gray-800"
+              className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-medium text-white shadow-sm transition hover:bg-slate-800"
             >
+              <Save className="h-4 w-4" strokeWidth={2} aria-hidden />
               Salvar snapshot manual
             </button>
           </div>
 
-          <div className="mt-4 grid gap-4 md:grid-cols-2">
-            <div className="rounded-2xl border bg-slate-50 p-4">
-              <div className="flex items-center justify-between">
+          <div className="mt-5 grid gap-4 md:grid-cols-2">
+            <div className="rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm">
+              <div className="flex items-center justify-between gap-2 border-b border-slate-100 pb-3">
                 <div className="text-sm font-semibold text-slate-900">Entradas</div>
                 <div className="text-xs text-slate-600">
-                  Total: <b className="text-emerald-700">+{fmtMoneyBR(caixaImediatoCalc.totalGrossCents)}</b>
+                  Total:{" "}
+                  <span className="font-bold text-emerald-700 tabular-nums">
+                    +{fmtMoneyBR(caixaImediatoCalc.totalGrossCents)}
+                  </span>
                 </div>
               </div>
-              <div className="mt-3 divide-y">
+              <div className="mt-1 divide-y divide-slate-100">
                 <Line
                   label="Milhas elegíveis (valor estimado)"
                   value={`+${fmtMoneyBR(caixaImediatoCalc.milesValueEligibleCents)}`}
@@ -1490,14 +1560,17 @@ export default function CedentesResumoClient() {
               </div>
             </div>
 
-            <div className="rounded-2xl border bg-slate-50 p-4">
-              <div className="flex items-center justify-between">
+            <div className="rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm">
+              <div className="flex items-center justify-between gap-2 border-b border-slate-100 pb-3">
                 <div className="text-sm font-semibold text-slate-900">Saídas</div>
                 <div className="text-xs text-slate-600">
-                  Total: <b className="text-rose-700">-{fmtMoneyBR(caixaImediatoCalc.outCents)}</b>
+                  Total:{" "}
+                  <span className="font-bold text-rose-700 tabular-nums">
+                    -{fmtMoneyBR(caixaImediatoCalc.outCents)}
+                  </span>
                 </div>
               </div>
-              <div className="mt-3 divide-y">
+              <div className="mt-1 divide-y divide-slate-100">
                 <Line label="Dívidas em aberto" value={`-${fmtMoneyBR(debtsOpenCents)}`} tone="minus" hint="saldo OPEN" />
                 <Line
                   label="Bloqueado (OPEN)"
@@ -1520,16 +1593,22 @@ export default function CedentesResumoClient() {
             </div>
           </div>
 
-          <div className="mt-4 grid gap-3 md:grid-cols-2">
-            <div className="rounded-2xl border bg-black p-4 text-white">
-              <div className="text-xs opacity-80">Caixa imediato (referência)</div>
-              <div className="text-3xl font-bold">{fmtMoneyBR(caixaImediatoCalc.totalImmediateCents)}</div>
-              <div className="text-xs opacity-70 mt-1">entradas − (dívidas + bloqueios + pendências)</div>
+          <div className="mt-5 grid gap-3 md:grid-cols-2">
+            <div className="rounded-2xl border border-slate-800 bg-gradient-to-br from-slate-900 to-slate-800 p-5 text-white shadow-lg shadow-slate-900/20">
+              <div className="text-xs font-medium text-white/70">Caixa imediato (referência)</div>
+              <div className="mt-2 text-3xl font-bold tabular-nums tracking-tight">
+                {fmtMoneyBR(caixaImediatoCalc.totalImmediateCents)}
+              </div>
+              <div className="mt-2 text-xs leading-snug text-white/65">
+                entradas − (dívidas + bloqueios + pendências)
+              </div>
             </div>
-            <div className="rounded-2xl border bg-slate-50 p-4">
-              <div className="text-xs text-slate-600">Caixa total (sem corte)</div>
-              <div className="text-xl font-bold">{fmtMoneyBR(calc.totalAfterPendingsCents)}</div>
-              <div className="text-xs text-slate-500 mt-1">
+            <div className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm">
+              <div className="text-xs font-medium text-slate-600">Caixa total (sem corte)</div>
+              <div className="mt-2 text-2xl font-bold tabular-nums tracking-tight text-slate-900">
+                {fmtMoneyBR(calc.totalAfterPendingsCents)}
+              </div>
+              <div className="mt-2 text-xs leading-snug text-slate-500">
                 milhas totais + pontos pendentes + saldos + a receber − dívidas − pendências
               </div>
             </div>
@@ -1538,36 +1617,49 @@ export default function CedentesResumoClient() {
       </div>
 
       {/* Histórico */}
-      <div className="rounded-2xl border bg-white p-4 space-y-3">
-        <div className="flex items-center justify-between gap-3">
-          <div>
-            <div className="font-semibold">Histórico manual do caixa</div>
-            <div className="text-xs text-slate-500">
-              últimos {Math.min(500, snapshotRows.length)} snapshots salvos manualmente
+      <div className="space-y-4 rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm shadow-slate-200/40">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="flex items-start gap-3">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-slate-100 text-slate-600 ring-1 ring-slate-200/80">
+              <History className="h-5 w-5" strokeWidth={2} aria-hidden />
+            </div>
+            <div>
+              <div className="font-semibold tracking-tight text-slate-900">Histórico manual do caixa</div>
+              <div className="text-xs text-slate-500">
+                Últimos {Math.min(500, snapshotRows.length)} snapshots salvos manualmente
+              </div>
             </div>
           </div>
         </div>
 
         {snapshotRows.length === 0 ? (
-          <div className="text-sm text-slate-600">Nenhum snapshot salvo ainda.</div>
+          <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/50 px-4 py-8 text-center text-sm text-slate-600">
+            Nenhum snapshot salvo ainda.
+          </div>
         ) : (
-          <div className="max-h-80 overflow-auto rounded-xl border">
+          <div className="max-h-80 overflow-auto rounded-xl border border-slate-200/80 shadow-inner">
             <table className="w-full text-sm">
-              <thead className="sticky top-0 bg-slate-50">
+              <thead className="sticky top-0 z-10 border-b border-slate-200 bg-slate-50/95 backdrop-blur-sm">
                 <tr>
-                  <th className="px-3 py-2 text-left">Data e hora</th>
-                  <th className="px-3 py-2 text-right">Resumo (snapshot)</th>
-                  <th className="px-3 py-2 text-right">Caixa imediato (snapshot)</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    Data e hora
+                  </th>
+                  <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    Resumo (snapshot)
+                  </th>
+                  <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    Caixa imediato (snapshot)
+                  </th>
                 </tr>
               </thead>
-              <tbody>
+              <tbody className="divide-y divide-slate-100 bg-white">
                 {snapshotRows.map((row) => (
-                  <tr key={row.momentKey} className="border-t">
-                    <td className="px-3 py-2">{dateTimeBR(row.capturedAt)}</td>
-                    <td className="px-3 py-2 text-right">
+                  <tr key={row.momentKey} className="transition hover:bg-slate-50/80">
+                    <td className="px-4 py-2.5 text-slate-700">{dateTimeBR(row.capturedAt)}</td>
+                    <td className="px-4 py-2.5 text-right font-medium tabular-nums text-slate-900">
                       {row.resumoTotalLiquidoCents == null ? "—" : fmtMoneyBR(row.resumoTotalLiquidoCents)}
                     </td>
-                    <td className="px-3 py-2 text-right">
+                    <td className="px-4 py-2.5 text-right font-medium tabular-nums text-slate-900">
                       {row.caixaImediatoTotalLiquidoCents == null
                         ? "—"
                         : fmtMoneyBR(row.caixaImediatoTotalLiquidoCents)}
@@ -1579,18 +1671,19 @@ export default function CedentesResumoClient() {
           </div>
         )}
 
-        <div className="flex flex-wrap items-center gap-2 pt-2">
-          <span className="text-xs text-slate-500">Gráfico:</span>
+        <div className="flex flex-wrap items-center gap-2 border-t border-slate-100 pt-4">
+          <span className="text-xs font-medium text-slate-500">Período do gráfico:</span>
           {([30, 60, 90, 180, 360] as SnapshotChartRange[]).map((range) => (
             <button
               key={range}
               type="button"
               onClick={() => setSnapshotChartRange(range)}
-              className={`rounded-lg border px-3 py-1 text-xs font-medium transition ${
+              className={cn(
+                "rounded-lg border px-3 py-1.5 text-xs font-semibold transition",
                 snapshotChartRange === range
-                  ? "border-slate-900 bg-slate-900 text-white"
-                  : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
-              }`}
+                  ? "border-slate-900 bg-slate-900 text-white shadow-sm"
+                  : "border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50"
+              )}
             >
               {range} dias
             </button>
