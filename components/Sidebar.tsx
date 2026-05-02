@@ -299,7 +299,9 @@ export default function Sidebar() {
     isAgendaRoute ||
     isAnotacoesRoute ||
     isAtualizacaoTermosRoute ||
-    isHorarioBiometriaRoute;
+    isHorarioBiometriaRoute ||
+    isImportacoesRoute ||
+    isImportacoesEmissoesLatamRoute;
 
   /* =========================
    * ACCORDIONS
@@ -935,30 +937,6 @@ export default function Sidebar() {
           <NavLink href="/dashboard/dados-contabeis/compras">Compras</NavLink>
         </Accordion>
 
-        {/* ================= IMPORTAÇÕES (FORA DO GESTOR) ================= */}
-        <Accordion
-          title="Importações"
-          open={openImportacoes}
-          onToggle={() => setOpenImportacoes((v) => !v)}
-          active={isImportacoesRoute || isImportacoesEmissoesLatamRoute}
-          accent="cyan"
-        >
-          <SubAccordion
-            title="Emissões"
-            open={openImportacoesEmissoes}
-            onToggle={() => setOpenImportacoesEmissoes((v) => !v)}
-            variant="nav"
-            active={isImportacoesEmissoesLatamRoute}
-          >
-            <NavLink
-              href="/dashboard/emissoes/import-latam"
-              className="font-semibold"
-            >
-              Latam
-            </NavLink>
-          </SubAccordion>
-        </Accordion>
-
         {/* ================= GESTOR DE EMISSÕES ================= */}
         <Accordion
           title="Gestor de emissões"
@@ -1051,6 +1029,29 @@ export default function Sidebar() {
           active={isOutrosRoute}
           accent="slate"
         >
+          <SubAccordion
+            title="Importações"
+            open={openImportacoes}
+            onToggle={() => setOpenImportacoes((v) => !v)}
+            variant="nav"
+            active={isImportacoesRoute || isImportacoesEmissoesLatamRoute}
+          >
+            <SubAccordion
+              title="Emissões"
+              open={openImportacoesEmissoes}
+              onToggle={() => setOpenImportacoesEmissoes((v) => !v)}
+              variant="nav"
+              active={isImportacoesEmissoesLatamRoute}
+            >
+              <NavLink
+                href="/dashboard/emissoes/import-latam"
+                className="font-semibold"
+              >
+                Latam
+              </NavLink>
+            </SubAccordion>
+          </SubAccordion>
+
           <NavLink href="/dashboard/automacao">Automação</NavLink>
 
           {/* ✅ NOVO: Agenda */}
