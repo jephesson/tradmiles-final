@@ -335,6 +335,14 @@ function liquidoComBalcaoCents(r: PayoutRow) {
   return (r.netPayCents || 0) + (r.balcaoCommissionCents || 0);
 }
 
+function c123FromBreakdown(b: Breakdown | null | undefined) {
+  return {
+    c1: b?.commission1Cents ?? 0,
+    c2: b?.commission2Cents ?? 0,
+    c3: b?.commission3RateioCents ?? 0,
+  };
+}
+
 export default function ComissoesFuncionariosClient() {
   const AUTO_COMPUTE_MS = 2 * 60 * 1000; // 2 min
 
@@ -809,6 +817,9 @@ export default function ComissoesFuncionariosClient() {
               <tr>
                 <th className="px-4 py-3">Funcionário</th>
                 <th className="px-4 py-3 text-right">Vendas</th>
+                <th className="px-4 py-3">C1 (1%)</th>
+                <th className="px-4 py-3">C2 (bônus)</th>
+                <th className="px-4 py-3">C3 (rateio)</th>
 
                 <th className="px-4 py-3">
                   Imposto{dayTaxPercent ? ` (${dayTaxPercent}%)` : ""}
@@ -827,6 +838,7 @@ export default function ComissoesFuncionariosClient() {
             <tbody className="divide-y divide-slate-100">
               {(day?.rows || []).map((r) => {
                 const b = r.breakdown;
+                const { c1, c2, c3 } = c123FromBreakdown(b);
 
                 const isMissing = String(r.id || "").startsWith("missing:");
                 const isPaid = !!r.paidById;
@@ -845,6 +857,10 @@ export default function ComissoesFuncionariosClient() {
                     </td>
 
                     <td className="px-4 py-3 text-right tabular-nums text-slate-800">{b?.salesCount ?? 0}</td>
+
+                    <td className="px-4 py-3 tabular-nums text-slate-800">{fmtMoneyBR(c1)}</td>
+                    <td className="px-4 py-3 tabular-nums text-slate-800">{fmtMoneyBR(c2)}</td>
+                    <td className="px-4 py-3 tabular-nums text-slate-800">{fmtMoneyBR(c3)}</td>
 
                     <td className="px-4 py-3 tabular-nums text-slate-800">{fmtMoneyBR(r.tax7Cents || 0)}</td>
                     <td className="px-4 py-3 tabular-nums text-slate-800">{fmtMoneyBR(r.feeCents || 0)}</td>
@@ -908,7 +924,7 @@ export default function ComissoesFuncionariosClient() {
 
               {!day?.rows?.length && (
                 <tr>
-                  <td className="px-4 py-0" colSpan={9}>
+                  <td className="px-4 py-0" colSpan={12}>
                     <div className="flex flex-col items-center justify-center gap-2 py-14 text-center">
                       <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-100 text-slate-400 ring-1 ring-slate-200/80">
                         <Users className="h-6 w-6" strokeWidth={1.75} aria-hidden />
@@ -1281,6 +1297,9 @@ export default function ComissoesFuncionariosClient() {
                           <tr>
                             <th className="px-4 py-3">Dia</th>
                             <th className="px-4 py-3 text-right">Vendas</th>
+                            <th className="px-4 py-3">C1 (1%)</th>
+                            <th className="px-4 py-3">C2 (bônus)</th>
+                            <th className="px-4 py-3">C3 (rateio)</th>
                             <th className="px-4 py-3">Imposto</th>
                             <th className="px-4 py-3">Taxa</th>
                             <th className="px-4 py-3">Comissão balcão</th>
@@ -1294,6 +1313,7 @@ export default function ComissoesFuncionariosClient() {
                         <tbody>
                           {(monthData?.days || []).map((r) => {
                             const b = r.breakdown;
+                            const { c1, c2, c3 } = c123FromBreakdown(b);
                             const isPaid = !!r.paidById;
                             const canPayThisDay = !isPaid && r.date < todayISORecife();
                             const paying = payingKey === `${r.date}|${r.userId}`;
@@ -1305,6 +1325,10 @@ export default function ComissoesFuncionariosClient() {
                                 <td className="px-4 py-3 font-medium">{r.date}</td>
 
                                 <td className="px-4 py-3 text-right tabular-nums">{b?.salesCount ?? 0}</td>
+
+                                <td className="px-4 py-3 tabular-nums">{fmtMoneyBR(c1)}</td>
+                                <td className="px-4 py-3 tabular-nums">{fmtMoneyBR(c2)}</td>
+                                <td className="px-4 py-3 tabular-nums">{fmtMoneyBR(c3)}</td>
 
                                 <td className="px-4 py-3">{fmtMoneyBR(r.tax7Cents || 0)}</td>
                                 <td className="px-4 py-3">{fmtMoneyBR(r.feeCents || 0)}</td>
@@ -1362,7 +1386,7 @@ export default function ComissoesFuncionariosClient() {
 
                           {!monthData?.days?.length && (
                             <tr>
-                              <td className="px-4 py-8 text-center text-sm text-neutral-500" colSpan={9}>
+                              <td className="px-4 py-8 text-center text-sm text-neutral-500" colSpan={12}>
                                 Sem dados no mês selecionado.
                               </td>
                             </tr>
