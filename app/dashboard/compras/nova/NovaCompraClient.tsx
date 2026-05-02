@@ -277,6 +277,12 @@ const FIELD_LABEL =
 const CONTROL_INPUT =
   "w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 shadow-sm outline-none transition placeholder:text-slate-400 focus:border-slate-300 focus:ring-2 focus:ring-slate-900/10";
 const CONTROL_INPUT_MONO = cn(CONTROL_INPUT, "font-mono tabular-nums");
+/** Mesmo visual de CONTROL_INPUT_MONO, porém sem w-full (para usar em flex sem esmagar o vizinho). */
+const CONTROL_INPUT_MONO_FLEX =
+  "min-w-[7.5rem] flex-1 basis-0 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-mono tabular-nums text-slate-900 shadow-sm outline-none transition placeholder:text-slate-400 focus:border-slate-300 focus:ring-2 focus:ring-slate-900/10";
+/** Select compacto (% / +Pts) — CONTROL_SELECT inclui w-full e quebra layout em flex quando cn não faz merge. */
+const BONUS_MODE_SELECT_CLASS =
+  "w-[6.25rem] shrink-0 self-stretch rounded-xl border border-slate-200 bg-white px-2 py-2.5 text-sm font-medium text-slate-900 shadow-sm outline-none transition focus:border-slate-300 focus:ring-2 focus:ring-slate-900/10";
 const CONTROL_SELECT =
   "w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-medium text-slate-900 shadow-sm outline-none transition focus:border-slate-300 focus:ring-2 focus:ring-slate-900/10";
 const CONTROL_SELECT_SM =
@@ -1817,20 +1823,7 @@ function ItemCard(props: {
 
         <div className="md:col-span-4 space-y-1">
           <label className={FIELD_LABEL}>Bônus</label>
-          <div className="flex gap-2">
-            <select
-              value={it.bonusMode || ""}
-              disabled={isReleased}
-              onChange={(e) =>
-                onUpdateItem(realIdx, { bonusMode: e.target.value as any })
-              }
-              className={cn(CONTROL_SELECT, "w-[120px] shrink-0")}
-            >
-              <option value="">—</option>
-              <option value="PERCENT">%</option>
-              <option value="TOTAL">+Pts</option>
-            </select>
-
+          <div className="flex items-stretch gap-2">
             <input
               type="number"
               value={it.bonusValue ?? 0}
@@ -1838,9 +1831,23 @@ function ItemCard(props: {
               onChange={(e) =>
                 onUpdateItem(realIdx, { bonusValue: clampInt(e.target.value) })
               }
-              className={cn(CONTROL_INPUT_MONO, "min-w-0 flex-1 disabled:opacity-50")}
+              className={cn(CONTROL_INPUT_MONO_FLEX, "disabled:opacity-50")}
               placeholder="0"
             />
+
+            <select
+              value={it.bonusMode || ""}
+              disabled={isReleased}
+              onChange={(e) =>
+                onUpdateItem(realIdx, { bonusMode: e.target.value as any })
+              }
+              className={BONUS_MODE_SELECT_CLASS}
+              title="Tipo de bônus"
+            >
+              <option value="">—</option>
+              <option value="PERCENT">%</option>
+              <option value="TOTAL">+Pts</option>
+            </select>
           </div>
           <p className="text-[11px] text-slate-500">
             % sobre a base · +Pts soma valor fixo
