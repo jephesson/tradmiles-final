@@ -1,7 +1,17 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import {
+  ArrowLeft,
+  Loader2,
+  Plane,
+  Plus,
+  Search,
+  ShoppingBag,
+  Sparkles,
+  Users,
+} from "lucide-react";
 import { cn } from "@/lib/cn";
 import { getSession } from "@/lib/auth";
 import {
@@ -216,6 +226,63 @@ type EmissionsPanelResp = {
 
 const PASSENGER_ALERT_MESSAGE =
   "Alerta: esta venda excede o PAX disponível e pode gerar bloqueio nas próximas 12h.";
+
+const FIELD_LABEL =
+  "text-[11px] font-semibold uppercase tracking-wide text-slate-500";
+const CONTROL_INPUT =
+  "w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 shadow-sm outline-none transition placeholder:text-slate-400 focus:border-slate-300 focus:ring-2 focus:ring-slate-900/10";
+const CONTROL_INPUT_MONO = cn(CONTROL_INPUT, "font-mono tabular-nums");
+const CONTROL_SELECT =
+  "w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-medium text-slate-900 shadow-sm outline-none transition focus:border-slate-300 focus:ring-2 focus:ring-slate-900/10";
+const BTN_PRIMARY =
+  "inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-slate-900 px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800 disabled:pointer-events-none disabled:opacity-50";
+const BTN_SECONDARY =
+  "inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-medium text-slate-800 shadow-sm transition hover:border-slate-300 hover:bg-slate-50 disabled:pointer-events-none disabled:opacity-50";
+const BTN_GHOST =
+  "inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 shadow-sm transition hover:bg-slate-50 disabled:pointer-events-none disabled:opacity-50";
+const SECTION =
+  "relative overflow-hidden rounded-2xl border border-slate-200/80 bg-gradient-to-br from-white to-slate-50/60 shadow-sm shadow-slate-200/35";
+const TABLE_HEAD =
+  "bg-slate-50/95 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-500 border-b border-slate-200/80";
+
+function StepSection({
+  step,
+  title,
+  hint,
+  action,
+  children,
+}: {
+  step: number;
+  title: string;
+  hint?: string;
+  action?: ReactNode;
+  children: ReactNode;
+}) {
+  return (
+    <section className={SECTION}>
+      <div className="p-5 sm:p-6">
+        <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div className="flex min-w-0 items-start gap-3">
+            <span
+              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-slate-900 text-sm font-bold text-white shadow-md shadow-slate-900/15"
+              aria-hidden
+            >
+              {step}
+            </span>
+            <div className="min-w-0 pt-0.5">
+              <h2 className="text-base font-semibold tracking-tight text-slate-900">{title}</h2>
+              {hint ? (
+                <p className="mt-1 text-xs leading-relaxed text-slate-500">{hint}</p>
+              ) : null}
+            </div>
+          </div>
+          {action ? <div className="flex shrink-0 flex-wrap gap-2">{action}</div> : null}
+        </div>
+        {children}
+      </div>
+    </section>
+  );
+}
 
 function programToKey(p: Program): ProgramKey {
   if (p === "LATAM") return "latam";
@@ -1374,173 +1441,185 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
   }, [program, sel?.cedente?.id]);
 
   return (
-    <div className="p-6 space-y-6">
-      {/* Header */}
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-semibold">Nova venda</h1>
-          <p className="text-sm text-slate-500">
-            Informe pontos + CIA + passageiros. O sistema sugere o melhor cedente.
-          </p>
+    <div className="mx-auto max-w-[1800px] space-y-6 p-4 pb-10 sm:p-6">
+      <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
+        <div className="min-w-0 space-y-3">
+          <div className="inline-flex items-center gap-2 rounded-full border border-slate-200/90 bg-white px-3 py-1 text-[11px] font-semibold uppercase tracking-wider text-slate-500 shadow-sm">
+            <ShoppingBag className="h-3.5 w-3.5 text-slate-400" strokeWidth={2} aria-hidden />
+            Gestão de pontos
+          </div>
+          <div>
+            <h1 className="text-3xl font-bold tracking-tight text-slate-900">Nova venda</h1>
+            <p className="mt-2 max-w-2xl text-sm leading-relaxed text-slate-600">
+              Informe pontos, CIA e passageiros. O motor ranqueia cedentes por saldo, PAX e prioridade
+              de sobra.
+            </p>
+          </div>
           {sugError ? (
-            <div className="mt-2 text-xs text-rose-600">{sugError}</div>
+            <div
+              className="flex gap-2 rounded-xl border border-rose-200 bg-rose-50/90 px-3 py-2 text-xs text-rose-800"
+              role="alert"
+            >
+              {sugError}
+            </div>
           ) : null}
         </div>
 
-        <div className="flex gap-2">
-          <Link
-            href="/dashboard/vendas"
-            className="rounded-xl border px-4 py-2 text-sm hover:bg-slate-50"
-          >
-            Voltar
-          </Link>
-        </div>
+        <Link href="/dashboard/vendas" className={cn(BTN_SECONDARY, "shrink-0 self-start")}>
+          <ArrowLeft className="h-4 w-4 text-slate-500" strokeWidth={2} aria-hidden />
+          Voltar às vendas
+        </Link>
       </div>
 
-      {/* 1) Input */}
-      <div className="rounded-2xl border bg-white p-5">
-        <div className="font-medium">1) Dados da venda</div>
+      <StepSection
+        step={1}
+        title="Dados da venda"
+        hint="Programa, trecho (ida ou ida + volta), pontos e quantidade de passageiros."
+      >
+        <div className="grid gap-5 md:grid-cols-3">
+          <div className="space-y-1.5">
+            <label className={FIELD_LABEL}>CIA / programa</label>
+            <div className="relative">
+              <Plane
+                className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"
+                strokeWidth={2}
+                aria-hidden
+              />
+              <select
+                className={cn(CONTROL_SELECT, "pl-10")}
+                value={program}
+                onChange={(e) => setProgram(e.target.value as Program)}
+              >
+                <option value="LATAM">LATAM</option>
+                <option value="SMILES">SMILES</option>
+                <option value="LIVELO">LIVELO</option>
+                <option value="ESFERA">ESFERA</option>
+              </select>
+            </div>
+          </div>
 
-        <div className="mt-4 grid gap-4 md:grid-cols-3">
-          <label className="space-y-1">
-            <div className="text-xs text-slate-600">CIA / Programa</div>
-            <select
-              className="w-full rounded-xl border px-3 py-2 text-sm bg-white"
-              value={program}
-              onChange={(e) => setProgram(e.target.value as Program)}
-            >
-              <option value="LATAM">LATAM</option>
-              <option value="SMILES">SMILES</option>
-              <option value="LIVELO">LIVELO</option>
-              <option value="ESFERA">ESFERA</option>
-            </select>
-          </label>
-
-          {/* ✅ Trecho + Pontos (Ida/Volta) */}
-          <div className="md:col-span-2 space-y-2">
-            <div className="text-xs text-slate-600">Trecho</div>
-
-            <div className="flex flex-wrap gap-3 text-[11px] text-slate-600">
-              <label className="inline-flex items-center gap-2">
-                <input
-                  type="radio"
-                  name="tripKind"
-                  checked={tripKind === "IDA"}
-                  onChange={() => setTripKind("IDA")}
-                />
+          <div className="md:col-span-2 space-y-3">
+            <span className={FIELD_LABEL}>Trecho</span>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setTripKind("IDA")}
+                className={cn(
+                  "rounded-xl border px-3 py-2 text-xs font-semibold transition",
+                  tripKind === "IDA"
+                    ? "border-slate-900 bg-slate-900 text-white shadow-sm"
+                    : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+                )}
+              >
                 Só ida
-              </label>
-
-              <label className="inline-flex items-center gap-2">
-                <input
-                  type="radio"
-                  name="tripKind"
-                  checked={tripKind === "IDA_VOLTA"}
-                  onChange={() => setTripKind("IDA_VOLTA")}
-                />
-                Ida + Volta
-              </label>
-
-              <span className="text-slate-500">
-                • Total calculado:{" "}
-                <b className="tabular-nums">{fmtInt(pointsTotal)}</b>
+              </button>
+              <button
+                type="button"
+                onClick={() => setTripKind("IDA_VOLTA")}
+                className={cn(
+                  "rounded-xl border px-3 py-2 text-xs font-semibold transition",
+                  tripKind === "IDA_VOLTA"
+                    ? "border-slate-900 bg-slate-900 text-white shadow-sm"
+                    : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+                )}
+              >
+                Ida + volta
+              </button>
+              <span className="ml-auto inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-medium text-slate-600 shadow-sm">
+                Total
+                <span className="tabular-nums font-bold text-slate-900">{fmtInt(pointsTotal)}</span>
+                pts
               </span>
             </div>
 
-            <div className="grid gap-3 md:grid-cols-2">
-              {/* IDA */}
-              <div className="rounded-xl border p-3 bg-white">
-                <div className="text-xs text-slate-600 mb-2">Pontos (Ida)</div>
-
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="rounded-2xl border border-slate-200/80 bg-white/90 p-4 shadow-sm">
+                <div className={cn(FIELD_LABEL, "mb-2 normal-case tracking-normal")}>Pontos (ida)</div>
                 <input
-                  className="w-full rounded-xl border px-3 py-2 text-sm font-mono"
+                  className={CONTROL_INPUT_MONO}
                   value={idaStr}
                   onChange={(e) => onChangePoints(setIdaStr, e.target.value)}
                   placeholder={
                     idaMode === "POR_PAX"
-                      ? "Ex: 100.000 (por pax)"
-                      : "Ex: 200.000 (total)"
+                      ? "Ex.: 100.000 (por pax)"
+                      : "Ex.: 200.000 (total)"
                   }
                 />
-
-                <div className="mt-2 flex flex-wrap items-center gap-3 text-[11px] text-slate-600">
-                  <label className="inline-flex items-center gap-2">
+                <div className="mt-3 flex flex-wrap items-center gap-3 text-[11px] font-medium text-slate-600">
+                  <label className="inline-flex cursor-pointer items-center gap-2">
                     <input
                       type="radio"
                       name="idaMode"
                       checked={idaMode === "TOTAL"}
                       onChange={() => setIdaMode("TOTAL")}
+                      className="border-slate-300 text-slate-900"
                     />
                     Total
                   </label>
-                  <label className="inline-flex items-center gap-2">
+                  <label className="inline-flex cursor-pointer items-center gap-2">
                     <input
                       type="radio"
                       name="idaMode"
                       checked={idaMode === "POR_PAX"}
                       onChange={() => setIdaMode("POR_PAX")}
+                      className="border-slate-300 text-slate-900"
                     />
                     Por passageiro
                   </label>
-
                   {idaMode === "POR_PAX" && idaInput > 0 ? (
                     <span className="text-slate-500">
-                      • Ida total:{" "}
-                      <b className="tabular-nums">{fmtInt(idaTotalPoints)}</b>
+                      Ida total:{" "}
+                      <b className="tabular-nums text-slate-900">{fmtInt(idaTotalPoints)}</b>
                     </span>
                   ) : null}
                 </div>
               </div>
 
-              {/* VOLTA */}
               <div
                 className={cn(
-                  "rounded-xl border p-3 bg-white",
-                  tripKind !== "IDA_VOLTA" ? "opacity-50" : ""
+                  "rounded-2xl border border-slate-200/80 bg-white/90 p-4 shadow-sm transition",
+                  tripKind !== "IDA_VOLTA" && "opacity-55"
                 )}
               >
-                <div className="text-xs text-slate-600 mb-2">Pontos (Volta)</div>
-
+                <div className={cn(FIELD_LABEL, "mb-2 normal-case tracking-normal")}>Pontos (volta)</div>
                 <input
                   disabled={tripKind !== "IDA_VOLTA"}
-                  className="w-full rounded-xl border px-3 py-2 text-sm font-mono disabled:bg-slate-50"
+                  className={cn(CONTROL_INPUT_MONO, "disabled:cursor-not-allowed disabled:bg-slate-100")}
                   value={voltaStr}
                   onChange={(e) => onChangePoints(setVoltaStr, e.target.value)}
                   placeholder={
                     voltaMode === "POR_PAX"
-                      ? "Ex: 100.000 (por pax)"
-                      : "Ex: 200.000 (total)"
+                      ? "Ex.: 100.000 (por pax)"
+                      : "Ex.: 200.000 (total)"
                   }
                 />
-
-                <div className="mt-2 flex flex-wrap items-center gap-3 text-[11px] text-slate-600">
-                  <label className="inline-flex items-center gap-2">
+                <div className="mt-3 flex flex-wrap items-center gap-3 text-[11px] font-medium text-slate-600">
+                  <label className="inline-flex cursor-pointer items-center gap-2">
                     <input
                       disabled={tripKind !== "IDA_VOLTA"}
                       type="radio"
                       name="voltaMode"
                       checked={voltaMode === "TOTAL"}
                       onChange={() => setVoltaMode("TOTAL")}
+                      className="border-slate-300 text-slate-900"
                     />
                     Total
                   </label>
-                  <label className="inline-flex items-center gap-2">
+                  <label className="inline-flex cursor-pointer items-center gap-2">
                     <input
                       disabled={tripKind !== "IDA_VOLTA"}
                       type="radio"
                       name="voltaMode"
                       checked={voltaMode === "POR_PAX"}
                       onChange={() => setVoltaMode("POR_PAX")}
+                      className="border-slate-300 text-slate-900"
                     />
                     Por passageiro
                   </label>
-
-                  {tripKind === "IDA_VOLTA" &&
-                  voltaMode === "POR_PAX" &&
-                  voltaInput > 0 ? (
+                  {tripKind === "IDA_VOLTA" && voltaMode === "POR_PAX" && voltaInput > 0 ? (
                     <span className="text-slate-500">
-                      • Volta total:{" "}
-                      <b className="tabular-nums">{fmtInt(voltaTotalPoints)}</b>
+                      Volta total:{" "}
+                      <b className="tabular-nums text-slate-900">{fmtInt(voltaTotalPoints)}</b>
                     </span>
                   ) : null}
                 </div>
@@ -1548,53 +1627,74 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
             </div>
           </div>
 
-          <label className="space-y-1">
-            <div className="text-xs text-slate-600">Passageiros</div>
-            <input
-              type="number"
-              min={1}
-              className="w-full rounded-xl border px-3 py-2 text-sm font-mono"
-              value={passengers}
-              onChange={(e) =>
-                setPassengers(Math.max(1, clampInt(e.target.value)))
-              }
-            />
-          </label>
-        </div>
-
-        <div className="mt-4 text-xs text-slate-500">
-          Sugestões consideram: <b>pontos</b>, <b>limite de passageiros</b>{" "}
-          (LATAM: 365 dias / Smiles: anual) e <b>bloqueio</b> (BlockedAccount
-          OPEN).
-        </div>
-      </div>
-
-      {/* 2) Sugestões */}
-      <div className="rounded-2xl border bg-white overflow-hidden">
-        <div className="flex items-center justify-between p-5 border-b">
-          <div>
-            <div className="font-medium">2) Cedentes sugeridos</div>
-            <div className="text-xs text-slate-500">
-              Prioridade: sobrar &lt; 2k (MAX) • sobrar 3-10k (BAIXA) • acima de
-              10k, sobrar menos primeiro.
+          <div className="space-y-1.5">
+            <label className={FIELD_LABEL}>Passageiros</label>
+            <div className="relative">
+              <Users
+                className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"
+                strokeWidth={2}
+                aria-hidden
+              />
+              <input
+                type="number"
+                min={1}
+                className={cn(CONTROL_INPUT_MONO, "pl-10")}
+                value={passengers}
+                onChange={(e) => setPassengers(Math.max(1, clampInt(e.target.value)))}
+              />
             </div>
-            {program === "LATAM" ? (
-              <div className="mt-1 text-[11px] text-slate-500">
-                {latamPaxLoading ? (
-                  "Ajustando PAX (janela 365 dias)…"
-                ) : latamPaxError ? (
-                  <span className="text-rose-600">{latamPaxError}</span>
-                ) : (
-                  "PAX: janela 365 dias (painel)."
-                )}
-              </div>
-            ) : null}
           </div>
-          <div className="text-xs text-slate-500">{countLabel}</div>
+        </div>
+
+        <p className="mt-5 text-xs leading-relaxed text-slate-500">
+          Sugestões consideram <span className="font-medium text-slate-700">pontos</span>,{" "}
+          <span className="font-medium text-slate-700">limite de passageiros</span> (LATAM: janela 365
+          dias / Smiles: anual) e <span className="font-medium text-slate-700">bloqueio</span>{" "}
+          (BlockedAccount OPEN).
+        </p>
+      </StepSection>
+
+      <section
+        className={cn(SECTION, "overflow-hidden p-0 shadow-md shadow-slate-200/40")}
+      >
+        <div className="flex flex-col gap-4 border-b border-slate-200/80 bg-white/60 px-5 py-4 sm:flex-row sm:items-start sm:justify-between sm:px-6 sm:py-5">
+          <div className="flex min-w-0 items-start gap-3">
+            <span
+              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-slate-900 text-sm font-bold text-white shadow-md shadow-slate-900/15"
+              aria-hidden
+            >
+              2
+            </span>
+            <div className="min-w-0">
+              <h2 className="text-base font-semibold tracking-tight text-slate-900">
+                Cedentes sugeridos
+              </h2>
+              <p className="mt-1 text-xs leading-relaxed text-slate-500">
+                Prioridade: sobrar &lt; 2k (MAX) • 3–10k (BAIXA) • acima de 10k, menor sobra primeiro.
+              </p>
+              {program === "LATAM" ? (
+                <div className="mt-2 flex items-center gap-2 text-[11px] text-slate-500">
+                  {latamPaxLoading ? (
+                    <>
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+                      Ajustando PAX (janela 365 dias)…
+                    </>
+                  ) : latamPaxError ? (
+                    <span className="text-rose-600">{latamPaxError}</span>
+                  ) : (
+                    "PAX: janela 365 dias (painel)."
+                  )}
+                </div>
+              ) : null}
+            </div>
+          </div>
+          <div className="shrink-0 rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-medium text-slate-600 shadow-sm">
+            {countLabel}
+          </div>
         </div>
 
         {sel ? (
-          <div className="p-5">
+          <div className="border-b border-slate-100 bg-slate-50/30 p-5 sm:p-6">
             <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
               <div className="space-y-1">
                 <div className="text-xs text-slate-500">Cedente selecionado</div>
@@ -1671,9 +1771,9 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
                 ) : null}
 
                 {/* ✅ Credenciais (revelar) */}
-                <div className="mt-3 rounded-xl border bg-slate-50 p-3">
+                <div className="mt-3 rounded-2xl border border-slate-200/80 bg-slate-50/90 p-4 shadow-inner">
                   <div className="flex items-center justify-between gap-2">
-                    <div className="text-xs font-semibold text-slate-700">
+                    <div className="text-xs font-semibold text-slate-800">
                       Credenciais ({program})
                     </div>
 
@@ -1696,7 +1796,7 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
                             setShowEmailPass(false);
                           }
                         }}
-                        className="rounded-lg border bg-white px-2 py-1 text-[11px] hover:bg-slate-50"
+                        className="rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-medium hover:bg-slate-50"
                       >
                         {revealCreds ? "Ocultar" : "Revelar"}
                       </button>
@@ -1753,13 +1853,11 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
 
                 {/* ✅ WhatsApp do cedente (apenas LATAM) */}
                 {program === "LATAM" ? (
-                  <div className="mt-3 rounded-xl border bg-white p-3">
+                  <div className="mt-3 rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm">
                     <div className="flex items-center justify-between gap-2">
-                      <div className="text-xs font-semibold text-slate-700">
-                        WhatsApp do cedente
-                      </div>
+                      <div className="text-xs font-semibold text-slate-800">WhatsApp do cedente</div>
 
-                      <div className="flex items-center gap-2">
+                      <div className="flex flex-wrap items-center gap-2">
                         <button
                           type="button"
                           disabled={!selWhatsApp?.whatsappUrl}
@@ -1769,10 +1867,10 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
                             window.open(url, "_blank", "noopener,noreferrer");
                           }}
                           className={cn(
-                            "rounded-lg border bg-white px-2 py-1 text-[11px]",
+                            "rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-medium",
                             selWhatsApp?.whatsappUrl
                               ? "hover:bg-slate-50"
-                              : "opacity-40 cursor-not-allowed"
+                              : "cursor-not-allowed opacity-40"
                           )}
                         >
                           Abrir WhatsApp
@@ -1787,10 +1885,10 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
                             await copySilent(url);
                           }}
                           className={cn(
-                            "rounded-lg border bg-white px-2 py-1 text-[11px]",
+                            "rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-medium",
                             selWhatsApp?.whatsappUrl
                               ? "hover:bg-slate-50"
-                              : "opacity-40 cursor-not-allowed"
+                              : "cursor-not-allowed opacity-40"
                           )}
                         >
                           Copiar link
@@ -1819,7 +1917,7 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
                 ) : null}
               </div>
 
-              <div className="flex gap-2">
+              <div className="flex flex-wrap gap-2">
                 <button
                   type="button"
                   onClick={() =>
@@ -1828,15 +1926,11 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
                       block: "start",
                     })
                   }
-                  className="rounded-xl border px-3 py-2 text-sm hover:bg-slate-50"
+                  className={BTN_SECONDARY}
                 >
                   Ir para dados
                 </button>
-                <button
-                  type="button"
-                  onClick={clearSelection}
-                  className="rounded-xl border px-3 py-2 text-sm hover:bg-slate-50"
-                >
+                <button type="button" onClick={clearSelection} className={BTN_GHOST}>
                   Trocar cedente
                 </button>
               </div>
@@ -1844,70 +1938,55 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
           </div>
         ) : (
           <>
-            <div className="p-5 border-b">
-              <div className="grid gap-3 md:grid-cols-3 md:items-end">
-                <label className="space-y-1 md:col-span-2">
-                  <div className="text-xs text-slate-600">
+            <div className="border-b border-slate-200/80 bg-white/50 px-5 py-4 sm:px-6">
+              <div className="grid gap-3 md:grid-cols-[1fr_auto] md:items-end">
+                <div className="space-y-1.5">
+                  <label className={FIELD_LABEL}>
                     Pesquisar cedente (nome, ID, CPF, responsável)
+                  </label>
+                  <div className="relative">
+                    <Search
+                      className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"
+                      strokeWidth={2}
+                      aria-hidden
+                    />
+                    <input
+                      className={cn(CONTROL_INPUT, "pl-10")}
+                      value={cedenteQ}
+                      onChange={(e) => setCedenteQ(e.target.value)}
+                      placeholder="Ex.: Rayssa / RAY-212 / Lucas / 123…"
+                    />
                   </div>
-                  <input
-                    className="w-full rounded-xl border px-3 py-2 text-sm"
-                    value={cedenteQ}
-                    onChange={(e) => setCedenteQ(e.target.value)}
-                    placeholder="Ex: Rayssa / RAY-212 / Lucas / 123..."
-                  />
-                </label>
-
-                <button
-                  type="button"
-                  onClick={() => setCedenteQ("")}
-                  className="rounded-xl border px-3 py-2 text-sm hover:bg-slate-50"
-                >
+                </div>
+                <button type="button" onClick={() => setCedenteQ("")} className={BTN_GHOST}>
                   Limpar busca
                 </button>
               </div>
-
-              <div className="mt-2 text-xs text-slate-500">
-                Mostrando no máximo <b>10</b>. Para achar alguém específico, use
-                a busca acima.
-              </div>
+              <p className="mt-2 text-xs text-slate-500">
+                Lista com até <span className="font-semibold text-slate-700">10</span> sugestões. Use a
+                busca para filtrar.
+              </p>
             </div>
 
-            <div className="overflow-x-auto">
+            <div className="overflow-x-auto bg-white">
               <table className="w-full text-sm">
-                <thead className="bg-slate-50 border-b">
-                  <tr className="text-slate-600">
-                    <th className="text-left font-semibold px-4 py-3 w-[360px]">
-                      CEDENTE
-                    </th>
-                    <th className="text-left font-semibold px-4 py-3 w-[220px]">
-                      RESPONSÁVEL
-                    </th>
-                    <th className="text-right font-semibold px-4 py-3 w-[110px]">
-                      SCORE
-                    </th>
-                    <th className="text-right font-semibold px-4 py-3 w-[140px]">
-                      PTS
-                    </th>
-                    <th className="text-left font-semibold px-4 py-3 w-[110px]">
-                      BIOMETRIA
-                    </th>
-                    <th className="text-right font-semibold px-4 py-3 w-[260px]">
-                      PAX DISP. (após)
-                    </th>
-                    <th className="text-right font-semibold px-4 py-3 w-[140px]">
-                      SOBRA
-                    </th>
-                    <th className="text-left font-semibold px-4 py-3 w-[140px]">
-                      PRIOR.
-                    </th>
-                    <th className="text-right font-semibold px-4 py-3 w-[120px]"></th>
+                <thead className={TABLE_HEAD}>
+                  <tr>
+                    <th className="px-4 py-3 w-[360px]">Cedente</th>
+                    <th className="px-4 py-3 w-[220px]">Responsável</th>
+                    <th className="px-4 py-3 text-right w-[110px]">Score</th>
+                    <th className="px-4 py-3 text-right w-[140px]">Pts</th>
+                    <th className="px-4 py-3 w-[110px]">Biometria</th>
+                    <th className="px-4 py-3 text-right w-[260px]">PAX disp. (após)</th>
+                    <th className="px-4 py-3 text-right w-[140px]">Sobra</th>
+                    <th className="px-4 py-3 w-[140px]">Prior.</th>
+                    <th className="px-4 py-3 w-[120px]" />
                   </tr>
                 </thead>
                 <tbody>
                   {!loadingSug && suggestions.length === 0 ? (
                     <tr>
-                      <td colSpan={9} className="px-4 py-8 text-slate-500">
+                      <td colSpan={9} className="px-4 py-12 text-center text-sm text-slate-500">
                         Informe pontos e passageiros para ver sugestões.
                       </td>
                     </tr>
@@ -1917,7 +1996,7 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
                   suggestions.length > 0 &&
                   visibleSuggestions.length === 0 ? (
                     <tr>
-                      <td colSpan={9} className="px-4 py-8 text-slate-500">
+                      <td colSpan={9} className="px-4 py-12 text-center text-sm text-slate-500">
                         Nenhum cedente encontrado para essa busca.
                       </td>
                     </tr>
@@ -1931,7 +2010,10 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
                     const paxAfterClamped = Math.max(0, paxAfter);
 
                     return (
-                      <tr key={s.cedente.id} className="border-b last:border-b-0">
+                      <tr
+                        key={s.cedente.id}
+                        className="border-b border-slate-100 transition hover:bg-slate-50/80 last:border-b-0"
+                      >
                         <td className="px-4 py-3">
                           <div className="font-medium">{s.cedente.nomeCompleto}</div>
                           <div className="text-xs text-slate-500">{s.cedente.identificador}</div>
@@ -1993,8 +2075,9 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
                             disabled={!s.eligible}
                             onClick={() => selectSuggestion(s)}
                             className={cn(
-                              "rounded-xl border px-3 py-1.5 text-sm",
-                              s.eligible ? "hover:bg-slate-50" : "opacity-40 cursor-not-allowed"
+                              BTN_PRIMARY,
+                              "h-9 px-3 text-xs",
+                              !s.eligible && "pointer-events-none opacity-40"
                             )}
                           >
                             Usar
@@ -2006,8 +2089,11 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
 
                   {loadingSug ? (
                     <tr>
-                      <td colSpan={9} className="px-4 py-8 text-slate-500">
-                        Carregando...
+                      <td colSpan={9} className="px-4 py-12 text-center text-sm text-slate-500">
+                        <span className="inline-flex items-center justify-center gap-2">
+                          <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+                          Carregando sugestões…
+                        </span>
                       </td>
                     </tr>
                   ) : null}
@@ -2016,29 +2102,31 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
             </div>
           </>
         )}
-      </div>
+      </section>
 
-      {/* 3) Detalhes */}
       {sel ? (
-        <div ref={detailsRef} className="grid gap-4 lg:grid-cols-3">
+        <div ref={detailsRef} className="grid gap-5 lg:grid-cols-3">
           <div className="lg:col-span-2 space-y-4">
-            <div className="rounded-2xl border bg-white p-5">
-              <div className="font-medium">3) Cliente + Compra LIBERADA + Dados</div>
+            <StepSection
+              step={3}
+              title="Cliente, compra liberada e dados da emissão"
+              hint="Amarre ao cliente, escolha a compra CLOSED do cedente e preencha milheiro, taxas e localizador."
+            >
 
-              <div className="mt-4 grid gap-4 md:grid-cols-2">
-                <label className="space-y-1">
-                  <div className="text-xs text-slate-600">Data</div>
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="space-y-1.5">
+                  <label className={FIELD_LABEL}>Data</label>
                   <input
                     type="date"
-                    className="w-full rounded-xl border px-3 py-2 text-sm"
+                    className={CONTROL_INPUT}
                     value={dateISO}
                     onChange={(e) => setDateISO(e.target.value)}
                   />
-                </label>
+                </div>
 
-                <div className="space-y-1">
-                  <div className="text-xs text-slate-600">Vendedor</div>
-                  <div className="rounded-xl border bg-slate-50 px-3 py-2">
+                <div className="space-y-1.5">
+                  <span className={FIELD_LABEL}>Vendedor</span>
+                  <div className="rounded-xl border border-slate-200/80 bg-slate-50/80 px-3 py-2 shadow-inner">
                     <div className="flex min-h-[32px] items-center justify-between gap-3">
                       <div className="truncate text-sm font-medium text-slate-900">
                         {effectiveSellerLabel}
@@ -2057,7 +2145,7 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
                         <button
                           type="button"
                           onClick={() => setAssignSellerOpen((v) => !v)}
-                          className="rounded-lg border bg-white px-2.5 py-1 text-xs hover:bg-slate-100"
+                          className="rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium hover:bg-slate-50"
                         >
                           Trocar
                         </button>
@@ -2065,10 +2153,10 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
                     </div>
                   </div>
                   {assignSellerOpen ? (
-                    <div className="rounded-xl border border-dashed p-2.5">
+                    <div className="rounded-xl border border-dashed border-slate-200 bg-white/60 p-2.5">
                       <div className="flex flex-wrap items-center gap-2">
                         <select
-                          className="min-w-[260px] flex-1 rounded-xl border px-3 py-2 text-sm bg-white"
+                          className={cn(CONTROL_SELECT, "min-w-[260px] flex-1")}
                           value={assignedSellerId || "SELF"}
                           onChange={(e) =>
                             setAssignedSellerId(
@@ -2093,7 +2181,7 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
                               setAssignedSellerId("");
                               setAssignSellerOpen(false);
                             }}
-                            className="rounded-xl border px-3 py-2 text-sm hover:bg-slate-50"
+                            className={BTN_GHOST}
                           >
                             Voltar ao logado
                           </button>
@@ -2103,25 +2191,32 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
                   ) : null}
                 </div>
 
-                <div ref={clientComboboxRef} className="md:col-span-2 space-y-1">
-                  <div className="text-xs text-slate-600">Cliente</div>
+                <div ref={clientComboboxRef} className="md:col-span-2 space-y-1.5">
+                  <span className={FIELD_LABEL}>Cliente</span>
                   <div className="relative">
                     <div className="flex gap-2">
-                      <input
-                        className="w-full rounded-xl border px-3 py-2 text-sm"
-                        value={clienteQ}
-                        onFocus={() => setClientDropdownOpen(true)}
-                        onChange={(e) => {
-                          const next = e.target.value;
-                          setClienteQ(next);
-                          setClientDropdownOpen(true);
-                          if (selectedCliente && normStr(next) !== normStr(selectedCliente.nome)) {
-                            setClienteId("");
-                            setSelectedCliente(null);
-                          }
-                        }}
-                        placeholder="Buscar cliente por nome / CPF/CNPJ / telefone..."
-                      />
+                      <div className="relative min-w-0 flex-1">
+                        <Search
+                          className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"
+                          strokeWidth={2}
+                          aria-hidden
+                        />
+                        <input
+                          className={cn(CONTROL_INPUT, "pl-10")}
+                          value={clienteQ}
+                          onFocus={() => setClientDropdownOpen(true)}
+                          onChange={(e) => {
+                            const next = e.target.value;
+                            setClienteQ(next);
+                            setClientDropdownOpen(true);
+                            if (selectedCliente && normStr(next) !== normStr(selectedCliente.nome)) {
+                              setClienteId("");
+                              setSelectedCliente(null);
+                            }
+                          }}
+                          placeholder="Nome, CPF/CNPJ ou telefone…"
+                        />
+                      </div>
 
                       <button
                         type="button"
@@ -2130,19 +2225,22 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
                           setNovoCliente((p) => ({ ...p, nome: clienteQ.trim() }));
                           setClienteModalOpen(true);
                         }}
-                        className="rounded-xl border px-3 py-2 text-base leading-none hover:bg-slate-50"
+                        className={cn(BTN_SECONDARY, "aspect-square w-10 shrink-0 px-0")}
                         title="Cadastrar cliente"
                         aria-label="Cadastrar cliente"
                       >
-                        +
+                        <Plus className="h-5 w-5" strokeWidth={2} aria-hidden />
                       </button>
                     </div>
 
                     {clientDropdownOpen ? (
-                      <div className="absolute z-20 mt-2 w-full overflow-hidden rounded-2xl border bg-white shadow-lg">
+                      <div className="absolute z-20 mt-2 w-full overflow-hidden rounded-2xl border border-slate-200/90 bg-white shadow-xl shadow-slate-200/50">
                         <div className="max-h-72 overflow-auto py-1">
                           {loadingClientes ? (
-                            <div className="px-3 py-2 text-sm text-slate-500">Buscando...</div>
+                            <div className="flex items-center gap-2 px-3 py-2 text-sm text-slate-500">
+                              <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+                              Buscando…
+                            </div>
                           ) : null}
 
                           {clientes.map((c) => (
@@ -2151,8 +2249,8 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
                               type="button"
                               onClick={() => handleSelectCliente(c)}
                               className={cn(
-                                "flex w-full items-start justify-between gap-3 px-3 py-2 text-left hover:bg-slate-50",
-                                selectedCliente?.id === c.id ? "bg-slate-50" : ""
+                                "flex w-full items-start justify-between gap-3 px-3 py-2.5 text-left transition hover:bg-slate-50",
+                                selectedCliente?.id === c.id ? "bg-sky-50/80" : ""
                               )}
                             >
                               <div className="min-w-0">
@@ -2222,10 +2320,10 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
                   ) : null}
                 </div>
 
-                <div className="space-y-1">
-                  <div className="text-xs text-slate-600">Compra LIBERADA</div>
+                <div className="space-y-1.5">
+                  <label className={FIELD_LABEL}>Compra liberada</label>
                   <select
-                    className="w-full rounded-xl border px-3 py-2 text-sm bg-white"
+                    className={CONTROL_SELECT}
                     value={purchaseNumero}
                     onChange={(e) => setPurchaseNumero(e.target.value)}
                     disabled={loadingCompras}
@@ -2263,10 +2361,10 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
                   ) : null}
                 </div>
 
-                <label className="space-y-1">
-                  <div className="text-xs text-slate-600">Cartão da taxa</div>
+                <div className="space-y-1.5">
+                  <label className={FIELD_LABEL}>Cartão da taxa</label>
                   <select
-                    className="w-full rounded-xl border px-3 py-2 text-sm bg-white"
+                    className={CONTROL_SELECT}
                     value={feeCardPreset}
                     onChange={(e) => setFeeCardPreset(e.target.value)}
                   >
@@ -2283,141 +2381,138 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
 
                   {feeCardPreset === "MANUAL" ? (
                     <input
-                      className="w-full rounded-xl border px-3 py-2 text-sm"
+                      className={CONTROL_INPUT}
                       value={feeCardManual}
                       onChange={(e) => setFeeCardManual(e.target.value)}
-                      placeholder="Ex: Cartão Inter PJ"
+                      placeholder="Ex.: Cartão Inter PJ"
                     />
                   ) : (
-                    <div className="text-[11px] text-slate-500">
-                      {feeCardLabel || "—"}
-                    </div>
+                    <div className="text-[11px] text-slate-500">{feeCardLabel || "—"}</div>
                   )}
-                </label>
+                </div>
 
-                <label className="space-y-1">
-                  <div className="text-xs text-slate-600">Milheiro (R$)</div>
+                <div className="space-y-1.5">
+                  <label className={FIELD_LABEL}>Milheiro (R$)</label>
                   <input
-                    className="w-full rounded-xl border px-3 py-2 text-sm font-mono"
+                    className={CONTROL_INPUT_MONO}
                     value={milheiroStr}
                     onChange={(e) => setMilheiroStr(e.target.value)}
-                    placeholder="Ex: 25,50"
+                    placeholder="Ex.: 25,50"
                   />
-                </label>
+                </div>
 
-                <label className="space-y-1">
-                  <div className="text-xs text-slate-600">Taxa de embarque (R$)</div>
+                <div className="space-y-1.5">
+                  <label className={FIELD_LABEL}>Taxa de embarque (R$)</label>
                   <input
-                    className="w-full rounded-xl border px-3 py-2 text-sm font-mono"
+                    className={CONTROL_INPUT_MONO}
                     value={embarqueStr}
                     onChange={(e) => setEmbarqueStr(e.target.value)}
-                    placeholder="Ex: 78,34"
+                    placeholder="Ex.: 78,34"
                   />
-                </label>
+                </div>
 
-                <label className="space-y-1">
-                  <div className="text-xs text-slate-600">
+                <div className="space-y-1.5">
+                  <label className={FIELD_LABEL}>
                     Localizador <span className="text-rose-600">*</span>
-                  </div>
+                  </label>
                   <input
                     required
-                    className="w-full rounded-xl border px-3 py-2 text-sm font-mono"
+                    className={CONTROL_INPUT_MONO}
                     value={locator}
                     onChange={(e) => setLocator(e.target.value)}
                     placeholder="Obrigatório"
                   />
-                </label>
+                </div>
 
                 {program === "LATAM" || program === "SMILES" ? (
                   <>
-                    <label className="space-y-1">
-                      <div className="text-xs text-slate-600">
+                    <div className="space-y-1.5">
+                      <label className={FIELD_LABEL}>
                         Data de ida <span className="text-rose-600">*</span>
-                      </div>
+                      </label>
                       <input
                         type="date"
                         required
-                        className="w-full rounded-xl border px-3 py-2 text-sm"
+                        className={CONTROL_INPUT}
                         value={departureDate}
                         onChange={(e) => setDepartureDate(e.target.value)}
                       />
-                    </label>
+                    </div>
 
-                    <label className="space-y-1">
-                      <div className="text-xs text-slate-600">Data de volta</div>
+                    <div className="space-y-1.5">
+                      <label className={FIELD_LABEL}>Data de volta</label>
                       <input
                         type="date"
-                        className="w-full rounded-xl border px-3 py-2 text-sm"
+                        className={CONTROL_INPUT}
                         value={returnDate}
                         onChange={(e) => setReturnDate(e.target.value)}
                       />
-                    </label>
+                    </div>
 
                     {program === "LATAM" ? (
-                      <label className="space-y-1">
-                        <div className="text-xs text-slate-600">
-                          Código de compra{" "}
-                          <span className="text-rose-600">*</span>
-                        </div>
+                      <div className="space-y-1.5">
+                        <label className={FIELD_LABEL}>
+                          Código de compra <span className="text-rose-600">*</span>
+                        </label>
                         <input
                           required
-                          className="w-full rounded-xl border px-3 py-2 text-sm font-mono uppercase"
+                          className={cn(CONTROL_INPUT_MONO, "uppercase")}
                           value={purchaseCode}
                           onChange={(e) =>
                             setPurchaseCode(
                               e.target.value.replace(/[^a-zA-Z0-9]/g, "").toUpperCase()
                             )
                           }
-                          placeholder="Ex: LA123456"
+                          placeholder="Ex.: LA123456"
                         />
-                      </label>
+                      </div>
                     ) : null}
 
-                    <label className="space-y-1">
-                      <div className="text-xs text-slate-600">
-                        Sobrenome do 1º passageiro{" "}
-                        <span className="text-rose-600">*</span>
-                      </div>
+                    <div className="space-y-1.5">
+                      <label className={FIELD_LABEL}>
+                        Sobrenome do 1º passageiro <span className="text-rose-600">*</span>
+                      </label>
                       <input
                         required
-                        className="w-full rounded-xl border px-3 py-2 text-sm"
+                        className={CONTROL_INPUT}
                         value={firstPassengerLastName}
                         onChange={(e) => setFirstPassengerLastName(e.target.value)}
-                        placeholder="Ex: SILVA"
+                        placeholder="Ex.: SILVA"
                       />
-                    </label>
+                    </div>
 
                     {program === "SMILES" ? (
-                      <label className="space-y-1">
-                        <div className="text-xs text-slate-600">
-                          Aeroporto de ida (IATA){" "}
-                          <span className="text-rose-600">*</span>
-                        </div>
+                      <div className="space-y-1.5">
+                        <label className={FIELD_LABEL}>
+                          Aeroporto de ida (IATA) <span className="text-rose-600">*</span>
+                        </label>
                         <input
                           required
                           maxLength={3}
-                          className="w-full rounded-xl border px-3 py-2 text-sm font-mono uppercase"
+                          className={cn(CONTROL_INPUT_MONO, "uppercase")}
                           value={departureAirportIata}
                           onChange={(e) =>
                             setDepartureAirportIata(
                               e.target.value.replace(/[^a-zA-Z]/g, "").toUpperCase()
                             )
                           }
-                          placeholder="Ex: GRU"
+                          placeholder="Ex.: GRU"
                         />
-                      </label>
+                      </div>
                     ) : null}
                   </>
                 ) : null}
               </div>
-            </div>
+            </StepSection>
           </div>
 
-          {/* Resumo */}
-          <div className="rounded-2xl border bg-white p-5 h-fit lg:sticky lg:top-4 space-y-2">
-            <div className="font-medium">Resumo</div>
+          <div className={cn(SECTION, "h-fit space-y-3 p-5 sm:p-6 lg:sticky lg:top-4")}>
+            <div className="flex items-center gap-2 text-sm font-semibold text-slate-900">
+              <Sparkles className="h-4 w-4 text-slate-400" strokeWidth={2} aria-hidden />
+              Resumo
+            </div>
 
-            <div className="rounded-xl bg-slate-50 p-4 text-sm space-y-1">
+            <div className="rounded-xl border border-slate-100 bg-slate-50/80 p-4 text-sm space-y-2">
               <div className="flex justify-between">
                 <span className="text-slate-600">Trecho</span>
                 <b>{tripKind === "IDA_VOLTA" ? "Ida + Volta" : "Só ida"}</b>
@@ -2512,48 +2607,48 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
               type="button"
               onClick={openConfirmModal}
               disabled={!canSave || isSaving}
-              className={cn(
-                "mt-3 w-full rounded-xl px-4 py-2 text-sm text-white",
-                !canSave || isSaving
-                  ? "bg-slate-300 cursor-not-allowed"
-                  : "bg-black hover:bg-gray-800"
-              )}
+              className={cn(BTN_PRIMARY, "mt-3 w-full")}
             >
-              {isSaving ? "Salvando..." : "Salvar venda"}
+              {isSaving ? (
+                <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+              ) : (
+                <ShoppingBag className="h-4 w-4" strokeWidth={2} aria-hidden />
+              )}
+              {isSaving ? "Salvando…" : "Salvar venda"}
             </button>
 
-            <div className="text-xs text-slate-500">
+            <p className="text-xs leading-relaxed text-slate-500">
               Comissão ignora taxa. Bônus = 30% do excedente acima da meta.
-            </div>
+            </p>
           </div>
         </div>
       ) : null}
 
       {/* ✅ MODAL CADASTRO RÁPIDO */}
       {clienteModalOpen ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="w-full max-w-lg rounded-2xl bg-white border p-5">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/45 p-4 backdrop-blur-[2px]">
+          <div className="w-full max-w-lg rounded-2xl border border-slate-200/90 bg-white p-5 shadow-2xl shadow-slate-900/20 sm:p-6">
             <div className="flex items-start justify-between gap-3">
               <div>
-                <div className="text-lg font-semibold">Cadastrar cliente</div>
-                <div className="text-xs text-slate-500">
+                <div className="text-lg font-bold tracking-tight text-slate-900">Cadastrar cliente</div>
+                <div className="mt-1 text-xs text-slate-500">
                   Cadastro rápido sem sair da venda.
                 </div>
               </div>
               <button
                 type="button"
                 onClick={() => setClienteModalOpen(false)}
-                className="rounded-lg border px-2 py-1 text-sm hover:bg-slate-50"
+                className="rounded-xl border border-slate-200 bg-white px-2.5 py-1 text-sm text-slate-600 hover:bg-slate-50"
               >
                 ✕
               </button>
             </div>
 
             <div className="mt-4 grid gap-3 md:grid-cols-2">
-              <label className="space-y-1">
-                <div className="text-xs text-slate-600">Tipo</div>
+              <div className="space-y-1.5">
+                <label className={FIELD_LABEL}>Tipo</label>
                 <select
-                  className="w-full rounded-xl border px-3 py-2 text-sm bg-white"
+                  className={CONTROL_SELECT}
                   value={novoCliente.tipo}
                   onChange={(e) =>
                     setNovoCliente((p) => ({
@@ -2565,48 +2660,48 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
                   <option value="PESSOA">Pessoa</option>
                   <option value="EMPRESA">Empresa</option>
                 </select>
-              </label>
+              </div>
 
-              <label className="space-y-1 md:col-span-2">
-                <div className="text-xs text-slate-600">Nome</div>
+              <div className="space-y-1.5 md:col-span-2">
+                <label className={FIELD_LABEL}>Nome</label>
                 <input
-                  className="w-full rounded-xl border px-3 py-2 text-sm"
+                  className={CONTROL_INPUT}
                   value={novoCliente.nome}
                   onChange={(e) =>
                     setNovoCliente((p) => ({ ...p, nome: e.target.value }))
                   }
                   placeholder="Nome do cliente / empresa"
                 />
-              </label>
+              </div>
 
-              <label className="space-y-1">
-                <div className="text-xs text-slate-600">CPF/CNPJ (opcional)</div>
+              <div className="space-y-1.5">
+                <label className={FIELD_LABEL}>CPF/CNPJ (opcional)</label>
                 <input
-                  className="w-full rounded-xl border px-3 py-2 text-sm"
+                  className={CONTROL_INPUT}
                   value={novoCliente.cpfCnpj}
                   onChange={(e) =>
                     setNovoCliente((p) => ({ ...p, cpfCnpj: e.target.value }))
                   }
                   placeholder="Somente números ou com máscara"
                 />
-              </label>
+              </div>
 
-              <label className="space-y-1">
-                <div className="text-xs text-slate-600">Telefone (opcional)</div>
+              <div className="space-y-1.5">
+                <label className={FIELD_LABEL}>Telefone (opcional)</label>
                 <input
-                  className="w-full rounded-xl border px-3 py-2 text-sm"
+                  className={CONTROL_INPUT}
                   value={novoCliente.telefone}
                   onChange={(e) =>
                     setNovoCliente((p) => ({ ...p, telefone: e.target.value }))
                   }
                   placeholder="Somente números ou com máscara"
                 />
-              </label>
+              </div>
 
-              <label className="space-y-1 md:col-span-2">
-                <div className="text-xs text-slate-600">Origem</div>
+              <div className="space-y-1.5 md:col-span-2">
+                <label className={FIELD_LABEL}>Origem</label>
                 <select
-                  className="w-full rounded-xl border px-3 py-2 text-sm bg-white"
+                  className={CONTROL_SELECT}
                   value={novoCliente.origem}
                   onChange={(e) =>
                     setNovoCliente((p) => ({
@@ -2620,13 +2715,13 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
                   <option value="SITE">Site</option>
                   <option value="OUTROS">Outros</option>
                 </select>
-              </label>
+              </div>
 
               {novoCliente.origem === "OUTROS" ? (
-                <label className="space-y-1 md:col-span-2">
-                  <div className="text-xs text-slate-600">Descreva a origem</div>
+                <div className="space-y-1.5 md:col-span-2">
+                  <label className={FIELD_LABEL}>Descreva a origem</label>
                   <input
-                    className="w-full rounded-xl border px-3 py-2 text-sm"
+                    className={CONTROL_INPUT}
                     value={novoCliente.origemDescricao}
                     onChange={(e) =>
                       setNovoCliente((p) => ({
@@ -2636,19 +2731,21 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
                     }
                     placeholder="Ex: Indicação, Instagram, etc."
                   />
-                </label>
+                </div>
               ) : null}
             </div>
 
             {createClienteError ? (
-              <div className="mt-3 text-sm text-rose-600">{createClienteError}</div>
+              <div className="mt-3 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-800">
+                {createClienteError}
+              </div>
             ) : null}
 
             <div className="mt-5 flex justify-end gap-2">
               <button
                 type="button"
                 onClick={() => setClienteModalOpen(false)}
-                className="rounded-xl border px-4 py-2 text-sm hover:bg-slate-50"
+                className={BTN_SECONDARY}
               >
                 Cancelar
               </button>
@@ -2656,14 +2753,12 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
                 type="button"
                 disabled={creatingCliente}
                 onClick={criarClienteRapido}
-                className={cn(
-                  "rounded-xl px-4 py-2 text-sm text-white",
-                  creatingCliente
-                    ? "bg-slate-400 cursor-not-allowed"
-                    : "bg-black hover:bg-gray-800"
-                )}
+                className={cn(BTN_PRIMARY, creatingCliente && "opacity-60")}
               >
-                {creatingCliente ? "Cadastrando..." : "Cadastrar"}
+                {creatingCliente ? (
+                  <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+                ) : null}
+                {creatingCliente ? "Cadastrando…" : "Cadastrar"}
               </button>
             </div>
           </div>
@@ -2672,19 +2767,17 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
 
       {/* ✅ MODAL CONFIRMAR (antes de salvar) */}
       {confirmOpen ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="w-full max-w-lg rounded-2xl bg-white border p-5">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/45 p-4 backdrop-blur-[2px]">
+          <div className="w-full max-w-lg rounded-2xl border border-slate-200/90 bg-white p-5 shadow-2xl shadow-slate-900/20 sm:p-6">
             <div className="flex items-start justify-between gap-3">
               <div>
-                <div className="text-lg font-semibold">Confirmar venda</div>
-                <div className="text-xs text-slate-500">
-                  Confira os dados antes de salvar.
-                </div>
+                <div className="text-lg font-bold tracking-tight text-slate-900">Confirmar venda</div>
+                <div className="mt-1 text-xs text-slate-500">Confira os dados antes de salvar.</div>
               </div>
               <button
                 type="button"
                 onClick={closeConfirmModal}
-                className="rounded-lg border px-2 py-1 text-sm hover:bg-slate-50"
+                className="rounded-xl border border-slate-200 bg-white px-2.5 py-1 text-sm text-slate-600 hover:bg-slate-50 disabled:opacity-50"
                 disabled={isSaving}
               >
                 ✕
@@ -2789,11 +2882,11 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
               </div>
             ) : null}
 
-            <div className="mt-5 flex justify-end gap-2">
+            <div className="mt-5 flex flex-wrap justify-end gap-2">
               <button
                 type="button"
                 onClick={closeConfirmModal}
-                className="rounded-xl border px-4 py-2 text-sm hover:bg-slate-50"
+                className={BTN_SECONDARY}
                 disabled={isSaving}
               >
                 Cancelar
@@ -2811,48 +2904,45 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
                   (passengerRisk && !confirmPassengerRisk)
                 }
                 className={cn(
-                  "rounded-xl px-4 py-2 text-sm text-white",
-                  !canSave ||
+                  BTN_PRIMARY,
+                  (!canSave ||
                     isSaving ||
                     (feeIsZero && !confirmZeroFee) ||
-                    (passengerRisk && !confirmPassengerRisk)
-                    ? "bg-slate-400 cursor-not-allowed"
-                    : "bg-black hover:bg-gray-800"
+                    (passengerRisk && !confirmPassengerRisk)) &&
+                    "pointer-events-none opacity-50"
                 )}
               >
                 {isSaving
-                  ? "Salvando..."
+                  ? "Salvando…"
                   : feeIsZero
                     ? "Confirmar sem taxa e salvar"
                     : passengerRisk
                       ? "Confirmar risco e salvar"
-                    : "Confirmar e salvar"}
+                      : "Confirmar e salvar"}
               </button>
             </div>
           </div>
         </div>
       ) : null}
 
-      {/* ✅ OVERLAY CENTRAL "SALVANDO..." */}
       {isSaving ? (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/30">
-          <div className="rounded-2xl bg-white border px-5 py-4 shadow-sm flex items-center gap-3">
-            <div className="h-5 w-5 rounded-full border-2 border-slate-300 border-t-slate-900 animate-spin" />
-            <div className="text-sm font-medium">Salvando venda...</div>
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/35 backdrop-blur-[1px]">
+          <div className="flex items-center gap-3 rounded-2xl border border-slate-200/90 bg-white px-5 py-4 shadow-xl">
+            <Loader2 className="h-5 w-5 animate-spin text-slate-700" aria-hidden />
+            <div className="text-sm font-semibold text-slate-900">Salvando venda…</div>
           </div>
         </div>
       ) : null}
 
-      {/* ✅ MODAL PÓS-SAVE (mensagem Telegram) */}
       {postSaveOpen ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="w-full max-w-2xl rounded-2xl bg-white border p-5">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/45 p-4 backdrop-blur-[2px]">
+          <div className="w-full max-w-2xl rounded-2xl border border-slate-200/90 bg-white p-5 shadow-2xl shadow-slate-900/20 sm:p-6">
             <div className="flex items-start justify-between gap-3">
               <div>
-                <div className="text-lg font-semibold">
-                  Parabéns, sua passagem foi emitida com sucesso!
+                <div className="text-lg font-bold tracking-tight text-slate-900">
+                  Passagem emitida com sucesso
                 </div>
-                <div className="text-xs text-slate-500">
+                <div className="mt-1 text-xs text-slate-500">
                   Copie a mensagem abaixo e cole no Telegram.
                 </div>
               </div>
@@ -2860,16 +2950,19 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
               <button
                 type="button"
                 onClick={() => setPostSaveOpen(false)}
-                className="rounded-lg border px-2 py-1 text-sm hover:bg-slate-50"
+                className="rounded-xl border border-slate-200 bg-white px-2.5 py-1 text-sm text-slate-600 hover:bg-slate-50"
               >
                 ✕
               </button>
             </div>
 
             <div className="mt-4">
-              <div className="text-xs text-slate-600 mb-1">Mensagem</div>
+              <div className={cn(FIELD_LABEL, "mb-1.5")}>Mensagem</div>
               <textarea
-                className="w-full min-h-[220px] rounded-xl border p-3 text-sm font-mono"
+                className={cn(
+                  CONTROL_INPUT,
+                  "min-h-[220px] resize-y font-mono text-[13px] leading-relaxed"
+                )}
                 value={postSaveMsg}
                 onChange={(e) => setPostSaveMsg(e.target.value)}
               />
@@ -2883,7 +2976,7 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
               <button
                 type="button"
                 onClick={() => copyText("Mensagem Telegram", postSaveMsg)}
-                className="rounded-xl border px-4 py-2 text-sm hover:bg-slate-50"
+                className={BTN_SECONDARY}
               >
                 Copiar mensagem
               </button>
@@ -2896,7 +2989,7 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
                   } catch {}
                   window.location.href = "/dashboard/vendas";
                 }}
-                className="rounded-xl bg-black px-4 py-2 text-sm text-white hover:bg-gray-800"
+                className={BTN_PRIMARY}
               >
                 Copiar e ir para vendas
               </button>
@@ -2925,9 +3018,9 @@ function CopyField({
   const showValue = masked ? (value ? "••••••••••" : "") : value;
 
   return (
-    <div className="rounded-lg border bg-white px-3 py-2">
+    <div className="rounded-xl border border-slate-200/80 bg-white px-3 py-2.5 shadow-sm">
       <div className="flex items-center justify-between gap-2">
-        <div className="text-[11px] text-slate-500">{label}</div>
+        <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">{label}</div>
         <div className="flex items-center gap-2">
           {typeof masked === "boolean" ? (
             <button
