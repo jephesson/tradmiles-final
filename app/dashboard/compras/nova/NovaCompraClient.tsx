@@ -1,7 +1,22 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useParams } from "next/navigation";
+import {
+  AlertCircle,
+  Loader2,
+  Package,
+  Plus,
+  Receipt,
+  Save,
+  Search,
+  Sparkles,
+  Trash2,
+  Unlock,
+  UserRound,
+  Wallet,
+} from "lucide-react";
+import { cn } from "@/lib/cn";
 
 type LoyaltyProgram = "LATAM" | "SMILES" | "LIVELO" | "ESFERA";
 
@@ -257,7 +272,67 @@ const PROGRAM_LABEL: Record<LoyaltyProgram, string> = {
   ESFERA: "Esfera",
 };
 
+const FIELD_LABEL =
+  "text-[11px] font-semibold uppercase tracking-wide text-slate-500";
+const CONTROL_INPUT =
+  "w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 shadow-sm outline-none transition placeholder:text-slate-400 focus:border-slate-300 focus:ring-2 focus:ring-slate-900/10";
+const CONTROL_INPUT_MONO = cn(CONTROL_INPUT, "font-mono tabular-nums");
+const CONTROL_SELECT =
+  "w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-medium text-slate-900 shadow-sm outline-none transition focus:border-slate-300 focus:ring-2 focus:ring-slate-900/10";
+const CONTROL_SELECT_SM =
+  "w-full rounded-xl border border-slate-200 bg-white px-2.5 py-2 text-sm font-medium text-slate-900 shadow-sm outline-none transition focus:border-slate-300 focus:ring-2 focus:ring-slate-900/10";
+const BTN_PRIMARY =
+  "inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-slate-900 px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800 disabled:pointer-events-none disabled:opacity-50";
+const BTN_SECONDARY =
+  "inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-medium text-slate-800 shadow-sm transition hover:border-slate-300 hover:bg-slate-50 disabled:pointer-events-none disabled:opacity-50";
+const BTN_EMERALD =
+  "inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-700 disabled:pointer-events-none disabled:opacity-50";
+const BTN_GHOST =
+  "inline-flex h-9 items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 text-xs font-medium text-slate-700 shadow-sm transition hover:bg-slate-50 disabled:pointer-events-none disabled:opacity-50";
+const SECTION =
+  "relative overflow-hidden rounded-2xl border border-slate-200/80 bg-gradient-to-br from-white to-slate-50/60 shadow-sm shadow-slate-200/35";
+const TABLE_HEAD = "bg-slate-50/90 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-500";
+
 const CLUB_TIERS = [1, 2, 3, 5, 7, 10, 12, 15, 20];
+
+function StepSection({
+  step,
+  title,
+  hint,
+  action,
+  children,
+}: {
+  step: number;
+  title: string;
+  hint?: string;
+  action?: ReactNode;
+  children: ReactNode;
+}) {
+  return (
+    <section className={SECTION}>
+      <div className="p-5 sm:p-6">
+        <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div className="flex items-start gap-3 min-w-0">
+            <span
+              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-slate-900 text-sm font-bold text-white shadow-md shadow-slate-900/15"
+              aria-hidden
+            >
+              {step}
+            </span>
+            <div className="min-w-0 pt-0.5">
+              <h2 className="text-base font-semibold tracking-tight text-slate-900">{title}</h2>
+              {hint ? (
+                <p className="mt-1 text-xs leading-relaxed text-slate-500">{hint}</p>
+              ) : null}
+            </div>
+          </div>
+          {action ? <div className="shrink-0 flex flex-wrap gap-2">{action}</div> : null}
+        </div>
+        {children}
+      </div>
+    </section>
+  );
+}
 
 /** ✅ NORMALIZAÇÃO CENTRAL (mata o reduce undefined) */
 function normalizeItem(it: any): PurchaseItem {
@@ -756,32 +831,46 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
   }, [computedExpected, expectedAuto, isReleased]);
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <h1 className="text-xl font-semibold">Nova compra</h1>
-          <p className="text-sm text-gray-600">
-            Crie a compra em rascunho e só aplique no saldo ao <b>LIBERAR</b>.
-          </p>
+    <div className="mx-auto max-w-[1800px] space-y-6 p-4 pb-10 sm:p-6">
+      <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
+        <div className="min-w-0 space-y-3">
+          <div className="inline-flex items-center gap-2 rounded-full border border-slate-200/90 bg-white px-3 py-1 text-[11px] font-semibold uppercase tracking-wider text-slate-500 shadow-sm">
+            <Receipt className="h-3.5 w-3.5 text-slate-400" strokeWidth={2} aria-hidden />
+            Gestão de pontos
+          </div>
+          <div>
+            <h1 className="text-3xl font-bold tracking-tight text-slate-900">Nova compra</h1>
+            <p className="mt-2 max-w-2xl text-sm leading-relaxed text-slate-600">
+              Crie a compra em rascunho com autosave. Os saldos do cedente só mudam ao{" "}
+              <span className="font-semibold text-slate-800">liberar</span>.
+            </p>
+          </div>
 
           {draft && (
-            <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-gray-600">
-              <span className="rounded-full border px-2 py-1">
-                Compra: <span className="font-mono">{draft.numero}</span>
+            <div className="flex flex-wrap items-center gap-2 pt-1">
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-medium text-slate-700 shadow-sm">
+                <span className="text-slate-500">Compra</span>
+                <span className="font-mono text-slate-900">{draft.numero}</span>
               </span>
-
               <span
-                className={`rounded-full border px-2 py-1 ${
+                className={cn(
+                  "inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium",
                   draft.status === "CLOSED"
-                    ? "bg-emerald-50 border-emerald-200 text-emerald-700"
-                    : "bg-gray-50"
-                }`}
+                    ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+                    : "border-slate-200 bg-slate-50 text-slate-700"
+                )}
               >
-                Status: <span className="font-mono">{draft.status}</span>
+                Status <span className="font-mono">{draft.status}</span>
               </span>
-
-              <span className="rounded-full border px-2 py-1">
-                Autosave: {saving ? "salvando…" : "ativo"}
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-medium text-slate-600 shadow-sm">
+                {saving ? (
+                  <>
+                    <Loader2 className="h-3.5 w-3.5 animate-spin text-slate-400" aria-hidden />
+                    Salvando…
+                  </>
+                ) : (
+                  "Autosave ativo"
+                )}
               </span>
             </div>
           )}
@@ -799,33 +888,41 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
       </div>
 
       {error && (
-        <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">
-          {error}
+        <div
+          className="flex gap-3 rounded-2xl border border-rose-200/90 bg-rose-50/90 p-4 text-sm text-rose-800 shadow-sm"
+          role="alert"
+        >
+          <AlertCircle className="h-5 w-5 shrink-0 text-rose-500" strokeWidth={2} aria-hidden />
+          <p className="min-w-0 leading-relaxed">{error}</p>
         </div>
       )}
 
-      {/* 1) Cedente */}
-      <div className="rounded-xl border p-4 space-y-3">
-        <div className="flex items-center justify-between">
-          <h2 className="font-medium">1) Cedente</h2>
-          <span className="text-xs text-gray-500">
-            Selecione e gere o ID único
-          </span>
-        </div>
-
-        <div className="grid gap-3 md:grid-cols-2">
-          <div>
-            <label className="text-sm text-gray-600">Buscar cedente</label>
-            <input
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              className="mt-1 w-full rounded-md border px-3 py-2 text-sm"
-              placeholder="Nome, CPF, identificador..."
-              disabled={!!draft}
-            />
+      <StepSection
+        step={1}
+        title="Cedente"
+        hint="Busque por nome, CPF ou identificador. Depois gere o rascunho com ID único."
+      >
+        <div className="grid gap-5 md:grid-cols-2">
+          <div className="space-y-2">
+            <label className={FIELD_LABEL}>Buscar cedente</label>
+            <div className="relative">
+              <Search
+                className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"
+                strokeWidth={2}
+                aria-hidden
+              />
+              <input
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                className={cn(CONTROL_INPUT, "pl-10")}
+                placeholder="Nome, CPF, identificador…"
+                disabled={!!draft}
+              />
+            </div>
 
             {loadingCed && (
-              <div className="mt-1 text-xs text-gray-500">
+              <div className="flex items-center gap-2 text-xs text-slate-500">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
                 Carregando cedentes aprovados…
               </div>
             )}
@@ -834,38 +931,38 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
               query.trim().length >= 2 &&
               cedentes.length === 0 &&
               !loadingCed && (
-                <div className="mt-2 text-xs text-gray-500">
-                  Nenhum cedente encontrado.
-                </div>
+                <p className="text-xs text-slate-500">Nenhum cedente encontrado para esta busca.</p>
               )}
 
             {!draft && cedentes.length > 0 && (
-              <div className="mt-2 max-h-56 overflow-auto rounded-md border">
+              <div className="mt-1 max-h-60 overflow-auto rounded-xl border border-slate-200/90 bg-white shadow-inner shadow-slate-100/80">
                 {cedentes.map((c) => (
                   <button
                     key={c.id}
                     type="button"
                     onClick={() => setCedenteSel(c)}
-                    className={`flex w-full items-start justify-between gap-2 px-3 py-2 text-left text-sm hover:bg-gray-50 ${
-                      cedenteSel?.id === c.id ? "bg-gray-50" : ""
-                    }`}
+                    className={cn(
+                      "flex w-full items-start justify-between gap-3 border-b border-slate-100 px-3 py-3 text-left text-sm transition last:border-b-0 hover:bg-slate-50/90",
+                      cedenteSel?.id === c.id && "bg-sky-50/80 hover:bg-sky-50/80"
+                    )}
                   >
-                    <div>
-                      <div className="font-medium">{c.nomeCompleto}</div>
-                      <div className="text-xs text-gray-500">
-                        CPF: {c.cpf} · ID: {c.identificador}
+                    <div className="min-w-0">
+                      <div className="font-semibold text-slate-900">{c.nomeCompleto}</div>
+                      <div className="mt-0.5 text-xs text-slate-500">
+                        CPF {c.cpf} · ID {c.identificador}
                       </div>
                     </div>
-                    <div className="text-xs text-gray-500 text-right">
+                    <div className="shrink-0 text-right text-xs text-slate-500">
                       <div
-                        className={`inline-flex rounded-full border px-2 py-0.5 ${scoreBadgeClass(
-                          c.scoreMedia
-                        )}`}
+                        className={cn(
+                          "mb-1 inline-flex rounded-full border px-2 py-0.5 font-medium",
+                          scoreBadgeClass(c.scoreMedia)
+                        )}
                       >
                         Score {fmtScore(c.scoreMedia)}
                       </div>
-                      <div>LATAM {c.pontosLatam}</div>
-                      <div>SMILES {c.pontosSmiles}</div>
+                      <div className="tabular-nums">LATAM {c.pontosLatam}</div>
+                      <div className="tabular-nums">Smiles {c.pontosSmiles}</div>
                     </div>
                   </button>
                 ))}
@@ -873,214 +970,189 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
             )}
           </div>
 
-          <div className="rounded-xl bg-gray-50 p-4">
-            <div className="text-sm font-medium">Selecionado</div>
+          <div className="rounded-2xl border border-slate-200/80 bg-white/90 p-5 shadow-sm">
+            <div className="flex items-center gap-2 text-sm font-semibold text-slate-900">
+              <UserRound className="h-4 w-4 text-slate-400" strokeWidth={2} aria-hidden />
+              Selecionado
+            </div>
 
             {!cedenteSel && (
-              <div className="text-sm text-gray-600">Nenhum.</div>
+              <p className="mt-3 text-sm text-slate-500">Nenhum cedente selecionado ainda.</p>
             )}
 
             {cedenteSel && (
-              <div className="text-sm text-gray-700 space-y-1">
-                <div className="font-medium">{cedenteSel.nomeCompleto}</div>
-                <div className="text-xs text-gray-500">
+              <div className="mt-3 space-y-2 text-sm text-slate-700">
+                <div className="font-semibold text-slate-900">{cedenteSel.nomeCompleto}</div>
+                <div className="text-xs text-slate-500">
                   CPF {cedenteSel.cpf} · {cedenteSel.identificador}
                 </div>
-                <div className="text-xs">
+                <div>
                   <span
-                    className={`inline-flex rounded-full border px-2 py-0.5 ${scoreBadgeClass(
-                      cedenteSel.scoreMedia
-                    )}`}
+                    className={cn(
+                      "inline-flex rounded-full border px-2.5 py-0.5 text-xs font-medium",
+                      scoreBadgeClass(cedenteSel.scoreMedia)
+                    )}
                   >
                     Score médio {fmtScore(cedenteSel.scoreMedia)}/10
                   </span>
                 </div>
-                <div className="text-xs text-gray-500">
-                  Saldos atuais: LATAM {cedenteSel.pontosLatam} · SMILES{" "}
-                  {cedenteSel.pontosSmiles} · LIVELO {cedenteSel.pontosLivelo} ·
-                  ESFERA {cedenteSel.pontosEsfera}
-                </div>
+                <p className="text-xs leading-relaxed text-slate-500">
+                  Saldos atuais: LATAM {cedenteSel.pontosLatam.toLocaleString("pt-BR")} · Smiles{" "}
+                  {cedenteSel.pontosSmiles.toLocaleString("pt-BR")} · Livelo{" "}
+                  {cedenteSel.pontosLivelo.toLocaleString("pt-BR")} · Esfera{" "}
+                  {cedenteSel.pontosEsfera.toLocaleString("pt-BR")}
+                </p>
               </div>
             )}
 
-            <div className="mt-4 flex gap-2">
+            <div className="mt-5">
               <button
                 type="button"
                 onClick={createDraft}
                 disabled={!cedenteSel || saving || !!draft}
-                className="rounded-md bg-black px-3 py-2 text-sm text-white disabled:opacity-50"
+                className={BTN_PRIMARY}
               >
-                {draft ? "Compra criada" : "Gerar compra (ID único)"}
+                {saving && !draft ? (
+                  <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+                ) : (
+                  <Sparkles className="h-4 w-4" strokeWidth={2} aria-hidden />
+                )}
+                {draft ? "Rascunho criado" : "Gerar compra (ID único)"}
               </button>
             </div>
           </div>
         </div>
-      </div>
+      </StepSection>
 
-      {/* 2) Config + Resumo */}
       {draft && (
-        <div className="grid gap-4 lg:grid-cols-3">
-          <div className="lg:col-span-2 rounded-xl border p-4 space-y-4">
-            <div className="flex items-center justify-between">
-              <h2 className="font-medium">2) Configuração</h2>
-              <div className="text-xs text-gray-500">
-                Ajustes gerais da compra (comissão, taxa, etc.)
-              </div>
-            </div>
-
-            <div className="grid gap-3 md:grid-cols-3">
-              <div className="md:col-span-3">
-                <label className="text-sm text-gray-600">Observação</label>
-                <input
-                  value={draft.note || ""}
-                  disabled={!!isReleased}
-                  onChange={(e) => updateDraft({ note: e.target.value })}
-                  className="mt-1 w-full rounded-md border px-3 py-2 text-sm"
-                  placeholder="Opcional"
-                />
-              </div>
-            </div>
-
-            <div className="grid gap-3 md:grid-cols-3">
-              <div>
-                <label className="text-sm text-gray-600">
-                  Taxa cedente (R$)
-                </label>
-                <input
-                  type="number"
-                  value={draft.cedentePayCents / 100}
-                  disabled={!!isReleased}
-                  onChange={(e) =>
-                    updateDraft({
-                      cedentePayCents: roundCents(
-                        Number(e.target.value || 0) * 100
-                      ),
-                    })
-                  }
-                  className="mt-1 w-full rounded-md border px-3 py-2 text-sm"
-                />
-              </div>
-
-              <div>
-                <label className="text-sm text-gray-600">
-                  Comissão vendedor (%)
-                </label>
-                <input
-                  type="number"
-                  value={draft.vendorCommissionBps / 100}
-                  disabled={!!isReleased}
-                  onChange={(e) =>
-                    updateDraft({
-                      vendorCommissionBps: roundCents(
-                        Number(e.target.value || 0) * 100
-                      ),
-                    })
-                  }
-                  className="mt-1 w-full rounded-md border px-3 py-2 text-sm"
-                  placeholder="1 = 1%"
-                />
-                <div className="mt-1 text-xs text-gray-500">
-                  Interno em bps. Use 1 para 1%.
+        <StepSection
+          step={2}
+          title="Configuração e resumo"
+          hint="Taxa do cedente, comissão e markup. À direita, totais e milheiro (CIA na etapa 5)."
+        >
+          <div className="grid gap-5 lg:grid-cols-3">
+            <div className="lg:col-span-2 space-y-4">
+              <div className="grid gap-3 md:grid-cols-3">
+                <div className="md:col-span-3 space-y-1.5">
+                  <label className={FIELD_LABEL}>Observação</label>
+                  <input
+                    value={draft.note || ""}
+                    disabled={!!isReleased}
+                    onChange={(e) => updateDraft({ note: e.target.value })}
+                    className={CONTROL_INPUT}
+                    placeholder="Opcional"
+                  />
                 </div>
               </div>
 
-              <div>
-                <label className="text-sm text-gray-600">
-                  Markup meta (R$/milheiro)
-                </label>
-                <input
-                  type="number"
-                  value={draft.targetMarkupCents / 100}
-                  disabled={!!isReleased}
-                  onChange={(e) =>
-                    updateDraft({
-                      targetMarkupCents: roundCents(
-                        Number(e.target.value || 0) * 100
-                      ),
-                    })
-                  }
-                  className="mt-1 w-full rounded-md border px-3 py-2 text-sm"
-                  placeholder="1.50"
-                />
+              <div className="grid gap-4 sm:grid-cols-3">
+                <div className="space-y-1.5">
+                  <label className={FIELD_LABEL}>Taxa cedente (R$)</label>
+                  <input
+                    type="number"
+                    value={draft.cedentePayCents / 100}
+                    disabled={!!isReleased}
+                    onChange={(e) =>
+                      updateDraft({
+                        cedentePayCents: roundCents(Number(e.target.value || 0) * 100),
+                      })
+                    }
+                    className={CONTROL_INPUT_MONO}
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className={FIELD_LABEL}>Comissão vendedor (%)</label>
+                  <input
+                    type="number"
+                    value={draft.vendorCommissionBps / 100}
+                    disabled={!!isReleased}
+                    onChange={(e) =>
+                      updateDraft({
+                        vendorCommissionBps: roundCents(Number(e.target.value || 0) * 100),
+                      })
+                    }
+                    className={CONTROL_INPUT_MONO}
+                    placeholder="1 = 1%"
+                  />
+                  <p className="text-[11px] text-slate-500">Interno em bps — 1 equivale a 1%.</p>
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className={FIELD_LABEL}>Markup meta (R$/milheiro)</label>
+                  <input
+                    type="number"
+                    value={draft.targetMarkupCents / 100}
+                    disabled={!!isReleased}
+                    onChange={(e) =>
+                      updateDraft({
+                        targetMarkupCents: roundCents(Number(e.target.value || 0) * 100),
+                      })
+                    }
+                    className={CONTROL_INPUT_MONO}
+                    placeholder="Ex.: 1,50"
+                  />
+                </div>
               </div>
             </div>
-          </div>
 
-          <div className="rounded-xl border p-4 lg:sticky lg:top-4 h-fit space-y-3">
-            <div className="text-sm font-medium">Resumo</div>
+            <div className="rounded-2xl border border-slate-200/80 bg-white/95 p-4 lg:sticky lg:top-4 h-fit shadow-sm space-y-3">
+              <div className="flex items-center gap-2 text-sm font-semibold text-slate-900">
+                <Wallet className="h-4 w-4 text-slate-400" strokeWidth={2} aria-hidden />
+                Resumo
+              </div>
 
-            <div className="rounded-lg bg-gray-50 p-3 text-sm space-y-1">
-              <Row
-                label="Subtotal"
-                value={fmtMoneyBR(totals?.subtotalCostCents || 0)}
-              />
-              <Row
-                label="Comissão"
-                value={fmtMoneyBR(totals?.vendorCommissionCents || 0)}
-              />
-              <div className="h-px bg-gray-200 my-2" />
-              <Row
-                label="Total"
-                value={fmtMoneyBR(totals?.totalCostCents || 0)}
-                bold
-              />
-              <div className="h-px bg-gray-200 my-2" />
-              <Row
-                label="Milheiro"
-                value={fmtMoneyBR(totals?.costPerKiloCents || 0)}
-                bold
-              />
-              <Row
-                label="Meta"
-                value={fmtMoneyBR(totals?.targetPerKiloCents || 0)}
-                bold
-              />
-            </div>
+              <div className="rounded-xl border border-slate-100 bg-slate-50/80 p-3 text-sm space-y-2">
+                <Row label="Subtotal" value={fmtMoneyBR(totals?.subtotalCostCents || 0)} />
+                <Row label="Comissão" value={fmtMoneyBR(totals?.vendorCommissionCents || 0)} />
+                <div className="h-px bg-slate-200/90 my-2" />
+                <Row label="Total" value={fmtMoneyBR(totals?.totalCostCents || 0)} bold />
+                <div className="h-px bg-slate-200/90 my-2" />
+                <Row label="Milheiro" value={fmtMoneyBR(totals?.costPerKiloCents || 0)} bold />
+                <Row label="Meta" value={fmtMoneyBR(totals?.targetPerKiloCents || 0)} bold />
+              </div>
 
-            <div className="text-xs text-gray-500">
-              Dica: selecione a CIA na etapa 5. O milheiro usa o <b>Esperado</b>{" "}
-              da CIA.
+              <p className="text-xs leading-relaxed text-slate-500">
+                O milheiro usa o <span className="font-medium text-slate-700">esperado</span> da CIA
+                escolhida na etapa 5.
+              </p>
             </div>
           </div>
-        </div>
+        </StepSection>
       )}
 
-      {/* 3) Clubes */}
       {draft && (
-        <div className="rounded-xl border p-4 space-y-3">
-          <div className="flex items-center justify-between">
-            <h2 className="font-medium">3) Clubes (assinaturas)</h2>
-
-            <button
-              type="button"
-              onClick={addClub}
-              disabled={!!isReleased}
-              className="rounded-md bg-black px-3 py-2 text-sm text-white disabled:opacity-50"
-            >
-              + Adicionar clube
+        <StepSection
+          step={3}
+          title="Clubes (assinaturas)"
+          hint="Itens CLUB entram no custo; bônus em milhas soma ao total do item."
+          action={
+            <button type="button" onClick={addClub} disabled={!!isReleased} className={BTN_PRIMARY}>
+              <Plus className="h-4 w-4" strokeWidth={2} aria-hidden />
+              Adicionar clube
             </button>
-          </div>
-
+          }
+        >
           {clubItems.length === 0 && (
-            <div className="text-sm text-gray-600">
-              Nenhum clube adicionado.
+            <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/50 px-4 py-8 text-center text-sm text-slate-600">
+              Nenhum clube nesta compra.
             </div>
           )}
 
           {clubItems.length > 0 && (
-            <div className="overflow-auto rounded-lg border">
+            <div className="overflow-auto rounded-xl border border-slate-200/80 bg-white shadow-sm">
               <table className="min-w-[900px] w-full text-sm">
-                <thead className="bg-gray-50">
-                  <tr className="text-left">
-                    <th className="p-2">Programa</th>
-                    <th className="p-2">Tipo</th>
-                    <th className="p-2">Valor (R$)</th>
-                    <th className="p-2">Renova (dia)</th>
-                    <th className="p-2">Data assinatura</th>
-                    <th className="p-2">Base pts/mês</th>
-                    <th className="p-2">Bônus (milhas)</th>
-                    <th className="p-2">Total pts/mês</th>
-                    <th className="p-2"></th>
+                <thead className={TABLE_HEAD}>
+                  <tr>
+                    <th className="p-3">Programa</th>
+                    <th className="p-3">Tipo</th>
+                    <th className="p-3">Valor (R$)</th>
+                    <th className="p-3">Renova (dia)</th>
+                    <th className="p-3">Data assinatura</th>
+                    <th className="p-3">Base pts/mês</th>
+                    <th className="p-3">Bônus (milhas)</th>
+                    <th className="p-3">Total pts/mês</th>
+                    <th className="p-3 w-24" />
                   </tr>
                 </thead>
                 <tbody>
@@ -1113,8 +1185,11 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
                         };
 
                     return (
-                      <tr key={realIdx} className="border-t">
-                        <td className="p-2">
+                      <tr
+                        key={realIdx}
+                        className="border-t border-slate-100 bg-white/60 transition hover:bg-slate-50/80"
+                      >
+                        <td className="p-3 align-middle">
                           <select
                             value={meta.program}
                             disabled={!!isReleased}
@@ -1128,7 +1203,7 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
                                 programTo: next.program,
                               });
                             }}
-                            className="w-full rounded-md border px-2 py-1"
+                            className={CONTROL_SELECT_SM}
                           >
                             <option value="LIVELO">Livelo</option>
                             <option value="SMILES">Smiles</option>
@@ -1137,7 +1212,7 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
                           </select>
                         </td>
 
-                        <td className="p-2">
+                        <td className="p-3 align-middle">
                           <select
                             value={meta.tierK}
                             disabled={!!isReleased}
@@ -1152,7 +1227,7 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
                                 pointsFinal: next.tierK * 1000,
                               });
                             }}
-                            className="w-full rounded-md border px-2 py-1"
+                            className={CONTROL_SELECT_SM}
                           >
                             {CLUB_TIERS.map((k) => (
                               <option key={k} value={k}>
@@ -1162,7 +1237,7 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
                           </select>
                         </td>
 
-                        <td className="p-2">
+                        <td className="p-3 align-middle">
                           <input
                             type="number"
                             value={(meta.priceCents || 0) / 100}
@@ -1180,11 +1255,11 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
                                 amountCents: cents,
                               });
                             }}
-                            className="w-full rounded-md border px-2 py-1"
+                            className={CONTROL_INPUT_MONO}
                           />
                         </td>
 
-                        <td className="p-2">
+                        <td className="p-3 align-middle">
                           <input
                             type="number"
                             value={meta.renewalDay}
@@ -1198,11 +1273,11 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
                                 details: JSON.stringify(next),
                               });
                             }}
-                            className="w-full rounded-md border px-2 py-1"
+                            className={CONTROL_INPUT_MONO}
                           />
                         </td>
 
-                        <td className="p-2">
+                        <td className="p-3 align-middle">
                           <input
                             type="date"
                             value={meta.startDateISO}
@@ -1216,13 +1291,15 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
                                 details: JSON.stringify(next),
                               });
                             }}
-                            className="w-full rounded-md border px-2 py-1"
+                            className={cn(CONTROL_INPUT, "py-2 text-[13px]")}
                           />
                         </td>
 
-                        <td className="p-2 font-mono">{meta.tierK * 1000}</td>
+                        <td className="p-3 font-mono text-sm tabular-nums text-slate-800">
+                          {meta.tierK * 1000}
+                        </td>
 
-                        <td className="p-2">
+                        <td className="p-3 align-middle">
                           <input
                             type="number"
                             min={0}
@@ -1249,21 +1326,25 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
                                 }),
                               });
                             }}
-                            className="w-full rounded-md border px-2 py-1"
+                            className={CONTROL_INPUT_MONO}
                           />
                         </td>
 
-                        <td className="p-2 font-mono">
+                        <td className="p-3 font-mono text-sm tabular-nums text-slate-900">
                           {Math.max(0, clampInt(it.pointsFinal || 0)).toLocaleString("pt-BR")}
                         </td>
 
-                        <td className="p-2">
+                        <td className="p-3 align-middle">
                           <button
                             type="button"
                             onClick={() => removeItemByIndex(realIdx)}
                             disabled={!!isReleased}
-                            className="rounded-md border px-2 py-1 text-xs disabled:opacity-50"
+                            className={cn(
+                              BTN_GHOST,
+                              "h-8 text-rose-700 border-rose-200 hover:bg-rose-50"
+                            )}
                           >
+                            <Trash2 className="h-3.5 w-3.5" aria-hidden />
                             Remover
                           </button>
                         </td>
@@ -1275,42 +1356,38 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
             </div>
           )}
 
-          <div className="text-xs text-gray-600">
-            Clubes são itens <b>CLUB</b>, entram no custo/total e o bônus em milhas soma no total de pontos do item.
-          </div>
-        </div>
+          <p className="mt-4 text-xs leading-relaxed text-slate-600">
+            Clubes são itens <span className="font-semibold text-slate-800">CLUB</span>: entram no
+            custo total e o bônus em milhas soma aos pontos do item.
+          </p>
+        </StepSection>
       )}
 
-      {/* 4) Itens (NOVO LAYOUT PROFISSIONAL) */}
       {draft && (
-        <div className="rounded-xl border p-4 space-y-3">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <div>
-              <h2 className="font-medium">4) Itens (pontos + custos)</h2>
-              <div className="text-xs text-gray-500">
-                Layout em cartões (não corta texto). Em telas grandes, fica bem
-                alinhado.
-              </div>
-            </div>
-
+        <StepSection
+          step={4}
+          title="Itens (pontos e custos)"
+          hint="Transferências, compras de pontos, ajustes e custos extras — cada item em um cartão legível."
+          action={
             <button
               type="button"
               onClick={addTransferItem}
               disabled={!!isReleased}
-              className="rounded-md bg-black px-3 py-2 text-sm text-white disabled:opacity-50"
+              className={BTN_PRIMARY}
             >
-              + Adicionar item
+              <Package className="h-4 w-4" strokeWidth={2} aria-hidden />
+              Adicionar item
             </button>
-          </div>
-
+          }
+        >
           {otherItems.length === 0 && (
-            <div className="rounded-lg border bg-gray-50 p-3 text-sm text-gray-600">
-              Sem itens ainda.
+            <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/50 px-4 py-8 text-center text-sm text-slate-600">
+              Sem itens além de clubes. Adicione transferências ou custos quando precisar.
             </div>
           )}
 
           {otherItems.length > 0 && (
-            <div className="space-y-3">
+            <div className="space-y-4">
               {(draft.items ?? []).map((it, realIdx) => {
                 if (it.type === "CLUB") return null;
 
@@ -1335,27 +1412,22 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
             </div>
           )}
 
-          <div className="text-xs text-gray-600">
-            Para o milheiro: o cálculo usa o <b>Esperado</b> da CIA (LATAM/Smiles).
-          </div>
-        </div>
+          <p className="mt-4 text-xs leading-relaxed text-slate-600">
+            O milheiro na etapa 5 usa o <span className="font-medium text-slate-800">esperado</span>{" "}
+            da CIA (LATAM ou Smiles).
+          </p>
+        </StepSection>
       )}
 
-      {/* 5) Saldo esperado + CIA */}
       {draft && cedenteSel && (
-        <div className="rounded-xl border p-4 space-y-3">
-          <div className="flex items-center justify-between">
-            <h2 className="font-medium">
-              5) Saldo final esperado (aplica no LIBERAR)
-            </h2>
-            <div className="text-xs text-gray-500">
-              Auto = atual + deltas dos itens/clubes
-            </div>
-          </div>
-
-          <div className="grid gap-3 md:grid-cols-3">
-            <div>
-              <label className="text-sm text-gray-600">CIA base (milheiro)</label>
+        <StepSection
+          step={5}
+          title="Saldo esperado e CIA (milheiro)"
+          hint="Marque Auto para recalcular a partir do saldo atual + itens. Ao liberar, o cedente passa a ter exatamente estes saldos."
+        >
+          <div className="grid gap-4 md:grid-cols-3">
+            <div className="space-y-1.5">
+              <label className={FIELD_LABEL}>CIA base (milheiro)</label>
               <select
                 value={draft.ciaProgram || ""}
                 disabled={!!isReleased}
@@ -1364,45 +1436,42 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
                     ciaProgram: (e.target.value || null) as LoyaltyProgram | null,
                   })
                 }
-                className="mt-1 w-full rounded-md border px-3 py-2 text-sm"
+                className={CONTROL_SELECT}
               >
                 <option value="">Selecione…</option>
                 <option value="LATAM">LATAM</option>
                 <option value="SMILES">Smiles</option>
               </select>
-
-              <div className="mt-2 text-xs text-gray-500">
-                O milheiro usa o <b>Esperado</b> da CIA selecionada.
-              </div>
+              <p className="text-[11px] text-slate-500">
+                O milheiro usa o esperado da CIA escolhida.
+              </p>
             </div>
 
-            <div className="rounded-lg bg-gray-50 p-3">
-              <div className="text-xs text-gray-600">Pontos usados no milheiro</div>
-              <div className="mt-1 text-sm font-semibold font-mono">
+            <div className="rounded-xl border border-slate-200/80 bg-slate-50/80 p-4">
+              <div className={FIELD_LABEL}>Pontos no milheiro</div>
+              <div className="mt-1 text-lg font-bold tabular-nums tracking-tight text-slate-900">
                 {Math.max(0, pointsForMilheiro(draft)).toLocaleString("pt-BR")}
               </div>
-              <div className="mt-1 text-xs text-gray-500">
-                Base:{" "}
+              <p className="mt-1 text-xs text-slate-500">
+                Fonte:{" "}
                 {draft.ciaProgram === "LATAM"
                   ? "Esperado LATAM"
                   : draft.ciaProgram === "SMILES"
-                  ? "Esperado Smiles"
-                  : "—"}
-              </div>
+                    ? "Esperado Smiles"
+                    : "—"}
+              </p>
             </div>
 
-            <div className="rounded-lg bg-gray-50 p-3">
-              <div className="text-xs text-gray-600">Milheiro (pela CIA)</div>
-              <div className="mt-1 text-sm font-semibold">
+            <div className="rounded-xl border border-slate-200/80 bg-slate-50/80 p-4">
+              <div className={FIELD_LABEL}>Milheiro (CIA)</div>
+              <div className="mt-1 text-lg font-bold tabular-nums tracking-tight text-slate-900">
                 {fmtMoneyBR(totals?.costPerKiloCents || 0)}
               </div>
-              <div className="mt-1 text-xs text-gray-500">
-                (usa o <b>Esperado</b> da CIA)
-              </div>
+              <p className="mt-1 text-xs text-slate-500">Baseado no esperado da CIA.</p>
             </div>
           </div>
 
-          <div className="grid gap-3 md:grid-cols-4">
+          <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
             <ExpectedBalance
               label="LATAM"
               program="LATAM"
@@ -1449,17 +1518,24 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
             />
           </div>
 
-          <div className="text-xs text-gray-600">
-            Ao clicar em <b>LIBERAR</b>, os pontos do cedente serão atualizados para{" "}
-            <b>esses saldos</b>.
-          </div>
-        </div>
+          <p className="mt-4 text-xs leading-relaxed text-slate-600">
+            Ao <span className="font-semibold text-slate-800">liberar</span>, os pontos do cedente
+            serão atualizados para os valores em <span className="font-medium">Esperado</span>.
+          </p>
+        </StepSection>
       )}
 
       {draft && (
-        <div className="text-xs text-gray-500">
-          {saving ? "Salvando…" : "Autosave ativo (~0,65s ao editar)."}{" "}
-          {draft.status === "CLOSED" ? "Compra liberada (travada)." : ""}
+        <div className="flex items-center gap-2 rounded-xl border border-slate-200/80 bg-white px-4 py-3 text-xs text-slate-500 shadow-sm">
+          {saving ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin text-slate-400" aria-hidden />
+          ) : (
+            <Sparkles className="h-3.5 w-3.5 text-slate-400" aria-hidden />
+          )}
+          <span>
+            {saving ? "Salvando alterações…" : "Autosave ativo (~0,65 s após editar)."}
+            {draft.status === "CLOSED" ? " Compra liberada (somente leitura)." : ""}
+          </span>
         </div>
       )}
     </div>
@@ -1480,23 +1556,24 @@ function DraftActions(props: {
     isReleased || saving || !draft.ciaProgram || !ptsMilheiro || ptsMilheiro <= 0;
 
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex flex-wrap items-center gap-2.5">
       <button
         type="button"
         onClick={onSave}
         disabled={saving || isReleased}
-        className="rounded-md border px-3 py-2 text-sm disabled:opacity-50"
+        className={BTN_SECONDARY}
       >
-        Salvar
+        {saving ? (
+          <Loader2 className="h-4 w-4 animate-spin text-slate-500" aria-hidden />
+        ) : (
+          <Save className="h-4 w-4 text-slate-500" strokeWidth={2} aria-hidden />
+        )}
+        Salvar agora
       </button>
 
-      <button
-        type="button"
-        onClick={onRelease}
-        disabled={releaseDisabled}
-        className="rounded-md bg-emerald-600 px-3 py-2 text-sm text-white disabled:opacity-50"
-      >
-        LIBERAR (aplicar saldo)
+      <button type="button" onClick={onRelease} disabled={releaseDisabled} className={BTN_EMERALD}>
+        <Unlock className="h-4 w-4" strokeWidth={2} aria-hidden />
+        Liberar (aplicar saldo)
       </button>
     </div>
   );
@@ -1504,9 +1581,16 @@ function DraftActions(props: {
 
 function Row(props: { label: string; value: string; bold?: boolean }) {
   return (
-    <div className="flex items-center justify-between">
-      <span className="text-gray-600">{props.label}</span>
-      <span className={props.bold ? "font-semibold" : ""}>{props.value}</span>
+    <div className="flex items-center justify-between gap-3">
+      <span className="text-slate-600">{props.label}</span>
+      <span
+        className={cn(
+          "tabular-nums text-slate-900",
+          props.bold && "font-semibold tracking-tight"
+        )}
+      >
+        {props.value}
+      </span>
     </div>
   );
 }
@@ -1533,32 +1617,41 @@ function ExpectedBalance(props: {
       : `${delta.toLocaleString("pt-BR")}`;
 
   return (
-    <div className="rounded-xl bg-gray-50 p-3">
-      <div className="flex items-center justify-between">
-        <div className="text-sm font-medium">{label}</div>
-        <label className="text-[11px] text-gray-600 flex items-center gap-2">
+    <div className="rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm">
+      <div className="flex items-center justify-between gap-2">
+        <div className="text-sm font-semibold text-slate-900">{label}</div>
+        <label className="flex cursor-pointer items-center gap-2 text-[11px] font-medium text-slate-600">
           <input
             type="checkbox"
             checked={auto}
             disabled={disabled}
             onChange={(e) => onToggleAuto(e.target.checked)}
+            className="rounded border-slate-300 text-slate-900 focus:ring-slate-900/20"
           />
           Auto
         </label>
       </div>
 
-      <div className="mt-1 text-xs text-gray-600">
-        Atual: <b>{current.toLocaleString("pt-BR")}</b>
+      <div className="mt-2 text-xs text-slate-600">
+        Atual:{" "}
+        <span className="font-semibold tabular-nums text-slate-900">
+          {current.toLocaleString("pt-BR")}
+        </span>
       </div>
 
-      <div className="text-xs text-gray-600">
+      <div className="text-xs text-slate-600">
         Delta:{" "}
-        <b className={delta >= 0 ? "text-emerald-700" : "text-red-700"}>
+        <span
+          className={cn(
+            "font-semibold tabular-nums",
+            delta >= 0 ? "text-emerald-700" : "text-rose-700"
+          )}
+        >
           {signedDelta}
-        </b>
+        </span>
       </div>
 
-      <label className="mt-2 block text-xs text-gray-600">Esperado</label>
+      <label className={cn(FIELD_LABEL, "mt-3 block")}>Esperado</label>
       <input
         type="number"
         value={value ?? ""}
@@ -1569,14 +1662,10 @@ function ExpectedBalance(props: {
           const n = Number(raw);
           onChange(Number.isFinite(n) ? Math.trunc(n) : 0);
         }}
-        className="mt-1 w-full rounded-md border px-2 py-2 text-sm disabled:opacity-50"
-        placeholder="Ex: 150000"
+        className={cn(CONTROL_INPUT_MONO, "mt-1.5 disabled:opacity-50")}
+        placeholder="Ex.: 150000"
       />
-      {auto && (
-        <div className="mt-1 text-[11px] text-gray-500">
-          Calculado automaticamente.
-        </div>
-      )}
+      {auto && <p className="mt-1.5 text-[11px] text-slate-500">Calculado automaticamente.</p>}
     </div>
   );
 }
@@ -1597,18 +1686,17 @@ function ItemCard(props: {
     props;
 
   return (
-    <div className="rounded-xl border bg-white p-4">
-      {/* Header */}
+    <div className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm shadow-slate-200/30">
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="min-w-[220px]">
-          <label className="text-[11px] text-gray-600">Tipo</label>
+        <div className="min-w-[220px] space-y-1">
+          <label className={FIELD_LABEL}>Tipo</label>
           <select
             value={it.type}
             disabled={isReleased}
             onChange={(e) =>
               onUpdateItem(realIdx, { type: e.target.value as PurchaseItemType })
             }
-            className="mt-1 w-full rounded-md border px-3 py-2 text-sm"
+            className={CONTROL_SELECT}
           >
             <option value="TRANSFER">Transferência</option>
             <option value="POINTS_BUY">Compra pontos</option>
@@ -1617,62 +1705,65 @@ function ItemCard(props: {
           </select>
         </div>
 
-        <div className="flex-1 min-w-[280px]">
-          <label className="text-[11px] text-gray-600">Título</label>
-          <input
-            value={it.title}
-            disabled={isReleased}
-            onChange={(e) => onUpdateItem(realIdx, { title: e.target.value })}
-            className="mt-1 w-full rounded-md border px-3 py-2 text-sm"
-            placeholder="Ex: Transfer Livelo→Smiles"
-          />
-
-          <label className="mt-2 block text-[11px] text-gray-600">
-            Detalhes (opcional)
-          </label>
-          <input
-            value={it.details || ""}
-            disabled={isReleased}
-            onChange={(e) => onUpdateItem(realIdx, { details: e.target.value })}
-            className="mt-1 w-full rounded-md border px-3 py-2 text-sm"
-            placeholder="Ex: Campanha 80%, ID do pedido, observações..."
-          />
+        <div className="min-w-[280px] flex-1 space-y-2">
+          <div className="space-y-1">
+            <label className={FIELD_LABEL}>Título</label>
+            <input
+              value={it.title}
+              disabled={isReleased}
+              onChange={(e) => onUpdateItem(realIdx, { title: e.target.value })}
+              className={CONTROL_INPUT}
+              placeholder="Ex.: Transferência Livelo → Smiles"
+            />
+          </div>
+          <div className="space-y-1">
+            <label className={FIELD_LABEL}>Detalhes (opcional)</label>
+            <input
+              value={it.details || ""}
+              disabled={isReleased}
+              onChange={(e) => onUpdateItem(realIdx, { details: e.target.value })}
+              className={CONTROL_INPUT}
+              placeholder="Campanha, ID do pedido, observações…"
+            />
+          </div>
         </div>
 
-        <div className="min-w-[200px]">
-          <label className="text-[11px] text-gray-600">Custo (R$)</label>
-          <input
-            type="number"
-            value={(it.amountCents || 0) / 100}
-            disabled={isReleased}
-            onChange={(e) =>
-              onUpdateItem(realIdx, {
-                amountCents: roundCents(Number(e.target.value || 0) * 100),
-              })
-            }
-            className="mt-1 w-full rounded-md border px-3 py-2 text-sm"
-          />
-
-          <div className="mt-2 flex justify-end">
+        <div className="min-w-[200px] space-y-2">
+          <div className="space-y-1">
+            <label className={FIELD_LABEL}>Custo (R$)</label>
+            <input
+              type="number"
+              value={(it.amountCents || 0) / 100}
+              disabled={isReleased}
+              onChange={(e) =>
+                onUpdateItem(realIdx, {
+                  amountCents: roundCents(Number(e.target.value || 0) * 100),
+                })
+              }
+              className={CONTROL_INPUT_MONO}
+            />
+          </div>
+          <div className="flex justify-end pt-1">
             <button
               type="button"
               onClick={() => onRemoveItem(realIdx)}
               disabled={isReleased}
-              className="rounded-md border px-3 py-2 text-sm disabled:opacity-50"
+              className={cn(BTN_GHOST, "text-rose-700 border-rose-200 hover:bg-rose-50")}
             >
+              <Trash2 className="h-3.5 w-3.5" strokeWidth={2} aria-hidden />
               Remover
             </button>
           </div>
         </div>
       </div>
 
-      <div className="my-4 h-px bg-gray-100" />
+      <div className="my-5 h-px bg-slate-100" />
 
       {/* Body grid */}
       <div className="grid gap-3 md:grid-cols-12">
         {/* De */}
-        <div className="md:col-span-3">
-          <label className="text-[11px] text-gray-600">De (origem)</label>
+        <div className="md:col-span-3 space-y-1">
+          <label className={FIELD_LABEL}>De (origem)</label>
           <select
             value={it.programFrom || ""}
             disabled={isReleased}
@@ -1681,7 +1772,7 @@ function ItemCard(props: {
                 programFrom: (e.target.value || null) as any,
               })
             }
-            className="mt-1 w-full rounded-md border px-3 py-2 text-sm"
+            className={CONTROL_SELECT}
           >
             <option value="">—</option>
             <option value="LATAM">LATAM</option>
@@ -1692,15 +1783,15 @@ function ItemCard(props: {
         </div>
 
         {/* Para */}
-        <div className="md:col-span-3">
-          <label className="text-[11px] text-gray-600">Para (destino)</label>
+        <div className="md:col-span-3 space-y-1">
+          <label className={FIELD_LABEL}>Para (destino)</label>
           <select
             value={it.programTo || ""}
             disabled={isReleased}
             onChange={(e) =>
               onUpdateItem(realIdx, { programTo: (e.target.value || null) as any })
             }
-            className="mt-1 w-full rounded-md border px-3 py-2 text-sm"
+            className={CONTROL_SELECT}
           >
             <option value="">—</option>
             <option value="LATAM">LATAM</option>
@@ -1711,8 +1802,8 @@ function ItemCard(props: {
         </div>
 
         {/* Base */}
-        <div className="md:col-span-2">
-          <label className="text-[11px] text-gray-600">Pontos base</label>
+        <div className="md:col-span-2 space-y-1">
+          <label className={FIELD_LABEL}>Pontos base</label>
           <input
             type="number"
             value={it.pointsBase}
@@ -1720,21 +1811,20 @@ function ItemCard(props: {
             onChange={(e) =>
               onUpdateItem(realIdx, { pointsBase: clampInt(e.target.value) })
             }
-            className="mt-1 w-full rounded-md border px-3 py-2 text-sm font-mono"
+            className={CONTROL_INPUT_MONO}
           />
         </div>
 
-        {/* Bônus */}
-        <div className="md:col-span-4">
-          <label className="text-[11px] text-gray-600">Bônus</label>
-          <div className="mt-1 flex gap-2">
+        <div className="md:col-span-4 space-y-1">
+          <label className={FIELD_LABEL}>Bônus</label>
+          <div className="flex gap-2">
             <select
               value={it.bonusMode || ""}
               disabled={isReleased}
               onChange={(e) =>
                 onUpdateItem(realIdx, { bonusMode: e.target.value as any })
               }
-              className="w-[120px] rounded-md border px-3 py-2 text-sm"
+              className={cn(CONTROL_SELECT, "w-[120px] shrink-0")}
             >
               <option value="">—</option>
               <option value="PERCENT">%</option>
@@ -1748,18 +1838,17 @@ function ItemCard(props: {
               onChange={(e) =>
                 onUpdateItem(realIdx, { bonusValue: clampInt(e.target.value) })
               }
-              className="flex-1 rounded-md border px-3 py-2 text-sm font-mono disabled:opacity-50"
+              className={cn(CONTROL_INPUT_MONO, "min-w-0 flex-1 disabled:opacity-50")}
               placeholder="0"
             />
           </div>
-          <div className="mt-1 text-[11px] text-gray-500">
-            % calcula em cima da base · +Pts soma fixo
-          </div>
+          <p className="text-[11px] text-slate-500">
+            % sobre a base · +Pts soma valor fixo
+          </p>
         </div>
 
-        {/* Final */}
-        <div className="md:col-span-4">
-          <label className="text-[11px] text-gray-600">Pontos final</label>
+        <div className="md:col-span-4 space-y-1">
+          <label className={FIELD_LABEL}>Pontos final</label>
           <input
             type="number"
             value={it.pointsFinal}
@@ -1767,31 +1856,29 @@ function ItemCard(props: {
             onChange={(e) =>
               onUpdateItem(realIdx, { pointsFinal: clampInt(e.target.value) })
             }
-            className="mt-1 w-full rounded-md border px-3 py-2 text-sm font-mono disabled:opacity-50"
+            className={cn(CONTROL_INPUT_MONO, "disabled:opacity-50")}
           />
 
-          <div className="mt-2 flex flex-wrap items-center gap-3">
-            <label className="text-[11px] text-gray-700 flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-3 pt-1">
+            <label className="flex items-center gap-2 text-[11px] font-medium text-slate-700">
               <input
                 type="checkbox"
                 checked={allowManual}
                 disabled={isReleased}
                 onChange={(e) => onToggleAllowManual(e.target.checked)}
+                className="rounded border-slate-300 text-slate-900"
               />
-              Permitir editar final
+              Editar final manualmente
             </label>
 
             {!allowManual && (
-              <span className="text-[11px] text-gray-500">
-                auto (base + bônus)
-              </span>
+              <span className="text-[11px] text-slate-500">Automático (base + bônus)</span>
             )}
           </div>
         </div>
 
-        {/* Debitado origem */}
-        <div className="md:col-span-4">
-          <label className="text-[11px] text-gray-600">Debitado na origem</label>
+        <div className="md:col-span-4 space-y-1">
+          <label className={FIELD_LABEL}>Debitado na origem</label>
           <input
             type="number"
             value={it.pointsDebitedFromOrigin}
@@ -1801,17 +1888,16 @@ function ItemCard(props: {
                 pointsDebitedFromOrigin: clampInt(e.target.value),
               })
             }
-            className="mt-1 w-full rounded-md border px-3 py-2 text-sm font-mono"
+            className={CONTROL_INPUT_MONO}
             placeholder="0"
           />
-          <div className="mt-1 text-[11px] text-gray-500">
-            Se o destino recebe e a origem perde, preencha aqui.
-          </div>
+          <p className="text-[11px] text-slate-500">
+            Quando o destino ganha e a origem perde pontos.
+          </p>
         </div>
 
-        {/* Modo */}
-        <div className="md:col-span-4">
-          <label className="text-[11px] text-gray-600">Modo</label>
+        <div className="md:col-span-4 space-y-1">
+          <label className={FIELD_LABEL}>Modo</label>
           <select
             value={it.transferMode || ""}
             disabled={isReleased}
@@ -1820,32 +1906,31 @@ function ItemCard(props: {
                 transferMode: (e.target.value || null) as any,
               })
             }
-            className="mt-1 w-full rounded-md border px-3 py-2 text-sm"
+            className={CONTROL_SELECT}
           >
             <option value="">—</option>
             <option value="FULL_POINTS">Só pontos</option>
             <option value="POINTS_PLUS_CASH">Pontos + dinheiro</option>
           </select>
-          <div className="mt-1 text-[11px] text-gray-500">
-            Use para registrar a forma do resgate/transferência.
-          </div>
+          <p className="text-[11px] text-slate-500">Forma do resgate ou transferência.</p>
         </div>
 
-        {/* Quick summary */}
-        <div className="md:col-span-4">
-          <label className="text-[11px] text-gray-600">Resumo rápido</label>
-          <div className="mt-1 rounded-md border bg-gray-50 px-3 py-2 text-sm">
-            <div className="flex items-center justify-between">
-              <span className="text-gray-600">Final</span>
-              <span className="font-mono font-semibold">
+        <div className="md:col-span-4 space-y-1">
+          <label className={FIELD_LABEL}>Resumo</label>
+          <div className="rounded-xl border border-slate-100 bg-slate-50/80 px-3 py-3 text-sm">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-slate-600">Final</span>
+              <span className="font-mono font-semibold tabular-nums text-slate-900">
                 {clampInt(it.pointsFinal).toLocaleString("pt-BR")}
               </span>
             </div>
-            <div className="mt-1 flex items-center justify-between">
-              <span className="text-gray-600">Custo</span>
-              <span className="font-semibold">{fmtMoneyBR(it.amountCents || 0)}</span>
+            <div className="mt-2 flex items-center justify-between gap-2">
+              <span className="text-slate-600">Custo</span>
+              <span className="font-semibold tabular-nums text-slate-900">
+                {fmtMoneyBR(it.amountCents || 0)}
+              </span>
             </div>
-            <div className="mt-1 text-[11px] text-gray-500">
+            <div className="mt-2 text-[11px] font-medium text-slate-500">
               {it.programFrom ? PROGRAM_LABEL[it.programFrom] : "—"} →{" "}
               {it.programTo ? PROGRAM_LABEL[it.programTo] : "—"}
             </div>
