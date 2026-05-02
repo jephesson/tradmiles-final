@@ -3,8 +3,34 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
-import { Check, Coins, Copy, Eye, KeyRound, MessageCircle, Pencil, X } from "lucide-react";
+import {
+  Check,
+  Coins,
+  Copy,
+  Eye,
+  KeyRound,
+  MessageCircle,
+  Pencil,
+  RefreshCw,
+  Search,
+  X,
+} from "lucide-react";
 import { cn } from "@/lib/cn";
+import {
+  VP_BTN_SECONDARY,
+  VP_CONTROL_INPUT,
+  VP_CONTROL_INPUT_MONO,
+  VP_CONTROL_SELECT,
+  VP_FIELD_LABEL,
+  VP_FILTER_CARD,
+  VP_MODAL_BACKDROP,
+  VP_MODAL_PANEL,
+  VP_PAGE_SHELL,
+  VP_TABLE_HEAD,
+  VP_TABLE_HEAD_CELL,
+  VP_TABLE_ROW,
+  VP_TABLE_WRAP,
+} from "./visualizarPontosUi";
 
 type Owner = { id: string; name: string; login: string };
 
@@ -194,8 +220,9 @@ export default function CedentesVisualizarSmilesClient() {
       );
 
       cancelEdit();
-    } catch (e: any) {
-      alert(e?.message || "Erro ao salvar.");
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "Erro ao salvar.";
+      alert(msg);
     } finally {
       setSaving(false);
     }
@@ -216,94 +243,100 @@ export default function CedentesVisualizarSmilesClient() {
   }
 
   return (
-    <div className="p-6">
-      {/* Header */}
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-semibold">Cedentes • Smiles</h1>
-          <p className="text-sm text-slate-500">
-            Pontos aprovados, pendentes, total esperado e passageiros disponíveis em 2026 (SMILES).
-          </p>
+    <div className={VP_PAGE_SHELL}>
+      <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
+        <div className="min-w-0 space-y-3">
+          <div className="inline-flex items-center gap-2 rounded-full border border-slate-200/90 bg-white px-3 py-1 text-[11px] font-semibold uppercase tracking-wider text-slate-500 shadow-sm">
+            <Eye className="h-3.5 w-3.5 text-slate-400" strokeWidth={2} aria-hidden />
+            Gestão de pontos
+          </div>
+          <div>
+            <h1 className="text-3xl font-bold tracking-tight text-slate-900">Cedentes • Smiles</h1>
+            <p className="mt-2 max-w-2xl text-sm leading-relaxed text-slate-600">
+              Pontos aprovados, pendentes, total esperado e passageiros disponíveis em 2026 (Smiles).
+            </p>
+          </div>
         </div>
 
-        <div className="flex items-center gap-2">
-          <button
-            onClick={load}
-            className={cn(
-              "border rounded-lg px-4 py-2 text-sm",
-              loading ? "opacity-60" : "hover:bg-slate-50"
-            )}
-          >
-            {loading ? "Atualizando..." : "Atualizar"}
+        <div className="flex flex-wrap items-center gap-2.5">
+          <button type="button" onClick={load} disabled={loading} className={VP_BTN_SECONDARY}>
+            <RefreshCw className={cn("h-4 w-4 text-slate-500", loading && "animate-spin")} aria-hidden />
+            {loading ? "Atualizando…" : "Atualizar"}
           </button>
-
-          <Link
-            href="/dashboard/cedentes/visualizar?programa=latam"
-            className="border rounded-lg px-4 py-2 text-sm hover:bg-slate-50"
-          >
+          <Link href="/dashboard/cedentes/visualizar?programa=latam" className={VP_BTN_SECONDARY}>
             Ir para LATAM
           </Link>
         </div>
       </div>
 
-      {/* Filtros */}
-      <div className="mt-4 flex flex-wrap items-center gap-2">
-        <input
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-          placeholder="Buscar nome / identificador / CPF..."
-          className="border rounded-lg px-3 py-2 text-sm w-64"
-        />
-
-        <select
-          value={ownerId}
-          onChange={(e) => setOwnerId(e.target.value)}
-          className="border rounded-lg px-3 py-2 text-sm min-w-[220px]"
-        >
-          <option value="">Todos responsáveis</option>
-          {owners.map((o) => (
-            <option key={o.id} value={o.id}>
-              {o.name} (@{o.login})
-            </option>
-          ))}
-        </select>
-
-        <select
-          value={sortBy}
-          onChange={(e) => setSortBy(e.target.value as SortBy)}
-          className="border rounded-lg px-3 py-2 text-sm min-w-[240px]"
-          title="Ordenar do maior para o menor"
-        >
-          <option value="aprovado">Ordenar: SMILES (aprovado) ↓</option>
-          <option value="esperado">Ordenar: TOTAL esperado ↓</option>
-        </select>
+      <div className={VP_FILTER_CARD}>
+        <div className="flex flex-col gap-3 lg:flex-row lg:flex-wrap lg:items-end">
+          <div className="min-w-[min(100%,280px)] flex-1 space-y-1.5">
+            <span className={VP_FIELD_LABEL}>Busca</span>
+            <div className="relative">
+              <Search
+                className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"
+                strokeWidth={2}
+                aria-hidden
+              />
+              <input
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+                placeholder="Nome, identificador ou CPF…"
+                className={cn(VP_CONTROL_INPUT, "pl-10")}
+              />
+            </div>
+          </div>
+          <div className="min-w-[220px] space-y-1.5">
+            <label className={VP_FIELD_LABEL}>Responsável</label>
+            <select
+              value={ownerId}
+              onChange={(e) => setOwnerId(e.target.value)}
+              className={cn(VP_CONTROL_SELECT, "w-full min-w-[220px]")}
+            >
+              <option value="">Todos responsáveis</option>
+              {owners.map((o) => (
+                <option key={o.id} value={o.id}>
+                  {o.name} (@{o.login})
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="min-w-[240px] space-y-1.5">
+            <label className={VP_FIELD_LABEL}>Ordenação</label>
+            <select
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value as SortBy)}
+              className={cn(VP_CONTROL_SELECT, "w-full")}
+              title="Ordenar do maior para o menor"
+            >
+              <option value="aprovado">Smiles (aprovado) ↓</option>
+              <option value="esperado">Total esperado ↓</option>
+            </select>
+          </div>
+        </div>
       </div>
 
-      {/* Tabela */}
-      <div className="mt-4 border rounded-xl overflow-hidden bg-white">
+      <div className={VP_TABLE_WRAP}>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
-            <thead className="bg-slate-50 border-b">
-              <tr className="text-slate-600">
-                <th className="text-left font-semibold px-4 py-3 w-[380px]">NOME</th>
-                <th className="text-left font-semibold px-4 py-3 w-[260px]">RESPONSÁVEL</th>
-                <th className="text-right font-semibold px-4 py-3 w-[120px]">SCORE</th>
-
-                <th className="text-right font-semibold px-4 py-3 w-[160px]">SMILES</th>
-                <th className="text-right font-semibold px-4 py-3 w-[160px]">PENDENTES</th>
-                <th className="text-right font-semibold px-4 py-3 w-[180px]">TOTAL ESPERADO</th>
-
-                {/* ✅ NOVO */}
-                <th className="text-right font-semibold px-4 py-3 w-[190px]">DISPONÍVEL 2026</th>
-
-                <th className="text-right font-semibold px-4 py-3 w-[220px]">AÇÕES</th>
+            <thead className={VP_TABLE_HEAD}>
+              <tr>
+                <th className={cn(VP_TABLE_HEAD_CELL, "w-[380px] text-left")}>Nome</th>
+                <th className={cn(VP_TABLE_HEAD_CELL, "w-[260px] text-left")}>Responsável</th>
+                <th className={cn(VP_TABLE_HEAD_CELL, "w-[120px] text-right")}>Score</th>
+                <th className={cn(VP_TABLE_HEAD_CELL, "w-[160px] text-right")}>Smiles</th>
+                <th className={cn(VP_TABLE_HEAD_CELL, "w-[160px] text-right")}>Pendentes</th>
+                <th className={cn(VP_TABLE_HEAD_CELL, "w-[180px] text-right")}>Total esperado</th>
+                <th className={cn(VP_TABLE_HEAD_CELL, "w-[190px] text-right")}>Disponível 2026</th>
+                <th className={cn(VP_TABLE_HEAD_CELL, "w-[220px] text-right")}>Ações</th>
               </tr>
             </thead>
 
             <tbody>
               {sortedRows.length === 0 && !loading ? (
                 <tr>
-                  <td className="px-4 py-6 text-slate-500" colSpan={8}>
+                  <td className="px-4 py-12 text-center text-sm text-slate-500" colSpan={8}>
                     Nenhum resultado.
                   </td>
                 </tr>
@@ -324,7 +357,7 @@ export default function CedentesVisualizarSmilesClient() {
                 );
 
                 return (
-                  <tr key={r.id} className="border-b last:border-b-0">
+                  <tr key={r.id} className={VP_TABLE_ROW}>
                     <td className="px-4 py-3">
                       <div className="font-medium">{r.nomeCompleto}</div>
                       <div className="text-xs text-slate-500">
@@ -353,7 +386,7 @@ export default function CedentesVisualizarSmilesClient() {
                         <input
                           value={draft}
                           onChange={(e) => setDraft(e.target.value)}
-                          className="border rounded-lg px-2 py-1 text-right w-[140px]"
+                          className={cn(VP_CONTROL_INPUT_MONO, "w-[140px] py-2 text-right")}
                           inputMode="numeric"
                         />
                       ) : (
@@ -474,8 +507,11 @@ export default function CedentesVisualizarSmilesClient() {
 
               {loading ? (
                 <tr>
-                  <td className="px-4 py-6 text-slate-500" colSpan={8}>
-                    Carregando...
+                  <td className="px-4 py-12 text-center text-sm text-slate-500" colSpan={8}>
+                    <span className="inline-flex items-center justify-center gap-2">
+                      <RefreshCw className="h-4 w-4 animate-spin" aria-hidden />
+                      Carregando…
+                    </span>
                   </td>
                 </tr>
               ) : null}
@@ -484,22 +520,25 @@ export default function CedentesVisualizarSmilesClient() {
         </div>
       </div>
 
-      <p className="mt-3 text-xs text-slate-500">
-        * “Disponível 2026” = limite anual − passageiros emitidos em 2026 (programa SMILES), baseado em <b>emission_events</b>.
+      <p className="text-xs leading-relaxed text-slate-500">
+        “Disponível 2026” = limite anual − passageiros emitidos em 2026 (Smiles), com base em{" "}
+        <span className="font-medium text-slate-700">emission_events</span>.
       </p>
 
       {credentialsRow ? (
         <div className="fixed inset-0 z-50">
           <button
             type="button"
-            className="absolute inset-0 bg-black/45"
+            className={VP_MODAL_BACKDROP}
             aria-label="Fechar credenciais"
             onClick={() => setCredentialsRow(null)}
           />
-          <div className="absolute left-1/2 top-1/2 w-[min(94vw,640px)] -translate-x-1/2 -translate-y-1/2 rounded-2xl border bg-white p-5 shadow-2xl">
+          <div className={VP_MODAL_PANEL}>
             <div className="mb-4 flex items-start justify-between gap-3">
               <div>
-                <div className="text-lg font-semibold">Credenciais para transação</div>
+                <div className="text-lg font-bold tracking-tight text-slate-900">
+                  Credenciais para transação
+                </div>
                 <div className="text-sm text-slate-500">
                   {credentialsRow.nomeCompleto} • {credentialsRow.identificador}
                 </div>
@@ -507,7 +546,7 @@ export default function CedentesVisualizarSmilesClient() {
               <button
                 type="button"
                 onClick={() => setCredentialsRow(null)}
-                className="inline-flex h-8 w-8 items-center justify-center rounded-md border text-slate-600 hover:bg-slate-100"
+                className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-50"
                 title="Fechar"
               >
                 <X size={16} />
@@ -515,8 +554,8 @@ export default function CedentesVisualizarSmilesClient() {
             </div>
 
             <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-              <div className="rounded-xl border bg-slate-50 p-3">
-                <div className="text-xs uppercase tracking-wide text-slate-500">CPF (login)</div>
+              <div className="rounded-xl border border-slate-200/80 bg-slate-50/90 p-3">
+                <div className={VP_FIELD_LABEL}>CPF (login)</div>
                 <div className="mt-1 break-all font-medium">{credentialsRow.cpf || "-"}</div>
                 <button
                   type="button"
@@ -527,8 +566,8 @@ export default function CedentesVisualizarSmilesClient() {
                 </button>
               </div>
 
-              <div className="rounded-xl border bg-slate-50 p-3">
-                <div className="text-xs uppercase tracking-wide text-slate-500">Senha SMILES</div>
+              <div className="rounded-xl border border-slate-200/80 bg-slate-50/90 p-3">
+                <div className={VP_FIELD_LABEL}>Senha Smiles</div>
                 <div className="mt-1 break-all font-medium">{credentialsRow.senhaSmiles || "-"}</div>
                 <button
                   type="button"
@@ -539,8 +578,8 @@ export default function CedentesVisualizarSmilesClient() {
                 </button>
               </div>
 
-              <div className="rounded-xl border bg-slate-50 p-3">
-                <div className="text-xs uppercase tracking-wide text-slate-500">E-mail</div>
+              <div className="rounded-xl border border-slate-200/80 bg-slate-50/90 p-3">
+                <div className={VP_FIELD_LABEL}>E-mail</div>
                 <div className="mt-1 break-all font-medium">{credentialsRow.emailCriado || "-"}</div>
                 <button
                   type="button"
@@ -551,8 +590,8 @@ export default function CedentesVisualizarSmilesClient() {
                 </button>
               </div>
 
-              <div className="rounded-xl border bg-slate-50 p-3">
-                <div className="text-xs uppercase tracking-wide text-slate-500">Senha do e-mail</div>
+              <div className="rounded-xl border border-slate-200/80 bg-slate-50/90 p-3">
+                <div className={VP_FIELD_LABEL}>Senha do e-mail</div>
                 <div className="mt-1 break-all font-medium">{credentialsRow.senhaEmail || "-"}</div>
                 <button
                   type="button"

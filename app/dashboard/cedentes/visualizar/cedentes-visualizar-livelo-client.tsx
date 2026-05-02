@@ -11,8 +11,26 @@ import {
   KeyRound,
   MessageCircle,
   Pencil,
+  RefreshCw,
+  Search,
   X,
 } from "lucide-react";
+import { cn } from "@/lib/cn";
+import {
+  VP_BTN_SECONDARY,
+  VP_CONTROL_INPUT,
+  VP_CONTROL_INPUT_MONO,
+  VP_CONTROL_SELECT,
+  VP_FIELD_LABEL,
+  VP_FILTER_CARD,
+  VP_MODAL_BACKDROP,
+  VP_MODAL_PANEL,
+  VP_PAGE_SHELL,
+  VP_TABLE_HEAD,
+  VP_TABLE_HEAD_CELL,
+  VP_TABLE_ROW,
+  VP_TABLE_WRAP,
+} from "./visualizarPontosUi";
 
 type Program = "LATAM" | "SMILES" | "LIVELO" | "ESFERA";
 type ClubStatus = "ACTIVE" | "PAUSED" | "CANCELED" | "NEVER";
@@ -87,10 +105,6 @@ function maskCpf(cpf: string) {
   const v = String(cpf || "").replace(/\D+/g, "");
   if (v.length !== 11) return cpf || "-";
   return `***.***.${v.slice(6, 9)}-${v.slice(9, 11)}`;
-}
-
-function cn(...xs: Array<string | false | undefined | null>) {
-  return xs.filter(Boolean).join(" ");
 }
 
 function getErrorMessage(error: unknown, fallback: string) {
@@ -373,100 +387,136 @@ export default function CedentesVisualizarLiveloClient() {
   }
 
   return (
-    <div className="max-w-6xl">
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-bold">Cedentes • Livelo</h1>
-          <p className="text-sm text-slate-600">
-            Pontos Livelo + status do clube + último tier (se não existir, “Nunca assinado”).
-          </p>
+    <div className={VP_PAGE_SHELL}>
+      <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
+        <div className="min-w-0 space-y-3">
+          <div className="inline-flex items-center gap-2 rounded-full border border-slate-200/90 bg-white px-3 py-1 text-[11px] font-semibold uppercase tracking-wider text-slate-500 shadow-sm">
+            <Eye className="h-3.5 w-3.5 text-slate-400" strokeWidth={2} aria-hidden />
+            Gestão de pontos
+          </div>
+          <div>
+            <h1 className="text-3xl font-bold tracking-tight text-slate-900">Cedentes • Livelo</h1>
+            <p className="mt-2 max-w-2xl text-sm leading-relaxed text-slate-600">
+              Pontos Livelo, status do clube e último tier (se não houver clube: “Nunca assinado”).
+            </p>
+          </div>
         </div>
 
-        <div className="flex flex-wrap gap-2">
-          <input
-            className="rounded-xl border px-3 py-2 text-sm"
-            placeholder="Buscar nome / identificador / CPF..."
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-          />
-
-          <select
-            className="rounded-xl border px-3 py-2 text-sm"
-            value={ownerFilter}
-            onChange={(e) => setOwnerFilter(e.target.value)}
-          >
-            <option value="">Todos responsáveis</option>
-            {owners.map(([id, name]) => (
-              <option key={id} value={id}>
-                {name}
-              </option>
-            ))}
-          </select>
-
-          <select
-            className="rounded-xl border px-3 py-2 text-sm"
-            value={sortField}
-            onChange={(e) => setSortField(e.target.value as SortField)}
-          >
-            <option value="pontos">Ordenar por: Pontos LIVelo</option>
-            <option value="score">Ordenar por: Score médio</option>
-            <option value="nome">Ordenar por: Nome</option>
-            <option value="responsavel">Ordenar por: Responsável</option>
-            <option value="identificador">Ordenar por: Identificador</option>
-            <option value="clubeTier">Ordenar por: Tier do clube</option>
-            <option value="statusClube">Ordenar por: Status do clube</option>
-          </select>
-
-          <select
-            className="rounded-xl border px-3 py-2 text-sm"
-            value={sortDir}
-            onChange={(e) => setSortDir(e.target.value as SortDir)}
-          >
-            <option value="desc">Maior → menor (Z-A)</option>
-            <option value="asc">Menor → maior (A-Z)</option>
-          </select>
-
-          <button
-            onClick={load}
-            className="rounded-xl border px-4 py-2 text-sm hover:bg-slate-50"
-            disabled={loading}
-          >
-            Atualizar
+        <div className="flex flex-wrap items-center gap-2.5">
+          <button type="button" onClick={load} disabled={loading} className={VP_BTN_SECONDARY}>
+            <RefreshCw className={cn("h-4 w-4 text-slate-500", loading && "animate-spin")} aria-hidden />
+            {loading ? "Atualizando…" : "Atualizar"}
           </button>
+          <Link href="/dashboard/cedentes/visualizar?programa=esfera" className={VP_BTN_SECONDARY}>
+            Ir para Esfera
+          </Link>
         </div>
       </div>
 
-      <div className="rounded-2xl border overflow-hidden">
-        <table className="min-w-[980px] w-full text-sm">
-          <thead className="bg-slate-50">
-            <tr>
-              <Th>Nome</Th>
-              <Th>Responsável</Th>
-              <ThRight>Score</ThRight>
-              <ThRight>Pontos (LIVELO)</ThRight>
-              <Th>Clube (último)</Th>
-              <Th>Status clube</Th>
-              <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wide text-slate-600 text-right">
-                Ações
-              </th>
-            </tr>
-          </thead>
+      <div className={VP_FILTER_CARD}>
+        <div className="flex flex-col gap-3 lg:flex-row lg:flex-wrap lg:items-end">
+          <div className="min-w-[min(100%,280px)] flex-1 space-y-1.5">
+            <span className={VP_FIELD_LABEL}>Busca</span>
+            <div className="relative">
+              <Search
+                className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"
+                strokeWidth={2}
+                aria-hidden
+              />
+              <input
+                className={cn(VP_CONTROL_INPUT, "pl-10")}
+                placeholder="Nome, identificador ou CPF…"
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+              />
+            </div>
+          </div>
+          <div className="min-w-[200px] space-y-1.5">
+            <label className={VP_FIELD_LABEL}>Responsável</label>
+            <select
+              className={cn(VP_CONTROL_SELECT, "w-full")}
+              value={ownerFilter}
+              onChange={(e) => setOwnerFilter(e.target.value)}
+            >
+              <option value="">Todos responsáveis</option>
+              {owners.map(([id, name]) => (
+                <option key={id} value={id}>
+                  {name}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="min-w-[220px] space-y-1.5">
+            <label className={VP_FIELD_LABEL}>Ordenar por</label>
+            <select
+              className={cn(VP_CONTROL_SELECT, "w-full")}
+              value={sortField}
+              onChange={(e) => setSortField(e.target.value as SortField)}
+            >
+              <option value="pontos">Pontos Livelo</option>
+              <option value="score">Score médio</option>
+              <option value="nome">Nome</option>
+              <option value="responsavel">Responsável</option>
+              <option value="identificador">Identificador</option>
+              <option value="clubeTier">Tier do clube</option>
+              <option value="statusClube">Status do clube</option>
+            </select>
+          </div>
+          <div className="min-w-[200px] space-y-1.5">
+            <label className={VP_FIELD_LABEL}>Direção</label>
+            <select
+              className={cn(VP_CONTROL_SELECT, "w-full")}
+              value={sortDir}
+              onChange={(e) => setSortDir(e.target.value as SortDir)}
+            >
+              <option value="desc">Maior → menor</option>
+              <option value="asc">Menor → maior</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <div className={VP_TABLE_WRAP}>
+        <div className="overflow-x-auto">
+          <table className="min-w-[980px] w-full text-sm">
+            <thead className={VP_TABLE_HEAD}>
+              <tr>
+                <Th>Nome</Th>
+                <Th>Responsável</Th>
+                <ThRight>Score</ThRight>
+                <ThRight>Pontos (Livelo)</ThRight>
+                <Th>Clube (último)</Th>
+                <Th>Status clube</Th>
+                <th className={cn(VP_TABLE_HEAD_CELL, "text-right")}>Ações</th>
+              </tr>
+            </thead>
 
           <tbody>
             {!loading && sortedRows.length === 0 && (
               <tr>
-                <td colSpan={7} className="px-6 py-10 text-center text-sm text-slate-500">
+                <td colSpan={7} className="px-6 py-12 text-center text-sm text-slate-500">
                   Nenhum cedente encontrado.
                 </td>
               </tr>
             )}
+
+            {loading && sortedRows.length === 0 ? (
+              <tr>
+                <td colSpan={7} className="px-6 py-12 text-center text-sm text-slate-500">
+                  <span className="inline-flex items-center justify-center gap-2">
+                    <RefreshCw className="h-4 w-4 animate-spin" aria-hidden />
+                    Carregando…
+                  </span>
+                </td>
+              </tr>
+            ) : null}
 
             {sortedRows.map((r) => {
               const s = clubStatus(r);
               const tier = clubTierLabel(r);
 
               return (
-                <tr key={r.id} className="border-t hover:bg-slate-50">
+                <tr key={r.id} className={VP_TABLE_ROW}>
                   <td className="px-4 py-3">
                     <div className="font-medium">{r.nomeCompleto}</div>
                     <div className="text-xs text-slate-500">
@@ -493,7 +543,7 @@ export default function CedentesVisualizarLiveloClient() {
                   <td className="px-4 py-3 text-right tabular-nums">
                     {editingId === r.id ? (
                       <input
-                        className="w-[140px] rounded-lg border px-2 py-1 text-sm text-right"
+                        className={cn(VP_CONTROL_INPUT_MONO, "w-[140px] py-2 text-right")}
                         value={draftPoints}
                         onChange={(e) => setDraftPoints(e.target.value)}
                         inputMode="numeric"
@@ -629,22 +679,23 @@ export default function CedentesVisualizarLiveloClient() {
             })}
           </tbody>
         </table>
+        </div>
       </div>
-
-      {loading && <div className="mt-4 text-sm text-slate-500">Carregando…</div>}
 
       {credentialsRow ? (
         <div className="fixed inset-0 z-50">
           <button
             type="button"
-            className="absolute inset-0 bg-black/45"
+            className={VP_MODAL_BACKDROP}
             aria-label="Fechar credenciais"
             onClick={() => setCredentialsRow(null)}
           />
-          <div className="absolute left-1/2 top-1/2 w-[min(94vw,640px)] -translate-x-1/2 -translate-y-1/2 rounded-2xl border bg-white p-5 shadow-2xl">
+          <div className={VP_MODAL_PANEL}>
             <div className="mb-4 flex items-start justify-between gap-3">
               <div>
-                <div className="text-lg font-semibold">Credenciais para transação</div>
+                <div className="text-lg font-bold tracking-tight text-slate-900">
+                  Credenciais para transação
+                </div>
                 <div className="text-sm text-slate-500">
                   {credentialsRow.nomeCompleto} • {credentialsRow.identificador}
                 </div>
@@ -652,7 +703,7 @@ export default function CedentesVisualizarLiveloClient() {
               <button
                 type="button"
                 onClick={() => setCredentialsRow(null)}
-                className="inline-flex h-8 w-8 items-center justify-center rounded-md border text-slate-600 hover:bg-slate-100"
+                className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-50"
                 title="Fechar"
               >
                 <X size={16} />
@@ -660,8 +711,8 @@ export default function CedentesVisualizarLiveloClient() {
             </div>
 
             <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-              <div className="rounded-xl border bg-slate-50 p-3">
-                <div className="text-xs uppercase tracking-wide text-slate-500">CPF (login)</div>
+              <div className="rounded-xl border border-slate-200/80 bg-slate-50/90 p-3">
+                <div className={VP_FIELD_LABEL}>CPF (login)</div>
                 <div className="mt-1 break-all font-medium">{credentialsRow.cpf || "-"}</div>
                 <button
                   type="button"
@@ -672,8 +723,8 @@ export default function CedentesVisualizarLiveloClient() {
                 </button>
               </div>
 
-              <div className="rounded-xl border bg-slate-50 p-3">
-                <div className="text-xs uppercase tracking-wide text-slate-500">Senha LIVELO</div>
+              <div className="rounded-xl border border-slate-200/80 bg-slate-50/90 p-3">
+                <div className={VP_FIELD_LABEL}>Senha Livelo</div>
                 <div className="mt-1 break-all font-medium">{credentialsRow.senhaLivelo || "-"}</div>
                 <button
                   type="button"
@@ -684,8 +735,8 @@ export default function CedentesVisualizarLiveloClient() {
                 </button>
               </div>
 
-              <div className="rounded-xl border bg-slate-50 p-3">
-                <div className="text-xs uppercase tracking-wide text-slate-500">E-mail</div>
+              <div className="rounded-xl border border-slate-200/80 bg-slate-50/90 p-3">
+                <div className={VP_FIELD_LABEL}>E-mail</div>
                 <div className="mt-1 break-all font-medium">{credentialsRow.emailCriado || "-"}</div>
                 <button
                   type="button"
@@ -696,8 +747,8 @@ export default function CedentesVisualizarLiveloClient() {
                 </button>
               </div>
 
-              <div className="rounded-xl border bg-slate-50 p-3">
-                <div className="text-xs uppercase tracking-wide text-slate-500">Senha do e-mail</div>
+              <div className="rounded-xl border border-slate-200/80 bg-slate-50/90 p-3">
+                <div className={VP_FIELD_LABEL}>Senha do e-mail</div>
                 <div className="mt-1 break-all font-medium">{credentialsRow.senhaEmail || "-"}</div>
                 <button
                   type="button"
@@ -716,17 +767,9 @@ export default function CedentesVisualizarLiveloClient() {
 }
 
 function Th({ children }: { children: React.ReactNode }) {
-  return (
-    <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wide text-slate-600">
-      {children}
-    </th>
-  );
+  return <th className={cn(VP_TABLE_HEAD_CELL, "text-left")}>{children}</th>;
 }
 
 function ThRight({ children }: { children: React.ReactNode }) {
-  return (
-    <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wide text-slate-600 text-right">
-      {children}
-    </th>
-  );
+  return <th className={cn(VP_TABLE_HEAD_CELL, "text-right")}>{children}</th>;
 }

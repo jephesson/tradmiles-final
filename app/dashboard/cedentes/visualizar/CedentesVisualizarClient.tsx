@@ -1,7 +1,22 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import { Eye, RefreshCw, Search } from "lucide-react";
+import { cn } from "@/lib/cn";
+import {
+  VP_BTN_SECONDARY,
+  VP_CONTROL_INPUT,
+  VP_CONTROL_SELECT,
+  VP_FIELD_LABEL,
+  VP_FILTER_CARD,
+  VP_PAGE_SHELL,
+  VP_TABLE_HEAD,
+  VP_TABLE_HEAD_CELL,
+  VP_TABLE_ROW,
+  VP_TABLE_WRAP,
+} from "./visualizarPontosUi";
 
 type Program = "LATAM" | "SMILES" | "LIVELO" | "ESFERA";
 
@@ -53,10 +68,6 @@ function maskCpf(cpf: string) {
   return `***.***.${v.slice(6, 9)}-${v.slice(9, 11)}`;
 }
 
-function cn(...xs: Array<string | false | undefined | null>) {
-  return xs.filter(Boolean).join(" ");
-}
-
 function isBlocked(r: Row, program: Program) {
   return (r.blockedPrograms || []).includes(program);
 }
@@ -82,8 +93,9 @@ export default function CedentesVisualizarClient() {
       if (!json?.ok) throw new Error(json?.error);
       setRows(json.data);
       setSelected(new Set());
-    } catch (e: any) {
-      alert(e?.message || "Erro ao carregar.");
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "Erro ao carregar.";
+      alert(msg);
       setRows([]);
       setSelected(new Set());
     } finally {
@@ -101,7 +113,8 @@ export default function CedentesVisualizarClient() {
   function toggleOne(id: string) {
     setSelected((prev) => {
       const n = new Set(prev);
-      n.has(id) ? n.delete(id) : n.add(id);
+      if (n.has(id)) n.delete(id);
+      else n.add(id);
       return n;
     });
   }
@@ -243,70 +256,97 @@ export default function CedentesVisualizarClient() {
      UI
   ======================= */
   return (
-    <div className="max-w-6xl">
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-bold">Cedentes • Todos</h1>
-          <p className="text-sm text-slate-600">
-            Cedentes aprovados com pontos e responsável
-          </p>
+    <div className={VP_PAGE_SHELL}>
+      <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
+        <div className="min-w-0 space-y-3">
+          <div className="inline-flex items-center gap-2 rounded-full border border-slate-200/90 bg-white px-3 py-1 text-[11px] font-semibold uppercase tracking-wider text-slate-500 shadow-sm">
+            <Eye className="h-3.5 w-3.5 text-slate-400" strokeWidth={2} aria-hidden />
+            Gestão de pontos
+          </div>
+          <div>
+            <h1 className="text-3xl font-bold tracking-tight text-slate-900">Cedentes • Todos</h1>
+            <p className="mt-2 max-w-2xl text-sm leading-relaxed text-slate-600">
+              Cedentes aprovados com saldos por programa e responsável.
+            </p>
+          </div>
         </div>
 
-        <div className="flex flex-wrap gap-2">
-          {selected.size > 0 && (
-            <button
-              onClick={deleteSelected}
-              className="rounded-xl bg-red-600 px-4 py-2 text-sm text-white"
-              disabled={loading}
-              title="Apagar somente os marcados"
-            >
-              🗑️ Apagar selecionados ({selected.size})
-            </button>
-          )}
-
-          <button
-            onClick={deleteAll}
-            className="rounded-xl border border-red-600 px-4 py-2 text-sm text-red-600"
-            disabled={loading || rows.length === 0}
-            title="Apagar todos os cedentes (perigoso)"
-          >
-            🧨 Apagar todos
+        <div className="flex flex-wrap items-center gap-2.5">
+          <button type="button" onClick={load} disabled={loading} className={VP_BTN_SECONDARY}>
+            <RefreshCw className={cn("h-4 w-4 text-slate-500", loading && "animate-spin")} aria-hidden />
+            {loading ? "Atualizando…" : "Atualizar"}
           </button>
-
-          <input
-            className="rounded-xl border px-3 py-2 text-sm"
-            placeholder="Buscar nome / identificador / CPF..."
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-          />
-
-          <select
-            className="rounded-xl border px-3 py-2 text-sm"
-            value={ownerFilter}
-            onChange={(e) => setOwnerFilter(e.target.value)}
-          >
-            <option value="">Todos responsáveis</option>
-            {owners.map(([id, name]) => (
-              <option key={id} value={id}>
-                {name}
-              </option>
-            ))}
-          </select>
-
-          <button
-            onClick={load}
-            className="rounded-xl border px-4 py-2 text-sm hover:bg-slate-50"
-            disabled={loading}
-          >
-            Atualizar
-          </button>
+          <Link href="/dashboard/cedentes/visualizar?programa=smiles" className={VP_BTN_SECONDARY}>
+            Ver Smiles
+          </Link>
         </div>
       </div>
 
-      <div className="rounded-2xl border overflow-hidden">
-        <table className="min-w-[1060px] w-full text-sm">
-          <thead className="bg-slate-50">
-            <tr>
+      <div className="flex flex-wrap gap-2">
+        {selected.size > 0 ? (
+          <button
+            type="button"
+            onClick={deleteSelected}
+            className="inline-flex h-10 items-center rounded-xl bg-red-600 px-4 text-sm font-semibold text-white shadow-sm hover:bg-red-700 disabled:opacity-50"
+            disabled={loading}
+            title="Apagar somente os marcados"
+          >
+            Apagar selecionados ({selected.size})
+          </button>
+        ) : null}
+
+        <button
+          type="button"
+          onClick={deleteAll}
+          className="inline-flex h-10 items-center rounded-xl border border-red-300 bg-white px-4 text-sm font-medium text-red-700 shadow-sm hover:bg-red-50 disabled:opacity-50"
+          disabled={loading || rows.length === 0}
+          title="Apagar todos os cedentes (perigoso)"
+        >
+          Apagar todos
+        </button>
+      </div>
+
+      <div className={VP_FILTER_CARD}>
+        <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end">
+          <div className="min-w-[min(100%,280px)] flex-1 space-y-1.5">
+            <span className={VP_FIELD_LABEL}>Busca</span>
+            <div className="relative">
+              <Search
+                className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"
+                strokeWidth={2}
+                aria-hidden
+              />
+              <input
+                className={cn(VP_CONTROL_INPUT, "pl-10")}
+                placeholder="Nome, identificador ou CPF…"
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+              />
+            </div>
+          </div>
+          <div className="min-w-[220px] space-y-1.5">
+            <label className={VP_FIELD_LABEL}>Responsável</label>
+            <select
+              className={cn(VP_CONTROL_SELECT, "w-full")}
+              value={ownerFilter}
+              onChange={(e) => setOwnerFilter(e.target.value)}
+            >
+              <option value="">Todos responsáveis</option>
+              {owners.map(([id, name]) => (
+                <option key={id} value={id}>
+                  {name}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <div className={VP_TABLE_WRAP}>
+        <div className="overflow-x-auto">
+          <table className="min-w-[1060px] w-full text-sm">
+            <thead className={VP_TABLE_HEAD}>
+              <tr>
               <th className="px-4 py-3">
                 <input
                   type="checkbox"
@@ -326,26 +366,35 @@ export default function CedentesVisualizarClient() {
               <ThRight onClick={() => toggleSort("livelo")}>LIVELO{arrow("livelo")}</ThRight>
               <ThRight onClick={() => toggleSort("esfera")}>ESFERA{arrow("esfera")}</ThRight>
 
-              <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wide text-slate-600 text-right">
-                Ações
-              </th>
+              <th className={cn(VP_TABLE_HEAD_CELL, "text-right")}>Ações</th>
             </tr>
           </thead>
 
           <tbody>
             {!loading && filtered.length === 0 && (
               <tr>
-                <td colSpan={9} className="px-6 py-10 text-center text-sm text-slate-500">
+                <td colSpan={9} className="px-6 py-12 text-center text-sm text-slate-500">
                   Nenhum cedente encontrado.
                 </td>
               </tr>
             )}
 
+            {loading && filtered.length === 0 ? (
+              <tr>
+                <td colSpan={9} className="px-6 py-12 text-center text-sm text-slate-500">
+                  <span className="inline-flex items-center justify-center gap-2">
+                    <RefreshCw className="h-4 w-4 animate-spin" aria-hidden />
+                    Carregando…
+                  </span>
+                </td>
+              </tr>
+            ) : null}
+
             {filtered.map((r) => {
               const hasAnyBlock = (r.blockedPrograms || []).length > 0;
 
               return (
-                <tr key={r.id} className="border-t hover:bg-slate-50">
+                <tr key={r.id} className={VP_TABLE_ROW}>
                   <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
                     <input
                       type="checkbox"
@@ -404,7 +453,7 @@ export default function CedentesVisualizarClient() {
                     <div className="flex justify-end gap-2">
                       <button
                         type="button"
-                        className="rounded-lg border px-3 py-1 text-xs hover:bg-slate-50"
+                        className="rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-800 shadow-sm hover:bg-slate-50"
                         onClick={() => router.push(`/dashboard/cedentes/${r.id}`)}
                       >
                         Ver
@@ -412,7 +461,7 @@ export default function CedentesVisualizarClient() {
 
                       <button
                         type="button"
-                        className="rounded-lg border px-3 py-1 text-xs hover:bg-slate-50"
+                        className="rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-800 shadow-sm hover:bg-slate-50"
                         onClick={() => router.push(`/dashboard/cedentes/${r.id}?edit=1`)}
                         title="Abrir detalhe em modo edição"
                       >
@@ -425,9 +474,8 @@ export default function CedentesVisualizarClient() {
             })}
           </tbody>
         </table>
+        </div>
       </div>
-
-      {loading && <div className="mt-4 text-sm text-slate-500">Carregando…</div>}
     </div>
   );
 }
@@ -442,7 +490,11 @@ function Th({
   return (
     <th
       onClick={onClick}
-      className="px-4 py-3 text-xs font-semibold uppercase tracking-wide text-slate-600 cursor-pointer select-none"
+      className={cn(
+        VP_TABLE_HEAD_CELL,
+        "cursor-pointer select-none text-left hover:text-slate-800",
+        onClick && "underline decoration-slate-300 decoration-dotted underline-offset-4"
+      )}
     >
       {children}
     </th>
@@ -459,7 +511,11 @@ function ThRight({
   return (
     <th
       onClick={onClick}
-      className="px-4 py-3 text-xs font-semibold uppercase tracking-wide text-slate-600 text-right cursor-pointer select-none"
+      className={cn(
+        VP_TABLE_HEAD_CELL,
+        "cursor-pointer select-none text-right hover:text-slate-800",
+        onClick && "underline decoration-slate-300 decoration-dotted underline-offset-4"
+      )}
     >
       {children}
     </th>

@@ -12,10 +12,27 @@ import {
   ListPlus,
   MessageCircle,
   Pencil,
+  RefreshCw,
+  Search,
   Star,
   X,
 } from "lucide-react";
 import { cn } from "@/lib/cn";
+import {
+  VP_BTN_SECONDARY,
+  VP_CONTROL_INPUT,
+  VP_CONTROL_INPUT_MONO,
+  VP_CONTROL_SELECT,
+  VP_FIELD_LABEL,
+  VP_FILTER_CARD,
+  VP_MODAL_BACKDROP,
+  VP_MODAL_PANEL,
+  VP_PAGE_SHELL,
+  VP_TABLE_HEAD,
+  VP_TABLE_HEAD_CELL,
+  VP_TABLE_ROW,
+  VP_TABLE_WRAP,
+} from "./visualizarPontosUi";
 
 type Program = "LATAM" | "SMILES" | "LIVELO" | "ESFERA";
 type Owner = { id: string; name: string; login: string };
@@ -269,92 +286,109 @@ export default function CedentesVisualizarLatamClient() {
   }
 
   return (
-    <div className="p-6">
-      {/* Header */}
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-semibold">Cedentes • Latam</h1>
-          <p className="text-sm text-slate-500">
-            Pontos aprovados, pendentes, total esperado e passageiros disponíveis (ano).
-          </p>
+    <div className={VP_PAGE_SHELL}>
+      <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
+        <div className="min-w-0 space-y-3">
+          <div className="inline-flex items-center gap-2 rounded-full border border-slate-200/90 bg-white px-3 py-1 text-[11px] font-semibold uppercase tracking-wider text-slate-500 shadow-sm">
+            <Eye className="h-3.5 w-3.5 text-slate-400" strokeWidth={2} aria-hidden />
+            Gestão de pontos
+          </div>
+          <div>
+            <h1 className="text-3xl font-bold tracking-tight text-slate-900">Cedentes • LATAM</h1>
+            <p className="mt-2 max-w-2xl text-sm leading-relaxed text-slate-600">
+              Pontos aprovados, pendentes, total esperado e passageiros disponíveis no ano.
+            </p>
+          </div>
         </div>
 
-        <div className="flex items-center gap-2">
-          <button
-            onClick={load}
-            className={cn(
-              "border rounded-lg px-4 py-2 text-sm",
-              loading ? "opacity-60" : "hover:bg-slate-50"
-            )}
-          >
-            {loading ? "Atualizando..." : "Atualizar"}
+        <div className="flex flex-wrap items-center gap-2.5">
+          <button type="button" onClick={load} disabled={loading} className={VP_BTN_SECONDARY}>
+            <RefreshCw className={cn("h-4 w-4 text-slate-500", loading && "animate-spin")} aria-hidden />
+            {loading ? "Atualizando…" : "Atualizar"}
           </button>
+          <Link href="/dashboard/cedentes/visualizar?programa=smiles" className={VP_BTN_SECONDARY}>
+            Ir para Smiles
+          </Link>
         </div>
       </div>
 
-      {/* Filtros */}
-      <div className="mt-4 flex flex-wrap items-center gap-2">
-        <input
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-          placeholder="Buscar nome / identificador / CPF..."
-          className="border rounded-lg px-3 py-2 text-sm w-64"
-        />
-
-        <select
-          value={ownerId}
-          onChange={(e) => setOwnerId(e.target.value)}
-          className="border rounded-lg px-3 py-2 text-sm min-w-[220px]"
-        >
-          <option value="">Todos responsáveis</option>
-          {owners.map((o) => (
-            <option key={o.id} value={o.id}>
-              {o.name} (@{o.login})
-            </option>
-          ))}
-        </select>
-
-        <select
-          value={sortBy}
-          onChange={(e) => setSortBy(e.target.value as SortBy)}
-          className="border rounded-lg px-3 py-2 text-sm min-w-[240px]"
-          title="Ordenar do maior para o menor"
-        >
-          <option value="aprovado">Ordenar: LATAM (aprovado) ↓</option>
-          <option value="esperado">Ordenar: TOTAL esperado ↓</option>
-        </select>
-
-        <label className="ml-1 inline-flex items-center gap-2 text-sm text-slate-700 select-none">
-          <input
-            type="checkbox"
-            checked={hideBlocked}
-            onChange={(e) => setHideBlocked(e.target.checked)}
-          />
-          Ocultar bloqueados
-        </label>
+      <div className={VP_FILTER_CARD}>
+        <div className="flex flex-col gap-3 lg:flex-row lg:flex-wrap lg:items-end">
+          <div className="min-w-[min(100%,280px)] flex-1 space-y-1.5">
+            <span className={VP_FIELD_LABEL}>Busca</span>
+            <div className="relative">
+              <Search
+                className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"
+                strokeWidth={2}
+                aria-hidden
+              />
+              <input
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+                placeholder="Nome, identificador ou CPF…"
+                className={cn(VP_CONTROL_INPUT, "pl-10")}
+              />
+            </div>
+          </div>
+          <div className="min-w-[220px] space-y-1.5">
+            <label className={VP_FIELD_LABEL}>Responsável</label>
+            <select
+              value={ownerId}
+              onChange={(e) => setOwnerId(e.target.value)}
+              className={cn(VP_CONTROL_SELECT, "w-full")}
+            >
+              <option value="">Todos responsáveis</option>
+              {owners.map((o) => (
+                <option key={o.id} value={o.id}>
+                  {o.name} (@{o.login})
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="min-w-[240px] space-y-1.5">
+            <label className={VP_FIELD_LABEL}>Ordenação</label>
+            <select
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value as SortBy)}
+              className={cn(VP_CONTROL_SELECT, "w-full")}
+              title="Ordenar do maior para o menor"
+            >
+              <option value="aprovado">LATAM (aprovado) ↓</option>
+              <option value="esperado">Total esperado ↓</option>
+            </select>
+          </div>
+          <label className="flex cursor-pointer items-center gap-2 rounded-xl border border-slate-200 bg-slate-50/80 px-3 py-2.5 text-sm font-medium text-slate-700">
+            <input
+              type="checkbox"
+              checked={hideBlocked}
+              onChange={(e) => setHideBlocked(e.target.checked)}
+              className="rounded border-slate-300 text-slate-900"
+            />
+            Ocultar bloqueados
+          </label>
+        </div>
       </div>
 
-      {/* Tabela */}
-      <div className="mt-4 border rounded-xl overflow-hidden bg-white">
+      <div className={VP_TABLE_WRAP}>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
-            <thead className="bg-slate-50 border-b">
-              <tr className="text-slate-600">
-                <th className="text-left font-semibold px-4 py-3 w-[380px]">NOME</th>
-                <th className="text-left font-semibold px-4 py-3 w-[260px]">RESPONSÁVEL</th>
-                <th className="text-right font-semibold px-4 py-3 w-[120px]">SCORE</th>
-                <th className="text-right font-semibold px-4 py-3 w-[140px]">LATAM</th>
-                <th className="text-right font-semibold px-4 py-3 w-[160px]">PENDENTES</th>
-                <th className="text-right font-semibold px-4 py-3 w-[180px]">TOTAL ESPERADO</th>
-                <th className="text-right font-semibold px-4 py-3 w-[190px]">PASSAGEIROS DISP.</th>
-                <th className="text-right font-semibold px-4 py-3 w-[260px]">AÇÕES</th>
+            <thead className={VP_TABLE_HEAD}>
+              <tr>
+                <th className={cn(VP_TABLE_HEAD_CELL, "w-[380px] text-left")}>Nome</th>
+                <th className={cn(VP_TABLE_HEAD_CELL, "w-[260px] text-left")}>Responsável</th>
+                <th className={cn(VP_TABLE_HEAD_CELL, "w-[120px] text-right")}>Score</th>
+                <th className={cn(VP_TABLE_HEAD_CELL, "w-[140px] text-right")}>LATAM</th>
+                <th className={cn(VP_TABLE_HEAD_CELL, "w-[160px] text-right")}>Pendentes</th>
+                <th className={cn(VP_TABLE_HEAD_CELL, "w-[180px] text-right")}>Total esperado</th>
+                <th className={cn(VP_TABLE_HEAD_CELL, "w-[190px] text-right")}>Passageiros disp.</th>
+                <th className={cn(VP_TABLE_HEAD_CELL, "w-[260px] text-right")}>Ações</th>
               </tr>
             </thead>
 
             <tbody>
               {visibleRows.length === 0 && !loading ? (
                 <tr>
-                  <td className="px-4 py-6 text-slate-500" colSpan={8}>
+                  <td className="px-4 py-12 text-center text-sm text-slate-500" colSpan={8}>
                     Nenhum resultado.
                   </td>
                 </tr>
@@ -391,9 +425,8 @@ export default function CedentesVisualizarLatamClient() {
                   <tr
                     key={r.id}
                     className={cn(
-                      "border-b last:border-b-0",
-                      blocked ? "bg-red-50 text-red-700" : "",
-                      blocked ? "hover:bg-red-100" : "hover:bg-slate-50"
+                      VP_TABLE_ROW,
+                      blocked ? "bg-red-50/90 text-red-800 hover:bg-red-100/90" : ""
                     )}
                     title={blocked ? "BLOQUEADO NA LATAM" : undefined}
                   >
@@ -454,8 +487,9 @@ export default function CedentesVisualizarLatamClient() {
                           value={draft}
                           onChange={(e) => setDraft(e.target.value)}
                           className={cn(
-                            "border rounded-lg px-2 py-1 text-right w-[140px]",
-                            blocked ? "border-red-300 bg-white" : ""
+                            VP_CONTROL_INPUT_MONO,
+                            "w-[140px] py-2 text-right",
+                            blocked ? "border-red-200" : ""
                           )}
                           inputMode="numeric"
                           onKeyDown={(e) => {
@@ -603,8 +637,11 @@ export default function CedentesVisualizarLatamClient() {
 
               {loading ? (
                 <tr>
-                  <td className="px-4 py-6 text-slate-500" colSpan={8}>
-                    Carregando...
+                  <td className="px-4 py-12 text-center text-sm text-slate-500" colSpan={8}>
+                    <span className="inline-flex items-center justify-center gap-2">
+                      <RefreshCw className="h-4 w-4 animate-spin" aria-hidden />
+                      Carregando…
+                    </span>
                   </td>
                 </tr>
               ) : null}
@@ -617,14 +654,16 @@ export default function CedentesVisualizarLatamClient() {
         <div className="fixed inset-0 z-50">
           <button
             type="button"
-            className="absolute inset-0 bg-black/45"
+            className={VP_MODAL_BACKDROP}
             aria-label="Fechar credenciais"
             onClick={() => setCredentialsRow(null)}
           />
-          <div className="absolute left-1/2 top-1/2 w-[min(94vw,640px)] -translate-x-1/2 -translate-y-1/2 rounded-2xl border bg-white p-5 shadow-2xl">
+          <div className={VP_MODAL_PANEL}>
             <div className="mb-4 flex items-start justify-between gap-3">
               <div>
-                <div className="text-lg font-semibold">Credenciais para transação</div>
+                <div className="text-lg font-bold tracking-tight text-slate-900">
+                  Credenciais para transação
+                </div>
                 <div className="text-sm text-slate-500">
                   {credentialsRow.nomeCompleto} • {credentialsRow.identificador}
                 </div>
@@ -632,7 +671,7 @@ export default function CedentesVisualizarLatamClient() {
               <button
                 type="button"
                 onClick={() => setCredentialsRow(null)}
-                className="inline-flex h-8 w-8 items-center justify-center rounded-md border text-slate-600 hover:bg-slate-100"
+                className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-50"
                 title="Fechar"
               >
                 <X size={16} />
@@ -640,8 +679,8 @@ export default function CedentesVisualizarLatamClient() {
             </div>
 
             <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-              <div className="rounded-xl border bg-slate-50 p-3">
-                <div className="text-xs uppercase tracking-wide text-slate-500">CPF (login)</div>
+              <div className="rounded-xl border border-slate-200/80 bg-slate-50/90 p-3">
+                <div className={VP_FIELD_LABEL}>CPF (login)</div>
                 <div className="mt-1 break-all font-medium">{credentialsRow.cpf || "-"}</div>
                 <button
                   type="button"
@@ -652,8 +691,8 @@ export default function CedentesVisualizarLatamClient() {
                 </button>
               </div>
 
-              <div className="rounded-xl border bg-slate-50 p-3">
-                <div className="text-xs uppercase tracking-wide text-slate-500">Senha LATAM</div>
+              <div className="rounded-xl border border-slate-200/80 bg-slate-50/90 p-3">
+                <div className={VP_FIELD_LABEL}>Senha LATAM</div>
                 <div className="mt-1 break-all font-medium">{credentialsRow.senhaLatamPass || "-"}</div>
                 <button
                   type="button"
@@ -664,8 +703,8 @@ export default function CedentesVisualizarLatamClient() {
                 </button>
               </div>
 
-              <div className="rounded-xl border bg-slate-50 p-3">
-                <div className="text-xs uppercase tracking-wide text-slate-500">E-mail</div>
+              <div className="rounded-xl border border-slate-200/80 bg-slate-50/90 p-3">
+                <div className={VP_FIELD_LABEL}>E-mail</div>
                 <div className="mt-1 break-all font-medium">{credentialsRow.emailCriado || "-"}</div>
                 <button
                   type="button"
@@ -676,8 +715,8 @@ export default function CedentesVisualizarLatamClient() {
                 </button>
               </div>
 
-              <div className="rounded-xl border bg-slate-50 p-3">
-                <div className="text-xs uppercase tracking-wide text-slate-500">Senha do e-mail</div>
+              <div className="rounded-xl border border-slate-200/80 bg-slate-50/90 p-3">
+                <div className={VP_FIELD_LABEL}>Senha do e-mail</div>
                 <div className="mt-1 break-all font-medium">{credentialsRow.senhaEmail || "-"}</div>
                 <button
                   type="button"
