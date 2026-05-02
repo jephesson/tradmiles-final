@@ -14,6 +14,9 @@ import { cn } from "@/lib/cn";
 
 type Basis = "SALE_DATE" | "PURCHASE_FINALIZED";
 
+/** Base fixa na API de comissões (UI não expõe alternativa). */
+const PAYOUT_BASIS: Basis = "SALE_DATE";
+
 type UserLite = { id: string; name: string; login: string };
 type PaidByLite = { id: string; name: string } | null;
 
@@ -336,7 +339,6 @@ export default function ComissoesFuncionariosClient() {
   const AUTO_COMPUTE_MS = 2 * 60 * 1000; // 2 min
 
   const [date, setDate] = useState<string>(() => todayISORecife());
-  const [basis, setBasis] = useState<Basis>("SALE_DATE");
 
   const [day, setDay] = useState<DayResponse | null>(null);
 
@@ -377,12 +379,6 @@ export default function ComissoesFuncionariosClient() {
     return "Dia fechado: recalcular é seguro";
   }, [date, today]);
 
-  const basisLabel = useMemo(() => {
-    return basis === "SALE_DATE"
-      ? "SALE_DATE (vendas do dia)"
-      : "PURCHASE_FINALIZED (compras finalizadas)";
-  }, [basis]);
-
   async function loadDay(d = date) {
     setLoading(true);
     try {
@@ -413,7 +409,7 @@ export default function ComissoesFuncionariosClient() {
     try {
       await apiPost<{ ok: boolean }>(`/api/payouts/funcionarios/compute`, {
         date: d,
-        basis,
+        basis: PAYOUT_BASIS,
         force,
       });
 
@@ -421,7 +417,7 @@ export default function ComissoesFuncionariosClient() {
 
       setToast({
         title: force ? "Dia recalculado!" : "Dia computado!",
-        desc: `${d} • ${basisLabel}${force ? " • FORÇAR" : ""}`,
+        desc: d,
       });
     } catch (e: unknown) {
       setToast({ title: "Falha ao computar o dia", desc: getErrorMessage(e, "Falha ao computar.") });
@@ -434,7 +430,7 @@ export default function ComissoesFuncionariosClient() {
     try {
       await apiPost<{ ok: boolean }>(`/api/payouts/funcionarios/compute`, {
         date: d,
-        basis,
+        basis: PAYOUT_BASIS,
         force: false,
       });
     } catch {}
@@ -600,7 +596,7 @@ export default function ComissoesFuncionariosClient() {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [date, isToday, basis]);
+  }, [date, isToday]);
 
   useEffect(() => {
     if (!isToday) return;
@@ -612,7 +608,7 @@ export default function ComissoesFuncionariosClient() {
 
     return () => clearInterval(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isToday, date, basis]);
+  }, [isToday, date]);
 
   const dayExtra = useMemo(() => {
     const rows = day?.rows || [];
@@ -705,9 +701,6 @@ export default function ComissoesFuncionariosClient() {
           </div>
           <div>
             <h1 className="text-3xl font-bold tracking-tight text-slate-900">Comissões — Funcionários</h1>
-            <p className="mt-2 max-w-2xl text-sm leading-relaxed text-slate-600">
-              Comissão 1 (1%) + colunas de Comissão 2 (bônus) e Comissão 3 (rateio).
-            </p>
           </div>
         </div>
 
@@ -715,18 +708,6 @@ export default function ComissoesFuncionariosClient() {
           <div className="flex flex-col gap-1">
             <label className={FIELD_LABEL}>Dia</label>
             <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className={CONTROL_INPUT} />
-          </div>
-
-          <div className="flex flex-col gap-1">
-            <label className={FIELD_LABEL}>Base</label>
-            <select
-              value={basis}
-              onChange={(e) => setBasis(e.target.value as Basis)}
-              className={CONTROL_SELECT}
-            >
-              <option value="SALE_DATE">SALE_DATE (vendas do dia)</option>
-              <option value="PURCHASE_FINALIZED">PURCHASE_FINALIZED (compras finalizadas)</option>
-            </select>
           </div>
 
           <button
@@ -755,10 +736,10 @@ export default function ComissoesFuncionariosClient() {
             onClick={() => computeDay(date, { force: true })}
             disabled={!canCompute || computing}
             className="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-slate-900 px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800 disabled:pointer-events-none disabled:opacity-50"
-            title={`FORÇAR: apaga payouts não pagos e refaz • ${computeTitle}`}
+            title={`Apaga payouts não pagos do dia e refaz o cálculo. ${computeTitle}`}
           >
             <RotateCcw className="h-4 w-4 shrink-0 opacity-90" strokeWidth={2} aria-hidden />
-            {computing ? "Recalculando..." : "Recalcular (FORÇAR)"}
+            {computing ? "Recalculando..." : "Recalcular"}
           </button>
         </div>
       </div>
@@ -829,10 +810,6 @@ export default function ComissoesFuncionariosClient() {
                 <th className="px-4 py-3">Funcionário</th>
                 <th className="px-4 py-3 text-right">Vendas</th>
 
-                <th className="px-4 py-3">Comissão 1 (1%)</th>
-                <th className="px-4 py-3">Comissão 2 (bônus)</th>
-                <th className="px-4 py-3">Comissão 3 (rateio)</th>
-
                 <th className="px-4 py-3">
                   Imposto{dayTaxPercent ? ` (${dayTaxPercent}%)` : ""}
                 </th>
@@ -868,10 +845,6 @@ export default function ComissoesFuncionariosClient() {
                     </td>
 
                     <td className="px-4 py-3 text-right tabular-nums text-slate-800">{b?.salesCount ?? 0}</td>
-
-                    <td className="px-4 py-3 tabular-nums text-slate-800">{fmtMoneyBR(b?.commission1Cents ?? 0)}</td>
-                    <td className="px-4 py-3 tabular-nums text-slate-800">{fmtMoneyBR(b?.commission2Cents ?? 0)}</td>
-                    <td className="px-4 py-3 tabular-nums text-slate-800">{fmtMoneyBR(b?.commission3RateioCents ?? 0)}</td>
 
                     <td className="px-4 py-3 tabular-nums text-slate-800">{fmtMoneyBR(r.tax7Cents || 0)}</td>
                     <td className="px-4 py-3 tabular-nums text-slate-800">{fmtMoneyBR(r.feeCents || 0)}</td>
@@ -935,7 +908,7 @@ export default function ComissoesFuncionariosClient() {
 
               {!day?.rows?.length && (
                 <tr>
-                  <td className="px-4 py-0" colSpan={12}>
+                  <td className="px-4 py-0" colSpan={9}>
                     <div className="flex flex-col items-center justify-center gap-2 py-14 text-center">
                       <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-100 text-slate-400 ring-1 ring-slate-200/80">
                         <Users className="h-6 w-6" strokeWidth={1.75} aria-hidden />
@@ -1147,8 +1120,8 @@ export default function ComissoesFuncionariosClient() {
                     </div>
 
                     <div className="mt-2 text-xs text-neutral-500">
-                      Se houver diferença, normalmente é porque o C3 (rateio) não aparece integralmente nesta
-                      auditoria por vendas.
+                      Se houver diferença no bruto, pode ser efeito de rateio ou linhas que não entram nesta
+                      auditoria por venda.
                     </div>
                   </div>
                 ) : null}
@@ -1163,7 +1136,7 @@ export default function ComissoesFuncionariosClient() {
                   </div>
 
                   <div className="overflow-x-auto">
-                    <table className="min-w-[1280px] w-full text-left text-sm">
+                    <table className="min-w-[960px] w-full text-left text-sm">
                       <thead className="bg-neutral-50 text-xs text-neutral-600">
                         <tr>
                           <th className="px-4 py-3">Venda</th>
@@ -1173,9 +1146,6 @@ export default function ComissoesFuncionariosClient() {
                           <th className="px-4 py-3">Localizador</th>
                           <th className="px-4 py-3 text-right">Pontos</th>
                           <th className="px-4 py-3">Valor pontos</th>
-                          <th className="px-4 py-3">C1</th>
-                          <th className="px-4 py-3">C2</th>
-                          <th className="px-4 py-3">C3</th>
                           <th className="px-4 py-3">Taxa embarque</th>
                         </tr>
                       </thead>
@@ -1220,16 +1190,13 @@ export default function ComissoesFuncionariosClient() {
                             <td className="px-4 py-3 text-neutral-600">{s.locator || "-"}</td>
                             <td className="px-4 py-3 text-right tabular-nums">{fmtInt(s.points || 0)}</td>
                             <td className="px-4 py-3">{fmtMoneyBR(s.pointsValueCents || 0)}</td>
-                            <td className="px-4 py-3">{fmtMoneyBR(s.c1Cents || 0)}</td>
-                            <td className="px-4 py-3">{fmtMoneyBR(s.c2Cents || 0)}</td>
-                            <td className="px-4 py-3">{fmtMoneyBR(s.c3Cents || 0)}</td>
                             <td className="px-4 py-3">{fmtMoneyBR(s.feeCents || 0)}</td>
                           </tr>
                         ))}
 
                         {!detailsSales?.length ? (
                           <tr>
-                            <td className="px-4 py-8 text-center text-sm text-neutral-500" colSpan={11}>
+                            <td className="px-4 py-8 text-center text-sm text-neutral-500" colSpan={8}>
                               Sem linhas para este dia (ou compute não conseguiu auditar).
                             </td>
                           </tr>
@@ -1238,9 +1205,6 @@ export default function ComissoesFuncionariosClient() {
                             <td className="px-4 py-3 font-semibold" colSpan={7}>
                               Totais (linhas)
                             </td>
-                            <td className="px-4 py-3 font-semibold">{fmtMoneyBR(detailsSum.c1)}</td>
-                            <td className="px-4 py-3 font-semibold">{fmtMoneyBR(detailsSum.c2)}</td>
-                            <td className="px-4 py-3 font-semibold">{fmtMoneyBR(detailsSum.c3)}</td>
                             <td className="px-4 py-3 font-semibold">{fmtMoneyBR(detailsSum.fee)}</td>
                           </tr>
                         )}
@@ -1317,9 +1281,6 @@ export default function ComissoesFuncionariosClient() {
                           <tr>
                             <th className="px-4 py-3">Dia</th>
                             <th className="px-4 py-3 text-right">Vendas</th>
-                            <th className="px-4 py-3">C1</th>
-                            <th className="px-4 py-3">C2</th>
-                            <th className="px-4 py-3">C3</th>
                             <th className="px-4 py-3">Imposto</th>
                             <th className="px-4 py-3">Taxa</th>
                             <th className="px-4 py-3">Comissão balcão</th>
@@ -1344,10 +1305,6 @@ export default function ComissoesFuncionariosClient() {
                                 <td className="px-4 py-3 font-medium">{r.date}</td>
 
                                 <td className="px-4 py-3 text-right tabular-nums">{b?.salesCount ?? 0}</td>
-
-                                <td className="px-4 py-3">{fmtMoneyBR(b?.commission1Cents ?? 0)}</td>
-                                <td className="px-4 py-3">{fmtMoneyBR(b?.commission2Cents ?? 0)}</td>
-                                <td className="px-4 py-3">{fmtMoneyBR(b?.commission3RateioCents ?? 0)}</td>
 
                                 <td className="px-4 py-3">{fmtMoneyBR(r.tax7Cents || 0)}</td>
                                 <td className="px-4 py-3">{fmtMoneyBR(r.feeCents || 0)}</td>
@@ -1405,7 +1362,7 @@ export default function ComissoesFuncionariosClient() {
 
                           {!monthData?.days?.length && (
                             <tr>
-                              <td className="px-4 py-8 text-center text-sm text-neutral-500" colSpan={12}>
+                              <td className="px-4 py-8 text-center text-sm text-neutral-500" colSpan={9}>
                                 Sem dados no mês selecionado.
                               </td>
                             </tr>
