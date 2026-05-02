@@ -9,6 +9,7 @@ import {
   type ReadonlyURLSearchParams,
 } from "next/navigation";
 import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
+import { ChevronRight, LogOut } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { getSession, signOut } from "@/lib/auth";
 
@@ -535,26 +536,37 @@ export default function Sidebar() {
    * UI
    * ========================= */
   return (
-    <aside className="w-64 h-screen border-r border-slate-200 bg-gradient-to-b from-white via-slate-50 to-white flex flex-col overflow-hidden">
+    <aside className="flex h-screen w-64 flex-col overflow-hidden border-r border-slate-200/80 bg-gradient-to-b from-slate-50/90 via-white to-slate-50/80 shadow-[2px_0_24px_-12px_rgba(15,23,42,0.12)]">
       {/* Header */}
-      <div className="flex items-center justify-between border-b bg-white/80 backdrop-blur p-4">
+      <div className="flex shrink-0 items-center border-b border-slate-200/70 bg-white/90 px-4 py-3.5 backdrop-blur-md">
         <div className="flex items-center gap-3">
-          <Image src="/trademiles.png" alt="TradeMiles" width={32} height={32} />
-          <span className="font-semibold text-slate-800">TradeMiles</span>
+          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-slate-100/90 ring-1 ring-slate-200/70">
+            <Image
+              src="/trademiles.png"
+              alt="TradeMiles"
+              width={28}
+              height={28}
+              className="rounded-lg"
+            />
+          </div>
+          <span className="text-[15px] font-semibold tracking-tight text-slate-900">
+            TradeMiles
+          </span>
         </div>
       </div>
 
       {/* Usuário */}
       {session && (
-        <div className="border-b px-4 py-3 text-xs">
-          <div className="font-medium">{session.name}</div>
+        <div className="shrink-0 space-y-1 border-b border-slate-100 bg-white/50 px-4 py-3 text-[11px] leading-snug text-slate-600">
+          <div className="font-semibold text-slate-800">{session.name}</div>
           <div>Login: {session.login}</div>
           <div>Time: {session.team}</div>
           <div className="capitalize">Perfil: {session.role}</div>
         </div>
       )}
 
-      <nav className="flex-1 overflow-y-auto space-y-2 px-2 py-4">
+      <div className="flex min-h-0 flex-1 flex-col">
+        <nav className="min-h-0 flex-1 space-y-1 overflow-y-auto px-2.5 py-3 [scrollbar-width:thin] [scrollbar-color:rgba(148,163,184,0.5)_transparent]">
         {/* ================= CADASTRO ================= */}
         <Accordion
           title="Cadastro"
@@ -1057,14 +1069,28 @@ export default function Sidebar() {
 
           <NavLink href="/dashboard/wallet">Wallet</NavLink>
         </Accordion>
-      </nav>
+        </nav>
 
-      <div className="border-t border-slate-200 bg-white/80 backdrop-blur p-2">
+        <div className="shrink-0 border-t border-slate-200/70 bg-gradient-to-t from-white via-white to-slate-50/40 px-3 py-4">
+          <div className="flex justify-center">
+            <Image
+              src="/vias-aereas-logo.png"
+              alt="Vias Aéreas — Conectando destinos, realizando sonhos"
+              width={200}
+              height={130}
+              className="h-auto max-h-[104px] w-full max-w-[188px] object-contain"
+            />
+          </div>
+        </div>
+      </div>
+
+      <div className="shrink-0 border-t border-slate-200/80 bg-white/95 p-2.5 backdrop-blur-sm">
         <button
           type="button"
           onClick={doLogout}
-          className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100"
+          className="flex w-full items-center justify-center gap-2 rounded-xl border border-slate-200/90 bg-white px-3 py-2.5 text-sm font-medium text-slate-700 shadow-sm transition hover:border-slate-300 hover:bg-slate-50/90"
         >
+          <LogOut className="h-4 w-4 shrink-0 text-slate-500" strokeWidth={2} />
           Sair
         </button>
       </div>
@@ -1126,10 +1152,10 @@ function NavLink({
     <Link
       href={href}
       className={cn(
-        "relative block rounded-lg px-3 py-2 pl-5 text-sm transition-colors",
+        "relative block rounded-xl px-3 py-2 pl-5 text-[13px] font-medium transition-colors",
         active
           ? "bg-[var(--accent-soft)] text-[var(--accent-text)]"
-          : "text-slate-700 hover:bg-slate-100",
+          : "text-slate-600 hover:bg-slate-100/80 hover:text-slate-900",
         "before:content-[''] before:absolute before:left-2 before:top-2 before:bottom-2 before:w-1 before:rounded-full",
         active ? "before:bg-[var(--accent)]" : "before:bg-transparent",
         className
@@ -1158,23 +1184,37 @@ function Accordion({
   return (
     <div className="space-y-1" style={accentStyle(accent)}>
       <button
+        type="button"
         onClick={onToggle}
         className={cn(
-          "group w-full flex justify-between items-center px-3 py-2 rounded-lg text-sm font-semibold transition-colors",
+          "group flex w-full items-center justify-between gap-2 rounded-xl px-3 py-2.5 text-left text-[13px] font-semibold tracking-tight transition-all",
           active
-            ? "bg-[var(--accent-soft)] text-[var(--accent-text)] ring-1 ring-[var(--accent-border)]"
-            : "text-slate-800 hover:bg-slate-100"
+            ? "bg-[var(--accent-soft)] text-[var(--accent-text)] shadow-sm ring-1 ring-[var(--accent-border)]/80"
+            : "text-slate-800 hover:bg-slate-100/85"
         )}
       >
-        <span className="inline-flex items-center gap-2">
-          <span className="h-2 w-2 rounded-full bg-[var(--accent)]" />
-          <span>{title}</span>
+        <span className="inline-flex min-w-0 flex-1 items-center gap-2.5">
+          <span
+            className={cn(
+              "h-5 w-1 shrink-0 rounded-full transition-colors",
+              active
+                ? "bg-[var(--accent)]"
+                : "bg-slate-200 group-hover:bg-slate-300"
+            )}
+            aria-hidden
+          />
+          <span className="truncate">{title}</span>
         </span>
-        <span className="text-xs text-slate-500 group-hover:text-slate-700">
-          {open ? "▾" : "▸"}
-        </span>
+        <ChevronRight
+          className={cn(
+            "h-4 w-4 shrink-0 text-slate-400 transition-transform duration-200 group-hover:text-slate-500",
+            open && "rotate-90"
+          )}
+          strokeWidth={2}
+          aria-hidden
+        />
       </button>
-      {open && <div className="pl-2 space-y-1">{children}</div>}
+      {open && <div className="space-y-1 border-l border-slate-200/70 pl-2.5 ml-3">{children}</div>}
     </div>
   );
 }
@@ -1201,12 +1241,12 @@ function SubAccordion({
   const rowClass = cn(
     isNav
       ? cn(
-          "w-full flex justify-between items-center rounded-lg px-3 py-2 text-sm transition-colors",
+          "flex w-full items-center justify-between gap-2 rounded-xl px-3 py-2 text-[13px] font-medium transition-colors",
           active
-            ? "bg-[var(--accent-soft)] text-[var(--accent-text)] ring-1 ring-[var(--accent-border)]"
-            : "text-slate-700 hover:bg-slate-100"
+            ? "bg-[var(--accent-soft)] text-[var(--accent-text)] ring-1 ring-[var(--accent-border)]/80 shadow-sm"
+            : "text-slate-600 hover:bg-slate-100/80"
         )
-      : "w-full flex justify-between items-center px-3 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded transition-colors"
+      : "flex w-full items-center justify-between gap-2 rounded-lg px-3 py-2 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-100/90"
   );
 
   if (href) {
@@ -1230,7 +1270,19 @@ function SubAccordion({
             )}
             aria-label={open ? `Fechar ${title}` : `Abrir ${title}`}
           >
-            {open ? (isNav ? "▾" : "−") : isNav ? "▸" : "+"}
+            {isNav ? (
+              <ChevronRight
+                className={cn(
+                  "h-4 w-4 text-slate-400 transition-transform duration-200",
+                  open && "rotate-90"
+                )}
+                strokeWidth={2}
+              />
+            ) : open ? (
+              "−"
+            ) : (
+              "+"
+            )}
           </button>
         </div>
 
@@ -1241,12 +1293,34 @@ function SubAccordion({
 
   return (
     <>
-      <button onClick={onToggle} className={rowClass}>
-        <span>{title}</span>
-        <span>{open ? (isNav ? "▾" : "−") : isNav ? "▸" : "+"}</span>
+      <button type="button" onClick={onToggle} className={rowClass}>
+        <span className="min-w-0 truncate text-left">{title}</span>
+        {isNav ? (
+          <ChevronRight
+            className={cn(
+              "h-4 w-4 shrink-0 text-slate-400 transition-transform duration-200",
+              open && "rotate-90"
+            )}
+            strokeWidth={2}
+            aria-hidden
+          />
+        ) : (
+          <span className="shrink-0 tabular-nums text-slate-400">
+            {open ? "−" : "+"}
+          </span>
+        )}
       </button>
 
-      {open && <div className="pl-4 space-y-1">{children}</div>}
+      {open && (
+        <div
+          className={cn(
+            "space-y-1 pl-4",
+            isNav && "border-l border-slate-200/70 pl-3 ml-3"
+          )}
+        >
+          {children}
+        </div>
+      )}
     </>
   );
 }
