@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { Download } from "lucide-react";
+import { BarChart3, Download, RefreshCw } from "lucide-react";
+import { cn } from "@/lib/cn";
 
 function fmtMoneyBR(cents: number) {
   const v = (cents || 0) / 100;
@@ -119,13 +120,27 @@ type MilheiroPoint = {
 type CardTone = "sky" | "emerald" | "amber" | "rose" | "slate" | "teal";
 
 const CARD_TONE_CLASS: Record<CardTone, string> = {
-  sky: "border-sky-100 bg-gradient-to-br from-sky-50/80 to-white",
-  emerald: "border-emerald-100 bg-gradient-to-br from-emerald-50/80 to-white",
-  amber: "border-amber-100 bg-gradient-to-br from-amber-50/80 to-white",
-  rose: "border-rose-100 bg-gradient-to-br from-rose-50/80 to-white",
-  teal: "border-teal-100 bg-gradient-to-br from-teal-50/80 to-white",
-  slate: "border-slate-200 bg-white",
+  sky: "border-sky-100/90 bg-gradient-to-br from-sky-50/80 to-white",
+  emerald: "border-emerald-100/90 bg-gradient-to-br from-emerald-50/80 to-white",
+  amber: "border-amber-100/90 bg-gradient-to-br from-amber-50/80 to-white",
+  rose: "border-rose-100/90 bg-gradient-to-br from-rose-50/80 to-white",
+  teal: "border-teal-100/90 bg-gradient-to-br from-teal-50/80 to-white",
+  slate: "border-slate-200/80 bg-gradient-to-br from-slate-50/60 to-white",
 };
+
+const CARD_ACCENT_BAR: Record<CardTone, string> = {
+  sky: "bg-sky-500",
+  emerald: "bg-emerald-500",
+  amber: "bg-amber-500",
+  rose: "bg-rose-500",
+  teal: "bg-teal-500",
+  slate: "bg-slate-400",
+};
+
+const ANALISE_SELECT =
+  "rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-medium text-slate-800 shadow-sm outline-none transition hover:border-slate-300 focus:border-slate-300 focus:ring-2 focus:ring-slate-900/10";
+const ANALISE_DATE_INPUT =
+  "rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-800 shadow-sm outline-none focus:ring-2 focus:ring-slate-900/10";
 
 const CHART_COLORS = [
   "#0ea5e9",
@@ -185,10 +200,21 @@ function Card({
   tone?: CardTone;
 }) {
   return (
-    <div className={`rounded-2xl border p-4 shadow-sm ${CARD_TONE_CLASS[tone]}`}>
-      <div className="text-xs text-neutral-600">{title}</div>
-      <div className="mt-1 text-xl font-semibold">{value}</div>
-      {sub ? <div className="mt-1 text-xs text-neutral-500">{sub}</div> : null}
+    <div
+      className={cn(
+        "relative overflow-hidden rounded-2xl border p-5 shadow-sm shadow-slate-200/35",
+        CARD_TONE_CLASS[tone]
+      )}
+    >
+      <div
+        className={cn("absolute left-0 top-0 h-full w-1 rounded-r", CARD_ACCENT_BAR[tone])}
+        aria-hidden
+      />
+      <div className="relative pl-3">
+        <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">{title}</div>
+        <div className="mt-2 text-xl font-bold tabular-nums tracking-tight text-slate-900">{value}</div>
+        {sub ? <div className="mt-2 text-xs leading-snug text-slate-600">{sub}</div> : null}
+      </div>
     </div>
   );
 }
@@ -267,8 +293,8 @@ function SimpleLineChart({
   const tipY = topPad + 8;
 
   return (
-    <div className="rounded-2xl border bg-white p-4 shadow-sm">
-      <div className="mb-1 text-sm font-semibold">{title}</div>
+    <div className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm shadow-slate-200/40">
+      <div className="mb-1 text-sm font-semibold tracking-tight text-slate-900">{title}</div>
       {summary ? <div className="mb-3">{summary}</div> : null}
       <div className="mb-2 flex flex-wrap gap-2 text-[11px] text-neutral-600">
         <span className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5">
@@ -489,9 +515,9 @@ function MilheiroLineChart({
   const tipY = topPad + 8;
 
   return (
-    <div className="rounded-2xl border bg-white p-4 shadow-sm">
+    <div className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm shadow-slate-200/40">
       <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-        <div className="text-sm font-semibold">{title}</div>
+        <div className="text-sm font-semibold tracking-tight text-slate-900">{title}</div>
         {toolbar ? <div>{toolbar}</div> : null}
       </div>
       <div className="mb-2 flex flex-wrap gap-2 text-[11px] text-neutral-600">
@@ -651,8 +677,8 @@ function MilheiroMonthlyBarChart({
   const tipY = topPad + 8;
 
   return (
-    <div className="rounded-2xl border bg-white p-4 shadow-sm">
-      <div className="mb-2 text-sm font-semibold">{title}</div>
+    <div className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm shadow-slate-200/40">
+      <div className="mb-2 text-sm font-semibold tracking-tight text-slate-900">{title}</div>
       <div className="mb-2 flex flex-wrap gap-2 text-[11px] text-neutral-600">
         <span className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5">
           <span className="h-2 w-2 rounded-full bg-sky-500" />
@@ -772,8 +798,8 @@ function MilheiroMonthlyBarChart({
 function SimpleBarChart({ title, data }: { title: string; data: Array<{ label: string; value: number; pct?: number }> }) {
   const max = Math.max(1, ...data.map((d) => d.value));
   return (
-    <div className="rounded-2xl border bg-white p-4 shadow-sm">
-      <div className="mb-2 text-sm font-semibold">{title}</div>
+    <div className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm shadow-slate-200/40">
+      <div className="mb-2 text-sm font-semibold tracking-tight text-slate-900">{title}</div>
       <div className="space-y-2">
         {data.map((d, i) => {
           const w = Math.round((d.value / max) * 100);
@@ -828,8 +854,8 @@ function SimplePieChart({
   }, []);
 
   return (
-    <div className="rounded-2xl border bg-white p-4 shadow-sm">
-      <div className="mb-2 text-sm font-semibold">{title}</div>
+    <div className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm shadow-slate-200/40">
+      <div className="mb-2 text-sm font-semibold tracking-tight text-slate-900">{title}</div>
 
       {!data.length || total <= 0 ? (
         <div className="text-sm text-neutral-500">Sem dados suficientes para o gráfico.</div>
@@ -1589,30 +1615,30 @@ export default function AnaliseDadosClient() {
   };
 
   return (
-    <div className="mx-auto w-full max-w-6xl space-y-6 p-4">
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <div className="text-xl font-semibold">Análise de dados</div>
-          <div className="text-sm text-neutral-500">Vendas, passageiros, dias, funcionários, clientes e clubes.</div>
+    <div className="mx-auto w-full max-w-6xl space-y-8 p-4 pb-10">
+      <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
+        <div className="min-w-0 space-y-3">
+          <div className="inline-flex items-center gap-2 rounded-full border border-slate-200/90 bg-white px-3 py-1 text-[11px] font-semibold uppercase tracking-wider text-slate-500 shadow-sm">
+            <BarChart3 className="h-3.5 w-3.5 text-slate-400" strokeWidth={2} aria-hidden />
+            Analytics
+          </div>
+          <div>
+            <h1 className="text-3xl font-bold tracking-tight text-slate-900">Análise de dados</h1>
+            <p className="mt-2 max-w-2xl text-sm leading-relaxed text-slate-600">
+              Vendas, passageiros, dias, funcionários, clientes e clubes.
+            </p>
+          </div>
         </div>
 
-        <div className="flex flex-wrap gap-2">
-          <select
-            className="rounded-xl border bg-white px-3 py-2 text-sm"
-            value={monthsBack}
-            onChange={(e) => setMonthsBack(Number(e.target.value))}
-          >
+        <div className="flex flex-wrap items-center gap-2.5">
+          <select className={ANALISE_SELECT} value={monthsBack} onChange={(e) => setMonthsBack(Number(e.target.value))}>
             <option value={3}>Últimos 3 meses</option>
             <option value={6}>Últimos 6 meses</option>
             <option value={12}>Últimos 12 meses</option>
             <option value={24}>Últimos 24 meses</option>
           </select>
 
-          <select
-            className="rounded-xl border bg-white px-3 py-2 text-sm"
-            value={focusYM}
-            onChange={(e) => setFocusYM(e.target.value)}
-          >
+          <select className={ANALISE_SELECT} value={focusYM} onChange={(e) => setFocusYM(e.target.value)}>
             {monthOptions.map((m) => (
               <option key={m} value={m}>
                 {m}
@@ -1620,9 +1646,8 @@ export default function AnaliseDadosClient() {
             ))}
           </select>
 
-          {/* alternar gráfico */}
           <select
-            className="rounded-xl border bg-white px-3 py-2 text-sm"
+            className={ANALISE_SELECT}
             value={chartMode}
             onChange={(e) => setChartMode(e.target.value as ChartMode)}
           >
@@ -1630,11 +1655,10 @@ export default function AnaliseDadosClient() {
             <option value="DAY">Gráfico: diário</option>
           </select>
 
-          {/* controles do diário */}
           {chartMode === "DAY" ? (
             <>
               <select
-                className="rounded-xl border bg-white px-3 py-2 text-sm"
+                className={ANALISE_SELECT}
                 value={daysPreset}
                 onChange={(e) => {
                   const v = e.target.value;
@@ -1651,13 +1675,13 @@ export default function AnaliseDadosClient() {
                 <>
                   <input
                     type="date"
-                    className="rounded-xl border bg-white px-3 py-2 text-sm"
+                    className={ANALISE_DATE_INPUT}
                     value={dateFrom}
                     onChange={(e) => setDateFrom(e.target.value)}
                   />
                   <input
                     type="date"
-                    className="rounded-xl border bg-white px-3 py-2 text-sm"
+                    className={ANALISE_DATE_INPUT}
                     value={dateTo}
                     onChange={(e) => setDateTo(e.target.value)}
                   />
@@ -1665,7 +1689,7 @@ export default function AnaliseDadosClient() {
               ) : null}
 
               <select
-                className="rounded-xl border bg-white px-3 py-2 text-sm"
+                className={ANALISE_SELECT}
                 value={maWindow}
                 onChange={(e) => setMaWindow(Number(e.target.value) as MAWindow)}
               >
@@ -1677,24 +1701,30 @@ export default function AnaliseDadosClient() {
             </>
           ) : null}
 
-          <button className="rounded-xl border bg-white px-3 py-2 text-sm" onClick={load} disabled={loading}>
+          <button
+            type="button"
+            className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-medium text-slate-800 shadow-sm transition hover:border-slate-300 hover:bg-slate-50 disabled:pointer-events-none disabled:opacity-55"
+            onClick={load}
+            disabled={loading}
+          >
+            <RefreshCw className={cn("h-4 w-4 text-slate-500", loading && "animate-spin")} strokeWidth={2} aria-hidden />
             {loading ? "Carregando..." : "Atualizar"}
           </button>
 
           <button
             type="button"
-            className="inline-flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-800 transition hover:border-emerald-300 hover:bg-emerald-100"
+            className="inline-flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2.5 text-sm font-semibold text-emerald-900 shadow-sm transition hover:border-emerald-300 hover:bg-emerald-100/90"
             onClick={downloadCompanyXlsx}
             title="Baixar Excel completo da análise da empresa"
           >
-            <Download className="h-4 w-4" aria-hidden="true" />
+            <Download className="h-4 w-4 shrink-0" aria-hidden="true" />
             Excel completo
           </button>
         </div>
       </div>
 
       {/* HOJE */}
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
         <Card
           title={today?.date ? `Total vendido hoje (${today.date})` : "Total vendido hoje"}
           value={fmtMoneyBR(today?.grossCents || 0)}
@@ -1723,7 +1753,7 @@ export default function AnaliseDadosClient() {
         />
       </div>
 
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+      <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
         <Card
           title="Maior dia vendido (histórico)"
           value={fmtMoneyBR(salesDailyHistorySummary?.grossCents || 0)}
@@ -1743,31 +1773,33 @@ export default function AnaliseDadosClient() {
       </div>
 
       {/* HOJE por funcionário */}
-      <div className="rounded-2xl border bg-white p-4 shadow-sm">
-        <div className="mb-2 flex items-center justify-between">
-          <div className="text-sm font-semibold">Total por funcionário {todayLabel ? `(hoje ${todayLabel})` : "(hoje)"}</div>
+      <div className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm shadow-slate-200/40">
+        <div className="mb-4 flex items-center justify-between border-b border-slate-100 pb-3">
+          <div className="text-sm font-semibold tracking-tight text-slate-900">
+            Total por funcionário {todayLabel ? `(hoje ${todayLabel})` : "(hoje)"}
+          </div>
         </div>
 
-        <div className="overflow-auto">
+        <div className="overflow-x-auto rounded-xl border border-slate-100">
           <table className="w-full min-w-[720px] text-sm">
-            <thead>
-              <tr className="border-b text-left text-xs text-neutral-500">
-                <th className="py-2">Funcionário</th>
-                <th className="py-2">Vendas</th>
-                <th className="py-2">PAX</th>
-                <th className="py-2 text-right">Total (sem taxa)</th>
+            <thead className="border-b border-slate-200 bg-slate-50/90">
+              <tr className="text-left text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                <th className="px-3 py-2.5">Funcionário</th>
+                <th className="px-3 py-2.5">Vendas</th>
+                <th className="px-3 py-2.5">PAX</th>
+                <th className="px-3 py-2.5 text-right">Total (sem taxa)</th>
               </tr>
             </thead>
             <tbody>
               {byEmployeeToday.map((r: any) => (
-                <tr key={r.id} className="border-b">
-                  <td className="py-2">
+                <tr key={r.id} className="border-b border-slate-100 transition hover:bg-slate-50/70">
+                  <td className="px-3 py-2.5">
                     <div className="font-medium">{r.name}</div>
                     <div className="text-xs text-neutral-500">{r.login}</div>
                   </td>
-                  <td className="py-2">{fmtInt(r.salesCount || 0)}</td>
-                  <td className="py-2">{fmtInt(r.passengers || 0)}</td>
-                  <td className="py-2 text-right font-semibold">{fmtMoneyBR(r.grossCents || 0)}</td>
+                  <td className="px-3 py-2.5 tabular-nums">{fmtInt(r.salesCount || 0)}</td>
+                  <td className="px-3 py-2.5 tabular-nums">{fmtInt(r.passengers || 0)}</td>
+                  <td className="px-3 py-2.5 text-right font-semibold tabular-nums">{fmtMoneyBR(r.grossCents || 0)}</td>
                 </tr>
               ))}
 
@@ -1784,7 +1816,7 @@ export default function AnaliseDadosClient() {
       </div>
 
       {/* KPIs */}
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
         <Card
           title="Total vendido no mês (milhas)"
           value={fmtMoneyBR(consolidated?.soldSalesCents || kpis?.gross || 0)}
@@ -1803,7 +1835,7 @@ export default function AnaliseDadosClient() {
         />
       </div>
 
-      <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
         <div className="rounded-2xl border-2 border-indigo-200 bg-gradient-to-br from-indigo-50 via-white to-sky-50 p-5 shadow-sm">
           <div className="inline-flex rounded-full border border-indigo-300 bg-indigo-100 px-2 py-0.5 text-[11px] font-semibold text-indigo-700">
             Principal
@@ -1846,7 +1878,7 @@ export default function AnaliseDadosClient() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+      <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
         <Card
           title="Balcão no mês (valor vendido)"
           value={fmtMoneyBR(balcaoMonth?.customerChargeCents || 0)}
@@ -1887,7 +1919,7 @@ export default function AnaliseDadosClient() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+      <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
         <Card
           title={`Lucro ${currentVsPrevious?.currentMonth || "mês corrente"} (pós-imposto e prejuízo)`}
           value={fmtMoneyBR(currentVsPrevious?.currentProfitCents || 0)}
@@ -2030,7 +2062,7 @@ export default function AnaliseDadosClient() {
         data={salesDailyHistoryChart}
         trendLine={salesDailyHistoryTrendLine}
         summary={
-          <div className="grid grid-cols-1 gap-3 lg:grid-cols-[auto,1fr] lg:items-center">
+          <div className="grid grid-cols-1 gap-5 lg:grid-cols-[auto,1fr] lg:items-center">
             <div className="flex flex-wrap items-center gap-2 text-xs">
               <span className="text-neutral-500">Período:</span>
               <select
@@ -2108,14 +2140,14 @@ export default function AnaliseDadosClient() {
         } • Linha pontilhada = tendência • Valores consolidados de milhas + balcão.`}
       />
 
-      <div className="rounded-2xl border bg-white p-4 shadow-sm">
-        <div className="text-sm font-semibold">Milheiro vendido (LATAM e Smiles)</div>
-        <div className="mt-1 text-xs text-neutral-500">
+      <div className="rounded-2xl border border-slate-200/80 bg-gradient-to-br from-slate-50/50 to-white p-5 shadow-sm shadow-slate-200/40">
+        <div className="text-sm font-semibold tracking-tight text-slate-900">Milheiro vendido (LATAM e Smiles)</div>
+        <div className="mt-1.5 text-xs leading-relaxed text-slate-600">
           Comparativo diário e mensal do valor de milheiro efetivamente vendido.
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
         <Card
           title={`LATAM (dia ${milheiroComparison.daily.latam?.currentLabel || "—"})`}
           value={fmtMoneyBR(milheiroComparison.daily.latam?.current || 0)}
@@ -2206,20 +2238,23 @@ export default function AnaliseDadosClient() {
       />
 
       {/* Dias da semana */}
-      <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
         <SimpleBarChart title="Comparativo por dia da semana (período)" data={weekdayBars} />
 
-        <div className="rounded-2xl border bg-white p-4 shadow-sm">
-          <div className="text-sm font-semibold">Dia da semana que mais vende</div>
-          <div className="mt-2 text-2xl font-semibold">{best?.dow || "—"}</div>
-          <div className="mt-1 text-sm text-neutral-600">
+        <div className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm shadow-slate-200/40">
+          <div className="text-sm font-semibold tracking-tight text-slate-900">Dia da semana que mais vende</div>
+          <div className="mt-2 text-2xl font-bold tabular-nums tracking-tight text-slate-900">{best?.dow || "—"}</div>
+          <div className="mt-1 text-sm text-slate-600">
             {fmtMoneyBR(best?.grossCents || 0)} • {fmtInt(best?.salesCount || 0)} vendas • {fmtInt(best?.passengers || 0)} pax
           </div>
 
-          <div className="mt-4 text-sm font-semibold">Vendas por programa (por mês)</div>
+          <div className="mt-5 text-sm font-semibold tracking-tight text-slate-900">Vendas por programa (por mês)</div>
           <div className="mt-2 space-y-2">
             {programByMonthBars.slice(-6).map((m: any) => (
-              <div key={m.month} className="flex flex-col gap-1 rounded-xl border p-3">
+              <div
+                key={m.month}
+                className="flex flex-col gap-1 rounded-xl border border-slate-100 bg-slate-50/50 p-3 shadow-sm"
+              >
                 <div className="text-xs text-neutral-500">{m.month}</div>
                 <div className="text-sm">
                   <span className="inline-flex items-center gap-1 font-semibold text-sky-700">
@@ -2239,7 +2274,7 @@ export default function AnaliseDadosClient() {
       </div>
 
       {/* Funcionários (mês foco) */}
-      <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
         <SimplePieChart
           title={`Distribuição de vendas por funcionário (mês ${monthLabel})`}
           data={byEmployeeMonthPie}
@@ -2250,24 +2285,26 @@ export default function AnaliseDadosClient() {
           }
         />
 
-        <div className="rounded-2xl border bg-white p-4 shadow-sm">
-          <div className="mb-2 flex items-center justify-between">
-            <div className="text-sm font-semibold">Total por funcionário (mês {monthLabel})</div>
+        <div className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm shadow-slate-200/40">
+          <div className="mb-4 flex items-center justify-between border-b border-slate-100 pb-3">
+            <div className="text-sm font-semibold tracking-tight text-slate-900">
+              Total por funcionário (mês {monthLabel})
+            </div>
           </div>
-          <div className="overflow-auto">
+          <div className="overflow-x-auto rounded-xl border border-slate-100">
             <table className="w-full min-w-[720px] text-sm">
-              <thead>
-                <tr className="border-b text-left text-xs text-neutral-500">
-                  <th className="py-2">Funcionário</th>
-                  <th className="py-2">Vendas</th>
-                  <th className="py-2">PAX</th>
-                  <th className="py-2 text-right">Total (sem taxa)</th>
+              <thead className="border-b border-slate-200 bg-slate-50/90">
+                <tr className="text-left text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                  <th className="px-3 py-2.5">Funcionário</th>
+                  <th className="px-3 py-2.5">Vendas</th>
+                  <th className="px-3 py-2.5">PAX</th>
+                  <th className="px-3 py-2.5 text-right">Total (sem taxa)</th>
                 </tr>
               </thead>
               <tbody>
                 {(data?.byEmployee || []).map((r: any, i: number) => (
-                  <tr key={r.id} className="border-b">
-                    <td className="py-2">
+                  <tr key={r.id} className="border-b border-slate-100 transition hover:bg-slate-50/70">
+                    <td className="px-3 py-2.5">
                       <div className="flex items-center gap-2">
                         <span
                           className="h-2 w-2 rounded-full"
@@ -2279,9 +2316,9 @@ export default function AnaliseDadosClient() {
                         </div>
                       </div>
                     </td>
-                    <td className="py-2">{fmtInt(r.salesCount)}</td>
-                    <td className="py-2">{fmtInt(r.passengers)}</td>
-                    <td className="py-2 text-right font-semibold">{fmtMoneyBR(r.grossCents)}</td>
+                    <td className="px-3 py-2.5 tabular-nums">{fmtInt(r.salesCount)}</td>
+                    <td className="px-3 py-2.5 tabular-nums">{fmtInt(r.passengers)}</td>
+                    <td className="px-3 py-2.5 text-right font-semibold tabular-nums">{fmtMoneyBR(r.grossCents)}</td>
                   </tr>
                 ))}
                 {!data?.byEmployee?.length ? (
@@ -2298,30 +2335,32 @@ export default function AnaliseDadosClient() {
       </div>
 
       {/* Emissões de balcão (mês foco) */}
-      <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
-        <div className="rounded-2xl border bg-white p-4 shadow-sm">
-          <div className="mb-2 flex items-center justify-between">
-            <div className="text-sm font-semibold">Emissões de balcão por cia (mês {monthLabel})</div>
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
+        <div className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm shadow-slate-200/40">
+          <div className="mb-4 flex items-center justify-between border-b border-slate-100 pb-3">
+            <div className="text-sm font-semibold tracking-tight text-slate-900">
+              Emissões de balcão por cia (mês {monthLabel})
+            </div>
           </div>
-          <div className="overflow-auto">
+          <div className="overflow-x-auto rounded-xl border border-slate-100">
             <table className="w-full min-w-[640px] text-sm">
-              <thead>
-                <tr className="border-b text-left text-xs text-neutral-500">
-                  <th className="py-2">CIA</th>
-                  <th className="py-2">Ops</th>
-                  <th className="py-2">Pontos</th>
-                  <th className="py-2 text-right">Valor vendido</th>
-                  <th className="py-2 text-right">Lucro líquido</th>
+              <thead className="border-b border-slate-200 bg-slate-50/90">
+                <tr className="text-left text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                  <th className="px-3 py-2.5">CIA</th>
+                  <th className="px-3 py-2.5">Ops</th>
+                  <th className="px-3 py-2.5">Pontos</th>
+                  <th className="px-3 py-2.5 text-right">Valor vendido</th>
+                  <th className="px-3 py-2.5 text-right">Lucro líquido</th>
                 </tr>
               </thead>
               <tbody>
                 {balcaoByAirline.map((r: any) => (
-                  <tr key={r.airline} className="border-b">
-                    <td className="py-2 font-medium">{String(r.airline || "—").replaceAll("_", " ")}</td>
-                    <td className="py-2">{fmtInt(r.operationsCount || 0)}</td>
-                    <td className="py-2">{fmtInt(r.points || 0)}</td>
-                    <td className="py-2 text-right font-semibold">{fmtMoneyBR(r.customerChargeCents || 0)}</td>
-                    <td className="py-2 text-right font-semibold">{fmtMoneyBR(r.netProfitCents || 0)}</td>
+                  <tr key={r.airline} className="border-b border-slate-100 transition hover:bg-slate-50/70">
+                    <td className="px-3 py-2.5 font-medium">{String(r.airline || "—").replaceAll("_", " ")}</td>
+                    <td className="px-3 py-2.5 tabular-nums">{fmtInt(r.operationsCount || 0)}</td>
+                    <td className="px-3 py-2.5 tabular-nums">{fmtInt(r.points || 0)}</td>
+                    <td className="px-3 py-2.5 text-right font-semibold tabular-nums">{fmtMoneyBR(r.customerChargeCents || 0)}</td>
+                    <td className="px-3 py-2.5 text-right font-semibold tabular-nums">{fmtMoneyBR(r.netProfitCents || 0)}</td>
                   </tr>
                 ))}
                 {!balcaoByAirline.length ? (
@@ -2336,32 +2375,34 @@ export default function AnaliseDadosClient() {
           </div>
         </div>
 
-        <div className="rounded-2xl border bg-white p-4 shadow-sm">
-          <div className="mb-2 flex items-center justify-between">
-            <div className="text-sm font-semibold">Emissões de balcão por funcionário (mês {monthLabel})</div>
+        <div className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm shadow-slate-200/40">
+          <div className="mb-4 flex items-center justify-between border-b border-slate-100 pb-3">
+            <div className="text-sm font-semibold tracking-tight text-slate-900">
+              Emissões de balcão por funcionário (mês {monthLabel})
+            </div>
           </div>
-          <div className="overflow-auto">
+          <div className="overflow-x-auto rounded-xl border border-slate-100">
             <table className="w-full min-w-[700px] text-sm">
-              <thead>
-                <tr className="border-b text-left text-xs text-neutral-500">
-                  <th className="py-2">Funcionário</th>
-                  <th className="py-2">Ops</th>
-                  <th className="py-2">Pontos</th>
-                  <th className="py-2 text-right">Valor vendido</th>
-                  <th className="py-2 text-right">Lucro líquido</th>
+              <thead className="border-b border-slate-200 bg-slate-50/90">
+                <tr className="text-left text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                  <th className="px-3 py-2.5">Funcionário</th>
+                  <th className="px-3 py-2.5">Ops</th>
+                  <th className="px-3 py-2.5">Pontos</th>
+                  <th className="px-3 py-2.5 text-right">Valor vendido</th>
+                  <th className="px-3 py-2.5 text-right">Lucro líquido</th>
                 </tr>
               </thead>
               <tbody>
                 {balcaoByEmployee.map((r: any) => (
-                  <tr key={r.id} className="border-b">
-                    <td className="py-2">
+                  <tr key={r.id} className="border-b border-slate-100 transition hover:bg-slate-50/70">
+                    <td className="px-3 py-2.5">
                       <div className="font-medium">{r.name || "—"}</div>
                       <div className="text-xs text-neutral-500">{r.login || "—"}</div>
                     </td>
-                    <td className="py-2">{fmtInt(r.operationsCount || 0)}</td>
-                    <td className="py-2">{fmtInt(r.points || 0)}</td>
-                    <td className="py-2 text-right font-semibold">{fmtMoneyBR(r.customerChargeCents || 0)}</td>
-                    <td className="py-2 text-right font-semibold">{fmtMoneyBR(r.netProfitCents || 0)}</td>
+                    <td className="px-3 py-2.5 tabular-nums">{fmtInt(r.operationsCount || 0)}</td>
+                    <td className="px-3 py-2.5 tabular-nums">{fmtInt(r.points || 0)}</td>
+                    <td className="px-3 py-2.5 text-right font-semibold tabular-nums">{fmtMoneyBR(r.customerChargeCents || 0)}</td>
+                    <td className="px-3 py-2.5 text-right font-semibold tabular-nums">{fmtMoneyBR(r.netProfitCents || 0)}</td>
                   </tr>
                 ))}
                 {!balcaoByEmployee.length ? (
@@ -2378,12 +2419,12 @@ export default function AnaliseDadosClient() {
       </div>
 
       {/* TOP clientes */}
-      <div className="rounded-2xl border bg-white p-4 shadow-sm">
-        <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-          <div className="text-sm font-semibold">Clientes que mais compraram</div>
+      <div className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm shadow-slate-200/40">
+        <div className="mb-4 flex flex-col gap-3 border-b border-slate-100 pb-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="text-sm font-semibold tracking-tight text-slate-900">Clientes que mais compraram</div>
           <div className="flex flex-wrap gap-2">
             <select
-              className="rounded-xl border bg-white px-3 py-2 text-sm"
+              className={ANALISE_SELECT}
               value={topPeriod}
               onChange={(e) => setTopPeriod(e.target.value as any)}
             >
@@ -2391,7 +2432,7 @@ export default function AnaliseDadosClient() {
               <option value="TOTAL">Filtrar: total do período</option>
             </select>
             <select
-              className="rounded-xl border bg-white px-3 py-2 text-sm"
+              className={ANALISE_SELECT}
               value={topProgram}
               onChange={(e) => setTopProgram(e.target.value as any)}
             >
@@ -2402,26 +2443,26 @@ export default function AnaliseDadosClient() {
           </div>
         </div>
 
-        <div className="overflow-auto">
+        <div className="overflow-x-auto rounded-xl border border-slate-100">
           <table className="w-full min-w-[860px] text-sm">
-            <thead>
-              <tr className="border-b text-left text-xs text-neutral-500">
-                <th className="py-2">Cliente</th>
-                <th className="py-2">Vendas</th>
-                <th className="py-2">PAX</th>
-                <th className="py-2 text-right">Total (sem taxa)</th>
+            <thead className="border-b border-slate-200 bg-slate-50/90">
+              <tr className="text-left text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                <th className="px-3 py-2.5">Cliente</th>
+                <th className="px-3 py-2.5">Vendas</th>
+                <th className="px-3 py-2.5">PAX</th>
+                <th className="px-3 py-2.5 text-right">Total (sem taxa)</th>
               </tr>
             </thead>
             <tbody>
               {topClients.map((c: any) => (
-                <tr key={c.id} className="border-b">
-                  <td className="py-2">
+                <tr key={c.id} className="border-b border-slate-100 transition hover:bg-slate-50/70">
+                  <td className="px-3 py-2.5">
                     <div className="font-medium">{c.nome}</div>
                     <div className="text-xs text-neutral-500">{c.identificador}</div>
                   </td>
-                  <td className="py-2">{fmtInt(c.salesCount)}</td>
-                  <td className="py-2">{fmtInt(c.passengers)}</td>
-                  <td className="py-2 text-right font-semibold">{fmtMoneyBR(c.grossCents)}</td>
+                  <td className="px-3 py-2.5 tabular-nums">{fmtInt(c.salesCount)}</td>
+                  <td className="px-3 py-2.5 tabular-nums">{fmtInt(c.passengers)}</td>
+                  <td className="px-3 py-2.5 text-right font-semibold tabular-nums">{fmtMoneyBR(c.grossCents)}</td>
                 </tr>
               ))}
               {!topClients.length ? (
