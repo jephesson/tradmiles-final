@@ -54,7 +54,7 @@ export default function AffiliateLoginClient() {
         >
           <div className="flex items-center gap-3">
             <Image
-              src="/trademiles.png"
+              src="/trademiles.png?v=3"
               alt="TradeMiles"
               width={38}
               height={38}
