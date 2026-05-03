@@ -1,22 +1,20 @@
-import Image from "next/image";
-
 /**
- * Arte de fundo (globo, rotas, avião, nuvens). Arquivo em /public/login-background.png
+ * Fundo em tela cheia. Usamos <img> nativo (sem pipeline do next/image) para
+ * não recompressar JPEG/PNG e evitar artefatos. Para ficar nítido em monitores
+ * grandes, use arte ≥ 1920px de largura (ideal 2560px), PNG ou WebP.
  */
 export default function LoginSkyBackdrop() {
   return (
     <div className="pointer-events-none absolute inset-0 overflow-hidden" aria-hidden>
-      <div className="relative min-h-screen w-full">
-        <Image
-          src="/login-background.png"
-          alt=""
-          fill
-          className="object-cover object-center"
-          priority
-          sizes="100vw"
-          quality={92}
-        />
-      </div>
+      {/* eslint-disable-next-line @next/next/no-img-element -- evita otimização que suaviza demais o fundo */}
+      <img
+        src="/login-background.png"
+        alt=""
+        className="absolute inset-0 h-full w-full object-cover object-center"
+        loading="eager"
+        decoding="async"
+        fetchPriority="high"
+      />
     </div>
   );
 }

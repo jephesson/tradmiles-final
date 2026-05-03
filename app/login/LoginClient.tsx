@@ -140,12 +140,14 @@ export default function LoginClient() {
                   className="mt-1 flex w-full items-center justify-center gap-3 rounded-xl px-3 py-3 text-center text-sm font-semibold leading-snug text-white text-balance shadow-md shadow-slate-900/10 outline-none transition hover:brightness-110 focus-visible:ring-2 focus-visible:ring-sky-400/50 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 sm:px-4"
                   disabled={loading}
                 >
-                  <Image
+                  {/* Arquivo atual é JPEG (sem alpha); mix-blend “multiplica” o branco com o azul do botão. Troque por PNG/WebP com transparência para melhor fidelidade. */}
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
                     src="/vias-aereas-enter-icon.png"
                     alt=""
                     width={40}
                     height={40}
-                    className="h-8 w-8 shrink-0 object-contain sm:h-9 sm:w-9"
+                    className="h-8 w-8 shrink-0 object-contain mix-blend-multiply contrast-[1.02] sm:h-9 sm:w-9"
                     aria-hidden
                   />
                   {loading ? "Entrando…" : "Entrar no painel Vias Aéreas"}
