@@ -3,7 +3,7 @@
 import Image from "next/image";
 import { useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Eye, Instagram, Lock, MessageCircle, Plane, User } from "lucide-react";
+import { Eye, Instagram, Lock, MessageCircle, User } from "lucide-react";
 import LoginSkyBackdrop from "./LoginSkyBackdrop";
 
 const navy = "#0c2340";
@@ -61,26 +61,7 @@ export default function LoginClient() {
           >
             <div className="space-y-6 px-7 pb-2 pt-8 sm:px-9 sm:pt-9">
               <header className="flex flex-col items-center text-center">
-                <Image
-                  src="/vias-aereas-logo.png"
-                  alt="Vias Aéreas"
-                  width={200}
-                  height={52}
-                  priority
-                  className="h-10 w-auto object-contain sm:h-11"
-                />
-                <h1
-                  className="mt-5 text-balance text-xl font-semibold leading-snug tracking-tight sm:text-2xl"
-                  style={{ color: navy }}
-                >
-                  Seja bem-vindo à gestão do grupo Vias Aéreas
-                </h1>
-                <div
-                  className="mt-4 h-1 w-11 rounded-full bg-orange-500"
-                  aria-hidden
-                />
-
-                <div className="mt-6 flex items-center justify-center gap-3">
+                <div className="flex items-center justify-center gap-3">
                   <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-sky-50 ring-1 ring-sky-100/80">
                     <Image
                       src="/trademiles.png"
@@ -91,9 +72,9 @@ export default function LoginClient() {
                     />
                   </span>
                   <div className="text-left">
-                    <p className="text-base font-semibold text-slate-900">
+                    <h1 className="text-base font-semibold text-slate-900">
                       TradeMiles
-                    </p>
+                    </h1>
                     <p className="text-sm text-slate-500">
                       Entre com suas credenciais
                     </p>
@@ -156,15 +137,18 @@ export default function LoginClient() {
                 <button
                   type="submit"
                   style={{ backgroundColor: navy }}
-                  className="mt-1 flex w-full items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-semibold text-white shadow-md shadow-slate-900/10 outline-none transition hover:brightness-110 focus-visible:ring-2 focus-visible:ring-sky-400/50 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                  className="mt-1 flex w-full items-center justify-center gap-3 rounded-xl px-3 py-3 text-center text-sm font-semibold leading-snug text-white text-balance shadow-md shadow-slate-900/10 outline-none transition hover:brightness-110 focus-visible:ring-2 focus-visible:ring-sky-400/50 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 sm:px-4"
                   disabled={loading}
                 >
-                  <Plane
-                    className="h-4 w-4 text-orange-400"
-                    strokeWidth={2}
+                  <Image
+                    src="/vias-aereas-enter-icon.png"
+                    alt=""
+                    width={40}
+                    height={40}
+                    className="h-8 w-8 shrink-0 object-contain sm:h-9 sm:w-9"
                     aria-hidden
                   />
-                  {loading ? "Entrando…" : "Entrar"}
+                  {loading ? "Entrando…" : "Entrar no painel Vias Aéreas"}
                 </button>
               </div>
             </div>
