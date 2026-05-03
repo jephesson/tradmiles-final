@@ -1,7 +1,7 @@
 /**
  * Fundo em tela cheia. Usamos <img> nativo (sem pipeline do next/image) para
  * não recompressar JPEG/PNG e evitar artefatos. Para ficar nítido em monitores
- * Arte atual: 1920×1080 PNG (upscale Lanczos a partir do JPEG do chat).
+ * Arte: fundo 1920×1080 PNG (gerado no mesmo estilo do mock; crop central).
  */
 export default function LoginSkyBackdrop() {
   return (
