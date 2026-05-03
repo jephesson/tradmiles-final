@@ -490,7 +490,13 @@ export default function AffiliateDashboardClient() {
       <div className="mx-auto max-w-7xl space-y-6">
         <header className="flex flex-col gap-4 rounded-2xl border bg-white p-5 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-3">
-            <Image src="/trademiles.png?v=3" alt="TradeMiles" width={38} height={38} />
+            <Image
+              src="/trademiles.png"
+              alt="TradeMiles"
+              width={38}
+              height={38}
+              unoptimized
+            />
             <div>
               <h1 className="text-xl font-semibold text-slate-950">Portal do afiliado</h1>
               <p className="text-sm text-slate-600">

@@ -54,11 +54,12 @@ export default function AffiliateLoginClient() {
         >
           <div className="flex items-center gap-3">
             <Image
-              src="/trademiles.png?v=3"
+              src="/trademiles.png"
               alt="TradeMiles"
               width={38}
               height={38}
               priority
+              unoptimized
               className="rounded-md"
             />
             <div>

@@ -209,11 +209,12 @@ export default function AffiliateSignupClient() {
         <div className="w-[min(460px,92vw)] rounded-2xl border bg-white p-6 shadow-sm">
           <div className="flex items-center gap-3">
             <Image
-              src="/trademiles.png?v=3"
+              src="/trademiles.png"
               alt="TradeMiles"
               width={38}
               height={38}
               priority
+              unoptimized
               className="rounded-md"
             />
             <div>
@@ -255,11 +256,12 @@ export default function AffiliateSignupClient() {
         >
           <div className="flex items-center gap-3">
             <Image
-              src="/trademiles.png?v=3"
+              src="/trademiles.png"
               alt="TradeMiles"
               width={38}
               height={38}
               priority
+              unoptimized
               className="rounded-md"
             />
             <div>

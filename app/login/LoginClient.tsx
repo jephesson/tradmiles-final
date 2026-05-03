@@ -64,10 +64,11 @@ export default function LoginClient() {
                 <div className="flex items-center justify-center gap-3">
                   <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-sky-50 ring-1 ring-sky-100/80">
                     <Image
-                      src="/trademiles.png?v=3"
+                      src="/trademiles.png"
                       alt=""
                       width={32}
                       height={32}
+                      unoptimized
                       className="rounded-md"
                     />
                   </span>

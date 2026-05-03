@@ -544,10 +544,11 @@ export default function Sidebar() {
         <div className="flex items-center gap-3">
           <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-slate-100/90 ring-1 ring-slate-200/70">
             <Image
-              src="/trademiles.png?v=3"
+              src="/trademiles.png"
               alt="TradeMiles"
               width={28}
               height={28}
+              unoptimized
               className="rounded-lg"
             />
           </div>
