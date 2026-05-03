@@ -3,7 +3,10 @@
 import Image from "next/image";
 import { useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Instagram, MessageCircle } from "lucide-react";
+import { Eye, Instagram, Lock, MessageCircle, Plane, User } from "lucide-react";
+import LoginSkyBackdrop from "./LoginSkyBackdrop";
+
+const navy = "#0c2340";
 
 export default function LoginClient() {
   const [login, setLogin] = useState("");
@@ -47,104 +50,140 @@ export default function LoginClient() {
   }
 
   return (
-    <main className="relative min-h-screen overflow-hidden bg-gradient-to-b from-slate-50 to-slate-100/80 font-sans">
-      <div
-        className="pointer-events-none absolute -left-24 top-[-10%] h-[28rem] w-[28rem] rounded-full bg-sky-100/50 blur-3xl"
-        aria-hidden
-      />
-      <div
-        className="pointer-events-none absolute -right-20 bottom-[-5%] h-[22rem] w-[22rem] rounded-full bg-slate-200/40 blur-3xl"
-        aria-hidden
-      />
+    <main className="relative min-h-screen overflow-hidden font-sans">
+      <LoginSkyBackdrop />
 
-      <div className="relative z-10 grid min-h-screen place-items-center px-4 py-12 sm:px-6">
-        <div className="w-full max-w-[400px]">
+      <div className="relative z-10 grid min-h-screen place-items-center px-4 py-10 sm:px-6 sm:py-12">
+        <div className="w-full max-w-[440px]">
           <form
             onSubmit={onSubmit}
-            className="rounded-3xl border border-slate-200/60 bg-white p-7 shadow-[0_20px_40px_-15px_rgba(15,23,42,0.08)] sm:p-8"
+            className="overflow-hidden rounded-3xl border border-white/70 bg-white/95 shadow-[0_24px_48px_-12px_rgba(12,35,64,0.14)] backdrop-blur-sm"
           >
-            <header className="flex items-start gap-4">
-              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-slate-50 ring-1 ring-slate-100">
+            <div className="space-y-6 px-7 pb-2 pt-8 sm:px-9 sm:pt-9">
+              <header className="flex flex-col items-center text-center">
                 <Image
-                  src="/trademiles.png"
-                  alt=""
-                  width={36}
-                  height={36}
+                  src="/vias-aereas-logo.png"
+                  alt="Vias Aéreas"
+                  width={200}
+                  height={52}
                   priority
-                  className="rounded-lg"
+                  className="h-10 w-auto object-contain sm:h-11"
                 />
-              </div>
-              <div className="min-w-0 pt-0.5">
-                <h1 className="text-xl font-semibold tracking-tight text-slate-900 sm:text-[1.35rem]">
-                  TradeMiles
+                <h1
+                  className="mt-5 text-balance text-xl font-semibold leading-snug tracking-tight sm:text-2xl"
+                  style={{ color: navy }}
+                >
+                  Seja bem-vindo à gestão do grupo Vias Aéreas
                 </h1>
-                <p className="mt-0.5 text-sm text-slate-500">Acesse seu painel</p>
-              </div>
-            </header>
-
-            <div className="mt-8 space-y-3">
-              <label className="block">
-                <span className="sr-only">Login</span>
-                <input
-                  className="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-slate-300 focus:ring-2 focus:ring-slate-900/5"
-                  placeholder="Login"
-                  value={login}
-                  onChange={(e) => setLogin(e.target.value)}
-                  autoComplete="username"
+                <div
+                  className="mt-4 h-1 w-11 rounded-full bg-orange-500"
+                  aria-hidden
                 />
-              </label>
 
-              <label className="block">
-                <span className="sr-only">Senha</span>
-                <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3.5 py-2 transition focus-within:border-slate-300 focus-within:ring-2 focus-within:ring-slate-900/5">
-                  <input
-                    className="min-w-0 flex-1 bg-transparent py-0.5 text-sm text-slate-900 outline-none placeholder:text-slate-400"
-                    placeholder="Senha"
-                    type={showPwd ? "text" : "password"}
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    autoComplete="current-password"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowPwd((v) => !v)}
-                    className="shrink-0 text-xs font-medium text-slate-500 hover:text-slate-800"
-                  >
-                    {showPwd ? "Ocultar" : "Mostrar"}
-                  </button>
+                <div className="mt-6 flex items-center justify-center gap-3">
+                  <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-sky-50 ring-1 ring-sky-100/80">
+                    <Image
+                      src="/trademiles.png"
+                      alt=""
+                      width={32}
+                      height={32}
+                      className="rounded-md"
+                    />
+                  </span>
+                  <div className="text-left">
+                    <p className="text-base font-semibold text-slate-900">
+                      TradeMiles
+                    </p>
+                    <p className="text-sm text-slate-500">
+                      Entre com suas credenciais
+                    </p>
+                  </div>
                 </div>
-              </label>
+              </header>
 
-              {err && (
-                <p className="rounded-lg bg-red-50 px-3 py-2 text-center text-xs text-red-700">
-                  {err}
-                </p>
-              )}
+              <div className="space-y-3 pt-1">
+                <label className="block">
+                  <span className="sr-only">Login</span>
+                  <div className="flex items-center gap-2.5 rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 transition focus-within:border-sky-300 focus-within:ring-2 focus-within:ring-sky-400/20">
+                    <User
+                      className="h-[18px] w-[18px] shrink-0 text-slate-400"
+                      strokeWidth={1.75}
+                      aria-hidden
+                    />
+                    <input
+                      className="min-w-0 flex-1 bg-transparent text-sm text-slate-900 outline-none placeholder:text-slate-400"
+                      placeholder="Login"
+                      value={login}
+                      onChange={(e) => setLogin(e.target.value)}
+                      autoComplete="username"
+                    />
+                  </div>
+                </label>
 
-              <button
-                type="submit"
-                className="mt-1 w-full rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-medium text-white outline-none transition hover:bg-slate-800 focus-visible:ring-2 focus-visible:ring-slate-400 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                disabled={loading}
-              >
-                {loading ? "Entrando…" : "Entrar"}
-              </button>
+                <label className="block">
+                  <span className="sr-only">Senha</span>
+                  <div className="flex items-center gap-2.5 rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 transition focus-within:border-sky-300 focus-within:ring-2 focus-within:ring-sky-400/20">
+                    <Lock
+                      className="h-[18px] w-[18px] shrink-0 text-slate-400"
+                      strokeWidth={1.75}
+                      aria-hidden
+                    />
+                    <input
+                      className="min-w-0 flex-1 bg-transparent text-sm text-slate-900 outline-none placeholder:text-slate-400"
+                      placeholder="Senha"
+                      type={showPwd ? "text" : "password"}
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      autoComplete="current-password"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPwd((v) => !v)}
+                      className="flex shrink-0 items-center gap-1 text-xs font-medium text-sky-700 hover:text-sky-900"
+                    >
+                      <Eye className="h-3.5 w-3.5" strokeWidth={2} aria-hidden />
+                      {showPwd ? "Ocultar" : "Mostrar"}
+                    </button>
+                  </div>
+                </label>
+
+                {err && (
+                  <p className="rounded-xl bg-red-50 px-3 py-2 text-center text-xs text-red-700 ring-1 ring-red-100/80">
+                    {err}
+                  </p>
+                )}
+
+                <button
+                  type="submit"
+                  style={{ backgroundColor: navy }}
+                  className="mt-1 flex w-full items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-semibold text-white shadow-md shadow-slate-900/10 outline-none transition hover:brightness-110 focus-visible:ring-2 focus-visible:ring-sky-400/50 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                  disabled={loading}
+                >
+                  <Plane
+                    className="h-4 w-4 text-orange-400"
+                    strokeWidth={2}
+                    aria-hidden
+                  />
+                  {loading ? "Entrando…" : "Entrar"}
+                </button>
+              </div>
             </div>
 
-            <footer className="mt-8 border-t border-slate-100 pt-5 text-center text-[11px] leading-relaxed text-slate-500">
+            <footer className="border-t border-slate-200/80 bg-slate-50/90 px-7 py-4 text-center text-[11px] leading-relaxed text-slate-500 sm:px-9">
               <p>TradeMiles — uma empresa do grupo Vias Aéreas LTDA</p>
               <p className="mt-0.5 text-slate-400">CNPJ: 63.817.773/0001-85</p>
             </footer>
           </form>
 
-          <div className="mt-5 flex flex-wrap items-center justify-center gap-2.5 sm:gap-3">
+          <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
             <a
               href="https://instagram.com/viasaereastrip"
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex items-center gap-2 rounded-full border border-slate-200/80 bg-white/90 px-3.5 py-2 text-sm text-slate-600 shadow-sm transition hover:border-slate-300 hover:text-slate-900"
+              className="inline-flex items-center gap-2 rounded-full border border-white/60 bg-white/85 px-4 py-2.5 text-sm font-medium text-slate-700 shadow-sm backdrop-blur-sm transition hover:bg-white"
               aria-label="Instagram @viasaereastrip"
             >
-              <Instagram className="h-[17px] w-[17px] text-pink-600" strokeWidth={2} />
+              <Instagram className="h-[18px] w-[18px] text-pink-600" strokeWidth={2} />
               <span>@viasaereastrip</span>
             </a>
 
@@ -152,10 +191,10 @@ export default function LoginClient() {
               href="https://wa.me/5553999760707"
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex items-center gap-2 rounded-full border border-slate-200/80 bg-white/90 px-3.5 py-2 text-sm text-slate-600 shadow-sm transition hover:border-slate-300 hover:text-slate-900"
+              className="inline-flex items-center gap-2 rounded-full border border-white/60 bg-white/85 px-4 py-2.5 text-sm font-medium text-slate-700 shadow-sm backdrop-blur-sm transition hover:bg-white"
               aria-label="WhatsApp (53) 99976-0707"
             >
-              <MessageCircle className="h-[17px] w-[17px] text-emerald-600" strokeWidth={2} />
+              <MessageCircle className="h-[18px] w-[18px] text-emerald-600" strokeWidth={2} />
               <span>WhatsApp</span>
             </a>
           </div>
