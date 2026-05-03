@@ -61,22 +61,20 @@ export default function LoginClient() {
           >
             <div className="space-y-6 px-7 pb-2 pt-8 sm:px-9 sm:pt-9">
               <header className="flex flex-col items-center text-center">
-                <div className="flex items-center justify-center gap-3">
-                  <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-sky-50 ring-1 ring-sky-100/80">
-                    <Image
-                      src="/trademiles.png"
-                      alt=""
-                      width={32}
-                      height={32}
-                      unoptimized
-                      className="rounded-md"
-                    />
-                  </span>
-                  <div className="text-left">
-                    <h1 className="text-base font-semibold text-slate-900">
+                <div className="flex items-center justify-center gap-4 sm:gap-5">
+                  <Image
+                    src="/trademiles.png"
+                    alt=""
+                    width={88}
+                    height={88}
+                    unoptimized
+                    className="h-20 w-20 shrink-0 object-contain sm:h-24 sm:w-24"
+                  />
+                  <div className="min-w-0 text-left">
+                    <h1 className="text-lg font-semibold text-slate-900 sm:text-xl">
                       TradeMiles
                     </h1>
-                    <p className="text-sm text-slate-500">
+                    <p className="mt-0.5 text-sm text-slate-500">
                       Entre com suas credenciais
                     </p>
                   </div>
