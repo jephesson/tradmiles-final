@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Instagram, MessageCircle } from "lucide-react";
 
@@ -11,8 +11,14 @@ export default function LoginClient() {
   const [showPwd, setShowPwd] = useState(false);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [revealLogin, setRevealLogin] = useState(false);
 
   const params = useSearchParams();
+
+  useEffect(() => {
+    const id = requestAnimationFrame(() => setRevealLogin(true));
+    return () => cancelAnimationFrame(id);
+  }, []);
   const router = useRouter();
 
   const next = useMemo(() => {
@@ -66,48 +72,58 @@ export default function LoginClient() {
         <div className="w-full max-w-[440px]">
           <form
             onSubmit={onSubmit}
-            className="space-y-5 rounded-3xl border border-white/60 bg-white/85 p-7 shadow-[0_25px_50px_-12px_rgba(15,23,42,0.12)] backdrop-blur-md sm:p-8"
+            className="space-y-0 overflow-hidden rounded-3xl border border-white/60 bg-white/85 shadow-[0_25px_50px_-12px_rgba(15,23,42,0.12)] backdrop-blur-md"
           >
-            {/* Cabeçalho TradeMiles */}
-            <header className="flex flex-col items-center text-center sm:flex-row sm:items-start sm:gap-4 sm:text-left">
-              <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-sky-100 to-white shadow-inner ring-1 ring-sky-100/80">
-                <Image
-                  src="/trademiles.png"
-                  alt=""
-                  width={40}
-                  height={40}
-                  priority
-                  className="rounded-lg"
-                />
-              </div>
-              <div className="mt-4 min-w-0 sm:mt-0">
-                <h1 className="text-2xl font-semibold tracking-tight text-slate-900">
-                  TradeMiles
-                </h1>
-                <p className="mt-1 text-sm text-slate-500">
-                  Acesse seu painel de gestão
-                </p>
-              </div>
-            </header>
-
-            {/* Faixa do grupo Vias Aéreas — logo existente em /public */}
-            <div className="rounded-2xl border border-sky-100/80 bg-gradient-to-r from-sky-50/90 via-white to-blue-50/70 px-4 py-3.5 shadow-sm ring-1 ring-slate-900/[0.03]">
-              <p className="mb-2 text-center text-[10px] font-medium uppercase tracking-[0.2em] text-slate-400">
-                Ecossistema
-              </p>
-              <div className="flex flex-col items-center justify-center gap-2 sm:flex-row sm:gap-4">
+            {/* Entrada: boas-vindas + marca Vias Aéreas */}
+            <header className="space-y-5 px-7 pb-8 pt-8 text-center sm:px-8 sm:pt-9">
+              <h1 className="text-balance text-[1.35rem] font-semibold leading-snug tracking-tight text-slate-900 sm:text-2xl">
+                Seja bem-vindo à gestão do grupo{" "}
+                <span className="whitespace-nowrap text-slate-800">Vias Aéreas</span>
+              </h1>
+              <div className="flex justify-center px-2">
                 <Image
                   src="/vias-aereas-logo.png"
                   alt="Vias Aéreas — Conectando destinos, realizando sonhos"
-                  width={220}
-                  height={56}
-                  className="h-10 w-auto max-w-[min(220px,85%)] object-contain object-center sm:h-11"
+                  width={260}
+                  height={66}
+                  priority
+                  className="h-[3.25rem] w-auto max-w-[min(280px,92vw)] object-contain sm:h-14"
                 />
               </div>
+            </header>
+
+            {/* Transição visual → área de login TradeMiles */}
+            <div className="px-7 sm:px-8" aria-hidden>
+              <div className="h-px w-full bg-gradient-to-r from-transparent via-slate-200/80 to-transparent" />
             </div>
 
-            {/* Campos */}
-            <div className="space-y-3">
+            <div
+              className={`space-y-5 px-7 pb-8 pt-7 transition-[opacity,transform] duration-500 ease-out motion-reduce:translate-y-0 motion-reduce:opacity-100 motion-reduce:transition-none sm:px-8 sm:pb-9 sm:pt-8 ${
+                revealLogin ? "translate-y-0 opacity-100" : "translate-y-2 opacity-0"
+              }`}
+            >
+              <div className="text-center">
+                <div className="flex items-center justify-center gap-2.5">
+                  <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-gradient-to-br from-sky-50 to-white shadow-inner ring-1 ring-slate-100">
+                    <Image
+                      src="/trademiles.png"
+                      alt=""
+                      width={32}
+                      height={32}
+                      className="rounded-md"
+                    />
+                  </span>
+                  <div className="text-left">
+                    <p className="text-lg font-semibold tracking-tight text-slate-900">
+                      TradeMiles
+                    </p>
+                    <p className="text-sm text-slate-500">Entre com suas credenciais</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Campos */}
+              <div className="space-y-3">
               <label className="block">
                 <span className="sr-only">Login</span>
                 <input
@@ -153,9 +169,10 @@ export default function LoginClient() {
               >
                 {loading ? "Entrando…" : "Entrar"}
               </button>
+              </div>
             </div>
 
-            <footer className="space-y-1 border-t border-slate-100 pt-4 text-center text-[11px] leading-relaxed text-slate-500">
+            <footer className="space-y-1 border-t border-slate-100/90 bg-slate-50/40 px-7 py-4 text-center text-[11px] leading-relaxed text-slate-500 sm:px-8">
               <p>TradeMiles — uma empresa do grupo Vias Aéreas LTDA</p>
               <p className="text-slate-400">CNPJ: 63.817.773/0001-85</p>
             </footer>
