@@ -9,7 +9,7 @@ import {
   type ReadonlyURLSearchParams,
 } from "next/navigation";
 import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
-import { ChevronRight, LogOut } from "lucide-react";
+import { ChevronRight, Home, LogOut } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { getSession, signOut } from "@/lib/auth";
 
@@ -121,6 +121,8 @@ export default function Sidebar() {
    * ========================= */
 
   const isPontosVisualizarRoute = pathname.startsWith(VISUALIZAR_PONTOS_PATH);
+
+  const isHomeRoute = pathname === "/dashboard" || pathname === "/dashboard/";
 
   // ✅ Cadastro NÃO deve “pegar” Visualizar cedentes
   const isCadastroRoute =
@@ -570,6 +572,23 @@ export default function Sidebar() {
 
       <div className="flex min-h-0 flex-1 flex-col">
         <nav className="min-h-0 flex-1 space-y-1 overflow-y-auto px-2.5 py-3 [scrollbar-width:thin] [scrollbar-color:rgba(148,163,184,0.5)_transparent]">
+        <div className="mb-2 border-b border-slate-100 pb-2" style={accentStyle("blue")}>
+          <Link
+            href="/dashboard"
+            className={cn(
+              "relative flex items-center gap-2 rounded-xl px-3 py-2.5 pl-5 text-[13px] font-semibold transition-colors",
+              isHomeRoute
+                ? "bg-[var(--accent-soft)] text-[var(--accent-text)]"
+                : "text-slate-600 hover:bg-slate-100/80 hover:text-slate-900",
+              "before:content-[''] before:absolute before:left-2 before:top-2 before:bottom-2 before:w-1 before:rounded-full",
+              isHomeRoute ? "before:bg-[var(--accent)]" : "before:bg-transparent"
+            )}
+          >
+            <Home className="h-4 w-4 shrink-0 opacity-80" aria-hidden />
+            Página inicial
+          </Link>
+        </div>
+
         {/* ================= CADASTRO ================= */}
         <Accordion
           title="Cadastro"

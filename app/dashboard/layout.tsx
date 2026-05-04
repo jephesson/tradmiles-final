@@ -1,6 +1,7 @@
 // app/dashboard/layout.tsx
 import Sidebar from "@/components/Sidebar";
 import AuthGuard from "@/components/AuthGuard";
+import DashboardPresencePing from "./DashboardPresencePing";
 
 export const dynamic = "force-dynamic";
 
@@ -11,6 +12,7 @@ export default function DashboardLayout({
 }) {
   return (
     <AuthGuard>
+      <DashboardPresencePing />
       <div className="min-h-screen w-screen bg-white text-slate-900 overflow-x-hidden">
         <div className="flex w-full">
           <Sidebar />
