@@ -25,8 +25,6 @@ type AgendaRow = {
   user: { id: string; name: string; login: string };
 };
 
-type ExpectedRow = { id: string; name: string; login: string; shiftLabel: string };
-
 type PresenceRow = {
   id: string;
   name: string;
@@ -40,7 +38,7 @@ type InicialData = {
   todayLabel: string;
   nowHHMM: string;
   agendaToday: AgendaRow[];
-  expectedOnline: ExpectedRow[];
+  expectedShiftEventIds: string[];
   teamPresence: PresenceRow[];
 };
 
@@ -200,45 +198,31 @@ export default function DashboardInicialClient() {
             </div>
           </div>
 
-          <div className="mt-3 space-y-2">
+          <div className="mt-3">
             <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-              Quem deve estar online agora
+              Eventos de hoje
             </div>
-            {!data ? (
-              <p className="text-sm text-slate-500">Carregando…</p>
-            ) : data.expectedOnline.length === 0 ? (
-              <p className="text-sm text-slate-500">
-                Ninguém com turno ativo neste horário (ou todos com ausência sobreposta).
-              </p>
-            ) : (
-              <ul className="space-y-1.5">
-                {data.expectedOnline.map((p) => (
-                  <li
-                    key={p.id}
-                    className="flex items-center justify-between gap-2 rounded-lg border border-slate-100 bg-slate-50/80 px-3 py-2 text-sm"
-                  >
-                    <span className="font-medium text-slate-800">{p.name}</span>
-                    <span className="shrink-0 tabular-nums text-xs text-slate-600">{p.shiftLabel}</span>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-
-          <div className="mt-5">
-            <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-              Todos os eventos de hoje
-            </div>
+            <p className="mt-1 text-[11px] leading-snug text-slate-500">
+              Fundo verde = turno no horário atual (Recife); a pessoa deve estar online agora.
+            </p>
             {!data ? (
               <p className="mt-2 text-sm text-slate-500">Carregando…</p>
             ) : data.agendaToday.length === 0 ? (
               <p className="mt-2 text-sm text-slate-500">Nenhum turno ou ausência cadastrado para hoje.</p>
             ) : (
-              <ul className="mt-2 max-h-64 space-y-2 overflow-y-auto pr-1 [scrollbar-width:thin]">
-                {data.agendaToday.map((e) => (
+              <ul className="mt-2 max-h-72 space-y-2 overflow-y-auto pr-1 [scrollbar-width:thin]">
+                {data.agendaToday.map((e) => {
+                  const turnoAtivo =
+                    e.type === "SHIFT" && (data.expectedShiftEventIds || []).includes(e.id);
+                  return (
                   <li
                     key={e.id}
-                    className="rounded-lg border border-slate-100 bg-white px-3 py-2 text-sm shadow-sm"
+                    className={cn(
+                      "rounded-lg border px-3 py-2 text-sm shadow-sm",
+                      turnoAtivo
+                        ? "border-emerald-200/90 bg-emerald-50/95 ring-1 ring-emerald-200/60"
+                        : "border-slate-100 bg-white"
+                    )}
                   >
                     <div className="flex flex-wrap items-baseline justify-between gap-2">
                       <span className="font-medium text-slate-900">{e.user.name}</span>
@@ -255,7 +239,8 @@ export default function DashboardInicialClient() {
                       {e.note ? ` · ${e.note}` : ""}
                     </div>
                   </li>
-                ))}
+                  );
+                })}
               </ul>
             )}
           </div>

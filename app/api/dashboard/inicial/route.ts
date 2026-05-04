@@ -109,12 +109,7 @@ export async function GET() {
       byUser.set(uid, arr);
     }
 
-    const expectedOnline: Array<{
-      id: string;
-      name: string;
-      login: string;
-      shiftLabel: string;
-    }> = [];
+    const expectedShiftEventIds: string[] = [];
 
     for (const u of users) {
       const list = byUser.get(u.id) || [];
@@ -126,17 +121,8 @@ export async function GET() {
       const shiftNow = list.find(
         (e) => e.type === "SHIFT" && inHalfOpenRange(nowMin, e.startMin, e.endMin)
       );
-      if (shiftNow) {
-        expectedOnline.push({
-          id: u.id,
-          name: u.name,
-          login: u.login,
-          shiftLabel: `${shiftNow.startHHMM}–${shiftNow.endHHMM}`,
-        });
-      }
+      if (shiftNow) expectedShiftEventIds.push(shiftNow.id);
     }
-
-    expectedOnline.sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
 
     const teamPresence = users.map((u) => {
       const t = u.lastPresenceAt ? new Date(u.lastPresenceAt).getTime() : 0;
@@ -158,7 +144,7 @@ export async function GET() {
           todayLabel: isoToLongLabel(todayISO),
           nowHHMM: fmtMin(nowMin),
           agendaToday,
-          expectedOnline,
+          expectedShiftEventIds,
           teamPresence,
         },
       },
