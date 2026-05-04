@@ -93,6 +93,22 @@ function dayLabelLongPT(dayKey?: string | null) {
   }).format(dt);
 }
 
+/** Alinhado ao analytics (UTC por chave YYYY-MM-DD). */
+const DOW_PT_SHORT = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
+
+function utcWeekdayFromDayKey(dayKey: string): number | null {
+  const m = String(dayKey || "").trim().match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return null;
+  return new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]))).getUTCDay();
+}
+
+function dayOfMonthFromDayKey(dayKey: string): number | null {
+  const m = String(dayKey || "").trim().match(/^\d{4}-\d{2}-(\d{2})$/);
+  if (!m) return null;
+  const d = Number(m[1]);
+  return Number.isFinite(d) ? d : null;
+}
+
 type Analytics = any;
 
 type ChartMode = "MONTH" | "DAY";
@@ -1163,6 +1179,86 @@ export default function AnaliseDadosClient() {
     return Math.round(salesDailyHistoryTotal / filteredSalesDailyHistory.length);
   }, [filteredSalesDailyHistory, salesDailyHistoryTotal]);
 
+  /** Comparativo por dezenas do mês + melhor dia da semana (série diária milhas + balcão). */
+  const monthlyDecileWeekday = useMemo(() => {
+    const rows = salesDailyHistory;
+    const todayStr = String((data as any)?.today?.date || "").trim();
+    const yMatch = todayStr.match(/^(\d{4})/);
+    const detailMonthStart = yMatch ? `${yMatch[1]}-01` : "";
+    const detailDayStart = yMatch ? `${yMatch[1]}-01-01` : "";
+
+    const monthsArr = [...(((data?.months || []) as any[]) || [])].reverse();
+
+    const monthRows = monthsArr.map((mm) => {
+      const monthKey = String(mm.key || "").trim();
+      const hasDetail = Boolean(detailMonthStart && monthKey >= detailMonthStart);
+      let b1 = 0;
+      let b2 = 0;
+      let b3 = 0;
+      let total = 0;
+      const dowAcc = new Map<number, number>();
+
+      for (const row of rows) {
+        if (!row.key.startsWith(`${monthKey}-`)) continue;
+        total += row.grossCents;
+        if (!hasDetail) continue;
+        const dom = dayOfMonthFromDayKey(row.key);
+        if (dom == null) continue;
+        if (dom <= 10) b1 += row.grossCents;
+        else if (dom <= 20) b2 += row.grossCents;
+        else b3 += row.grossCents;
+        const wd = utcWeekdayFromDayKey(row.key);
+        if (wd == null) continue;
+        dowAcc.set(wd, (dowAcc.get(wd) || 0) + row.grossCents);
+      }
+
+      let bestWd: { idx: number; gross: number } | null = null;
+      if (hasDetail) {
+        for (const [wd, gross] of dowAcc) {
+          if (!bestWd || gross > bestWd.gross) bestWd = { idx: wd, gross };
+        }
+      }
+
+      return {
+        key: monthKey,
+        label: monthLabelLongPT(monthKey),
+        hasDetail,
+        b1,
+        b2,
+        b3,
+        total,
+        bestDow:
+          bestWd != null
+            ? { label: DOW_PT_SHORT[bestWd.idx] ?? "—", grossCents: bestWd.gross }
+            : null,
+      };
+    });
+
+    const globalDow = new Map<number, number>();
+    if (detailDayStart) {
+      for (const row of rows) {
+        if (row.key < detailDayStart) continue;
+        const wd = utcWeekdayFromDayKey(row.key);
+        if (wd == null) continue;
+        globalDow.set(wd, (globalDow.get(wd) || 0) + row.grossCents);
+      }
+    }
+    let bestGlobal: { idx: number; gross: number } | null = null;
+    for (const [wd, gross] of globalDow) {
+      if (!bestGlobal || gross > bestGlobal.gross) bestGlobal = { idx: wd, gross };
+    }
+
+    return {
+      detailMonthStart,
+      detailDayStart,
+      monthRows,
+      globalBestDow:
+        bestGlobal != null
+          ? { label: DOW_PT_SHORT[bestGlobal.idx] ?? "—", grossCents: bestGlobal.gross }
+          : null,
+    };
+  }, [salesDailyHistory, data]);
+
   function downloadSalesDailyXlsx() {
     const qs = new URLSearchParams();
     qs.set("range", String(salesDailyHistoryRange));
@@ -2139,6 +2235,102 @@ export default function AnaliseDadosClient() {
             : `últimos ${salesDailyRangeLabel(salesDailyHistoryRange).toLowerCase()}`
         } • Linha pontilhada = tendência • Valores consolidados de milhas + balcão.`}
       />
+
+      <div className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm shadow-slate-200/40">
+        <div className="text-sm font-semibold tracking-tight text-slate-900">
+          Comparativo mensal (dezenas) e dia da semana
+        </div>
+        <p className="mt-1.5 text-xs leading-relaxed text-slate-600">
+          Soma diária <strong>milhas + balcão</strong> agrupada em <strong>dias 1–10</strong>, <strong>11–20</strong> e{" "}
+          <strong>21 ao fim do mês</strong>. A partir de <strong>janeiro do ano corrente</strong> mostramos as dezenas e o
+          melhor dia da semana; nos meses anteriores, apenas o total consolidado na série diária.
+        </p>
+
+        <div className="mt-4 grid gap-4 lg:grid-cols-[minmax(0,1fr)_280px]">
+          <div className="overflow-x-auto rounded-xl border border-slate-100">
+            <table className="w-full min-w-[720px] text-sm">
+              <thead className="border-b border-slate-200 bg-slate-50/90">
+                <tr className="text-left text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                  <th className="px-3 py-2.5">Mês</th>
+                  <th className="px-3 py-2.5 text-right">Dias 1–10</th>
+                  <th className="px-3 py-2.5 text-right">Dias 11–20</th>
+                  <th className="px-3 py-2.5 text-right">Dias 21–fim</th>
+                  <th className="px-3 py-2.5 text-right">Total (série)</th>
+                  <th className="px-3 py-2.5 text-right">Melhor dia da semana</th>
+                </tr>
+              </thead>
+              <tbody>
+                {monthlyDecileWeekday.monthRows.map((r) => (
+                  <tr key={r.key} className="border-b border-slate-100 transition hover:bg-slate-50/70">
+                    <td className="px-3 py-2.5">
+                      <div className="font-medium text-slate-900">{r.label}</div>
+                      {!r.hasDetail ? (
+                        <div className="text-[10px] text-amber-700/90">
+                          Sem detalhe por dezena (antes de janeiro do ano corrente)
+                        </div>
+                      ) : null}
+                    </td>
+                    <td className="px-3 py-2.5 text-right tabular-nums text-slate-800">
+                      {r.hasDetail ? fmtMoneyBR(r.b1) : "—"}
+                    </td>
+                    <td className="px-3 py-2.5 text-right tabular-nums text-slate-800">
+                      {r.hasDetail ? fmtMoneyBR(r.b2) : "—"}
+                    </td>
+                    <td className="px-3 py-2.5 text-right tabular-nums text-slate-800">
+                      {r.hasDetail ? fmtMoneyBR(r.b3) : "—"}
+                    </td>
+                    <td className="px-3 py-2.5 text-right font-semibold tabular-nums text-slate-900">
+                      {fmtMoneyBR(r.total)}
+                    </td>
+                    <td className="px-3 py-2.5 text-right text-slate-800">
+                      {r.bestDow ? (
+                        <div>
+                          <div className="font-semibold">{r.bestDow.label}</div>
+                          <div className="text-[11px] tabular-nums text-slate-500">
+                            {fmtMoneyBR(r.bestDow.grossCents)} (total no mês)
+                          </div>
+                        </div>
+                      ) : (
+                        <span className="text-slate-400">—</span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+                {!monthlyDecileWeekday.monthRows.length ? (
+                  <tr>
+                    <td className="py-4 text-sm text-neutral-500" colSpan={6}>
+                      Sem meses no período selecionado.
+                    </td>
+                  </tr>
+                ) : null}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="flex flex-col justify-center rounded-xl border border-indigo-100 bg-gradient-to-br from-indigo-50/90 to-white p-4 shadow-sm">
+            <div className="text-[11px] font-semibold uppercase tracking-wide text-indigo-700">
+              Melhor dia da semana (global)
+            </div>
+            <div className="mt-2 text-xs text-indigo-900/75">
+              Para cada dia da semana, somamos todas as ocorrências (todos os domingos, todas as segundas-feiras, etc.)
+              desde{" "}
+              {monthlyDecileWeekday.detailDayStart
+                ? dayLabelLongPT(monthlyDecileWeekday.detailDayStart)
+                : "—"}{" "}
+              na série diária (milhas + balcão). O maior total indica o dia da semana que mais concentrou vendas no
+              período.
+            </div>
+            <div className="mt-3 text-2xl font-bold tabular-nums text-indigo-950">
+              {monthlyDecileWeekday.globalBestDow?.label || "—"}
+            </div>
+            {monthlyDecileWeekday.globalBestDow ? (
+              <div className="mt-1 text-sm text-indigo-900/85">
+                {fmtMoneyBR(monthlyDecileWeekday.globalBestDow.grossCents)} somados nesse dia da semana
+              </div>
+            ) : null}
+          </div>
+        </div>
+      </div>
 
       <div className="rounded-2xl border border-slate-200/80 bg-gradient-to-br from-slate-50/50 to-white p-5 shadow-sm shadow-slate-200/40">
         <div className="text-sm font-semibold tracking-tight text-slate-900">Milheiro vendido (LATAM e Smiles)</div>
