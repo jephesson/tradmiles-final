@@ -9,7 +9,7 @@ import {
   type ReadonlyURLSearchParams,
 } from "next/navigation";
 import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
-import { ChevronRight, Home, LogOut } from "lucide-react";
+import { CalendarDays, ChevronRight, Home, LogOut } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { getSession, signOut } from "@/lib/auth";
 
@@ -298,7 +298,7 @@ export default function Sidebar() {
   const isOutrosRoute =
     isAutomacaoRoute ||
     isWalletRoute ||
-    isAgendaRoute ||
+    isGrupoVipWhatsappRoute ||
     isAnotacoesRoute ||
     isAtualizacaoTermosRoute ||
     isHorarioBiometriaRoute ||
@@ -493,7 +493,7 @@ export default function Sidebar() {
     setOpenProtocolos(isProtocolosRoute);
   }, [isProtocolosRoute]);
 
-  // ✅ mantém aberto quando entrar em /automacao/* ou /wallet/* ou /agenda/* ou /atualizacao-termos/*
+  // ✅ mantém aberto quando entrar em /automacao/*, /wallet/*, /grupo-vip-whatsapp/*, /atualizacao-termos/*, etc.
   useEffect(() => {
     setOpenOutros(isOutrosRoute);
   }, [isOutrosRoute]);
@@ -586,6 +586,23 @@ export default function Sidebar() {
           >
             <Home className="h-4 w-4 shrink-0 opacity-80" aria-hidden />
             Página inicial
+          </Link>
+        </div>
+
+        <div className="mb-2 border-b border-slate-100 pb-2" style={accentStyle("teal")}>
+          <Link
+            href="/dashboard/agenda"
+            className={cn(
+              "relative flex items-center gap-2 rounded-xl px-3 py-2.5 pl-5 text-[13px] font-semibold transition-colors",
+              isAgendaRoute
+                ? "bg-[var(--accent-soft)] text-[var(--accent-text)]"
+                : "text-slate-600 hover:bg-slate-100/80 hover:text-slate-900",
+              "before:content-[''] before:absolute before:left-2 before:top-2 before:bottom-2 before:w-1 before:rounded-full",
+              isAgendaRoute ? "before:bg-[var(--accent)]" : "before:bg-transparent"
+            )}
+          >
+            <CalendarDays className="h-4 w-4 shrink-0 opacity-80" aria-hidden />
+            Agenda
           </Link>
         </div>
 
@@ -1023,24 +1040,6 @@ export default function Sidebar() {
           </NavLink>
         </Accordion>
 
-        <Accordion
-          title="Grupo VIP WHATSAPP"
-          open={openGrupoVip}
-          onToggle={() => setOpenGrupoVip((v) => !v)}
-          active={isGrupoVipWhatsappRoute}
-          accent="blue"
-        >
-          <NavLink href="/dashboard/grupo-vip-whatsapp" exact>
-            Cadastros
-          </NavLink>
-          <NavLink href="/dashboard/grupo-vip-whatsapp/clientes" exact>
-            Clientes
-          </NavLink>
-          <NavLink href="/dashboard/grupo-vip-whatsapp/rateio" exact>
-            Rateio do lucro
-          </NavLink>
-        </Accordion>
-
         {/* ================= OUTROS ================= */}
         <Accordion
           title="Outros"
@@ -1072,10 +1071,25 @@ export default function Sidebar() {
             </SubAccordion>
           </SubAccordion>
 
-          <NavLink href="/dashboard/automacao">Automação</NavLink>
+          <SubAccordion
+            title="Grupo VIP WhatsApp"
+            open={openGrupoVip}
+            onToggle={() => setOpenGrupoVip((v) => !v)}
+            variant="nav"
+            active={isGrupoVipWhatsappRoute}
+          >
+            <NavLink href="/dashboard/grupo-vip-whatsapp" exact>
+              Cadastros
+            </NavLink>
+            <NavLink href="/dashboard/grupo-vip-whatsapp/clientes" exact>
+              Clientes
+            </NavLink>
+            <NavLink href="/dashboard/grupo-vip-whatsapp/rateio" exact>
+              Rateio do lucro
+            </NavLink>
+          </SubAccordion>
 
-          {/* ✅ NOVO: Agenda */}
-          <NavLink href="/dashboard/agenda">Agenda</NavLink>
+          <NavLink href="/dashboard/automacao">Automação</NavLink>
 
           <NavLink href="/dashboard/anotacoes">Anotações</NavLink>
 
