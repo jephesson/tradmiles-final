@@ -1232,7 +1232,7 @@ export default function AnaliseDadosClient() {
             ? { label: DOW_PT_SHORT[bestWd.idx] ?? "—", grossCents: bestWd.gross }
             : null,
       };
-    });
+    }).filter((r) => r.total > 0);
 
     const globalDow = new Map<number, number>();
     if (detailDayStart) {
