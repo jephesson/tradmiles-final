@@ -198,22 +198,17 @@ export default function Sidebar() {
   // ✅ NOVO: Prejuízo
   const isPrejuizoRoute = pathname.startsWith("/dashboard/prejuizo");
 
+  const isDadosContabeisRoute = pathname.startsWith("/dashboard/dados-contabeis");
+  const isContabilidadeRoute = isDadosContabeisRoute || isImpostosRoute;
+
   const isFinanceiroRoute =
     isDividasRoute ||
     isDividasAReceberRoute ||
     isImpostosRoute ||
     isResumoRoute ||
     isCaixaImediatoRoute ||
-    isPrejuizoRoute;
-
-  // ✅ NOVO: Dados contábeis
-  const isDadosContabeisRoute = pathname.startsWith("/dashboard/dados-contabeis");
-  const isDadosContabeisVendasRoute = pathname.startsWith(
-    "/dashboard/dados-contabeis/vendas"
-  );
-  const isDadosContabeisComprasRoute = pathname.startsWith(
-    "/dashboard/dados-contabeis/compras"
-  );
+    isPrejuizoRoute ||
+    isDadosContabeisRoute;
 
   // ✅ IMPORTAÇÕES (fora do Gestor de emissões)
   const isImportacoesRoute = pathname.startsWith("/dashboard/importacoes");
@@ -303,7 +298,8 @@ export default function Sidebar() {
     isAtualizacaoTermosRoute ||
     isHorarioBiometriaRoute ||
     isImportacoesRoute ||
-    isImportacoesEmissoesLatamRoute;
+    isImportacoesEmissoesLatamRoute ||
+    isProtocolosRoute;
 
   /* =========================
    * ACCORDIONS
@@ -360,9 +356,7 @@ export default function Sidebar() {
   const [openFinanceiro, setOpenFinanceiro] = useState(isFinanceiroRoute);
 
   // ✅ NOVO: dados contábeis
-  const [openDadosContabeis, setOpenDadosContabeis] = useState(
-    isDadosContabeisRoute
-  );
+  const [openContabilidade, setOpenContabilidade] = useState(isContabilidadeRoute);
 
   const [openGestorEmissoes, setOpenGestorEmissoes] = useState(
     isGestorEmissoesRoute
@@ -460,10 +454,9 @@ export default function Sidebar() {
 
   useEffect(() => setOpenFinanceiro(isFinanceiroRoute), [isFinanceiroRoute]);
 
-  // ✅ NOVO: mantém aberto quando entrar em /dados-contabeis/*
   useEffect(() => {
-    setOpenDadosContabeis(isDadosContabeisRoute);
-  }, [isDadosContabeisRoute]);
+    setOpenContabilidade(isContabilidadeRoute);
+  }, [isContabilidadeRoute]);
 
   useEffect(
     () => setOpenGestorEmissoes(isGestorEmissoesRoute),
@@ -925,20 +918,6 @@ export default function Sidebar() {
           </SubAccordion>
         </Accordion>
 
-        {/* ================= PROTOCOLOS ================= */}
-        <Accordion
-          title="Protocolos"
-          open={openProtocolos}
-          onToggle={() => setOpenProtocolos((v) => !v)}
-          active={isProtocolosRoute}
-          accent="rose"
-        >
-          <NavLink href="/dashboard/protocolos/latam">Latam</NavLink>
-          <NavLink href="/dashboard/protocolos/smiles">Smiles</NavLink>
-          <NavLink href="/dashboard/protocolos/livelo">Livelo</NavLink>
-          <NavLink href="/dashboard/protocolos/esfera">Esfera</NavLink>
-        </Accordion>
-
         {/* ================= FINANCEIRO ================= */}
         <Accordion
           title="Financeiro"
@@ -959,19 +938,17 @@ export default function Sidebar() {
             Dívidas a receber
           </NavLink>
 
-          <NavLink href="/dashboard/impostos">Impostos</NavLink>
-        </Accordion>
-
-        {/* ================= DADOS CONTÁBEIS ================= */}
-        <Accordion
-          title="Dados contábeis"
-          open={openDadosContabeis}
-          onToggle={() => setOpenDadosContabeis((v) => !v)}
-          active={isDadosContabeisRoute}
-          accent="lime"
-        >
-          <NavLink href="/dashboard/dados-contabeis/vendas">Vendas</NavLink>
-          <NavLink href="/dashboard/dados-contabeis/compras">Compras</NavLink>
+          <SubAccordion
+            title="Contabilidade"
+            open={openContabilidade}
+            onToggle={() => setOpenContabilidade((v) => !v)}
+            variant="nav"
+            active={isContabilidadeRoute}
+          >
+            <NavLink href="/dashboard/dados-contabeis/vendas">Vendas</NavLink>
+            <NavLink href="/dashboard/dados-contabeis/compras">Compras</NavLink>
+            <NavLink href="/dashboard/impostos">Impostos</NavLink>
+          </SubAccordion>
         </Accordion>
 
         {/* ================= GESTOR DE EMISSÕES ================= */}
@@ -1069,6 +1046,19 @@ export default function Sidebar() {
                 Latam
               </NavLink>
             </SubAccordion>
+          </SubAccordion>
+
+          <SubAccordion
+            title="Protocolos"
+            open={openProtocolos}
+            onToggle={() => setOpenProtocolos((v) => !v)}
+            variant="nav"
+            active={isProtocolosRoute}
+          >
+            <NavLink href="/dashboard/protocolos/latam">Latam</NavLink>
+            <NavLink href="/dashboard/protocolos/smiles">Smiles</NavLink>
+            <NavLink href="/dashboard/protocolos/livelo">Livelo</NavLink>
+            <NavLink href="/dashboard/protocolos/esfera">Esfera</NavLink>
           </SubAccordion>
 
           <SubAccordion
