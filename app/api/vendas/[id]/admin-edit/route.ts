@@ -96,10 +96,6 @@ function getErrorMessage(error: unknown, fallback: string) {
   return fallback;
 }
 
-function sameEditableDay(createdAt: Date) {
-  return ymdInTZ(createdAt) === ymdInTZ(new Date());
-}
-
 function saleTeamScope(team: string): Prisma.SaleWhereInput {
   return {
     OR: [
@@ -188,7 +184,6 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
         select: {
           id: true,
           numero: true,
-          createdAt: true,
           program: true,
           points: true,
           passengers: true,
@@ -254,9 +249,6 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
       if (!sale) throw new Error("Venda não encontrada.");
       if (sale.paymentStatus === "CANCELED") {
         throw new Error("Venda cancelada não pode ser ajustada.");
-      }
-      if (!sameEditableDay(sale.createdAt)) {
-        throw new Error("Essa venda só pode ser ajustada no mesmo dia em que foi criada.");
       }
 
       const nextFeeCardLabel = hasCard ? cleanCardLabel(body.feeCardLabel) : sale.feeCardLabel;

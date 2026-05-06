@@ -327,10 +327,7 @@ export default function VendasClient() {
   );
   const isAdmin = user?.role === "admin";
   const canEditDetails =
-    Boolean(details) &&
-    isAdmin &&
-    details?.paymentStatus !== "CANCELED" &&
-    isTodaySaoPaulo(details?.createdAt || "");
+    Boolean(details) && isAdmin && details?.paymentStatus !== "CANCELED";
 
   const [auditLogs, setAuditLogs] = useState<SaleAuditLog[]>([]);
   const [loadingAudit, setLoadingAudit] = useState(false);
@@ -421,7 +418,7 @@ export default function VendasClient() {
     if (!details || savingEdit) return;
 
     if (!canEditDetails) {
-      alert("Essa venda só pode ser ajustada pelo admin no mesmo dia em que foi criada.");
+      alert("Sem permissão para ajustar esta venda.");
       return;
     }
 
@@ -1115,11 +1112,7 @@ export default function VendasClient() {
                       if (canEditDetails) setEditingSale((v) => !v);
                     }}
                     disabled={!canEditDetails}
-                    title={
-                      canEditDetails
-                        ? "Ajustar venda"
-                        : "Ajuste disponível só no dia em que a venda foi criada"
-                    }
+                    title="Ajustar cartão, pontos e milheiro (admin)"
                   >
                     {editingSale ? "Ocultar ajuste" : "Ajustar"}
                   </button>
@@ -1199,10 +1192,24 @@ export default function VendasClient() {
                         Alterações ficam registradas no histórico da venda.
                       </div>
                     </div>
-                    <span className="rounded-full border border-amber-200 bg-white px-2 py-1 text-xs text-amber-700">
-                      Hoje
+                    <span
+                      className={cn(
+                        "rounded-full border bg-white px-2 py-1 text-xs",
+                        isTodaySaoPaulo(details.createdAt)
+                          ? "border-amber-200 text-amber-800"
+                          : "border-slate-300 text-slate-700"
+                      )}
+                    >
+                      {isTodaySaoPaulo(details.createdAt) ? "Criada hoje" : "Outro dia"}
                     </span>
                   </div>
+
+                  {!isTodaySaoPaulo(details.createdAt) ? (
+                    <p className="mt-3 text-xs leading-relaxed text-amber-900/90">
+                      Esta venda não é de hoje: alterar pontos ou milheiro ajusta saldo do cedente e valores do
+                      recebível. Confira antes de salvar.
+                    </p>
+                  ) : null}
 
                   <div className="mt-4 grid gap-3 md:grid-cols-3">
                     <label className="text-xs text-slate-600">

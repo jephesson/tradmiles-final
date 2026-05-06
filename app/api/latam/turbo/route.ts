@@ -164,6 +164,8 @@ type Row = {
     isActiveBucket: boolean; // ACTIVE e não cancela no mês
     isInactiveBucket: boolean; // PAUSED e não cancela no mês
     isCancelBucket: boolean; // vai cancelar no mês (e ainda não está cancelado)
+    /** Já CANCELED e a data de cancelamento (pointsExpireAt ou prevista) cai no mês */
+    canceledInMonth: boolean;
     canSubscribe: boolean; // sem clube ou CANCELED
   };
 };
@@ -222,6 +224,7 @@ export async function GET(req: NextRequest) {
       lastRenewedAt: true,
       pointsExpireAt: true,
       createdAt: true,
+      updatedAt: true,
     },
     orderBy: [{ subscribedAt: "desc" }, { createdAt: "desc" }],
   });
@@ -360,12 +363,33 @@ export async function GET(req: NextRequest) {
       };
     }
 
-    // ✅ BUCKETS (3 listas) — sem misturar ACTIVE/PAUSED/CANCELED
+    // ✅ BUCKETS — sem misturar ACTIVE/PAUSED/CANCELED
     const willCancelThisMonth = Boolean(club && auto?.cancelInMonth && club.status !== "CANCELED");
 
     const isCancelBucket = willCancelThisMonth; // cancela no mês (ainda não cancelou)
     const isInactiveBucket = Boolean(club && !isCancelBucket && club.status === "PAUSED");
     const isActiveBucket = Boolean(club && !isCancelBucket && club.status === "ACTIVE");
+
+    const cancelRefDate =
+      club?.pointsExpireAt != null
+        ? club.pointsExpireAt
+        : auto
+          ? new Date(auto.cancelAt)
+          : null;
+    const canceledByRefDate = Boolean(
+      cancelRefDate && isBetweenUTC(cancelRefDate, monthStart, monthEnd)
+    );
+    /** Fallback: cancelamento manual no mês sem pointsExpireAt preenchido */
+    const canceledByUpdatedThisMonth = Boolean(
+      club?.status === "CANCELED" &&
+        !club.pointsExpireAt &&
+        isBetweenUTC(club.updatedAt, monthStart, monthEnd)
+    );
+    const canceledInMonth = Boolean(
+      club &&
+        club.status === "CANCELED" &&
+        (canceledByRefDate || canceledByUpdatedThisMonth)
+    );
 
     // posso assinar clube: sem registro ou já cancelado
     const canSubscribe = !club || club.status === "CANCELED";
@@ -396,7 +420,7 @@ export async function GET(req: NextRequest) {
             updatedAt: turbo.updatedAt.toISOString(),
           }
         : null,
-      buckets: { isActiveBucket, isInactiveBucket, isCancelBucket, canSubscribe },
+      buckets: { isActiveBucket, isInactiveBucket, isCancelBucket, canceledInMonth, canSubscribe },
     };
   });
 
@@ -407,6 +431,7 @@ export async function GET(req: NextRequest) {
           r.buckets.isCancelBucket ||
           r.buckets.isInactiveBucket ||
           r.buckets.isActiveBucket ||
+          r.buckets.canceledInMonth ||
           (r.buckets.canSubscribe && r.account.cpfFree > 5);
         return rel;
       })
@@ -434,6 +459,19 @@ export async function GET(req: NextRequest) {
     .filter((r) => r.account.cpfFree > 5)
     .sort((a, b) => b.account.cpfFree - a.account.cpfFree);
 
+  function cancelRefTimeMs(r: Row) {
+    if (r.club?.pointsExpireAt) return startUTC(new Date(r.club.pointsExpireAt)).getTime();
+    if (r.auto?.cancelAt) return startUTC(new Date(r.auto.cancelAt)).getTime();
+    return 0;
+  }
+
+  const canceledInMonthList = filteredRows
+    .filter((r) => r.buckets.canceledInMonth)
+    .sort((a, b) => {
+      const d = cancelRefTimeMs(a) - cancelRefTimeMs(b);
+      return d || a.cedente.nomeCompleto.localeCompare(b.cedente.nomeCompleto);
+    });
+
   // 8) limite pontos do mês (conta PENDING + TRANSFERRED)
   const usedPoints = monthMarks.reduce((acc, m) => {
     if (m.status === "SKIPPED") return acc;
@@ -452,6 +490,7 @@ export async function GET(req: NextRequest) {
       active,
       inactive,
       cancelThisMonth,
+      canceledInMonth: canceledInMonthList,
       canSubscribe,
     },
   });

@@ -40,6 +40,7 @@ type Row = {
     isActiveBucket: boolean;
     isInactiveBucket: boolean;
     isCancelBucket: boolean;
+    canceledInMonth: boolean;
     canSubscribe: boolean;
   };
 };
@@ -54,6 +55,7 @@ type ApiResp = {
     active: Row[];
     inactive: Row[];
     cancelThisMonth: Row[];
+    canceledInMonth: Row[];
     canSubscribe: Row[];
   };
 };
@@ -129,6 +131,7 @@ function Section({
   onChange,
   showClub = true,
   showCancelBadge = false,
+  showCanceledDoneBadge = false,
 }: {
   title: string;
   rows: Row[];
@@ -136,6 +139,8 @@ function Section({
   onChange: (cedenteId: string, patch: Partial<{ status: TurboStatus; points: number }>) => void;
   showClub?: boolean;
   showCancelBadge?: boolean;
+  /** Contas já CANCELED no mês de referência */
+  showCanceledDoneBadge?: boolean;
 }) {
   const sortedRows = useMemo(() => {
     const copy = [...rows];
@@ -198,7 +203,13 @@ function Section({
                             </span>
                           ) : null}
 
-                          {!showCancelBadge && r.auto?.inactiveInMonth ? (
+                          {showCanceledDoneBadge ? (
+                            <span className="rounded-full border border-slate-300 bg-slate-100 px-2 py-0.5 text-xs text-slate-800">
+                              cancelada no mês
+                            </span>
+                          ) : null}
+
+                          {!showCancelBadge && !showCanceledDoneBadge && r.auto?.inactiveInMonth ? (
                             <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs text-amber-700">
                               inativa no mês
                             </span>
@@ -357,6 +368,7 @@ export default function LatamTurboPage() {
           active: mutateLists(prev.lists.active),
           inactive: mutateLists(prev.lists.inactive),
           cancelThisMonth: mutateLists(prev.lists.cancelThisMonth),
+          canceledInMonth: mutateLists(prev.lists.canceledInMonth),
           canSubscribe: mutateLists(prev.lists.canSubscribe),
         },
       };
@@ -463,6 +475,22 @@ export default function LatamTurboPage() {
           onChange={applyChange}
           showCancelBadge={true}
         />
+
+        <div className="grid gap-1">
+          <Section
+            title="Canceladas no mês"
+            rows={data.lists.canceledInMonth}
+            monthKey={monthKey}
+            onChange={applyChange}
+            showCancelBadge={false}
+            showCanceledDoneBadge={true}
+          />
+          <p className="px-1 text-xs leading-relaxed text-neutral-500">
+            Clube já como CANCELED e data de cancelamento (points expire) dentro do mês exibido — ou ajuste manual
+            registrado no mês quando não há data de expiração. Útil para conferir o que o sistema marcou como
+            cancelado mesmo quando a automação falha em outros casos.
+          </p>
+        </div>
 
         <div className="rounded-2xl border bg-white p-4 shadow-sm">
           <div className="flex items-center justify-between">
