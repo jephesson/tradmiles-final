@@ -233,6 +233,14 @@ type SaleAuditLog = {
   actor?: { id: string; name: string; login: string } | null;
 };
 
+type CedenteMini = { id: string; identificador: string; nomeCompleto: string };
+type CompraLiberada = {
+  id: string;
+  numero: string;
+  ciaAerea: string | null;
+  liberadoEm: string | null;
+};
+
 type StatusFilter = "ALL" | "PENDING" | "PAID" | "CANCELED";
 
 function pendingCentsOfSale(r: SaleRow) {
@@ -338,8 +346,17 @@ export default function VendasClient() {
   const [editMilheiro, setEditMilheiro] = useState("");
   const [editNote, setEditNote] = useState("");
 
-  const [reassignCedenteKey, setReassignCedenteKey] = useState("");
-  const [reassignPurchaseKey, setReassignPurchaseKey] = useState("");
+  const [reassignCedentes, setReassignCedentes] = useState<CedenteMini[]>([]);
+  const [loadingReassignCedentes, setLoadingReassignCedentes] = useState(false);
+  const [reassignCedenteFilter, setReassignCedenteFilter] = useState("");
+  const [reassignCedenteId, setReassignCedenteId] = useState("");
+
+  const [reassignPurchases, setReassignPurchases] = useState<CompraLiberada[]>([]);
+  const [loadingReassignPurchases, setLoadingReassignPurchases] = useState(false);
+  const [reassignPurchaseId, setReassignPurchaseId] = useState("");
+  /** Se não aparecer na lista (ex.: compra já finalizada no fluxo) */
+  const [reassignPurchaseManual, setReassignPurchaseManual] = useState("");
+
   const [reassignNote, setReassignNote] = useState("");
   const [savingReassign, setSavingReassign] = useState(false);
 
@@ -363,6 +380,21 @@ export default function VendasClient() {
       ? label
       : CARD_MANUAL_VALUE;
   }, [cardOptions, editFeeCardLabel]);
+
+  const reassignCedentesFiltered = useMemo(() => {
+    const cur = details?.cedente?.id;
+    const q = reassignCedenteFilter.trim().toLowerCase();
+    return reassignCedentes
+      .filter((c) => !cur || c.id !== cur)
+      .filter((c) => {
+        if (!q) return true;
+        return (
+          (c.nomeCompleto || "").toLowerCase().includes(q) ||
+          (c.identificador || "").toLowerCase().includes(q) ||
+          c.id.toLowerCase().includes(q)
+        );
+      });
+  }, [reassignCedentes, details?.cedente?.id, reassignCedenteFilter]);
 
   async function load(opts?: { append?: boolean }) {
     const append = Boolean(opts?.append);
@@ -455,9 +487,18 @@ export default function VendasClient() {
     if (!isAdmin) return;
     if (details.paymentStatus === "CANCELED") return;
 
-    const newCedenteKey = reassignCedenteKey.trim();
+    const newCedenteKey = reassignCedenteId.trim();
     if (!newCedenteKey) {
-      alert("Informe o cedente correto (ID interno ou identificador CL…).");
+      alert("Selecione o cedente correto na lista.");
+      return;
+    }
+
+    const newPurchaseKey = details.purchase
+      ? (reassignPurchaseId.trim() || reassignPurchaseManual.trim())
+      : "";
+
+    if (details.purchase && !newPurchaseKey) {
+      alert("Selecione a compra liberada do cedente ou informe o número manualmente.");
       return;
     }
 
@@ -467,14 +508,16 @@ export default function VendasClient() {
         method: "PATCH",
         body: JSON.stringify({
           newCedenteKey,
-          newPurchaseKey: reassignPurchaseKey.trim(),
+          newPurchaseKey,
           note: reassignNote.trim() || null,
         }),
       });
 
       setRows((prev) => prev.map((x) => (x.id === out.sale.id ? out.sale : x)));
-      setReassignCedenteKey("");
-      setReassignPurchaseKey("");
+      setReassignCedenteId("");
+      setReassignPurchaseId("");
+      setReassignPurchaseManual("");
+      setReassignCedenteFilter("");
       setReassignNote("");
       await loadAudit(details.id);
     } catch (error: unknown) {
@@ -486,10 +529,75 @@ export default function VendasClient() {
 
   useEffect(() => {
     if (!detailsId) return;
-    setReassignCedenteKey("");
-    setReassignPurchaseKey("");
+    setReassignCedenteId("");
+    setReassignPurchaseId("");
+    setReassignPurchaseManual("");
+    setReassignCedenteFilter("");
+    setReassignPurchases([]);
     setReassignNote("");
   }, [detailsId]);
+
+  useEffect(() => {
+    if (!detailsId || !isAdmin) return;
+    let alive = true;
+    setLoadingReassignCedentes(true);
+    api<{ ok: true; rows: CedenteMini[] }>("/api/cedentes/mini")
+      .then((out) => {
+        if (!alive) return;
+        setReassignCedentes(Array.isArray(out.rows) ? out.rows : []);
+      })
+      .catch(() => {
+        if (alive) setReassignCedentes([]);
+      })
+      .finally(() => {
+        if (alive) setLoadingReassignCedentes(false);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [detailsId, isAdmin]);
+
+  useEffect(() => {
+    if (!reassignCedenteId || !details?.purchase || !details.program) {
+      setReassignPurchases([]);
+      setReassignPurchaseId("");
+      return;
+    }
+    let alive = true;
+    setLoadingReassignPurchases(true);
+    const qs = new URLSearchParams({
+      cedenteId: reassignCedenteId,
+      program: details.program,
+      take: "100",
+    });
+    fetch(`/api/compras/liberadas?${qs.toString()}`, { credentials: "include", cache: "no-store" })
+      .then(async (r) => {
+        const j = (await r.json().catch(() => ({}))) as {
+          ok?: boolean;
+          compras?: CompraLiberada[];
+          error?: string;
+        };
+        if (!r.ok || j.ok === false) throw new Error(j.error || "Falha ao carregar compras.");
+        return j.compras || [];
+      })
+      .then((list) => {
+        if (!alive) return;
+        setReassignPurchases(list);
+        setReassignPurchaseId("");
+      })
+      .catch(() => {
+        if (alive) {
+          setReassignPurchases([]);
+          setReassignPurchaseId("");
+        }
+      })
+      .finally(() => {
+        if (alive) setLoadingReassignPurchases(false);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [reassignCedenteId, details?.purchase, details?.program]);
 
   useEffect(() => {
     let alive = true;
@@ -1337,9 +1445,9 @@ export default function VendasClient() {
                 <div className="rounded-2xl border border-amber-200/90 bg-amber-50/50 p-4">
                   <div className="text-sm font-semibold text-slate-900">Corrigir cedente</div>
                   <p className="mt-1 text-xs leading-relaxed text-slate-600">
-                    Os pontos voltam para o cedente atual e saem do saldo do cedente correto. Se houver compra vinculada,
-                    informe a compra <strong>LIBERADA</strong> do cedente de destino (mesmo programa da venda). Tudo fica
-                    registrado no histórico abaixo.
+                    Escolha o cedente certo na lista. A venda fica amarrada à <strong>compra liberada</strong> desse
+                    cedente (mesmo programa) — por isso não dá para só trocar o nome sem escolher a compra certa. Tudo
+                    fica no histórico.
                   </p>
                   {details.purchase?.numero ? (
                     <div className="mt-2 text-xs text-slate-700">
@@ -1350,28 +1458,86 @@ export default function VendasClient() {
                     <div className="mt-2 text-xs text-slate-600">Esta venda não tem compra vinculada no sistema.</div>
                   )}
 
-                  <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                  <div className="mt-4 space-y-3">
                     <label className="block text-xs text-slate-600">
-                      Cedente correto (ID ou CL…)
+                      Filtrar cedente
                       <input
-                        value={reassignCedenteKey}
-                        onChange={(e) => setReassignCedenteKey(e.target.value)}
+                        value={reassignCedenteFilter}
+                        onChange={(e) => setReassignCedenteFilter(e.target.value)}
                         className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900"
-                        placeholder="Ex.: CL00011"
+                        placeholder="Nome, identificador ou ID…"
                         autoComplete="off"
                       />
                     </label>
+
                     <label className="block text-xs text-slate-600">
-                      Compra no cedente correto {details.purchase ? "(obrigatória)" : "(deixe vazio)"}
-                      <input
-                        value={reassignPurchaseKey}
-                        onChange={(e) => setReassignPurchaseKey(e.target.value)}
+                      Cedente correto
+                      <select
                         className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900"
-                        placeholder={details.purchase ? "Ex.: ID01234" : "—"}
-                        disabled={!details.purchase}
-                        autoComplete="off"
-                      />
+                        value={reassignCedenteId}
+                        onChange={(e) => {
+                          setReassignCedenteId(e.target.value);
+                          setReassignPurchaseId("");
+                          setReassignPurchaseManual("");
+                        }}
+                        disabled={loadingReassignCedentes}
+                      >
+                        <option value="">
+                          {loadingReassignCedentes ? "Carregando cedentes…" : "Selecione…"}
+                        </option>
+                        {reassignCedentesFiltered.map((c) => (
+                          <option key={c.id} value={c.id}>
+                            {c.identificador} — {c.nomeCompleto}
+                          </option>
+                        ))}
+                      </select>
                     </label>
+
+                    {details.purchase ? (
+                      <div className="space-y-2">
+                        <label className="block text-xs text-slate-600">
+                          Compra liberada no cedente escolhido ({details.program})
+                          <select
+                            className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900"
+                            value={reassignPurchaseId}
+                            onChange={(e) => {
+                              setReassignPurchaseId(e.target.value);
+                              if (e.target.value) setReassignPurchaseManual("");
+                            }}
+                            disabled={!reassignCedenteId || loadingReassignPurchases}
+                          >
+                            <option value="">
+                              {!reassignCedenteId
+                                ? "Primeiro selecione o cedente"
+                                : loadingReassignPurchases
+                                  ? "Carregando compras…"
+                                  : reassignPurchases.length
+                                    ? "Selecione a compra…"
+                                    : "Nenhuma compra liberada na lista"}
+                            </option>
+                            {reassignPurchases.map((p) => (
+                              <option key={p.id} value={p.id}>
+                                {p.numero}
+                                {p.ciaAerea ? ` • ${p.ciaAerea}` : ""}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                        <label className="block text-xs text-slate-600">
+                          Ou número da compra manualmente (se não aparecer acima)
+                          <input
+                            value={reassignPurchaseManual}
+                            onChange={(e) => {
+                              setReassignPurchaseManual(e.target.value);
+                              if (e.target.value.trim()) setReassignPurchaseId("");
+                            }}
+                            className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900"
+                            placeholder="Ex.: ID00312"
+                            autoComplete="off"
+                          />
+                        </label>
+                      </div>
+                    ) : null}
                   </div>
 
                   <label className="mt-3 block text-xs text-slate-600">
