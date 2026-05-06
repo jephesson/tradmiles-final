@@ -168,6 +168,8 @@ type SaleRow = {
 
   cedente?: { id: string; identificador: string; nomeCompleto: string } | null;
 
+  purchase?: { id: string; numero: string } | null;
+
   receivable?: {
     id: string;
     totalCents: number;
@@ -209,6 +211,9 @@ type SaleAuditSnapshot = {
   bonusCents?: number;
   metaMilheiroCents?: number;
   paymentStatus?: string;
+  cedenteIdentificador?: string;
+  cedenteNome?: string;
+  purchaseNumero?: string | null;
   receivable?: {
     totalCents?: number;
     receivedCents?: number;
@@ -253,6 +258,19 @@ function auditChanges(log: SaleAuditLog) {
   const before = log.before || {};
   const after = log.after || {};
   const changes: string[] = [];
+
+  if (log.action === "CEDENTE_REASSIGN") {
+    const bId = before.cedenteIdentificador || before.cedenteNome || "—";
+    const aId = after.cedenteIdentificador || after.cedenteNome || "—";
+    changes.push(`Cedente: ${bId} → ${aId}`);
+    const bCompra = before.purchaseNumero || "—";
+    const aCompra = after.purchaseNumero || "—";
+    if (bCompra !== aCompra) changes.push(`Compra: ${bCompra} → ${aCompra}`);
+    if (before.bonusCents !== after.bonusCents) {
+      changes.push(`Bônus: ${fmtMoneyBR(before.bonusCents || 0)} → ${fmtMoneyBR(after.bonusCents || 0)}`);
+    }
+    return changes.length ? changes : ["Correção de cedente registrada."];
+  }
 
   if (before.feeCardLabel !== after.feeCardLabel) {
     changes.push(`Cartão: ${textOrDash(before.feeCardLabel)} → ${textOrDash(after.feeCardLabel)}`);
@@ -322,6 +340,11 @@ export default function VendasClient() {
   const [editPoints, setEditPoints] = useState("");
   const [editMilheiro, setEditMilheiro] = useState("");
   const [editNote, setEditNote] = useState("");
+
+  const [reassignCedenteKey, setReassignCedenteKey] = useState("");
+  const [reassignPurchaseKey, setReassignPurchaseKey] = useState("");
+  const [reassignNote, setReassignNote] = useState("");
+  const [savingReassign, setSavingReassign] = useState(false);
 
   const cardOptions = useMemo<CardOption[]>(() => {
     const map = new Map<string, string>();
@@ -429,6 +452,47 @@ export default function VendasClient() {
       setSavingEdit(false);
     }
   }
+
+  async function saveReassignCedente() {
+    if (!details || savingReassign) return;
+    if (!isAdmin) return;
+    if (details.paymentStatus === "CANCELED") return;
+
+    const newCedenteKey = reassignCedenteKey.trim();
+    if (!newCedenteKey) {
+      alert("Informe o cedente correto (ID interno ou identificador CL…).");
+      return;
+    }
+
+    setSavingReassign(true);
+    try {
+      const out = await api<{ ok: true; sale: SaleRow }>(`/api/vendas/${details.id}/reassign-cedente`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          newCedenteKey,
+          newPurchaseKey: reassignPurchaseKey.trim(),
+          note: reassignNote.trim() || null,
+        }),
+      });
+
+      setRows((prev) => prev.map((x) => (x.id === out.sale.id ? out.sale : x)));
+      setReassignCedenteKey("");
+      setReassignPurchaseKey("");
+      setReassignNote("");
+      await loadAudit(details.id);
+    } catch (error: unknown) {
+      alert(errorMessage(error, "Falha ao corrigir cedente."));
+    } finally {
+      setSavingReassign(false);
+    }
+  }
+
+  useEffect(() => {
+    if (!detailsId) return;
+    setReassignCedenteKey("");
+    setReassignPurchaseKey("");
+    setReassignNote("");
+  }, [detailsId]);
 
   useEffect(() => {
     let alive = true;
@@ -1261,6 +1325,81 @@ export default function VendasClient() {
                   )}
                 </div>
               </div>
+
+              {isAdmin && details.paymentStatus !== "CANCELED" ? (
+                <div className="rounded-2xl border border-amber-200/90 bg-amber-50/50 p-4">
+                  <div className="text-sm font-semibold text-slate-900">Corrigir cedente</div>
+                  <p className="mt-1 text-xs leading-relaxed text-slate-600">
+                    Os pontos voltam para o cedente atual e saem do saldo do cedente correto. Se houver compra vinculada,
+                    informe a compra <strong>LIBERADA</strong> do cedente de destino (mesmo programa da venda). Tudo fica
+                    registrado no histórico abaixo.
+                  </p>
+                  {details.purchase?.numero ? (
+                    <div className="mt-2 text-xs text-slate-700">
+                      Compra vinculada hoje:{" "}
+                      <span className="font-mono font-semibold">{details.purchase.numero}</span>
+                    </div>
+                  ) : (
+                    <div className="mt-2 text-xs text-slate-600">Esta venda não tem compra vinculada no sistema.</div>
+                  )}
+
+                  <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                    <label className="block text-xs text-slate-600">
+                      Cedente correto (ID ou CL…)
+                      <input
+                        value={reassignCedenteKey}
+                        onChange={(e) => setReassignCedenteKey(e.target.value)}
+                        className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900"
+                        placeholder="Ex.: CL00011"
+                        autoComplete="off"
+                      />
+                    </label>
+                    <label className="block text-xs text-slate-600">
+                      Compra no cedente correto {details.purchase ? "(obrigatória)" : "(deixe vazio)"}
+                      <input
+                        value={reassignPurchaseKey}
+                        onChange={(e) => setReassignPurchaseKey(e.target.value)}
+                        className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900"
+                        placeholder={details.purchase ? "Ex.: ID01234" : "—"}
+                        disabled={!details.purchase}
+                        autoComplete="off"
+                      />
+                    </label>
+                  </div>
+
+                  <label className="mt-3 block text-xs text-slate-600">
+                    Motivo (opcional)
+                    <input
+                      value={reassignNote}
+                      onChange={(e) => setReassignNote(e.target.value)}
+                      className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900"
+                      placeholder="Ex.: Cedente informado errado na venda"
+                    />
+                  </label>
+
+                  <div className="mt-4 flex flex-wrap justify-end gap-2">
+                    <button
+                      type="button"
+                      className={cn(
+                        "rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white",
+                        savingReassign ? "cursor-not-allowed opacity-60" : "hover:bg-slate-800"
+                      )}
+                      disabled={savingReassign}
+                      onClick={() => {
+                        if (
+                          !confirm(
+                            "Confirmar correção de cedente? Os saldos de pontos serão ajustados e a venda será vinculada ao cedente e à compra informados."
+                          )
+                        )
+                          return;
+                        void saveReassignCedente();
+                      }}
+                    >
+                      {savingReassign ? "Aplicando…" : "Aplicar correção"}
+                    </button>
+                  </div>
+                </div>
+              ) : null}
 
               <div className="rounded-2xl border p-4">
                 <div className="grid gap-3 md:grid-cols-3">
