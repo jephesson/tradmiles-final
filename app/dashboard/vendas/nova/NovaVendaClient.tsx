@@ -1201,15 +1201,30 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
     lines.push(
       "Confira datas, horários e os dados dos passageiros. Em caso de divergência, avise em até 24 horas após a emissão. Depois desse prazo, ajustes podem gerar taxa administrativa de R$ 30,00."
     );
-    lines.push("");
-    lines.push("🎫 Cancelamento da passagem");
-    lines.push(
-      "Em caso de cancelamento, há custo fixo cobrado conforme o programa da emissão: LATAM (CPF) — R$ 150,00 · Smiles — R$ 100,00."
-    );
+
     if (args.program === "LATAM" || args.program === "SMILES") {
-      const v = args.program === "LATAM" ? "R$ 150,00" : "R$ 100,00";
-      lines.push(`Sua emissão é ${args.program}; o valor aplicável neste caso é ${v}.`);
+      const perCpfCents = args.program === "LATAM" ? 15_000 : 10_000;
+      const pax = Math.max(0, Math.floor(Number(args.passengers) || 0));
+      const totalCancelCents = perCpfCents * pax;
+      const prog = args.program === "LATAM" ? "LATAM" : "Smiles";
+      lines.push("");
+      lines.push(`🎫 Cancelamento da passagem (${prog})`);
+      lines.push(
+        args.program === "LATAM"
+          ? `Em caso de cancelamento, a taxa é de ${fmtMoneyBR(perCpfCents)} por CPF (por passageiro) na LATAM.`
+          : `Em caso de cancelamento, a taxa é de ${fmtMoneyBR(perCpfCents)} por CPF (por passageiro) na Smiles.`
+      );
+      if (pax > 0) {
+        lines.push(
+          `Nesta emissão: ${fmtInt(pax)} ${pax === 1 ? "passageiro" : "passageiros"} → total estimado da taxa em cancelamento: ${fmtMoneyBR(totalCancelCents)}.`
+        );
+      } else {
+        lines.push(
+          `Total estimado da taxa em cancelamento: ${fmtMoneyBR(totalCancelCents)} (conferir número de passageiros na reserva).`
+        );
+      }
     }
+
     lines.push("");
     lines.push(
       "📌 Atenção: emissões com menos de 24 horas de antecedência ou com voo em até 7 dias podem estar sujeitas a taxas adicionais (Resolução ANAC nº 400)."
