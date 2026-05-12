@@ -1189,29 +1189,29 @@ export default function VendasClient() {
       {/* ✅ MODAL DETALHES */}
       {details ? (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+          className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-3 sm:items-center sm:p-5"
           onMouseDown={() => setDetailsId(null)}
         >
           <div
-            className="w-full max-w-3xl rounded-2xl bg-white shadow-xl"
+            className="my-2 flex w-full max-w-5xl max-h-[min(92dvh,960px)] flex-col overflow-hidden rounded-2xl bg-white shadow-xl sm:my-0"
             onMouseDown={(e) => e.stopPropagation()}
           >
-            <div className="flex items-start justify-between gap-4 border-b px-5 py-4">
+            <div className="flex shrink-0 items-start justify-between gap-4 border-b px-4 py-4 sm:px-6 sm:py-5">
               <div>
-                <div className="text-xs text-slate-500">Detalhes da venda</div>
-                <div className="text-lg font-semibold">
+                <div className="text-sm font-medium text-slate-500">Detalhes da venda</div>
+                <div className="text-xl font-semibold tracking-tight text-slate-900 sm:text-2xl">
                   {details.numero} • {fmtDateBR(details.date)}
                 </div>
-                <div className="text-xs text-slate-500 mt-1">
+                <div className="mt-1 text-sm text-slate-500">
                   Criada em {fmtDateTimeBR(details.createdAt)}
                 </div>
               </div>
 
-              <div className="flex items-center gap-2">
+              <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
                 {isAdmin && details.paymentStatus !== "CANCELED" ? (
                   <button
                     className={cn(
-                      "rounded-xl border px-3 py-2 text-sm",
+                      "rounded-xl border px-3 py-2.5 text-sm font-medium sm:text-base",
                       canEditDetails
                         ? "hover:bg-slate-50"
                         : "cursor-not-allowed border-slate-200 text-slate-400"
@@ -1227,7 +1227,7 @@ export default function VendasClient() {
                 ) : null}
 
                 <button
-                  className="rounded-xl border px-3 py-2 text-sm hover:bg-slate-50"
+                  className="rounded-xl border px-3 py-2.5 text-sm font-medium hover:bg-slate-50 sm:text-base"
                   onClick={() => setDetailsId(null)}
                 >
                   Fechar
@@ -1235,14 +1235,14 @@ export default function VendasClient() {
               </div>
             </div>
 
-            <div className="p-5 space-y-4">
-              <div className="grid gap-3 md:grid-cols-3">
-                <div className="rounded-2xl border p-4">
-                  <div className="text-xs text-slate-500">Status</div>
-                  <div className="mt-1">
+            <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain px-4 py-4 sm:space-y-5 sm:px-6 sm:py-5">
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                <div className="rounded-2xl border border-slate-200/90 bg-slate-50/30 p-4 shadow-sm">
+                  <div className="text-sm font-medium text-slate-500">Status</div>
+                  <div className="mt-2">
                     <span
                       className={cn(
-                        "inline-flex rounded-full border px-2 py-1 text-xs",
+                        "inline-flex rounded-full border px-2.5 py-1 text-sm",
                         statusBadge(details)
                       )}
                     >
@@ -1251,39 +1251,39 @@ export default function VendasClient() {
                   </div>
                 </div>
 
-                <div className="rounded-2xl border p-4">
-                  <div className="text-xs text-slate-500">Programa</div>
-                  <div className="mt-1 font-semibold">{details.program}</div>
-                  <div className="text-xs text-slate-500 mt-1">
+                <div className="rounded-2xl border border-slate-200/90 bg-slate-50/30 p-4 shadow-sm">
+                  <div className="text-sm font-medium text-slate-500">Programa</div>
+                  <div className="mt-2 text-base font-semibold text-slate-900">{details.program}</div>
+                  <div className="mt-1 text-sm text-slate-600">
                     {fmtInt(details.points)} pts • {fmtInt(details.passengers)} pax
                   </div>
-                  <div className="text-xs text-slate-500 mt-1">
+                  <div className="mt-1 text-sm text-slate-600">
                     Milheiro: <span className="font-semibold">{fmtMoneyBR(details.milheiroCents)}</span>
                   </div>
                 </div>
 
-                <div className="rounded-2xl border p-4">
-                  <div className="text-xs text-slate-500">Localizador</div>
-                  <div className="mt-1 font-mono text-sm">{details.locator || "—"}</div>
+                <div className="rounded-2xl border border-slate-200/90 bg-slate-50/30 p-4 shadow-sm sm:col-span-2 lg:col-span-1">
+                  <div className="text-sm font-medium text-slate-500">Localizador</div>
+                  <div className="mt-2 font-mono text-base text-slate-900">{details.locator || "—"}</div>
                 </div>
               </div>
 
               {/* ✅ cartão + taxa (SÓ no modal) */}
-              <div className="grid gap-3 md:grid-cols-2">
-                <div className="rounded-2xl border p-4">
-                  <div className="text-xs text-slate-500">Cartão usado</div>
-                  <div className="mt-1 text-sm text-slate-800">
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="rounded-2xl border border-slate-200/90 bg-white p-4 shadow-sm">
+                  <div className="text-sm font-medium text-slate-500">Cartão usado</div>
+                  <div className="mt-2 text-base text-slate-800">
                     {details.feeCardLabel ? (
-                      <span className="font-medium">{details.feeCardLabel}</span>
+                      <span className="font-semibold">{details.feeCardLabel}</span>
                     ) : (
                       <span className="text-slate-400">—</span>
                     )}
                   </div>
                 </div>
 
-                <div className="rounded-2xl border p-4">
-                  <div className="text-xs text-slate-500">Taxa de embarque</div>
-                  <div className="mt-1 text-lg font-semibold">
+                <div className="rounded-2xl border border-slate-200/90 bg-white p-4 shadow-sm">
+                  <div className="text-sm font-medium text-slate-500">Taxa de embarque</div>
+                  <div className="mt-2 text-xl font-semibold tabular-nums text-slate-900 sm:text-2xl">
                     {feeCentsOfSale(details) === null
                       ? "—"
                       : fmtMoneyBR(feeCentsOfSale(details) || 0)}
@@ -1292,17 +1292,17 @@ export default function VendasClient() {
               </div>
 
               {editingSale ? (
-                <div className="rounded-2xl border border-amber-200 bg-amber-50/40 p-4">
+                <div className="rounded-2xl border border-amber-200 bg-amber-50/40 p-4 sm:p-5">
                   <div className="flex items-start justify-between gap-3">
                     <div>
-                      <div className="text-sm font-semibold">Ajuste administrativo</div>
-                      <div className="text-xs text-slate-500">
+                      <div className="text-base font-semibold text-slate-900">Ajuste administrativo</div>
+                      <div className="mt-0.5 text-sm text-slate-600">
                         Alterações ficam registradas no histórico da venda.
                       </div>
                     </div>
                     <span
                       className={cn(
-                        "rounded-full border bg-white px-2 py-1 text-xs",
+                        "shrink-0 rounded-full border bg-white px-2.5 py-1 text-sm",
                         isTodaySaoPaulo(details.createdAt)
                           ? "border-amber-200 text-amber-800"
                           : "border-slate-300 text-slate-700"
@@ -1313,14 +1313,14 @@ export default function VendasClient() {
                   </div>
 
                   {!isTodaySaoPaulo(details.createdAt) ? (
-                    <p className="mt-3 text-xs leading-relaxed text-amber-900/90">
+                    <p className="mt-3 text-sm leading-relaxed text-amber-900/90">
                       Esta venda não é de hoje: alterar pontos ou milheiro ajusta saldo do cedente e valores do
                       recebível. Confira antes de salvar.
                     </p>
                   ) : null}
 
-                  <div className="mt-4 grid gap-3 md:grid-cols-3">
-                    <label className="text-xs text-slate-600">
+                  <div className="mt-4 grid gap-4 md:grid-cols-3">
+                    <label className="text-sm font-medium text-slate-700">
                       Cartão usado
                       <select
                         value={editCardSelectValue}
@@ -1336,7 +1336,7 @@ export default function VendasClient() {
                           }
                           setEditFeeCardLabel(value);
                         }}
-                        className="mt-1 w-full rounded-xl border bg-white px-3 py-2 text-sm text-slate-900"
+                        className="mt-2 min-h-[44px] w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-base text-slate-900"
                       >
                         <option value={CARD_NONE_VALUE}>Sem cartão</option>
                         {cardOptions.map((option) => (
@@ -1350,52 +1350,52 @@ export default function VendasClient() {
                         <input
                           value={editFeeCardLabel}
                           onChange={(e) => setEditFeeCardLabel(e.target.value)}
-                          className="mt-2 w-full rounded-xl border bg-white px-3 py-2 text-sm text-slate-900"
+                          className="mt-2 min-h-[44px] w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-base text-slate-900"
                           placeholder="Ex: Cartão Inter PJ"
                         />
                       ) : (
-                        <div className="mt-1 text-[11px] text-slate-500">
+                        <div className="mt-1 text-sm text-slate-500">
                           {editFeeCardLabel || "—"}
                         </div>
                       )}
                     </label>
 
-                    <label className="text-xs text-slate-600">
+                    <label className="text-sm font-medium text-slate-700">
                       Pontos
                       <input
                         value={editPoints}
                         onChange={(e) => setEditPoints(e.target.value)}
-                        className="mt-1 w-full rounded-xl border bg-white px-3 py-2 text-sm text-slate-900"
+                        className="mt-2 min-h-[44px] w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-base text-slate-900"
                         inputMode="numeric"
                         placeholder="23.720"
                       />
                     </label>
 
-                    <label className="text-xs text-slate-600">
+                    <label className="text-sm font-medium text-slate-700">
                       Milheiro
                       <input
                         value={editMilheiro}
                         onChange={(e) => setEditMilheiro(e.target.value)}
-                        className="mt-1 w-full rounded-xl border bg-white px-3 py-2 text-sm text-slate-900"
+                        className="mt-2 min-h-[44px] w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-base text-slate-900"
                         inputMode="decimal"
                         placeholder="28,00"
                       />
                     </label>
                   </div>
 
-                  <label className="mt-3 block text-xs text-slate-600">
+                  <label className="mt-4 block text-sm font-medium text-slate-700">
                     Observação
                     <input
                       value={editNote}
                       onChange={(e) => setEditNote(e.target.value)}
-                      className="mt-1 w-full rounded-xl border bg-white px-3 py-2 text-sm text-slate-900"
+                      className="mt-2 min-h-[44px] w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-base text-slate-900"
                       placeholder="Motivo do ajuste"
                     />
                   </label>
 
                   <div className="mt-4 flex flex-wrap justify-end gap-2">
                     <button
-                      className="rounded-xl border bg-white px-4 py-2 text-sm hover:bg-slate-50"
+                      className="min-h-[44px] rounded-xl border bg-white px-4 py-2.5 text-base font-medium hover:bg-slate-50"
                       onClick={() => {
                         setEditingSale(false);
                         setEditFeeCardLabel(details.feeCardLabel || "");
@@ -1409,7 +1409,7 @@ export default function VendasClient() {
                     </button>
                     <button
                       className={cn(
-                        "rounded-xl bg-black px-4 py-2 text-sm text-white",
+                        "min-h-[44px] rounded-xl bg-black px-4 py-2.5 text-base font-semibold text-white",
                         savingEdit ? "cursor-not-allowed opacity-60" : "hover:bg-gray-800"
                       )}
                       onClick={() => saveAdminEdit()}
@@ -1421,59 +1421,59 @@ export default function VendasClient() {
                 </div>
               ) : null}
 
-              <div className="grid gap-3 md:grid-cols-2">
-                <div className="rounded-2xl border p-4">
-                  <div className="text-xs text-slate-500">Cliente</div>
-                  <div className="mt-1 font-semibold">{details.cliente.nome}</div>
-                  <div className="text-xs text-slate-500">{details.cliente.identificador}</div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="rounded-2xl border border-slate-200/90 bg-white p-4 shadow-sm">
+                  <div className="text-sm font-medium text-slate-500">Cliente</div>
+                  <div className="mt-2 text-base font-semibold text-slate-900">{details.cliente.nome}</div>
+                  <div className="mt-1 text-sm text-slate-600">{details.cliente.identificador}</div>
                 </div>
 
-                <div className="rounded-2xl border p-4">
-                  <div className="text-xs text-slate-500">Cedente</div>
+                <div className="rounded-2xl border border-slate-200/90 bg-white p-4 shadow-sm">
+                  <div className="text-sm font-medium text-slate-500">Cedente</div>
                   {details.cedente?.nomeCompleto ? (
                     <>
-                      <div className="mt-1 font-semibold">{details.cedente.nomeCompleto}</div>
-                      <div className="text-xs text-slate-500">{details.cedente.identificador}</div>
+                      <div className="mt-2 text-base font-semibold text-slate-900">{details.cedente.nomeCompleto}</div>
+                      <div className="mt-1 text-sm text-slate-600">{details.cedente.identificador}</div>
                     </>
                   ) : (
-                    <div className="mt-1 text-slate-400">—</div>
+                    <div className="mt-2 text-base text-slate-400">—</div>
                   )}
                 </div>
               </div>
 
               {isAdmin && details.paymentStatus !== "CANCELED" ? (
-                <div className="rounded-2xl border border-amber-200/90 bg-amber-50/50 p-4">
-                  <div className="text-sm font-semibold text-slate-900">Corrigir cedente</div>
-                  <p className="mt-1 text-xs leading-relaxed text-slate-600">
+                <div className="rounded-2xl border border-amber-200/90 bg-amber-50/50 p-4 sm:p-5">
+                  <div className="text-lg font-semibold text-slate-900">Corrigir cedente</div>
+                  <p className="mt-2 text-sm leading-relaxed text-slate-700 sm:text-[15px]">
                     Escolha o cedente certo na lista. A venda fica amarrada à <strong>compra liberada</strong> desse
                     cedente (mesmo programa) — por isso não dá para só trocar o nome sem escolher a compra certa. Tudo
                     fica no histórico.
                   </p>
                   {details.purchase?.numero ? (
-                    <div className="mt-2 text-xs text-slate-700">
+                    <div className="mt-2 text-sm text-slate-800">
                       Compra vinculada hoje:{" "}
                       <span className="font-mono font-semibold">{details.purchase.numero}</span>
                     </div>
                   ) : (
-                    <div className="mt-2 text-xs text-slate-600">Esta venda não tem compra vinculada no sistema.</div>
+                    <div className="mt-2 text-sm text-slate-600">Esta venda não tem compra vinculada no sistema.</div>
                   )}
 
-                  <div className="mt-4 space-y-3">
-                    <label className="block text-xs text-slate-600">
+                  <div className="mt-4 grid gap-4 lg:grid-cols-2">
+                    <label className="block text-sm font-medium text-slate-700">
                       Filtrar cedente
                       <input
                         value={reassignCedenteFilter}
                         onChange={(e) => setReassignCedenteFilter(e.target.value)}
-                        className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900"
+                        className="mt-2 min-h-[44px] w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-base text-slate-900"
                         placeholder="Nome, identificador ou ID…"
                         autoComplete="off"
                       />
                     </label>
 
-                    <label className="block text-xs text-slate-600">
+                    <label className="block text-sm font-medium text-slate-700">
                       Cedente correto
                       <select
-                        className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900"
+                        className="mt-2 min-h-[44px] w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-base text-slate-900"
                         value={reassignCedenteId}
                         onChange={(e) => {
                           setReassignCedenteId(e.target.value);
@@ -1494,11 +1494,11 @@ export default function VendasClient() {
                     </label>
 
                     {details.purchase ? (
-                      <div className="space-y-2">
-                        <label className="block text-xs text-slate-600">
+                      <>
+                        <label className="block text-sm font-medium text-slate-700 lg:col-span-2">
                           Compra liberada no cedente escolhido ({details.program})
                           <select
-                            className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900"
+                            className="mt-2 min-h-[44px] w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-base text-slate-900"
                             value={reassignPurchaseId}
                             onChange={(e) => {
                               setReassignPurchaseId(e.target.value);
@@ -1523,7 +1523,7 @@ export default function VendasClient() {
                             ))}
                           </select>
                         </label>
-                        <label className="block text-xs text-slate-600">
+                        <label className="block text-sm font-medium text-slate-700 lg:col-span-2">
                           Ou número da compra manualmente (se não aparecer acima)
                           <input
                             value={reassignPurchaseManual}
@@ -1531,21 +1531,21 @@ export default function VendasClient() {
                               setReassignPurchaseManual(e.target.value);
                               if (e.target.value.trim()) setReassignPurchaseId("");
                             }}
-                            className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900"
+                            className="mt-2 min-h-[44px] w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-base text-slate-900"
                             placeholder="Ex.: ID00312"
                             autoComplete="off"
                           />
                         </label>
-                      </div>
+                      </>
                     ) : null}
                   </div>
 
-                  <label className="mt-3 block text-xs text-slate-600">
+                  <label className="mt-4 block text-sm font-medium text-slate-700">
                     Motivo (opcional)
                     <input
                       value={reassignNote}
                       onChange={(e) => setReassignNote(e.target.value)}
-                      className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900"
+                      className="mt-2 min-h-[44px] w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-base text-slate-900"
                       placeholder="Ex.: Cedente informado errado na venda"
                     />
                   </label>
@@ -1554,7 +1554,7 @@ export default function VendasClient() {
                     <button
                       type="button"
                       className={cn(
-                        "rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white",
+                        "min-h-[44px] rounded-xl bg-slate-900 px-5 py-2.5 text-base font-semibold text-white",
                         savingReassign ? "cursor-not-allowed opacity-60" : "hover:bg-slate-800"
                       )}
                       disabled={savingReassign}
@@ -1574,98 +1574,100 @@ export default function VendasClient() {
                 </div>
               ) : null}
 
-              <div className="rounded-2xl border p-4">
-                <div className="grid gap-3 md:grid-cols-3">
+              <div className="rounded-2xl border border-slate-200/90 bg-white p-4 shadow-sm sm:p-5">
+                <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                   <div>
-                    <div className="text-xs text-slate-500">Total</div>
-                    <div className="text-lg font-semibold">{fmtMoneyBR(details.totalCents)}</div>
+                    <div className="text-sm font-medium text-slate-500">Total</div>
+                    <div className="mt-1 text-xl font-semibold tabular-nums text-slate-900 sm:text-2xl">
+                      {fmtMoneyBR(details.totalCents)}
+                    </div>
                   </div>
                   <div>
-                    <div className="text-xs text-slate-500">A receber</div>
+                    <div className="text-sm font-medium text-slate-500">A receber</div>
                     <div
                       className={cn(
-                        "text-lg font-semibold",
+                        "mt-1 text-xl font-semibold tabular-nums sm:text-2xl",
                         pendingCentsOfSale(details) > 0 ? "text-amber-700" : "text-slate-800"
                       )}
                     >
                       {fmtMoneyBR(pendingCentsOfSale(details))}
                     </div>
                   </div>
-                  <div>
-                    <div className="text-xs text-slate-500">Recebível</div>
+                  <div className="sm:col-span-2 lg:col-span-1">
+                    <div className="text-sm font-medium text-slate-500">Recebível</div>
                     {details.receivable ? (
-                      <div className="text-sm mt-1 text-slate-700">
+                      <div className="mt-2 space-y-1 text-sm leading-snug text-slate-800 sm:text-base">
                         <div>
-                          ID: <span className="font-mono">{details.receivable.id}</span>
+                          ID: <span className="font-mono text-[0.95em]">{details.receivable.id}</span>
                         </div>
                         <div>
                           Status: <span className="font-semibold">{details.receivable.status}</span>
                         </div>
                         <div>
                           Total:{" "}
-                          <span className="font-semibold">
+                          <span className="font-semibold tabular-nums">
                             {fmtMoneyBR(details.receivable.totalCents)}
                           </span>
                         </div>
                         <div>
                           Recebido:{" "}
-                          <span className="font-semibold">
+                          <span className="font-semibold tabular-nums">
                             {fmtMoneyBR(details.receivable.receivedCents)}
                           </span>
                         </div>
                         <div>
                           Saldo:{" "}
-                          <span className="font-semibold">
+                          <span className="font-semibold tabular-nums">
                             {fmtMoneyBR(details.receivable.balanceCents)}
                           </span>
                         </div>
                       </div>
                     ) : (
-                      <div className="mt-1 text-slate-400">—</div>
+                      <div className="mt-2 text-base text-slate-400">—</div>
                     )}
                   </div>
                 </div>
               </div>
 
-              <div className="rounded-2xl border p-4">
+              <div className="rounded-2xl border border-slate-200/90 bg-white p-4 shadow-sm sm:p-5">
                 <div className="flex items-center justify-between gap-3">
-                  <div className="text-sm font-semibold">Histórico de alterações</div>
-                  {loadingAudit ? <div className="text-xs text-slate-500">Carregando...</div> : null}
+                  <div className="text-base font-semibold text-slate-900">Histórico de alterações</div>
+                  {loadingAudit ? <div className="text-sm text-slate-500">Carregando...</div> : null}
                 </div>
 
                 {auditLogs.length ? (
                   <div className="mt-3 space-y-2">
                     {auditLogs.map((log) => (
-                      <div key={log.id} className="rounded-xl border bg-slate-50 px-3 py-2">
-                        <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500">
+                      <div key={log.id} className="rounded-xl border border-slate-200/80 bg-slate-50 px-3 py-2.5 sm:px-4">
+                        <div className="flex flex-wrap items-center justify-between gap-2 text-sm text-slate-500">
                           <span>
                             {fmtDateTimeBR(log.createdAt)} •{" "}
                             {log.actor?.name || log.actorLogin || "admin"}
                           </span>
                           <span className="font-mono">{log.action}</span>
                         </div>
-                        <div className="mt-1 text-sm text-slate-800">
+                        <div className="mt-1.5 text-base text-slate-800">
                           {auditChanges(log).join(" • ")}
                         </div>
-                        {log.note ? <div className="mt-1 text-xs text-slate-500">{log.note}</div> : null}
+                        {log.note ? <div className="mt-1 text-sm text-slate-500">{log.note}</div> : null}
                       </div>
                     ))}
                   </div>
                 ) : (
-                  <div className="mt-3 text-sm text-slate-500">
+                  <div className="mt-3 text-base text-slate-500">
                     {loadingAudit ? "Buscando histórico..." : "Nenhum ajuste registrado."}
                   </div>
                 )}
               </div>
 
-              <div className="flex flex-wrap gap-2 justify-end border-t pt-4">
+              <div className="flex flex-wrap gap-2 justify-end border-t border-slate-200 pt-4">
                 {details.paymentStatus !== "CANCELED" ? (
                   <>
                     <button
                       onClick={() => togglePago(details)}
                       disabled={updatingId === details.id}
                       className={cn(
-                        "rounded-xl border px-4 py-2 text-sm",
+                        "min-h-[44px] rounded-xl border px-4 py-2.5 text-base font-medium",
                         updatingId === details.id ? "opacity-60 cursor-not-allowed" : "hover:bg-slate-50"
                       )}
                     >
@@ -1680,7 +1682,7 @@ export default function VendasClient() {
                       onClick={() => cancelSale(details)}
                       disabled={updatingId === details.id}
                       className={cn(
-                        "rounded-xl border px-4 py-2 text-sm border-red-300 text-red-700",
+                        "min-h-[44px] rounded-xl border border-red-300 px-4 py-2.5 text-base font-medium text-red-700",
                         updatingId === details.id ? "opacity-60 cursor-not-allowed" : "hover:bg-red-50"
                       )}
                     >
@@ -1688,11 +1690,11 @@ export default function VendasClient() {
                     </button>
                   </>
                 ) : (
-                  <div className="text-sm text-slate-500">Venda cancelada.</div>
+                  <div className="text-base text-slate-500">Venda cancelada.</div>
                 )}
               </div>
 
-              <div className="text-xs text-slate-500">
+              <div className="text-sm text-slate-500">
                 Dica: aperta <span className="font-mono">ESC</span> pra fechar.
               </div>
             </div>

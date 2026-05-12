@@ -1168,43 +1168,54 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
   }) {
     const lines: string[] = [];
 
-    lines.push("Parabéns, sua passagem foi emitida com sucesso!");
+    lines.push("Parabéns — sua passagem foi emitida com sucesso!");
+    lines.push("");
+    lines.push("Resumo da emissão:");
     lines.push("");
 
-    lines.push(`📅 Data: ${toBRDate(args.dateISO)}`);
+    lines.push(`📅 Data da emissão: ${toBRDate(args.dateISO)}`);
 
-    if (args.vendedorNome) lines.push(`👤 Vendedor: ${cap1(args.vendedorNome)}`);
+    if (args.vendedorNome) lines.push(`👤 Vendedor(a): ${cap1(args.vendedorNome)}`);
     if (args.cliente) lines.push(`🧾 Cliente: ${args.cliente.nome}`);
 
     lines.push(`✈️ Programa: ${args.program}`);
     lines.push(`🎯 Pontos: ${fmtInt(args.pointsTotal)}`);
-    lines.push(`👥 PAX: ${fmtInt(args.passengers)}`);
+    lines.push(`👥 Passageiros (PAX): ${fmtInt(args.passengers)}`);
     lines.push(`💸 Milheiro: ${fmtMoneyBR(args.milheiroCents)}`);
-    lines.push(`🧮 Valor pontos: ${fmtMoneyBR(args.pointsValueCents)}`);
-    lines.push(`🛄 Taxa embarque: ${fmtMoneyBR(args.embarqueFeeCents)}`);
+    lines.push(`🧮 Valor dos pontos: ${fmtMoneyBR(args.pointsValueCents)}`);
+    lines.push(`🛄 Taxa de embarque: ${fmtMoneyBR(args.embarqueFeeCents)}`);
     lines.push(`💰 Total: ${fmtMoneyBR(args.totalCents)}`);
-    lines.push(`Cartão usado: ${args.feeCardLabel || "—"}`);
+    lines.push(`💳 Cartão usado: ${args.feeCardLabel || "—"}`);
 
     if (args.locator?.trim())
       lines.push(`🔎 Localizador: ${args.locator.trim()}`);
 
     lines.push("");
-    lines.push("Dados para pagamento");
+    lines.push("Pagamento");
     lines.push("Pix: 63817773000185 (CNPJ)");
     lines.push("Nome: Vias Aereas");
     lines.push("Banco: Inter");
-    lines.push(`Total a pagar: ${fmtMoneyBR(args.totalCents)}`);
+    lines.push(`Valor a pagar: ${fmtMoneyBR(args.totalCents)}`);
     lines.push("");
-    lines.push("⚠️ Confira datas, horários e dados do passageiro.");
+    lines.push("⚠️ Antes de viajar");
     lines.push(
-      "Informe divergências em até 24h após a emissão. Após esse prazo, ajustes podem ter custo (R$ 30)."
+      "Confira datas, horários e os dados dos passageiros. Em caso de divergência, avise em até 24 horas após a emissão. Depois desse prazo, ajustes podem gerar taxa administrativa de R$ 30,00."
     );
     lines.push("");
+    lines.push("🎫 Cancelamento da passagem");
     lines.push(
-      "📌 Emissões feitas com menos de 24h ou até 7 dias do voo podem gerar taxas extras (Res. ANAC 400)."
+      "Em caso de cancelamento, há custo fixo cobrado conforme o programa da emissão: LATAM (CPF) — R$ 150,00 · Smiles — R$ 100,00."
+    );
+    if (args.program === "LATAM" || args.program === "SMILES") {
+      const v = args.program === "LATAM" ? "R$ 150,00" : "R$ 100,00";
+      lines.push(`Sua emissão é ${args.program}; o valor aplicável neste caso é ${v}.`);
+    }
+    lines.push("");
+    lines.push(
+      "📌 Atenção: emissões com menos de 24 horas de antecedência ou com voo em até 7 dias podem estar sujeitas a taxas adicionais (Resolução ANAC nº 400)."
     );
     lines.push("");
-    lines.push("Em caso de dúvida, estamos à disposição. ✈️");
+    lines.push("Qualquer dúvida, fale conosco. Boa viagem! ✈️");
 
     return lines.join("\n");
   }
