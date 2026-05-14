@@ -1111,6 +1111,7 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [confirmZeroFee, setConfirmZeroFee] = useState(false);
   const [confirmPassengerRisk, setConfirmPassengerRisk] = useState(false);
+  const [confirmCloseSale, setConfirmCloseSale] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const feeIsZero = embarqueFeeCents <= 0;
   const passengerRisk = Boolean(sel?.alerts?.includes("PASSAGEIROS_ESTOURADOS_COM_PONTOS"));
@@ -1118,12 +1119,14 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
   function openConfirmModal() {
     setConfirmZeroFee(false);
     setConfirmPassengerRisk(false);
+    setConfirmCloseSale(false);
     setConfirmOpen(true);
   }
 
   function closeConfirmModal() {
     setConfirmZeroFee(false);
     setConfirmPassengerRisk(false);
+    setConfirmCloseSale(false);
     setConfirmOpen(false);
   }
 
@@ -2791,14 +2794,19 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
         </div>
       ) : null}
 
-      {/* ✅ MODAL CONFIRMAR (antes de salvar) */}
+      {/* ✅ MODAL revisão (antes de salvar) */}
       {confirmOpen ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/45 p-4 backdrop-blur-[2px]">
-          <div className="w-full max-w-lg rounded-2xl border border-slate-200/90 bg-white p-5 shadow-2xl shadow-slate-900/20 sm:p-6">
+          <div className="max-h-[min(92dvh,880px)] w-full max-w-xl overflow-y-auto rounded-2xl border border-slate-200/90 bg-white p-5 shadow-2xl shadow-slate-900/20 sm:p-6">
             <div className="flex items-start justify-between gap-3">
               <div>
-                <div className="text-lg font-bold tracking-tight text-slate-900">Confirmar venda</div>
-                <div className="mt-1 text-xs text-slate-500">Confira os dados antes de salvar.</div>
+                <div className="text-lg font-bold tracking-tight text-slate-900 sm:text-xl">
+                  Revisão da venda
+                </div>
+                <div className="mt-1 text-sm leading-snug text-slate-600">
+                  Confira <strong>vendedor</strong>, <strong>cartão</strong>, <strong>cliente</strong> e{" "}
+                  <strong>milheiro</strong> antes de registrar. Os dados abaixo entram na venda.
+                </div>
               </div>
               <button
                 type="button"
@@ -2810,62 +2818,118 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
               </button>
             </div>
 
-            <div className="mt-4 space-y-2 text-sm">
-              <div className="flex justify-between">
-                <span className="text-slate-600">Vendedor da venda</span>
-                <b>{effectiveSellerLabel}</b>
+            <div className="mt-5 flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50/90 px-4 py-3">
+              <span className="text-sm font-medium text-slate-600">Vendedor da venda</span>
+              <span className="text-right text-sm font-semibold text-slate-900">{effectiveSellerLabel}</span>
+            </div>
+
+            <div className="mt-4 rounded-2xl border-2 border-indigo-300/70 bg-gradient-to-br from-indigo-50/90 via-white to-sky-50/60 p-4 shadow-sm sm:p-5">
+              <div className="text-xs font-semibold uppercase tracking-wide text-indigo-800/90">
+                Conferência rápida
               </div>
-              <div className="flex justify-between">
-                <span className="text-slate-600">Total</span>
-                <b>{fmtMoneyBR(totalCents)}</b>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-slate-600">Cartão da taxa</span>
-                <b>{feeCardLabel || "—"}</b>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-slate-600">Localizador</span>
-                <b className="font-mono">{locator?.trim() || "—"}</b>
-              </div>
-              {program === "LATAM" || program === "SMILES" ? (
-                <>
-                  <div className="flex justify-between">
-                    <span className="text-slate-600">Data ida</span>
-                    <b>{departureDate || "—"}</b>
+
+              <div className="mt-3 space-y-4 sm:space-y-5">
+                <div>
+                  <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Cliente</div>
+                  <div className="mt-1 break-words text-xl font-bold leading-tight text-slate-950 sm:text-2xl">
+                    {selectedCliente?.nome?.trim() || "—"}
                   </div>
-                  <div className="flex justify-between">
-                    <span className="text-slate-600">Data volta</span>
-                    <b>{returnDate || "—"}</b>
-                  </div>
-                  {program === "LATAM" ? (
-                    <div className="flex justify-between">
-                      <span className="text-slate-600">Código compra</span>
-                      <b className="font-mono">
-                        {(purchaseCode || "").trim().toUpperCase() || "—"}
-                      </b>
-                    </div>
+                  {selectedCliente?.identificador ? (
+                    <div className="mt-1 text-sm text-slate-600">{selectedCliente.identificador}</div>
                   ) : null}
-                  <div className="flex justify-between">
-                    <span className="text-slate-600">Sobrenome (1º pax)</span>
-                    <b>{firstPassengerLastName.trim() || "—"}</b>
-                  </div>
-                  {program === "SMILES" ? (
-                    <div className="flex justify-between">
-                      <span className="text-slate-600">Aeroporto ida</span>
-                      <b className="font-mono">
-                        {(departureAirportIata || "").trim().toUpperCase() || "—"}
-                      </b>
+                </div>
+
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="rounded-xl border border-indigo-200/80 bg-white/80 px-3 py-3 shadow-sm">
+                    <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Pontos</div>
+                    <div className="mt-1 text-2xl font-bold tabular-nums tracking-tight text-indigo-950 sm:text-3xl">
+                      {fmtInt(pointsTotal)}
                     </div>
-                  ) : null}
-                </>
-              ) : null}
-              <div className="flex justify-between">
-                <span className="text-slate-600">Programa</span>
-                <b>{program}</b>
+                  </div>
+                  <div className="rounded-xl border border-indigo-200/80 bg-white/80 px-3 py-3 shadow-sm">
+                    <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Milheiro</div>
+                    <div className="mt-1 text-2xl font-bold tabular-nums tracking-tight text-indigo-950 sm:text-3xl">
+                      {fmtMoneyBR(milheiroCents)}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="rounded-xl border border-indigo-200/80 bg-white/90 px-3 py-3 shadow-sm">
+                  <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    Cartão da taxa de embarque
+                  </div>
+                  <div className="mt-1 break-words text-lg font-semibold leading-snug text-slate-900 sm:text-xl">
+                    {feeCardLabel || "—"}
+                  </div>
+                </div>
               </div>
-              <div className="flex justify-between">
-                <span className="text-slate-600">Pontos</span>
-                <b>{fmtInt(pointsTotal)}</b>
+            </div>
+
+            <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50/70 px-4 py-3">
+              <p className="text-sm font-semibold text-slate-900">
+                Tem certeza de que deseja fechar e registrar esta venda?
+              </p>
+              <label className="mt-3 flex cursor-pointer items-start gap-3">
+                <input
+                  type="checkbox"
+                  checked={confirmCloseSale}
+                  onChange={(e) => setConfirmCloseSale(e.target.checked)}
+                  className="mt-1 h-4 w-4 shrink-0 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500/30"
+                />
+                <span className="text-sm leading-snug text-slate-700">
+                  Sim — conferi vendedor, cartão, cliente e milheiro e quero{" "}
+                  <span className="font-semibold">fechar a venda</span>.
+                </span>
+              </label>
+            </div>
+
+            <div className="mt-5 border-t border-slate-200 pt-4">
+              <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Demais dados</div>
+              <div className="mt-3 space-y-2 text-sm">
+                <div className="flex justify-between gap-3">
+                  <span className="text-slate-600">Total</span>
+                  <b className="tabular-nums text-slate-900">{fmtMoneyBR(totalCents)}</b>
+                </div>
+                <div className="flex justify-between gap-3">
+                  <span className="text-slate-600">Programa</span>
+                  <b>{program}</b>
+                </div>
+                <div className="flex justify-between gap-3">
+                  <span className="text-slate-600">Localizador</span>
+                  <b className="font-mono">{locator?.trim() || "—"}</b>
+                </div>
+                {program === "LATAM" || program === "SMILES" ? (
+                  <>
+                    <div className="flex justify-between gap-3">
+                      <span className="text-slate-600">Data ida</span>
+                      <b>{departureDate || "—"}</b>
+                    </div>
+                    <div className="flex justify-between gap-3">
+                      <span className="text-slate-600">Data volta</span>
+                      <b>{returnDate || "—"}</b>
+                    </div>
+                    {program === "LATAM" ? (
+                      <div className="flex justify-between gap-3">
+                        <span className="text-slate-600">Código compra</span>
+                        <b className="font-mono">
+                          {(purchaseCode || "").trim().toUpperCase() || "—"}
+                        </b>
+                      </div>
+                    ) : null}
+                    <div className="flex justify-between gap-3">
+                      <span className="text-slate-600">Sobrenome (1º pax)</span>
+                      <b>{firstPassengerLastName.trim() || "—"}</b>
+                    </div>
+                    {program === "SMILES" ? (
+                      <div className="flex justify-between gap-3">
+                        <span className="text-slate-600">Aeroporto ida</span>
+                        <b className="font-mono">
+                          {(departureAirportIata || "").trim().toUpperCase() || "—"}
+                        </b>
+                      </div>
+                    ) : null}
+                  </>
+                ) : null}
               </div>
             </div>
 
@@ -2926,6 +2990,7 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
                 disabled={
                   !canSave ||
                   isSaving ||
+                  !confirmCloseSale ||
                   (feeIsZero && !confirmZeroFee) ||
                   (passengerRisk && !confirmPassengerRisk)
                 }
@@ -2933,6 +2998,7 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
                   BTN_PRIMARY,
                   (!canSave ||
                     isSaving ||
+                    !confirmCloseSale ||
                     (feeIsZero && !confirmZeroFee) ||
                     (passengerRisk && !confirmPassengerRisk)) &&
                     "pointer-events-none opacity-50"
@@ -2941,10 +3007,10 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
                 {isSaving
                   ? "Salvando…"
                   : feeIsZero
-                    ? "Confirmar sem taxa e salvar"
+                    ? "Fechar venda sem taxa"
                     : passengerRisk
-                      ? "Confirmar risco e salvar"
-                      : "Confirmar e salvar"}
+                      ? "Fechar venda (assumo o risco)"
+                      : "Sim, fechar a venda"}
               </button>
             </div>
           </div>
