@@ -4,6 +4,7 @@ import Image from "next/image";
 import { useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Eye, Instagram, Lock, MessageCircle, User } from "lucide-react";
+import { signIn } from "@/lib/auth";
 import LoginSkyBackdrop from "./LoginSkyBackdrop";
 
 const navy = "#0c2340";
@@ -29,15 +30,9 @@ export default function LoginClient() {
     setLoading(true);
 
     try {
-      const r = await fetch("/api/auth", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "login", login, password }),
-      });
-
-      const json = await r.json().catch(() => ({}));
-      if (!r.ok || !json?.ok) {
-        setErr(json?.error || "Login ou senha inválidos");
+      const result = await signIn({ login, password });
+      if (!result.ok) {
+        setErr(result.error);
         return;
       }
 

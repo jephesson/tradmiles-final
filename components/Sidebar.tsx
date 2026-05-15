@@ -11,7 +11,7 @@ import {
 import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
 import { CalendarDays, ChevronRight, Home, LogOut, Settings } from "lucide-react";
 import { cn } from "@/lib/cn";
-import { getSession, signOut } from "@/lib/auth";
+import { getSession, setSession, signOut, type Session } from "@/lib/auth";
 
 const STRICT_NOQUERY_ACTIVE_PATHS = new Set<string>([
   "/dashboard/cedentes/visualizar",
@@ -114,7 +114,32 @@ export default function Sidebar() {
   const pathname = usePathname();
   const router = useRouter();
   const search = useSearchParams();
-  const session = getSession();
+  const [session, setSessionState] = useState<Session | null>(() =>
+    typeof window === "undefined" ? null : getSession()
+  );
+
+  useEffect(() => {
+    const fromStorage = getSession();
+    setSessionState(fromStorage);
+    const roleOk = fromStorage?.role === "admin" || fromStorage?.role === "staff";
+    if (roleOk) return;
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const r = await fetch("/api/auth/me", { credentials: "include" });
+        const j = await r.json().catch(() => ({}));
+        if (cancelled || !j?.ok || !j?.data?.session) return;
+        setSession(j.data.session);
+        setSessionState(j.data.session);
+      } catch {
+        /* ignore */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   /* =========================
    * ROTAS
@@ -524,8 +549,9 @@ export default function Sidebar() {
   /* =========================
    * LOGOUT
    * ========================= */
-  function doLogout() {
-    signOut();
+  async function doLogout() {
+    await signOut();
+    setSessionState(null);
     router.replace("/login");
   }
 

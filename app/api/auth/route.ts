@@ -191,11 +191,24 @@ export async function POST(req: Request): Promise<NextResponse> {
         return NextResponse.json({ ok: false, error: "Senha inválida" }, { status: 401, headers: noCacheHeaders() });
       }
 
-      const res = NextResponse.json({ ok: true }, { headers: noCacheHeaders() });
+      const role: Role = norm(dbUser.role) === "admin" ? "admin" : "staff";
+      const sessionForClient = {
+        id: dbUser.id,
+        name: dbUser.name?.trim() || dbUser.login,
+        login: dbUser.login,
+        email: dbUser.email,
+        team: dbUser.team,
+        role,
+      };
+
+      const res = NextResponse.json(
+        { ok: true, data: { session: sessionForClient } },
+        { headers: noCacheHeaders() }
+      );
       setSessionCookie(res, {
         id: dbUser.id,
         login: dbUser.login,
-        role: dbUser.role as Role,
+        role,
         team: dbUser.team,
       });
       return res;

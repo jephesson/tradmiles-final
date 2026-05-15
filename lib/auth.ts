@@ -16,6 +16,7 @@ const AUTH_SESSION_KEY = "auth_session";
  * Cache local (UI only)
  * ========================= */
 export function getSession(): Session | null {
+  if (typeof window === "undefined") return null;
   try {
     const raw = localStorage.getItem(AUTH_SESSION_KEY);
     if (!raw) return null;
@@ -83,11 +84,15 @@ export async function setPassword(login: string, newPassword: string): Promise<b
   return true;
 }
 
+function normalizeRole(v: unknown): "admin" | "staff" {
+  return String(v ?? "").toLowerCase() === "admin" ? "admin" : "staff";
+}
+
 /** Login no servidor (grava cookie) e guarda sessão no localStorage (UI) */
 export async function signIn(params: {
   login: string;
   password: string;
-}): Promise<boolean> {
+}): Promise<{ ok: true } | { ok: false; error: string }> {
   const res = await fetch("/api/auth", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -99,9 +104,24 @@ export async function signIn(params: {
   });
 
   const json = await res.json().catch(() => ({}));
-  if (!res.ok || !json?.ok) return false;
+  if (!res.ok || !json?.ok) {
+    const err =
+      typeof json?.error === "string" && json.error.trim()
+        ? json.error
+        : "Login ou senha inválidos";
+    return { ok: false, error: err };
+  }
 
-  const session: Session | undefined = json?.data?.session;
-  if (session) setSession(session); // cache para UI
-  return true;
+  const raw = json?.data?.session;
+  if (raw?.id && raw?.login && raw?.team) {
+    setSession({
+      id: String(raw.id),
+      name: String(raw.name || raw.login),
+      login: String(raw.login),
+      email: raw.email ?? null,
+      team: String(raw.team),
+      role: normalizeRole(raw.role),
+    });
+  }
+  return { ok: true };
 }
