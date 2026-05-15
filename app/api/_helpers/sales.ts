@@ -1,3 +1,10 @@
+import {
+  DEFAULT_EMPLOYEE_BONUS_ABOVE_META_BPS,
+  DEFAULT_EMPLOYEE_C1_BPS,
+  bonusAboveMetaFromSale,
+  commission1FromPvCents,
+} from "@/lib/payouts/employeeCommissionRates";
+
 export type Program = "LATAM" | "SMILES" | "LIVELO" | "ESFERA";
 
 export function clampInt(v: any) {
@@ -44,15 +51,18 @@ export function calcPointsValueCents(points: number, milheiroCents: number) {
   return Math.round(denom * milheiroCents);
 }
 
-export function calcCommissionCents(pointsValueCents: number) {
-  return Math.round(pointsValueCents * 0.01);
+export function calcCommissionCents(pointsValueCents: number, c1Bps = DEFAULT_EMPLOYEE_C1_BPS) {
+  return commission1FromPvCents(pointsValueCents, c1Bps);
 }
 
-export function calcBonusCents(points: number, milheiroCents: number, metaMilheiroCents: number) {
-  if (!metaMilheiroCents) return 0;
-  const diff = milheiroCents - metaMilheiroCents;
-  if (diff <= 0) return 0;
-  const denom = points / 1000;
-  const diffTotal = Math.round(denom * diff);
-  return Math.round(diffTotal * 0.3);
+export function calcBonusCents(
+  points: number,
+  milheiroCents: number,
+  metaMilheiroCents: number,
+  bonusAboveMetaBps = DEFAULT_EMPLOYEE_BONUS_ABOVE_META_BPS
+) {
+  return bonusAboveMetaFromSale(
+    { points, milheiroNoFeeCents: milheiroCents, metaMilheiroCents },
+    bonusAboveMetaBps
+  );
 }

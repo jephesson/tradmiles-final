@@ -14,6 +14,10 @@ import {
   clampInt,
   pointsField,
 } from "@/app/api/_helpers/sales";
+import {
+  resolveEmployeeBonusAboveMetaBps,
+  resolveEmployeeC1Bps,
+} from "@/lib/payouts/employeeCommissionRates";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -178,6 +182,15 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
   const note = cleanCardLabel(body.note);
 
   try {
+    const commissionSettings = await prisma.settings.upsert({
+      where: { key: "default" },
+      create: { key: "default" },
+      update: {},
+      select: { employeeC1Bps: true, employeeBonusAboveMetaBps: true },
+    });
+    const employeeC1Bps = resolveEmployeeC1Bps(commissionSettings);
+    const employeeBonusAboveMetaBps = resolveEmployeeBonusAboveMetaBps(commissionSettings);
+
     const result = await prisma.$transaction(async (tx) => {
       const sale = await tx.sale.findFirst({
         where: { id: saleId, ...saleTeamScope(session.team) },
@@ -260,8 +273,13 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
 
       const nextPointsValueCents = calcPointsValueCents(nextPoints, nextMilheiroCents);
       const nextTotalCents = nextPointsValueCents + sale.embarqueFeeCents;
-      const nextCommissionCents = calcCommissionCents(nextPointsValueCents);
-      const nextBonusCents = calcBonusCents(nextPoints, nextMilheiroCents, sale.metaMilheiroCents);
+      const nextCommissionCents = calcCommissionCents(nextPointsValueCents, employeeC1Bps);
+      const nextBonusCents = calcBonusCents(
+        nextPoints,
+        nextMilheiroCents,
+        sale.metaMilheiroCents,
+        employeeBonusAboveMetaBps
+      );
 
       const changed =
         nextFeeCardLabel !== sale.feeCardLabel ||

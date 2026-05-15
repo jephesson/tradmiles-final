@@ -9,7 +9,7 @@ import {
   type ReadonlyURLSearchParams,
 } from "next/navigation";
 import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
-import { CalendarDays, ChevronRight, Home, LogOut } from "lucide-react";
+import { CalendarDays, ChevronRight, Home, LogOut, Settings } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { getSession, signOut } from "@/lib/auth";
 
@@ -1110,6 +1110,15 @@ export default function Sidebar() {
       </div>
 
       <div className="shrink-0 border-t border-slate-200/80 bg-white/95 p-2.5 backdrop-blur-sm">
+        {session?.role === "admin" ? (
+          <Link
+            href="/dashboard/configuracoes"
+            className="mb-2 flex w-full items-center justify-center gap-2 rounded-xl border border-slate-200/90 bg-white px-3 py-2.5 text-sm font-medium text-slate-700 shadow-sm transition hover:border-slate-300 hover:bg-slate-50/90"
+          >
+            <Settings className="h-4 w-4 shrink-0 text-slate-500" strokeWidth={2} aria-hidden />
+            Configurações
+          </Link>
+        ) : null}
         <button
           type="button"
           onClick={doLogout}

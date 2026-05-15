@@ -1,13 +1,6 @@
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
-import NovaVendaClient from "./NovaVendaClient";
-import { prisma } from "@/lib/prisma";
-import {
-  resolveEmployeeBonusAboveMetaBps,
-  resolveEmployeeC1Bps,
-} from "@/lib/payouts/employeeCommissionRates";
-
-type UserLite = { id: string; name: string; login: string };
+import ConfiguracoesPageClient from "./ConfiguracoesPageClient";
 
 type Sess = {
   id: string;
@@ -42,23 +35,9 @@ export default async function Page() {
   if (!sess?.id || !sess?.login) {
     redirect("/login");
   }
+  if (sess.role !== "admin") {
+    redirect("/dashboard");
+  }
 
-  const initialMe: UserLite = {
-    id: sess.id,
-    login: sess.login,
-    name: sess.name || sess.login,
-  };
-
-  const settingsRow = await prisma.settings.upsert({
-    where: { key: "default" },
-    create: { key: "default" },
-    update: {},
-    select: { employeeC1Bps: true, employeeBonusAboveMetaBps: true },
-  });
-  const initialEmployeeCommission = {
-    employeeC1Bps: resolveEmployeeC1Bps(settingsRow),
-    employeeBonusAboveMetaBps: resolveEmployeeBonusAboveMetaBps(settingsRow),
-  };
-
-  return <NovaVendaClient initialMe={initialMe} initialEmployeeCommission={initialEmployeeCommission} />;
+  return <ConfiguracoesPageClient />;
 }

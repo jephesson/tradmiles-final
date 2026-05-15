@@ -2,6 +2,12 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/auth-server";
 import { dayBounds, todayISORecife } from "@/lib/payouts/employeePayouts";
+import {
+  bonusAboveMetaFromSale,
+  commission1FromPvCents,
+  resolveEmployeeBonusAboveMetaBps,
+  resolveEmployeeC1Bps,
+} from "@/lib/payouts/employeeCommissionRates";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -26,24 +32,6 @@ function pointsValueCentsFallback(points: number, milheiroCents: number) {
   const denom = (safeInt(points, 0) || 0) / 1000;
   if (denom <= 0) return 0;
   return Math.round(denom * safeInt(milheiroCents, 0));
-}
-
-function commission1Fallback(pointsValueCents: number) {
-  return Math.round(Math.max(0, safeInt(pointsValueCents, 0)) * 0.01);
-}
-
-function bonusFallback(args: { points: number; milheiroCents: number; metaMilheiroCents: number }) {
-  const points = safeInt(args.points, 0);
-  const mil = safeInt(args.milheiroCents, 0);
-  const meta = safeInt(args.metaMilheiroCents, 0);
-  if (!points || !mil || !meta) return 0;
-
-  const diff = mil - meta;
-  if (diff <= 0) return 0;
-
-  const denom = points / 1000;
-  const diffTotal = Math.round(denom * diff);
-  return Math.round(diffTotal * 0.3);
 }
 
 function getErrorMessage(error: unknown) {
@@ -322,8 +310,16 @@ export async function POST(req: Request) {
       where: { key: "default" },
       create: { key: "default" },
       update: {},
-      select: { taxPercent: true, taxEffectiveFrom: true },
+      select: {
+        taxPercent: true,
+        taxEffectiveFrom: true,
+        employeeC1Bps: true,
+        employeeBonusAboveMetaBps: true,
+      },
     });
+
+    const c1Bps = resolveEmployeeC1Bps(settings);
+    const bonusAboveMetaBps = resolveEmployeeBonusAboveMetaBps(settings);
 
     const effectiveISO = settings.taxEffectiveFrom
       ? settings.taxEffectiveFrom.toISOString().slice(0, 10)
@@ -522,7 +518,14 @@ export async function POST(req: Request) {
           const meta = chooseMetaMilheiro(
             safeInt(s.metaMilheiroCents, 0) > 0 ? s.metaMilheiroCents : s.purchaseMetaMilheiroCents
           );
-          bonusSum += bonusFallback({ points: s.points, milheiroCents: s.milheiroCents, metaMilheiroCents: meta });
+          bonusSum += bonusAboveMetaFromSale(
+            {
+              points: s.points,
+              milheiroNoFeeCents: s.milheiroCents,
+              metaMilheiroCents: meta,
+            },
+            bonusAboveMetaBps
+          );
         }
       }
 
@@ -708,11 +711,18 @@ export async function POST(req: Request) {
           safeInt(s.metaMilheiroCents, 0) > 0 ? s.metaMilheiroCents : s.purchaseMetaMilheiroCents
         );
 
-        const c1 = safeInt(s.commissionCents, 0) > 0 ? safeInt(s.commissionCents, 0) : commission1Fallback(pvSemTaxa);
+        const c1 = safeInt(s.commissionCents, 0) > 0 ? safeInt(s.commissionCents, 0) : commission1FromPvCents(pvSemTaxa, c1Bps);
         const c2 =
           safeInt(s.bonusCents ?? 0, 0) > 0
             ? safeInt(s.bonusCents ?? 0, 0)
-            : bonusFallback({ points: s.points, milheiroCents: s.milheiroCents, metaMilheiroCents: meta });
+            : bonusAboveMetaFromSale(
+                {
+                  points: s.points,
+                  milheiroNoFeeCents: s.milheiroCents,
+                  metaMilheiroCents: meta,
+                },
+                bonusAboveMetaBps
+              );
 
         const aSeller = ensure(sellerId);
         aSeller.commission1Cents += safeInt(c1, 0);

@@ -109,10 +109,6 @@ function pointsValueCentsFallback(points: number, milheiroCents: number) {
   return Math.round(denom * (milheiroCents ?? 0));
 }
 
-function commission1Fallback(pointsValueCents: number) {
-  return Math.round((pointsValueCents ?? 0) * 0.01);
-}
-
 /** 8% só em cima do positivo (se negativo, não “vira crédito”) */
 function tax8OnPositive(cents: number) {
   const base = Math.max(0, safeInt(cents, 0));
@@ -124,19 +120,6 @@ function milheiroFrom(points: number, pointsValueCents: number) {
   const cents = safeInt(pointsValueCents, 0);
   if (!pts || !cents) return 0;
   return Math.round((cents * 1000) / pts);
-}
-
-function bonus30(points: number, milheiroCents: number, metaMilheiroCents: number) {
-  const pts = safeInt(points, 0);
-  const mil = safeInt(milheiroCents, 0);
-  const meta = safeInt(metaMilheiroCents, 0);
-  if (!pts || !mil || !meta) return 0;
-
-  const diff = mil - meta;
-  if (diff <= 0) return 0;
-
-  const excedenteCents = Math.round((pts * diff) / 1000);
-  return Math.round(excedenteCents * 0.3);
 }
 
 type RateioItem = { payeeId: string; bps: number };

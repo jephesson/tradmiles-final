@@ -15,6 +15,10 @@ import {
   formatSaleNumber,
   pointsField,
 } from "../_helpers/sales";
+import {
+  resolveEmployeeBonusAboveMetaBps,
+  resolveEmployeeC1Bps,
+} from "@/lib/payouts/employeeCommissionRates";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -371,6 +375,15 @@ export async function POST(req: Request) {
   }
 
   try {
+    const commissionSettings = await prisma.settings.upsert({
+      where: { key: "default" },
+      create: { key: "default" },
+      update: {},
+      select: { employeeC1Bps: true, employeeBonusAboveMetaBps: true },
+    });
+    const employeeC1Bps = resolveEmployeeC1Bps(commissionSettings);
+    const employeeBonusAboveMetaBps = resolveEmployeeBonusAboveMetaBps(commissionSettings);
+
     const result = await prisma.$transaction(async (tx) => {
       const effectiveSellerId = sellerIdRaw || userId;
       const seller = await tx.user.findFirst({
@@ -448,9 +461,9 @@ export async function POST(req: Request) {
       const totalCents = norm.totalCents;
       const milheiroFinal = norm.milheiroFinal;
 
-      // ✅ comissão e bônus SEM taxa
-      const commissionCents = calcCommissionCents(pointsValueCents);
-      const bonusCents = calcBonusCents(points, milheiroFinal, metaMilheiroCents);
+      // ✅ comissão e bônus SEM taxa (percentuais configuráveis em Configurações)
+      const commissionCents = calcCommissionCents(pointsValueCents, employeeC1Bps);
+      const bonusCents = calcBonusCents(points, milheiroFinal, metaMilheiroCents, employeeBonusAboveMetaBps);
 
       const n = await nextCounter(tx, "SALE");
       const numero = formatSaleNumber(n);

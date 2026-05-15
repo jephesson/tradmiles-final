@@ -8,6 +8,7 @@ import {
   affiliateProfitBaseCents,
 } from "@/lib/affiliates/commission";
 import { calcBonusCents, clampInt, pointsField } from "@/app/api/_helpers/sales";
+import { resolveEmployeeBonusAboveMetaBps } from "@/lib/payouts/employeeCommissionRates";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -190,6 +191,14 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
   }
 
   try {
+    const commissionSettings = await prisma.settings.upsert({
+      where: { key: "default" },
+      create: { key: "default" },
+      update: {},
+      select: { employeeBonusAboveMetaBps: true },
+    });
+    const employeeBonusAboveMetaBps = resolveEmployeeBonusAboveMetaBps(commissionSettings);
+
     const result = await prisma.$transaction(async (tx) => {
       const sale = await tx.sale.findFirst({
         where: { id: saleId, ...saleTeamScope(session.team) },
@@ -307,7 +316,7 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
         );
       }
 
-      const nextBonusCents = calcBonusCents(pts, sale.milheiroCents, nextMetaMilheiro);
+      const nextBonusCents = calcBonusCents(pts, sale.milheiroCents, nextMetaMilheiro, employeeBonusAboveMetaBps);
 
       const beforeAudit = {
         cedenteId: sale.cedenteId,

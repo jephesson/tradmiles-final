@@ -19,6 +19,10 @@ import {
   affiliateNetProfitAfterCommissionCents,
   affiliateProfitBaseCents,
 } from "@/lib/affiliates/commission";
+import {
+  bonusAboveMetaFromSale,
+  commission1FromPvCents,
+} from "@/lib/payouts/employeeCommissionRates";
 
 type Program = "LATAM" | "SMILES" | "LIVELO" | "ESFERA";
 type PointsMode = "TOTAL" | "POR_PAX";
@@ -328,7 +332,16 @@ function applyLatamWindow(s: Suggestion, usedRaw: number): Suggestion {
       };
 }
 
-export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) {
+export default function NovaVendaClient({
+  initialMe,
+  initialEmployeeCommission,
+}: {
+  initialMe: UserLite;
+  initialEmployeeCommission: {
+    employeeC1Bps: number;
+    employeeBonusAboveMetaBps: number;
+  };
+}) {
   const detailsRef = useRef<HTMLDivElement | null>(null);
   const clientComboboxRef = useRef<HTMLDivElement | null>(null);
 
@@ -499,6 +512,9 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
   const [feeCardPreset, setFeeCardPreset] = useState<string>("SELF");
   const [feeCardManual, setFeeCardManual] = useState<string>("");
 
+  const employeeC1Bps = initialEmployeeCommission.employeeC1Bps;
+  const employeeBonusAboveMetaBps = initialEmployeeCommission.employeeBonusAboveMetaBps;
+
   // campos venda
   const [dateISO, setDateISO] = useState(isoToday());
   const [milheiroStr, setMilheiroStr] = useState("0,00");
@@ -527,8 +543,8 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
     [pointsValueCents, embarqueFeeCents]
   );
   const commissionCents = useMemo(
-    () => Math.round(pointsValueCents * 0.01),
-    [pointsValueCents]
+    () => commission1FromPvCents(pointsValueCents, employeeC1Bps),
+    [pointsValueCents, employeeC1Bps]
   );
 
   // encontra pela compra.numero (ID00018)
@@ -539,14 +555,18 @@ export default function NovaVendaClient({ initialMe }: { initialMe: UserLite }) 
 
   const metaMilheiroCents = compraSel?.metaMilheiroCents || 0;
   const compraMilheiroCents = compraSel?.custoMilheiroCents || 0;
-  const bonusCents = useMemo(() => {
-    if (!metaMilheiroCents) return 0;
-    const diff = milheiroCents - metaMilheiroCents;
-    if (diff <= 0) return 0;
-    const denom = pointsTotal / 1000;
-    const diffTotal = Math.round(denom * diff);
-    return Math.round(diffTotal * 0.3);
-  }, [milheiroCents, metaMilheiroCents, pointsTotal]);
+  const bonusCents = useMemo(
+    () =>
+      bonusAboveMetaFromSale(
+        {
+          points: pointsTotal,
+          milheiroNoFeeCents: milheiroCents,
+          metaMilheiroCents: metaMilheiroCents,
+        },
+        employeeBonusAboveMetaBps
+      ),
+    [milheiroCents, metaMilheiroCents, pointsTotal, employeeBonusAboveMetaBps]
+  );
   const selectedAffiliate =
     selectedCliente?.affiliate && selectedCliente.affiliate.isActive
       ? selectedCliente.affiliate

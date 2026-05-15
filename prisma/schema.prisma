@@ -803,6 +803,11 @@ model Settings {
   taxPercent       Int       @default(8)
   taxEffectiveFrom DateTime?
 
+  /// C1 (funcionários): % do PV sem taxa, em basis points (100 = 1,00%).
+  employeeC1Bps Int @default(100)
+  /// Bônus sobre excedente vs milheiro de meta (C2): % do excedente em centavos, em bps (3000 = 30,00%).
+  employeeBonusAboveMetaBps Int @default(3000)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 

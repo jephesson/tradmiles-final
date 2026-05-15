@@ -1,5 +1,13 @@
 import { prisma } from "@/lib/prisma";
 import type { LoyaltyProgram, Settings } from "@prisma/client";
+import {
+  bonusAboveMetaFromSale,
+  commission1FromPvCents,
+  DEFAULT_EMPLOYEE_BONUS_ABOVE_META_BPS,
+  DEFAULT_EMPLOYEE_C1_BPS,
+  resolveEmployeeBonusAboveMetaBps,
+  resolveEmployeeC1Bps,
+} from "@/lib/payouts/employeeCommissionRates";
 
 type SessionLike = { userId: string; team: string; role?: string };
 
@@ -106,28 +114,20 @@ export function milheiroNoFeeFromPv(points: number, pvNoFeeCents: number) {
   return Math.round((pvNoFeeCents ?? 0) / denom);
 }
 
-export function commission1Fallback(pointsValueNoFeeCents: number) {
-  return Math.round((pointsValueNoFeeCents ?? 0) * 0.01);
+export function commission1Fallback(pointsValueNoFeeCents: number, c1Bps = DEFAULT_EMPLOYEE_C1_BPS) {
+  return commission1FromPvCents(pointsValueNoFeeCents, c1Bps);
 }
 
-/** bônus 30% do excedente acima da meta (milheiro SEM taxa) */
-export function bonusFallback(args: {
-  points: number;
-  milheiroNoFeeCents: number;
-  metaMilheiroCents: number | null | undefined;
-}) {
-  const { points, milheiroNoFeeCents, metaMilheiroCents } = args;
-  const meta = Number(metaMilheiroCents ?? 0);
-  if (!meta) return 0;
-
-  const diff = (milheiroNoFeeCents ?? 0) - meta;
-  if (diff <= 0) return 0;
-
-  const denom = (points ?? 0) / 1000;
-  if (denom <= 0) return 0;
-
-  const diffTotal = Math.round(denom * diff);
-  return Math.round(diffTotal * 0.3);
+/** bônus sobre excedente acima do milheiro de meta (C2) */
+export function bonusFallback(
+  args: {
+    points: number;
+    milheiroNoFeeCents: number;
+    metaMilheiroCents: number | null | undefined;
+  },
+  bonusAboveMetaBps = DEFAULT_EMPLOYEE_BONUS_ABOVE_META_BPS
+) {
+  return bonusAboveMetaFromSale(args, bonusAboveMetaBps);
 }
 
 /**
@@ -142,9 +142,15 @@ export function choosePvNoFee(points: number, pvDb: number, milheiroCents: numbe
   return 0;
 }
 
-export function chooseC1(points: number, c1Db: number, pvNoFee: number) {
+export function chooseC1(
+  points: number,
+  c1Db: number,
+  pvNoFee: number,
+  opts?: { c1Bps?: number }
+) {
   if ((c1Db ?? 0) > 0) return c1Db;
-  if ((points ?? 0) > 0 && (pvNoFee ?? 0) > 0) return commission1Fallback(pvNoFee);
+  if ((points ?? 0) > 0 && (pvNoFee ?? 0) > 0)
+    return commission1Fallback(pvNoFee, opts?.c1Bps ?? DEFAULT_EMPLOYEE_C1_BPS);
   return 0;
 }
 
@@ -152,10 +158,15 @@ export function chooseC2(
   points: number,
   c2Db: number,
   milheiroNoFeeCents: number,
-  metaMilheiroCents: number | null | undefined
+  metaMilheiroCents: number | null | undefined,
+  opts?: { bonusAboveMetaBps?: number }
 ) {
   if ((c2Db ?? 0) > 0) return c2Db;
-  if ((points ?? 0) > 0) return bonusFallback({ points, milheiroNoFeeCents, metaMilheiroCents });
+  if ((points ?? 0) > 0)
+    return bonusFallback(
+      { points, milheiroNoFeeCents, metaMilheiroCents },
+      opts?.bonusAboveMetaBps ?? DEFAULT_EMPLOYEE_BONUS_ABOVE_META_BPS
+    );
   return 0;
 }
 
@@ -185,7 +196,13 @@ function profitForSaleFromPvCents(args: {
 
 export async function computeEmployeePayoutDay(session: SessionLike, date: string) {
   const { start, end } = dayBounds(date);
-  const settings = await prisma.settings.findFirst({});
+  const settings = await prisma.settings.upsert({
+    where: { key: "default" },
+    create: { key: "default" },
+    update: {},
+  });
+  const c1Bps = resolveEmployeeC1Bps(settings);
+  const bonusAboveMetaBps = resolveEmployeeBonusAboveMetaBps(settings);
 
   const sales = await prisma.sale.findMany({
     where: {
@@ -261,16 +278,18 @@ export async function computeEmployeePayoutDay(session: SessionLike, date: strin
     // ✅ milheiro SEM taxa (para bônus)
     const milheiroNoFee = milheiroNoFeeFromPv(s.points, pvNoFee);
 
-    // ✅ C1: 1% do PV sem taxa
-    const c1 = chooseC1(s.points, s.commissionCents, pvNoFee);
+    // ✅ C1: % do PV sem taxa (configurável)
+    const c1 = chooseC1(s.points, s.commissionCents, pvNoFee, { c1Bps });
 
     // ✅ meta do bônus (sale > purchase)
     const meta = chooseMetaMilheiro(
       (s.metaMilheiroCents ?? 0) > 0 ? s.metaMilheiroCents : s.purchase?.metaMilheiroCents
     );
 
-    // ✅ C2: bônus calculado sobre milheiro sem taxa
-    const c2 = chooseC2(s.points, s.bonusCents, milheiroNoFee, meta);
+    // ✅ C2: bônus calculado sobre milheiro sem taxa (configurável)
+    const c2 = chooseC2(s.points, s.bonusCents, milheiroNoFee, meta, {
+      bonusAboveMetaBps: bonusAboveMetaBps,
+    });
 
     // ✅ comissão + reembolso taxa -> seller
     if (sellerId) {

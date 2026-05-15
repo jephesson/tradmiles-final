@@ -9,6 +9,10 @@ import {
   choosePvNoFee,
   milheiroNoFeeFromPv,
 } from "@/lib/payouts/employeePayouts";
+import {
+  resolveEmployeeBonusAboveMetaBps,
+  resolveEmployeeC1Bps,
+} from "@/lib/payouts/employeeCommissionRates";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -286,6 +290,15 @@ export async function GET(req: NextRequest) {
     loginNorm: normLogin(String(u.login || "")),
   }));
 
+  const commissionSettings = await prisma.settings.upsert({
+    where: { key: "default" },
+    create: { key: "default" },
+    update: {},
+    select: { employeeC1Bps: true, employeeBonusAboveMetaBps: true },
+  });
+  const c1Bps = resolveEmployeeC1Bps(commissionSettings);
+  const bonusAboveMetaBps = resolveEmployeeBonusAboveMetaBps(commissionSettings);
+
   const sales = await prisma.sale.findMany({
     where: {
       date: { gte: start, lt: end },
@@ -344,8 +357,10 @@ export async function GET(req: NextRequest) {
         : safeInt(s.purchase?.metaMilheiroCents, 0)
     );
 
-    const c1 = isSeller ? chooseC1(points, safeInt(s.commissionCents, 0), pvNoFee) : 0;
-    const c2 = isSeller ? chooseC2(points, safeInt(s.bonusCents, 0), milheiroNoFee, meta) : 0;
+    const c1 = isSeller ? chooseC1(points, safeInt(s.commissionCents, 0), pvNoFee, { c1Bps }) : 0;
+    const c2 = isSeller
+      ? chooseC2(points, safeInt(s.bonusCents, 0), milheiroNoFee, meta, { bonusAboveMetaBps })
+      : 0;
 
     return {
       ref: { type: "sale", id: s.id },
