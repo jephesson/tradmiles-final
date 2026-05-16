@@ -110,6 +110,15 @@ function accentStyle(accent?: Accent): CSSProperties {
   } as CSSProperties;
 }
 
+function userInitials(name: string) {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return "?";
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  const a = parts[0][0];
+  const b = parts[parts.length - 1][0];
+  return `${a}${b}`.toUpperCase();
+}
+
 export default function Sidebar() {
   const pathname = usePathname();
   const router = useRouter();
@@ -559,38 +568,36 @@ export default function Sidebar() {
    * UI
    * ========================= */
   return (
-    <aside className="flex h-screen w-64 flex-col overflow-hidden border-r border-slate-200/80 bg-gradient-to-b from-slate-50/90 via-white to-slate-50/80 shadow-[2px_0_24px_-12px_rgba(15,23,42,0.12)]">
-      {/* Header */}
-      <div className="flex shrink-0 items-center border-b border-slate-200/70 bg-white/90 px-4 py-3.5 backdrop-blur-md">
-        <div className="flex items-center gap-3">
-          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-slate-100/90 ring-1 ring-slate-200/70">
-            <Image
-              src="/trademiles.png"
-              alt="TradeMiles"
-              width={28}
-              height={28}
-              unoptimized
-              className="rounded-lg"
-            />
+    <aside className="flex h-screen w-[15.5rem] flex-col overflow-hidden bg-gradient-to-b from-slate-50 via-white to-slate-50/90 shadow-[4px_0_32px_-16px_rgba(15,23,42,0.18)] ring-1 ring-slate-200/55 backdrop-blur-sm sm:w-64">
+      {session ? (
+        <div className="shrink-0 px-3 pb-2 pt-3">
+          <div className="flex items-start gap-3 rounded-2xl bg-white/90 p-3 shadow-md shadow-slate-900/[0.04] ring-1 ring-slate-200/65">
+            <div
+              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-sky-500 to-indigo-600 text-[13px] font-bold tracking-tight text-white shadow-inner shadow-sky-900/20"
+              aria-hidden
+            >
+              {userInitials(session.name)}
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="truncate text-[13px] font-semibold leading-tight text-slate-900">
+                {session.name}
+              </div>
+              <div className="mt-1.5 space-y-0.5 text-[10px] leading-snug text-slate-500">
+                <div className="truncate">
+                  <span className="font-medium text-slate-600">@{session.login}</span>
+                </div>
+                <div className="truncate">{session.team}</div>
+                <div className="inline-flex items-center rounded-md bg-slate-100/90 px-1.5 py-0.5 font-medium capitalize text-slate-700 ring-1 ring-slate-200/80">
+                  {session.role}
+                </div>
+              </div>
+            </div>
           </div>
-          <span className="text-[15px] font-semibold tracking-tight text-slate-900">
-            TradeMiles
-          </span>
         </div>
-      </div>
-
-      {/* Usuário */}
-      {session && (
-        <div className="shrink-0 space-y-1 border-b border-slate-100 bg-white/50 px-4 py-3 text-[11px] leading-snug text-slate-600">
-          <div className="font-semibold text-slate-800">{session.name}</div>
-          <div>Login: {session.login}</div>
-          <div>Time: {session.team}</div>
-          <div className="capitalize">Perfil: {session.role}</div>
-        </div>
-      )}
+      ) : null}
 
       <div className="flex min-h-0 flex-1 flex-col">
-        <nav className="min-h-0 flex-1 space-y-1 overflow-y-auto px-2.5 py-3 [scrollbar-width:thin] [scrollbar-color:rgba(148,163,184,0.5)_transparent]">
+        <nav className="min-h-0 flex-1 space-y-1 overflow-y-auto px-2 py-2 [scrollbar-width:thin] [scrollbar-color:rgba(148,163,184,0.45)_transparent]">
         <div className="mb-2 border-b border-slate-100 pb-2" style={accentStyle("blue")}>
           <Link
             href="/dashboard"
@@ -1122,35 +1129,35 @@ export default function Sidebar() {
         </Accordion>
         </nav>
 
-        <div className="shrink-0 border-t border-slate-200/70 bg-gradient-to-t from-white via-white to-slate-50/40 px-3 py-4">
-          <div className="flex justify-center">
+        <div className="shrink-0 border-t border-slate-200/50 bg-gradient-to-t from-white to-slate-50/30 px-2.5 py-3">
+          <div className="flex justify-center rounded-xl bg-white/60 py-2 ring-1 ring-slate-200/40">
             <Image
               src="/vias-aereas-logo.png"
               alt="Vias Aéreas — Conectando destinos, realizando sonhos"
               width={200}
               height={130}
-              className="h-auto max-h-[104px] w-full max-w-[188px] object-contain"
+              className="h-auto max-h-[76px] w-full max-w-[168px] object-contain opacity-95"
             />
           </div>
         </div>
       </div>
 
-      <div className="shrink-0 border-t border-slate-200/80 bg-white/95 p-2.5 backdrop-blur-sm">
+      <div className="shrink-0 space-y-2 border-t border-slate-200/55 bg-white/90 p-3 backdrop-blur-md">
         {session?.role === "admin" ? (
           <Link
             href="/dashboard/configuracoes"
-            className="mb-2 flex w-full items-center justify-center gap-2 rounded-xl border border-slate-200/90 bg-white px-3 py-2.5 text-sm font-medium text-slate-700 shadow-sm transition hover:border-slate-300 hover:bg-slate-50/90"
+            className="flex w-full items-center justify-center gap-2 rounded-xl bg-white px-3 py-2.5 text-sm font-semibold text-slate-800 shadow-md shadow-slate-900/[0.05] ring-1 ring-slate-200/70 transition hover:bg-slate-50 hover:shadow-lg hover:ring-slate-300/70"
           >
-            <Settings className="h-4 w-4 shrink-0 text-slate-500" strokeWidth={2} aria-hidden />
+            <Settings className="h-4 w-4 shrink-0 text-sky-600" strokeWidth={2} aria-hidden />
             Configurações
           </Link>
         ) : null}
         <button
           type="button"
           onClick={doLogout}
-          className="flex w-full items-center justify-center gap-2 rounded-xl border border-slate-200/90 bg-white px-3 py-2.5 text-sm font-medium text-slate-700 shadow-sm transition hover:border-slate-300 hover:bg-slate-50/90"
+          className="flex w-full items-center justify-center gap-2 rounded-xl bg-slate-900 px-3 py-2.5 text-sm font-semibold text-white shadow-md shadow-slate-900/25 transition hover:bg-slate-800"
         >
-          <LogOut className="h-4 w-4 shrink-0 text-slate-500" strokeWidth={2} />
+          <LogOut className="h-4 w-4 shrink-0 opacity-90" strokeWidth={2} />
           Sair
         </button>
       </div>
