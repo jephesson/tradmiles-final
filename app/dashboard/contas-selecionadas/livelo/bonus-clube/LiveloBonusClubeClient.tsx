@@ -2,6 +2,9 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import { Copy, KeyRound } from "lucide-react";
+
+import { cn } from "@/lib/cn";
 
 type Status = "ACTIVE" | "PAUSED" | "CANCELED";
 
@@ -20,6 +23,9 @@ type Item = {
     identificador: string;
     nomeCompleto: string;
     cpf: string;
+    emailCriado: string | null;
+    senhaEmail: string | null;
+    senhaLivelo: string | null;
     owner: {
       id: string;
       name: string;
@@ -60,6 +66,61 @@ function onlyDigits(v: string) {
   return v.replace(/\D+/g, "");
 }
 
+function CredRows({
+  cpf,
+  email,
+  senhaLivelo,
+  senhaEmail,
+}: {
+  cpf: string;
+  email: string | null | undefined;
+  senhaLivelo: string | null | undefined;
+  senhaEmail: string | null | undefined;
+}) {
+  const rows: Array<{ label: string; value: string }> = [
+    { label: "CPF (login)", value: cpf || "-" },
+    { label: "E-mail", value: (email || "").trim() || "-" },
+    { label: "Senha Livelo", value: (senhaLivelo || "").trim() || "-" },
+    { label: "Senha do e-mail", value: (senhaEmail || "").trim() || "-" },
+  ];
+
+  async function copyField(value: string) {
+    const text = String(value || "").trim();
+    if (!text || text === "-") return;
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      /* ignore */
+    }
+  }
+
+  return (
+    <div className="space-y-2.5">
+      {rows.map((r) => (
+        <div key={r.label}>
+          <div className="mb-0.5 flex items-center justify-between gap-2 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+            <span>{r.label}</span>
+            {r.value !== "-" ? (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  void copyField(r.value);
+                }}
+                className="inline-flex items-center gap-0.5 rounded text-slate-300 hover:text-white"
+                title="Copiar"
+              >
+                <Copy className="h-3 w-3" strokeWidth={2} />
+              </button>
+            ) : null}
+          </div>
+          <div className="break-all font-mono text-[12px] leading-snug text-white">{r.value}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export default function LiveloBonusClubeClient() {
   const [items, setItems] = useState<Item[]>([]);
   const [drafts, setDrafts] = useState<Record<string, Draft>>({});
@@ -67,6 +128,17 @@ export default function LiveloBonusClubeClient() {
   const [error, setError] = useState<string | null>(null);
   const [savingId, setSavingId] = useState<string | null>(null);
   const [q, setQ] = useState("");
+  const [credOpenRowId, setCredOpenRowId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!credOpenRowId) return;
+    const close = () => setCredOpenRowId(null);
+    const t = window.setTimeout(() => document.addEventListener("click", close), 0);
+    return () => {
+      window.clearTimeout(t);
+      document.removeEventListener("click", close);
+    };
+  }, [credOpenRowId]);
 
   async function load() {
     setLoading(true);
@@ -254,12 +326,58 @@ export default function LiveloBonusClubeClient() {
                 return (
                   <tr key={r.id} className="hover:bg-neutral-50">
                     <td className="px-4 py-2">
-                      <div className="font-medium">{r.cedente.nomeCompleto}</div>
-                      <div className="text-xs text-neutral-500">
-                        {r.cedente.identificador} • CPF {r.cedente.cpf}
-                      </div>
-                      <div className="text-xs text-neutral-500">
-                        Resp: {r.cedente.owner.name} @{r.cedente.owner.login}
+                      <div className="flex items-start gap-2">
+                        <div className="min-w-0 flex-1">
+                          <div className="font-medium">{r.cedente.nomeCompleto}</div>
+                          <div className="text-xs text-neutral-500">
+                            {r.cedente.identificador} • CPF {r.cedente.cpf}
+                          </div>
+                          <div className="text-xs text-neutral-500">
+                            Resp: {r.cedente.owner.name} @{r.cedente.owner.login}
+                          </div>
+                        </div>
+
+                        <div className="relative shrink-0 pt-0.5">
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setCredOpenRowId((cur) => (cur === r.id ? null : r.id));
+                            }}
+                            className={cn(
+                              "group relative rounded-lg border p-1.5 shadow-sm outline-none transition-colors",
+                              credOpenRowId === r.id
+                                ? "border-sky-400 bg-sky-50 text-sky-800"
+                                : "border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50 hover:text-slate-900"
+                            )}
+                            title="Credenciais Livelo"
+                            aria-expanded={credOpenRowId === r.id}
+                          >
+                            <KeyRound className="h-4 w-4" strokeWidth={2} aria-hidden />
+                            <span className="pointer-events-none absolute -top-7 left-1/2 z-10 -translate-x-1/2 whitespace-nowrap rounded-md bg-slate-900 px-2 py-1 text-[10px] font-medium text-white opacity-0 shadow-md transition-opacity group-hover:opacity-100">
+                              Credenciais
+                            </span>
+                          </button>
+
+                          {credOpenRowId === r.id ? (
+                            <div
+                              role="dialog"
+                              aria-label="Credenciais do cedente"
+                              className="absolute right-0 top-full z-50 mt-1 w-[min(92vw,290px)] rounded-xl border border-slate-700 bg-slate-900 p-3 shadow-xl ring-1 ring-black/20"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <div className="mb-2 border-b border-slate-700 pb-2 text-[11px] font-semibold text-slate-200">
+                                Credenciais — Livelo
+                              </div>
+                              <CredRows
+                                cpf={r.cedente.cpf}
+                                email={r.cedente.emailCriado}
+                                senhaLivelo={r.cedente.senhaLivelo}
+                                senhaEmail={r.cedente.senhaEmail}
+                              />
+                            </div>
+                          ) : null}
+                        </div>
                       </div>
                     </td>
 
