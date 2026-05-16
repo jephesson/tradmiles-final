@@ -58,6 +58,8 @@ type Row = {
   passageirosDisponiveisAno: number;
 
   latamBloqueado?: boolean;
+  /** Pelo menos um registro de bloqueio LATAM (aberto ou já resolvido). */
+  latamHistoricoBloqueio?: boolean;
   latamClubAtivoAgora?: boolean;
   blockedPrograms?: Program[];
   onPromoListToday?: boolean;
@@ -286,24 +288,31 @@ export default function CedentesVisualizarLatamClient() {
   }
 
   return (
-    <div className={VP_PAGE_SHELL}>
-      <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
-        <div className="min-w-0 space-y-3">
-          <div className="inline-flex items-center gap-2 rounded-full border border-slate-200/90 bg-white px-3 py-1 text-[11px] font-semibold uppercase tracking-wider text-slate-500 shadow-sm">
-            <Eye className="h-3.5 w-3.5 text-slate-400" strokeWidth={2} aria-hidden />
+    <div
+      className={cn(
+        VP_PAGE_SHELL,
+        "rounded-2xl bg-gradient-to-b from-slate-50/90 via-white to-slate-50/40 ring-1 ring-slate-200/40"
+      )}
+    >
+      <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
+        <div className="min-w-0 space-y-4">
+          <div className="inline-flex items-center gap-2 rounded-full bg-sky-50 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.06em] text-sky-800 shadow-sm shadow-sky-900/10 ring-1 ring-sky-200/70">
+            <Eye className="h-3.5 w-3.5 text-sky-600" strokeWidth={2} aria-hidden />
             Gestão de pontos
           </div>
           <div>
-            <h1 className="text-3xl font-bold tracking-tight text-slate-900">Cedentes • LATAM</h1>
-            <p className="mt-2 max-w-2xl text-sm leading-relaxed text-slate-600">
+            <h1 className="text-balance text-3xl font-bold tracking-tight text-slate-950 sm:text-[2rem] sm:leading-tight">
+              Cedentes • LATAM
+            </h1>
+            <p className="mt-3 max-w-2xl text-sm leading-relaxed text-slate-600">
               Pontos aprovados, pendentes, total esperado e passageiros disponíveis no ano.
             </p>
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2.5">
+        <div className="flex flex-wrap items-center gap-3">
           <button type="button" onClick={load} disabled={loading} className={VP_BTN_SECONDARY}>
-            <RefreshCw className={cn("h-4 w-4 text-slate-500", loading && "animate-spin")} aria-hidden />
+            <RefreshCw className={cn("h-4 w-4 text-sky-600", loading && "animate-spin")} aria-hidden />
             {loading ? "Atualizando…" : "Atualizar"}
           </button>
           <Link href="/dashboard/cedentes/visualizar?programa=smiles" className={VP_BTN_SECONDARY}>
@@ -313,7 +322,7 @@ export default function CedentesVisualizarLatamClient() {
       </div>
 
       <div className={VP_FILTER_CARD}>
-        <div className="flex flex-col gap-3 lg:flex-row lg:flex-wrap lg:items-end">
+        <div className="flex flex-col gap-4 lg:flex-row lg:flex-wrap lg:items-end">
           <div className="min-w-[min(100%,280px)] flex-1 space-y-1.5">
             <span className={VP_FIELD_LABEL}>Busca</span>
             <div className="relative">
@@ -357,12 +366,12 @@ export default function CedentesVisualizarLatamClient() {
               <option value="esperado">Total esperado ↓</option>
             </select>
           </div>
-          <label className="flex cursor-pointer items-center gap-2 rounded-xl border border-slate-200 bg-slate-50/80 px-3 py-2.5 text-sm font-medium text-slate-700">
+          <label className="flex cursor-pointer items-center gap-2.5 rounded-xl bg-slate-50/90 px-3.5 py-2.5 text-sm font-semibold text-slate-700 shadow-inner shadow-slate-900/[0.03] ring-1 ring-slate-200/75 transition hover:bg-slate-50">
             <input
               type="checkbox"
               checked={hideBlocked}
               onChange={(e) => setHideBlocked(e.target.checked)}
-              className="rounded border-slate-300 text-slate-900"
+              className="rounded-md border-slate-300 text-sky-600 focus:ring-sky-500/30"
             />
             Ocultar bloqueados
           </label>
@@ -399,26 +408,26 @@ export default function CedentesVisualizarLatamClient() {
                 const isEditing = editingId === r.id;
                 const waHref = whatsappHref(r.telefone);
                 const actionBtnBase =
-                  "inline-flex h-8 w-8 items-center justify-center rounded-md border transition-colors";
+                  "inline-flex h-9 w-9 items-center justify-center rounded-lg shadow-sm ring-1 transition-colors duration-150";
                 const neutralActionBtnCls = cn(
                   actionBtnBase,
                   blocked
-                    ? "border-red-300 text-red-700 hover:bg-red-100/70"
-                    : "border-slate-300 text-slate-600 hover:bg-slate-100 hover:text-slate-900"
+                    ? "bg-white ring-red-200 text-red-700 hover:bg-red-50"
+                    : "bg-white ring-slate-200/90 text-slate-600 hover:bg-slate-50 hover:text-slate-900 hover:ring-slate-300"
                 );
                 const whatsappActionBtnCls = cn(
                   actionBtnBase,
                   blocked
-                    ? "border-red-300 text-red-700 hover:bg-red-100/70"
-                    : "border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+                    ? "bg-white ring-red-200 text-red-700 hover:bg-red-50"
+                    : "bg-emerald-50 ring-emerald-200/90 text-emerald-700 hover:bg-emerald-100"
                 );
                 const promoActionBtnCls = cn(
                   actionBtnBase,
                   r.onPromoListToday
-                    ? "border-indigo-300 bg-indigo-50 text-indigo-700 hover:bg-indigo-100"
+                    ? "bg-indigo-50 ring-indigo-200/90 text-indigo-700 hover:bg-indigo-100"
                     : blocked
-                      ? "border-red-300 text-red-700 hover:bg-red-100/70"
-                      : "border-violet-300 bg-violet-50 text-violet-700 hover:bg-violet-100"
+                      ? "bg-white ring-red-200 text-red-700 hover:bg-red-50"
+                      : "bg-violet-50 ring-violet-200/90 text-violet-700 hover:bg-violet-100"
                 );
 
                 return (
@@ -430,26 +439,38 @@ export default function CedentesVisualizarLatamClient() {
                     )}
                     title={blocked ? "BLOQUEADO NA LATAM" : undefined}
                   >
-                    <td className="px-4 py-3">
-                      <div className="font-medium flex items-center gap-2">
-                        <span>{r.nomeCompleto}</span>
+                    <td className="px-4 py-3.5">
+                      <div className="flex items-center gap-2 font-medium">
+                        <span className="min-w-0">{r.nomeCompleto}</span>
                         {r.latamClubAtivoAgora ? (
                           <span
                             title="Clube LATAM ativo ou pausado"
-                            className="inline-flex text-amber-500"
+                            className="inline-flex shrink-0 text-amber-500"
                           >
                             <Star size={15} className="fill-current" />
                           </span>
                         ) : null}
-                        {blocked ? (
-                          <span className="text-[10px] font-semibold uppercase tracking-wide border border-red-300 rounded px-2 py-0.5">
-                            Bloqueado
+                        {r.latamHistoricoBloqueio ? (
+                          <span
+                            className="shrink-0 text-base font-bold leading-none text-red-600"
+                            title={
+                              blocked
+                                ? "Histórico de bloqueio na LATAM — bloqueado no momento"
+                                : "Histórico de bloqueio na LATAM"
+                            }
+                            aria-label={
+                              blocked
+                                ? "Letra B: histórico de bloqueio na LATAM; bloqueado no momento"
+                                : "Letra B: histórico de bloqueio na LATAM"
+                            }
+                          >
+                            B
                           </span>
                         ) : null}
                       </div>
                       <div
                         className={cn(
-                          "text-xs",
+                          "mt-1 text-xs",
                           blocked ? "text-red-600/80" : "text-slate-500"
                         )}
                       >
@@ -457,7 +478,7 @@ export default function CedentesVisualizarLatamClient() {
                       </div>
                     </td>
 
-                    <td className="px-4 py-3">
+                    <td className="px-4 py-3.5">
                       <div className="font-medium">{r.owner.name}</div>
                       <div
                         className={cn(
@@ -469,7 +490,7 @@ export default function CedentesVisualizarLatamClient() {
                       </div>
                     </td>
 
-                    <td className="px-4 py-3 text-right">
+                    <td className="px-4 py-3.5 text-right">
                       <span
                         className={cn(
                           "inline-flex rounded-full border px-2 py-1 text-xs",
@@ -481,7 +502,7 @@ export default function CedentesVisualizarLatamClient() {
                     </td>
 
                     {/* ✅ LATAM inline edit */}
-                    <td className="px-4 py-3 text-right tabular-nums">
+                    <td className="px-4 py-3.5 text-right tabular-nums">
                       {isEditing ? (
                         <input
                           value={draft}
@@ -502,10 +523,10 @@ export default function CedentesVisualizarLatamClient() {
                       )}
                     </td>
 
-                    <td className="px-4 py-3 text-right tabular-nums">{fmtInt(r.latamPendente)}</td>
-                    <td className="px-4 py-3 text-right tabular-nums">{fmtInt(r.latamTotalEsperado)}</td>
+                    <td className="px-4 py-3.5 text-right tabular-nums">{fmtInt(r.latamPendente)}</td>
+                    <td className="px-4 py-3.5 text-right tabular-nums">{fmtInt(r.latamTotalEsperado)}</td>
 
-                    <td className="px-4 py-3 text-right tabular-nums">
+                    <td className="px-4 py-3.5 text-right tabular-nums">
                       {fmtInt(r.passageirosDisponiveisAno)}
                       <span
                         className={cn(
@@ -518,8 +539,8 @@ export default function CedentesVisualizarLatamClient() {
                       </span>
                     </td>
 
-                    <td className="px-4 py-3">
-                      <div className="flex justify-end gap-1">
+                    <td className="px-4 py-3.5">
+                      <div className="flex justify-end gap-1.5">
                         {isEditing ? (
                           <>
                             <button

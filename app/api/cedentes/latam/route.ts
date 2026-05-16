@@ -206,6 +206,18 @@ export async function GET(req: NextRequest) {
 
     const blockedSet = new Set(blockedLatam.map((b) => b.cedenteId));
 
+    /** Cedentes com pelo menos um registro de bloqueio LATAM (aberto ou já resolvido). */
+    const latamBlockHistoryGroups = await prisma.blockedAccount.groupBy({
+      by: ["cedenteId"],
+      where: {
+        cedenteId: { in: idsRaw },
+        program: "LATAM",
+      },
+    });
+    const latamHistoricoBloqueioSet = new Set(
+      latamBlockHistoryGroups.map((g) => g.cedenteId)
+    );
+
     const cedentes = hideBlocked
       ? cedentesRaw.filter((c) => !blockedSet.has(c.id))
       : cedentesRaw;
@@ -352,6 +364,7 @@ export async function GET(req: NextRequest) {
         passageirosDisponiveisAno: available,
 
         latamBloqueado,
+        latamHistoricoBloqueio: latamHistoricoBloqueioSet.has(c.id),
         latamClubAtivoAgora,
         blockedPrograms: latamBloqueado ? (["LATAM"] as const) : [],
         onPromoListToday: promoTodaySet.has(c.id),
