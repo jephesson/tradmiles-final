@@ -568,7 +568,7 @@ export default function Sidebar() {
    * UI
    * ========================= */
   return (
-    <aside className="flex h-screen w-[15.5rem] flex-col overflow-hidden bg-gradient-to-b from-slate-50 via-white to-slate-50/90 shadow-[4px_0_32px_-16px_rgba(15,23,42,0.18)] ring-1 ring-slate-200/55 backdrop-blur-sm sm:w-64">
+    <aside className="flex h-full min-h-0 w-[15.5rem] shrink-0 flex-col overflow-hidden bg-gradient-to-b from-slate-50 via-white to-slate-50/90 shadow-[4px_0_32px_-16px_rgba(15,23,42,0.18)] ring-1 ring-slate-200/55 backdrop-blur-sm sm:w-64">
       {session ? (
         <div className="shrink-0 px-3 pb-2 pt-3">
           <div className="flex items-start gap-3 rounded-2xl bg-white/90 p-3 shadow-md shadow-slate-900/[0.04] ring-1 ring-slate-200/65">
