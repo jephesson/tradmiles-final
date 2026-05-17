@@ -10,6 +10,7 @@
     "postinstall": "prisma generate"
   },
   "dependencies": {
+    "@cantoo/pdf-lib": "^2.6.5",
     "@neondatabase/serverless": "^1.0.2",
     "@prisma/adapter-neon": "^7.1.0",
     "@prisma/adapter-pg": "^7.1.0",
@@ -20,7 +21,6 @@
     "lucide-react": "^0.561.0",
     "next": "16.0.10",
     "next-auth": "^4.24.13",
-    "pdfkit": "^0.18.0",
     "pg": "^8.16.3",
     "playwright-core": "^1.54.2",
     "qrcode": "^1.5.4",
@@ -32,7 +32,6 @@
     "@prisma/config": "^7.1.0",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
-    "@types/pdfkit": "^0.17.6",
     "@types/pg": "^8.16.0",
     "@types/react": "^19",
     "@types/react-dom": "^19",

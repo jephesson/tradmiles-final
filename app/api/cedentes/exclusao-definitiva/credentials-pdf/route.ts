@@ -13,6 +13,9 @@ import {
 } from "@/lib/cedentes/exclusaoDefinitivaReasons";
 import { NextRequest, NextResponse } from "next/server";
 
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
 type SessionCookie = {
   id: string;
   team: string;

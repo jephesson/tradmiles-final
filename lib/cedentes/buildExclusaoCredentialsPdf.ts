@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
-import PDFDocument from "pdfkit";
+import { PDFDocument } from "@cantoo/pdf-lib";
+import { buildSimpleTextPdf } from "@/lib/pdf/simpleTextPdf";
 
 function getOwnerPassword() {
   const secret =
@@ -14,29 +15,19 @@ export async function buildExclusaoCredentialsPdf(
   lines: string[],
   userPassword: string
 ): Promise<Buffer> {
-  return new Promise((resolve, reject) => {
-    const chunks: Buffer[] = [];
-    const doc = new PDFDocument({
-      size: "A4",
-      margins: { top: 50, bottom: 50, left: 50, right: 50 },
-      userPassword,
-      ownerPassword: getOwnerPassword(),
-      permissions: {
-        printing: "highResolution",
-        modifying: false,
-        copying: false,
-      },
-    });
+  const plain = buildSimpleTextPdf(lines);
+  const pdfDoc = await PDFDocument.load(plain, { ignoreEncryption: true });
 
-    doc.on("data", (chunk: Buffer) => chunks.push(chunk));
-    doc.on("end", () => resolve(Buffer.concat(chunks)));
-    doc.on("error", reject);
-
-    doc.fontSize(10);
-    for (const line of lines) {
-      doc.text(line || " ", { lineGap: 2 });
-    }
-
-    doc.end();
+  pdfDoc.encrypt({
+    userPassword,
+    ownerPassword: getOwnerPassword(),
+    permissions: {
+      printing: "highResolution",
+      copying: false,
+      modifying: false,
+    },
   });
+
+  const encrypted = await pdfDoc.save({ useObjectStreams: false });
+  return Buffer.from(encrypted);
 }
