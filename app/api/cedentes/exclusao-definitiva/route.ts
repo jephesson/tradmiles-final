@@ -1,3 +1,8 @@
+import {
+  EXCLUSION_REASON_TEXT,
+  isExclusionReasonCode,
+  type ExclusionReasonCode,
+} from "@/lib/cedentes/exclusaoDefinitivaReasons";
 import { prisma } from "@/lib/prisma";
 import { NextResponse } from "next/server";
 import type { Prisma } from "@prisma/client";
@@ -12,20 +17,8 @@ type SessionCookie = {
 
 type Program = "LATAM" | "SMILES" | "LIVELO" | "ESFERA";
 type ScopeMode = "ACCOUNT" | "PROGRAM";
-type ExclusionReasonCode =
-  | "LATAM_FACE_NO_RESPONSE"
-  | "LATAM_FACE_IMPOSSIBLE"
-  | "DATA_DELETION_REQUEST";
 
 const PROGRAMS: Program[] = ["LATAM", "SMILES", "LIVELO", "ESFERA"];
-const EXCLUSION_REASON_TEXT: Record<ExclusionReasonCode, string> = {
-  LATAM_FACE_NO_RESPONSE:
-    "Ausência de resposta e/ou conclusão da biometria facial exigida pela LATAM, impossibilitando a movimentação da conta e acarretando prejuízo financeiro à empresa.",
-  LATAM_FACE_IMPOSSIBLE:
-    "Impossibilidade operacional de realização da biometria facial exigida pela LATAM, o que inviabiliza a continuidade das operações com segurança.",
-  DATA_DELETION_REQUEST:
-    "Solicitação expressa de exclusão dos dados e encerramento do vínculo operacional, com encerramento da parceria e remoção das credenciais sob nossa custódia.",
-};
 
 function sha256(s: string) {
   return crypto.createHash("sha256").update(s).digest("hex");
@@ -102,10 +95,6 @@ function getHttpStatus(error: unknown, fallback = 500) {
     if (code === "P2025") return 404;
   }
   return fallback;
-}
-
-function isReasonCode(value: string): value is ExclusionReasonCode {
-  return value in EXCLUSION_REASON_TEXT;
 }
 
 export async function GET(req: Request) {
@@ -214,7 +203,7 @@ export async function POST(req: Request) {
     if (!password) {
       return NextResponse.json({ ok: false, error: "Senha obrigatória." }, { status: 400 });
     }
-    if (!reasonCode || !isReasonCode(reasonCode)) {
+    if (!reasonCode || !isExclusionReasonCode(reasonCode)) {
       return NextResponse.json({ ok: false, error: "Motivo obrigatório e inválido." }, { status: 400 });
     }
 

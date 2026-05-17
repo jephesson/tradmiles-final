@@ -1,5 +1,6 @@
 "use client";
 
+import { buildExclusaoWhatsappShortMessage } from "@/lib/cedentes/exclusaoDefinitivaContent";
 import { useEffect, useMemo, useState } from "react";
 
 type Program = "LATAM" | "SMILES" | "LIVELO" | "ESFERA";
@@ -108,6 +109,7 @@ function getErrorMessage(error: unknown, fallback: string) {
 export default function CedentesExclusaoDefinitivaClient() {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [downloadingPdf, setDownloadingPdf] = useState(false);
   const [restoringId, setRestoringId] = useState<string | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
 
@@ -225,106 +227,8 @@ export default function CedentesExclusaoDefinitivaClient() {
 
   const whatsappMessage = useMemo(() => {
     if (!preview) return "";
-
-    const programRows =
-      mode === "ACCOUNT"
-        ? [
-            {
-              title: "LATAM Pass",
-              login: preview.cpf || "Não informado",
-              password: preview.senhaLatamPass || "Não cadastrada",
-              points: preview.pontosLatam,
-            },
-            {
-              title: "Smiles",
-              login: preview.cpf || "Não informado",
-              password: preview.senhaSmiles || "Não cadastrada",
-              points: preview.pontosSmiles,
-            },
-            {
-              title: "Livelo",
-              login: preview.cpf || "Não informado",
-              password: preview.senhaLivelo || "Não cadastrada",
-              points: preview.pontosLivelo,
-            },
-            {
-              title: "Esfera",
-              login: preview.cpf || "Não informado",
-              password: preview.senhaEsfera || "Não cadastrada",
-              points: preview.pontosEsfera,
-            },
-          ]
-        : [
-            {
-              title:
-                program === "LATAM"
-                  ? "LATAM Pass"
-                  : program === "SMILES"
-                  ? "Smiles"
-                  : program === "LIVELO"
-                  ? "Livelo"
-                  : "Esfera",
-              login: preview.cpf || "Não informado",
-              password:
-                program === "LATAM"
-                  ? preview.senhaLatamPass || "Não cadastrada"
-                  : program === "SMILES"
-                  ? preview.senhaSmiles || "Não cadastrada"
-                  : program === "LIVELO"
-                  ? preview.senhaLivelo || "Não cadastrada"
-                  : preview.senhaEsfera || "Não cadastrada",
-              points:
-                program === "LATAM"
-                  ? preview.pontosLatam
-                  : program === "SMILES"
-                  ? preview.pontosSmiles
-                  : program === "LIVELO"
-                  ? preview.pontosLivelo
-                  : preview.pontosEsfera,
-            },
-          ];
-
-    const lines = [
-      "Assunto: Notificação de Exclusão Definitiva de Conta e Encerramento de Vínculo",
-      "",
-      `Prezado(a) ${preview.nomeCompleto},`,
-      "",
-      "Informamos que a Vias Aéreas Viagens e Turismo LTDA, inscrita no CNPJ 63.817.773/0001-85, está procedendo com a exclusão definitiva da conta em nossa plataforma.",
-      "",
-      "Motivo da exclusão:",
-      selectedReason.text,
-      "",
-      "Dados da conta (acesso e saldo):",
-      `Titular: ${preview.nomeCompleto}`,
-      `Identificador interno: ${preview.identificador}`,
-      `CPF: ${preview.cpf || "Não informado"}`,
-      `E-mail/login criado: ${preview.emailCriado || "Não informado"}`,
-      `Senha atual do e-mail: ${preview.senhaEmail || "Não cadastrada"}`,
-    ];
-
-    for (const row of programRows) {
-      lines.push("");
-      lines.push(`${row.title}:`);
-      lines.push(`Login: ${row.login}`);
-      lines.push(`Senha atual: ${row.password}`);
-      lines.push(`Saldo de pontos/milhas: ${fmtPoints(row.points)}`);
-    }
-
-    lines.push("");
-    lines.push(
-      "Recomendação de segurança: solicitamos a troca imediata de todas as senhas e dados de recuperação vinculados ao e-mail e aos portais relacionados, para garantir a integridade dos seus dados após este encerramento."
-    );
-    lines.push("");
-    lines.push(
-      "Observação: esta mensagem serve como comprovante de entrega das credenciais e de encerramento de responsabilidade da Vias Aéreas sobre a conta mencionada."
-    );
-    lines.push("");
-    lines.push("Atenciosamente,");
-    lines.push("Vias Aéreas Viagens e Turismo LTDA");
-    lines.push("CNPJ: 63.817.773/0001-85");
-
-    return lines.join("\n");
-  }, [mode, preview, program, selectedReason]);
+    return buildExclusaoWhatsappShortMessage(preview, selectedReason.text);
+  }, [preview, selectedReason]);
 
   async function copyWhatsappMessage() {
     if (!whatsappMessage) {
@@ -336,6 +240,48 @@ export default function CedentesExclusaoDefinitivaClient() {
       alert("Mensagem copiada.");
     } catch {
       alert("Não foi possível copiar automaticamente.");
+    }
+  }
+
+  async function downloadCredentialsPdf() {
+    if (!cedenteId) {
+      alert("Selecione um cedente para gerar o PDF.");
+      return;
+    }
+
+    setDownloadingPdf(true);
+    try {
+      const params = new URLSearchParams({
+        cedenteId,
+        mode,
+        reasonCode,
+      });
+      if (mode === "PROGRAM") params.set("program", program);
+
+      const res = await fetch(
+        `/api/cedentes/exclusao-definitiva/credentials-pdf?${params.toString()}`,
+        { credentials: "include" }
+      );
+
+      if (!res.ok) {
+        const json = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(json?.error || `Erro ${res.status}`);
+      }
+
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      const ident = preview?.identificador || cedenteId;
+      a.href = url;
+      a.download = `exclusao-${ident}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (error: unknown) {
+      alert(getErrorMessage(error, "Falha ao baixar PDF."));
+    } finally {
+      setDownloadingPdf(false);
     }
   }
 
@@ -556,21 +502,32 @@ export default function CedentesExclusaoDefinitivaClient() {
       </div>
 
       <div className="rounded-2xl border bg-white p-5 space-y-4">
-        <div className="flex items-center justify-between gap-3">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div>
-            <div className="font-medium">Mensagem pronta para WhatsApp</div>
+            <div className="font-medium">Envio ao cliente (WhatsApp)</div>
             <div className="text-xs text-slate-500">
-              Texto para copiar e enviar ao cliente com o motivo selecionado.
+              Baixe o PDF protegido (senha = CPF com 11 dígitos), anexe no WhatsApp e copie a mensagem curta abaixo.
+              Gere o PDF antes de excluir definitivamente.
             </div>
           </div>
-          <button
-            type="button"
-            onClick={copyWhatsappMessage}
-            disabled={!whatsappMessage}
-            className="rounded-xl border px-4 py-2 text-sm hover:bg-slate-50 disabled:opacity-50"
-          >
-            Copiar mensagem
-          </button>
+          <div className="flex flex-wrap gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={downloadCredentialsPdf}
+              disabled={!preview || downloadingPdf}
+              className="rounded-xl bg-slate-900 px-4 py-2 text-sm text-white disabled:opacity-50"
+            >
+              {downloadingPdf ? "Gerando PDF..." : "Baixar PDF protegido"}
+            </button>
+            <button
+              type="button"
+              onClick={copyWhatsappMessage}
+              disabled={!whatsappMessage}
+              className="rounded-xl border px-4 py-2 text-sm hover:bg-slate-50 disabled:opacity-50"
+            >
+              Copiar mensagem
+            </button>
+          </div>
         </div>
 
         {previewLoading ? (
@@ -603,7 +560,7 @@ export default function CedentesExclusaoDefinitivaClient() {
             <textarea
               readOnly
               value={whatsappMessage}
-              className="min-h-[420px] w-full rounded-xl border px-3 py-3 text-sm"
+              className="min-h-[280px] w-full rounded-xl border px-3 py-3 text-sm"
             />
           </>
         )}
