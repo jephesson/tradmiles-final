@@ -5,10 +5,12 @@ import { useEffect, useMemo, useState } from "react";
 import {
   CheckCircle2,
   Clock,
+  Pencil,
   Plus,
   RefreshCw,
   Search,
   ShoppingCart,
+  Sparkles,
   XCircle,
 } from "lucide-react";
 import { cn } from "@/lib/cn";
@@ -136,6 +138,9 @@ const STATUS_LABEL: Record<PurchaseStatus, string> = {
 const CONTROL =
   "h-11 rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-900 shadow-sm outline-none transition focus:border-slate-300 focus:ring-2 focus:ring-slate-900/10";
 
+const ACTION_ICON_BTN =
+  "inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border shadow-sm transition disabled:cursor-not-allowed disabled:opacity-40";
+
 type StatusFilter = "" | PurchaseStatus;
 
 const STATUS_FILTER_CHIPS: { value: StatusFilter; label: string }[] = [
@@ -161,6 +166,104 @@ function StatusPill({ status }: { status: PurchaseStatus }) {
     <span className={cn("inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold", cls)}>
       {STATUS_LABEL[status]}
     </span>
+  );
+}
+
+function PurchaseRowActions({
+  purchaseId,
+  isBusy,
+  isReleased,
+  isCanceled,
+  onBuyMore,
+  onRelease,
+  onCancel,
+}: {
+  purchaseId: string;
+  isBusy: boolean;
+  isReleased: boolean;
+  isCanceled: boolean;
+  onBuyMore: () => void;
+  onRelease: () => void;
+  onCancel: () => void;
+}) {
+  const lockedHint = isReleased ? "Compra liberada (travada)" : isCanceled ? "Compra cancelada" : "";
+
+  return (
+    <div
+      className="ml-auto flex w-[9.75rem] flex-nowrap items-center justify-end gap-1"
+      title={lockedHint || undefined}
+    >
+      <Link
+        href={`/dashboard/compras/${purchaseId}`}
+        className={cn(
+          ACTION_ICON_BTN,
+          "border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50"
+        )}
+        title="Editar compra"
+      >
+        <Pencil className="h-4 w-4" aria-hidden />
+        <span className="sr-only">Editar</span>
+      </Link>
+
+      <button
+        type="button"
+        onClick={onBuyMore}
+        disabled={isBusy || isCanceled || !isReleased}
+        className={cn(
+          ACTION_ICON_BTN,
+          "border-indigo-200 bg-indigo-50 text-indigo-700 hover:bg-indigo-100",
+          (isBusy || isCanceled || !isReleased) && "border-slate-200 bg-slate-50 text-slate-400"
+        )}
+        title={
+          isReleased
+            ? "Comprar mais pontos neste ID"
+            : "Disponível após liberar a compra"
+        }
+      >
+        <Sparkles className="h-4 w-4" aria-hidden />
+        <span className="sr-only">Comprar mais</span>
+      </button>
+
+      <button
+        type="button"
+        onClick={onRelease}
+        disabled={isBusy || isReleased || isCanceled}
+        className={cn(
+          ACTION_ICON_BTN,
+          "border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100",
+          (isBusy || isReleased || isCanceled) && "border-slate-200 bg-slate-50 text-slate-400"
+        )}
+        title={isReleased ? "Já liberada" : isCanceled ? "Compra cancelada" : "Liberar compra"}
+      >
+        {isBusy ? (
+          <RefreshCw className="h-4 w-4 animate-spin" aria-hidden />
+        ) : (
+          <CheckCircle2 className="h-4 w-4" aria-hidden />
+        )}
+        <span className="sr-only">Liberar</span>
+      </button>
+
+      <button
+        type="button"
+        onClick={onCancel}
+        disabled={isBusy || isCanceled || isReleased}
+        className={cn(
+          ACTION_ICON_BTN,
+          "border-rose-200 bg-white text-rose-700 hover:bg-rose-50",
+          (isBusy || isCanceled || isReleased) && "border-slate-200 bg-slate-50 text-slate-400"
+        )}
+        title={
+          isCanceled
+            ? "Já cancelada"
+            : isReleased
+              ? "Não é possível cancelar compra liberada"
+              : "Cancelar compra"
+        }
+      >
+        <XCircle className="h-4 w-4" aria-hidden />
+        <span className="sr-only">Cancelar</span>
+      </button>
+    </div>
   );
 }
 
@@ -571,7 +674,7 @@ export default function ComprasClient() {
               <th className="px-3 py-2.5 text-right">Milheiro</th>
               <th className="px-3 py-2.5 text-right">Total</th>
               <th className="px-3 py-2.5">Criada em</th>
-              <th className="px-3 py-2.5 text-right">Ações</th>
+              <th className="w-44 px-3 py-2.5 text-right">Ações</th>
             </tr>
           </thead>
 
@@ -635,49 +738,16 @@ export default function ComprasClient() {
 
                   <td className="px-3 py-3.5 text-slate-700">{fmtDateBR(r.createdAt)}</td>
 
-                  <td className="px-3 py-3.5">
-                    <div className="flex flex-wrap items-center justify-end gap-1.5">
-                      <Link
-                        href={`/dashboard/compras/${r.id}`}
-                        className="rounded-xl border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50"
-                      >
-                        Editar
-                      </Link>
-
-                      <button
-                        type="button"
-                        onClick={() => setPointsModalId(r.id)}
-                        disabled={isBusy || isCanceled || !isReleased}
-                        className="rounded-xl border border-indigo-200 bg-indigo-50 px-2.5 py-1.5 text-xs font-semibold text-indigo-800 transition hover:bg-indigo-100 disabled:opacity-50"
-                        title="Adicionar mais itens de compra de pontos usando o mesmo ID"
-                      >
-                        Comprar mais
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => void onRelease(r.id)}
-                        disabled={isBusy || isReleased || isCanceled}
-                        className="rounded-xl border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 text-xs font-semibold text-emerald-800 transition hover:bg-emerald-100 disabled:opacity-50"
-                      >
-                        {isBusy ? "…" : "Liberar"}
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => void onCancel(r.id)}
-                        disabled={isBusy || isCanceled || isReleased}
-                        className="rounded-xl border border-rose-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-rose-700 transition hover:bg-rose-50 disabled:opacity-50"
-                      >
-                        {isBusy ? "…" : "Cancelar"}
-                      </button>
-                    </div>
-
-                    {(isReleased || isCanceled) && (
-                      <div className="mt-1 text-right text-[11px] text-slate-500">
-                        {isReleased ? "travada" : "cancelada"}
-                      </div>
-                    )}
+                  <td className="px-3 py-3.5 align-middle">
+                    <PurchaseRowActions
+                      purchaseId={r.id}
+                      isBusy={isBusy}
+                      isReleased={isReleased}
+                      isCanceled={isCanceled}
+                      onBuyMore={() => setPointsModalId(r.id)}
+                      onRelease={() => void onRelease(r.id)}
+                      onCancel={() => void onCancel(r.id)}
+                    />
                   </td>
                 </tr>
               );
