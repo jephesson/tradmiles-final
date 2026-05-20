@@ -2,6 +2,16 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import {
+  CheckCircle2,
+  Clock,
+  Plus,
+  RefreshCw,
+  Search,
+  ShoppingCart,
+  XCircle,
+} from "lucide-react";
+import { cn } from "@/lib/cn";
 
 type PurchaseStatus = "OPEN" | "DRAFT" | "READY" | "CLOSED" | "CANCELED";
 type LoyaltyProgram = "LATAM" | "SMILES" | "LIVELO" | "ESFERA";
@@ -123,17 +133,81 @@ const STATUS_LABEL: Record<PurchaseStatus, string> = {
   CANCELED: "Cancelada",
 };
 
+const CONTROL =
+  "h-11 rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-900 shadow-sm outline-none transition focus:border-slate-300 focus:ring-2 focus:ring-slate-900/10";
+
+type StatusFilter = "" | PurchaseStatus;
+
+const STATUS_FILTER_CHIPS: { value: StatusFilter; label: string }[] = [
+  { value: "", label: "Todas" },
+  { value: "OPEN", label: "Abertas" },
+  { value: "CLOSED", label: "Liberadas" },
+  { value: "CANCELED", label: "Canceladas" },
+];
+
 function StatusPill({ status }: { status: PurchaseStatus }) {
   const cls =
     status === "CLOSED"
-      ? "bg-emerald-50 border-emerald-200 text-emerald-700"
+      ? "border-emerald-200 bg-emerald-50 text-emerald-700"
       : status === "CANCELED"
-      ? "bg-red-50 border-red-200 text-red-700"
-      : status === "READY"
-      ? "bg-blue-50 border-blue-200 text-blue-700"
-      : "bg-gray-50 border-gray-200 text-gray-700";
+        ? "border-rose-200 bg-rose-50 text-rose-700"
+        : status === "READY"
+          ? "border-sky-200 bg-sky-50 text-sky-700"
+          : status === "OPEN"
+            ? "border-amber-200 bg-amber-50 text-amber-800"
+            : "border-slate-200 bg-slate-50 text-slate-700";
 
-  return <span className={`rounded-full border px-2 py-1 text-xs ${cls}`}>{STATUS_LABEL[status]}</span>;
+  return (
+    <span className={cn("inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold", cls)}>
+      {STATUS_LABEL[status]}
+    </span>
+  );
+}
+
+function SummaryCard({
+  title,
+  value,
+  tone,
+}: {
+  title: string;
+  value: string;
+  tone: "slate" | "amber" | "emerald" | "rose";
+}) {
+  const accent = {
+    slate: "from-slate-500 to-slate-600",
+    amber: "from-amber-500 to-orange-600",
+    emerald: "from-emerald-500 to-teal-600",
+    rose: "from-rose-500 to-red-600",
+  }[tone];
+
+  const Icon =
+    tone === "amber" ? Clock : tone === "emerald" ? CheckCircle2 : tone === "rose" ? XCircle : ShoppingCart;
+
+  return (
+    <div className="relative overflow-hidden rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm shadow-slate-200/40">
+      <div
+        className={cn(
+          "pointer-events-none absolute -right-3 -top-3 h-20 w-20 rounded-full bg-gradient-to-br opacity-[0.12] blur-2xl",
+          accent
+        )}
+        aria-hidden
+      />
+      <div className="flex items-start gap-3">
+        <div
+          className={cn(
+            "flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br text-white shadow-sm",
+            accent
+          )}
+        >
+          <Icon className="h-5 w-5" aria-hidden />
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">{title}</div>
+          <div className="mt-1 text-xl font-bold tabular-nums tracking-tight text-slate-900">{value}</div>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function norm(v?: string) {
@@ -163,7 +237,8 @@ export default function ComprasClient() {
   const [err, setErr] = useState<string | null>(null);
 
   const [q, setQ] = useState("");
-  const [status, setStatus] = useState<"" | PurchaseStatus>("");
+  const [status, setStatus] = useState<StatusFilter>("");
+  const [onlyOpen, setOnlyOpen] = useState(false);
 
   const [busyId, setBusyId] = useState<string | null>(null);
 
@@ -179,8 +254,16 @@ export default function ComprasClient() {
     setHasMore(false);
   }
 
-  async function load(opts?: { silent?: boolean; append?: boolean }) {
+  async function load(opts?: {
+    silent?: boolean;
+    append?: boolean;
+    statusOverride?: StatusFilter;
+    openOnlyOverride?: boolean;
+  }) {
     const append = !!opts?.append;
+    const openOnlyFilter = opts?.openOnlyOverride ?? onlyOpen;
+    const statusFilter = opts?.statusOverride !== undefined ? opts.statusOverride : status;
+    const effectiveStatus = openOnlyFilter ? "OPEN" : statusFilter;
 
     if (!opts?.silent) {
       if (append) setLoadingMore(true);
@@ -191,7 +274,7 @@ export default function ComprasClient() {
 
     try {
       const qs = new URLSearchParams();
-      if (status) qs.set("status", status);
+      if (effectiveStatus) qs.set("status", effectiveStatus);
       if (q.trim()) qs.set("q", q.trim());
 
       // paginação
@@ -229,12 +312,21 @@ export default function ComprasClient() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const effectiveStatus = onlyOpen ? "OPEN" : status;
+
+  const summary = useMemo(() => {
+    const open = rows.filter((r) => r.status === "OPEN").length;
+    const closed = rows.filter((r) => r.status === "CLOSED").length;
+    const canceled = rows.filter((r) => r.status === "CANCELED").length;
+    return { total: rows.length, open, closed, canceled };
+  }, [rows]);
+
   const filtered = useMemo(() => {
     const needle = norm(q);
     const dig = onlyDigits(q);
 
     return rows.filter((r) => {
-      if (status && r.status !== status) return false;
+      if (effectiveStatus && r.status !== effectiveStatus) return false;
       if (!needle && !dig) return true;
 
       const ced = r.cedente;
@@ -260,7 +352,21 @@ export default function ComprasClient() {
       }
       return norm(hay).includes(needle);
     });
-  }, [rows, q, status]);
+  }, [rows, q, effectiveStatus]);
+
+  function applyFilters(opts?: { nextStatus?: StatusFilter }) {
+    const nextStatus = opts?.nextStatus !== undefined ? opts.nextStatus : status;
+    const nextOpen = nextStatus === "OPEN";
+
+    setStatus(nextStatus);
+    setOnlyOpen(nextOpen);
+    resetPagination();
+    void load({
+      append: false,
+      statusOverride: nextStatus,
+      openOnlyOverride: nextOpen,
+    });
+  }
 
   async function onRelease(id: string) {
     const okConfirm = window.confirm("Liberar esta compra? Isso vai aplicar saldo e travar a compra.");
@@ -312,101 +418,167 @@ export default function ComprasClient() {
     }
   }
 
+  const activeChip = onlyOpen ? "OPEN" : status;
+
   return (
-    <div className="space-y-5">
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <h1 className="text-xl font-semibold">Compras</h1>
-          <p className="text-sm text-gray-600">Visualize, edite, libere ou cancele compras.</p>
+    <div className="space-y-6 bg-gradient-to-br from-slate-50/80 via-white to-indigo-50/20 pb-8">
+      <section className="overflow-hidden rounded-3xl border border-slate-200/80 bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-800 p-5 text-white shadow-lg shadow-slate-900/10 md:p-6">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+          <div>
+            <div className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-3 py-1 text-xs font-semibold text-indigo-100">
+              <ShoppingCart className="h-3.5 w-3.5" aria-hidden />
+              Gestão de pontos
+            </div>
+            <h1 className="mt-3 text-2xl font-bold tracking-tight md:text-3xl">Compras</h1>
+            <p className="mt-2 max-w-2xl text-sm leading-relaxed text-slate-300">
+              Visualize, edite, libere ou cancele compras de pontos.
+            </p>
+          </div>
+          <Link
+            href="/dashboard/compras/nova"
+            className="inline-flex h-11 items-center justify-center gap-2 self-start rounded-xl bg-white px-5 text-sm font-semibold text-slate-900 shadow-sm transition hover:bg-slate-100"
+          >
+            <Plus className="h-4 w-4" aria-hidden />
+            Nova compra
+          </Link>
         </div>
+      </section>
 
-        <Link href="/dashboard/compras/nova" className="rounded-md bg-black px-3 py-2 text-sm text-white">
-          + Nova compra
-        </Link>
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <SummaryCard title="Carregadas" value={String(summary.total)} tone="slate" />
+        <SummaryCard title="Abertas" value={String(summary.open)} tone="amber" />
+        <SummaryCard title="Liberadas" value={String(summary.closed)} tone="emerald" />
+        <SummaryCard title="Canceladas" value={String(summary.canceled)} tone="rose" />
       </div>
 
-      <div className="rounded-xl border p-4">
-        <div className="grid gap-3 md:grid-cols-3">
-          <div>
-            <label className="text-sm text-gray-600">Buscar</label>
-            <input
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-              className="mt-1 w-full rounded-md border px-3 py-2 text-sm"
-              placeholder="Número, nome, CPF, identificador..."
-            />
+      <section className="rounded-3xl border border-slate-200/80 bg-white p-4 shadow-sm shadow-slate-200/40 md:p-5">
+        <div className="flex flex-col gap-4">
+          <div className="flex flex-wrap gap-2">
+            {STATUS_FILTER_CHIPS.map((chip) => {
+              const active = activeChip === chip.value;
+              return (
+                <button
+                  key={chip.label}
+                  type="button"
+                  onClick={() => applyFilters({ nextStatus: chip.value })}
+                  disabled={loading || loadingMore}
+                  className={cn(
+                    "rounded-xl border px-3 py-2 text-sm font-semibold transition disabled:opacity-50",
+                    active
+                      ? "border-slate-900 bg-slate-900 text-white shadow-sm"
+                      : "border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50"
+                  )}
+                >
+                  {chip.label}
+                </button>
+              );
+            })}
           </div>
 
-          <div>
-            <label className="text-sm text-gray-600">Status</label>
-            <select
-              value={status}
-              onChange={(e) => setStatus(e.target.value as any)}
-              className="mt-1 w-full rounded-md border px-3 py-2 text-sm"
-            >
-              <option value="">Todos</option>
-              <option value="OPEN">Aberta</option>
-              <option value="DRAFT">Rascunho</option>
-              <option value="READY">Pronta</option>
-              <option value="CLOSED">Liberada</option>
-              <option value="CANCELED">Cancelada</option>
-            </select>
+          <div className="grid gap-3 lg:grid-cols-[1fr_auto_auto] lg:items-end">
+            <div>
+              <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">Buscar</label>
+              <div className="relative mt-1">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                <input
+                  value={q}
+                  onChange={(e) => setQ(e.target.value)}
+                  className={cn(CONTROL, "w-full pl-10")}
+                  placeholder="Número, nome, CPF, identificador..."
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">Status avançado</label>
+              <select
+                value={onlyOpen ? "OPEN" : status}
+                onChange={(e) => {
+                  const next = e.target.value as StatusFilter;
+                  setOnlyOpen(next === "OPEN");
+                  setStatus(next);
+                }}
+                className={cn(CONTROL, "mt-1 min-w-[11rem]")}
+              >
+                <option value="">Todos</option>
+                <option value="OPEN">Aberta</option>
+                <option value="DRAFT">Rascunho</option>
+                <option value="READY">Pronta</option>
+                <option value="CLOSED">Liberada</option>
+                <option value="CANCELED">Cancelada</option>
+              </select>
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => applyFilters()}
+                disabled={loading || loadingMore}
+                className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-slate-900 px-4 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:opacity-50"
+              >
+                <RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} aria-hidden />
+                {loading ? "Carregando…" : "Aplicar"}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setQ("");
+                  setStatus("");
+                  setOnlyOpen(false);
+                  resetPagination();
+                  setTimeout(() => void load({ append: false }), 0);
+                }}
+                disabled={loading || loadingMore}
+                className="inline-flex h-11 items-center justify-center rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:opacity-50"
+              >
+                Limpar
+              </button>
+            </div>
           </div>
 
-          <div className="flex items-end gap-2">
-            <button
-              type="button"
-              onClick={() => {
-                resetPagination();
-                void load({ append: false });
-              }}
-              disabled={loading || loadingMore}
-              className="rounded-md bg-black px-3 py-2 text-sm text-white disabled:opacity-50"
-            >
-              {loading ? "Carregando..." : "Aplicar filtros"}
-            </button>
-
-            <button
-              type="button"
-              onClick={() => {
-                setQ("");
-                setStatus("");
-                resetPagination();
-                setTimeout(() => void load({ append: false }), 0);
-              }}
-              disabled={loading || loadingMore}
-              className="rounded-md border px-3 py-2 text-sm disabled:opacity-50"
-            >
-              Limpar
-            </button>
-          </div>
+          {(onlyOpen || effectiveStatus === "OPEN") && (
+            <p className="text-xs font-medium text-amber-800">
+              Exibindo apenas compras <span className="font-semibold">abertas</span>.
+            </p>
+          )}
         </div>
-      </div>
+      </section>
 
       {err && (
-        <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">{err}</div>
+        <div className="rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">{err}</div>
       )}
 
-      <div className="overflow-auto rounded-xl border">
+      <section className="overflow-hidden rounded-3xl border border-slate-200/80 bg-white shadow-sm shadow-slate-200/40">
+        <div className="flex items-center justify-between gap-3 border-b border-slate-100 bg-gradient-to-r from-slate-50/80 to-white px-4 py-3 md:px-5">
+          <div>
+            <h2 className="text-sm font-bold text-slate-900">Lista de compras</h2>
+            <p className="text-xs text-slate-500">
+              {filtered.length} resultado(s)
+              {onlyOpen || effectiveStatus === "OPEN" ? " · somente abertas" : ""}
+            </p>
+          </div>
+        </div>
+
+        <div className="overflow-x-auto p-2 md:p-3">
         <table className="min-w-[1180px] w-full text-sm">
-          <thead className="bg-gray-50">
-            <tr className="text-left">
-              <th className="p-3">Compra</th>
-              <th className="p-3">Status</th>
-              <th className="p-3">Cedente</th>
-              <th className="p-3">CIA</th>
-              <th className="p-3">Pts CIA</th>
-              <th className="p-3">Milheiro</th>
-              <th className="p-3">Total</th>
-              <th className="p-3">Criada em</th>
-              <th className="p-3"></th>
+          <thead>
+            <tr className="border-b border-slate-100 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+              <th className="px-3 py-2.5">Compra</th>
+              <th className="px-3 py-2.5">Status</th>
+              <th className="px-3 py-2.5">Cedente</th>
+              <th className="px-3 py-2.5">CIA</th>
+              <th className="px-3 py-2.5 text-right">Pts CIA</th>
+              <th className="px-3 py-2.5 text-right">Milheiro</th>
+              <th className="px-3 py-2.5 text-right">Total</th>
+              <th className="px-3 py-2.5">Criada em</th>
+              <th className="px-3 py-2.5 text-right">Ações</th>
             </tr>
           </thead>
 
           <tbody>
             {filtered.length === 0 && !loading && (
               <tr>
-                <td colSpan={9} className="p-4 text-gray-500">
+                <td colSpan={9} className="px-3 py-10 text-center text-slate-500">
                   Nenhuma compra encontrada.
                 </td>
               </tr>
@@ -420,46 +592,55 @@ export default function ComprasClient() {
               const m = milheiroCents(r.ciaPointsTotal || 0, r.totalCostCents || 0);
 
               return (
-                <tr key={r.id} className="border-t">
-                  <td className="p-3">
-                    <div className="font-mono" title={r.id}>
+                <tr key={r.id} className="border-b border-slate-50 transition hover:bg-slate-50/80 last:border-b-0">
+                  <td className="px-3 py-3.5">
+                    <div className="font-mono font-semibold text-slate-900" title={r.id}>
                       {r.numero}
                     </div>
                   </td>
 
-                  <td className="p-3">
+                  <td className="px-3 py-3.5">
                     <StatusPill status={r.status} />
                   </td>
 
-                  <td className="p-3">
+                  <td className="px-3 py-3.5">
                     {r.cedente ? (
                       <div className="space-y-0.5">
-                        <div className="font-medium">{r.cedente.nomeCompleto}</div>
-                        <div className="text-xs text-gray-500">
+                        <div className="font-semibold text-slate-900">{r.cedente.nomeCompleto}</div>
+                        <div className="text-xs text-slate-500">
                           CPF {r.cedente.cpf} · {r.cedente.identificador}
                         </div>
                       </div>
                     ) : (
-                      <span className="text-gray-500">—</span>
+                      <span className="text-slate-500">—</span>
                     )}
                   </td>
 
-                  <td className="p-3">{r.ciaProgram || "—"}</td>
+                  <td className="px-3 py-3.5 font-medium text-slate-800">{r.ciaProgram || "—"}</td>
 
-                  <td className="p-3 font-mono">{(r.ciaPointsTotal || 0).toLocaleString("pt-BR")}</td>
-
-                  <td className="p-3 font-medium">
-                    {m ? fmtMoneyBR(m) : <span className="text-gray-500">—</span>}
-                    <div className="text-[11px] text-gray-500">por 1.000 pts</div>
+                  <td className="px-3 py-3.5 text-right font-mono font-semibold tabular-nums text-slate-900">
+                    {(r.ciaPointsTotal || 0).toLocaleString("pt-BR")}
                   </td>
 
-                  <td className="p-3 font-medium">{fmtMoneyBR(r.totalCostCents || 0)}</td>
+                  <td className="px-3 py-3.5 text-right">
+                    <div className="font-semibold text-slate-900">
+                      {m ? fmtMoneyBR(m) : <span className="text-slate-500">—</span>}
+                    </div>
+                    <div className="text-[11px] text-slate-500">por 1.000 pts</div>
+                  </td>
 
-                  <td className="p-3">{fmtDateBR(r.createdAt)}</td>
+                  <td className="px-3 py-3.5 text-right font-semibold tabular-nums text-slate-900">
+                    {fmtMoneyBR(r.totalCostCents || 0)}
+                  </td>
 
-                  <td className="p-3">
-                    <div className="flex items-center justify-end gap-2">
-                      <Link href={`/dashboard/compras/${r.id}`} className="rounded-md border px-2 py-1 text-xs">
+                  <td className="px-3 py-3.5 text-slate-700">{fmtDateBR(r.createdAt)}</td>
+
+                  <td className="px-3 py-3.5">
+                    <div className="flex flex-wrap items-center justify-end gap-1.5">
+                      <Link
+                        href={`/dashboard/compras/${r.id}`}
+                        className="rounded-xl border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50"
+                      >
                         Editar
                       </Link>
 
@@ -467,7 +648,7 @@ export default function ComprasClient() {
                         type="button"
                         onClick={() => setPointsModalId(r.id)}
                         disabled={isBusy || isCanceled || !isReleased}
-                        className="rounded-md bg-indigo-600 px-2 py-1 text-xs text-white disabled:opacity-50"
+                        className="rounded-xl border border-indigo-200 bg-indigo-50 px-2.5 py-1.5 text-xs font-semibold text-indigo-800 transition hover:bg-indigo-100 disabled:opacity-50"
                         title="Adicionar mais itens de compra de pontos usando o mesmo ID"
                       >
                         Comprar mais
@@ -477,23 +658,23 @@ export default function ComprasClient() {
                         type="button"
                         onClick={() => void onRelease(r.id)}
                         disabled={isBusy || isReleased || isCanceled}
-                        className="rounded-md bg-emerald-600 px-2 py-1 text-xs text-white disabled:opacity-50"
+                        className="rounded-xl border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 text-xs font-semibold text-emerald-800 transition hover:bg-emerald-100 disabled:opacity-50"
                       >
-                        {isBusy ? "..." : "Liberar"}
+                        {isBusy ? "…" : "Liberar"}
                       </button>
 
                       <button
                         type="button"
                         onClick={() => void onCancel(r.id)}
                         disabled={isBusy || isCanceled || isReleased}
-                        className="rounded-md border border-red-300 px-2 py-1 text-xs text-red-700 disabled:opacity-50"
+                        className="rounded-xl border border-rose-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-rose-700 transition hover:bg-rose-50 disabled:opacity-50"
                       >
-                        {isBusy ? "..." : "Cancelar"}
+                        {isBusy ? "…" : "Cancelar"}
                       </button>
                     </div>
 
                     {(isReleased || isCanceled) && (
-                      <div className="mt-1 text-[11px] text-gray-500 text-right">
+                      <div className="mt-1 text-right text-[11px] text-slate-500">
                         {isReleased ? "travada" : "cancelada"}
                       </div>
                     )}
@@ -504,30 +685,34 @@ export default function ComprasClient() {
 
             {loading && (
               <tr>
-                <td colSpan={9} className="p-4 text-gray-500">
-                  Carregando...
+                <td colSpan={9} className="px-3 py-10 text-center text-slate-500">
+                  <RefreshCw className="mx-auto mb-2 h-6 w-6 animate-spin text-slate-400" aria-hidden />
+                  Carregando compras…
                 </td>
               </tr>
             )}
           </tbody>
         </table>
-      </div>
+        </div>
+      </section>
 
-      {/* ✅ Botão Carregar mais (sempre usa o dataset já trazido do backend, sem refazer filtro local) */}
       {hasMore && (
         <div className="flex justify-center">
           <button
             type="button"
             onClick={() => void load({ append: true })}
             disabled={loading || loadingMore}
-            className="rounded-md border px-3 py-2 text-sm disabled:opacity-50"
+            className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:opacity-50"
           >
-            {loadingMore ? "Carregando..." : "Carregar mais"}
+            <RefreshCw className={cn("h-4 w-4", loadingMore && "animate-spin")} aria-hidden />
+            {loadingMore ? "Carregando…" : "Carregar mais"}
           </button>
         </div>
       )}
 
-      <div className="text-xs text-gray-500">Dica: “Comprar mais” adiciona POINTS_BUY mesmo liberada, mantendo o ID.</div>
+      <p className="text-center text-xs text-slate-500">
+        Dica: “Comprar mais” adiciona POINTS_BUY mesmo liberada, mantendo o ID.
+      </p>
 
       <PointsBuyModal
         open={!!pointsModalId}
