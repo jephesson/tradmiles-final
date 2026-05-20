@@ -1,7 +1,23 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Copy, KeyRound, MessageCircle, X } from "lucide-react";
+import {
+  CalendarDays,
+  CheckCircle2,
+  Clock,
+  Copy,
+  KeyRound,
+  ListChecks,
+  MessageCircle,
+  Plane,
+  RefreshCw,
+  Sparkles,
+  UserRound,
+  X,
+  XCircle,
+} from "lucide-react";
+import { cn } from "@/lib/cn";
+import { buildWhatsAppLink, normalizeBRPhoneToE164 } from "@/lib/whatsapp";
 
 type PromoStatus = "PENDING" | "ELIGIBLE" | "DENIED" | "USED";
 
@@ -61,6 +77,25 @@ type CredentialsState = {
   senhaLatam: string | null;
   senhaLivelo: string | null;
 };
+type SectionAccent = "emerald" | "amber" | "rose" | "sky";
+
+const SUMMARY_ACCENT = {
+  slate: "from-slate-500 to-slate-600",
+  emerald: "from-emerald-500 to-teal-600",
+  amber: "from-amber-500 to-orange-600",
+  rose: "from-rose-500 to-red-600",
+  sky: "from-sky-500 to-blue-600",
+} as const;
+
+const SECTION_BAR: Record<SectionAccent, string> = {
+  emerald: "bg-emerald-500",
+  amber: "bg-amber-500",
+  rose: "bg-rose-500",
+  sky: "bg-sky-500",
+};
+
+const CONTROL =
+  "h-11 rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-900 shadow-sm outline-none transition focus:border-slate-300 focus:ring-2 focus:ring-slate-900/10";
 
 function fmtInt(n: number) {
   return new Intl.NumberFormat("pt-BR").format(n || 0);
@@ -72,15 +107,48 @@ function maskCpf(cpf: string) {
   return `***.***.${d.slice(6, 9)}-${d.slice(9, 11)}`;
 }
 
-function whatsappHref(telefone?: string | null) {
-  let d = String(telefone || "").replace(/\D+/g, "");
-  if (!d) return null;
+function firstName(full?: string, fallback?: string) {
+  const raw = String(full || "").trim() || String(fallback || "").trim();
+  const first = raw.split(/\s+/)[0] || "";
+  return first || "—";
+}
 
-  while (d.startsWith("00")) d = d.slice(2);
-  if (d.length === 10 || d.length === 11) d = `55${d}`;
-  if (d.length < 12) return null;
+function buildListaPromoWhatsappMessage(params: {
+  cedenteNome: string;
+  loggedInName: string;
+  ownerName: string;
+}) {
+  const cedente = String(params.cedenteNome || "").trim();
+  const eu = firstName(params.loggedInName);
+  const socio = firstName(params.ownerName);
+  const greeting = cedente ? `Olá, ${cedente}, tudo bem?` : "Olá, tudo bem?";
 
-  return `https://wa.me/${d}`;
+  return [
+    greeting,
+    "",
+    `Aqui é o ${eu}, sócio de ${socio} da Vias Aéreas, agência especializada em milhas aéreas.`,
+    "",
+    "Gostaríamos de saber se você tem interesse e disponibilidade para que possamos investir na sua conta LATAM. Para isso, precisamos da sua colaboração na realização das biometrias necessárias para conseguirmos emitir e vender as passagens.",
+    "",
+    "O pagamento será de R$ 80,00 pela realização de 7 biometrias. Cada biometria leva menos de 1 minuto, mas é importante que sejam feitas com agilidade quando solicitadas, pois a demora pode impedir a emissão da passagem.",
+    "",
+    "Você teria interesse em participar?",
+  ].join("\n");
+}
+
+function whatsappHref(
+  telefone: string | null | undefined,
+  cedenteNome: string,
+  loggedInName: string,
+  ownerName: string
+) {
+  const e164 = normalizeBRPhoneToE164(telefone);
+  if (!e164) return null;
+
+  return buildWhatsAppLink(
+    e164,
+    buildListaPromoWhatsappMessage({ cedenteNome, loggedInName, ownerName })
+  );
 }
 
 function dateBR(iso: string | null | undefined) {
@@ -155,41 +223,62 @@ function SummaryCard({
   value: string;
   tone: "slate" | "emerald" | "amber" | "rose" | "sky";
 }) {
-  const toneClass =
-    tone === "emerald"
-      ? "border-emerald-100 bg-emerald-50/70"
-      : tone === "amber"
-        ? "border-amber-100 bg-amber-50/70"
-        : tone === "rose"
-          ? "border-rose-100 bg-rose-50/70"
-          : tone === "sky"
-            ? "border-sky-100 bg-sky-50/70"
-            : "border-slate-200 bg-white";
-
   return (
-    <div className={`rounded-2xl border p-4 shadow-sm ${toneClass}`}>
-      <div className="text-xs text-slate-500">{title}</div>
-      <div className="mt-1 text-2xl font-semibold text-slate-900">{value}</div>
+    <div className="group relative overflow-hidden rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm shadow-slate-200/40 transition hover:shadow-md">
+      <div
+        className={cn(
+          "pointer-events-none absolute -right-3 -top-3 h-20 w-20 rounded-full bg-gradient-to-br opacity-[0.12] blur-2xl",
+          SUMMARY_ACCENT[tone === "slate" ? "slate" : tone]
+        )}
+        aria-hidden
+      />
+      <div className="flex items-start gap-3">
+        <div
+          className={cn(
+            "flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br text-white shadow-sm",
+            SUMMARY_ACCENT[tone === "slate" ? "slate" : tone]
+          )}
+        >
+          <SummaryIcon tone={tone} />
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">{title}</div>
+          <div className="mt-1 text-xl font-bold tabular-nums tracking-tight text-slate-900">{value}</div>
+        </div>
+      </div>
     </div>
   );
+}
+
+function SummaryIcon({ tone }: { tone: "slate" | "emerald" | "amber" | "rose" | "sky" }) {
+  const props = { className: "h-5 w-5", "aria-hidden": true as const };
+  if (tone === "emerald") return <CheckCircle2 {...props} />;
+  if (tone === "amber") return <Clock {...props} />;
+  if (tone === "rose") return <XCircle {...props} />;
+  if (tone === "sky") return <Sparkles {...props} />;
+  return <ListChecks {...props} />;
 }
 
 function Section({
   title,
   rows,
   emptyText,
+  accent,
   onChangeStatus,
   onOpenCredentials,
   sortBy,
   ownerId,
+  sessionDisplayName,
 }: {
   title: string;
   rows: Item[];
   emptyText: string;
+  accent: SectionAccent;
   onChangeStatus: (itemId: string, status: PromoStatus) => Promise<void>;
   onOpenCredentials: (item: Item) => void;
   sortBy: SortBy;
   ownerId: string;
+  sessionDisplayName: string;
 }) {
   const filteredAndSorted = useMemo(() => {
     const filtered = ownerId
@@ -212,52 +301,64 @@ function Section({
   }, [rows, sortBy, ownerId]);
 
   return (
-    <div className="rounded-2xl border bg-white p-4 shadow-sm">
-      <div className="flex items-center justify-between">
-        <div className="text-sm font-semibold">{title}</div>
-        <div className="text-xs text-neutral-500">{filteredAndSorted.length} contas</div>
+    <section className="overflow-hidden rounded-3xl border border-slate-200/80 bg-white shadow-sm shadow-slate-200/40">
+      <div className="flex items-center justify-between gap-3 border-b border-slate-100 bg-gradient-to-r from-slate-50/80 to-white px-4 py-3 md:px-5">
+        <div className="flex items-center gap-3">
+          <div className={cn("h-8 w-1 rounded-full", SECTION_BAR[accent])} aria-hidden />
+          <div>
+            <h2 className="text-sm font-bold text-slate-900">{title}</h2>
+            <p className="text-xs text-slate-500">{filteredAndSorted.length} conta(s)</p>
+          </div>
+        </div>
       </div>
-
-      <div className="mt-3 overflow-x-auto">
+      <div className="overflow-x-auto p-2 md:p-3">
         <table className="w-full min-w-[1020px] text-sm">
           <thead>
-            <tr className="border-b text-left text-xs text-neutral-500">
-              <th className="py-2 pr-3">Cedente</th>
-              <th className="py-2 pr-3">Responsável</th>
-              <th className="py-2 pr-3 text-right">LATAM</th>
-              <th className="py-2 pr-3 text-right">LIVELO</th>
-              <th className="py-2 pr-3 text-right">PAX disp.</th>
-              <th className="py-2 pr-3 text-right">Score</th>
-              <th className="py-2 pr-3">Status</th>
-              <th className="py-2 pr-3">Ações</th>
+            <tr className="border-b border-slate-100 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+              <th className="px-3 py-2.5">Cedente</th>
+              <th className="px-3 py-2.5">Responsável</th>
+              <th className="px-3 py-2.5 text-right">LATAM</th>
+              <th className="px-3 py-2.5 text-right">LIVELO</th>
+              <th className="px-3 py-2.5 text-right">PAX disp.</th>
+              <th className="px-3 py-2.5 text-right">Score</th>
+              <th className="px-3 py-2.5">Status</th>
+              <th className="px-3 py-2.5 text-right">Ações</th>
             </tr>
           </thead>
           <tbody>
             {filteredAndSorted.map((item) => {
               const meta = statusMeta(item.status);
-              const waHref = whatsappHref(item.cedente.telefone);
+              const waHref = whatsappHref(
+                item.cedente.telefone,
+                item.cedente.nomeCompleto,
+                sessionDisplayName,
+                item.cedente.owner.name || item.cedente.owner.login
+              );
 
               return (
-                <tr key={item.id} className="border-b last:border-b-0">
-                  <td className="py-3 pr-3">
-                    <div className="font-medium">{item.cedente.nomeCompleto}</div>
+                <tr key={item.id} className="border-b border-slate-50 transition hover:bg-slate-50/80 last:border-b-0">
+                  <td className="px-3 py-3.5">
+                    <div className="font-semibold text-slate-900">{item.cedente.nomeCompleto}</div>
                     <div className="text-xs text-slate-500">
                       {item.cedente.identificador} • CPF: {maskCpf(item.cedente.cpf)}
                     </div>
                   </td>
-                  <td className="py-3 pr-3">
-                    <div className="font-medium">@{item.cedente.owner.login}</div>
+                  <td className="px-3 py-3.5">
+                    <div className="inline-flex items-center gap-1.5 text-sm font-medium text-slate-700">
+                      <UserRound className="h-3.5 w-3.5 text-slate-400" aria-hidden />
+                      @{item.cedente.owner.login}
+                    </div>
                   </td>
-                  <td className="py-3 pr-3 text-right font-medium tabular-nums">
+                  <td className="px-3 py-3.5 text-right font-semibold tabular-nums text-slate-900">
                     {fmtInt(item.cedente.pontosLatam || 0)}
                   </td>
-                  <td className="py-3 pr-3 text-right font-medium tabular-nums">
+                  <td className="px-3 py-3.5 text-right font-semibold tabular-nums text-slate-900">
                     {fmtInt(item.cedente.pontosLivelo || 0)}
                   </td>
-                  <td className="py-3 pr-3 text-right font-medium tabular-nums">
+                  <td className="px-3 py-3.5 text-right font-semibold tabular-nums text-slate-900">
                     {fmtInt(item.cedente.paxDisponivel || 0)}
                   </td>
-                  <td className="py-3 pr-3 text-right">
+                  <td className="px-3 py-3.5 text-right">
                     <span
                       className={`inline-flex rounded-full border px-2 py-1 text-xs ${scorePillClass(
                         item.scoreMedia
@@ -266,7 +367,7 @@ function Section({
                       {fmtScore(item.scoreMedia)}
                     </span>
                   </td>
-                  <td className="py-3 pr-3">
+                  <td className="px-3 py-3.5">
                     <span className={`inline-flex rounded-full border px-2 py-1 text-xs ${meta.cls}`}>
                       {meta.label}
                     </span>
@@ -276,15 +377,15 @@ function Section({
                         : `por @${item.addedBy?.login || "sistema"}`}
                     </div>
                   </td>
-                  <td className="py-3 pr-3">
-                    <div className="flex flex-wrap items-center gap-2">
+                  <td className="px-3 py-3.5">
+                    <div className="flex flex-wrap items-center justify-end gap-1.5">
                       {waHref ? (
                         <a
                           href={waHref}
                           target="_blank"
                           rel="noreferrer"
                           className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
-                          title="WhatsApp"
+                          title="WhatsApp com mensagem pronta"
                         >
                           <MessageCircle size={16} />
                         </a>
@@ -310,9 +411,11 @@ function Section({
 
                       {item.status !== "ELIGIBLE" ? (
                         <button
-                          className="rounded-xl border px-3 py-1.5 text-xs hover:bg-neutral-50"
+                          type="button"
+                          className="inline-flex items-center gap-1 rounded-xl border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 text-xs font-semibold text-emerald-800 hover:bg-emerald-100"
                           onClick={() => onChangeStatus(item.id, "ELIGIBLE")}
                         >
+                          <CheckCircle2 className="h-3.5 w-3.5" aria-hidden />
                           Apto
                         </button>
                       ) : null}
@@ -328,9 +431,11 @@ function Section({
 
                       {item.status === "ELIGIBLE" ? (
                         <button
-                          className="rounded-xl border border-sky-300 bg-sky-50 px-3 py-1.5 text-xs font-medium text-sky-700 hover:bg-sky-100"
+                          type="button"
+                          className="inline-flex items-center gap-1 rounded-xl border border-sky-300 bg-sky-50 px-2.5 py-1.5 text-xs font-semibold text-sky-800 hover:bg-sky-100"
                           onClick={() => onChangeStatus(item.id, "USED")}
                         >
+                          <Sparkles className="h-3.5 w-3.5" aria-hidden />
                           Marcar usado
                         </button>
                       ) : null}
@@ -350,7 +455,7 @@ function Section({
           </tbody>
         </table>
       </div>
-    </div>
+    </section>
   );
 }
 
@@ -365,6 +470,7 @@ export default function LatamListaPromoPage() {
   const [copiedField, setCopiedField] = useState("");
   const [sortBy, setSortBy] = useState<SortBy>("ALPHA");
   const [ownerId, setOwnerId] = useState("");
+  const [sessionDisplayName, setSessionDisplayName] = useState("");
 
   const ownerOptions = useMemo(() => {
     const map = new Map<string, { id: string; login: string }>();
@@ -411,6 +517,28 @@ export default function LatamListaPromoPage() {
   useEffect(() => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    let alive = true;
+
+    (async () => {
+      try {
+        const res = await fetch("/api/session", { cache: "no-store" });
+        const json = await res.json().catch(() => null);
+        if (!alive || !json?.ok || !json?.user) return;
+
+        const name = String(json.user.name || "").trim();
+        const login = String(json.user.login || "").trim();
+        setSessionDisplayName(name || login);
+      } catch {
+        // noop
+      }
+    })();
+
+    return () => {
+      alive = false;
+    };
   }, []);
 
   async function changeStatus(itemId: string, status: PromoStatus) {
@@ -504,43 +632,58 @@ export default function LatamListaPromoPage() {
   }
 
   if (loading && !data) {
-    return <div className="p-6 text-sm text-neutral-600">Carregando…</div>;
+    return (
+      <div className="flex min-h-[40vh] flex-col items-center justify-center gap-3 text-slate-500">
+        <RefreshCw className="h-8 w-8 animate-spin text-slate-400" aria-hidden />
+        <p className="text-sm font-medium">Carregando lista promo…</p>
+      </div>
+    );
   }
 
   return (
-    <div className="p-6">
-      <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
-        <div>
-          <div className="text-2xl font-semibold">Lista promo • Latam</div>
-          <div className="text-sm text-neutral-500">
-            Cada data funciona como uma lista separada. O atalho em cedentes LATAM adiciona a conta na lista do dia.
+    <div className="space-y-6 bg-gradient-to-br from-slate-50/80 via-white to-red-50/20 pb-8">
+      <section className="overflow-hidden rounded-3xl border border-slate-200/80 bg-gradient-to-r from-slate-900 via-red-950 to-slate-800 p-5 text-white shadow-lg shadow-slate-900/10 md:p-6">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+          <div>
+            <div className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-3 py-1 text-xs font-semibold text-red-100">
+              <Plane className="h-3.5 w-3.5" aria-hidden />
+              Contas selecionadas · LATAM
+            </div>
+            <h1 className="mt-3 text-2xl font-bold tracking-tight md:text-3xl">Lista promo • Latam</h1>
+            <p className="mt-2 max-w-2xl text-sm leading-relaxed text-slate-300">
+              Cada data é uma lista separada. O atalho em cedentes LATAM adiciona a conta na lista do dia selecionado.
+            </p>
+          </div>
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+            <input
+              type="date"
+              value={listDate}
+              onChange={(e) => setListDate(e.target.value)}
+              className="h-11 rounded-xl border border-white/20 bg-white/10 px-3 text-sm text-white outline-none [color-scheme:dark]"
+            />
+            <button
+              type="button"
+              className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-white/20 bg-white/10 px-4 text-sm font-semibold text-white transition hover:bg-white/20"
+              onClick={() => data?.today && load(data.today)}
+            >
+              <CalendarDays className="h-4 w-4" aria-hidden />
+              Hoje
+            </button>
+            <button
+              type="button"
+              className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-white px-5 text-sm font-semibold text-slate-900 shadow-sm transition hover:bg-slate-100 disabled:opacity-50"
+              onClick={() => load(listDate)}
+              disabled={loading}
+            >
+              <RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} aria-hidden />
+              {loading ? "Atualizando…" : "Atualizar"}
+            </button>
           </div>
         </div>
-
-        <div className="flex flex-col gap-2 md:flex-row md:items-center">
-          <input
-            type="date"
-            value={listDate}
-            onChange={(e) => setListDate(e.target.value)}
-            className="rounded-2xl border bg-white px-4 py-2 text-sm outline-none"
-          />
-          <button
-            className="rounded-2xl border bg-white px-4 py-2 text-sm hover:bg-neutral-50"
-            onClick={() => data?.today && load(data.today)}
-          >
-            Hoje
-          </button>
-          <button
-            className="rounded-2xl border bg-black px-4 py-2 text-sm text-white hover:opacity-90"
-            onClick={() => load(listDate)}
-          >
-            Atualizar
-          </button>
-        </div>
-      </div>
+      </section>
 
       {data ? (
-        <div className="mb-4 rounded-2xl border bg-white p-4 shadow-sm">
+        <section className="rounded-3xl border border-slate-200/80 bg-white p-4 shadow-sm shadow-slate-200/40 md:p-5">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
             <div>
               <div className="text-sm font-semibold">Lista selecionada</div>
@@ -550,7 +693,7 @@ export default function LatamListaPromoPage() {
             <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
               <span className="text-xs text-neutral-500">Responsável:</span>
               <select
-                className="rounded-xl border bg-white px-3 py-2 text-sm outline-none"
+                className={CONTROL}
                 value={ownerId}
                 onChange={(e) => setOwnerId(e.target.value)}
               >
@@ -564,7 +707,7 @@ export default function LatamListaPromoPage() {
 
               <span className="text-xs text-neutral-500">Ordenar por:</span>
               <select
-                className="rounded-xl border bg-white px-3 py-2 text-sm outline-none"
+                className={CONTROL}
                 value={sortBy}
                 onChange={(e) => setSortBy(e.target.value as SortBy)}
               >
@@ -582,11 +725,12 @@ export default function LatamListaPromoPage() {
               {data.recentDates.map((date) => (
                 <button
                   key={date}
-                  className={`rounded-full border px-3 py-1 text-xs ${
+                  className={cn(
+                    "rounded-xl border px-3 py-1.5 text-xs font-medium transition",
                     data.listDate === date
-                      ? "border-black bg-black text-white"
-                      : "bg-white text-slate-700 hover:bg-slate-50"
-                  }`}
+                      ? "border-slate-900 bg-slate-900 text-white shadow-sm"
+                      : "border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50"
+                  )}
                   onClick={() => load(date)}
                 >
                   {date}
@@ -594,7 +738,7 @@ export default function LatamListaPromoPage() {
               ))}
             </div>
           ) : null}
-        </div>
+        </section>
       ) : null}
 
       {error ? (
@@ -614,42 +758,50 @@ export default function LatamListaPromoPage() {
       <div className="mt-4 grid gap-4">
         <Section
           title="Aptos para promoção"
+          accent="emerald"
           rows={data?.groups.eligible || []}
           emptyText="Nenhuma conta apta nesta lista."
           onChangeStatus={changeStatus}
           onOpenCredentials={openCredentials}
           sortBy={sortBy}
           ownerId={ownerId}
+          sessionDisplayName={sessionDisplayName}
         />
 
         <Section
           title="Aguardando decisão"
+          accent="amber"
           rows={data?.groups.pending || []}
           emptyText="Nenhuma conta aguardando nesta lista."
           onChangeStatus={changeStatus}
           onOpenCredentials={openCredentials}
           sortBy={sortBy}
           ownerId={ownerId}
+          sessionDisplayName={sessionDisplayName}
         />
 
         <Section
           title="Negados"
+          accent="rose"
           rows={data?.groups.denied || []}
           emptyText="Nenhuma conta negada nesta lista."
           onChangeStatus={changeStatus}
           onOpenCredentials={openCredentials}
           sortBy={sortBy}
           ownerId={ownerId}
+          sessionDisplayName={sessionDisplayName}
         />
 
         <Section
           title="Usados"
+          accent="sky"
           rows={data?.groups.used || []}
           emptyText="Nenhuma conta marcada como usada nesta lista."
           onChangeStatus={changeStatus}
           onOpenCredentials={openCredentials}
           sortBy={sortBy}
           ownerId={ownerId}
+          sessionDisplayName={sessionDisplayName}
         />
       </div>
 
@@ -657,7 +809,7 @@ export default function LatamListaPromoPage() {
         <div className="fixed inset-0 z-50">
           <button
             type="button"
-            className="absolute inset-0 bg-black/45"
+            className="absolute inset-0 bg-slate-900/50 backdrop-blur-sm"
             aria-label="Fechar credenciais"
             onClick={() => {
               setCredentials(null);
