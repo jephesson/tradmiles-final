@@ -12,6 +12,7 @@ import {
   Plane,
   RefreshCw,
   Sparkles,
+  Trash2,
   UserRound,
   X,
   XCircle,
@@ -266,6 +267,8 @@ function Section({
   accent,
   onChangeStatus,
   onOpenCredentials,
+  onExcluirDefinitivo,
+  excludingCedenteId,
   sortBy,
   ownerId,
   sessionDisplayName,
@@ -276,6 +279,8 @@ function Section({
   accent: SectionAccent;
   onChangeStatus: (itemId: string, status: PromoStatus) => Promise<void>;
   onOpenCredentials: (item: Item) => void;
+  onExcluirDefinitivo: (item: Item) => Promise<void>;
+  excludingCedenteId: string | null;
   sortBy: SortBy;
   ownerId: string;
   sessionDisplayName: string;
@@ -400,6 +405,16 @@ function Section({
                         <KeyRound size={16} />
                       </button>
 
+                      <button
+                        type="button"
+                        className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100 disabled:opacity-50"
+                        title="Exclusão definitiva (conta inteira)"
+                        disabled={excludingCedenteId === item.cedente.id}
+                        onClick={() => onExcluirDefinitivo(item)}
+                      >
+                        <Trash2 size={16} />
+                      </button>
+
                       {item.status !== "PENDING" ? (
                         <button
                           className="rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-50"
@@ -471,6 +486,7 @@ export default function LatamListaPromoPage() {
   const [sortBy, setSortBy] = useState<SortBy>("ALPHA");
   const [ownerId, setOwnerId] = useState("");
   const [sessionDisplayName, setSessionDisplayName] = useState("");
+  const [excludingCedenteId, setExcludingCedenteId] = useState<string | null>(null);
 
   const ownerOptions = useMemo(() => {
     const map = new Map<string, { id: string; login: string }>();
@@ -540,6 +556,57 @@ export default function LatamListaPromoPage() {
       alive = false;
     };
   }, []);
+
+  async function excluirDefinitivo(item: Item) {
+    const nome = item.cedente.nomeCompleto;
+    const id = item.cedente.identificador;
+
+    if (
+      !confirm(
+        `Excluir definitivamente ${nome} (${id})?\n\nRemove o cadastro de todas as listas (Latam, Smiles, Livelo, Esfera e painel de emissões). O histórico de vendas anteriores é preservado.`
+      )
+    ) {
+      return;
+    }
+
+    const password = window.prompt("Digite sua senha para confirmar a exclusão definitiva:");
+    if (!password?.trim()) {
+      alert("Senha obrigatória para confirmar.");
+      return;
+    }
+
+    setExcludingCedenteId(item.cedente.id);
+    try {
+      const res = await fetch("/api/cedentes/exclusao-definitiva", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          cedenteId: item.cedente.id,
+          mode: "ACCOUNT",
+          reasonCode: "DATA_DELETION_REQUEST",
+          password: password.trim(),
+        }),
+      });
+
+      const json = await res.json().catch(() => null);
+      if (!res.ok || json?.ok === false) {
+        throw new Error(json?.error || "Falha na exclusão definitiva.");
+      }
+
+      if (credentials?.cedenteId === item.cedente.id) {
+        setCredentials(null);
+        setCredentialsError("");
+      }
+
+      await load(listDate);
+      alert("Exclusão definitiva concluída.");
+    } catch (e: unknown) {
+      alert(e instanceof Error ? e.message : "Falha na exclusão definitiva.");
+    } finally {
+      setExcludingCedenteId(null);
+    }
+  }
 
   async function changeStatus(itemId: string, status: PromoStatus) {
     try {
@@ -763,6 +830,8 @@ export default function LatamListaPromoPage() {
           emptyText="Nenhuma conta apta nesta lista."
           onChangeStatus={changeStatus}
           onOpenCredentials={openCredentials}
+          onExcluirDefinitivo={excluirDefinitivo}
+          excludingCedenteId={excludingCedenteId}
           sortBy={sortBy}
           ownerId={ownerId}
           sessionDisplayName={sessionDisplayName}
@@ -775,6 +844,8 @@ export default function LatamListaPromoPage() {
           emptyText="Nenhuma conta aguardando nesta lista."
           onChangeStatus={changeStatus}
           onOpenCredentials={openCredentials}
+          onExcluirDefinitivo={excluirDefinitivo}
+          excludingCedenteId={excludingCedenteId}
           sortBy={sortBy}
           ownerId={ownerId}
           sessionDisplayName={sessionDisplayName}
@@ -787,6 +858,8 @@ export default function LatamListaPromoPage() {
           emptyText="Nenhuma conta negada nesta lista."
           onChangeStatus={changeStatus}
           onOpenCredentials={openCredentials}
+          onExcluirDefinitivo={excluirDefinitivo}
+          excludingCedenteId={excludingCedenteId}
           sortBy={sortBy}
           ownerId={ownerId}
           sessionDisplayName={sessionDisplayName}
@@ -799,6 +872,8 @@ export default function LatamListaPromoPage() {
           emptyText="Nenhuma conta marcada como usada nesta lista."
           onChangeStatus={changeStatus}
           onOpenCredentials={openCredentials}
+          onExcluirDefinitivo={excluirDefinitivo}
+          excludingCedenteId={excludingCedenteId}
           sortBy={sortBy}
           ownerId={ownerId}
           sessionDisplayName={sessionDisplayName}
