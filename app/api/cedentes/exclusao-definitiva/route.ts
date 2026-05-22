@@ -3,6 +3,7 @@ import {
   isExclusionReasonCode,
   type ExclusionReasonCode,
 } from "@/lib/cedentes/exclusaoDefinitivaReasons";
+import { listUpcomingSmilesFlightsForCedente } from "@/lib/cedentes/upcomingSmilesFlights";
 import { prisma } from "@/lib/prisma";
 import { NextResponse } from "next/server";
 import type { Prisma } from "@prisma/client";
@@ -139,9 +140,12 @@ export async function GET(req: Request) {
         );
       }
 
+      const upcomingSmilesFlights = await listUpcomingSmilesFlightsForCedente(cedenteId);
+
       return NextResponse.json({
         ok: true,
         preview: cedente,
+        upcomingSmilesFlights,
         reasons: Object.entries(EXCLUSION_REASON_TEXT).map(([code, text]) => ({
           code,
           text,
@@ -215,6 +219,12 @@ export async function POST(req: Request) {
     if (!auth.ok) {
       return NextResponse.json({ ok: false, error: auth.error }, { status: auth.status });
     }
+
+    const checkSmilesFlights =
+      effectiveMode === "ACCOUNT" || (effectiveMode === "PROGRAM" && program === "SMILES");
+    const upcomingSmilesFlightsBefore = checkSmilesFlights
+      ? await listUpcomingSmilesFlightsForCedente(cedenteId)
+      : [];
 
     const result = await prisma.$transaction(async (tx) => {
       const ced = await tx.cedente.findUnique({
@@ -317,6 +327,8 @@ export async function POST(req: Request) {
           scoreDeleted,
           biometriaDeleted,
           cedenteStatus: "REJECTED",
+          upcomingSmilesFlightsCount: upcomingSmilesFlightsBefore.length,
+          upcomingSmilesFlights: upcomingSmilesFlightsBefore,
         };
 
         await tx.cedenteExclusion.create({
@@ -408,6 +420,12 @@ export async function POST(req: Request) {
         emissionsDeleted,
         latamTurboMonthsDeleted,
         latamTurboAccountDeleted,
+        ...(checkSmilesFlights
+          ? {
+              upcomingSmilesFlightsCount: upcomingSmilesFlightsBefore.length,
+              upcomingSmilesFlights: upcomingSmilesFlightsBefore,
+            }
+          : {}),
       };
 
       await tx.cedenteExclusion.create({

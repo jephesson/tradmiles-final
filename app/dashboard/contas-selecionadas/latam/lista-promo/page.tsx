@@ -18,6 +18,8 @@ import {
   XCircle,
 } from "lucide-react";
 import { cn } from "@/lib/cn";
+import { fetchUpcomingSmilesFlightsForCedente } from "@/lib/cedentes/fetchUpcomingSmilesFlights";
+import { appendSmilesFlightsToExclusaoConfirm } from "@/lib/cedentes/upcomingSmilesFlights";
 import { buildWhatsAppLink, normalizeBRPhoneToE164 } from "@/lib/whatsapp";
 
 type PromoStatus = "PENDING" | "ELIGIBLE" | "DENIED" | "USED";
@@ -561,11 +563,22 @@ export default function LatamListaPromoPage() {
     const nome = item.cedente.nomeCompleto;
     const id = item.cedente.identificador;
 
-    if (
-      !confirm(
-        `Excluir definitivamente ${nome} (${id})?\n\nRemove o cadastro de todas as listas (Latam, Smiles, Livelo, Esfera e painel de emissões). O histórico de vendas anteriores é preservado.`
-      )
-    ) {
+    let upcomingSmilesFlights: Awaited<
+      ReturnType<typeof fetchUpcomingSmilesFlightsForCedente>
+    > = [];
+    try {
+      upcomingSmilesFlights = await fetchUpcomingSmilesFlightsForCedente(item.cedente.id);
+    } catch (e: unknown) {
+      alert(e instanceof Error ? e.message : "Falha ao verificar voos Smiles.");
+      return;
+    }
+
+    const baseConfirm = `Excluir definitivamente ${nome} (${id})?\n\nRemove o cadastro de todas as listas (Latam, Smiles, Livelo, Esfera e painel de emissões). O histórico de vendas anteriores é preservado.`;
+    const confirmMsg = appendSmilesFlightsToExclusaoConfirm(
+      baseConfirm,
+      upcomingSmilesFlights
+    );
+    if (!confirm(confirmMsg)) {
       return;
     }
 

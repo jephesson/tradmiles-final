@@ -1,6 +1,11 @@
 "use client";
 
 import { buildExclusaoWhatsappShortMessage } from "@/lib/cedentes/exclusaoDefinitivaContent";
+import {
+  appendSmilesFlightsToExclusaoConfirm,
+  formatUpcomingSmilesFlightsWarning,
+  type UpcomingSmilesFlight,
+} from "@/lib/cedentes/upcomingSmilesFlights";
 import { useEffect, useMemo, useState } from "react";
 
 type Program = "LATAM" | "SMILES" | "LIVELO" | "ESFERA";
@@ -116,6 +121,9 @@ export default function CedentesExclusaoDefinitivaClient() {
   const [cedentes, setCedentes] = useState<CedenteLite[]>([]);
   const [excluded, setExcluded] = useState<ExclusionRow[]>([]);
   const [preview, setPreview] = useState<CedentePreview | null>(null);
+  const [upcomingSmilesFlights, setUpcomingSmilesFlights] = useState<UpcomingSmilesFlight[]>(
+    []
+  );
 
   const [cedenteId, setCedenteId] = useState("");
   const [mode, setMode] = useState<ScopeMode>("ACCOUNT");
@@ -174,6 +182,7 @@ export default function CedentesExclusaoDefinitivaClient() {
     async function loadPreview() {
       if (!cedenteId) {
         setPreview(null);
+        setUpcomingSmilesFlights([]);
         return;
       }
 
@@ -194,10 +203,16 @@ export default function CedentesExclusaoDefinitivaClient() {
 
         if (active) {
           setPreview((json?.preview || null) as CedentePreview | null);
+          setUpcomingSmilesFlights(
+            Array.isArray(json?.upcomingSmilesFlights)
+              ? (json.upcomingSmilesFlights as UpcomingSmilesFlight[])
+              : []
+          );
         }
       } catch (error: unknown) {
         if (active) {
           setPreview(null);
+          setUpcomingSmilesFlights([]);
           alert(getErrorMessage(error, "Falha ao carregar dados do cedente."));
         }
       } finally {
@@ -297,12 +312,14 @@ export default function CedentesExclusaoDefinitivaClient() {
 
     const exclusaoConta =
       mode === "ACCOUNT" || reasonCode === "DATA_DELETION_REQUEST";
+    const checkSmiles =
+      exclusaoConta || (mode === "PROGRAM" && program === "SMILES");
     const alvo = exclusaoConta ? "conta inteira (todos os programas)" : `programa ${program}`;
-    if (
-      !confirm(
-        `Confirma EXCLUSÃO DEFINITIVA do cedente ${cedSel?.nomeCompleto || ""} (${alvo})?\n\nO cedente sairá de todas as listas operacionais. Vendas já realizadas permanecem no histórico financeiro.`
-      )
-    ) {
+    const baseConfirm = `Confirma EXCLUSÃO DEFINITIVA do cedente ${cedSel?.nomeCompleto || ""} (${alvo})?\n\nO cedente sairá de todas as listas operacionais. Vendas já realizadas permanecem no histórico financeiro.`;
+    const confirmMsg = checkSmiles
+      ? appendSmilesFlightsToExclusaoConfirm(baseConfirm, upcomingSmilesFlights)
+      : baseConfirm;
+    if (!confirm(confirmMsg)) {
       return;
     }
 
@@ -493,6 +510,19 @@ export default function CedentesExclusaoDefinitivaClient() {
         {cedSel ? (
           <div className="text-xs text-slate-500">
             Selecionado: <b>{cedSel.nomeCompleto}</b> ({cedSel.identificador}) • CPF {maskCpf(cedSel.cpf)}
+          </div>
+        ) : null}
+
+        {upcomingSmilesFlights.length > 0 ? (
+          <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+            <div className="font-semibold">Voos Smiles ainda por ocorrer</div>
+            <p className="mt-1 text-xs text-amber-800">
+              Revise antes de excluir — as vendas permanecem no histórico, mas o voo ainda está
+              agendado.
+            </p>
+            <pre className="mt-2 whitespace-pre-wrap font-sans text-xs leading-relaxed">
+              {formatUpcomingSmilesFlightsWarning(upcomingSmilesFlights).trim()}
+            </pre>
           </div>
         ) : null}
 
