@@ -207,6 +207,10 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: "Motivo obrigatório e inválido." }, { status: 400 });
     }
 
+    // Solicitação de exclusão de dados = conta inteira (todos os programas + painel de emissões).
+    const effectiveMode: ScopeMode =
+      reasonCode === "DATA_DELETION_REQUEST" ? "ACCOUNT" : mode;
+
     const auth = await requirePassword(req, password);
     if (!auth.ok) {
       return NextResponse.json({ ok: false, error: auth.error }, { status: auth.status });
@@ -229,7 +233,7 @@ export async function POST(req: Request) {
         throw new Error("Sem permissão para excluir cedente de outro time.");
       }
 
-      if (mode === "ACCOUNT") {
+      if (effectiveMode === "ACCOUNT") {
         const salesPreserved = await tx.sale.count({ where: { cedenteId } });
         const receivablesPreserved = await tx.receivable.count({
           where: { sale: { is: { cedenteId } } },
@@ -249,14 +253,34 @@ export async function POST(req: Request) {
         const latamTurboAccountDeleted = (
           await tx.latamTurboAccount.deleteMany({ where: { cedenteId } })
         ).count;
+        const emissionsDeleted = (
+          await tx.emissionEvent.deleteMany({ where: { cedenteId } })
+        ).count;
+        const anotacoesDeleted = (await tx.anotacao.deleteMany({ where: { cedenteId } })).count;
+        const latamPromoItemsDeleted = (
+          await tx.latamPromoListItem.deleteMany({ where: { cedenteId } })
+        ).count;
+        const termReviewsDeleted = (
+          await tx.cedenteTermReview.deleteMany({ where: { cedenteId } })
+        ).count;
+        const termAcceptancesDeleted = (
+          await tx.cedenteTermAcceptance.deleteMany({ where: { cedenteId } })
+        ).count;
+        const scoreDeleted = (await tx.cedenteScore.deleteMany({ where: { cedenteId } })).count;
+        const biometriaDeleted = (
+          await tx.cedenteBiometriaHorario.deleteMany({ where: { cedenteId } })
+        ).count;
 
         await tx.cedente.update({
           where: { id: cedenteId },
           data: {
             status: "REJECTED",
             cpf: `EXCL-${cedenteId}`,
+            dataNascimento: null,
             telefone: null,
             emailCriado: null,
+            chavePix: "EXCLUIDO",
+            titularConfirmado: false,
             pontosLatam: 0,
             pontosSmiles: 0,
             pontosLivelo: 0,
@@ -270,7 +294,8 @@ export async function POST(req: Request) {
         });
 
         const details = {
-          mode,
+          mode: effectiveMode,
+          requestedMode: mode,
           reasonCode,
           reasonText: EXCLUSION_REASON_TEXT[reasonCode],
           historyPreserved: true,
@@ -284,6 +309,13 @@ export async function POST(req: Request) {
           walletDeleted,
           latamTurboMonthsDeleted,
           latamTurboAccountDeleted,
+          emissionsDeleted,
+          anotacoesDeleted,
+          latamPromoItemsDeleted,
+          termReviewsDeleted,
+          termAcceptancesDeleted,
+          scoreDeleted,
+          biometriaDeleted,
           cedenteStatus: "REJECTED",
         };
 
@@ -326,6 +358,9 @@ export async function POST(req: Request) {
       ).count;
       const walletDeleted = (
         await tx.walletBalance.deleteMany({ where: { cedenteId, program } })
+      ).count;
+      const emissionsDeleted = (
+        await tx.emissionEvent.deleteMany({ where: { cedenteId, program } })
       ).count;
 
       let latamTurboMonthsDeleted = 0;
@@ -370,6 +405,7 @@ export async function POST(req: Request) {
         protocolsDeleted,
         clubsDeleted,
         walletDeleted,
+        emissionsDeleted,
         latamTurboMonthsDeleted,
         latamTurboAccountDeleted,
       };

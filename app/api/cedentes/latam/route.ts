@@ -1,5 +1,6 @@
 // app/api/cedentes/latam/route.ts
 import { NextRequest, NextResponse } from "next/server";
+import { activeCedenteWhere } from "@/lib/cedentes/activeCedenteWhere";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/auth-server";
 
@@ -141,8 +142,7 @@ export async function GET(req: NextRequest) {
     );
 
     const whereCedente: any = {
-      status: "APPROVED",
-      owner: { team: session.team },
+      ...activeCedenteWhere({ owner: { team: session.team } }),
       AND: [],
     };
 

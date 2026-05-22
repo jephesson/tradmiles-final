@@ -163,6 +163,12 @@ export default function CedentesExclusaoDefinitivaClient() {
   }, []);
 
   useEffect(() => {
+    if (reasonCode === "DATA_DELETION_REQUEST" && mode !== "ACCOUNT") {
+      setMode("ACCOUNT");
+    }
+  }, [reasonCode, mode]);
+
+  useEffect(() => {
     let active = true;
 
     async function loadPreview() {
@@ -289,10 +295,12 @@ export default function CedentesExclusaoDefinitivaClient() {
     if (!cedenteId) return alert("Selecione um cedente.");
     if (!password.trim()) return alert("Informe sua senha para confirmar.");
 
-    const alvo = mode === "ACCOUNT" ? "conta inteira" : `programa ${program}`;
+    const exclusaoConta =
+      mode === "ACCOUNT" || reasonCode === "DATA_DELETION_REQUEST";
+    const alvo = exclusaoConta ? "conta inteira (todos os programas)" : `programa ${program}`;
     if (
       !confirm(
-        `Confirma EXCLUSÃO DEFINITIVA do cedente ${cedSel?.nomeCompleto || ""} (${alvo})?\n\nAs vendas/compras e o histórico financeiro serão preservados.`
+        `Confirma EXCLUSÃO DEFINITIVA do cedente ${cedSel?.nomeCompleto || ""} (${alvo})?\n\nO cedente sairá de todas as listas operacionais. Vendas já realizadas permanecem no histórico financeiro.`
       )
     ) {
       return;
@@ -382,8 +390,9 @@ export default function CedentesExclusaoDefinitivaClient() {
       <div>
         <h1 className="text-2xl font-semibold">Cedentes • Exclusão definitiva</h1>
         <p className="text-sm text-slate-600">
-          Inativa o cedente, limpa os dados de acesso e registra em Excluídos para auditoria.
-          Histórico de vendas e compras é preservado.
+          Remove o cadastro das listas operacionais (Latam, Smiles, Livelo, Esfera e painel de
+          emissões), apaga credenciais e registra em Excluídos. O histórico de vendas anteriores é
+          preservado.
         </p>
       </div>
 
@@ -420,13 +429,19 @@ export default function CedentesExclusaoDefinitivaClient() {
           <label className="space-y-1">
             <div className="text-xs text-slate-600">Escopo da exclusão</div>
             <select
-              className="w-full rounded-xl border px-3 py-2 text-sm bg-white"
+              className="w-full rounded-xl border px-3 py-2 text-sm bg-white disabled:bg-slate-50"
               value={mode}
+              disabled={reasonCode === "DATA_DELETION_REQUEST"}
               onChange={(e) => setMode(e.target.value as ScopeMode)}
             >
               <option value="ACCOUNT">Conta inteira</option>
               <option value="PROGRAM">Programa específico</option>
             </select>
+            {reasonCode === "DATA_DELETION_REQUEST" ? (
+              <div className="text-xs text-slate-500">
+                Solicitação de exclusão de dados sempre remove a conta inteira e todos os programas.
+              </div>
+            ) : null}
           </label>
 
           {mode === "PROGRAM" ? (

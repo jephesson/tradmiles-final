@@ -1,5 +1,6 @@
 // app/api/cedentes/mini/route.ts
 import { NextRequest, NextResponse } from "next/server";
+import { activeCedenteWhere } from "@/lib/cedentes/activeCedenteWhere";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/auth-server";
 
@@ -28,7 +29,7 @@ export async function GET(_req: NextRequest) {
 
   // ✅ lista todos os cedentes do time
   const rows = await prisma.cedente.findMany({
-    where: { owner: { team: session.team } },
+    where: activeCedenteWhere({ owner: { team: session.team } }),
     orderBy: [{ nomeCompleto: "asc" }],
     select: {
       id: true,

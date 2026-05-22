@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { activeCedenteWhere } from "@/lib/cedentes/activeCedenteWhere";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/auth-server";
 import { buildWhatsAppLink, normalizeBRPhoneToE164 } from "@/lib/whatsapp";
@@ -51,7 +52,7 @@ export async function GET() {
   }
 
   const cedentes = await prisma.cedente.findMany({
-    where: { owner: { team } },
+    where: activeCedenteWhere({ owner: { team } }),
     orderBy: { createdAt: "desc" },
     select: {
       id: true,

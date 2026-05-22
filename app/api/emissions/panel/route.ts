@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { activeCedenteWhere } from "@/lib/cedentes/activeCedenteWhere";
 import { prisma } from "@/lib/prisma";
 import { getSessionServer as getSession } from "@/lib/auth-server";
 import { LoyaltyProgram, EmissionSource } from "@prisma/client";
@@ -135,10 +136,13 @@ export async function POST(req: NextRequest) {
     const renewMonthKey = monthKeyUTC(renewMonthStart);
     const monthKeysSet = new Set(monthsArr.map((m) => m.key));
 
-    // buscar eventos do range
+    // buscar eventos do range (somente cedentes ativos — excluídos não entram no painel)
     const where: any = {
       program,
       issuedAt: { gte: rangeStart, lte: rangeEnd },
+      cedente: activeCedenteWhere(
+        session.team ? { owner: { team: session.team } } : undefined
+      ),
     };
     if (cedenteIds && cedenteIds.length > 0) {
       where.cedenteId = { in: cedenteIds };
@@ -194,9 +198,19 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // se o front mandou cedenteIds, devolve TODOS (mesmo os zerados)
+    // se o front mandou cedenteIds, devolve só cedentes ativos (excluídos não aparecem)
     if (cedenteIds && cedenteIds.length > 0) {
-      for (const id of cedenteIds) ensureRow(id);
+      const active = await prisma.cedente.findMany({
+        where: activeCedenteWhere({
+          id: { in: cedenteIds },
+          owner: { team: session.team },
+        }),
+        select: { id: true },
+      });
+      const activeIds = new Set(active.map((c) => c.id));
+      for (const id of cedenteIds) {
+        if (activeIds.has(id)) ensureRow(id);
+      }
     }
 
     const rows = Array.from(byCedente.values());

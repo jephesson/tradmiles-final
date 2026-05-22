@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { activeCedenteWhere } from "@/lib/cedentes/activeCedenteWhere";
 import { prisma } from "@/lib/prisma";
 // import { requireSession } from "@/lib/auth-server";
 
@@ -53,7 +54,7 @@ export async function GET(req: NextRequest) {
     const q = (searchParams.get("q") || "").trim();
     const ownerId = (searchParams.get("ownerId") || "").trim();
 
-    const where: any = { status: "APPROVED" };
+    const where: any = activeCedenteWhere();
     if (ownerId) where.ownerId = ownerId;
 
     if (q) {

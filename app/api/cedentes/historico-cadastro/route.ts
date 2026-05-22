@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
+import { activeCedenteWhere } from "@/lib/cedentes/activeCedenteWhere";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/auth-server";
-import { CedenteStatus } from "@prisma/client";
 import type { Prisma } from "@prisma/client";
 
 export const runtime = "nodejs";
@@ -58,11 +58,9 @@ export async function GET(req: NextRequest) {
     const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
 
     // ✅ where tipado + enum correto (resolve o erro do build)
-    const baseWhere = {
-      status: CedenteStatus.APPROVED,
-      // ✅ recomendado: isola por time (se sua app é multi-time)
+    const baseWhere = activeCedenteWhere({
       owner: { team: session.team },
-    } satisfies Prisma.CedenteWhereInput;
+    }) satisfies Prisma.CedenteWhereInput;
 
     const where: Prisma.CedenteWhereInput =
       basis === "createdAt"

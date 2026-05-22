@@ -1,3 +1,4 @@
+import { activeCedenteWhere } from "@/lib/cedentes/activeCedenteWhere";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 
@@ -32,7 +33,7 @@ function noCacheHeaders() {
 export async function GET() {
   try {
     const rows = await prisma.cedente.findMany({
-      where: { status: "APPROVED" },
+      where: activeCedenteWhere(),
       orderBy: { createdAt: "desc" },
       select: {
         id: true,

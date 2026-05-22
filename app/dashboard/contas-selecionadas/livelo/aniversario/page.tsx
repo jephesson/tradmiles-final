@@ -1,4 +1,5 @@
 // app/dashboard/contas-selecionadas/livelo/aniversario/page.tsx
+import { activeCedenteWhere } from "@/lib/cedentes/activeCedenteWhere";
 import { prisma } from "@/lib/prisma";
 import { getSessionServer } from "@/lib/auth-server";
 
@@ -48,11 +49,10 @@ export default async function Page() {
   }
 
   const rows = await prisma.cedente.findMany({
-    where: {
-      status: "APPROVED",
+    where: activeCedenteWhere({
       dataNascimento: { not: null },
       owner: { team: session.team },
-    },
+    }),
     select: {
       id: true,
       nomeCompleto: true,
