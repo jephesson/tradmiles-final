@@ -1,4 +1,4 @@
-import type { UpcomingSmilesFlight } from "@/lib/cedentes/upcomingSmilesFlights";
+import type { UpcomingSmilesFlight } from "@/lib/cedentes/upcomingSmilesFlightsShared";
 
 export async function fetchUpcomingSmilesFlightsForCedente(
   cedenteId: string

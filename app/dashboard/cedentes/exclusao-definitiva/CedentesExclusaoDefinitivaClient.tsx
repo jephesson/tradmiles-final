@@ -5,7 +5,7 @@ import {
   appendSmilesFlightsToExclusaoConfirm,
   formatUpcomingSmilesFlightsWarning,
   type UpcomingSmilesFlight,
-} from "@/lib/cedentes/upcomingSmilesFlights";
+} from "@/lib/cedentes/upcomingSmilesFlightsShared";
 import { useEffect, useMemo, useState } from "react";
 
 type Program = "LATAM" | "SMILES" | "LIVELO" | "ESFERA";

@@ -19,7 +19,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { fetchUpcomingSmilesFlightsForCedente } from "@/lib/cedentes/fetchUpcomingSmilesFlights";
-import { appendSmilesFlightsToExclusaoConfirm } from "@/lib/cedentes/upcomingSmilesFlights";
+import { appendSmilesFlightsToExclusaoConfirm } from "@/lib/cedentes/upcomingSmilesFlightsShared";
 import { buildWhatsAppLink, normalizeBRPhoneToE164 } from "@/lib/whatsapp";
 
 type PromoStatus = "PENDING" | "ELIGIBLE" | "DENIED" | "USED";
