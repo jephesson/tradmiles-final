@@ -813,6 +813,10 @@ export default function Sidebar() {
             <NavLink href="/dashboard/clubes" exact>
               Lista
             </NavLink>
+
+            <NavLink href="/dashboard/clubes/historico">
+              Histórico
+            </NavLink>
           </SubAccordion>
 
           <SubAccordion
