@@ -839,6 +839,97 @@ function SimpleBarChart({ title, data }: { title: string; data: Array<{ label: s
   );
 }
 
+function PurchaseMonthlyChart({
+  title,
+  data,
+  footer,
+}: {
+  title: string;
+  data: Array<{
+    key: string;
+    label: string;
+    total: number;
+    latam: number;
+    smiles: number;
+    other: number;
+    withoutCia: number;
+    canceled: number;
+  }>;
+  footer?: ReactNode;
+}) {
+  const max = Math.max(1, ...data.map((d) => d.total));
+
+  return (
+    <div className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm shadow-slate-200/40">
+      <div className="mb-2 text-sm font-semibold tracking-tight text-slate-900">{title}</div>
+      <div className="mb-3 flex flex-wrap gap-2 text-[11px] text-neutral-600">
+        <span className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5">
+          <span className="h-2 w-2 rounded-full bg-sky-500" />
+          LATAM
+        </span>
+        <span className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5">
+          <span className="h-2 w-2 rounded-full bg-emerald-500" />
+          Smiles
+        </span>
+        <span className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5">
+          <span className="h-2 w-2 rounded-full bg-slate-300" />
+          Outras/sem cia
+        </span>
+      </div>
+
+      <div className="space-y-3">
+        {data.map((row) => {
+          const total = Math.max(0, Number(row.total || 0));
+          const latam = Math.max(0, Number(row.latam || 0));
+          const smiles = Math.max(0, Number(row.smiles || 0));
+          const other = Math.max(0, Number(row.other || 0) + Number(row.withoutCia || 0));
+          const totalW = total > 0 ? Math.max(6, Math.round((total / max) * 100)) : 0;
+          const latamW = total > 0 ? (latam / total) * 100 : 0;
+          const smilesW = total > 0 ? (smiles / total) * 100 : 0;
+          const otherW = Math.max(0, 100 - latamW - smilesW);
+
+          return (
+            <div key={row.key} className="grid grid-cols-[72px,1fr,64px] items-center gap-3">
+              <div className="text-xs text-neutral-600">{row.label}</div>
+              <div className="h-7 rounded-full bg-neutral-100">
+                {total > 0 ? (
+                  <div className="flex h-7 overflow-hidden rounded-full" style={{ width: `${totalW}%` }}>
+                    {latam > 0 ? (
+                      <div className="bg-sky-500" style={{ width: `${latamW}%` }} title={`LATAM: ${fmtInt(latam)}`} />
+                    ) : null}
+                    {smiles > 0 ? (
+                      <div
+                        className="bg-emerald-500"
+                        style={{ width: `${smilesW}%` }}
+                        title={`Smiles: ${fmtInt(smiles)}`}
+                      />
+                    ) : null}
+                    {other > 0 ? (
+                      <div
+                        className="bg-slate-300"
+                        style={{ width: `${otherW}%` }}
+                        title={`Outras/sem cia: ${fmtInt(other)}`}
+                      />
+                    ) : null}
+                  </div>
+                ) : null}
+              </div>
+              <div className="text-right text-xs font-semibold tabular-nums text-slate-700">{fmtInt(total)}</div>
+              <div className="col-span-3 -mt-2 pl-[84px] text-[10px] text-slate-500">
+                LATAM {fmtInt(latam)} • Smiles {fmtInt(smiles)} • Outras/sem cia {fmtInt(other)}
+                {row.canceled ? ` • Canceladas ${fmtInt(row.canceled)}` : ""}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {!data.length ? <div className="mt-2 text-xs text-neutral-500">Sem compras no período selecionado.</div> : null}
+      {footer ? <div className="mt-3 text-xs text-neutral-600">{footer}</div> : null}
+    </div>
+  );
+}
+
 function SimplePieChart({
   title,
   data,
@@ -1497,6 +1588,30 @@ export default function AnaliseDadosClient() {
     return (data?.topClients || []) as any[];
   }, [data]);
 
+  const purchaseMonths = useMemo(() => {
+    return (((data as any)?.purchases?.months || []) as any[]).map((row) => ({
+      key: String(row?.key || ""),
+      label: String(row?.label || row?.key || ""),
+      total: Number(row?.total || 0),
+      latam: Number(row?.latam || 0),
+      smiles: Number(row?.smiles || 0),
+      other: Number(row?.other || 0),
+      withoutCia: Number(row?.withoutCia || 0),
+      open: Number(row?.open || 0),
+      closed: Number(row?.closed || 0),
+      canceled: Number(row?.canceled || 0),
+    }));
+  }, [data]);
+
+  const selectedPurchaseMonth = useMemo(() => {
+    const selectedKey = String((data as any)?.filters?.month || focusYM || "");
+    const monthRow = (data as any)?.purchases?.month;
+    if (monthRow?.key === selectedKey) return monthRow;
+    return purchaseMonths.find((row) => row.key === selectedKey) || monthRow || null;
+  }, [data, focusYM, purchaseMonths]);
+
+  const purchaseTotals = (data as any)?.purchases?.totals || null;
+
   const best = data?.summary?.bestDayOfWeek;
 
   const monthLabel = data?.filters?.month || focusYM;
@@ -1928,6 +2043,55 @@ export default function AnaliseDadosClient() {
           value={`${fmtMoneyBR(kpis?.latam || 0)} / ${fmtMoneyBR(kpis?.smiles || 0)}`}
           sub={`Clubes: LATAM ${fmtInt(kpis?.clubsLatam || 0)} | SMILES ${fmtInt(kpis?.clubsSmiles || 0)}`}
           tone="rose"
+        />
+      </div>
+
+      <div className="space-y-5">
+        <div className="rounded-2xl border border-slate-200/80 bg-gradient-to-br from-slate-50/70 to-white p-5 shadow-sm shadow-slate-200/40">
+          <div className="text-sm font-semibold tracking-tight text-slate-900">Compras por companhia</div>
+          <div className="mt-1.5 text-xs leading-relaxed text-slate-600">
+            Contagem de compras criadas por mês, separando LATAM e Smiles. Outras cias e compras sem cia ficam destacadas
+            apenas como apoio.
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
+          <Card
+            title={`Compras no mês ${selectedPurchaseMonth?.label || monthLabel || "—"}`}
+            value={fmtInt(selectedPurchaseMonth?.total || 0)}
+            sub={`Abertas ${fmtInt(selectedPurchaseMonth?.open || 0)} • Liberadas/finalizadas ${fmtInt(
+              selectedPurchaseMonth?.closed || 0
+            )} • Canceladas ${fmtInt(selectedPurchaseMonth?.canceled || 0)}`}
+            tone="slate"
+          />
+          <Card
+            title="Compras LATAM no mês"
+            value={fmtInt(selectedPurchaseMonth?.latam || 0)}
+            sub={`No período: ${fmtInt(purchaseTotals?.latam || 0)} compras LATAM`}
+            tone="sky"
+          />
+          <Card
+            title="Compras Smiles no mês"
+            value={fmtInt(selectedPurchaseMonth?.smiles || 0)}
+            sub={`No período: ${fmtInt(purchaseTotals?.smiles || 0)} compras Smiles`}
+            tone="emerald"
+          />
+          <Card
+            title="Outras/sem cia no mês"
+            value={fmtInt((selectedPurchaseMonth?.other || 0) + (selectedPurchaseMonth?.withoutCia || 0))}
+            sub={`Total do período: ${fmtInt(
+              (purchaseTotals?.other || 0) + (purchaseTotals?.withoutCia || 0)
+            )}`}
+            tone="amber"
+          />
+        </div>
+
+        <PurchaseMonthlyChart
+          title="Compras por mês (LATAM x Smiles)"
+          data={purchaseMonths}
+          footer={`Total no período: ${fmtInt(purchaseTotals?.total || 0)} compras • LATAM ${fmtInt(
+            purchaseTotals?.latam || 0
+          )} • Smiles ${fmtInt(purchaseTotals?.smiles || 0)}`}
         />
       </div>
 

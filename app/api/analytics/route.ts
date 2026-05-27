@@ -1204,7 +1204,120 @@ export async function GET(req: NextRequest) {
       months.length > 0 ? Math.round(months.reduce((acc, m) => acc + (m.grossCents || 0), 0) / months.length) : 0;
 
     // =========================
-    // 6) CLUBES POR MÊS (SMILES + LATAM)
+    // 6) COMPRAS POR MÊS (LATAM + SMILES)
+    // =========================
+    const purchasesByMonth = new Map<
+      string,
+      {
+        total: number;
+        latam: number;
+        smiles: number;
+        other: number;
+        withoutCia: number;
+        open: number;
+        closed: number;
+        canceled: number;
+      }
+    >();
+
+    for (const k of monthKeys) {
+      purchasesByMonth.set(k, {
+        total: 0,
+        latam: 0,
+        smiles: 0,
+        other: 0,
+        withoutCia: 0,
+        open: 0,
+        closed: 0,
+        canceled: 0,
+      });
+    }
+
+    const purchasesHist = await prisma.purchase.findMany({
+      where: {
+        createdAt: { gte: histStart, lt: histEnd },
+        cedente: { owner: { team } },
+      },
+      select: {
+        createdAt: true,
+        ciaAerea: true,
+        status: true,
+      },
+      orderBy: { createdAt: "asc" },
+    });
+
+    for (const p of purchasesHist) {
+      const k = monthKeyUTC(new Date(p.createdAt as any));
+      const cur = purchasesByMonth.get(k);
+      if (!cur) continue;
+
+      cur.total += 1;
+
+      if (p.ciaAerea === "LATAM") cur.latam += 1;
+      else if (p.ciaAerea === "SMILES") cur.smiles += 1;
+      else if (p.ciaAerea) cur.other += 1;
+      else cur.withoutCia += 1;
+
+      if (p.status === "OPEN") cur.open += 1;
+      else if (p.status === "CLOSED") cur.closed += 1;
+      else if (p.status === "CANCELED") cur.canceled += 1;
+    }
+
+    const purchaseMonths = monthKeys.map((k) => {
+      const cur = purchasesByMonth.get(k)!;
+      return {
+        key: k,
+        label: monthLabelPT(k),
+        total: cur.total,
+        latam: cur.latam,
+        smiles: cur.smiles,
+        other: cur.other,
+        withoutCia: cur.withoutCia,
+        open: cur.open,
+        closed: cur.closed,
+        canceled: cur.canceled,
+      };
+    });
+
+    const selectedPurchaseMonth =
+      purchaseMonths.find((p) => p.key === month) || {
+        key: month,
+        label: monthLabelPT(month),
+        total: 0,
+        latam: 0,
+        smiles: 0,
+        other: 0,
+        withoutCia: 0,
+        open: 0,
+        closed: 0,
+        canceled: 0,
+      };
+
+    const purchaseTotals = purchaseMonths.reduce(
+      (acc, row) => ({
+        total: acc.total + row.total,
+        latam: acc.latam + row.latam,
+        smiles: acc.smiles + row.smiles,
+        other: acc.other + row.other,
+        withoutCia: acc.withoutCia + row.withoutCia,
+        open: acc.open + row.open,
+        closed: acc.closed + row.closed,
+        canceled: acc.canceled + row.canceled,
+      }),
+      {
+        total: 0,
+        latam: 0,
+        smiles: 0,
+        other: 0,
+        withoutCia: 0,
+        open: 0,
+        closed: 0,
+        canceled: 0,
+      }
+    );
+
+    // =========================
+    // 7) CLUBES POR MÊS (SMILES + LATAM)
     // =========================
     let clubsByMonth: Array<{
       key: string;
@@ -1281,7 +1394,7 @@ export async function GET(req: NextRequest) {
     }
 
     // =========================
-    // 7) TOP CLIENTES (mês OU total, com filtro de programa)
+    // 8) TOP CLIENTES (mês OU total, com filtro de programa)
     // =========================
     const topWhere: Prisma.SaleWhereInput = {
       ...(topMode === "MONTH" ? { date: { gte: mStart, lt: mEnd } } : { date: { gte: histStart, lt: histEnd } }),
@@ -1339,7 +1452,7 @@ export async function GET(req: NextRequest) {
       }));
 
     // =========================
-    // 8) HISTÓRICO COMPLETO CONSOLIDADO POR DIA (milhas + balcão)
+    // 9) HISTÓRICO COMPLETO CONSOLIDADO POR DIA (milhas + balcão)
     // =========================
     const [allSalesHistory, allBalcaoHistory] = await Promise.all([
       prisma.sale.findMany({
@@ -1563,6 +1676,12 @@ export async function GET(req: NextRequest) {
         milheiroMonthly,
         profitMonths,
         avgMonthlyGrossCents,
+
+        purchases: {
+          month: selectedPurchaseMonth,
+          months: purchaseMonths,
+          totals: purchaseTotals,
+        },
 
         clubsByMonth,
         topClients,
