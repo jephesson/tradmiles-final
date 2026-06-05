@@ -14,6 +14,7 @@ type ClubMeta = {
   renewalDay?: number;
   startDateISO?: string;
   bonusPoints?: number;
+  renewedThisCycle?: boolean;
 };
 
 const CLUB_PROGRAMS = new Set<ClubProgram>(["LATAM", "SMILES", "LIVELO", "ESFERA"]);
@@ -287,6 +288,7 @@ export async function POST(
         const renewalDay = clampDay(meta?.renewalDay);
         const subscribedAt = parseIsoDate(meta?.startDateISO) || startUTC(new Date());
         const bonusPoints = clampPts(meta?.bonusPoints ?? (it.bonusMode === "TOTAL" ? it.bonusValue : 0));
+        const renewedThisCycle = Boolean(meta?.renewedThisCycle);
 
         let smilesPromoBaseAt: Date | null = null;
         if (program === "SMILES") {
@@ -318,9 +320,10 @@ export async function POST(
             priceCents,
             subscribedAt,
             renewalDay,
-            lastRenewedAt: null,
+            monthlyBonusPoints: bonusPoints,
+            lastRenewedAt: renewedThisCycle ? new Date() : null,
             pointsExpireAt: auto.pointsExpireAt,
-            renewedThisCycle: false,
+            renewedThisCycle,
             status: "ACTIVE",
             smilesBonusEligibleAt: auto.smilesBonusEligibleAt,
             notes: noteParts.join(" "),
@@ -334,6 +337,9 @@ export async function POST(
             priceCents,
             subscribedAt,
             renewalDay,
+            monthlyBonusPoints: bonusPoints,
+            renewedThisCycle,
+            lastRenewedAt: renewedThisCycle ? new Date() : undefined,
             pointsExpireAt: auto.pointsExpireAt,
             status: "ACTIVE",
             smilesBonusEligibleAt: auto.smilesBonusEligibleAt,

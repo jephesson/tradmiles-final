@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/auth-server";
+import { computeLiveloCycleMonth } from "@/lib/livelo-clube";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -64,6 +65,7 @@ export async function GET(req: NextRequest) {
         monthlyBonusPoints: true,
         subscribedAt: true,
         lastRenewedAt: true,
+        renewedThisCycle: true,
         updatedAt: true,
         cedente: {
           select: {
@@ -86,9 +88,19 @@ export async function GET(req: NextRequest) {
       },
     });
 
-    const items = [...rows].sort((a, b) =>
-      a.cedente.nomeCompleto.localeCompare(b.cedente.nomeCompleto, "pt-BR")
-    );
+    const items = [...rows]
+      .sort((a, b) =>
+        a.cedente.nomeCompleto.localeCompare(b.cedente.nomeCompleto, "pt-BR")
+      )
+      .map((row) => {
+        const cycle = computeLiveloCycleMonth(row.subscribedAt);
+        return {
+          ...row,
+          cycleMonth: cycle.month,
+          cycleTotal: cycle.total,
+          cycleLabel: cycle.label,
+        };
+      });
 
     return NextResponse.json(
       { ok: true, items },
@@ -126,6 +138,8 @@ export async function PATCH(req: NextRequest) {
     const data: {
       renewalDay?: number;
       monthlyBonusPoints?: number;
+      renewedThisCycle?: boolean;
+      lastRenewedAt?: Date | null;
     } = {};
 
     if (body?.renewalDay !== undefined) {
@@ -144,7 +158,18 @@ export async function PATCH(req: NextRequest) {
       data.monthlyBonusPoints = clampBonusPoints(monthlyBonusPointsRaw);
     }
 
-    if (data.renewalDay == null && data.monthlyBonusPoints == null) {
+    if (body?.renewedThisCycle !== undefined) {
+      data.renewedThisCycle = Boolean(body.renewedThisCycle);
+      if (data.renewedThisCycle) {
+        data.lastRenewedAt = new Date();
+      }
+    }
+
+    if (
+      data.renewalDay == null &&
+      data.monthlyBonusPoints == null &&
+      data.renewedThisCycle === undefined
+    ) {
       return bad("Nenhuma alteração informada.");
     }
 
@@ -160,6 +185,7 @@ export async function PATCH(req: NextRequest) {
         monthlyBonusPoints: true,
         subscribedAt: true,
         lastRenewedAt: true,
+        renewedThisCycle: true,
         updatedAt: true,
         cedente: {
           select: {
@@ -182,8 +208,18 @@ export async function PATCH(req: NextRequest) {
       },
     });
 
+    const cycle = computeLiveloCycleMonth(item.subscribedAt);
+
     return NextResponse.json(
-      { ok: true, item },
+      {
+        ok: true,
+        item: {
+          ...item,
+          cycleMonth: cycle.month,
+          cycleTotal: cycle.total,
+          cycleLabel: cycle.label,
+        },
+      },
       { headers: noCacheHeaders() }
     );
   } catch (e: any) {

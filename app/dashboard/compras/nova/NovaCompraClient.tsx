@@ -17,6 +17,10 @@ import {
   Wallet,
 } from "lucide-react";
 import { cn } from "@/lib/cn";
+import {
+  computeLiveloCycleMonth,
+  liveloCycleBadgeClass,
+} from "@/lib/livelo-clube";
 
 type LoyaltyProgram = "LATAM" | "SMILES" | "LIVELO" | "ESFERA";
 
@@ -101,6 +105,18 @@ type ClubMeta = {
   renewalDay: number;
   startDateISO: string;
   bonusPoints: number;
+  clubSubscriptionId?: string;
+  renewedThisCycle?: boolean;
+};
+
+type LiveloClubSub = {
+  id: string;
+  tierK: number;
+  renewalDay: number;
+  monthlyBonusPoints: number;
+  subscribedAt: string;
+  renewedThisCycle: boolean;
+  status: "ACTIVE" | "PAUSED" | "CANCELED";
 };
 
 function fmtMoneyBR(cents: number) {
@@ -457,6 +473,10 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
     ESFERA: true,
   });
 
+  const [liveloClubSub, setLiveloClubSub] = useState<LiveloClubSub | null>(null);
+  const [liveloClubLoading, setLiveloClubLoading] = useState(false);
+  const [clubRenewSavingId, setClubRenewSavingId] = useState<string | null>(null);
+
   // ===== load compra existente (modo edição)
   useEffect(() => {
     if (!purchaseIdFinal) return;
@@ -482,6 +502,44 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
       }
     })();
   }, [purchaseIdFinal]);
+
+  // ===== clube Livelo do cedente (bônus mensal + ciclo)
+  useEffect(() => {
+    if (!cedenteSel?.id) {
+      setLiveloClubSub(null);
+      return;
+    }
+
+    let alive = true;
+
+    (async () => {
+      setLiveloClubLoading(true);
+      try {
+        const out = await api<{ ok: true; items: LiveloClubSub[] }>(
+          `/api/clubes?cedenteId=${encodeURIComponent(cedenteSel.id)}&program=LIVELO`
+        );
+        if (!alive) return;
+
+        const rows = Array.isArray(out?.items) ? out.items : [];
+        const active =
+          rows.find((r) => r.status === "ACTIVE") ||
+          rows.find((r) => r.status === "PAUSED") ||
+          rows[0] ||
+          null;
+
+        setLiveloClubSub(active);
+      } catch {
+        if (!alive) return;
+        setLiveloClubSub(null);
+      } finally {
+        if (alive) setLiveloClubLoading(false);
+      }
+    })();
+
+    return () => {
+      alive = false;
+    };
+  }, [cedenteSel?.id]);
 
   // ===== load cedentes
   useEffect(() => {
@@ -701,8 +759,66 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
     updateDraft({ items: [...(draft.items ?? []), nextItem] });
   }
 
+  function liveloMetaDefaults(): Partial<ClubMeta> {
+    if (!liveloClubSub) return {};
+    return {
+      tierK: liveloClubSub.tierK || 10,
+      renewalDay: liveloClubSub.renewalDay || new Date().getDate(),
+      startDateISO: String(liveloClubSub.subscribedAt || "").slice(0, 10) || isoToday(),
+      bonusPoints: Math.max(0, clampInt(liveloClubSub.monthlyBonusPoints || 0)),
+      clubSubscriptionId: liveloClubSub.id,
+      renewedThisCycle: Boolean(liveloClubSub.renewedThisCycle),
+    };
+  }
+
+  async function toggleClubRenewed(clubSubscriptionId: string, renewed: boolean) {
+    if (!clubSubscriptionId) return;
+    setClubRenewSavingId(clubSubscriptionId);
+    try {
+      const res = await fetch("/api/contas-selecionadas/livelo/bonus-clube", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: clubSubscriptionId, renewedThisCycle: renewed }),
+      });
+      const json = await res.json().catch(() => null);
+      if (!res.ok || !json?.ok) {
+        throw new Error(json?.error || "Falha ao marcar renovação.");
+      }
+
+      setLiveloClubSub((prev) =>
+        prev && prev.id === clubSubscriptionId
+          ? { ...prev, renewedThisCycle: renewed }
+          : prev
+      );
+
+      if (!draft) return;
+      const items = [...(draft.items ?? [])];
+      let changed = false;
+
+      for (let i = 0; i < items.length; i++) {
+        const it = items[i];
+        if (it.type !== "CLUB") continue;
+        const meta = safeJsonParse<ClubMeta>(it.details);
+        if (!meta || meta.clubSubscriptionId !== clubSubscriptionId) continue;
+        items[i] = {
+          ...it,
+          details: JSON.stringify({ ...meta, renewedThisCycle: renewed }),
+        };
+        changed = true;
+      }
+
+      if (changed) updateDraft({ items });
+    } catch (e: any) {
+      setError(e?.message || "Falha ao marcar renovação do clube.");
+    } finally {
+      setClubRenewSavingId(null);
+    }
+  }
+
   function addClub() {
     if (!draft) return;
+
+    const liveloDefaults = liveloMetaDefaults();
 
     const meta: ClubMeta = {
       program: "LIVELO",
@@ -711,7 +827,10 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
       renewalDay: new Date().getDate(),
       startDateISO: isoToday(),
       bonusPoints: 0,
+      ...liveloDefaults,
     };
+
+    const bonusPoints = Math.max(0, clampInt(meta.bonusPoints));
 
     const item: PurchaseItem = {
       type: "CLUB",
@@ -721,8 +840,8 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
       programTo: meta.program,
       pointsBase: meta.tierK * 1000,
       bonusMode: "TOTAL",
-      bonusValue: meta.bonusPoints,
-      pointsFinal: meta.tierK * 1000 + Math.max(0, clampInt(meta.bonusPoints)),
+      bonusValue: bonusPoints,
+      pointsFinal: meta.tierK * 1000 + bonusPoints,
       transferMode: null,
       pointsDebitedFromOrigin: 0,
       amountCents: meta.priceCents,
@@ -1131,7 +1250,7 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
         <StepSection
           step={3}
           title="Clubes (assinaturas)"
-          hint="Itens CLUB entram no custo; bônus em milhas soma ao total do item."
+          hint="Itens CLUB entram no custo; bônus em milhas soma ao total do item. Para Livelo, o bônus mensal é puxado do cadastro do clube do cedente."
           action={
             <button type="button" onClick={addClub} disabled={!!isReleased} className={BTN_PRIMARY}>
               <Plus className="h-4 w-4" strokeWidth={2} aria-hidden />
@@ -1147,7 +1266,19 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
 
           {clubItems.length > 0 && (
             <div className="overflow-auto rounded-xl border border-slate-200/80 bg-white shadow-sm">
-              <table className="min-w-[900px] w-full text-sm">
+              {liveloClubLoading ? (
+                <p className="mb-3 text-xs text-slate-500">Carregando dados do clube Livelo do cedente…</p>
+              ) : liveloClubSub ? (
+                <p className="mb-3 text-xs text-slate-500">
+                  Clube Livelo cadastrado: bônus mensal de{" "}
+                  <span className="font-mono font-medium text-slate-700">
+                    {Math.max(0, clampInt(liveloClubSub.monthlyBonusPoints)).toLocaleString("pt-BR")} pts
+                  </span>{" "}
+                  será sugerido ao adicionar ou selecionar Livelo.
+                </p>
+              ) : null}
+
+              <table className="min-w-[1100px] w-full text-sm">
                 <thead className={TABLE_HEAD}>
                   <tr>
                     <th className="p-3">Programa</th>
@@ -1155,9 +1286,11 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
                     <th className="p-3">Valor (R$)</th>
                     <th className="p-3">Renova (dia)</th>
                     <th className="p-3">Data assinatura</th>
+                    <th className="p-3">Ciclo</th>
                     <th className="p-3">Base pts/mês</th>
                     <th className="p-3">Bônus (milhas)</th>
                     <th className="p-3">Total pts/mês</th>
+                    <th className="p-3">Renovado</th>
                     <th className="p-3 w-24" />
                   </tr>
                 </thead>
@@ -1200,13 +1333,27 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
                             value={meta.program}
                             disabled={!!isReleased}
                             onChange={(e) => {
+                              const program = e.target.value as LoyaltyProgram;
+                              const liveloPatch =
+                                program === "LIVELO" ? liveloMetaDefaults() : {};
                               const next: ClubMeta = {
                                 ...meta,
-                                program: e.target.value as LoyaltyProgram,
+                                program,
+                                ...liveloPatch,
                               };
                               updateItem(realIdx, {
                                 details: JSON.stringify(next),
                                 programTo: next.program,
+                                ...(program === "LIVELO" && liveloClubSub
+                                  ? {
+                                      bonusMode: "TOTAL" as const,
+                                      bonusValue: Math.max(
+                                        0,
+                                        clampInt(next.bonusPoints || 0)
+                                      ),
+                                      pointsBase: (next.tierK || 10) * 1000,
+                                    }
+                                  : {}),
                               });
                             }}
                             className={CONTROL_SELECT_SM}
@@ -1301,6 +1448,27 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
                           />
                         </td>
 
+                        <td className="p-3 align-middle">
+                          {meta.program === "LIVELO" ? (
+                            (() => {
+                              const cycle = computeLiveloCycleMonth(meta.startDateISO);
+                              return (
+                                <span
+                                  className={cn(
+                                    "inline-flex rounded-full border px-2 py-0.5 text-xs font-medium",
+                                    liveloCycleBadgeClass(cycle.month)
+                                  )}
+                                  title={cycle.label}
+                                >
+                                  {cycle.label}
+                                </span>
+                              );
+                            })()
+                          ) : (
+                            <span className="text-xs text-slate-400">—</span>
+                          )}
+                        </td>
+
                         <td className="p-3 font-mono text-sm tabular-nums text-slate-800">
                           {meta.tierK * 1000}
                         </td>
@@ -1338,6 +1506,38 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
 
                         <td className="p-3 font-mono text-sm tabular-nums text-slate-900">
                           {Math.max(0, clampInt(it.pointsFinal || 0)).toLocaleString("pt-BR")}
+                        </td>
+
+                        <td className="p-3 align-middle">
+                          {meta.program === "LIVELO" && meta.clubSubscriptionId ? (
+                            <label className="inline-flex items-center gap-2 text-xs text-slate-700">
+                              <input
+                                type="checkbox"
+                                checked={Boolean(meta.renewedThisCycle)}
+                                disabled={
+                                  !!isReleased ||
+                                  clubRenewSavingId === meta.clubSubscriptionId
+                                }
+                                onChange={(e) =>
+                                  void toggleClubRenewed(
+                                    meta.clubSubscriptionId!,
+                                    e.target.checked
+                                  )
+                                }
+                                className="h-4 w-4 rounded border-slate-300"
+                              />
+                              {meta.renewedThisCycle ? "Sim" : "Não"}
+                            </label>
+                          ) : meta.program === "LIVELO" ? (
+                            <span
+                              className="text-xs text-amber-700"
+                              title="Libere a compra para cadastrar o clube e habilitar o controle de renovação."
+                            >
+                              Após liberar
+                            </span>
+                          ) : (
+                            <span className="text-xs text-slate-400">—</span>
+                          )}
                         </td>
 
                         <td className="p-3 align-middle">

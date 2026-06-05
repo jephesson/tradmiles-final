@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Copy, KeyRound } from "lucide-react";
 
 import { cn } from "@/lib/cn";
+import { liveloCycleBadgeClass } from "@/lib/livelo-clube";
 
 type Status = "ACTIVE" | "PAUSED" | "CANCELED";
 
@@ -17,6 +18,10 @@ type Item = {
   monthlyBonusPoints: number;
   subscribedAt: string;
   lastRenewedAt: string | null;
+  renewedThisCycle: boolean;
+  cycleMonth: number;
+  cycleTotal: number;
+  cycleLabel: string;
   updatedAt: string;
   cedente: {
     id: string;
@@ -127,6 +132,7 @@ export default function LiveloBonusClubeClient() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [savingId, setSavingId] = useState<string | null>(null);
+  const [renewSavingId, setRenewSavingId] = useState<string | null>(null);
   const [q, setQ] = useState("");
   const [credOpenRowId, setCredOpenRowId] = useState<string | null>(null);
 
@@ -205,6 +211,26 @@ export default function LiveloBonusClubeClient() {
     }));
   }
 
+  async function toggleRenewed(id: string, renewed: boolean) {
+    setRenewSavingId(id);
+    try {
+      const res = await fetch("/api/contas-selecionadas/livelo/bonus-clube", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, renewedThisCycle: renewed }),
+      });
+      const json = await res.json().catch(() => null);
+      if (!res.ok || !json?.ok) {
+        throw new Error(json?.error || "Falha ao marcar renovação.");
+      }
+      await load();
+    } catch (e: any) {
+      alert(e?.message || "Erro ao marcar renovação.");
+    } finally {
+      setRenewSavingId(null);
+    }
+  }
+
   async function saveRow(id: string) {
     const d = drafts[id];
     if (!d) return;
@@ -251,7 +277,8 @@ export default function LiveloBonusClubeClient() {
         <div>
           <h1 className="text-2xl font-semibold">Bônus clube Livelo</h1>
           <p className="text-sm text-slate-500">
-            Clubes Livelo cadastrados com edição de dia de renovação e bônus mensal de pontos.
+            Clubes Livelo cadastrados com ciclo mensal, bônus de pontos e controle de renovação.
+            Ao liberar uma compra com clube Livelo, o bônus é sincronizado automaticamente.
           </p>
         </div>
 
@@ -302,13 +329,15 @@ export default function LiveloBonusClubeClient() {
 
       <div className="rounded-2xl border bg-white overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="min-w-[1140px] w-full text-sm">
+          <table className="min-w-[1280px] w-full text-sm">
             <thead className="bg-neutral-50 text-neutral-600">
               <tr>
                 <th className="text-left px-4 py-2">Cedente</th>
                 <th className="text-left px-4 py-2">Clube</th>
+                <th className="text-left px-4 py-2">Ciclo</th>
                 <th className="text-left px-4 py-2">Renovação (dia)</th>
                 <th className="text-left px-4 py-2">Bônus/mês (pts)</th>
+                <th className="text-left px-4 py-2">Renovado</th>
                 <th className="text-left px-4 py-2">Status</th>
                 <th className="text-left px-4 py-2">Assinado em</th>
                 <th className="text-left px-4 py-2">Atualizado em</th>
@@ -386,6 +415,18 @@ export default function LiveloBonusClubeClient() {
                     </td>
 
                     <td className="px-4 py-2">
+                      <span
+                        className={cn(
+                          "inline-flex rounded-full border px-2 py-0.5 text-xs font-medium",
+                          liveloCycleBadgeClass(r.cycleMonth || 1)
+                        )}
+                        title={r.cycleLabel || `Mês ${r.cycleMonth || 1} de ${r.cycleTotal || 12}`}
+                      >
+                        {r.cycleLabel || `Mês ${r.cycleMonth || 1} de ${r.cycleTotal || 12}`}
+                      </span>
+                    </td>
+
+                    <td className="px-4 py-2">
                       <input
                         value={d.renewalDay}
                         onChange={(e) =>
@@ -409,6 +450,19 @@ export default function LiveloBonusClubeClient() {
                         className="w-40 rounded-md border px-2 py-1"
                         inputMode="numeric"
                       />
+                    </td>
+
+                    <td className="px-4 py-2">
+                      <label className="inline-flex items-center gap-2 text-xs">
+                        <input
+                          type="checkbox"
+                          checked={Boolean(r.renewedThisCycle)}
+                          disabled={renewSavingId === r.id || r.status === "CANCELED"}
+                          onChange={(e) => void toggleRenewed(r.id, e.target.checked)}
+                          className="h-4 w-4 rounded border-slate-300"
+                        />
+                        {r.renewedThisCycle ? "Sim" : "Não"}
+                      </label>
                     </td>
 
                     <td className="px-4 py-2">
@@ -440,7 +494,7 @@ export default function LiveloBonusClubeClient() {
 
               {!filtered.length && (
                 <tr>
-                  <td className="px-4 py-8 text-center text-neutral-500" colSpan={8}>
+                  <td className="px-4 py-8 text-center text-neutral-500" colSpan={10}>
                     Nenhum clube Livelo encontrado.
                   </td>
                 </tr>
