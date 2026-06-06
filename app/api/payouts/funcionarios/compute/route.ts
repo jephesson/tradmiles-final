@@ -14,9 +14,7 @@ import {
   pvSemTaxaFromSaleFields,
 } from "@/lib/payouts/purchaseFinalizeMetrics";
 import {
-  computeRateioBreakdownForPurchase,
-  parseFinalRateioBreakdown,
-  usesRateioSnapshot,
+  resolveC3RateioBreakdown,
 } from "@/lib/payouts/purchaseRateio";
 
 export const runtime = "nodejs";
@@ -560,39 +558,36 @@ export async function POST(req: Request) {
       ownerId: string | null;
       skipped: boolean;
       reason?: string;
-      mode?: "snapshot" | "legacy";
+      mode?: "snapshot" | "computed";
     }> = [];
 
     for (const p of purchasesFinalized) {
-      const snapshotMode = usesRateioSnapshot(p.finalizedAt);
-      let breakdown = snapshotMode ? parseFinalRateioBreakdown(p.finalRateioBreakdown) : null;
-
-      if (!snapshotMode) {
-        const legacy = await computeRateioBreakdownForPurchase(prisma, {
-          team,
-          purchase: {
-            id: p.id,
-            numero: String(p.numero || ""),
-            totalCents: p.totalCents,
-            metaMilheiroCents: p.metaMilheiroCents,
-            finalizedAt: p.finalizedAt,
-            cedente: { ownerId: String(p.cedente.ownerId || "") },
-          },
-          sales: salesForFinalizedPurchases.map((s) => ({
-            purchaseId: s.purchaseId,
-            points: safeInt(s.points, 0),
-            passengers: safeInt(s.passengers, 0),
-            totalCents: safeInt(s.totalCents, 0),
-            pointsValueCents: safeInt(s.pointsValueCents, 0),
-            embarqueFeeCents: safeInt(s.embarqueFeeCents, 0),
-            milheiroCents: safeInt(s.milheiroCents, 0),
-            metaMilheiroCents: safeInt(s.metaMilheiroCents, 0),
-          })),
-          bonusAboveMetaBps,
-          refDate: p.finalizedAt ?? start,
-        });
-        breakdown = legacy?.finalRateioBreakdown ?? null;
-      }
+      const purchaseMeta = safeInt(p.metaMilheiroCents, 0);
+      const { breakdown, mode } = await resolveC3RateioBreakdown(prisma, {
+        team,
+        storedBreakdown: p.finalRateioBreakdown,
+        purchase: {
+          id: p.id,
+          numero: String(p.numero || ""),
+          totalCents: p.totalCents,
+          metaMilheiroCents: p.metaMilheiroCents,
+          finalizedAt: p.finalizedAt,
+          cedente: { ownerId: String(p.cedente.ownerId || "") },
+        },
+        sales: salesForFinalizedPurchases.map((s) => ({
+          purchaseId: s.purchaseId,
+          points: safeInt(s.points, 0),
+          passengers: safeInt(s.passengers, 0),
+          totalCents: safeInt(s.totalCents, 0),
+          pointsValueCents: safeInt(s.pointsValueCents, 0),
+          embarqueFeeCents: safeInt(s.embarqueFeeCents, 0),
+          milheiroCents: safeInt(s.milheiroCents, 0),
+          metaMilheiroCents:
+            safeInt(s.metaMilheiroCents, 0) > 0 ? safeInt(s.metaMilheiroCents, 0) : purchaseMeta,
+        })),
+        bonusAboveMetaBps,
+        refDate: p.finalizedAt ?? start,
+      });
 
       if (!breakdown || breakdown.profitLiquidoCents <= 0) {
         c3Audit.push({
@@ -601,8 +596,8 @@ export async function POST(req: Request) {
           poolCents: safeInt(breakdown?.profitLiquidoCents, 0),
           ownerId: p.cedente.ownerId ?? null,
           skipped: true,
-          reason: snapshotMode ? "sem_rateio_gravado" : "lucro<=0_legado",
-          mode: snapshotMode ? "snapshot" : "legacy",
+          reason: breakdown ? "lucro<=0" : "sem_rateio",
+          mode,
         });
         continue;
       }
@@ -618,7 +613,7 @@ export async function POST(req: Request) {
         poolCents: breakdown.profitLiquidoCents,
         ownerId: p.cedente.ownerId ?? null,
         skipped: false,
-        mode: snapshotMode ? "snapshot" : "legacy",
+        mode,
       });
     }
 

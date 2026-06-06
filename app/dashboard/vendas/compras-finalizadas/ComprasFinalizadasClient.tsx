@@ -48,7 +48,9 @@ type Row = {
 
   cedente: { id: string; identificador: string; nomeCompleto: string } | null;
 
-  _count: { sales: number };
+  salesCount?: number;
+  _count?: { sales: number };
+
   sales: Array<{ date: string; totalCents: number; points: number; passengers: number }>;
 
   createdAt: string;
@@ -655,7 +657,9 @@ export default function ComprasFinalizadasClient() {
                         <div className="inline-flex rounded-lg bg-slate-100 px-2 py-0.5 font-mono text-xs font-semibold text-slate-800">
                           {r.numero}
                         </div>
-                        <div className="mt-1 text-[11px] text-slate-400">{r._count.sales} venda(s)</div>
+                        <div className="mt-1 text-[11px] text-slate-400">
+                          {fmtInt(r.salesCount ?? r._count?.sales ?? r.sales?.length ?? 0)} venda(s)
+                        </div>
                       </td>
 
                       <td className="px-4 py-3.5">

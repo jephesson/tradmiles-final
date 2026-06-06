@@ -71,51 +71,24 @@ export function parseFinalRateioBreakdown(raw: unknown): FinalRateioBreakdown | 
   return { profitLiquidoCents, splits };
 }
 
-/** Split proporcional por bps (soma dos bps pode ser 10000). */
-export function splitPoolByBps(pool: number, items: Array<{ payeeId: string; bps: number }>) {
+/** Split por bps/10000 — mesma regra da tela Compras finalizadas → Ver. */
+export function splitRateioAmounts10000(
+  totalCents: number,
+  items: Array<{ payeeId: string; bps: number }>
+) {
+  const total = safeInt(totalCents, 0);
   const out: Record<string, number> = {};
-  const total = safeInt(pool, 0);
-  if (!items?.length || total <= 0) return out;
+  if (!items.length || total <= 0) return out;
 
-  const rows = items
-    .map((it, idx) => ({
-      idx,
-      payeeId: it.payeeId,
-      bps: Math.max(0, safeInt(it.bps, 0)),
-    }))
-    .filter((x) => !!x.payeeId && x.bps > 0);
+  const raw = items.map((it) => Math.round((total * safeInt(it.bps, 0)) / 10000));
+  const sum = raw.reduce((a, b) => a + b, 0);
+  const diff = total - sum;
+  if (diff !== 0 && raw.length) raw[raw.length - 1] += diff;
 
-  if (!rows.length) return out;
-
-  const sumBps = rows.reduce((acc, r) => acc + r.bps, 0);
-  if (sumBps <= 0) return out;
-
-  let used = 0;
-  const tmp = rows.map((r) => {
-    const raw = (total * r.bps) / sumBps;
-    const flo = Math.floor(raw);
-    const frac = raw - flo;
-    used += flo;
-    return { ...r, flo, frac };
+  items.forEach((it, idx) => {
+    const v = raw[idx] ?? 0;
+    if (v > 0) out[it.payeeId] = (out[it.payeeId] ?? 0) + v;
   });
-
-  for (const r of tmp) out[r.payeeId] = (out[r.payeeId] ?? 0) + r.flo;
-
-  let rem = total - used;
-  if (rem > 0) {
-    tmp.sort((a, b) => {
-      if (b.frac !== a.frac) return b.frac - a.frac;
-      if (b.bps !== a.bps) return b.bps - a.bps;
-      return a.idx - b.idx;
-    });
-    let i = 0;
-    while (rem > 0) {
-      const r = tmp[i % tmp.length];
-      out[r.payeeId] = (out[r.payeeId] ?? 0) + 1;
-      rem -= 1;
-      i += 1;
-    }
-  }
 
   return out;
 }
@@ -156,7 +129,7 @@ export async function buildFinalRateioBreakdown(
     ? plan.items.map((it) => ({ payeeId: it.payeeId, bps: it.bps }))
     : [{ payeeId: ownerId, bps: 10000 }];
 
-  const amounts = splitPoolByBps(profitLiquidoCents, planItems);
+  const amounts = splitRateioAmounts10000(profitLiquidoCents, planItems);
   const splits: RateioSplitRow[] = planItems
     .map((it) => ({
       payeeId: it.payeeId,
@@ -291,4 +264,40 @@ export async function computeRateioBreakdownForPurchase(
     bonusAboveMetaBps: args.bonusAboveMetaBps,
     refDate: args.refDate,
   });
+}
+
+/** C3: usa snapshot gravado se válido; senão recalcula (sem gravar no banco). */
+export async function resolveC3RateioBreakdown(
+  db: Db,
+  args: {
+    team: string;
+    storedBreakdown: unknown;
+    purchase: {
+      id: string;
+      numero: string;
+      totalCents: number | null;
+      metaMilheiroCents: number | null;
+      finalizedAt: Date | null;
+      cedente: { ownerId: string };
+    };
+    sales: SaleForRateioBackfill[];
+    bonusAboveMetaBps: number;
+    refDate: Date;
+  }
+): Promise<{ breakdown: FinalRateioBreakdown | null; mode: "snapshot" | "computed" }> {
+  const stored = parseFinalRateioBreakdown(args.storedBreakdown);
+  if (stored) return { breakdown: stored, mode: "snapshot" };
+
+  const computed = await computeRateioBreakdownForPurchase(db, {
+    team: args.team,
+    purchase: args.purchase,
+    sales: args.sales,
+    bonusAboveMetaBps: args.bonusAboveMetaBps,
+    refDate: args.refDate,
+  });
+
+  return {
+    breakdown: computed?.finalRateioBreakdown ?? null,
+    mode: "computed",
+  };
 }
