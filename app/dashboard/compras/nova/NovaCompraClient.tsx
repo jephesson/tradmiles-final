@@ -472,17 +472,62 @@ function normalizeDraft(raw: any, cedenteSel?: Cedente | null): PurchaseDraft {
 }
 
 function remainingItemMeta(it: PurchaseItem) {
-  return safeJsonParse<{ autoRemaining?: boolean; sourcePurchaseId?: string; sourceNumero?: string }>(
-    it.details
-  );
+  return safeJsonParse<{
+    autoRemaining?: boolean;
+    sourcePurchaseId?: string;
+    sourceNumero?: string;
+    autoDraftMilheiro?: boolean;
+    ciaProgram?: string;
+  }>(it.details);
+}
+
+function isAutoDraftMilheiroItem(it: PurchaseItem, cia?: LoyaltyProgram | null) {
+  const meta = remainingItemMeta(it);
+  if (meta?.autoDraftMilheiro) {
+    return !cia || meta.ciaProgram === cia;
+  }
+  return /^Custo milheiro /i.test(it.title || "");
 }
 
 function isAutoRemainingItem(it: PurchaseItem, sourcePurchaseId?: string) {
+  if (isAutoDraftMilheiroItem(it)) return false;
   const meta = remainingItemMeta(it);
   if (meta?.autoRemaining && meta.sourcePurchaseId) {
     return !sourcePurchaseId || meta.sourcePurchaseId === sourcePurchaseId;
   }
   return /^Remanescente ID/i.test(it.title || "");
+}
+
+function ciaDeltaPoints(draft: PurchaseDraft, cia: LoyaltyProgram) {
+  const deltas = computeProgramDeltas(draft.items ?? []);
+  return Math.max(0, clampInt(deltas[cia], 0));
+}
+
+function buildDraftMilheiroItem(
+  cia: LoyaltyProgram,
+  points: number,
+  milheiroCents: number,
+  costCents: number
+): PurchaseItem {
+  const pts = clampInt(points);
+  const label = cia === "LATAM" ? "LATAM" : cia === "SMILES" ? "Smiles" : cia;
+  return {
+    type: "ADJUSTMENT",
+    title: `Custo milheiro ${label}`,
+    details: JSON.stringify({
+      autoDraftMilheiro: true,
+      ciaProgram: cia,
+    }),
+    programFrom: null,
+    programTo: cia,
+    pointsBase: pts,
+    bonusMode: "",
+    bonusValue: 0,
+    pointsFinal: pts,
+    transferMode: null,
+    pointsDebitedFromOrigin: 0,
+    amountCents: costCents,
+  };
 }
 
 function buildRemainingItem(
@@ -560,7 +605,10 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
   const [suggestedMilheiroCents, setSuggestedMilheiroCents] = useState(0);
   const [cancelingActiveId, setCancelingActiveId] = useState<string | null>(null);
   const [remainingDismissedIds, setRemainingDismissedIds] = useState<Set<string>>(() => new Set());
+  const [draftMilheiroDismissed, setDraftMilheiroDismissed] = useState(false);
   const lastAutoRemainingKey = useRef("");
+  const lastAutoDraftMilheiroKey = useRef("");
+  const milheiroTouchedRef = useRef(false);
 
   // ===== comissão vendedor padrão (settings)
   useEffect(() => {
@@ -1059,9 +1107,11 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
             setSuggestedMilheiroCents(clampInt(active.avgMilheiroCents));
           }
         } else if (out.draftAvgMilheiroCents) {
-          setSuggestedMilheiroCents(clampInt(out.draftAvgMilheiroCents));
+          if (!milheiroTouchedRef.current) {
+            setSuggestedMilheiroCents(clampInt(out.draftAvgMilheiroCents));
+          }
           setSuggestedCostCents(0);
-        } else {
+        } else if (!milheiroTouchedRef.current) {
           setSuggestedMilheiroCents(0);
           setSuggestedCostCents(0);
         }
@@ -1118,8 +1168,112 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
 
   useEffect(() => {
     setRemainingDismissedIds(new Set());
+    setDraftMilheiroDismissed(false);
     lastAutoRemainingKey.current = "";
+    lastAutoDraftMilheiroKey.current = "";
+    milheiroTouchedRef.current = false;
   }, [draft?.ciaProgram]);
+
+  // Remove item automático de milheiro rascunho se passou a ter ID ativo
+  useEffect(() => {
+    if (!draft || isReleased || activeContextLoading) return;
+    if (!activeContext?.activePurchase) return;
+
+    const items = (draft.items ?? []).filter((it) => !isAutoDraftMilheiroItem(it));
+    if (items.length !== (draft.items ?? []).length) {
+      lastAutoDraftMilheiroKey.current = "";
+      updateDraft({ items });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeContext?.activePurchase, activeContextLoading, isReleased]);
+
+  // Auto-inclui custo = pts desta compra × milheiro (sem ID ativo)
+  useEffect(() => {
+    if (!draft || isReleased || activeContextLoading) return;
+    if (activeContext?.activePurchase) return;
+    if (draftMilheiroDismissed) return;
+
+    const cia = draft.ciaProgram;
+    if (cia !== "LATAM" && cia !== "SMILES") return;
+
+    const pts = ciaDeltaPoints(draft, cia);
+    const mil = clampInt(suggestedMilheiroCents, 0);
+
+    const items = [...(draft.items ?? [])];
+    const targetCost =
+      mil > 0 && pts > 0 ? costFromPointsAndMilheiro(pts, mil) : 0;
+
+    if (targetCost > 0) {
+      for (let i = 0; i < items.length; i++) {
+        const it = items[i];
+        if (it.programTo !== cia) continue;
+        if (isAutoDraftMilheiroItem(it) || isAutoRemainingItem(it)) continue;
+        if (clampInt(it.amountCents, 0) !== 0) {
+          items[i] = { ...it, amountCents: 0 };
+        }
+      }
+    }
+
+    const cost = targetCost;
+    const idx = items.findIndex((it) => isAutoDraftMilheiroItem(it, cia));
+
+    if (cost <= 0 || mil <= 0 || pts <= 0) {
+      if (idx >= 0) {
+        items.splice(idx, 1);
+        lastAutoDraftMilheiroKey.current = "";
+        const next = normalizeDraft({ ...draft, items }, cedenteSel);
+        const t = computeTotals(next);
+        const merged = { ...next, ...t };
+        setDraft(merged);
+        scheduleAutosave(merged);
+      }
+      return;
+    }
+
+    const syncKey = `${cia}:${pts}:${mil}:${cost}`;
+    if (idx >= 0) {
+      const cur = items[idx];
+      if (
+        cur.amountCents === cost &&
+        cur.pointsFinal === pts &&
+        lastAutoDraftMilheiroKey.current === syncKey
+      ) {
+        return;
+      }
+      items[idx] = { ...buildDraftMilheiroItem(cia, pts, mil, cost), id: cur.id };
+    } else {
+      if (lastAutoDraftMilheiroKey.current === syncKey) return;
+      items.push(buildDraftMilheiroItem(cia, pts, mil, cost));
+    }
+
+    lastAutoDraftMilheiroKey.current = syncKey;
+    const next = normalizeDraft({ ...draft, items }, cedenteSel);
+    const t = computeTotals(next);
+    const merged = { ...next, ...t };
+    setDraft(merged);
+    scheduleAutosave(merged);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    draft?.items,
+    draft?.ciaProgram,
+    draft?.id,
+    isReleased,
+    activeContext?.activePurchase,
+    activeContextLoading,
+    suggestedMilheiroCents,
+    draftMilheiroDismissed,
+  ]);
+
+  const draftMilheiroPreview = useMemo(() => {
+    if (!draft?.ciaProgram || draft.ciaProgram === "LIVELO" || draft.ciaProgram === "ESFERA") {
+      return null;
+    }
+    const cia = draft.ciaProgram;
+    const pts = ciaDeltaPoints(draft, cia);
+    const mil = clampInt(suggestedMilheiroCents, 0);
+    const target = mil > 0 && pts > 0 ? costFromPointsAndMilheiro(pts, mil) : 0;
+    return { cia, pts, mil, cost: target, target };
+  }, [draft, suggestedMilheiroCents]);
 
   async function cancelActivePurchaseWithoutImpact(purchaseId: string) {
     const ok = window.confirm(
@@ -1203,6 +1357,10 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
         setRemainingDismissedIds((prev) => new Set(prev).add(meta.sourcePurchaseId!));
         lastAutoRemainingKey.current = "";
       }
+    }
+    if (removed && isAutoDraftMilheiroItem(removed)) {
+      setDraftMilheiroDismissed(true);
+      lastAutoDraftMilheiroKey.current = "";
     }
     items.splice(realIdx, 1);
     updateDraft({ items });
@@ -2037,25 +2195,62 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
           {!activeContextLoading &&
             draft.ciaProgram &&
             !activeContext?.activePurchase && (
-              <div className="mt-5 rounded-2xl border border-slate-200/80 bg-slate-50/80 p-4">
-                <p className="text-sm font-semibold text-slate-900">Milheiro sugerido (compra atual)</p>
-                <p className="mt-1 text-xs text-slate-600">
-                  Média dos itens desta compra para{" "}
-                  {draft.ciaProgram === "LATAM" ? "LATAM" : "Smiles"}. Use como referência ao
-                  preencher custos na etapa 4.
+              <div className="mt-5 rounded-2xl border border-sky-200/90 bg-sky-50/80 p-4 shadow-sm">
+                <p className="text-sm font-semibold text-sky-950">Custo por milheiro (sem ID ativo)</p>
+                <p className="mt-1 text-xs leading-relaxed text-sky-900/90">
+                  Informe o milheiro e o sistema calcula{" "}
+                  <span className="font-medium">pts desta compra × milheiro</span> e inclui nos itens
+                  (etapa 4). O resumo embaixo atualiza na hora.
                 </p>
-                <div className="mt-3 flex flex-wrap items-end gap-3">
-                  <div className="min-w-[10rem] space-y-1.5">
+
+                <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                  <div className="rounded-xl border border-sky-200/70 bg-white px-3 py-2.5">
+                    <div className={FIELD_LABEL}>Pts desta compra ({draft.ciaProgram})</div>
+                    <div className="mt-1 font-mono text-xl font-bold tabular-nums text-slate-900">
+                      {(draftMilheiroPreview?.pts ?? 0).toLocaleString("pt-BR")}
+                    </div>
+                    <p className="mt-1 text-[11px] text-slate-500">
+                      Soma dos itens com destino {draft.ciaProgram === "LATAM" ? "LATAM" : "Smiles"}
+                    </p>
+                  </div>
+
+                  <div className="space-y-1.5">
                     <label className={FIELD_LABEL}>Milheiro (R$/mil)</label>
                     <input
                       type="number"
-                      value={suggestedMilheiroCents / 100}
+                      step="0.01"
+                      min={0}
+                      value={suggestedMilheiroCents > 0 ? suggestedMilheiroCents / 100 : ""}
                       disabled={!!isReleased}
-                      onChange={(e) =>
-                        setSuggestedMilheiroCents(roundCents(Number(e.target.value || 0) * 100))
-                      }
+                      onChange={(e) => {
+                        milheiroTouchedRef.current = true;
+                        setDraftMilheiroDismissed(false);
+                        lastAutoDraftMilheiroKey.current = "";
+                        setSuggestedMilheiroCents(
+                          roundCents(Number(e.target.value || 0) * 100)
+                        );
+                      }}
                       className={CONTROL_INPUT_MONO}
+                      placeholder="Ex.: 24,62"
                     />
+                    {activeContext?.draftAvgMilheiroCents ? (
+                      <p className="text-[11px] text-sky-800/80">
+                        Média dos itens com custo:{" "}
+                        {fmtMoneyBR(activeContext.draftAvgMilheiroCents)}
+                      </p>
+                    ) : null}
+                  </div>
+
+                  <div className="rounded-xl border border-emerald-200/80 bg-emerald-50/80 px-3 py-2.5">
+                    <div className={FIELD_LABEL}>Custo total (pts × milheiro)</div>
+                    <div className="mt-1 font-mono text-xl font-bold tabular-nums text-emerald-900">
+                      {fmtMoneyBR(draftMilheiroPreview?.cost ?? 0)}
+                    </div>
+                    <p className="mt-1 text-[11px] text-emerald-800/90">
+                      {draftMilheiroPreview && draftMilheiroPreview.cost > 0
+                        ? "Aplicado nos itens — resumo atualiza abaixo"
+                        : "Informe o milheiro e tenha itens com destino na CIA"}
+                    </p>
                   </div>
                 </div>
               </div>
@@ -2171,7 +2366,9 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
               Milheiro e meta usam o saldo <span className="font-medium text-slate-700">esperado</span> da CIA (etapa 5).
               {activeContext?.activePurchase && suggestedCostCents > 0
                 ? ` Custo do remanescente (${activeContext.activePurchase.numero}) já entrou no subtotal.`
-                : ""}
+                : draftMilheiroPreview && draftMilheiroPreview.cost > 0
+                  ? ` Custo por milheiro (${fmtMoneyBR(draftMilheiroPreview.cost)}) já entrou no subtotal.`
+                  : ""}
             </p>
           </div>
 
