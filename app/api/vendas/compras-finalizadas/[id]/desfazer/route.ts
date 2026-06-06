@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 
 export const runtime = "nodejs";
@@ -75,7 +76,7 @@ export async function PATCH(
           finalProfitBrutoCents: null,
           finalBonusCents: null,
           finalProfitCents: null,
-          finalRateioBreakdown: null,
+          finalRateioBreakdown: Prisma.JsonNull,
 
           finalSoldPoints: null,
           finalPax: null,
