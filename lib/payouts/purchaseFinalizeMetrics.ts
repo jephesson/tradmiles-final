@@ -40,8 +40,8 @@ export type PurchaseSaleRow = {
   pointsValueCents: number;
   embarqueFeeCents: number;
   milheiroCents: number;
-  bonusCents: number | null;
   metaMilheiroCents: number;
+  bonusCents?: number | null;
 };
 
 export function chooseMetaMilheiro(metaSaleOrPurchase: number | null | undefined) {

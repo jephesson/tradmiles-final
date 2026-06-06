@@ -75,6 +75,7 @@ export async function PATCH(
           finalProfitBrutoCents: null,
           finalBonusCents: null,
           finalProfitCents: null,
+          finalRateioBreakdown: null,
 
           finalSoldPoints: null,
           finalPax: null,

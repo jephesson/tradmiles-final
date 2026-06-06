@@ -3,10 +3,8 @@ import { cookies } from "next/headers";
 import { prisma } from "@/lib/prisma";
 import { triggerEmployeePayoutAutoCompute, todayISORecife } from "@/lib/payouts/autoCompute";
 import { resolveEmployeeBonusAboveMetaBps } from "@/lib/payouts/employeeCommissionRates";
-import {
-  aggregatePurchaseFinalizeMetrics,
-  purchaseNumeroVariants,
-} from "@/lib/payouts/purchaseFinalizeMetrics";
+import { purchaseNumeroVariants } from "@/lib/payouts/purchaseFinalizeMetrics";
+import { buildPurchaseFinalizeSnapshot, toPrismaRateioBreakdown } from "@/lib/payouts/purchaseRateio";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -32,7 +30,7 @@ function readSessionCookie(raw?: string): Sess | null {
 }
 
 async function getServerSession(): Promise<Sess | null> {
-  const store = await cookies(); // Next 16: Promise
+  const store = await cookies();
   const raw = store.get("tm.session")?.value;
   return readSessionCookie(raw);
 }
@@ -73,16 +71,20 @@ export async function PATCH(req: Request, ctx: Ctx) {
           id: true,
           numero: true,
           status: true,
-          pontosCiaTotal: true,
           totalCents: true,
           metaMilheiroCents: true,
           finalizedAt: true,
+          cedente: { select: { ownerId: true, owner: { select: { team: true } } } },
         },
       });
 
       if (!purchase) throw new Error("Compra não encontrada.");
+      if (purchase.cedente?.owner?.team !== session.team) throw new Error("Sem permissão.");
       if (purchase.status !== "CLOSED") throw new Error("Compra não está LIBERADA.");
       if (purchase.finalizedAt) throw new Error("Compra já foi finalizada.");
+
+      const ownerId = String(purchase.cedente?.ownerId || "").trim();
+      if (!ownerId) throw new Error("Cedente sem owner.");
 
       const numerosAll = purchaseNumeroVariants(String(purchase.numero || ""));
 
@@ -98,33 +100,35 @@ export async function PATCH(req: Request, ctx: Ctx) {
           pointsValueCents: true,
           embarqueFeeCents: true,
           milheiroCents: true,
-          bonusCents: true,
           metaMilheiroCents: true,
         },
       });
 
-      const metrics = aggregatePurchaseFinalizeMetrics(
-        sales,
-        purchase.totalCents || 0,
-        purchase.metaMilheiroCents || 0,
-        bonusAboveMetaBps
-      );
-
       const finalizedAt = new Date();
+      const snapshot = await buildPurchaseFinalizeSnapshot(tx, {
+        team: session.team,
+        ownerId,
+        sales,
+        purchaseTotalCents: purchase.totalCents || 0,
+        purchaseMetaMilheiroCents: purchase.metaMilheiroCents || 0,
+        bonusAboveMetaBps,
+        refDate: finalizedAt,
+      });
 
       const updated = await tx.purchase.update({
         where: { id },
         data: {
           finalizedAt,
           finalizedById: session.id,
-          finalSalesCents: metrics.salesTotalCents,
-          finalSalesPointsValueCents: metrics.salesPointsValueCents,
-          finalProfitBrutoCents: metrics.profitBrutoCents,
-          finalBonusCents: metrics.bonusCents,
-          finalProfitCents: metrics.profitLiquidoCents,
-          finalSoldPoints: metrics.soldPoints,
-          finalPax: metrics.pax,
-          finalAvgMilheiroCents: metrics.avgMilheiroCents,
+          finalSalesCents: snapshot.finalSalesCents,
+          finalSalesPointsValueCents: snapshot.finalSalesPointsValueCents,
+          finalProfitBrutoCents: snapshot.finalProfitBrutoCents,
+          finalBonusCents: snapshot.finalBonusCents,
+          finalProfitCents: snapshot.finalProfitCents,
+          finalSoldPoints: snapshot.finalSoldPoints,
+          finalPax: snapshot.finalPax,
+          finalAvgMilheiroCents: snapshot.finalAvgMilheiroCents,
+          finalRateioBreakdown: toPrismaRateioBreakdown(snapshot.finalRateioBreakdown),
         },
         select: {
           id: true,
@@ -135,6 +139,7 @@ export async function PATCH(req: Request, ctx: Ctx) {
           finalSalesPointsValueCents: true,
           finalProfitBrutoCents: true,
           finalBonusCents: true,
+          finalRateioBreakdown: true,
           finalSoldPoints: true,
           finalPax: true,
           finalAvgMilheiroCents: true,

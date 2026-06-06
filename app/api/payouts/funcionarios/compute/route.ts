@@ -10,11 +10,14 @@ import {
 } from "@/lib/payouts/employeeCommissionRates";
 import { milheiroNoFeeFromPv } from "@/lib/payouts/employeePayouts";
 import {
-  aggregatePurchaseFinalizeMetrics,
   chooseMetaMilheiro,
   pvSemTaxaFromSaleFields,
-  purchaseNumeroVariants,
 } from "@/lib/payouts/purchaseFinalizeMetrics";
+import {
+  backfillFinalRateioBreakdown,
+  parseFinalRateioBreakdown,
+  toPrismaRateioBreakdown,
+} from "@/lib/payouts/purchaseRateio";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -167,79 +170,6 @@ function resolveFeePayerFromLabel(
 }
 
 /* =========================
-  ProfitShare helpers
-========================= */
-function pickShareForDate(
-  shares: Array<{
-    effectiveFrom: Date;
-    effectiveTo: Date | null;
-    items: Array<{ payeeId: string; bps: number }>;
-  }>,
-  refDate: Date
-) {
-  for (const s of shares) {
-    if (s.effectiveFrom && s.effectiveFrom > refDate) continue;
-    if (s.effectiveTo && refDate >= s.effectiveTo) continue;
-    return s;
-  }
-  return null;
-}
-
-/**
- * ✅ Split correto:
- * - floor inicial
- * - reparte resto por maiores frações
- */
-function splitByBps(pool: number, items: Array<{ payeeId: string; bps: number }>) {
-  const out: Record<string, number> = {};
-  const total = safeInt(pool, 0);
-  if (!items?.length || total === 0) return out;
-
-  const rows = items
-    .map((it, idx) => ({
-      idx,
-      payeeId: it.payeeId,
-      bps: Math.max(0, safeInt(it.bps, 0)),
-    }))
-    .filter((x) => !!x.payeeId && x.bps > 0);
-
-  if (!rows.length) return out;
-
-  const sumBps = rows.reduce((acc, r) => acc + r.bps, 0);
-  if (sumBps <= 0) return out;
-
-  let used = 0;
-  const tmp = rows.map((r) => {
-    const raw = (total * r.bps) / sumBps;
-    const flo = Math.floor(raw);
-    const frac = raw - flo;
-    used += flo;
-    return { ...r, flo, frac };
-  });
-
-  for (const r of tmp) out[r.payeeId] = (out[r.payeeId] ?? 0) + r.flo;
-
-  let rem = total - used;
-  if (rem > 0) {
-    tmp.sort((a, b) => {
-      if (b.frac !== a.frac) return b.frac - a.frac;
-      if (b.bps !== a.bps) return b.bps - a.bps;
-      return a.idx - b.idx;
-    });
-
-    let i = 0;
-    while (rem > 0) {
-      const r = tmp[i % tmp.length];
-      out[r.payeeId] = (out[r.payeeId] ?? 0) + 1;
-      rem -= 1;
-      i += 1;
-    }
-  }
-
-  return out;
-}
-
-/* =========================
   Helpers: purchaseId legado (numero) variants
 ========================= */
 function makeNumeroVariants(numeros: string[]) {
@@ -361,6 +291,7 @@ export async function POST(req: Request) {
         finalProfitBrutoCents: true,
         finalBonusCents: true,
         finalProfitCents: true,
+        finalRateioBreakdown: true,
         cedente: { select: { ownerId: true } },
       },
       orderBy: { finalizedAt: "desc" },
@@ -386,7 +317,7 @@ export async function POST(req: Request) {
       return idByNumeroUpper.get(upper) || r.trim();
     }
 
-    // 3) sales das compras finalizadas (pra fallback de C3 e também quando basis=PURCHASE_FINALIZED)
+    // 3) sales das compras finalizadas (C1/C2 quando basis=PURCHASE_FINALIZED + backfill C3 legado)
     const numerosFinalized = purchasesFinalized.map((p) => String(p.numero || "").trim()).filter(Boolean);
     const numerosAllFinalized = makeNumeroVariants(numerosFinalized);
 
@@ -411,6 +342,7 @@ export async function POST(req: Request) {
               createdAt: true,
 
               points: true,
+              passengers: true,
               milheiroCents: true,
               totalCents: true,
               embarqueFeeCents: true,
@@ -427,138 +359,6 @@ export async function POST(req: Request) {
             },
           })
         : [];
-
-    // Index para fallback do C3
-    const salesByPurchaseIdForC3: Record<
-      string,
-      Array<{
-        points: number;
-        milheiroCents: number;
-        totalCents: number;
-        embarqueFeeCents: number;
-        feeCardLabel: string | null;
-        pointsValueCents: number;
-        bonusCents: number | null;
-        metaMilheiroCents: number;
-        purchaseMetaMilheiroCents: number;
-        sellerId: string | null;
-      }>
-    > = {};
-
-    for (const s of salesForFinalizedPurchases) {
-      const pidNorm = normalizePurchaseIdUsingFinalized(String(s.purchaseId || ""));
-      if (!pidNorm) continue;
-
-      const purchaseMeta =
-        safeInt(s.purchase?.metaMilheiroCents, 0) ||
-        safeInt(purchaseMetaById.get(pidNorm) ?? 0, 0);
-
-      (salesByPurchaseIdForC3[pidNorm] ||= []).push({
-        points: safeInt(s.points, 0),
-        milheiroCents: safeInt(s.milheiroCents, 0),
-        totalCents: safeInt(s.totalCents, 0),
-        embarqueFeeCents: safeInt(s.embarqueFeeCents, 0),
-        feeCardLabel: s.feeCardLabel ?? null,
-
-        pointsValueCents: safeInt(s.pointsValueCents, 0),
-        bonusCents: typeof s.bonusCents === "number" ? safeInt(s.bonusCents, 0) : null,
-        metaMilheiroCents: safeInt(s.metaMilheiroCents, 0),
-        purchaseMetaMilheiroCents: purchaseMeta,
-        sellerId: s.sellerId ?? null,
-      });
-    }
-
-    function salesRowsForPurchaseC3(p: (typeof purchasesFinalized)[number]) {
-      const indexed = salesByPurchaseIdForC3[p.id] || [];
-      if (indexed.length) return indexed;
-
-      const numerosAll = purchaseNumeroVariants(String(p.numero || ""));
-      const loose = salesForFinalizedPurchases.filter((s) => {
-        const raw = String(s.purchaseId || "").trim();
-        if (!raw) return false;
-        if (raw === p.id) return true;
-        const upper = raw.toUpperCase();
-        return numerosAll.some((n) => n.toUpperCase() === upper);
-      });
-
-      return loose.map((s) => {
-        const purchaseMeta =
-          safeInt(s.purchase?.metaMilheiroCents, 0) ||
-          safeInt(purchaseMetaById.get(p.id) ?? 0, 0) ||
-          safeInt(p.metaMilheiroCents, 0);
-
-        return {
-          points: safeInt(s.points, 0),
-          milheiroCents: safeInt(s.milheiroCents, 0),
-          totalCents: safeInt(s.totalCents, 0),
-          embarqueFeeCents: safeInt(s.embarqueFeeCents, 0),
-          feeCardLabel: s.feeCardLabel ?? null,
-          pointsValueCents: safeInt(s.pointsValueCents, 0),
-          bonusCents: null as number | null,
-          metaMilheiroCents: safeInt(s.metaMilheiroCents, 0),
-          purchaseMetaMilheiroCents: purchaseMeta,
-          sellerId: s.sellerId ?? null,
-        };
-      });
-    }
-
-    // ✅ lucro líquido REAL por compra (C3) — mesma regra da tela "Ver" compra finalizada
-    function computeLucroLiquidoCompra(p: (typeof purchasesFinalized)[number]) {
-      const ss = salesRowsForPurchaseC3(p);
-
-      if (ss.length) {
-        return aggregatePurchaseFinalizeMetrics(
-          ss.map((s) => ({
-            points: s.points,
-            passengers: 0,
-            totalCents: s.totalCents,
-            pointsValueCents: s.pointsValueCents,
-            embarqueFeeCents: s.embarqueFeeCents,
-            milheiroCents: s.milheiroCents,
-            bonusCents: null,
-            metaMilheiroCents: s.metaMilheiroCents,
-          })),
-          safeInt(p.totalCents, 0),
-          safeInt(p.metaMilheiroCents, 0),
-          bonusAboveMetaBps
-        );
-      }
-
-      const pvDb = safeInt(p.finalSalesPointsValueCents ?? 0, 0);
-      const bonusDb = safeInt(p.finalBonusCents ?? 0, 0);
-      if (pvDb > 0 && p.finalBonusCents !== null && p.finalBonusCents !== undefined) {
-        const profitLiquidoCents = Math.max(0, pvDb - safeInt(p.totalCents, 0) - bonusDb);
-        return {
-          soldPoints: 0,
-          pax: 0,
-          salesTotalCents: 0,
-          salesPointsValueCents: pvDb,
-          bonusCents: bonusDb,
-          profitBrutoCents: pvDb - safeInt(p.totalCents, 0),
-          profitLiquidoCents,
-          avgMilheiroCents: 0,
-        };
-      }
-
-      return null;
-    }
-
-    // 4) ProfitShare dos owners envolvidos (C3)
-    const ownerIds = Array.from(new Set(purchasesFinalized.map((p) => p.cedente.ownerId).filter(Boolean)));
-
-    const shares = await prisma.profitShare.findMany({
-      where: {
-        team,
-        ownerId: { in: ownerIds.length ? ownerIds : ["__none__"] },
-        isActive: true,
-        effectiveFrom: { lte: end },
-      },
-      orderBy: { effectiveFrom: "desc" },
-      include: { items: true },
-    });
-
-    const sharesByOwner: Record<string, typeof shares> = {};
-    for (const s of shares) (sharesByOwner[s.ownerId] ||= []).push(s);
 
     type Agg = {
       commission1Cents: number;
@@ -752,7 +552,7 @@ export async function POST(req: Request) {
       }
     }
 
-    // 7) ✅ C3 = rateio do lucro líquido REAL por compra finalizada no dia
+    // 7) ✅ C3 = rateio gravado na finalização (lucro líquido > 0)
     const c3Audit: Array<{
       purchaseId: string;
       numero: string;
@@ -760,84 +560,83 @@ export async function POST(req: Request) {
       ownerId: string | null;
       skipped: boolean;
       reason?: string;
+      backfilled?: boolean;
     }> = [];
 
     for (const p of purchasesFinalized) {
-      const ss = salesRowsForPurchaseC3(p);
-      const metrics = computeLucroLiquidoCompra(p);
-      const pool = metrics ? safeInt(metrics.profitLiquidoCents, 0) : 0;
+      let breakdown = parseFinalRateioBreakdown(p.finalRateioBreakdown);
+      let backfilled = false;
 
-      if (metrics && ss.length) {
-        const needsSnapshot =
-          p.finalSalesPointsValueCents == null ||
-          p.finalBonusCents == null ||
-          p.finalProfitBrutoCents == null;
+      if (!breakdown) {
+        const snapshot = await backfillFinalRateioBreakdown(prisma, {
+          team,
+          purchase: {
+            id: p.id,
+            numero: String(p.numero || ""),
+            totalCents: p.totalCents,
+            metaMilheiroCents: p.metaMilheiroCents,
+            finalizedAt: p.finalizedAt,
+            cedente: { ownerId: String(p.cedente.ownerId || "") },
+          },
+          sales: salesForFinalizedPurchases.map((s) => ({
+            purchaseId: s.purchaseId,
+            points: safeInt(s.points, 0),
+            passengers: safeInt(s.passengers, 0),
+            totalCents: safeInt(s.totalCents, 0),
+            pointsValueCents: safeInt(s.pointsValueCents, 0),
+            embarqueFeeCents: safeInt(s.embarqueFeeCents, 0),
+            milheiroCents: safeInt(s.milheiroCents, 0),
+            metaMilheiroCents: safeInt(s.metaMilheiroCents, 0),
+          })),
+          bonusAboveMetaBps,
+          refDate: p.finalizedAt ?? start,
+        });
 
-        if (needsSnapshot) {
+        if (snapshot) {
+          backfilled = true;
+          breakdown = snapshot.finalRateioBreakdown;
           await prisma.purchase.update({
             where: { id: p.id },
             data: {
-              finalSalesCents: metrics.salesTotalCents,
-              finalSalesPointsValueCents: metrics.salesPointsValueCents,
-              finalProfitBrutoCents: metrics.profitBrutoCents,
-              finalBonusCents: metrics.bonusCents,
-              finalProfitCents: metrics.profitLiquidoCents,
-              finalSoldPoints: metrics.soldPoints,
-              finalPax: metrics.pax,
-              finalAvgMilheiroCents: metrics.avgMilheiroCents,
+              finalSalesCents: snapshot.finalSalesCents,
+              finalSalesPointsValueCents: snapshot.finalSalesPointsValueCents,
+              finalProfitBrutoCents: snapshot.finalProfitBrutoCents,
+              finalBonusCents: snapshot.finalBonusCents,
+              finalProfitCents: snapshot.finalProfitCents,
+              finalSoldPoints: snapshot.finalSoldPoints,
+              finalPax: snapshot.finalPax,
+              finalAvgMilheiroCents: snapshot.finalAvgMilheiroCents,
+              finalRateioBreakdown: toPrismaRateioBreakdown(snapshot.finalRateioBreakdown),
             },
           });
         }
       }
 
-      if (pool <= 0) {
+      if (!breakdown || breakdown.profitLiquidoCents <= 0) {
         c3Audit.push({
           purchaseId: p.id,
           numero: String(p.numero || ""),
-          poolCents: safeInt(pool, 0),
+          poolCents: safeInt(breakdown?.profitLiquidoCents, 0),
           ownerId: p.cedente.ownerId ?? null,
           skipped: true,
-          reason: ss.length ? "pool<=0" : "sem_vendas",
+          reason: !breakdown ? "sem_rateio" : "lucro<=0",
+          backfilled,
         });
         continue;
       }
 
-      const ownerId = p.cedente.ownerId;
-      if (!ownerId) {
-        c3Audit.push({
-          purchaseId: p.id,
-          numero: String(p.numero || ""),
-          poolCents: safeInt(pool, 0),
-          ownerId: null,
-          skipped: true,
-          reason: "sem_owner",
-        });
-        continue;
-      }
-
-      const ownerShares = sharesByOwner[ownerId] || [];
-      const share = pickShareForDate(
-        ownerShares.map((x) => ({
-          effectiveFrom: x.effectiveFrom,
-          effectiveTo: x.effectiveTo,
-          items: x.items.map((i) => ({ payeeId: i.payeeId, bps: i.bps })),
-        })),
-        p.finalizedAt ?? start
-      );
-
-      const items = share?.items?.length ? share.items : [{ payeeId: ownerId, bps: 10000 }];
-      const splits = splitByBps(pool, items);
-
-      for (const payeeId of Object.keys(splits)) {
-        ensure(payeeId).commission3RateioCents += safeInt(splits[payeeId], 0);
+      for (const split of breakdown.splits) {
+        if (safeInt(split.amountCents, 0) <= 0) continue;
+        ensure(split.payeeId).commission3RateioCents += safeInt(split.amountCents, 0);
       }
 
       c3Audit.push({
         purchaseId: p.id,
         numero: String(p.numero || ""),
-        poolCents: safeInt(pool, 0),
-        ownerId,
+        poolCents: breakdown.profitLiquidoCents,
+        ownerId: p.cedente.ownerId ?? null,
         skipped: false,
+        backfilled,
       });
     }
 
