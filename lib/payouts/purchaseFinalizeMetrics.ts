@@ -76,18 +76,16 @@ export function aggregatePurchaseFinalizeMetrics(
     salesTotalCents += safeInt(s.totalCents, 0);
     salesPointsValueCents += pvSemTaxa;
 
-    if (s.bonusCents !== null && s.bonusCents !== undefined) {
-      bonusCents += safeInt(s.bonusCents, 0);
-    } else {
-      const meta = chooseMetaMilheiro(
-        safeInt(s.metaMilheiroCents, 0) > 0 ? s.metaMilheiroCents : purchaseMetaMilheiroCents
-      );
-      const milheiroNoFee = milheiroNoFeeFromPv(points, pvSemTaxa);
-      bonusCents += bonusAboveMetaFromSale(
-        { points, milheiroNoFeeCents: milheiroNoFee, metaMilheiroCents: meta },
-        bonusAboveMetaBps
-      );
-    }
+    // ✅ Sempre recalcula (igual tela de compra finalizada). sale.bonusCents gravado
+    // pode estar desatualizado e zerar o lucro líquido do rateio C3.
+    const meta = chooseMetaMilheiro(
+      safeInt(s.metaMilheiroCents, 0) > 0 ? s.metaMilheiroCents : purchaseMetaMilheiroCents
+    );
+    const milheiroNoFee = milheiroNoFeeFromPv(points, pvSemTaxa);
+    bonusCents += bonusAboveMetaFromSale(
+      { points, milheiroNoFeeCents: milheiroNoFee, metaMilheiroCents: meta },
+      bonusAboveMetaBps
+    );
   }
 
   const cost = safeInt(purchaseTotalCents, 0);

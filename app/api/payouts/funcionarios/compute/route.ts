@@ -10,8 +10,10 @@ import {
 } from "@/lib/payouts/employeeCommissionRates";
 import { milheiroNoFeeFromPv } from "@/lib/payouts/employeePayouts";
 import {
+  aggregatePurchaseFinalizeMetrics,
   chooseMetaMilheiro,
   pvSemTaxaFromSaleFields,
+  purchaseNumeroVariants,
 } from "@/lib/payouts/purchaseFinalizeMetrics";
 
 export const runtime = "nodejs";
@@ -466,59 +468,79 @@ export async function POST(req: Request) {
       });
     }
 
-    // ✅ lucro líquido REAL por compra (C3)
+    function salesRowsForPurchaseC3(p: (typeof purchasesFinalized)[number]) {
+      const indexed = salesByPurchaseIdForC3[p.id] || [];
+      if (indexed.length) return indexed;
+
+      const numerosAll = purchaseNumeroVariants(String(p.numero || ""));
+      const loose = salesForFinalizedPurchases.filter((s) => {
+        const raw = String(s.purchaseId || "").trim();
+        if (!raw) return false;
+        if (raw === p.id) return true;
+        const upper = raw.toUpperCase();
+        return numerosAll.some((n) => n.toUpperCase() === upper);
+      });
+
+      return loose.map((s) => {
+        const purchaseMeta =
+          safeInt(s.purchase?.metaMilheiroCents, 0) ||
+          safeInt(purchaseMetaById.get(p.id) ?? 0, 0) ||
+          safeInt(p.metaMilheiroCents, 0);
+
+        return {
+          points: safeInt(s.points, 0),
+          milheiroCents: safeInt(s.milheiroCents, 0),
+          totalCents: safeInt(s.totalCents, 0),
+          embarqueFeeCents: safeInt(s.embarqueFeeCents, 0),
+          feeCardLabel: s.feeCardLabel ?? null,
+          pointsValueCents: safeInt(s.pointsValueCents, 0),
+          bonusCents: null as number | null,
+          metaMilheiroCents: safeInt(s.metaMilheiroCents, 0),
+          purchaseMetaMilheiroCents: purchaseMeta,
+          sellerId: s.sellerId ?? null,
+        };
+      });
+    }
+
+    // ✅ lucro líquido REAL por compra (C3) — mesma regra da tela "Ver" compra finalizada
     function computeLucroLiquidoCompra(p: (typeof purchasesFinalized)[number]) {
-      const cost = safeInt(p.totalCents, 0);
+      const ss = salesRowsForPurchaseC3(p);
+
+      if (ss.length) {
+        return aggregatePurchaseFinalizeMetrics(
+          ss.map((s) => ({
+            points: s.points,
+            passengers: 0,
+            totalCents: s.totalCents,
+            pointsValueCents: s.pointsValueCents,
+            embarqueFeeCents: s.embarqueFeeCents,
+            milheiroCents: s.milheiroCents,
+            bonusCents: null,
+            metaMilheiroCents: s.metaMilheiroCents,
+          })),
+          safeInt(p.totalCents, 0),
+          safeInt(p.metaMilheiroCents, 0),
+          bonusAboveMetaBps
+        );
+      }
 
       const pvDb = safeInt(p.finalSalesPointsValueCents ?? 0, 0);
       const bonusDb = safeInt(p.finalBonusCents ?? 0, 0);
-
       if (pvDb > 0 && p.finalBonusCents !== null && p.finalBonusCents !== undefined) {
-        const bruto = pvDb - cost;
-        return bruto - bonusDb;
+        const profitLiquidoCents = Math.max(0, pvDb - safeInt(p.totalCents, 0) - bonusDb);
+        return {
+          soldPoints: 0,
+          pax: 0,
+          salesTotalCents: 0,
+          salesPointsValueCents: pvDb,
+          bonusCents: bonusDb,
+          profitBrutoCents: pvDb - safeInt(p.totalCents, 0),
+          profitLiquidoCents,
+          avgMilheiroCents: 0,
+        };
       }
 
-      const brutoDb = safeInt(p.finalProfitBrutoCents ?? 0, 0);
-      if (brutoDb !== 0 && p.finalBonusCents !== null && p.finalBonusCents !== undefined) {
-        return brutoDb - bonusDb;
-      }
-
-      const ss = salesByPurchaseIdForC3[p.id] || [];
-      if (!ss.length) return safeInt(p.finalProfitCents ?? 0, 0);
-
-      let pvSemTaxaSum = 0;
-      let bonusSum = 0;
-
-      for (const s of ss) {
-        const pvSemTaxa = pvSemTaxaFromSale({
-          totalCents: s.totalCents,
-          embarqueFeeCents: s.embarqueFeeCents,
-          pointsValueCents: s.pointsValueCents,
-          points: s.points,
-          milheiroCents: s.milheiroCents,
-        });
-        pvSemTaxaSum += pvSemTaxa;
-
-        if (s.bonusCents !== null) {
-          bonusSum += safeInt(s.bonusCents, 0);
-        } else {
-          const meta = chooseMetaMilheiro(
-            safeInt(s.metaMilheiroCents, 0) > 0 ? s.metaMilheiroCents : s.purchaseMetaMilheiroCents
-          );
-          const milheiroNoFee = milheiroNoFeeFromPv(s.points, pvSemTaxa);
-          bonusSum += bonusAboveMetaFromSale(
-            {
-              points: s.points,
-              milheiroNoFeeCents: milheiroNoFee,
-              metaMilheiroCents: meta,
-            },
-            bonusAboveMetaBps
-          );
-        }
-      }
-
-      const bruto = pvSemTaxaSum - cost;
-      return bruto - bonusSum;
+      return null;
     }
 
     // 4) ProfitShare dos owners envolvidos (C3)
@@ -731,12 +753,67 @@ export async function POST(req: Request) {
     }
 
     // 7) ✅ C3 = rateio do lucro líquido REAL por compra finalizada no dia
+    const c3Audit: Array<{
+      purchaseId: string;
+      numero: string;
+      poolCents: number;
+      ownerId: string | null;
+      skipped: boolean;
+      reason?: string;
+    }> = [];
+
     for (const p of purchasesFinalized) {
-      const pool = computeLucroLiquidoCompra(p);
-      if (safeInt(pool, 0) <= 0) continue;
+      const ss = salesRowsForPurchaseC3(p);
+      const metrics = computeLucroLiquidoCompra(p);
+      const pool = metrics ? safeInt(metrics.profitLiquidoCents, 0) : 0;
+
+      if (metrics && ss.length) {
+        const needsSnapshot =
+          p.finalSalesPointsValueCents == null ||
+          p.finalBonusCents == null ||
+          p.finalProfitBrutoCents == null;
+
+        if (needsSnapshot) {
+          await prisma.purchase.update({
+            where: { id: p.id },
+            data: {
+              finalSalesCents: metrics.salesTotalCents,
+              finalSalesPointsValueCents: metrics.salesPointsValueCents,
+              finalProfitBrutoCents: metrics.profitBrutoCents,
+              finalBonusCents: metrics.bonusCents,
+              finalProfitCents: metrics.profitLiquidoCents,
+              finalSoldPoints: metrics.soldPoints,
+              finalPax: metrics.pax,
+              finalAvgMilheiroCents: metrics.avgMilheiroCents,
+            },
+          });
+        }
+      }
+
+      if (pool <= 0) {
+        c3Audit.push({
+          purchaseId: p.id,
+          numero: String(p.numero || ""),
+          poolCents: safeInt(pool, 0),
+          ownerId: p.cedente.ownerId ?? null,
+          skipped: true,
+          reason: ss.length ? "pool<=0" : "sem_vendas",
+        });
+        continue;
+      }
 
       const ownerId = p.cedente.ownerId;
-      if (!ownerId) continue;
+      if (!ownerId) {
+        c3Audit.push({
+          purchaseId: p.id,
+          numero: String(p.numero || ""),
+          poolCents: safeInt(pool, 0),
+          ownerId: null,
+          skipped: true,
+          reason: "sem_owner",
+        });
+        continue;
+      }
 
       const ownerShares = sharesByOwner[ownerId] || [];
       const share = pickShareForDate(
@@ -754,6 +831,14 @@ export async function POST(req: Request) {
       for (const payeeId of Object.keys(splits)) {
         ensure(payeeId).commission3RateioCents += safeInt(splits[payeeId], 0);
       }
+
+      c3Audit.push({
+        purchaseId: p.id,
+        numero: String(p.numero || ""),
+        poolCents: safeInt(pool, 0),
+        ownerId,
+        skipped: false,
+      });
     }
 
     const balcaoOps = await prisma.balcaoOperacao.findMany({
@@ -862,6 +947,7 @@ export async function POST(req: Request) {
       salesForCommission: salesForCommission.length,
       salesForFinalizedPurchases: salesForFinalizedPurchases.length,
       balcaoOps: balcaoOps.length,
+      ...(isAdmin ? { c3Audit } : {}),
     });
   } catch (e: unknown) {
     const errorMessage = getErrorMessage(e);
