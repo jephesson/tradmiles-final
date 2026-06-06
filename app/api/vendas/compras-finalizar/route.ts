@@ -2,6 +2,11 @@ import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { prisma } from "@/lib/prisma";
 import { triggerEmployeePayoutAutoCompute, todayISORecife } from "@/lib/payouts/autoCompute";
+import { resolveEmployeeBonusAboveMetaBps } from "@/lib/payouts/employeeCommissionRates";
+import {
+  aggregatePurchaseFinalizeMetrics,
+  purchaseNumeroVariants,
+} from "@/lib/payouts/purchaseFinalizeMetrics";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -49,6 +54,14 @@ export async function PATCH(req: Request) {
   }
 
   try {
+    const settings = await prisma.settings.upsert({
+      where: { key: "default" },
+      create: { key: "default" },
+      update: {},
+      select: { employeeBonusAboveMetaBps: true },
+    });
+    const bonusAboveMetaBps = resolveEmployeeBonusAboveMetaBps(settings);
+
     const out = await prisma.$transaction(async (tx) => {
       const purchase = await tx.purchase.findUnique({
         where: { id: purchaseId },
@@ -56,7 +69,7 @@ export async function PATCH(req: Request) {
           id: true,
           numero: true,
           status: true,
-          pontosCiaTotal: true, // ✅ era points
+          pontosCiaTotal: true,
           totalCents: true,
           metaMilheiroCents: true,
           finalizedAt: true,
@@ -69,31 +82,31 @@ export async function PATCH(req: Request) {
       if (purchase.status !== "CLOSED") throw new Error("Compra não está LIBERADA.");
       if (purchase.finalizedAt) throw new Error("Compra já foi finalizada.");
 
-      const agg = await tx.sale.aggregate({
-        where: { purchaseId, paymentStatus: { not: "CANCELED" } },
-        _sum: { points: true, passengers: true, totalCents: true, pointsValueCents: true },
-      });
-      const affiliateAgg = await tx.affiliateCommission.aggregate({
+      const numerosAll = purchaseNumeroVariants(String(purchase.numero || ""));
+
+      const sales = await tx.sale.findMany({
         where: {
-          purchaseId,
-          sale: {
-            paymentStatus: { not: "CANCELED" },
-          },
+          paymentStatus: { not: "CANCELED" },
+          OR: [{ purchaseId: purchase.id }, { purchaseId: { in: numerosAll.length ? numerosAll : ["__none__"] } }],
         },
-        _sum: { amountCents: true },
+        select: {
+          points: true,
+          passengers: true,
+          totalCents: true,
+          pointsValueCents: true,
+          embarqueFeeCents: true,
+          milheiroCents: true,
+          bonusCents: true,
+          metaMilheiroCents: true,
+        },
       });
 
-      const soldPoints = agg._sum.points ?? 0;
-      const pax = agg._sum.passengers ?? 0;
-      const salesTotalCents = agg._sum.totalCents ?? 0;
-      const pointsValueCents = agg._sum.pointsValueCents ?? 0;
-      const affiliateCommissionCents = affiliateAgg._sum.amountCents ?? 0;
-
-      const avgMilheiroCents =
-        soldPoints > 0 ? Math.round((pointsValueCents * 1000) / soldPoints) : 0;
-
-      const profitCents =
-        salesTotalCents - (purchase.totalCents || 0) - affiliateCommissionCents;
+      const metrics = aggregatePurchaseFinalizeMetrics(
+        sales,
+        purchase.totalCents || 0,
+        purchase.metaMilheiroCents || 0,
+        bonusAboveMetaBps
+      );
 
       const finalizedAt = new Date();
 
@@ -102,11 +115,14 @@ export async function PATCH(req: Request) {
         data: {
           finalizedAt,
           finalizedById: session.id,
-          finalSalesCents: salesTotalCents,
-          finalProfitCents: profitCents,
-          finalSoldPoints: soldPoints,
-          finalPax: pax,
-          finalAvgMilheiroCents: avgMilheiroCents,
+          finalSalesCents: metrics.salesTotalCents,
+          finalSalesPointsValueCents: metrics.salesPointsValueCents,
+          finalProfitBrutoCents: metrics.profitBrutoCents,
+          finalBonusCents: metrics.bonusCents,
+          finalProfitCents: metrics.profitLiquidoCents,
+          finalSoldPoints: metrics.soldPoints,
+          finalPax: metrics.pax,
+          finalAvgMilheiroCents: metrics.avgMilheiroCents,
         },
         select: {
           id: true,
@@ -114,6 +130,9 @@ export async function PATCH(req: Request) {
           finalizedAt: true,
           finalProfitCents: true,
           finalSalesCents: true,
+          finalSalesPointsValueCents: true,
+          finalProfitBrutoCents: true,
+          finalBonusCents: true,
           finalSoldPoints: true,
           finalPax: true,
           finalAvgMilheiroCents: true,

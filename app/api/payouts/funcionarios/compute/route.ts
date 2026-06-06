@@ -8,6 +8,11 @@ import {
   resolveEmployeeBonusAboveMetaBps,
   resolveEmployeeC1Bps,
 } from "@/lib/payouts/employeeCommissionRates";
+import { milheiroNoFeeFromPv } from "@/lib/payouts/employeePayouts";
+import {
+  chooseMetaMilheiro,
+  pvSemTaxaFromSaleFields,
+} from "@/lib/payouts/purchaseFinalizeMetrics";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -39,12 +44,6 @@ function getErrorMessage(error: unknown) {
   return String(error);
 }
 
-/* =========================
-  ✅ PV SEM TAXA
-  - pointsValueCents (se vier)
-  - total - embarqueFee
-  - fallback pontos * milheiro
-========================= */
 function pvSemTaxaFromSale(s: {
   totalCents: number;
   embarqueFeeCents: number;
@@ -52,14 +51,7 @@ function pvSemTaxaFromSale(s: {
   points: number;
   milheiroCents: number;
 }) {
-  const pvDb = safeInt(s.pointsValueCents, 0);
-  if (pvDb > 0) return pvDb;
-
-  const total = safeInt(s.totalCents, 0);
-  const fee = safeInt(s.embarqueFeeCents, 0);
-  if (total > 0) return Math.max(total - fee, 0);
-
-  return pointsValueCentsFallback(safeInt(s.points, 0), safeInt(s.milheiroCents, 0));
+  return pvSemTaxaFromSaleFields(s);
 }
 
 /* =========================
@@ -245,11 +237,6 @@ function splitByBps(pool: number, items: Array<{ payeeId: string; bps: number }>
   return out;
 }
 
-function chooseMetaMilheiro(metaSaleOrPurchase: number | null | undefined) {
-  const v = safeInt(metaSaleOrPurchase ?? 0, 0);
-  return v > 0 ? v : 0;
-}
-
 /* =========================
   Helpers: purchaseId legado (numero) variants
 ========================= */
@@ -394,7 +381,7 @@ export async function POST(req: Request) {
       const r = String(raw || "").trim();
       if (!r) return "";
       const upper = r.toUpperCase();
-      return idByNumeroUpper.get(upper) || r;
+      return idByNumeroUpper.get(upper) || r.trim();
     }
 
     // 3) sales das compras finalizadas (pra fallback de C3 e também quando basis=PURCHASE_FINALIZED)
@@ -518,10 +505,11 @@ export async function POST(req: Request) {
           const meta = chooseMetaMilheiro(
             safeInt(s.metaMilheiroCents, 0) > 0 ? s.metaMilheiroCents : s.purchaseMetaMilheiroCents
           );
+          const milheiroNoFee = milheiroNoFeeFromPv(s.points, pvSemTaxa);
           bonusSum += bonusAboveMetaFromSale(
             {
               points: s.points,
-              milheiroNoFeeCents: s.milheiroCents,
+              milheiroNoFeeCents: milheiroNoFee,
               metaMilheiroCents: meta,
             },
             bonusAboveMetaBps
@@ -712,13 +700,14 @@ export async function POST(req: Request) {
         );
 
         const c1 = safeInt(s.commissionCents, 0) > 0 ? safeInt(s.commissionCents, 0) : commission1FromPvCents(pvSemTaxa, c1Bps);
+        const milheiroNoFee = milheiroNoFeeFromPv(s.points, pvSemTaxa);
         const c2 =
           safeInt(s.bonusCents ?? 0, 0) > 0
             ? safeInt(s.bonusCents ?? 0, 0)
             : bonusAboveMetaFromSale(
                 {
                   points: s.points,
-                  milheiroNoFeeCents: s.milheiroCents,
+                  milheiroNoFeeCents: milheiroNoFee,
                   metaMilheiroCents: meta,
                 },
                 bonusAboveMetaBps
