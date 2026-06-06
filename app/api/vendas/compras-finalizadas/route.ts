@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { prisma } from "@/lib/prisma";
+import { resolveEmployeeBonusAboveMetaBps } from "@/lib/payouts/employeeCommissionRates";
+import { aggregatePurchaseFinalizeMetrics } from "@/lib/payouts/purchaseFinalizeMetrics";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -36,27 +38,7 @@ function safeInt(v: unknown, fb = 0) {
   return Number.isFinite(n) ? Math.trunc(n) : fb;
 }
 
-function milheiroFrom(points: number, pointsValueCents: number) {
-  const pts = safeInt(points, 0);
-  const cents = safeInt(pointsValueCents, 0);
-  if (!pts || !cents) return 0;
-  return Math.round((cents * 1000) / pts);
-}
-
-function bonus30(points: number, milheiroCents: number, metaMilheiroCents: number) {
-  const pts = safeInt(points, 0);
-  const mil = safeInt(milheiroCents, 0);
-  const meta = safeInt(metaMilheiroCents, 0);
-  if (!pts || !mil || !meta) return 0;
-
-  const diff = mil - meta;
-  if (diff <= 0) return 0;
-
-  const excedenteCents = Math.round((pts * diff) / 1000);
-  return Math.round(excedenteCents * 0.3);
-}
-
-function clampTake(v: any, fallback = 200) {
+function clampTake(v: unknown, fallback = 200) {
   const n = Number(v);
   if (!Number.isFinite(n)) return fallback;
   return Math.max(1, Math.min(500, Math.trunc(n)));
@@ -158,81 +140,69 @@ export async function GET(req: Request) {
       totalCents: true,
       pointsValueCents: true,
       embarqueFeeCents: true,
+      milheiroCents: true,
       affiliateCommission: { select: { amountCents: true } },
     },
   });
 
-  const agg = new Map<
-    string,
-    {
-      soldPoints: number;
-      pax: number;
+  const settings = await prisma.settings.findUnique({
+    where: { key: "default" },
+    select: { employeeBonusAboveMetaBps: true },
+  });
+  const bonusAboveMetaBps = resolveEmployeeBonusAboveMetaBps(settings);
 
-      salesTotalCents: number;
-      salesPointsValueCents: number;
-      salesTaxesCents: number;
-
-      bonusCents: number;
-      affiliateCommissionCents: number;
-
-      salesCount: number;
-      lastSaleAt: Date | null;
-    }
-  >();
-
-  const salesByPurchase = new Map<string, any[]>();
+  const salesByPurchase = new Map<string, typeof sales>();
+  const lastSaleAtByPurchase = new Map<string, Date>();
 
   function normalizePurchaseId(raw: string) {
     const r = (raw || "").trim();
     if (!r) return "";
     const upper = r.toUpperCase();
-    return idByNumeroUpper.get(upper) || r; // se for "ID00018", vira cuid; se já for cuid, fica
+    return idByNumeroUpper.get(upper) || r;
   }
 
   for (const s of sales) {
     const pid = normalizePurchaseId(String(s.purchaseId || ""));
     if (!pid) continue;
 
-    const totalCents = safeInt(s.totalCents, 0);
-    const feeCents = safeInt(s.embarqueFeeCents, 0);
-    let pvCents = safeInt(s.pointsValueCents as any, 0);
-
-    if (pvCents <= 0 && totalCents > 0) {
-      const cand = Math.max(totalCents - feeCents, 0);
-      pvCents = cand > 0 ? cand : totalCents;
-    }
-
-    const taxes = Math.max(totalCents - pvCents, 0);
-
-    const cur =
-      agg.get(pid) || {
-        soldPoints: 0,
-        pax: 0,
-        salesTotalCents: 0,
-        salesPointsValueCents: 0,
-        salesTaxesCents: 0,
-        bonusCents: 0,
-        affiliateCommissionCents: 0,
-        salesCount: 0,
-        lastSaleAt: null as Date | null,
-      };
-
-    cur.soldPoints += safeInt(s.points, 0);
-    cur.pax += safeInt(s.passengers, 0);
-
-    cur.salesTotalCents += totalCents;
-    cur.salesPointsValueCents += pvCents;
-    cur.salesTaxesCents += taxes;
-    cur.affiliateCommissionCents += safeInt(s.affiliateCommission?.amountCents, 0);
-
-    cur.salesCount += 1;
-    const dt = s.createdAt ? new Date(s.createdAt) : null;
-    if (dt && (!cur.lastSaleAt || dt > cur.lastSaleAt)) cur.lastSaleAt = dt;
-
-    agg.set(pid, cur);
-
     const arr = salesByPurchase.get(pid) || [];
-    arr.push({
+    arr.push(s);
+    salesByPurchase.set(pid, arr);
+
+    const dt = s.createdAt ? new Date(s.createdAt) : null;
+    if (dt) {
+      const prev = lastSaleAtByPurchase.get(pid);
+      if (!prev || dt > prev) lastSaleAtByPurchase.set(pid, dt);
+    }
+  }
+
+  const out = purchases.map((p) => {
+    const purchaseSales = salesByPurchase.get(p.id) || [];
+    const purchaseTotalCents = safeInt(p.totalCents, 0);
+    const purchaseMeta = safeInt(p.metaMilheiroCents, 0);
+
+    const metrics = aggregatePurchaseFinalizeMetrics(
+      purchaseSales.map((s) => ({
+        points: safeInt(s.points, 0),
+        passengers: safeInt(s.passengers, 0),
+        totalCents: safeInt(s.totalCents, 0),
+        pointsValueCents: safeInt(s.pointsValueCents, 0),
+        embarqueFeeCents: safeInt(s.embarqueFeeCents, 0),
+        milheiroCents: safeInt(s.milheiroCents, 0),
+        affiliateCommissionCents: safeInt(s.affiliateCommission?.amountCents, 0),
+      })),
+      purchaseTotalCents,
+      purchaseMeta,
+      bonusAboveMetaBps
+    );
+
+    const salesTaxesCents = Math.max(metrics.salesTotalCents - metrics.salesPointsValueCents, 0);
+    const remaining =
+      safeInt(p.pontosCiaTotal, 0) > 0
+        ? Math.max(safeInt(p.pontosCiaTotal, 0) - metrics.soldPoints, 0)
+        : null;
+
+    const listSales = purchaseSales.map((s) => ({
       id: s.id,
       numero: s.numero,
       date: s.date,
@@ -242,90 +212,31 @@ export async function GET(req: Request) {
       totalCents: s.totalCents,
       locator: s.locator,
       createdAt: s.createdAt,
-    });
-    salesByPurchase.set(pid, arr);
-  }
+    }));
 
-  // aplica bônus por compra
-  const byId = new Map(purchases.map((p) => [p.id, p]));
-
-  for (const s of sales) {
-    const pid = normalizePurchaseId(String(s.purchaseId || ""));
-    if (!pid) continue;
-
-    const p = byId.get(pid);
-    if (!p) continue;
-
-    const totalCents = safeInt(s.totalCents, 0);
-    const feeCents = safeInt(s.embarqueFeeCents, 0);
-    let pvCents = safeInt(s.pointsValueCents as any, 0);
-
-    if (pvCents <= 0 && totalCents > 0) {
-      const cand = Math.max(totalCents - feeCents, 0);
-      pvCents = cand > 0 ? cand : totalCents;
-    }
-
-    const mil = milheiroFrom(safeInt(s.points, 0), pvCents);
-    const b = bonus30(safeInt(s.points, 0), mil, safeInt(p.metaMilheiroCents, 0));
-
-    const cur = agg.get(pid);
-    if (cur) cur.bonusCents += b;
-  }
-
-  const out = purchases.map((p) => {
-    const a =
-      agg.get(p.id) || {
-        soldPoints: 0,
-        pax: 0,
-        salesTotalCents: 0,
-        salesPointsValueCents: 0,
-        salesTaxesCents: 0,
-        bonusCents: 0,
-        affiliateCommissionCents: 0,
-        salesCount: 0,
-        lastSaleAt: null as Date | null,
-      };
-
-    const purchaseTotalCents = safeInt(p.totalCents, 0);
-
-    const profitBruto = a.salesPointsValueCents - purchaseTotalCents;
-    const profitLiquido = profitBruto - a.bonusCents - a.affiliateCommissionCents;
-
-    const avgMilheiro =
-      a.soldPoints > 0 && a.salesPointsValueCents > 0
-        ? Math.round((a.salesPointsValueCents * 1000) / a.soldPoints)
-        : null;
-
-    const remaining =
-      safeInt(p.pontosCiaTotal, 0) > 0
-        ? Math.max(safeInt(p.pontosCiaTotal, 0) - a.soldPoints, 0)
-        : null;
-
-    const listSales = salesByPurchase.get(p.id) || [];
-
-    // ✅ AJUSTE MÍNIMO: count vem da lista (fonte da verdade)
     const salesCount = listSales.length;
+    const lastSaleAt = lastSaleAtByPurchase.get(p.id);
 
     return {
       ...p,
 
       salesCount,
-      vendas: salesCount, // alias opcional
-      lastSaleAt: a.lastSaleAt ? a.lastSaleAt.toISOString() : null,
+      vendas: salesCount,
+      lastSaleAt: lastSaleAt ? lastSaleAt.toISOString() : null,
       sales: listSales,
 
-      finalSalesCents: a.salesTotalCents,
-      finalSalesPointsValueCents: a.salesPointsValueCents,
-      finalSalesTaxesCents: a.salesTaxesCents,
+      finalSalesCents: metrics.salesTotalCents,
+      finalSalesPointsValueCents: metrics.salesPointsValueCents,
+      finalSalesTaxesCents: salesTaxesCents,
 
-      finalProfitBrutoCents: profitBruto,
-      finalBonusCents: a.bonusCents,
-      finalAffiliateCommissionCents: a.affiliateCommissionCents,
-      finalProfitCents: profitLiquido,
+      finalProfitBrutoCents: metrics.profitBrutoCents,
+      finalBonusCents: metrics.bonusCents,
+      finalAffiliateCommissionCents: metrics.affiliateCommissionCents,
+      finalProfitCents: metrics.profitLiquidoCents,
 
-      finalSoldPoints: a.soldPoints,
-      finalPax: a.pax,
-      finalAvgMilheiroCents: avgMilheiro,
+      finalSoldPoints: metrics.soldPoints,
+      finalPax: metrics.pax,
+      finalAvgMilheiroCents: metrics.avgMilheiroCents || null,
       finalRemainingPoints: remaining,
     };
   });

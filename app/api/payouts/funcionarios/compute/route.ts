@@ -353,6 +353,8 @@ export async function POST(req: Request) {
               metaMilheiroCents: true,
               sellerId: true,
 
+              affiliateCommission: { select: { amountCents: true } },
+
               purchase: { select: { metaMilheiroCents: true } },
             },
           })
@@ -584,6 +586,7 @@ export async function POST(req: Request) {
           milheiroCents: safeInt(s.milheiroCents, 0),
           metaMilheiroCents:
             safeInt(s.metaMilheiroCents, 0) > 0 ? safeInt(s.metaMilheiroCents, 0) : purchaseMeta,
+          affiliateCommissionCents: safeInt(s.affiliateCommission?.amountCents, 0),
         })),
         bonusAboveMetaBps,
         refDate: p.finalizedAt ?? start,

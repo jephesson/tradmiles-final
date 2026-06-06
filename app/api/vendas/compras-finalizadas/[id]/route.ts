@@ -109,6 +109,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
       metaMilheiroCents: true,
       paymentStatus: true,
       locator: true,
+      affiliateCommission: { select: { amountCents: true } },
     },
     orderBy: { date: "asc" },
   });
@@ -130,8 +131,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
       pointsValueCents: safeInt(s.pointsValueCents, 0),
       embarqueFeeCents: safeInt(s.embarqueFeeCents, 0),
       milheiroCents: safeInt(s.milheiroCents, 0),
-      metaMilheiroCents:
-        safeInt(s.metaMilheiroCents, 0) > 0 ? safeInt(s.metaMilheiroCents, 0) : purchaseMeta,
+      affiliateCommissionCents: safeInt(s.affiliateCommission?.amountCents, 0),
     })),
     purchaseTotalCents,
     purchaseMeta,
@@ -225,6 +225,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
       purchaseTotalCents,
       profitBrutoCents: metrics.profitBrutoCents,
       bonusCents: metrics.bonusCents,
+      affiliateCommissionCents: metrics.affiliateCommissionCents,
       profitLiquidoCents: metrics.profitLiquidoCents,
       avgMilheiroCents: metrics.avgMilheiroCents || null,
       remainingPoints,

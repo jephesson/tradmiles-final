@@ -92,6 +92,7 @@ type DetailResp = {
 
     profitBrutoCents: number;
     bonusCents: number;
+    affiliateCommissionCents?: number;
     profitLiquidoCents: number;
 
     avgMilheiroCents: number | null;
@@ -822,10 +823,17 @@ export default function ComprasFinalizadasClient() {
                           label="Bônus (30% excedente)"
                           value={fmtMoneyBR(pick(detail.metrics.bonusCents))}
                         />
+                        {pick(detail.metrics.affiliateCommissionCents) > 0 ? (
+                          <MetricChip
+                            label="Comissão afiliado"
+                            value={fmtMoneyBR(pick(detail.metrics.affiliateCommissionCents))}
+                            hint="Descontada do lucro líquido"
+                          />
+                        ) : null}
                         <MetricChip
                           label="Lucro líquido"
                           value={fmtMoneyBR(pick(detail.metrics.profitLiquidoCents))}
-                          hint="Lucro bruto − bônus"
+                          hint="Lucro bruto − bônus − afiliado"
                           strong
                         />
                       </div>

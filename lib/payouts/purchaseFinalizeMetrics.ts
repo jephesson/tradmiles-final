@@ -40,8 +40,10 @@ export type PurchaseSaleRow = {
   pointsValueCents: number;
   embarqueFeeCents: number;
   milheiroCents: number;
-  metaMilheiroCents: number;
+  /** Ignorado no bônus de finalização — usa meta da compra (igual listagem). */
+  metaMilheiroCents?: number;
   bonusCents?: number | null;
+  affiliateCommissionCents?: number;
 };
 
 export function chooseMetaMilheiro(metaSaleOrPurchase: number | null | undefined) {
@@ -60,6 +62,9 @@ export function aggregatePurchaseFinalizeMetrics(
   let salesTotalCents = 0;
   let salesPointsValueCents = 0;
   let bonusCents = 0;
+  let affiliateCommissionCents = 0;
+
+  const purchaseMeta = chooseMetaMilheiro(purchaseMetaMilheiroCents);
 
   for (const s of sales) {
     const points = safeInt(s.points, 0);
@@ -75,22 +80,19 @@ export function aggregatePurchaseFinalizeMetrics(
     pax += safeInt(s.passengers, 0);
     salesTotalCents += safeInt(s.totalCents, 0);
     salesPointsValueCents += pvSemTaxa;
+    affiliateCommissionCents += safeInt(s.affiliateCommissionCents, 0);
 
-    // ✅ Sempre recalcula (igual tela de compra finalizada). sale.bonusCents gravado
-    // pode estar desatualizado e zerar o lucro líquido do rateio C3.
-    const meta = chooseMetaMilheiro(
-      safeInt(s.metaMilheiroCents, 0) > 0 ? s.metaMilheiroCents : purchaseMetaMilheiroCents
-    );
+    // Meta da compra — mesma regra da listagem Compras finalizadas (não meta por venda).
     const milheiroNoFee = milheiroNoFeeFromPv(points, pvSemTaxa);
     bonusCents += bonusAboveMetaFromSale(
-      { points, milheiroNoFeeCents: milheiroNoFee, metaMilheiroCents: meta },
+      { points, milheiroNoFeeCents: milheiroNoFee, metaMilheiroCents: purchaseMeta },
       bonusAboveMetaBps
     );
   }
 
   const cost = safeInt(purchaseTotalCents, 0);
   const profitBrutoCents = salesPointsValueCents - cost;
-  const profitLiquidoCents = profitBrutoCents - bonusCents;
+  const profitLiquidoCents = profitBrutoCents - bonusCents - affiliateCommissionCents;
   const avgMilheiroCents =
     soldPoints > 0 && salesPointsValueCents > 0
       ? Math.round((salesPointsValueCents * 1000) / soldPoints)
@@ -102,6 +104,7 @@ export function aggregatePurchaseFinalizeMetrics(
     salesTotalCents,
     salesPointsValueCents,
     bonusCents,
+    affiliateCommissionCents,
     profitBrutoCents,
     profitLiquidoCents,
     avgMilheiroCents,
