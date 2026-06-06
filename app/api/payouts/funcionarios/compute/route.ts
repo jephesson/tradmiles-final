@@ -14,9 +14,9 @@ import {
   pvSemTaxaFromSaleFields,
 } from "@/lib/payouts/purchaseFinalizeMetrics";
 import {
-  backfillFinalRateioBreakdown,
+  computeRateioBreakdownForPurchase,
   parseFinalRateioBreakdown,
-  toPrismaRateioBreakdown,
+  usesRateioSnapshot,
 } from "@/lib/payouts/purchaseRateio";
 
 export const runtime = "nodejs";
@@ -317,7 +317,7 @@ export async function POST(req: Request) {
       return idByNumeroUpper.get(upper) || r.trim();
     }
 
-    // 3) sales das compras finalizadas (C1/C2 quando basis=PURCHASE_FINALIZED + backfill C3 legado)
+    // 3) sales das compras finalizadas (C1/C2 quando basis=PURCHASE_FINALIZED; C3 legado pré-vigência)
     const numerosFinalized = purchasesFinalized.map((p) => String(p.numero || "").trim()).filter(Boolean);
     const numerosAllFinalized = makeNumeroVariants(numerosFinalized);
 
@@ -552,7 +552,7 @@ export async function POST(req: Request) {
       }
     }
 
-    // 7) ✅ C3 = rateio gravado na finalização (lucro líquido > 0)
+    // 7) ✅ C3 — a partir da vigência: lê rateio gravado; antes: calcula legado (sem alterar DB)
     const c3Audit: Array<{
       purchaseId: string;
       numero: string;
@@ -560,15 +560,15 @@ export async function POST(req: Request) {
       ownerId: string | null;
       skipped: boolean;
       reason?: string;
-      backfilled?: boolean;
+      mode?: "snapshot" | "legacy";
     }> = [];
 
     for (const p of purchasesFinalized) {
-      let breakdown = parseFinalRateioBreakdown(p.finalRateioBreakdown);
-      let backfilled = false;
+      const snapshotMode = usesRateioSnapshot(p.finalizedAt);
+      let breakdown = snapshotMode ? parseFinalRateioBreakdown(p.finalRateioBreakdown) : null;
 
-      if (!breakdown) {
-        const snapshot = await backfillFinalRateioBreakdown(prisma, {
+      if (!snapshotMode) {
+        const legacy = await computeRateioBreakdownForPurchase(prisma, {
           team,
           purchase: {
             id: p.id,
@@ -591,25 +591,7 @@ export async function POST(req: Request) {
           bonusAboveMetaBps,
           refDate: p.finalizedAt ?? start,
         });
-
-        if (snapshot) {
-          backfilled = true;
-          breakdown = snapshot.finalRateioBreakdown;
-          await prisma.purchase.update({
-            where: { id: p.id },
-            data: {
-              finalSalesCents: snapshot.finalSalesCents,
-              finalSalesPointsValueCents: snapshot.finalSalesPointsValueCents,
-              finalProfitBrutoCents: snapshot.finalProfitBrutoCents,
-              finalBonusCents: snapshot.finalBonusCents,
-              finalProfitCents: snapshot.finalProfitCents,
-              finalSoldPoints: snapshot.finalSoldPoints,
-              finalPax: snapshot.finalPax,
-              finalAvgMilheiroCents: snapshot.finalAvgMilheiroCents,
-              finalRateioBreakdown: toPrismaRateioBreakdown(snapshot.finalRateioBreakdown),
-            },
-          });
-        }
+        breakdown = legacy?.finalRateioBreakdown ?? null;
       }
 
       if (!breakdown || breakdown.profitLiquidoCents <= 0) {
@@ -619,8 +601,8 @@ export async function POST(req: Request) {
           poolCents: safeInt(breakdown?.profitLiquidoCents, 0),
           ownerId: p.cedente.ownerId ?? null,
           skipped: true,
-          reason: !breakdown ? "sem_rateio" : "lucro<=0",
-          backfilled,
+          reason: snapshotMode ? "sem_rateio_gravado" : "lucro<=0_legado",
+          mode: snapshotMode ? "snapshot" : "legacy",
         });
         continue;
       }
@@ -636,7 +618,7 @@ export async function POST(req: Request) {
         poolCents: breakdown.profitLiquidoCents,
         ownerId: p.cedente.ownerId ?? null,
         skipped: false,
-        backfilled,
+        mode: snapshotMode ? "snapshot" : "legacy",
       });
     }
 

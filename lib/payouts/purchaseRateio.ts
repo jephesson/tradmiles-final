@@ -7,6 +7,28 @@ import {
   purchaseNumeroVariants,
 } from "@/lib/payouts/purchaseFinalizeMetrics";
 
+/** Compras finalizadas antes desta data (Recife) mantêm C3 legado; a partir dela, rateio gravado na finalização. */
+export const RATEIO_SNAPSHOT_EFFECTIVE_FROM = "2026-06-07";
+
+/** Data da compra finalizada em Recife (YYYY-MM-DD). */
+export function finalizedAtISORecife(d: Date) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Recife",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(d);
+
+  const map: Record<string, string> = {};
+  for (const part of parts) map[part.type] = part.value;
+  return `${map.year}-${map.month}-${map.day}`;
+}
+
+export function usesRateioSnapshot(finalizedAt: Date | null | undefined) {
+  if (!finalizedAt) return false;
+  return finalizedAtISORecife(finalizedAt) >= RATEIO_SNAPSHOT_EFFECTIVE_FROM;
+}
+
 type Db = Prisma.TransactionClient | typeof prisma;
 
 function safeInt(v: unknown, fb = 0) {
@@ -221,8 +243,8 @@ export type SaleForRateioBackfill = {
   metaMilheiroCents: number;
 };
 
-/** Backfill do rateio gravado (compras finalizadas antes deste campo existir). */
-export async function backfillFinalRateioBreakdown(
+/** Calcula rateio na hora (sem gravar) — usado para compras anteriores à vigência. */
+export async function computeRateioBreakdownForPurchase(
   db: Db,
   args: {
     team: string;

@@ -4,7 +4,8 @@ import { prisma } from "@/lib/prisma";
 import { triggerEmployeePayoutAutoCompute, todayISORecife } from "@/lib/payouts/autoCompute";
 import { resolveEmployeeBonusAboveMetaBps } from "@/lib/payouts/employeeCommissionRates";
 import { purchaseNumeroVariants } from "@/lib/payouts/purchaseFinalizeMetrics";
-import { buildPurchaseFinalizeSnapshot, toPrismaRateioBreakdown } from "@/lib/payouts/purchaseRateio";
+import { buildPurchaseFinalizeSnapshot, toPrismaRateioBreakdown, usesRateioSnapshot } from "@/lib/payouts/purchaseRateio";
+import { Prisma as PrismaRuntime } from "@prisma/client";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -128,7 +129,9 @@ export async function PATCH(req: Request, ctx: Ctx) {
           finalSoldPoints: snapshot.finalSoldPoints,
           finalPax: snapshot.finalPax,
           finalAvgMilheiroCents: snapshot.finalAvgMilheiroCents,
-          finalRateioBreakdown: toPrismaRateioBreakdown(snapshot.finalRateioBreakdown),
+          finalRateioBreakdown: usesRateioSnapshot(finalizedAt)
+            ? toPrismaRateioBreakdown(snapshot.finalRateioBreakdown)
+            : PrismaRuntime.JsonNull,
         },
         select: {
           id: true,
