@@ -6,7 +6,10 @@ import { ArrowLeft, Loader2, Lock, Save } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { bpsToPercentNumber } from "@/lib/payouts/employeeCommissionRates";
 
-type ApiOk = { ok: true; data: { employeeC1Bps: number; employeeBonusAboveMetaBps: number } };
+type ApiOk = {
+  ok: true;
+  data: { employeeC1Bps: number; employeeBonusAboveMetaBps: number; vendorCommissionBps: number };
+};
 type ApiErr = { ok: false; error?: string; code?: string };
 
 async function fetchCommission(): Promise<
@@ -60,6 +63,7 @@ export default function ConfiguracoesPageClient() {
 
   const [c1Percent, setC1Percent] = useState("1");
   const [bonusPercent, setBonusPercent] = useState("30");
+  const [vendorPercent, setVendorPercent] = useState("1");
 
   const applyCommissionData = useCallback((data: ApiOk["data"]) => {
     setC1Percent(
@@ -70,6 +74,12 @@ export default function ConfiguracoesPageClient() {
     );
     setBonusPercent(
       bpsToPercentNumber(data.employeeBonusAboveMetaBps).toLocaleString("pt-BR", {
+        minimumFractionDigits: 0,
+        maximumFractionDigits: 4,
+      })
+    );
+    setVendorPercent(
+      bpsToPercentNumber(data.vendorCommissionBps).toLocaleString("pt-BR", {
         minimumFractionDigits: 0,
         maximumFractionDigits: 4,
       })
@@ -147,9 +157,11 @@ export default function ConfiguracoesPageClient() {
     try {
       const c1 = Number(String(c1Percent).replace(",", "."));
       const bonus = Number(String(bonusPercent).replace(",", "."));
+      const vendor = Number(String(vendorPercent).replace(",", "."));
       await apiPostCommission({
         employeeC1Percent: c1,
         employeeBonusAboveMetaPercent: bonus,
+        vendorCommissionPercent: vendor,
       });
       await tryLoadCommission();
     } catch (e: unknown) {
@@ -245,7 +257,7 @@ export default function ConfiguracoesPageClient() {
         <h1 className="mt-3 text-2xl font-bold tracking-tight text-slate-900">Configurações</h1>
         <p className="mt-1 text-sm text-slate-600">
           Parâmetros globais do sistema. Valores atuais já refletem o que estava em uso (C1 = 1% do PV sem
-          taxa; bônus sobre excedente da meta = 30%).
+          taxa; bônus sobre excedente da meta = 30%; comissão vendedor em compras = 1%).
         </p>
       </div>
 
@@ -287,6 +299,24 @@ export default function ConfiguracoesPageClient() {
             />
             <span className="mt-1 block text-xs text-slate-500">
               Padrão histórico: 30% do valor (em R$) do excedente do milheiro em relação à meta. Máximo: 100%.
+            </span>
+          </label>
+
+          <label className="block">
+            <span className="text-sm font-medium text-slate-700">
+              Comissão vendedor em compras (sobre subtotal)
+            </span>
+            <input
+              type="text"
+              inputMode="decimal"
+              className="mt-1.5 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-base text-slate-900 shadow-sm outline-none focus:border-slate-300 focus:ring-2 focus:ring-slate-900/10"
+              value={vendorPercent}
+              onChange={(e) => setVendorPercent(e.target.value)}
+              disabled={loading || saving}
+              placeholder="1"
+            />
+            <span className="mt-1 block text-xs text-slate-500">
+              Padrão: 1% sobre o subtotal da compra. Aplicado automaticamente em novas compras. Máximo: 20%.
             </span>
           </label>
         </div>

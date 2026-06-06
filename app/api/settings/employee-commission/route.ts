@@ -8,6 +8,10 @@ import {
   percentToBonusAboveMetaBps,
   percentToC1Bps,
 } from "@/lib/payouts/employeeCommissionRates";
+import {
+  DEFAULT_VENDOR_COMMISSION_BPS,
+  clampVendorCommissionBps,
+} from "@/lib/purchases/vendorCommission";
 import { settingsGateOpen } from "@/lib/settingsGate";
 
 export const runtime = "nodejs";
@@ -43,7 +47,11 @@ export async function GET(req: NextRequest) {
       where: { key: "default" },
       create: { key: "default" },
       update: {},
-      select: { employeeC1Bps: true, employeeBonusAboveMetaBps: true },
+      select: {
+        employeeC1Bps: true,
+        employeeBonusAboveMetaBps: true,
+        vendorCommissionBps: true,
+      },
     });
 
     return NextResponse.json({
@@ -51,6 +59,7 @@ export async function GET(req: NextRequest) {
       data: {
         employeeC1Bps: row.employeeC1Bps ?? DEFAULT_EMPLOYEE_C1_BPS,
         employeeBonusAboveMetaBps: row.employeeBonusAboveMetaBps ?? DEFAULT_EMPLOYEE_BONUS_ABOVE_META_BPS,
+        vendorCommissionBps: clampVendorCommissionBps(row.vendorCommissionBps ?? DEFAULT_VENDOR_COMMISSION_BPS),
       },
     });
   } catch (e: unknown) {
@@ -89,8 +98,15 @@ export async function POST(req: NextRequest) {
     });
     if (!bonusParsed.ok) return NextResponse.json({ ok: false, error: bonusParsed.error }, { status: 400 });
 
+    const vendorParsed = parsePercentInput(body?.vendorCommissionPercent, {
+      max: 20,
+      label: "Comissão vendedor (compras)",
+    });
+    if (!vendorParsed.ok) return NextResponse.json({ ok: false, error: vendorParsed.error }, { status: 400 });
+
     const employeeC1Bps = clampBps(percentToC1Bps(c1Parsed.value), 10000);
     const employeeBonusAboveMetaBps = clampBps(percentToBonusAboveMetaBps(bonusParsed.value), 10000);
+    const vendorCommissionBps = clampVendorCommissionBps(Math.round(vendorParsed.value * 100));
 
     const saved = await prisma.settings.upsert({
       where: { key: "default" },
@@ -98,9 +114,14 @@ export async function POST(req: NextRequest) {
         key: "default",
         employeeC1Bps,
         employeeBonusAboveMetaBps,
+        vendorCommissionBps,
       },
-      update: { employeeC1Bps, employeeBonusAboveMetaBps },
-      select: { employeeC1Bps: true, employeeBonusAboveMetaBps: true },
+      update: { employeeC1Bps, employeeBonusAboveMetaBps, vendorCommissionBps },
+      select: {
+        employeeC1Bps: true,
+        employeeBonusAboveMetaBps: true,
+        vendorCommissionBps: true,
+      },
     });
 
     return NextResponse.json({
@@ -108,6 +129,7 @@ export async function POST(req: NextRequest) {
       data: {
         employeeC1Bps: saved.employeeC1Bps,
         employeeBonusAboveMetaBps: saved.employeeBonusAboveMetaBps,
+        vendorCommissionBps: saved.vendorCommissionBps,
       },
     });
   } catch (e: unknown) {

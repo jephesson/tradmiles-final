@@ -807,6 +807,8 @@ model Settings {
   employeeC1Bps Int @default(100)
   /// Bônus sobre excedente vs milheiro de meta (C2): % do excedente em centavos, em bps (3000 = 30,00%).
   employeeBonusAboveMetaBps Int @default(3000)
+  /// Comissão vendedor nas compras (subtotal): bps (100 = 1,00%).
+  vendorCommissionBps Int @default(100)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
