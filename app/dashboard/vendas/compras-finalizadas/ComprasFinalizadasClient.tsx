@@ -662,9 +662,7 @@ export default function ComprasFinalizadasClient() {
 
   async function toggleDetails(r: Row) {
     if (expandedId === r.id) {
-      setExpandedId(null);
-      setOpenRow(null);
-      setDetailErr("");
+      closeExpanded();
       return;
     }
 
@@ -683,6 +681,12 @@ export default function ComprasFinalizadasClient() {
     } finally {
       setDetailLoadingId(null);
     }
+  }
+
+  function closeExpanded() {
+    setExpandedId(null);
+    setOpenRow(null);
+    setDetailErr("");
   }
 
   function askUndo() {
