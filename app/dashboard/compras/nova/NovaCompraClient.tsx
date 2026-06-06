@@ -471,6 +471,55 @@ function normalizeDraft(raw: any, cedenteSel?: Cedente | null): PurchaseDraft {
   return d;
 }
 
+function remainingItemMeta(it: PurchaseItem) {
+  return safeJsonParse<{ autoRemaining?: boolean; sourcePurchaseId?: string; sourceNumero?: string }>(
+    it.details
+  );
+}
+
+function isAutoRemainingItem(it: PurchaseItem, sourcePurchaseId?: string) {
+  const meta = remainingItemMeta(it);
+  if (meta?.autoRemaining && meta.sourcePurchaseId) {
+    return !sourcePurchaseId || meta.sourcePurchaseId === sourcePurchaseId;
+  }
+  return /^Remanescente ID/i.test(it.title || "");
+}
+
+function buildRemainingItem(
+  active: ActivePurchaseSnapshot,
+  cia: LoyaltyProgram,
+  costCents: number
+): PurchaseItem {
+  const pts = clampInt(active.remainingPoints);
+  return {
+    type: "ADJUSTMENT",
+    title: `Remanescente ${active.numero}`,
+    details: JSON.stringify({
+      autoRemaining: true,
+      sourcePurchaseId: active.purchaseId,
+      sourceNumero: active.numero,
+    }),
+    programFrom: null,
+    programTo: cia,
+    pointsBase: pts,
+    bonusMode: "",
+    bonusValue: 0,
+    pointsFinal: pts,
+    transferMode: null,
+    pointsDebitedFromOrigin: 0,
+    amountCents: costCents,
+  };
+}
+
+function computeRemainingCostCents(active: ActivePurchaseSnapshot) {
+  const gap = clampInt(active.profitGapToZeroCents);
+  const fromMil =
+    active.remainingPoints > 0 && active.avgMilheiroCents
+      ? costFromPointsAndMilheiro(active.remainingPoints, active.avgMilheiroCents)
+      : 0;
+  return gap > 0 ? gap : fromMil;
+}
+
 export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }) {
   // ✅ pega /.../[id] quando existir (e mantém compatível com prop purchaseId)
   const params = useParams() as Record<string, string | string[] | undefined>;
@@ -510,6 +559,8 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
   const [suggestedCostCents, setSuggestedCostCents] = useState(0);
   const [suggestedMilheiroCents, setSuggestedMilheiroCents] = useState(0);
   const [cancelingActiveId, setCancelingActiveId] = useState<string | null>(null);
+  const [remainingDismissedIds, setRemainingDismissedIds] = useState<Set<string>>(() => new Set());
+  const lastAutoRemainingKey = useRef("");
 
   // ===== comissão vendedor padrão (settings)
   useEffect(() => {
@@ -917,13 +968,6 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
     updateDraft({ items: [...(draft.items ?? []), item] });
   }
 
-  function removeItemByIndex(realIdx: number) {
-    if (!draft) return;
-    const items = [...(draft.items ?? [])];
-    items.splice(realIdx, 1);
-    updateDraft({ items });
-  }
-
   function updateItem(realIdx: number, patch: Partial<PurchaseItem>) {
     if (!draft) return;
 
@@ -1009,17 +1053,17 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
 
         const active = out.activePurchase;
         if (active) {
-          const gap = clampInt(active.profitGapToZeroCents);
-          const fromMil =
-            active.remainingPoints > 0 && active.avgMilheiroCents
-              ? costFromPointsAndMilheiro(active.remainingPoints, active.avgMilheiroCents)
-              : 0;
-          setSuggestedCostCents(gap > 0 ? gap : fromMil);
+          const cost = computeRemainingCostCents(active);
+          setSuggestedCostCents(cost);
           if (active.avgMilheiroCents) {
             setSuggestedMilheiroCents(clampInt(active.avgMilheiroCents));
           }
         } else if (out.draftAvgMilheiroCents) {
           setSuggestedMilheiroCents(clampInt(out.draftAvgMilheiroCents));
+          setSuggestedCostCents(0);
+        } else {
+          setSuggestedMilheiroCents(0);
+          setSuggestedCostCents(0);
         }
       } catch {
         if (!alive) return;
@@ -1040,6 +1084,43 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
     isReleased,
   ]);
 
+  // Remove item automático de remanescente se CIA mudou ou ID ativo sumiu
+  useEffect(() => {
+    if (!draft || isReleased || activeContextLoading) return;
+
+    const cia = draft.ciaProgram;
+    const items = [...(draft.items ?? [])];
+    let changed = false;
+
+    for (let i = items.length - 1; i >= 0; i--) {
+      const it = items[i];
+      if (!isAutoRemainingItem(it)) continue;
+
+      const meta = remainingItemMeta(it);
+      const active = activeContext?.activePurchase;
+      const stale =
+        !active ||
+        meta?.sourcePurchaseId !== active.purchaseId ||
+        (cia && it.programTo !== cia);
+
+      if (stale) {
+        items.splice(i, 1);
+        changed = true;
+      }
+    }
+
+    if (changed) {
+      lastAutoRemainingKey.current = "";
+      updateDraft({ items });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draft?.ciaProgram, activeContext?.activePurchase, activeContextLoading, isReleased]);
+
+  useEffect(() => {
+    setRemainingDismissedIds(new Set());
+    lastAutoRemainingKey.current = "";
+  }, [draft?.ciaProgram]);
+
   async function cancelActivePurchaseWithoutImpact(purchaseId: string) {
     const ok = window.confirm(
       "Cancelar sem impacto? O ID anterior será arquivado e não aparecerá mais na fila de vendas."
@@ -1056,6 +1137,16 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
       setActiveContext((prev) =>
         prev ? { ...prev, activePurchase: null } : prev
       );
+      if (draft) {
+        const items = (draft.items ?? []).filter((it) => {
+          const meta = remainingItemMeta(it);
+          return meta?.sourcePurchaseId !== purchaseId;
+        });
+        if (items.length !== (draft.items ?? []).length) {
+          updateDraft({ items });
+        }
+      }
+      lastAutoRemainingKey.current = "";
     } catch (e: any) {
       setError(e?.message || "Falha ao cancelar ID anterior.");
     } finally {
@@ -1063,32 +1154,58 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
     }
   }
 
-  function applyActivePurchaseSuggestion() {
-    if (!draft || !activeContext?.activePurchase) return;
+  // Auto-inclui custo do remanescente do ID ativo nos itens
+  useEffect(() => {
+    if (!draft || isReleased || !activeContext?.activePurchase) return;
+
     const active = activeContext.activePurchase;
+    if (remainingDismissedIds.has(active.purchaseId)) return;
+
     const cia = draft.ciaProgram;
     if (cia !== "LATAM" && cia !== "SMILES") return;
 
-    const cost = clampInt(suggestedCostCents);
+    const cost = computeRemainingCostCents(active);
     const pts = clampInt(active.remainingPoints);
     if (cost <= 0 && pts <= 0) return;
 
-    const item: PurchaseItem = {
-      type: "ADJUSTMENT",
-      title: `Remanescente ${active.numero}`,
-      details: `Sugestão: ${pts.toLocaleString("pt-BR")} pts · gap lucro zero`,
-      programFrom: null,
-      programTo: cia,
-      pointsBase: pts,
-      bonusMode: "",
-      bonusValue: 0,
-      pointsFinal: pts,
-      transferMode: null,
-      pointsDebitedFromOrigin: 0,
-      amountCents: cost,
-    };
+    const syncKey = `${active.purchaseId}:${cost}:${pts}:${cia}`;
+    const items = [...(draft.items ?? [])];
+    const idx = items.findIndex((it) => isAutoRemainingItem(it, active.purchaseId));
 
-    updateDraft({ items: [...(draft.items ?? []), item] });
+    if (idx >= 0) {
+      const cur = items[idx];
+      if (cur.amountCents === cost && cur.pointsFinal === pts && cur.programTo === cia) {
+        lastAutoRemainingKey.current = syncKey;
+        return;
+      }
+      items[idx] = { ...buildRemainingItem(active, cia, cost), id: cur.id };
+    } else {
+      if (lastAutoRemainingKey.current === syncKey) return;
+      items.push(buildRemainingItem(active, cia, cost));
+    }
+
+    lastAutoRemainingKey.current = syncKey;
+    const next = normalizeDraft({ ...draft, items }, cedenteSel);
+    const t = computeTotals(next);
+    const merged = { ...next, ...t };
+    setDraft(merged);
+    scheduleAutosave(merged);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeContext, draft?.ciaProgram, draft?.id, isReleased, remainingDismissedIds]);
+
+  function removeItemByIndex(realIdx: number) {
+    if (!draft) return;
+    const items = [...(draft.items ?? [])];
+    const removed = items[realIdx];
+    if (removed && isAutoRemainingItem(removed)) {
+      const meta = remainingItemMeta(removed);
+      if (meta?.sourcePurchaseId) {
+        setRemainingDismissedIds((prev) => new Set(prev).add(meta.sourcePurchaseId!));
+        lastAutoRemainingKey.current = "";
+      }
+    }
+    items.splice(realIdx, 1);
+    updateDraft({ items });
   }
 
   // Auto: ciaPointsTotal = soma itens programTo=CIA (se estiver 0)
@@ -1340,11 +1457,10 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
       {draft && (
         <StepSection
           step={2}
-          title="Configuração e resumo"
-          hint="Taxa do cedente e markup. Comissão vendedor vem das Configurações. À direita, totais e milheiro (CIA na etapa 5)."
+          title="Configuração"
+          hint="Taxa do cedente e markup. Comissão vendedor vem das Configurações (etapa 5 define a CIA)."
         >
-          <div className="grid gap-5 lg:grid-cols-3">
-            <div className="lg:col-span-2 space-y-4">
+          <div className="space-y-4 max-w-2xl">
               <div className="grid gap-3 md:grid-cols-3">
                 <div className="md:col-span-3 space-y-1.5">
                   <label className={FIELD_LABEL}>Observação</label>
@@ -1409,29 +1525,6 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
                   )
                 </span>
               </div>
-            </div>
-
-            <div className="rounded-2xl border border-slate-200/80 bg-white/95 p-4 lg:sticky lg:top-4 h-fit shadow-sm space-y-3">
-              <div className="flex items-center gap-2 text-sm font-semibold text-slate-900">
-                <Wallet className="h-4 w-4 text-slate-400" strokeWidth={2} aria-hidden />
-                Resumo
-              </div>
-
-              <div className="rounded-xl border border-slate-100 bg-slate-50/80 p-3 text-sm space-y-2">
-                <Row label="Subtotal" value={fmtMoneyBR(totals?.subtotalCostCents || 0)} />
-                <Row label="Comissão" value={fmtMoneyBR(totals?.vendorCommissionCents || 0)} />
-                <div className="h-px bg-slate-200/90 my-2" />
-                <Row label="Total" value={fmtMoneyBR(totals?.totalCostCents || 0)} bold />
-                <div className="h-px bg-slate-200/90 my-2" />
-                <Row label="Milheiro" value={fmtMoneyBR(totals?.costPerKiloCents || 0)} bold />
-                <Row label="Meta" value={fmtMoneyBR(totals?.targetPerKiloCents || 0)} bold />
-              </div>
-
-              <p className="text-xs leading-relaxed text-slate-500">
-                O milheiro usa o <span className="font-medium text-slate-700">esperado</span> da CIA
-                escolhida na etapa 5.
-              </p>
-            </div>
           </div>
         </StepSection>
       )}
@@ -1910,11 +2003,18 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
               </div>
 
               <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                <div className="rounded-xl border border-amber-200/60 bg-white/80 px-3 py-2.5">
-                  <div className={FIELD_LABEL}>Pts remanescentes</div>
-                  <div className="mt-1 font-mono text-base font-bold tabular-nums text-slate-900">
+                <div className="rounded-xl border border-amber-300/80 bg-white px-3 py-2.5 sm:col-span-2">
+                  <div className={FIELD_LABEL}>Pts remanescentes (ID anterior)</div>
+                  <div className="mt-1 font-mono text-xl font-bold tabular-nums text-amber-950">
                     {activeContext.activePurchase.remainingPoints.toLocaleString("pt-BR")}
                   </div>
+                </div>
+                <div className="rounded-xl border border-amber-200/60 bg-white/80 px-3 py-2.5">
+                  <div className={FIELD_LABEL}>Custo aplicado</div>
+                  <div className="mt-1 font-mono text-base font-bold tabular-nums text-emerald-800">
+                    {fmtMoneyBR(suggestedCostCents)}
+                  </div>
+                  <p className="mt-1 text-[11px] text-amber-900/80">Incluído nos itens (etapa 4)</p>
                 </div>
                 <div className="rounded-xl border border-amber-200/60 bg-white/80 px-3 py-2.5">
                   <div className={FIELD_LABEL}>Falta p/ lucro zero</div>
@@ -1930,49 +2030,13 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
                       : "—"}
                   </div>
                 </div>
-                <div className="rounded-xl border border-amber-200/60 bg-white/80 px-3 py-2.5">
-                  <div className={FIELD_LABEL}>Lucro projetado</div>
-                  <div className="mt-1 font-mono text-base font-bold tabular-nums text-slate-900">
-                    {activeContext.activePurchase.projectedProfitCents != null
-                      ? fmtMoneyBR(activeContext.activePurchase.projectedProfitCents)
-                      : "—"}
-                  </div>
-                </div>
-              </div>
-
-              <div className="mt-4 flex flex-wrap items-end gap-3">
-                <div className="min-w-[10rem] flex-1 space-y-1.5">
-                  <label className={FIELD_LABEL}>Custo sugerido (R$)</label>
-                  <input
-                    type="number"
-                    value={suggestedCostCents / 100}
-                    disabled={!!isReleased}
-                    onChange={(e) =>
-                      setSuggestedCostCents(roundCents(Number(e.target.value || 0) * 100))
-                    }
-                    className={CONTROL_INPUT_MONO}
-                  />
-                  <p className="text-[11px] text-amber-900/80">
-                    Valor para chegar a lucro zero no ID anterior (editável).
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  disabled={!!isReleased || suggestedCostCents <= 0}
-                  onClick={() => applyActivePurchaseSuggestion()}
-                  className={BTN_PRIMARY}
-                >
-                  <Plus className="h-4 w-4" strokeWidth={2} aria-hidden />
-                  Adicionar item sugerido
-                </button>
               </div>
             </div>
           )}
 
           {!activeContextLoading &&
             draft.ciaProgram &&
-            !activeContext?.activePurchase &&
-            (activeContext?.draftAvgMilheiroCents || suggestedMilheiroCents > 0) && (
+            !activeContext?.activePurchase && (
               <div className="mt-5 rounded-2xl border border-slate-200/80 bg-slate-50/80 p-4">
                 <p className="text-sm font-semibold text-slate-900">Milheiro sugerido (compra atual)</p>
                 <p className="mt-1 text-xs text-slate-600">
@@ -2052,16 +2116,76 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
       )}
 
       {draft && (
-        <div className="flex items-center gap-2 rounded-xl border border-slate-200/80 bg-white px-4 py-3 text-xs text-slate-500 shadow-sm">
-          {saving ? (
-            <Loader2 className="h-3.5 w-3.5 animate-spin text-slate-400" aria-hidden />
-          ) : (
-            <Sparkles className="h-3.5 w-3.5 text-slate-400" aria-hidden />
-          )}
-          <span>
-            {saving ? "Salvando alterações…" : "Autosave ativo (~0,65 s após editar)."}
-            {draft.status === "CLOSED" ? " Compra liberada (somente leitura)." : ""}
-          </span>
+        <div className="sticky bottom-3 z-20 space-y-2">
+          <div className="rounded-2xl border border-slate-200/90 bg-white/95 p-4 shadow-lg shadow-slate-300/30 backdrop-blur-sm">
+            <div className="flex flex-wrap items-center gap-2 text-sm font-semibold text-slate-900">
+              <Wallet className="h-4 w-4 text-slate-400" strokeWidth={2} aria-hidden />
+              Resumo de custos
+              {draft.ciaProgram ? (
+                <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-600">
+                  CIA {draft.ciaProgram}
+                </span>
+              ) : null}
+            </div>
+
+            <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-6">
+              <div className="rounded-xl border border-slate-100 bg-slate-50/80 px-3 py-2.5">
+                <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Subtotal</div>
+                <div className="mt-0.5 text-base font-bold tabular-nums text-slate-900">
+                  {fmtMoneyBR(totals?.subtotalCostCents || 0)}
+                </div>
+              </div>
+              <div className="rounded-xl border border-slate-100 bg-slate-50/80 px-3 py-2.5">
+                <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Comissão</div>
+                <div className="mt-0.5 text-base font-bold tabular-nums text-slate-900">
+                  {fmtMoneyBR(totals?.vendorCommissionCents || 0)}
+                </div>
+              </div>
+              <div className="rounded-xl border border-slate-200 bg-slate-900 px-3 py-2.5 text-white">
+                <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-300">Total</div>
+                <div className="mt-0.5 text-base font-bold tabular-nums">
+                  {fmtMoneyBR(totals?.totalCostCents || 0)}
+                </div>
+              </div>
+              <div className="rounded-xl border border-slate-100 bg-slate-50/80 px-3 py-2.5">
+                <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Milheiro</div>
+                <div className="mt-0.5 text-base font-bold tabular-nums text-slate-900">
+                  {fmtMoneyBR(totals?.costPerKiloCents || 0)}
+                </div>
+              </div>
+              <div className="rounded-xl border border-slate-100 bg-slate-50/80 px-3 py-2.5">
+                <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Meta</div>
+                <div className="mt-0.5 text-base font-bold tabular-nums text-slate-900">
+                  {fmtMoneyBR(totals?.targetPerKiloCents || 0)}
+                </div>
+              </div>
+              <div className="rounded-xl border border-slate-100 bg-slate-50/80 px-3 py-2.5">
+                <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Pts milheiro</div>
+                <div className="mt-0.5 text-base font-bold tabular-nums text-slate-900">
+                  {Math.max(0, pointsForMilheiro(draft)).toLocaleString("pt-BR")}
+                </div>
+              </div>
+            </div>
+
+            <p className="mt-2 text-[11px] text-slate-500">
+              Milheiro e meta usam o saldo <span className="font-medium text-slate-700">esperado</span> da CIA (etapa 5).
+              {activeContext?.activePurchase && suggestedCostCents > 0
+                ? ` Custo do remanescente (${activeContext.activePurchase.numero}) já entrou no subtotal.`
+                : ""}
+            </p>
+          </div>
+
+          <div className="flex items-center gap-2 rounded-xl border border-slate-200/80 bg-white px-4 py-3 text-xs text-slate-500 shadow-sm">
+            {saving ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin text-slate-400" aria-hidden />
+            ) : (
+              <Sparkles className="h-3.5 w-3.5 text-slate-400" aria-hidden />
+            )}
+            <span>
+              {saving ? "Salvando alterações…" : "Autosave ativo (~0,65 s após editar)."}
+              {draft.status === "CLOSED" ? " Compra liberada (somente leitura)." : ""}
+            </span>
+          </div>
         </div>
       )}
     </div>

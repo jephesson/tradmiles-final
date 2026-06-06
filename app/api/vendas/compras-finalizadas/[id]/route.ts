@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { prisma } from "@/lib/prisma";
 import { resolveEmployeeBonusAboveMetaBps } from "@/lib/payouts/employeeCommissionRates";
-import { aggregatePurchaseFinalizeMetrics, purchaseNumeroVariants } from "@/lib/payouts/purchaseFinalizeMetrics";
+import { aggregatePurchaseFinalizeMetrics, buildPurchaseSaleReports, purchaseNumeroVariants } from "@/lib/payouts/purchaseFinalizeMetrics";
 import { buildFinalRateioBreakdown } from "@/lib/payouts/purchaseRateio";
 
 export const runtime = "nodejs";
@@ -64,6 +64,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
       ciaAerea: true,
       pontosCiaTotal: true,
       metaMilheiroCents: true,
+      custoMilheiroCents: true,
       totalCents: true,
       observacao: true,
 
@@ -99,6 +100,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
     },
     select: {
       id: true,
+      numero: true,
       date: true,
       points: true,
       passengers: true,
@@ -107,8 +109,10 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
       embarqueFeeCents: true,
       milheiroCents: true,
       metaMilheiroCents: true,
+      commissionCents: true,
       paymentStatus: true,
       locator: true,
+      seller: { select: { id: true, name: true, login: true } },
       affiliateCommission: { select: { amountCents: true } },
     },
     orderBy: { date: "asc" },
@@ -122,6 +126,28 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
 
   const purchaseMeta = safeInt(p.metaMilheiroCents, 0);
   const purchaseTotalCents = safeInt(p.totalCents, 0);
+  const custoMilheiroCents = safeInt(p.custoMilheiroCents, 0);
+
+  const saleReports = buildPurchaseSaleReports(
+    sales.map((s) => ({
+      id: s.id,
+      numero: s.numero,
+      date: s.date,
+      points: safeInt(s.points, 0),
+      passengers: safeInt(s.passengers, 0),
+      totalCents: safeInt(s.totalCents, 0),
+      pointsValueCents: safeInt(s.pointsValueCents, 0),
+      embarqueFeeCents: safeInt(s.embarqueFeeCents, 0),
+      milheiroCents: safeInt(s.milheiroCents, 0),
+      commissionCents: safeInt(s.commissionCents, 0),
+      locator: s.locator,
+      seller: s.seller,
+      affiliateCommissionCents: safeInt(s.affiliateCommission?.amountCents, 0),
+    })),
+    purchaseMeta,
+    custoMilheiroCents,
+    bonusAboveMetaBps
+  );
 
   const metrics = aggregatePurchaseFinalizeMetrics(
     sales.map((s) => ({
@@ -216,6 +242,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
     ok: true,
     purchase: p,
     sales,
+    saleReports,
     metrics: {
       soldPoints: metrics.soldPoints,
       pax: metrics.pax,

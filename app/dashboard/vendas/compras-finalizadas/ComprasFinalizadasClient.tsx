@@ -1,11 +1,12 @@
 "use client";
 
-import { ReactNode, useEffect, useMemo, useState } from "react";
+import { Fragment, ReactNode, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   AlertTriangle,
   Archive,
   CheckCircle2,
+  ChevronUp,
   ClipboardList,
   Coins,
   Eye,
@@ -16,7 +17,6 @@ import {
   TrendingUp,
   Undo2,
   Users,
-  X,
 } from "lucide-react";
 import { cn } from "@/lib/cn";
 
@@ -114,6 +114,26 @@ type DetailResp = {
   }>;
 
   checks: { sumRateioCents: number };
+
+  saleReports?: Array<{
+    id: string;
+    numero: string;
+    date: string;
+    locator: string | null;
+    seller: { id: string; name: string; login: string } | null;
+    points: number;
+    passengers: number;
+    totalCents: number;
+    pvSemTaxaCents: number;
+    embarqueFeeCents: number;
+    milheiroNoFeeCents: number;
+    costCents: number;
+    bonusCents: number;
+    commissionCents: number;
+    affiliateCommissionCents: number;
+    profitBrutoCents: number;
+    profitLiquidoCents: number;
+  }>;
 
   sales?: Array<{
     id: string;
@@ -260,6 +280,243 @@ function Portal({ children }: { children: ReactNode }) {
   return createPortal(children, document.body);
 }
 
+function fmtDateBR(iso?: string | null) {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleDateString("pt-BR");
+}
+
+function PurchaseDetailPanel({
+  row,
+  detail,
+  loading,
+  error,
+  onUndo,
+  undoBusy,
+}: {
+  row: Row;
+  detail: DetailResp | null;
+  loading: boolean;
+  error: string;
+  onUndo: () => void;
+  undoBusy: boolean;
+}) {
+  const reports = detail?.saleReports ?? [];
+
+  return (
+    <div className="border-t border-teal-100 bg-gradient-to-b from-teal-50/40 to-white px-4 py-5 md:px-6">
+      <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <div className="inline-flex items-center gap-2 rounded-full bg-teal-50 px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-teal-700 ring-1 ring-teal-200">
+            <CheckCircle2 className="h-3 w-3" aria-hidden />
+            Relatório · {row.numero}
+          </div>
+          <div className="mt-2 text-sm text-slate-600">
+            {row.cedente?.identificador || "—"} · {row.cedente?.nomeCompleto || "—"}
+          </div>
+        </div>
+        <button
+          type="button"
+          className="inline-flex items-center gap-1.5 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-700 transition hover:bg-rose-100 disabled:opacity-50"
+          onClick={onUndo}
+          disabled={loading || undoBusy}
+        >
+          <Undo2 className="h-4 w-4" aria-hidden />
+          Desfazer finalização
+        </button>
+      </div>
+
+      {error ? (
+        <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>
+      ) : null}
+
+      {loading ? (
+        <div className="flex items-center justify-center gap-3 rounded-2xl border border-slate-200 bg-white p-8 text-sm text-slate-600">
+          <RefreshCw className="h-5 w-5 animate-spin text-slate-400" aria-hidden />
+          Carregando relatório...
+        </div>
+      ) : detail ? (
+        <div className="space-y-5">
+          <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
+            <MetricChip label="Custo (compra)" value={fmtMoneyBR(pick(detail.metrics.purchaseTotalCents))} />
+            <MetricChip label="Venda (sem taxa)" value={fmtMoneyBR(pick(detail.metrics.salesPointsValueCents))} />
+            <MetricChip label="Bônus total" value={fmtMoneyBR(pick(detail.metrics.bonusCents))} />
+            <MetricChip
+              label="Lucro líquido"
+              value={fmtMoneyBR(pick(detail.metrics.profitLiquidoCents))}
+              strong
+            />
+          </div>
+
+          <div className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm">
+            <div className="border-b border-slate-100 bg-slate-50/80 px-4 py-3">
+              <div className="text-sm font-semibold text-slate-900">Vendas do ID</div>
+              <div className="mt-0.5 text-xs text-slate-500">
+                {reports.length} venda(s) · custo proporcional ao milheiro da compra · bônus 30% com meta da compra
+              </div>
+            </div>
+
+            {reports.length === 0 ? (
+              <div className="px-4 py-8 text-center text-sm text-slate-500">Nenhuma venda vinculada a esta compra.</div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="min-w-[1200px] w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-slate-100 text-left text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                      <th className="px-3 py-2.5">Data</th>
+                      <th className="px-3 py-2.5">Venda</th>
+                      <th className="px-3 py-2.5">Localizador</th>
+                      <th className="px-3 py-2.5">Vendedor</th>
+                      <th className="px-3 py-2.5">Pts</th>
+                      <th className="px-3 py-2.5">PAX</th>
+                      <th className="px-3 py-2.5">Total</th>
+                      <th className="px-3 py-2.5">PV s/ taxa</th>
+                      <th className="px-3 py-2.5">Custo pts</th>
+                      <th className="px-3 py-2.5">Lucro bruto</th>
+                      <th className="px-3 py-2.5">Bônus 30%</th>
+                      <th className="px-3 py-2.5">Lucro líq.</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-50">
+                    {reports.map((s) => (
+                      <tr key={s.id} className="hover:bg-slate-50/60">
+                        <td className="px-3 py-2.5 whitespace-nowrap text-slate-700">{fmtDateBR(s.date)}</td>
+                        <td className="px-3 py-2.5 font-mono text-xs font-semibold text-slate-800">{s.numero || "—"}</td>
+                        <td className="px-3 py-2.5 font-mono text-xs text-slate-600">{s.locator || "—"}</td>
+                        <td className="px-3 py-2.5">
+                          <div className="font-medium text-slate-900">{s.seller?.name || "—"}</div>
+                          {s.seller?.login ? (
+                            <div className="text-[11px] text-slate-500">{s.seller.login}</div>
+                          ) : null}
+                        </td>
+                        <td className="px-3 py-2.5 tabular-nums text-slate-800">{fmtInt(s.points)}</td>
+                        <td className="px-3 py-2.5 tabular-nums text-slate-800">{fmtInt(s.passengers)}</td>
+                        <td className="px-3 py-2.5 tabular-nums text-slate-800">{fmtMoneyBR(s.totalCents)}</td>
+                        <td className="px-3 py-2.5 tabular-nums font-medium text-slate-900">
+                          {fmtMoneyBR(s.pvSemTaxaCents)}
+                        </td>
+                        <td className="px-3 py-2.5 tabular-nums text-slate-700">{fmtMoneyBR(s.costCents)}</td>
+                        <td className={cn("px-3 py-2.5 tabular-nums font-semibold", profitClass(s.profitBrutoCents))}>
+                          {fmtMoneyBR(s.profitBrutoCents)}
+                        </td>
+                        <td className="px-3 py-2.5 tabular-nums text-violet-700">{fmtMoneyBR(s.bonusCents)}</td>
+                        <td className={cn("px-3 py-2.5 tabular-nums font-bold", profitClass(s.profitLiquidoCents))}>
+                          {fmtMoneyBR(s.profitLiquidoCents)}
+                        </td>
+                      </tr>
+                    ))}
+                    <tr className="bg-slate-50/90 font-semibold">
+                      <td className="px-3 py-3 text-slate-900" colSpan={4}>
+                        Total
+                      </td>
+                      <td className="px-3 py-3 tabular-nums">{fmtInt(pick(detail.metrics.soldPoints))}</td>
+                      <td className="px-3 py-3 tabular-nums">{fmtInt(pick(detail.metrics.pax))}</td>
+                      <td className="px-3 py-3 tabular-nums">{fmtMoneyBR(pick(detail.metrics.salesTotalCents))}</td>
+                      <td className="px-3 py-3 tabular-nums">{fmtMoneyBR(pick(detail.metrics.salesPointsValueCents))}</td>
+                      <td className="px-3 py-3 tabular-nums">{fmtMoneyBR(pick(detail.metrics.purchaseTotalCents))}</td>
+                      <td className={cn("px-3 py-3 tabular-nums", profitClass(pick(detail.metrics.profitBrutoCents)))}>
+                        {fmtMoneyBR(pick(detail.metrics.profitBrutoCents))}
+                      </td>
+                      <td className="px-3 py-3 tabular-nums text-violet-700">
+                        {fmtMoneyBR(pick(detail.metrics.bonusCents))}
+                      </td>
+                      <td className={cn("px-3 py-3 tabular-nums", profitClass(pick(detail.metrics.profitLiquidoCents)))}>
+                        {fmtMoneyBR(pick(detail.metrics.profitLiquidoCents))}
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+
+          <div className="grid gap-4 lg:grid-cols-2">
+            <div className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm">
+              <div className="border-b border-slate-100 bg-slate-50/80 px-4 py-3">
+                <div className="text-sm font-semibold text-slate-900">Rateio do lucro líquido</div>
+                <div className="mt-0.5 text-xs text-slate-500">
+                  {detail.plan.isDefault ? (
+                    <>Sem configuração: default 100% para o owner</>
+                  ) : (
+                    <>
+                      Vigência{" "}
+                      <span className="font-mono">
+                        {detail.plan.effectiveFrom ? detail.plan.effectiveFrom.slice(0, 10) : "—"}
+                      </span>
+                      {detail.plan.effectiveTo ? (
+                        <>
+                          {" "}
+                          → <span className="font-mono">{detail.plan.effectiveTo.slice(0, 10)}</span>
+                        </>
+                      ) : (
+                        <> → atual</>
+                      )}
+                    </>
+                  )}
+                </div>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="min-w-full w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-slate-100 text-left text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                      <th className="px-4 py-2">Destinatário</th>
+                      <th className="px-4 py-2">%</th>
+                      <th className="px-4 py-2">Valor</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-50">
+                    {detail.rateio.map((it, idx) => (
+                      <tr key={`${it.payeeId}-${idx}`}>
+                        <td className="px-4 py-2.5">
+                          <div className="font-medium text-slate-900">{it.payee?.name}</div>
+                          <div className="text-[11px] text-slate-500">{it.payee?.login}</div>
+                        </td>
+                        <td className="px-4 py-2.5 tabular-nums">{fmtPctBps(it.bps)}</td>
+                        <td className="px-4 py-2.5 font-semibold tabular-nums">{fmtMoneyBR(pick(it.amountCents))}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm">
+              <div className="border-b border-slate-100 bg-slate-50/80 px-4 py-3">
+                <div className="text-sm font-semibold text-slate-900">Resumo financeiro</div>
+              </div>
+              <div className="grid gap-2 p-4 sm:grid-cols-2">
+                <MetricChip
+                  label="Total cobrado"
+                  value={fmtMoneyBR(pick(detail.metrics.salesTotalCents))}
+                  hint={`Taxas: ${fmtMoneyBR(pick(detail.metrics.salesTaxesCents))}`}
+                />
+                <MetricChip
+                  label="Meta milheiro"
+                  value={
+                    detail.purchase.metaMilheiroCents == null
+                      ? "—"
+                      : fmtMoneyBR(detail.purchase.metaMilheiroCents)
+                  }
+                />
+                <MetricChip
+                  label="Milheiro médio"
+                  value={
+                    detail.metrics.avgMilheiroCents == null
+                      ? "—"
+                      : fmtMoneyBR(detail.metrics.avgMilheiroCents)
+                  }
+                />
+                <MetricChip label="Finalizado" value={fmtDateTimeBR(detail.purchase.finalizedAt)} />
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function ConfirmUndoModal({
   open,
   numero,
@@ -370,9 +627,10 @@ export default function ComprasFinalizadasClient() {
   const [q, setQ] = useState("");
 
   const [openRow, setOpenRow] = useState<Row | null>(null);
-  const [detailLoading, setDetailLoading] = useState(false);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [detailCache, setDetailCache] = useState<Record<string, DetailResp>>({});
+  const [detailLoadingId, setDetailLoadingId] = useState<string | null>(null);
   const [detailErr, setDetailErr] = useState("");
-  const [detail, setDetail] = useState<DetailResp | null>(null);
 
   const [undoOpen, setUndoOpen] = useState(false);
   const [undoBusy, setUndoBusy] = useState(false);
@@ -402,31 +660,29 @@ export default function ComprasFinalizadasClient() {
     }
   }
 
-  async function openDetails(r: Row) {
-    setOpenRow(r);
-    setDetail(null);
-    setDetailErr("");
-    setDetailLoading(true);
+  async function toggleDetails(r: Row) {
+    if (expandedId === r.id) {
+      setExpandedId(null);
+      setOpenRow(null);
+      setDetailErr("");
+      return;
+    }
 
+    setExpandedId(r.id);
+    setOpenRow(r);
+    setDetailErr("");
+
+    if (detailCache[r.id]) return;
+
+    setDetailLoadingId(r.id);
     try {
       const out = await fetchJson<DetailResp>(`/api/vendas/compras-finalizadas/${r.id}`);
-      setDetail(out);
+      setDetailCache((prev) => ({ ...prev, [r.id]: out }));
     } catch (e: unknown) {
       setDetailErr(e instanceof Error ? e.message : "Erro ao carregar detalhes.");
     } finally {
-      setDetailLoading(false);
+      setDetailLoadingId(null);
     }
-  }
-
-  function closeDetails() {
-    setOpenRow(null);
-    setDetail(null);
-    setDetailErr("");
-    setDetailLoading(false);
-    setUndoOpen(false);
-    setUndoBusy(false);
-    setUndoErr("");
-    setUndoReason("");
   }
 
   function askUndo() {
@@ -454,7 +710,8 @@ export default function ComprasFinalizadasClient() {
       });
 
       setUndoOpen(false);
-      closeDetails();
+      closeExpanded();
+      setDetailCache({});
       await load({ silent: true });
     } catch (e: unknown) {
       setUndoErr(e instanceof Error ? e.message : "Falha ao desfazer.");
@@ -464,25 +721,23 @@ export default function ComprasFinalizadasClient() {
   }
 
   useEffect(() => {
-    if (!openRow && !undoOpen) return;
+    if (!undoOpen) return;
     const prev = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     return () => {
       document.body.style.overflow = prev;
     };
-  }, [openRow, undoOpen]);
+  }, [undoOpen]);
 
   useEffect(() => {
-    if (!openRow && !undoOpen) return;
+    if (!undoOpen) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key !== "Escape") return;
-      if (undoOpen) cancelUndo();
-      else closeDetails();
+      if (e.key === "Escape") cancelUndo();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [openRow, undoOpen, undoBusy]);
+  }, [undoOpen, undoBusy]);
 
   useEffect(() => {
     void load();
@@ -593,7 +848,7 @@ export default function ComprasFinalizadasClient() {
           <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500">
             <span>{loading ? "Carregando..." : `${fmtInt(rows.length)} registro(s) · até 200 mais recentes`}</span>
             <span>
-              Clique na linha ou em <b className="text-slate-700">Ver</b> para rateio e detalhes
+              Clique na linha ou em <b className="text-slate-700">Ver</b> para expandir o relatório de vendas
             </span>
           </div>
         </div>
@@ -644,14 +899,20 @@ export default function ComprasFinalizadasClient() {
               ) : (
                 rows.map((r, idx) => {
                   const profit = pick(r.finalProfitCents);
+                  const isExpanded = expandedId === r.id;
+                  const detail = detailCache[r.id] ?? null;
+                  const detailLoading = detailLoadingId === r.id;
 
                   return (
-                    <tr
-                      key={r.id}
-                      className="cursor-pointer transition-colors hover:bg-teal-50/30"
-                      title="Clique para ver detalhes e rateio"
-                      onClick={() => void openDetails(r)}
-                    >
+                    <Fragment key={r.id}>
+                      <tr
+                        className={cn(
+                          "cursor-pointer transition-colors",
+                          isExpanded ? "bg-teal-50/50" : "hover:bg-teal-50/30"
+                        )}
+                        title="Clique para expandir relatório"
+                        onClick={() => void toggleDetails(r)}
+                      >
                       <td className="px-4 py-3.5 tabular-nums text-slate-500">{idx + 1}</td>
 
                       <td className="px-4 py-3.5">
@@ -703,14 +964,39 @@ export default function ComprasFinalizadasClient() {
                       <td className="px-4 py-3.5 text-right" onClick={(e) => e.stopPropagation()}>
                         <button
                           type="button"
-                          onClick={() => void openDetails(r)}
-                          className="inline-flex items-center gap-1 rounded-xl border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50"
+                          onClick={() => void toggleDetails(r)}
+                          className={cn(
+                            "inline-flex items-center gap-1 rounded-xl border px-2.5 py-1.5 text-xs font-semibold shadow-sm transition",
+                            isExpanded
+                              ? "border-teal-300 bg-teal-50 text-teal-800"
+                              : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+                          )}
                         >
-                          <Eye className="h-3.5 w-3.5" aria-hidden />
-                          Ver
+                          {isExpanded ? (
+                            <ChevronUp className="h-3.5 w-3.5" aria-hidden />
+                          ) : (
+                            <Eye className="h-3.5 w-3.5" aria-hidden />
+                          )}
+                          {isExpanded ? "Ocultar" : "Ver"}
                         </button>
                       </td>
                     </tr>
+
+                    {isExpanded ? (
+                      <tr>
+                        <td colSpan={10} className="p-0">
+                          <PurchaseDetailPanel
+                            row={r}
+                            detail={detail}
+                            loading={detailLoading}
+                            error={detailErr}
+                            onUndo={askUndo}
+                            undoBusy={undoBusy}
+                          />
+                        </td>
+                      </tr>
+                    ) : null}
+                    </Fragment>
                   );
                 })
               )}
@@ -719,249 +1005,17 @@ export default function ComprasFinalizadasClient() {
         </div>
       </section>
 
-      {/* Detail modal */}
-      {openRow ? (
-        <Portal>
-          <div
-            className="fixed inset-0 z-[9999] flex items-center justify-center bg-slate-900/50 p-4 backdrop-blur-sm"
-            onMouseDown={(e) => {
-              if (e.target === e.currentTarget) closeDetails();
-            }}
-          >
-            <div className="flex max-h-[92vh] w-full max-w-5xl flex-col overflow-hidden rounded-3xl border border-slate-200/80 bg-white shadow-2xl shadow-slate-900/20">
-              <div className="flex shrink-0 items-start justify-between gap-3 border-b border-slate-100 bg-gradient-to-r from-slate-50 to-white p-5">
-                <div>
-                  <div className="inline-flex items-center gap-2 rounded-full bg-teal-50 px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-teal-700 ring-1 ring-teal-200">
-                    <CheckCircle2 className="h-3 w-3" aria-hidden />
-                    Snapshot final
-                  </div>
-                  <div className="mt-2 text-xl font-bold text-slate-900">Rateio da compra</div>
-                  <div className="mt-1 text-sm text-slate-600">
-                    <span className="font-mono font-semibold text-slate-800">{openRow.numero}</span>
-                    {" · "}
-                    {openRow.cedente?.identificador || "—"}
-                    {" · "}
-                    {openRow.cedente?.nomeCompleto || "—"}
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    className="inline-flex items-center gap-1.5 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-700 transition hover:bg-rose-100 disabled:opacity-50"
-                    onClick={askUndo}
-                    disabled={detailLoading || undoBusy}
-                    title="Desfazer finalização desta compra"
-                  >
-                    <Undo2 className="h-4 w-4" aria-hidden />
-                    Desfazer
-                  </button>
-
-                  <button
-                    type="button"
-                    className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 shadow-sm transition hover:bg-slate-50 disabled:opacity-50"
-                    onClick={closeDetails}
-                    disabled={undoBusy}
-                    aria-label="Fechar"
-                  >
-                    <X className="h-4 w-4" aria-hidden />
-                  </button>
-                </div>
-              </div>
-
-              <div className="space-y-5 overflow-y-auto p-5">
-                {detailErr ? (
-                  <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{detailErr}</div>
-                ) : null}
-
-                {detailLoading ? (
-                  <div className="flex items-center justify-center gap-3 rounded-2xl border border-slate-200 bg-slate-50/80 p-8 text-sm text-slate-600">
-                    <RefreshCw className="h-5 w-5 animate-spin text-slate-400" aria-hidden />
-                    Carregando detalhes...
-                  </div>
-                ) : detail ? (
-                  <>
-                    <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
-                      <MetricChip label="Custo (compra)" value={fmtMoneyBR(pick(detail.metrics.purchaseTotalCents))} />
-                      <MetricChip
-                        label="Venda (sem taxa)"
-                        value={fmtMoneyBR(pick(detail.metrics.salesPointsValueCents))}
-                      />
-                      <MetricChip label="Bônus" value={fmtMoneyBR(pick(detail.metrics.bonusCents))} />
-                      <MetricChip
-                        label="Lucro líquido"
-                        value={fmtMoneyBR(pick(detail.metrics.profitLiquidoCents))}
-                        strong
-                      />
-                    </div>
-
-                    <div className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm">
-                      <div className="border-b border-slate-100 bg-slate-50/80 px-4 py-3">
-                        <div className="text-sm font-semibold text-slate-900">Resumo financeiro</div>
-                      </div>
-                      <div className="grid gap-2 p-4 sm:grid-cols-2 lg:grid-cols-3">
-                        <MetricChip
-                          label="Total cobrado (com taxas)"
-                          value={fmtMoneyBR(pick(detail.metrics.salesTotalCents))}
-                          hint={`Taxas: ${fmtMoneyBR(pick(detail.metrics.salesTaxesCents))}`}
-                        />
-                        <MetricChip
-                          label="Venda sem taxa (PV)"
-                          value={fmtMoneyBR(pick(detail.metrics.salesPointsValueCents))}
-                          hint="Base do lucro"
-                        />
-                        <MetricChip
-                          label="Custo da compra"
-                          value={fmtMoneyBR(pick(detail.metrics.purchaseTotalCents))}
-                        />
-                        <MetricChip
-                          label="Lucro bruto"
-                          value={fmtMoneyBR(pick(detail.metrics.profitBrutoCents))}
-                          hint="PV − custo"
-                        />
-                        <MetricChip
-                          label="Bônus (30% excedente)"
-                          value={fmtMoneyBR(pick(detail.metrics.bonusCents))}
-                        />
-                        {pick(detail.metrics.affiliateCommissionCents) > 0 ? (
-                          <MetricChip
-                            label="Comissão afiliado"
-                            value={fmtMoneyBR(pick(detail.metrics.affiliateCommissionCents))}
-                            hint="Descontada do lucro líquido"
-                          />
-                        ) : null}
-                        <MetricChip
-                          label="Lucro líquido"
-                          value={fmtMoneyBR(pick(detail.metrics.profitLiquidoCents))}
-                          hint="Lucro bruto − bônus − afiliado"
-                          strong
-                        />
-                      </div>
-                    </div>
-
-                    <div className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm">
-                      <div className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-100 bg-slate-50/80 px-4 py-3">
-                        <div>
-                          <div className="text-sm font-semibold text-slate-900">Rateio do lucro líquido</div>
-                          <div className="mt-0.5 text-xs text-slate-500">
-                            {detail.plan.isDefault ? (
-                              <>Sem configuração: default 100% para o owner</>
-                            ) : (
-                              <>
-                                Vigência{" "}
-                                <span className="font-mono">
-                                  {detail.plan.effectiveFrom ? detail.plan.effectiveFrom.slice(0, 10) : "—"}
-                                </span>
-                                {detail.plan.effectiveTo ? (
-                                  <>
-                                    {" "}
-                                    → <span className="font-mono">{detail.plan.effectiveTo.slice(0, 10)}</span>
-                                  </>
-                                ) : (
-                                  <> → atual</>
-                                )}
-                              </>
-                            )}
-                          </div>
-                        </div>
-                        <div className="text-right">
-                          <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
-                            Total rateado
-                          </div>
-                          <div className="text-lg font-bold tabular-nums text-slate-900">
-                            {fmtMoneyBR(pick(detail.checks.sumRateioCents))}
-                          </div>
-                          <div className="text-[11px] text-slate-500">{detail.plan.sumBps} bps</div>
-                        </div>
-                      </div>
-
-                      <div className="overflow-x-auto">
-                        <table className="min-w-[640px] w-full text-sm">
-                          <thead>
-                            <tr className="border-b border-slate-100 text-left text-[10px] font-semibold uppercase tracking-wide text-slate-500">
-                              <th className="px-4 py-2.5">Destinatário</th>
-                              <th className="px-4 py-2.5">%</th>
-                              <th className="px-4 py-2.5">Valor</th>
-                            </tr>
-                          </thead>
-                          <tbody className="divide-y divide-slate-50">
-                            {detail.rateio.map((it, idx) => (
-                              <tr key={`${it.payeeId}-${idx}`} className="hover:bg-slate-50/80">
-                                <td className="px-4 py-3">
-                                  <div className="font-medium text-slate-900">{it.payee?.name}</div>
-                                  <div className="text-[11px] text-slate-500">{it.payee?.login}</div>
-                                </td>
-                                <td className="px-4 py-3 tabular-nums text-slate-700">{fmtPctBps(it.bps)}</td>
-                                <td className="px-4 py-3 font-semibold tabular-nums text-slate-900">
-                                  {fmtMoneyBR(pick(it.amountCents))}
-                                </td>
-                              </tr>
-                            ))}
-                            <tr className="bg-slate-50/80">
-                              <td className="px-4 py-3 font-semibold text-slate-900">Total</td>
-                              <td className="px-4 py-3 text-xs text-slate-500">lucro líquido</td>
-                              <td className="px-4 py-3 font-bold tabular-nums text-slate-900">
-                                {fmtMoneyBR(pick(detail.metrics.profitLiquidoCents))}
-                              </td>
-                            </tr>
-                          </tbody>
-                        </table>
-                      </div>
-                    </div>
-
-                    <div className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm">
-                      <div className="border-b border-slate-100 bg-slate-50/80 px-4 py-3">
-                        <div className="text-sm font-semibold text-slate-900">Operacional</div>
-                      </div>
-                      <div className="grid gap-2 p-4 sm:grid-cols-2 lg:grid-cols-3">
-                        <MetricChip label="Pontos vendidos" value={fmtInt(pick(detail.metrics.soldPoints))} />
-                        <MetricChip label="PAX" value={fmtInt(pick(detail.metrics.pax))} />
-                        <MetricChip
-                          label="Milheiro médio (sem taxa)"
-                          value={
-                            detail.metrics.avgMilheiroCents == null
-                              ? "—"
-                              : fmtMoneyBR(detail.metrics.avgMilheiroCents)
-                          }
-                          hint={
-                            detail.metrics.remainingPoints == null
-                              ? undefined
-                              : `Restante: ${fmtInt(detail.metrics.remainingPoints)}`
-                          }
-                        />
-                        <MetricChip label="Finalizado em" value={fmtDateTimeBR(detail.purchase.finalizedAt)} />
-                        <MetricChip label="Por" value={detail.purchase.finalizedBy?.name || "—"} />
-                        <MetricChip label="CIA" value={detail.purchase.ciaAerea || "—"} />
-                        <MetricChip
-                          label="Meta milheiro (compra)"
-                          value={
-                            detail.purchase.metaMilheiroCents == null
-                              ? "—"
-                              : fmtMoneyBR(detail.purchase.metaMilheiroCents)
-                          }
-                          hint="Base do bônus e do lucro líquido"
-                        />
-                      </div>
-                    </div>
-                  </>
-                ) : null}
-              </div>
-
-              <ConfirmUndoModal
-                open={undoOpen}
-                numero={openRow.numero}
-                cedenteNome={openRow.cedente?.nomeCompleto || ""}
-                reason={undoReason}
-                setReason={setUndoReason}
-                busy={undoBusy}
-                error={undoErr}
-                onCancel={cancelUndo}
-                onConfirm={() => void confirmUndo()}
-              />
-            </div>
-          </div>
-        </Portal>
-      ) : null}
+      <ConfirmUndoModal
+        open={undoOpen}
+        numero={openRow?.numero || ""}
+        cedenteNome={openRow?.cedente?.nomeCompleto || ""}
+        reason={undoReason}
+        setReason={setUndoReason}
+        busy={undoBusy}
+        error={undoErr}
+        onCancel={cancelUndo}
+        onConfirm={() => void confirmUndo()}
+      />
     </div>
   );
 }
