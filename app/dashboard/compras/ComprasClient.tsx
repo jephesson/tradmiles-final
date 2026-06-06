@@ -34,6 +34,9 @@ type PurchaseRowRaw = {
   totalCost?: number;
   totalCents?: number;
 
+  custoMilheiroCents?: number;
+  metaMilheiroCents?: number;
+
   cedente?: {
     id: string;
     nomeCompleto: string;
@@ -52,6 +55,9 @@ type PurchaseRow = {
   ciaPointsTotal: number;
 
   totalCostCents: number;
+
+  custoMilheiroCents: number;
+  metaMilheiroCents: number;
 
   cedente: {
     id: string;
@@ -77,6 +83,9 @@ function normalizeRow(r: PurchaseRowRaw): PurchaseRow {
     ciaPointsTotal: asInt((r.ciaPointsTotal ?? r.pontosCiaTotal ?? 0) as any),
 
     totalCostCents: asInt((r.totalCostCents ?? r.totalCost ?? r.totalCents ?? 0) as any),
+
+    custoMilheiroCents: asInt(r.custoMilheiroCents ?? 0),
+    metaMilheiroCents: asInt(r.metaMilheiroCents ?? 0),
 
     cedente: r.cedente ?? null,
   };
@@ -670,8 +679,8 @@ export default function ComprasClient() {
               <th className="px-3 py-2.5">Status</th>
               <th className="px-3 py-2.5">Cedente</th>
               <th className="px-3 py-2.5">CIA</th>
-              <th className="px-3 py-2.5 text-right">Pts CIA</th>
-              <th className="px-3 py-2.5 text-right">Milheiro</th>
+              <th className="px-3 py-2.5 text-right">Pts compra</th>
+              <th className="px-3 py-2.5 text-right">Milheiro / Meta</th>
               <th className="px-3 py-2.5 text-right">Total</th>
               <th className="px-3 py-2.5">Criada em</th>
               <th className="w-44 px-3 py-2.5 text-right">Ações</th>
@@ -692,7 +701,11 @@ export default function ComprasClient() {
               const isReleased = r.status === "CLOSED";
               const isCanceled = r.status === "CANCELED";
 
-              const m = milheiroCents(r.ciaPointsTotal || 0, r.totalCostCents || 0);
+              const m =
+                r.custoMilheiroCents > 0
+                  ? r.custoMilheiroCents
+                  : milheiroCents(r.ciaPointsTotal || 0, r.totalCostCents || 0);
+              const meta = r.metaMilheiroCents > 0 ? r.metaMilheiroCents : 0;
 
               return (
                 <tr key={r.id} className="border-b border-slate-50 transition hover:bg-slate-50/80 last:border-b-0">
@@ -729,7 +742,9 @@ export default function ComprasClient() {
                     <div className="font-semibold text-slate-900">
                       {m ? fmtMoneyBR(m) : <span className="text-slate-500">—</span>}
                     </div>
-                    <div className="text-[11px] text-slate-500">por 1.000 pts</div>
+                    <div className="text-[11px] text-slate-500">
+                      {meta > 0 ? `meta ${fmtMoneyBR(meta)}` : "custo / milheiro"}
+                    </div>
                   </td>
 
                   <td className="px-3 py-3.5 text-right font-semibold tabular-nums text-slate-900">

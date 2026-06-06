@@ -36,6 +36,9 @@ function toPurchaseRow(
     // totals (compat com nomes diferentes)
     totalCostCents: asInt((p as any).totalCostCents ?? p.totalCost ?? p.totalCents ?? 0),
 
+    custoMilheiroCents: asInt(p.custoMilheiroCents ?? 0),
+    metaMilheiroCents: asInt(p.metaMilheiroCents ?? 0),
+
     cedente: p.cedente
       ? {
           id: p.cedente.id,

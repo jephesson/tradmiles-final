@@ -932,6 +932,15 @@ export default function ComprasFinalizadasClient() {
                         <MetricChip label="Finalizado em" value={fmtDateTimeBR(detail.purchase.finalizedAt)} />
                         <MetricChip label="Por" value={detail.purchase.finalizedBy?.name || "—"} />
                         <MetricChip label="CIA" value={detail.purchase.ciaAerea || "—"} />
+                        <MetricChip
+                          label="Meta milheiro (compra)"
+                          value={
+                            detail.purchase.metaMilheiroCents == null
+                              ? "—"
+                              : fmtMoneyBR(detail.purchase.metaMilheiroCents)
+                          }
+                          hint="Base do bônus e do lucro líquido"
+                        />
                       </div>
                     </div>
                   </>
