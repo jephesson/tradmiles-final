@@ -349,8 +349,8 @@ export default function ComprasClient() {
   const [err, setErr] = useState<string | null>(null);
 
   const [q, setQ] = useState("");
-  const [status, setStatus] = useState<StatusFilter>("");
-  const [onlyOpen, setOnlyOpen] = useState(false);
+  const [status, setStatus] = useState<StatusFilter>("OPEN");
+  const [onlyOpen, setOnlyOpen] = useState(true);
 
   const [busyId, setBusyId] = useState<string | null>(null);
 
