@@ -309,6 +309,60 @@ function KPI({
   );
 }
 
+type CommissionFocus = "all" | "c1" | "c2" | "c3" | "fee";
+
+const COMMISSION_FOCUS_LABEL: Record<CommissionFocus, string> = {
+  all: "Todas as linhas",
+  c1: "C1 (1% sobre vendas)",
+  c2: "C2 (bônus)",
+  c3: "C3 (rateio)",
+  fee: "Taxa embarque (reembolso)",
+};
+
+function filterSalesByFocus(sales: DetailSaleLine[], focus: CommissionFocus) {
+  if (focus === "all") return sales;
+  if (focus === "c1") return sales.filter((s) => (s.c1Cents || 0) > 0);
+  if (focus === "c2") return sales.filter((s) => (s.c2Cents || 0) > 0);
+  if (focus === "c3") return sales.filter((s) => (s.c3Cents || 0) > 0);
+  if (focus === "fee") return sales.filter((s) => (s.feeCents || 0) > 0);
+  return sales;
+}
+
+function focusAmountCents(line: DetailSaleLine, focus: CommissionFocus) {
+  if (focus === "c1") return line.c1Cents || 0;
+  if (focus === "c2") return line.c2Cents || 0;
+  if (focus === "c3") return line.c3Cents || 0;
+  if (focus === "fee") return line.feeCents || 0;
+  return (line.c1Cents || 0) + (line.c2Cents || 0) + (line.c3Cents || 0) + (line.feeCents || 0);
+}
+
+function ClickableMoneyCell({
+  cents,
+  onClick,
+  className,
+}: {
+  cents: number;
+  onClick?: () => void;
+  className?: string;
+}) {
+  const clickable = (cents || 0) > 0 && !!onClick;
+  if (!clickable) {
+    return <td className={cn("px-4 py-3 tabular-nums text-slate-800", className)}>{fmtMoneyBR(cents)}</td>;
+  }
+  return (
+    <td className={cn("px-4 py-3 tabular-nums", className)}>
+      <button
+        type="button"
+        onClick={onClick}
+        className="rounded-lg px-1 py-0.5 font-medium text-slate-900 underline decoration-slate-300 decoration-dotted underline-offset-2 transition hover:bg-slate-100 hover:decoration-slate-500"
+        title="Ver vendas que compõem este valor"
+      >
+        {fmtMoneyBR(cents)}
+      </button>
+    </td>
+  );
+}
+
 function Pill({ kind, text }: { kind: "ok" | "warn" | "muted"; text: string }) {
   const cls =
     kind === "ok"
@@ -361,6 +415,7 @@ export default function ComissoesFuncionariosClient() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [drawerTab, setDrawerTab] = useState<"DAY" | "MONTH">("DAY");
   const [drawerUser, setDrawerUser] = useState<UserLite | null>(null);
+  const [drawerFocus, setDrawerFocus] = useState<CommissionFocus>("all");
 
   const [detailsDate, setDetailsDate] = useState<string>(() => todayISORecife());
   const [details, setDetails] = useState<DetailsResponse | null>(null);
@@ -555,19 +610,18 @@ export default function ComissoesFuncionariosClient() {
     }
   }
 
-  async function openDetailsDrawer(u: UserLite) {
+  async function openDetailsDrawer(u: UserLite, focus: CommissionFocus = "all") {
     const d = date;
     const m = monthFromISODate(d);
 
     setDrawerUser(u);
+    setDrawerFocus(focus);
     setDrawerOpen(true);
     setDrawerTab("DAY");
     setDetailsDate(d);
 
-    // carrega detalhe do dia
     await loadDetails(d, u.id);
 
-    // prepara mês (lazy: você pode comentar se preferir carregar só ao clicar na aba)
     setMonth(m);
     setMonthData(null);
   }
@@ -581,9 +635,10 @@ export default function ComissoesFuncionariosClient() {
     }
   }
 
-  async function goToDayTab(d: string) {
+  async function goToDayTab(d: string, focus: CommissionFocus = drawerFocus) {
     if (!drawerUser) return;
     setDrawerTab("DAY");
+    setDrawerFocus(focus);
     setDetailsDate(d);
     await loadDetails(d, drawerUser.id);
   }
@@ -658,8 +713,12 @@ export default function ComissoesFuncionariosClient() {
 
   // ===== detalhes (helpers) =====
   const detailsSales = useMemo(() => details?.lines?.sales || [], [details]);
+  const filteredDetailsSales = useMemo(
+    () => filterSalesByFocus(detailsSales, drawerFocus),
+    [detailsSales, drawerFocus]
+  );
   const detailsSum = useMemo(() => {
-    const rows = detailsSales || [];
+    const rows = filteredDetailsSales || [];
     const acc = rows.reduce(
       (a, s) => {
         a.c1 += s.c1Cents || 0;
@@ -676,7 +735,7 @@ export default function ComissoesFuncionariosClient() {
       { c1: 0, c2: 0, c3: 0, fee: 0, pointsValue: 0, sales: 0, sellerLines: 0, feeLines: 0, points: 0 }
     );
     return { ...acc, gross: acc.c1 + acc.c2 + acc.c3 };
-  }, [detailsSales]);
+  }, [filteredDetailsSales]);
 
   const detailsLucroSemTaxa = useMemo(() => {
     const p = details?.payout;
@@ -858,12 +917,24 @@ export default function ComissoesFuncionariosClient() {
 
                     <td className="px-4 py-3 text-right tabular-nums text-slate-800">{b?.salesCount ?? 0}</td>
 
-                    <td className="px-4 py-3 tabular-nums text-slate-800">{fmtMoneyBR(c1)}</td>
-                    <td className="px-4 py-3 tabular-nums text-slate-800">{fmtMoneyBR(c2)}</td>
-                    <td className="px-4 py-3 tabular-nums text-slate-800">{fmtMoneyBR(c3)}</td>
+                    <ClickableMoneyCell
+                      cents={c1}
+                      onClick={() => openDetailsDrawer(r.user, "c1")}
+                    />
+                    <ClickableMoneyCell
+                      cents={c2}
+                      onClick={() => openDetailsDrawer(r.user, "c2")}
+                    />
+                    <ClickableMoneyCell
+                      cents={c3}
+                      onClick={() => openDetailsDrawer(r.user, "c3")}
+                    />
 
                     <td className="px-4 py-3 tabular-nums text-slate-800">{fmtMoneyBR(r.tax7Cents || 0)}</td>
-                    <td className="px-4 py-3 tabular-nums text-slate-800">{fmtMoneyBR(r.feeCents || 0)}</td>
+                    <ClickableMoneyCell
+                      cents={r.feeCents || 0}
+                      onClick={() => openDetailsDrawer(r.user, "fee")}
+                    />
                     <td className="px-4 py-3 tabular-nums text-slate-800">{fmtMoneyBR(r.balcaoCommissionCents || 0)}</td>
 
                     <td className={cn("px-4 py-3 font-semibold tabular-nums", lucroCellCls)}>
@@ -889,34 +960,23 @@ export default function ComissoesFuncionariosClient() {
                     </td>
 
                     <td className="px-4 py-3 text-right">
-                      <div className="flex flex-wrap justify-end gap-2">
-                        <button
-                          type="button"
-                          onClick={() => openDetailsDrawer(r.user)}
-                          className="h-9 rounded-xl border border-slate-200 bg-white px-3 text-xs font-medium text-slate-800 shadow-sm transition hover:border-slate-300 hover:bg-slate-50"
-                          title="Ver detalhes (de onde veio cada valor)"
-                        >
-                          Detalhes
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={() => payRow(date, r.userId)}
-                          disabled={!canPay || paying}
-                          className="h-9 rounded-xl bg-slate-900 px-3 text-xs font-semibold text-white shadow-sm transition hover:bg-slate-800 disabled:pointer-events-none disabled:opacity-50"
-                          title={
-                            canPay
-                              ? "Marcar como pago"
-                              : isMissing
-                              ? "Ainda não existe payout no banco (compute o dia)"
-                              : isPaid
-                              ? "Já pago"
-                              : "Só paga dia fechado (anterior a hoje)"
-                          }
-                        >
-                          {paying ? "Pagando..." : "Pagar"}
-                        </button>
-                      </div>
+                      <button
+                        type="button"
+                        onClick={() => payRow(date, r.userId)}
+                        disabled={!canPay || paying}
+                        className="h-9 rounded-xl bg-slate-900 px-3 text-xs font-semibold text-white shadow-sm transition hover:bg-slate-800 disabled:pointer-events-none disabled:opacity-50"
+                        title={
+                          canPay
+                            ? "Marcar como pago"
+                            : isMissing
+                            ? "Ainda não existe payout no banco (compute o dia)"
+                            : isPaid
+                            ? "Já pago"
+                            : "Só paga dia fechado (anterior a hoje)"
+                        }
+                      >
+                        {paying ? "Pagando..." : "Pagar"}
+                      </button>
                     </td>
                   </tr>
                 );
@@ -994,10 +1054,11 @@ export default function ComissoesFuncionariosClient() {
       </div>
 
       <div className="rounded-2xl border border-slate-200/70 bg-slate-50/80 px-4 py-3 text-xs leading-relaxed text-slate-600">
-        <span className="font-semibold text-slate-700">Nota:</span> Bruto = C1+C2+C3. <b>Comissão balcão</b> = 60% do
-        lucro líquido do balcão (já com imposto do balcão).
-        <b> Lucro s/ taxa</b> = bruto − imposto + comissão balcão. <b>Líquido</b> = netPay + comissão balcão (netPay já
-        inclui reembolso da taxa de vendas).
+        <span className="font-semibold text-slate-700">Nota:</span> Bruto = C1+C2+C3. Clique em{" "}
+        <span className="font-medium text-slate-800">C1, C2, C3 ou taxa embarque</span> para ver as vendas
+        que compõem cada valor. <b>Comissão balcão</b> = 60% do lucro líquido do balcão (já com imposto do
+        balcão). <b>Lucro s/ taxa</b> = bruto − imposto + comissão balcão. <b>Líquido</b> = netPay + comissão
+        balcão (netPay já inclui reembolso da taxa de vendas).
       </div>
 
       {/* ===== Drawer Detalhes + Mês ===== */}
@@ -1013,6 +1074,15 @@ export default function ComissoesFuncionariosClient() {
                     <>
                       <span className="font-medium">{firstName(drawerUser.name, drawerUser.login)}</span>{" "}
                       <span className="text-neutral-400">•</span> <span>{drawerUser.login}</span>
+                      {drawerFocus !== "all" ? (
+                        <>
+                          {" "}
+                          <span className="text-neutral-400">•</span>{" "}
+                          <span className="font-medium text-slate-700">
+                            {COMMISSION_FOCUS_LABEL[drawerFocus]}
+                          </span>
+                        </>
+                      ) : null}
                     </>
                   ) : (
                     "-"
@@ -1064,13 +1134,30 @@ export default function ComissoesFuncionariosClient() {
                     />
                   </div>
 
-                  <div className="flex gap-2">
+                  <div className="flex flex-wrap gap-2">
+                    {(["all", "c1", "c2", "c3", "fee"] as CommissionFocus[]).map((f) => (
+                      <button
+                        key={f}
+                        type="button"
+                        onClick={() => setDrawerFocus(f)}
+                        className={cn(
+                          "h-9 rounded-xl border px-3 text-xs font-medium transition",
+                          drawerFocus === f
+                            ? "border-slate-900 bg-slate-900 text-white"
+                            : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+                        )}
+                      >
+                        {f === "all" ? "Tudo" : f.toUpperCase()}
+                      </button>
+                    ))}
+
                     <button
-                      onClick={() => drawerUser && goToDayTab(detailsDate)}
+                      type="button"
+                      onClick={() => drawerUser && goToDayTab(detailsDate, drawerFocus)}
                       disabled={!drawerUser || detailsLoading}
                       className="h-10 rounded-xl bg-black px-4 text-sm text-white hover:bg-neutral-800 disabled:opacity-50"
                     >
-                      {detailsLoading ? "Carregando..." : "Atualizar detalhes"}
+                      {detailsLoading ? "Carregando..." : "Atualizar"}
                     </button>
                   </div>
                 </div>
@@ -1144,10 +1231,19 @@ export default function ComissoesFuncionariosClient() {
 
                 <div className="overflow-hidden rounded-2xl border bg-white">
                   <div className="px-4 py-3 border-b flex items-center justify-between">
-                    <div className="text-sm font-semibold">Linhas (de onde veio)</div>
+                    <div className="text-sm font-semibold">
+                      {drawerFocus === "all"
+                        ? "Linhas (de onde veio)"
+                        : `Vendas — ${COMMISSION_FOCUS_LABEL[drawerFocus]}`}
+                    </div>
                     <div className="text-xs text-neutral-500">
                       {detailsSum.sales} linha(s) • {detailsSum.sellerLines} venda(s) •{" "}
-                      {detailsSum.feeLines} reembolso(s) • PV: {fmtMoneyBR(detailsSum.pointsValue)}
+                      {detailsSum.feeLines} reembolso(s)
+                      {drawerFocus === "fee"
+                        ? <> • total: {fmtMoneyBR(detailsSum.fee)}</>
+                        : drawerFocus !== "all"
+                          ? <> • total: {fmtMoneyBR(detailsSum.c1 + detailsSum.c2 + detailsSum.c3)}</>
+                          : <> • PV: {fmtMoneyBR(detailsSum.pointsValue)}</>}
                     </div>
                   </div>
 
@@ -1157,23 +1253,35 @@ export default function ComissoesFuncionariosClient() {
                         <tr>
                           <th className="px-4 py-3">Venda</th>
                           <th className="px-4 py-3">Vendedor</th>
-                          <th className="px-4 py-3">Cartão/taxa</th>
+                          <th className="px-4 py-3">Cliente / compra</th>
                           <th className="px-4 py-3">Papel</th>
                           <th className="px-4 py-3">Localizador</th>
                           <th className="px-4 py-3 text-right">Pontos</th>
                           <th className="px-4 py-3">Valor pontos</th>
-                          <th className="px-4 py-3">Taxa embarque</th>
+                          {(drawerFocus === "all" || drawerFocus === "c1") && (
+                            <th className="px-4 py-3">C1</th>
+                          )}
+                          {(drawerFocus === "all" || drawerFocus === "c2") && (
+                            <th className="px-4 py-3">C2</th>
+                          )}
+                          {(drawerFocus === "all" || drawerFocus === "c3") && (
+                            <th className="px-4 py-3">C3</th>
+                          )}
+                          {(drawerFocus === "all" || drawerFocus === "fee") && (
+                            <th className="px-4 py-3">Taxa embarque</th>
+                          )}
+                          {drawerFocus !== "all" && drawerFocus !== "fee" && (
+                            <th className="px-4 py-3 font-semibold">Valor</th>
+                          )}
                         </tr>
                       </thead>
 
                       <tbody>
-                        {(detailsSales || []).map((s) => (
+                        {(filteredDetailsSales || []).map((s) => (
                           <tr key={s.ref.id} className="border-t">
                             <td className="px-4 py-3">
                               <div className="font-medium">{s.numero}</div>
-                              <div className="text-xs text-neutral-500">
-                                {s.purchase?.numero ? `Compra ${s.purchase.numero}` : s.cliente?.identificador || ""}
-                              </div>
+                              <div className="text-xs text-neutral-500">{fmtDateBR(s.date)}</div>
                             </td>
                             <td className="px-4 py-3">
                               <div className="font-medium">{firstName(s.seller?.name, s.seller?.login || "-")}</div>
@@ -1182,23 +1290,26 @@ export default function ComissoesFuncionariosClient() {
                               </div>
                             </td>
                             <td className="px-4 py-3">
-                              <div className="max-w-[220px] truncate font-medium" title={s.feeCardLabel || ""}>
-                                {s.feeCardLabel || "-"}
+                              <div className="font-medium">{s.cliente?.nome || s.cliente?.identificador || "-"}</div>
+                              <div className="text-xs text-neutral-500">
+                                {s.purchase?.numero ? `Compra ${s.purchase.numero}` : s.cedente?.identificador || ""}
                               </div>
-                              {s.feeCents ? (
-                                <div className="text-xs text-neutral-500">{feeSourceLabel(s)}</div>
+                              {s.feeCardLabel ? (
+                                <div className="mt-0.5 max-w-[220px] truncate text-xs text-neutral-500" title={s.feeCardLabel}>
+                                  {s.feeCardLabel}
+                                </div>
                               ) : null}
                             </td>
                             <td className="px-4 py-3">
                               <span
-                                className={[
+                                className={cn(
                                   "inline-flex rounded-full border px-2 py-0.5 text-xs",
                                   s.role?.feePayer && !s.role?.seller
                                     ? "border-amber-200 bg-amber-50 text-amber-700"
                                     : s.role?.feePayer
                                     ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-                                    : "border-sky-200 bg-sky-50 text-sky-700",
-                                ].join(" ")}
+                                    : "border-sky-200 bg-sky-50 text-sky-700"
+                                )}
                               >
                                 {roleLabel(s.role)}
                               </span>
@@ -1206,22 +1317,63 @@ export default function ComissoesFuncionariosClient() {
                             <td className="px-4 py-3 text-neutral-600">{s.locator || "-"}</td>
                             <td className="px-4 py-3 text-right tabular-nums">{fmtInt(s.points || 0)}</td>
                             <td className="px-4 py-3">{fmtMoneyBR(s.pointsValueCents || 0)}</td>
-                            <td className="px-4 py-3">{fmtMoneyBR(s.feeCents || 0)}</td>
+                            {(drawerFocus === "all" || drawerFocus === "c1") && (
+                              <td className="px-4 py-3">{fmtMoneyBR(s.c1Cents || 0)}</td>
+                            )}
+                            {(drawerFocus === "all" || drawerFocus === "c2") && (
+                              <td className="px-4 py-3">{fmtMoneyBR(s.c2Cents || 0)}</td>
+                            )}
+                            {(drawerFocus === "all" || drawerFocus === "c3") && (
+                              <td className="px-4 py-3">{fmtMoneyBR(s.c3Cents || 0)}</td>
+                            )}
+                            {(drawerFocus === "all" || drawerFocus === "fee") && (
+                              <td className="px-4 py-3">
+                                <div>{fmtMoneyBR(s.feeCents || 0)}</div>
+                                {s.feeCents ? (
+                                  <div className="text-xs text-neutral-500">{feeSourceLabel(s)}</div>
+                                ) : null}
+                              </td>
+                            )}
+                            {drawerFocus !== "all" && drawerFocus !== "fee" && (
+                              <td className="px-4 py-3 font-semibold">
+                                {fmtMoneyBR(focusAmountCents(s, drawerFocus))}
+                              </td>
+                            )}
                           </tr>
                         ))}
 
-                        {!detailsSales?.length ? (
+                        {!filteredDetailsSales?.length ? (
                           <tr>
-                            <td className="px-4 py-8 text-center text-sm text-neutral-500" colSpan={8}>
-                              Sem linhas para este dia (ou compute não conseguiu auditar).
+                            <td className="px-4 py-8 text-center text-sm text-neutral-500" colSpan={12}>
+                              Sem linhas para este filtro neste dia.
                             </td>
                           </tr>
                         ) : (
                           <tr className="border-t bg-neutral-50">
                             <td className="px-4 py-3 font-semibold" colSpan={7}>
-                              Totais (linhas)
+                              Totais ({COMMISSION_FOCUS_LABEL[drawerFocus]})
                             </td>
-                            <td className="px-4 py-3 font-semibold">{fmtMoneyBR(detailsSum.fee)}</td>
+                            {(drawerFocus === "all" || drawerFocus === "c1") && (
+                              <td className="px-4 py-3 font-semibold">{fmtMoneyBR(detailsSum.c1)}</td>
+                            )}
+                            {(drawerFocus === "all" || drawerFocus === "c2") && (
+                              <td className="px-4 py-3 font-semibold">{fmtMoneyBR(detailsSum.c2)}</td>
+                            )}
+                            {(drawerFocus === "all" || drawerFocus === "c3") && (
+                              <td className="px-4 py-3 font-semibold">{fmtMoneyBR(detailsSum.c3)}</td>
+                            )}
+                            {(drawerFocus === "all" || drawerFocus === "fee") && (
+                              <td className="px-4 py-3 font-semibold">{fmtMoneyBR(detailsSum.fee)}</td>
+                            )}
+                            {drawerFocus !== "all" && drawerFocus !== "fee" && (
+                              <td className="px-4 py-3 font-semibold">
+                                {drawerFocus === "c1"
+                                  ? fmtMoneyBR(detailsSum.c1)
+                                  : drawerFocus === "c2"
+                                    ? fmtMoneyBR(detailsSum.c2)
+                                    : fmtMoneyBR(detailsSum.c3)}
+                              </td>
+                            )}
                           </tr>
                         )}
                       </tbody>
@@ -1326,12 +1478,24 @@ export default function ComissoesFuncionariosClient() {
 
                                 <td className="px-4 py-3 text-right tabular-nums">{b?.salesCount ?? 0}</td>
 
-                                <td className="px-4 py-3 tabular-nums">{fmtMoneyBR(c1)}</td>
-                                <td className="px-4 py-3 tabular-nums">{fmtMoneyBR(c2)}</td>
-                                <td className="px-4 py-3 tabular-nums">{fmtMoneyBR(c3)}</td>
+                                <ClickableMoneyCell
+                                  cents={c1}
+                                  onClick={() => goToDayTab(r.date, "c1")}
+                                />
+                                <ClickableMoneyCell
+                                  cents={c2}
+                                  onClick={() => goToDayTab(r.date, "c2")}
+                                />
+                                <ClickableMoneyCell
+                                  cents={c3}
+                                  onClick={() => goToDayTab(r.date, "c3")}
+                                />
 
                                 <td className="px-4 py-3">{fmtMoneyBR(r.tax7Cents || 0)}</td>
-                                <td className="px-4 py-3">{fmtMoneyBR(r.feeCents || 0)}</td>
+                                <ClickableMoneyCell
+                                  cents={r.feeCents || 0}
+                                  onClick={() => goToDayTab(r.date, "fee")}
+                                />
                                 <td className="px-4 py-3">{fmtMoneyBR(r.balcaoCommissionCents || 0)}</td>
 
                                 <td className={`px-4 py-3 font-semibold ${lucroCellCls}`}>
@@ -1357,28 +1521,19 @@ export default function ComissoesFuncionariosClient() {
                                 </td>
 
                                 <td className="px-4 py-3 text-right">
-                                  <div className="flex justify-end gap-2">
-                                    <button
-                                      onClick={() => goToDayTab(r.date)}
-                                      className="h-9 rounded-xl border px-3 text-xs hover:bg-neutral-50"
-                                      title="Abrir detalhes deste dia (linhas)"
-                                    >
-                                      Detalhes
-                                    </button>
-
-                                    <button
-                                      onClick={() => drawerUser && payRow(r.date, drawerUser.id)}
-                                      disabled={!drawerUser || !canPayThisDay || paying}
-                                      className="h-9 rounded-xl bg-black px-3 text-xs text-white hover:bg-neutral-800 disabled:opacity-50"
-                                      title={
-                                        canPayThisDay
-                                          ? "Marcar este dia como pago"
-                                          : "Só paga dias anteriores a hoje / ou já pago"
-                                      }
-                                    >
-                                      {paying ? "Pagando..." : "Pagar"}
-                                    </button>
-                                  </div>
+                                  <button
+                                    type="button"
+                                    onClick={() => drawerUser && payRow(r.date, drawerUser.id)}
+                                    disabled={!drawerUser || !canPayThisDay || paying}
+                                    className="h-9 rounded-xl bg-black px-3 text-xs text-white hover:bg-neutral-800 disabled:opacity-50"
+                                    title={
+                                      canPayThisDay
+                                        ? "Marcar este dia como pago"
+                                        : "Só paga dias anteriores a hoje / ou já pago"
+                                    }
+                                  >
+                                    {paying ? "Pagando..." : "Pagar"}
+                                  </button>
                                 </td>
                               </tr>
                             );
