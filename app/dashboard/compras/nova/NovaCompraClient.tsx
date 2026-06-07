@@ -1149,7 +1149,7 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
         stale =
           !active ||
           meta.sourcePurchaseId !== active.purchaseId ||
-          (cia && it.programTo !== cia);
+          (!!cia && it.programTo !== cia);
       } else {
         stale = true;
       }
