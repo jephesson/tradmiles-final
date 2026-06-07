@@ -63,7 +63,8 @@ async function recalcPurchaseTotals(tx: any, purchaseId: string) {
   const vendorCommissionBps = safeInt(p.vendorCommissionBps, 0);
   const metaMarkupCents = safeInt(p.metaMarkupCents, 0);
 
-  const subtotalCents = itemsCost + cedentePayCents;
+  const remainingCostCents = safeInt(p.remainingCostCents, 0);
+  const subtotalCents = itemsCost + cedentePayCents + remainingCostCents;
   const comissaoCents = Math.round((subtotalCents * vendorCommissionBps) / 10000);
   const totalCents = subtotalCents + comissaoCents;
 

@@ -78,6 +78,7 @@ type PurchaseDraft = {
   ciaPointsTotal: number;
 
   cedentePayCents: number;
+  remainingCostCents: number;
   vendorCommissionBps: number;
   targetMarkupCents: number;
 
@@ -235,7 +236,8 @@ function computeTotals(d: PurchaseDraft) {
     0
   );
 
-  const subtotal = itemsCost + (d.cedentePayCents || 0);
+  const subtotal =
+    itemsCost + (d.cedentePayCents || 0) + (d.remainingCostCents || 0);
 
   const vendor = roundCents(
     (subtotal * (d.vendorCommissionBps || 0)) / 10000
@@ -267,6 +269,7 @@ function computeProgramDeltas(items: PurchaseItem[]) {
 
   const arr = Array.isArray(items) ? items : [];
   for (const it of arr) {
+    if (isAutoRemainingItem(it)) continue;
     if (it.programTo) out[it.programTo] += clampInt(it.pointsFinal);
     if (it.programFrom)
       out[it.programFrom] -= clampInt(it.pointsDebitedFromOrigin);
@@ -383,7 +386,6 @@ function StepSection({
   );
 }
 
-/** ✅ NORMALIZAÇÃO CENTRAL (mata o reduce undefined) */
 function normalizeItem(it: any): PurchaseItem {
   return {
     id: it?.id ?? undefined,
@@ -409,8 +411,25 @@ function normalizeItem(it: any): PurchaseItem {
   };
 }
 
+function stripAutoRemainingItems(items: PurchaseItem[]) {
+  let migratedCostCents = 0;
+  const kept = items.filter((it) => {
+    if (!isAutoRemainingItem(it)) return true;
+    migratedCostCents += clampInt(it.amountCents);
+    return false;
+  });
+  return { items: kept, migratedCostCents };
+}
+
 function normalizeDraft(raw: any, cedenteSel?: Cedente | null): PurchaseDraft {
-  const items = Array.isArray(raw?.items) ? raw.items.map(normalizeItem) : [];
+  const rawItems = Array.isArray(raw?.items) ? raw.items.map(normalizeItem) : [];
+  const stripped = stripAutoRemainingItems(rawItems);
+  const items = stripped.items;
+
+  let remainingCostCents = clampInt(raw?.remainingCostCents ?? 0);
+  if (remainingCostCents <= 0 && stripped.migratedCostCents > 0) {
+    remainingCostCents = stripped.migratedCostCents;
+  }
 
   const d: PurchaseDraft = {
     id: String(raw?.id || ""),
@@ -423,6 +442,7 @@ function normalizeDraft(raw: any, cedenteSel?: Cedente | null): PurchaseDraft {
     ciaPointsTotal: clampInt(raw?.ciaPointsTotal ?? raw?.pontosCiaTotal ?? 0),
 
     cedentePayCents: clampInt(raw?.cedentePayCents ?? 0),
+    remainingCostCents,
     vendorCommissionBps: clampInt(raw?.vendorCommissionBps ?? 100),
     targetMarkupCents: clampInt(
       raw?.targetMarkupCents ?? raw?.metaMarkupCents ?? 0
@@ -501,61 +521,6 @@ function isAutoRemainingItem(
     }
   }
   return /^Remanescente /i.test(it.title || "");
-}
-
-function buildRemainingItem(
-  active: ActivePurchaseSnapshot,
-  cia: LoyaltyProgram,
-  points: number,
-  costCents: number
-): PurchaseItem {
-  const pts = clampInt(points);
-  return {
-    type: "ADJUSTMENT",
-    title: `Remanescente ${active.numero}`,
-    details: JSON.stringify({
-      autoRemaining: true,
-      sourceKind: "active_purchase",
-      sourcePurchaseId: active.purchaseId,
-      sourceNumero: active.numero,
-    }),
-    programFrom: null,
-    programTo: cia,
-    pointsBase: pts,
-    bonusMode: "",
-    bonusValue: 0,
-    pointsFinal: pts,
-    transferMode: null,
-    pointsDebitedFromOrigin: 0,
-    amountCents: costCents,
-  };
-}
-
-function buildCedenteBalanceRemainingItem(
-  cia: LoyaltyProgram,
-  points: number,
-  costCents: number
-): PurchaseItem {
-  const pts = clampInt(points);
-  const label = cia === "LATAM" ? "LATAM" : "Smiles";
-  return {
-    type: "ADJUSTMENT",
-    title: `Remanescente saldo ${label}`,
-    details: JSON.stringify({
-      autoRemaining: true,
-      sourceKind: "cedente_balance",
-      cedenteBalanceProgram: cia,
-    }),
-    programFrom: null,
-    programTo: cia,
-    pointsBase: pts,
-    bonusMode: "",
-    bonusValue: 0,
-    pointsFinal: pts,
-    transferMode: null,
-    pointsDebitedFromOrigin: 0,
-    amountCents: costCents,
-  };
 }
 
 function balanceRemainingDismissKey(cia: LoyaltyProgram) {
@@ -664,6 +629,11 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
         const totals = computeTotals(p);
 
         setDraft({ ...p, ...totals });
+
+        if (p.remainingCostCents > 0) {
+          setSuggestedRemainingCostCents(p.remainingCostCents);
+          remainingCostTouchedRef.current = true;
+        }
       } catch (e: any) {
         setError(e?.message || "Falha ao carregar compra.");
       } finally {
@@ -815,6 +785,7 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
           ciaPointsTotal: payload.ciaPointsTotal,
 
           cedentePayCents: payload.cedentePayCents,
+          remainingCostCents: payload.remainingCostCents,
           vendorCommissionBps: payload.vendorCommissionBps,
           targetMarkupCents: payload.targetMarkupCents,
 
@@ -893,7 +864,7 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
   const otherItems = useMemo(() => {
     if (!draft) return [];
     const arr = Array.isArray(draft.items) ? draft.items : [];
-    return arr.filter((i) => i.type !== "CLUB");
+    return arr.filter((i) => i.type !== "CLUB" && !isAutoRemainingItem(i));
   }, [draft]);
 
   function makeKey(it: PurchaseItem, idx: number) {
@@ -1118,60 +1089,46 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
     isReleased,
   ]);
 
-  // Remove item automático de remanescente se CIA mudou ou contexto ficou inválido
+  // Sincroniza custo do remanescente no subtotal (sem item duplicado na etapa 4)
   useEffect(() => {
-    if (!draft || isReleased || activeContextLoading) return;
+    if (!draft || isReleased || !cedenteSel) return;
 
     const cia = draft.ciaProgram;
+    if (cia !== "LATAM" && cia !== "SMILES") return;
+
     const active = activeContext?.activePurchase;
-    const balancePts =
-      cedenteSel && (cia === "LATAM" || cia === "SMILES")
-        ? cedenteBalanceForProgram(cedenteSel, cia)
-        : 0;
+    const pts = cedenteBalanceForProgram(cedenteSel, cia);
 
-    const items = [...(draft.items ?? [])];
-    let changed = false;
+    let dismissed = false;
+    if (active) dismissed = remainingDismissedIds.has(active.purchaseId);
+    else dismissed = remainingDismissedIds.has(balanceRemainingDismissKey(cia));
 
-    for (let i = items.length - 1; i >= 0; i--) {
-      const it = items[i];
-      if (!isAutoRemainingItem(it)) continue;
+    const targetCost = pts <= 0 || dismissed ? 0 : clampInt(suggestedRemainingCostCents);
 
-      const meta = remainingItemMeta(it);
-      let stale = false;
+    const stripped = stripAutoRemainingItems(draft.items ?? []);
+    const itemsChanged = stripped.items.length !== (draft.items ?? []).length;
+    const costChanged = clampInt(draft.remainingCostCents) !== targetCost;
 
-      if (meta?.sourceKind === "cedente_balance") {
-        stale =
-          !!active ||
-          !cia ||
-          meta.cedenteBalanceProgram !== cia ||
-          balancePts <= 0;
-      } else if (meta?.sourcePurchaseId) {
-        stale =
-          !active ||
-          meta.sourcePurchaseId !== active.purchaseId ||
-          (!!cia && it.programTo !== cia);
-      } else {
-        stale = true;
-      }
+    if (!itemsChanged && !costChanged) return;
 
-      if (stale) {
-        items.splice(i, 1);
-        changed = true;
-      }
-    }
+    const patch: Partial<PurchaseDraft> = { remainingCostCents: targetCost };
+    if (itemsChanged) patch.items = stripped.items;
 
-    if (changed) {
-      lastAutoRemainingKey.current = "";
-      updateDraft({ items });
-    }
+    lastAutoRemainingKey.current = `${cia}:${targetCost}:${pts}`;
+    updateDraft(patch);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
-    draft?.ciaProgram,
-    activeContext?.activePurchase,
-    activeContextLoading,
-    isReleased,
+    activeContext,
     cedenteSel?.pontosLatam,
     cedenteSel?.pontosSmiles,
+    draft?.ciaProgram,
+    draft?.id,
+    draft?.items,
+    draft?.remainingCostCents,
+    isReleased,
+    remainingDismissedIds,
+    suggestedRemainingCostCents,
+    suggestedMilheiroCents,
   ]);
 
   useEffect(() => {
@@ -1279,83 +1236,9 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
     }
   }
 
-  // Custo do remanescente nos itens (ID ativo ou saldo atual do cedente)
-  useEffect(() => {
-    if (!draft || isReleased || !cedenteSel) return;
-
-    const cia = draft.ciaProgram;
-    if (cia !== "LATAM" && cia !== "SMILES") return;
-
-    const active = activeContext?.activePurchase;
-    const pts = cedenteBalanceForProgram(cedenteSel, cia);
-    if (pts <= 0) return;
-
-    if (active) {
-      if (remainingDismissedIds.has(active.purchaseId)) return;
-    } else if (remainingDismissedIds.has(balanceRemainingDismissKey(cia))) {
-      return;
-    }
-
-    const cost = clampInt(suggestedRemainingCostCents);
-    const syncKey = active
-      ? `active:${active.purchaseId}:${cost}:${pts}:${cia}`
-      : `balance:${cia}:${cost}:${pts}`;
-
-    const items = [...(draft.items ?? [])];
-    const idx = active
-      ? items.findIndex((it) => isAutoRemainingItem(it, { purchaseId: active.purchaseId }))
-      : items.findIndex((it) => isAutoRemainingItem(it, { cia }));
-
-    const built = active
-      ? buildRemainingItem(active, cia, pts, cost)
-      : buildCedenteBalanceRemainingItem(cia, pts, cost);
-
-    if (idx >= 0) {
-      const cur = items[idx];
-      if (cur.amountCents === cost && cur.pointsFinal === pts && cur.programTo === cia) {
-        lastAutoRemainingKey.current = syncKey;
-        return;
-      }
-      items[idx] = { ...built, id: cur.id };
-    } else {
-      if (lastAutoRemainingKey.current === syncKey) return;
-      items.push(built);
-    }
-
-    lastAutoRemainingKey.current = syncKey;
-    const next = normalizeDraft({ ...draft, items }, cedenteSel);
-    const t = computeTotals(next);
-    const merged = { ...next, ...t };
-    setDraft(merged);
-    scheduleAutosave(merged);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
-    activeContext,
-    cedenteSel?.pontosLatam,
-    cedenteSel?.pontosSmiles,
-    draft?.ciaProgram,
-    draft?.id,
-    isReleased,
-    remainingDismissedIds,
-    suggestedRemainingCostCents,
-    suggestedMilheiroCents,
-  ]);
-
   function removeItemByIndex(realIdx: number) {
     if (!draft) return;
     const items = [...(draft.items ?? [])];
-    const removed = items[realIdx];
-    if (removed && isAutoRemainingItem(removed)) {
-      const meta = remainingItemMeta(removed);
-      if (meta?.sourcePurchaseId) {
-        setRemainingDismissedIds((prev) => new Set(prev).add(meta.sourcePurchaseId!));
-      } else if (meta?.sourceKind === "cedente_balance" && meta.cedenteBalanceProgram) {
-        setRemainingDismissedIds((prev) =>
-          new Set(prev).add(balanceRemainingDismissKey(meta.cedenteBalanceProgram!))
-        );
-      }
-      lastAutoRemainingKey.current = "";
-    }
     items.splice(realIdx, 1);
     updateDraft({ items });
   }
@@ -2030,7 +1913,7 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
           {otherItems.length > 0 && (
             <div className="space-y-4">
               {(draft.items ?? []).map((it, realIdx) => {
-                if (it.type === "CLUB") return null;
+                if (it.type === "CLUB" || isAutoRemainingItem(it)) return null;
 
                 const key = makeKey(it, realIdx);
                 const allowManual = !!itemsAllowManualFinal[key];
@@ -2289,7 +2172,7 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
                         {remanescentePreview.cost > 0 ||
                         remanescentePreview.profitGap > 0 ||
                         (remanescentePreview.mode === "balance" && remanescentePreview.mil > 0)
-                          ? "Incluído nos itens (etapa 4) — resumo atualiza abaixo"
+                          ? "Incluído no subtotal — resumo atualiza abaixo"
                           : "Sem custo sugerido — informe manualmente se necessário"}
                       </p>
                     </div>

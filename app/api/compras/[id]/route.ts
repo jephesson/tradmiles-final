@@ -21,6 +21,7 @@ function mapDbToUi(compra: any) {
     ciaPointsTotal: Number(compra.pontosCiaTotal || 0),
 
     cedentePayCents: Number(compra.cedentePayCents || 0),
+    remainingCostCents: Number(compra.remainingCostCents || 0),
     vendorCommissionBps: Number(compra.vendorCommissionBps || 0),
     targetMarkupCents: Number(compra.metaMarkupCents || 0),
 
@@ -171,6 +172,11 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
 
         cedentePayCents:
           body.cedentePayCents === undefined ? undefined : Number(body.cedentePayCents || 0),
+
+        remainingCostCents:
+          body.remainingCostCents === undefined
+            ? undefined
+            : Number(body.remainingCostCents || 0),
 
         vendorCommissionBps:
           body.vendorCommissionBps === undefined

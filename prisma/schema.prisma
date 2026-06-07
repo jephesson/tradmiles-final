@@ -962,6 +962,7 @@ model Purchase {
   pontosCiaTotal Int             @default(0)
 
   cedentePayCents     Int @default(0)
+  remainingCostCents  Int @default(0)
   vendorCommissionBps Int @default(100)
 
   subtotalCents Int @default(0)

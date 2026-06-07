@@ -37,7 +37,10 @@ export async function recomputeCompra(purchaseId: string) {
   );
 
   // ✅ igual ao frontend: subtotal = itens + taxa do cedente
-  const subtotalCents = itemsCostCents + asInt((compra as any).cedentePayCents, 0);
+  const subtotalCents =
+    itemsCostCents +
+    asInt((compra as any).cedentePayCents, 0) +
+    asInt((compra as any).remainingCostCents, 0);
 
   // ✅ igual ao frontend: comissão em cima do subtotal
   const comissaoCents = roundInt(
