@@ -3,7 +3,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/auth-server";
 import {
-  chooseMetaMilheiro,
   dayBounds,
   milheiroNoFeeFromPv,
 } from "@/lib/payouts/employeePayouts";
@@ -15,6 +14,7 @@ import {
 } from "@/lib/payouts/employeeCommissionRates";
 import { resolveC3RateioBreakdown } from "@/lib/payouts/purchaseRateio";
 import {
+  bonusMetaMilheiroFromPurchase,
   purchaseNumeroVariants,
   pvSemTaxaFromSaleFields,
 } from "@/lib/payouts/purchaseFinalizeMetrics";
@@ -408,11 +408,7 @@ export async function GET(req: NextRequest) {
       milheiroCents: safeInt(s.milheiroCents, 0),
     });
     const milheiroNoFee = milheiroNoFeeFromPv(points, pvSemTaxa);
-    const meta = chooseMetaMilheiro(
-      safeInt(s.metaMilheiroCents, 0) > 0
-        ? safeInt(s.metaMilheiroCents, 0)
-        : safeInt(s.purchaseMetaMilheiroCents, 0)
-    );
+    const meta = bonusMetaMilheiroFromPurchase(s.purchaseMetaMilheiroCents);
 
     const c1 = isSeller
       ? safeInt(s.commissionCents, 0) > 0
@@ -420,12 +416,10 @@ export async function GET(req: NextRequest) {
         : commission1FromPvCents(pvSemTaxa, c1Bps)
       : 0;
     const c2 = isSeller
-      ? safeInt(s.bonusCents ?? 0, 0) > 0
-        ? safeInt(s.bonusCents ?? 0, 0)
-        : bonusAboveMetaFromSale(
-            { points, milheiroNoFeeCents: milheiroNoFee, metaMilheiroCents: meta },
-            bonusAboveMetaBps
-          )
+      ? bonusAboveMetaFromSale(
+          { points, milheiroNoFeeCents: milheiroNoFee, metaMilheiroCents: meta },
+          bonusAboveMetaBps
+        )
       : 0;
 
     return {

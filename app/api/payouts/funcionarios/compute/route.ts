@@ -1,16 +1,15 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/auth-server";
-import { dayBounds, todayISORecife } from "@/lib/payouts/employeePayouts";
+import { dayBounds, milheiroNoFeeFromPv, todayISORecife } from "@/lib/payouts/employeePayouts";
 import {
   bonusAboveMetaFromSale,
   commission1FromPvCents,
   resolveEmployeeBonusAboveMetaBps,
   resolveEmployeeC1Bps,
 } from "@/lib/payouts/employeeCommissionRates";
-import { milheiroNoFeeFromPv } from "@/lib/payouts/employeePayouts";
 import {
-  chooseMetaMilheiro,
+  bonusMetaMilheiroFromPurchase,
   pvSemTaxaFromSaleFields,
 } from "@/lib/payouts/purchaseFinalizeMetrics";
 import {
@@ -517,23 +516,18 @@ export async function POST(req: Request) {
           milheiroCents: s.milheiroCents,
         });
 
-        const meta = chooseMetaMilheiro(
-          safeInt(s.metaMilheiroCents, 0) > 0 ? s.metaMilheiroCents : s.purchaseMetaMilheiroCents
-        );
+        const meta = bonusMetaMilheiroFromPurchase(s.purchaseMetaMilheiroCents);
 
         const c1 = safeInt(s.commissionCents, 0) > 0 ? safeInt(s.commissionCents, 0) : commission1FromPvCents(pvSemTaxa, c1Bps);
         const milheiroNoFee = milheiroNoFeeFromPv(s.points, pvSemTaxa);
-        const c2 =
-          safeInt(s.bonusCents ?? 0, 0) > 0
-            ? safeInt(s.bonusCents ?? 0, 0)
-            : bonusAboveMetaFromSale(
-                {
-                  points: s.points,
-                  milheiroNoFeeCents: milheiroNoFee,
-                  metaMilheiroCents: meta,
-                },
-                bonusAboveMetaBps
-              );
+        const c2 = bonusAboveMetaFromSale(
+          {
+            points: s.points,
+            milheiroNoFeeCents: milheiroNoFee,
+            metaMilheiroCents: meta,
+          },
+          bonusAboveMetaBps
+        );
 
         const aSeller = ensure(sellerId);
         aSeller.commission1Cents += safeInt(c1, 0);

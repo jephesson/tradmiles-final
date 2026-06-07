@@ -8,6 +8,7 @@ import {
   resolveEmployeeBonusAboveMetaBps,
   resolveEmployeeC1Bps,
 } from "@/lib/payouts/employeeCommissionRates";
+import { bonusMetaMilheiroFromPurchase } from "@/lib/payouts/purchaseFinalizeMetrics";
 
 type SessionLike = { userId: string; team: string; role?: string };
 
@@ -281,15 +282,12 @@ export async function computeEmployeePayoutDay(session: SessionLike, date: strin
     // ✅ C1: % do PV sem taxa (configurável)
     const c1 = chooseC1(s.points, s.commissionCents, pvNoFee, { c1Bps });
 
-    // ✅ meta do bônus (sale > purchase)
-    const meta = chooseMetaMilheiro(
-      (s.metaMilheiroCents ?? 0) > 0 ? s.metaMilheiroCents : s.purchase?.metaMilheiroCents
-    );
+    const meta = bonusMetaMilheiroFromPurchase(s.purchase?.metaMilheiroCents);
 
-    // ✅ C2: bônus calculado sobre milheiro sem taxa (configurável)
-    const c2 = chooseC2(s.points, s.bonusCents, milheiroNoFee, meta, {
-      bonusAboveMetaBps: bonusAboveMetaBps,
-    });
+    const c2 = bonusAboveMetaFromSale(
+      { points: s.points, milheiroNoFeeCents: milheiroNoFee, metaMilheiroCents: meta },
+      bonusAboveMetaBps
+    );
 
     // ✅ comissão + reembolso taxa -> seller
     if (sellerId) {

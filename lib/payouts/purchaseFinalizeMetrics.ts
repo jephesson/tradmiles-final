@@ -51,6 +51,11 @@ export function chooseMetaMilheiro(metaSaleOrPurchase: number | null | undefined
   return v > 0 ? v : 0;
 }
 
+/** C2/bônus usa meta da compra — nunca metaMilheiroCents gravada na venda (igual Compras a finalizar). */
+export function bonusMetaMilheiroFromPurchase(purchaseMetaMilheiroCents: number | null | undefined) {
+  return chooseMetaMilheiro(purchaseMetaMilheiroCents);
+}
+
 export function aggregatePurchaseFinalizeMetrics(
   sales: PurchaseSaleRow[],
   purchaseTotalCents: number,
