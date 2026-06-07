@@ -1,6 +1,15 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import {
+  BarChart3,
+  ChevronLeft,
+  Info,
+  RefreshCw,
+  TrendingUp,
+  Users,
+} from "lucide-react";
+import { cn } from "@/lib/cn";
 
 type SummaryRow = {
   user: { id: string; name: string; login: string; role: string };
@@ -21,13 +30,13 @@ type SummaryRow = {
   balcaoGrossCents: number;
   balcaoCommissionCents: number;
 
-  netNoFeeCents: number; // líquido sem taxa (milhas + comissão balcão 60%)
-  netWithFeeCents: number; // gross - tax + fee
+  netNoFeeCents: number;
+  netWithFeeCents: number;
 };
 
 type SummaryResp = {
   ok: true;
-  month: string; // YYYY-MM
+  month: string;
   startDate: string;
   endDate: string;
   rows: SummaryRow[];
@@ -45,7 +54,7 @@ type SummaryResp = {
     balcaoOps: number;
     balcaoGross: number;
     balcaoCommission: number;
-    netNoFee: number; // ✅ líquido total sem taxa
+    netNoFee: number;
     netWithFee: number;
   };
 };
@@ -67,6 +76,12 @@ type HistoryResp = {
 };
 
 const CHART_COLORS = ["#0ea5e9", "#22c55e", "#f59e0b", "#ef4444", "#8b5cf6", "#14b8a6"];
+
+const FIELD_LABEL = "text-[11px] font-semibold uppercase tracking-wide text-slate-500";
+const CONTROL_INPUT =
+  "h-10 rounded-xl border border-slate-200 bg-white px-3 text-sm font-medium text-slate-900 shadow-sm outline-none transition focus:border-slate-300 focus:ring-2 focus:ring-slate-900/10";
+
+const lucroCellCls = "bg-emerald-50/90 text-emerald-950 ring-1 ring-inset ring-emerald-200/90";
 
 function fmtMoneyBR(cents: number) {
   return ((cents || 0) / 100).toLocaleString("pt-BR", {
@@ -99,6 +114,15 @@ function monthLabelBR(month: string) {
   })
     .format(date)
     .replace(".", "");
+}
+
+function monthTitleBR(month: string) {
+  const date = new Date(`${month}-01T12:00:00Z`);
+  return new Intl.DateTimeFormat("pt-BR", {
+    month: "long",
+    year: "numeric",
+    timeZone: "UTC",
+  }).format(date);
 }
 
 function monthISORecifeClient() {
@@ -139,11 +163,33 @@ async function apiGet<T>(url: string): Promise<T> {
   return json as T;
 }
 
-function KPI({ label, value }: { label: string; value: string }) {
+function KPI({
+  label,
+  value,
+  emphasis = "default",
+}: {
+  label: string;
+  value: string;
+  emphasis?: "default" | "net" | "profit" | "warn";
+}) {
+  const bar =
+    emphasis === "net"
+      ? "bg-emerald-500"
+      : emphasis === "profit"
+        ? "bg-sky-500"
+        : emphasis === "warn"
+          ? "bg-amber-500"
+          : "bg-slate-300";
+
   return (
-    <div className="rounded-2xl border bg-white p-3">
-      <div className="text-xs text-neutral-500">{label}</div>
-      <div className="text-sm font-semibold">{value}</div>
+    <div className="relative overflow-hidden rounded-2xl border border-slate-200/80 bg-gradient-to-br from-white to-slate-50/70 p-3.5 shadow-sm shadow-slate-200/35">
+      <div className={cn("absolute left-0 top-0 h-full w-1 rounded-r", bar)} aria-hidden />
+      <div className="pl-2.5">
+        <div className="text-[10px] font-semibold uppercase leading-snug tracking-wide text-slate-500">
+          {label}
+        </div>
+        <div className="mt-1.5 text-sm font-bold tabular-nums tracking-tight text-slate-900">{value}</div>
+      </div>
     </div>
   );
 }
@@ -157,20 +203,26 @@ function LucroHistoryChart({
 }) {
   if (!months.length || !series.length) {
     return (
-      <div className="rounded-2xl border bg-white p-4">
-        <div className="text-sm font-semibold">Histórico mensal por funcionário</div>
-        <div className="mt-1 text-xs text-neutral-500">Líquido sem taxa por mês, usando a mesma base da tabela.</div>
-        <div className="mt-4 text-sm text-neutral-500">Ainda não há histórico suficiente para montar o gráfico.</div>
+      <div className="flex flex-col items-center justify-center gap-3 rounded-2xl border border-slate-200/80 bg-white px-6 py-14 text-center shadow-sm shadow-slate-200/40">
+        <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-100 text-slate-400 ring-1 ring-slate-200/80">
+          <BarChart3 className="h-6 w-6" strokeWidth={1.75} aria-hidden />
+        </div>
+        <div>
+          <p className="text-sm font-semibold text-slate-700">Sem histórico ainda</p>
+          <p className="mt-1 max-w-sm text-xs leading-relaxed text-slate-500">
+            O gráfico aparece quando houver meses computados com dados de líquido por funcionário.
+          </p>
+        </div>
       </div>
     );
   }
 
   const width = 980;
-  const height = 270;
-  const leftPad = 48;
+  const height = 280;
+  const leftPad = 52;
   const rightPad = 18;
-  const topPad = 18;
-  const bottomPad = 34;
+  const topPad = 20;
+  const bottomPad = 36;
   const plotW = width - leftPad - rightPad;
   const plotH = height - topPad - bottomPad;
 
@@ -185,100 +237,124 @@ function LucroHistoryChart({
 
   const tickValues = Array.from({ length: 4 }, (_, idx) => maxY - ((maxY - minY) * idx) / 3);
   const xLabelStep = months.length > 18 ? 3 : months.length > 12 ? 2 : 1;
+  const zeroY = scaleY(0);
 
   return (
-    <div className="rounded-2xl border bg-white p-4">
-      <div className="text-sm font-semibold">Histórico mensal por funcionário</div>
-      <div className="mt-1 text-xs text-neutral-500">Líquido sem taxa por mês, usando a mesma base da tabela.</div>
-
-      <div className="mt-3 flex flex-wrap gap-2 text-[11px] text-neutral-600">
-        {series.map((row, idx) => (
-          <span key={row.user.id} className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5">
-            <span className="h-2 w-2 rounded-full" style={{ backgroundColor: CHART_COLORS[idx % CHART_COLORS.length] }} />
-            {firstName(row.user.name, row.user.login)}
-          </span>
-        ))}
+    <div className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm shadow-slate-200/40">
+      <div className="border-b border-slate-100 px-5 py-4">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <div className="text-sm font-semibold tracking-tight text-slate-900">
+              Histórico mensal por funcionário
+            </div>
+            <div className="mt-0.5 text-xs text-slate-500">
+              Líquido sem taxa de embarque — mesma base da tabela abaixo
+            </div>
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {series.map((row, idx) => (
+              <span
+                key={row.user.id}
+                className="inline-flex items-center gap-1.5 rounded-full border border-slate-200/90 bg-slate-50 px-2.5 py-1 text-[11px] font-medium text-slate-700"
+              >
+                <span
+                  className="h-2 w-2 rounded-full"
+                  style={{ backgroundColor: CHART_COLORS[idx % CHART_COLORS.length] }}
+                />
+                {firstName(row.user.name, row.user.login)}
+              </span>
+            ))}
+          </div>
+        </div>
       </div>
 
-      <svg viewBox={`0 0 ${width} ${height}`} className="mt-4 w-full">
-        {tickValues.map((tick, idx) => (
-          <line
-            key={`grid-${idx}`}
-            x1={leftPad}
-            x2={leftPad + plotW}
-            y1={scaleY(tick)}
-            y2={scaleY(tick)}
-            stroke="#e5e7eb"
-            strokeWidth="1"
-          />
-        ))}
+      <div className="bg-gradient-to-b from-slate-50/50 to-white px-2 pb-4 pt-2">
+        <svg viewBox={`0 0 ${width} ${height}`} className="w-full" role="img" aria-label="Gráfico de histórico mensal">
+          {tickValues.map((tick, idx) => (
+            <line
+              key={`grid-${idx}`}
+              x1={leftPad}
+              x2={leftPad + plotW}
+              y1={scaleY(tick)}
+              y2={scaleY(tick)}
+              stroke="#e2e8f0"
+              strokeWidth="1"
+            />
+          ))}
 
-        {tickValues.map((tick, idx) => (
-          <text
-            key={`label-y-${idx}`}
-            x={4}
-            y={scaleY(tick) + 4}
-            fontSize="10"
-            fill="#64748b"
-          >
-            {fmtMoneyCompactBR(Math.round(tick))}
-          </text>
-        ))}
+          {minY < 0 && (
+            <line
+              x1={leftPad}
+              x2={leftPad + plotW}
+              y1={zeroY}
+              y2={zeroY}
+              stroke="#94a3b8"
+              strokeWidth="1"
+              strokeDasharray="4 4"
+            />
+          )}
 
-        {series.map((row, idx) => {
-          const color = CHART_COLORS[idx % CHART_COLORS.length];
-          const points = row.points
-            .map((point, pointIdx) => `${leftPad + pointIdx * dx},${scaleY(point.netNoFeeCents)}`)
-            .join(" ");
-
-          return (
-            <g key={row.user.id}>
-              <polyline fill="none" stroke={color} strokeWidth="2.5" points={points} />
-              {row.points.map((point, pointIdx) => (
-                <circle
-                  key={`${row.user.id}-${point.month}`}
-                  cx={leftPad + pointIdx * dx}
-                  cy={scaleY(point.netNoFeeCents)}
-                  r="3"
-                  fill={color}
-                >
-                  <title>{`${firstName(row.user.name, row.user.login)} • ${monthLabelBR(point.month)} • ${fmtMoneyBR(point.netNoFeeCents)}`}</title>
-                </circle>
-              ))}
-            </g>
-          );
-        })}
-
-        {months.map((month, idx) => {
-          if (idx % xLabelStep !== 0 && idx !== months.length - 1) return null;
-          return (
-            <text
-              key={`label-x-${month}`}
-              x={leftPad + idx * dx}
-              y={topPad + plotH + 18}
-              textAnchor={idx === months.length - 1 ? "end" : idx === 0 ? "start" : "middle"}
-              fontSize="10"
-              fill="#64748b"
-            >
-              {monthLabelBR(month)}
+          {tickValues.map((tick, idx) => (
+            <text key={`label-y-${idx}`} x={6} y={scaleY(tick) + 4} fontSize="10" fill="#64748b">
+              {fmtMoneyCompactBR(Math.round(tick))}
             </text>
-          );
-        })}
-      </svg>
+          ))}
+
+          {series.map((row, idx) => {
+            const color = CHART_COLORS[idx % CHART_COLORS.length];
+            const points = row.points
+              .map((point, pointIdx) => `${leftPad + pointIdx * dx},${scaleY(point.netNoFeeCents)}`)
+              .join(" ");
+
+            return (
+              <g key={row.user.id}>
+                <polyline fill="none" stroke={color} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" points={points} />
+                {row.points.map((point, pointIdx) => (
+                  <circle
+                    key={`${row.user.id}-${point.month}`}
+                    cx={leftPad + pointIdx * dx}
+                    cy={scaleY(point.netNoFeeCents)}
+                    r="3.5"
+                    fill="white"
+                    stroke={color}
+                    strokeWidth="2"
+                  >
+                    <title>{`${firstName(row.user.name, row.user.login)} • ${monthLabelBR(point.month)} • ${fmtMoneyBR(point.netNoFeeCents)}`}</title>
+                  </circle>
+                ))}
+              </g>
+            );
+          })}
+
+          {months.map((month, idx) => {
+            if (idx % xLabelStep !== 0 && idx !== months.length - 1) return null;
+            return (
+              <text
+                key={`label-x-${month}`}
+                x={leftPad + idx * dx}
+                y={topPad + plotH + 20}
+                textAnchor={idx === months.length - 1 ? "end" : idx === 0 ? "start" : "middle"}
+                fontSize="10"
+                fill="#64748b"
+              >
+                {monthLabelBR(month)}
+              </text>
+            );
+          })}
+        </svg>
+      </div>
     </div>
   );
 }
 
-/** ✅ dias no mês do tipo "YYYY-MM" (UTC safe) */
 function daysInMonth(yyyyMm: string) {
   const [yStr, mStr] = String(yyyyMm || "").split("-");
   const y = Number(yStr);
   const m = Number(mStr);
   if (!y || !m) return 30;
-  return new Date(Date.UTC(y, m, 0)).getUTCDate(); // mês seguinte, dia 0 => último dia do mês atual
+  return new Date(Date.UTC(y, m, 0)).getUTCDate();
 }
 
-/** ✅ dia do mês "hoje" no timezone Recife */
 function recifeDayOfMonthToday() {
   const d = new Date();
   const parts = new Intl.DateTimeFormat("en-CA", {
@@ -337,41 +413,38 @@ export default function LucrosFuncionariosMesClient() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [month]);
 
-  // ✅ tabela principal: ordena pelo líquido sem taxa
   const rows = useMemo(() => {
     return (data?.rows || []).slice().sort((a, b) => b.netNoFeeCents - a.netNoFeeCents);
   }, [data]);
 
-  // ✅ fator de projeção do mês (dia atual / dias do mês)
   const projectionMeta = useMemo(() => {
     const daysMonth = daysInMonth(month);
     const isCurrentMonth = month === monthISORecifeClient();
-    const daysPassed = isCurrentMonth ? recifeDayOfMonthToday() : daysMonth; // mês passado => projeção = real
+    const daysPassed = isCurrentMonth ? recifeDayOfMonthToday() : daysMonth;
     const safePassed = Math.max(1, Math.min(daysMonth, daysPassed));
     const factor = daysMonth / safePassed;
-    return { daysMonth, daysPassed: safePassed, factor, isCurrentMonth };
+    const progressPct = Math.round((safePassed / daysMonth) * 100);
+    return { daysMonth, daysPassed: safePassed, factor, isCurrentMonth, progressPct };
   }, [month]);
 
-  // ✅ projeção por funcionário + total
   const projectionRows = useMemo(() => {
     const base = data?.rows || [];
     const factor = projectionMeta.factor;
 
-    const list = base.map((r) => {
-      const current = Number(r.netNoFeeCents || 0);
-      const projected = Math.round(current * factor);
-      return {
-        id: r.user.id,
-        name: firstName(r.user.name, r.user.login),
-        login: r.user.login,
-        currentCents: current,
-        projectedCents: projected,
-        deltaCents: projected - current,
-      };
-    });
-
-    // ordena pela projeção (opcional, fica mais “ranking”)
-    list.sort((a, b) => b.projectedCents - a.projectedCents);
+    const list = base
+      .map((r) => {
+        const current = Number(r.netNoFeeCents || 0);
+        const projected = Math.round(current * factor);
+        return {
+          id: r.user.id,
+          name: firstName(r.user.name, r.user.login),
+          login: r.user.login,
+          currentCents: current,
+          projectedCents: projected,
+          deltaCents: projected - current,
+        };
+      })
+      .sort((a, b) => b.projectedCents - a.projectedCents);
 
     const totalCurrent = Number(data?.totals.netNoFee || 0);
     const totalProjected = Math.round(totalCurrent * factor);
@@ -386,67 +459,100 @@ export default function LucrosFuncionariosMesClient() {
     };
   }, [data, projectionMeta.factor]);
 
+  const maxProjected = useMemo(() => {
+    const vals = projectionRows.list.map((r) => r.projectedCents);
+    return Math.max(1, ...vals, projectionRows.total.projectedCents);
+  }, [projectionRows]);
+
   return (
-    <div className="space-y-4">
-      <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
-        <div className="space-y-1">
-          <h2 className="text-lg font-semibold">Funcionários — análise do mês</h2>
-          <p className="text-sm text-neutral-500">
-            Baseado nos dias <b>computados</b> em Comissões → Funcionários + <b>comissão de Emissões no balcão (60%)</b>.
-            <b> Líquido aqui é SEM taxa de embarque</b>.
-          </p>
+    <div className="mx-auto max-w-[1600px] space-y-6 p-4 pb-10">
+      <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
+        <div className="min-w-0 space-y-3">
+          <div className="inline-flex items-center gap-2 rounded-full border border-slate-200/90 bg-white px-3 py-1 text-[11px] font-semibold uppercase tracking-wider text-slate-500 shadow-sm">
+            <TrendingUp className="h-3.5 w-3.5 text-slate-400" strokeWidth={2} aria-hidden />
+            Lucros & comissões
+          </div>
+          <div>
+            <h1 className="text-3xl font-bold tracking-tight text-slate-900">Funcionários — análise do mês</h1>
+            <p className="mt-1.5 max-w-2xl text-sm leading-relaxed text-slate-600">
+              {monthTitleBR(month)} · dias computados em Comissões + comissão balcão (60%).{" "}
+              <span className="font-medium text-slate-800">Líquido sem taxa de embarque.</span>
+            </p>
+          </div>
         </div>
 
-        <div className="flex flex-wrap items-end gap-2">
-          <div className="flex flex-col">
-            <label className="text-xs text-neutral-500">Mês</label>
+        <div className="flex flex-wrap items-end gap-2.5">
+          <div className="flex flex-col gap-1">
+            <label className={FIELD_LABEL}>Mês</label>
             <input
               type="month"
               value={month}
-              onChange={(e) => setMonth(e.target.value)}
-              className="h-10 rounded-xl border px-3 text-sm"
+              onChange={(e) => setMonth(e.target.value.slice(0, 7))}
+              className={cn(CONTROL_INPUT, "w-auto min-w-[11rem]")}
             />
           </div>
 
-          <button onClick={() => setMonth(prevMonth(month))} className="h-10 rounded-xl border px-4 text-sm hover:bg-neutral-50">
+          <button
+            type="button"
+            onClick={() => setMonth(prevMonth(month))}
+            className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-medium text-slate-800 shadow-sm transition hover:border-slate-300 hover:bg-slate-50"
+          >
+            <ChevronLeft className="h-4 w-4 text-slate-500" strokeWidth={2} aria-hidden />
             Mês anterior
           </button>
 
           <button
+            type="button"
             onClick={() => load(month)}
             disabled={loading}
-            className="h-10 rounded-xl border px-4 text-sm hover:bg-neutral-50 disabled:opacity-50"
+            className="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-slate-900 px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800 disabled:pointer-events-none disabled:opacity-50"
           >
-            {loading ? "Carregando..." : "Atualizar"}
+            <RefreshCw className={cn("h-4 w-4 shrink-0 opacity-90", loading && "animate-spin")} strokeWidth={2} aria-hidden />
+            {loading ? "Carregando…" : "Atualizar"}
           </button>
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-2 md:grid-cols-7">
-        <KPI label="Líquido total (sem taxa)" value={fmtMoneyBR(data?.totals.netNoFee || 0)} />
-        <KPI label="Comissão balcão (60%)" value={fmtMoneyBR(data?.totals.balcaoCommission || 0)} />
-        <KPI label="Imposto total (milhas + balcão)" value={fmtMoneyBR(data?.totals.tax || 0)} />
-        <KPI label="Taxas (reembolso)" value={fmtMoneyBR(data?.totals.fee || 0)} />
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-7">
+        <KPI label="Líquido total (sem taxa)" value={fmtMoneyBR(data?.totals.netNoFee || 0)} emphasis="net" />
+        <KPI label="Comissão balcão (60%)" value={fmtMoneyBR(data?.totals.balcaoCommission || 0)} emphasis="profit" />
+        <KPI label="Imposto (milhas + balcão)" value={fmtMoneyBR(data?.totals.tax || 0)} />
+        <KPI label="Taxas (reembolso)" value={fmtMoneyBR(data?.totals.fee || 0)} emphasis="warn" />
         <KPI label="Bruto (C1+C2+C3)" value={fmtMoneyBR(data?.totals.gross || 0)} />
         <KPI label="Vendas (mês)" value={String(data?.totals.salesCount || 0)} />
         <KPI label="Dias computados" value={String(data?.totals.days || 0)} />
       </div>
 
-      {err ? <div className="rounded-2xl border bg-rose-50 p-3 text-sm text-rose-800">{err}</div> : null}
+      {err ? (
+        <div className="rounded-2xl border border-rose-200/90 bg-rose-50/90 px-4 py-3 text-sm text-rose-900">
+          {err}
+        </div>
+      ) : null}
 
-      {historyErr ? <div className="rounded-2xl border bg-rose-50 p-3 text-sm text-rose-800">{historyErr}</div> : null}
+      {historyErr ? (
+        <div className="rounded-2xl border border-rose-200/90 bg-rose-50/90 px-4 py-3 text-sm text-rose-900">
+          {historyErr}
+        </div>
+      ) : null}
 
       {historyLoading && !history ? (
-        <div className="rounded-2xl border bg-white p-4 text-sm text-neutral-500">Carregando histórico mensal...</div>
+        <div className="flex items-center justify-center rounded-2xl border border-slate-200/80 bg-white py-16 text-sm text-slate-500 shadow-sm">
+          Carregando histórico…
+        </div>
       ) : (
         <LucroHistoryChart months={history?.months || []} series={history?.series || []} />
       )}
 
-      {/* ======= TABELA PRINCIPAL ======= */}
-      <div className="overflow-hidden rounded-2xl border bg-white">
+      <div className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm shadow-slate-200/40">
+        <div className="border-b border-slate-100 px-5 py-3.5">
+          <div className="text-sm font-semibold tracking-tight text-slate-900">Detalhamento por funcionário</div>
+          <div className="mt-0.5 text-xs text-slate-500">
+            {rows.length} funcionário{rows.length === 1 ? "" : "s"} · ordenado por líquido sem taxa
+          </div>
+        </div>
         <div className="overflow-x-auto">
           <table className="w-full text-left text-sm">
-            <thead className="bg-neutral-50 text-xs text-neutral-600">
+            <thead className="border-b border-slate-200 bg-slate-50/95 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
               <tr>
                 <th className="px-4 py-3">Funcionário</th>
                 <th className="px-4 py-3 text-right">Dias</th>
@@ -457,43 +563,48 @@ export default function LucrosFuncionariosMesClient() {
                 <th className="px-4 py-3">Imposto</th>
                 <th className="px-4 py-3">Taxa embarque</th>
                 <th className="px-4 py-3">Balcão (60%)</th>
-                <th className="px-4 py-3">Líquido total (sem taxa)</th>
+                <th className={`px-4 py-3 ${lucroCellCls}`}>Líquido (sem taxa)</th>
               </tr>
             </thead>
-
-            <tbody>
+            <tbody className="divide-y divide-slate-100">
               {rows.map((r) => {
                 const display = firstName(r.user.name, r.user.login);
                 return (
-                  <tr key={r.user.id} className="border-t">
+                  <tr key={r.user.id} className="transition hover:bg-slate-50/80">
                     <td className="px-4 py-3">
-                      <div className="font-medium">{display}</div>
-                      <div className="text-xs text-neutral-500">{r.user.login}</div>
+                      <div className="font-semibold text-slate-900">{display}</div>
+                      <div className="text-xs text-slate-500">{r.user.login}</div>
                     </td>
-
-                    <td className="px-4 py-3 text-right tabular-nums">{r.days}</td>
-                    <td className="px-4 py-3 text-right tabular-nums">{r.salesCount}</td>
-
-                    <td className="px-4 py-3">{fmtMoneyBR(r.commission1Cents)}</td>
-                    <td className="px-4 py-3">{fmtMoneyBR(r.commission2Cents)}</td>
-                    <td className="px-4 py-3">{fmtMoneyBR(r.commission3RateioCents)}</td>
-
-                    <td className="px-4 py-3">{fmtMoneyBR(r.taxCents)}</td>
-                    <td className="px-4 py-3">{fmtMoneyBR(r.feeCents)}</td>
+                    <td className="px-4 py-3 text-right tabular-nums text-slate-800">{r.days}</td>
+                    <td className="px-4 py-3 text-right tabular-nums text-slate-800">{r.salesCount}</td>
+                    <td className="px-4 py-3 tabular-nums">{fmtMoneyBR(r.commission1Cents)}</td>
+                    <td className="px-4 py-3 tabular-nums">{fmtMoneyBR(r.commission2Cents)}</td>
+                    <td className="px-4 py-3 tabular-nums">{fmtMoneyBR(r.commission3RateioCents)}</td>
+                    <td className="px-4 py-3 tabular-nums">{fmtMoneyBR(r.taxCents)}</td>
+                    <td className="px-4 py-3 tabular-nums">{fmtMoneyBR(r.feeCents)}</td>
                     <td className="px-4 py-3">
-                      <div className="font-medium">{fmtMoneyBR(r.balcaoCommissionCents)}</div>
-                      <div className="text-xs text-neutral-500">{r.balcaoOpsCount} ops</div>
+                      <div className="font-medium tabular-nums">{fmtMoneyBR(r.balcaoCommissionCents)}</div>
+                      <div className="text-xs text-slate-500">{r.balcaoOpsCount} ops</div>
                     </td>
-
-                    <td className="px-4 py-3 font-semibold">{fmtMoneyBR(r.netNoFeeCents)}</td>
+                    <td className={cn("px-4 py-3 font-bold tabular-nums", lucroCellCls)}>
+                      {fmtMoneyBR(r.netNoFeeCents)}
+                    </td>
                   </tr>
                 );
               })}
 
               {!rows.length ? (
                 <tr>
-                  <td className="px-4 py-6 text-sm text-neutral-500" colSpan={10}>
-                    Nenhum dado para este mês (ou dias ainda não foram computados).
+                  <td className="px-4 py-0" colSpan={10}>
+                    <div className="flex flex-col items-center justify-center gap-2 py-14 text-center">
+                      <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-100 text-slate-400 ring-1 ring-slate-200/80">
+                        <Users className="h-6 w-6" strokeWidth={1.75} aria-hidden />
+                      </div>
+                      <p className="text-sm font-semibold text-slate-700">Sem dados para este mês</p>
+                      <p className="max-w-md text-xs leading-relaxed text-slate-500">
+                        Rode Computar nos dias fechados em Comissões → Funcionários.
+                      </p>
+                    </div>
                   </td>
                 </tr>
               ) : null}
@@ -502,65 +613,96 @@ export default function LucrosFuncionariosMesClient() {
         </div>
       </div>
 
-      {/* ======= NOVA TABELA: PROJEÇÃO ======= */}
-      <div className="overflow-hidden rounded-2xl border bg-white">
-        <div className="border-b px-4 py-3">
-          <div className="text-sm font-semibold">Projeção do mês (líquido sem taxa)</div>
-          <div className="text-xs text-neutral-500">
-            Projeção = (líquido até hoje ÷ dia do mês) × dias do mês — base: dia{" "}
-            <b>{projectionMeta.daysPassed}</b> de <b>{projectionMeta.daysMonth}</b>
-            {projectionMeta.isCurrentMonth ? "" : " (mês fechado: projeção = real)"}.
+      <div className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm shadow-slate-200/40">
+        <div className="border-b border-slate-100 px-5 py-4">
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div>
+              <div className="text-sm font-semibold tracking-tight text-slate-900">
+                Projeção do mês (líquido sem taxa)
+              </div>
+              <div className="mt-0.5 text-xs text-slate-500">
+                Extrapolação linear: (líquido até hoje ÷ dia {projectionMeta.daysPassed}) × {projectionMeta.daysMonth}{" "}
+                dias
+                {projectionMeta.isCurrentMonth ? "" : " — mês fechado, projeção = real"}.
+              </div>
+            </div>
+            {projectionMeta.isCurrentMonth ? (
+              <div className="min-w-[140px]">
+                <div className="flex items-center justify-between text-[11px] font-medium text-slate-500">
+                  <span>Progresso do mês</span>
+                  <span>{projectionMeta.progressPct}%</span>
+                </div>
+                <div className="mt-1.5 h-2 overflow-hidden rounded-full bg-slate-100">
+                  <div
+                    className="h-full rounded-full bg-sky-500 transition-all"
+                    style={{ width: `${projectionMeta.progressPct}%` }}
+                  />
+                </div>
+              </div>
+            ) : null}
           </div>
         </div>
 
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-sm">
-            <thead className="bg-neutral-50 text-xs text-neutral-600">
-              <tr>
-                <th className="px-4 py-3">Funcionário</th>
-                <th className="px-4 py-3 text-right">Líquido atual</th>
-                <th className="px-4 py-3 text-right">Projeção mês</th>
-                <th className="px-4 py-3 text-right">Diferença</th>
-              </tr>
-            </thead>
+        <div className="divide-y divide-slate-100">
+          {projectionRows.list.map((r) => {
+            const barPct = Math.round((r.projectedCents / maxProjected) * 100);
+            return (
+              <div key={r.id} className="flex flex-wrap items-center gap-4 px-5 py-3.5 transition hover:bg-slate-50/70">
+                <div className="min-w-[120px] flex-1">
+                  <div className="font-semibold text-slate-900">{r.name}</div>
+                  <div className="text-xs text-slate-500">{r.login}</div>
+                </div>
+                <div className="hidden min-w-[100px] text-right sm:block">
+                  <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Atual</div>
+                  <div className="tabular-nums text-sm text-slate-700">{fmtMoneyBR(r.currentCents)}</div>
+                </div>
+                <div className="min-w-[140px] flex-1">
+                  <div className="mb-1 flex items-center justify-between gap-2">
+                    <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Projeção</span>
+                    <span className="text-sm font-bold tabular-nums text-slate-900">{fmtMoneyBR(r.projectedCents)}</span>
+                  </div>
+                  <div className="h-1.5 overflow-hidden rounded-full bg-slate-100">
+                    <div className="h-full rounded-full bg-emerald-500/80" style={{ width: `${barPct}%` }} />
+                  </div>
+                </div>
+                <div className="min-w-[90px] text-right">
+                  <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">+ até fim</div>
+                  <div className="text-sm font-medium tabular-nums text-emerald-700">{fmtMoneyBR(r.deltaCents)}</div>
+                </div>
+              </div>
+            );
+          })}
 
-            <tbody>
-              {projectionRows.list.map((r) => (
-                <tr key={r.id} className="border-t">
-                  <td className="px-4 py-3">
-                    <div className="font-medium">{r.name}</div>
-                    <div className="text-xs text-neutral-500">{r.login}</div>
-                  </td>
-
-                  <td className="px-4 py-3 text-right tabular-nums">{fmtMoneyBR(r.currentCents)}</td>
-                  <td className="px-4 py-3 text-right tabular-nums font-semibold">{fmtMoneyBR(r.projectedCents)}</td>
-                  <td className="px-4 py-3 text-right tabular-nums">{fmtMoneyBR(r.deltaCents)}</td>
-                </tr>
-              ))}
-
-              {/* TOTAL */}
-              <tr className="border-t bg-neutral-50/50">
-                <td className="px-4 py-3 font-semibold">TOTAL</td>
-                <td className="px-4 py-3 text-right tabular-nums font-semibold">{fmtMoneyBR(projectionRows.total.currentCents)}</td>
-                <td className="px-4 py-3 text-right tabular-nums font-semibold">{fmtMoneyBR(projectionRows.total.projectedCents)}</td>
-                <td className="px-4 py-3 text-right tabular-nums font-semibold">{fmtMoneyBR(projectionRows.total.deltaCents)}</td>
-              </tr>
-
-              {!projectionRows.list.length ? (
-                <tr>
-                  <td className="px-4 py-6 text-sm text-neutral-500" colSpan={4}>
-                    Sem dados para projetar.
-                  </td>
-                </tr>
-              ) : null}
-            </tbody>
-          </table>
+          {!projectionRows.list.length ? (
+            <div className="px-5 py-10 text-center text-sm text-slate-500">Sem dados para projetar.</div>
+          ) : (
+            <div className="flex flex-wrap items-center gap-4 bg-slate-50/80 px-5 py-4">
+              <div className="min-w-[120px] flex-1 font-bold text-slate-900">Total</div>
+              <div className="hidden min-w-[100px] text-right sm:block">
+                <div className="text-sm font-semibold tabular-nums">{fmtMoneyBR(projectionRows.total.currentCents)}</div>
+              </div>
+              <div className="min-w-[140px] flex-1 text-right sm:text-left">
+                <div className="text-base font-bold tabular-nums text-slate-900">
+                  {fmtMoneyBR(projectionRows.total.projectedCents)}
+                </div>
+              </div>
+              <div className="min-w-[90px] text-right">
+                <div className="text-sm font-semibold tabular-nums text-emerald-700">
+                  {fmtMoneyBR(projectionRows.total.deltaCents)}
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
-      <div className="rounded-2xl border bg-neutral-50 p-3 text-xs text-neutral-600">
-        Dica: se o mês estiver “baixo”, geralmente faltam dias computados. Vá em <b>Comissões → Funcionários</b> e rode
-        “Computar dia” nos dias fechados.
+      <div className="flex gap-3 rounded-2xl border border-slate-200/70 bg-slate-50/80 px-4 py-3 text-xs leading-relaxed text-slate-600">
+        <Info className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" strokeWidth={2} aria-hidden />
+        <p>
+          Se o mês parecer baixo, geralmente faltam dias computados. Vá em{" "}
+          <span className="font-medium text-slate-800">Comissões → Funcionários</span> e rode Computar nos dias
+          fechados.
+        </p>
       </div>
     </div>
   );
