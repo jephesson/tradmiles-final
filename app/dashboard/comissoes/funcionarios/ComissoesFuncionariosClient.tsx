@@ -9,6 +9,7 @@ import {
   RefreshCw,
   RotateCcw,
   Users,
+  X,
 } from "lucide-react";
 import { cn } from "@/lib/cn";
 
@@ -84,16 +85,6 @@ type DayResponse = {
   overdue?: OverdueAlert;
 };
 
-type MonthTotals = DayTotals;
-
-type MonthResponse = {
-  ok: true;
-  userId: string;
-  month: string; // YYYY-MM
-  totals: MonthTotals;
-  days: PayoutRow[];
-};
-
 type DetailSaleLine = {
   ref: { type: "sale"; id: string };
   numero: string;
@@ -113,11 +104,28 @@ type DetailSaleLine = {
   };
   points: number;
   pointsValueCents: number;
+  milheiroNoFeeCents?: number;
+  metaMilheiroCents?: number;
   c1Cents: number;
   c2Cents: number;
   c3Cents: number;
   feeCents: number;
   saleFeeCents: number;
+};
+
+type DetailRateioLine = {
+  ref: { type: "rateio"; purchaseId: string };
+  purchase: { id: string; numero: string };
+  cedente: { id: string; identificador: string; nomeCompleto: string } | null;
+  owner: { id: string; name: string; login: string } | null;
+  profitLiquidoCents: number;
+  shareBps: number;
+  c3Cents: number;
+  mode: "snapshot" | "computed";
+  salesCount: number;
+  soldPoints: number;
+  salesTotalCents: number;
+  finalizedAt: string | null;
 };
 
 type DetailsResponse = {
@@ -139,16 +147,25 @@ type DetailsResponse = {
     paidById: string | null;
     paidBy: PaidByLite;
   } | null;
-  breakdown: unknown;
+  breakdown: Breakdown | null;
   explain: unknown;
-  lines?: { sales?: DetailSaleLine[] };
+  lines?: { sales?: DetailSaleLine[]; rateio?: DetailRateioLine[] };
   audit?: {
     linesGrossCents: number;
     payoutGrossCents: number;
     diffGrossCents: number;
+    linesC1Cents?: number;
+    payoutC1Cents?: number;
+    diffC1Cents?: number;
+    linesC2Cents?: number;
+    payoutC2Cents?: number;
+    diffC2Cents?: number;
     linesFeeCents: number;
     payoutFeeCents: number;
     diffFeeCents: number;
+    linesC3Cents?: number;
+    payoutC3Cents?: number;
+    diffC3Cents?: number;
   } | null;
   note?: string;
 };
@@ -202,13 +219,6 @@ function fmtDateBR(isoDate?: string | null) {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(isoDate));
   if (!m) return String(isoDate);
   return `${m[3]}/${m[2]}/${m[1]}`;
-}
-
-function roleLabel(role?: DetailSaleLine["role"]) {
-  if (role?.seller && role?.feePayer) return "Venda + taxa";
-  if (role?.feePayer) return "Taxa/cartão";
-  if (role?.seller) return "Venda";
-  return "-";
 }
 
 function feeSourceLabel(line: DetailSaleLine) {
@@ -309,31 +319,52 @@ function KPI({
   );
 }
 
-type CommissionFocus = "all" | "c1" | "c2" | "c3" | "fee";
+type CommissionKind = "c1" | "c2" | "c3" | "fee";
 
-const COMMISSION_FOCUS_LABEL: Record<CommissionFocus, string> = {
-  all: "Todas as linhas",
-  c1: "C1 (1% sobre vendas)",
-  c2: "C2 (bônus)",
-  c3: "C3 (rateio)",
-  fee: "Taxa embarque (reembolso)",
+const COMMISSION_KIND_LABEL: Record<CommissionKind, string> = {
+  c1: "C1",
+  c2: "C2",
+  c3: "C3",
+  fee: "Taxa embarque",
 };
 
-function filterSalesByFocus(sales: DetailSaleLine[], focus: CommissionFocus) {
-  if (focus === "all") return sales;
-  if (focus === "c1") return sales.filter((s) => (s.c1Cents || 0) > 0);
-  if (focus === "c2") return sales.filter((s) => (s.c2Cents || 0) > 0);
-  if (focus === "c3") return sales.filter((s) => (s.c3Cents || 0) > 0);
-  if (focus === "fee") return sales.filter((s) => (s.feeCents || 0) > 0);
+const COMMISSION_KIND_SHORT: Record<CommissionKind, string> = {
+  c1: "1% sobre valor dos pontos",
+  c2: "Bônus acima da meta",
+  c3: "Rateio de compra finalizada",
+  fee: "Reembolso do cartão",
+};
+
+function filterSalesByKind(sales: DetailSaleLine[], kind: CommissionKind) {
+  if (kind === "c1") return sales.filter((s) => (s.c1Cents || 0) > 0);
+  if (kind === "c2") return sales.filter((s) => (s.c2Cents || 0) > 0);
+  if (kind === "fee") return sales.filter((s) => (s.feeCents || 0) > 0);
   return sales;
 }
 
-function focusAmountCents(line: DetailSaleLine, focus: CommissionFocus) {
-  if (focus === "c1") return line.c1Cents || 0;
-  if (focus === "c2") return line.c2Cents || 0;
-  if (focus === "c3") return line.c3Cents || 0;
-  if (focus === "fee") return line.feeCents || 0;
-  return (line.c1Cents || 0) + (line.c2Cents || 0) + (line.c3Cents || 0) + (line.feeCents || 0);
+function saleKindAmount(line: DetailSaleLine, kind: CommissionKind) {
+  if (kind === "c1") return line.c1Cents || 0;
+  if (kind === "c2") return line.c2Cents || 0;
+  if (kind === "fee") return line.feeCents || 0;
+  return 0;
+}
+
+function fmtMilheiro(cents: number) {
+  if (!cents) return "-";
+  return fmtMoneyBR(cents);
+}
+
+function accountLabel(line: DetailSaleLine) {
+  const id = line.cedente?.identificador || line.cliente?.identificador;
+  const name = line.cedente?.nomeCompleto || line.cliente?.nome;
+  if (id && name) return { primary: id, secondary: name };
+  if (id) return { primary: id, secondary: line.purchase?.numero ? `Compra ${line.purchase.numero}` : "" };
+  return { primary: "-", secondary: line.purchase?.numero ? `Compra ${line.purchase.numero}` : "" };
+}
+
+function shareBpsLabel(bps: number) {
+  const pct = (bps || 0) / 100;
+  return `${pct.toLocaleString("pt-BR", { minimumFractionDigits: 0, maximumFractionDigits: 2 })}%`;
 }
 
 function ClickableMoneyCell({
@@ -411,19 +442,14 @@ export default function ComissoesFuncionariosClient() {
 
   const [toast, setToast] = useState<{ title: string; desc?: string } | null>(null);
 
-  // ===== Drawer (Detalhes + Mês) =====
-  const [drawerOpen, setDrawerOpen] = useState(false);
-  const [drawerTab, setDrawerTab] = useState<"DAY" | "MONTH">("DAY");
-  const [drawerUser, setDrawerUser] = useState<UserLite | null>(null);
-  const [drawerFocus, setDrawerFocus] = useState<CommissionFocus>("all");
-
-  const [detailsDate, setDetailsDate] = useState<string>(() => todayISORecife());
+  // ===== Modal origem (valor clicado) =====
+  const [detailOpen, setDetailOpen] = useState(false);
+  const [detailUser, setDetailUser] = useState<UserLite | null>(null);
+  const [detailKind, setDetailKind] = useState<CommissionKind>("c1");
+  const [detailDate, setDetailDate] = useState<string>(() => todayISORecife());
   const [details, setDetails] = useState<DetailsResponse | null>(null);
   const [detailsLoading, setDetailsLoading] = useState(false);
 
-  const [month, setMonth] = useState<string>(() => monthFromISODate(todayISORecife()));
-  const [monthData, setMonthData] = useState<MonthResponse | null>(null);
-  const [monthLoading, setMonthLoading] = useState(false);
   const [reportMonth, setReportMonth] = useState<string>(() =>
     monthFromISODate(todayISORecife())
   );
@@ -506,12 +532,9 @@ export default function ComissoesFuncionariosClient() {
       await apiPost<{ ok: true }>(`/api/payouts/funcionarios/pay`, { date: d, userId });
       await loadDay(d);
 
-      // se o drawer estiver aberto no mesmo user, atualiza também
-      if (drawerOpen && drawerUser?.id === userId) {
+      // se o modal estiver aberto no mesmo user, atualiza também
+      if (detailOpen && detailUser?.id === userId) {
         await loadDetails(d, userId);
-        if (drawerTab === "MONTH") {
-          await loadMonth(userId, monthFromISODate(d));
-        }
       }
 
       setToast({ title: "Pago!", desc: `Pagamento marcado para ${d}.` });
@@ -572,24 +595,6 @@ export default function ComissoesFuncionariosClient() {
     }
   }
 
-  async function loadMonth(userId: string, m: string) {
-    setMonthLoading(true);
-    try {
-      const mm = String(m || "").slice(0, 7);
-      const data = await apiGet<MonthResponse>(
-        `/api/payouts/funcionarios/month?userId=${encodeURIComponent(
-          userId
-        )}&month=${encodeURIComponent(mm)}`
-      );
-      setMonthData(data);
-    } catch (e: unknown) {
-      setMonthData(null);
-      setToast({ title: "Falha ao carregar mês", desc: getErrorMessage(e, "Falha ao carregar mês.") });
-    } finally {
-      setMonthLoading(false);
-    }
-  }
-
   async function loadDetails(d: string, userId: string) {
     setDetailsLoading(true);
     try {
@@ -610,37 +615,17 @@ export default function ComissoesFuncionariosClient() {
     }
   }
 
-  async function openDetailsDrawer(u: UserLite, focus: CommissionFocus = "all") {
-    const d = date;
-    const m = monthFromISODate(d);
-
-    setDrawerUser(u);
-    setDrawerFocus(focus);
-    setDrawerOpen(true);
-    setDrawerTab("DAY");
-    setDetailsDate(d);
-
+  async function openDetailModal(u: UserLite, kind: CommissionKind, d = date) {
+    setDetailUser(u);
+    setDetailKind(kind);
+    setDetailDate(d);
+    setDetailOpen(true);
     await loadDetails(d, u.id);
-
-    setMonth(m);
-    setMonthData(null);
   }
 
-  async function goToMonthTab() {
-    if (!drawerUser) return;
-    setDrawerTab("MONTH");
-    const mm = month.slice(0, 7) || monthFromISODate(detailsDate);
-    if (!monthData || monthData.month !== mm || monthData.userId !== drawerUser.id) {
-      await loadMonth(drawerUser.id, mm);
-    }
-  }
-
-  async function goToDayTab(d: string, focus: CommissionFocus = drawerFocus) {
-    if (!drawerUser) return;
-    setDrawerTab("DAY");
-    setDrawerFocus(focus);
-    setDetailsDate(d);
-    await loadDetails(d, drawerUser.id);
+  function closeDetailModal() {
+    setDetailOpen(false);
+    setDetails(null);
   }
 
   useEffect(() => {
@@ -694,54 +679,44 @@ export default function ComissoesFuncionariosClient() {
     return uniq.length === 1 ? uniq[0] : null;
   }, [day]);
 
-  const monthExtra = useMemo(() => {
-    const rows = monthData?.days || [];
-    const lucroSemTaxa = rows.reduce((acc, r) => acc + lucroSemTaxaEmbarqueCents(r), 0);
-    const balcaoCommission = rows.reduce((acc, r) => acc + (r.balcaoCommissionCents || 0), 0);
-    const liquidoTotal = rows.reduce((acc, r) => acc + liquidoComBalcaoCents(r), 0);
-    const pago = rows.reduce(
-      (acc, r) => acc + (r.paidById || r.paidAt ? liquidoComBalcaoCents(r) : 0),
-      0
-    );
-    const pendente = liquidoTotal - pago;
-    return { lucroSemTaxa, balcaoCommission, liquidoTotal, pago, pendente };
-  }, [monthData]);
-
   // ✅ classes de destaque (azul / verde)
   const lucroCellCls = "bg-sky-50/90 text-sky-950 ring-1 ring-inset ring-sky-200/90";
   const liquidoCellCls = "bg-emerald-50/90 text-emerald-950 ring-1 ring-inset ring-emerald-200/90";
 
-  // ===== detalhes (helpers) =====
   const detailsSales = useMemo(() => details?.lines?.sales || [], [details]);
-  const filteredDetailsSales = useMemo(
-    () => filterSalesByFocus(detailsSales, drawerFocus),
-    [detailsSales, drawerFocus]
+  const detailsRateio = useMemo(() => details?.lines?.rateio || [], [details]);
+  const filteredSales = useMemo(
+    () => filterSalesByKind(detailsSales, detailKind),
+    [detailsSales, detailKind]
   );
-  const detailsSum = useMemo(() => {
-    const rows = filteredDetailsSales || [];
-    const acc = rows.reduce(
-      (a, s) => {
-        a.c1 += s.c1Cents || 0;
-        a.c2 += s.c2Cents || 0;
-        a.c3 += s.c3Cents || 0;
-        a.fee += s.feeCents || 0;
-        a.pointsValue += s.pointsValueCents || 0;
-        a.sales += 1;
-        if (s.role?.seller) a.sellerLines += 1;
-        if (s.role?.feePayer) a.feeLines += 1;
-        a.points += s.points || 0;
-        return a;
+  const salesSum = useMemo(() => {
+    return filteredSales.reduce(
+      (acc, s) => {
+        acc.amount += saleKindAmount(s, detailKind);
+        acc.points += s.points || 0;
+        return acc;
       },
-      { c1: 0, c2: 0, c3: 0, fee: 0, pointsValue: 0, sales: 0, sellerLines: 0, feeLines: 0, points: 0 }
+      { amount: 0, points: 0 }
     );
-    return { ...acc, gross: acc.c1 + acc.c2 + acc.c3 };
-  }, [filteredDetailsSales]);
-
-  const detailsLucroSemTaxa = useMemo(() => {
-    const p = details?.payout;
-    if (!p) return 0;
-    return (p.grossProfitCents || 0) - (p.tax7Cents || 0);
-  }, [details]);
+  }, [filteredSales, detailKind]);
+  const rateioTotal = useMemo(
+    () => detailsRateio.reduce((acc, r) => acc + (r.c3Cents || 0), 0),
+    [detailsRateio]
+  );
+  const detailTotalCents = detailKind === "c3" ? rateioTotal : salesSum.amount;
+  const payoutExpectedCents = useMemo(() => {
+    const b = details?.breakdown;
+    if (!b) return null;
+    if (detailKind === "c1") return b.commission1Cents ?? 0;
+    if (detailKind === "c2") return b.commission2Cents ?? 0;
+    if (detailKind === "c3") return b.commission3RateioCents ?? 0;
+    if (detailKind === "fee") return details?.payout?.feeCents ?? 0;
+    return null;
+  }, [details, detailKind]);
+  const detailMismatch =
+    payoutExpectedCents != null &&
+    !detailsLoading &&
+    payoutExpectedCents !== detailTotalCents;
 
   const reportUsers = useMemo(() => {
     const rows = day?.rows || [];
@@ -919,21 +894,21 @@ export default function ComissoesFuncionariosClient() {
 
                     <ClickableMoneyCell
                       cents={c1}
-                      onClick={() => openDetailsDrawer(r.user, "c1")}
+                      onClick={() => openDetailModal(r.user, "c1")}
                     />
                     <ClickableMoneyCell
                       cents={c2}
-                      onClick={() => openDetailsDrawer(r.user, "c2")}
+                      onClick={() => openDetailModal(r.user, "c2")}
                     />
                     <ClickableMoneyCell
                       cents={c3}
-                      onClick={() => openDetailsDrawer(r.user, "c3")}
+                      onClick={() => openDetailModal(r.user, "c3")}
                     />
 
                     <td className="px-4 py-3 tabular-nums text-slate-800">{fmtMoneyBR(r.tax7Cents || 0)}</td>
                     <ClickableMoneyCell
                       cents={r.feeCents || 0}
-                      onClick={() => openDetailsDrawer(r.user, "fee")}
+                      onClick={() => openDetailModal(r.user, "fee")}
                     />
                     <td className="px-4 py-3 tabular-nums text-slate-800">{fmtMoneyBR(r.balcaoCommissionCents || 0)}</td>
 
@@ -1061,503 +1036,207 @@ export default function ComissoesFuncionariosClient() {
         balcão (netPay já inclui reembolso da taxa de vendas).
       </div>
 
-      {/* ===== Drawer Detalhes + Mês ===== */}
-      {drawerOpen && (
-        <div className="fixed inset-0 z-50">
-          <div className="absolute inset-0 bg-black/40" onClick={() => setDrawerOpen(false)} />
-          <div className="absolute right-0 top-0 h-full w-full max-w-[780px] bg-white shadow-2xl">
-            <div className="flex items-center justify-between border-b p-4">
-              <div className="space-y-0.5">
-                <div className="text-sm font-semibold">Detalhes do funcionário</div>
-                <div className="text-xs text-neutral-500">
-                  {drawerUser ? (
-                    <>
-                      <span className="font-medium">{firstName(drawerUser.name, drawerUser.login)}</span>{" "}
-                      <span className="text-neutral-400">•</span> <span>{drawerUser.login}</span>
-                      {drawerFocus !== "all" ? (
-                        <>
-                          {" "}
-                          <span className="text-neutral-400">•</span>{" "}
-                          <span className="font-medium text-slate-700">
-                            {COMMISSION_FOCUS_LABEL[drawerFocus]}
-                          </span>
-                        </>
-                      ) : null}
-                    </>
-                  ) : (
-                    "-"
-                  )}
+      {/* ===== Modal origem do valor clicado ===== */}
+      {detailOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/50" onClick={closeDetailModal} />
+          <div
+            role="dialog"
+            aria-modal="true"
+            className="relative z-10 flex max-h-[min(88vh,760px)] w-full max-w-5xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl"
+          >
+            <div className="flex items-center justify-between gap-4 border-b border-slate-200 px-5 py-3.5">
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+                  <span className="text-base font-bold text-slate-900">
+                    {COMMISSION_KIND_LABEL[detailKind]}
+                  </span>
+                  <span className="text-sm text-slate-500">·</span>
+                  <span className="text-sm font-semibold text-slate-800">
+                    {detailUser ? firstName(detailUser.name, detailUser.login) : "-"}
+                  </span>
+                  <span className="text-sm text-slate-500">·</span>
+                  <span className="text-sm text-slate-600">{fmtDateBR(detailDate)}</span>
                 </div>
+                <div className="mt-0.5 text-xs text-slate-500">{COMMISSION_KIND_SHORT[detailKind]}</div>
               </div>
-
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-3">
+                <div className="text-right">
+                  <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Total</div>
+                  <div className="text-xl font-bold tabular-nums text-slate-900">
+                    {detailsLoading ? "…" : fmtMoneyBR(detailTotalCents)}
+                  </div>
+                  {detailMismatch ? (
+                    <div className="text-[10px] text-amber-700">
+                      payout: {fmtMoneyBR(payoutExpectedCents ?? 0)}
+                    </div>
+                  ) : null}
+                </div>
                 <button
-                  onClick={() => setDrawerTab("DAY")}
-                  className={[
-                    "h-9 rounded-xl border px-3 text-xs",
-                    drawerTab === "DAY" ? "bg-black text-white border-black" : "hover:bg-neutral-50",
-                  ].join(" ")}
+                  type="button"
+                  onClick={closeDetailModal}
+                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-slate-200 text-slate-600 transition hover:bg-slate-50"
+                  aria-label="Fechar"
                 >
-                  Dia
-                </button>
-
-                <button
-                  onClick={goToMonthTab}
-                  className={[
-                    "h-9 rounded-xl border px-3 text-xs",
-                    drawerTab === "MONTH" ? "bg-black text-white border-black" : "hover:bg-neutral-50",
-                  ].join(" ")}
-                >
-                  Mês
-                </button>
-
-                <button
-                  onClick={() => setDrawerOpen(false)}
-                  className="h-9 rounded-xl border px-3 text-xs hover:bg-neutral-50"
-                >
-                  Fechar
+                  <X className="h-4 w-4" strokeWidth={2} />
                 </button>
               </div>
             </div>
 
-            {/* ===== TAB: DAY ===== */}
-            {drawerTab === "DAY" && (
-              <div className="space-y-3 p-4">
-                <div className="flex flex-wrap items-end justify-between gap-2">
-                  <div className="flex flex-col">
-                    <label className="text-xs text-neutral-500">Dia</label>
-                    <input
-                      type="date"
-                      value={detailsDate}
-                      onChange={(e) => setDetailsDate(e.target.value)}
-                      className="h-10 rounded-xl border px-3 text-sm"
-                    />
-                  </div>
-
-                  <div className="flex flex-wrap gap-2">
-                    {(["all", "c1", "c2", "c3", "fee"] as CommissionFocus[]).map((f) => (
-                      <button
-                        key={f}
-                        type="button"
-                        onClick={() => setDrawerFocus(f)}
-                        className={cn(
-                          "h-9 rounded-xl border px-3 text-xs font-medium transition",
-                          drawerFocus === f
-                            ? "border-slate-900 bg-slate-900 text-white"
-                            : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
-                        )}
-                      >
-                        {f === "all" ? "Tudo" : f.toUpperCase()}
-                      </button>
+            <div className="min-h-0 flex-1 overflow-auto">
+              {detailsLoading ? (
+                <div className="flex items-center justify-center py-20 text-sm text-slate-500">
+                  Carregando…
+                </div>
+              ) : detailKind === "c3" ? (
+                <table className="w-full text-left text-sm">
+                  <thead className="sticky top-0 bg-slate-50 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                    <tr>
+                      <th className="px-5 py-2.5">Compra</th>
+                      <th className="px-5 py-2.5">Conta</th>
+                      <th className="px-5 py-2.5">Responsável</th>
+                      <th className="px-5 py-2.5 text-right">Pts vendidos</th>
+                      <th className="px-5 py-2.5">Lucro pool</th>
+                      <th className="px-5 py-2.5">%</th>
+                      <th className="px-5 py-2.5 text-right">Valor</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {detailsRateio.map((r) => (
+                      <tr key={r.ref.purchaseId} className="hover:bg-slate-50/70">
+                        <td className="px-5 py-2.5 font-medium text-slate-900">
+                          {r.purchase.numero || "-"}
+                        </td>
+                        <td className="px-5 py-2.5">
+                          <div className="font-medium">{r.cedente?.identificador || "-"}</div>
+                          <div className="text-xs text-slate-500">{r.cedente?.nomeCompleto || ""}</div>
+                        </td>
+                        <td className="px-5 py-2.5 text-slate-700">
+                          {firstName(r.owner?.name, r.owner?.login || "-")}
+                        </td>
+                        <td className="px-5 py-2.5 text-right tabular-nums">{fmtInt(r.soldPoints)}</td>
+                        <td className="px-5 py-2.5 tabular-nums">{fmtMoneyBR(r.profitLiquidoCents)}</td>
+                        <td className="px-5 py-2.5 tabular-nums">{shareBpsLabel(r.shareBps)}</td>
+                        <td className="px-5 py-2.5 text-right font-semibold tabular-nums">
+                          {fmtMoneyBR(r.c3Cents)}
+                        </td>
+                      </tr>
                     ))}
-
-                    <button
-                      type="button"
-                      onClick={() => drawerUser && goToDayTab(detailsDate, drawerFocus)}
-                      disabled={!drawerUser || detailsLoading}
-                      className="h-10 rounded-xl bg-black px-4 text-sm text-white hover:bg-neutral-800 disabled:opacity-50"
-                    >
-                      {detailsLoading ? "Carregando..." : "Atualizar"}
-                    </button>
-                  </div>
-                </div>
-
-                <div className="rounded-2xl border bg-neutral-50 p-3 text-xs text-neutral-700">
-                  <div className="font-semibold">Como ler:</div>
-                  <ul className="list-disc pl-5">
-                    <li>
-                      <b>Fonte de verdade</b>: payout salvo em <b>employee_payouts</b>.
-                    </li>
-                    <li>
-                      A lista abaixo é uma <b>explicação/auditoria</b> (de onde veio).
-                    </li>
-                    <li>
-                      Reembolso de taxa aparece pelo <b>cartão/pagador</b>, mesmo quando a venda foi feita por outro funcionário.
-                    </li>
-                  </ul>
-                </div>
-
-                <div className="grid grid-cols-2 gap-2 md:grid-cols-5">
-                  <KPI label="Bruto (payout)" value={fmtMoneyBR(details?.payout?.grossProfitCents || 0)} />
-                  <KPI label="Imposto (payout)" value={fmtMoneyBR(details?.payout?.tax7Cents || 0)} />
-                  <KPI label="Taxas (payout)" value={fmtMoneyBR(details?.payout?.feeCents || 0)} />
-                  <KPI label="Lucro s/ taxa" value={fmtMoneyBR(detailsLucroSemTaxa)} />
-                  <KPI label="Líquido (a pagar)" value={fmtMoneyBR(details?.payout?.netPayCents || 0)} />
-                </div>
-
-                {details?.audit ? (
-                  <div className="rounded-2xl border bg-white p-3 text-sm">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <div className="font-semibold">Auditoria (linhas vs payout)</div>
-                      <div className="flex gap-2">
-                        {details.audit.diffGrossCents === 0 ? (
-                          <Pill kind="ok" text="Bruto bate" />
-                        ) : (
-                          <Pill kind="warn" text={`Bruto dif: ${fmtMoneyBR(details.audit.diffGrossCents)}`} />
-                        )}
-                        {details.audit.diffFeeCents === 0 ? (
-                          <Pill kind="ok" text="Taxas batem" />
-                        ) : (
-                          <Pill kind="warn" text={`Taxas dif: ${fmtMoneyBR(details.audit.diffFeeCents)}`} />
-                        )}
-                      </div>
-                    </div>
-
-                    <div className="mt-2 grid grid-cols-2 gap-2 md:grid-cols-4 text-xs text-neutral-700">
-                      <div>
-                        <div className="text-neutral-500">Bruto (linhas)</div>
-                        <div className="font-medium">{fmtMoneyBR(details.audit.linesGrossCents)}</div>
-                      </div>
-                      <div>
-                        <div className="text-neutral-500">Bruto (payout)</div>
-                        <div className="font-medium">{fmtMoneyBR(details.audit.payoutGrossCents)}</div>
-                      </div>
-                      <div>
-                        <div className="text-neutral-500">Taxas (linhas)</div>
-                        <div className="font-medium">{fmtMoneyBR(details.audit.linesFeeCents)}</div>
-                      </div>
-                      <div>
-                        <div className="text-neutral-500">Taxas (payout)</div>
-                        <div className="font-medium">{fmtMoneyBR(details.audit.payoutFeeCents)}</div>
-                      </div>
-                    </div>
-
-                    <div className="mt-2 text-xs text-neutral-500">
-                      Se houver diferença no bruto, pode ser efeito de rateio ou linhas que não entram nesta
-                      auditoria por venda.
-                    </div>
-                  </div>
-                ) : null}
-
-                <div className="overflow-hidden rounded-2xl border bg-white">
-                  <div className="px-4 py-3 border-b flex items-center justify-between">
-                    <div className="text-sm font-semibold">
-                      {drawerFocus === "all"
-                        ? "Linhas (de onde veio)"
-                        : `Vendas — ${COMMISSION_FOCUS_LABEL[drawerFocus]}`}
-                    </div>
-                    <div className="text-xs text-neutral-500">
-                      {detailsSum.sales} linha(s) • {detailsSum.sellerLines} venda(s) •{" "}
-                      {detailsSum.feeLines} reembolso(s)
-                      {drawerFocus === "fee"
-                        ? <> • total: {fmtMoneyBR(detailsSum.fee)}</>
-                        : drawerFocus !== "all"
-                          ? <> • total: {fmtMoneyBR(detailsSum.c1 + detailsSum.c2 + detailsSum.c3)}</>
-                          : <> • PV: {fmtMoneyBR(detailsSum.pointsValue)}</>}
-                    </div>
-                  </div>
-
-                  <div className="overflow-x-auto">
-                    <table className="min-w-[960px] w-full text-left text-sm">
-                      <thead className="bg-neutral-50 text-xs text-neutral-600">
-                        <tr>
-                          <th className="px-4 py-3">Venda</th>
-                          <th className="px-4 py-3">Vendedor</th>
-                          <th className="px-4 py-3">Cliente / compra</th>
-                          <th className="px-4 py-3">Papel</th>
-                          <th className="px-4 py-3">Localizador</th>
-                          <th className="px-4 py-3 text-right">Pontos</th>
-                          <th className="px-4 py-3">Valor pontos</th>
-                          {(drawerFocus === "all" || drawerFocus === "c1") && (
-                            <th className="px-4 py-3">C1</th>
-                          )}
-                          {(drawerFocus === "all" || drawerFocus === "c2") && (
-                            <th className="px-4 py-3">C2</th>
-                          )}
-                          {(drawerFocus === "all" || drawerFocus === "c3") && (
-                            <th className="px-4 py-3">C3</th>
-                          )}
-                          {(drawerFocus === "all" || drawerFocus === "fee") && (
-                            <th className="px-4 py-3">Taxa embarque</th>
-                          )}
-                          {drawerFocus !== "all" && drawerFocus !== "fee" && (
-                            <th className="px-4 py-3 font-semibold">Valor</th>
+                    {!detailsRateio.length ? (
+                      <tr>
+                        <td colSpan={7} className="px-5 py-16 text-center text-sm text-slate-500">
+                          Nenhuma compra finalizada gerou rateio neste dia.
+                        </td>
+                      </tr>
+                    ) : (
+                      <tr className="bg-slate-50 font-semibold">
+                        <td className="px-5 py-2.5" colSpan={6}>
+                          {detailsRateio.length} compra{detailsRateio.length === 1 ? "" : "s"}
+                        </td>
+                        <td className="px-5 py-2.5 text-right tabular-nums">{fmtMoneyBR(rateioTotal)}</td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              ) : (
+                <table className="w-full text-left text-sm">
+                  <thead className="sticky top-0 bg-slate-50 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                    <tr>
+                      <th className="px-5 py-2.5">Venda</th>
+                      <th className="px-5 py-2.5">Conta</th>
+                      {detailKind === "fee" ? (
+                        <>
+                          <th className="px-5 py-2.5">Cartão</th>
+                          <th className="px-5 py-2.5 text-right">Valor</th>
+                        </>
+                      ) : detailKind === "c1" ? (
+                        <>
+                          <th className="px-5 py-2.5 text-right">Pontos</th>
+                          <th className="px-5 py-2.5">Valor pts</th>
+                          <th className="px-5 py-2.5 text-right">C1</th>
+                        </>
+                      ) : (
+                        <>
+                          <th className="px-5 py-2.5 text-right">Pontos</th>
+                          <th className="px-5 py-2.5">Milheiro</th>
+                          <th className="px-5 py-2.5">Meta</th>
+                          <th className="px-5 py-2.5 text-right">C2</th>
+                        </>
+                      )}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {filteredSales.map((s) => {
+                      const acc = accountLabel(s);
+                      return (
+                        <tr key={s.ref.id} className="hover:bg-slate-50/70">
+                          <td className="px-5 py-2.5">
+                            <div className="font-medium text-slate-900">{s.numero}</div>
+                            <div className="text-xs text-slate-500">
+                              {s.locator ? `Loc. ${s.locator}` : fmtDateBR(s.date)}
+                            </div>
+                          </td>
+                          <td className="px-5 py-2.5">
+                            <div className="font-medium">{acc.primary}</div>
+                            {acc.secondary ? (
+                              <div className="text-xs text-slate-500">{acc.secondary}</div>
+                            ) : null}
+                          </td>
+                          {detailKind === "fee" ? (
+                            <>
+                              <td className="px-5 py-2.5 text-xs text-slate-600">
+                                {s.feeCardLabel || feeSourceLabel(s)}
+                              </td>
+                              <td className="px-5 py-2.5 text-right font-semibold tabular-nums">
+                                {fmtMoneyBR(s.feeCents || 0)}
+                              </td>
+                            </>
+                          ) : detailKind === "c1" ? (
+                            <>
+                              <td className="px-5 py-2.5 text-right tabular-nums">{fmtInt(s.points || 0)}</td>
+                              <td className="px-5 py-2.5 tabular-nums">{fmtMoneyBR(s.pointsValueCents || 0)}</td>
+                              <td className="px-5 py-2.5 text-right font-semibold tabular-nums">
+                                {fmtMoneyBR(s.c1Cents || 0)}
+                              </td>
+                            </>
+                          ) : (
+                            <>
+                              <td className="px-5 py-2.5 text-right tabular-nums">{fmtInt(s.points || 0)}</td>
+                              <td className="px-5 py-2.5 tabular-nums">
+                                {fmtMilheiro(s.milheiroNoFeeCents || 0)}
+                              </td>
+                              <td className="px-5 py-2.5 tabular-nums">
+                                {fmtMilheiro(s.metaMilheiroCents || 0)}
+                              </td>
+                              <td className="px-5 py-2.5 text-right font-semibold tabular-nums">
+                                {fmtMoneyBR(s.c2Cents || 0)}
+                              </td>
+                            </>
                           )}
                         </tr>
-                      </thead>
-
-                      <tbody>
-                        {(filteredDetailsSales || []).map((s) => (
-                          <tr key={s.ref.id} className="border-t">
-                            <td className="px-4 py-3">
-                              <div className="font-medium">{s.numero}</div>
-                              <div className="text-xs text-neutral-500">{fmtDateBR(s.date)}</div>
-                            </td>
-                            <td className="px-4 py-3">
-                              <div className="font-medium">{firstName(s.seller?.name, s.seller?.login || "-")}</div>
-                              <div className="text-xs text-neutral-500">
-                                {s.seller?.login ? `@${s.seller.login}` : "-"}
-                              </div>
-                            </td>
-                            <td className="px-4 py-3">
-                              <div className="font-medium">{s.cliente?.nome || s.cliente?.identificador || "-"}</div>
-                              <div className="text-xs text-neutral-500">
-                                {s.purchase?.numero ? `Compra ${s.purchase.numero}` : s.cedente?.identificador || ""}
-                              </div>
-                              {s.feeCardLabel ? (
-                                <div className="mt-0.5 max-w-[220px] truncate text-xs text-neutral-500" title={s.feeCardLabel}>
-                                  {s.feeCardLabel}
-                                </div>
-                              ) : null}
-                            </td>
-                            <td className="px-4 py-3">
-                              <span
-                                className={cn(
-                                  "inline-flex rounded-full border px-2 py-0.5 text-xs",
-                                  s.role?.feePayer && !s.role?.seller
-                                    ? "border-amber-200 bg-amber-50 text-amber-700"
-                                    : s.role?.feePayer
-                                    ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-                                    : "border-sky-200 bg-sky-50 text-sky-700"
-                                )}
-                              >
-                                {roleLabel(s.role)}
-                              </span>
-                            </td>
-                            <td className="px-4 py-3 text-neutral-600">{s.locator || "-"}</td>
-                            <td className="px-4 py-3 text-right tabular-nums">{fmtInt(s.points || 0)}</td>
-                            <td className="px-4 py-3">{fmtMoneyBR(s.pointsValueCents || 0)}</td>
-                            {(drawerFocus === "all" || drawerFocus === "c1") && (
-                              <td className="px-4 py-3">{fmtMoneyBR(s.c1Cents || 0)}</td>
-                            )}
-                            {(drawerFocus === "all" || drawerFocus === "c2") && (
-                              <td className="px-4 py-3">{fmtMoneyBR(s.c2Cents || 0)}</td>
-                            )}
-                            {(drawerFocus === "all" || drawerFocus === "c3") && (
-                              <td className="px-4 py-3">{fmtMoneyBR(s.c3Cents || 0)}</td>
-                            )}
-                            {(drawerFocus === "all" || drawerFocus === "fee") && (
-                              <td className="px-4 py-3">
-                                <div>{fmtMoneyBR(s.feeCents || 0)}</div>
-                                {s.feeCents ? (
-                                  <div className="text-xs text-neutral-500">{feeSourceLabel(s)}</div>
-                                ) : null}
-                              </td>
-                            )}
-                            {drawerFocus !== "all" && drawerFocus !== "fee" && (
-                              <td className="px-4 py-3 font-semibold">
-                                {fmtMoneyBR(focusAmountCents(s, drawerFocus))}
-                              </td>
-                            )}
-                          </tr>
-                        ))}
-
-                        {!filteredDetailsSales?.length ? (
-                          <tr>
-                            <td className="px-4 py-8 text-center text-sm text-neutral-500" colSpan={12}>
-                              Sem linhas para este filtro neste dia.
-                            </td>
-                          </tr>
-                        ) : (
-                          <tr className="border-t bg-neutral-50">
-                            <td className="px-4 py-3 font-semibold" colSpan={7}>
-                              Totais ({COMMISSION_FOCUS_LABEL[drawerFocus]})
-                            </td>
-                            {(drawerFocus === "all" || drawerFocus === "c1") && (
-                              <td className="px-4 py-3 font-semibold">{fmtMoneyBR(detailsSum.c1)}</td>
-                            )}
-                            {(drawerFocus === "all" || drawerFocus === "c2") && (
-                              <td className="px-4 py-3 font-semibold">{fmtMoneyBR(detailsSum.c2)}</td>
-                            )}
-                            {(drawerFocus === "all" || drawerFocus === "c3") && (
-                              <td className="px-4 py-3 font-semibold">{fmtMoneyBR(detailsSum.c3)}</td>
-                            )}
-                            {(drawerFocus === "all" || drawerFocus === "fee") && (
-                              <td className="px-4 py-3 font-semibold">{fmtMoneyBR(detailsSum.fee)}</td>
-                            )}
-                            {drawerFocus !== "all" && drawerFocus !== "fee" && (
-                              <td className="px-4 py-3 font-semibold">
-                                {drawerFocus === "c1"
-                                  ? fmtMoneyBR(detailsSum.c1)
-                                  : drawerFocus === "c2"
-                                    ? fmtMoneyBR(detailsSum.c2)
-                                    : fmtMoneyBR(detailsSum.c3)}
-                              </td>
-                            )}
-                          </tr>
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-
-                {details?.payout?.paidById ? (
-                  <div className="rounded-2xl border bg-white p-3 text-sm">
-                    <div className="flex items-center justify-between">
-                      <div className="font-semibold">Status</div>
-                      <Pill kind="ok" text="PAGO" />
-                    </div>
-                    <div className="mt-1 text-xs text-neutral-600">
-                      {details.payout.paidBy?.name ? `por ${details.payout.paidBy.name}` : ""}
-                      {details.payout.paidAt ? ` • ${fmtDateTimeBR(details.payout.paidAt)}` : ""}
-                    </div>
-                  </div>
-                ) : (
-                  <div className="rounded-2xl border bg-white p-3 text-sm flex items-center justify-between">
-                    <div>
-                      <div className="font-semibold">Status</div>
-                      <div className="text-xs text-neutral-500">
-                        {detailsDate < today ? "Dia fechado (pode pagar)" : "Dia ainda em aberto"}
-                      </div>
-                    </div>
-                    <Pill kind={detailsDate < today ? "warn" : "muted"} text="PENDENTE" />
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* ===== TAB: MONTH ===== */}
-            {drawerTab === "MONTH" && (
-              <div className="space-y-3 p-4">
-                <div className="flex items-end justify-between gap-2">
-                  <div className="flex flex-col">
-                    <label className="text-xs text-neutral-500">Mês (YYYY-MM)</label>
-                    <input
-                      value={month}
-                      onChange={(e) => setMonth(e.target.value.slice(0, 7))}
-                      placeholder="YYYY-MM"
-                      className="h-10 rounded-xl border px-3 text-sm"
-                    />
-                  </div>
-
-                  <button
-                    onClick={() => drawerUser && loadMonth(drawerUser.id, month)}
-                    disabled={!drawerUser || monthLoading}
-                    className="h-10 rounded-xl bg-black px-4 text-sm text-white hover:bg-neutral-800 disabled:opacity-50"
-                  >
-                    {monthLoading ? "Carregando..." : "Atualizar mês"}
-                  </button>
-
-                </div>
-
-                <div className="grid grid-cols-2 gap-2 md:grid-cols-8">
-                  <KPI label="Bruto" value={fmtMoneyBR(monthData?.totals.gross || 0)} />
-                  <KPI label="Imposto" value={fmtMoneyBR(monthData?.totals.tax || 0)} />
-                  <KPI label="Taxas" value={fmtMoneyBR(monthData?.totals.fee || 0)} />
-                  <KPI label="Comissão balcão" value={fmtMoneyBR(monthExtra.balcaoCommission)} />
-                  <KPI label="Líquido (a pagar)" value={fmtMoneyBR(monthExtra.liquidoTotal)} />
-                  <KPI label="Lucro s/ taxa" value={fmtMoneyBR(monthExtra.lucroSemTaxa)} />
-                  <KPI label="Pago" value={fmtMoneyBR(monthExtra.pago)} />
-                  <KPI label="Pendente" value={fmtMoneyBR(monthExtra.pendente)} />
-                </div>
-
-                <div className="overflow-hidden rounded-2xl border">
-                  <div className="max-h-[55vh] overflow-auto">
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-left text-sm">
-                        <thead className="sticky top-0 bg-neutral-50 text-xs text-neutral-600">
-                          <tr>
-                            <th className="px-4 py-3">Dia</th>
-                            <th className="px-4 py-3 text-right">Vendas</th>
-                            <th className="px-4 py-3">C1 (1%)</th>
-                            <th className="px-4 py-3">C2 (bônus)</th>
-                            <th className="px-4 py-3">C3 (rateio)</th>
-                            <th className="px-4 py-3">Imposto</th>
-                            <th className="px-4 py-3">Taxa</th>
-                            <th className="px-4 py-3">Comissão balcão</th>
-                            <th className={`px-4 py-3 ${lucroCellCls}`}>Lucro s/ taxa</th>
-                            <th className={`px-4 py-3 ${liquidoCellCls}`}>Líquido</th>
-                            <th className="px-4 py-3">Status</th>
-                            <th className="px-4 py-3 text-right">Ações</th>
-                          </tr>
-                        </thead>
-
-                        <tbody>
-                          {(monthData?.days || []).map((r) => {
-                            const b = r.breakdown;
-                            const { c1, c2, c3 } = c123FromBreakdown(b);
-                            const isPaid = !!r.paidById;
-                            const canPayThisDay = !isPaid && r.date < todayISORecife();
-                            const paying = payingKey === `${r.date}|${r.userId}`;
-
-                            const lucroSemTaxa = lucroSemTaxaEmbarqueCents(r);
-
-                            return (
-                              <tr key={r.id} className="border-t">
-                                <td className="px-4 py-3 font-medium">{r.date}</td>
-
-                                <td className="px-4 py-3 text-right tabular-nums">{b?.salesCount ?? 0}</td>
-
-                                <ClickableMoneyCell
-                                  cents={c1}
-                                  onClick={() => goToDayTab(r.date, "c1")}
-                                />
-                                <ClickableMoneyCell
-                                  cents={c2}
-                                  onClick={() => goToDayTab(r.date, "c2")}
-                                />
-                                <ClickableMoneyCell
-                                  cents={c3}
-                                  onClick={() => goToDayTab(r.date, "c3")}
-                                />
-
-                                <td className="px-4 py-3">{fmtMoneyBR(r.tax7Cents || 0)}</td>
-                                <ClickableMoneyCell
-                                  cents={r.feeCents || 0}
-                                  onClick={() => goToDayTab(r.date, "fee")}
-                                />
-                                <td className="px-4 py-3">{fmtMoneyBR(r.balcaoCommissionCents || 0)}</td>
-
-                                <td className={`px-4 py-3 font-semibold ${lucroCellCls}`}>
-                                  {fmtMoneyBR(lucroSemTaxa)}
-                                </td>
-
-                                <td className={`px-4 py-3 font-bold ${liquidoCellCls}`}>
-                                  {fmtMoneyBR(liquidoComBalcaoCents(r))}
-                                </td>
-
-                                <td className="px-4 py-3">
-                                  {isPaid ? (
-                                    <div className="space-y-1">
-                                      <Pill kind="ok" text="PAGO" />
-                                      <div className="text-xs text-neutral-500">
-                                        {r.paidBy?.name ? `por ${r.paidBy.name}` : ""}
-                                        {r.paidAt ? ` • ${fmtDateTimeBR(r.paidAt)}` : ""}
-                                      </div>
-                                    </div>
-                                  ) : (
-                                    <Pill kind="warn" text="PENDENTE" />
-                                  )}
-                                </td>
-
-                                <td className="px-4 py-3 text-right">
-                                  <button
-                                    type="button"
-                                    onClick={() => drawerUser && payRow(r.date, drawerUser.id)}
-                                    disabled={!drawerUser || !canPayThisDay || paying}
-                                    className="h-9 rounded-xl bg-black px-3 text-xs text-white hover:bg-neutral-800 disabled:opacity-50"
-                                    title={
-                                      canPayThisDay
-                                        ? "Marcar este dia como pago"
-                                        : "Só paga dias anteriores a hoje / ou já pago"
-                                    }
-                                  >
-                                    {paying ? "Pagando..." : "Pagar"}
-                                  </button>
-                                </td>
-                              </tr>
-                            );
-                          })}
-
-                          {!monthData?.days?.length && (
-                            <tr>
-                              <td className="px-4 py-8 text-center text-sm text-neutral-500" colSpan={12}>
-                                Sem dados no mês selecionado.
-                              </td>
-                            </tr>
-                          )}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="text-xs text-neutral-500">
-                  Dica: o mês mostra apenas os dias que existem na tabela <b>employee_payouts</b>. Se estiver vazio, rode{" "}
-                  <b>Computar</b>/<b>Recalcular</b> nos dias necessários.
-                </div>
-              </div>
-            )}
+                      );
+                    })}
+                    {!filteredSales.length ? (
+                      <tr>
+                        <td
+                          colSpan={detailKind === "c2" ? 6 : detailKind === "c1" ? 5 : 4}
+                          className="px-5 py-16 text-center text-sm text-slate-500"
+                        >
+                          Nenhuma linha compõe este valor neste dia.
+                        </td>
+                      </tr>
+                    ) : (
+                      <tr className="bg-slate-50 font-semibold">
+                        <td className="px-5 py-2.5" colSpan={detailKind === "c2" ? 5 : detailKind === "c1" ? 4 : 3}>
+                          {filteredSales.length} venda{filteredSales.length === 1 ? "" : "s"}
+                        </td>
+                        <td className="px-5 py-2.5 text-right tabular-nums">{fmtMoneyBR(salesSum.amount)}</td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              )}
+            </div>
           </div>
         </div>
       )}
