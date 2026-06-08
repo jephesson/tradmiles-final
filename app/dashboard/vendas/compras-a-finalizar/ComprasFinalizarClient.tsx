@@ -11,16 +11,25 @@ import {
   RefreshCw,
   Search,
   ShoppingBag,
+  Target,
   TrendingDown,
   TrendingUp,
   Users,
 } from "lucide-react";
 import { cn } from "@/lib/cn";
 
+type ResumoRates = {
+  latamRateCents: number;
+  smilesRateCents: number;
+  liveloRateCents: number;
+  esferaRateCents: number;
+};
+
 type Row = {
   purchaseId: string;
   numero: string;
   cedente: { id: string; nomeCompleto: string; cpf: string; identificador: string } | null;
+  ciaAerea?: string | null;
 
   purchaseTotalCents: number;
 
@@ -119,6 +128,50 @@ function bonus30FromSale(points: number, milheiroCents: number | null, metaMilhe
 
   const excedenteCents = Math.round((pts * diff) / 1000);
   return Math.round(excedenteCents * 0.3);
+}
+
+function programForRow(r: Row): string | null {
+  if (r.ciaAerea) return String(r.ciaAerea).toUpperCase();
+
+  const programs = (r.sales || [])
+    .map((s) => String(s.program || "").toUpperCase())
+    .filter(Boolean);
+  if (!programs.length) return null;
+
+  const counts = new Map<string, number>();
+  for (const p of programs) counts.set(p, (counts.get(p) || 0) + 1);
+
+  return [...counts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] || null;
+}
+
+function resumoMilheiroCents(program: string | null, rates: ResumoRates | null): number | null {
+  if (!rates || !program) return null;
+
+  const p = program.toUpperCase();
+  if (p === "LATAM") return rates.latamRateCents > 0 ? rates.latamRateCents : null;
+  if (p === "SMILES") return rates.smilesRateCents > 0 ? rates.smilesRateCents : null;
+  if (p === "LIVELO") return rates.liveloRateCents > 0 ? rates.liveloRateCents : null;
+  if (p === "ESFERA") return rates.esferaRateCents > 0 ? rates.esferaRateCents : null;
+  return null;
+}
+
+/** Mesma regra do Resumo: floor(pts/1000) × milheiro (centavos). */
+function remainingValueResumoCents(remainingPoints: number, milheiroCents: number): number {
+  return Math.floor(remainingPoints / 1000) * milheiroCents;
+}
+
+function projectedNetResumoCents(r: Row, rates: ResumoRates | null): number {
+  const c = computeRow(r);
+  const milheiro = resumoMilheiroCents(programForRow(r), rates);
+
+  if (c.remainingPoints == null || c.remainingPoints <= 0 || milheiro == null) {
+    return c.netSaldoCents;
+  }
+
+  const remainingValue = remainingValueResumoCents(c.remainingPoints, milheiro);
+  const projectedBruto = c.salesPointsValueCents + remainingValue - (r.purchaseTotalCents || 0);
+  const futureBonus = bonus30FromSale(c.remainingPoints, milheiro, c.metaMilheiroCents || 0);
+  return projectedBruto - c.bonusPaidCents - futureBonus;
 }
 
 function computeRow(r: Row) {
@@ -236,6 +289,7 @@ const SUMMARY_ACCENT = {
   violet: "from-violet-500 to-indigo-600",
   emerald: "from-emerald-500 to-teal-600",
   rose: "from-rose-500 to-red-600",
+  amber: "from-amber-500 to-orange-600",
 } as const;
 
 function SummaryCard({
@@ -305,6 +359,7 @@ export default function ComprasFinalizarClient() {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [needsMigration, setNeedsMigration] = useState(false);
+  const [resumoRates, setResumoRates] = useState<ResumoRates | null>(null);
 
   const [open, setOpen] = useState<Record<string, boolean>>({});
 
@@ -316,12 +371,25 @@ export default function ComprasFinalizarClient() {
       const qs = new URLSearchParams();
       if (q.trim()) qs.set("q", q.trim());
 
-      const out = await api<{ ok: true; rows: Row[]; needsMigration?: boolean }>(
-        `/api/vendas/compras-a-finalizar?${qs.toString()}`
-      );
+      const [out, resumo] = await Promise.all([
+        api<{ ok: true; rows: Row[]; needsMigration?: boolean }>(
+          `/api/vendas/compras-a-finalizar?${qs.toString()}`
+        ),
+        api<{ ok: true; data: { ratesCents?: Partial<ResumoRates> } }>("/api/resumo").catch(() => null),
+      ]);
 
       setRows(Array.isArray(out.rows) ? out.rows : []);
       setNeedsMigration(Boolean(out.needsMigration));
+
+      const rates = resumo?.data?.ratesCents;
+      if (rates) {
+        setResumoRates({
+          latamRateCents: n(rates.latamRateCents, 0),
+          smilesRateCents: n(rates.smilesRateCents, 0),
+          liveloRateCents: n(rates.liveloRateCents, 0),
+          esferaRateCents: n(rates.esferaRateCents, 0),
+        });
+      }
     } catch (e: any) {
       setErr(e?.message || "Falha ao carregar.");
       setRows([]);
@@ -366,6 +434,7 @@ export default function ComprasFinalizarClient() {
     let vendasMilhas = 0;
     let saldoLiquido = 0;
     let bonusPago = 0;
+    let projecaoLiquida = 0;
 
     for (const r of filtered) {
       const c = computeRow(r);
@@ -374,10 +443,18 @@ export default function ComprasFinalizarClient() {
       vendasMilhas += c.salesPointsValueCents || 0;
       bonusPago += c.bonusPaidCents || 0;
       saldoLiquido += c.netSaldoCents || 0;
+      projecaoLiquida += projectedNetResumoCents(r, resumoRates);
     }
 
-    return { ids: filtered.length, compras, vendasTotal, vendasMilhas, saldoLiquido, bonusPago };
-  }, [filtered]);
+    return { ids: filtered.length, compras, vendasTotal, vendasMilhas, saldoLiquido, bonusPago, projecaoLiquida };
+  }, [filtered, resumoRates]);
+
+  const projecaoSub = useMemo(() => {
+    if (!resumoRates) return "Carregando milheiros do Resumo…";
+    const latam = resumoRates.latamRateCents > 0 ? fmtMoneyBR(resumoRates.latamRateCents) : "—";
+    const smiles = resumoRates.smilesRateCents > 0 ? fmtMoneyBR(resumoRates.smilesRateCents) : "—";
+    return `Milheiro resumo: LATAM ${latam} · Smiles ${smiles}`;
+  }, [resumoRates]);
 
   async function onFinalizar(purchaseId: string) {
     const ok = window.confirm("Finalizar esta compra? Isso grava os totais e trava como finalizada.");
@@ -465,7 +542,7 @@ export default function ComprasFinalizarClient() {
       )}
 
       {/* KPIs */}
-      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
         <SummaryCard
           label="IDs no filtro"
           value={fmtInt(totals.ids)}
@@ -491,6 +568,13 @@ export default function ComprasFinalizarClient() {
           sub={`Bônus pago: ${fmtMoneyBR(totals.bonusPago)}`}
           accent={totals.saldoLiquido < 0 ? "rose" : "emerald"}
           icon={totals.saldoLiquido < 0 ? TrendingDown : TrendingUp}
+        />
+        <SummaryCard
+          label="Projeção lucro líquido"
+          value={fmtMoneyBR(totals.projecaoLiquida)}
+          sub={projecaoSub}
+          accent={totals.projecaoLiquida < 0 ? "rose" : totals.projecaoLiquida > 0 ? "amber" : "slate"}
+          icon={Target}
         />
       </section>
 

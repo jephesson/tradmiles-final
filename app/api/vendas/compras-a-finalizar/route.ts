@@ -91,6 +91,7 @@ export async function GET(req: Request) {
     // ✅ projeções
     pontosCiaTotal: true,
     metaMilheiroCents: true,
+    ciaAerea: true,
 
     cedente: {
       select: {
@@ -108,6 +109,7 @@ export async function GET(req: Request) {
     totalCents: number;
     pontosCiaTotal: number;
     metaMilheiroCents: number;
+    ciaAerea: string | null;
     createdAt: Date;
     cedente: { id: string; nomeCompleto: string; cpf: string; identificador: string };
   }> = [];
@@ -312,6 +314,7 @@ export async function GET(req: Request) {
 
       avgMilheiroCents,
       metaMilheiroCents,
+      ciaAerea: p.ciaAerea ? String(p.ciaAerea) : null,
 
       projectedProfitAvgCents,
       projectedProfitMetaCents,
