@@ -435,6 +435,11 @@ export default function CheckLocalizadorClient({ mode }: { mode: Mode }) {
                           <option value="CONFIRMADO">Confirmado</option>
                           <option value="DERRUBADO">Derrubado</option>
                         </select>
+                        {r.smilesLocatorManualCheckedAt ? (
+                          <div className="text-xs text-slate-500">
+                            Checado em {fmtDateBR(r.smilesLocatorManualCheckedAt)}
+                          </div>
+                        ) : null}
                         {r.smilesLocatorManualStatus === "DERRUBADO" &&
                         Number(r.smilesLocatorLossCents || 0) > 0 ? (
                           <div className="text-xs font-medium text-rose-700">

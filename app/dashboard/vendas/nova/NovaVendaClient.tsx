@@ -2859,6 +2859,16 @@ export default function NovaVendaClient({
                   ) : null}
                 </div>
 
+                <div>
+                  <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Cedente</div>
+                  <div className="mt-1 break-words text-xl font-bold leading-tight text-slate-950 sm:text-2xl">
+                    {sel?.cedente?.nomeCompleto?.trim() || "—"}
+                  </div>
+                  {sel?.cedente?.identificador ? (
+                    <div className="mt-1 text-sm text-slate-600">{sel.cedente.identificador}</div>
+                  ) : null}
+                </div>
+
                 <div className="grid gap-4 sm:grid-cols-2">
                   <div className="rounded-xl border border-indigo-200/80 bg-white/80 px-3 py-3 shadow-sm">
                     <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Pontos</div>
@@ -2874,12 +2884,22 @@ export default function NovaVendaClient({
                   </div>
                 </div>
 
-                <div className="rounded-xl border border-indigo-200/80 bg-white/90 px-3 py-3 shadow-sm">
-                  <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                    Cartão da taxa de embarque
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="rounded-xl border border-indigo-200/80 bg-white/80 px-3 py-3 shadow-sm">
+                    <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                      Taxa de embarque
+                    </div>
+                    <div className="mt-1 text-2xl font-bold tabular-nums tracking-tight text-indigo-950 sm:text-3xl">
+                      {fmtMoneyBR(embarqueFeeCents)}
+                    </div>
                   </div>
-                  <div className="mt-1 break-words text-lg font-semibold leading-snug text-slate-900 sm:text-xl">
-                    {feeCardLabel || "—"}
+                  <div className="rounded-xl border border-indigo-200/80 bg-white/90 px-3 py-3 shadow-sm">
+                    <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                      Cartão da taxa de embarque
+                    </div>
+                    <div className="mt-1 break-words text-lg font-semibold leading-snug text-slate-900 sm:text-xl">
+                      {feeCardLabel || "—"}
+                    </div>
                   </div>
                 </div>
               </div>
