@@ -98,6 +98,18 @@ function smilesManualStatusClass(v?: string | null) {
   return "bg-slate-100 text-slate-600 border-slate-200";
 }
 
+function smilesManualRowClass(status?: string | null) {
+  if (status === "CONFIRMADO") return "font-bold text-emerald-700 bg-emerald-50/50";
+  if (status === "DERRUBADO") return "font-bold text-rose-700 bg-rose-50/70";
+  return "";
+}
+
+function smilesManualSubtextClass(status?: string | null) {
+  if (status === "CONFIRMADO") return "text-emerald-600";
+  if (status === "DERRUBADO") return "text-rose-600";
+  return "text-slate-500";
+}
+
 function fmtMoneyBR(cents?: number | null) {
   const v = Number(cents || 0) / 100;
   return v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -359,13 +371,27 @@ export default function CheckLocalizadorClient({ mode }: { mode: Mode }) {
                     ? getSmilesFlightStatus(r.departureDate, r.returnDate)
                     : null;
 
-                const smilesManualRowClass =
-                  mode === "smiles" && r.smilesLocatorManualStatus === "DERRUBADO"
-                    ? "bg-rose-50/70"
-                    : "";
+                const manualStatus =
+                  mode === "smiles" ? r.smilesLocatorManualStatus || null : null;
+                const manualRowClass =
+                  mode === "smiles" ? smilesManualRowClass(manualStatus) : "";
+                const manualSubtextClass =
+                  mode === "smiles" ? smilesManualSubtextClass(manualStatus) : "text-slate-500";
+                const flightBadgeClass =
+                  manualStatus === "CONFIRMADO"
+                    ? "bg-emerald-100 text-emerald-700 border-emerald-200"
+                    : manualStatus === "DERRUBADO"
+                      ? "bg-rose-100 text-rose-700 border-rose-200"
+                      : smilesFlightStatus?.badgeClass || "";
+                const flightHintClass =
+                  manualStatus === "CONFIRMADO"
+                    ? "text-emerald-700"
+                    : manualStatus === "DERRUBADO"
+                      ? "text-rose-700"
+                      : smilesFlightStatus?.textClass || "";
 
                 return (
-                <tr key={r.id} className={`border-b last:border-b-0 ${smilesManualRowClass}`}>
+                <tr key={r.id} className={`border-b last:border-b-0 ${manualRowClass}`}>
                   <td className="px-3 py-2">{nextFlightLabel(r.departureDate, r.returnDate)}</td>
                   {mode === "latam" ? (
                     <td className="px-3 py-2 font-mono">{(r as LatamRow).purchaseCode || "-"}</td>
@@ -378,18 +404,20 @@ export default function CheckLocalizadorClient({ mode }: { mode: Mode }) {
                   <td className="px-3 py-2">{fmtDateBR(r.departureDate)}</td>
                   <td className="px-3 py-2">{fmtDateBR(r.returnDate)}</td>
                   <td className="px-3 py-2">
-                    <div className="font-medium">{r.cedente?.nomeCompleto || "-"}</div>
-                    <div className="text-xs text-slate-500">{r.cedente?.identificador || "-"}</div>
+                    <div>{r.cedente?.nomeCompleto || "-"}</div>
+                    <div className={`text-xs ${manualSubtextClass}`}>
+                      {r.cedente?.identificador || "-"}
+                    </div>
                   </td>
                   {mode === "smiles" && smilesFlightStatus ? (
                     <td className="px-3 py-2">
                       <div
-                        className={`inline-flex rounded-full border px-2 py-0.5 text-xs font-medium ${smilesFlightStatus.badgeClass}`}
+                        className={`inline-flex rounded-full border px-2 py-0.5 text-xs font-medium ${flightBadgeClass}`}
                       >
                         {smilesFlightStatus.label}
                       </div>
                       {smilesFlightStatus.hint ? (
-                        <div className={`mt-1 text-xs ${smilesFlightStatus.textClass}`}>
+                        <div className={`mt-1 text-xs ${flightHintClass}`}>
                           {smilesFlightStatus.hint}
                         </div>
                       ) : null}
@@ -399,7 +427,7 @@ export default function CheckLocalizadorClient({ mode }: { mode: Mode }) {
                     <td className="px-3 py-2">
                       <div className="space-y-2">
                         <select
-                          className={`rounded-lg border px-2 py-1 text-xs bg-white min-w-[140px] ${
+                          className={`rounded-lg border px-2 py-1 text-xs bg-white min-w-[140px] font-bold ${
                             r.smilesLocatorManualStatus === "DERRUBADO"
                               ? "border-rose-300 text-rose-700 bg-rose-50"
                               : r.smilesLocatorManualStatus === "CONFIRMADO"
@@ -436,13 +464,13 @@ export default function CheckLocalizadorClient({ mode }: { mode: Mode }) {
                           <option value="DERRUBADO">Derrubado</option>
                         </select>
                         {r.smilesLocatorManualCheckedAt ? (
-                          <div className="text-xs text-slate-500">
+                          <div className={`text-xs ${manualSubtextClass}`}>
                             Checado em {fmtDateBR(r.smilesLocatorManualCheckedAt)}
                           </div>
                         ) : null}
                         {r.smilesLocatorManualStatus === "DERRUBADO" &&
                         Number(r.smilesLocatorLossCents || 0) > 0 ? (
-                          <div className="text-xs font-medium text-rose-700">
+                          <div className="text-xs font-bold text-rose-700">
                             Prejuízo: {fmtMoneyBR(r.smilesLocatorLossCents || 0)}
                           </div>
                         ) : null}
