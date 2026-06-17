@@ -896,7 +896,8 @@ model BlockedAccount {
 
   cedente Cedente @relation(fields: [cedenteId], references: [id], onDelete: Cascade)
 
-  @@unique([cedenteId, program, status], map: "uniq_open_block_per_program")
+  // Índice parcial (só OPEN) em migration: uniq_open_block_per_program
+  @@index([cedenteId, program])
   @@index([cedenteId])
   @@index([program])
   @@index([status])
