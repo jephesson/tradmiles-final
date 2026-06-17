@@ -1,6 +1,7 @@
 // app/api/funcionarios/[id]/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { requireAdmin, requireSession } from "@/lib/require-session";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -44,6 +45,7 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
       employeeId: true,
       role: true,
       team: true,
+      isActive: true,
       createdAt: true,
       employeeInvite: { select: { code: true, isActive: true } },
       _count: { select: { cedentesOwned: true } },
@@ -63,6 +65,7 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
         employeeId: u.employeeId ?? null,
         team: u.team,
         role: u.role,
+        isActive: u.isActive,
         createdAt: u.createdAt,
         inviteCode: u.employeeInvite?.code ?? null,
         _count: { cedentes: u._count.cedentesOwned },
@@ -75,6 +78,79 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
 export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   const { id } = await ctx.params;
   const body = await req.json().catch(() => ({}));
+
+  let session;
+  try {
+    session = requireSession(req);
+  } catch (e: any) {
+    return NextResponse.json(
+      { ok: false, error: e?.message || "Não autenticado." },
+      { status: 401, headers: noCacheHeaders() }
+    );
+  }
+
+  const wantsIsActiveChange = typeof body?.isActive === "boolean";
+  if (wantsIsActiveChange) {
+    try {
+      requireAdmin(req);
+    } catch (e: any) {
+      return NextResponse.json(
+        { ok: false, error: e?.message || "Sem permissão." },
+        { status: 403, headers: noCacheHeaders() }
+      );
+    }
+
+    if (body.isActive === false && session.userId === id) {
+      return NextResponse.json(
+        { ok: false, error: "Você não pode suspender o próprio login." },
+        { status: 400, headers: noCacheHeaders() }
+      );
+    }
+
+    try {
+      const updated = await prisma.user.update({
+        where: { id },
+        data: { isActive: body.isActive },
+        select: {
+          id: true,
+          name: true,
+          login: true,
+          cpf: true,
+          employeeId: true,
+          team: true,
+          role: true,
+          isActive: true,
+          createdAt: true,
+          employeeInvite: { select: { code: true } },
+        },
+      });
+
+      return NextResponse.json(
+        {
+          ok: true,
+          data: {
+            id: updated.id,
+            name: updated.name,
+            login: updated.login,
+            cpf: updated.cpf,
+            employeeId: updated.employeeId ?? null,
+            team: updated.team,
+            role: updated.role,
+            isActive: updated.isActive,
+            createdAt: updated.createdAt,
+            inviteCode: updated.employeeInvite?.code ?? null,
+          },
+        },
+        { headers: noCacheHeaders() }
+      );
+    } catch (e: any) {
+      console.error("Erro PATCH isActive /api/funcionarios/[id]:", e);
+      return NextResponse.json(
+        { ok: false, error: "Erro ao atualizar status de login." },
+        { status: 500, headers: noCacheHeaders() }
+      );
+    }
+  }
 
   const name = typeof body?.name === "string" ? body.name.trim() : "";
   const login = typeof body?.login === "string" ? body.login.trim().toLowerCase() : "";
@@ -103,6 +179,7 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
         employeeId: true,
         team: true,
         role: true,
+        isActive: true,
         createdAt: true,
         employeeInvite: { select: { code: true } },
       },
@@ -119,6 +196,7 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
           employeeId: updated.employeeId ?? null,
           team: updated.team,
           role: updated.role,
+          isActive: updated.isActive,
           createdAt: updated.createdAt,
           inviteCode: updated.employeeInvite?.code ?? null,
         },

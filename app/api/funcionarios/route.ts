@@ -52,6 +52,7 @@ export async function GET() {
         employeeId: true, // ✅
         role: true,
         team: true,
+        isActive: true,
         createdAt: true,
         employeeInvite: { select: { code: true, isActive: true } },
         _count: { select: { cedentesOwned: true } },
@@ -66,6 +67,7 @@ export async function GET() {
       employeeId: u.employeeId ?? null,
       team: u.team,
       role: u.role,
+      isActive: u.isActive,
       createdAt: u.createdAt,
       inviteCode: u.employeeInvite?.code ?? null,
       _count: { cedentes: u._count.cedentesOwned },

@@ -30,10 +30,17 @@ export async function GET(): Promise<NextResponse> {
 
     const user = await prisma.user.findUnique({
       where: { id: cookieS.id },
-      select: { id: true, name: true, login: true, email: true, team: true, role: true },
+      select: { id: true, name: true, login: true, email: true, team: true, role: true, isActive: true },
     });
     if (!user) {
       return NextResponse.json({ ok: false, error: "Usuário não encontrado" }, { status: 401, headers: noCacheHeaders() });
+    }
+
+    if (user.isActive === false) {
+      return NextResponse.json(
+        { ok: false, error: "Login suspenso. Entre em contato com o administrador." },
+        { status: 403, headers: noCacheHeaders() }
+      );
     }
 
     const role = normalizeRole(user.role);

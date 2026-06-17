@@ -187,6 +187,13 @@ export async function POST(req: Request): Promise<NextResponse> {
         );
       }
 
+      if (dbUser.isActive === false) {
+        return NextResponse.json(
+          { ok: false, error: "Login suspenso. Entre em contato com o administrador." },
+          { status: 403, headers: noCacheHeaders() }
+        );
+      }
+
       if (dbUser.passwordHash !== sha256(password)) {
         return NextResponse.json({ ok: false, error: "Senha inválida" }, { status: 401, headers: noCacheHeaders() });
       }

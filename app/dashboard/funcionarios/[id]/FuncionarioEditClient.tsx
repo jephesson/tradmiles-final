@@ -10,6 +10,7 @@ type FuncItem = {
   cpf: string | null;
   team: string;
   role: string;
+  isActive?: boolean;
   inviteCode: string | null;
   createdAt: string;
   _count?: { cedentes: number };
@@ -54,6 +55,20 @@ export default function FuncionarioEditClient({ id }: { id: string }) {
   const [oldPassword, setOldPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [newPassword2, setNewPassword2] = useState("");
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [togglingLogin, setTogglingLogin] = useState(false);
+
+  async function loadSession() {
+    try {
+      const res = await fetch("/api/auth/me", { cache: "no-store", credentials: "include" });
+      const json = await res.json();
+      if (json?.ok && json?.data?.session?.role === "admin") {
+        setIsAdmin(true);
+      }
+    } catch {
+      setIsAdmin(false);
+    }
+  }
 
   async function load() {
     setLoading(true);
@@ -78,6 +93,7 @@ export default function FuncionarioEditClient({ id }: { id: string }) {
   }
 
   useEffect(() => {
+    loadSession();
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
@@ -106,6 +122,7 @@ export default function FuncionarioEditClient({ id }: { id: string }) {
       const res = await fetch(`/api/funcionarios/${item.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify(payload),
       });
 
@@ -121,13 +138,16 @@ export default function FuncionarioEditClient({ id }: { id: string }) {
     }
   }
 
-  async function trocarSenha() {
+  async function trocarSenha(adminReset = false) {
     if (!item) return;
     setMsg("");
 
     try {
-      if (!oldPassword || !newPassword || !newPassword2) {
+      if (!adminReset && !oldPassword) {
         throw new Error("Preencha senha antiga e a nova duas vezes.");
+      }
+      if (!newPassword || !newPassword2) {
+        throw new Error("Preencha a nova senha duas vezes.");
       }
       if (newPassword.trim().length < 6) throw new Error("Nova senha deve ter pelo menos 6 caracteres.");
       if (newPassword !== newPassword2) throw new Error("As novas senhas não conferem.");
@@ -135,7 +155,12 @@ export default function FuncionarioEditClient({ id }: { id: string }) {
       const res = await fetch(`/api/funcionarios/${item.id}/password`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ oldPassword, newPassword, newPassword2 }),
+        credentials: "include",
+        body: JSON.stringify(
+          adminReset
+            ? { newPassword, newPassword2, adminReset: true }
+            : { oldPassword, newPassword, newPassword2 }
+        ),
       });
 
       const json = await res.json();
@@ -144,9 +169,35 @@ export default function FuncionarioEditClient({ id }: { id: string }) {
       setOldPassword("");
       setNewPassword("");
       setNewPassword2("");
-      setMsg("✅ Senha alterada com sucesso.");
+      setMsg(adminReset ? "✅ Senha redefinida pelo admin." : "✅ Senha alterada com sucesso.");
     } catch (e: any) {
       setMsg(e?.message || "Erro");
+    }
+  }
+
+  async function toggleLoginAtivo(nextActive: boolean) {
+    if (!item) return;
+    const action = nextActive ? "reativar o login" : "suspender o login";
+    if (!confirm(`Deseja ${action} de ${item.name}?`)) return;
+
+    setTogglingLogin(true);
+    setMsg("");
+    try {
+      const res = await fetch(`/api/funcionarios/${item.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ isActive: nextActive }),
+      });
+      const json = await res.json();
+      if (!json?.ok) throw new Error(json?.error || "Erro ao atualizar login.");
+
+      setItem((prev) => (prev ? { ...prev, isActive: json.data.isActive } : prev));
+      setMsg(nextActive ? "✅ Login reativado." : "✅ Login suspenso.");
+    } catch (e: any) {
+      setMsg(e?.message || "Erro");
+    } finally {
+      setTogglingLogin(false);
     }
   }
 
@@ -171,14 +222,37 @@ export default function FuncionarioEditClient({ id }: { id: string }) {
 
   return (
     <div className="p-6 max-w-2xl">
-      <div className="mb-4 flex items-center justify-between">
+      <div className="mb-4 flex items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold">Editar funcionário</h1>
           <p className="text-sm text-slate-600">Edite dados, senha e gere o link de indicação.</p>
         </div>
-        <a href="/dashboard/funcionarios" className="rounded-xl border px-3 py-2 text-sm hover:bg-slate-50">
-          Voltar
-        </a>
+        <div className="flex flex-wrap items-center gap-2">
+          {isAdmin && item ? (
+            item.isActive === false ? (
+              <button
+                type="button"
+                disabled={togglingLogin}
+                onClick={() => toggleLoginAtivo(true)}
+                className="rounded-xl border border-emerald-300 px-3 py-2 text-sm text-emerald-700 hover:bg-emerald-50 disabled:opacity-60"
+              >
+                Reativar login
+              </button>
+            ) : (
+              <button
+                type="button"
+                disabled={togglingLogin}
+                onClick={() => toggleLoginAtivo(false)}
+                className="rounded-xl border border-rose-300 px-3 py-2 text-sm text-rose-700 hover:bg-rose-50 disabled:opacity-60"
+              >
+                Suspender login
+              </button>
+            )
+          ) : null}
+          <a href="/dashboard/funcionarios" className="rounded-xl border px-3 py-2 text-sm hover:bg-slate-50">
+            Voltar
+          </a>
+        </div>
       </div>
 
       {loading && <p className="text-sm text-slate-600">Carregando...</p>}
@@ -256,12 +330,25 @@ export default function FuncionarioEditClient({ id }: { id: string }) {
 
           {/* Troca de senha */}
           <div className="rounded-2xl border p-4 space-y-3">
-            <div className="text-sm font-semibold">Trocar senha</div>
-
-            <div>
-              <label className="block text-sm mb-1">Senha antiga</label>
-              <input type="password" className="w-full rounded-xl border px-3 py-2" value={oldPassword} onChange={(e) => setOldPassword(e.target.value)} />
+            <div className="text-sm font-semibold">
+              {isAdmin ? "Redefinir senha (admin)" : "Trocar senha"}
             </div>
+
+            {isAdmin ? (
+              <div className="text-xs text-slate-500">
+                Como admin, você pode definir uma nova senha sem informar a senha anterior.
+              </div>
+            ) : (
+              <div>
+                <label className="block text-sm mb-1">Senha antiga</label>
+                <input
+                  type="password"
+                  className="w-full rounded-xl border px-3 py-2"
+                  value={oldPassword}
+                  onChange={(e) => setOldPassword(e.target.value)}
+                />
+              </div>
+            )}
 
             <div>
               <label className="block text-sm mb-1">Nova senha</label>
@@ -273,8 +360,12 @@ export default function FuncionarioEditClient({ id }: { id: string }) {
               <input type="password" className="w-full rounded-xl border px-3 py-2" value={newPassword2} onChange={(e) => setNewPassword2(e.target.value)} />
             </div>
 
-            <button type="button" onClick={trocarSenha} className="rounded-xl border px-4 py-2">
-              Alterar senha
+            <button
+              type="button"
+              onClick={() => trocarSenha(isAdmin)}
+              className="rounded-xl border px-4 py-2"
+            >
+              {isAdmin ? "Redefinir senha" : "Alterar senha"}
             </button>
           </div>
         </form>

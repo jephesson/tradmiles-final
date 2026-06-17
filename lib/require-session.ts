@@ -34,3 +34,11 @@ export function requireSession(req: Request): SessionLike {
 
   return { userId: s.id, login: s.login, role: s.role, team: s.team };
 }
+
+export function requireAdmin(req: Request): SessionLike {
+  const session = requireSession(req);
+  if (session.role !== "admin") {
+    throw new Error("Sem permissão (admin apenas).");
+  }
+  return session;
+}
