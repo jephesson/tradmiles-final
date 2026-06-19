@@ -120,7 +120,12 @@ export async function POST(req: Request) {
     const note = String(body?.note || "").trim() || null;
 
     const estimatedUnlock = String(body?.estimatedUnlockAt || "").trim();
-    const estimatedUnlockAt = estimatedUnlock ? new Date(estimatedUnlock) : null;
+    let estimatedUnlockAt = estimatedUnlock ? new Date(estimatedUnlock) : null;
+
+    if (!estimatedUnlockAt && program === "LATAM") {
+      estimatedUnlockAt = new Date();
+      estimatedUnlockAt.setDate(estimatedUnlockAt.getDate() + 180);
+    }
 
     if (!cedenteId) return NextResponse.json({ ok: false, error: "Selecione a conta (cedente)." }, { status: 400 });
     if (!["LATAM", "SMILES", "LIVELO", "ESFERA"].includes(program))

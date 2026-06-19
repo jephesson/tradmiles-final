@@ -47,6 +47,34 @@ function dateBR(iso: string) {
   return new Date(iso).toLocaleDateString("pt-BR");
 }
 
+const LATAM_UNLOCK_DAYS = 180;
+
+function ymdFromDate(d: Date) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+function isoToInputDate(iso?: string | null) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  return ymdFromDate(d);
+}
+
+function suggestedLatamUnlockYmd(fromIso?: string | null) {
+  const base = fromIso ? new Date(fromIso) : new Date();
+  if (Number.isNaN(base.getTime())) return ymdFromDate(addDays(new Date(), LATAM_UNLOCK_DAYS));
+  return ymdFromDate(addDays(base, LATAM_UNLOCK_DAYS));
+}
+
+function addDays(d: Date, days: number) {
+  const next = new Date(d);
+  next.setDate(next.getDate() + days);
+  return next;
+}
+
 function cn(...xs: Array<string | false | undefined | null>) {
   return xs.filter(Boolean).join(" ");
 }
@@ -122,6 +150,8 @@ export default function BloqueiosClient() {
   const [estimatedUnlockAt, setEstimatedUnlockAt] = useState(""); // yyyy-mm-dd
 
   const [obsText, setObsText] = useState<Record<string, string>>({});
+  const [unlockDraft, setUnlockDraft] = useState<Record<string, string>>({});
+  const [savingUnlockId, setSavingUnlockId] = useState<string | null>(null);
 
   async function loadAll() {
     setLoading(true);
@@ -138,7 +168,13 @@ export default function BloqueiosClient() {
       if (!j2?.ok) throw new Error(j2?.error || "Erro ao carregar bloqueios");
 
       setCedentes(j1.data || []);
-      setRows(j2.data.rows || []);
+      const nextRows: BlockRow[] = j2.data.rows || [];
+      setRows(nextRows);
+      setUnlockDraft(
+        Object.fromEntries(
+          nextRows.map((r) => [r.id, isoToInputDate(r.estimatedUnlockAt)])
+        )
+      );
     } catch (e: any) {
       alert(e.message);
     } finally {
@@ -149,6 +185,12 @@ export default function BloqueiosClient() {
   useEffect(() => {
     loadAll();
   }, []);
+
+  useEffect(() => {
+    if (program === "LATAM") {
+      setEstimatedUnlockAt(suggestedLatamUnlockYmd(null));
+    }
+  }, [program]);
 
   // ✅ Cedente selecionado + preview dos 4 programas
   const selectedCedente = useMemo(() => {
@@ -228,7 +270,7 @@ export default function BloqueiosClient() {
       setCedenteId("");
       setProgram("LATAM");
       setNote("");
-      setEstimatedUnlockAt("");
+      setEstimatedUnlockAt(suggestedLatamUnlockYmd(null));
       await loadAll();
     } catch (e: any) {
       alert(e.message);
@@ -257,6 +299,27 @@ export default function BloqueiosClient() {
       alert(e.message);
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function updateEstimatedUnlock(blockId: string, dateYmd: string) {
+    setSavingUnlockId(blockId);
+    try {
+      const res = await fetch(`/api/bloqueios/${blockId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          estimatedUnlockAt: dateYmd ? `${dateYmd}T12:00:00.000Z` : null,
+        }),
+      });
+      const j = await res.json().catch(() => null);
+      if (!res.ok || !j?.ok) throw new Error(j?.error || "Erro ao atualizar previsão.");
+
+      await loadAll();
+    } catch (e: any) {
+      alert(e.message);
+    } finally {
+      setSavingUnlockId(null);
     }
   }
 
@@ -389,7 +452,12 @@ export default function BloqueiosClient() {
           </label>
 
           <label className="space-y-1">
-            <div className="text-xs text-slate-600">Previsão desbloqueio</div>
+            <div className="text-xs text-slate-600">
+              Previsão desbloqueio
+              {program === "LATAM" ? (
+                <span className="text-slate-500"> (sugerido: 180 dias)</span>
+              ) : null}
+            </div>
             <input
               type="date"
               className="w-full rounded-xl border px-3 py-2 text-sm"
@@ -442,9 +510,46 @@ export default function BloqueiosClient() {
 
                     <div className="text-xs text-slate-500">
                       {b.cedente.identificador} • Criado em {dateTimeBR(b.createdAt)}
-                      {b.estimatedUnlockAt ? ` • Previsão: ${dateBR(b.estimatedUnlockAt)}` : ""}
                       {b.resolvedAt ? ` • Resolvido: ${dateBR(b.resolvedAt)}` : ""}
                     </div>
+
+                    {b.status === "OPEN" ? (
+                      <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
+                        <span className="text-slate-500">Previsão desbloqueio:</span>
+                        <input
+                          type="date"
+                          className="rounded-lg border px-2 py-1 text-xs"
+                          value={unlockDraft[b.id] ?? isoToInputDate(b.estimatedUnlockAt)}
+                          disabled={savingUnlockId === b.id}
+                          onChange={(e) =>
+                            setUnlockDraft((p) => ({ ...p, [b.id]: e.target.value }))
+                          }
+                          onBlur={(e) => {
+                            const next = e.target.value;
+                            const current = isoToInputDate(b.estimatedUnlockAt);
+                            if (next !== current) updateEstimatedUnlock(b.id, next);
+                          }}
+                        />
+                        {b.program === "LATAM" ? (
+                          <button
+                            type="button"
+                            className="rounded-lg border px-2 py-1 text-xs hover:bg-slate-50 disabled:opacity-60"
+                            disabled={savingUnlockId === b.id}
+                            onClick={() => {
+                              const suggested = suggestedLatamUnlockYmd(b.createdAt);
+                              setUnlockDraft((p) => ({ ...p, [b.id]: suggested }));
+                              updateEstimatedUnlock(b.id, suggested);
+                            }}
+                          >
+                            Sugerir 180 dias
+                          </button>
+                        ) : null}
+                      </div>
+                    ) : b.estimatedUnlockAt ? (
+                      <div className="text-xs text-slate-500 mt-1">
+                        Previsão: {dateBR(b.estimatedUnlockAt)}
+                      </div>
+                    ) : null}
 
                     {b.note ? <div className="text-sm text-slate-700 mt-1">{b.note}</div> : null}
                   </div>

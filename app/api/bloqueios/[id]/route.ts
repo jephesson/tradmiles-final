@@ -6,8 +6,17 @@ export const dynamic = "force-dynamic";
 
 type PatchBody = {
   status?: "OPEN" | "UNBLOCKED" | "CANCELED";
-  resolvedAt?: string | null; // opcional
+  resolvedAt?: string | null;
+  estimatedUnlockAt?: string | null;
 };
+
+function parseEstimatedUnlock(raw: unknown) {
+  const s = String(raw ?? "").trim();
+  if (!s) return null;
+  const d = new Date(s);
+  if (Number.isNaN(d.getTime())) return null;
+  return d;
+}
 
 export async function PATCH(
   req: NextRequest,
@@ -25,32 +34,49 @@ export async function PATCH(
 
     const body = (await req.json().catch(() => ({}))) as PatchBody;
 
-    // ✅ Se não vier status, padrão: UNBLOCKED (desbloqueio manual)
-    const nextStatus =
-      body.status && ["OPEN", "UNBLOCKED", "CANCELED"].includes(body.status)
-        ? body.status
-        : "UNBLOCKED";
+    const hasStatus =
+      body.status !== undefined && ["OPEN", "UNBLOCKED", "CANCELED"].includes(body.status);
+    const hasEstimatedUnlock = body.estimatedUnlockAt !== undefined;
 
-    const resolvedAt =
-      nextStatus === "UNBLOCKED"
-        ? body.resolvedAt
-          ? new Date(body.resolvedAt)
-          : new Date()
-        : null;
+    if (!hasStatus && !hasEstimatedUnlock) {
+      return NextResponse.json(
+        { ok: false, error: "Informe status ou previsão de desbloqueio." },
+        { status: 400 }
+      );
+    }
+
+    const data: {
+      status?: "OPEN" | "UNBLOCKED" | "CANCELED";
+      resolvedAt?: Date | null;
+      estimatedUnlockAt?: Date | null;
+    } = {};
+
+    if (hasEstimatedUnlock) {
+      data.estimatedUnlockAt = parseEstimatedUnlock(body.estimatedUnlockAt);
+    }
+
+    if (hasStatus) {
+      const nextStatus = body.status as "OPEN" | "UNBLOCKED" | "CANCELED";
+      data.status = nextStatus;
+      data.resolvedAt =
+        nextStatus === "UNBLOCKED"
+          ? body.resolvedAt
+            ? new Date(body.resolvedAt)
+            : new Date()
+          : null;
+    }
 
     const select = {
       id: true,
       status: true,
       resolvedAt: true,
+      estimatedUnlockAt: true,
     } as const;
 
     async function applyUpdate() {
       return prisma.blockedAccount.update({
         where: { id },
-        data: {
-          status: nextStatus as any,
-          resolvedAt,
-        },
+        data: data as any,
         select,
       });
     }
@@ -59,8 +85,7 @@ export async function PATCH(
     try {
       updated = await applyUpdate();
     } catch (e: any) {
-      // Compatível com índice legado (cedenteId, program, status) até a migration rodar.
-      if (e?.code !== "P2002" || nextStatus !== "UNBLOCKED") throw e;
+      if (e?.code !== "P2002" || data.status !== "UNBLOCKED") throw e;
 
       const block = await prisma.blockedAccount.findUnique({
         where: { id },
@@ -80,7 +105,19 @@ export async function PATCH(
       updated = await applyUpdate();
     }
 
-    return NextResponse.json({ ok: true, data: updated }, { status: 200 });
+    return NextResponse.json(
+      {
+        ok: true,
+        data: {
+          ...updated,
+          estimatedUnlockAt: updated.estimatedUnlockAt
+            ? updated.estimatedUnlockAt.toISOString()
+            : null,
+          resolvedAt: updated.resolvedAt ? updated.resolvedAt.toISOString() : null,
+        },
+      },
+      { status: 200 }
+    );
   } catch (e: any) {
     console.error(e);
     const msg =
