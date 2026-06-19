@@ -1,5 +1,9 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import {
+  mergeLastEmissionDate,
+  unlockDateFromLastEmission,
+} from "@/lib/bloqueios-unlock";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -18,8 +22,57 @@ function calcValueCents(points: number, rateCents: number) {
   return milheiros * (rateCents || 0);
 }
 
-export async function GET() {
+async function fetchLastEmissionMap(cedenteIds: string[]) {
+  const map = new Map<string, Date>();
+  if (!cedenteIds.length) return map;
+
+  const [emissionGroups, saleGroups] = await Promise.all([
+    prisma.emissionEvent.groupBy({
+      by: ["cedenteId", "program"],
+      where: { cedenteId: { in: cedenteIds } },
+      _max: { issuedAt: true },
+    }),
+    prisma.sale.groupBy({
+      by: ["cedenteId", "program"],
+      where: { cedenteId: { in: cedenteIds } },
+      _max: { date: true },
+    }),
+  ]);
+
+  for (const g of emissionGroups) {
+    mergeLastEmissionDate(map, g.cedenteId, g.program, g._max.issuedAt);
+  }
+  for (const g of saleGroups) {
+    mergeLastEmissionDate(map, g.cedenteId, g.program, g._max.date);
+  }
+
+  return map;
+}
+
+async function getLastEmissionAt(cedenteId: string, program: string) {
+  const map = await fetchLastEmissionMap([cedenteId]);
+  return map.get(`${cedenteId}|${program}`) ?? null;
+}
+
+export async function GET(req: Request) {
   try {
+    const url = new URL(req.url);
+    const cedenteIdQ = url.searchParams.get("cedenteId")?.trim();
+    const programQ = url.searchParams.get("program")?.trim().toUpperCase();
+
+    if (cedenteIdQ && programQ && ["LATAM", "SMILES", "LIVELO", "ESFERA"].includes(programQ)) {
+      const lastEmissionAt = await getLastEmissionAt(cedenteIdQ, programQ);
+      return NextResponse.json({
+        ok: true,
+        data: {
+          lastEmissionAt: lastEmissionAt ? lastEmissionAt.toISOString() : null,
+          suggestedUnlockAt: lastEmissionAt
+            ? unlockDateFromLastEmission(lastEmissionAt).toISOString()
+            : null,
+        },
+      });
+    }
+
     const settings = await prisma.settings.upsert({
       where: { key: "default" },
       create: { key: "default" },
@@ -52,31 +105,7 @@ export async function GET() {
     });
 
     const cedenteIds = [...new Set(blocks.map((b) => b.cedenteId))];
-    const lastEmissionMap = new Map<string, Date>();
-
-    if (cedenteIds.length) {
-      const emissions = await prisma.emissionEvent.findMany({
-        where: { cedenteId: { in: cedenteIds } },
-        select: { cedenteId: true, program: true, issuedAt: true },
-        orderBy: { issuedAt: "desc" },
-      });
-
-      for (const e of emissions) {
-        const key = `${e.cedenteId}|${e.program}`;
-        if (!lastEmissionMap.has(key)) lastEmissionMap.set(key, e.issuedAt);
-      }
-
-      const sales = await prisma.sale.findMany({
-        where: { cedenteId: { in: cedenteIds } },
-        select: { cedenteId: true, program: true, date: true },
-        orderBy: { date: "desc" },
-      });
-
-      for (const s of sales) {
-        const key = `${s.cedenteId}|${s.program}`;
-        if (!lastEmissionMap.has(key)) lastEmissionMap.set(key, s.date);
-      }
-    }
+    const lastEmissionMap = await fetchLastEmissionMap(cedenteIds);
 
     const rows = blocks.map((b) => {
       const pts = programPoints(b.cedente, b.program);
@@ -130,7 +159,7 @@ export async function GET() {
         data: {
           rows,
           totals,
-          ratesCents: settings, // pra front mostrar/explicar se quiser
+          ratesCents: settings,
         },
       },
       { status: 200 }
@@ -152,15 +181,16 @@ export async function POST(req: Request) {
     let estimatedUnlockAt = estimatedUnlock ? new Date(estimatedUnlock) : null;
 
     if (!estimatedUnlockAt && program === "LATAM") {
-      estimatedUnlockAt = new Date();
-      estimatedUnlockAt.setDate(estimatedUnlockAt.getDate() + 180);
+      const lastEmissionAt = await getLastEmissionAt(cedenteId, program);
+      if (lastEmissionAt) {
+        estimatedUnlockAt = unlockDateFromLastEmission(lastEmissionAt);
+      }
     }
 
     if (!cedenteId) return NextResponse.json({ ok: false, error: "Selecione a conta (cedente)." }, { status: 400 });
     if (!["LATAM", "SMILES", "LIVELO", "ESFERA"].includes(program))
       return NextResponse.json({ ok: false, error: "Programa inválido." }, { status: 400 });
 
-    // (opcional) createdById: se você tiver sessão, aqui você pega e seta.
     const createdById = null;
 
     const created = await prisma.blockedAccount.create({

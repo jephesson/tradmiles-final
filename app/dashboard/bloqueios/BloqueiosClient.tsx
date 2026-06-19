@@ -1,6 +1,11 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import {
+  UNLOCK_BUFFER_DAYS,
+  UNLOCK_WINDOW_DAYS,
+  unlockYmdFromLastEmissionIso,
+} from "@/lib/bloqueios-unlock";
 
 type CedenteOpt = {
   id: string;
@@ -48,39 +53,14 @@ function dateBR(iso: string) {
   return new Date(iso).toLocaleDateString("pt-BR");
 }
 
-const LATAM_UNLOCK_DAYS = 180;
-const DAYS_AFTER_LAST_EMISSION = 1;
-
-function ymdFromDate(d: Date) {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
-}
-
 function isoToInputDate(iso?: string | null) {
   if (!iso) return "";
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "";
-  return ymdFromDate(d);
-}
-
-function suggestedLatamUnlockYmd(fromIso?: string | null) {
-  const base = fromIso ? new Date(fromIso) : new Date();
-  if (Number.isNaN(base.getTime())) return ymdFromDate(addDays(new Date(), LATAM_UNLOCK_DAYS));
-  return ymdFromDate(addDays(base, LATAM_UNLOCK_DAYS));
-}
-
-function suggestedFromLastEmissionYmd(lastEmissionIso: string) {
-  const base = new Date(lastEmissionIso);
-  if (Number.isNaN(base.getTime())) return "";
-  return ymdFromDate(addDays(base, DAYS_AFTER_LAST_EMISSION + LATAM_UNLOCK_DAYS));
-}
-
-function addDays(d: Date, days: number) {
-  const next = new Date(d);
-  next.setDate(next.getDate() + days);
-  return next;
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
 }
 
 function cn(...xs: Array<string | false | undefined | null>) {
@@ -156,6 +136,7 @@ export default function BloqueiosClient() {
   const [program, setProgram] = useState<BlockRow["program"]>("LATAM");
   const [note, setNote] = useState("");
   const [estimatedUnlockAt, setEstimatedUnlockAt] = useState(""); // yyyy-mm-dd
+  const [createLastEmissionAt, setCreateLastEmissionAt] = useState<string | null>(null);
 
   const [obsText, setObsText] = useState<Record<string, string>>({});
   const [unlockDraft, setUnlockDraft] = useState<Record<string, string>>({});
@@ -195,10 +176,34 @@ export default function BloqueiosClient() {
   }, []);
 
   useEffect(() => {
-    if (program === "LATAM") {
-      setEstimatedUnlockAt(suggestedLatamUnlockYmd(null));
+    if (!cedenteId) {
+      setCreateLastEmissionAt(null);
+      return;
     }
-  }, [program]);
+
+    let active = true;
+    fetch(
+      `/api/bloqueios?cedenteId=${encodeURIComponent(cedenteId)}&program=${encodeURIComponent(program)}`,
+      { cache: "no-store" }
+    )
+      .then((r) => r.json())
+      .then((j) => {
+        if (!active) return;
+        const iso = j?.data?.lastEmissionAt || null;
+        setCreateLastEmissionAt(iso);
+        if (iso && program === "LATAM") {
+          setEstimatedUnlockAt(unlockYmdFromLastEmissionIso(iso));
+        }
+      })
+      .catch(() => {
+        if (!active) return;
+        setCreateLastEmissionAt(null);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [cedenteId, program]);
 
   // ✅ Cedente selecionado + preview dos 4 programas
   const selectedCedente = useMemo(() => {
@@ -278,7 +283,8 @@ export default function BloqueiosClient() {
       setCedenteId("");
       setProgram("LATAM");
       setNote("");
-      setEstimatedUnlockAt(suggestedLatamUnlockYmd(null));
+      setEstimatedUnlockAt("");
+      setCreateLastEmissionAt(null);
       await loadAll();
     } catch (e: any) {
       alert(e.message);
@@ -463,9 +469,18 @@ export default function BloqueiosClient() {
             <div className="text-xs text-slate-600">
               Previsão desbloqueio
               {program === "LATAM" ? (
-                <span className="text-slate-500"> (sugerido: 180 dias)</span>
+                <span className="text-slate-500">
+                  {" "}
+                  (sugerido: {UNLOCK_BUFFER_DAYS}d + {UNLOCK_WINDOW_DAYS}d após última emissão)
+                </span>
               ) : null}
             </div>
+            {cedenteId ? (
+              <div className="text-[11px] text-slate-500">
+                Última emissão:{" "}
+                <b>{createLastEmissionAt ? dateBR(createLastEmissionAt) : "—"}</b>
+              </div>
+            ) : null}
             <input
               type="date"
               className="w-full rounded-xl border px-3 py-2 text-sm"
@@ -549,35 +564,21 @@ export default function BloqueiosClient() {
                               if (next !== current) updateEstimatedUnlock(b.id, next);
                             }}
                           />
-                          {b.program === "LATAM" ? (
-                            <button
-                              type="button"
-                              className="rounded-lg border px-2 py-1 text-xs hover:bg-slate-50 disabled:opacity-60"
-                              disabled={savingUnlockId === b.id}
-                              onClick={() => {
-                                const suggested = suggestedLatamUnlockYmd(b.createdAt);
-                                setUnlockDraft((p) => ({ ...p, [b.id]: suggested }));
-                                updateEstimatedUnlock(b.id, suggested);
-                              }}
-                            >
-                              Do registro (+180d)
-                            </button>
-                          ) : null}
-                          {b.lastEmissionAt ? (
-                            <button
-                              type="button"
-                              className="rounded-lg border px-2 py-1 text-xs hover:bg-slate-50 disabled:opacity-60"
-                              disabled={savingUnlockId === b.id}
-                              onClick={() => {
-                                const suggested = suggestedFromLastEmissionYmd(b.lastEmissionAt!);
-                                if (!suggested) return;
-                                setUnlockDraft((p) => ({ ...p, [b.id]: suggested }));
-                                updateEstimatedUnlock(b.id, suggested);
-                              }}
-                            >
-                              Da última emissão (+1d +180d)
-                            </button>
-                          ) : null}
+                          <button
+                            type="button"
+                            className="rounded-lg border px-2 py-1 text-xs hover:bg-slate-50 disabled:opacity-60"
+                            disabled={!b.lastEmissionAt || savingUnlockId === b.id}
+                            title={`${UNLOCK_BUFFER_DAYS} dias após a última emissão + ${UNLOCK_WINDOW_DAYS} dias`}
+                            onClick={() => {
+                              if (!b.lastEmissionAt) return;
+                              const suggested = unlockYmdFromLastEmissionIso(b.lastEmissionAt);
+                              if (!suggested) return;
+                              setUnlockDraft((p) => ({ ...p, [b.id]: suggested }));
+                              updateEstimatedUnlock(b.id, suggested);
+                            }}
+                          >
+                            Sugerir 180 dias
+                          </button>
                         </div>
                       </div>
                     ) : (
