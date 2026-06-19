@@ -25,6 +25,7 @@ type BlockRow = {
   estimatedUnlockAt?: string | null;
   resolvedAt?: string | null;
   createdAt: string;
+  lastEmissionAt?: string | null;
   cedente: { id: string; nomeCompleto: string; cpf: string; identificador: string };
   pointsBlocked: number;
   valueBlockedCents: number;
@@ -48,6 +49,7 @@ function dateBR(iso: string) {
 }
 
 const LATAM_UNLOCK_DAYS = 180;
+const DAYS_AFTER_LAST_EMISSION = 1;
 
 function ymdFromDate(d: Date) {
   const y = d.getFullYear();
@@ -67,6 +69,12 @@ function suggestedLatamUnlockYmd(fromIso?: string | null) {
   const base = fromIso ? new Date(fromIso) : new Date();
   if (Number.isNaN(base.getTime())) return ymdFromDate(addDays(new Date(), LATAM_UNLOCK_DAYS));
   return ymdFromDate(addDays(base, LATAM_UNLOCK_DAYS));
+}
+
+function suggestedFromLastEmissionYmd(lastEmissionIso: string) {
+  const base = new Date(lastEmissionIso);
+  if (Number.isNaN(base.getTime())) return "";
+  return ymdFromDate(addDays(base, DAYS_AFTER_LAST_EMISSION + LATAM_UNLOCK_DAYS));
 }
 
 function addDays(d: Date, days: number) {
@@ -509,47 +517,82 @@ export default function BloqueiosClient() {
                     </div>
 
                     <div className="text-xs text-slate-500">
-                      {b.cedente.identificador} • Criado em {dateTimeBR(b.createdAt)}
+                      {b.cedente.identificador}
                       {b.resolvedAt ? ` • Resolvido: ${dateBR(b.resolvedAt)}` : ""}
                     </div>
 
                     {b.status === "OPEN" ? (
-                      <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
-                        <span className="text-slate-500">Previsão desbloqueio:</span>
-                        <input
-                          type="date"
-                          className="rounded-lg border px-2 py-1 text-xs"
-                          value={unlockDraft[b.id] ?? isoToInputDate(b.estimatedUnlockAt)}
-                          disabled={savingUnlockId === b.id}
-                          onChange={(e) =>
-                            setUnlockDraft((p) => ({ ...p, [b.id]: e.target.value }))
-                          }
-                          onBlur={(e) => {
-                            const next = e.target.value;
-                            const current = isoToInputDate(b.estimatedUnlockAt);
-                            if (next !== current) updateEstimatedUnlock(b.id, next);
-                          }}
-                        />
-                        {b.program === "LATAM" ? (
-                          <button
-                            type="button"
-                            className="rounded-lg border px-2 py-1 text-xs hover:bg-slate-50 disabled:opacity-60"
+                      <div className="mt-2 space-y-2 text-xs">
+                        <div className="flex flex-wrap gap-x-4 gap-y-1 text-slate-600">
+                          <span>
+                            Criado: <b>{dateBR(b.createdAt)}</b>
+                          </span>
+                          <span>
+                            Última emissão:{" "}
+                            <b>{b.lastEmissionAt ? dateBR(b.lastEmissionAt) : "—"}</b>
+                          </span>
+                        </div>
+
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="text-slate-500">Previsão desbloqueio:</span>
+                          <input
+                            type="date"
+                            className="rounded-lg border px-2 py-1 text-xs"
+                            value={unlockDraft[b.id] ?? isoToInputDate(b.estimatedUnlockAt)}
                             disabled={savingUnlockId === b.id}
-                            onClick={() => {
-                              const suggested = suggestedLatamUnlockYmd(b.createdAt);
-                              setUnlockDraft((p) => ({ ...p, [b.id]: suggested }));
-                              updateEstimatedUnlock(b.id, suggested);
+                            onChange={(e) =>
+                              setUnlockDraft((p) => ({ ...p, [b.id]: e.target.value }))
+                            }
+                            onBlur={(e) => {
+                              const next = e.target.value;
+                              const current = isoToInputDate(b.estimatedUnlockAt);
+                              if (next !== current) updateEstimatedUnlock(b.id, next);
                             }}
-                          >
-                            Sugerir 180 dias
-                          </button>
+                          />
+                          {b.program === "LATAM" ? (
+                            <button
+                              type="button"
+                              className="rounded-lg border px-2 py-1 text-xs hover:bg-slate-50 disabled:opacity-60"
+                              disabled={savingUnlockId === b.id}
+                              onClick={() => {
+                                const suggested = suggestedLatamUnlockYmd(b.createdAt);
+                                setUnlockDraft((p) => ({ ...p, [b.id]: suggested }));
+                                updateEstimatedUnlock(b.id, suggested);
+                              }}
+                            >
+                              Do registro (+180d)
+                            </button>
+                          ) : null}
+                          {b.lastEmissionAt ? (
+                            <button
+                              type="button"
+                              className="rounded-lg border px-2 py-1 text-xs hover:bg-slate-50 disabled:opacity-60"
+                              disabled={savingUnlockId === b.id}
+                              onClick={() => {
+                                const suggested = suggestedFromLastEmissionYmd(b.lastEmissionAt!);
+                                if (!suggested) return;
+                                setUnlockDraft((p) => ({ ...p, [b.id]: suggested }));
+                                updateEstimatedUnlock(b.id, suggested);
+                              }}
+                            >
+                              Da última emissão (+1d +180d)
+                            </button>
+                          ) : null}
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="mt-2 space-y-1 text-xs text-slate-500">
+                        <div className="flex flex-wrap gap-x-4 gap-y-1">
+                          <span>Criado: {dateBR(b.createdAt)}</span>
+                          <span>
+                            Última emissão: {b.lastEmissionAt ? dateBR(b.lastEmissionAt) : "—"}
+                          </span>
+                        </div>
+                        {b.estimatedUnlockAt ? (
+                          <div>Previsão: {dateBR(b.estimatedUnlockAt)}</div>
                         ) : null}
                       </div>
-                    ) : b.estimatedUnlockAt ? (
-                      <div className="text-xs text-slate-500 mt-1">
-                        Previsão: {dateBR(b.estimatedUnlockAt)}
-                      </div>
-                    ) : null}
+                    )}
 
                     {b.note ? <div className="text-sm text-slate-700 mt-1">{b.note}</div> : null}
                   </div>

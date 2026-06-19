@@ -51,6 +51,33 @@ export async function GET() {
       },
     });
 
+    const cedenteIds = [...new Set(blocks.map((b) => b.cedenteId))];
+    const lastEmissionMap = new Map<string, Date>();
+
+    if (cedenteIds.length) {
+      const emissions = await prisma.emissionEvent.findMany({
+        where: { cedenteId: { in: cedenteIds } },
+        select: { cedenteId: true, program: true, issuedAt: true },
+        orderBy: { issuedAt: "desc" },
+      });
+
+      for (const e of emissions) {
+        const key = `${e.cedenteId}|${e.program}`;
+        if (!lastEmissionMap.has(key)) lastEmissionMap.set(key, e.issuedAt);
+      }
+
+      const sales = await prisma.sale.findMany({
+        where: { cedenteId: { in: cedenteIds } },
+        select: { cedenteId: true, program: true, date: true },
+        orderBy: { date: "desc" },
+      });
+
+      for (const s of sales) {
+        const key = `${s.cedenteId}|${s.program}`;
+        if (!lastEmissionMap.has(key)) lastEmissionMap.set(key, s.date);
+      }
+    }
+
     const rows = blocks.map((b) => {
       const pts = programPoints(b.cedente, b.program);
       const rateCents =
@@ -63,6 +90,7 @@ export async function GET() {
           : settings.esferaRateCents;
 
       const valueCents = calcValueCents(pts, rateCents);
+      const lastEmissionAt = lastEmissionMap.get(`${b.cedenteId}|${b.program}`) ?? null;
 
       return {
         id: b.id,
@@ -72,6 +100,7 @@ export async function GET() {
         estimatedUnlockAt: b.estimatedUnlockAt ? b.estimatedUnlockAt.toISOString() : null,
         resolvedAt: b.resolvedAt ? b.resolvedAt.toISOString() : null,
         createdAt: b.createdAt.toISOString(),
+        lastEmissionAt: lastEmissionAt ? lastEmissionAt.toISOString() : null,
         cedente: {
           id: b.cedente.id,
           identificador: b.cedente.identificador,
