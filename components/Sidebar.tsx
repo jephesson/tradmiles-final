@@ -168,6 +168,11 @@ export default function Sidebar() {
 
   const isIndicacoesRoute = pathname.startsWith("/dashboard/indicacoes");
 
+  const isPendenciasRoute =
+    pathname.startsWith("/dashboard/cedentes/latam-pendente") ||
+    pathname.startsWith("/dashboard/cedentes/smiles-pendente") ||
+    pathname.startsWith("/dashboard/cedentes/livelo-pendente");
+
   const isComprasRoute = pathname.startsWith("/dashboard/compras");
   const isVendasRoute = pathname.startsWith("/dashboard/vendas");
   const isCheckLocalizadorRoute = pathname.startsWith(
@@ -344,8 +349,12 @@ export default function Sidebar() {
 
   const [openIndicacoes, setOpenIndicacoes] = useState(isIndicacoesRoute);
 
+  const [openPendencias, setOpenPendencias] = useState(isPendenciasRoute);
+
   const [openCedentes, setOpenCedentes] = useState(
-    (pathname.startsWith("/dashboard/cedentes") && !isPontosVisualizarRoute) ||
+    (pathname.startsWith("/dashboard/cedentes") &&
+      !isPontosVisualizarRoute &&
+      !isPendenciasRoute) ||
       pathname.startsWith("/dashboard/bloqueios")
   );
 
@@ -431,12 +440,16 @@ export default function Sidebar() {
 
   useEffect(() => setOpenIndicacoes(isIndicacoesRoute), [isIndicacoesRoute]);
 
+  useEffect(() => setOpenPendencias(isPendenciasRoute), [isPendenciasRoute]);
+
   useEffect(() => {
     setOpenCedentes(
-      (pathname.startsWith("/dashboard/cedentes") && !isPontosVisualizarRoute) ||
+      (pathname.startsWith("/dashboard/cedentes") &&
+        !isPontosVisualizarRoute &&
+        !isPendenciasRoute) ||
         pathname.startsWith("/dashboard/bloqueios")
     );
-  }, [pathname, isPontosVisualizarRoute]);
+  }, [pathname, isPontosVisualizarRoute, isPendenciasRoute]);
 
   useEffect(() => {
     setOpenFuncionarios(pathname.startsWith("/dashboard/funcionarios"));
@@ -661,10 +674,6 @@ export default function Sidebar() {
               Cedentes pendentes
             </NavLink>
 
-            <NavLink href="/dashboard/cedentes/latam-pendente">Latam pendente</NavLink>
-            <NavLink href="/dashboard/cedentes/smiles-pendente">Smiles pendente</NavLink>
-            <NavLink href="/dashboard/cedentes/livelo-pendente">Livelo pendente</NavLink>
-
             {/* ✅ NOVO */}
             <NavLink href="/dashboard/cedentes/whatsapp">Whatsapp</NavLink>
 
@@ -729,16 +738,17 @@ export default function Sidebar() {
           </SubAccordion>
         </Accordion>
 
-        {/* ================= INDICAÇÕES ================= */}
+        {/* ================= PENDÊNCIAS ================= */}
         <Accordion
-          title="Indicações"
-          open={openIndicacoes}
-          onToggle={() => setOpenIndicacoes((v) => !v)}
-          active={isIndicacoesRoute}
-          accent="blue"
+          title="Pendências"
+          open={openPendencias}
+          onToggle={() => setOpenPendencias((v) => !v)}
+          active={isPendenciasRoute}
+          accent="amber"
         >
-          <NavLink href="/dashboard/indicacoes/codigos">Código cedente</NavLink>
-          <NavLink href="/dashboard/indicacoes/historico">Histórico cedente</NavLink>
+          <NavLink href="/dashboard/cedentes/latam-pendente">Latam pendente</NavLink>
+          <NavLink href="/dashboard/cedentes/smiles-pendente">Smiles pendente</NavLink>
+          <NavLink href="/dashboard/cedentes/livelo-pendente">Livelo pendente</NavLink>
         </Accordion>
 
         {/* ================= GESTÃO DE PONTOS ================= */}
@@ -1008,6 +1018,18 @@ export default function Sidebar() {
             <NavLink href="/dashboard/dados-contabeis/compras">Compras</NavLink>
             <NavLink href="/dashboard/impostos">Impostos</NavLink>
           </SubAccordion>
+        </Accordion>
+
+        {/* ================= INDICAÇÕES ================= */}
+        <Accordion
+          title="Indicações"
+          open={openIndicacoes}
+          onToggle={() => setOpenIndicacoes((v) => !v)}
+          active={isIndicacoesRoute}
+          accent="blue"
+        >
+          <NavLink href="/dashboard/indicacoes/codigos">Código cedente</NavLink>
+          <NavLink href="/dashboard/indicacoes/historico">Histórico cedente</NavLink>
         </Accordion>
 
         {/* ================= GESTOR DE EMISSÕES ================= */}
