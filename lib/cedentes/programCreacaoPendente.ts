@@ -1,3 +1,5 @@
+import type { Prisma } from "@prisma/client";
+
 export type ProgramCreacao = "LATAM" | "SMILES" | "LIVELO";
 
 type CedenteProgramFields = {
@@ -44,7 +46,7 @@ export function deriveProgramCreacaoFlags(input: {
   };
 }
 
-export function programCreacaoPrismaWhere(program: ProgramCreacao) {
+export function programCreacaoPrismaWhere(program: ProgramCreacao): Prisma.CedenteWhereInput {
   if (program === "LATAM") {
     return {
       OR: [{ latamCreacaoPendente: true }, { senhaLatamPass: null }, { senhaLatamPass: "" }],

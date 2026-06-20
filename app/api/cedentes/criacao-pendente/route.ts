@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { getSessionServer } from "@/lib/auth-server";
 import {
@@ -32,17 +33,11 @@ export async function GET(req: NextRequest) {
 
     const program = programRaw as ProgramCreacao;
 
-    const where: {
-      status: { in: ["PENDING", "APPROVED"] };
-      AND: unknown[];
-    } = {
-      status: { in: ["PENDING", "APPROVED"] },
-      AND: [programCreacaoPrismaWhere(program)],
-    };
+    const and: Prisma.CedenteWhereInput[] = [programCreacaoPrismaWhere(program)];
 
     if (q) {
       const digits = q.replace(/\D+/g, "");
-      where.AND.push({
+      and.push({
         OR: [
           { nomeCompleto: { contains: q, mode: "insensitive" } },
           { identificador: { contains: q, mode: "insensitive" } },
@@ -50,6 +45,11 @@ export async function GET(req: NextRequest) {
         ],
       });
     }
+
+    const where: Prisma.CedenteWhereInput = {
+      status: { in: ["PENDING", "APPROVED"] },
+      AND: and,
+    };
 
     const rows = await prisma.cedente.findMany({
       where,
