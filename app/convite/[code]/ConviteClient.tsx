@@ -12,6 +12,8 @@ type FormState = {
   // ✅ ADICIONADO
   telefone: string;
 
+  codigoCedenteIndicacao: string;
+
   emailCriado: string;
   senhaEmail: string;
 
@@ -29,6 +31,13 @@ type FormState = {
   pontosLivelo: number | "";
   pontosEsfera: number | "";
 };
+
+function normalizeReferrerCodeInput(v: string) {
+  return String(v || "")
+    .trim()
+    .toUpperCase()
+    .replace(/\s+/g, "");
+}
 
 function onlyDigits(v: string) {
   return (v || "").replace(/\D+/g, "");
@@ -823,6 +832,8 @@ export default function ConviteClient({ code }: { code: string }) {
     // ✅ ADICIONADO
     telefone: "",
 
+    codigoCedenteIndicacao: "",
+
     emailCriado: "",
     senhaEmail: "",
     senhaSmiles: "",
@@ -860,6 +871,7 @@ export default function ConviteClient({ code }: { code: string }) {
       dataNascimento: "",
       cpf: "",
       telefone: "",
+      codigoCedenteIndicacao: "",
       emailCriado: "",
       senhaEmail: "",
       senhaSmiles: "",
@@ -886,6 +898,7 @@ export default function ConviteClient({ code }: { code: string }) {
       cpf: normalizeCpf(form.cpf),
       dataNascimento: form.dataNascimento.trim() ? brToIsoDate(form.dataNascimento) : null,
       telefone: normalizeTelefone(form.telefone),
+      codigoCedenteIndicacao: normalizeReferrerCodeInput(form.codigoCedenteIndicacao) || null,
       emailCriado: form.emailCriado.trim() || null,
       banco: form.banco.trim(),
       pixTipo: form.pixTipo,
@@ -1147,6 +1160,21 @@ export default function ConviteClient({ code }: { code: string }) {
                   placeholder="DDD + número (somente números)"
                   inputMode="numeric"
                 />
+              </div>
+
+              <div>
+                <label className="mb-1 block text-sm">Código do cedente que te indicou</label>
+                <input
+                  className="w-full rounded-xl border px-3 py-2 font-mono uppercase"
+                  value={form.codigoCedenteIndicacao}
+                  onChange={(e) =>
+                    setField("codigoCedenteIndicacao", normalizeReferrerCodeInput(e.target.value))
+                  }
+                  placeholder="Ex.: KLE-143 (opcional)"
+                />
+                <p className="mt-1 text-xs text-slate-500">
+                  Se alguém te indicou, informe o código exclusivo desse cedente.
+                </p>
               </div>
             </div>
           </section>

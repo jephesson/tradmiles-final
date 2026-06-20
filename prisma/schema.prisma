@@ -62,6 +62,13 @@ enum CedenteCommissionStatus {
   CANCELED
 }
 
+enum CedenteReferralStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELED
+}
+
 enum AffiliateCommissionStatus {
   PENDING
   PAID
@@ -463,6 +470,11 @@ model Cedente {
   senhaLivelo    String?
   senhaEsfera    String?
 
+  /// Conta do programa ainda não criada (automático sem senha ou marcação manual).
+  latamCreacaoPendente   Boolean @default(false)
+  smilesCreacaoPendente  Boolean @default(false)
+  liveloCreacaoPendente  Boolean @default(false)
+
   pontosLatam  Int @default(0)
   pontosSmiles Int @default(0)
   pontosLivelo Int @default(0)
@@ -479,6 +491,10 @@ model Cedente {
 
   inviteId String?
   invite   EmployeeInvite? @relation(fields: [inviteId], references: [id], onDelete: SetNull)
+
+  referredByCedenteId String?
+  referredByCedente   Cedente?  @relation("CedenteReferrer", fields: [referredByCedenteId], references: [id], onDelete: SetNull)
+  referralsAsReferrer Cedente[] @relation("CedenteReferrer")
 
   termAcceptances CedenteTermAcceptance[]
 
@@ -497,6 +513,8 @@ model Cedente {
   blockedAccounts    BlockedAccount[]
   purchases          Purchase[]
   cedenteCommissions CedenteCommission[]
+  referralsMade      CedenteReferral[]   @relation("ReferrerCedente")
+  referralAsReferred CedenteReferral?    @relation("ReferredCedente")
   emissions          EmissionEvent[]
   sales              Sale[]
 
@@ -521,6 +539,7 @@ model Cedente {
   @@index([status])
   @@index([ownerId])
   @@index([inviteId])
+  @@index([referredByCedenteId])
   @@index([createdAt])
   @@map("cedentes")
 }
@@ -812,6 +831,8 @@ model Settings {
   employeeBonusAboveMetaBps Int @default(3000)
   /// Comissão vendedor nas compras (subtotal): bps (100 = 1,00%).
   vendorCommissionBps Int @default(100)
+  /// Bônus por indicação de cedente aprovada (centavos).
+  cedenteReferralBonusCents Int @default(2000)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1101,12 +1122,38 @@ model CedenteCommission {
 
   note String?
 
+  referral CedenteReferral?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@index([cedenteId, status, generatedAt])
   @@index([paidAt])
   @@map("cedente_commissions")
+}
+
+model CedenteReferral {
+  id String @id @default(cuid())
+
+  referrerCedenteId String
+  referrerCedente   Cedente @relation("ReferrerCedente", fields: [referrerCedenteId], references: [id], onDelete: Cascade)
+
+  referredCedenteId String @unique
+  referredCedente     Cedente @relation("ReferredCedente", fields: [referredCedenteId], references: [id], onDelete: Cascade)
+
+  referrerCode String
+
+  status CedenteReferralStatus @default(PENDING)
+
+  commissionId String?            @unique
+  commission   CedenteCommission? @relation(fields: [commissionId], references: [id], onDelete: SetNull)
+
+  createdAt  DateTime @default(now())
+  resolvedAt DateTime?
+
+  @@index([referrerCedenteId, createdAt])
+  @@index([status, createdAt])
+  @@map("cedente_referrals")
 }
 
 model AffiliateCommission {

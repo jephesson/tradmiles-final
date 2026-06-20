@@ -2,6 +2,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSessionServer } from "@/lib/auth-server";
+import {
+  processReferralOnApprove,
+  processReferralOnReject,
+} from "@/lib/cedente-referrals";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -60,6 +64,12 @@ export async function POST(req: NextRequest, ctx: Ctx) {
         reviewedById: true,
       },
     });
+
+    if (action === "APPROVE") {
+      await processReferralOnApprove(id, session.id);
+    } else {
+      await processReferralOnReject(id);
+    }
 
     return NextResponse.json({ ok: true, data: updated });
   } catch (e: any) {

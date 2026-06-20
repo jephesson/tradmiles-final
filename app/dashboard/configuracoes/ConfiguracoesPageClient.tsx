@@ -8,7 +8,12 @@ import { bpsToPercentNumber } from "@/lib/payouts/employeeCommissionRates";
 
 type ApiOk = {
   ok: true;
-  data: { employeeC1Bps: number; employeeBonusAboveMetaBps: number; vendorCommissionBps: number };
+  data: {
+    employeeC1Bps: number;
+    employeeBonusAboveMetaBps: number;
+    vendorCommissionBps: number;
+    cedenteReferralBonusCents: number;
+  };
 };
 type ApiErr = { ok: false; error?: string; code?: string };
 
@@ -64,6 +69,7 @@ export default function ConfiguracoesPageClient() {
   const [c1Percent, setC1Percent] = useState("1");
   const [bonusPercent, setBonusPercent] = useState("30");
   const [vendorPercent, setVendorPercent] = useState("1");
+  const [referralBonusReais, setReferralBonusReais] = useState("20");
 
   const applyCommissionData = useCallback((data: ApiOk["data"]) => {
     setC1Percent(
@@ -82,6 +88,12 @@ export default function ConfiguracoesPageClient() {
       bpsToPercentNumber(data.vendorCommissionBps).toLocaleString("pt-BR", {
         minimumFractionDigits: 0,
         maximumFractionDigits: 4,
+      })
+    );
+    setReferralBonusReais(
+      (data.cedenteReferralBonusCents / 100).toLocaleString("pt-BR", {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
       })
     );
   }, []);
@@ -158,10 +170,12 @@ export default function ConfiguracoesPageClient() {
       const c1 = Number(String(c1Percent).replace(",", "."));
       const bonus = Number(String(bonusPercent).replace(",", "."));
       const vendor = Number(String(vendorPercent).replace(",", "."));
+      const referralBonus = Number(String(referralBonusReais).replace(",", "."));
       await apiPostCommission({
         employeeC1Percent: c1,
         employeeBonusAboveMetaPercent: bonus,
         vendorCommissionPercent: vendor,
+        cedenteReferralBonusReais: referralBonus,
       });
       await tryLoadCommission();
     } catch (e: unknown) {
@@ -318,6 +332,29 @@ export default function ConfiguracoesPageClient() {
             <span className="mt-1 block text-xs text-slate-500">
               Padrão: 1% sobre o subtotal da compra. Aplicado automaticamente em novas compras. Máximo: 20%.
             </span>
+          </label>
+        </div>
+      </div>
+
+      <div className="rounded-2xl border border-slate-200/90 bg-white p-5 shadow-sm sm:p-6">
+        <h2 className="text-base font-semibold text-slate-900">Indicações de cedentes</h2>
+        <p className="mt-1 text-sm text-slate-600">
+          Valor pago ao cedente indicador quando o cadastro indicado é aprovado (comissão em Cedentes).
+        </p>
+
+        <div className="mt-6">
+          <label className="block">
+            <span className="text-sm font-medium text-slate-700">Bônus por indicação aprovada (R$)</span>
+            <input
+              type="text"
+              inputMode="decimal"
+              className="mt-1.5 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-base text-slate-900 shadow-sm outline-none focus:border-slate-300 focus:ring-2 focus:ring-slate-900/10"
+              value={referralBonusReais}
+              onChange={(e) => setReferralBonusReais(e.target.value)}
+              disabled={loading || saving}
+              placeholder="20,00"
+            />
+            <span className="mt-1 block text-xs text-slate-500">Padrão: R$ 20,00 por indicação aprovada.</span>
           </label>
         </div>
 

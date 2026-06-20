@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { PixTipo } from "@prisma/client";
+import { deriveProgramCreacaoFlags } from "@/lib/cedentes/programCreacaoPendente";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -175,6 +176,43 @@ export async function PUT(req: NextRequest, ctx: Ctx) {
     if ("senhaLatamPass" in body) data.senhaLatamPass = strOrNull(body.senhaLatamPass);
     if ("senhaLivelo" in body) data.senhaLivelo = strOrNull(body.senhaLivelo);
     if ("senhaEsfera" in body) data.senhaEsfera = strOrNull(body.senhaEsfera);
+
+    if (
+      "senhaSmiles" in body ||
+      "senhaLatamPass" in body ||
+      "senhaLivelo" in body ||
+      "latamCreacaoPendente" in body ||
+      "smilesCreacaoPendente" in body ||
+      "liveloCreacaoPendente" in body
+    ) {
+      const flagsRow = await prisma.cedente.findUnique({
+        where: { id },
+        select: {
+          senhaLatamPass: true,
+          senhaSmiles: true,
+          senhaLivelo: true,
+          latamCreacaoPendente: true,
+          smilesCreacaoPendente: true,
+          liveloCreacaoPendente: true,
+        },
+      });
+      if (flagsRow) {
+        Object.assign(
+          data,
+          deriveProgramCreacaoFlags({
+            senhaLatamPass: "senhaLatamPass" in data ? data.senhaLatamPass : flagsRow.senhaLatamPass,
+            senhaSmiles: "senhaSmiles" in data ? data.senhaSmiles : flagsRow.senhaSmiles,
+            senhaLivelo: "senhaLivelo" in data ? data.senhaLivelo : flagsRow.senhaLivelo,
+            latamCreacaoPendente:
+              "latamCreacaoPendente" in body ? Boolean(body.latamCreacaoPendente) : flagsRow.latamCreacaoPendente,
+            smilesCreacaoPendente:
+              "smilesCreacaoPendente" in body ? Boolean(body.smilesCreacaoPendente) : flagsRow.smilesCreacaoPendente,
+            liveloCreacaoPendente:
+              "liveloCreacaoPendente" in body ? Boolean(body.liveloCreacaoPendente) : flagsRow.liveloCreacaoPendente,
+          })
+        );
+      }
+    }
 
     // pontos
     if ("pontosLatam" in body) data.pontosLatam = intNonNeg(body.pontosLatam);

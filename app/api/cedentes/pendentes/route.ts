@@ -35,6 +35,10 @@ export async function GET() {
         senhaLivelo: true,
         senhaEsfera: true,
 
+        latamCreacaoPendente: true,
+        smilesCreacaoPendente: true,
+        liveloCreacaoPendente: true,
+
         banco: true,
         pixTipo: true,
         chavePix: true,
@@ -46,6 +50,11 @@ export async function GET() {
         pontosEsfera: true,
 
         createdAt: true,
+
+        referredByCedenteId: true,
+        referredByCedente: {
+          select: { id: true, identificador: true, nomeCompleto: true },
+        },
 
         // ✅ responsável para rateio (dono do cedente)
         owner: {

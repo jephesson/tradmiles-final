@@ -166,6 +166,8 @@ export default function Sidebar() {
     pathname.startsWith("/dashboard/funcionarios") ||
     pathname.startsWith("/dashboard/bloqueios");
 
+  const isIndicacoesRoute = pathname.startsWith("/dashboard/indicacoes");
+
   const isComprasRoute = pathname.startsWith("/dashboard/compras");
   const isVendasRoute = pathname.startsWith("/dashboard/vendas");
   const isCheckLocalizadorRoute = pathname.startsWith(
@@ -340,6 +342,8 @@ export default function Sidebar() {
    * ========================= */
   const [openCadastro, setOpenCadastro] = useState(isCadastroRoute);
 
+  const [openIndicacoes, setOpenIndicacoes] = useState(isIndicacoesRoute);
+
   const [openCedentes, setOpenCedentes] = useState(
     (pathname.startsWith("/dashboard/cedentes") && !isPontosVisualizarRoute) ||
       pathname.startsWith("/dashboard/bloqueios")
@@ -424,6 +428,8 @@ export default function Sidebar() {
   const [openGrupoVip, setOpenGrupoVip] = useState(isGrupoVipWhatsappRoute);
 
   useEffect(() => setOpenCadastro(isCadastroRoute), [isCadastroRoute]);
+
+  useEffect(() => setOpenIndicacoes(isIndicacoesRoute), [isIndicacoesRoute]);
 
   useEffect(() => {
     setOpenCedentes(
@@ -655,6 +661,10 @@ export default function Sidebar() {
               Cedentes pendentes
             </NavLink>
 
+            <NavLink href="/dashboard/cedentes/latam-pendente">Latam pendente</NavLink>
+            <NavLink href="/dashboard/cedentes/smiles-pendente">Smiles pendente</NavLink>
+            <NavLink href="/dashboard/cedentes/livelo-pendente">Livelo pendente</NavLink>
+
             {/* ✅ NOVO */}
             <NavLink href="/dashboard/cedentes/whatsapp">Whatsapp</NavLink>
 
@@ -717,6 +727,18 @@ export default function Sidebar() {
               Gerenciar afiliados
             </NavLink>
           </SubAccordion>
+        </Accordion>
+
+        {/* ================= INDICAÇÕES ================= */}
+        <Accordion
+          title="Indicações"
+          open={openIndicacoes}
+          onToggle={() => setOpenIndicacoes((v) => !v)}
+          active={isIndicacoesRoute}
+          accent="blue"
+        >
+          <NavLink href="/dashboard/indicacoes/codigos">Código cedente</NavLink>
+          <NavLink href="/dashboard/indicacoes/historico">Histórico cedente</NavLink>
         </Accordion>
 
         {/* ================= GESTÃO DE PONTOS ================= */}

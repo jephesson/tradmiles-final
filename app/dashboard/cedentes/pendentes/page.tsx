@@ -1,8 +1,15 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { Loader2 } from "lucide-react";
+import { cn } from "@/lib/cn";
+import { isProgramCreacaoPendente } from "@/lib/cedentes/programCreacaoPendente";
 
 type Owner = { id: string; name: string; login?: string | null; team?: string | null };
+
+type Referrer = { id: string; identificador: string; nomeCompleto: string };
+
+type Funcionario = { id: string; name: string; login: string; isActive?: boolean };
 
 type Item = {
   id: string;
@@ -17,6 +24,10 @@ type Item = {
   senhaLivelo: string | null;
   senhaEsfera: string | null;
 
+  latamCreacaoPendente: boolean;
+  smilesCreacaoPendente: boolean;
+  liveloCreacaoPendente: boolean;
+
   banco: string | null;
   pixTipo: string | null;
   chavePix: string | null;
@@ -30,6 +41,8 @@ type Item = {
   createdAt: string;
 
   owner: Owner;
+  referredByCedenteId: string | null;
+  referredByCedente: Referrer | null;
 };
 
 type PointsDraft = {
@@ -39,20 +52,23 @@ type PointsDraft = {
   pontosEsfera: number | "";
 };
 
+type AdminDraft = {
+  ownerId: string;
+  referredByCedenteId: string;
+  latamCreacaoPendente: boolean;
+  smilesCreacaoPendente: boolean;
+  liveloCreacaoPendente: boolean;
+};
+
 function labelMissing(c: Item) {
   const miss: string[] = [];
 
   if (!c.nomeCompleto?.trim()) miss.push("Nome");
   if (!c.cpf?.trim()) miss.push("CPF");
-
   if (!c.telefone?.trim()) miss.push("Telefone");
   if (!c.emailCriado?.trim()) miss.push("E-mail criado");
   if (!c.senhaEmail?.trim()) miss.push("Senha do e-mail");
-  if (!c.senhaSmiles?.trim()) miss.push("Senha Smiles");
-  if (!c.senhaLatamPass?.trim()) miss.push("Senha Latam Pass");
-  if (!c.senhaLivelo?.trim()) miss.push("Senha Livelo");
   if (!c.senhaEsfera?.trim()) miss.push("Senha Esfera");
-
   if (!c.banco?.trim()) miss.push("Banco");
   if (!c.chavePix?.trim()) miss.push("Chave PIX");
   if (!c.pixTipo?.trim()) miss.push("Tipo PIX");
@@ -61,14 +77,54 @@ function labelMissing(c: Item) {
   return miss;
 }
 
+function programPendingLabels(c: Item) {
+  const out: string[] = [];
+  if (isProgramCreacaoPendente(c, "LATAM")) out.push("Latam");
+  if (isProgramCreacaoPendente(c, "SMILES")) out.push("Smiles");
+  if (isProgramCreacaoPendente(c, "LIVELO")) out.push("Livelo");
+  return out;
+}
+
 export default function CedentesPendentesPage() {
   const [items, setItems] = useState<Item[]>([]);
   const [loading, setLoading] = useState(true);
+  const [isAdmin, setIsAdmin] = useState(false);
 
-  // draft de pontos por cedente (pra você preencher antes de aprovar)
+  const [funcionarios, setFuncionarios] = useState<Funcionario[]>([]);
+  const [referrers, setReferrers] = useState<Referrer[]>([]);
+
   const [draft, setDraft] = useState<Record<string, PointsDraft>>({});
+  const [adminDraft, setAdminDraft] = useState<Record<string, AdminDraft>>({});
+  const [savingAdminId, setSavingAdminId] = useState<string | null>(null);
 
   const totalPendentes = useMemo(() => items.length, [items]);
+
+  async function loadMeta() {
+    const [meRes, funcRes, refRes] = await Promise.all([
+      fetch("/api/auth/me", { cache: "no-store", credentials: "include" }),
+      fetch("/api/funcionarios", { cache: "no-store", credentials: "include" }),
+      fetch("/api/cedentes/referrers-options", { cache: "no-store", credentials: "include" }),
+    ]);
+
+    const meJson = await meRes.json().catch(() => ({}));
+    setIsAdmin(meJson?.ok && meJson?.data?.session?.role === "admin");
+
+    const funcJson = await funcRes.json().catch(() => ({}));
+    if (funcJson?.ok && Array.isArray(funcJson.data)) {
+      setFuncionarios(
+        funcJson.data.filter((f: Funcionario) => f.isActive !== false).map((f: Funcionario) => ({
+          id: f.id,
+          name: f.name,
+          login: f.login,
+        }))
+      );
+    }
+
+    const refJson = await refRes.json().catch(() => ({}));
+    if (refJson?.ok && Array.isArray(refJson.data)) {
+      setReferrers(refJson.data);
+    }
+  }
 
   async function load() {
     setLoading(true);
@@ -77,7 +133,6 @@ export default function CedentesPendentesPage() {
     const list: Item[] = json?.data?.items || [];
     setItems(list);
 
-    // inicializa os drafts com os pontos atuais do banco (geralmente 0)
     setDraft((prev) => {
       const next = { ...prev };
       for (const c of list) {
@@ -93,6 +148,20 @@ export default function CedentesPendentesPage() {
       return next;
     });
 
+    setAdminDraft((prev) => {
+      const next = { ...prev };
+      for (const c of list) {
+        next[c.id] = {
+          ownerId: c.owner?.id || "",
+          referredByCedenteId: c.referredByCedenteId || "",
+          latamCreacaoPendente: c.latamCreacaoPendente,
+          smilesCreacaoPendente: c.smilesCreacaoPendente,
+          liveloCreacaoPendente: c.liveloCreacaoPendente,
+        };
+      }
+      return next;
+    });
+
     setLoading(false);
   }
 
@@ -104,9 +173,8 @@ export default function CedentesPendentesPage() {
       pontosEsfera: 0,
     };
 
-    const payload: any = { action };
+    const payload: Record<string, unknown> = { action };
 
-    // se aprovar: manda pontos para gravar junto (e ir pra lista)
     if (action === "APPROVE") {
       payload.points = {
         pontosLatam: Number(points.pontosLatam || 0),
@@ -128,6 +196,33 @@ export default function CedentesPendentesPage() {
     await load();
   }
 
+  async function saveAdminAdjustments(id: string) {
+    const ad = adminDraft[id];
+    if (!ad) return;
+
+    setSavingAdminId(id);
+    try {
+      const res = await fetch(`/api/cedentes/${id}/pendente-admin`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ownerId: ad.ownerId || undefined,
+          referredByCedenteId: ad.referredByCedenteId || null,
+          latamCreacaoPendente: ad.latamCreacaoPendente,
+          smilesCreacaoPendente: ad.smilesCreacaoPendente,
+          liveloCreacaoPendente: ad.liveloCreacaoPendente,
+        }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok || !json.ok) throw new Error(json.error || "Erro ao salvar.");
+      await load();
+    } catch (e: unknown) {
+      alert(e instanceof Error ? e.message : "Erro ao salvar.");
+    } finally {
+      setSavingAdminId(null);
+    }
+  }
+
   function setDraftField(id: string, key: keyof PointsDraft, value: number | "") {
     setDraft((prev) => ({
       ...prev,
@@ -138,8 +233,16 @@ export default function CedentesPendentesPage() {
     }));
   }
 
+  function setAdminField<K extends keyof AdminDraft>(id: string, key: K, value: AdminDraft[K]) {
+    setAdminDraft((prev) => ({
+      ...prev,
+      [id]: { ...(prev[id] || ({} as AdminDraft)), [key]: value },
+    }));
+  }
+
   useEffect(() => {
-    load();
+    void loadMeta();
+    void load();
   }, []);
 
   return (
@@ -153,7 +256,7 @@ export default function CedentesPendentesPage() {
         </div>
 
         <button
-          onClick={load}
+          onClick={() => void load()}
           className="rounded-xl border px-3 py-2 text-sm hover:bg-slate-50"
         >
           Atualizar
@@ -169,12 +272,14 @@ export default function CedentesPendentesPage() {
       <div className="space-y-3">
         {items.map((c) => {
           const missing = labelMissing(c);
+          const programPending = programPendingLabels(c);
           const d = draft[c.id] || {
             pontosLatam: 0,
             pontosSmiles: 0,
             pontosLivelo: 0,
             pontosEsfera: 0,
           };
+          const ad = adminDraft[c.id];
 
           return (
             <div key={c.id} className="rounded-2xl border p-4">
@@ -198,8 +303,15 @@ export default function CedentesPendentesPage() {
                       Responsável: <b>{c.owner?.name ?? "-"}</b>
                     </div>
                     <div>
-                      Criado em{" "}
-                      <b>{new Date(c.createdAt).toLocaleString("pt-BR")}</b>
+                      Indicação:{" "}
+                      <b>
+                        {c.referredByCedente
+                          ? `${c.referredByCedente.nomeCompleto} (${c.referredByCedente.identificador})`
+                          : "—"}
+                      </b>
+                    </div>
+                    <div>
+                      Criado em <b>{new Date(c.createdAt).toLocaleString("pt-BR")}</b>
                     </div>
                   </div>
                 </div>
@@ -215,17 +327,99 @@ export default function CedentesPendentesPage() {
                       ))}
                     </ul>
                   )}
+                  {programPending.length > 0 ? (
+                    <div className="mt-3 border-t pt-2">
+                      <div className="font-medium text-amber-800">Programas pendentes de criação</div>
+                      <div className="mt-1 text-amber-900">{programPending.join(", ")}</div>
+                    </div>
+                  ) : null}
                 </div>
               </div>
+
+              {isAdmin && ad ? (
+                <div className="mt-4 rounded-2xl border border-indigo-200 bg-indigo-50/40 p-4">
+                  <div className="mb-3 font-semibold text-indigo-950">Ajustes admin (somente pendente)</div>
+                  <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                    <label className="block">
+                      <span className="mb-1 block text-sm font-medium">Funcionário responsável</span>
+                      <select
+                        className="w-full rounded-xl border bg-white px-3 py-2 text-sm"
+                        value={ad.ownerId}
+                        onChange={(e) => setAdminField(c.id, "ownerId", e.target.value)}
+                      >
+                        <option value="">Selecione…</option>
+                        {funcionarios.map((f) => (
+                          <option key={f.id} value={f.id}>
+                            {f.name} ({f.login})
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+
+                    <label className="block">
+                      <span className="mb-1 block text-sm font-medium">Cedente que indicou</span>
+                      <select
+                        className="w-full rounded-xl border bg-white px-3 py-2 text-sm"
+                        value={ad.referredByCedenteId}
+                        onChange={(e) => setAdminField(c.id, "referredByCedenteId", e.target.value)}
+                      >
+                        <option value="">Nenhum / remover</option>
+                        {referrers.map((r) => (
+                          <option key={r.id} value={r.id}>
+                            {r.nomeCompleto} — {r.identificador}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  </div>
+
+                  <div className="mt-3 flex flex-wrap gap-4">
+                    <ProgramToggle
+                      label="Latam pendente criação"
+                      checked={!c.senhaLatamPass?.trim() ? true : ad.latamCreacaoPendente}
+                      disabled={!c.senhaLatamPass?.trim()}
+                      onChange={(v) => setAdminField(c.id, "latamCreacaoPendente", v)}
+                    />
+                    <ProgramToggle
+                      label="Smiles pendente criação"
+                      checked={!c.senhaSmiles?.trim() ? true : ad.smilesCreacaoPendente}
+                      disabled={!c.senhaSmiles?.trim()}
+                      onChange={(v) => setAdminField(c.id, "smilesCreacaoPendente", v)}
+                    />
+                    <ProgramToggle
+                      label="Livelo pendente criação"
+                      checked={!c.senhaLivelo?.trim() ? true : ad.liveloCreacaoPendente}
+                      disabled={!c.senhaLivelo?.trim()}
+                      onChange={(v) => setAdminField(c.id, "liveloCreacaoPendente", v)}
+                    />
+                  </div>
+                  <p className="mt-2 text-xs text-slate-600">
+                    Sem senha do programa, fica pendente automaticamente. Com senha, você pode marcar manualmente.
+                  </p>
+
+                  <button
+                    type="button"
+                    onClick={() => void saveAdminAdjustments(c.id)}
+                    disabled={savingAdminId === c.id}
+                    className={cn(
+                      "mt-3 inline-flex items-center gap-2 rounded-xl bg-indigo-700 px-3 py-2 text-sm font-medium text-white hover:bg-indigo-800",
+                      savingAdminId === c.id && "opacity-60"
+                    )}
+                  >
+                    {savingAdminId === c.id ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                    Salvar ajustes
+                  </button>
+                </div>
+              ) : null}
 
               <div className="mt-4 rounded-2xl border p-4">
                 <div className="mb-4 font-semibold">Credenciais para revisão</div>
 
                 <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                   <FieldText label="Senha do e-mail" value={c.senhaEmail} />
-                  <FieldText label="Senha Smiles" value={c.senhaSmiles} />
-                  <FieldText label="Senha Latam Pass" value={c.senhaLatamPass} />
-                  <FieldText label="Senha Livelo" value={c.senhaLivelo} />
+                  <FieldText label="Senha Smiles" value={c.senhaSmiles} missing={!c.senhaSmiles?.trim()} />
+                  <FieldText label="Senha Latam Pass" value={c.senhaLatamPass} missing={!c.senhaLatamPass?.trim()} />
+                  <FieldText label="Senha Livelo" value={c.senhaLivelo} missing={!c.senhaLivelo?.trim()} />
                   <FieldText label="Senha Esfera" value={c.senhaEsfera} />
                 </div>
               </div>
@@ -259,14 +453,14 @@ export default function CedentesPendentesPage() {
 
               <div className="mt-4 flex flex-wrap gap-2">
                 <button
-                  onClick={() => review(c.id, "APPROVE")}
+                  onClick={() => void review(c.id, "APPROVE")}
                   className="rounded-xl bg-black px-3 py-2 text-sm text-white hover:bg-slate-900"
                 >
                   Aprovar e enviar para lista
                 </button>
 
                 <button
-                  onClick={() => review(c.id, "REJECT")}
+                  onClick={() => void review(c.id, "REJECT")}
                   className="rounded-xl border px-3 py-2 text-sm hover:bg-slate-50"
                 >
                   Reprovar
@@ -277,6 +471,30 @@ export default function CedentesPendentesPage() {
         })}
       </div>
     </div>
+  );
+}
+
+function ProgramToggle({
+  label,
+  checked,
+  disabled,
+  onChange,
+}: {
+  label: string;
+  checked: boolean;
+  disabled?: boolean;
+  onChange: (v: boolean) => void;
+}) {
+  return (
+    <label className={cn("inline-flex items-center gap-2 text-sm", disabled && "opacity-50")}>
+      <input
+        type="checkbox"
+        checked={checked}
+        disabled={disabled}
+        onChange={(e) => onChange(e.target.checked)}
+      />
+      {label}
+    </label>
   );
 }
 
@@ -303,11 +521,31 @@ function FieldNumber({
   );
 }
 
-function FieldText({ label, value }: { label: string; value: string | null }) {
+function FieldText({
+  label,
+  value,
+  missing,
+}: {
+  label: string;
+  value: string | null;
+  missing?: boolean;
+}) {
   return (
     <div>
-      <div className="mb-1 block text-sm">{label}</div>
-      <div className="rounded-xl border bg-slate-50 px-3 py-2 text-sm text-slate-900 break-all">
+      <div className="mb-1 flex items-center gap-2 text-sm">
+        {label}
+        {missing ? (
+          <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800">
+            Pendente criação
+          </span>
+        ) : null}
+      </div>
+      <div
+        className={cn(
+          "rounded-xl border px-3 py-2 text-sm break-all",
+          missing ? "border-amber-200 bg-amber-50 text-amber-900" : "bg-slate-50 text-slate-900"
+        )}
+      >
         {value?.trim() || "-"}
       </div>
     </div>

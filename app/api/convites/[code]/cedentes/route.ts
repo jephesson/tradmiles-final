@@ -2,6 +2,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { releaseExcludedCpfIfNeeded } from "@/lib/cedentes/releaseExcludedCpf";
+import {
+  findApprovedReferrerByCode,
+  normalizeReferrerCode,
+} from "@/lib/cedente-referrals";
+import { deriveProgramCreacaoFlags } from "@/lib/cedentes/programCreacaoPendente";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -134,6 +139,7 @@ async function createCedenteSignupWithRetry(args: {
   inviteId: string;
   overwriteExisting?: boolean;
   existingCedenteId?: string | null;
+  referral?: { referrerCedenteId: string; referrerCode: string } | null;
   retries?: number;
 }) {
   const {
@@ -144,6 +150,7 @@ async function createCedenteSignupWithRetry(args: {
     inviteId,
     overwriteExisting = false,
     existingCedenteId = null,
+    referral = null,
     retries = 6,
   } = args;
 
@@ -161,6 +168,7 @@ async function createCedenteSignupWithRetry(args: {
               id: true,
               cpf: true,
               status: true,
+              referredByCedenteId: true,
             },
           });
 
@@ -186,6 +194,9 @@ async function createCedenteSignupWithRetry(args: {
               reviewedById: null,
               ownerId: baseCedenteData.ownerId,
               inviteId: baseCedenteData.inviteId,
+              ...(existing.referredByCedenteId
+                ? { referredByCedenteId: existing.referredByCedenteId }
+                : {}),
             },
             select: {
               id: true,
@@ -212,6 +223,23 @@ async function createCedenteSignupWithRetry(args: {
             data: { uses: { increment: 1 }, lastUsedAt: new Date() },
           });
 
+          if (referral) {
+            const existingReferral = await tx.cedenteReferral.findUnique({
+              where: { referredCedenteId: cedente.id },
+              select: { id: true },
+            });
+            if (!existingReferral) {
+              await tx.cedenteReferral.create({
+                data: {
+                  referrerCedenteId: referral.referrerCedenteId,
+                  referredCedenteId: cedente.id,
+                  referrerCode: referral.referrerCode,
+                  status: "PENDING",
+                },
+              });
+            }
+          }
+
           return { ...cedente, updatedExisting: true };
         }
 
@@ -230,6 +258,17 @@ async function createCedenteSignupWithRetry(args: {
           where: { id: inviteId },
           data: { uses: { increment: 1 }, lastUsedAt: new Date() },
         });
+
+        if (referral) {
+          await tx.cedenteReferral.create({
+            data: {
+              referrerCedenteId: referral.referrerCedenteId,
+              referredCedenteId: cedente.id,
+              referrerCode: referral.referrerCode,
+              status: "PENDING",
+            },
+          });
+        }
 
         return { ...cedente, updatedExisting: false };
       });
@@ -349,6 +388,34 @@ export async function POST(
     }
     const pixTipo = pixTipoRaw as any;
 
+    const referrerCodeInput = normalizeReferrerCode(
+      body?.codigoCedenteIndicacao ?? body?.codigoCedente ?? ""
+    );
+    let referral: { referrerCedenteId: string; referrerCode: string } | null = null;
+
+    if (referrerCodeInput) {
+      const referrer = await findApprovedReferrerByCode(referrerCodeInput);
+      if (!referrer) {
+        return NextResponse.json(
+          {
+            ok: false,
+            error: "Código do cedente inválido ou cedente ainda não aprovado.",
+          },
+          { status: 400, headers: noCacheHeaders() }
+        );
+      }
+      if (referrer.cpf === cpf) {
+        return NextResponse.json(
+          { ok: false, error: "Você não pode usar o seu próprio código de indicação." },
+          { status: 400, headers: noCacheHeaders() }
+        );
+      }
+      referral = {
+        referrerCedenteId: referrer.id,
+        referrerCode: referrer.identificador.toUpperCase(),
+      };
+    }
+
     const ip = getClientIp(req);
     const userAgent = req.headers.get("user-agent");
     const overwriteExisting = Boolean(body?.overwriteExisting);
@@ -387,6 +454,12 @@ export async function POST(
       senhaLivelo,
       senhaEsfera,
 
+      ...deriveProgramCreacaoFlags({
+        senhaLatamPass,
+        senhaSmiles,
+        senhaLivelo,
+      }),
+
       pontosLatam: normalizeInt(body?.pontosLatam, 0),
       pontosSmiles: normalizeInt(body?.pontosSmiles, 0),
       pontosLivelo: normalizeInt(body?.pontosLivelo, 0),
@@ -394,6 +467,7 @@ export async function POST(
 
       ownerId: invite.userId,
       inviteId: invite.id,
+      referredByCedenteId: referral?.referrerCedenteId ?? null,
     };
 
     const created = await createCedenteSignupWithRetry({
@@ -404,6 +478,7 @@ export async function POST(
       inviteId: invite.id,
       overwriteExisting,
       existingCedenteId,
+      referral,
       retries: 6,
     });
 
