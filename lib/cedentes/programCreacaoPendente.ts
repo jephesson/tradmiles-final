@@ -1,6 +1,7 @@
 import type { Prisma } from "@prisma/client";
 
 export type ProgramCreacao = "LATAM" | "SMILES" | "LIVELO";
+export type ProgramCreacaoStatus = "PENDENTE" | "RESOLVIDO" | "EXCLUIR";
 
 type CedenteProgramFields = {
   senhaLatamPass?: string | null;
@@ -9,20 +10,42 @@ type CedenteProgramFields = {
   latamCreacaoPendente?: boolean | null;
   smilesCreacaoPendente?: boolean | null;
   liveloCreacaoPendente?: boolean | null;
+  latamCreacaoResolvido?: boolean | null;
+  smilesCreacaoResolvido?: boolean | null;
+  liveloCreacaoResolvido?: boolean | null;
 };
 
 function hasSenha(v: unknown) {
   return Boolean(String(v ?? "").trim());
 }
 
+export function isProgramCreacaoResolvido(cedente: CedenteProgramFields, program: ProgramCreacao) {
+  if (program === "LATAM") return Boolean(cedente.latamCreacaoResolvido);
+  if (program === "SMILES") return Boolean(cedente.smilesCreacaoResolvido);
+  return Boolean(cedente.liveloCreacaoResolvido);
+}
+
 export function isProgramCreacaoPendente(cedente: CedenteProgramFields, program: ProgramCreacao) {
+  return Boolean(getProgramFlags(cedente, program).pendente) && !isProgramCreacaoResolvido(cedente, program);
+}
+
+export function getProgramFlags(cedente: CedenteProgramFields, program: ProgramCreacao) {
   if (program === "LATAM") {
-    return Boolean(cedente.latamCreacaoPendente) || !hasSenha(cedente.senhaLatamPass);
+    return {
+      pendente: Boolean(cedente.latamCreacaoPendente),
+      resolvido: Boolean(cedente.latamCreacaoResolvido),
+    };
   }
   if (program === "SMILES") {
-    return Boolean(cedente.smilesCreacaoPendente) || !hasSenha(cedente.senhaSmiles);
+    return {
+      pendente: Boolean(cedente.smilesCreacaoPendente),
+      resolvido: Boolean(cedente.smilesCreacaoResolvido),
+    };
   }
-  return Boolean(cedente.liveloCreacaoPendente) || !hasSenha(cedente.senhaLivelo);
+  return {
+    pendente: Boolean(cedente.liveloCreacaoPendente),
+    resolvido: Boolean(cedente.liveloCreacaoResolvido),
+  };
 }
 
 export function deriveProgramCreacaoFlags(input: {
@@ -32,34 +55,62 @@ export function deriveProgramCreacaoFlags(input: {
   latamCreacaoPendente?: boolean | null;
   smilesCreacaoPendente?: boolean | null;
   liveloCreacaoPendente?: boolean | null;
+  latamCreacaoResolvido?: boolean | null;
+  smilesCreacaoResolvido?: boolean | null;
+  liveloCreacaoResolvido?: boolean | null;
 }) {
+  function resolvePendente(senha: unknown, explicit?: boolean | null) {
+    if (explicit !== undefined && explicit !== null) return Boolean(explicit);
+    return hasSenha(senha) ? false : true;
+  }
+
   return {
-    latamCreacaoPendente: hasSenha(input.senhaLatamPass)
-      ? Boolean(input.latamCreacaoPendente)
-      : true,
-    smilesCreacaoPendente: hasSenha(input.senhaSmiles)
-      ? Boolean(input.smilesCreacaoPendente)
-      : true,
-    liveloCreacaoPendente: hasSenha(input.senhaLivelo)
-      ? Boolean(input.liveloCreacaoPendente)
-      : true,
+    latamCreacaoPendente: resolvePendente(input.senhaLatamPass, input.latamCreacaoPendente),
+    smilesCreacaoPendente: resolvePendente(input.senhaSmiles, input.smilesCreacaoPendente),
+    liveloCreacaoPendente: resolvePendente(input.senhaLivelo, input.liveloCreacaoPendente),
+    latamCreacaoResolvido: Boolean(input.latamCreacaoResolvido),
+    smilesCreacaoResolvido: Boolean(input.smilesCreacaoResolvido),
+    liveloCreacaoResolvido: Boolean(input.liveloCreacaoResolvido),
   };
+}
+
+export function programCreacaoFlagUpdate(
+  program: ProgramCreacao,
+  status: ProgramCreacaoStatus
+): Prisma.CedenteUpdateInput {
+  if (status === "PENDENTE") {
+    if (program === "LATAM") return { latamCreacaoPendente: true, latamCreacaoResolvido: false };
+    if (program === "SMILES") return { smilesCreacaoPendente: true, smilesCreacaoResolvido: false };
+    return { liveloCreacaoPendente: true, liveloCreacaoResolvido: false };
+  }
+  if (status === "RESOLVIDO") {
+    if (program === "LATAM") return { latamCreacaoPendente: false, latamCreacaoResolvido: true };
+    if (program === "SMILES") return { smilesCreacaoPendente: false, smilesCreacaoResolvido: true };
+    return { liveloCreacaoPendente: false, liveloCreacaoResolvido: true };
+  }
+  if (program === "LATAM") return { latamCreacaoPendente: false, latamCreacaoResolvido: false };
+  if (program === "SMILES") return { smilesCreacaoPendente: false, smilesCreacaoResolvido: false };
+  return { liveloCreacaoPendente: false, liveloCreacaoResolvido: false };
 }
 
 export function programCreacaoPrismaWhere(program: ProgramCreacao): Prisma.CedenteWhereInput {
   if (program === "LATAM") {
-    return {
-      OR: [{ latamCreacaoPendente: true }, { senhaLatamPass: null }, { senhaLatamPass: "" }],
-    };
+    return { OR: [{ latamCreacaoPendente: true }, { latamCreacaoResolvido: true }] };
   }
   if (program === "SMILES") {
-    return {
-      OR: [{ smilesCreacaoPendente: true }, { senhaSmiles: null }, { senhaSmiles: "" }],
-    };
+    return { OR: [{ smilesCreacaoPendente: true }, { smilesCreacaoResolvido: true }] };
   }
-  return {
-    OR: [{ liveloCreacaoPendente: true }, { senhaLivelo: null }, { senhaLivelo: "" }],
-  };
+  return { OR: [{ liveloCreacaoPendente: true }, { liveloCreacaoResolvido: true }] };
+}
+
+export function programCreacaoOrderBy(program: ProgramCreacao): Prisma.CedenteOrderByWithRelationInput[] {
+  if (program === "LATAM") {
+    return [{ latamCreacaoResolvido: "asc" }, { createdAt: "desc" }];
+  }
+  if (program === "SMILES") {
+    return [{ smilesCreacaoResolvido: "asc" }, { createdAt: "desc" }];
+  }
+  return [{ liveloCreacaoResolvido: "asc" }, { createdAt: "desc" }];
 }
 
 export const PROGRAM_CRIACAO_LABEL: Record<ProgramCreacao, string> = {
@@ -84,4 +135,13 @@ export const PROGRAM_FLAG_FIELD: Record<
   LATAM: "latamCreacaoPendente",
   SMILES: "smilesCreacaoPendente",
   LIVELO: "liveloCreacaoPendente",
+};
+
+export const PROGRAM_RESOLVIDO_FIELD: Record<
+  ProgramCreacao,
+  "latamCreacaoResolvido" | "smilesCreacaoResolvido" | "liveloCreacaoResolvido"
+> = {
+  LATAM: "latamCreacaoResolvido",
+  SMILES: "smilesCreacaoResolvido",
+  LIVELO: "liveloCreacaoResolvido",
 };

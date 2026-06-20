@@ -5,6 +5,7 @@ import { getSessionServer } from "@/lib/auth-server";
 import {
   PROGRAM_CRIACAO_LABEL,
   ProgramCreacao,
+  programCreacaoOrderBy,
   programCreacaoPrismaWhere,
 } from "@/lib/cedentes/programCreacaoPendente";
 
@@ -53,7 +54,7 @@ export async function GET(req: NextRequest) {
 
     const rows = await prisma.cedente.findMany({
       where,
-      orderBy: [{ status: "asc" }, { createdAt: "desc" }],
+      orderBy: programCreacaoOrderBy(program),
       select: {
         id: true,
         identificador: true,
@@ -68,6 +69,9 @@ export async function GET(req: NextRequest) {
         latamCreacaoPendente: true,
         smilesCreacaoPendente: true,
         liveloCreacaoPendente: true,
+        latamCreacaoResolvido: true,
+        smilesCreacaoResolvido: true,
+        liveloCreacaoResolvido: true,
         createdAt: true,
         owner: { select: { id: true, name: true, login: true } },
       },

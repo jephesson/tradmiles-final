@@ -474,6 +474,9 @@ model Cedente {
   latamCreacaoPendente   Boolean @default(false)
   smilesCreacaoPendente  Boolean @default(false)
   liveloCreacaoPendente  Boolean @default(false)
+  latamCreacaoResolvido   Boolean @default(false)
+  smilesCreacaoResolvido  Boolean @default(false)
+  liveloCreacaoResolvido  Boolean @default(false)
 
   pontosLatam  Int @default(0)
   pontosSmiles Int @default(0)
