@@ -241,6 +241,11 @@ model User {
   latamPromoListItemsAdded    LatamPromoListItem[] @relation("LatamPromoListItemAddedBy")
   latamPromoListItemsReviewed LatamPromoListItem[] @relation("LatamPromoListItemReviewedBy")
 
+  // ✅ AVISOS (mural de avisos)
+  avisosCreated  Aviso[] @relation("AvisoCreatedBy")
+  avisosTargeted Aviso[] @relation("AvisoTargetUser")
+  avisosResolved Aviso[] @relation("AvisoResolvedBy")
+
   @@index([team])
   @@index([role])
   @@map("users")
@@ -1792,6 +1797,17 @@ enum AnotacaoStatus {
   RESOLVIDO
 }
 
+enum AvisoStatus {
+  PENDENTE
+  RESOLVIDO
+}
+
+enum AvisoAudience {
+  GROUP // todo o grupo
+  USER  // pessoa específica
+  SELF  // só para mim
+}
+
 model AgendaEvent {
   id     String            @id @default(cuid())
   team   String
@@ -1892,4 +1908,44 @@ model Anotacao {
   @@index([team, createdAt])
   @@index([cedenteId])
   @@map("anotacoes")
+}
+
+/**
+ * =========================
+ * ✅ AVISOS (MURAL DE AVISOS)
+ * =========================
+ */
+model Aviso {
+  id     String      @id @default(cuid())
+  team   String
+  status AvisoStatus @default(PENDENTE)
+
+  titulo String?
+  texto  String
+
+  // Data do aviso no formato "YYYY-MM-DD" (exibição DD/MM/AAAA no frontend)
+  dateISO String
+
+  audience AvisoAudience @default(GROUP)
+
+  // Destinatário quando audience = USER
+  targetUserId String?
+  targetUser   User?   @relation("AvisoTargetUser", fields: [targetUserId], references: [id], onDelete: SetNull)
+
+  resolvedAt   DateTime?
+  resolvedById String?
+  resolvedBy   User?     @relation("AvisoResolvedBy", fields: [resolvedById], references: [id], onDelete: SetNull)
+
+  createdById String
+  createdBy   User   @relation("AvisoCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([team, status])
+  @@index([team, dateISO])
+  @@index([team, createdAt])
+  @@index([targetUserId])
+  @@index([createdById])
+  @@map("avisos")
 }

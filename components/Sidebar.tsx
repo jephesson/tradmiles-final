@@ -9,7 +9,7 @@ import {
   type ReadonlyURLSearchParams,
 } from "next/navigation";
 import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
-import { CalendarDays, ChevronRight, Home, LogOut, Settings } from "lucide-react";
+import { Bell, CalendarDays, ChevronRight, Home, LogOut, Settings } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { getSession, setSession, signOut, type Session } from "@/lib/auth";
 
@@ -312,6 +312,9 @@ export default function Sidebar() {
 
   // ✅ NOVO: Agenda
   const isAgendaRoute = pathname.startsWith("/dashboard/agenda");
+
+  // ✅ NOVO: Avisos
+  const isAvisosRoute = pathname.startsWith("/dashboard/avisos");
 
   // ✅ NOVO: Anotações
   const isAnotacoesRoute = pathname.startsWith("/dashboard/anotacoes");
@@ -648,6 +651,23 @@ export default function Sidebar() {
           >
             <CalendarDays className="h-4 w-4 shrink-0 opacity-80" aria-hidden />
             Agenda
+          </Link>
+        </div>
+
+        <div className="mb-2 border-b border-slate-100 pb-2" style={accentStyle("orange")}>
+          <Link
+            href="/dashboard/avisos"
+            className={cn(
+              "relative flex items-center gap-2 rounded-xl px-3 py-2.5 pl-5 text-[13px] font-semibold transition-colors",
+              isAvisosRoute
+                ? "bg-[var(--accent-soft)] text-[var(--accent-text)]"
+                : "text-slate-600 hover:bg-slate-100/80 hover:text-slate-900",
+              "before:content-[''] before:absolute before:left-2 before:top-2 before:bottom-2 before:w-1 before:rounded-full",
+              isAvisosRoute ? "before:bg-[var(--accent)]" : "before:bg-transparent"
+            )}
+          >
+            <Bell className="h-4 w-4 shrink-0 opacity-80" aria-hidden />
+            Avisos
           </Link>
         </div>
 
