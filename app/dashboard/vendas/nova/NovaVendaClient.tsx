@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { getSession } from "@/lib/auth";
+import { buildWhatsAppLink } from "@/lib/whatsapp";
 import {
   affiliateCommissionCents as calcAffiliateCommissionCents,
   affiliateNetProfitAfterCommissionCents,
@@ -1440,6 +1441,23 @@ export default function NovaVendaClient({
     return id ? waMap[id] || null : null;
   }, [sel?.cedente?.id, waMap]);
 
+  const selWhatsAppOpenUrl = useMemo(() => {
+    if (!selWhatsApp) return null;
+    const nome = sel?.cedente?.nomeCompleto?.trim();
+    if (!nome) return selWhatsApp.whatsappUrl;
+
+    const texto = `Olá, ${nome}! Tudo bem? Está disponível para fazer uma biometria agora? Logo mais eu te envio`;
+
+    if (selWhatsApp.whatsappE164) {
+      return buildWhatsAppLink(selWhatsApp.whatsappE164, texto);
+    }
+
+    const base = selWhatsApp.whatsappUrl;
+    if (!base) return null;
+    const sep = base.includes("?") ? "&" : "?";
+    return `${base}${sep}text=${encodeURIComponent(texto)}`;
+  }, [selWhatsApp, sel?.cedente?.nomeCompleto]);
+
   async function loadCedentesWhatsapp(signal?: AbortSignal) {
     setWaLoading(true);
     setWaError("");
@@ -1909,15 +1927,15 @@ export default function NovaVendaClient({
                       <div className="flex flex-wrap items-center gap-2">
                         <button
                           type="button"
-                          disabled={!selWhatsApp?.whatsappUrl}
+                          disabled={!selWhatsAppOpenUrl}
                           onClick={() => {
-                            const url = selWhatsApp?.whatsappUrl;
+                            const url = selWhatsAppOpenUrl;
                             if (!url) return;
                             window.open(url, "_blank", "noopener,noreferrer");
                           }}
                           className={cn(
                             "rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-medium",
-                            selWhatsApp?.whatsappUrl
+                            selWhatsAppOpenUrl
                               ? "hover:bg-slate-50"
                               : "cursor-not-allowed opacity-40"
                           )}
@@ -1927,15 +1945,15 @@ export default function NovaVendaClient({
 
                         <button
                           type="button"
-                          disabled={!selWhatsApp?.whatsappUrl}
+                          disabled={!selWhatsAppOpenUrl}
                           onClick={async () => {
-                            const url = selWhatsApp?.whatsappUrl;
+                            const url = selWhatsAppOpenUrl;
                             if (!url) return;
                             await copySilent(url);
                           }}
                           className={cn(
                             "rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-medium",
-                            selWhatsApp?.whatsappUrl
+                            selWhatsAppOpenUrl
                               ? "hover:bg-slate-50"
                               : "cursor-not-allowed opacity-40"
                           )}
@@ -1953,9 +1971,16 @@ export default function NovaVendaClient({
                       <div className="mt-2 text-[11px] text-rose-600">
                         {waError}
                       </div>
-                    ) : selWhatsApp?.whatsappUrl ? (
-                      <div className="mt-2 text-[11px] text-slate-600 break-all">
-                        {selWhatsApp.whatsappUrl}
+                    ) : selWhatsAppOpenUrl ? (
+                      <div className="mt-2 space-y-1">
+                        <div className="text-[11px] text-slate-600 break-all">
+                          {selWhatsAppOpenUrl}
+                        </div>
+                        <div className="text-[11px] text-slate-500">
+                          Mensagem: Olá, {sel?.cedente?.nomeCompleto}! Tudo bem? Está
+                          disponível para fazer uma biometria agora? Logo mais eu te
+                          envio
+                        </div>
                       </div>
                     ) : (
                       <div className="mt-2 text-[11px] text-slate-500">
