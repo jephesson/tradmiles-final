@@ -124,7 +124,10 @@ export async function fetchMonthlyBonusMetrics(team: string, month: string) {
 
   for (const p of finalizedPurchases) {
     const uid = String(p.finalizedById || "").trim();
-    if (uid) ensure(uid).finalizedAccounts += 1;
+    // ✅ só conta contas finalizadas com lucro > 0, atribuídas a quem clicou em finalizar
+    if (uid && safeInt(p.finalProfitCents, 0) > 0) {
+      ensure(uid).finalizedAccounts += 1;
+    }
   }
 
   let revenueCents = 0;

@@ -346,7 +346,7 @@ export default function BonusClient() {
             <div className="rounded-2xl border bg-white p-4 shadow-sm">
               <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-slate-800">
                 <Users className="h-4 w-4 text-teal-500" aria-hidden />
-                Mais contas finalizadas (20%)
+                Mais contas finalizadas com lucro (20%)
               </div>
               {topAccounts ? (
                 <div>
@@ -446,9 +446,10 @@ export default function BonusClient() {
 
           <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-xs leading-relaxed text-slate-600">
             <b>Regras:</b> 0,1% do faturamento + 0,1% do lucro líquido (se meta de
-            lucro batida). Distribuição: 30% melhor C2, 30% maior volume, 20% mais
-            contas finalizadas, 20% dividido igualmente. Imposto debitado sobre o
-            bônus bruto. Pagamento no dia 1 do mês seguinte, junto às comissões.
+            lucro batida). Distribuição: 30% melhor C2, 30% maior volume, 20% quem
+            finalizou mais contas (só conta quando o lucro da conta é maior que zero),
+            20% dividido igualmente. Imposto debitado sobre o bônus bruto. Pagamento
+            no dia 1 do mês seguinte, junto às comissões.
           </div>
         </>
       ) : null}
