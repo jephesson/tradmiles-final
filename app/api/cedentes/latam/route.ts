@@ -111,22 +111,6 @@ function addMonthsUTC(d: Date, m: number) {
   return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + m, 1, 0, 0, 0, 0));
 }
 
-function isoDateNowSP() {
-  const parts = new Intl.DateTimeFormat("en-CA", {
-    timeZone: "America/Sao_Paulo",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  })
-    .formatToParts(new Date())
-    .reduce<Record<string, string>>((acc, p) => {
-      if (p.type !== "literal") acc[p.type] = p.value;
-      return acc;
-    }, {});
-
-  return `${parts.year}-${parts.month}-${parts.day}`;
-}
-
 /* =========================
    GET
 ========================= */
@@ -273,16 +257,22 @@ export async function GET(req: NextRequest) {
       usedMap.set(g.cedenteId, Number(g._sum.passengersCount || 0));
     }
 
-    const promoDate = isoDateNowSP();
-    const promoTodayItems = await prisma.latamPromoListItem.findMany({
-      where: {
-        team: session.team,
-        listDate: promoDate,
-        cedenteId: { in: ids },
-      },
-      select: { cedenteId: true },
+    // A "lista atual" é a lista promo mais recente do time (vale até criar outra).
+    const currentPromoList = await prisma.latamPromoList.findFirst({
+      where: { team: session.team },
+      orderBy: [{ createdAt: "desc" }],
+      select: { id: true },
     });
-    const promoTodaySet = new Set(promoTodayItems.map((item) => item.cedenteId));
+    const promoCurrentItems = currentPromoList
+      ? await prisma.latamPromoListItem.findMany({
+          where: {
+            listId: currentPromoList.id,
+            cedenteId: { in: ids },
+          },
+          select: { cedenteId: true },
+        })
+      : [];
+    const promoCurrentSet = new Set(promoCurrentItems.map((item) => item.cedenteId));
 
     const latamClubs = await prisma.clubSubscription.findMany({
       where: {
@@ -367,7 +357,7 @@ export async function GET(req: NextRequest) {
         latamHistoricoBloqueio: latamHistoricoBloqueioSet.has(c.id),
         latamClubAtivoAgora,
         blockedPrograms: latamBloqueado ? (["LATAM"] as const) : [],
-        onPromoListToday: promoTodaySet.has(c.id),
+        onCurrentPromoList: promoCurrentSet.has(c.id),
       };
     });
 

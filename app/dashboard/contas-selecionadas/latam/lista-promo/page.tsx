@@ -2,14 +2,15 @@
 
 import { useEffect, useMemo, useState } from "react";
 import {
-  CalendarDays,
   CheckCircle2,
   Clock,
   Copy,
   KeyRound,
   ListChecks,
+  ListPlus,
   MessageCircle,
   Plane,
+  Plus,
   RefreshCw,
   Sparkles,
   Trash2,
@@ -26,7 +27,7 @@ type PromoStatus = "PENDING" | "ELIGIBLE" | "DENIED" | "USED";
 
 type Item = {
   id: string;
-  listDate: string;
+  listId: string;
   status: PromoStatus;
   createdAt: string;
   updatedAt: string;
@@ -50,11 +51,20 @@ type Item = {
 
 type SortBy = "ALPHA" | "SCORE" | "LATAM" | "LIVELO" | "PAX";
 
+type PromoListMeta = {
+  id: string;
+  name: string;
+  createdAt: string;
+  createdBy: null | { id: string; name: string; login: string };
+  itemCount: number;
+};
+
 type ApiResp = {
   ok: true;
-  listDate: string;
-  today: string;
-  recentDates: string[];
+  currentListId: string;
+  selectedListId: string;
+  selectedList: PromoListMeta | null;
+  lists: PromoListMeta[];
   summary: {
     total: number;
     pending: number;
@@ -158,17 +168,6 @@ function dateBR(iso: string | null | undefined) {
   if (!iso) return "—";
   const d = new Date(iso);
   return d.toLocaleDateString("pt-BR");
-}
-
-function dateLabelLong(isoDate: string) {
-  const [y, m, d] = isoDate.split("-").map(Number);
-  if (!y || !m || !d) return isoDate;
-  return new Intl.DateTimeFormat("pt-BR", {
-    day: "2-digit",
-    month: "long",
-    year: "numeric",
-    timeZone: "UTC",
-  }).format(new Date(Date.UTC(y, m - 1, d)));
 }
 
 function normalizeScore(v: unknown) {
@@ -478,7 +477,7 @@ function Section({
 
 export default function LatamListaPromoPage() {
   const [data, setData] = useState<ApiResp | null>(null);
-  const [listDate, setListDate] = useState("");
+  const [selectedListId, setSelectedListId] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [credentials, setCredentials] = useState<CredentialsState | null>(null);
@@ -489,6 +488,9 @@ export default function LatamListaPromoPage() {
   const [ownerId, setOwnerId] = useState("");
   const [sessionDisplayName, setSessionDisplayName] = useState("");
   const [excludingCedenteId, setExcludingCedenteId] = useState<string | null>(null);
+  const [newListName, setNewListName] = useState("");
+  const [creatingList, setCreatingList] = useState(false);
+  const [deletingListId, setDeletingListId] = useState<string | null>(null);
 
   const ownerOptions = useMemo(() => {
     const map = new Map<string, { id: string; login: string }>();
@@ -511,12 +513,12 @@ export default function LatamListaPromoPage() {
     );
   }, [data]);
 
-  async function load(dateOverride?: string) {
-    const targetDate = dateOverride || listDate;
+  async function load(listIdOverride?: string) {
+    const target = listIdOverride ?? selectedListId;
     setLoading(true);
     setError("");
     try {
-      const qs = targetDate ? `?date=${encodeURIComponent(targetDate)}` : "";
+      const qs = target ? `?listId=${encodeURIComponent(target)}` : "";
       const res = await fetch(`/api/contas-selecionadas/latam/lista-promo${qs}`, {
         cache: "no-store",
       });
@@ -524,11 +526,61 @@ export default function LatamListaPromoPage() {
       if (!res.ok || !json?.ok) throw new Error(json?.error || "Falha ao carregar lista promo.");
 
       setData(json);
-      setListDate(String(json.listDate || ""));
+      setSelectedListId(String(json.selectedListId || ""));
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Falha ao carregar lista promo.");
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function createList() {
+    const name = newListName.trim();
+    if (!name) {
+      alert("Informe um nome para a nova lista.");
+      return;
+    }
+    setCreatingList(true);
+    setError("");
+    try {
+      const res = await fetch("/api/contas-selecionadas/latam/lista-promo/lists", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name }),
+      });
+      const json = await res.json().catch(() => null);
+      if (!res.ok || !json?.ok) throw new Error(json?.error || "Falha ao criar a lista.");
+      setNewListName("");
+      await load(json.list.id);
+    } catch (e: unknown) {
+      alert(e instanceof Error ? e.message : "Falha ao criar a lista.");
+    } finally {
+      setCreatingList(false);
+    }
+  }
+
+  async function deleteList(list: PromoListMeta) {
+    if (
+      !confirm(
+        `Apagar a lista "${list.name}"? As ${list.itemCount} conta(s) dela serão removidas da lista (o cadastro dos cedentes é preservado).`
+      )
+    ) {
+      return;
+    }
+    setDeletingListId(list.id);
+    setError("");
+    try {
+      const res = await fetch(
+        `/api/contas-selecionadas/latam/lista-promo/lists?id=${encodeURIComponent(list.id)}`,
+        { method: "DELETE" }
+      );
+      const json = await res.json().catch(() => null);
+      if (!res.ok || !json?.ok) throw new Error(json?.error || "Falha ao apagar a lista.");
+      await load("");
+    } catch (e: unknown) {
+      alert(e instanceof Error ? e.message : "Falha ao apagar a lista.");
+    } finally {
+      setDeletingListId(null);
     }
   }
 
@@ -612,7 +664,7 @@ export default function LatamListaPromoPage() {
         setCredentialsError("");
       }
 
-      await load(listDate);
+      await load(selectedListId);
       alert("Exclusão definitiva concluída.");
     } catch (e: unknown) {
       alert(e instanceof Error ? e.message : "Falha na exclusão definitiva.");
@@ -630,7 +682,7 @@ export default function LatamListaPromoPage() {
       });
       const json = await res.json().catch(() => null);
       if (!res.ok || !json?.ok) throw new Error(json?.error || "Falha ao atualizar status.");
-      await load(listDate);
+      await load(selectedListId);
     } catch (e: unknown) {
       alert(e instanceof Error ? e.message : "Falha ao atualizar status.");
     }
@@ -731,28 +783,21 @@ export default function LatamListaPromoPage() {
             </div>
             <h1 className="mt-3 text-2xl font-bold tracking-tight md:text-3xl">Lista promo • Latam</h1>
             <p className="mt-2 max-w-2xl text-sm leading-relaxed text-slate-300">
-              Cada data é uma lista separada. O atalho em cedentes LATAM adiciona a conta na lista do dia selecionado.
+              As listas agora são nomeadas. A lista mais recente é a lista atual e vale até você criar
+              outra — o atalho em cedentes LATAM adiciona a conta automaticamente na lista atual.
             </p>
+            {data?.selectedList ? (
+              <div className="mt-3 inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-3 py-1 text-xs font-medium text-white">
+                <ListChecks className="h-3.5 w-3.5" aria-hidden />
+                Lista atual: {data.lists[0]?.name || "—"}
+              </div>
+            ) : null}
           </div>
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-            <input
-              type="date"
-              value={listDate}
-              onChange={(e) => setListDate(e.target.value)}
-              className="h-11 rounded-xl border border-white/20 bg-white/10 px-3 text-sm text-white outline-none [color-scheme:dark]"
-            />
-            <button
-              type="button"
-              className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-white/20 bg-white/10 px-4 text-sm font-semibold text-white transition hover:bg-white/20"
-              onClick={() => data?.today && load(data.today)}
-            >
-              <CalendarDays className="h-4 w-4" aria-hidden />
-              Hoje
-            </button>
             <button
               type="button"
               className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-white px-5 text-sm font-semibold text-slate-900 shadow-sm transition hover:bg-slate-100 disabled:opacity-50"
-              onClick={() => load(listDate)}
+              onClick={() => load(selectedListId)}
               disabled={loading}
             >
               <RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} aria-hidden />
@@ -762,64 +807,140 @@ export default function LatamListaPromoPage() {
         </div>
       </section>
 
-      {data ? (
-        <section className="rounded-3xl border border-slate-200/80 bg-white p-4 shadow-sm shadow-slate-200/40 md:p-5">
-          <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
-            <div>
-              <div className="text-sm font-semibold">Lista selecionada</div>
-              <div className="mt-1 text-sm text-neutral-600">{dateLabelLong(data.listDate)}</div>
-            </div>
-
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-              <span className="text-xs text-neutral-500">Responsável:</span>
-              <select
-                className={CONTROL}
-                value={ownerId}
-                onChange={(e) => setOwnerId(e.target.value)}
+      <section className="rounded-3xl border border-slate-200/80 bg-white p-4 shadow-sm shadow-slate-200/40 md:p-5">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+          <div className="min-w-0 flex-1">
+            <div className="text-sm font-semibold text-slate-900">Nova lista</div>
+            <p className="mt-1 text-xs text-slate-500">
+              Ao criar uma lista, ela passa a ser a lista atual e recebe as próximas contas adicionadas.
+            </p>
+            <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center">
+              <input
+                type="text"
+                value={newListName}
+                onChange={(e) => setNewListName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !creatingList) createList();
+                }}
+                placeholder="Nome da lista (ex.: Promo Julho)"
+                maxLength={120}
+                className={cn(CONTROL, "w-full sm:w-72")}
+              />
+              <button
+                type="button"
+                onClick={createList}
+                disabled={creatingList || !newListName.trim()}
+                className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-slate-900 px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800 disabled:opacity-50"
               >
-                <option value="">Todos</option>
-                {ownerOptions.map((owner) => (
-                  <option key={owner.id} value={owner.id}>
-                    @{owner.login}
-                  </option>
-                ))}
-              </select>
-
-              <span className="text-xs text-neutral-500">Ordenar por:</span>
-              <select
-                className={CONTROL}
-                value={sortBy}
-                onChange={(e) => setSortBy(e.target.value as SortBy)}
-              >
-                <option value="ALPHA">Ordem alfabética</option>
-                <option value="SCORE">Score</option>
-                <option value="LATAM">Pontos LATAM</option>
-                <option value="LIVELO">Pontos LIVELO</option>
-                <option value="PAX">PAX disponível</option>
-              </select>
+                <Plus className="h-4 w-4" aria-hidden />
+                {creatingList ? "Criando…" : "Criar lista"}
+              </button>
             </div>
           </div>
 
-          {data.recentDates.length ? (
-            <div className="mt-3 flex flex-wrap gap-2">
-              {data.recentDates.map((date) => (
-                <button
-                  key={date}
-                  className={cn(
-                    "rounded-xl border px-3 py-1.5 text-xs font-medium transition",
-                    data.listDate === date
-                      ? "border-slate-900 bg-slate-900 text-white shadow-sm"
-                      : "border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50"
-                  )}
-                  onClick={() => load(date)}
-                >
-                  {date}
-                </button>
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+            <span className="text-xs text-neutral-500">Responsável:</span>
+            <select
+              className={CONTROL}
+              value={ownerId}
+              onChange={(e) => setOwnerId(e.target.value)}
+            >
+              <option value="">Todos</option>
+              {ownerOptions.map((owner) => (
+                <option key={owner.id} value={owner.id}>
+                  @{owner.login}
+                </option>
               ))}
+            </select>
+
+            <span className="text-xs text-neutral-500">Ordenar por:</span>
+            <select
+              className={CONTROL}
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value as SortBy)}
+            >
+              <option value="ALPHA">Ordem alfabética</option>
+              <option value="SCORE">Score</option>
+              <option value="LATAM">Pontos LATAM</option>
+              <option value="LIVELO">Pontos LIVELO</option>
+              <option value="PAX">PAX disponível</option>
+            </select>
+          </div>
+        </div>
+
+        {data?.lists.length ? (
+          <div className="mt-4 border-t border-slate-100 pt-4">
+            <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+              Listas ({data.lists.length})
             </div>
-          ) : null}
-        </section>
-      ) : null}
+            <div className="mt-2 flex flex-wrap gap-2">
+              {data.lists.map((list, index) => {
+                const isSelected = data.selectedListId === list.id;
+                const isCurrent = index === 0;
+                return (
+                  <div
+                    key={list.id}
+                    className={cn(
+                      "group inline-flex items-center gap-2 rounded-xl border px-3 py-1.5 text-xs font-medium transition",
+                      isSelected
+                        ? "border-slate-900 bg-slate-900 text-white shadow-sm"
+                        : "border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50"
+                    )}
+                  >
+                    <button
+                      type="button"
+                      className="inline-flex items-center gap-1.5"
+                      onClick={() => load(list.id)}
+                      title={`Criada em ${dateBR(list.createdAt)}${
+                        list.createdBy ? ` por @${list.createdBy.login}` : ""
+                      }`}
+                    >
+                      {isCurrent ? <ListPlus className="h-3.5 w-3.5" aria-hidden /> : null}
+                      <span className="max-w-[180px] truncate">{list.name}</span>
+                      <span
+                        className={cn(
+                          "rounded-full px-1.5 py-0.5 text-[10px] tabular-nums",
+                          isSelected ? "bg-white/20" : "bg-slate-100 text-slate-600"
+                        )}
+                      >
+                        {list.itemCount}
+                      </span>
+                      {isCurrent ? (
+                        <span
+                          className={cn(
+                            "rounded-full px-1.5 py-0.5 text-[10px] font-semibold uppercase",
+                            isSelected ? "bg-emerald-400/30 text-emerald-100" : "bg-emerald-50 text-emerald-700"
+                          )}
+                        >
+                          Atual
+                        </span>
+                      ) : null}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => deleteList(list)}
+                      disabled={deletingListId === list.id}
+                      title="Apagar esta lista"
+                      className={cn(
+                        "inline-flex h-5 w-5 items-center justify-center rounded-md transition disabled:opacity-50",
+                        isSelected
+                          ? "text-white/70 hover:bg-white/20 hover:text-white"
+                          : "text-slate-400 hover:bg-rose-50 hover:text-rose-600"
+                      )}
+                    >
+                      <Trash2 className="h-3.5 w-3.5" aria-hidden />
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        ) : (
+          <div className="mt-4 rounded-2xl border border-dashed border-slate-200 bg-slate-50/60 px-4 py-6 text-center text-sm text-slate-500">
+            Nenhuma lista criada ainda. Crie uma lista acima para começar a adicionar contas.
+          </div>
+        )}
+      </section>
 
       {error ? (
         <div className="mb-4 rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">

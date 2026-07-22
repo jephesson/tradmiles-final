@@ -12,26 +12,6 @@ function bad(message: string, status = 400) {
   return NextResponse.json({ ok: false, error: message }, { status });
 }
 
-function isoDateNowSP() {
-  const parts = new Intl.DateTimeFormat("en-CA", {
-    timeZone: "America/Sao_Paulo",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  })
-    .formatToParts(new Date())
-    .reduce<Record<string, string>>((acc, p) => {
-      if (p.type !== "literal") acc[p.type] = p.value;
-      return acc;
-    }, {});
-
-  return `${parts.year}-${parts.month}-${parts.day}`;
-}
-
-function isISODate(v: string) {
-  return /^\d{4}-\d{2}-\d{2}$/.test((v || "").trim());
-}
-
 function normalizeStatus(v: unknown): PromoStatus | null {
   const s = String(v || "").trim().toUpperCase();
   if (s === "PENDING" || s === "ELIGIBLE" || s === "DENIED" || s === "USED") return s;
@@ -56,62 +36,90 @@ export async function GET(req: NextRequest) {
   try {
     const session = await requireSession();
     const { searchParams } = new URL(req.url);
-    const listDateRaw = (searchParams.get("date") || "").trim();
-    const listDate = isISODate(listDateRaw) ? listDateRaw : isoDateNowSP();
+    const requestedListId = (searchParams.get("listId") || "").trim();
 
-    const [items, recentDateRows] = await Promise.all([
-      prisma.latamPromoListItem.findMany({
-        where: {
-          team: session.team,
-          listDate,
-        },
-        orderBy: [{ status: "asc" }, { createdAt: "asc" }],
-        select: {
-          id: true,
-          listDate: true,
-          status: true,
-          createdAt: true,
-          updatedAt: true,
-          resolvedAt: true,
-          usedAt: true,
-          cedente: {
-            select: {
-              id: true,
-              identificador: true,
-              nomeCompleto: true,
-              cpf: true,
-              telefone: true,
-              pontosLatam: true,
-              pontosLivelo: true,
-              owner: { select: { id: true, name: true, login: true } },
-              latamTurboAccount: {
-                select: {
-                  cpfLimit: true,
-                  cpfUsed: true,
-                },
+    const lists = await prisma.latamPromoList.findMany({
+      where: { team: session.team },
+      orderBy: [{ createdAt: "desc" }],
+      select: {
+        id: true,
+        name: true,
+        createdAt: true,
+        createdBy: { select: { id: true, name: true, login: true } },
+        _count: { select: { items: true } },
+      },
+    });
+
+    const currentListId = lists[0]?.id || "";
+    const selectedListId =
+      requestedListId && lists.some((l) => l.id === requestedListId)
+        ? requestedListId
+        : currentListId;
+
+    const listsPayload = lists.map((l) => ({
+      id: l.id,
+      name: l.name,
+      createdAt: l.createdAt,
+      createdBy: l.createdBy,
+      itemCount: l._count.items,
+    }));
+
+    if (!selectedListId) {
+      return NextResponse.json({
+        ok: true,
+        currentListId: "",
+        selectedListId: "",
+        selectedList: null,
+        lists: listsPayload,
+        summary: { total: 0, pending: 0, eligible: 0, denied: 0, used: 0 },
+        groups: { eligible: [], pending: [], denied: [], used: [] },
+      });
+    }
+
+    const items = await prisma.latamPromoListItem.findMany({
+      where: {
+        team: session.team,
+        listId: selectedListId,
+      },
+      orderBy: [{ status: "asc" }, { createdAt: "asc" }],
+      select: {
+        id: true,
+        listId: true,
+        status: true,
+        createdAt: true,
+        updatedAt: true,
+        resolvedAt: true,
+        usedAt: true,
+        cedente: {
+          select: {
+            id: true,
+            identificador: true,
+            nomeCompleto: true,
+            cpf: true,
+            telefone: true,
+            pontosLatam: true,
+            pontosLivelo: true,
+            owner: { select: { id: true, name: true, login: true } },
+            latamTurboAccount: {
+              select: {
+                cpfLimit: true,
+                cpfUsed: true,
               },
-              score: {
-                select: {
-                  rapidezBiometria: true,
-                  rapidezSms: true,
-                  resolucaoProblema: true,
-                  confianca: true,
-                },
+            },
+            score: {
+              select: {
+                rapidezBiometria: true,
+                rapidezSms: true,
+                resolucaoProblema: true,
+                confianca: true,
               },
             },
           },
-          addedBy: { select: { id: true, name: true, login: true } },
-          reviewedBy: { select: { id: true, name: true, login: true } },
         },
-      }),
-      prisma.latamPromoListItem.findMany({
-        where: { team: session.team },
-        distinct: ["listDate"],
-        orderBy: [{ listDate: "desc" }],
-        take: 14,
-        select: { listDate: true },
-      }),
-    ]);
+        addedBy: { select: { id: true, name: true, login: true } },
+        reviewedBy: { select: { id: true, name: true, login: true } },
+      },
+    });
 
     const cedenteIds = items.map((item) => item.cedente.id);
     const { start: yStart, end: yEnd } = boundsLast365UTC();
@@ -148,7 +156,7 @@ export async function GET(req: NextRequest) {
 
       return {
         id: item.id,
-        listDate: item.listDate,
+        listId: item.listId,
         status: item.status,
         createdAt: item.createdAt,
         updatedAt: item.updatedAt,
@@ -176,11 +184,14 @@ export async function GET(req: NextRequest) {
       { total: 0, pending: 0, eligible: 0, denied: 0, used: 0 }
     );
 
+    const selectedList = listsPayload.find((l) => l.id === selectedListId) || null;
+
     return NextResponse.json({
       ok: true,
-      listDate,
-      today: isoDateNowSP(),
-      recentDates: recentDateRows.map((row) => row.listDate),
+      currentListId,
+      selectedListId,
+      selectedList,
+      lists: listsPayload,
       summary,
       groups: {
         eligible: rows.filter((row) => row.status === "ELIGIBLE"),
@@ -200,9 +211,6 @@ export async function POST(req: NextRequest) {
     const body = await req.json().catch(() => null);
 
     const cedenteId = String(body?.cedenteId || "").trim();
-    const listDateRaw = String(body?.listDate || "").trim();
-    const listDate = isISODate(listDateRaw) ? listDateRaw : isoDateNowSP();
-
     if (!cedenteId) return bad("cedenteId é obrigatório");
 
     const cedente = await prisma.cedente.findFirst({
@@ -215,11 +223,21 @@ export async function POST(req: NextRequest) {
 
     if (!cedente) return bad("Cedente não encontrado.", 404);
 
+    // A conta entra sempre na lista mais recente (a "lista atual").
+    const currentList = await prisma.latamPromoList.findFirst({
+      where: { team: session.team },
+      orderBy: [{ createdAt: "desc" }],
+      select: { id: true, name: true },
+    });
+
+    if (!currentList) {
+      return bad("Nenhuma lista ativa. Crie uma lista promo antes de adicionar contas.");
+    }
+
     const existing = await prisma.latamPromoListItem.findUnique({
       where: {
-        team_listDate_cedenteId: {
-          team: session.team,
-          listDate,
+        listId_cedenteId: {
+          listId: currentList.id,
           cedenteId,
         },
       },
@@ -232,19 +250,20 @@ export async function POST(req: NextRequest) {
         created: false,
         itemId: existing.id,
         status: existing.status,
-        listDate,
+        listId: currentList.id,
+        listName: currentList.name,
       });
     }
 
     const item = await prisma.latamPromoListItem.create({
       data: {
         team: session.team,
-        listDate,
+        listId: currentList.id,
         cedenteId,
         status: "PENDING",
         addedById: session.id,
       },
-      select: { id: true, status: true, listDate: true },
+      select: { id: true, status: true, listId: true },
     });
 
     return NextResponse.json({
@@ -252,7 +271,8 @@ export async function POST(req: NextRequest) {
       created: true,
       itemId: item.id,
       status: item.status,
-      listDate: item.listDate,
+      listId: item.listId,
+      listName: currentList.name,
     });
   } catch (e: any) {
     return bad(e?.message || "Erro ao adicionar na lista promo.", 500);

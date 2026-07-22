@@ -62,7 +62,7 @@ type Row = {
   latamHistoricoBloqueio?: boolean;
   latamClubAtivoAgora?: boolean;
   blockedPrograms?: Program[];
-  onPromoListToday?: boolean;
+  onCurrentPromoList?: boolean;
 };
 
 type SortBy = "aprovado" | "esperado";
@@ -262,7 +262,7 @@ export default function CedentesVisualizarLatamClient() {
   }
 
   async function addToPromoList(r: Row) {
-    if (r.onPromoListToday) return;
+    if (r.onCurrentPromoList) return;
 
     setPromoSavingId(r.id);
     try {
@@ -277,7 +277,7 @@ export default function CedentesVisualizarLatamClient() {
 
       setRows((prev) =>
         prev.map((item) =>
-          item.id === r.id ? { ...item, onPromoListToday: true } : item
+          item.id === r.id ? { ...item, onCurrentPromoList: true } : item
         )
       );
     } catch (e: unknown) {
@@ -423,7 +423,7 @@ export default function CedentesVisualizarLatamClient() {
                 );
                 const promoActionBtnCls = cn(
                   actionBtnBase,
-                  r.onPromoListToday
+                  r.onCurrentPromoList
                     ? "bg-indigo-50 ring-indigo-200/90 text-indigo-700 hover:bg-indigo-100"
                     : blocked
                       ? "bg-white ring-red-200 text-red-700 hover:bg-red-50"
@@ -590,17 +590,17 @@ export default function CedentesVisualizarLatamClient() {
                                 promoSavingId === r.id && "opacity-60"
                               )}
                               title={
-                                r.onPromoListToday
-                                  ? "Já está na lista promo de hoje"
-                                  : "Adicionar na lista promo de hoje"
+                                r.onCurrentPromoList
+                                  ? "Já está na lista promo atual"
+                                  : "Adicionar na lista promo atual"
                               }
                             >
                               <ListPlus size={15} />
                               <span className="sr-only">Lista promo</span>
                               <ActionTooltip
                                 label={
-                                  r.onPromoListToday
-                                    ? "Já na lista promo de hoje"
+                                  r.onCurrentPromoList
+                                    ? "Já na lista promo atual"
                                     : "Lista promo"
                                 }
                               />

@@ -240,6 +240,7 @@ model User {
   anotacoesCreated            Anotacao[]           @relation("AnotacaoCreatedBy")
   latamPromoListItemsAdded    LatamPromoListItem[] @relation("LatamPromoListItemAddedBy")
   latamPromoListItemsReviewed LatamPromoListItem[] @relation("LatamPromoListItemReviewedBy")
+  latamPromoListsCreated      LatamPromoList[]     @relation("LatamPromoListCreatedBy")
 
   // ✅ AVISOS (mural de avisos)
   avisosCreated  Aviso[] @relation("AvisoCreatedBy")
@@ -1656,11 +1657,31 @@ model LatamTurboAccount {
   @@map("latam_turbo_accounts")
 }
 
+model LatamPromoList {
+  id   String @id @default(cuid())
+  team String
+  name String
+
+  createdById String?
+  createdBy   User?   @relation("LatamPromoListCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+
+  items LatamPromoListItem[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([team, createdAt])
+  @@index([createdById])
+  @@map("latam_promo_lists")
+}
+
 model LatamPromoListItem {
-  id       String               @id @default(cuid())
-  team     String
-  listDate String
-  status   LatamPromoListStatus @default(PENDING)
+  id     String               @id @default(cuid())
+  team   String
+  status LatamPromoListStatus @default(PENDING)
+
+  listId String
+  list   LatamPromoList @relation(fields: [listId], references: [id], onDelete: Cascade)
 
   cedenteId String
   cedente   Cedente @relation("LatamPromoListItemCedente", fields: [cedenteId], references: [id], onDelete: Cascade)
@@ -1678,8 +1699,9 @@ model LatamPromoListItem {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  @@unique([team, listDate, cedenteId], name: "team_listDate_cedenteId")
-  @@index([team, listDate, status])
+  @@unique([listId, cedenteId], name: "listId_cedenteId")
+  @@index([listId, status])
+  @@index([team])
   @@index([cedenteId])
   @@index([addedById])
   @@index([reviewedById])
