@@ -8,6 +8,7 @@ import {
   buildBalcaoComputedValues,
   recifeDateISO,
 } from "@/lib/balcao-commission";
+import { isFirstDayOfMonth, previousMonthISO } from "@/lib/bonus/monthlyBonus";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -199,6 +200,30 @@ export async function GET(req: Request) {
 
     const byUserId = new Map(payouts.map((p) => [p.userId, p]));
 
+    const bonusByUserId = new Map<
+      string,
+      { grossBonusCents: number; taxCents: number; netBonusCents: number }
+    >();
+    if (isFirstDayOfMonth(date)) {
+      const bonusMonth = previousMonthISO(date.slice(0, 7));
+      const bonusRows = await prisma.bonusMonthResult.findMany({
+        where: { team: session.team, month: bonusMonth },
+        select: {
+          userId: true,
+          grossBonusCents: true,
+          taxCents: true,
+          netBonusCents: true,
+        },
+      });
+      for (const b of bonusRows) {
+        bonusByUserId.set(b.userId, {
+          grossBonusCents: safeInt(b.grossBonusCents, 0),
+          taxCents: safeInt(b.taxCents, 0),
+          netBonusCents: safeInt(b.netBonusCents, 0),
+        });
+      }
+    }
+
     const { start: balcaoStart, end: balcaoEnd } = dayBoundsRecife(date);
     const balcaoOps = await prisma.balcaoOperacao.findMany({
       where: {
@@ -240,6 +265,11 @@ export async function GET(req: Request) {
     const rows = users.map((u) => {
       const p = byUserId.get(u.id);
       const balcaoCommissionCents = balcaoCommissionByUser.get(u.id) || 0;
+      const bonus = bonusByUserId.get(u.id) || {
+        grossBonusCents: 0,
+        taxCents: 0,
+        netBonusCents: 0,
+      };
 
       if (p) {
         return {
@@ -253,6 +283,9 @@ export async function GET(req: Request) {
           feeCents: safeInt(p.feeCents, 0),
           netPayCents: safeInt(p.netPayCents, 0),
           balcaoCommissionCents,
+          monthlyBonusGrossCents: bonus.grossBonusCents,
+          monthlyBonusTaxCents: bonus.taxCents,
+          monthlyBonusNetCents: bonus.netBonusCents,
 
           breakdown: (p.breakdown as unknown) ?? null,
 
@@ -275,6 +308,9 @@ export async function GET(req: Request) {
         feeCents: 0,
         netPayCents: 0,
         balcaoCommissionCents,
+        monthlyBonusGrossCents: bonus.grossBonusCents,
+        monthlyBonusTaxCents: bonus.taxCents,
+        monthlyBonusNetCents: bonus.netBonusCents,
 
         breakdown: {
           commission1Cents: 0,
@@ -382,6 +418,9 @@ export async function GET(req: Request) {
       rows,
       totals,
       overdue,
+      monthlyBonusMonth: isFirstDayOfMonth(date)
+        ? previousMonthISO(date.slice(0, 7))
+        : null,
     });
   } catch (e: unknown) {
     const message = e instanceof Error && e.message ? e.message : String(e);

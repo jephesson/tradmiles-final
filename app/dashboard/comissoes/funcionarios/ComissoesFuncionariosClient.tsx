@@ -41,6 +41,9 @@ type PayoutRow = {
   feeCents: number; // reembolso taxa
   netPayCents: number;
   balcaoCommissionCents?: number;
+  monthlyBonusGrossCents?: number;
+  monthlyBonusTaxCents?: number;
+  monthlyBonusNetCents?: number;
 
   breakdown: Breakdown | null;
 
@@ -83,6 +86,7 @@ type DayResponse = {
   rows: PayoutRow[];
   totals: DayTotals;
   overdue?: OverdueAlert;
+  monthlyBonusMonth?: string | null;
 };
 
 type DetailSaleLine = {
@@ -417,7 +421,11 @@ function lucroSemTaxaEmbarqueCents(r: PayoutRow) {
 }
 
 function liquidoComBalcaoCents(r: PayoutRow) {
-  return (r.netPayCents || 0) + (r.balcaoCommissionCents || 0);
+  return (
+    (r.netPayCents || 0) +
+    (r.balcaoCommissionCents || 0) +
+    (r.monthlyBonusNetCents || 0)
+  );
 }
 
 function c123FromBreakdown(b: Breakdown | null | undefined) {
@@ -679,6 +687,11 @@ export default function ComissoesFuncionariosClient() {
     return uniq.length === 1 ? uniq[0] : null;
   }, [day]);
 
+  const showMonthlyBonus = useMemo(() => {
+    if (!day?.monthlyBonusMonth) return false;
+    return (day.rows || []).some((r) => (r.monthlyBonusGrossCents || 0) > 0);
+  }, [day]);
+
   // ✅ classes de destaque (azul / verde)
   const lucroCellCls = "bg-sky-50/90 text-sky-950 ring-1 ring-inset ring-sky-200/90";
   const liquidoCellCls = "bg-emerald-50/90 text-emerald-950 ring-1 ring-inset ring-emerald-200/90";
@@ -812,6 +825,15 @@ export default function ComissoesFuncionariosClient() {
         </div>
       ) : null}
 
+      {showMonthlyBonus ? (
+        <div className="flex gap-3 rounded-2xl border border-violet-200/90 bg-gradient-to-r from-violet-50 to-violet-50/40 p-4 shadow-sm">
+          <div className="text-sm leading-relaxed text-violet-950">
+            <span className="font-semibold">Bônus mensal:</span> pagamento referente a{" "}
+            <b>{day?.monthlyBonusMonth}</b> incluído no líquido (imposto já debitado).
+          </div>
+        </div>
+      ) : null}
+
       {day?.overdue?.hasOverdue ? (
         <div className="flex gap-3 rounded-2xl border border-red-200/90 bg-red-50/90 p-4 shadow-sm">
           <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-red-100 text-red-700 ring-1 ring-red-200/80">
@@ -860,6 +882,14 @@ export default function ComissoesFuncionariosClient() {
                 </th>
                 <th className="px-4 py-3">Taxa embarque</th>
                 <th className="px-4 py-3">Comissão balcão</th>
+
+                {showMonthlyBonus ? (
+                  <>
+                    <th className="px-4 py-3">Bônus bruto</th>
+                    <th className="px-4 py-3">Imposto bônus</th>
+                    <th className="px-4 py-3">Bônus líquido</th>
+                  </>
+                ) : null}
 
                 <th className={`px-4 py-3 ${lucroCellCls}`}>Lucro s/ taxa</th>
                 <th className={`px-4 py-3 ${liquidoCellCls}`}>Líquido (a pagar)</th>
@@ -912,6 +942,20 @@ export default function ComissoesFuncionariosClient() {
                     />
                     <td className="px-4 py-3 tabular-nums text-slate-800">{fmtMoneyBR(r.balcaoCommissionCents || 0)}</td>
 
+                    {showMonthlyBonus ? (
+                      <>
+                        <td className="px-4 py-3 tabular-nums text-violet-800">
+                          {fmtMoneyBR(r.monthlyBonusGrossCents || 0)}
+                        </td>
+                        <td className="px-4 py-3 tabular-nums text-slate-800">
+                          {fmtMoneyBR(r.monthlyBonusTaxCents || 0)}
+                        </td>
+                        <td className="px-4 py-3 tabular-nums font-medium text-violet-900">
+                          {fmtMoneyBR(r.monthlyBonusNetCents || 0)}
+                        </td>
+                      </>
+                    ) : null}
+
                     <td className={cn("px-4 py-3 font-semibold tabular-nums", lucroCellCls)}>
                       {fmtMoneyBR(lucroSemTaxa)}
                     </td>
@@ -959,7 +1003,7 @@ export default function ComissoesFuncionariosClient() {
 
               {!day?.rows?.length && (
                 <tr>
-                  <td className="px-4 py-0" colSpan={12}>
+                  <td className="px-4 py-0" colSpan={showMonthlyBonus ? 15 : 12}>
                     <div className="flex flex-col items-center justify-center gap-2 py-14 text-center">
                       <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-100 text-slate-400 ring-1 ring-slate-200/80">
                         <Users className="h-6 w-6" strokeWidth={1.75} aria-hidden />

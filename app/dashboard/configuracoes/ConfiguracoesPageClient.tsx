@@ -5,6 +5,7 @@ import Link from "next/link";
 import { ArrowLeft, Loader2, Lock, Save } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { bpsToPercentNumber } from "@/lib/payouts/employeeCommissionRates";
+import BonusSettingsSection from "./BonusSettingsSection";
 
 type ApiOk = {
   ok: true;
@@ -387,6 +388,8 @@ export default function ConfiguracoesPageClient() {
           </button>
         </div>
       </div>
+
+      <BonusSettingsSection unlocked={unlocked} disabled={loading || saving} />
     </div>
   );
 }

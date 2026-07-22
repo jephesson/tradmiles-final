@@ -9,7 +9,7 @@ import {
   type ReadonlyURLSearchParams,
 } from "next/navigation";
 import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
-import { Bell, CalendarDays, ChevronRight, Home, LogOut, Settings } from "lucide-react";
+import { Bell, CalendarDays, ChevronRight, Home, LogOut, Settings, Trophy } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { getSession, setSession, signOut, type Session } from "@/lib/auth";
 
@@ -32,6 +32,7 @@ type Accent =
   | "lime"
   | "cyan"
   | "blue"
+  | "violet"
   | "slate";
 
 const ACCENTS: Record<
@@ -91,6 +92,12 @@ const ACCENTS: Record<
     soft: "rgba(59,130,246,0.12)",
     text: "#1e40af",
     border: "rgba(59,130,246,0.35)",
+  },
+  violet: {
+    accent: "#8b5cf6",
+    soft: "rgba(139,92,246,0.12)",
+    text: "#5b21b6",
+    border: "rgba(139,92,246,0.35)",
   },
   slate: {
     accent: "#64748b",
@@ -157,6 +164,9 @@ export default function Sidebar() {
   const isPontosVisualizarRoute = pathname.startsWith(VISUALIZAR_PONTOS_PATH);
 
   const isHomeRoute = pathname === "/dashboard" || pathname === "/dashboard/";
+
+  // ✅ BÔNUS MENSAL
+  const isBonusRoute = pathname.startsWith("/dashboard/bonus");
 
   // ✅ Cadastro NÃO deve “pegar” Visualizar cedentes
   const isCadastroRoute =
@@ -634,6 +644,23 @@ export default function Sidebar() {
           >
             <Home className="h-4 w-4 shrink-0 opacity-80" aria-hidden />
             Página inicial
+          </Link>
+        </div>
+
+        <div className="mb-2 border-b border-slate-100 pb-2" style={accentStyle("violet")}>
+          <Link
+            href="/dashboard/bonus"
+            className={cn(
+              "relative flex items-center gap-2 rounded-xl px-3 py-2.5 pl-5 text-[13px] font-semibold transition-colors",
+              isBonusRoute
+                ? "bg-[var(--accent-soft)] text-[var(--accent-text)]"
+                : "text-slate-600 hover:bg-slate-100/80 hover:text-slate-900",
+              "before:content-[''] before:absolute before:left-2 before:top-2 before:bottom-2 before:w-1 before:rounded-full",
+              isBonusRoute ? "before:bg-[var(--accent)]" : "before:bg-transparent"
+            )}
+          >
+            <Trophy className="h-4 w-4 shrink-0 opacity-80" aria-hidden />
+            Bônus
           </Link>
         </div>
 

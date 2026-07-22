@@ -246,6 +246,10 @@ model User {
   avisosTargeted Aviso[] @relation("AvisoTargetUser")
   avisosResolved Aviso[] @relation("AvisoResolvedBy")
 
+  // ✅ BÔNUS MENSAL
+  bonusMonthResults     BonusMonthResult[] @relation("BonusMonthResultUser")
+  bonusMonthResultsPaid BonusMonthResult[] @relation("BonusMonthResultPaidBy")
+
   @@index([team])
   @@index([role])
   @@map("users")
@@ -1948,4 +1952,58 @@ model Aviso {
   @@index([targetUserId])
   @@index([createdById])
   @@map("avisos")
+}
+
+/**
+ * =========================
+ * ✅ BÔNUS MENSAL
+ * =========================
+ */
+model BonusMonthSetting {
+  id   String @id @default(cuid())
+  team String
+  month String // YYYY-MM
+
+  isActive Boolean @default(false)
+
+  /// Meta de faturamento (PV sem taxa) do mês, em centavos
+  revenueGoalCents Int @default(0)
+  /// Meta de lucro líquido do mês, em centavos
+  profitGoalCents  Int @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([team, month], map: "uniq_bonus_month_setting_team_month")
+  @@index([team, month])
+  @@map("bonus_month_settings")
+}
+
+model BonusMonthResult {
+  id     String @id @default(cuid())
+  team   String
+  month  String // YYYY-MM
+  userId String
+
+  grossBonusCents Int @default(0)
+  taxCents        Int @default(0)
+  netBonusCents   Int @default(0)
+
+  /// { c2ShareCents, volumeShareCents, accountsShareCents, equalShareCents, metrics, poolCents, ... }
+  breakdown Json?
+
+  computedAt DateTime @default(now())
+  paidAt     DateTime?
+  paidById   String?
+
+  user   User  @relation("BonusMonthResultUser", fields: [userId], references: [id], onDelete: Cascade)
+  paidBy User? @relation("BonusMonthResultPaidBy", fields: [paidById], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([team, month, userId], map: "uniq_bonus_month_result_team_month_user")
+  @@index([team, month])
+  @@index([userId])
+  @@map("bonus_month_results")
 }
