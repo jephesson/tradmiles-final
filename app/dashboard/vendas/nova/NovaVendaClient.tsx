@@ -4,7 +4,10 @@ import Link from "next/link";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   ArrowLeft,
+  Copy,
+  ExternalLink,
   Loader2,
+  MessageCircle,
   Plane,
   Plus,
   Search,
@@ -140,6 +143,41 @@ function isoToday() {
   const dd = String(d.getDate()).padStart(2, "0");
   return `${yyyy}-${mm}-${dd}`;
 }
+
+const LATAM_BIOMETRIA_LINK =
+  "https://id.unico.io/flow?collect-data=true&dynamic-wrapper=true&id=5a6605cc-029c-49dd-93c8-a7cc51ea451b";
+
+function extractLatamOrderId(raw: string): string | null {
+  const s = String(raw || "").trim();
+  if (!s) return null;
+
+  try {
+    const url = new URL(s);
+    const fromParam =
+      url.searchParams.get("orderId") || url.searchParams.get("orderid");
+    if (fromParam && /^LA[A-Z0-9]+$/i.test(fromParam.trim())) {
+      return fromParam.trim().toUpperCase();
+    }
+  } catch {
+    // not a full URL — fall through
+  }
+
+  const fromQuery = s.match(/orderId=([A-Za-z0-9]+)/i);
+  if (fromQuery?.[1] && /^LA[A-Z0-9]+$/i.test(fromQuery[1])) {
+    return fromQuery[1].toUpperCase();
+  }
+
+  const cleaned = s.replace(/[^a-zA-Z0-9]/g, "").toUpperCase();
+  if (/^LA[A-Z0-9]+$/.test(cleaned)) return cleaned;
+  return null;
+}
+
+function buildLatamPagamentoLink(orderId: string) {
+  return `https://www.latamairlines.com/br/pt/v2/pagamentos/?orderId=${encodeURIComponent(
+    orderId
+  )}&flow=BOOKING-REDEMPTION`;
+}
+
 function normStr(v?: string) {
   return (v || "")
     .normalize("NFD")
@@ -527,6 +565,11 @@ export default function NovaVendaClient({
   const [departureDate, setDepartureDate] = useState("");
   const [returnDate, setReturnDate] = useState("");
 
+  // Popup biometria LATAM (após selecionar cedente)
+  const [biometriaModalOpen, setBiometriaModalOpen] = useState(false);
+  const [orderLinkInput, setOrderLinkInput] = useState("");
+  const [latamEmissionUnlocked, setLatamEmissionUnlocked] = useState(false);
+
   const milheiroCents = useMemo(() => moneyToCentsBR(milheiroStr), [milheiroStr]);
   const embarqueFeeCents = useMemo(
     () => moneyToCentsBR(embarqueStr),
@@ -618,6 +661,15 @@ export default function NovaVendaClient({
 
   function selectSuggestion(s: Suggestion) {
     setSel(s);
+    if (program === "LATAM") {
+      setBiometriaModalOpen(true);
+      setOrderLinkInput("");
+      setLatamEmissionUnlocked(false);
+    } else {
+      setBiometriaModalOpen(false);
+      setOrderLinkInput("");
+      setLatamEmissionUnlocked(true);
+    }
     setTimeout(() => {
       detailsRef.current?.scrollIntoView({
         behavior: "smooth",
@@ -723,6 +775,10 @@ export default function NovaVendaClient({
     setCredsError("");
     setShowProgramPass(false);
     setShowEmailPass(false);
+
+    setBiometriaModalOpen(false);
+    setOrderLinkInput("");
+    setLatamEmissionUnlocked(false);
   }
 
   // carrega funcionários (preferência: /api/funcionarios)
@@ -1083,6 +1139,7 @@ export default function NovaVendaClient({
 
   const canSave = useMemo(() => {
     if (!sel?.eligible) return false;
+    if (program === "LATAM" && !latamEmissionUnlocked) return false;
     if (!clienteId) return false;
     if (!purchaseNumero) return false;
     if (!compraSel) return false;
@@ -1109,6 +1166,7 @@ export default function NovaVendaClient({
     return true;
   }, [
     sel?.eligible,
+    latamEmissionUnlocked,
     clienteId,
     purchaseNumero,
     compraSel,
@@ -1263,6 +1321,12 @@ export default function NovaVendaClient({
     if (isSaving) return; // ✅ trava duplo clique
 
     if (!sel?.eligible) return alert("Selecione um cedente elegível.");
+    if (program === "LATAM" && !latamEmissionUnlocked) {
+      setBiometriaModalOpen(true);
+      return alert(
+        "Conclua o fluxo de biometria e Order ID antes de salvar a emissão."
+      );
+    }
     if (!clienteId) return alert("Selecione um cliente.");
     if (!purchaseNumero)
       return alert("Selecione a compra LIBERADA (ID00018).");
@@ -1446,7 +1510,12 @@ export default function NovaVendaClient({
     const nome = sel?.cedente?.nomeCompleto?.trim();
     if (!nome) return selWhatsApp.whatsappUrl;
 
-    const texto = `Olá, ${nome}! Tudo bem? Está disponível para fazer uma biometria agora? Logo mais eu te envio`;
+    const texto = [
+      `Olá, ${nome}! Tudo bem? Está disponível para fazer uma biometria agora?`,
+      "",
+      "Segue o link da biometria:",
+      LATAM_BIOMETRIA_LINK,
+    ].join("\n");
 
     if (selWhatsApp.whatsappE164) {
       return buildWhatsAppLink(selWhatsApp.whatsappE164, texto);
@@ -1457,6 +1526,34 @@ export default function NovaVendaClient({
     const sep = base.includes("?") ? "&" : "?";
     return `${base}${sep}text=${encodeURIComponent(texto)}`;
   }, [selWhatsApp, sel?.cedente?.nomeCompleto]);
+
+  const extractedOrderId = useMemo(
+    () => extractLatamOrderId(orderLinkInput),
+    [orderLinkInput]
+  );
+
+  const latamPagamentoLink = useMemo(
+    () => (extractedOrderId ? buildLatamPagamentoLink(extractedOrderId) : null),
+    [extractedOrderId]
+  );
+
+  function proceedToEmissionFromBiometria() {
+    if (!extractedOrderId) {
+      alert(
+        "Cole o link da reserva (com orderId) ou o próprio Order ID (ex.: LA9571374NQQC)."
+      );
+      return;
+    }
+    setPurchaseCode(extractedOrderId);
+    setLatamEmissionUnlocked(true);
+    setBiometriaModalOpen(false);
+    setTimeout(() => {
+      detailsRef.current?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
+    }, 60);
+  }
 
   async function loadCedentesWhatsapp(signal?: AbortSignal) {
     setWaLoading(true);
@@ -1555,7 +1652,13 @@ export default function NovaVendaClient({
               <select
                 className={cn(CONTROL_SELECT, "pl-10")}
                 value={program}
-                onChange={(e) => setProgram(e.target.value as Program)}
+                onChange={(e) => {
+                  const next = e.target.value as Program;
+                  setProgram(next);
+                  setBiometriaModalOpen(false);
+                  setOrderLinkInput("");
+                  setLatamEmissionUnlocked(next !== "LATAM");
+                }}
               >
                 <option value="LATAM">LATAM</option>
                 <option value="SMILES">SMILES</option>
@@ -2181,6 +2284,46 @@ export default function NovaVendaClient({
       {sel ? (
         <div ref={detailsRef} className="grid gap-5 lg:grid-cols-3">
           <div className="lg:col-span-2 space-y-4">
+            {program === "LATAM" && !latamEmissionUnlocked ? (
+              <section className={SECTION}>
+                <div className="p-5 sm:p-6">
+                  <div className="mb-4 flex items-start gap-3">
+                    <span
+                      className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-slate-900 text-sm font-bold text-white shadow-md shadow-slate-900/15"
+                      aria-hidden
+                    >
+                      3
+                    </span>
+                    <div className="min-w-0 pt-0.5">
+                      <h2 className="text-base font-semibold tracking-tight text-slate-900">
+                        Biometria e Order ID
+                      </h2>
+                      <p className="mt-1 text-xs leading-relaxed text-slate-500">
+                        Antes de preencher a emissão, envie a biometria ao cedente e monte o
+                        link de pagamento com o Order ID da reserva.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="rounded-2xl border border-amber-200 bg-amber-50/70 p-4 text-sm text-amber-950">
+                    <p>
+                      Conclua o fluxo de biometria (popup) para liberar o preenchimento dos
+                      dados da emissão. O código de compra será preenchido automaticamente
+                      com o Order ID.
+                    </p>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setBiometriaModalOpen(true)}
+                        className="inline-flex items-center justify-center gap-2 rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-slate-800"
+                      >
+                        Abrir recomendações
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </section>
+            ) : (
             <StepSection
               step={3}
               title="Cliente, compra liberada e dados da emissão"
@@ -2578,6 +2721,7 @@ export default function NovaVendaClient({
                 ) : null}
               </div>
             </StepSection>
+            )}
           </div>
 
           <div className={cn(SECTION, "h-fit space-y-3 p-5 sm:p-6 lg:sticky lg:top-4")}>
@@ -2693,6 +2837,193 @@ export default function NovaVendaClient({
 
             <p className="text-xs leading-relaxed text-slate-500">
               Comissão ignora taxa. Bônus = 30% do excedente acima da meta.
+            </p>
+          </div>
+        </div>
+      ) : null}
+
+      {/* ✅ MODAL BIOMETRIA LATAM */}
+      {biometriaModalOpen && program === "LATAM" ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/45 p-4 backdrop-blur-[2px]">
+          <div className="max-h-[92vh] w-full max-w-2xl overflow-y-auto rounded-2xl border border-slate-200/90 bg-white p-5 shadow-2xl shadow-slate-900/20 sm:p-6">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <div className="text-lg font-bold tracking-tight text-slate-900">
+                  Biometria LATAM
+                </div>
+                <div className="mt-1 text-xs text-slate-500">
+                  Siga as recomendações antes de preencher os dados da emissão
+                  {sel?.cedente?.nomeCompleto
+                    ? ` • ${sel.cedente.nomeCompleto}`
+                    : ""}
+                  .
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setBiometriaModalOpen(false)}
+                className="rounded-xl border border-slate-200 bg-white px-2.5 py-1 text-sm text-slate-600 hover:bg-slate-50"
+              >
+                ✕
+              </button>
+            </div>
+
+            <ol className="mt-5 space-y-4 text-sm text-slate-700">
+              <li className="rounded-2xl border border-slate-200 bg-slate-50/80 p-4">
+                <div className="font-semibold text-slate-900">
+                  1. Envie ao cedente o link da biometria
+                </div>
+                <p className="mt-1 text-xs text-slate-500">
+                  Aguarde ele concluir toda a biometria facial.
+                </p>
+                <div className="mt-3 break-all rounded-xl border border-slate-200 bg-white px-3 py-2 font-mono text-[11px] text-slate-800">
+                  {LATAM_BIOMETRIA_LINK}
+                </div>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => copyText("Link da biometria", LATAM_BIOMETRIA_LINK)}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[11px] font-medium hover:bg-slate-50"
+                  >
+                    <Copy className="h-3.5 w-3.5" aria-hidden />
+                    Copiar link
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      window.open(LATAM_BIOMETRIA_LINK, "_blank", "noopener,noreferrer")
+                    }
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[11px] font-medium hover:bg-slate-50"
+                  >
+                    <ExternalLink className="h-3.5 w-3.5" aria-hidden />
+                    Abrir link
+                  </button>
+                  <button
+                    type="button"
+                    disabled={!selWhatsAppOpenUrl}
+                    onClick={() => {
+                      if (!selWhatsAppOpenUrl) return;
+                      window.open(selWhatsAppOpenUrl, "_blank", "noopener,noreferrer");
+                    }}
+                    className={cn(
+                      "inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[11px] font-medium",
+                      selWhatsAppOpenUrl
+                        ? "border-emerald-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100"
+                        : "cursor-not-allowed border-slate-200 bg-slate-50 text-slate-400"
+                    )}
+                  >
+                    <MessageCircle className="h-3.5 w-3.5" aria-hidden />
+                    WhatsApp com link
+                  </button>
+                </div>
+              </li>
+
+              <li className="rounded-2xl border border-slate-200 bg-slate-50/80 p-4">
+                <div className="font-semibold text-slate-900">
+                  2. Copie o Order ID da reserva
+                </div>
+                <p className="mt-1 text-xs text-slate-500">
+                  Enquanto isso (ou logo após a conclusão), cole abaixo o link da página de
+                  passageiros — ou só o Order ID.
+                </p>
+                <p className="mt-2 text-[11px] text-slate-500">
+                  Ex.:{" "}
+                  <span className="font-mono">
+                    https://www.latamairlines.com/br/pt/v2/passageiros?orderId=LA9571374NQQC
+                  </span>
+                </p>
+                <input
+                  className={cn(CONTROL_INPUT_MONO, "mt-3")}
+                  value={orderLinkInput}
+                  onChange={(e) => setOrderLinkInput(e.target.value)}
+                  placeholder="Cole o link com orderId ou o Order ID (LA…)"
+                  autoFocus
+                />
+                {orderLinkInput.trim() && !extractedOrderId ? (
+                  <div className="mt-2 text-[11px] text-rose-600">
+                    Não encontrei um Order ID válido (precisa começar com LA).
+                  </div>
+                ) : null}
+                {extractedOrderId ? (
+                  <div className="mt-2 text-[11px] text-emerald-700">
+                    Order ID detectado: <b className="font-mono">{extractedOrderId}</b>
+                  </div>
+                ) : null}
+              </li>
+
+              <li className="rounded-2xl border border-slate-200 bg-slate-50/80 p-4">
+                <div className="font-semibold text-slate-900">
+                  3. Abra o link de pagamento
+                </div>
+                <p className="mt-1 text-xs text-slate-500">
+                  Monte o link substituindo o Order ID. A reserva deve seguir para pagamento
+                  após a biometria validada.
+                </p>
+                {latamPagamentoLink ? (
+                  <>
+                    <div className="mt-3 break-all rounded-xl border border-emerald-200 bg-white px-3 py-2 font-mono text-[11px] text-slate-800">
+                      {latamPagamentoLink}
+                    </div>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          copyText("Link de pagamento", latamPagamentoLink)
+                        }
+                        className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[11px] font-medium hover:bg-slate-50"
+                      >
+                        <Copy className="h-3.5 w-3.5" aria-hidden />
+                        Copiar link
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          window.open(
+                            latamPagamentoLink,
+                            "_blank",
+                            "noopener,noreferrer"
+                          )
+                        }
+                        className="inline-flex items-center gap-1.5 rounded-lg border border-sky-200 bg-sky-50 px-2.5 py-1.5 text-[11px] font-medium text-sky-800 hover:bg-sky-100"
+                      >
+                        <ExternalLink className="h-3.5 w-3.5" aria-hidden />
+                        Abrir pagamento
+                      </button>
+                    </div>
+                  </>
+                ) : (
+                  <div className="mt-3 rounded-xl border border-dashed border-slate-200 bg-white px-3 py-3 text-[11px] text-slate-500">
+                    O link de pagamento aparece aqui assim que o Order ID for detectado.
+                  </div>
+                )}
+              </li>
+            </ol>
+
+            <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <button
+                type="button"
+                onClick={() => setBiometriaModalOpen(false)}
+                className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+              >
+                Fechar
+              </button>
+              <button
+                type="button"
+                disabled={!extractedOrderId}
+                onClick={proceedToEmissionFromBiometria}
+                className={cn(
+                  "inline-flex items-center justify-center rounded-xl px-4 py-2.5 text-sm font-semibold shadow-sm",
+                  extractedOrderId
+                    ? "bg-slate-900 text-white hover:bg-slate-800"
+                    : "cursor-not-allowed bg-slate-200 text-slate-500"
+                )}
+              >
+                Seguir para emissão
+              </button>
+            </div>
+            <p className="mt-2 text-[11px] text-slate-500">
+              Ao seguir, o código de compra é preenchido com o Order ID e os campos da
+              emissão são liberados.
             </p>
           </div>
         </div>
