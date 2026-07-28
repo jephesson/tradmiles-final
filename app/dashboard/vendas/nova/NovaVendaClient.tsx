@@ -7,7 +7,6 @@ import {
   Copy,
   ExternalLink,
   Loader2,
-  MessageCircle,
   Plane,
   Plus,
   Search,
@@ -143,9 +142,6 @@ function isoToday() {
   const dd = String(d.getDate()).padStart(2, "0");
   return `${yyyy}-${mm}-${dd}`;
 }
-
-const LATAM_BIOMETRIA_LINK =
-  "https://id.unico.io/flow?collect-data=true&dynamic-wrapper=true&id=5a6605cc-029c-49dd-93c8-a7cc51ea451b";
 
 function extractLatamOrderId(raw: string): string | null {
   const s = String(raw || "").trim();
@@ -1510,12 +1506,7 @@ export default function NovaVendaClient({
     const nome = sel?.cedente?.nomeCompleto?.trim();
     if (!nome) return selWhatsApp.whatsappUrl;
 
-    const texto = [
-      `Olá, ${nome}! Tudo bem? Está disponível para fazer uma biometria agora?`,
-      "",
-      "Segue o link da biometria:",
-      LATAM_BIOMETRIA_LINK,
-    ].join("\n");
+    const texto = `Olá, ${nome}! Tudo bem? Está disponível para fazer uma biometria agora? Logo mais eu te envio`;
 
     if (selWhatsApp.whatsappE164) {
       return buildWhatsAppLink(selWhatsApp.whatsappE164, texto);
@@ -2874,48 +2865,9 @@ export default function NovaVendaClient({
                   1. Envie ao cedente o link da biometria
                 </div>
                 <p className="mt-1 text-xs text-slate-500">
-                  Aguarde ele concluir toda a biometria facial.
+                  O link muda a cada reserva — envie pelo WhatsApp (ou outro canal) e aguarde
+                  ele concluir toda a biometria facial.
                 </p>
-                <div className="mt-3 break-all rounded-xl border border-slate-200 bg-white px-3 py-2 font-mono text-[11px] text-slate-800">
-                  {LATAM_BIOMETRIA_LINK}
-                </div>
-                <div className="mt-2 flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    onClick={() => copyText("Link da biometria", LATAM_BIOMETRIA_LINK)}
-                    className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[11px] font-medium hover:bg-slate-50"
-                  >
-                    <Copy className="h-3.5 w-3.5" aria-hidden />
-                    Copiar link
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      window.open(LATAM_BIOMETRIA_LINK, "_blank", "noopener,noreferrer")
-                    }
-                    className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[11px] font-medium hover:bg-slate-50"
-                  >
-                    <ExternalLink className="h-3.5 w-3.5" aria-hidden />
-                    Abrir link
-                  </button>
-                  <button
-                    type="button"
-                    disabled={!selWhatsAppOpenUrl}
-                    onClick={() => {
-                      if (!selWhatsAppOpenUrl) return;
-                      window.open(selWhatsAppOpenUrl, "_blank", "noopener,noreferrer");
-                    }}
-                    className={cn(
-                      "inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[11px] font-medium",
-                      selWhatsAppOpenUrl
-                        ? "border-emerald-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100"
-                        : "cursor-not-allowed border-slate-200 bg-slate-50 text-slate-400"
-                    )}
-                  >
-                    <MessageCircle className="h-3.5 w-3.5" aria-hidden />
-                    WhatsApp com link
-                  </button>
-                </div>
               </li>
 
               <li className="rounded-2xl border border-slate-200 bg-slate-50/80 p-4">
