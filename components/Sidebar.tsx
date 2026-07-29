@@ -934,7 +934,12 @@ export default function Sidebar() {
             onToggle={() => setOpenCheckLocalizador((v) => !v)}
           >
             <NavLink href="/dashboard/check-localizador/latam">Latam</NavLink>
-            <NavLink href="/dashboard/check-localizador/smiles">Smiles</NavLink>
+            <NavLink href="/dashboard/check-localizador/smiles" exact>
+              Smiles
+            </NavLink>
+            <NavLink href="/dashboard/check-localizador/smiles/email-confirmacao">
+              Email de confirmação
+            </NavLink>
           </SubAccordion>
         </Accordion>
 

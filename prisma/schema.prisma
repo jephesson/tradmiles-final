@@ -1433,6 +1433,9 @@ model Sale {
   smilesLocatorManualStatus    String?
   smilesLocatorManualCheckedAt DateTime?
   smilesLocatorLossCents       Int       @default(0)
+  smilesConfirmEmailSentAt     DateTime?
+  smilesConfirmEmailSentById   String?
+  smilesConfirmPassengerNames  String?
 
   paymentStatus SalePaymentStatus @default(PENDING)
   paidAt        DateTime?
