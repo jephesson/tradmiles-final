@@ -1501,22 +1501,42 @@ export default function NovaVendaClient({
     return id ? waMap[id] || null : null;
   }, [sel?.cedente?.id, waMap]);
 
+  const selWhatsAppMessage = useMemo(() => {
+    const nome = sel?.cedente?.nomeCompleto?.trim();
+    if (!nome) return "";
+    return `Olá, ${nome}! Tudo bem? Está disponível para fazer uma biometria agora? Logo mais eu te envio`;
+  }, [sel?.cedente?.nomeCompleto]);
+
   const selWhatsAppOpenUrl = useMemo(() => {
     if (!selWhatsApp) return null;
-    const nome = sel?.cedente?.nomeCompleto?.trim();
-    if (!nome) return selWhatsApp.whatsappUrl;
-
-    const texto = `Olá, ${nome}! Tudo bem? Está disponível para fazer uma biometria agora? Logo mais eu te envio`;
+    if (!selWhatsAppMessage) return selWhatsApp.whatsappUrl;
 
     if (selWhatsApp.whatsappE164) {
-      return buildWhatsAppLink(selWhatsApp.whatsappE164, texto);
+      return buildWhatsAppLink(selWhatsApp.whatsappE164, selWhatsAppMessage);
     }
 
     const base = selWhatsApp.whatsappUrl;
     if (!base) return null;
     const sep = base.includes("?") ? "&" : "?";
-    return `${base}${sep}text=${encodeURIComponent(texto)}`;
-  }, [selWhatsApp, sel?.cedente?.nomeCompleto]);
+    return `${base}${sep}text=${encodeURIComponent(selWhatsAppMessage)}`;
+  }, [selWhatsApp, selWhatsAppMessage]);
+
+  const selWhatsAppPhoneLabel = useMemo(() => {
+    if (!selWhatsApp) return "";
+    const raw = String(selWhatsApp.telefone || selWhatsApp.whatsappE164 || "").trim();
+    if (!raw) return "";
+    const digits = raw.replace(/\D/g, "");
+    if (digits.length >= 10) {
+      const d = digits.startsWith("55") && digits.length >= 12 ? digits.slice(2) : digits;
+      if (d.length === 11) {
+        return `(${d.slice(0, 2)}) ${d.slice(2, 7)}-${d.slice(7)}`;
+      }
+      if (d.length === 10) {
+        return `(${d.slice(0, 2)}) ${d.slice(2, 6)}-${d.slice(6)}`;
+      }
+    }
+    return raw;
+  }, [selWhatsApp]);
 
   const extractedOrderId = useMemo(
     () => extractLatamOrderId(orderLinkInput),
@@ -2066,14 +2086,17 @@ export default function NovaVendaClient({
                         {waError}
                       </div>
                     ) : selWhatsAppOpenUrl ? (
-                      <div className="mt-2 space-y-1">
-                        <div className="text-[11px] text-slate-600 break-all">
-                          {selWhatsAppOpenUrl}
-                        </div>
-                        <div className="text-[11px] text-slate-500">
-                          Mensagem: Olá, {sel?.cedente?.nomeCompleto}! Tudo bem? Está
-                          disponível para fazer uma biometria agora? Logo mais eu te
-                          envio
+                      <div className="mt-2 space-y-2">
+                        {selWhatsAppPhoneLabel ? (
+                          <div className="text-[11px] text-slate-600">
+                            Telefone:{" "}
+                            <span className="font-medium tabular-nums text-slate-800">
+                              {selWhatsAppPhoneLabel}
+                            </span>
+                          </div>
+                        ) : null}
+                        <div className="rounded-xl border border-slate-200 bg-slate-50/80 px-3 py-2 text-[11px] leading-relaxed text-slate-700 whitespace-pre-wrap">
+                          {selWhatsAppMessage}
                         </div>
                       </div>
                     ) : (
