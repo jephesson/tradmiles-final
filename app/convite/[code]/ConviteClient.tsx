@@ -17,19 +17,15 @@ type FormState = {
   emailCriado: string;
   senhaEmail: string;
 
-  senhaSmiles: string;
   senhaLatamPass: string;
   senhaLivelo: string;
-  senhaEsfera: string;
 
   chavePix: string;
   banco: string;
   pixTipo: PixTipo;
 
   pontosLatam: number | "";
-  pontosSmiles: number | "";
   pontosLivelo: number | "";
-  pontosEsfera: number | "";
 };
 
 function normalizeReferrerCodeInput(v: string) {
@@ -145,25 +141,22 @@ type CedenteSignupResp = {
   updateAllowed?: boolean;
 };
 
-const TERMO_VERSAO = "v3-2026-04";
-const ORIENTACOES_VERSAO = "v1-2026-04";
+const TERMO_VERSAO = "v4-2026-07";
+const ORIENTACOES_VERSAO = "v2-2026-07";
 
 const PROGRAMAS_FIDELIDADE = [
   { nome: "LATAM Pass", url: "https://latampass.latam.com/pt_br/" },
   { nome: "Livelo", url: "https://livelo.com.br/" },
-  { nome: "Esfera", url: "https://www.esfera.com.vc/" },
-  { nome: "Smiles", url: "https://www.smiles.com.br/home" },
 ] as const;
 
 const PALAVRAS_CHAVE_IMPORTANTES = [
   "LATAM Pass",
   "Livelo",
-  "Esfera",
-  "Smiles",
   "PIX",
   "SMS",
   "WhatsApp",
   "biometria facial",
+  "bloco operacional",
   "score interno",
   "e-mail",
   "telefone",
@@ -171,18 +164,8 @@ const PALAVRAS_CHAVE_IMPORTANTES = [
   "gov.br",
   "OneDrive",
   "R$ 20,00",
-  "R$ 30,00",
-  "R$ 50,00",
   "R$ 80,00",
-  "R$ 3.200,00",
-  "130.000 pontos/milhas",
   "não solicita dinheiro",
-  "não solicita PIX",
-  "não solicita transferência",
-  "não solicita depósito",
-  "não solicita pagamento antecipado",
-  "não solicita qualquer investimento financeiro",
-  "não solicita qualquer tipo de investimento financeiro",
 ] as const;
 
 const PALAVRAS_CHAVE_LOOKUP = new Set(
@@ -200,75 +183,134 @@ const PALAVRAS_CHAVE_REGEX = new RegExp(
 const ORIENTACOES_TEXTO = `ORIENTAÇÕES PARA CADASTRO NOS PROGRAMAS DE FIDELIDADE
 VIAS AÉREAS VIAGENS E TURISMO LTDA
 
-Olá! Para participar das operações da Vias Aéreas, será necessário criar ou disponibilizar contas em programas de fidelidade utilizados para compra, transferência e emissão de passagens com pontos/milhas.
+Para participar das operações da Vias Aéreas, o titular deverá criar ou disponibilizar contas nos programas Livelo e LATAM Pass, seguindo as orientações apresentadas nesta página.
 
-Os cadastros podem ser feitos tanto pelo aplicativo oficial de cada programa quanto pelo navegador de internet, acessando os sites oficiais informados abaixo.
+Os cadastros deverão ser realizados com os dados verdadeiros do próprio titular.
+
+Antes de prosseguir, leia todas as informações com atenção. Após a autorização, a Vias Aéreas poderá utilizar recursos próprios para comprar pontos, aderir a clubes, participar de campanhas e realizar emissões vinculadas às contas cadastradas.
+
+Por esse motivo, o cadastro somente deverá ser concluído por quem realmente deseja participar e possui disponibilidade para colaborar com códigos, documentos, biometrias e demais validações necessárias.
 
 1. CRIAÇÃO DE E-MAIL EXCLUSIVO
 
-O participante deverá criar um e-mail exclusivo para utilização nas operações dos programas de fidelidade.
+O titular deverá criar um e-mail novo e exclusivo para utilização nas operações da Vias Aéreas.
 
-Esse e-mail será utilizado para cadastro, recebimento de notificações, confirmações de segurança e recuperação de acesso das contas.
+Esse e-mail poderá ser utilizado para:
 
-Recomendamos que o e-mail criado:
+Cadastro na Livelo e na LATAM Pass;
+Recebimento de códigos;
+Confirmações de segurança;
+Notificações das plataformas;
+Recuperação de acesso;
+Comunicações relacionadas às contas;
 
-Seja novo e exclusivo para essa finalidade;
-Não seja o e-mail pessoal principal do participante;
-Não contenha senhas já utilizadas em outros serviços;
-Seja informado corretamente no cadastro da Vias Aéreas;
-Permita acesso pela equipe da Vias Aéreas, quando necessário para fins operacionais.
+O e-mail não deverá ser o endereço pessoal principal do titular.
 
-Exemplo de e-mail:
+Exemplo:
 
 nome.sobrenome.viagens@gmail.com
 
-A senha do e-mail deverá ser criada exclusivamente para essa finalidade e não deve ser igual a senhas pessoais, bancárias, redes sociais, gov.br ou outros serviços do participante.
+A senha também deverá ser criada exclusivamente para essa finalidade.
 
-2. NÚMERO DE TELEFONE COM SMS E WHATSAPP
+Não utilize senhas iguais ou semelhantes às usadas em:
 
-O participante deverá possuir um número de telefone ativo, capaz de receber:
+Bancos;
+Cartões;
+Aplicativos financeiros;
+Gov.br;
+Redes sociais;
+E-mail pessoal;
+Sistemas profissionais;
+Outros serviços particulares;
+
+O titular deverá manter o e-mail ativo durante todo o período de participação nas operações.
+
+2. TELEFONE ATIVO E WHATSAPP
+
+O titular deverá possuir um número de telefone ativo e sob seu controle, capaz de receber:
 
 SMS;
 Ligações;
-Mensagens por WhatsApp;
-Códigos de verificação;
-Confirmações de segurança.
+Mensagens pelo WhatsApp;
+Códigos de confirmação;
+Solicitações de segurança;
 
-Esse número será utilizado pelos programas de fidelidade para validações de identidade e segurança.
+O telefone deverá permanecer acessível durante as operações, pois alguns códigos possuem poucos minutos de validade.
 
-É importante que o telefone esteja sempre acessível, pois em algumas operações podem ser solicitados códigos por SMS ou confirmações rápidas.
+O titular deverá salvar na agenda do celular o número do colaborador da Vias Aéreas responsável pelo seu atendimento.
 
-A demora no envio de códigos ou ausência de resposta poderá prejudicar a operação e afetar o score interno da conta.
+Como medida de identificação e segurança, o WhatsApp utilizado pelo titular deverá possuir:
 
-3. PROGRAMAS QUE DEVEM SER CADASTRADOS
+Nome de identificação;
+Foto de perfil visível;
+Número ativo para recebimento de mensagens;
 
-O participante deverá criar cadastro nos seguintes programas de fidelidade:
+Cadastros realizados com WhatsApp sem foto de perfil não serão aceitos.
 
-LATAM Pass
-Livelo
-Esfera
-Smiles
+A falta de resposta, a demora no envio de códigos ou a indisponibilidade frequente poderão impedir a conclusão da operação e afetar a prioridade da conta em campanhas futuras.
 
-O cadastro também pode ser feito pelo aplicativo oficial de cada programa, disponível para celular.
+3. DADOS UTILIZADOS NOS CADASTROS
 
-Sempre que possível, os cadastros devem ser feitos com os mesmos dados pessoais do titular:
+Os cadastros deverão ser realizados com os dados verdadeiros do titular:
 
 Nome completo;
 CPF;
 Data de nascimento;
 E-mail criado para a operação;
 Número de telefone ativo;
-Endereço atualizado.
+Endereço atualizado, quando solicitado;
 
-Os dados devem ser verdadeiros e compatíveis com os documentos do titular.
+Os dados deverão ser compatíveis com os documentos pessoais do titular.
 
-Informações incorretas, divergentes ou incompletas podem gerar bloqueios, auditorias ou dificuldade de validação nas plataformas.
+Informações incorretas, incompletas ou divergentes poderão causar:
 
-4. CADASTRO NA LATAM PASS
+Falha nas validações;
+Bloqueio da conta;
+Auditoria;
+Dificuldade de recuperação de acesso;
+Cancelamento de operações;
+Impossibilidade de utilização da conta;
 
-O participante deverá criar sua conta na LATAM Pass pelo aplicativo oficial ou pelo navegador de internet.
+Não é permitido cadastrar contas utilizando dados ou documentos de terceiros sem autorização.
 
-Durante o cadastro, poderá ser solicitado:
+4. CADASTRO NA LIVELO
+
+A conta Livelo deverá ser criada pelo aplicativo ou site oficial da plataforma.
+
+Durante o cadastro, poderão ser solicitados:
+
+CPF;
+Nome completo;
+Data de nascimento;
+E-mail;
+Telefone;
+Criação de senha;
+Confirmação por SMS ou e-mail;
+
+Depois da criação da conta, poderá ser necessário alterar o número de telefone cadastrado para viabilizar as operações.
+
+Essa alteração poderá exigir:
+
+Código por SMS;
+Selfie;
+Biometria facial;
+Confirmação de identidade;
+
+Pagamento de entrada da Livelo:
+
+O titular receberá R$ 20,00 pela entrada da conta Livelo.
+
+O pagamento será realizado após a conclusão e aprovação do cadastro conforme as orientações da Vias Aéreas.
+
+Esse valor já inclui a primeira biometria facial solicitada pela Livelo, ainda que a validação seja realizada em momento posterior ao cadastro.
+
+A primeira biometria da Livelo não gera pagamento adicional além dos R$ 20,00 de entrada.
+
+5. CADASTRO NA LATAM PASS
+
+A conta LATAM Pass deverá ser criada pelo aplicativo ou site oficial da companhia.
+
+Durante o cadastro, poderão ser solicitados:
 
 CPF;
 Nome completo;
@@ -277,157 +319,194 @@ E-mail;
 Telefone;
 Endereço;
 Criação de senha;
-Confirmação por SMS ou e-mail.
+Confirmação por SMS ou e-mail;
 
-O participante declara ciência de que a LATAM Pass poderá solicitar validações adicionais, incluindo biometria facial, selfie, documento de identificação, SMS ou outros mecanismos de segurança.
+A LATAM Pass também poderá solicitar:
 
-Caso a conta seja utilizada em operação da Vias Aéreas e seja solicitada biometria, o participante deverá realizar a validação conforme previsto no Termo de Ciência e Autorização.
+Selfie;
+Biometria facial;
+Documento de identificação;
+Código por SMS;
+Confirmação por e-mail;
+Outras verificações de segurança;
 
-5. CADASTRO NA LIVELO
+Quando a conta estiver vinculada a uma operação previamente autorizada, o titular deverá colaborar com as validações necessárias para conclusão das emissões.
 
-O participante deverá criar sua conta na Livelo pelo aplicativo oficial ou pelo navegador de internet.
+6. PAGAMENTO DO BLOCO OPERACIONAL LATAM
 
-Durante o cadastro, poderá ser solicitado:
+Nas operações LATAM Pass, o titular receberá R$ 80,00 por bloco operacional.
 
-CPF;
-Nome completo;
-E-mail;
-Telefone;
-Data de nascimento;
-Criação de senha;
-Confirmação por SMS ou e-mail.
+O pagamento de R$ 80,00 abrange:
 
-Após concluir o cadastro, o participante deverá guardar as credenciais criadas para posterior preenchimento no link de convite/cadastro da Vias Aéreas.
+Todas as emissões realizadas dentro do bloco;
+Todas as biometrias necessárias para essas emissões;
+Códigos e confirmações solicitados durante a operação;
+Disponibilidade do titular para acompanhar as validações;
+Demais procedimentos necessários para conclusão do bloco;
 
-6. CADASTRO NA ESFERA
+Em média, cada bloco poderá exigir aproximadamente oito biometrias, mas a quantidade real poderá ser menor ou maior.
 
-O participante deverá criar sua conta na Esfera pelo aplicativo oficial ou pelo navegador de internet.
+O valor de R$ 80,00 permanecerá o mesmo independentemente da quantidade de biometrias necessárias dentro daquele bloco.
 
-Durante o cadastro, poderá ser solicitado:
+Não haverá pagamento separado:
 
-CPF;
-Nome completo;
-E-mail;
-Telefone;
-Data de nascimento;
-Criação de senha;
-Confirmação por SMS ou e-mail.
+Por emissão individual;
+Por passageiro;
+Por selfie;
+Por biometria individual;
+Por código enviado;
+Por tentativa de validação;
+Por quantidade de validações dentro do mesmo bloco;
 
-Após concluir o cadastro, o participante deverá guardar as credenciais criadas para posterior preenchimento no link de convite/cadastro da Vias Aéreas.
+O que é um bloco operacional:
 
-7. CADASTRO NA SMILES
+Para estas orientações, considera-se bloco operacional o conjunto de operações e emissões vinculadas à mesma aquisição ou utilização de pontos da conta.
 
-O participante deverá criar sua conta na Smiles pelo aplicativo oficial ou pelo navegador de internet.
+O bloco será considerado concluído quando:
 
-Durante o cadastro, poderá ser solicitado:
+As emissões previstas forem finalizadas;
+Os pontos destinados à operação forem utilizados;
+A operação for encerrada pela Vias Aéreas;
+Não houver mais emissões relacionadas àquela aquisição de pontos;
 
-CPF;
-Nome completo;
-Data de nascimento;
-E-mail;
-Telefone;
-Endereço;
-Criação de senha;
-Confirmação por SMS ou e-mail.
+Caso uma nova aquisição de pontos dê início a outra operação, poderá ser formado um novo bloco, sujeito a nova remuneração.
 
-O participante declara ciência de que a Smiles poderá realizar auditorias, bloqueios preventivos ou solicitações adicionais de documentos, especialmente após adesão a clubes, compras promocionais, movimentações de pontos ou emissões.
+7. DISPONIBILIDADE PARA AS BIOMETRIAS
 
-Caso isso ocorra, o participante deverá colaborar com o envio dos documentos e confirmações necessárias para desbloqueio da conta.
+Quando uma biometria for solicitada, o titular deverá estar:
 
-8. PREENCHIMENTO DAS CREDENCIAIS NO LINK DE CONVITE DA VIAS AÉREAS
+Com o celular em mãos;
+Conectado à internet;
+Disponível para acompanhar as mensagens;
+Em ambiente com boa iluminação;
+Preparado para abrir o link de validação;
+Com tempo para concluir o procedimento;
 
-Após criar os cadastros nos programas de fidelidade, o participante deverá retornar ao link de convite/cadastro da Vias Aéreas e preencher as credenciais criadas nos campos indicados.
+Em condições normais, cada procedimento deverá levar aproximadamente 5 minutos.
 
-As informações poderão incluir:
+Durante esse período, o titular deverá permanecer online e acompanhar as orientações enviadas pelo colaborador responsável.
+
+A biometria não deverá ser iniciada quando o titular estiver:
+
+Dirigindo;
+Sem acesso à internet;
+Trabalhando sem poder utilizar o celular;
+Em ambiente com iluminação inadequada;
+Sem tempo para concluir;
+Prestes a ficar indisponível;
+
+8. CONFIRMAÇÃO ANTES DO INVESTIMENTO
+
+Antes de autorizar a utilização da conta, o titular deverá ter certeza de que deseja participar da operação.
+
+Após a autorização, a Vias Aéreas poderá utilizar recursos próprios para:
+
+Comprar pontos;
+Aderir a clubes;
+Participar de campanhas;
+Preparar a conta;
+Realizar emissões;
+Iniciar outras operações comerciais;
+
+Depois que os pontos forem comprados ou outro investimento for realizado, o titular deverá colaborar com as validações necessárias para conclusão da operação.
+
+A recusa injustificada, falta de resposta ou abandono da operação após o investimento poderá gerar prejuízo financeiro direto à Vias Aéreas.
+
+Nessas situações, a empresa poderá:
+
+Encerrar imediatamente a parceria;
+Excluir definitivamente o cadastro;
+Impedir novas operações;
+Impedir novas indicações;
+Retirar a conta de campanhas futuras;
+Priorizar outros titulares;
+
+Essa colaboração não envolve pagamento de dinheiro pelo titular.
+
+Todo investimento necessário para compra de pontos e realização das operações é feito exclusivamente pela Vias Aéreas.
+
+9. PREENCHIMENTO DAS CREDENCIAIS
+
+Depois de criar as contas, o titular deverá retornar ao cadastro da Vias Aéreas e preencher as informações solicitadas pelo sistema.
+
+Poderão ser solicitados:
 
 Programa de fidelidade;
-Login;
+CPF ou login;
 E-mail cadastrado;
-Senha criada;
+Senha criada para a operação;
 Número de telefone vinculado;
-Observações relevantes, se houver.
+Outras informações necessárias;
 
-As credenciais devem ser preenchidas exclusivamente nos campos do próprio link de convite/cadastro da Vias Aéreas.
+As credenciais deverão ser preenchidas exclusivamente no ambiente indicado pela Vias Aéreas.
 
-O participante deve evitar o envio de senhas, prints, dados de acesso ou informações sensíveis por WhatsApp, mensagens, redes sociais ou outros canais informais.
+Não deverão ser utilizadas senhas pessoais, bancárias, profissionais ou do Gov.br.
 
-O participante deverá utilizar senhas criadas exclusivamente para essas contas, não devendo repetir senhas pessoais, bancárias, profissionais, redes sociais, gov.br ou contas de uso privado.
+A Vias Aéreas não solicita:
 
-Ao preencher as credenciais no link de convite/cadastro, o participante declara que as informações são verdadeiras, atualizadas e correspondem às contas criadas em seu próprio nome.
+Senha de banco;
+Senha de cartão;
+Código de segurança de cartão;
+Senha do Gov.br;
+Acesso a aplicativo bancário;
+Token de instituição financeira;
 
-9. CUIDADOS IMPORTANTES DE SEGURANÇA
+10. VALIDAÇÕES POSTERIORES
 
-Para segurança do participante, recomendamos:
+A Livelo e a LATAM Pass poderão solicitar novas validações a qualquer momento.
 
-Não utilizar senha pessoal já usada em outros serviços;
-Não cadastrar e-mail pessoal principal;
-Não informar senha de banco, cartão, gov.br ou aplicativos financeiros;
-Não enviar documentos fora dos canais orientados pela Vias Aéreas;
-Manter o telefone ativo para recebimento de SMS e WhatsApp;
-Informar imediatamente caso perca acesso ao e-mail ou telefone cadastrado.
-
-A Vias Aéreas não solicita dados bancários sensíveis, senhas de banco, senhas de cartão, código de segurança de cartão, acesso a aplicativo bancário ou qualquer valor financeiro do participante.
-
-A Vias Aéreas também não solicita dinheiro, PIX, transferência, depósito, pagamento antecipado ou qualquer investimento financeiro. Todo investimento para compra de pontos/milhas é feito exclusivamente pela empresa.
-
-10. RESPONSABILIDADE SOBRE OS DADOS INFORMADOS
-
-O participante declara que os dados utilizados nos cadastros são verdadeiros, atualizados e pertencem ao próprio titular.
-
-Não é permitido cadastrar contas com dados de terceiros sem autorização.
-
-O participante também declara ciência de que divergências cadastrais podem causar bloqueios, atrasos, auditorias ou impedimento de utilização da conta.
-
-11. COLABORAÇÃO COM VALIDAÇÕES
-
-Após a criação das contas, os programas poderão solicitar validações a qualquer momento.
-
-Essas validações podem incluir:
+Essas validações poderão incluir:
 
 Código por SMS;
 Código por e-mail;
-Confirmação por WhatsApp;
 Selfie;
 Biometria facial;
 Documento de identificação;
 Comprovante de residência;
 Ligação de confirmação;
-Auditoria cadastral.
+Auditoria cadastral;
+Recuperação ou desbloqueio da conta;
 
-O participante compromete-se a colaborar com essas validações sempre que solicitado, de forma ágil e verdadeira.
+O titular compromete-se a colaborar de forma verdadeira e ágil quando solicitado.
 
-A agilidade no envio de códigos, documentos e confirmações poderá influenciar o score interno da Vias Aéreas e a prioridade da conta em futuras campanhas.
+A agilidade nas respostas poderá influenciar a prioridade da conta em operações futuras.
 
-12. SCORE INTERNO E PRIORIDADE EM CAMPANHAS
+11. SCORE INTERNO
 
-A Vias Aéreas poderá manter um score interno para avaliar a confiabilidade operacional da conta.
+A Vias Aéreas poderá manter um score interno para avaliar a confiabilidade operacional das contas cadastradas.
 
 Esse score poderá considerar:
 
 Agilidade nas respostas;
-Envio rápido de SMS;
-Realização de biometria quando solicitada;
-Colaboração em auditorias;
-Regularidade dos dados cadastrais;
-Histórico de operações anteriores;
+Rapidez no envio de códigos;
+Disponibilidade para biometria;
+Colaboração com documentos;
+Regularidade dos dados;
+Histórico de operações;
 Ausência de recusas injustificadas;
-Facilidade de comunicação pelo WhatsApp.
+Facilidade de comunicação;
+Confiabilidade do titular;
 
-Contas com melhor score poderão ser priorizadas em campanhas promocionais da LATAM Pass, Smiles, Livelo e Esfera.
+Contas com melhor histórico de colaboração poderão ser priorizadas em novas campanhas da Livelo e da LATAM Pass.
 
-13. CONFIRMAÇÃO FINAL
+12. SEGURANÇA DO TITULAR
 
-Após criar os cadastros na LATAM Pass, Livelo, Esfera e Smiles, o participante deverá retornar ao link de convite/cadastro da Vias Aéreas e preencher as informações solicitadas.
+A Vias Aéreas não solicita ao titular:
 
-Ao finalizar o preenchimento, o participante declara que:
+Dinheiro;
+PIX;
+Transferência;
+Depósito;
+Pagamento antecipado;
+Investimento financeiro;
+Senha bancária;
+Senha de cartão;
+Código de segurança;
+Acesso ao aplicativo bancário;
 
-Criou os cadastros com dados verdadeiros;
-Utilizou e-mail e senha próprios para essa finalidade;
-Possui telefone ativo para SMS e WhatsApp;
-Está ciente da necessidade de colaborar com validações;
-Está ciente de que não deve utilizar senhas pessoais, bancárias ou gov.br;
-Está ciente de que a Vias Aéreas não solicita dinheiro, PIX, depósito, transferência ou investimento financeiro;
-Autoriza a utilização operacional das contas conforme o Termo de Ciência e Autorização.`;
+Todo investimento necessário para compra de pontos, adesão a clubes ou realização das operações é feito exclusivamente pela Vias Aéreas.
+
+Ao prosseguir com o cadastro no site, o titular confirma que leu estas orientações e compreendeu as condições para participação.`;
 
 /**
  * ✅ TERMO COMPLETO (texto integral)
@@ -437,283 +516,435 @@ Autoriza a utilização operacional das contas conforme o Termo de Ciência e Au
 const TERMO_TEXTO = `TERMO DE CIÊNCIA, AUTORIZAÇÃO E RESPONSABILIDADE OPERACIONAL
 VIAS AÉREAS VIAGENS E TURISMO LTDA
 
-Este Termo tem por finalidade registrar a ciência expressa, autorização e concordância do TITULAR da conta para participação nas operações comerciais realizadas pela VIAS AÉREAS VIAGENS E TURISMO LTDA, inscrita no CNPJ sob nº 63.817.773/0001-85, envolvendo programas de fidelidade, aquisição de pontos/milhas, validações de identidade, emissão de passagens e comercialização em plataformas especializadas.
+Este Termo registra a ciência, autorização e concordância do TITULAR para participação nas operações comerciais realizadas pela VIAS AÉREAS VIAGENS E TURISMO LTDA, inscrita no CNPJ sob nº 63.817.773/0001-85.
 
-A Vias Aéreas não solicita dinheiro, PIX, transferência, depósito, pagamento antecipado, investimento ou qualquer valor financeiro do TITULAR para participação nas operações. Todo investimento necessário para aquisição de pontos, adesão a clubes, compra de milhas ou realização das operações é feito exclusivamente pela Vias Aéreas, com recursos próprios.
+As operações poderão envolver contas dos programas Livelo e LATAM Pass, aquisição de pontos ou milhas, adesão a clubes, validações de identidade, biometrias faciais, emissão de passagens e demais procedimentos necessários à conclusão das operações autorizadas.
+
+A Vias Aéreas não solicita dinheiro, PIX, transferência, depósito, pagamento antecipado, investimento ou qualquer valor financeiro do TITULAR.
+
+Todo investimento necessário será realizado exclusivamente pela Vias Aéreas, com recursos próprios.
 
 1. OBJETO E FUNCIONAMENTO DAS OPERAÇÕES
 
-A Vias Aéreas atua na intermediação, organização e comercialização de passagens aéreas emitidas por meio de programas de fidelidade, incluindo, mas não se limitando a:
+O TITULAR autoriza a Vias Aéreas a realizar operações utilizando as contas cadastradas nos programas:
 
 Livelo;
 LATAM Pass;
-Smiles;
-Outros programas parceiros ou equivalentes.
 
-Para viabilizar operações com margem comercial, poderão ser necessárias as seguintes etapas:
+As operações poderão ocorrer conforme:
 
-Adesão a clubes de pontos/milhas;
-Aquisição de pontos ou milhas com recursos próprios da Vias Aéreas;
-Transferências internas de pontos;
-Emissão de passagens aéreas;
-Comercialização dessas passagens em balcões especializados de milhas;
-Validações de identidade, SMS, biometria, documentação ou auditorias solicitadas pelos programas.
+Campanhas promocionais disponíveis;
+Oportunidades comerciais;
+Margem estimada;
+Disponibilidade da conta;
+Histórico operacional do TITULAR;
+Regras dos programas;
+Necessidade de validações;
 
-O TITULAR declara ciência de que a utilização da conta poderá ocorrer de acordo com as oportunidades comerciais, campanhas promocionais, margem de lucro estimada, disponibilidade da conta e regras internas dos programas de fidelidade.
+As atividades poderão incluir:
 
-2. DO INVESTIMENTO, AUSÊNCIA DE COBRANÇA E RISCO FINANCEIRO
+Aquisição de pontos ou milhas;
+Adesão a clubes;
+Participação em campanhas;
+Transferência de pontos;
+Emissão de passagens;
+Alteração de informações operacionais;
+Confirmações por SMS;
+Selfie ou biometria facial;
+Envio de documentos;
+Recuperação de acesso;
+Auditorias e validações de segurança;
 
-Todo o capital utilizado para aquisição de pontos, adesão a clubes, compra de milhas ou realização de operações comerciais será de responsabilidade exclusiva da Vias Aéreas.
+O TITULAR declara estar ciente de que a conta poderá ser utilizada conforme as oportunidades comerciais identificadas pela Vias Aéreas.
 
-O TITULAR declara ciência expressa de que:
+2. INVESTIMENTO E AUSÊNCIA DE COBRANÇA
 
-A Vias Aéreas não solicita dinheiro ao TITULAR;
-A Vias Aéreas não solicita PIX ao TITULAR;
-A Vias Aéreas não solicita transferência bancária ao TITULAR;
-A Vias Aéreas não solicita depósito ao TITULAR;
-A Vias Aéreas não solicita pagamento antecipado ao TITULAR;
-A Vias Aéreas não solicita qualquer tipo de investimento financeiro ao TITULAR;
-O TITULAR não realiza pagamento à Vias Aéreas;
-O TITULAR não assume risco financeiro direto;
-O TITULAR não participa do custo de aquisição dos pontos;
-O TITULAR não possui obrigação de reembolsar a empresa por investimentos feitos regularmente;
-Todo o risco financeiro do investimento é exclusivo da Vias Aéreas;
-O TITULAR não é responsável por prejuízos decorrentes de variações comerciais, promoções, desvalorização de milhas, atrasos sistêmicos, cancelamentos ou falhas operacionais das plataformas.
+Todo o capital necessário para aquisição de pontos, adesão a clubes e realização das operações será de responsabilidade exclusiva da Vias Aéreas.
 
-Em média, cada operação poderá envolver a aquisição aproximada de 130.000 pontos/milhas, com investimento médio estimado de R$ 3.200,00 por parte da Vias Aéreas, podendo esse valor variar conforme promoções, campanhas, clubes, bonificações, regras vigentes dos programas e condições comerciais do momento.
+O TITULAR declara estar ciente de que:
 
-O TITULAR declara ciência de que sua obrigação principal é colaborar com as validações necessárias para conclusão das operações previamente autorizadas, e não realizar qualquer pagamento financeiro à Vias Aéreas.
+Não realizará pagamentos à Vias Aéreas;
+Não enviará PIX;
+Não realizará transferências ou depósitos;
+Não pagará taxas de participação;
+Não investirá dinheiro na compra de pontos;
+Não assumirá os custos das operações;
+Não deverá fornecer senhas bancárias;
+Não deverá fornecer dados de cartão;
 
-3. DO PAGAMENTO AO TITULAR
+O TITULAR não será responsável por prejuízos comerciais normais relacionados a:
 
-Os valores pagos ao TITULAR correspondem à remuneração pela autorização de uso operacional da conta, colaboração com validações e participação nas operações comerciais da Vias Aéreas.
+Variação no valor dos pontos;
+Alteração ou encerramento de promoções;
+Desvalorização de pontos ou milhas;
+Falhas sistêmicas;
+Indisponibilidade das plataformas;
+Cancelamentos realizados pelos programas;
+Mudanças nas regras das empresas envolvidas;
+
+A principal obrigação do TITULAR será colaborar com as validações necessárias para conclusão das operações previamente autorizadas.
+
+Uma operação poderá envolver investimento relevante por parte da Vias Aéreas, incluindo aquisição de pontos, adesão a clubes, pagamento de taxas e outras despesas necessárias.
+
+3. PAGAMENTOS AO TITULAR
+
+Os valores pagos ao TITULAR correspondem à remuneração pela entrada da conta Livelo e pela disponibilidade necessária para conclusão das operações realizadas na LATAM Pass.
 
 O pagamento será realizado:
 
-Exclusivamente ao TITULAR da conta;
-Via PIX;
+Exclusivamente ao TITULAR;
+Por PIX;
 Em conta bancária de mesma titularidade;
-Nunca em conta de terceiros.
+Nunca em conta pertencente a terceiros;
 
-No caso de operações envolvendo LATAM Pass, o pagamento regular ao TITULAR será de R$ 50,00 por bloco operacional de pontos/milhas adquirido ou utilizado pela Vias Aéreas.
+Os pagamentos possuem caráter eventual e não representam salário, remuneração mensal, comissão fixa ou garantia de recorrência.
 
-Caso a operação LATAM exija biometria facial, será acrescentado o valor de R$ 30,00, totalizando R$ 80,00 para aquele bloco operacional.
+4. PAGAMENTO DE ENTRADA DA LIVELO
 
-O valor adicional de R$ 30,00 não corresponde ao pagamento por cada biometria individual, mas sim à remuneração complementar pelo conjunto operacional médio de validações biométricas necessárias para conclusão da operação vinculada àquele bloco de pontos/milhas.
+O TITULAR receberá R$ 20,00 pela entrada da conta Livelo.
 
-Os valores de R$ 50,00 e R$ 80,00 representam valores médios e regulares praticados pela Vias Aéreas. Em campanhas promocionais mais agressivas, operações com maior margem de lucro, oportunidades comerciais específicas ou condições excepcionais de mercado, a Vias Aéreas poderá, a seu exclusivo critério, oferecer comissão superior ao TITULAR.
+O pagamento será realizado após a conclusão e aprovação do cadastro, conforme os critérios operacionais da Vias Aéreas.
 
-A definição do valor exato a ser pago em cada operação caberá exclusivamente à Vias Aéreas, conforme programa utilizado, campanha vigente, margem de lucro estimada, necessidade de validações e viabilidade comercial da operação.
+O valor de R$ 20,00 inclui:
 
-O pagamento é feito por bloco de operação ou aquisição de pontos/milhas, conforme análise comercial da Vias Aéreas, não representando salário, vínculo empregatício, comissão fixa ou obrigação de pagamento recorrente.
+Criação ou disponibilização da conta Livelo;
+Preparação inicial da conta;
+Disponibilidade inicial do TITULAR;
+Eventual alteração do número de telefone;
+Primeira biometria facial solicitada pela Livelo;
 
-4. DA AQUISIÇÃO DE PONTOS E AUTORIZAÇÃO DE INVESTIMENTO
+A primeira biometria da Livelo estará incluída nesse valor, ainda que seja realizada em momento posterior ao cadastro inicial.
 
-O TITULAR declara estar ciente de que, após autorizar a Vias Aéreas a realizar investimento em sua conta, incluindo aquisição de pontos, adesão a clubes ou participação em campanhas promocionais, a empresa poderá assumir custos relevantes para viabilizar a operação.
+A primeira biometria da Livelo não gerará pagamento adicional.
 
-A partir da autorização de investimento pela Vias Aéreas, o TITULAR compromete-se a colaborar com todas as etapas necessárias para conclusão da operação, incluindo validações por SMS, envio de documentos, confirmação de identidade, desbloqueios, auditorias e biometria facial, quando solicitados.
+5. PAGAMENTO DO BLOCO OPERACIONAL LATAM
 
-A recusa injustificada, omissão, atraso excessivo ou não colaboração após o investimento realizado poderá gerar prejuízo financeiro direto à Vias Aéreas e poderá resultar em:
+Nas operações realizadas por meio da LATAM Pass, o TITULAR receberá R$ 80,00 por bloco operacional.
 
-Cancelamento imediato da parceria;
-Exclusão definitiva do cadastro;
-Impedimento de futuras negociações;
-Remoção da conta da lista de contas aptas a novas operações.
+Esse pagamento abrange:
 
-Fica expressamente esclarecido que a colaboração exigida do TITULAR refere-se às validações operacionais necessárias à conclusão da operação, e não ao pagamento de valores, PIX, transferências ou qualquer aporte financeiro.
+Todas as emissões realizadas dentro do bloco;
+Todas as biometrias necessárias para essas emissões;
+Todos os códigos e confirmações solicitados;
+A disponibilidade do TITULAR durante a operação;
+As demais validações necessárias para conclusão do bloco;
 
-5. DAS VALIDAÇÕES DE IDENTIDADE, SMS E DOCUMENTAÇÃO
+Em média, cada bloco poderá exigir aproximadamente oito biometrias faciais, mas a quantidade efetiva poderá ser menor ou maior.
 
-O TITULAR declara ciência de que as plataformas Livelo, LATAM Pass, Smiles e demais programas poderão solicitar, a qualquer tempo, validações adicionais de identidade, conforme suas próprias políticas internas.
+O valor de R$ 80,00 permanecerá fixo independentemente da quantidade de:
 
-Essas validações podem incluir, entre outras:
+Emissões;
+Passageiros;
+Biometrias;
+Selfies;
+Códigos;
+Confirmações;
+Outras validações necessárias dentro do mesmo bloco;
 
-Documento oficial de identificação com foto, como RG ou CNH;
-Documento emitido preferencialmente há menos de 10 anos;
-Comprovante de residência atualizado;
-Selfie para conferência facial;
-Biometria facial;
+Não haverá pagamento separado ou adicional por cada emissão, biometria, passageiro, selfie, código ou validação realizada dentro do bloco.
+
+O pagamento de R$ 80,00 remunera o conjunto completo de operações e validações necessárias para conclusão daquele bloco.
+
+6. DEFINIÇÃO E ENCERRAMENTO DO BLOCO OPERACIONAL
+
+Para fins deste Termo, considera-se bloco operacional o conjunto de operações e emissões vinculadas à mesma aquisição ou utilização de pontos na conta LATAM Pass.
+
+O bloco poderá incluir diversas emissões realizadas em momentos diferentes, desde que relacionadas à mesma operação ou saldo de pontos destinado pela Vias Aéreas.
+
+O bloco será considerado concluído quando:
+
+As emissões previstas forem finalizadas;
+Os pontos destinados à operação forem utilizados;
+Não houver mais emissões relacionadas àquela aquisição;
+A operação for formalmente encerrada pela Vias Aéreas;
+
+Caso uma nova aquisição de pontos dê início a uma operação independente, poderá ser formado um novo bloco operacional, sujeito a nova remuneração de R$ 80,00.
+
+A quantidade média de oito biometrias é apenas uma estimativa operacional e não representa quantidade mínima ou máxima garantida.
+
+7. DISPONIBILIDADE PARA AS BIOMETRIAS
+
+Quando uma biometria for solicitada, o TITULAR deverá estar:
+
+Com o celular em mãos;
+Conectado à internet;
+Disponível para acompanhar as mensagens;
+Em ambiente com boa iluminação;
+Preparado para abrir o link;
+Com tempo suficiente para concluir o procedimento;
+
+Em condições normais, cada biometria deverá levar aproximadamente 5 minutos.
+
+Durante esse período, o TITULAR deverá permanecer online e acompanhar as orientações do colaborador responsável.
+
+O TITULAR compromete-se a não iniciar a validação caso esteja:
+
+Dirigindo;
+Sem acesso à internet;
+Trabalhando sem poder utilizar o telefone;
+Em ambiente inadequado;
+Sem tempo para concluir;
+Prestes a ficar indisponível;
+
+8. AUTORIZAÇÃO PARA INVESTIMENTO
+
+O TITULAR declara estar ciente de que, após autorizar uma operação, a Vias Aéreas poderá utilizar recursos próprios para:
+
+Comprar pontos ou milhas;
+Aderir a clubes;
+Participar de campanhas;
+Preparar a conta;
+Realizar emissões;
+Iniciar outras etapas operacionais;
+
+Depois que o investimento for realizado, o TITULAR compromete-se a colaborar com todas as etapas necessárias para conclusão da operação.
+
+Essa colaboração poderá incluir:
+
 Envio de códigos por SMS;
-Confirmações por ligação telefônica;
-Confirmações por aplicativos oficiais;
-Questionários, auditorias ou conferências de segurança.
+Confirmação por e-mail;
+Resposta pelo WhatsApp;
+Selfie;
+Biometria facial;
+Documento de identificação;
+Comprovante de residência;
+Ligação de confirmação;
+Recuperação de acesso;
+Auditorias;
+Desbloqueio da conta;
 
-O TITULAR compromete-se a fornecer as validações necessárias de forma verdadeira, tempestiva e compatível com as solicitações das plataformas.
+A colaboração exigida nunca envolverá pagamento, PIX, transferência, depósito ou aporte financeiro por parte do TITULAR.
 
-A negativa, omissão, atraso injustificado ou fornecimento incorreto de informações poderá resultar em bloqueio, suspensão da conta, cancelamento de passagens, perda de oportunidade comercial e prejuízo financeiro à Vias Aéreas.
+9. RECUSA APÓS O INVESTIMENTO
 
-6. DA BIOMETRIA FACIAL NA LATAM PASS
+Antes de autorizar a utilização da conta, o TITULAR deverá ter certeza de que deseja participar e de que terá disponibilidade para colaborar com as validações necessárias.
 
-No caso específico da LATAM Pass, o TITULAR declara ciência de que a biometria facial poderá ser obrigatória para viabilizar a emissão, venda ou utilização dos pontos da conta.
+Após a compra dos pontos, adesão a uma campanha ou realização de outro investimento pela Vias Aéreas, a recusa injustificada poderá gerar prejuízo financeiro direto à empresa.
 
-Nas operações LATAM, o pagamento regular será de R$ 50,00 por bloco operacional. Caso seja necessária a realização de biometria facial, será acrescido o valor de R$ 30,00, totalizando R$ 80,00 pelo bloco operacional vinculado àquela operação.
+Serão consideradas situações de não colaboração:
 
-O acréscimo de R$ 30,00 refere-se ao conjunto médio de validações biométricas necessárias para conclusão da operação, e não a cada biometria realizada individualmente.
+Recusa injustificada de biometria;
+Recusa injustificada de envio de códigos;
+Recusa injustificada de documentos;
+Falta de resposta durante uma operação;
+Abandono da operação;
+Omissão após o investimento;
+Atraso excessivo sem justificativa;
+Fornecimento intencional de informações incorretas;
 
-O TITULAR declara ciência de que, após a Vias Aéreas realizar investimento na conta, comprar pontos, aderir a clubes ou iniciar operação comercial, não poderá se recusar injustificadamente a realizar as biometrias necessárias para conclusão da operação.
+Nessas situações, a Vias Aéreas poderá:
 
-A recusa, omissão, atraso injustificado ou não realização das biometrias solicitadas poderá gerar prejuízo financeiro direto à Vias Aéreas, especialmente porque a empresa já poderá ter realizado investimento médio aproximado de R$ 3.200,00 por bloco de pontos/milhas adquirido.
+Encerrar imediatamente a parceria;
+Excluir definitivamente o cadastro;
+Impedir futuras operações;
+Impedir novas indicações;
+Retirar a conta de campanhas futuras;
+Priorizar outros titulares;
 
-Nessas hipóteses, a Vias Aéreas poderá:
+10. VALIDAÇÕES E DOCUMENTOS
 
-Encerrar imediatamente a parceria operacional;
-Excluir definitivamente o TITULAR do cadastro;
-Impedir futuras compras, indicações ou negociações;
-Priorizar outras contas mais colaborativas em campanhas futuras.
+A Livelo e a LATAM Pass poderão solicitar validações adicionais a qualquer momento.
 
-7. DAS AUDITORIAS E BLOQUEIOS NA SMILES
+Essas validações poderão incluir:
 
-O TITULAR declara ciência de que, no programa Smiles, algumas contas poderão passar por auditoria, especialmente após adesão a clubes, compras promocionais, transferências, emissões ou movimentações consideradas relevantes pela plataforma.
+RG ou CNH;
+Documento de identificação com foto;
+Comprovante de residência;
+Selfie;
+Biometria facial;
+Código por SMS;
+Código por e-mail;
+Confirmação por ligação;
+Confirmação pelo aplicativo;
+Questionário de segurança;
+Auditoria cadastral;
 
-Durante eventual auditoria, a conta poderá sofrer:
+O TITULAR compromete-se a fornecer informações verdadeiras e compatíveis com seus documentos.
 
-Bloqueio temporário;
-Restrição de emissão;
-Solicitação de documentos;
-Solicitação de confirmação cadastral;
-Cancelamento ou análise de passagens;
-Necessidade de contato com a central oficial da Smiles.
+A recusa, omissão ou demora injustificada poderá causar:
 
-Caso a conta passe por auditoria, bloqueio ou solicitação de documentação, o TITULAR compromete-se a colaborar com o envio dos documentos e informações necessárias para desbloqueio da conta e regularização da operação.
+Bloqueio da conta;
+Suspensão das operações;
+Cancelamento de passagens;
+Perda de campanhas;
+Prejuízo financeiro à Vias Aéreas;
+Encerramento da parceria;
 
-A recusa injustificada, omissão ou atraso no fornecimento dos documentos solicitados poderá resultar em prejuízo à Vias Aéreas, cancelamento de operações em andamento e exclusão definitiva do TITULAR da parceria.
+11. COMUNICAÇÃO PELO WHATSAPP
 
-8. DO SCORE INTERNO DA VIAS AÉREAS
+O TITULAR deverá salvar na agenda do celular o número do colaborador da Vias Aéreas responsável pelo seu atendimento.
 
-A Vias Aéreas poderá manter um score interno operacional dos titulares cadastrados, utilizado exclusivamente para organização, priorização e seleção de contas em campanhas futuras.
+A Vias Aéreas poderá utilizar diferentes números de atendimento, conforme o colaborador responsável por cada titular.
 
-Esse score poderá considerar diversos fatores, incluindo, mas não se limitando a:
+O WhatsApp utilizado pelo TITULAR deverá possuir:
 
-Agilidade para responder mensagens;
-Cumprimento de validações por SMS;
-Disponibilidade para realizar biometria facial;
-Envio correto e rápido de documentos;
-Histórico de colaboração em auditorias;
+Nome de identificação;
+Foto de perfil visível;
+Número ativo para recebimento de mensagens;
+
+Cadastros com WhatsApp sem foto de perfil não serão aceitos.
+
+O TITULAR deverá acompanhar as mensagens durante as operações e responder com agilidade quando houver solicitação de código, selfie, biometria ou documento.
+
+12. SCORE INTERNO
+
+A Vias Aéreas poderá manter um score interno para organização e priorização das contas cadastradas.
+
+O score poderá considerar:
+
+Agilidade nas respostas;
+Disponibilidade para biometria;
+Envio rápido de códigos;
+Colaboração com documentos;
+Regularidade dos dados;
+Histórico de operações;
+Cumprimento das validações;
 Ausência de recusas injustificadas;
-Confiabilidade operacional da conta;
-Participação anterior em campanhas;
-Capacidade de viabilizar operações com segurança.
+Facilidade de comunicação;
+Confiabilidade operacional;
 
-O TITULAR declara ciência de que esse score interno poderá influenciar a prioridade da conta em campanhas promocionais da LATAM Pass, Smiles, Livelo ou outros programas.
+Contas com melhor histórico poderão ser priorizadas em novas campanhas.
 
-Contas com maior colaboração, agilidade e confiabilidade poderão ser priorizadas em novas compras de pontos, campanhas promocionais e oportunidades futuras.
+Contas com atrasos recorrentes, falta de resposta ou recusas injustificadas poderão deixar de receber novas oportunidades ou ser excluídas da parceria.
 
-Contas com atrasos recorrentes, recusas, falta de resposta, descumprimento de validações ou baixa colaboração poderão deixar de ser priorizadas ou ser removidas definitivamente do cadastro operacional.
+13. PROTEÇÃO E TRATAMENTO DOS DADOS
 
-9. DA PROTEÇÃO E TRATAMENTO DE DADOS
+Os dados fornecidos pelo TITULAR poderão ser utilizados para:
 
-Os dados pessoais fornecidos pelo TITULAR serão utilizados exclusivamente para fins operacionais relacionados às atividades descritas neste termo, incluindo cadastro, validação, organização interna, controle de operações e comunicação com o TITULAR.
+Cadastro;
+Comunicação;
+Controle das operações;
+Pagamentos;
+Validações;
+Organização interna;
+Segurança;
+Comprovação das autorizações;
+Defesa de direitos relacionados às operações realizadas;
 
 Os dados poderão incluir:
 
 Nome completo;
 CPF;
+Data de nascimento;
 Telefone;
 E-mail;
 Dados bancários para pagamento;
-Dados de acesso ou identificação dos programas de fidelidade, quando necessários;
-Documentos enviados voluntariamente para validação ou desbloqueio.
+Informações operacionais das contas;
+Documentos utilizados nas validações;
+Histórico das operações autorizadas;
 
-Os dados serão armazenados em ambiente seguro, em banco de dados protegido da Vias Aéreas, incluindo armazenamento em ambiente corporativo seguro, como OneDrive corporativo ou ferramenta equivalente.
+Os dados poderão ser armazenados em ambiente corporativo protegido, incluindo banco de dados interno, OneDrive corporativo ou ferramenta equivalente.
 
-O TITULAR poderá solicitar, a qualquer momento, a exclusão definitiva de seus dados, ciente de que a exclusão poderá implicar:
+O TITULAR poderá solicitar a exclusão de seus dados, ciente de que isso poderá resultar:
 
-Encerramento definitivo da parceria;
-Impossibilidade de novas operações;
-Remoção do cadastro da empresa;
-Impossibilidade de novas indicações;
-Perda de histórico operacional e score interno.
+No encerramento da parceria;
+Na impossibilidade de novas operações;
+Na exclusão do cadastro;
+Na perda do histórico operacional;
+Na impossibilidade de novas indicações;
 
-A exclusão dos dados poderá ser limitada quando houver necessidade de preservação de informações para cumprimento de obrigação legal, regulatória, contábil, fiscal, defesa de direitos ou comprovação de operações já realizadas.
+Algumas informações poderão ser preservadas quando necessárias para cumprimento de obrigações legais, fiscais, contábeis ou para comprovação e defesa de direitos relacionados às operações já realizadas.
 
-10. DA INDICAÇÃO DE NOVOS CEDENTES
+14. INDICAÇÃO DE NOVOS TITULARES
 
-A Vias Aéreas poderá pagar ao TITULAR o valor de R$ 20,00 por indicação válida de novo cedente, desde que o indicado seja aprovado, cadastrado e considerado apto para participação nas operações.
+A Vias Aéreas poderá pagar ao TITULAR R$ 20,00 por indicação válida.
 
-A indicação somente será considerada válida após análise interna da Vias Aéreas.
+A indicação somente será considerada válida quando o novo titular:
 
-Caso o cedente indicado descumpra este termo, recuse validações, gere prejuízo operacional ou financeiro, ou apresente conduta incompatível com a parceria, o TITULAR que realizou a indicação poderá ficar impedido de realizar novas indicações.
+Concluir o cadastro;
+For aprovado pela Vias Aéreas;
+Possuir conta apta;
+Cumprir as validações solicitadas;
+Estiver disponível para participar das operações;
 
-A Vias Aéreas reserva-se o direito de aceitar, recusar ou suspender indicações conforme critérios internos de segurança, confiabilidade e viabilidade operacional.
+A Vias Aéreas poderá aceitar, recusar ou suspender indicações conforme seus critérios internos de segurança e viabilidade operacional.
 
-11. DA RESCISÃO E ENCERRAMENTO DA PARCERIA
+Caso o indicado descumpra este Termo, recuse validações ou apresente conduta incompatível com a parceria, o responsável pela indicação poderá ficar impedido de realizar novas indicações.
 
-Este termo poderá ser rescindido a qualquer momento por qualquer das partes.
+15. ENCERRAMENTO DA PARCERIA
 
-Caso o TITULAR opte por não prosseguir com a parceria antes de qualquer investimento realizado pela Vias Aéreas, o vínculo poderá ser encerrado sem penalidade.
+Este Termo poderá ser encerrado por qualquer das partes.
 
-Caso já tenha havido aquisição de pontos, adesão a clubes, investimento financeiro, emissão de passagens ou operação em andamento, o TITULAR compromete-se a colaborar com as etapas necessárias para finalização da operação, a fim de evitar prejuízo financeiro à Vias Aéreas.
+Caso o TITULAR solicite o encerramento antes de qualquer investimento ou operação em andamento, a parceria poderá ser finalizada sem necessidade de novas validações.
+
+Caso já exista compra de pontos, adesão a campanha, emissão ou outra operação iniciada, o TITULAR compromete-se a colaborar com as etapas necessárias para sua conclusão.
 
 A Vias Aéreas poderá encerrar imediatamente a parceria em caso de:
 
 Recusa injustificada de biometria;
-Recusa de envio de documentos;
-Não colaboração em auditorias;
-Atrasos recorrentes;
+Recusa de códigos ou documentos;
+Não colaboração após investimento;
+Informações falsas;
+Utilização de dados de terceiros;
 Falta de resposta;
-Fornecimento de informações falsas;
-Risco operacional relevante;
-Descumprimento deste termo.
+Atrasos recorrentes;
+Risco operacional;
+Descumprimento deste Termo;
 
-O encerramento da parceria poderá resultar na exclusão definitiva do cadastro e impedimento de futuras negociações.
+O encerramento poderá resultar na exclusão definitiva do cadastro e no impedimento de futuras operações.
 
-12. DO IMPOSTO DE RENDA E AUSÊNCIA DE VÍNCULO EMPREGATÍCIO
+16. AUSÊNCIA DE VÍNCULO EMPREGATÍCIO
 
-Os valores eventualmente recebidos pelo TITULAR possuem caráter eventual e não configuram vínculo empregatício, sociedade, representação comercial, prestação de serviço contínua ou relação de subordinação com a Vias Aéreas.
+Os valores recebidos pelo TITULAR possuem caráter eventual.
 
-Cabe ao TITULAR avaliar eventual necessidade de declaração dos valores recebidos perante a Receita Federal, conforme sua realidade fiscal e legislação aplicável.
+A participação nas operações não estabelece:
 
-A Vias Aéreas não se responsabiliza por obrigações tributárias pessoais do TITULAR.
+Vínculo empregatício;
+Relação de subordinação;
+Sociedade;
+Representação comercial;
+Salário;
+Prestação de serviço contínua;
+Garantia de pagamentos recorrentes;
 
-13. DA VERACIDADE DAS INFORMAÇÕES
+Cabe ao TITULAR avaliar eventual obrigação tributária relacionada aos valores recebidos, conforme sua realidade fiscal e a legislação aplicável.
 
-O TITULAR declara que todas as informações fornecidas à Vias Aéreas são verdadeiras, completas e atualizadas.
+17. RISCOS OPERACIONAIS DAS PLATAFORMAS
 
-O fornecimento de informações falsas, documentos inconsistentes, dados bancários de terceiros ou informações divergentes poderá resultar no encerramento imediato da parceria e exclusão definitiva do cadastro.
+O TITULAR declara estar ciente de que a Livelo e a LATAM Pass possuem regras próprias, políticas internas e mecanismos independentes de segurança.
 
-14. DA CIÊNCIA SOBRE RISCOS OPERACIONAIS DAS PLATAFORMAS
+As plataformas poderão determinar:
 
-O TITULAR declara ciência de que os programas de fidelidade, companhias aéreas e plataformas parceiras possuem regras próprias, políticas internas de segurança, mecanismos antifraude e critérios independentes de validação.
+Bloqueio temporário;
+Solicitação de documentos;
+Suspensão da conta;
+Exigência de biometria;
+Alteração de regras;
+Cancelamento de operações;
+Indisponibilidade de sistemas;
+Auditoria;
+Confirmação por SMS;
+Outras verificações de identidade;
 
-Assim, podem ocorrer situações como:
+Essas decisões são tomadas pelas próprias plataformas, e não pela Vias Aéreas.
 
-Bloqueio temporário da conta;
-Solicitação de documentação adicional;
-Suspensão de emissões;
-Cancelamento de passagens;
-Auditoria de movimentações;
-Exigência de confirmação por SMS;
-Exigência de biometria facial;
-Alteração de regras promocionais;
-Indisponibilidade temporária de sistemas.
+O TITULAR compromete-se a colaborar com as medidas necessárias para regularização da conta e conclusão das operações autorizadas.
 
-O TITULAR declara ciência de que tais situações são determinadas pelas plataformas responsáveis e não pela Vias Aéreas, comprometendo-se a colaborar com as medidas necessárias para regularização das operações.
+18. CIÊNCIA E AUTORIZAÇÃO
 
-15. DA CIÊNCIA EXPRESSA E AUTORIZAÇÃO
+Ao aceitar eletronicamente este Termo no site da Vias Aéreas, o TITULAR declara que:
 
-Para fins de transparência, o TITULAR poderá consultar o perfil oficial da empresa no Instagram:
-
-@viasaereastrip
-
-Ao manifestar concordância com este termo, o TITULAR declara que:
-
-Leu integralmente o presente documento;
+Leu integralmente o documento;
 Compreendeu o funcionamento das operações;
-Entendeu que a Vias Aéreas poderá investir valores próprios na conta;
-Entendeu que a Vias Aéreas não solicita dinheiro, PIX, transferência, depósito, pagamento antecipado ou qualquer investimento financeiro do TITULAR;
-Está ciente de que todo risco financeiro do investimento é exclusivo da Vias Aéreas;
-Está ciente da obrigação de colaborar com SMS, documentos, auditorias e biometria;
-Está ciente de que a recusa injustificada após investimento poderá gerar exclusão definitiva;
-Entendeu a existência de score interno operacional;
-Está ciente de que os valores pagos podem variar conforme margem, campanha e viabilidade comercial;
-Não sofreu indução, erro, coação ou pressão indevida;
-Autoriza expressamente a utilização operacional da conta conforme descrito neste termo.
+Autoriza a utilização operacional das contas Livelo e LATAM Pass;
+Compreendeu que a Vias Aéreas utilizará recursos próprios nas operações;
+Compreendeu que não deverá realizar pagamentos ou investimentos;
+Está ciente do pagamento de R$ 20,00 pela entrada da conta Livelo;
+Está ciente de que a primeira biometria da Livelo está incluída nesse valor;
+Está ciente do pagamento de R$ 80,00 por bloco operacional LATAM;
+Compreendeu que o pagamento de R$ 80,00 abrange todas as emissões e biometrias do bloco;
+Está ciente de que um bloco poderá envolver, em média, oito biometrias;
+Compreendeu que a quantidade de biometrias poderá ser menor ou maior;
+Está ciente de que não haverá pagamento separado por biometria ou emissão;
+Possui telefone ativo para SMS e WhatsApp;
+Possui nome e foto de perfil visíveis no WhatsApp;
+Está disponível para acompanhar as validações;
+Está ciente de que deverá colaborar após a realização dos investimentos;
+Está ciente de que a recusa injustificada poderá gerar prejuízo e encerramento da parceria;
+Declara que todas as informações fornecidas são verdadeiras;
+Autoriza expressamente a realização das operações descritas neste documento;
 
-16. ACEITE
-
-Declaro que li, compreendi e concordo com todos os termos acima.
-
-Declaro, ainda, estar ciente de que a Vias Aéreas não solicita dinheiro, PIX, transferência, depósito, pagamento antecipado ou qualquer investimento financeiro para participação nas operações, sendo todo investimento realizado exclusivamente pela empresa.`;
+O aceite eletrônico realizado no site registrará a concordância do TITULAR com todas as condições apresentadas neste Termo.`;
 
 function highlightImportantTerms(text: string, keyPrefix: string) {
   return text.split(PALAVRAS_CHAVE_REGEX).map((part, index) => {
@@ -836,17 +1067,13 @@ export default function ConviteClient({ code }: { code: string }) {
 
     emailCriado: "",
     senhaEmail: "",
-    senhaSmiles: "",
     senhaLatamPass: "",
     senhaLivelo: "",
-    senhaEsfera: "",
     chavePix: "",
     banco: "",
     pixTipo: "",
     pontosLatam: "",
-    pontosSmiles: "",
     pontosLivelo: "",
-    pontosEsfera: "",
   });
 
   const [loadingInvite, setLoadingInvite] = useState(true);
@@ -874,17 +1101,13 @@ export default function ConviteClient({ code }: { code: string }) {
       codigoCedenteIndicacao: "",
       emailCriado: "",
       senhaEmail: "",
-      senhaSmiles: "",
       senhaLatamPass: "",
       senhaLivelo: "",
-      senhaEsfera: "",
       chavePix: "",
       banco: "",
       pixTipo: "",
       pontosLatam: "",
-      pontosSmiles: "",
       pontosLivelo: "",
-      pontosEsfera: "",
     });
     setTermoAceito(false);
   }
@@ -904,14 +1127,10 @@ export default function ConviteClient({ code }: { code: string }) {
       pixTipo: form.pixTipo,
       chavePix: form.chavePix.trim(),
       senhaEmailEnc: form.senhaEmail || null,
-      senhaSmilesEnc: form.senhaSmiles || null,
       senhaLatamPassEnc: form.senhaLatamPass || null,
       senhaLiveloEnc: form.senhaLivelo || null,
-      senhaEsferaEnc: form.senhaEsfera || null,
       pontosLatam: Number(form.pontosLatam || 0),
-      pontosSmiles: Number(form.pontosSmiles || 0),
       pontosLivelo: Number(form.pontosLivelo || 0),
-      pontosEsfera: Number(form.pontosEsfera || 0),
       termoAceito: true,
       termoVersao: TERMO_VERSAO,
       titularConfirmado: true,
@@ -1202,15 +1421,6 @@ export default function ConviteClient({ code }: { code: string }) {
               </div>
 
               <div>
-                <label className="mb-1 block text-sm">Senha Smiles</label>
-                <input
-                  className="w-full rounded-xl border px-3 py-2"
-                  value={form.senhaSmiles}
-                  onChange={(e) => setField("senhaSmiles", e.target.value)}
-                />
-              </div>
-
-              <div>
                 <label className="mb-1 block text-sm">Senha Latam Pass</label>
                 <input
                   className="w-full rounded-xl border px-3 py-2"
@@ -1225,15 +1435,6 @@ export default function ConviteClient({ code }: { code: string }) {
                   className="w-full rounded-xl border px-3 py-2"
                   value={form.senhaLivelo}
                   onChange={(e) => setField("senhaLivelo", e.target.value)}
-                />
-              </div>
-
-              <div>
-                <label className="mb-1 block text-sm">Senha Esfera</label>
-                <input
-                  className="w-full rounded-xl border px-3 py-2"
-                  value={form.senhaEsfera}
-                  onChange={(e) => setField("senhaEsfera", e.target.value)}
                 />
               </div>
 
@@ -1282,9 +1483,7 @@ export default function ConviteClient({ code }: { code: string }) {
             <h2 className="mb-3 font-semibold">Pontos</h2>
             <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
               <FieldNumber label="Latam" value={form.pontosLatam} onChange={(v) => setField("pontosLatam", v)} />
-              <FieldNumber label="Smiles" value={form.pontosSmiles} onChange={(v) => setField("pontosSmiles", v)} />
               <FieldNumber label="Livelo" value={form.pontosLivelo} onChange={(v) => setField("pontosLivelo", v)} />
-              <FieldNumber label="Esfera" value={form.pontosEsfera} onChange={(v) => setField("pontosEsfera", v)} />
             </div>
           </section>
 
@@ -1308,9 +1507,7 @@ export default function ConviteClient({ code }: { code: string }) {
                     <div><b>Banco:</b> {formatFieldValue(duplicateInfo.existing.banco)}</div>
                     <div><b>PIX:</b> {duplicateInfo.existing.pixTipo} • {formatFieldValue(duplicateInfo.existing.chavePix)}</div>
                     <div><b>Latam:</b> {duplicateInfo.existing.pontosLatam}</div>
-                    <div><b>Smiles:</b> {duplicateInfo.existing.pontosSmiles}</div>
                     <div><b>Livelo:</b> {duplicateInfo.existing.pontosLivelo}</div>
-                    <div><b>Esfera:</b> {duplicateInfo.existing.pontosEsfera}</div>
                   </div>
                 </div>
 
@@ -1323,9 +1520,7 @@ export default function ConviteClient({ code }: { code: string }) {
                     <FieldDiff label="Banco" current={duplicateInfo.existing.banco} next={form.banco.trim()} />
                     <FieldDiff label="PIX" current={`${duplicateInfo.existing.pixTipo} • ${duplicateInfo.existing.chavePix}`} next={`${form.pixTipo || "—"} • ${form.chavePix.trim() || "—"}`} />
                     <FieldDiff label="Latam" current={duplicateInfo.existing.pontosLatam} next={Number(form.pontosLatam || 0)} />
-                    <FieldDiff label="Smiles" current={duplicateInfo.existing.pontosSmiles} next={Number(form.pontosSmiles || 0)} />
                     <FieldDiff label="Livelo" current={duplicateInfo.existing.pontosLivelo} next={Number(form.pontosLivelo || 0)} />
-                    <FieldDiff label="Esfera" current={duplicateInfo.existing.pontosEsfera} next={Number(form.pontosEsfera || 0)} />
                   </div>
                 </div>
               </div>
