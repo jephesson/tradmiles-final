@@ -198,14 +198,10 @@ function buildLatamLoginCedenteMessage(params: {
   nome: string;
   cpf: string;
   senhaLatam: string;
-  email: string;
-  senhaEmail: string;
 }) {
   const nome = params.nome.trim();
   const cpf = params.cpf.trim() || "—";
   const senhaLatam = params.senhaLatam.trim() || "—";
-  const email = params.email.trim() || "—";
-  const senhaEmail = params.senhaEmail.trim() || "—";
 
   return [
     nome ? `Olá, ${nome}! Tudo bem?` : "Olá, tudo bem?",
@@ -216,11 +212,6 @@ function buildLatamLoginCedenteMessage(params: {
     "",
     `Login (CPF): ${cpf}`,
     `Senha LATAM: ${senhaLatam}`,
-    "",
-    `E-mail: ${email}`,
-    `Senha do e-mail: ${senhaEmail}`,
-    "",
-    "Assim que receber o código no e-mail, me envie por aqui, por favor.",
   ].join("\n");
 }
 
@@ -1578,16 +1569,8 @@ export default function NovaVendaClient({
       nome,
       cpf: credCpf,
       senhaLatam: credProgramPass,
-      email: credEmail,
-      senhaEmail: credEmailPass,
     });
-  }, [
-    sel?.cedente?.nomeCompleto,
-    credCpf,
-    credProgramPass,
-    credEmail,
-    credEmailPass,
-  ]);
+  }, [sel?.cedente?.nomeCompleto, credCpf, credProgramPass]);
 
   const latamLoginWhatsAppUrl = useMemo(
     () => buildWhatsAppUrlFromContact(selWhatsApp, latamLoginCedenteMessage),
