@@ -3,13 +3,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
-  BookmarkPlus,
   Inbox,
   Link2,
   Loader2,
   Mail,
+  PanelRightOpen,
+  Plus,
   RefreshCw,
-  Search,
   Trash2,
   Unlink,
   User,
@@ -32,6 +32,33 @@ type SavedFilter = {
 };
 
 const SAVED_FILTERS_KEY = "tm.emailSavedFilters";
+const PINNED_FILTERS_KEY = "tm.emailPinnedFilterIds";
+
+const PROGRAM_OPTIONS: { value: ProgramFilter; label: string }[] = [
+  { value: "ALL", label: "Todas as cias" },
+  { value: "SMILES", label: "Smiles" },
+  { value: "LATAM", label: "LATAM" },
+  { value: "LIVELO", label: "Livelo" },
+];
+
+function programLabel(program: ProgramFilter) {
+  return PROGRAM_OPTIONS.find((p) => p.value === program)?.label || "Todas";
+}
+
+function normalizeFilter(f: Partial<SavedFilter>): SavedFilter | null {
+  if (!f?.id || !f?.name || typeof f.query !== "string") return null;
+  return {
+    id: String(f.id),
+    name: String(f.name),
+    query: String(f.query),
+    searchIn: f.searchIn === "subject" ? "subject" : "anywhere",
+    program: (["ALL", "SMILES", "LATAM", "LIVELO"] as const).includes(
+      f.program as ProgramFilter
+    )
+      ? (f.program as ProgramFilter)
+      : "ALL",
+  };
+}
 
 function loadSavedFilters(): SavedFilter[] {
   try {
@@ -39,19 +66,7 @@ function loadSavedFilters(): SavedFilter[] {
     if (!raw) return [];
     const parsed = JSON.parse(raw) as SavedFilter[];
     if (!Array.isArray(parsed)) return [];
-    return parsed
-      .filter((f) => f && f.id && f.name && typeof f.query === "string")
-      .map((f) => ({
-        id: String(f.id),
-        name: String(f.name),
-        query: String(f.query),
-        searchIn: f.searchIn === "subject" ? "subject" : "anywhere",
-        program: (["ALL", "SMILES", "LATAM", "LIVELO"] as const).includes(
-          f.program as ProgramFilter
-        )
-          ? (f.program as ProgramFilter)
-          : "ALL",
-      }));
+    return parsed.map(normalizeFilter).filter((f): f is SavedFilter => Boolean(f));
   } catch {
     return [];
   }
@@ -59,6 +74,21 @@ function loadSavedFilters(): SavedFilter[] {
 
 function persistSavedFilters(filters: SavedFilter[]) {
   localStorage.setItem(SAVED_FILTERS_KEY, JSON.stringify(filters));
+}
+
+function loadPinnedFilterIds(): string[] {
+  try {
+    const raw = localStorage.getItem(PINNED_FILTERS_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as string[];
+    return Array.isArray(parsed) ? parsed.map(String) : [];
+  } catch {
+    return [];
+  }
+}
+
+function persistPinnedFilterIds(ids: string[]) {
+  localStorage.setItem(PINNED_FILTERS_KEY, JSON.stringify(ids));
 }
 
 type CedenteRef = {
@@ -107,13 +137,6 @@ type Detail = {
 
 const CONTROL =
   "h-11 rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-900 shadow-sm outline-none transition focus:border-slate-300 focus:ring-2 focus:ring-slate-900/10";
-
-const PROGRAM_TABS: { value: ProgramFilter; label: string }[] = [
-  { value: "ALL", label: "Todos" },
-  { value: "SMILES", label: "Smiles" },
-  { value: "LATAM", label: "LATAM" },
-  { value: "LIVELO", label: "Livelo" },
-];
 
 const PROGRAM_STYLE: Record<Program, string> = {
   SMILES: "bg-orange-50 text-orange-700 ring-orange-200",
@@ -357,7 +380,13 @@ export default function EmailsClient() {
   const [search, setSearch] = useState("");
   const [searchIn, setSearchIn] = useState<SearchIn>("anywhere");
   const [savedFilters, setSavedFilters] = useState<SavedFilter[]>([]);
+  const [pinnedIds, setPinnedIds] = useState<string[]>([]);
   const [activeFilterId, setActiveFilterId] = useState<string | null>(null);
+  const [libraryOpen, setLibraryOpen] = useState(false);
+  const [draftName, setDraftName] = useState("");
+  const [draftQuery, setDraftQuery] = useState("");
+  const [draftSearchIn, setDraftSearchIn] = useState<SearchIn>("subject");
+  const [draftProgram, setDraftProgram] = useState<ProgramFilter>("LATAM");
   const [days, setDays] = useState(180);
 
   const [configured, setConfigured] = useState(true);
@@ -392,7 +421,13 @@ export default function EmailsClient() {
       window.history.replaceState({}, "", "/dashboard/emails");
     }
     setSavedFilters(loadSavedFilters());
+    setPinnedIds(loadPinnedFilterIds());
   }, []);
+
+  const pinnedFilters = useMemo(() => {
+    const byId = new Map(savedFilters.map((f) => [f.id, f]));
+    return pinnedIds.map((id) => byId.get(id)).filter((f): f is SavedFilter => Boolean(f));
+  }, [savedFilters, pinnedIds]);
 
   const buildQuery = useCallback(
     (pageToken?: string) => {
@@ -409,6 +444,13 @@ export default function EmailsClient() {
     [program, scope, days, cedenteId, search, searchIn]
   );
 
+  const clearActiveFilter = useCallback(() => {
+    setActiveFilterId(null);
+    setSearch("");
+    setSearchIn("anywhere");
+    setProgram("ALL");
+  }, []);
+
   const applySavedFilter = useCallback((filter: SavedFilter) => {
     setActiveFilterId(filter.id);
     setSearch(filter.query);
@@ -416,39 +458,75 @@ export default function EmailsClient() {
     setProgram(filter.program);
   }, []);
 
-  const saveCurrentFilter = useCallback(() => {
-    const query = search.trim();
-    if (!query) {
-      alert("Digite um texto ou código para salvar o filtro.");
-      return;
-    }
+  const createFilter = useCallback(
+    (alsoPin: boolean) => {
+      const name = draftName.trim();
+      const query = draftQuery.trim();
+      if (!name) {
+        alert("Informe o nome do chip.");
+        return;
+      }
+      if (!query) {
+        alert("Informe o código ou texto do filtro.");
+        return;
+      }
 
-    const name = window.prompt(
-      "Nome do filtro (ex.: Código no assunto, Biometria, Confirmação):",
-      searchIn === "subject" ? `Assunto: ${query}` : `Texto: ${query}`
-    );
-    if (!name?.trim()) return;
+      const next: SavedFilter = {
+        id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        name: name.slice(0, 60),
+        query,
+        searchIn: draftSearchIn,
+        program: draftProgram,
+      };
 
-    const next: SavedFilter = {
-      id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-      name: name.trim().slice(0, 60),
-      query,
-      searchIn,
-      program,
-    };
+      setSavedFilters((prev) => {
+        const merged = [next, ...prev].slice(0, 40);
+        persistSavedFilters(merged);
+        return merged;
+      });
 
-    setSavedFilters((prev) => {
-      const merged = [next, ...prev].slice(0, 30);
-      persistSavedFilters(merged);
+      if (alsoPin) {
+        setPinnedIds((prev) => {
+          if (prev.includes(next.id)) return prev;
+          const merged = [...prev, next.id].slice(0, 20);
+          persistPinnedFilterIds(merged);
+          return merged;
+        });
+      }
+
+      setDraftName("");
+      setDraftQuery("");
+      applySavedFilter(next);
+    },
+    [draftName, draftQuery, draftSearchIn, draftProgram, applySavedFilter]
+  );
+
+  const pinFilter = useCallback((id: string) => {
+    setPinnedIds((prev) => {
+      if (prev.includes(id)) return prev;
+      const merged = [...prev, id].slice(0, 20);
+      persistPinnedFilterIds(merged);
       return merged;
     });
-    setActiveFilterId(next.id);
-  }, [search, searchIn, program]);
+  }, []);
+
+  const unpinFilter = useCallback((id: string) => {
+    setPinnedIds((prev) => {
+      const merged = prev.filter((x) => x !== id);
+      persistPinnedFilterIds(merged);
+      return merged;
+    });
+  }, []);
 
   const removeSavedFilter = useCallback((id: string) => {
     setSavedFilters((prev) => {
       const merged = prev.filter((f) => f.id !== id);
       persistSavedFilters(merged);
+      return merged;
+    });
+    setPinnedIds((prev) => {
+      const merged = prev.filter((x) => x !== id);
+      persistPinnedFilterIds(merged);
       return merged;
     });
     setActiveFilterId((cur) => (cur === id ? null : cur));
@@ -654,21 +732,56 @@ export default function EmailsClient() {
 
       <div className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
         <div className="flex flex-wrap items-center gap-1.5">
-          {PROGRAM_TABS.map((tab) => (
+          <button
+            type="button"
+            onClick={clearActiveFilter}
+            className={cn(
+              "h-9 rounded-xl px-3 text-sm font-semibold transition",
+              !activeFilterId && program === "ALL" && !search.trim()
+                ? "bg-slate-900 text-white shadow-sm"
+                : "text-slate-600 hover:bg-slate-100"
+            )}
+          >
+            Todos
+          </button>
+
+          {pinnedFilters.map((filter) => (
             <button
-              key={tab.value}
+              key={filter.id}
               type="button"
-              onClick={() => setProgram(tab.value)}
+              onClick={() => applySavedFilter(filter)}
               className={cn(
-                "h-9 rounded-xl px-3 text-sm font-semibold transition",
-                program === tab.value
+                "inline-flex h-9 max-w-[220px] items-center gap-1.5 rounded-xl px-3 text-sm font-semibold transition",
+                activeFilterId === filter.id
                   ? "bg-slate-900 text-white shadow-sm"
-                  : "text-slate-600 hover:bg-slate-100"
+                  : "bg-slate-100 text-slate-700 hover:bg-slate-200"
               )}
+              title={`${filter.query} · ${filter.searchIn === "subject" ? "assunto" : "texto"} · ${programLabel(filter.program)}`}
             >
-              {tab.label}
+              <span className="truncate">{filter.name}</span>
+              {filter.program !== "ALL" ? (
+                <span
+                  className={cn(
+                    "rounded-md px-1 py-0.5 text-[10px] font-bold uppercase ring-1",
+                    activeFilterId === filter.id
+                      ? "bg-white/15 text-white ring-white/25"
+                      : PROGRAM_STYLE[filter.program]
+                  )}
+                >
+                  {filter.program === "LATAM" ? "LA" : filter.program === "SMILES" ? "SM" : "LV"}
+                </span>
+              ) : null}
             </button>
           ))}
+
+          <button
+            type="button"
+            onClick={() => setLibraryOpen(true)}
+            className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-dashed border-slate-300 px-3 text-sm font-semibold text-slate-600 transition hover:border-slate-400 hover:bg-slate-50"
+          >
+            <Plus className="h-4 w-4" aria-hidden />
+            Adicionar chip
+          </button>
 
           <div className="mx-1 h-6 w-px bg-slate-200" />
 
@@ -687,9 +800,23 @@ export default function EmailsClient() {
             Sem cedente
             {summary.unmatched ? ` (${summary.unmatched})` : ""}
           </button>
+
+          <button
+            type="button"
+            onClick={() => setLibraryOpen((v) => !v)}
+            className={cn(
+              "ml-auto inline-flex h-9 items-center gap-1.5 rounded-xl px-3 text-sm font-semibold transition",
+              libraryOpen
+                ? "bg-sky-100 text-sky-900 ring-1 ring-sky-200"
+                : "text-slate-600 hover:bg-slate-100"
+            )}
+          >
+            <PanelRightOpen className="h-4 w-4" aria-hidden />
+            Biblioteca
+          </button>
         </div>
 
-        <div className="mt-3 grid gap-2 lg:grid-cols-[1fr_auto_1.2fr_auto_auto]">
+        <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-[1fr_auto]">
           <CedenteFilter
             value={cedenteId}
             label={cedenteLabel}
@@ -698,49 +825,6 @@ export default function EmailsClient() {
               setCedenteLabel(label);
             }}
           />
-
-          <select
-            value={searchIn}
-            onChange={(e) => {
-              setSearchIn(e.target.value as SearchIn);
-              setActiveFilterId(null);
-            }}
-            className={cn(CONTROL, "w-full lg:w-44")}
-            title="Onde buscar"
-          >
-            <option value="subject">Só no assunto</option>
-            <option value="anywhere">No texto do e-mail</option>
-          </select>
-
-          <div className="relative">
-            <Search
-              className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"
-              aria-hidden
-            />
-            <input
-              value={search}
-              onChange={(e) => {
-                setSearch(e.target.value);
-                setActiveFilterId(null);
-              }}
-              placeholder={
-                searchIn === "subject"
-                  ? "Código ou texto do título…"
-                  : "Palavras ou trecho do e-mail…"
-              }
-              className={cn(CONTROL, "w-full pl-9")}
-            />
-          </div>
-
-          <button
-            type="button"
-            onClick={saveCurrentFilter}
-            className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50"
-            title="Salvar filtro atual para reutilizar"
-          >
-            <BookmarkPlus className="h-4 w-4" aria-hidden />
-            Salvar
-          </button>
 
           <select
             value={days}
@@ -753,60 +837,6 @@ export default function EmailsClient() {
               </option>
             ))}
           </select>
-        </div>
-
-        <div className="mt-3 flex flex-wrap items-center gap-1.5 border-t border-slate-100 pt-3">
-          <span className="text-xs font-medium text-slate-500">Filtros salvos:</span>
-          {savedFilters.length === 0 ? (
-            <span className="text-xs text-slate-400">
-              Nenhum ainda. Busque um código/texto e clique em Salvar.
-            </span>
-          ) : (
-            savedFilters.map((filter) => (
-              <span
-                key={filter.id}
-                className={cn(
-                  "inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium ring-1 transition",
-                  activeFilterId === filter.id
-                    ? "bg-slate-900 text-white ring-slate-900"
-                    : "bg-slate-100 text-slate-700 ring-slate-200 hover:bg-slate-200"
-                )}
-              >
-                <button type="button" onClick={() => applySavedFilter(filter)} className="max-w-[180px] truncate">
-                  {filter.name}
-                  <span className="ml-1 opacity-70">
-                    · {filter.searchIn === "subject" ? "assunto" : "texto"}
-                  </span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => removeSavedFilter(filter.id)}
-                  className={cn(
-                    "rounded p-0.5 transition",
-                    activeFilterId === filter.id
-                      ? "hover:bg-white/15"
-                      : "text-slate-500 hover:bg-slate-300/60 hover:text-slate-800"
-                  )}
-                  aria-label={`Excluir filtro ${filter.name}`}
-                >
-                  <Trash2 className="h-3 w-3" aria-hidden />
-                </button>
-              </span>
-            ))
-          )}
-          {search.trim() ? (
-            <button
-              type="button"
-              onClick={() => {
-                setSearch("");
-                setActiveFilterId(null);
-              }}
-              className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium text-slate-500 hover:bg-slate-100"
-            >
-              <X className="h-3 w-3" aria-hidden />
-              Limpar busca
-            </button>
-          ) : null}
         </div>
 
         {topCedentes.length > 0 && !cedenteId ? (
@@ -836,7 +866,14 @@ export default function EmailsClient() {
         </div>
       ) : null}
 
-      <div className="grid gap-4 lg:grid-cols-[minmax(0,420px)_minmax(0,1fr)]">
+      <div
+        className={cn(
+          "grid gap-4",
+          libraryOpen
+            ? "xl:grid-cols-[minmax(0,360px)_minmax(0,1fr)_minmax(280px,320px)]"
+            : "lg:grid-cols-[minmax(0,420px)_minmax(0,1fr)]"
+        )}
+      >
         <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
           <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
             <div className="text-sm font-semibold text-slate-900">
@@ -979,6 +1016,151 @@ export default function EmailsClient() {
             </div>
           ) : null}
         </div>
+
+        {libraryOpen ? (
+          <aside className="rounded-2xl border border-slate-200 bg-white shadow-sm xl:order-none order-first">
+            <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
+              <div>
+                <div className="text-sm font-semibold text-slate-900">Biblioteca de chips</div>
+                <div className="text-xs text-slate-500">Crie, vincule à cia e escolha quais aparecem</div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setLibraryOpen(false)}
+                className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-100"
+                aria-label="Fechar biblioteca"
+              >
+                <X className="h-4 w-4" aria-hidden />
+              </button>
+            </div>
+
+            <div className="space-y-3 border-b border-slate-100 p-4">
+              <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                Novo chip
+              </div>
+              <input
+                value={draftName}
+                onChange={(e) => setDraftName(e.target.value)}
+                placeholder="Nome (ex.: Código de verificação)"
+                className={cn(CONTROL, "w-full")}
+              />
+              <select
+                value={draftProgram}
+                onChange={(e) => setDraftProgram(e.target.value as ProgramFilter)}
+                className={cn(CONTROL, "w-full")}
+              >
+                {PROGRAM_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    Cia: {option.label}
+                  </option>
+                ))}
+              </select>
+              <select
+                value={draftSearchIn}
+                onChange={(e) => setDraftSearchIn(e.target.value as SearchIn)}
+                className={cn(CONTROL, "w-full")}
+              >
+                <option value="subject">Buscar só no assunto</option>
+                <option value="anywhere">Buscar no texto do e-mail</option>
+              </select>
+              <input
+                value={draftQuery}
+                onChange={(e) => setDraftQuery(e.target.value)}
+                placeholder={
+                  draftSearchIn === "subject"
+                    ? "Código ou texto do título…"
+                    : "Palavras ou trecho…"
+                }
+                className={cn(CONTROL, "w-full")}
+              />
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => createFilter(false)}
+                  className="inline-flex h-10 items-center justify-center rounded-xl border border-slate-200 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                >
+                  Só criar
+                </button>
+                <button
+                  type="button"
+                  onClick={() => createFilter(true)}
+                  className="inline-flex h-10 items-center justify-center gap-1 rounded-xl bg-slate-900 text-sm font-semibold text-white hover:bg-slate-800"
+                >
+                  <Plus className="h-4 w-4" aria-hidden />
+                  Criar e usar
+                </button>
+              </div>
+            </div>
+
+            <div className="max-h-[55vh] overflow-y-auto p-2">
+              {savedFilters.length === 0 ? (
+                <div className="px-3 py-8 text-center text-sm text-slate-500">
+                  Nenhum filtro na biblioteca ainda.
+                </div>
+              ) : (
+                <ul className="space-y-1">
+                  {savedFilters.map((filter) => {
+                    const pinned = pinnedIds.includes(filter.id);
+                    return (
+                      <li
+                        key={filter.id}
+                        className={cn(
+                          "rounded-xl border px-3 py-2.5",
+                          activeFilterId === filter.id
+                            ? "border-slate-900 bg-slate-50"
+                            : "border-slate-100"
+                        )}
+                      >
+                        <button
+                          type="button"
+                          onClick={() => applySavedFilter(filter)}
+                          className="w-full text-left"
+                        >
+                          <div className="truncate text-sm font-semibold text-slate-900">
+                            {filter.name}
+                          </div>
+                          <div className="mt-0.5 truncate text-xs text-slate-500">
+                            {programLabel(filter.program)} ·{" "}
+                            {filter.searchIn === "subject" ? "assunto" : "texto"} ·{" "}
+                            {filter.query}
+                          </div>
+                        </button>
+                        <div className="mt-2 flex items-center gap-1.5">
+                          {pinned ? (
+                            <button
+                              type="button"
+                              onClick={() => unpinFilter(filter.id)}
+                              className="h-8 rounded-lg bg-slate-100 px-2 text-xs font-semibold text-slate-700 hover:bg-slate-200"
+                            >
+                              Remover chip
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => pinFilter(filter.id)}
+                              className="inline-flex h-8 items-center gap-1 rounded-lg bg-sky-600 px-2 text-xs font-semibold text-white hover:bg-sky-500"
+                            >
+                              <Plus className="h-3 w-3" aria-hidden />
+                              Adicionar chip
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => removeSavedFilter(filter.id)}
+                            className="ml-auto inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 hover:bg-rose-50 hover:text-rose-600"
+                            aria-label={`Excluir ${filter.name}`}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" aria-hidden />
+                          </button>
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </div>
+          </aside>
+        ) : null}
       </div>
     </div>
   );
