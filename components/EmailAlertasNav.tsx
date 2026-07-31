@@ -1,17 +1,25 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import Link from "next/link";
 import {
   BellRing,
   ExternalLink,
   Loader2,
   MailOpen,
+  ShoppingBag,
+  ShoppingCart,
+  Coins,
   X,
 } from "lucide-react";
 import { cn } from "@/lib/cn";
 import {
+  ALERT_ACTION_LABEL,
+  ALERT_CIA_LABEL,
+  buildAlertActionHref,
   dismissAlertMessage,
+  getAlertActionConfig,
   loadAlertEmailFilterIds,
   loadDismissedAlertIds,
   loadSavedEmailFilters,
@@ -66,7 +74,12 @@ export default function EmailAlertasNav() {
   const [alertFilterCount, setAlertFilterCount] = useState(0);
   const [detail, setDetail] = useState<Detail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
-  const rootRef = useRef<HTMLDivElement | null>(null);
+  const [mounted, setMounted] = useState(false);
+  const [panelPos, setPanelPos] = useState<{ top: number; left: number } | null>(
+    null
+  );
+  const btnRef = useRef<HTMLButtonElement | null>(null);
+  const panelRef = useRef<HTMLDivElement | null>(null);
 
   const visibleRows = useMemo(() => {
     const dismissed = loadDismissedAlertIds();
@@ -102,14 +115,16 @@ export default function EmailAlertasNav() {
           const res = await fetch(`/api/emails?${params}`, { cache: "no-store" });
           const json = await res.json().catch(() => null);
           if (!res.ok || !json?.ok || !Array.isArray(json.rows)) return [] as AlertRow[];
-          return (json.rows as Array<{
-            id: string;
-            subject: string;
-            snippet: string;
-            date: string | null;
-            program: string | null;
-            cedente: CedenteRef | null;
-          }>).map((row) => ({
+          return (
+            json.rows as Array<{
+              id: string;
+              subject: string;
+              snippet: string;
+              date: string | null;
+              program: string | null;
+              cedente: CedenteRef | null;
+            }>
+          ).map((row) => ({
             id: row.id,
             subject: row.subject,
             snippet: row.snippet,
@@ -146,6 +161,10 @@ export default function EmailAlertasNav() {
   }, []);
 
   useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  useEffect(() => {
     void refresh();
     const t = window.setInterval(() => void refresh(), 60_000);
     const onFocus = () => void refresh();
@@ -167,19 +186,48 @@ export default function EmailAlertasNav() {
     };
   }, [refresh]);
 
-  useEffect(() => {
+  const updatePanelPos = useCallback(() => {
+    const btn = btnRef.current;
+    if (!btn) return;
+    const rect = btn.getBoundingClientRect();
+    const width = Math.min(window.innerWidth * 0.92, 352);
+    let left = rect.right - width;
+    left = Math.max(8, Math.min(left, window.innerWidth - width - 8));
+    const top = rect.bottom + 8;
+    setPanelPos({ top, left });
+  }, []);
+
+  useLayoutEffect(() => {
     if (!open) return;
+    updatePanelPos();
     void refresh();
+
     function onDoc(e: MouseEvent) {
-      if (!rootRef.current?.contains(e.target as Node)) setOpen(false);
+      const target = e.target as Node;
+      if (btnRef.current?.contains(target)) return;
+      if (panelRef.current?.contains(target)) return;
+      setOpen(false);
     }
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setOpen(false);
+    }
+
+    window.addEventListener("resize", updatePanelPos);
+    window.addEventListener("scroll", updatePanelPos, true);
     document.addEventListener("mousedown", onDoc);
-    return () => document.removeEventListener("mousedown", onDoc);
-  }, [open, refresh]);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("resize", updatePanelPos);
+      window.removeEventListener("scroll", updatePanelPos, true);
+      document.removeEventListener("mousedown", onDoc);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open, refresh, updatePanelPos]);
 
   async function openMessage(id: string) {
     setDetailLoading(true);
     setDetail(null);
+    setOpen(false);
     try {
       const res = await fetch(`/api/emails/${encodeURIComponent(id)}`, {
         cache: "no-store",
@@ -201,17 +249,216 @@ export default function EmailAlertasNav() {
     if (detail?.id === id) setDetail(null);
   }
 
+  const panel =
+    open && mounted && panelPos
+      ? createPortal(
+          <div
+            ref={panelRef}
+            style={{ top: panelPos.top, left: panelPos.left }}
+            className="fixed z-[80] w-[min(92vw,22rem)] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xl shadow-slate-900/20"
+            role="dialog"
+            aria-label="Alertas de e-mail"
+          >
+            <div className="flex items-center justify-between border-b border-slate-100 px-3.5 py-2.5">
+              <div>
+                <div className="text-sm font-semibold text-slate-900">
+                  Alertas de e-mail
+                </div>
+                <div className="text-[11px] text-slate-500">
+                  {alertFilterCount
+                    ? `${alertFilterCount} filtro${alertFilterCount === 1 ? "" : "s"} · últimos 3 dias`
+                    : "Nenhum filtro marcado como alerta"}
+                </div>
+              </div>
+              <div className="flex items-center gap-1">
+                <Link
+                  href="/dashboard/configuracoes"
+                  onClick={() => setOpen(false)}
+                  className="rounded-lg px-2 py-1 text-[11px] font-semibold text-amber-800 hover:bg-amber-50"
+                  title="Configurar ações dos alertas"
+                >
+                  Config
+                </Link>
+                <button
+                  type="button"
+                  onClick={() => setOpen(false)}
+                  className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                  aria-label="Fechar"
+                >
+                  <X className="h-4 w-4" aria-hidden />
+                </button>
+              </div>
+            </div>
+
+            <div className="max-h-[min(70vh,28rem)] overflow-y-auto">
+              {loading && !visibleRows.length ? (
+                <div className="flex items-center gap-2 px-4 py-8 text-sm text-slate-500">
+                  <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+                  Procurando…
+                </div>
+              ) : !alertFilterCount ? (
+                <div className="space-y-3 px-4 py-5 text-sm text-slate-600">
+                  <p>
+                    Crie um chip na caixa de e-mail (conteúdo/assunto) e marque{" "}
+                    <b>Usar como alerta</b>.
+                  </p>
+                  <Link
+                    href="/dashboard/configuracoes"
+                    onClick={() => setOpen(false)}
+                    className="inline-flex items-center gap-1.5 text-sm font-semibold text-amber-800 hover:underline"
+                  >
+                    Configurar ações
+                    <ExternalLink className="h-3.5 w-3.5" aria-hidden />
+                  </Link>
+                </div>
+              ) : visibleRows.length === 0 ? (
+                <div className="px-4 py-8 text-center text-sm text-slate-500">
+                  Nada novo com esses filtros.
+                </div>
+              ) : (
+                <ul className="divide-y divide-slate-100">
+                  {visibleRows.map((row) => {
+                    const actionCfg = getAlertActionConfig(row.filterId);
+                    const actionHref = buildAlertActionHref(actionCfg, {
+                      cedenteId: row.cedente?.id,
+                    });
+                    const ActionIcon =
+                      actionCfg.action === "COMPRA"
+                        ? ShoppingCart
+                        : actionCfg.action === "VISUALIZAR_PONTOS"
+                          ? Coins
+                          : ShoppingBag;
+
+                    return (
+                    <li key={row.id} className="px-3.5 py-3">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <div className="text-[11px] font-semibold uppercase tracking-wide text-amber-800">
+                            {row.filterName}
+                          </div>
+                          <div className="mt-0.5 truncate text-sm font-semibold text-slate-900">
+                            {row.cedente?.nomeCompleto || "Cedente não identificado"}
+                          </div>
+                          {row.cedente?.identificador ? (
+                            <div className="truncate text-[11px] text-slate-500">
+                              {row.cedente.identificador}
+                            </div>
+                          ) : null}
+                          <div className="mt-1 line-clamp-2 text-xs text-slate-600">
+                            {row.subject}
+                          </div>
+                          <div className="mt-1 text-[11px] text-slate-400">
+                            {fmtRelative(row.date)}
+                            {row.program ? ` · ${row.program}` : ""}
+                          </div>
+                          <div className="mt-1.5 inline-flex items-center gap-1 rounded-md border border-sky-200 bg-sky-50 px-1.5 py-0.5 text-[10px] font-semibold text-sky-800">
+                            <ActionIcon className="h-3 w-3" aria-hidden />
+                            {ALERT_ACTION_LABEL[actionCfg.action]} ·{" "}
+                            {ALERT_CIA_LABEL[actionCfg.cia]}
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => dismiss(row.id)}
+                          className="shrink-0 rounded-md p-1 text-slate-300 hover:bg-slate-100 hover:text-slate-600"
+                          aria-label="Dispensar alerta"
+                          title="Dispensar"
+                        >
+                          <X className="h-3.5 w-3.5" aria-hidden />
+                        </button>
+                      </div>
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          onClick={() => void openMessage(row.id)}
+                          className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 text-[11px] font-semibold text-slate-700 hover:bg-slate-50"
+                        >
+                          <MailOpen className="h-3.5 w-3.5" aria-hidden />
+                          Abrir mensagem
+                        </button>
+                        <Link
+                          href={actionHref}
+                          onClick={() => setOpen(false)}
+                          className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-slate-900 px-2.5 text-[11px] font-semibold text-white hover:bg-slate-800"
+                        >
+                          <ActionIcon className="h-3.5 w-3.5" aria-hidden />
+                          {ALERT_ACTION_LABEL[actionCfg.action]}
+                        </Link>
+                      </div>
+                    </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </div>
+          </div>,
+          document.body
+        )
+      : null;
+
+  const detailModal =
+    mounted && (detailLoading || detail)
+      ? createPortal(
+          <div className="fixed inset-0 z-[90] flex items-center justify-center bg-slate-900/45 p-4 backdrop-blur-[2px]">
+            <div className="flex max-h-[92vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl">
+              <div className="flex items-start justify-between gap-3 border-b border-slate-100 px-4 py-3">
+                <div className="min-w-0">
+                  <div className="truncate text-sm font-semibold text-slate-900">
+                    {detail?.subject || "Carregando…"}
+                  </div>
+                  {detail ? (
+                    <div className="mt-0.5 truncate text-xs text-slate-500">
+                      {detail.cedente?.nomeCompleto
+                        ? `Cedente: ${detail.cedente.nomeCompleto}`
+                        : "Cedente não identificado"}
+                      {detail.fromAddress ? ` · De ${detail.fromAddress}` : ""}
+                    </div>
+                  ) : null}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDetail(null);
+                    setDetailLoading(false);
+                  }}
+                  className="rounded-lg border border-slate-200 px-2.5 py-1 text-sm text-slate-600 hover:bg-slate-50"
+                >
+                  ✕
+                </button>
+              </div>
+              {detailLoading ? (
+                <div className="flex items-center justify-center gap-2 py-24 text-sm text-slate-500">
+                  <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+                  Abrindo mensagem…
+                </div>
+              ) : detail ? (
+                <iframe
+                  title={detail.subject}
+                  srcDoc={detail.document}
+                  sandbox=""
+                  referrerPolicy="no-referrer"
+                  className="min-h-[60vh] w-full flex-1 border-0 bg-white"
+                />
+              ) : null}
+            </div>
+          </div>,
+          document.body
+        )
+      : null;
+
   return (
-    <div className="relative shrink-0" ref={rootRef}>
+    <div className="relative shrink-0">
       <button
+        ref={btnRef}
         type="button"
         onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
         title={
           hasAlerts
             ? `${count} alerta${count === 1 ? "" : "s"} de e-mail`
             : alertFilterCount
-            ? "Nenhum alerta no momento"
-            : "Configure um filtro de alerta na caixa de e-mail"
+              ? "Nenhum alerta no momento"
+              : "Configure um filtro de alerta na caixa de e-mail"
         }
         className={cn(
           "relative inline-flex h-10 shrink-0 items-center gap-2 rounded-xl px-3.5 text-[13px] font-bold transition-all",
@@ -237,148 +484,8 @@ export default function EmailAlertasNav() {
         </span>
       </button>
 
-      {open ? (
-        <div className="absolute left-0 top-[calc(100%+0.4rem)] z-50 w-[min(92vw,22rem)] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xl shadow-slate-900/15 sm:left-auto sm:right-0">
-          <div className="flex items-center justify-between border-b border-slate-100 px-3.5 py-2.5">
-            <div>
-              <div className="text-sm font-semibold text-slate-900">Alertas de e-mail</div>
-              <div className="text-[11px] text-slate-500">
-                {alertFilterCount
-                  ? `${alertFilterCount} filtro${alertFilterCount === 1 ? "" : "s"} · últimos 3 dias`
-                  : "Nenhum filtro marcado como alerta"}
-              </div>
-            </div>
-            <button
-              type="button"
-              onClick={() => setOpen(false)}
-              className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
-              aria-label="Fechar"
-            >
-              <X className="h-4 w-4" aria-hidden />
-            </button>
-          </div>
-
-          <div className="max-h-[min(70vh,28rem)] overflow-y-auto">
-            {loading && !visibleRows.length ? (
-              <div className="flex items-center gap-2 px-4 py-8 text-sm text-slate-500">
-                <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
-                Procurando…
-              </div>
-            ) : !alertFilterCount ? (
-              <div className="space-y-3 px-4 py-5 text-sm text-slate-600">
-                <p>
-                  Crie um chip na caixa de e-mail (conteúdo/assunto) e marque{" "}
-                  <b>Usar como alerta</b>.
-                </p>
-                <Link
-                  href="/dashboard/emails"
-                  onClick={() => setOpen(false)}
-                  className="inline-flex items-center gap-1.5 text-sm font-semibold text-amber-800 hover:underline"
-                >
-                  Abrir e-mail
-                  <ExternalLink className="h-3.5 w-3.5" aria-hidden />
-                </Link>
-              </div>
-            ) : visibleRows.length === 0 ? (
-              <div className="px-4 py-8 text-center text-sm text-slate-500">
-                Nada novo com esses filtros.
-              </div>
-            ) : (
-              <ul className="divide-y divide-slate-100">
-                {visibleRows.map((row) => (
-                  <li key={row.id} className="px-3.5 py-3">
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="min-w-0">
-                        <div className="text-[11px] font-semibold uppercase tracking-wide text-amber-800">
-                          {row.filterName}
-                        </div>
-                        <div className="mt-0.5 truncate text-sm font-semibold text-slate-900">
-                          {row.cedente?.nomeCompleto || "Cedente não identificado"}
-                        </div>
-                        {row.cedente?.identificador ? (
-                          <div className="truncate text-[11px] text-slate-500">
-                            {row.cedente.identificador}
-                          </div>
-                        ) : null}
-                        <div className="mt-1 line-clamp-2 text-xs text-slate-600">
-                          {row.subject}
-                        </div>
-                        <div className="mt-1 text-[11px] text-slate-400">
-                          {fmtRelative(row.date)}
-                          {row.program ? ` · ${row.program}` : ""}
-                        </div>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => dismiss(row.id)}
-                        className="shrink-0 rounded-md p-1 text-slate-300 hover:bg-slate-100 hover:text-slate-600"
-                        aria-label="Dispensar alerta"
-                        title="Dispensar"
-                      >
-                        <X className="h-3.5 w-3.5" aria-hidden />
-                      </button>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => void openMessage(row.id)}
-                      className="mt-2 inline-flex h-8 items-center gap-1.5 rounded-lg bg-slate-900 px-2.5 text-[11px] font-semibold text-white hover:bg-slate-800"
-                    >
-                      <MailOpen className="h-3.5 w-3.5" aria-hidden />
-                      Abrir mensagem
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-        </div>
-      ) : null}
-
-      {detailLoading || detail ? (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/45 p-4 backdrop-blur-[2px]">
-          <div className="flex max-h-[92vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl">
-            <div className="flex items-start justify-between gap-3 border-b border-slate-100 px-4 py-3">
-              <div className="min-w-0">
-                <div className="truncate text-sm font-semibold text-slate-900">
-                  {detail?.subject || "Carregando…"}
-                </div>
-                {detail ? (
-                  <div className="mt-0.5 truncate text-xs text-slate-500">
-                    {detail.cedente?.nomeCompleto
-                      ? `Cedente: ${detail.cedente.nomeCompleto}`
-                      : "Cedente não identificado"}
-                    {detail.fromAddress ? ` · De ${detail.fromAddress}` : ""}
-                  </div>
-                ) : null}
-              </div>
-              <button
-                type="button"
-                onClick={() => {
-                  setDetail(null);
-                  setDetailLoading(false);
-                }}
-                className="rounded-lg border border-slate-200 px-2.5 py-1 text-sm text-slate-600 hover:bg-slate-50"
-              >
-                ✕
-              </button>
-            </div>
-            {detailLoading ? (
-              <div className="flex items-center justify-center gap-2 py-24 text-sm text-slate-500">
-                <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
-                Abrindo mensagem…
-              </div>
-            ) : detail ? (
-              <iframe
-                title={detail.subject}
-                srcDoc={detail.document}
-                sandbox=""
-                referrerPolicy="no-referrer"
-                className="min-h-[60vh] w-full flex-1 border-0 bg-white"
-              />
-            ) : null}
-          </div>
-        </div>
-      ) : null}
+      {panel}
+      {detailModal}
     </div>
   );
 }

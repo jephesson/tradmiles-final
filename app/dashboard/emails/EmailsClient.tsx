@@ -24,6 +24,9 @@ import {
   persistAlertEmailFilterIds,
   persistPinnedEmailFilterIds,
   persistSavedEmailFilters,
+  removeAlertActionConfig,
+  upsertAlertActionConfig,
+  type EmailAlertCia,
   type EmailProgramFilter,
   type EmailSavedFilter,
   type EmailSearchIn,
@@ -35,6 +38,19 @@ type Scope = "all" | "matched" | "unmatched";
 type SearchIn = EmailSearchIn;
 
 type SavedFilter = EmailSavedFilter;
+
+function defaultCiaFromProgram(program: ProgramFilter): EmailAlertCia {
+  if (program === "SMILES" || program === "LIVELO") return program;
+  return "LATAM";
+}
+
+function seedAlertAction(filter: EmailSavedFilter) {
+  upsertAlertActionConfig({
+    filterId: filter.id,
+    action: "VENDA",
+    cia: defaultCiaFromProgram(filter.program),
+  });
+}
 
 const PROGRAM_OPTIONS: { value: ProgramFilter; label: string }[] = [
   { value: "ALL", label: "Todas as cias" },
@@ -463,6 +479,7 @@ export default function EmailsClient() {
           persistAlertEmailFilterIds(merged);
           return merged;
         });
+        seedAlertAction(next);
       }
 
       setDraftName("");
@@ -490,14 +507,19 @@ export default function EmailsClient() {
     });
   }, []);
 
-  const enableAlertFilter = useCallback((id: string) => {
-    setAlertIds((prev) => {
-      if (prev.includes(id)) return prev;
-      const merged = [...prev, id].slice(0, 20);
-      persistAlertEmailFilterIds(merged);
-      return merged;
-    });
-  }, []);
+  const enableAlertFilter = useCallback(
+    (id: string) => {
+      const filter = savedFilters.find((f) => f.id === id);
+      setAlertIds((prev) => {
+        if (prev.includes(id)) return prev;
+        const merged = [...prev, id].slice(0, 20);
+        persistAlertEmailFilterIds(merged);
+        return merged;
+      });
+      if (filter) seedAlertAction(filter);
+    },
+    [savedFilters]
+  );
 
   const disableAlertFilter = useCallback((id: string) => {
     setAlertIds((prev) => {
@@ -505,6 +527,7 @@ export default function EmailsClient() {
       persistAlertEmailFilterIds(merged);
       return merged;
     });
+    removeAlertActionConfig(id);
   }, []);
 
   const removeSavedFilter = useCallback((id: string) => {
@@ -523,6 +546,7 @@ export default function EmailsClient() {
       persistAlertEmailFilterIds(merged);
       return merged;
     });
+    removeAlertActionConfig(id);
     setActiveFilterId((cur) => (cur === id ? null : cur));
   }, []);
 
@@ -1082,7 +1106,10 @@ export default function EmailsClient() {
                   className="h-4 w-4 rounded border-amber-300 text-amber-700 focus:ring-amber-500"
                 />
                 <span>
-                  <b>Usar como alerta</b> — aparece no menu Alertas quando houver match
+                  <b>Usar como alerta</b> — no menu Alertas; ação/cia em{" "}
+                  <a href="/dashboard/configuracoes" className="font-semibold underline">
+                    Configurações
+                  </a>
                 </span>
               </label>
               <div className="grid grid-cols-2 gap-2">
