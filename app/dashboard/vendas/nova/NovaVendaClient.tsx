@@ -578,6 +578,7 @@ export default function NovaVendaClient({
   /** Comprovante PDF LATAM (opcional) → preenchimento automático pelo link. */
   const [latamPdfUrl, setLatamPdfUrl] = useState("");
   const [latamPdfLoading, setLatamPdfLoading] = useState(false);
+  const lastLatamPdfExtractUrl = useRef("");
   const [latamPdfError, setLatamPdfError] = useState("");
   const [latamPdfNote, setLatamPdfNote] = useState("");
   /** Aviso de milhas divergentes (PDF vs venda). */
@@ -1663,9 +1664,9 @@ export default function NovaVendaClient({
     }
   }
 
-  async function extractLatamReceipt() {
+  async function extractLatamReceipt(rawUrl?: string) {
     if (program !== "LATAM") return;
-    const url = latamPdfUrl.trim();
+    const url = String(rawUrl ?? latamPdfUrl).trim();
     if (!url) {
       setLatamPdfError("Cole o link do PDF da LATAM.");
       return;
@@ -1701,7 +1702,9 @@ export default function NovaVendaClient({
         partial: Boolean(json.partial || json.fetchFailed),
       });
       if (json.fetchFailed && json.error) setLatamPdfError(String(json.error));
+      lastLatamPdfExtractUrl.current = url;
     } catch (e: any) {
+      if (lastLatamPdfExtractUrl.current === url) lastLatamPdfExtractUrl.current = "";
       if (e?.name === "AbortError") {
         setLatamPdfError(
           "Demorou demais para responder. Order ID (se houver na URL) já foi preenchido — complete o resto na mão."
@@ -1732,6 +1735,30 @@ export default function NovaVendaClient({
       setLatamPdfLoading(false);
     }
   }
+
+  // Extrai sozinho ao colar/digitar um link de comprovante LATAM.
+  useEffect(() => {
+    if (program !== "LATAM") return;
+    const url = latamPdfUrl.trim();
+    if (!url) {
+      lastLatamPdfExtractUrl.current = "";
+      return;
+    }
+    const looksLikeLatamPdf =
+      /latamairlines\.com\/documents-pdf\//i.test(url) ||
+      Boolean(purchaseCodeFromLatamPdfUrl(url));
+    if (!looksLikeLatamPdf) return;
+    if (url === lastLatamPdfExtractUrl.current) return;
+    if (latamPdfLoading) return;
+
+    const t = window.setTimeout(() => {
+      if (latamPdfUrl.trim() !== url) return;
+      void extractLatamReceipt(url);
+    }, 400);
+    return () => window.clearTimeout(t);
+    // extractLatamReceipt usa estado atual; dispara só quando a URL muda.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [latamPdfUrl, program, latamPdfLoading]);
 
   async function loadCedentesWhatsapp(signal?: AbortSignal) {
     setWaLoading(true);
@@ -2894,34 +2921,26 @@ export default function NovaVendaClient({
                           Comprovante LATAM (opcional)
                         </div>
                         <p className="text-xs text-slate-500">
-                          Cole o link do PDF e clique em extrair. Preenche Order ID, localizador,
-                          sobrenome, data e taxa — sem precisar baixar arquivo.
+                          Cole o link do PDF — extrai sozinho Order ID, localizador,
+                          sobrenome, data e taxa.
                         </p>
-                        <input
-                          className={cn(CONTROL_INPUT, "font-mono text-[12px]")}
-                          value={latamPdfUrl}
-                          onChange={(e) => setLatamPdfUrl(e.target.value)}
-                          placeholder="https://www.latamairlines.com/documents-pdf/LA….pdf"
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter") {
-                              e.preventDefault();
-                              void extractLatamReceipt();
-                            }
-                          }}
-                        />
-                        <div className="flex flex-wrap gap-2">
-                          <button
-                            type="button"
-                            disabled={latamPdfLoading || !latamPdfUrl.trim()}
-                            onClick={() => void extractLatamReceipt()}
-                            className="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-slate-900 px-4 text-xs font-semibold text-white hover:bg-slate-800 disabled:opacity-60"
-                          >
-                            {latamPdfLoading ? (
-                              <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
-                            ) : null}
-                            {latamPdfLoading ? "Lendo comprovante…" : "Extrair do link"}
-                          </button>
+                        <div className="relative">
+                          <input
+                            className={cn(CONTROL_INPUT, "font-mono text-[12px] pr-10")}
+                            value={latamPdfUrl}
+                            onChange={(e) => setLatamPdfUrl(e.target.value)}
+                            placeholder="https://www.latamairlines.com/documents-pdf/LA….pdf"
+                          />
+                          {latamPdfLoading ? (
+                            <Loader2
+                              className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-slate-500"
+                              aria-hidden
+                            />
+                          ) : null}
                         </div>
+                        {latamPdfLoading ? (
+                          <div className="text-xs text-slate-500">Lendo comprovante…</div>
+                        ) : null}
                         {latamPdfError ? (
                           <div className="text-xs text-rose-600">{latamPdfError}</div>
                         ) : null}
