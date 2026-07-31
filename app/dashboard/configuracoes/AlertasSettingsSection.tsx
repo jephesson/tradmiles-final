@@ -35,7 +35,12 @@ type EmployeeLite = {
   isActive?: boolean;
 };
 
-const ACTIONS: EmailAlertAction[] = ["VENDA", "COMPRA", "VISUALIZAR_PONTOS"];
+const ACTIONS: EmailAlertAction[] = [
+  "NENHUMA",
+  "VENDA",
+  "COMPRA",
+  "VISUALIZAR_PONTOS",
+];
 const CIAS: EmailAlertCia[] = ["LATAM", "SMILES", "LIVELO"];
 
 const SELECT =
@@ -242,28 +247,31 @@ export default function AlertasSettingsSection({ unlocked }: Props) {
                     </select>
                   </label>
 
-                  <label className="block">
-                    <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                      Cia
-                    </span>
-                    <select
-                      className={cn(SELECT, "mt-1")}
-                      value={cfg.cia}
-                      onChange={(e) =>
-                        updateConfig(filter.id, {
-                          cia: e.target.value as EmailAlertCia,
-                        })
-                      }
-                    >
-                      {CIAS.map((c) => (
-                        <option key={c} value={c}>
-                          {ALERT_CIA_LABEL[c]}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
+                  {cfg.action !== "NENHUMA" ? (
+                    <label className="block">
+                      <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                        Cia
+                      </span>
+                      <select
+                        className={cn(SELECT, "mt-1")}
+                        value={cfg.cia}
+                        onChange={(e) =>
+                          updateConfig(filter.id, {
+                            cia: e.target.value as EmailAlertCia,
+                          })
+                        }
+                      >
+                        {CIAS.map((c) => (
+                          <option key={c} value={c}>
+                            {ALERT_CIA_LABEL[c]}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  ) : null}
                 </div>
 
+                {cfg.action !== "NENHUMA" ? (
                 <div className="mt-3">
                   <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
                     Quem pode usar o botão de ação
@@ -338,22 +346,31 @@ export default function AlertasSettingsSection({ unlocked }: Props) {
                     </div>
                   ) : null}
                 </div>
+                ) : null}
 
                 <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-slate-600">
-                  <span className="font-medium text-slate-700">Destino:</span>
-                  <Link
-                    href={href}
-                    className="inline-flex items-center gap-1 font-semibold text-sky-700 hover:underline"
-                  >
-                    {ALERT_ACTION_LABEL[cfg.action]} · {ALERT_CIA_LABEL[cfg.cia]}
-                    <ExternalLink className="h-3 w-3" aria-hidden />
-                  </Link>
-                  <span className="text-slate-400">
-                    · botão:{" "}
-                    {cfg.actionAudience === "ALL"
-                      ? "todos"
-                      : `${cfg.actionUserIds.length} funcionário(s)`}
-                  </span>
+                  {cfg.action === "NENHUMA" ? (
+                    <span className="font-medium text-slate-700">
+                      Sem botão de ação — só notifica / abrir mensagem.
+                    </span>
+                  ) : (
+                    <>
+                      <span className="font-medium text-slate-700">Destino:</span>
+                      <Link
+                        href={href}
+                        className="inline-flex items-center gap-1 font-semibold text-sky-700 hover:underline"
+                      >
+                        {ALERT_ACTION_LABEL[cfg.action]} · {ALERT_CIA_LABEL[cfg.cia]}
+                        <ExternalLink className="h-3 w-3" aria-hidden />
+                      </Link>
+                      <span className="text-slate-400">
+                        · botão:{" "}
+                        {cfg.actionAudience === "ALL"
+                          ? "todos"
+                          : `${cfg.actionUserIds.length} funcionário(s)`}
+                      </span>
+                    </>
+                  )}
                 </div>
               </li>
             );

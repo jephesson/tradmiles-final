@@ -12,7 +12,7 @@ export type EmailSavedFilter = {
 };
 
 /** Ação ao tratar o alerta (página de destino). */
-export type EmailAlertAction = "VENDA" | "COMPRA" | "VISUALIZAR_PONTOS";
+export type EmailAlertAction = "NENHUMA" | "VENDA" | "COMPRA" | "VISUALIZAR_PONTOS";
 export type EmailAlertCia = "LATAM" | "SMILES" | "LIVELO";
 export type EmailAlertActionAudience = "ALL" | "SELECTED";
 
@@ -35,10 +35,11 @@ export const EMAIL_DISMISSED_ALERTS_KEY = "tm.emailDismissedAlertIds";
 export const EMAIL_DISMISSED_ALERTS_BY_USER_KEY = "tm.emailDismissedAlertIdsByUser";
 
 const PROGRAMS = ["ALL", "SMILES", "LATAM", "LIVELO"] as const;
-const ALERT_ACTIONS = ["VENDA", "COMPRA", "VISUALIZAR_PONTOS"] as const;
+const ALERT_ACTIONS = ["NENHUMA", "VENDA", "COMPRA", "VISUALIZAR_PONTOS"] as const;
 const ALERT_CIAS = ["LATAM", "SMILES", "LIVELO"] as const;
 
 export const ALERT_ACTION_LABEL: Record<EmailAlertAction, string> = {
+  NENHUMA: "Sem ação",
   VENDA: "Abrir venda",
   COMPRA: "Abrir compra",
   VISUALIZAR_PONTOS: "Abrir visualizar pontos",
@@ -189,6 +190,7 @@ export function canUserUseAlertAction(
   config: EmailAlertActionConfig,
   userId: string | null | undefined
 ): boolean {
+  if (config.action === "NENHUMA") return false;
   if (config.actionAudience !== "SELECTED") return true;
   const uid = String(userId || "").trim();
   if (!uid) return false;
@@ -200,6 +202,8 @@ export function buildAlertActionHref(
   config: EmailAlertActionConfig,
   opts?: { cedenteId?: string | null; emailId?: string | null }
 ): string {
+  if (config.action === "NENHUMA") return "#";
+
   const cedenteId = String(opts?.cedenteId || "").trim();
   const emailId = String(opts?.emailId || "").trim();
   const cia = config.cia.toLowerCase();
