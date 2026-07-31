@@ -146,7 +146,10 @@ type Props = {
   whatsappPhoneLabel?: string;
   /** Pré-preenche trecho/PAX da tela de venda. */
   initialTripKind?: TripKind;
-  initialPassengers?: number;
+  initialAdults?: number;
+  initialChildren?: number;
+  /** Bebê: entra no link LATAM, não consome CPF do cedente. */
+  initialInfants?: number;
   onClose: () => void;
   onComplete: (result: {
     purchaseCode: string | null;
@@ -169,7 +172,9 @@ export default function BiometriaWizardModal({
   whatsapp,
   whatsappPhoneLabel,
   initialTripKind = "IDA",
-  initialPassengers = 1,
+  initialAdults = 1,
+  initialChildren = 0,
+  initialInfants = 0,
   onClose,
   onComplete,
 }: Props) {
@@ -294,10 +299,18 @@ export default function BiometriaWizardModal({
     setSearchDestination("");
     setSearchOutbound("");
     setSearchInbound("");
-    setSearchAdt(Math.max(1, Math.floor(initialPassengers) || 1));
-    setSearchChd(0);
-    setSearchInf(0);
-  }, [open, cedenteId, program, initialTripKind, initialPassengers]);
+    setSearchAdt(Math.max(1, Math.min(9, Math.floor(initialAdults) || 1)));
+    setSearchChd(Math.max(0, Math.min(9, Math.floor(initialChildren) || 0)));
+    setSearchInf(Math.max(0, Math.min(9, Math.floor(initialInfants) || 0)));
+  }, [
+    open,
+    cedenteId,
+    program,
+    initialTripKind,
+    initialAdults,
+    initialChildren,
+    initialInfants,
+  ]);
 
   const fetchOtp = useCallback(async () => {
     if (!cedenteId) return;
@@ -691,7 +704,8 @@ export default function BiometriaWizardModal({
               </div>
               <p className="mt-1 text-xs text-slate-500">
                 Preencha o trecho para abrir a busca LATAM já em milhas (
-                <span className="font-mono">redemption=true</span>). PAX vem da venda.
+                <span className="font-mono">redemption=true</span>). Adultos/crianças/bebês
+                vêm da venda — bebê entra no link, mas não conta CPF do cedente.
               </p>
 
               <div className="mt-3 flex flex-wrap gap-2">
@@ -771,7 +785,7 @@ export default function BiometriaWizardModal({
                 </div>
                 <div className="space-y-1">
                   <label className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                    Adultos
+                    Adultos (12+) · CPF
                   </label>
                   <input
                     type="number"
@@ -787,7 +801,7 @@ export default function BiometriaWizardModal({
                 <div className="grid grid-cols-2 gap-2">
                   <div className="space-y-1">
                     <label className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                      Crianças
+                      Crianças · CPF
                     </label>
                     <input
                       type="number"
@@ -802,7 +816,7 @@ export default function BiometriaWizardModal({
                   </div>
                   <div className="space-y-1">
                     <label className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                      Bebês
+                      Bebês · sem CPF
                     </label>
                     <input
                       type="number"
@@ -817,6 +831,18 @@ export default function BiometriaWizardModal({
                   </div>
                 </div>
               </div>
+              <p className="mt-2 text-[11px] text-slate-500">
+                No link: <span className="font-mono">adt={searchAdt}</span>
+                {" · "}
+                <span className="font-mono">chd={searchChd}</span>
+                {" · "}
+                <span className="font-mono">inf={searchInf}</span>
+                {" · "}
+                CPF do cedente:{" "}
+                <b className="tabular-nums text-slate-800">
+                  {Math.max(1, searchAdt + searchChd)}
+                </b>
+              </p>
 
               {searchLink ? (
                 <div className="mt-4">

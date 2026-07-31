@@ -454,7 +454,11 @@ export default function NovaVendaClient({
     [voltaStr]
   );
 
-  const [passengers, setPassengers] = useState(1);
+  // Adultos + crianças consomem CPF/vaga do cedente. Bebê NÃO conta.
+  const [adultPassengers, setAdultPassengers] = useState(1);
+  const [childPassengers, setChildPassengers] = useState(0);
+  const [infantPassengers, setInfantPassengers] = useState(0);
+  const passengers = Math.max(1, adultPassengers + childPassengers);
 
   // ✅ total efetivo por trecho
   const idaTotalPoints = useMemo(() => {
@@ -1807,30 +1811,78 @@ export default function NovaVendaClient({
             </div>
           </div>
 
-          <div className="space-y-1.5">
+          <div className="space-y-1.5 md:col-span-2">
             <label className={FIELD_LABEL}>Passageiros</label>
-            <div className="relative">
-              <Users
-                className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"
-                strokeWidth={2}
-                aria-hidden
-              />
-              <input
-                type="number"
-                min={1}
-                className={cn(CONTROL_INPUT_MONO, "pl-10")}
-                value={passengers}
-                onChange={(e) => setPassengers(Math.max(1, clampInt(e.target.value)))}
-              />
+            <div className="grid gap-3 sm:grid-cols-3">
+              <div className="space-y-1">
+                <div className="text-[11px] font-medium text-slate-600">Adultos (12+)</div>
+                <div className="relative">
+                  <Users
+                    className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"
+                    strokeWidth={2}
+                    aria-hidden
+                  />
+                  <input
+                    type="number"
+                    min={1}
+                    max={9}
+                    className={cn(CONTROL_INPUT_MONO, "pl-10")}
+                    value={adultPassengers}
+                    onChange={(e) =>
+                      setAdultPassengers(Math.max(1, Math.min(9, clampInt(e.target.value))))
+                    }
+                  />
+                </div>
+              </div>
+              <div className="space-y-1">
+                <div className="text-[11px] font-medium text-slate-600">Crianças (2–11)</div>
+                <input
+                  type="number"
+                  min={0}
+                  max={9}
+                  className={CONTROL_INPUT_MONO}
+                  value={childPassengers}
+                  onChange={(e) =>
+                    setChildPassengers(Math.max(0, Math.min(9, clampInt(e.target.value))))
+                  }
+                />
+              </div>
+              <div className="space-y-1">
+                <div className="text-[11px] font-medium text-slate-600">
+                  Bebês (&lt;2){" "}
+                  <span className="font-normal text-slate-400">· sem CPF</span>
+                </div>
+                <input
+                  type="number"
+                  min={0}
+                  max={9}
+                  className={CONTROL_INPUT_MONO}
+                  value={infantPassengers}
+                  onChange={(e) =>
+                    setInfantPassengers(Math.max(0, Math.min(9, clampInt(e.target.value))))
+                  }
+                />
+              </div>
             </div>
+            <p className="text-[11px] text-slate-500">
+              CPF/vaga do cedente:{" "}
+              <b className="tabular-nums text-slate-800">{fmtInt(passengers)}</b>
+              {infantPassengers > 0 ? (
+                <>
+                  {" "}
+                  · bebê só entra no link LATAM (
+                  <span className="font-mono">inf={infantPassengers}</span>)
+                </>
+              ) : null}
+            </p>
           </div>
         </div>
 
         <p className="mt-5 text-xs leading-relaxed text-slate-500">
           Sugestões consideram <span className="font-medium text-slate-700">pontos</span>,{" "}
-          <span className="font-medium text-slate-700">limite de passageiros</span> (LATAM: janela 365
-          dias / Smiles: anual) e <span className="font-medium text-slate-700">bloqueio</span>{" "}
-          (BlockedAccount OPEN).
+          <span className="font-medium text-slate-700">limite de passageiros</span> (adultos +
+          crianças; bebê não conta — LATAM: janela 365 dias / Smiles: anual) e{" "}
+          <span className="font-medium text-slate-700">bloqueio</span> (BlockedAccount OPEN).
         </p>
       </StepSection>
 
@@ -2861,8 +2913,18 @@ export default function NovaVendaClient({
               </div>
 
               <div className="flex justify-between">
-                <span className="text-slate-600">PAX</span>
-                <b>{fmtInt(passengers)}</b>
+                <span className="text-slate-600">PAX (CPF)</span>
+                <b>
+                  {fmtInt(passengers)}
+                  <span className="ml-1 text-xs font-normal text-slate-500">
+                    ({fmtInt(adultPassengers)} ad
+                    {childPassengers > 0 ? ` + ${fmtInt(childPassengers)} chd` : ""}
+                    {infantPassengers > 0
+                      ? ` · ${fmtInt(infantPassengers)} bb sem CPF`
+                      : ""}
+                    )
+                  </span>
+                </b>
               </div>
 
               <div className="h-px bg-slate-200 my-2" />
@@ -2947,7 +3009,9 @@ export default function NovaVendaClient({
           whatsapp={selWhatsApp}
           whatsappPhoneLabel={selWhatsAppPhoneLabel}
           initialTripKind={tripKind}
-          initialPassengers={passengers}
+          initialAdults={adultPassengers}
+          initialChildren={childPassengers}
+          initialInfants={infantPassengers}
           onClose={() => setBiometriaModalOpen(false)}
           onComplete={completeBiometriaWizard}
         />
