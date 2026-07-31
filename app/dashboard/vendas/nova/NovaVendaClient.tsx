@@ -578,6 +578,8 @@ export default function NovaVendaClient({
   const [latamPdfLoading, setLatamPdfLoading] = useState(false);
   const [latamPdfError, setLatamPdfError] = useState("");
   const [latamPdfNote, setLatamPdfNote] = useState("");
+  /** Aviso de milhas divergentes (PDF vs venda). */
+  const [latamMilesDiverge, setLatamMilesDiverge] = useState("");
 
   const milheiroCents = useMemo(() => moneyToCentsBR(milheiroStr), [milheiroStr]);
   const embarqueFeeCents = useMemo(
@@ -1597,6 +1599,8 @@ export default function NovaVendaClient({
 
   function applyLatamReceipt(data: LatamReceiptData, opts?: { partial?: boolean }) {
     const filled: string[] = [];
+    setLatamMilesDiverge("");
+
     if (data.purchaseCode) {
       const code = data.purchaseCode.toUpperCase();
       setPurchaseCode(code);
@@ -1626,6 +1630,24 @@ export default function NovaVendaClient({
       filled.push("taxa");
     }
 
+    // Milhas do PDF prevalecem se divergirem do que está na venda.
+    if (data.miles != null && data.miles > 0) {
+      const prevPoints = pointsTotal;
+      if (prevPoints !== data.miles) {
+        setIdaMode("TOTAL");
+        setIdaStr(data.miles.toLocaleString("pt-BR"));
+        setVoltaStr("");
+        filled.push("milhas");
+        setLatamMilesDiverge(
+          `Divergência de milhas: a venda tinha ${fmtInt(prevPoints)} e o PDF tem ${fmtInt(
+            data.miles
+          )}. Atualizei para o valor do comprovante — confira se o cedente/compra ainda batem.`
+        );
+      } else {
+        filled.push("milhas");
+      }
+    }
+
     if (opts?.partial) {
       setLatamPdfNote(
         data.purchaseCode
@@ -1633,11 +1655,7 @@ export default function NovaVendaClient({
           : "Não consegui ler o comprovante por este link. Preencha manualmente."
       );
     } else if (filled.length) {
-      const extra =
-        data.miles != null
-          ? ` · ${data.miles.toLocaleString("pt-BR")} milhas no comprovante`
-          : "";
-      setLatamPdfNote(`Preenchido: ${filled.join(", ")}${extra}. Confira antes de salvar.`);
+      setLatamPdfNote(`Preenchido: ${filled.join(", ")}. Confira antes de salvar.`);
     } else {
       setLatamPdfNote("Link lido, mas não achei campos reconhecíveis. Preencha manualmente.");
     }
@@ -1661,6 +1679,7 @@ export default function NovaVendaClient({
 
     setLatamPdfLoading(true);
     setLatamPdfError("");
+    setLatamMilesDiverge("");
     const ac = new AbortController();
     const timer = window.setTimeout(() => ac.abort(), 18_000);
     try {
@@ -2893,6 +2912,11 @@ export default function NovaVendaClient({
                         ) : null}
                         {latamPdfNote ? (
                           <div className="text-xs text-emerald-800">{latamPdfNote}</div>
+                        ) : null}
+                        {latamMilesDiverge ? (
+                          <div className="rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-950">
+                            {latamMilesDiverge}
+                          </div>
                         ) : null}
                       </div>
                     ) : null}
