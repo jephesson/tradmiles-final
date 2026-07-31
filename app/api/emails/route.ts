@@ -188,6 +188,7 @@ export async function GET(req: Request) {
       ...baseParts,
       `(to:${target.email} OR deliveredto:${target.email} OR cc:${target.email} OR from:${target.email})`,
     ];
+    // Chip de cia: afina em cima do que já veio pro e-mail do cedente.
     if (programs.length) {
       const sender = buildInboxProgramQuery(programs);
       if (sender) parts.push(sender);
@@ -195,24 +196,42 @@ export async function GET(req: Request) {
     primaryQuery = parts.filter(Boolean).join(" ");
     gmailQueries.push(primaryQuery);
   } else if (programs.length) {
-    // Chip de uma cia: só aquele programa.
+    // Chip de uma cia (sem cedente específico).
     primaryQuery = [...baseParts, buildInboxProgramQuery(programs)]
       .filter(Boolean)
       .join(" ");
     gmailQueries.push(primaryQuery);
-  } else {
-    // Todos: e-mails das cias + qualquer mensagem ligada a cedente cadastrado.
+  } else if (scope === "unmatched") {
+    // Sem cedente: ainda olha remetentes de cias para achar o que não casou.
     primaryQuery = [...baseParts, buildInboxProgramQuery([])]
       .filter(Boolean)
       .join(" ");
     gmailQueries.push(primaryQuery);
-
-    // Na paginação ("carregar mais"), não re-dispara todos os lotes de cedente.
+  } else {
+    // Todos: tudo recebido ligado ao e-mail cadastrado do cedente.
+    // O redirecionamento já foi configurado na caixa do cedente; filtros = chips.
+    const cedenteQs = buildCedenteAddressQueries(
+      cedentes.map((c) => c.email),
+      { batchSize: 35, maxBatches: 10 }
+    );
+    if (!cedenteQs.length) {
+      return NextResponse.json({
+        ok: true,
+        configured: true,
+        canConnect: cfg.canConnect,
+        isAdmin: session.role === "admin",
+        mailbox: cfg.mailbox || null,
+        source: cfg.source,
+        query: "",
+        rows: [],
+        nextPageToken: null,
+        summary: { total: 0, matched: 0, unmatched: 0 },
+      });
+    }
+    primaryQuery = [...baseParts, cedenteQs[0]].filter(Boolean).join(" ");
+    gmailQueries.push(primaryQuery);
     if (!pageToken) {
-      for (const cq of buildCedenteAddressQueries(
-        cedentes.map((c) => c.email),
-        { batchSize: 35, maxBatches: 8 }
-      )) {
+      for (const cq of cedenteQs.slice(1)) {
         gmailQueries.push([...baseParts, cq].filter(Boolean).join(" "));
       }
     }
