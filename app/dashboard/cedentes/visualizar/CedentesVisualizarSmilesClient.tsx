@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { VerificationCodeFetch } from "@/components/cedentes/VerificationCodeFetch";
+import { EmailNaoSincronizadoAviso } from "@/components/cedentes/EmailNaoSincronizadoAviso";
 import {
   VP_BTN_SECONDARY,
   VP_CONTROL_INPUT,
@@ -44,6 +45,7 @@ type Row = {
   emailCriado?: string | null;
   senhaEmail?: string | null;
   senhaSmiles?: string | null;
+  emailRedirecionado?: boolean;
   scoreMedia?: number;
 
   owner: Owner;
@@ -553,6 +555,17 @@ export default function CedentesVisualizarSmilesClient() {
                 <X size={16} />
               </button>
             </div>
+
+            <EmailNaoSincronizadoAviso
+              className="mb-4"
+              cedenteId={credentialsRow.id}
+              emailRedirecionado={credentialsRow.emailRedirecionado}
+              onMarked={() =>
+                setCredentialsRow((prev) =>
+                  prev ? { ...prev, emailRedirecionado: true } : prev
+                )
+              }
+            />
 
             <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
               <div className="rounded-xl border border-slate-200/80 bg-slate-50/90 p-3">

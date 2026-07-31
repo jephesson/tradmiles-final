@@ -77,6 +77,7 @@ export async function GET(req: NextRequest) {
         emailCriado: true,
         senhaEmail: true,
         senhaSmiles: true,
+        emailRedirecionado: true,
         pontosSmiles: true,
         score: {
           select: {
@@ -129,6 +130,7 @@ export async function GET(req: NextRequest) {
         emailCriado: r.emailCriado,
         senhaEmail: r.senhaEmail,
         senhaSmiles: r.senhaSmiles,
+        emailRedirecionado: Boolean(r.emailRedirecionado),
         owner: r.owner,
         scoreMedia: scoreMedia(r.score),
 

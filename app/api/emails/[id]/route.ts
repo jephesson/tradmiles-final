@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/require-session";
-import { programFromSender } from "@/lib/gmail/config";
+import { programFromHints } from "@/lib/gmail/config";
 import {
   GmailApiError,
   GmailNotConfiguredError,
@@ -86,6 +86,8 @@ export async function GET(
 
     const from = headerValue(message, "From");
     const fromAddress = firstAddress(from);
+    const fromName = displayName(from);
+    const subject = headerValue(message, "Subject") || "(sem assunto)";
     const date = messageDate(message);
 
     return NextResponse.json({
@@ -93,11 +95,11 @@ export async function GET(
       message: {
         id: message.id,
         threadId: message.threadId,
-        program: programFromSender(fromAddress),
-        fromName: displayName(from),
+        program: programFromHints(fromAddress, fromName, subject),
+        fromName,
         fromAddress,
         to: headerValue(message, "To"),
-        subject: headerValue(message, "Subject") || "(sem assunto)",
+        subject,
         date: date ? date.toISOString() : null,
         document: wrapEmailDocument(bodyHtml),
         cedente: cedente

@@ -7,6 +7,7 @@ import {
   Copy,
   Loader2,
   Mail,
+  Radar,
   RefreshCw,
   Search,
   Undo2,
@@ -67,6 +68,8 @@ export default function RedirecionarEmailClient() {
   const [filter, setFilter] = useState<Filter>("PENDING");
   const [q, setQ] = useState("");
   const [loading, setLoading] = useState(true);
+  const [detecting, setDetecting] = useState(false);
+  const [detectProgress, setDetectProgress] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
@@ -99,9 +102,59 @@ export default function RedirecionarEmailClient() {
 
   useEffect(() => {
     if (!toast) return;
-    const t = window.setTimeout(() => setToast(null), 2500);
+    const t = window.setTimeout(() => setToast(null), 3500);
     return () => window.clearTimeout(t);
   }, [toast]);
+
+  const detectFromGmail = useCallback(async () => {
+    setDetecting(true);
+    setError(null);
+    setDetectProgress("Consultando Gmail…");
+    let offset = 0;
+    let totalMarked = 0;
+    let totalPending = 0;
+
+    try {
+      for (;;) {
+        const res = await fetch("/api/cedentes/redirecionar-email/detect", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ offset, limit: 40 }),
+        });
+        const json = await res.json();
+        if (!res.ok || !json?.ok) {
+          throw new Error(json?.error || "Falha ao detectar no Gmail.");
+        }
+
+        if (json.configured === false) {
+          setToast("Caixa da empresa não conectada — não dá para detectar.");
+          break;
+        }
+
+        totalPending = Number(json.totalPendingWithEmail || 0);
+        totalMarked += Number(json.marked || 0);
+        offset = Number(json.nextOffset || offset);
+        const checked = Math.min(offset, totalPending || offset);
+        setDetectProgress(
+          `Verificados ${checked}/${totalPending || "?"} · ${totalMarked} marcados`
+        );
+
+        if (json.done) break;
+      }
+
+      setToast(
+        totalMarked > 0
+          ? `${totalMarked} cedente${totalMarked === 1 ? "" : "s"} marcado${totalMarked === 1 ? "" : "s"} automaticamente (já havia e-mail na caixa).`
+          : "Nenhum e-mail encontrado para marcar automaticamente."
+      );
+      await load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Falha ao detectar.");
+    } finally {
+      setDetecting(false);
+      setDetectProgress(null);
+    }
+  }, [load]);
 
   const toggle = useCallback(
     async (row: Row, done: boolean) => {
@@ -126,7 +179,6 @@ export default function RedirecionarEmailClient() {
                 }
               : r
           );
-          // Se o filtro atual esconde o item, remove da lista.
           if (filter === "PENDING" && done) return next.filter((r) => r.id !== row.id);
           if (filter === "DONE" && !done) return next.filter((r) => r.id !== row.id);
           return next;
@@ -158,8 +210,10 @@ export default function RedirecionarEmailClient() {
   );
 
   const countsLabel = useMemo(() => {
-    if (filter === "PENDING") return `${summary.pending} pendente${summary.pending === 1 ? "" : "s"}`;
-    if (filter === "DONE") return `${summary.done} feito${summary.done === 1 ? "" : "s"}`;
+    if (filter === "PENDING")
+      return `${summary.pending} pendente${summary.pending === 1 ? "" : "s"}`;
+    if (filter === "DONE")
+      return `${summary.done} feito${summary.done === 1 ? "" : "s"}`;
     return `${summary.total} cedente${summary.total === 1 ? "" : "s"}`;
   }, [filter, summary]);
 
@@ -172,23 +226,41 @@ export default function RedirecionarEmailClient() {
             Redirecionar e-mail
           </h1>
           <p className="mt-0.5 text-sm text-slate-500">
-            Lista de cedentes ativos. Marque quem já redirecionou o e-mail para a caixa da empresa.
+            Lista de cedentes ativos. Marque quem já redirecionou o e-mail para a
+            caixa da empresa — ou detecte automaticamente quem já tem mensagem
+            recebida.
           </p>
         </div>
 
-        <button
-          type="button"
-          onClick={() => void load()}
-          disabled={loading}
-          className="inline-flex h-11 items-center gap-2 rounded-xl bg-slate-900 px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800 disabled:opacity-60"
-        >
-          {loading ? (
-            <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
-          ) : (
-            <RefreshCw className="h-4 w-4" aria-hidden />
-          )}
-          Atualizar
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => void detectFromGmail()}
+            disabled={loading || detecting}
+            className="inline-flex h-11 items-center gap-2 rounded-xl border border-sky-200 bg-sky-50 px-4 text-sm font-semibold text-sky-900 shadow-sm transition hover:bg-sky-100 disabled:opacity-60"
+            title="Marca como feito quem já tem e-mail na caixa da empresa"
+          >
+            {detecting ? (
+              <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+            ) : (
+              <Radar className="h-4 w-4" aria-hidden />
+            )}
+            {detecting ? detectProgress || "Detectando…" : "Detectar no Gmail"}
+          </button>
+          <button
+            type="button"
+            onClick={() => void load()}
+            disabled={loading || detecting}
+            className="inline-flex h-11 items-center gap-2 rounded-xl bg-slate-900 px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800 disabled:opacity-60"
+          >
+            {loading ? (
+              <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+            ) : (
+              <RefreshCw className="h-4 w-4" aria-hidden />
+            )}
+            Atualizar
+          </button>
+        </div>
       </div>
 
       <div className="grid gap-3 sm:grid-cols-3">
@@ -288,7 +360,10 @@ export default function RedirecionarEmailClient() {
                   <div className="min-w-0 space-y-1">
                     <div className="flex flex-wrap items-center gap-2">
                       {row.done ? (
-                        <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" aria-hidden />
+                        <CheckCircle2
+                          className="h-4 w-4 shrink-0 text-emerald-600"
+                          aria-hidden
+                        />
                       ) : (
                         <Circle className="h-4 w-4 shrink-0 text-slate-300" aria-hidden />
                       )}
@@ -322,7 +397,9 @@ export default function RedirecionarEmailClient() {
                       {row.done && row.doneAt ? (
                         <span>
                           Feito em {fmtDateTime(row.doneAt)}
-                          {row.doneBy ? ` · ${row.doneBy.name}` : ""}
+                          {row.doneBy
+                            ? ` · ${row.doneBy.name}`
+                            : " · Automático (Gmail)"}
                         </span>
                       ) : null}
                     </div>

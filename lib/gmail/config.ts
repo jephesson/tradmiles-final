@@ -17,8 +17,25 @@ export const PROGRAM_LABEL: Record<EmailProgram, string> = {
  */
 export const PROGRAM_DOMAINS: Record<EmailProgram, string[]> = {
   SMILES: ["smiles.com.br", "voegol.com.br", "gol.com.br"],
-  LATAM: ["latam.com", "latamairlines.com", "latampass.com"],
+  LATAM: [
+    "latam.com",
+    "latam.com.br",
+    "latamairlines.com",
+    "latamairlines.com.br",
+    "latampass.com",
+    "latampass.com.br",
+  ],
   LIVELO: ["livelo.com.br", "pontoslivelo.com.br"],
+};
+
+/**
+ * Tokens extras no `from:` do Gmail (nome/local-part). Pegam ESP/Salesforce
+ * cujo domínio não é o da cia, mas o remetente carrega "LATAM"/"Smiles"/etc.
+ */
+export const PROGRAM_FROM_TOKENS: Record<EmailProgram, string[]> = {
+  SMILES: ["smiles", "voegol", "gol", `"Gol Smiles"`, `"GOL"`],
+  LATAM: ["latam", "latampass", `"LATAM Airlines"`, `"LATAM Pass"`, `"Clube LATAM"`],
+  LIVELO: ["livelo", `"Pontos Livelo"`],
 };
 
 /** Janela padrão de busca no Gmail. Evita varrer a caixa inteira. */
@@ -63,6 +80,23 @@ export function programFromSender(fromAddress: string): EmailProgram | null {
   return null;
 }
 
+/** Fallback por nome do remetente / assunto quando o domínio não é da cia. */
+export function programFromHints(
+  fromAddress: string,
+  fromName = "",
+  subject = ""
+): EmailProgram | null {
+  const byDomain = programFromSender(fromAddress);
+  if (byDomain) return byDomain;
+
+  const hay = `${fromName} ${fromAddress} ${subject}`.toLowerCase();
+  if (/\blatam\b/.test(hay) || /latam\s*pass/.test(hay)) return "LATAM";
+  if (/\bsmiles\b/.test(hay) || /\bvoegol\b/.test(hay) || /\bgol\b/.test(hay))
+    return "SMILES";
+  if (/\blivelo\b/.test(hay)) return "LIVELO";
+  return null;
+}
+
 /**
  * Monta a parte `from:` da query do Gmail. Quando nenhum programa é
  * informado, considera todos os programas conhecidos.
@@ -70,8 +104,10 @@ export function programFromSender(fromAddress: string): EmailProgram | null {
 export function buildSenderQuery(programs: EmailProgram[]): string {
   const list = programs.length ? programs : EMAIL_PROGRAMS;
   const domains = Array.from(new Set(list.flatMap((p) => PROGRAM_DOMAINS[p])));
-  if (!domains.length) return "";
-  return `from:(${domains.join(" OR ")})`;
+  const tokens = Array.from(new Set(list.flatMap((p) => PROGRAM_FROM_TOKENS[p])));
+  const parts = [...domains, ...tokens];
+  if (!parts.length) return "";
+  return `from:(${parts.join(" OR ")})`;
 }
 
 /** Onde aplicar o termo de busca na query do Gmail. */

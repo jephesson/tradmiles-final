@@ -27,6 +27,7 @@ import {
   commission1FromPvCents,
 } from "@/lib/payouts/employeeCommissionRates";
 import BiometriaWizardModal from "@/components/vendas/BiometriaWizardModal";
+import { EmailNaoSincronizadoAviso } from "@/components/cedentes/EmailNaoSincronizadoAviso";
 import { purchaseCodeFromLatamPdfUrl } from "@/lib/latam/parseReceiptPdf";
 
 type Program = "LATAM" | "SMILES" | "LIVELO" | "ESFERA";
@@ -244,6 +245,7 @@ type CedenteCreds = {
   email?: string | null;
   senhaPrograma?: string | null;
   senhaEmail?: string | null;
+  emailRedirecionado?: boolean | null;
 };
 
 // ✅ resposta do painel (usada pra janela LATAM 365d ~ 13 meses)
@@ -2208,6 +2210,19 @@ export default function NovaVendaClient({
                     <div className="mt-1 text-[11px] text-rose-600">
                       {credsError}
                     </div>
+                  ) : null}
+
+                  {revealCreds && sel?.cedente?.id ? (
+                    <EmailNaoSincronizadoAviso
+                      className="mt-2"
+                      cedenteId={sel.cedente.id}
+                      emailRedirecionado={creds?.emailRedirecionado}
+                      onMarked={() =>
+                        setCreds((prev) =>
+                          prev ? { ...prev, emailRedirecionado: true } : prev
+                        )
+                      }
+                    />
                   ) : null}
 
                   {revealCreds ? (

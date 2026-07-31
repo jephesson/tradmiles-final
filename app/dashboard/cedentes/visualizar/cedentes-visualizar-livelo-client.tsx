@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { VerificationCodeFetch } from "@/components/cedentes/VerificationCodeFetch";
+import { EmailNaoSincronizadoAviso } from "@/components/cedentes/EmailNaoSincronizadoAviso";
 import {
   VP_BTN_SECONDARY,
   VP_CONTROL_INPUT,
@@ -78,6 +79,7 @@ type CredentialsRow = {
   emailCriado?: string | null;
   senhaEmail?: string | null;
   senhaLivelo?: string | null;
+  emailRedirecionado?: boolean;
 };
 
 function fmtInt(n: number) {
@@ -356,6 +358,7 @@ export default function CedentesVisualizarLiveloClient() {
         emailCriado: data.emailCriado || r.emailCriado || null,
         senhaEmail: data.senhaEmail || null,
         senhaLivelo: data.senhaLivelo || null,
+        emailRedirecionado: Boolean(data.emailRedirecionado),
       });
     } catch (e: unknown) {
       alert(getErrorMessage(e, "Erro ao carregar credenciais."));
@@ -710,6 +713,17 @@ export default function CedentesVisualizarLiveloClient() {
                 <X size={16} />
               </button>
             </div>
+
+            <EmailNaoSincronizadoAviso
+              className="mb-4"
+              cedenteId={credentialsRow.id}
+              emailRedirecionado={credentialsRow.emailRedirecionado}
+              onMarked={() =>
+                setCredentialsRow((prev) =>
+                  prev ? { ...prev, emailRedirecionado: true } : prev
+                )
+              }
+            />
 
             <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
               <div className="rounded-xl border border-slate-200/80 bg-slate-50/90 p-3">

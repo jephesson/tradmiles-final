@@ -330,7 +330,7 @@ export default function EmailsClient() {
   const [oauthOk, setOauthOk] = useState(false);
 
   const [program, setProgram] = useState<ProgramFilter>("ALL");
-  const [scope, setScope] = useState<Scope>("all");
+  const [scope, setScope] = useState<Scope>("matched");
   const [cedenteId, setCedenteId] = useState("");
   const [cedenteLabel, setCedenteLabel] = useState("");
   const [search, setSearch] = useState("");
@@ -408,6 +408,7 @@ export default function EmailsClient() {
     setSearch("");
     setSearchIn("anywhere");
     setProgram("ALL");
+    setScope("matched");
   }, []);
 
   const applySavedFilter = useCallback((filter: SavedFilter) => {
@@ -415,6 +416,8 @@ export default function EmailsClient() {
     setSearch(filter.query);
     setSearchIn(filter.searchIn);
     setProgram(filter.program);
+    // Filtros/chips atuam em cima dos e-mails com cedente.
+    setScope("matched");
   }, []);
 
   const createFilter = useCallback(
@@ -655,8 +658,10 @@ export default function EmailsClient() {
             E-mail
           </h1>
           <p className="mt-0.5 text-sm text-slate-500">
-            Caixa filtrada de Smiles, LATAM e Livelo
-            {mailbox ? ` · ${mailbox}` : ""}, cruzada com o cedente pelo e-mail cadastrado.
+            <span className="font-medium text-slate-600">Todos</span> = e-mails com
+            cedente (LATAM, Smiles/GOL e Livelo)
+            {mailbox ? ` · ${mailbox}` : ""}. Crie chips para cada tipo
+            (código, clube, comprovante…).
           </p>
         </div>
 
@@ -728,10 +733,14 @@ export default function EmailsClient() {
             onClick={clearActiveFilter}
             className={cn(
               "h-9 rounded-xl px-3 text-sm font-semibold transition",
-              !activeFilterId && program === "ALL" && !search.trim()
+              !activeFilterId &&
+                program === "ALL" &&
+                !search.trim() &&
+                scope === "matched"
                 ? "bg-slate-900 text-white shadow-sm"
                 : "text-slate-600 hover:bg-slate-100"
             )}
+            title="Todos os e-mails com cedente (LATAM, Smiles/GOL e Livelo)"
           >
             Todos
           </button>
@@ -778,18 +787,17 @@ export default function EmailsClient() {
 
           <button
             type="button"
-            onClick={() => setScope(scope === "unmatched" ? "all" : "unmatched")}
+            onClick={() => setScope(scope === "unmatched" ? "matched" : "unmatched")}
             className={cn(
               "inline-flex h-9 items-center gap-1.5 rounded-xl px-3 text-sm font-semibold transition",
               scope === "unmatched"
                 ? "bg-amber-100 text-amber-900 ring-1 ring-amber-200"
                 : "text-slate-600 hover:bg-slate-100"
             )}
-            title="Mostrar somente e-mails que não casaram com nenhum cedente"
+            title="Alternar e-mails sem cedente identificado"
           >
             <UserX className="h-4 w-4" aria-hidden />
-            Sem cedente
-            {summary.unmatched ? ` (${summary.unmatched})` : ""}
+            {scope === "unmatched" ? "Vendo sem cedente" : "Sem cedente"}
           </button>
 
           <button

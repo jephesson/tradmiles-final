@@ -59,6 +59,7 @@ export async function GET(req: NextRequest) {
         senhaSmiles: true,
         senhaLivelo: true,
         senhaEsfera: true,
+        emailRedirecionado: true,
       },
     });
 
@@ -76,6 +77,7 @@ export async function GET(req: NextRequest) {
         email: cedente.emailCriado ?? null,
         senhaPrograma: pickSenhaPrograma(program, cedente),
         senhaEmail: cedente.senhaEmail ?? null,
+        emailRedirecionado: Boolean(cedente.emailRedirecionado),
       },
     });
   } catch (e: any) {

@@ -64,6 +64,7 @@ const SELECT = {
 
   telefone: true,
   emailCriado: true,
+  emailRedirecionado: true,
 
   banco: true,
   pixTipo: true,

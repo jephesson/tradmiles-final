@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { buildWhatsAppLink } from "@/lib/whatsapp";
+import { EmailNaoSincronizadoAviso } from "@/components/cedentes/EmailNaoSincronizadoAviso";
 
 type Program = "LATAM" | "SMILES";
 
@@ -29,6 +30,7 @@ type Creds = {
   programPassword?: string | null;
   senhaEmail?: string | null;
   emailPassword?: string | null;
+  emailRedirecionado?: boolean | null;
 } | null;
 
 type Step = "creds" | "code" | "search" | "bio" | "order";
@@ -470,6 +472,12 @@ export default function BiometriaWizardModal({
               <p className="mt-1 text-xs text-slate-500">
                 Peça ao cedente para logar no site e te enviar o código do e-mail.
               </p>
+
+              <EmailNaoSincronizadoAviso
+                className="mt-3"
+                cedenteId={cedenteId}
+                emailRedirecionado={creds?.emailRedirecionado}
+              />
 
               {loadingCreds ? (
                 <div className="mt-3 flex items-center gap-2 text-sm text-slate-500">

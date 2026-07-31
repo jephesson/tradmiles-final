@@ -26,6 +26,7 @@ import {
   pickBestVerificationCode,
   verificationSubjectQuery,
 } from "@/lib/gmail/otp";
+import { markEmailRedirecionado } from "@/lib/cedentes/emailRedirecionado";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -163,6 +164,14 @@ export async function GET(req: Request) {
         return tb - ta;
       });
     const latest = withCode[0] || null;
+
+    // Se o código chegou na caixa da empresa, o redirecionamento já funciona.
+    if (latest?.code) {
+      await markEmailRedirecionado(cedenteId, {
+        byUserId: null,
+        onlyIfPending: true,
+      }).catch(() => null);
+    }
 
     return NextResponse.json({
       ok: true,

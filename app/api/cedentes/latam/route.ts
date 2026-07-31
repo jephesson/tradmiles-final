@@ -158,6 +158,7 @@ export async function GET(req: NextRequest) {
         emailCriado: true,
         senhaEmail: true,
         senhaLatamPass: true,
+        emailRedirecionado: true,
         pontosLatam: true,
         score: {
           select: {
@@ -343,6 +344,7 @@ export async function GET(req: NextRequest) {
         emailCriado: c.emailCriado || null,
         senhaEmail: c.senhaEmail || null,
         senhaLatamPass: c.senhaLatamPass || null,
+        emailRedirecionado: Boolean(c.emailRedirecionado),
         owner: c.owner,
         scoreMedia: scoreMedia(c.score),
 
