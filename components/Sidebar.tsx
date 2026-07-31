@@ -9,7 +9,7 @@ import {
   type ReadonlyURLSearchParams,
 } from "next/navigation";
 import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
-import { Bell, CalendarDays, ChevronRight, Home, LogOut, Settings, Trophy } from "lucide-react";
+import { ChevronRight, LogOut, Settings } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { getSession, setSession, signOut, type Session } from "@/lib/auth";
 
@@ -163,15 +163,9 @@ export default function Sidebar() {
 
   const isPontosVisualizarRoute = pathname.startsWith(VISUALIZAR_PONTOS_PATH);
 
-  const isHomeRoute = pathname === "/dashboard" || pathname === "/dashboard/";
-
-  // ✅ BÔNUS MENSAL
-  const isBonusRoute = pathname.startsWith("/dashboard/bonus");
-
   // ✅ Cadastro NÃO deve “pegar” Visualizar cedentes
   const isCadastroRoute =
     (pathname.startsWith("/dashboard/cedentes") && !isPontosVisualizarRoute) ||
-    pathname.startsWith("/dashboard/emails") ||
     pathname.startsWith("/dashboard/afiliados") ||
     pathname.startsWith("/dashboard/clientes") ||
     pathname.startsWith("/dashboard/funcionarios") ||
@@ -321,12 +315,6 @@ export default function Sidebar() {
   const isAutomacaoRoute = pathname.startsWith("/dashboard/automacao");
   const isWalletRoute = pathname.startsWith("/dashboard/wallet");
 
-  // ✅ NOVO: Agenda
-  const isAgendaRoute = pathname.startsWith("/dashboard/agenda");
-
-  // ✅ NOVO: Avisos
-  const isAvisosRoute = pathname.startsWith("/dashboard/avisos");
-
   // ✅ NOVO: Anotações
   const isAnotacoesRoute = pathname.startsWith("/dashboard/anotacoes");
 
@@ -369,7 +357,6 @@ export default function Sidebar() {
     (pathname.startsWith("/dashboard/cedentes") &&
       !isPontosVisualizarRoute &&
       !isPendenciasRoute) ||
-      pathname.startsWith("/dashboard/emails") ||
       pathname.startsWith("/dashboard/bloqueios")
   );
 
@@ -462,7 +449,6 @@ export default function Sidebar() {
       (pathname.startsWith("/dashboard/cedentes") &&
         !isPontosVisualizarRoute &&
         !isPendenciasRoute) ||
-        pathname.startsWith("/dashboard/emails") ||
         pathname.startsWith("/dashboard/bloqueios")
     );
   }, [pathname, isPontosVisualizarRoute, isPendenciasRoute]);
@@ -633,74 +619,6 @@ export default function Sidebar() {
 
       <div className="flex min-h-0 flex-1 flex-col">
         <nav className="min-h-0 flex-1 space-y-1 overflow-y-auto px-2 py-2 [scrollbar-width:thin] [scrollbar-color:rgba(148,163,184,0.45)_transparent]">
-        <div className="mb-2 border-b border-slate-100 pb-2" style={accentStyle("blue")}>
-          <Link
-            href="/dashboard"
-            className={cn(
-              "relative flex items-center gap-2 rounded-xl px-3 py-2.5 pl-5 text-[13px] font-semibold transition-colors",
-              isHomeRoute
-                ? "bg-[var(--accent-soft)] text-[var(--accent-text)]"
-                : "text-slate-600 hover:bg-slate-100/80 hover:text-slate-900",
-              "before:content-[''] before:absolute before:left-2 before:top-2 before:bottom-2 before:w-1 before:rounded-full",
-              isHomeRoute ? "before:bg-[var(--accent)]" : "before:bg-transparent"
-            )}
-          >
-            <Home className="h-4 w-4 shrink-0 opacity-80" aria-hidden />
-            Página inicial
-          </Link>
-        </div>
-
-        <div className="mb-2 border-b border-slate-100 pb-2" style={accentStyle("violet")}>
-          <Link
-            href="/dashboard/bonus"
-            className={cn(
-              "relative flex items-center gap-2 rounded-xl px-3 py-2.5 pl-5 text-[13px] font-semibold transition-colors",
-              isBonusRoute
-                ? "bg-[var(--accent-soft)] text-[var(--accent-text)]"
-                : "text-slate-600 hover:bg-slate-100/80 hover:text-slate-900",
-              "before:content-[''] before:absolute before:left-2 before:top-2 before:bottom-2 before:w-1 before:rounded-full",
-              isBonusRoute ? "before:bg-[var(--accent)]" : "before:bg-transparent"
-            )}
-          >
-            <Trophy className="h-4 w-4 shrink-0 opacity-80" aria-hidden />
-            Bônus
-          </Link>
-        </div>
-
-        <div className="mb-2 border-b border-slate-100 pb-2" style={accentStyle("teal")}>
-          <Link
-            href="/dashboard/agenda"
-            className={cn(
-              "relative flex items-center gap-2 rounded-xl px-3 py-2.5 pl-5 text-[13px] font-semibold transition-colors",
-              isAgendaRoute
-                ? "bg-[var(--accent-soft)] text-[var(--accent-text)]"
-                : "text-slate-600 hover:bg-slate-100/80 hover:text-slate-900",
-              "before:content-[''] before:absolute before:left-2 before:top-2 before:bottom-2 before:w-1 before:rounded-full",
-              isAgendaRoute ? "before:bg-[var(--accent)]" : "before:bg-transparent"
-            )}
-          >
-            <CalendarDays className="h-4 w-4 shrink-0 opacity-80" aria-hidden />
-            Agenda
-          </Link>
-        </div>
-
-        <div className="mb-2 border-b border-slate-100 pb-2" style={accentStyle("orange")}>
-          <Link
-            href="/dashboard/avisos"
-            className={cn(
-              "relative flex items-center gap-2 rounded-xl px-3 py-2.5 pl-5 text-[13px] font-semibold transition-colors",
-              isAvisosRoute
-                ? "bg-[var(--accent-soft)] text-[var(--accent-text)]"
-                : "text-slate-600 hover:bg-slate-100/80 hover:text-slate-900",
-              "before:content-[''] before:absolute before:left-2 before:top-2 before:bottom-2 before:w-1 before:rounded-full",
-              isAvisosRoute ? "before:bg-[var(--accent)]" : "before:bg-transparent"
-            )}
-          >
-            <Bell className="h-4 w-4 shrink-0 opacity-80" aria-hidden />
-            Avisos
-          </Link>
-        </div>
-
         {/* ================= CADASTRO ================= */}
         <Accordion
           title="Cadastro"
@@ -714,8 +632,6 @@ export default function Sidebar() {
             open={openCedentes}
             onToggle={() => setOpenCedentes((v) => !v)}
           >
-            <NavLink href="/dashboard/emails">E-mail</NavLink>
-
             <NavLink href="/dashboard/cedentes/redirecionar-email">
               Redirecionar e-mail
             </NavLink>
