@@ -559,6 +559,8 @@ export default function NovaVendaClient({
   const [latamEmissionUnlocked, setLatamEmissionUnlocked] = useState(false);
   /** Link de pagamento gerado no wizard — permanece na tela de emissão. */
   const [pagamentoLinkReady, setPagamentoLinkReady] = useState<string | null>(null);
+  /** Link de pesquisa LATAM (milhas) gerado no wizard. */
+  const [searchLinkReady, setSearchLinkReady] = useState<string | null>(null);
 
   const milheiroCents = useMemo(() => moneyToCentsBR(milheiroStr), [milheiroStr]);
   const embarqueFeeCents = useMemo(
@@ -654,10 +656,12 @@ export default function NovaVendaClient({
     if (program === "LATAM" || program === "SMILES") {
       setBiometriaModalOpen(true);
       setPagamentoLinkReady(null);
+      setSearchLinkReady(null);
       setLatamEmissionUnlocked(false);
     } else {
       setBiometriaModalOpen(false);
       setPagamentoLinkReady(null);
+      setSearchLinkReady(null);
       setLatamEmissionUnlocked(true);
     }
     setTimeout(() => {
@@ -778,6 +782,7 @@ export default function NovaVendaClient({
 
     setBiometriaModalOpen(false);
     setPagamentoLinkReady(null);
+    setSearchLinkReady(null);
     setLatamEmissionUnlocked(false);
   }
 
@@ -1537,12 +1542,18 @@ export default function NovaVendaClient({
   function completeBiometriaWizard(result: {
     purchaseCode: string | null;
     pagamentoLink: string | null;
+    searchLink: string | null;
+    departureDate: string | null;
+    returnDate: string | null;
     skippedOrder: boolean;
   }) {
     if (result.purchaseCode) {
       setPurchaseCode(result.purchaseCode);
     }
     setPagamentoLinkReady(result.pagamentoLink);
+    setSearchLinkReady(result.searchLink);
+    if (result.departureDate) setDepartureDate(result.departureDate);
+    if (result.returnDate) setReturnDate(result.returnDate);
     setLatamEmissionUnlocked(true);
     setBiometriaModalOpen(false);
     setTimeout(() => {
@@ -1655,6 +1666,7 @@ export default function NovaVendaClient({
                   setProgram(next);
                   setBiometriaModalOpen(false);
                   setPagamentoLinkReady(null);
+                  setSearchLinkReady(null);
                   setLatamEmissionUnlocked(next !== "LATAM" && next !== "SMILES");
                 }}
               >
@@ -2727,6 +2739,42 @@ export default function NovaVendaClient({
                             </div>
                           </div>
                         ) : null}
+                        {searchLinkReady ? (
+                          <div className="rounded-xl border border-sky-200 bg-sky-50/60 p-3">
+                            <div className="text-[11px] font-semibold uppercase tracking-wide text-sky-800">
+                              Link de pesquisa (milhas)
+                            </div>
+                            <div className="mt-1 break-all font-mono text-[11px] text-slate-800">
+                              {searchLinkReady}
+                            </div>
+                            <div className="mt-2 flex flex-wrap gap-2">
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  copyText("Link de pesquisa", searchLinkReady)
+                                }
+                                className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[11px] font-medium hover:bg-slate-50"
+                              >
+                                <Copy className="h-3.5 w-3.5" aria-hidden />
+                                Copiar link
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  window.open(
+                                    searchLinkReady,
+                                    "_blank",
+                                    "noopener,noreferrer"
+                                  )
+                                }
+                                className="inline-flex items-center gap-1.5 rounded-lg border border-sky-200 bg-sky-50 px-2.5 py-1.5 text-[11px] font-medium text-sky-800 hover:bg-sky-100"
+                              >
+                                <ExternalLink className="h-3.5 w-3.5" aria-hidden />
+                                Abrir pesquisa
+                              </button>
+                            </div>
+                          </div>
+                        ) : null}
                       </div>
                     ) : null}
 
@@ -2898,6 +2946,8 @@ export default function NovaVendaClient({
           credsError={credsError}
           whatsapp={selWhatsApp}
           whatsappPhoneLabel={selWhatsAppPhoneLabel}
+          initialTripKind={tripKind}
+          initialPassengers={passengers}
           onClose={() => setBiometriaModalOpen(false)}
           onComplete={completeBiometriaWizard}
         />

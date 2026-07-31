@@ -31,10 +31,54 @@ type Creds = {
   emailPassword?: string | null;
 } | null;
 
-type Step = "creds" | "code" | "bio" | "order";
+type Step = "creds" | "code" | "search" | "bio" | "order";
+type TripKind = "IDA" | "IDA_VOLTA";
 
 const LATAM_SITE_URL = "https://www.latamairlines.com/br/pt";
 const SMILES_SITE_URL = "https://www.smiles.com.br";
+
+function toIata(raw: string) {
+  return String(raw || "")
+    .replace(/[^a-zA-Z]/g, "")
+    .toUpperCase()
+    .slice(0, 3);
+}
+
+/** Link de ofertas LATAM em milhas (redemption=true). */
+function buildLatamSearchLink(params: {
+  origin: string;
+  destination: string;
+  outbound: string;
+  inbound?: string;
+  trip: "OW" | "RT";
+  adt: number;
+  chd?: number;
+  inf?: number;
+}): string | null {
+  const origin = toIata(params.origin);
+  const destination = toIata(params.destination);
+  if (!/^[A-Z]{3}$/.test(origin) || !/^[A-Z]{3}$/.test(destination)) return null;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(params.outbound)) return null;
+  if (params.trip === "RT" && !/^\d{4}-\d{2}-\d{2}$/.test(params.inbound || "")) {
+    return null;
+  }
+
+  const q = new URLSearchParams();
+  q.set("origin", origin);
+  q.set("destination", destination);
+  q.set("outbound", `${params.outbound}T12:00:00.000Z`);
+  if (params.trip === "RT" && params.inbound) {
+    q.set("inbound", `${params.inbound}T12:00:00.000Z`);
+  }
+  q.set("adt", String(Math.max(1, Math.floor(params.adt) || 1)));
+  q.set("chd", String(Math.max(0, Math.floor(params.chd || 0))));
+  q.set("inf", String(Math.max(0, Math.floor(params.inf || 0))));
+  q.set("trip", params.trip);
+  q.set("cabin", "Economy");
+  q.set("redemption", "true");
+  q.set("sort", "RECOMMENDED");
+  return `https://www.latamairlines.com/br/pt/oferta-voos?${q.toString()}`;
+}
 
 function extractLatamOrderId(raw: string): string | null {
   const s = String(raw || "").trim();
@@ -100,10 +144,16 @@ type Props = {
   credsError: string;
   whatsapp: WhatsAppContact;
   whatsappPhoneLabel?: string;
+  /** Pré-preenche trecho/PAX da tela de venda. */
+  initialTripKind?: TripKind;
+  initialPassengers?: number;
   onClose: () => void;
   onComplete: (result: {
     purchaseCode: string | null;
     pagamentoLink: string | null;
+    searchLink: string | null;
+    departureDate: string | null;
+    returnDate: string | null;
     skippedOrder: boolean;
   }) => void;
 };
@@ -118,6 +168,8 @@ export default function BiometriaWizardModal({
   credsError,
   whatsapp,
   whatsappPhoneLabel,
+  initialTripKind = "IDA",
+  initialPassengers = 1,
   onClose,
   onComplete,
 }: Props) {
@@ -134,6 +186,15 @@ export default function BiometriaWizardModal({
   const [otpReason, setOtpReason] = useState<string | null>(null);
   const [orderLinkInput, setOrderLinkInput] = useState("");
 
+  const [searchTrip, setSearchTrip] = useState<TripKind>("IDA");
+  const [searchOrigin, setSearchOrigin] = useState("");
+  const [searchDestination, setSearchDestination] = useState("");
+  const [searchOutbound, setSearchOutbound] = useState("");
+  const [searchInbound, setSearchInbound] = useState("");
+  const [searchAdt, setSearchAdt] = useState(1);
+  const [searchChd, setSearchChd] = useState(0);
+  const [searchInf, setSearchInf] = useState(0);
+
   const cpf = creds?.cpf || "";
   const email = creds?.programEmail || creds?.email || "";
   const programPass = creds?.programPassword || creds?.senhaPrograma || "";
@@ -146,6 +207,30 @@ export default function BiometriaWizardModal({
   const pagamentoLink = useMemo(
     () => (extractedOrderId ? buildLatamPagamentoLink(extractedOrderId) : null),
     [extractedOrderId]
+  );
+
+  const searchLink = useMemo(
+    () =>
+      buildLatamSearchLink({
+        origin: searchOrigin,
+        destination: searchDestination,
+        outbound: searchOutbound,
+        inbound: searchInbound,
+        trip: searchTrip === "IDA_VOLTA" ? "RT" : "OW",
+        adt: searchAdt,
+        chd: searchChd,
+        inf: searchInf,
+      }),
+    [
+      searchOrigin,
+      searchDestination,
+      searchOutbound,
+      searchInbound,
+      searchTrip,
+      searchAdt,
+      searchChd,
+      searchInf,
+    ]
   );
 
   const loginMessage = useMemo(() => {
@@ -204,7 +289,15 @@ export default function BiometriaWizardModal({
     setOtpSynced(true);
     setOtpReason(null);
     setOrderLinkInput("");
-  }, [open, cedenteId, program]);
+    setSearchTrip(initialTripKind);
+    setSearchOrigin("");
+    setSearchDestination("");
+    setSearchOutbound("");
+    setSearchInbound("");
+    setSearchAdt(Math.max(1, Math.floor(initialPassengers) || 1));
+    setSearchChd(0);
+    setSearchInf(0);
+  }, [open, cedenteId, program, initialTripKind, initialPassengers]);
 
   const fetchOtp = useCallback(async () => {
     if (!cedenteId) return;
@@ -269,14 +362,25 @@ export default function BiometriaWizardModal({
         opts.purchaseCode && program === "LATAM"
           ? buildLatamPagamentoLink(opts.purchaseCode)
           : null,
+      searchLink: program === "LATAM" ? searchLink : null,
+      departureDate: searchOutbound || null,
+      returnDate:
+        searchTrip === "IDA_VOLTA" && searchInbound ? searchInbound : null,
       skippedOrder: opts.skippedOrder,
     });
+  }
+
+  function goAfterCode() {
+    if (program === "LATAM") setStep("search");
+    else finish({ purchaseCode: null, skippedOrder: true });
   }
 
   if (!open) return null;
 
   const stepsForProgram: Step[] =
-    program === "LATAM" ? ["creds", "code", "bio", "order"] : ["creds", "code"];
+    program === "LATAM"
+      ? ["creds", "code", "search", "bio", "order"]
+      : ["creds", "code"];
 
   const stepIndex = stepsForProgram.indexOf(step);
 
@@ -554,10 +658,7 @@ export default function BiometriaWizardModal({
               <div className="flex flex-wrap gap-2">
                 <button
                   type="button"
-                  onClick={() => {
-                    if (program === "LATAM") setStep("bio");
-                    else finish({ purchaseCode: null, skippedOrder: true });
-                  }}
+                  onClick={goAfterCode}
                   className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50"
                 >
                   <SkipForward className="h-4 w-4" aria-hidden />
@@ -565,10 +666,7 @@ export default function BiometriaWizardModal({
                 </button>
                 <button
                   type="button"
-                  onClick={() => {
-                    if (program === "LATAM") setStep("bio");
-                    else finish({ purchaseCode: null, skippedOrder: true });
-                  }}
+                  onClick={goAfterCode}
                   className="inline-flex h-11 items-center justify-center gap-1.5 rounded-xl bg-slate-900 px-5 text-sm font-semibold text-white hover:bg-slate-800"
                 >
                   {otpCode ? (
@@ -585,14 +683,214 @@ export default function BiometriaWizardModal({
           </div>
         ) : null}
 
+        {step === "search" ? (
+          <div className="mt-5 space-y-4">
+            <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-4">
+              <div className="font-semibold text-slate-900">
+                3. Link de pesquisa (milhas)
+              </div>
+              <p className="mt-1 text-xs text-slate-500">
+                Preencha o trecho para abrir a busca LATAM já em milhas (
+                <span className="font-mono">redemption=true</span>). PAX vem da venda.
+              </p>
+
+              <div className="mt-3 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => setSearchTrip("IDA")}
+                  className={cn(
+                    "rounded-lg border px-3 py-1.5 text-xs font-semibold",
+                    searchTrip === "IDA"
+                      ? "border-slate-900 bg-slate-900 text-white"
+                      : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+                  )}
+                >
+                  Somente ida
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSearchTrip("IDA_VOLTA")}
+                  className={cn(
+                    "rounded-lg border px-3 py-1.5 text-xs font-semibold",
+                    searchTrip === "IDA_VOLTA"
+                      ? "border-slate-900 bg-slate-900 text-white"
+                      : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+                  )}
+                >
+                  Ida e volta
+                </button>
+              </div>
+
+              <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                <div className="space-y-1">
+                  <label className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                    De (IATA)
+                  </label>
+                  <input
+                    className="h-10 w-full rounded-xl border border-slate-200 bg-white px-3 font-mono text-sm uppercase outline-none focus:ring-2 focus:ring-slate-900/10"
+                    value={searchOrigin}
+                    maxLength={3}
+                    onChange={(e) => setSearchOrigin(toIata(e.target.value))}
+                    placeholder="SAO"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                    Para (IATA)
+                  </label>
+                  <input
+                    className="h-10 w-full rounded-xl border border-slate-200 bg-white px-3 font-mono text-sm uppercase outline-none focus:ring-2 focus:ring-slate-900/10"
+                    value={searchDestination}
+                    maxLength={3}
+                    onChange={(e) => setSearchDestination(toIata(e.target.value))}
+                    placeholder="POA"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                    Data ida
+                  </label>
+                  <input
+                    type="date"
+                    className="h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-slate-900/10"
+                    value={searchOutbound}
+                    onChange={(e) => setSearchOutbound(e.target.value)}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                    Data volta
+                  </label>
+                  <input
+                    type="date"
+                    disabled={searchTrip !== "IDA_VOLTA"}
+                    className="h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-slate-900/10 disabled:bg-slate-100 disabled:text-slate-400"
+                    value={searchInbound}
+                    onChange={(e) => setSearchInbound(e.target.value)}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                    Adultos
+                  </label>
+                  <input
+                    type="number"
+                    min={1}
+                    max={9}
+                    className="h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-slate-900/10"
+                    value={searchAdt}
+                    onChange={(e) =>
+                      setSearchAdt(Math.max(1, Math.min(9, Number(e.target.value) || 1)))
+                    }
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="space-y-1">
+                    <label className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                      Crianças
+                    </label>
+                    <input
+                      type="number"
+                      min={0}
+                      max={9}
+                      className="h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-slate-900/10"
+                      value={searchChd}
+                      onChange={(e) =>
+                        setSearchChd(Math.max(0, Math.min(9, Number(e.target.value) || 0)))
+                      }
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                      Bebês
+                    </label>
+                    <input
+                      type="number"
+                      min={0}
+                      max={9}
+                      className="h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-slate-900/10"
+                      value={searchInf}
+                      onChange={(e) =>
+                        setSearchInf(Math.max(0, Math.min(9, Number(e.target.value) || 0)))
+                      }
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {searchLink ? (
+                <div className="mt-4">
+                  <div className="text-[11px] font-semibold uppercase tracking-wide text-emerald-800">
+                    Link gerado (milhas)
+                  </div>
+                  <div className="mt-1 break-all rounded-xl border border-emerald-200 bg-white px-3 py-2 font-mono text-[11px] text-slate-800">
+                    {searchLink}
+                  </div>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => void copyText(searchLink)}
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[11px] font-medium hover:bg-slate-50"
+                    >
+                      <Copy className="h-3.5 w-3.5" aria-hidden />
+                      Copiar link
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        window.open(searchLink, "_blank", "noopener,noreferrer")
+                      }
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-sky-200 bg-sky-50 px-2.5 py-1.5 text-[11px] font-medium text-sky-800 hover:bg-sky-100"
+                    >
+                      <ExternalLink className="h-3.5 w-3.5" aria-hidden />
+                      Abrir pesquisa LATAM
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="mt-4 rounded-xl border border-dashed border-slate-200 bg-white px-3 py-3 text-[11px] text-slate-500">
+                  Preencha origem, destino e datas para gerar o link.
+                </div>
+              )}
+            </div>
+
+            <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-between">
+              <button
+                type="button"
+                onClick={() => setStep("code")}
+                className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+              >
+                Voltar
+              </button>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => setStep("bio")}
+                  className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                >
+                  <SkipForward className="h-4 w-4" aria-hidden />
+                  Pular
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setStep("bio")}
+                  className="inline-flex h-11 items-center justify-center rounded-xl bg-slate-900 px-5 text-sm font-semibold text-white hover:bg-slate-800"
+                >
+                  Seguir
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : null}
+
         {step === "bio" ? (
           <div className="mt-5 space-y-4">
             <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-4">
               <div className="font-semibold text-slate-900">
-                3. Envie ao cedente o link da biometria
+                4. Envie ao cedente o link da biometria
               </div>
               <p className="mt-1 text-xs text-slate-500">
-                Depois do código, envie o link da biometria (muda a cada reserva) e aguarde a
+                Depois da pesquisa, envie o link da biometria (muda a cada reserva) e aguarde a
                 conclusão.
               </p>
               {bioMessage ? (
@@ -633,7 +931,7 @@ export default function BiometriaWizardModal({
             <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-between">
               <button
                 type="button"
-                onClick={() => setStep("code")}
+                onClick={() => setStep("search")}
                 className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
               >
                 Voltar
@@ -652,7 +950,7 @@ export default function BiometriaWizardModal({
         {step === "order" ? (
           <div className="mt-5 space-y-4">
             <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-4">
-              <div className="font-semibold text-slate-900">4. Order ID e link de pagamento</div>
+              <div className="font-semibold text-slate-900">5. Order ID e link de pagamento</div>
               <p className="mt-1 text-xs text-slate-500">
                 Cole o link da reserva ou o Order ID. Se preferir, pule e siga para a emissão.
               </p>
