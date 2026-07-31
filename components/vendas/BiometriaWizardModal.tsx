@@ -39,8 +39,8 @@ type TripKind = "IDA" | "IDA_VOLTA";
 const LATAM_SITE_URL = "https://www.latamairlines.com/br/pt";
 const SMILES_SITE_URL = "https://www.smiles.com.br";
 
-/** Olhar ~3 min atrás: o código costuma ser pedido na cia antes de voltar ao TradeMiles. */
-const CODE_LOOKBACK_MS = 3 * 60 * 1000;
+/** Olhar ~15 min atrás: cobre ENC/Fwd e pedida na cia antes de voltar ao TradeMiles. */
+const CODE_LOOKBACK_MS = 15 * 60 * 1000;
 
 function formatArrivedAt(iso: string | null | undefined) {
   if (!iso) return null;
