@@ -491,6 +491,11 @@ model Cedente {
   smilesCreacaoResolvido  Boolean @default(false)
   liveloCreacaoResolvido  Boolean @default(false)
 
+  /// Encaminhamento do e-mail do cedente para a caixa da empresa já configurado.
+  emailRedirecionado     Boolean   @default(false)
+  emailRedirecionadoAt   DateTime?
+  emailRedirecionadoById String?
+
   pontosLatam  Int @default(0)
   pontosSmiles Int @default(0)
   pontosLivelo Int @default(0)
@@ -557,6 +562,7 @@ model Cedente {
   @@index([inviteId])
   @@index([referredByCedenteId])
   @@index([createdAt])
+  @@index([emailRedirecionado])
   @@map("cedentes")
 }
 

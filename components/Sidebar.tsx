@@ -747,7 +747,10 @@ export default function Sidebar() {
               Mensagem pronta
             </NavLink>
 
-            {/* ✅ NOVO */}
+            <NavLink href="/dashboard/cedentes/redirecionar-email">
+              Redirecionar e-mail
+            </NavLink>
+
             <NavLink href="/dashboard/cedentes/historico-cadastro">
               Histórico de cadastro
             </NavLink>

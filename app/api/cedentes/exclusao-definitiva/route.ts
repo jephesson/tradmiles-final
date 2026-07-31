@@ -300,6 +300,9 @@ export async function POST(req: Request) {
             senhaLatamPass: null,
             senhaLivelo: null,
             senhaEsfera: null,
+            emailRedirecionado: false,
+            emailRedirecionadoAt: null,
+            emailRedirecionadoById: null,
           },
         });
 
