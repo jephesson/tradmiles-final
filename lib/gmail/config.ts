@@ -134,6 +134,34 @@ export function buildInboxProgramQuery(programs: EmailProgram[]): string {
   return sender || fwd;
 }
 
+/**
+ * E-mails envolvendo endereços de cedentes cadastrados (from/to/cc/deliveredto).
+ * Em lotes para não estourar o limite de tamanho da query do Gmail.
+ */
+export function buildCedenteAddressQueries(
+  emails: string[],
+  opts?: { batchSize?: number; maxBatches?: number }
+): string[] {
+  const batchSize = opts?.batchSize ?? 35;
+  const maxBatches = opts?.maxBatches ?? 8;
+  const unique = Array.from(
+    new Set(
+      emails
+        .map((e) => String(e || "").trim().toLowerCase())
+        .filter((e) => e.includes("@"))
+    )
+  );
+  if (!unique.length) return [];
+
+  const out: string[] = [];
+  for (let i = 0; i < unique.length && out.length < maxBatches; i += batchSize) {
+    const batch = unique.slice(i, i + batchSize);
+    const or = batch.map((e) => `"${e.replace(/"/g, "")}"`).join(" OR ");
+    out.push(`(from:(${or}) OR to:(${or}) OR cc:(${or}) OR deliveredto:(${or}))`);
+  }
+  return out;
+}
+
 /** Onde aplicar o termo de busca na query do Gmail. */
 export type EmailSearchIn = "subject" | "anywhere";
 

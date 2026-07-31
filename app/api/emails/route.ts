@@ -7,6 +7,7 @@ import {
   EMAIL_PROGRAMS,
   MAX_PAGE_SIZE,
   METADATA_HEADERS,
+  buildCedenteAddressQueries,
   buildContentQuery,
   buildInboxProgramQuery,
   programFromHints,
@@ -93,6 +94,40 @@ type EmailRow = {
   } | null;
 };
 
+function mapMessage(
+  message: Awaited<ReturnType<typeof getMessageMetadata>>,
+  byEmail: Map<string, CedenteLite>,
+  mailbox: string
+): EmailRow {
+  const from = headerValue(message, "From");
+  const fromAddress = firstAddress(from);
+  const fromName = displayName(from);
+  const subject = headerValue(message, "Subject") || "(sem assunto)";
+  const snippet = message.snippet || "";
+  const cedente = matchCedenteByHeaders(message, byEmail, mailbox);
+  const date = messageDate(message);
+
+  return {
+    id: message.id,
+    threadId: message.threadId,
+    program: programFromHints(fromAddress, fromName, `${subject} ${snippet}`),
+    fromName,
+    fromAddress,
+    subject,
+    snippet,
+    date: date ? date.toISOString() : null,
+    unread: (message.labelIds || []).includes("UNREAD"),
+    cedente: cedente
+      ? {
+          id: cedente.id,
+          identificador: cedente.identificador,
+          nomeCompleto: cedente.nomeCompleto,
+          email: cedente.email,
+        }
+      : null,
+  };
+}
+
 export async function GET(req: Request) {
   let session;
   try {
@@ -138,116 +173,132 @@ export async function GET(req: Request) {
   const cedentes = await loadCedentes();
   const byEmail = new Map(cedentes.map((c) => [c.email, c]));
 
-  const parts: string[] = [`newer_than:${windowDays}d`];
+  const contentQuery = buildContentQuery(search, searchIn);
+  const baseParts = [`newer_than:${windowDays}d`];
+  if (contentQuery) baseParts.push(contentQuery);
+
+  /** Queries Gmail a executar (programas + participação de cedentes). */
+  const gmailQueries: string[] = [];
+  let primaryQuery = "";
 
   if (cedenteId) {
     const target = cedentes.find((c) => c.id === cedenteId);
     if (!target) return bad("Cedente não encontrado ou sem e-mail cadastrado.", 404);
-    // Cedente específico: tudo que chegou para o e-mail dele na caixa.
-    parts.push(`(to:${target.email} OR deliveredto:${target.email} OR cc:${target.email} OR from:${target.email})`);
-    // Só restringe remetente se o usuário escolheu um programa no chip.
+    const parts = [
+      ...baseParts,
+      `(to:${target.email} OR deliveredto:${target.email} OR cc:${target.email} OR from:${target.email})`,
+    ];
     if (programs.length) {
       const sender = buildInboxProgramQuery(programs);
       if (sender) parts.push(sender);
     }
+    primaryQuery = parts.filter(Boolean).join(" ");
+    gmailQueries.push(primaryQuery);
+  } else if (programs.length) {
+    // Chip de uma cia: só aquele programa.
+    primaryQuery = [...baseParts, buildInboxProgramQuery(programs)]
+      .filter(Boolean)
+      .join(" ");
+    gmailQueries.push(primaryQuery);
   } else {
-    const sender = buildInboxProgramQuery(programs);
-    if (sender) parts.push(sender);
+    // Todos: e-mails das cias + qualquer mensagem ligada a cedente cadastrado.
+    primaryQuery = [...baseParts, buildInboxProgramQuery([])]
+      .filter(Boolean)
+      .join(" ");
+    gmailQueries.push(primaryQuery);
+
+    // Na paginação ("carregar mais"), não re-dispara todos os lotes de cedente.
+    if (!pageToken) {
+      for (const cq of buildCedenteAddressQueries(
+        cedentes.map((c) => c.email),
+        { batchSize: 35, maxBatches: 8 }
+      )) {
+        gmailQueries.push([...baseParts, cq].filter(Boolean).join(" "));
+      }
+    }
   }
 
-  const contentQuery = buildContentQuery(search, searchIn);
-  if (contentQuery) parts.push(contentQuery);
-
-  const query = parts.filter(Boolean).join(" ");
-
   try {
-    const collected: EmailRow[] = [];
+    const idSet = new Set<string>();
     let nextPageToken: string | null = null;
-    let pages = 0;
-    const maxPages = scope === "all" ? 1 : SCOPE_SCAN_PAGES;
     let pageMatched = 0;
     let pageUnmatched = 0;
 
-    while (pages < maxPages) {
-      pages += 1;
-      const list = await listMessages({
-        q: query,
-        maxResults: limit,
-        pageToken,
-      });
-      const ids = (list.messages || []).map((m) => m.id);
-      nextPageToken = list.nextPageToken || null;
-
-      if (!ids.length) {
-        nextPageToken = null;
-        break;
+    // 1) Query principal: pode paginar / varrer várias páginas.
+    {
+      const maxPages = scope === "all" ? 1 : SCOPE_SCAN_PAGES;
+      let token = pageToken;
+      let pages = 0;
+      while (pages < maxPages) {
+        pages += 1;
+        const list = await listMessages({
+          q: primaryQuery,
+          maxResults: limit,
+          pageToken: token,
+        });
+        for (const m of list.messages || []) idSet.add(m.id);
+        nextPageToken = list.nextPageToken || null;
+        if (!list.messages?.length || scope === "all" || idSet.size >= limit * 3) {
+          break;
+        }
+        if (!nextPageToken) break;
+        token = nextPageToken;
       }
-
-      const messages = await mapWithConcurrency(ids, FETCH_CONCURRENCY, (id) =>
-        getMessageMetadata(id, METADATA_HEADERS)
-      );
-
-      const mapped = messages.map((message) => {
-        const from = headerValue(message, "From");
-        const fromAddress = firstAddress(from);
-        const fromName = displayName(from);
-        const subject = headerValue(message, "Subject") || "(sem assunto)";
-        const snippet = message.snippet || "";
-        const cedente = matchCedenteByHeaders(message, byEmail, cfg.mailbox);
-        const date = messageDate(message);
-
-        return {
-          id: message.id,
-          threadId: message.threadId,
-          program: programFromHints(
-            fromAddress,
-            fromName,
-            `${subject} ${snippet}`
-          ),
-          fromName,
-          fromAddress,
-          subject,
-          snippet,
-          date: date ? date.toISOString() : null,
-          unread: (message.labelIds || []).includes("UNREAD"),
-          cedente: cedente
-            ? {
-                id: cedente.id,
-                identificador: cedente.identificador,
-                nomeCompleto: cedente.nomeCompleto,
-                email: cedente.email,
-              }
-            : null,
-        } satisfies EmailRow;
-      });
-
-      pageMatched += mapped.filter((r) => r.cedente).length;
-      pageUnmatched += mapped.filter((r) => !r.cedente).length;
-
-      const filtered =
-        scope === "matched"
-          ? mapped.filter((r) => r.cedente)
-          : scope === "unmatched"
-            ? mapped.filter((r) => !r.cedente)
-            : mapped;
-
-      for (const row of filtered) {
-        if (collected.length >= limit) break;
-        collected.push(row);
-      }
-
-      if (scope === "all" || collected.length >= limit || !nextPageToken) {
-        break;
-      }
-
-      pageToken = nextPageToken;
     }
 
-    collected.sort((a, b) => {
+    // 2) Queries extras (cedentes): uma página cada, em paralelo.
+    const extraQueries = gmailQueries.slice(1);
+    if (extraQueries.length) {
+      const extras = await mapWithConcurrency(extraQueries, 3, async (q) => {
+        const list = await listMessages({ q, maxResults: limit });
+        return (list.messages || []).map((m) => m.id);
+      });
+      for (const ids of extras) {
+        for (const id of ids) idSet.add(id);
+      }
+    }
+
+    const ids = Array.from(idSet);
+    if (!ids.length) {
+      return NextResponse.json({
+        ok: true,
+        configured: true,
+        canConnect: cfg.canConnect,
+        isAdmin: session.role === "admin",
+        mailbox: cfg.mailbox || null,
+        source: cfg.source,
+        query: primaryQuery,
+        rows: [],
+        nextPageToken: null,
+        summary: { total: 0, matched: 0, unmatched: 0 },
+      });
+    }
+
+    const messages = await mapWithConcurrency(ids, FETCH_CONCURRENCY, (id) =>
+      getMessageMetadata(id, METADATA_HEADERS)
+    );
+
+    const mapped = messages.map((message) =>
+      mapMessage(message, byEmail, cfg.mailbox)
+    );
+
+    pageMatched = mapped.filter((r) => r.cedente).length;
+    pageUnmatched = mapped.filter((r) => !r.cedente).length;
+
+    const filtered =
+      scope === "matched"
+        ? mapped.filter((r) => r.cedente)
+        : scope === "unmatched"
+          ? mapped.filter((r) => !r.cedente)
+          : mapped;
+
+    filtered.sort((a, b) => {
       const ka = a.date ? new Date(a.date).getTime() : 0;
       const kb = b.date ? new Date(b.date).getTime() : 0;
       return kb - ka;
     });
+
+    const collected = filtered.slice(0, limit);
 
     return NextResponse.json({
       ok: true,
@@ -256,7 +307,7 @@ export async function GET(req: Request) {
       isAdmin: session.role === "admin",
       mailbox: cfg.mailbox || null,
       source: cfg.source,
-      query,
+      query: primaryQuery,
       rows: collected,
       nextPageToken: collected.length >= limit ? nextPageToken : null,
       summary: {

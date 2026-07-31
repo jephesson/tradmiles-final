@@ -698,8 +698,8 @@ export default function EmailsClient() {
             E-mail
           </h1>
           <p className="mt-0.5 text-sm text-slate-500">
-            <span className="font-medium text-slate-600">Todos</span> = e-mails com
-            cedente (LATAM, Smiles/GOL e Livelo)
+            <span className="font-medium text-slate-600">Todos</span> = tudo que
+            identifica cedente cadastrado (cias + encaminhamentos)
             {mailbox ? ` · ${mailbox}` : ""}. Crie chips para cada tipo
             (código, clube, comprovante…).
           </p>
@@ -780,7 +780,7 @@ export default function EmailsClient() {
                 ? "bg-slate-900 text-white shadow-sm"
                 : "text-slate-600 hover:bg-slate-100"
             )}
-            title="Todos os e-mails com cedente (LATAM, Smiles/GOL e Livelo)"
+            title="Tudo que identifica cedente cadastrado"
           >
             Todos
           </button>
