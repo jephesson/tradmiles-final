@@ -5,7 +5,6 @@ import {
   METADATA_HEADERS,
   buildContentQuery,
   buildSenderQuery,
-  type EmailProgram,
 } from "@/lib/gmail/config";
 import {
   GmailApiError,
