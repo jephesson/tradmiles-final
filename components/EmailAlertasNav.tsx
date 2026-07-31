@@ -6,6 +6,7 @@ import Link from "next/link";
 import {
   BellRing,
   ExternalLink,
+  History,
   Loader2,
   MailOpen,
   ShoppingBag,
@@ -79,19 +80,28 @@ export default function EmailAlertasNav() {
   const [detailLoading, setDetailLoading] = useState(false);
   const [mounted, setMounted] = useState(false);
   const [userId, setUserId] = useState<string | null>(null);
+  const [dismissTick, setDismissTick] = useState(0);
+  const [tab, setTab] = useState<"active" | "history">("active");
   const [panelPos, setPanelPos] = useState<{ top: number; left: number } | null>(
     null
   );
   const btnRef = useRef<HTMLButtonElement | null>(null);
   const panelRef = useRef<HTMLDivElement | null>(null);
 
-  const visibleRows = useMemo(() => {
+  const { visibleRows, historyRows } = useMemo(() => {
     const dismissed = loadDismissedAlertIds(userId);
-    return rows.filter((r) => !dismissed[r.id]);
-  }, [rows, userId]);
+    const active: AlertRow[] = [];
+    const history: AlertRow[] = [];
+    for (const r of rows) {
+      if (dismissed[r.id]) history.push(r);
+      else active.push(r);
+    }
+    return { visibleRows: active, historyRows: history };
+  }, [rows, userId, dismissTick]);
 
   const count = visibleRows.length;
   const hasAlerts = count > 0;
+  const listRows = tab === "active" ? visibleRows : historyRows;
 
   const refresh = useCallback(async () => {
     const filters = loadSavedEmailFilters();
@@ -259,8 +269,13 @@ export default function EmailAlertasNav() {
 
   function dismiss(id: string) {
     dismissAlertMessage(id, userId);
-    setRows((prev) => prev.filter((r) => r.id !== id));
+    setDismissTick((t) => t + 1);
     if (detail?.id === id) setDetail(null);
+  }
+
+  function handleActionClick(id: string) {
+    dismiss(id);
+    setOpen(false);
   }
 
   const panel =
@@ -304,8 +319,39 @@ export default function EmailAlertasNav() {
               </div>
             </div>
 
+            {alertFilterCount > 0 ? (
+              <div className="flex gap-1 border-b border-slate-100 px-3 py-2">
+                <button
+                  type="button"
+                  onClick={() => setTab("active")}
+                  className={cn(
+                    "h-8 flex-1 rounded-lg text-[11px] font-semibold transition",
+                    tab === "active"
+                      ? "bg-slate-900 text-white"
+                      : "bg-slate-50 text-slate-600 hover:bg-slate-100"
+                  )}
+                >
+                  Novos{count ? ` (${count})` : ""}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setTab("history")}
+                  className={cn(
+                    "inline-flex h-8 flex-1 items-center justify-center gap-1 rounded-lg text-[11px] font-semibold transition",
+                    tab === "history"
+                      ? "bg-slate-900 text-white"
+                      : "bg-slate-50 text-slate-600 hover:bg-slate-100"
+                  )}
+                >
+                  <History className="h-3.5 w-3.5" aria-hidden />
+                  Anteriores
+                  {historyRows.length ? ` (${historyRows.length})` : ""}
+                </button>
+              </div>
+            ) : null}
+
             <div className="max-h-[min(70vh,28rem)] overflow-y-auto">
-              {loading && !visibleRows.length ? (
+              {loading && !listRows.length ? (
                 <div className="flex items-center gap-2 px-4 py-8 text-sm text-slate-500">
                   <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
                   Procurando…
@@ -325,15 +371,19 @@ export default function EmailAlertasNav() {
                     <ExternalLink className="h-3.5 w-3.5" aria-hidden />
                   </Link>
                 </div>
-              ) : visibleRows.length === 0 ? (
+              ) : listRows.length === 0 ? (
                 <div className="px-4 py-8 text-center text-sm text-slate-500">
-                  Nada novo com esses filtros.
+                  {tab === "active"
+                    ? "Nada novo com esses filtros."
+                    : "Nenhum alerta ignorado ou concluído nestes 3 dias."}
                 </div>
               ) : (
                 <ul className="divide-y divide-slate-100">
-                  {visibleRows.map((row) => {
+                  {listRows.map((row) => {
+                    const isHistory = tab === "history";
                     const actionCfg = getAlertActionConfig(row.filterId);
-                    const showAction = canUserUseAlertAction(actionCfg, userId);
+                    const showAction =
+                      !isHistory && canUserUseAlertAction(actionCfg, userId);
                     const actionHref = buildAlertActionHref(actionCfg, {
                       cedenteId: row.cedente?.id,
                       emailId: row.id,
@@ -346,11 +396,19 @@ export default function EmailAlertasNav() {
                           : ShoppingBag;
 
                     return (
-                    <li key={row.id} className="px-3.5 py-3">
+                    <li
+                      key={row.id}
+                      className={cn("px-3.5 py-3", isHistory && "bg-slate-50/70")}
+                    >
                       <div className="flex items-start justify-between gap-2">
                         <div className="min-w-0">
                           <div className="text-[11px] font-semibold uppercase tracking-wide text-amber-800">
                             {row.filterName}
+                            {isHistory ? (
+                              <span className="ml-1.5 font-medium normal-case tracking-normal text-slate-400">
+                                · tratado
+                              </span>
+                            ) : null}
                           </div>
                           <div className="mt-0.5 truncate text-sm font-semibold text-slate-900">
                             {row.cedente?.nomeCompleto || "Cedente não identificado"}
@@ -375,15 +433,17 @@ export default function EmailAlertasNav() {
                             </div>
                           ) : null}
                         </div>
-                        <button
-                          type="button"
-                          onClick={() => dismiss(row.id)}
-                          className="shrink-0 rounded-md px-1.5 py-1 text-[11px] font-semibold text-slate-400 hover:bg-slate-100 hover:text-slate-700"
-                          aria-label="Ignorar alerta"
-                          title="Ignorar só para você — continua para os outros"
-                        >
-                          Ignorar
-                        </button>
+                        {!isHistory ? (
+                          <button
+                            type="button"
+                            onClick={() => dismiss(row.id)}
+                            className="shrink-0 rounded-md px-1.5 py-1 text-[11px] font-semibold text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                            aria-label="Ignorar alerta"
+                            title="Ignorar só para você — continua para os outros"
+                          >
+                            Ignorar
+                          </button>
+                        ) : null}
                       </div>
                       <div className="mt-2 flex flex-wrap gap-2">
                         <button
@@ -397,7 +457,7 @@ export default function EmailAlertasNav() {
                         {showAction ? (
                           <Link
                             href={actionHref}
-                            onClick={() => setOpen(false)}
+                            onClick={() => handleActionClick(row.id)}
                             className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-slate-900 px-2.5 text-[11px] font-semibold text-white hover:bg-slate-800"
                           >
                             <ActionIcon className="h-3.5 w-3.5" aria-hidden />
