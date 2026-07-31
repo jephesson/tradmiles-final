@@ -3,16 +3,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
-import {
-  ArrowRight,
-  CalendarDays,
-  Circle,
-  LayoutDashboard,
-  LayoutGrid,
-  ShoppingCart,
-  Store,
-  Users,
-} from "lucide-react";
+import { CalendarDays, Circle, Users } from "lucide-react";
 import { cn } from "@/lib/cn";
 import LogoutButton from "@/components/LogoutButton";
 
@@ -41,52 +32,6 @@ type InicialData = {
   expectedShiftEventIds: string[];
   teamPresence: PresenceRow[];
 };
-
-function ShortcutCard({
-  href,
-  title,
-  description,
-  icon: Icon,
-  accent,
-}: {
-  href: string;
-  title: string;
-  description: string;
-  icon: typeof ShoppingCart;
-  accent: "sky" | "emerald" | "indigo" | "amber";
-}) {
-  const ring = {
-    sky: "from-sky-500/15 to-white ring-sky-200/80 hover:ring-sky-300",
-    emerald: "from-emerald-500/15 to-white ring-emerald-200/80 hover:ring-emerald-300",
-    indigo: "from-indigo-500/15 to-white ring-indigo-200/80 hover:ring-indigo-300",
-    amber: "from-amber-500/15 to-white ring-amber-200/80 hover:ring-amber-300",
-  }[accent];
-  const iconBg = {
-    sky: "bg-sky-500 text-white",
-    emerald: "bg-emerald-600 text-white",
-    indigo: "bg-indigo-600 text-white",
-    amber: "bg-amber-500 text-white",
-  }[accent];
-
-  return (
-    <Link
-      href={href}
-      className={cn(
-        "group relative flex flex-col rounded-2xl border border-slate-200/90 bg-gradient-to-br p-5 shadow-sm ring-1 transition hover:shadow-md",
-        ring
-      )}
-    >
-      <div className="flex items-start justify-between gap-3">
-        <div className={cn("flex h-11 w-11 shrink-0 items-center justify-center rounded-xl shadow-sm", iconBg)}>
-          <Icon className="h-5 w-5" aria-hidden />
-        </div>
-        <ArrowRight className="h-4 w-4 text-slate-400 transition group-hover:translate-x-0.5 group-hover:text-slate-600" />
-      </div>
-      <div className="mt-4 text-base font-semibold tracking-tight text-slate-900">{title}</div>
-      <p className="mt-1 text-xs leading-relaxed text-slate-600">{description}</p>
-    </Link>
-  );
-}
 
 export default function DashboardInicialClient() {
   const [data, setData] = useState<InicialData | null>(null);
@@ -132,7 +77,7 @@ export default function DashboardInicialClient() {
           </div>
           <div className="text-center sm:text-left">
             <h1 className="text-2xl font-bold tracking-tight text-slate-900">Página inicial</h1>
-            <p className="mt-1 text-sm text-slate-600">Atalhos, agenda do dia e presença da equipe.</p>
+            <p className="mt-1 text-sm text-slate-600">Agenda do dia e presença da equipe.</p>
           </div>
         </div>
         <LogoutButton />
@@ -141,43 +86,6 @@ export default function DashboardInicialClient() {
       {error ? (
         <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">{error}</div>
       ) : null}
-
-      <section>
-        <div className="mb-3 flex items-center gap-2 text-slate-800">
-          <LayoutGrid className="h-4 w-4 text-slate-500" aria-hidden />
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-700">Atalhos</h2>
-        </div>
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          <ShortcutCard
-            href="/dashboard/vendas/nova"
-            title="Efetuar venda"
-            description="Registrar nova venda de milhas."
-            icon={Store}
-            accent="sky"
-          />
-          <ShortcutCard
-            href="/dashboard/compras/nova"
-            title="Efetuar compra"
-            description="Abrir nova compra de pontos."
-            icon={ShoppingCart}
-            accent="emerald"
-          />
-          <ShortcutCard
-            href="/dashboard/vendas"
-            title="Painel de vendas"
-            description="Visão geral das vendas e fluxos."
-            icon={LayoutDashboard}
-            accent="indigo"
-          />
-          <ShortcutCard
-            href="/dashboard/comissoes/funcionarios"
-            title="Comissão dos funcionários"
-            description="Comissões e pagamentos da equipe."
-            icon={Users}
-            accent="amber"
-          />
-        </div>
-      </section>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         <section className="rounded-2xl border border-slate-200/90 bg-white p-5 shadow-sm">

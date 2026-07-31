@@ -163,9 +163,16 @@ export default function Sidebar() {
 
   const isPontosVisualizarRoute = pathname.startsWith(VISUALIZAR_PONTOS_PATH);
 
-  // ✅ Cadastro NÃO deve “pegar” Visualizar cedentes
+  // Cedentes raros: ficam em Outros (não no menu principal de Cadastro).
+  const isCedentesOutrosRoute =
+    pathname.startsWith("/dashboard/cedentes/importar") ||
+    pathname.startsWith("/dashboard/cedentes/novo");
+
+  // ✅ Cadastro NÃO deve “pegar” Visualizar cedentes nem os itens movidos p/ Outros
   const isCadastroRoute =
-    (pathname.startsWith("/dashboard/cedentes") && !isPontosVisualizarRoute) ||
+    (pathname.startsWith("/dashboard/cedentes") &&
+      !isPontosVisualizarRoute &&
+      !isCedentesOutrosRoute) ||
     pathname.startsWith("/dashboard/afiliados") ||
     pathname.startsWith("/dashboard/clientes") ||
     pathname.startsWith("/dashboard/funcionarios") ||
@@ -342,7 +349,8 @@ export default function Sidebar() {
     isHorarioBiometriaRoute ||
     isImportacoesRoute ||
     isImportacoesEmissoesLatamRoute ||
-    isProtocolosRoute;
+    isProtocolosRoute ||
+    isCedentesOutrosRoute;
 
   /* =========================
    * ACCORDIONS
@@ -356,7 +364,8 @@ export default function Sidebar() {
   const [openCedentes, setOpenCedentes] = useState(
     (pathname.startsWith("/dashboard/cedentes") &&
       !isPontosVisualizarRoute &&
-      !isPendenciasRoute) ||
+      !isPendenciasRoute &&
+      !isCedentesOutrosRoute) ||
       pathname.startsWith("/dashboard/bloqueios")
   );
 
@@ -448,10 +457,11 @@ export default function Sidebar() {
     setOpenCedentes(
       (pathname.startsWith("/dashboard/cedentes") &&
         !isPontosVisualizarRoute &&
-        !isPendenciasRoute) ||
+        !isPendenciasRoute &&
+        !isCedentesOutrosRoute) ||
         pathname.startsWith("/dashboard/bloqueios")
     );
-  }, [pathname, isPontosVisualizarRoute, isPendenciasRoute]);
+  }, [pathname, isPontosVisualizarRoute, isPendenciasRoute, isCedentesOutrosRoute]);
 
   useEffect(() => {
     setOpenFuncionarios(pathname.startsWith("/dashboard/funcionarios"));
@@ -636,20 +646,8 @@ export default function Sidebar() {
               Redirecionar e-mail
             </NavLink>
 
-            <NavLink href="/dashboard/cedentes/importar">
-              Importar cedentes
-            </NavLink>
-
-            <NavLink href="/dashboard/cedentes/novo">Cadastrar cedente</NavLink>
-
             <NavLink href="/dashboard/cedentes/pendentes">
               Cedentes pendentes
-            </NavLink>
-
-            <NavLink href="/dashboard/cedentes/whatsapp">Whatsapp</NavLink>
-
-            <NavLink href="/dashboard/cedentes/mensagem-pronta">
-              Mensagem pronta
             </NavLink>
 
             <NavLink href="/dashboard/cedentes/historico-cadastro">
@@ -1147,6 +1145,12 @@ export default function Sidebar() {
           <NavLink href="/dashboard/horario-biometria">
             Horário biometria
           </NavLink>
+
+          <NavLink href="/dashboard/cedentes/importar">
+            Importar cedentes
+          </NavLink>
+
+          <NavLink href="/dashboard/cedentes/novo">Cadastrar cedente</NavLink>
 
           <NavLink href="/dashboard/wallet">Wallet</NavLink>
         </Accordion>
