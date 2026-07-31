@@ -38,9 +38,9 @@ function bad(error: string, status = 400) {
   return NextResponse.json({ ok: false, error }, { status });
 }
 
-function parseProgram(raw: string | null): EmailProgram | null {
+function parseProgram(raw: string | null): "LATAM" | "SMILES" | null {
   const v = String(raw || "").trim().toUpperCase();
-  if (v === "LATAM" || v === "SMILES" || v === "LIVELO") return v;
+  if (v === "LATAM" || v === "SMILES") return v;
   return null;
 }
 
@@ -57,7 +57,7 @@ export async function GET(req: Request) {
   const afterIso = (url.searchParams.get("after") || "").trim();
 
   if (!cedenteId) return bad("cedenteId obrigatório.");
-  if (!program) return bad("program inválido. Use LATAM, SMILES ou LIVELO.");
+  if (!program) return bad("program inválido. Use LATAM ou SMILES.");
 
   const afterMs = afterIso ? new Date(afterIso).getTime() : NaN;
   const afterFloor = Number.isFinite(afterMs) ? afterMs - AFTER_SKEW_MS : 0;

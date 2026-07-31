@@ -1,21 +1,19 @@
 // lib/gmail/otp.ts
 // Extração de códigos de verificação de e-mails de fidelidade.
 
-const SUBJECT_BY_PROGRAM: Record<"LATAM" | "SMILES" | "LIVELO", string[]> = {
+const SUBJECT_BY_PROGRAM: Record<"LATAM" | "SMILES", string[]> = {
   LATAM: ["código de verificação", "codigo de verificacao", "verification code"],
   SMILES: ["código de verificação", "codigo de verificacao", "código", "verification"],
-  LIVELO: ["código de verificação", "codigo de verificacao", "código"],
 };
 
 export function verificationSubjectsForProgram(
-  program: "LATAM" | "SMILES" | "LIVELO"
+  program: "LATAM" | "SMILES"
 ): string[] {
   return SUBJECT_BY_PROGRAM[program] || SUBJECT_BY_PROGRAM.LATAM;
 }
 
 /** Query Gmail preferida: assunto típico do programa. */
-export function verificationSubjectQuery(program: "LATAM" | "SMILES" | "LIVELO"): string {
-  if (program === "LATAM") return "Código de verificação";
+export function verificationSubjectQuery(program: "LATAM" | "SMILES"): string {
   if (program === "SMILES") return "código";
   return "Código de verificação";
 }

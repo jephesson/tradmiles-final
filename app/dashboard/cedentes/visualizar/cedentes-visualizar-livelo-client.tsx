@@ -16,7 +16,6 @@ import {
   X,
 } from "lucide-react";
 import { cn } from "@/lib/cn";
-import { VerificationCodeFetch } from "@/components/cedentes/VerificationCodeFetch";
 import { EmailNaoSincronizadoAviso } from "@/components/cedentes/EmailNaoSincronizadoAviso";
 import {
   VP_BTN_SECONDARY,
@@ -774,13 +773,6 @@ export default function CedentesVisualizarLiveloClient() {
                 </button>
               </div>
             </div>
-
-            <VerificationCodeFetch
-              className="mt-4"
-              cedenteId={credentialsRow.id}
-              program="LIVELO"
-              email={credentialsRow.emailCriado}
-            />
           </div>
         </div>
       ) : null}

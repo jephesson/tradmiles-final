@@ -4,15 +4,14 @@ import { useCallback, useEffect, useState } from "react";
 import { Copy, Loader2, RefreshCw, ShieldCheck } from "lucide-react";
 import { cn } from "@/lib/cn";
 
-type Program = "LATAM" | "SMILES" | "LIVELO";
+type Program = "LATAM" | "SMILES";
 
 const CODE_LOOKBACK_MS = 3 * 60 * 1000;
 const POLL_MS = 8_000;
 
 function programLabel(p: Program) {
   if (p === "LATAM") return "LATAM";
-  if (p === "SMILES") return "Smiles";
-  return "Livelo";
+  return "Smiles";
 }
 
 function formatArrivedAt(iso: string | null | undefined) {
