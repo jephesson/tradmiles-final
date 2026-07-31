@@ -567,7 +567,7 @@ export default function BiometriaWizardModal({
               <div className="font-semibold text-slate-900">2. Código de verificação</div>
               <p className="mt-1 text-xs text-slate-500">
                 Busca o código mais recente da {programLabel(program)} deste cedente, com folga
-                de 3 min (você pede na cia e só depois volta aqui)
+                de 15 min (ENC/Fwd do Outlook também)
                 {codeWatchAfter
                   ? ` · a partir de ${new Date(codeWatchAfter).toLocaleTimeString("pt-BR", {
                       hour: "2-digit",
