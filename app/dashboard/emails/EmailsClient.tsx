@@ -491,12 +491,11 @@ export default function EmailsClient() {
       }
 
       if (draftAsAlert) {
-        setAlertIds((prev) => {
-          if (prev.includes(next.id)) return prev;
-          const merged = [...prev, next.id].slice(0, 20);
-          persistAlertEmailFilterIds(merged);
-          return merged;
-        });
+        const merged = Array.from(
+          new Set([...loadAlertEmailFilterIds(), next.id])
+        ).slice(0, 20);
+        persistAlertEmailFilterIds(merged);
+        setAlertIds(merged);
         seedAlertAction(next);
         void pushAlertPrefsToServer().catch(() => null);
       }
@@ -529,12 +528,11 @@ export default function EmailsClient() {
   const enableAlertFilter = useCallback(
     (id: string) => {
       const filter = savedFilters.find((f) => f.id === id);
-      setAlertIds((prev) => {
-        if (prev.includes(id)) return prev;
-        const merged = [...prev, id].slice(0, 20);
-        persistAlertEmailFilterIds(merged);
-        return merged;
-      });
+      const merged = Array.from(
+        new Set([...loadAlertEmailFilterIds(), id])
+      ).slice(0, 20);
+      persistAlertEmailFilterIds(merged);
+      setAlertIds(merged);
       if (filter) seedAlertAction(filter);
       void pushAlertPrefsToServer().catch(() => null);
     },
@@ -542,11 +540,9 @@ export default function EmailsClient() {
   );
 
   const disableAlertFilter = useCallback((id: string) => {
-    setAlertIds((prev) => {
-      const merged = prev.filter((x) => x !== id);
-      persistAlertEmailFilterIds(merged);
-      return merged;
-    });
+    const merged = loadAlertEmailFilterIds().filter((x) => x !== id);
+    persistAlertEmailFilterIds(merged);
+    setAlertIds(merged);
     removeAlertActionConfig(id);
     void pushAlertPrefsToServer().catch(() => null);
   }, []);
@@ -562,11 +558,9 @@ export default function EmailsClient() {
       persistPinnedEmailFilterIds(merged);
       return merged;
     });
-    setAlertIds((prev) => {
-      const merged = prev.filter((x) => x !== id);
-      persistAlertEmailFilterIds(merged);
-      return merged;
-    });
+    const nextAlertIds = loadAlertEmailFilterIds().filter((x) => x !== id);
+    persistAlertEmailFilterIds(nextAlertIds);
+    setAlertIds(nextAlertIds);
     removeAlertActionConfig(id);
     setActiveFilterId((cur) => (cur === id ? null : cur));
     void pushAlertPrefsToServer().catch(() => null);

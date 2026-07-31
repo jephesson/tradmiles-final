@@ -318,20 +318,36 @@ export function dismissAlertMessage(messageId: string, userId?: string | null) {
   persistDismissedByUser(byUser);
 }
 
-/** Empurra filtros de alerta + ações para o servidor (compartilhado com a equipe). */
-export async function pushAlertPrefsToServer() {
-  const alertFilterIds = loadAlertEmailFilterIds();
-  const allFilters = loadSavedEmailFilters();
+type AlertPrefsSnapshot = {
+  alertFilterIds: string[];
+  alertFilters: EmailSavedFilter[];
+  actionConfigs: EmailAlertActionConfig[];
+};
+
+/** Gerações de sync: descartar pull obsoleto se um push rolou no meio. */
+let alertPrefsSyncGen = 0;
+
+function buildAlertPrefsSnapshot(
+  alertFilterIds = loadAlertEmailFilterIds()
+): AlertPrefsSnapshot {
   const idSet = new Set(alertFilterIds);
-  const alertFilters = allFilters.filter((f) => idSet.has(f.id));
-  const actionConfigs = loadAlertActionConfigs().filter((c) =>
-    idSet.has(c.filterId)
-  );
+  const allFilters = loadSavedEmailFilters();
+  return {
+    alertFilterIds,
+    alertFilters: allFilters.filter((f) => idSet.has(f.id)),
+    actionConfigs: loadAlertActionConfigs().filter((c) => idSet.has(c.filterId)),
+  };
+}
+
+/** Empurra filtros de alerta + ações para o servidor (compartilhado com a equipe). */
+export async function pushAlertPrefsToServer(snapshot?: AlertPrefsSnapshot) {
+  const payload = snapshot || buildAlertPrefsSnapshot();
+  alertPrefsSyncGen += 1;
 
   const res = await fetch("/api/emails/alert-prefs", {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ alertFilterIds, alertFilters, actionConfigs }),
+    body: JSON.stringify(payload),
   });
   const json = await res.json().catch(() => null);
   if (!res.ok || !json?.ok) {
@@ -340,11 +356,38 @@ export async function pushAlertPrefsToServer() {
   return json.data;
 }
 
-/** Puxa preferências do servidor e mescla no localStorage. */
+/**
+ * Puxa preferências do servidor.
+ * Se o servidor ainda não foi seedado, preserva o local e sobe o que existir.
+ * Evita apagar alertas do localStorage com um GET vazio (bug pós-migração).
+ */
 export async function pullAlertPrefsFromServer() {
+  const genAtStart = alertPrefsSyncGen;
   const res = await fetch("/api/emails/alert-prefs", { cache: "no-store" });
   const json = await res.json().catch(() => null);
   if (!res.ok || !json?.ok) return null;
+  // Push local ocorreu durante o fetch — não sobrescrever.
+  if (alertPrefsSyncGen !== genAtStart) return null;
+
+  const initialized = Boolean(json.data?.initialized);
+  const localIds = loadAlertEmailFilterIds();
+
+  // Servidor sem linha: não sobrescreve o browser; faz bootstrap se houver algo local.
+  if (!initialized) {
+    if (localIds.length) {
+      try {
+        await pushAlertPrefsToServer(buildAlertPrefsSnapshot(localIds));
+      } catch {
+        /* offline */
+      }
+    }
+    return {
+      alertFilterIds: localIds,
+      alertFilters: buildAlertPrefsSnapshot(localIds).alertFilters,
+      actionConfigs: loadAlertActionConfigs(),
+      initialized: false,
+    };
+  }
 
   const alertFilterIds = Array.isArray(json.data?.alertFilterIds)
     ? json.data.alertFilterIds.map(String)
@@ -362,6 +405,8 @@ export async function pullAlertPrefsFromServer() {
         )
     : [];
 
+  if (alertPrefsSyncGen !== genAtStart) return null;
+
   // Mescla filtros de alerta nas saved filters locais.
   const local = loadSavedEmailFilters();
   const byId = new Map(local.map((f) => [f.id, f]));
@@ -375,5 +420,6 @@ export async function pullAlertPrefsFromServer() {
     alertFilterIds,
     alertFilters,
     actionConfigs,
+    initialized: true,
   };
 }

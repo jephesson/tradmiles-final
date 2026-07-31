@@ -27,6 +27,8 @@ export async function GET(req: Request) {
   return NextResponse.json({
     ok: true,
     data: {
+      // Sem linha = ainda não seedado; cliente NÃO deve apagar o localStorage.
+      initialized: Boolean(row),
       alertFilterIds: asArray(row?.alertFilterIds),
       alertFilters: asArray(row?.alertFilters),
       actionConfigs: asArray(row?.actionConfigs),
