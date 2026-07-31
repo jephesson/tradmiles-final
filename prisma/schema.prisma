@@ -899,6 +899,8 @@ model EmailAlertPrefs {
   alertFilters   Json @default("[]")
   /// EmailAlertActionConfig[]
   actionConfigs  Json @default("[]")
+  /// Record<userId, Record<messageId, iso>> — ignorar/tratar por funcionário
+  dismissedByUser Json @default("{}")
 
   updatedAt   DateTime @default(now()) @updatedAt
   updatedById String?

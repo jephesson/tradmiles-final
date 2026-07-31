@@ -23,6 +23,7 @@ import {
   textToHtml,
   wrapEmailDocument,
 } from "@/lib/gmail/sanitize";
+import { markEmailRedirecionado } from "@/lib/cedentes/emailRedirecionado";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -90,12 +91,19 @@ export async function GET(
     const subject = headerValue(message, "Subject") || "(sem assunto)";
     const date = messageDate(message);
 
+    if (cedente?.id) {
+      void markEmailRedirecionado(cedente.id, {
+        byUserId: null,
+        onlyIfPending: true,
+      }).catch(() => null);
+    }
+
     return NextResponse.json({
       ok: true,
       message: {
         id: message.id,
         threadId: message.threadId,
-        program: programFromHints(fromAddress, fromName, subject),
+        program: programFromHints(fromAddress, fromName, `${subject} ${text || ""}`),
         fromName,
         fromAddress,
         to: headerValue(message, "To"),

@@ -96,7 +96,7 @@ export async function POST(req: Request) {
     const results = await mapWithConcurrency(slice, CONCURRENCY, async (row) => {
       try {
         const list = await listMessages({
-          q: `(to:${row.email} OR deliveredto:${row.email} OR cc:${row.email})`,
+          q: `(to:${row.email} OR deliveredto:${row.email} OR cc:${row.email} OR from:${row.email})`,
           maxResults: 1,
         });
         const hit = Boolean(list.messages?.length);

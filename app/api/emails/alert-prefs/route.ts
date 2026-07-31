@@ -27,8 +27,12 @@ export async function GET(req: Request) {
   return NextResponse.json({
     ok: true,
     data: {
-      // Sem linha = ainda não seedado; cliente NÃO deve apagar o localStorage.
-      initialized: Boolean(row),
+      // Seedado de verdade = já tem filtros/ações. Linha só com dismissals não conta
+      // (senão o pull apaga os chips locais).
+      initialized:
+        asArray(row?.alertFilterIds).length > 0 ||
+        asArray(row?.alertFilters).length > 0 ||
+        asArray(row?.actionConfigs).length > 0,
       alertFilterIds: asArray(row?.alertFilterIds),
       alertFilters: asArray(row?.alertFilters),
       actionConfigs: asArray(row?.actionConfigs),

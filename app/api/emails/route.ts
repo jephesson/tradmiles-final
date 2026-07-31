@@ -30,6 +30,7 @@ import {
   messageDate,
   type CedenteLite,
 } from "@/lib/gmail/parse";
+import { markEmailRedirecionado } from "@/lib/cedentes/emailRedirecionado";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -318,6 +319,24 @@ export async function GET(req: Request) {
     });
 
     const collected = filtered.slice(0, limit);
+
+    // Se apareceu e-mail do cedente na caixa, marca redirecionamento como feito.
+    const toMark = Array.from(
+      new Set(
+        collected
+          .map((r) => r.cedente?.id)
+          .filter((id): id is string => Boolean(id))
+      )
+    ).slice(0, 40);
+    if (toMark.length) {
+      void Promise.all(
+        toMark.map((id) =>
+          markEmailRedirecionado(id, { byUserId: null, onlyIfPending: true }).catch(
+            () => null
+          )
+        )
+      );
+    }
 
     return NextResponse.json({
       ok: true,

@@ -280,7 +280,9 @@ export function loadDismissedAlertIds(userId?: string | null): Record<string, st
   }
 
   const byUser = loadDismissedByUserRaw();
-  if (byUser[uid]) return byUser[uid];
+  if (Object.prototype.hasOwnProperty.call(byUser, uid)) {
+    return byUser[uid] || {};
+  }
 
   // migra uma vez o legado global → usuário atual
   try {
@@ -302,6 +304,21 @@ export function loadDismissedAlertIds(userId?: string | null): Record<string, st
   return {};
 }
 
+function mergeDismissedLocal(
+  userId: string,
+  incoming: Record<string, string>
+) {
+  const uid = String(userId || "").trim();
+  if (!uid) return;
+  const byUser = loadDismissedByUserRaw();
+  const merged = pruneDismissedMap({
+    ...(byUser[uid] || {}),
+    ...incoming,
+  });
+  byUser[uid] = merged;
+  persistDismissedByUser(byUser);
+}
+
 export function dismissAlertMessage(messageId: string, userId?: string | null) {
   const id = String(messageId || "").trim();
   if (!id) return;
@@ -320,6 +337,42 @@ export function dismissAlertMessage(messageId: string, userId?: string | null) {
   map[id] = at;
   byUser[uid] = pruneDismissedMap(map);
   persistDismissedByUser(byUser);
+
+  // Persiste no servidor para não “voltar” noutro dispositivo / após limpar cache.
+  void fetch("/api/emails/alert-dismissals", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ messageId: id }),
+  }).catch(() => null);
+}
+
+/** Puxa ignorados do servidor e mescla no localStorage do usuário. */
+export async function pullAlertDismissalsFromServer(userId?: string | null) {
+  const uid = String(userId || "").trim();
+  if (!uid) return null;
+
+  const res = await fetch("/api/emails/alert-dismissals", { cache: "no-store" });
+  const json = await res.json().catch(() => null);
+  if (!res.ok || !json?.ok) return null;
+
+  const dismissed =
+    json.data?.dismissed && typeof json.data.dismissed === "object"
+      ? (json.data.dismissed as Record<string, string>)
+      : {};
+  mergeDismissedLocal(uid, dismissed);
+
+  // Se o local tinha itens que o servidor ainda não, sobe.
+  const local = loadDismissedAlertIds(uid);
+  const missing = Object.keys(local).filter((id) => !dismissed[id]);
+  if (missing.length) {
+    void fetch("/api/emails/alert-dismissals", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ messageIds: missing.slice(0, 40) }),
+    }).catch(() => null);
+  }
+
+  return loadDismissedAlertIds(uid);
 }
 
 type AlertPrefsSnapshot = {

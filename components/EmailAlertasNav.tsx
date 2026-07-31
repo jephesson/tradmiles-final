@@ -26,6 +26,7 @@ import {
   loadAlertEmailFilterIds,
   loadDismissedAlertIds,
   loadSavedEmailFilters,
+  pullAlertDismissalsFromServer,
   pullAlertPrefsFromServer,
   type EmailSavedFilter,
 } from "@/lib/email-filters-storage";
@@ -176,19 +177,43 @@ export default function EmailAlertasNav() {
 
   useEffect(() => {
     setMounted(true);
-    setUserId(getSession()?.id || null);
-    void pullAlertPrefsFromServer()
-      .then(() => void refresh())
-      .catch(() => null);
+    const uid = getSession()?.id || null;
+    setUserId(uid);
+    void (async () => {
+      try {
+        await pullAlertPrefsFromServer();
+      } catch {
+        /* ignore */
+      }
+      try {
+        await pullAlertDismissalsFromServer(uid);
+      } catch {
+        /* ignore */
+      }
+      setDismissTick((t) => t + 1);
+      void refresh();
+    })();
   }, [refresh]);
 
   useEffect(() => {
     void refresh();
     const t = window.setInterval(() => void refresh(), 60_000);
     const onFocus = () => {
-      void pullAlertPrefsFromServer()
-        .then(() => void refresh())
-        .catch(() => void refresh());
+      const uid = getSession()?.id || userId;
+      void (async () => {
+        try {
+          await pullAlertPrefsFromServer();
+        } catch {
+          /* ignore */
+        }
+        try {
+          await pullAlertDismissalsFromServer(uid);
+        } catch {
+          /* ignore */
+        }
+        setDismissTick((n) => n + 1);
+        void refresh();
+      })();
     };
     const onStorage = (e: StorageEvent) => {
       if (
@@ -268,7 +293,9 @@ export default function EmailAlertasNav() {
   }
 
   function dismiss(id: string) {
-    dismissAlertMessage(id, userId);
+    const uid = getSession()?.id || userId;
+    if (uid && uid !== userId) setUserId(uid);
+    dismissAlertMessage(id, uid);
     setDismissTick((t) => t + 1);
     if (detail?.id === id) setDetail(null);
   }
