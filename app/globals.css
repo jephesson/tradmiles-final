@@ -24,3 +24,40 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+@keyframes tm-pending-glow {
+  0%,
+  100% {
+    box-shadow: 0 4px 14px rgba(2, 132, 199, 0.28);
+    transform: translateY(0);
+  }
+  50% {
+    box-shadow: 0 6px 22px rgba(2, 132, 199, 0.5);
+    transform: translateY(-1px);
+  }
+}
+
+@keyframes tm-badge-pop {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.08);
+  }
+}
+
+.tm-pending-glow {
+  animation: tm-pending-glow 1.8s ease-in-out infinite;
+}
+
+.tm-badge-pop {
+  animation: tm-badge-pop 1.8s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tm-pending-glow,
+  .tm-badge-pop {
+    animation: none;
+  }
+}
