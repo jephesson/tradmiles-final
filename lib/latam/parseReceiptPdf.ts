@@ -26,9 +26,8 @@ export type LatamReceiptParsed = {
 const CITY_TO_IATA: Record<string, string> = {
   galeao: "GIG",
   "galeão": "GIG",
-  "rio de janeiro/galeao": "GIG",
-  "rio de janeiro/galeão": "GIG",
   "rio de janeiro": "GIG",
+  "rio de janeiro/galeao": "GIG",
   guarulhos: "GRU",
   "sao paulo/guarulhos": "GRU",
   "são paulo/guarulhos": "GRU",
@@ -36,15 +35,14 @@ const CITY_TO_IATA: Record<string, string> = {
   "são paulo": "GRU",
   congonhas: "CGH",
   recife: "REC",
+  guararapes: "REC",
   brasilia: "BSB",
   brasília: "BSB",
   salvador: "SSA",
   fortaleza: "FOR",
   curitiba: "CWB",
-  belohorizonte: "CNF",
   "belo horizonte": "CNF",
   confins: "CNF",
-  portoalegre: "POA",
   "porto alegre": "POA",
   florianopolis: "FLN",
   florianópolis: "FLN",
@@ -54,14 +52,6 @@ const CITY_TO_IATA: Record<string, string> = {
   natal: "NAT",
   maceio: "MCZ",
   maceió: "MCZ",
-  vitoria: "VIX",
-  vitória: "VIX",
-  goiania: "GYN",
-  goiânia: "GYN",
-  cuiaba: "CGB",
-  cuiabá: "CGB",
-  sao: "SAO",
-  "são": "SAO",
 };
 
 function norm(s: string) {
@@ -76,7 +66,8 @@ function norm(s: string) {
 function brDateToIso(d: string, m: string, y: string): string | null {
   const dd = Number(d);
   const mm = Number(m);
-  const yyyy = Number(y.length === 2 ? `20${y}` : y);
+  let yyyy = Number(y);
+  if (y.length === 2) yyyy = yyyy >= 70 ? 1900 + yyyy : 2000 + yyyy;
   if (!dd || !mm || !yyyy || dd > 31 || mm > 12) return null;
   return `${String(yyyy).padStart(4, "0")}-${String(mm).padStart(2, "0")}-${String(dd).padStart(2, "0")}`;
 }
@@ -84,7 +75,6 @@ function brDateToIso(d: string, m: string, y: string): string | null {
 function parseBrMoneyToCents(raw: string): number | null {
   const s = String(raw || "").trim();
   if (!s) return null;
-  // 35,91 | 1.235,90 | R$ 35,91
   const m = s.replace(/[^\d.,]/g, "").match(/^(\d{1,3}(?:\.\d{3})*),(\d{2})$|^(\d+),(\d{2})$/);
   if (!m) return null;
   const intPart = (m[1] || m[3] || "").replace(/\./g, "");
@@ -115,9 +105,6 @@ function cityToIata(raw: string): string | null {
   if (!n) return null;
   if (/^[a-z]{3}$/.test(n)) return n.toUpperCase();
   if (CITY_TO_IATA[n]) return CITY_TO_IATA[n]!;
-  // tenta último token / após barra
-  const afterSlash = n.split("/").pop()?.trim() || n;
-  if (CITY_TO_IATA[afterSlash]) return CITY_TO_IATA[afterSlash]!;
   for (const [k, v] of Object.entries(CITY_TO_IATA)) {
     if (n.includes(k)) return v;
   }
@@ -157,8 +144,10 @@ export function parseLatamReceiptText(rawText: string): LatamReceiptParsed {
   let purchaseCode: string | null = null;
   const order =
     compact.match(
-      /(?:n[uú]mero\s+da\s+ordem|order\s*(?:id|number)|c[oó]digo\s+da\s+reserva)\s*[:\-]?\s*(LA[A-Z0-9]+)/i
-    ) || compact.match(/\b(LA[A-Z0-9]{8,})\b/);
+      /(?:n[ºª°]?\s*de\s+orden|n[uú]mero\s+da\s+ordem|order\s*(?:id|number)|c[oó]digo\s+da\s+reserva)\s*[:\-]?\s*(LA[A-Z0-9]+)/i
+    ) ||
+    compact.match(/\borden\s+(LA[A-Z0-9]+)/i) ||
+    compact.match(/\b(LA[A-Z0-9]{8,})\b/);
   if (order?.[1]) {
     purchaseCode = order[1].toUpperCase();
     hints.push("purchaseCode");
@@ -166,8 +155,9 @@ export function parseLatamReceiptText(rawText: string): LatamReceiptParsed {
 
   let locator: string | null = null;
   const loc =
+    compact.match(/c[oó]digo\s+da\s+reserva\s+([A-Z0-9]{5,8})\b/i) ||
     compact.match(/localizador\s*[:\-]?\s*([A-Z0-9]{5,8})\b/i) ||
-    compact.match(/\bPNR\s*[:\-]?\s*([A-Z0-9]{5,8})\b/i);
+    compact.match(/\/\s*([A-Z0-9]{6})\b/);
   if (loc?.[1] && !/^LA/i.test(loc[1])) {
     locator = loc[1].toUpperCase();
     hints.push("locator");
@@ -175,14 +165,28 @@ export function parseLatamReceiptText(rawText: string): LatamReceiptParsed {
 
   let passengerFullName: string | null = null;
   const pax =
-    compact.match(/passageiro\s*[:\-]?\s*([A-Za-zÀ-ÿ' .\-]{5,80})/i) ||
-    compact.match(/passenger\s*[:\-]?\s*([A-Za-zÀ-ÿ' .\-]{5,80})/i);
+    compact.match(
+      /\b([A-ZÁÉÍÓÚÂÊÔÃÕÇ]{2,}(?:\s+(?:DA|DE|DO|DAS|DOS|E|[A-ZÁÉÍÓÚÂÊÔÃÕÇ]{2,})){1,8})\s+Adulto\b/
+    ) ||
+    compact.match(
+      /nome\s+do\s+passageiro[\s\S]{0,220}?([A-ZÁÉÍÓÚÂÊÔÃÕÇ][A-ZÁÉÍÓÚÂÊÔÃÕÇ' .\-]{6,80})\s+(?:Adulto|Child|Infant)/i
+    );
   if (pax?.[1]) {
-    passengerFullName = pax[1]
+    const cleaned = pax[1]
       .replace(/\s+/g, " ")
-      .replace(/\b(Localizador|Order|Tarifa|Emiss[aã]o).*$/i, "")
+      .replace(
+        /^(?:Tipo|Documento|Identifica[cç][aã]o|Passageiro|Nome)\s+/gi,
+        ""
+      )
       .trim();
-    hints.push("passenger");
+    // Descarta cabeçalhos capturados por engano.
+    if (
+      cleaned.length >= 5 &&
+      !/^(tipo|documento|identifica|passageiro|nome)\b/i.test(cleaned)
+    ) {
+      passengerFullName = cleaned;
+      hints.push("passenger");
+    }
   }
 
   const firstPassengerLastName = passengerFullName
@@ -191,8 +195,9 @@ export function parseLatamReceiptText(rawText: string): LatamReceiptParsed {
 
   let miles: number | null = null;
   const milesM =
+    compact.match(/\bMillas\s+(\d{1,3}(?:\.\d{3})+|\d{3,7})\b/i) ||
     compact.match(/(\d{1,3}(?:\.\d{3})+|\d{3,7})\s*milhas(?:\s+LATAM)?/i) ||
-    compact.match(/LATAM\s*Pass\s*[:\-]?\s*(\d{1,3}(?:\.\d{3})+|\d{3,7})/i);
+    compact.match(/LATAM\s*Pass[\s\S]{0,40}?(\d{1,3}(?:\.\d{3})+|\d{3,7})/i);
   if (milesM?.[1]) {
     miles = parseMiles(milesM[1]);
     if (miles) hints.push("miles");
@@ -201,8 +206,10 @@ export function parseLatamReceiptText(rawText: string): LatamReceiptParsed {
   let taxReaisCents: number | null = null;
   const taxM =
     compact.match(
-      /(?:taxas?|taxa\s+de\s+embarque|taxes?)\s*[:\-]?\s*R\$\s*([\d.]+,\d{2})/i
-    ) || compact.match(/R\$\s*([\d.]+,\d{2})\s*(?:em\s+)?taxas?/i);
+      /(?:taxas?\s+e\/ou\s+impostos|taxas?|taxa\s+de\s+embarque)[^\d]{0,40}BRL\s*([\d.]+,\d{2})/i
+    ) ||
+    compact.match(/BRL\s*([\d.]+,\d{2})\s*Millas/i) ||
+    compact.match(/R\$\s*([\d.]+,\d{2})\s*(?:em\s+)?taxas?/i);
   if (taxM?.[1]) {
     taxReaisCents = parseBrMoneyToCents(taxM[1]);
     if (taxReaisCents != null) hints.push("tax");
@@ -210,53 +217,82 @@ export function parseLatamReceiptText(rawText: string): LatamReceiptParsed {
 
   let ticketNumber: string | null = null;
   const ticketM = compact.match(
-    /(?:n[uú]mero\s+do\s+bilhete|e-?ticket|bilhete\s+eletr[oô]nico)\s*[:\-]?\s*(\d{10,15})/i
-  );
+    /(?:n[uú]mero\s+da\s+passagem|n[uú]mero\s+do\s+bilhete|e-?ticket)[^\d]{0,30}(\d{10,15})/i
+  ) || compact.match(/\b(957\d{10})\b/);
   if (ticketM?.[1]) {
     ticketNumber = ticketM[1];
     hints.push("ticket");
   }
 
   const flights: LatamReceiptParsed["flights"] = [];
+  // Ex.: LA 3341 Río de Janeiro (Galeao Intl.) São Paulo (Guarulhos Intl.) 08/08/26 07:00 08/08/26 08:15
   const flightRe =
-    /\b(LA\s*\d{3,4})\b[\s\S]{0,120}?([A-Za-zÀ-ÿ /]{3,40}?)\s*(?:→|->|–|-)\s*([A-Za-zÀ-ÿ /]{3,40})[\s\S]{0,80}?(?:Sa[ií]da|Departure)\s*[:\-]?\s*(\d{1,2}:\d{2})[\s\S]{0,40}?(?:Chegada|Arrival)\s*[:\-]?\s*(\d{1,2}:\d{2})/gi;
+    /\b(LA\s*\d{3,4})\b\s+(.+?)\s+(\d{2}\/\d{2}\/\d{2,4})\s+(\d{1,2}:\d{2})\s+(\d{2}\/\d{2}\/\d{2,4})\s+(\d{1,2}:\d{2})/gi;
   let fm: RegExpExecArray | null;
   while ((fm = flightRe.exec(compact))) {
+    const route = fm[2]!.trim();
+    // Divide origem/destino pelo último "cidade (aeroporto)" antes da data — heurística: dois blocos com parênteses.
+    const airports = Array.from(
+      route.matchAll(/([A-Za-zÀ-ÿ. ]+?\([^)]+\))/g)
+    ).map((m) => m[1]!.trim());
+    let from = airports[0] || null;
+    let to = airports[1] || null;
+    if (!from || !to) {
+      const parts = route.split(/\s{2,}|\s+-\s+|\s+→\s+/);
+      if (parts.length >= 2) {
+        from = parts[0]!.trim();
+        to = parts.slice(1).join(" ").trim();
+      }
+    }
+    const dateParts = fm[3]!.split("/");
     flights.push({
       flight: fm[1]!.replace(/\s+/g, " ").toUpperCase(),
-      date: null,
-      from: fm[2]!.trim(),
-      to: fm[3]!.trim(),
+      date: brDateToIso(dateParts[0]!, dateParts[1]!, dateParts[2]!),
+      from,
+      to,
       departureTime: fm[4]!,
-      arrivalTime: fm[5]!,
+      arrivalTime: fm[6]!,
     });
   }
 
-  // Datas no formato dd/mm/yyyy perto de "Voos" / trechos
   const dateMatches = Array.from(
-    compact.matchAll(/\b(\d{2})\/(\d{2})\/(\d{4})\b/g)
-  ).map((m) => brDateToIso(m[1]!, m[2]!, m[3]!)).filter(Boolean) as string[];
+    compact.matchAll(/\b(\d{2})\/(\d{2})\/(\d{2,4})\b/g)
+  )
+    .map((m) => brDateToIso(m[1]!, m[2]!, m[3]!))
+    .filter(Boolean) as string[];
 
-  // Prioriza datas após menção a voos / itinerário
-  let departureDate: string | null = dateMatches[0] || null;
+  let departureDate: string | null =
+    flights.find((f) => f.date)?.date || null;
   let returnDate: string | null = null;
-  const voosIdx = norm(compact).search(/\bvoos?\b|\bitinerario\b|\bflight/);
-  if (voosIdx >= 0) {
-    const after = compact.slice(Math.max(0, voosIdx));
-    const afterDates = Array.from(after.matchAll(/\b(\d{2})\/(\d{2})\/(\d{4})\b/g))
-      .map((m) => brDateToIso(m[1]!, m[2]!, m[3]!))
-      .filter(Boolean) as string[];
-    if (afterDates[0]) departureDate = afterDates[0];
-    const uniq = Array.from(new Set(afterDates));
-    if (uniq.length >= 2) returnDate = uniq[uniq.length - 1]!;
-  } else if (dateMatches.length >= 2) {
-    // segunda data distinta pode ser volta
-    const uniq = Array.from(new Set(dateMatches));
-    if (uniq.length >= 2 && uniq[0] !== uniq[1]) returnDate = uniq[1]!;
+
+  if (!departureDate) {
+    const itineraryIdx = norm(compact).search(/\bitinerario\b|\bvoos?\b/);
+    if (itineraryIdx >= 0) {
+      const after = compact.slice(Math.max(0, itineraryIdx));
+      const afterDates = Array.from(after.matchAll(/\b(\d{2})\/(\d{2})\/(\d{2,4})\b/g))
+        .map((m) => brDateToIso(m[1]!, m[2]!, m[3]!))
+        .filter(Boolean) as string[];
+      departureDate = afterDates[0] || null;
+      const uniq = Array.from(new Set(afterDates));
+      if (uniq.length >= 2 && uniq[0] !== uniq[uniq.length - 1]) {
+        returnDate = uniq[uniq.length - 1]!;
+      }
+    } else if (dateMatches.length) {
+      // pula emissão (primeira) se houver mais
+      departureDate = dateMatches[1] || dateMatches[0] || null;
+    }
+  } else {
+    const flightDates = Array.from(
+      new Set(flights.map((f) => f.date).filter(Boolean) as string[])
+    );
+    if (flightDates.length >= 2) {
+      returnDate = flightDates[flightDates.length - 1]!;
+      if (returnDate === departureDate) returnDate = null;
+    }
   }
+
   if (departureDate) hints.push("departureDate");
-  if (returnDate && returnDate !== departureDate) hints.push("returnDate");
-  else returnDate = null;
+  if (returnDate) hints.push("returnDate");
 
   const originIata = flights[0]?.from ? cityToIata(flights[0].from) : null;
   const destinationIata = flights.length

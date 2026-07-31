@@ -27,6 +27,7 @@ import {
   commission1FromPvCents,
 } from "@/lib/payouts/employeeCommissionRates";
 import BiometriaWizardModal from "@/components/vendas/BiometriaWizardModal";
+import { purchaseCodeFromLatamPdfUrl } from "@/lib/latam/parseReceiptPdf";
 
 type Program = "LATAM" | "SMILES" | "LIVELO" | "ESFERA";
 type PointsMode = "TOTAL" | "POR_PAX";
@@ -572,12 +573,11 @@ export default function NovaVendaClient({
   /** Link de pesquisa LATAM (milhas) gerado no wizard. */
   const [searchLinkReady, setSearchLinkReady] = useState<string | null>(null);
 
-  /** Comprovante PDF LATAM (opcional) → preenchimento automático. */
+  /** Comprovante PDF LATAM (opcional) → preenchimento automático pelo link. */
   const [latamPdfUrl, setLatamPdfUrl] = useState("");
   const [latamPdfLoading, setLatamPdfLoading] = useState(false);
   const [latamPdfError, setLatamPdfError] = useState("");
   const [latamPdfNote, setLatamPdfNote] = useState("");
-  const latamPdfFileRef = useRef<HTMLInputElement | null>(null);
 
   const milheiroCents = useMemo(() => moneyToCentsBR(milheiroStr), [milheiroStr]);
   const embarqueFeeCents = useMemo(
@@ -1628,7 +1628,9 @@ export default function NovaVendaClient({
 
     if (opts?.partial) {
       setLatamPdfNote(
-        `Só consegui o Order ID pelo link (${data.purchaseCode}). Baixe o PDF e envie o arquivo para preencher o resto.`
+        data.purchaseCode
+          ? `Só consegui o Order ID pela URL (${data.purchaseCode}). Complete localizador/taxa/datas na mão.`
+          : "Não consegui ler o comprovante por este link. Preencha manualmente."
       );
     } else if (filled.length) {
       const extra =
@@ -1637,41 +1639,75 @@ export default function NovaVendaClient({
           : "";
       setLatamPdfNote(`Preenchido: ${filled.join(", ")}${extra}. Confira antes de salvar.`);
     } else {
-      setLatamPdfNote("PDF lido, mas não achei campos reconhecíveis. Preencha manualmente.");
+      setLatamPdfNote("Link lido, mas não achei campos reconhecíveis. Preencha manualmente.");
     }
   }
 
-  async function extractLatamReceipt(file?: File | null) {
+  async function extractLatamReceipt() {
     if (program !== "LATAM") return;
     const url = latamPdfUrl.trim();
-    if (!file && !url) {
-      setLatamPdfError("Cole o link do PDF ou escolha o arquivo.");
+    if (!url) {
+      setLatamPdfError("Cole o link do PDF da LATAM.");
       return;
+    }
+
+    // Feedback imediato: Order ID já vem na URL.
+    const instantCode = purchaseCodeFromLatamPdfUrl(url);
+    if (instantCode) {
+      setPurchaseCode(instantCode);
+      setPagamentoLinkReady(buildLatamPagamentoLink(instantCode));
+      setLatamPdfNote(`Order ID detectado: ${instantCode}. Lendo o restante…`);
     }
 
     setLatamPdfLoading(true);
     setLatamPdfError("");
-    setLatamPdfNote("");
+    const ac = new AbortController();
+    const timer = window.setTimeout(() => ac.abort(), 18_000);
     try {
-      const form = new FormData();
-      if (url) form.set("url", url);
-      if (file) form.set("file", file);
-
       const res = await fetch("/api/vendas/latam-receipt", {
         method: "POST",
-        body: form,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url }),
         cache: "no-store",
+        signal: ac.signal,
       });
-      const json = await res.json();
+      const json = await res.json().catch(() => null);
       if (!res.ok || !json?.ok) {
         throw new Error(json?.error || "Falha ao ler o comprovante.");
       }
       if (!json.data) throw new Error("Resposta sem dados.");
-      applyLatamReceipt(json.data as LatamReceiptData, { partial: Boolean(json.partial) });
+      applyLatamReceipt(json.data as LatamReceiptData, {
+        partial: Boolean(json.partial || json.fetchFailed),
+      });
       if (json.fetchFailed && json.error) setLatamPdfError(String(json.error));
     } catch (e: any) {
-      setLatamPdfError(e?.message || "Falha ao ler o comprovante.");
+      if (e?.name === "AbortError") {
+        setLatamPdfError(
+          "Demorou demais para responder. Order ID (se houver na URL) já foi preenchido — complete o resto na mão."
+        );
+      } else {
+        setLatamPdfError(e?.message || "Falha ao ler o comprovante.");
+      }
+      if (instantCode) {
+        applyLatamReceipt(
+          {
+            purchaseCode: instantCode,
+            locator: null,
+            passengerFullName: null,
+            firstPassengerLastName: null,
+            departureDate: null,
+            returnDate: null,
+            miles: null,
+            taxReaisCents: null,
+            ticketNumber: null,
+            originIata: null,
+            destinationIata: null,
+          },
+          { partial: true }
+        );
+      }
     } finally {
+      window.clearTimeout(timer);
       setLatamPdfLoading(false);
     }
   }
@@ -2824,47 +2860,33 @@ export default function NovaVendaClient({
                           Comprovante LATAM (opcional)
                         </div>
                         <p className="text-xs text-slate-500">
-                          Cole o link do PDF da LATAM ou envie o arquivo. Tentamos preencher
-                          Order ID, localizador, sobrenome, datas e taxa. Pode ajustar tudo
-                          manualmente depois.
+                          Cole o link do PDF e clique em extrair. Preenche Order ID, localizador,
+                          sobrenome, data e taxa — sem precisar baixar arquivo.
                         </p>
                         <input
                           className={cn(CONTROL_INPUT, "font-mono text-[12px]")}
                           value={latamPdfUrl}
                           onChange={(e) => setLatamPdfUrl(e.target.value)}
                           placeholder="https://www.latamairlines.com/documents-pdf/LA….pdf"
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                              e.preventDefault();
+                              void extractLatamReceipt();
+                            }
+                          }}
                         />
                         <div className="flex flex-wrap gap-2">
                           <button
                             type="button"
-                            disabled={latamPdfLoading}
+                            disabled={latamPdfLoading || !latamPdfUrl.trim()}
                             onClick={() => void extractLatamReceipt()}
                             className="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-slate-900 px-4 text-xs font-semibold text-white hover:bg-slate-800 disabled:opacity-60"
                           >
                             {latamPdfLoading ? (
                               <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
                             ) : null}
-                            Extrair do link
+                            {latamPdfLoading ? "Lendo comprovante…" : "Extrair do link"}
                           </button>
-                          <button
-                            type="button"
-                            disabled={latamPdfLoading}
-                            onClick={() => latamPdfFileRef.current?.click()}
-                            className="inline-flex h-10 items-center justify-center rounded-xl border border-slate-200 bg-white px-4 text-xs font-semibold text-slate-800 hover:bg-slate-50 disabled:opacity-60"
-                          >
-                            Enviar PDF
-                          </button>
-                          <input
-                            ref={latamPdfFileRef}
-                            type="file"
-                            accept="application/pdf,.pdf"
-                            className="hidden"
-                            onChange={(e) => {
-                              const f = e.target.files?.[0] || null;
-                              e.target.value = "";
-                              if (f) void extractLatamReceipt(f);
-                            }}
-                          />
                         </div>
                         {latamPdfError ? (
                           <div className="text-xs text-rose-600">{latamPdfError}</div>
