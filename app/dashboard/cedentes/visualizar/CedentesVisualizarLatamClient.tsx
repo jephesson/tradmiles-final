@@ -18,6 +18,7 @@ import {
   X,
 } from "lucide-react";
 import { cn } from "@/lib/cn";
+import { VerificationCodeFetch } from "@/components/cedentes/VerificationCodeFetch";
 import {
   VP_BTN_SECONDARY,
   VP_CONTROL_INPUT,
@@ -679,7 +680,7 @@ export default function CedentesVisualizarLatamClient() {
             aria-label="Fechar credenciais"
             onClick={() => setCredentialsRow(null)}
           />
-          <div className={VP_MODAL_PANEL}>
+          <div className={cn(VP_MODAL_PANEL, "max-h-[90vh] overflow-y-auto")}>
             <div className="mb-4 flex items-start justify-between gap-3">
               <div>
                 <div className="text-lg font-bold tracking-tight text-slate-900">
@@ -748,6 +749,13 @@ export default function CedentesVisualizarLatamClient() {
                 </button>
               </div>
             </div>
+
+            <VerificationCodeFetch
+              className="mt-4"
+              cedenteId={credentialsRow.id}
+              program="LATAM"
+              email={credentialsRow.emailCriado}
+            />
           </div>
         </div>
       ) : null}
