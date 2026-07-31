@@ -25,7 +25,12 @@ export const PROGRAM_DOMAINS: Record<EmailProgram, string[]> = {
     "latampass.com",
     "latampass.com.br",
   ],
-  LIVELO: ["livelo.com.br", "pontoslivelo.com.br"],
+  LIVELO: [
+    "livelo.com.br",
+    "pontoslivelo.com.br",
+    "infolivelo.com",
+    "mail.infolivelo.com",
+  ],
 };
 
 /**
@@ -35,7 +40,7 @@ export const PROGRAM_DOMAINS: Record<EmailProgram, string[]> = {
 export const PROGRAM_FROM_TOKENS: Record<EmailProgram, string[]> = {
   SMILES: ["smiles", "voegol", "gol", `"Gol Smiles"`, `"GOL"`],
   LATAM: ["latam", "latampass", `"LATAM Airlines"`, `"LATAM Pass"`, `"Clube LATAM"`],
-  LIVELO: ["livelo", `"Pontos Livelo"`],
+  LIVELO: ["livelo", `"Pontos Livelo"`, `"Info Livelo"`, "infolivelo"],
 };
 
 /** Janela padrão de busca no Gmail. Evita varrer a caixa inteira. */
@@ -108,6 +113,25 @@ export function buildSenderQuery(programs: EmailProgram[]): string {
   const parts = [...domains, ...tokens];
   if (!parts.length) return "";
   return `from:(${parts.join(" OR ")})`;
+}
+
+/**
+ * Encaminhamentos manuais (Fwd/Enc): o From vira o cedente, não a cia.
+ * Pega assunto de forward + menção ao programa (assunto/corpo).
+ */
+export function buildManualForwardQuery(programs: EmailProgram[]): string {
+  const list = programs.length ? programs : EMAIL_PROGRAMS;
+  const tokens = Array.from(new Set(list.flatMap((p) => PROGRAM_FROM_TOKENS[p])));
+  if (!tokens.length) return "";
+  return `((subject:Fwd OR subject:Fw: OR subject:Enc OR subject:Encaminh) (${tokens.join(" OR ")}))`;
+}
+
+/** Remetentes das cias OU encaminhamentos manuais sobre elas. */
+export function buildInboxProgramQuery(programs: EmailProgram[]): string {
+  const sender = buildSenderQuery(programs);
+  const fwd = buildManualForwardQuery(programs);
+  if (sender && fwd) return `(${sender} OR ${fwd})`;
+  return sender || fwd;
 }
 
 /** Onde aplicar o termo de busca na query do Gmail. */

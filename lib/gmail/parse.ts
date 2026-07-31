@@ -111,8 +111,9 @@ export type CedenteLite = {
 };
 
 /**
- * Casa a mensagem com um cedente pelos destinatários do cabeçalho. O endereço
- * da própria empresa é ignorado, senão todo encaminhamento casaria com ele.
+ * Casa a mensagem com um cedente:
+ * 1) destinatários (encaminhamento automático do Gmail)
+ * 2) remetente (encaminhamento manual: From = e-mail do cedente)
  */
 export function matchCedenteByHeaders(
   message: GmailMessage,
@@ -122,6 +123,12 @@ export function matchCedenteByHeaders(
   for (const address of collectRecipients(message)) {
     if (mailbox && address === mailbox) continue;
     const hit = byEmail.get(address);
+    if (hit) return hit;
+  }
+
+  const from = firstAddress(headerValue(message, "From"));
+  if (from && (!mailbox || from !== mailbox)) {
+    const hit = byEmail.get(from);
     if (hit) return hit;
   }
 

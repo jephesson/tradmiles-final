@@ -8,7 +8,7 @@ import {
   MAX_PAGE_SIZE,
   METADATA_HEADERS,
   buildContentQuery,
-  buildSenderQuery,
+  buildInboxProgramQuery,
   programFromHints,
   type EmailProgram,
   type EmailSearchIn,
@@ -144,14 +144,14 @@ export async function GET(req: Request) {
     const target = cedentes.find((c) => c.id === cedenteId);
     if (!target) return bad("Cedente não encontrado ou sem e-mail cadastrado.", 404);
     // Cedente específico: tudo que chegou para o e-mail dele na caixa.
-    parts.push(`(to:${target.email} OR deliveredto:${target.email} OR cc:${target.email})`);
+    parts.push(`(to:${target.email} OR deliveredto:${target.email} OR cc:${target.email} OR from:${target.email})`);
     // Só restringe remetente se o usuário escolheu um programa no chip.
     if (programs.length) {
-      const sender = buildSenderQuery(programs);
+      const sender = buildInboxProgramQuery(programs);
       if (sender) parts.push(sender);
     }
   } else {
-    const sender = buildSenderQuery(programs);
+    const sender = buildInboxProgramQuery(programs);
     if (sender) parts.push(sender);
   }
 
@@ -192,17 +192,22 @@ export async function GET(req: Request) {
         const fromAddress = firstAddress(from);
         const fromName = displayName(from);
         const subject = headerValue(message, "Subject") || "(sem assunto)";
+        const snippet = message.snippet || "";
         const cedente = matchCedenteByHeaders(message, byEmail, cfg.mailbox);
         const date = messageDate(message);
 
         return {
           id: message.id,
           threadId: message.threadId,
-          program: programFromHints(fromAddress, fromName, subject),
+          program: programFromHints(
+            fromAddress,
+            fromName,
+            `${subject} ${snippet}`
+          ),
           fromName,
           fromAddress,
           subject,
-          snippet: message.snippet || "",
+          snippet,
           date: date ? date.toISOString() : null,
           unread: (message.labelIds || []).includes("UNREAD"),
           cedente: cedente
