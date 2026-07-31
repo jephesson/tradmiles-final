@@ -3,12 +3,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
+  BookmarkPlus,
   Inbox,
   Link2,
   Loader2,
   Mail,
   RefreshCw,
   Search,
+  Trash2,
   Unlink,
   User,
   UserX,
@@ -19,6 +21,45 @@ import { cn } from "@/lib/cn";
 type Program = "SMILES" | "LATAM" | "LIVELO";
 type ProgramFilter = "ALL" | Program;
 type Scope = "all" | "matched" | "unmatched";
+type SearchIn = "subject" | "anywhere";
+
+type SavedFilter = {
+  id: string;
+  name: string;
+  query: string;
+  searchIn: SearchIn;
+  program: ProgramFilter;
+};
+
+const SAVED_FILTERS_KEY = "tm.emailSavedFilters";
+
+function loadSavedFilters(): SavedFilter[] {
+  try {
+    const raw = localStorage.getItem(SAVED_FILTERS_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as SavedFilter[];
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .filter((f) => f && f.id && f.name && typeof f.query === "string")
+      .map((f) => ({
+        id: String(f.id),
+        name: String(f.name),
+        query: String(f.query),
+        searchIn: f.searchIn === "subject" ? "subject" : "anywhere",
+        program: (["ALL", "SMILES", "LATAM", "LIVELO"] as const).includes(
+          f.program as ProgramFilter
+        )
+          ? (f.program as ProgramFilter)
+          : "ALL",
+      }));
+  } catch {
+    return [];
+  }
+}
+
+function persistSavedFilters(filters: SavedFilter[]) {
+  localStorage.setItem(SAVED_FILTERS_KEY, JSON.stringify(filters));
+}
 
 type CedenteRef = {
   id: string;
@@ -314,6 +355,9 @@ export default function EmailsClient() {
   const [cedenteId, setCedenteId] = useState("");
   const [cedenteLabel, setCedenteLabel] = useState("");
   const [search, setSearch] = useState("");
+  const [searchIn, setSearchIn] = useState<SearchIn>("anywhere");
+  const [savedFilters, setSavedFilters] = useState<SavedFilter[]>([]);
+  const [activeFilterId, setActiveFilterId] = useState<string | null>(null);
   const [days, setDays] = useState(180);
 
   const [configured, setConfigured] = useState(true);
@@ -347,6 +391,7 @@ export default function EmailsClient() {
       setOauthOk(code === "connected");
       window.history.replaceState({}, "", "/dashboard/emails");
     }
+    setSavedFilters(loadSavedFilters());
   }, []);
 
   const buildQuery = useCallback(
@@ -355,13 +400,59 @@ export default function EmailsClient() {
       params.set("program", program);
       params.set("scope", scope);
       params.set("days", String(days));
+      params.set("searchIn", searchIn);
       if (cedenteId) params.set("cedenteId", cedenteId);
       if (search.trim()) params.set("q", search.trim());
       if (pageToken) params.set("pageToken", pageToken);
       return params.toString();
     },
-    [program, scope, days, cedenteId, search]
+    [program, scope, days, cedenteId, search, searchIn]
   );
+
+  const applySavedFilter = useCallback((filter: SavedFilter) => {
+    setActiveFilterId(filter.id);
+    setSearch(filter.query);
+    setSearchIn(filter.searchIn);
+    setProgram(filter.program);
+  }, []);
+
+  const saveCurrentFilter = useCallback(() => {
+    const query = search.trim();
+    if (!query) {
+      alert("Digite um texto ou código para salvar o filtro.");
+      return;
+    }
+
+    const name = window.prompt(
+      "Nome do filtro (ex.: Código no assunto, Biometria, Confirmação):",
+      searchIn === "subject" ? `Assunto: ${query}` : `Texto: ${query}`
+    );
+    if (!name?.trim()) return;
+
+    const next: SavedFilter = {
+      id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      name: name.trim().slice(0, 60),
+      query,
+      searchIn,
+      program,
+    };
+
+    setSavedFilters((prev) => {
+      const merged = [next, ...prev].slice(0, 30);
+      persistSavedFilters(merged);
+      return merged;
+    });
+    setActiveFilterId(next.id);
+  }, [search, searchIn, program]);
+
+  const removeSavedFilter = useCallback((id: string) => {
+    setSavedFilters((prev) => {
+      const merged = prev.filter((f) => f.id !== id);
+      persistSavedFilters(merged);
+      return merged;
+    });
+    setActiveFilterId((cur) => (cur === id ? null : cur));
+  }, []);
 
   const load = useCallback(async () => {
     const ticket = ++requestRef.current;
@@ -598,7 +689,7 @@ export default function EmailsClient() {
           </button>
         </div>
 
-        <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-[1fr_1fr_auto]">
+        <div className="mt-3 grid gap-2 lg:grid-cols-[1fr_auto_1.2fr_auto_auto]">
           <CedenteFilter
             value={cedenteId}
             label={cedenteLabel}
@@ -608,6 +699,19 @@ export default function EmailsClient() {
             }}
           />
 
+          <select
+            value={searchIn}
+            onChange={(e) => {
+              setSearchIn(e.target.value as SearchIn);
+              setActiveFilterId(null);
+            }}
+            className={cn(CONTROL, "w-full lg:w-44")}
+            title="Onde buscar"
+          >
+            <option value="subject">Só no assunto</option>
+            <option value="anywhere">No texto do e-mail</option>
+          </select>
+
           <div className="relative">
             <Search
               className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"
@@ -615,11 +719,28 @@ export default function EmailsClient() {
             />
             <input
               value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Buscar no assunto ou no corpo…"
+              onChange={(e) => {
+                setSearch(e.target.value);
+                setActiveFilterId(null);
+              }}
+              placeholder={
+                searchIn === "subject"
+                  ? "Código ou texto do título…"
+                  : "Palavras ou trecho do e-mail…"
+              }
               className={cn(CONTROL, "w-full pl-9")}
             />
           </div>
+
+          <button
+            type="button"
+            onClick={saveCurrentFilter}
+            className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50"
+            title="Salvar filtro atual para reutilizar"
+          >
+            <BookmarkPlus className="h-4 w-4" aria-hidden />
+            Salvar
+          </button>
 
           <select
             value={days}
@@ -632,6 +753,60 @@ export default function EmailsClient() {
               </option>
             ))}
           </select>
+        </div>
+
+        <div className="mt-3 flex flex-wrap items-center gap-1.5 border-t border-slate-100 pt-3">
+          <span className="text-xs font-medium text-slate-500">Filtros salvos:</span>
+          {savedFilters.length === 0 ? (
+            <span className="text-xs text-slate-400">
+              Nenhum ainda. Busque um código/texto e clique em Salvar.
+            </span>
+          ) : (
+            savedFilters.map((filter) => (
+              <span
+                key={filter.id}
+                className={cn(
+                  "inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium ring-1 transition",
+                  activeFilterId === filter.id
+                    ? "bg-slate-900 text-white ring-slate-900"
+                    : "bg-slate-100 text-slate-700 ring-slate-200 hover:bg-slate-200"
+                )}
+              >
+                <button type="button" onClick={() => applySavedFilter(filter)} className="max-w-[180px] truncate">
+                  {filter.name}
+                  <span className="ml-1 opacity-70">
+                    · {filter.searchIn === "subject" ? "assunto" : "texto"}
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => removeSavedFilter(filter.id)}
+                  className={cn(
+                    "rounded p-0.5 transition",
+                    activeFilterId === filter.id
+                      ? "hover:bg-white/15"
+                      : "text-slate-500 hover:bg-slate-300/60 hover:text-slate-800"
+                  )}
+                  aria-label={`Excluir filtro ${filter.name}`}
+                >
+                  <Trash2 className="h-3 w-3" aria-hidden />
+                </button>
+              </span>
+            ))
+          )}
+          {search.trim() ? (
+            <button
+              type="button"
+              onClick={() => {
+                setSearch("");
+                setActiveFilterId(null);
+              }}
+              className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium text-slate-500 hover:bg-slate-100"
+            >
+              <X className="h-3 w-3" aria-hidden />
+              Limpar busca
+            </button>
+          ) : null}
         </div>
 
         {topCedentes.length > 0 && !cedenteId ? (

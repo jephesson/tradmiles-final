@@ -7,9 +7,11 @@ import {
   EMAIL_PROGRAMS,
   MAX_PAGE_SIZE,
   METADATA_HEADERS,
+  buildContentQuery,
   buildSenderQuery,
   programFromSender,
   type EmailProgram,
+  type EmailSearchIn,
 } from "@/lib/gmail/config";
 import {
   GmailApiError,
@@ -96,6 +98,8 @@ export async function GET(req: Request) {
   const cedenteId = (url.searchParams.get("cedenteId") || "").trim();
   const scope = (url.searchParams.get("scope") || "all").trim();
   const search = (url.searchParams.get("q") || "").trim();
+  const searchInRaw = (url.searchParams.get("searchIn") || "anywhere").trim().toLowerCase();
+  const searchIn: EmailSearchIn = searchInRaw === "subject" ? "subject" : "anywhere";
   const pageToken = (url.searchParams.get("pageToken") || "").trim() || undefined;
 
   const days = Number(url.searchParams.get("days") || DEFAULT_WINDOW_DAYS);
@@ -116,7 +120,8 @@ export async function GET(req: Request) {
     parts.push(`(to:${target.email} OR deliveredto:${target.email} OR cc:${target.email})`);
   }
 
-  if (search) parts.push(`(${search})`);
+  const contentQuery = buildContentQuery(search, searchIn);
+  if (contentQuery) parts.push(contentQuery);
 
   const query = parts.filter(Boolean).join(" ");
 

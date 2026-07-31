@@ -73,3 +73,32 @@ export function buildSenderQuery(programs: EmailProgram[]): string {
   if (!domains.length) return "";
   return `from:(${domains.join(" OR ")})`;
 }
+
+/** Onde aplicar o termo de busca na query do Gmail. */
+export type EmailSearchIn = "subject" | "anywhere";
+
+/**
+ * Monta o trecho de busca por texto.
+ * - subject: só no título (ex.: código da reserva)
+ * - anywhere: assunto + corpo (palavras/trechos do e-mail)
+ *
+ * Se o usuário já digitar operadores do Gmail (subject:, from:, etc.),
+ * o termo é passado direto.
+ */
+export function buildContentQuery(raw: string, searchIn: EmailSearchIn = "anywhere"): string {
+  const term = raw.trim();
+  if (!term) return "";
+
+  // Operadores avançados: não reescreve.
+  if (/\b(subject|from|to|cc|bcc|has|label|is|filename|newer_than|older_than|deliveredto):/i.test(term)) {
+    return `(${term})`;
+  }
+
+  const cleaned = term.replace(/"/g, "").trim();
+  if (!cleaned) return "";
+
+  const atom = /\s/.test(cleaned) || /[()]/.test(cleaned) ? `"${cleaned}"` : cleaned;
+
+  if (searchIn === "subject") return `subject:(${atom})`;
+  return `(${atom})`;
+}
