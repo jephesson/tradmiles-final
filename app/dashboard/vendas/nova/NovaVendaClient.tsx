@@ -1702,8 +1702,8 @@ export default function NovaVendaClient({
         partial: Boolean(json.partial || json.fetchFailed),
       });
       if (json.fetchFailed && json.error) setLatamPdfError(String(json.error));
-      lastLatamPdfExtractUrl.current = url;
     } catch (e: any) {
+      // Permite tentar de novo (apagar e colar o link).
       if (lastLatamPdfExtractUrl.current === url) lastLatamPdfExtractUrl.current = "";
       if (e?.name === "AbortError") {
         setLatamPdfError(
@@ -1749,16 +1749,16 @@ export default function NovaVendaClient({
       Boolean(purchaseCodeFromLatamPdfUrl(url));
     if (!looksLikeLatamPdf) return;
     if (url === lastLatamPdfExtractUrl.current) return;
-    if (latamPdfLoading) return;
 
     const t = window.setTimeout(() => {
       if (latamPdfUrl.trim() !== url) return;
+      if (url === lastLatamPdfExtractUrl.current) return;
+      lastLatamPdfExtractUrl.current = url;
       void extractLatamReceipt(url);
     }, 400);
     return () => window.clearTimeout(t);
-    // extractLatamReceipt usa estado atual; dispara só quando a URL muda.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [latamPdfUrl, program, latamPdfLoading]);
+  }, [latamPdfUrl, program]);
 
   async function loadCedentesWhatsapp(signal?: AbortSignal) {
     setWaLoading(true);
