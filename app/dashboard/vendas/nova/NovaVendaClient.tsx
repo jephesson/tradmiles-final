@@ -136,6 +136,12 @@ function moneyToCentsBR(input: string) {
   if (!Number.isFinite(n)) return 0;
   return Math.round(n * 100);
 }
+function centsToMoneyInputBR(cents: number) {
+  return ((cents || 0) / 100).toLocaleString("pt-BR", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+}
 function isoToday() {
   const d = new Date();
   const yyyy = d.getFullYear();
@@ -565,6 +571,13 @@ export default function NovaVendaClient({
   const [pagamentoLinkReady, setPagamentoLinkReady] = useState<string | null>(null);
   /** Link de pesquisa LATAM (milhas) gerado no wizard. */
   const [searchLinkReady, setSearchLinkReady] = useState<string | null>(null);
+
+  /** Comprovante PDF LATAM (opcional) → preenchimento automático. */
+  const [latamPdfUrl, setLatamPdfUrl] = useState("");
+  const [latamPdfLoading, setLatamPdfLoading] = useState(false);
+  const [latamPdfError, setLatamPdfError] = useState("");
+  const [latamPdfNote, setLatamPdfNote] = useState("");
+  const latamPdfFileRef = useRef<HTMLInputElement | null>(null);
 
   const milheiroCents = useMemo(() => moneyToCentsBR(milheiroStr), [milheiroStr]);
   const embarqueFeeCents = useMemo(
@@ -1566,6 +1579,101 @@ export default function NovaVendaClient({
         block: "start",
       });
     }, 60);
+  }
+
+  type LatamReceiptData = {
+    purchaseCode: string | null;
+    locator: string | null;
+    passengerFullName: string | null;
+    firstPassengerLastName: string | null;
+    departureDate: string | null;
+    returnDate: string | null;
+    miles: number | null;
+    taxReaisCents: number | null;
+    ticketNumber: string | null;
+    originIata: string | null;
+    destinationIata: string | null;
+  };
+
+  function applyLatamReceipt(data: LatamReceiptData, opts?: { partial?: boolean }) {
+    const filled: string[] = [];
+    if (data.purchaseCode) {
+      const code = data.purchaseCode.toUpperCase();
+      setPurchaseCode(code);
+      if (/^LA[A-Z0-9]+$/i.test(code)) {
+        setPagamentoLinkReady(buildLatamPagamentoLink(code));
+      }
+      filled.push("Order ID");
+    }
+    if (data.locator) {
+      setLocator(data.locator.toUpperCase());
+      filled.push("localizador");
+    }
+    if (data.firstPassengerLastName) {
+      setFirstPassengerLastName(data.firstPassengerLastName.toUpperCase());
+      filled.push("sobrenome");
+    }
+    if (data.departureDate) {
+      setDepartureDate(data.departureDate);
+      filled.push("data ida");
+    }
+    if (data.returnDate) {
+      setReturnDate(data.returnDate);
+      filled.push("data volta");
+    }
+    if (data.taxReaisCents != null && data.taxReaisCents >= 0) {
+      setEmbarqueStr(centsToMoneyInputBR(data.taxReaisCents));
+      filled.push("taxa");
+    }
+
+    if (opts?.partial) {
+      setLatamPdfNote(
+        `Só consegui o Order ID pelo link (${data.purchaseCode}). Baixe o PDF e envie o arquivo para preencher o resto.`
+      );
+    } else if (filled.length) {
+      const extra =
+        data.miles != null
+          ? ` · ${data.miles.toLocaleString("pt-BR")} milhas no comprovante`
+          : "";
+      setLatamPdfNote(`Preenchido: ${filled.join(", ")}${extra}. Confira antes de salvar.`);
+    } else {
+      setLatamPdfNote("PDF lido, mas não achei campos reconhecíveis. Preencha manualmente.");
+    }
+  }
+
+  async function extractLatamReceipt(file?: File | null) {
+    if (program !== "LATAM") return;
+    const url = latamPdfUrl.trim();
+    if (!file && !url) {
+      setLatamPdfError("Cole o link do PDF ou escolha o arquivo.");
+      return;
+    }
+
+    setLatamPdfLoading(true);
+    setLatamPdfError("");
+    setLatamPdfNote("");
+    try {
+      const form = new FormData();
+      if (url) form.set("url", url);
+      if (file) form.set("file", file);
+
+      const res = await fetch("/api/vendas/latam-receipt", {
+        method: "POST",
+        body: form,
+        cache: "no-store",
+      });
+      const json = await res.json();
+      if (!res.ok || !json?.ok) {
+        throw new Error(json?.error || "Falha ao ler o comprovante.");
+      }
+      if (!json.data) throw new Error("Resposta sem dados.");
+      applyLatamReceipt(json.data as LatamReceiptData, { partial: Boolean(json.partial) });
+      if (json.fetchFailed && json.error) setLatamPdfError(String(json.error));
+    } catch (e: any) {
+      setLatamPdfError(e?.message || "Falha ao ler o comprovante.");
+    } finally {
+      setLatamPdfLoading(false);
+    }
   }
 
   async function loadCedentesWhatsapp(signal?: AbortSignal) {
@@ -2710,6 +2818,63 @@ export default function NovaVendaClient({
 
                 {program === "LATAM" || program === "SMILES" ? (
                   <>
+                    {program === "LATAM" ? (
+                      <div className="space-y-2 md:col-span-2 rounded-2xl border border-slate-200 bg-slate-50/70 p-4">
+                        <div className="text-sm font-semibold text-slate-900">
+                          Comprovante LATAM (opcional)
+                        </div>
+                        <p className="text-xs text-slate-500">
+                          Cole o link do PDF da LATAM ou envie o arquivo. Tentamos preencher
+                          Order ID, localizador, sobrenome, datas e taxa. Pode ajustar tudo
+                          manualmente depois.
+                        </p>
+                        <input
+                          className={cn(CONTROL_INPUT, "font-mono text-[12px]")}
+                          value={latamPdfUrl}
+                          onChange={(e) => setLatamPdfUrl(e.target.value)}
+                          placeholder="https://www.latamairlines.com/documents-pdf/LA….pdf"
+                        />
+                        <div className="flex flex-wrap gap-2">
+                          <button
+                            type="button"
+                            disabled={latamPdfLoading}
+                            onClick={() => void extractLatamReceipt()}
+                            className="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-slate-900 px-4 text-xs font-semibold text-white hover:bg-slate-800 disabled:opacity-60"
+                          >
+                            {latamPdfLoading ? (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+                            ) : null}
+                            Extrair do link
+                          </button>
+                          <button
+                            type="button"
+                            disabled={latamPdfLoading}
+                            onClick={() => latamPdfFileRef.current?.click()}
+                            className="inline-flex h-10 items-center justify-center rounded-xl border border-slate-200 bg-white px-4 text-xs font-semibold text-slate-800 hover:bg-slate-50 disabled:opacity-60"
+                          >
+                            Enviar PDF
+                          </button>
+                          <input
+                            ref={latamPdfFileRef}
+                            type="file"
+                            accept="application/pdf,.pdf"
+                            className="hidden"
+                            onChange={(e) => {
+                              const f = e.target.files?.[0] || null;
+                              e.target.value = "";
+                              if (f) void extractLatamReceipt(f);
+                            }}
+                          />
+                        </div>
+                        {latamPdfError ? (
+                          <div className="text-xs text-rose-600">{latamPdfError}</div>
+                        ) : null}
+                        {latamPdfNote ? (
+                          <div className="text-xs text-emerald-800">{latamPdfNote}</div>
+                        ) : null}
+                      </div>
+                    ) : null}
+
                     <div className="space-y-1.5">
                       <label className={FIELD_LABEL}>
                         Data de ida <span className="text-rose-600">*</span>

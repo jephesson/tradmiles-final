@@ -2,7 +2,16 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Bell, CalendarDays, Home, Mail, Trophy } from "lucide-react";
+import {
+  Bell,
+  CalendarDays,
+  Home,
+  Mail,
+  Percent,
+  ShoppingBag,
+  ShoppingCart,
+  Trophy,
+} from "lucide-react";
 import { cn } from "@/lib/cn";
 
 const ITEMS = [
@@ -38,6 +47,27 @@ const ITEMS = [
   },
 ] as const;
 
+const ACTION_ITEMS = [
+  {
+    href: "/dashboard/vendas/nova",
+    label: "Vender",
+    icon: ShoppingBag,
+    match: (path: string) => path.startsWith("/dashboard/vendas"),
+  },
+  {
+    href: "/dashboard/compras/nova",
+    label: "Comprar",
+    icon: ShoppingCart,
+    match: (path: string) => path.startsWith("/dashboard/compras"),
+  },
+  {
+    href: "/dashboard/comissoes/cedentes",
+    label: "Comissão",
+    icon: Percent,
+    match: (path: string) => path.startsWith("/dashboard/comissoes"),
+  },
+] as const;
+
 export default function DashboardTopNav() {
   const pathname = usePathname() || "";
 
@@ -63,6 +93,35 @@ export default function DashboardTopNav() {
               )}
             >
               <Icon className="h-4 w-4 shrink-0 opacity-80" aria-hidden />
+              <span className="whitespace-nowrap">{item.label}</span>
+            </Link>
+          );
+        })}
+
+        <div
+          className="mx-1.5 hidden h-6 w-px self-center bg-slate-300 sm:block"
+          aria-hidden
+        />
+        <span className="mx-1 self-center text-slate-300 sm:hidden" aria-hidden>
+          |
+        </span>
+
+        {ACTION_ITEMS.map((item) => {
+          const active = item.match(pathname);
+          const Icon = item.icon;
+
+          return (
+            <Link
+              key={item.href}
+              href={item.href}
+              className={cn(
+                "inline-flex h-10 shrink-0 items-center gap-2 rounded-xl px-3.5 text-[13px] font-bold transition-colors",
+                active
+                  ? "bg-emerald-700 text-white shadow-sm shadow-emerald-900/15"
+                  : "bg-emerald-50 text-emerald-800 ring-1 ring-emerald-200/80 hover:bg-emerald-100 hover:text-emerald-950"
+              )}
+            >
+              <Icon className="h-4 w-4 shrink-0" aria-hidden />
               <span className="whitespace-nowrap">{item.label}</span>
             </Link>
           );
