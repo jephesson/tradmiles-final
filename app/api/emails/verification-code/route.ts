@@ -30,8 +30,8 @@ import {
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-/** Folga antes do horário marcado (envio do WhatsApp / início do passo). */
-const AFTER_SKEW_MS = 2 * 60 * 1000;
+/** Folga antes do horário marcado (código pedido na cia antes de voltar ao TradeMiles). */
+const AFTER_SKEW_MS = 3 * 60 * 1000;
 
 function bad(error: string, status = 400) {
   return NextResponse.json({ ok: false, error }, { status });
@@ -155,7 +155,13 @@ export async function GET(req: Request) {
       };
     });
 
-    const withCode = codes.filter((c) => Boolean(c.code));
+    const withCode = codes
+      .filter((c) => Boolean(c.code))
+      .sort((a, b) => {
+        const ta = a.date ? new Date(a.date).getTime() : 0;
+        const tb = b.date ? new Date(b.date).getTime() : 0;
+        return tb - ta;
+      });
     const latest = withCode[0] || null;
 
     return NextResponse.json({
@@ -165,6 +171,7 @@ export async function GET(req: Request) {
       mailbox: cfg.mailbox || null,
       cedenteEmail: email,
       after: afterIso || null,
+      afterFloor: afterFloor ? new Date(afterFloor).toISOString() : null,
       query: parts.join(" "),
       codes: withCode,
       latest,

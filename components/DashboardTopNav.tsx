@@ -15,6 +15,7 @@ import {
   Trophy,
 } from "lucide-react";
 import { cn } from "@/lib/cn";
+import EmailAlertasNav from "@/components/EmailAlertasNav";
 
 const ITEMS = [
   {
@@ -134,6 +135,8 @@ export default function DashboardTopNav() {
             </Link>
           );
         })}
+
+        <EmailAlertasNav />
 
         <div
           className="mx-1.5 hidden h-6 w-px self-center bg-slate-300 sm:block"

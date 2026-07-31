@@ -37,6 +37,20 @@ type TripKind = "IDA" | "IDA_VOLTA";
 const LATAM_SITE_URL = "https://www.latamairlines.com/br/pt";
 const SMILES_SITE_URL = "https://www.smiles.com.br";
 
+/** Olhar ~3 min atrás: o código costuma ser pedido na cia antes de voltar ao TradeMiles. */
+const CODE_LOOKBACK_MS = 3 * 60 * 1000;
+
+function formatArrivedAt(iso: string | null | undefined) {
+  if (!iso) return null;
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toLocaleTimeString("pt-BR", {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
+}
+
 function toIata(raw: string) {
   return String(raw || "")
     .replace(/[^a-zA-Z]/g, "")
@@ -356,9 +370,24 @@ export default function BiometriaWizardModal({
     }
   }, [cedenteId, program, codeWatchAfter]);
 
+  function markCodeWatch(atMs = Date.now()) {
+    const iso = new Date(atMs).toISOString();
+    setCodeWatchAfter((prev) => {
+      if (!prev) return iso;
+      // Mantém o marco mais cedo (WhatsApp / abrir site antes do Seguir).
+      return new Date(prev).getTime() <= atMs ? prev : iso;
+    });
+  }
+
   function startCodeStep() {
-    // Mantém o horário do WhatsApp (se já enviou); senão marca agora.
-    setCodeWatchAfter((prev) => prev || new Date().toISOString());
+    // Se ainda não marcou (WhatsApp/site), olha 3 min atrás — código já pedido na cia.
+    const lookbackMs = Date.now() - CODE_LOOKBACK_MS;
+    setCodeWatchAfter((prev) => {
+      if (!prev) return new Date(lookbackMs).toISOString();
+      return new Date(prev).getTime() <= lookbackMs
+        ? prev
+        : new Date(lookbackMs).toISOString();
+    });
     setStep("code");
     setManualMode(!email);
   }
@@ -464,9 +493,10 @@ export default function BiometriaWizardModal({
               <div className="mt-2 flex flex-wrap gap-2">
                 <button
                   type="button"
-                  onClick={() =>
-                    window.open(siteUrl(program), "_blank", "noopener,noreferrer")
-                  }
+                  onClick={() => {
+                    markCodeWatch();
+                    window.open(siteUrl(program), "_blank", "noopener,noreferrer");
+                  }}
                   className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[11px] font-medium hover:bg-slate-50"
                 >
                   <ExternalLink className="h-3.5 w-3.5" aria-hidden />
@@ -495,7 +525,7 @@ export default function BiometriaWizardModal({
                   onClick={() => {
                     if (!loginWaUrl) return;
                     // Marca o horário do envio para filtrar códigos antigos.
-                    setCodeWatchAfter(new Date().toISOString());
+                    markCodeWatch();
                     window.open(loginWaUrl, "_blank", "noopener,noreferrer");
                   }}
                   className={cn(
@@ -528,13 +558,13 @@ export default function BiometriaWizardModal({
             <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-4">
               <div className="font-semibold text-slate-900">2. Código de verificação</div>
               <p className="mt-1 text-xs text-slate-500">
-                Busca no e-mail da empresa o código da {programLabel(program)} deste cedente,
-                só após o horário do envio
+                Busca o código mais recente da {programLabel(program)} deste cedente, com folga
+                de 3 min (você pede na cia e só depois volta aqui)
                 {codeWatchAfter
-                  ? ` (${new Date(codeWatchAfter).toLocaleTimeString("pt-BR", {
+                  ? ` · a partir de ${new Date(codeWatchAfter).toLocaleTimeString("pt-BR", {
                       hour: "2-digit",
                       minute: "2-digit",
-                    })})`
+                    })}`
                   : ""}
                 .
               </p>
@@ -544,21 +574,23 @@ export default function BiometriaWizardModal({
                   {otpLoading ? (
                     <div className="flex items-center gap-2 text-sm text-slate-500">
                       <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
-                      Procurando código no Gmail…
+                      Procurando o último código no Gmail…
                     </div>
                   ) : otpCode ? (
                     <div>
-                      <div className="text-xs font-medium text-emerald-700">Código encontrado</div>
+                      <div className="text-xs font-medium text-emerald-700">
+                        Último código encontrado
+                      </div>
                       <div className="mt-1 font-mono text-3xl font-bold tracking-widest text-slate-900">
                         {otpCode}
                       </div>
-                      {otpMeta ? (
-                        <div className="mt-1 text-xs text-slate-500">
-                          {otpMeta.subject}
-                          {otpMeta.date
-                            ? ` · ${new Date(otpMeta.date).toLocaleString("pt-BR")}`
-                            : ""}
+                      {formatArrivedAt(otpMeta?.date) ? (
+                        <div className="mt-2 inline-flex items-center rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-900">
+                          Chegou às {formatArrivedAt(otpMeta?.date)}
                         </div>
+                      ) : null}
+                      {otpMeta?.subject ? (
+                        <div className="mt-1.5 text-xs text-slate-500">{otpMeta.subject}</div>
                       ) : null}
                       <button
                         type="button"
@@ -571,7 +603,7 @@ export default function BiometriaWizardModal({
                     </div>
                   ) : (
                     <div className="text-sm text-slate-600">
-                      Ainda não chegou um código novo deste cedente.
+                      Ainda não chegou um código novo deste cedente nesse intervalo.
                     </div>
                   )}
                   {otpError ? <div className="mt-2 text-xs text-rose-600">{otpError}</div> : null}

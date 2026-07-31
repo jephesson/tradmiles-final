@@ -17,22 +17,24 @@ import {
   X,
 } from "lucide-react";
 import { cn } from "@/lib/cn";
+import {
+  loadAlertEmailFilterIds,
+  loadPinnedEmailFilterIds,
+  loadSavedEmailFilters,
+  persistAlertEmailFilterIds,
+  persistPinnedEmailFilterIds,
+  persistSavedEmailFilters,
+  type EmailProgramFilter,
+  type EmailSavedFilter,
+  type EmailSearchIn,
+} from "@/lib/email-filters-storage";
 
 type Program = "SMILES" | "LATAM" | "LIVELO";
-type ProgramFilter = "ALL" | Program;
+type ProgramFilter = EmailProgramFilter;
 type Scope = "all" | "matched" | "unmatched";
-type SearchIn = "subject" | "anywhere";
+type SearchIn = EmailSearchIn;
 
-type SavedFilter = {
-  id: string;
-  name: string;
-  query: string;
-  searchIn: SearchIn;
-  program: ProgramFilter;
-};
-
-const SAVED_FILTERS_KEY = "tm.emailSavedFilters";
-const PINNED_FILTERS_KEY = "tm.emailPinnedFilterIds";
+type SavedFilter = EmailSavedFilter;
 
 const PROGRAM_OPTIONS: { value: ProgramFilter; label: string }[] = [
   { value: "ALL", label: "Todas as cias" },
@@ -43,52 +45,6 @@ const PROGRAM_OPTIONS: { value: ProgramFilter; label: string }[] = [
 
 function programLabel(program: ProgramFilter) {
   return PROGRAM_OPTIONS.find((p) => p.value === program)?.label || "Todas";
-}
-
-function normalizeFilter(f: Partial<SavedFilter>): SavedFilter | null {
-  if (!f?.id || !f?.name || typeof f.query !== "string") return null;
-  return {
-    id: String(f.id),
-    name: String(f.name),
-    query: String(f.query),
-    searchIn: f.searchIn === "subject" ? "subject" : "anywhere",
-    program: (["ALL", "SMILES", "LATAM", "LIVELO"] as const).includes(
-      f.program as ProgramFilter
-    )
-      ? (f.program as ProgramFilter)
-      : "ALL",
-  };
-}
-
-function loadSavedFilters(): SavedFilter[] {
-  try {
-    const raw = localStorage.getItem(SAVED_FILTERS_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw) as SavedFilter[];
-    if (!Array.isArray(parsed)) return [];
-    return parsed.map(normalizeFilter).filter((f): f is SavedFilter => Boolean(f));
-  } catch {
-    return [];
-  }
-}
-
-function persistSavedFilters(filters: SavedFilter[]) {
-  localStorage.setItem(SAVED_FILTERS_KEY, JSON.stringify(filters));
-}
-
-function loadPinnedFilterIds(): string[] {
-  try {
-    const raw = localStorage.getItem(PINNED_FILTERS_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw) as string[];
-    return Array.isArray(parsed) ? parsed.map(String) : [];
-  } catch {
-    return [];
-  }
-}
-
-function persistPinnedFilterIds(ids: string[]) {
-  localStorage.setItem(PINNED_FILTERS_KEY, JSON.stringify(ids));
 }
 
 type CedenteRef = {
@@ -381,12 +337,14 @@ export default function EmailsClient() {
   const [searchIn, setSearchIn] = useState<SearchIn>("anywhere");
   const [savedFilters, setSavedFilters] = useState<SavedFilter[]>([]);
   const [pinnedIds, setPinnedIds] = useState<string[]>([]);
+  const [alertIds, setAlertIds] = useState<string[]>([]);
   const [activeFilterId, setActiveFilterId] = useState<string | null>(null);
   const [libraryOpen, setLibraryOpen] = useState(false);
   const [draftName, setDraftName] = useState("");
   const [draftQuery, setDraftQuery] = useState("");
   const [draftSearchIn, setDraftSearchIn] = useState<SearchIn>("subject");
   const [draftProgram, setDraftProgram] = useState<ProgramFilter>("LATAM");
+  const [draftAsAlert, setDraftAsAlert] = useState(false);
   const [days, setDays] = useState(180);
 
   const [configured, setConfigured] = useState(true);
@@ -420,8 +378,9 @@ export default function EmailsClient() {
       setOauthOk(code === "connected");
       window.history.replaceState({}, "", "/dashboard/emails");
     }
-    setSavedFilters(loadSavedFilters());
-    setPinnedIds(loadPinnedFilterIds());
+    setSavedFilters(loadSavedEmailFilters());
+    setPinnedIds(loadPinnedEmailFilterIds());
+    setAlertIds(loadAlertEmailFilterIds());
   }, []);
 
   const pinnedFilters = useMemo(() => {
@@ -481,7 +440,7 @@ export default function EmailsClient() {
 
       setSavedFilters((prev) => {
         const merged = [next, ...prev].slice(0, 40);
-        persistSavedFilters(merged);
+        persistSavedEmailFilters(merged);
         return merged;
       });
 
@@ -489,23 +448,33 @@ export default function EmailsClient() {
         setPinnedIds((prev) => {
           if (prev.includes(next.id)) return prev;
           const merged = [...prev, next.id].slice(0, 20);
-          persistPinnedFilterIds(merged);
+          persistPinnedEmailFilterIds(merged);
+          return merged;
+        });
+      }
+
+      if (draftAsAlert) {
+        setAlertIds((prev) => {
+          if (prev.includes(next.id)) return prev;
+          const merged = [...prev, next.id].slice(0, 20);
+          persistAlertEmailFilterIds(merged);
           return merged;
         });
       }
 
       setDraftName("");
       setDraftQuery("");
+      setDraftAsAlert(false);
       applySavedFilter(next);
     },
-    [draftName, draftQuery, draftSearchIn, draftProgram, applySavedFilter]
+    [draftName, draftQuery, draftSearchIn, draftProgram, draftAsAlert, applySavedFilter]
   );
 
   const pinFilter = useCallback((id: string) => {
     setPinnedIds((prev) => {
       if (prev.includes(id)) return prev;
       const merged = [...prev, id].slice(0, 20);
-      persistPinnedFilterIds(merged);
+      persistPinnedEmailFilterIds(merged);
       return merged;
     });
   }, []);
@@ -513,7 +482,24 @@ export default function EmailsClient() {
   const unpinFilter = useCallback((id: string) => {
     setPinnedIds((prev) => {
       const merged = prev.filter((x) => x !== id);
-      persistPinnedFilterIds(merged);
+      persistPinnedEmailFilterIds(merged);
+      return merged;
+    });
+  }, []);
+
+  const enableAlertFilter = useCallback((id: string) => {
+    setAlertIds((prev) => {
+      if (prev.includes(id)) return prev;
+      const merged = [...prev, id].slice(0, 20);
+      persistAlertEmailFilterIds(merged);
+      return merged;
+    });
+  }, []);
+
+  const disableAlertFilter = useCallback((id: string) => {
+    setAlertIds((prev) => {
+      const merged = prev.filter((x) => x !== id);
+      persistAlertEmailFilterIds(merged);
       return merged;
     });
   }, []);
@@ -521,12 +507,17 @@ export default function EmailsClient() {
   const removeSavedFilter = useCallback((id: string) => {
     setSavedFilters((prev) => {
       const merged = prev.filter((f) => f.id !== id);
-      persistSavedFilters(merged);
+      persistSavedEmailFilters(merged);
       return merged;
     });
     setPinnedIds((prev) => {
       const merged = prev.filter((x) => x !== id);
-      persistPinnedFilterIds(merged);
+      persistPinnedEmailFilterIds(merged);
+      return merged;
+    });
+    setAlertIds((prev) => {
+      const merged = prev.filter((x) => x !== id);
+      persistAlertEmailFilterIds(merged);
       return merged;
     });
     setActiveFilterId((cur) => (cur === id ? null : cur));
@@ -1022,7 +1013,9 @@ export default function EmailsClient() {
             <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
               <div>
                 <div className="text-sm font-semibold text-slate-900">Biblioteca de chips</div>
-                <div className="text-xs text-slate-500">Crie, vincule à cia e escolha quais aparecem</div>
+                <div className="text-xs text-slate-500">
+                  Crie filtros, pin no topo e marque alertas temporários
+                </div>
               </div>
               <button
                 type="button"
@@ -1073,6 +1066,17 @@ export default function EmailsClient() {
                 }
                 className={cn(CONTROL, "w-full")}
               />
+              <label className="flex items-center gap-2 rounded-xl border border-amber-200 bg-amber-50/70 px-3 py-2.5 text-xs text-amber-950">
+                <input
+                  type="checkbox"
+                  checked={draftAsAlert}
+                  onChange={(e) => setDraftAsAlert(e.target.checked)}
+                  className="h-4 w-4 rounded border-amber-300 text-amber-700 focus:ring-amber-500"
+                />
+                <span>
+                  <b>Usar como alerta</b> — aparece no menu Alertas quando houver match
+                </span>
+              </label>
               <div className="grid grid-cols-2 gap-2">
                 <button
                   type="button"
@@ -1101,6 +1105,7 @@ export default function EmailsClient() {
                 <ul className="space-y-1">
                   {savedFilters.map((filter) => {
                     const pinned = pinnedIds.includes(filter.id);
+                    const isAlert = alertIds.includes(filter.id);
                     return (
                       <li
                         key={filter.id}
@@ -1116,8 +1121,13 @@ export default function EmailsClient() {
                           onClick={() => applySavedFilter(filter)}
                           className="w-full text-left"
                         >
-                          <div className="truncate text-sm font-semibold text-slate-900">
+                          <div className="flex items-center gap-2 truncate text-sm font-semibold text-slate-900">
                             {filter.name}
+                            {isAlert ? (
+                              <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-800">
+                                Alerta
+                              </span>
+                            ) : null}
                           </div>
                           <div className="mt-0.5 truncate text-xs text-slate-500">
                             {programLabel(filter.program)} ·{" "}
@@ -1125,7 +1135,7 @@ export default function EmailsClient() {
                             {filter.query}
                           </div>
                         </button>
-                        <div className="mt-2 flex items-center gap-1.5">
+                        <div className="mt-2 flex flex-wrap items-center gap-1.5">
                           {pinned ? (
                             <button
                               type="button"
@@ -1142,6 +1152,23 @@ export default function EmailsClient() {
                             >
                               <Plus className="h-3 w-3" aria-hidden />
                               Adicionar chip
+                            </button>
+                          )}
+                          {isAlert ? (
+                            <button
+                              type="button"
+                              onClick={() => disableAlertFilter(filter.id)}
+                              className="h-8 rounded-lg bg-amber-100 px-2 text-xs font-semibold text-amber-900 hover:bg-amber-200"
+                            >
+                              Tirar alerta
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => enableAlertFilter(filter.id)}
+                              className="h-8 rounded-lg border border-amber-300 bg-white px-2 text-xs font-semibold text-amber-900 hover:bg-amber-50"
+                            >
+                              Usar como alerta
                             </button>
                           )}
                           <button
