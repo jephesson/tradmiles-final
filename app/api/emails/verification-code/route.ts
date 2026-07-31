@@ -101,16 +101,30 @@ export async function GET(req: Request) {
   }
 
   const subjectQ = verificationSubjectQuery(program);
-  const parts = [
+  const cedenteAddr = `(to:${email} OR deliveredto:${email} OR cc:${email} OR from:${email})`;
+  // Encaminhamento automático: From = cia, To/Delivered-To = e-mail do cedente.
+  const qFromProgram = [
     buildSenderQuery([program]),
     "newer_than:2d",
     buildContentQuery(subjectQ, "subject"),
-    `(to:${email} OR deliveredto:${email} OR cc:${email})`,
-  ];
+    cedenteAddr,
+  ].join(" ");
+  // Encaminhamento manual (Outlook/Gmail ENC/Fwd): From = cedente.
+  const qFromCedente = [
+    `from:${email}`,
+    "newer_than:2d",
+    "(subject:código OR subject:codigo OR subject:verification OR subject:ENC OR subject:Fwd OR subject:Fw: OR subject:Encaminh)",
+  ].join(" ");
 
   try {
-    const list = await listMessages({ q: parts.join(" "), maxResults: 12 });
-    const ids = (list.messages || []).map((m) => m.id);
+    const [listProgram, listForward] = await Promise.all([
+      listMessages({ q: qFromProgram, maxResults: 12 }),
+      listMessages({ q: qFromCedente, maxResults: 12 }),
+    ]);
+    const idSet = new Set<string>();
+    for (const m of listProgram.messages || []) idSet.add(m.id);
+    for (const m of listForward.messages || []) idSet.add(m.id);
+    const ids = Array.from(idSet);
 
     const metas = await mapWithConcurrency(ids, 6, (id) =>
       getMessageMetadata(id, METADATA_HEADERS)
@@ -180,7 +194,7 @@ export async function GET(req: Request) {
       cedenteEmail: email,
       after: afterIso || null,
       afterFloor: afterFloor ? new Date(afterFloor).toISOString() : null,
-      query: parts.join(" "),
+      query: `${qFromProgram} | ${qFromCedente}`,
       codes: withCode,
       latest,
     });

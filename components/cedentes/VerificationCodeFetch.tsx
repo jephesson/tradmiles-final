@@ -6,7 +6,7 @@ import { cn } from "@/lib/cn";
 
 type Program = "LATAM" | "SMILES";
 
-const CODE_LOOKBACK_MS = 3 * 60 * 1000;
+const CODE_LOOKBACK_MS = 15 * 60 * 1000;
 const POLL_MS = 8_000;
 
 function programLabel(p: Program) {
@@ -133,8 +133,8 @@ export function VerificationCodeFetch({
             Código de verificação
           </div>
           <p className="mt-1 text-xs text-slate-600">
-            Busca automática no Gmail ({programLabel(program)}), com folga de 3
-            min.
+            Busca na caixa da empresa ({programLabel(program)}), inclusive
+            ENC/Fwd do Outlook — últimos 15 min.
           </p>
         </div>
         <button
