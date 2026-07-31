@@ -3,6 +3,10 @@
  * O host `-pooler` (PgBouncer) não sustenta pg_advisory_lock → P1002 no Vercel.
  */
 import { spawnSync } from "node:child_process";
+import { config as loadEnv } from "dotenv";
+
+loadEnv({ path: ".env.local" });
+loadEnv({ path: ".env" });
 
 function toDirectUrl(url) {
   const raw = String(url || "").trim();
