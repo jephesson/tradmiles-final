@@ -14,18 +14,25 @@ export type EmailSavedFilter = {
 /** Ação ao tratar o alerta (página de destino). */
 export type EmailAlertAction = "VENDA" | "COMPRA" | "VISUALIZAR_PONTOS";
 export type EmailAlertCia = "LATAM" | "SMILES" | "LIVELO";
+export type EmailAlertActionAudience = "ALL" | "SELECTED";
 
 export type EmailAlertActionConfig = {
   filterId: string;
   action: EmailAlertAction;
   cia: EmailAlertCia;
+  /** Quem vê o botão de ação (o alerta em si aparece para todos). */
+  actionAudience: EmailAlertActionAudience;
+  /** Quando actionAudience === "SELECTED". */
+  actionUserIds: string[];
 };
 
 export const EMAIL_SAVED_FILTERS_KEY = "tm.emailSavedFilters";
 export const EMAIL_PINNED_FILTER_IDS_KEY = "tm.emailPinnedFilterIds";
 export const EMAIL_ALERT_FILTER_IDS_KEY = "tm.emailAlertFilterIds";
 export const EMAIL_ALERT_ACTIONS_KEY = "tm.emailAlertActions";
+/** Legacy global dismiss (migrado para por usuário). */
 export const EMAIL_DISMISSED_ALERTS_KEY = "tm.emailDismissedAlertIds";
+export const EMAIL_DISMISSED_ALERTS_BY_USER_KEY = "tm.emailDismissedAlertIdsByUser";
 
 const PROGRAMS = ["ALL", "SMILES", "LATAM", "LIVELO"] as const;
 const ALERT_ACTIONS = ["VENDA", "COMPRA", "VISUALIZAR_PONTOS"] as const;
@@ -116,7 +123,18 @@ function normalizeAlertActionConfig(
   const cia = ALERT_CIAS.includes(raw.cia as EmailAlertCia)
     ? (raw.cia as EmailAlertCia)
     : "LATAM";
-  return { filterId: String(raw.filterId), action, cia };
+  const actionAudience: EmailAlertActionAudience =
+    raw.actionAudience === "SELECTED" ? "SELECTED" : "ALL";
+  const actionUserIds = Array.isArray(raw.actionUserIds)
+    ? raw.actionUserIds.map(String).filter(Boolean)
+    : [];
+  return {
+    filterId: String(raw.filterId),
+    action,
+    cia,
+    actionAudience,
+    actionUserIds,
+  };
 }
 
 export function loadAlertActionConfigs(): EmailAlertActionConfig[] {
@@ -140,7 +158,13 @@ export function persistAlertActionConfigs(configs: EmailAlertActionConfig[]) {
 export function getAlertActionConfig(filterId: string): EmailAlertActionConfig {
   const found = loadAlertActionConfigs().find((c) => c.filterId === filterId);
   if (found) return found;
-  return { filterId, action: "VENDA", cia: "LATAM" };
+  return {
+    filterId,
+    action: "VENDA",
+    cia: "LATAM",
+    actionAudience: "ALL",
+    actionUserIds: [],
+  };
 }
 
 export function upsertAlertActionConfig(
@@ -160,17 +184,30 @@ export function removeAlertActionConfig(filterId: string) {
   return merged;
 }
 
+/** O alerta aparece para todos; o botão de ação só para quem estiver habilitado. */
+export function canUserUseAlertAction(
+  config: EmailAlertActionConfig,
+  userId: string | null | undefined
+): boolean {
+  if (config.actionAudience !== "SELECTED") return true;
+  const uid = String(userId || "").trim();
+  if (!uid) return false;
+  return config.actionUserIds.includes(uid);
+}
+
 /** Monta o destino do botão de ação do alerta. */
 export function buildAlertActionHref(
   config: EmailAlertActionConfig,
-  opts?: { cedenteId?: string | null }
+  opts?: { cedenteId?: string | null; emailId?: string | null }
 ): string {
   const cedenteId = String(opts?.cedenteId || "").trim();
+  const emailId = String(opts?.emailId || "").trim();
   const cia = config.cia.toLowerCase();
 
   if (config.action === "COMPRA") {
-    const q = new URLSearchParams({ program: config.cia });
+    const q = new URLSearchParams({ program: config.cia, fromAlert: "1" });
     if (cedenteId) q.set("cedenteId", cedenteId);
+    if (emailId) q.set("emailId", emailId);
     return `/dashboard/compras/nova?${q}`;
   }
 
@@ -180,36 +217,163 @@ export function buildAlertActionHref(
     return `/dashboard/cedentes/visualizar?${q}`;
   }
 
-  const q = new URLSearchParams({ program: config.cia });
+  const q = new URLSearchParams({ program: config.cia, fromAlert: "1" });
   if (cedenteId) q.set("cedenteId", cedenteId);
+  if (emailId) q.set("emailId", emailId);
   return `/dashboard/vendas/nova?${q}`;
 }
 
-/** messageId → ISO dismissedAt */
-export function loadDismissedAlertIds(): Record<string, string> {
+type DismissedByUser = Record<string, Record<string, string>>;
+
+function pruneDismissedMap(map: Record<string, string>) {
+  const cutoff = Date.now() - 7 * 24 * 60 * 60 * 1000;
+  const next: Record<string, string> = {};
+  for (const [id, at] of Object.entries(map)) {
+    const t = new Date(at).getTime();
+    if (Number.isFinite(t) && t >= cutoff) next[id] = at;
+  }
+  return next;
+}
+
+function loadDismissedByUserRaw(): DismissedByUser {
   try {
-    const raw = localStorage.getItem(EMAIL_DISMISSED_ALERTS_KEY);
+    const raw = localStorage.getItem(EMAIL_DISMISSED_ALERTS_BY_USER_KEY);
     if (!raw) return {};
-    const parsed = JSON.parse(raw) as Record<string, string>;
+    const parsed = JSON.parse(raw) as DismissedByUser;
     if (!parsed || typeof parsed !== "object") return {};
-    const cutoff = Date.now() - 7 * 24 * 60 * 60 * 1000;
-    const next: Record<string, string> = {};
-    for (const [id, at] of Object.entries(parsed)) {
-      const t = new Date(at).getTime();
-      if (Number.isFinite(t) && t >= cutoff) next[id] = at;
+    const out: DismissedByUser = {};
+    for (const [userId, map] of Object.entries(parsed)) {
+      if (!map || typeof map !== "object") continue;
+      out[userId] = pruneDismissedMap(map);
     }
-    return next;
+    return out;
   } catch {
     return {};
   }
 }
 
-export function persistDismissedAlertIds(map: Record<string, string>) {
-  localStorage.setItem(EMAIL_DISMISSED_ALERTS_KEY, JSON.stringify(map));
+function persistDismissedByUser(data: DismissedByUser) {
+  localStorage.setItem(EMAIL_DISMISSED_ALERTS_BY_USER_KEY, JSON.stringify(data));
 }
 
-export function dismissAlertMessage(messageId: string) {
-  const map = loadDismissedAlertIds();
-  map[messageId] = new Date().toISOString();
-  persistDismissedAlertIds(map);
+/**
+ * Ignorar é por funcionário: o alerta some só para quem ignorou,
+ * e continua aparecendo para os demais.
+ */
+export function loadDismissedAlertIds(userId?: string | null): Record<string, string> {
+  const uid = String(userId || "").trim();
+  if (!uid) {
+    // fallback legado (antes do por-usuário)
+    try {
+      const raw = localStorage.getItem(EMAIL_DISMISSED_ALERTS_KEY);
+      if (!raw) return {};
+      const parsed = JSON.parse(raw) as Record<string, string>;
+      if (!parsed || typeof parsed !== "object") return {};
+      return pruneDismissedMap(parsed);
+    } catch {
+      return {};
+    }
+  }
+
+  const byUser = loadDismissedByUserRaw();
+  if (byUser[uid]) return byUser[uid];
+
+  // migra uma vez o legado global → usuário atual
+  try {
+    const legacyRaw = localStorage.getItem(EMAIL_DISMISSED_ALERTS_KEY);
+    if (legacyRaw) {
+      const legacy = JSON.parse(legacyRaw) as Record<string, string>;
+      if (legacy && typeof legacy === "object") {
+        const pruned = pruneDismissedMap(legacy);
+        byUser[uid] = pruned;
+        persistDismissedByUser(byUser);
+        localStorage.removeItem(EMAIL_DISMISSED_ALERTS_KEY);
+        return pruned;
+      }
+    }
+  } catch {
+    /* ignore */
+  }
+
+  return {};
+}
+
+export function dismissAlertMessage(messageId: string, userId?: string | null) {
+  const id = String(messageId || "").trim();
+  if (!id) return;
+  const uid = String(userId || "").trim();
+  const at = new Date().toISOString();
+
+  if (!uid) {
+    const map = loadDismissedAlertIds(null);
+    map[id] = at;
+    localStorage.setItem(EMAIL_DISMISSED_ALERTS_KEY, JSON.stringify(map));
+    return;
+  }
+
+  const byUser = loadDismissedByUserRaw();
+  const map = { ...(byUser[uid] || {}) };
+  map[id] = at;
+  byUser[uid] = pruneDismissedMap(map);
+  persistDismissedByUser(byUser);
+}
+
+/** Empurra filtros de alerta + ações para o servidor (compartilhado com a equipe). */
+export async function pushAlertPrefsToServer() {
+  const alertFilterIds = loadAlertEmailFilterIds();
+  const allFilters = loadSavedEmailFilters();
+  const idSet = new Set(alertFilterIds);
+  const alertFilters = allFilters.filter((f) => idSet.has(f.id));
+  const actionConfigs = loadAlertActionConfigs().filter((c) =>
+    idSet.has(c.filterId)
+  );
+
+  const res = await fetch("/api/emails/alert-prefs", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ alertFilterIds, alertFilters, actionConfigs }),
+  });
+  const json = await res.json().catch(() => null);
+  if (!res.ok || !json?.ok) {
+    throw new Error(json?.error || "Falha ao salvar preferências de alerta.");
+  }
+  return json.data;
+}
+
+/** Puxa preferências do servidor e mescla no localStorage. */
+export async function pullAlertPrefsFromServer() {
+  const res = await fetch("/api/emails/alert-prefs", { cache: "no-store" });
+  const json = await res.json().catch(() => null);
+  if (!res.ok || !json?.ok) return null;
+
+  const alertFilterIds = Array.isArray(json.data?.alertFilterIds)
+    ? json.data.alertFilterIds.map(String)
+    : [];
+  const alertFilters = Array.isArray(json.data?.alertFilters)
+    ? json.data.alertFilters
+        .map((f: Partial<EmailSavedFilter>) => normalizeEmailFilter(f))
+        .filter((f: EmailSavedFilter | null): f is EmailSavedFilter => Boolean(f))
+    : [];
+  const actionConfigs = Array.isArray(json.data?.actionConfigs)
+    ? json.data.actionConfigs
+        .map((c: Partial<EmailAlertActionConfig>) => normalizeAlertActionConfig(c))
+        .filter((c: EmailAlertActionConfig | null): c is EmailAlertActionConfig =>
+          Boolean(c)
+        )
+    : [];
+
+  // Mescla filtros de alerta nas saved filters locais.
+  const local = loadSavedEmailFilters();
+  const byId = new Map(local.map((f) => [f.id, f]));
+  for (const f of alertFilters) byId.set(f.id, f);
+  persistSavedEmailFilters(Array.from(byId.values()));
+
+  persistAlertEmailFilterIds(alertFilterIds);
+  persistAlertActionConfigs(actionConfigs);
+
+  return {
+    alertFilterIds,
+    alertFilters,
+    actionConfigs,
+  };
 }

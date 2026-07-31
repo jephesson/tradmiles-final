@@ -101,6 +101,7 @@ export async function GET(
         to: headerValue(message, "To"),
         subject,
         date: date ? date.toISOString() : null,
+        text: text || "",
         document: wrapEmailDocument(bodyHtml),
         cedente: cedente
           ? {

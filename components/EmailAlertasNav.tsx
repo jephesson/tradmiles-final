@@ -14,15 +14,18 @@ import {
   X,
 } from "lucide-react";
 import { cn } from "@/lib/cn";
+import { getSession } from "@/lib/auth";
 import {
   ALERT_ACTION_LABEL,
   ALERT_CIA_LABEL,
   buildAlertActionHref,
+  canUserUseAlertAction,
   dismissAlertMessage,
   getAlertActionConfig,
   loadAlertEmailFilterIds,
   loadDismissedAlertIds,
   loadSavedEmailFilters,
+  pullAlertPrefsFromServer,
   type EmailSavedFilter,
 } from "@/lib/email-filters-storage";
 
@@ -75,6 +78,7 @@ export default function EmailAlertasNav() {
   const [detail, setDetail] = useState<Detail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [mounted, setMounted] = useState(false);
+  const [userId, setUserId] = useState<string | null>(null);
   const [panelPos, setPanelPos] = useState<{ top: number; left: number } | null>(
     null
   );
@@ -82,9 +86,9 @@ export default function EmailAlertasNav() {
   const panelRef = useRef<HTMLDivElement | null>(null);
 
   const visibleRows = useMemo(() => {
-    const dismissed = loadDismissedAlertIds();
+    const dismissed = loadDismissedAlertIds(userId);
     return rows.filter((r) => !dismissed[r.id]);
-  }, [rows]);
+  }, [rows, userId]);
 
   const count = visibleRows.length;
   const hasAlerts = count > 0;
@@ -162,17 +166,27 @@ export default function EmailAlertasNav() {
 
   useEffect(() => {
     setMounted(true);
-  }, []);
+    setUserId(getSession()?.id || null);
+    void pullAlertPrefsFromServer()
+      .then(() => void refresh())
+      .catch(() => null);
+  }, [refresh]);
 
   useEffect(() => {
     void refresh();
     const t = window.setInterval(() => void refresh(), 60_000);
-    const onFocus = () => void refresh();
+    const onFocus = () => {
+      void pullAlertPrefsFromServer()
+        .then(() => void refresh())
+        .catch(() => void refresh());
+    };
     const onStorage = (e: StorageEvent) => {
       if (
         e.key === "tm.emailAlertFilterIds" ||
         e.key === "tm.emailSavedFilters" ||
-        e.key === "tm.emailDismissedAlertIds"
+        e.key === "tm.emailDismissedAlertIds" ||
+        e.key === "tm.emailDismissedAlertIdsByUser" ||
+        e.key === "tm.emailAlertActions"
       ) {
         void refresh();
       }
@@ -244,7 +258,7 @@ export default function EmailAlertasNav() {
   }
 
   function dismiss(id: string) {
-    dismissAlertMessage(id);
+    dismissAlertMessage(id, userId);
     setRows((prev) => prev.filter((r) => r.id !== id));
     if (detail?.id === id) setDetail(null);
   }
@@ -319,8 +333,10 @@ export default function EmailAlertasNav() {
                 <ul className="divide-y divide-slate-100">
                   {visibleRows.map((row) => {
                     const actionCfg = getAlertActionConfig(row.filterId);
+                    const showAction = canUserUseAlertAction(actionCfg, userId);
                     const actionHref = buildAlertActionHref(actionCfg, {
                       cedenteId: row.cedente?.id,
+                      emailId: row.id,
                     });
                     const ActionIcon =
                       actionCfg.action === "COMPRA"
@@ -351,20 +367,22 @@ export default function EmailAlertasNav() {
                             {fmtRelative(row.date)}
                             {row.program ? ` · ${row.program}` : ""}
                           </div>
-                          <div className="mt-1.5 inline-flex items-center gap-1 rounded-md border border-sky-200 bg-sky-50 px-1.5 py-0.5 text-[10px] font-semibold text-sky-800">
-                            <ActionIcon className="h-3 w-3" aria-hidden />
-                            {ALERT_ACTION_LABEL[actionCfg.action]} ·{" "}
-                            {ALERT_CIA_LABEL[actionCfg.cia]}
-                          </div>
+                          {showAction ? (
+                            <div className="mt-1.5 inline-flex items-center gap-1 rounded-md border border-sky-200 bg-sky-50 px-1.5 py-0.5 text-[10px] font-semibold text-sky-800">
+                              <ActionIcon className="h-3 w-3" aria-hidden />
+                              {ALERT_ACTION_LABEL[actionCfg.action]} ·{" "}
+                              {ALERT_CIA_LABEL[actionCfg.cia]}
+                            </div>
+                          ) : null}
                         </div>
                         <button
                           type="button"
                           onClick={() => dismiss(row.id)}
-                          className="shrink-0 rounded-md p-1 text-slate-300 hover:bg-slate-100 hover:text-slate-600"
-                          aria-label="Dispensar alerta"
-                          title="Dispensar"
+                          className="shrink-0 rounded-md px-1.5 py-1 text-[11px] font-semibold text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                          aria-label="Ignorar alerta"
+                          title="Ignorar só para você — continua para os outros"
                         >
-                          <X className="h-3.5 w-3.5" aria-hidden />
+                          Ignorar
                         </button>
                       </div>
                       <div className="mt-2 flex flex-wrap gap-2">
@@ -376,14 +394,16 @@ export default function EmailAlertasNav() {
                           <MailOpen className="h-3.5 w-3.5" aria-hidden />
                           Abrir mensagem
                         </button>
-                        <Link
-                          href={actionHref}
-                          onClick={() => setOpen(false)}
-                          className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-slate-900 px-2.5 text-[11px] font-semibold text-white hover:bg-slate-800"
-                        >
-                          <ActionIcon className="h-3.5 w-3.5" aria-hidden />
-                          {ALERT_ACTION_LABEL[actionCfg.action]}
-                        </Link>
+                        {showAction ? (
+                          <Link
+                            href={actionHref}
+                            onClick={() => setOpen(false)}
+                            className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-slate-900 px-2.5 text-[11px] font-semibold text-white hover:bg-slate-800"
+                          >
+                            <ActionIcon className="h-3.5 w-3.5" aria-hidden />
+                            {ALERT_ACTION_LABEL[actionCfg.action]}
+                          </Link>
+                        ) : null}
                       </div>
                     </li>
                     );

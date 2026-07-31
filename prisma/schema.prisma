@@ -887,6 +887,26 @@ model GmailConnection {
 }
 
 /**
+ * Preferências compartilhadas dos alertas de e-mail (filtros + ações).
+ * Ignorar alerta continua por funcionário no cliente.
+ */
+model EmailAlertPrefs {
+  id String @id @default("default")
+
+  /// string[] — ids marcados como alerta
+  alertFilterIds Json @default("[]")
+  /// EmailSavedFilter[] — definições dos filtros de alerta
+  alertFilters   Json @default("[]")
+  /// EmailAlertActionConfig[]
+  actionConfigs  Json @default("[]")
+
+  updatedAt   DateTime @default(now()) @updatedAt
+  updatedById String?
+
+  @@map("email_alert_prefs")
+}
+
+/**
  * =========================
  * DÍVIDAS
  * =========================

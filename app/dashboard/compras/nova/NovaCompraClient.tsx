@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
 import {
   AlertCircle,
   Loader2,
@@ -21,6 +21,7 @@ import {
   computeLiveloCycleMonth,
   liveloCycleBadgeClass,
 } from "@/lib/livelo-clube";
+import { parseLatamClubEmail } from "@/lib/latam/parseClubEmail";
 
 type LoyaltyProgram = "LATAM" | "SMILES" | "LIVELO" | "ESFERA";
 
@@ -533,11 +534,14 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
   const routeIdRaw = params?.id;
   const routeId = Array.isArray(routeIdRaw) ? routeIdRaw[0] : routeIdRaw;
   const purchaseIdFinal = purchaseId || routeId;
+  const searchParams = useSearchParams();
+  const alertPrefillRan = useRef(false);
 
   const [query, setQuery] = useState("");
   const [allCedentes, setAllCedentes] = useState<Cedente[]>([]);
   const [cedenteSel, setCedenteSel] = useState<Cedente | null>(null);
   const [loadingCed, setLoadingCed] = useState(false);
+  const [alertPrefillNote, setAlertPrefillNote] = useState<string | null>(null);
 
   const [draft, setDraft] = useState<PurchaseDraft | null>(null);
   const [saving, setSaving] = useState(false);
@@ -707,6 +711,192 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
       if (saveTimer.current) window.clearTimeout(saveTimer.current);
     };
   }, []);
+
+  // ===== deep-link do alerta: cedente + e-mail do Clube LATAM → rascunho aberto
+  useEffect(() => {
+    if (purchaseIdFinal) return;
+    if (alertPrefillRan.current) return;
+    if (loadingCed || !allCedentes.length) return;
+
+    const cedenteId = (searchParams.get("cedenteId") || "").trim();
+    const emailId = (
+      searchParams.get("emailId") ||
+      searchParams.get("messageId") ||
+      ""
+    ).trim();
+    const fromAlert = searchParams.get("fromAlert") === "1";
+    const programRaw = (searchParams.get("program") || "").trim().toUpperCase();
+    const program = (
+      ["LATAM", "SMILES", "LIVELO", "ESFERA"].includes(programRaw)
+        ? programRaw
+        : "LATAM"
+    ) as LoyaltyProgram;
+
+    // Só pré-preenche quando veio do botão de ação do alerta.
+    if (!fromAlert || (!cedenteId && !emailId)) return;
+    alertPrefillRan.current = true;
+
+    let alive = true;
+
+    (async () => {
+      setError(null);
+      setSaving(true);
+      setAlertPrefillNote("Montando compra a partir do alerta…");
+
+      try {
+        let cedente =
+          (cedenteId && allCedentes.find((c) => c.id === cedenteId)) || null;
+
+        let emailText = "";
+        let emailSubject = "";
+        let emailCedenteId: string | null = null;
+
+        if (emailId) {
+          const res = await fetch(`/api/emails/${encodeURIComponent(emailId)}`, {
+            cache: "no-store",
+          });
+          const json = await res.json().catch(() => null);
+          if (res.ok && json?.ok && json.message) {
+            emailText = String(json.message.text || "");
+            emailSubject = String(json.message.subject || "");
+            emailCedenteId = json.message.cedente?.id
+              ? String(json.message.cedente.id)
+              : null;
+            if (!emailText && json.message.document) {
+              emailText = String(json.message.document);
+            }
+          }
+        }
+
+        if (!cedente && emailCedenteId) {
+          cedente = allCedentes.find((c) => c.id === emailCedenteId) || null;
+        }
+
+        if (!cedente) {
+          throw new Error(
+            "Cedente do alerta não encontrado na lista de aprovados."
+          );
+        }
+
+        if (!alive) return;
+        setCedenteSel(cedente);
+        setQuery(cedente.nomeCompleto);
+
+        const created = await api<{ ok: true; compra: any }>(`/api/compras`, {
+          method: "POST",
+          body: JSON.stringify({ cedenteId: cedente.id, ciaProgram: program }),
+        });
+
+        let p = normalizeDraft(created.compra, cedente);
+        p = { ...p, ciaProgram: program };
+
+        const clubExtract =
+          program === "LATAM"
+            ? parseLatamClubEmail(`${emailSubject}\n${emailText}`)
+            : null;
+
+        const noteParts: string[] = [];
+        if (emailSubject) noteParts.push(`E-mail: ${emailSubject}`);
+        if (clubExtract?.planName) noteParts.push(`Plano: ${clubExtract.planName}`);
+        if (clubExtract?.cardMasked)
+          noteParts.push(`Cartão: ${clubExtract.cardMasked}`);
+        if (clubExtract?.discountMonths)
+          noteParts.push(`Desconto por ${clubExtract.discountMonths} mês(es)`);
+        if (emailId) noteParts.push(`msg:${emailId}`);
+
+        if (clubExtract) {
+          const tierK = clubExtract.tierK || 10;
+          const priceCents =
+            clubExtract.monthlyFeeCents ?? clubExtract.totalCents ?? 0;
+          const startDateISO = clubExtract.acquisitionDateISO || isoToday();
+          const renewalDay =
+            clubExtract.renewalDay || Number(startDateISO.slice(8, 10)) || 1;
+          const bonusPoints = 0;
+
+          const meta: ClubMeta = {
+            program: "LATAM",
+            tierK,
+            priceCents,
+            renewalDay: clampDay(renewalDay),
+            startDateISO,
+            bonusPoints,
+          };
+
+          const clubItem: PurchaseItem = {
+            type: "CLUB",
+            title: `Clube LATAM ${tierK}k${
+              clubExtract.planName ? ` (${clubExtract.planName})` : ""
+            }`,
+            details: JSON.stringify(meta),
+            programFrom: null,
+            programTo: "LATAM",
+            pointsBase: tierK * 1000,
+            bonusMode: "TOTAL",
+            bonusValue: bonusPoints,
+            pointsFinal: tierK * 1000 + bonusPoints,
+            transferMode: null,
+            pointsDebitedFromOrigin: 0,
+            amountCents: priceCents,
+          };
+
+          p = {
+            ...p,
+            items: [...(p.items || []), clubItem],
+            note: noteParts.join(" · ") || p.note,
+            expectedLatamPoints: tierK * 1000,
+          };
+        } else if (noteParts.length) {
+          p = { ...p, note: noteParts.join(" · ") || p.note };
+        }
+
+        const totals = computeTotals(p);
+        const merged = { ...p, ...totals };
+        if (!alive) return;
+        setDraft(merged);
+
+        await api<{ ok: true }>(`/api/compras/${merged.id}`, {
+          method: "PATCH",
+          body: JSON.stringify({
+            ciaProgram: merged.ciaProgram,
+            ciaPointsTotal: merged.ciaPointsTotal,
+            cedentePayCents: merged.cedentePayCents,
+            remainingCostCents: merged.remainingCostCents,
+            vendorCommissionBps: merged.vendorCommissionBps,
+            targetMarkupCents: merged.targetMarkupCents,
+            note: merged.note,
+            expectedLatamPoints: merged.expectedLatamPoints,
+            expectedSmilesPoints: merged.expectedSmilesPoints,
+            expectedLiveloPoints: merged.expectedLiveloPoints,
+            expectedEsferaPoints: merged.expectedEsferaPoints,
+            items: merged.items,
+            subtotalCostCents: merged.subtotalCostCents,
+            vendorCommissionCents: merged.vendorCommissionCents,
+            totalCostCents: merged.totalCostCents,
+            costPerKiloCents: merged.costPerKiloCents,
+            targetPerKiloCents: merged.targetPerKiloCents,
+          }),
+        });
+
+        setAlertPrefillNote(
+          clubExtract
+            ? `Rascunho aberto com clube LATAM ${clubExtract.tierK}k — revise e edite se precisar.`
+            : "Rascunho aberto com o cedente do alerta — revise os itens."
+        );
+      } catch (e: any) {
+        if (!alive) return;
+        setAlertPrefillNote(null);
+        setError(e?.message || "Falha ao pré-preencher a compra do alerta.");
+        alertPrefillRan.current = false;
+      } finally {
+        if (alive) setSaving(false);
+      }
+    })();
+
+    return () => {
+      alive = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [allCedentes, loadingCed, purchaseIdFinal, searchParams]);
 
   const cedentes = useMemo(() => {
     const s = norm(query);
@@ -1309,6 +1499,11 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
               Crie a compra em rascunho com autosave. Os saldos do cedente só mudam ao{" "}
               <span className="font-semibold text-slate-800">liberar</span>.
             </p>
+            {alertPrefillNote ? (
+              <div className="mt-3 max-w-2xl rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
+                {alertPrefillNote}
+              </div>
+            ) : null}
           </div>
 
           {draft && (

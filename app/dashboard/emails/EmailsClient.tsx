@@ -24,6 +24,8 @@ import {
   persistAlertEmailFilterIds,
   persistPinnedEmailFilterIds,
   persistSavedEmailFilters,
+  pullAlertPrefsFromServer,
+  pushAlertPrefsToServer,
   removeAlertActionConfig,
   upsertAlertActionConfig,
   type EmailAlertCia,
@@ -49,6 +51,8 @@ function seedAlertAction(filter: EmailSavedFilter) {
     filterId: filter.id,
     action: "VENDA",
     cia: defaultCiaFromProgram(filter.program),
+    actionAudience: "ALL",
+    actionUserIds: [],
   });
 }
 
@@ -394,9 +398,23 @@ export default function EmailsClient() {
       setOauthOk(code === "connected");
       window.history.replaceState({}, "", "/dashboard/emails");
     }
-    setSavedFilters(loadSavedEmailFilters());
-    setPinnedIds(loadPinnedEmailFilterIds());
-    setAlertIds(loadAlertEmailFilterIds());
+
+    let alive = true;
+    (async () => {
+      try {
+        await pullAlertPrefsFromServer();
+      } catch {
+        /* offline */
+      }
+      if (!alive) return;
+      setSavedFilters(loadSavedEmailFilters());
+      setPinnedIds(loadPinnedEmailFilterIds());
+      setAlertIds(loadAlertEmailFilterIds());
+    })();
+
+    return () => {
+      alive = false;
+    };
   }, []);
 
   const pinnedFilters = useMemo(() => {
@@ -480,6 +498,7 @@ export default function EmailsClient() {
           return merged;
         });
         seedAlertAction(next);
+        void pushAlertPrefsToServer().catch(() => null);
       }
 
       setDraftName("");
@@ -517,6 +536,7 @@ export default function EmailsClient() {
         return merged;
       });
       if (filter) seedAlertAction(filter);
+      void pushAlertPrefsToServer().catch(() => null);
     },
     [savedFilters]
   );
@@ -528,6 +548,7 @@ export default function EmailsClient() {
       return merged;
     });
     removeAlertActionConfig(id);
+    void pushAlertPrefsToServer().catch(() => null);
   }, []);
 
   const removeSavedFilter = useCallback((id: string) => {
@@ -548,6 +569,7 @@ export default function EmailsClient() {
     });
     removeAlertActionConfig(id);
     setActiveFilterId((cur) => (cur === id ? null : cur));
+    void pushAlertPrefsToServer().catch(() => null);
   }, []);
 
   const load = useCallback(async () => {
