@@ -7,7 +7,6 @@ import {
   Copy,
   ExternalLink,
   Loader2,
-  MessageCircle,
   Plane,
   Plus,
   Search,
@@ -27,6 +26,7 @@ import {
   bonusAboveMetaFromSale,
   commission1FromPvCents,
 } from "@/lib/payouts/employeeCommissionRates";
+import BiometriaWizardModal from "@/components/vendas/BiometriaWizardModal";
 
 type Program = "LATAM" | "SMILES" | "LIVELO" | "ESFERA";
 type PointsMode = "TOTAL" | "POR_PAX";
@@ -144,38 +144,11 @@ function isoToday() {
   return `${yyyy}-${mm}-${dd}`;
 }
 
-function extractLatamOrderId(raw: string): string | null {
-  const s = String(raw || "").trim();
-  if (!s) return null;
-
-  try {
-    const url = new URL(s);
-    const fromParam =
-      url.searchParams.get("orderId") || url.searchParams.get("orderid");
-    if (fromParam && /^LA[A-Z0-9]+$/i.test(fromParam.trim())) {
-      return fromParam.trim().toUpperCase();
-    }
-  } catch {
-    // not a full URL — fall through
-  }
-
-  const fromQuery = s.match(/orderId=([A-Za-z0-9]+)/i);
-  if (fromQuery?.[1] && /^LA[A-Z0-9]+$/i.test(fromQuery[1])) {
-    return fromQuery[1].toUpperCase();
-  }
-
-  const cleaned = s.replace(/[^a-zA-Z0-9]/g, "").toUpperCase();
-  if (/^LA[A-Z0-9]+$/.test(cleaned)) return cleaned;
-  return null;
-}
-
 function buildLatamPagamentoLink(orderId: string) {
   return `https://www.latamairlines.com/br/pt/v2/pagamentos/?orderId=${encodeURIComponent(
     orderId
   )}&flow=BOOKING-REDEMPTION`;
 }
-
-const LATAM_SITE_URL = "https://www.latamairlines.com/br/pt";
 
 function buildWhatsAppUrlFromContact(
   contact: {
@@ -192,27 +165,6 @@ function buildWhatsAppUrlFromContact(
   if (!base) return null;
   const sep = base.includes("?") ? "&" : "?";
   return `${base}${sep}text=${encodeURIComponent(message)}`;
-}
-
-function buildLatamLoginCedenteMessage(params: {
-  nome: string;
-  cpf: string;
-  senhaLatam: string;
-}) {
-  const nome = params.nome.trim();
-  const cpf = params.cpf.trim() || "—";
-  const senhaLatam = params.senhaLatam.trim() || "—";
-
-  return [
-    nome ? `Olá, ${nome}! Tudo bem?` : "Olá, tudo bem?",
-    "",
-    "Preciso que você acesse o site da LATAM, faça login com seus dados e me envie o código que chegar no e-mail:",
-    "",
-    `Site: ${LATAM_SITE_URL}`,
-    "",
-    `Login (CPF): ${cpf}`,
-    `Senha LATAM: ${senhaLatam}`,
-  ].join("\n");
 }
 
 function normStr(v?: string) {
@@ -602,10 +554,11 @@ export default function NovaVendaClient({
   const [departureDate, setDepartureDate] = useState("");
   const [returnDate, setReturnDate] = useState("");
 
-  // Popup biometria LATAM (após selecionar cedente)
+  // Popup biometria / acesso (LATAM e Smiles, após selecionar cedente)
   const [biometriaModalOpen, setBiometriaModalOpen] = useState(false);
-  const [orderLinkInput, setOrderLinkInput] = useState("");
   const [latamEmissionUnlocked, setLatamEmissionUnlocked] = useState(false);
+  /** Link de pagamento gerado no wizard — permanece na tela de emissão. */
+  const [pagamentoLinkReady, setPagamentoLinkReady] = useState<string | null>(null);
 
   const milheiroCents = useMemo(() => moneyToCentsBR(milheiroStr), [milheiroStr]);
   const embarqueFeeCents = useMemo(
@@ -698,13 +651,13 @@ export default function NovaVendaClient({
 
   function selectSuggestion(s: Suggestion) {
     setSel(s);
-    if (program === "LATAM") {
+    if (program === "LATAM" || program === "SMILES") {
       setBiometriaModalOpen(true);
-      setOrderLinkInput("");
+      setPagamentoLinkReady(null);
       setLatamEmissionUnlocked(false);
     } else {
       setBiometriaModalOpen(false);
-      setOrderLinkInput("");
+      setPagamentoLinkReady(null);
       setLatamEmissionUnlocked(true);
     }
     setTimeout(() => {
@@ -794,11 +747,12 @@ export default function NovaVendaClient({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [program, revealCreds, sel?.cedente?.id]);
 
-  // Carrega credenciais ao abrir o popup de biometria (mensagem de login pronta).
+  // Carrega credenciais ao abrir o wizard (LATAM / Smiles).
   useEffect(() => {
-    if (!biometriaModalOpen || program !== "LATAM" || !sel?.cedente?.id) return;
+    if (!biometriaModalOpen || !sel?.cedente?.id) return;
+    if (program !== "LATAM" && program !== "SMILES") return;
     const ac = new AbortController();
-    loadCreds(sel.cedente.id, "LATAM", ac.signal);
+    loadCreds(sel.cedente.id, program, ac.signal);
     return () => ac.abort();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [biometriaModalOpen, program, sel?.cedente?.id]);
@@ -823,7 +777,7 @@ export default function NovaVendaClient({
     setShowEmailPass(false);
 
     setBiometriaModalOpen(false);
-    setOrderLinkInput("");
+    setPagamentoLinkReady(null);
     setLatamEmissionUnlocked(false);
   }
 
@@ -1185,7 +1139,8 @@ export default function NovaVendaClient({
 
   const canSave = useMemo(() => {
     if (!sel?.eligible) return false;
-    if (program === "LATAM" && !latamEmissionUnlocked) return false;
+    if ((program === "LATAM" || program === "SMILES") && !latamEmissionUnlocked)
+      return false;
     if (!clienteId) return false;
     if (!purchaseNumero) return false;
     if (!compraSel) return false;
@@ -1198,11 +1153,11 @@ export default function NovaVendaClient({
     )
       return false;
     if ((program === "SMILES" || program === "LATAM") && !departureDate) return false;
-    if (
-      program === "LATAM" &&
-      !/^LA[A-Z0-9]*$/i.test((purchaseCode || "").trim().toUpperCase())
-    )
-      return false;
+    if (program === "LATAM") {
+      const pc = (purchaseCode || "").trim().toUpperCase();
+      // Opcional se pulou o Order ID; se preencher, precisa ser LA…
+      if (pc && !/^LA[A-Z0-9]+$/i.test(pc)) return false;
+    }
     if (
       program === "SMILES" &&
       !/^[A-Z]{3}$/.test((departureAirportIata || "").trim().toUpperCase())
@@ -1367,10 +1322,10 @@ export default function NovaVendaClient({
     if (isSaving) return; // ✅ trava duplo clique
 
     if (!sel?.eligible) return alert("Selecione um cedente elegível.");
-    if (program === "LATAM" && !latamEmissionUnlocked) {
+    if ((program === "LATAM" || program === "SMILES") && !latamEmissionUnlocked) {
       setBiometriaModalOpen(true);
       return alert(
-        "Conclua o fluxo de biometria e Order ID antes de salvar a emissão."
+        "Conclua o fluxo de acesso/biometria antes de salvar a emissão."
       );
     }
     if (!clienteId) return alert("Selecione um cliente.");
@@ -1391,11 +1346,11 @@ export default function NovaVendaClient({
       );
     if ((program === "SMILES" || program === "LATAM") && !departureDate)
       return alert("Informe a data de ida (obrigatória para Smiles e Latam).");
-    if (
-      program === "LATAM" &&
-      !/^LA[A-Z0-9]*$/i.test((purchaseCode || "").trim().toUpperCase())
-    )
-      return alert("Informe o código de compra LATAM iniciando com LA.");
+    if (program === "LATAM") {
+      const pc = (purchaseCode || "").trim().toUpperCase();
+      if (pc && !/^LA[A-Z0-9]+$/i.test(pc))
+        return alert("Código de compra LATAM inválido (deve começar com LA).");
+    }
     if (
       program === "SMILES" &&
       !/^[A-Z]{3}$/.test((departureAirportIata || "").trim().toUpperCase())
@@ -1562,26 +1517,6 @@ export default function NovaVendaClient({
     [selWhatsApp, selWhatsAppMessage]
   );
 
-  const latamLoginCedenteMessage = useMemo(() => {
-    const nome = sel?.cedente?.nomeCompleto?.trim();
-    if (!nome) return "";
-    return buildLatamLoginCedenteMessage({
-      nome,
-      cpf: credCpf,
-      senhaLatam: credProgramPass,
-    });
-  }, [sel?.cedente?.nomeCompleto, credCpf, credProgramPass]);
-
-  const latamLoginWhatsAppUrl = useMemo(
-    () => buildWhatsAppUrlFromContact(selWhatsApp, latamLoginCedenteMessage),
-    [selWhatsApp, latamLoginCedenteMessage]
-  );
-
-  const latamBiometriaWhatsAppUrl = useMemo(
-    () => buildWhatsAppUrlFromContact(selWhatsApp, selWhatsAppMessage),
-    [selWhatsApp, selWhatsAppMessage]
-  );
-
   const selWhatsAppPhoneLabel = useMemo(() => {
     if (!selWhatsApp) return "";
     const raw = String(selWhatsApp.telefone || selWhatsApp.whatsappE164 || "").trim();
@@ -1599,24 +1534,15 @@ export default function NovaVendaClient({
     return raw;
   }, [selWhatsApp]);
 
-  const extractedOrderId = useMemo(
-    () => extractLatamOrderId(orderLinkInput),
-    [orderLinkInput]
-  );
-
-  const latamPagamentoLink = useMemo(
-    () => (extractedOrderId ? buildLatamPagamentoLink(extractedOrderId) : null),
-    [extractedOrderId]
-  );
-
-  function proceedToEmissionFromBiometria() {
-    if (!extractedOrderId) {
-      alert(
-        "Cole o link da reserva (com orderId) ou o próprio Order ID (ex.: LA9571374NQQC)."
-      );
-      return;
+  function completeBiometriaWizard(result: {
+    purchaseCode: string | null;
+    pagamentoLink: string | null;
+    skippedOrder: boolean;
+  }) {
+    if (result.purchaseCode) {
+      setPurchaseCode(result.purchaseCode);
     }
-    setPurchaseCode(extractedOrderId);
+    setPagamentoLinkReady(result.pagamentoLink);
     setLatamEmissionUnlocked(true);
     setBiometriaModalOpen(false);
     setTimeout(() => {
@@ -1664,9 +1590,9 @@ export default function NovaVendaClient({
     }
   }
 
-  // ✅ carrega WhatsApp uma vez (quando selecionar LATAM)
+  // ✅ carrega WhatsApp (LATAM / Smiles no wizard)
   useEffect(() => {
-    if (program !== "LATAM") return;
+    if (program !== "LATAM" && program !== "SMILES") return;
     if (!sel?.cedente?.id) return;
     if (Object.keys(waMap).length > 0) return;
 
@@ -1728,8 +1654,8 @@ export default function NovaVendaClient({
                   const next = e.target.value as Program;
                   setProgram(next);
                   setBiometriaModalOpen(false);
-                  setOrderLinkInput("");
-                  setLatamEmissionUnlocked(next !== "LATAM");
+                  setPagamentoLinkReady(null);
+                  setLatamEmissionUnlocked(next !== "LATAM" && next !== "SMILES");
                 }}
               >
                 <option value="LATAM">LATAM</option>
@@ -2359,7 +2285,8 @@ export default function NovaVendaClient({
       {sel ? (
         <div ref={detailsRef} className="grid gap-5 lg:grid-cols-3">
           <div className="lg:col-span-2 space-y-4">
-            {program === "LATAM" && !latamEmissionUnlocked ? (
+            {(program === "LATAM" || program === "SMILES") &&
+            !latamEmissionUnlocked ? (
               <section className={SECTION}>
                 <div className="p-5 sm:p-6">
                   <div className="mb-4 flex items-start gap-3">
@@ -2371,20 +2298,21 @@ export default function NovaVendaClient({
                     </span>
                     <div className="min-w-0 pt-0.5">
                       <h2 className="text-base font-semibold tracking-tight text-slate-900">
-                        Biometria e Order ID
+                        {program === "LATAM"
+                          ? "Acesso, biometria e Order ID"
+                          : "Acesso e código Smiles"}
                       </h2>
                       <p className="mt-1 text-xs leading-relaxed text-slate-500">
-                        Antes de preencher a emissão, envie a biometria ao cedente e monte o
-                        link de pagamento com o Order ID da reserva.
+                        Conclua o popup com credenciais e código de verificação antes de
+                        preencher a emissão.
                       </p>
                     </div>
                   </div>
 
                   <div className="rounded-2xl border border-amber-200 bg-amber-50/70 p-4 text-sm text-amber-950">
                     <p>
-                      Conclua o fluxo de biometria (popup) para liberar o preenchimento dos
-                      dados da emissão. O código de compra será preenchido automaticamente
-                      com o Order ID.
+                      O fluxo foi interrompido. Reabra o popup para continuar (ou pular
+                      etapas, se precisar).
                     </p>
                     <div className="mt-3 flex flex-wrap gap-2">
                       <button
@@ -2392,7 +2320,7 @@ export default function NovaVendaClient({
                         onClick={() => setBiometriaModalOpen(true)}
                         className="inline-flex items-center justify-center gap-2 rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-slate-800"
                       >
-                        Abrir recomendações
+                        Abrir fluxo
                       </button>
                     </div>
                   </div>
@@ -2742,21 +2670,63 @@ export default function NovaVendaClient({
                     </div>
 
                     {program === "LATAM" ? (
-                      <div className="space-y-1.5">
+                      <div className="space-y-1.5 md:col-span-2">
                         <label className={FIELD_LABEL}>
-                          Código de compra <span className="text-rose-600">*</span>
+                          Código de compra{" "}
+                          <span className="font-normal text-slate-400">(opcional)</span>
                         </label>
                         <input
-                          required
                           className={cn(CONTROL_INPUT_MONO, "uppercase")}
                           value={purchaseCode}
-                          onChange={(e) =>
-                            setPurchaseCode(
-                              e.target.value.replace(/[^a-zA-Z0-9]/g, "").toUpperCase()
-                            )
-                          }
+                          onChange={(e) => {
+                            const next = e.target.value
+                              .replace(/[^a-zA-Z0-9]/g, "")
+                              .toUpperCase();
+                            setPurchaseCode(next);
+                            if (/^LA[A-Z0-9]+$/i.test(next)) {
+                              setPagamentoLinkReady(buildLatamPagamentoLink(next));
+                            } else if (!next) {
+                              setPagamentoLinkReady(null);
+                            }
+                          }}
                           placeholder="Ex.: LA123456"
                         />
+                        {pagamentoLinkReady ? (
+                          <div className="rounded-xl border border-emerald-200 bg-emerald-50/60 p-3">
+                            <div className="text-[11px] font-semibold uppercase tracking-wide text-emerald-800">
+                              Link de pagamento
+                            </div>
+                            <div className="mt-1 break-all font-mono text-[11px] text-slate-800">
+                              {pagamentoLinkReady}
+                            </div>
+                            <div className="mt-2 flex flex-wrap gap-2">
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  copyText("Link de pagamento", pagamentoLinkReady)
+                                }
+                                className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[11px] font-medium hover:bg-slate-50"
+                              >
+                                <Copy className="h-3.5 w-3.5" aria-hidden />
+                                Copiar link
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  window.open(
+                                    pagamentoLinkReady,
+                                    "_blank",
+                                    "noopener,noreferrer"
+                                  )
+                                }
+                                className="inline-flex items-center gap-1.5 rounded-lg border border-sky-200 bg-sky-50 px-2.5 py-1.5 text-[11px] font-medium text-sky-800 hover:bg-sky-100"
+                              >
+                                <ExternalLink className="h-3.5 w-3.5" aria-hidden />
+                                Abrir pagamento
+                              </button>
+                            </div>
+                          </div>
+                        ) : null}
                       </div>
                     ) : null}
 
@@ -2917,267 +2887,20 @@ export default function NovaVendaClient({
         </div>
       ) : null}
 
-      {/* ✅ MODAL BIOMETRIA LATAM */}
-      {biometriaModalOpen && program === "LATAM" ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/45 p-4 backdrop-blur-[2px]">
-          <div className="max-h-[92vh] w-full max-w-2xl overflow-y-auto rounded-2xl border border-slate-200/90 bg-white p-5 shadow-2xl shadow-slate-900/20 sm:p-6">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <div className="text-lg font-bold tracking-tight text-slate-900">
-                  Biometria LATAM
-                </div>
-                <div className="mt-1 text-xs text-slate-500">
-                  Siga as recomendações antes de preencher os dados da emissão
-                  {sel?.cedente?.nomeCompleto
-                    ? ` • ${sel.cedente.nomeCompleto}`
-                    : ""}
-                  .
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setBiometriaModalOpen(false)}
-                className="rounded-xl border border-slate-200 bg-white px-2.5 py-1 text-sm text-slate-600 hover:bg-slate-50"
-              >
-                ✕
-              </button>
-            </div>
-
-            <ol className="mt-5 space-y-4 text-sm text-slate-700">
-              <li className="rounded-2xl border border-slate-200 bg-slate-50/80 p-4">
-                <div className="font-semibold text-slate-900">
-                  1. Peça ao cedente para acessar o site e enviar o código
-                </div>
-                <p className="mt-1 text-xs text-slate-500">
-                  Antes da biometria, o cedente deve acessar o site da LATAM, fazer login com
-                  CPF e senha, e te enviar o código recebido por e-mail.
-                </p>
-                <div className="mt-3 break-all rounded-xl border border-slate-200 bg-white px-3 py-2 font-mono text-[11px] text-slate-800">
-                  {LATAM_SITE_URL}
-                </div>
-                <div className="mt-2 flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    onClick={() =>
-                      window.open(LATAM_SITE_URL, "_blank", "noopener,noreferrer")
-                    }
-                    className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[11px] font-medium hover:bg-slate-50"
-                  >
-                    <ExternalLink className="h-3.5 w-3.5" aria-hidden />
-                    Abrir site LATAM
-                  </button>
-                </div>
-
-                <div className="mt-4 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                  Mensagem pronta para o cedente
-                </div>
-                {loadingCreds ? (
-                  <div className="mt-2 flex items-center gap-2 text-[11px] text-slate-500">
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
-                    Carregando credenciais…
-                  </div>
-                ) : credsError ? (
-                  <div className="mt-2 text-[11px] text-rose-600">{credsError}</div>
-                ) : latamLoginCedenteMessage ? (
-                  <>
-                    <div className="mt-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-[11px] leading-relaxed text-slate-700 whitespace-pre-wrap">
-                      {latamLoginCedenteMessage}
-                    </div>
-                    <div className="mt-2 flex flex-wrap gap-2">
-                      <button
-                        type="button"
-                        onClick={() =>
-                          copyText("Mensagem de login", latamLoginCedenteMessage)
-                        }
-                        className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[11px] font-medium hover:bg-slate-50"
-                      >
-                        <Copy className="h-3.5 w-3.5" aria-hidden />
-                        Copiar mensagem
-                      </button>
-                      <button
-                        type="button"
-                        disabled={!latamLoginWhatsAppUrl}
-                        onClick={() => {
-                          if (!latamLoginWhatsAppUrl) return;
-                          window.open(
-                            latamLoginWhatsAppUrl,
-                            "_blank",
-                            "noopener,noreferrer"
-                          );
-                        }}
-                        className={cn(
-                          "inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[11px] font-medium",
-                          latamLoginWhatsAppUrl
-                            ? "border-emerald-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100"
-                            : "cursor-not-allowed border-slate-200 bg-slate-50 text-slate-400"
-                        )}
-                      >
-                        <MessageCircle className="h-3.5 w-3.5" aria-hidden />
-                        Enviar por WhatsApp
-                      </button>
-                    </div>
-                  </>
-                ) : null}
-              </li>
-
-              <li className="rounded-2xl border border-slate-200 bg-slate-50/80 p-4">
-                <div className="font-semibold text-slate-900">
-                  2. Envie ao cedente o link da biometria
-                </div>
-                <p className="mt-1 text-xs text-slate-500">
-                  Depois que o código do e-mail for recebido, envie o link da biometria (ele
-                  muda a cada reserva) e aguarde o cedente concluir toda a biometria facial.
-                </p>
-                {selWhatsAppMessage ? (
-                  <>
-                    <div className="mt-3 rounded-xl border border-slate-200 bg-white px-3 py-2 text-[11px] leading-relaxed text-slate-700 whitespace-pre-wrap">
-                      {selWhatsAppMessage}
-                    </div>
-                    <div className="mt-2 flex flex-wrap gap-2">
-                      <button
-                        type="button"
-                        onClick={() =>
-                          copyText("Mensagem de biometria", selWhatsAppMessage)
-                        }
-                        className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[11px] font-medium hover:bg-slate-50"
-                      >
-                        <Copy className="h-3.5 w-3.5" aria-hidden />
-                        Copiar mensagem
-                      </button>
-                      <button
-                        type="button"
-                        disabled={!latamBiometriaWhatsAppUrl}
-                        onClick={() => {
-                          if (!latamBiometriaWhatsAppUrl) return;
-                          window.open(
-                            latamBiometriaWhatsAppUrl,
-                            "_blank",
-                            "noopener,noreferrer"
-                          );
-                        }}
-                        className={cn(
-                          "inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[11px] font-medium",
-                          latamBiometriaWhatsAppUrl
-                            ? "border-emerald-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100"
-                            : "cursor-not-allowed border-slate-200 bg-slate-50 text-slate-400"
-                        )}
-                      >
-                        <MessageCircle className="h-3.5 w-3.5" aria-hidden />
-                        Enviar por WhatsApp
-                      </button>
-                    </div>
-                  </>
-                ) : null}
-              </li>
-
-              <li className="rounded-2xl border border-slate-200 bg-slate-50/80 p-4">
-                <div className="font-semibold text-slate-900">
-                  3. Copie o Order ID da reserva
-                </div>
-                <p className="mt-1 text-xs text-slate-500">
-                  Enquanto isso (ou logo após a conclusão), cole abaixo o link da página de
-                  passageiros — ou só o Order ID.
-                </p>
-                <p className="mt-2 text-[11px] text-slate-500">
-                  Ex.:{" "}
-                  <span className="font-mono">
-                    https://www.latamairlines.com/br/pt/v2/passageiros?orderId=LA9571374NQQC
-                  </span>
-                </p>
-                <input
-                  className={cn(CONTROL_INPUT_MONO, "mt-3")}
-                  value={orderLinkInput}
-                  onChange={(e) => setOrderLinkInput(e.target.value)}
-                  placeholder="Cole o link com orderId ou o Order ID (LA…)"
-                />
-                {orderLinkInput.trim() && !extractedOrderId ? (
-                  <div className="mt-2 text-[11px] text-rose-600">
-                    Não encontrei um Order ID válido (precisa começar com LA).
-                  </div>
-                ) : null}
-                {extractedOrderId ? (
-                  <div className="mt-2 text-[11px] text-emerald-700">
-                    Order ID detectado: <b className="font-mono">{extractedOrderId}</b>
-                  </div>
-                ) : null}
-              </li>
-
-              <li className="rounded-2xl border border-slate-200 bg-slate-50/80 p-4">
-                <div className="font-semibold text-slate-900">
-                  4. Abra o link de pagamento
-                </div>
-                <p className="mt-1 text-xs text-slate-500">
-                  Monte o link substituindo o Order ID. A reserva deve seguir para pagamento
-                  após a biometria validada.
-                </p>
-                {latamPagamentoLink ? (
-                  <>
-                    <div className="mt-3 break-all rounded-xl border border-emerald-200 bg-white px-3 py-2 font-mono text-[11px] text-slate-800">
-                      {latamPagamentoLink}
-                    </div>
-                    <div className="mt-2 flex flex-wrap gap-2">
-                      <button
-                        type="button"
-                        onClick={() =>
-                          copyText("Link de pagamento", latamPagamentoLink)
-                        }
-                        className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[11px] font-medium hover:bg-slate-50"
-                      >
-                        <Copy className="h-3.5 w-3.5" aria-hidden />
-                        Copiar link
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          window.open(
-                            latamPagamentoLink,
-                            "_blank",
-                            "noopener,noreferrer"
-                          )
-                        }
-                        className="inline-flex items-center gap-1.5 rounded-lg border border-sky-200 bg-sky-50 px-2.5 py-1.5 text-[11px] font-medium text-sky-800 hover:bg-sky-100"
-                      >
-                        <ExternalLink className="h-3.5 w-3.5" aria-hidden />
-                        Abrir pagamento
-                      </button>
-                    </div>
-                  </>
-                ) : (
-                  <div className="mt-3 rounded-xl border border-dashed border-slate-200 bg-white px-3 py-3 text-[11px] text-slate-500">
-                    O link de pagamento aparece aqui assim que o Order ID for detectado.
-                  </div>
-                )}
-              </li>
-            </ol>
-
-            <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-between">
-              <button
-                type="button"
-                onClick={() => setBiometriaModalOpen(false)}
-                className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
-              >
-                Fechar
-              </button>
-              <button
-                type="button"
-                disabled={!extractedOrderId}
-                onClick={proceedToEmissionFromBiometria}
-                className={cn(
-                  "inline-flex items-center justify-center rounded-xl px-4 py-2.5 text-sm font-semibold shadow-sm",
-                  extractedOrderId
-                    ? "bg-slate-900 text-white hover:bg-slate-800"
-                    : "cursor-not-allowed bg-slate-200 text-slate-500"
-                )}
-              >
-                Seguir para emissão
-              </button>
-            </div>
-            <p className="mt-2 text-[11px] text-slate-500">
-              Ao seguir, o código de compra é preenchido com o Order ID e os campos da
-              emissão são liberados.
-            </p>
-          </div>
-        </div>
+      {(program === "LATAM" || program === "SMILES") && sel?.cedente?.id ? (
+        <BiometriaWizardModal
+          open={biometriaModalOpen}
+          program={program}
+          cedenteId={sel.cedente.id}
+          cedenteNome={sel.cedente.nomeCompleto || ""}
+          creds={creds}
+          loadingCreds={loadingCreds}
+          credsError={credsError}
+          whatsapp={selWhatsApp}
+          whatsappPhoneLabel={selWhatsAppPhoneLabel}
+          onClose={() => setBiometriaModalOpen(false)}
+          onComplete={completeBiometriaWizard}
+        />
       ) : null}
 
       {/* ✅ MODAL CADASTRO RÁPIDO */}

@@ -1,0 +1,771 @@
+"use client";
+
+import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  CheckCircle2,
+  Copy,
+  ExternalLink,
+  Loader2,
+  MessageCircle,
+  RefreshCw,
+  SkipForward,
+} from "lucide-react";
+import { cn } from "@/lib/cn";
+import { buildWhatsAppLink } from "@/lib/whatsapp";
+
+type Program = "LATAM" | "SMILES";
+
+type WhatsAppContact = {
+  telefone: string | null;
+  whatsappE164: string | null;
+  whatsappUrl: string | null;
+} | null;
+
+type Creds = {
+  cpf?: string | null;
+  email?: string | null;
+  programEmail?: string | null;
+  senhaPrograma?: string | null;
+  programPassword?: string | null;
+  senhaEmail?: string | null;
+  emailPassword?: string | null;
+} | null;
+
+type Step = "creds" | "code" | "bio" | "order";
+
+const LATAM_SITE_URL = "https://www.latamairlines.com/br/pt";
+const SMILES_SITE_URL = "https://www.smiles.com.br";
+
+function extractLatamOrderId(raw: string): string | null {
+  const s = String(raw || "").trim();
+  if (!s) return null;
+  try {
+    const url = new URL(s);
+    const fromParam = url.searchParams.get("orderId") || url.searchParams.get("orderid");
+    if (fromParam && /^LA[A-Z0-9]+$/i.test(fromParam.trim())) {
+      return fromParam.trim().toUpperCase();
+    }
+  } catch {
+    // fall through
+  }
+  const fromQuery = s.match(/orderId=([A-Za-z0-9]+)/i);
+  if (fromQuery?.[1] && /^LA[A-Z0-9]+$/i.test(fromQuery[1])) {
+    return fromQuery[1].toUpperCase();
+  }
+  const cleaned = s.replace(/[^a-zA-Z0-9]/g, "").toUpperCase();
+  if (/^LA[A-Z0-9]+$/.test(cleaned)) return cleaned;
+  return null;
+}
+
+function buildLatamPagamentoLink(orderId: string) {
+  return `https://www.latamairlines.com/br/pt/v2/pagamentos/?orderId=${encodeURIComponent(
+    orderId
+  )}&flow=BOOKING-REDEMPTION`;
+}
+
+function buildWhatsAppUrlFromContact(contact: WhatsAppContact, message: string) {
+  if (!contact || !message.trim()) return null;
+  if (contact.whatsappE164) return buildWhatsAppLink(contact.whatsappE164, message);
+  const base = contact.whatsappUrl;
+  if (!base) return null;
+  const sep = base.includes("?") ? "&" : "?";
+  return `${base}${sep}text=${encodeURIComponent(message)}`;
+}
+
+function siteUrl(program: Program) {
+  return program === "SMILES" ? SMILES_SITE_URL : LATAM_SITE_URL;
+}
+
+function programLabel(program: Program) {
+  return program === "SMILES" ? "Smiles" : "LATAM";
+}
+
+async function copyText(value: string) {
+  try {
+    await navigator.clipboard.writeText(value);
+    return true;
+  } catch {
+    prompt("Copie:", value);
+    return false;
+  }
+}
+
+type Props = {
+  open: boolean;
+  program: Program;
+  cedenteId: string;
+  cedenteNome: string;
+  creds: Creds;
+  loadingCreds: boolean;
+  credsError: string;
+  whatsapp: WhatsAppContact;
+  whatsappPhoneLabel?: string;
+  onClose: () => void;
+  onComplete: (result: {
+    purchaseCode: string | null;
+    pagamentoLink: string | null;
+    skippedOrder: boolean;
+  }) => void;
+};
+
+export default function BiometriaWizardModal({
+  open,
+  program,
+  cedenteId,
+  cedenteNome,
+  creds,
+  loadingCreds,
+  credsError,
+  whatsapp,
+  whatsappPhoneLabel,
+  onClose,
+  onComplete,
+}: Props) {
+  const [step, setStep] = useState<Step>("creds");
+  const [codeWatchAfter, setCodeWatchAfter] = useState<string | null>(null);
+  const [manualMode, setManualMode] = useState(false);
+  const [otpLoading, setOtpLoading] = useState(false);
+  const [otpError, setOtpError] = useState<string | null>(null);
+  const [otpCode, setOtpCode] = useState<string | null>(null);
+  const [otpMeta, setOtpMeta] = useState<{ subject: string; date: string | null } | null>(
+    null
+  );
+  const [otpSynced, setOtpSynced] = useState(true);
+  const [otpReason, setOtpReason] = useState<string | null>(null);
+  const [orderLinkInput, setOrderLinkInput] = useState("");
+
+  const cpf = creds?.cpf || "";
+  const email = creds?.programEmail || creds?.email || "";
+  const programPass = creds?.programPassword || creds?.senhaPrograma || "";
+  const emailPass = creds?.emailPassword || creds?.senhaEmail || "";
+
+  const extractedOrderId = useMemo(
+    () => (program === "LATAM" ? extractLatamOrderId(orderLinkInput) : null),
+    [orderLinkInput, program]
+  );
+  const pagamentoLink = useMemo(
+    () => (extractedOrderId ? buildLatamPagamentoLink(extractedOrderId) : null),
+    [extractedOrderId]
+  );
+
+  const loginMessage = useMemo(() => {
+    const site = siteUrl(program);
+    const label = programLabel(program);
+    return [
+      cedenteNome ? `Olá, ${cedenteNome}! Tudo bem?` : "Olá, tudo bem?",
+      "",
+      `Preciso que você acesse o site da ${label}, faça login com seus dados e me envie o código que chegar no e-mail:`,
+      "",
+      `Site: ${site}`,
+      "",
+      `Login (CPF): ${cpf.trim() || "—"}`,
+      `Senha ${label}: ${programPass.trim() || "—"}`,
+    ].join("\n");
+  }, [cedenteNome, program, cpf, programPass]);
+
+  const bioMessage = useMemo(() => {
+    if (!cedenteNome) return "";
+    return `Olá, ${cedenteNome}! Tudo bem? Está disponível para fazer uma biometria agora? Logo mais eu te envio`;
+  }, [cedenteNome]);
+
+  const loginWaUrl = useMemo(
+    () => buildWhatsAppUrlFromContact(whatsapp, loginMessage),
+    [whatsapp, loginMessage]
+  );
+  const bioWaUrl = useMemo(
+    () => buildWhatsAppUrlFromContact(whatsapp, bioMessage),
+    [whatsapp, bioMessage]
+  );
+
+  const manualEmailMessage = useMemo(() => {
+    return [
+      cedenteNome ? `Olá, ${cedenteNome}! Tudo bem?` : "Olá, tudo bem?",
+      "",
+      "Preciso que você entre no e-mail e me envie o código de verificação que acabou de chegar.",
+      "",
+      `E-mail: ${email.trim() || "—"}`,
+      `Senha do e-mail: ${emailPass.trim() || "—"}`,
+    ].join("\n");
+  }, [cedenteNome, email, emailPass]);
+
+  const manualEmailWaUrl = useMemo(
+    () => buildWhatsAppUrlFromContact(whatsapp, manualEmailMessage),
+    [whatsapp, manualEmailMessage]
+  );
+
+  useEffect(() => {
+    if (!open) return;
+    setStep("creds");
+    setCodeWatchAfter(null);
+    setManualMode(false);
+    setOtpCode(null);
+    setOtpMeta(null);
+    setOtpError(null);
+    setOtpSynced(true);
+    setOtpReason(null);
+    setOrderLinkInput("");
+  }, [open, cedenteId, program]);
+
+  const fetchOtp = useCallback(async () => {
+    if (!cedenteId) return;
+    setOtpLoading(true);
+    setOtpError(null);
+    try {
+      const params = new URLSearchParams({
+        cedenteId,
+        program,
+      });
+      if (codeWatchAfter) params.set("after", codeWatchAfter);
+
+      const res = await fetch(`/api/emails/verification-code?${params}`, {
+        cache: "no-store",
+      });
+      const json = await res.json();
+      if (!res.ok || !json?.ok) throw new Error(json?.error || "Falha ao buscar código.");
+
+      setOtpSynced(Boolean(json.synced));
+      setOtpReason(json.reason || null);
+
+      if (!json.synced) {
+        setManualMode(true);
+        setOtpCode(null);
+        setOtpMeta(null);
+        return;
+      }
+
+      if (json.latest?.code) {
+        setOtpCode(String(json.latest.code));
+        setOtpMeta({
+          subject: String(json.latest.subject || ""),
+          date: json.latest.date || null,
+        });
+      } else {
+        setOtpCode(null);
+        setOtpMeta(null);
+      }
+    } catch (e) {
+      setOtpError(e instanceof Error ? e.message : "Falha ao buscar código.");
+    } finally {
+      setOtpLoading(false);
+    }
+  }, [cedenteId, program, codeWatchAfter]);
+
+  function startCodeStep() {
+    // Mantém o horário do WhatsApp (se já enviou); senão marca agora.
+    setCodeWatchAfter((prev) => prev || new Date().toISOString());
+    setStep("code");
+    setManualMode(!email);
+  }
+
+  useEffect(() => {
+    if (!open || step !== "code" || manualMode || !codeWatchAfter) return;
+    void fetchOtp();
+  }, [open, step, manualMode, codeWatchAfter, fetchOtp]);
+
+  function finish(opts: { purchaseCode: string | null; skippedOrder: boolean }) {
+    onComplete({
+      purchaseCode: opts.purchaseCode,
+      pagamentoLink:
+        opts.purchaseCode && program === "LATAM"
+          ? buildLatamPagamentoLink(opts.purchaseCode)
+          : null,
+      skippedOrder: opts.skippedOrder,
+    });
+  }
+
+  if (!open) return null;
+
+  const stepsForProgram: Step[] =
+    program === "LATAM" ? ["creds", "code", "bio", "order"] : ["creds", "code"];
+
+  const stepIndex = stepsForProgram.indexOf(step);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/45 p-4 backdrop-blur-[2px]">
+      <div className="max-h-[92vh] w-full max-w-2xl overflow-y-auto rounded-2xl border border-slate-200/90 bg-white p-5 shadow-2xl shadow-slate-900/20 sm:p-6">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <div className="text-lg font-bold tracking-tight text-slate-900">
+              {program === "LATAM" ? "Biometria LATAM" : "Acesso Smiles"}
+            </div>
+            <div className="mt-1 text-xs text-slate-500">
+              Passo {stepIndex + 1} de {stepsForProgram.length}
+              {cedenteNome ? ` • ${cedenteNome}` : ""}
+              {whatsappPhoneLabel ? ` • ${whatsappPhoneLabel}` : ""}
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-xl border border-slate-200 bg-white px-2.5 py-1 text-sm text-slate-600 hover:bg-slate-50"
+          >
+            ✕
+          </button>
+        </div>
+
+        <div className="mt-4 flex gap-1.5">
+          {stepsForProgram.map((s, i) => (
+            <div
+              key={s}
+              className={cn(
+                "h-1.5 flex-1 rounded-full",
+                i <= stepIndex ? "bg-slate-900" : "bg-slate-200"
+              )}
+            />
+          ))}
+        </div>
+
+        {step === "creds" ? (
+          <div className="mt-5 space-y-4">
+            <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-4">
+              <div className="font-semibold text-slate-900">
+                1. Credenciais da conta {programLabel(program)}
+              </div>
+              <p className="mt-1 text-xs text-slate-500">
+                Peça ao cedente para logar no site e te enviar o código do e-mail.
+              </p>
+
+              {loadingCreds ? (
+                <div className="mt-3 flex items-center gap-2 text-sm text-slate-500">
+                  <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+                  Carregando credenciais…
+                </div>
+              ) : credsError ? (
+                <div className="mt-3 text-sm text-rose-600">{credsError}</div>
+              ) : (
+                <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                  <CredBox label="CPF / Login" value={cpf} />
+                  <CredBox label={`Senha ${programLabel(program)}`} value={programPass} />
+                  <CredBox label="E-mail" value={email} />
+                  <CredBox label="Senha do e-mail" value={emailPass} />
+                </div>
+              )}
+
+              <div className="mt-3 break-all rounded-xl border border-slate-200 bg-white px-3 py-2 font-mono text-[11px] text-slate-800">
+                {siteUrl(program)}
+              </div>
+              <div className="mt-2 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() =>
+                    window.open(siteUrl(program), "_blank", "noopener,noreferrer")
+                  }
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[11px] font-medium hover:bg-slate-50"
+                >
+                  <ExternalLink className="h-3.5 w-3.5" aria-hidden />
+                  Abrir site {programLabel(program)}
+                </button>
+              </div>
+
+              <div className="mt-4 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                Mensagem pronta
+              </div>
+              <div className="mt-2 whitespace-pre-wrap rounded-xl border border-slate-200 bg-white px-3 py-2 text-[11px] leading-relaxed text-slate-700">
+                {loginMessage}
+              </div>
+              <div className="mt-2 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => void copyText(loginMessage)}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[11px] font-medium hover:bg-slate-50"
+                >
+                  <Copy className="h-3.5 w-3.5" aria-hidden />
+                  Copiar mensagem
+                </button>
+                <button
+                  type="button"
+                  disabled={!loginWaUrl}
+                  onClick={() => {
+                    if (!loginWaUrl) return;
+                    // Marca o horário do envio para filtrar códigos antigos.
+                    setCodeWatchAfter(new Date().toISOString());
+                    window.open(loginWaUrl, "_blank", "noopener,noreferrer");
+                  }}
+                  className={cn(
+                    "inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[11px] font-medium",
+                    loginWaUrl
+                      ? "border-emerald-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100"
+                      : "cursor-not-allowed border-slate-200 bg-slate-50 text-slate-400"
+                  )}
+                >
+                  <MessageCircle className="h-3.5 w-3.5" aria-hidden />
+                  Enviar por WhatsApp
+                </button>
+              </div>
+            </div>
+
+            <div className="flex justify-end">
+              <button
+                type="button"
+                onClick={startCodeStep}
+                className="inline-flex h-11 items-center justify-center rounded-xl bg-slate-900 px-5 text-sm font-semibold text-white hover:bg-slate-800"
+              >
+                Seguir
+              </button>
+            </div>
+          </div>
+        ) : null}
+
+        {step === "code" ? (
+          <div className="mt-5 space-y-4">
+            <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-4">
+              <div className="font-semibold text-slate-900">2. Código de verificação</div>
+              <p className="mt-1 text-xs text-slate-500">
+                Busca no e-mail da empresa o código da {programLabel(program)} deste cedente,
+                só após o horário do envio
+                {codeWatchAfter
+                  ? ` (${new Date(codeWatchAfter).toLocaleTimeString("pt-BR", {
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    })})`
+                  : ""}
+                .
+              </p>
+
+              {!manualMode && otpSynced ? (
+                <div className="mt-4 rounded-xl border border-slate-200 bg-white p-4">
+                  {otpLoading ? (
+                    <div className="flex items-center gap-2 text-sm text-slate-500">
+                      <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+                      Procurando código no Gmail…
+                    </div>
+                  ) : otpCode ? (
+                    <div>
+                      <div className="text-xs font-medium text-emerald-700">Código encontrado</div>
+                      <div className="mt-1 font-mono text-3xl font-bold tracking-widest text-slate-900">
+                        {otpCode}
+                      </div>
+                      {otpMeta ? (
+                        <div className="mt-1 text-xs text-slate-500">
+                          {otpMeta.subject}
+                          {otpMeta.date
+                            ? ` · ${new Date(otpMeta.date).toLocaleString("pt-BR")}`
+                            : ""}
+                        </div>
+                      ) : null}
+                      <button
+                        type="button"
+                        onClick={() => void copyText(otpCode)}
+                        className="mt-3 inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-2.5 py-1.5 text-[11px] font-medium hover:bg-slate-50"
+                      >
+                        <Copy className="h-3.5 w-3.5" aria-hidden />
+                        Copiar código
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="text-sm text-slate-600">
+                      Ainda não chegou um código novo deste cedente.
+                    </div>
+                  )}
+                  {otpError ? <div className="mt-2 text-xs text-rose-600">{otpError}</div> : null}
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => void fetchOtp()}
+                      disabled={otpLoading}
+                      className="inline-flex items-center gap-1.5 rounded-lg bg-slate-900 px-3 py-2 text-xs font-semibold text-white hover:bg-slate-800 disabled:opacity-60"
+                    >
+                      {otpLoading ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+                      ) : (
+                        <RefreshCw className="h-3.5 w-3.5" aria-hidden />
+                      )}
+                      Atualizar
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setManualMode(true)}
+                      className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                    >
+                      Fazer manual
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50/70 p-4">
+                  <div className="text-sm font-semibold text-amber-950">
+                    {otpReason === "cedente_sem_email" || !email
+                      ? "Cedente sem e-mail cadastrado"
+                      : otpReason === "gmail_not_configured"
+                      ? "Caixa da empresa não conectada"
+                      : "Modo manual"}
+                  </div>
+                  <p className="mt-1 text-xs text-amber-900">
+                    Peça ao cedente para abrir o e-mail e te enviar o código. Credenciais:
+                  </p>
+                  <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                    <CredBox label="E-mail" value={email} />
+                    <CredBox label="Senha do e-mail" value={emailPass} />
+                  </div>
+                  <div className="mt-3 whitespace-pre-wrap rounded-xl border border-amber-200 bg-white px-3 py-2 text-[11px] text-slate-700">
+                    {manualEmailMessage}
+                  </div>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => void copyText(manualEmailMessage)}
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[11px] font-medium hover:bg-slate-50"
+                    >
+                      <Copy className="h-3.5 w-3.5" aria-hidden />
+                      Copiar mensagem
+                    </button>
+                    <button
+                      type="button"
+                      disabled={!manualEmailWaUrl}
+                      onClick={() => {
+                        if (!manualEmailWaUrl) return;
+                        window.open(manualEmailWaUrl, "_blank", "noopener,noreferrer");
+                      }}
+                      className={cn(
+                        "inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[11px] font-medium",
+                        manualEmailWaUrl
+                          ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+                          : "cursor-not-allowed border-slate-200 text-slate-400"
+                      )}
+                    >
+                      <MessageCircle className="h-3.5 w-3.5" aria-hidden />
+                      WhatsApp
+                    </button>
+                    {email ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setManualMode(false);
+                          void fetchOtp();
+                        }}
+                        className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[11px] font-medium hover:bg-slate-50"
+                      >
+                        Tentar puxar do Gmail
+                      </button>
+                    ) : null}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-between">
+              <button
+                type="button"
+                onClick={() => setStep("creds")}
+                className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+              >
+                Voltar
+              </button>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (program === "LATAM") setStep("bio");
+                    else finish({ purchaseCode: null, skippedOrder: true });
+                  }}
+                  className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                >
+                  <SkipForward className="h-4 w-4" aria-hidden />
+                  Pular
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (program === "LATAM") setStep("bio");
+                    else finish({ purchaseCode: null, skippedOrder: true });
+                  }}
+                  className="inline-flex h-11 items-center justify-center gap-1.5 rounded-xl bg-slate-900 px-5 text-sm font-semibold text-white hover:bg-slate-800"
+                >
+                  {otpCode ? (
+                    <>
+                      <CheckCircle2 className="h-4 w-4" aria-hidden />
+                      Seguir com código
+                    </>
+                  ) : (
+                    "Seguir"
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : null}
+
+        {step === "bio" ? (
+          <div className="mt-5 space-y-4">
+            <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-4">
+              <div className="font-semibold text-slate-900">
+                3. Envie ao cedente o link da biometria
+              </div>
+              <p className="mt-1 text-xs text-slate-500">
+                Depois do código, envie o link da biometria (muda a cada reserva) e aguarde a
+                conclusão.
+              </p>
+              {bioMessage ? (
+                <>
+                  <div className="mt-3 whitespace-pre-wrap rounded-xl border border-slate-200 bg-white px-3 py-2 text-[11px] text-slate-700">
+                    {bioMessage}
+                  </div>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => void copyText(bioMessage)}
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[11px] font-medium hover:bg-slate-50"
+                    >
+                      <Copy className="h-3.5 w-3.5" aria-hidden />
+                      Copiar mensagem
+                    </button>
+                    <button
+                      type="button"
+                      disabled={!bioWaUrl}
+                      onClick={() => {
+                        if (!bioWaUrl) return;
+                        window.open(bioWaUrl, "_blank", "noopener,noreferrer");
+                      }}
+                      className={cn(
+                        "inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[11px] font-medium",
+                        bioWaUrl
+                          ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+                          : "cursor-not-allowed border-slate-200 text-slate-400"
+                      )}
+                    >
+                      <MessageCircle className="h-3.5 w-3.5" aria-hidden />
+                      Enviar por WhatsApp
+                    </button>
+                  </div>
+                </>
+              ) : null}
+            </div>
+            <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-between">
+              <button
+                type="button"
+                onClick={() => setStep("code")}
+                className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+              >
+                Voltar
+              </button>
+              <button
+                type="button"
+                onClick={() => setStep("order")}
+                className="inline-flex h-11 items-center justify-center rounded-xl bg-slate-900 px-5 text-sm font-semibold text-white hover:bg-slate-800"
+              >
+                Seguir
+              </button>
+            </div>
+          </div>
+        ) : null}
+
+        {step === "order" ? (
+          <div className="mt-5 space-y-4">
+            <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-4">
+              <div className="font-semibold text-slate-900">4. Order ID e link de pagamento</div>
+              <p className="mt-1 text-xs text-slate-500">
+                Cole o link da reserva ou o Order ID. Se preferir, pule e siga para a emissão.
+              </p>
+              <input
+                className="mt-3 h-11 w-full rounded-xl border border-slate-200 bg-white px-3 font-mono text-sm outline-none focus:ring-2 focus:ring-slate-900/10"
+                value={orderLinkInput}
+                onChange={(e) => setOrderLinkInput(e.target.value)}
+                placeholder="Link com orderId ou Order ID (LA…)"
+              />
+              {orderLinkInput.trim() && !extractedOrderId ? (
+                <div className="mt-2 text-[11px] text-rose-600">
+                  Order ID inválido (precisa começar com LA).
+                </div>
+              ) : null}
+              {extractedOrderId ? (
+                <div className="mt-2 text-[11px] text-emerald-700">
+                  Order ID: <b className="font-mono">{extractedOrderId}</b>
+                </div>
+              ) : null}
+              {pagamentoLink ? (
+                <div className="mt-3">
+                  <div className="break-all rounded-xl border border-emerald-200 bg-white px-3 py-2 font-mono text-[11px]">
+                    {pagamentoLink}
+                  </div>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => void copyText(pagamentoLink)}
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[11px] font-medium hover:bg-slate-50"
+                    >
+                      <Copy className="h-3.5 w-3.5" aria-hidden />
+                      Copiar link
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        window.open(pagamentoLink, "_blank", "noopener,noreferrer")
+                      }
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-sky-200 bg-sky-50 px-2.5 py-1.5 text-[11px] font-medium text-sky-800"
+                    >
+                      <ExternalLink className="h-3.5 w-3.5" aria-hidden />
+                      Abrir pagamento
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+            </div>
+
+            <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-between">
+              <button
+                type="button"
+                onClick={() => setStep("bio")}
+                className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+              >
+                Voltar
+              </button>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => finish({ purchaseCode: null, skippedOrder: true })}
+                  className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                >
+                  <SkipForward className="h-4 w-4" aria-hidden />
+                  Pular e emitir
+                </button>
+                <button
+                  type="button"
+                  disabled={!extractedOrderId}
+                  onClick={() =>
+                    finish({
+                      purchaseCode: extractedOrderId,
+                      skippedOrder: false,
+                    })
+                  }
+                  className={cn(
+                    "inline-flex h-11 items-center justify-center rounded-xl px-5 text-sm font-semibold",
+                    extractedOrderId
+                      ? "bg-slate-900 text-white hover:bg-slate-800"
+                      : "cursor-not-allowed bg-slate-200 text-slate-500"
+                  )}
+                >
+                  Seguir para emissão
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function CredBox({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white px-3 py-2">
+      <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+        {label}
+      </div>
+      <div className="mt-0.5 flex items-center gap-2">
+        <span className="min-w-0 flex-1 truncate font-mono text-xs text-slate-900">
+          {value || "—"}
+        </span>
+        {value ? (
+          <button
+            type="button"
+            onClick={() => void copyText(value)}
+            className="shrink-0 rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+            aria-label={`Copiar ${label}`}
+          >
+            <Copy className="h-3.5 w-3.5" aria-hidden />
+          </button>
+        ) : null}
+      </div>
+    </div>
+  );
+}
