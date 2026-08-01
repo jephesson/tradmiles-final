@@ -797,38 +797,53 @@ function splitIntoBlocks(text: string): string[] {
   return blocks.filter(Boolean);
 }
 
-function attachFloatingContacts(
+export type TitularContact = {
+  email?: string | null;
+  phone?: string | null;
+};
+
+/**
+ * Contato compartilhado:
+ * 1) Se o texto trouxer 1 e-mail / 1 telefone → preenche em todos.
+ * 2) Se não trouxer nenhum → usa e-mail/telefone do titular (cartão/funcionário).
+ */
+function applySharedContacts(
   passengers: ParsedPassenger[],
-  text: string
+  text: string,
+  titular?: TitularContact | null
 ): ParsedPassenger[] {
   if (!passengers.length) return passengers;
   const { emails, phones } = extractFloatingContacts(text);
 
-  // CPFs já usados não são telefone
   const usedCpfs = new Set(
     passengers.map((p) => p.cpf).filter(Boolean) as string[]
   );
 
-  const freeEmails = emails.filter(
-    (e) => !passengers.some((p) => p.email === e)
-  );
-  const freePhones = phones.filter(
-    (p) => !usedCpfs.has(p) && !passengers.some((x) => x.phone === p)
-  );
+  // Contato vindo do texto (solto ou já no 1º pax)
+  const textEmail =
+    emails[0] || passengers.find((p) => p.email)?.email || null;
+  const textPhone =
+    phones.find((ph) => !usedCpfs.has(ph)) ||
+    passengers.find((p) => p.phone)?.phone ||
+    null;
 
-  // Contato do titular (no texto ou no 1º pax) → todos que estiverem sem
-  const titularEmail =
-    freeEmails[0] || passengers.find((p) => p.email)?.email || null;
+  const titularEmail = (titular?.email || "").trim() || null;
   const titularPhone =
-    freePhones[0] || passengers.find((p) => p.phone)?.phone || null;
+    normalizePhone(titular?.phone) ||
+    (() => {
+      const d = onlyDigits(String(titular?.phone || ""));
+      return d.length >= 10 ? d : null;
+    })();
 
-  return passengers.map((p) =>
-    withCpfMeta({
-      ...p,
-      email: p.email || titularEmail,
-      phone: p.phone || titularPhone,
-    })
-  );
+  return passengers.map((p) => {
+    let email = p.email;
+    let phone = p.phone;
+    if (textEmail) email = textEmail;
+    else if (!email && titularEmail) email = titularEmail;
+    if (textPhone) phone = textPhone;
+    else if (!phone && titularPhone) phone = titularPhone;
+    return withCpfMeta({ ...p, email, phone });
+  });
 }
 
 /**
@@ -838,8 +853,14 @@ function attachFloatingContacts(
  *
  * isaiasbrunovooir@gmail.com
  * 97981039054
+ *
+ * @param titular Contato do titular do cartão/funcionário — usado só se o texto
+ *                não trouxer e-mail/telefone.
  */
-export function parsePassengerText(raw: string): ParsedPassenger[] {
+export function parsePassengerText(
+  raw: string,
+  titular?: TitularContact | null
+): ParsedPassenger[] {
   const text = preprocessPassengerText(raw);
   if (!text) return [];
 
@@ -857,5 +878,5 @@ export function parsePassengerText(raw: string): ParsedPassenger[] {
     })
     .map((p) => withCpfMeta(p));
 
-  return attachFloatingContacts(parsed, text);
+  return applySharedContacts(parsed, text, titular);
 }

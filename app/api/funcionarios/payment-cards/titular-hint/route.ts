@@ -58,6 +58,7 @@ export async function GET(req: Request) {
             nomeCompleto: true,
             cpf: true,
             emailCriado: true,
+            telefone: true,
             dataNascimento: true,
           },
         })
@@ -71,6 +72,7 @@ export async function GET(req: Request) {
         nomeCompleto: true,
         cpf: true,
         emailCriado: true,
+        telefone: true,
         dataNascimento: true,
       },
       orderBy: { createdAt: "asc" },
@@ -93,6 +95,7 @@ export async function GET(req: Request) {
       holderName: (cedente?.nomeCompleto || user.name || "").trim() || null,
       cpf: cpf || cedente?.cpf || null,
       email: (user.email || cedente?.emailCriado || "").trim() || null,
+      phone: (cedente?.telefone || "").trim() || null,
       birthDate,
       source: {
         fromUser: Boolean(user.cpf || user.email),

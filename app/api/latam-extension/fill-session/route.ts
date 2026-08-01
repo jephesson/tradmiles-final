@@ -1,7 +1,11 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/require-session";
-import { parsePassengerText } from "@/lib/latam/parsePassengerText";
+import {
+  parsePassengerText,
+  type ParsedPassenger,
+  type TitularContact,
+} from "@/lib/latam/parsePassengerText";
 import {
   getFillSession,
   setFillSession,
@@ -28,6 +32,69 @@ function formatBirthBr(d: Date | null | undefined) {
   const yyyy = parts.find((p) => p.type === "year")?.value;
   if (!dd || !mm || !yyyy) return null;
   return `${dd}/${mm}/${yyyy}`;
+}
+
+/** Contato do titular: cartão → cedente (CPF do cartão) → usuário logado/cedente. */
+async function resolveTitularContact(
+  team: string,
+  userId: string,
+  paymentCardId: string | null
+): Promise<TitularContact> {
+  let email: string | null = null;
+  let phone: string | null = null;
+
+  if (paymentCardId) {
+    const card = await prisma.employeePaymentCard.findFirst({
+      where: { id: paymentCardId, team },
+      select: { email: true, cpf: true, userId: true },
+    });
+    if (card?.email?.trim()) email = card.email.trim();
+    const cardCpf = (card?.cpf || "").replace(/\D/g, "");
+    if (cardCpf.length === 11) {
+      const ced = await prisma.cedente.findFirst({
+        where: { cpf: cardCpf },
+        select: { emailCriado: true, telefone: true },
+      });
+      if (!email && ced?.emailCriado?.trim()) email = ced.emailCriado.trim();
+      if (ced?.telefone?.trim()) phone = ced.telefone.trim();
+    }
+    // Dono do cartão (funcionário), se ainda faltar
+    if (card?.userId && (!email || !phone)) {
+      const owner = await prisma.user.findFirst({
+        where: { id: card.userId, team },
+        select: { email: true, cpf: true },
+      });
+      if (!email && owner?.email?.trim()) email = owner.email.trim();
+      const ownerCpf = (owner?.cpf || "").replace(/\D/g, "");
+      if ((!phone || !email) && ownerCpf.length === 11) {
+        const ced = await prisma.cedente.findFirst({
+          where: { cpf: ownerCpf },
+          select: { emailCriado: true, telefone: true },
+        });
+        if (!email && ced?.emailCriado?.trim()) email = ced.emailCriado.trim();
+        if (!phone && ced?.telefone?.trim()) phone = ced.telefone.trim();
+      }
+    }
+  }
+
+  if (!email || !phone) {
+    const user = await prisma.user.findFirst({
+      where: { id: userId, team },
+      select: { email: true, cpf: true },
+    });
+    if (!email && user?.email?.trim()) email = user.email.trim();
+    const userCpf = (user?.cpf || "").replace(/\D/g, "");
+    if ((!phone || !email) && userCpf.length === 11) {
+      const ced = await prisma.cedente.findFirst({
+        where: { cpf: userCpf },
+        select: { emailCriado: true, telefone: true },
+      });
+      if (!email && ced?.emailCriado?.trim()) email = ced.emailCriado.trim();
+      if (!phone && ced?.telefone?.trim()) phone = ced.telefone.trim();
+    }
+  }
+
+  return { email, phone };
 }
 
 /** Se o cartão não tem nascimento, tenta pelo CPF no cadastro de cedente. */
@@ -155,13 +222,27 @@ export async function PUT(req: Request) {
       : String(body.paymentCardId);
   const saleHint = body?.saleHint ? String(body.saleHint) : null;
 
-  let passengers = Array.isArray(body?.passengers) ? body.passengers : null;
+  const titular = await resolveTitularContact(
+    session.team,
+    session.userId,
+    paymentCardId
+  );
+
+  let passengers: ParsedPassenger[] | null = Array.isArray(body?.passengers)
+    ? body.passengers
+    : null;
   if (!passengers && typeof body?.passengerText === "string") {
-    passengers = parsePassengerText(body.passengerText);
+    passengers = parsePassengerText(body.passengerText, titular);
   }
   if (!passengers) {
     passengers = (await getFillSession(session.userId))?.passengers || [];
   }
+  // Garante fallback do titular em quem ainda estiver sem contato
+  passengers = passengers.map((p) => ({
+    ...p,
+    email: p.email || titular.email || null,
+    phone: p.phone || titular.phone || null,
+  }));
 
   if (paymentCardId) {
     const card = await prisma.employeePaymentCard.findFirst({

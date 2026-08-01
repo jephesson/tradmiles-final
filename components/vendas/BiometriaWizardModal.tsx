@@ -235,6 +235,7 @@ export default function BiometriaWizardModal({
       id: string;
       label: string;
       last4: string;
+      email?: string | null;
       isDefaultBoarding: boolean;
       isCompany: boolean;
       userId: string | null;
@@ -247,10 +248,18 @@ export default function BiometriaWizardModal({
   >([]);
   const [latamExtSyncing, setLatamExtSyncing] = useState(false);
   const [latamExtMsg, setLatamExtMsg] = useState<string | null>(null);
+  /** Contato do titular (cartão/funcionário) — fallback se o texto não tiver e-mail/tel. */
+  const [latamTitularContact, setLatamTitularContact] = useState<{
+    email: string | null;
+    phone: string | null;
+  }>({ email: null, phone: null });
 
   const latamParsedPassengers = useMemo(
-    () => (useLatamExtension ? parsePassengerText(latamPassengerText) : []),
-    [useLatamExtension, latamPassengerText]
+    () =>
+      useLatamExtension
+        ? parsePassengerText(latamPassengerText, latamTitularContact)
+        : [],
+    [useLatamExtension, latamPassengerText, latamTitularContact]
   );
 
   const cpf = creds?.cpf || "";
@@ -547,6 +556,35 @@ export default function BiometriaWizardModal({
     }
   }
 
+  /** E-mail/tel do titular do cartão (ou do funcionário dono) para fallback nos pax. */
+  async function loadLatamTitularContact() {
+    try {
+      const card = latamPaymentCards.find((c) => c.id === latamPaymentCardId);
+      const me = getSession()?.id || "";
+      const rawOwner = latamCardOwnerId || card?.userId || me;
+      const hintUserId =
+        rawOwner === VIAS_OWNER_ID ? me : rawOwner || me;
+      const qs = hintUserId
+        ? `?userId=${encodeURIComponent(hintUserId)}`
+        : "";
+      const res = await fetch(
+        `/api/funcionarios/payment-cards/titular-hint${qs}`,
+        { cache: "no-store" }
+      );
+      const json = await res.json().catch(() => null);
+      const hint = json?.ok ? json.data : null;
+      setLatamTitularContact({
+        email:
+          (card?.email || "").trim() ||
+          (hint?.email || "").trim() ||
+          null,
+        phone: (hint?.phone || "").trim() || null,
+      });
+    } catch {
+      setLatamTitularContact({ email: null, phone: null });
+    }
+  }
+
   async function syncLatamExtensionSession(nextUse?: boolean) {
     const on = typeof nextUse === "boolean" ? nextUse : useLatamExtension;
     setLatamExtSyncing(true);
@@ -599,6 +637,19 @@ export default function BiometriaWizardModal({
       setLatamCardOwnerId(VIAS_OWNER_ID);
     }
   }, [latamPaymentCardId, latamPaymentCards, latamCardOwnerId]);
+
+  // Contato do titular para fallback de e-mail/tel nos passageiros
+  useEffect(() => {
+    if (!open || step !== "extension" || !useLatamExtension) return;
+    void loadLatamTitularContact();
+  }, [
+    open,
+    step,
+    useLatamExtension,
+    latamPaymentCardId,
+    latamCardOwnerId,
+    latamPaymentCards,
+  ]);
 
   if (!open) return null;
 
@@ -1169,7 +1220,7 @@ export default function BiometriaWizardModal({
                         value={latamPassengerText}
                         onChange={(e) => setLatamPassengerText(e.target.value)}
                         placeholder={
-                          "Isabella Angelis\nNasc 08/07/1982\nCPF 71912231115\n\nOvidio Angelis\n...\n\nemail e tel do titular (vale para todos se faltar)"
+                          "Isabella Angelis\nNasc 08/07/1982\nCPF 71912231115\n\nOvidio Angelis\n...\n\nemail@exemplo.com\n11999999999\n(1 e-mail + 1 tel → todos; se omitir → titular do cartão)"
                         }
                       />
                       {latamParsedPassengers.length > 0 ? (
