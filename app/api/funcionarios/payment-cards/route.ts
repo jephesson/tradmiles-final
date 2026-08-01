@@ -205,6 +205,139 @@ export async function POST(req: Request) {
   return NextResponse.json({ ok: true, data: publicCard(created) });
 }
 
+export async function PATCH(req: Request) {
+  let session;
+  try {
+    session = requireSession(req);
+  } catch {
+    return bad("Não autenticado", 401);
+  }
+
+  const body = await req.json().catch(() => ({}));
+  const id = String(body?.id || "").trim();
+  if (!id) return bad("id obrigatório.");
+
+  const row = await prisma.employeePaymentCard.findFirst({
+    where: { id, team: session.team },
+  });
+  if (!row) return bad("Cartão não encontrado.", 404);
+
+  if (row.isCompany && session.role !== "admin") {
+    return bad("Só admin edita cartão da empresa.", 403);
+  }
+  if (
+    !row.isCompany &&
+    row.userId !== session.userId &&
+    session.role !== "admin"
+  ) {
+    return bad("Sem permissão.", 403);
+  }
+
+  const label = String(body?.label ?? row.label).trim();
+  const holderName = String(body?.holderName ?? row.holderName).trim();
+  const expMonth = Number(body?.expMonth ?? row.expMonth);
+  const expYear = Number(body?.expYear ?? row.expYear);
+  const email =
+    body?.email === undefined
+      ? row.email
+      : String(body.email || "").trim() || null;
+  const cpf =
+    body?.cpf === undefined
+      ? row.cpf
+      : digitsOnly(body.cpf) || null;
+  const birthDate =
+    body?.birthDate === undefined
+      ? row.birthDate
+      : normalizeBirthDate(body.birthDate);
+
+  if (!holderName) return bad("Nome no cartão obrigatório.");
+  if (!Number.isFinite(expMonth) || expMonth < 1 || expMonth > 12) {
+    return bad("Mês de validade inválido.");
+  }
+  if (!Number.isFinite(expYear) || expYear < 2024) {
+    return bad("Ano de validade inválido.");
+  }
+  if (cpf && cpf.length !== 11) return bad("CPF deve ter 11 dígitos.");
+  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return bad("E-mail inválido.");
+  }
+
+  const panRaw = String(body?.pan || "").replace(/\D/g, "");
+  let panCipher = row.panCipher;
+  let panIv = row.panIv;
+  let last4 = row.last4;
+  if (panRaw) {
+    try {
+      const enc = encryptPan(panRaw);
+      panCipher = enc.panCipher;
+      panIv = enc.panIv;
+      last4 = panLast4(panRaw);
+    } catch (e) {
+      return bad(e instanceof Error ? e.message : "Falha ao cifrar cartão.");
+    }
+  }
+
+  const isDefaultBoarding = Boolean(
+    body?.isDefaultBoarding ?? row.isDefaultBoarding
+  );
+  if (isDefaultBoarding && row.userId) {
+    await prisma.employeePaymentCard.updateMany({
+      where: { team: session.team, userId: row.userId, NOT: { id } },
+      data: { isDefaultBoarding: false },
+    });
+  }
+
+  const updated = await prisma.employeePaymentCard.update({
+    where: { id },
+    data: {
+      label,
+      holderName,
+      expMonth,
+      expYear,
+      panCipher,
+      panIv,
+      last4,
+      email,
+      cpf,
+      birthDate,
+      zip: body?.zip !== undefined ? (body.zip ? String(body.zip) : null) : row.zip,
+      street:
+        body?.street !== undefined
+          ? body.street
+            ? String(body.street)
+            : null
+          : row.street,
+      number:
+        body?.number !== undefined
+          ? body.number
+            ? String(body.number)
+            : null
+          : row.number,
+      complement:
+        body?.complement !== undefined
+          ? body.complement
+            ? String(body.complement)
+            : null
+          : row.complement,
+      city:
+        body?.city !== undefined
+          ? body.city
+            ? String(body.city)
+            : null
+          : row.city,
+      state:
+        body?.state !== undefined
+          ? body.state
+            ? String(body.state)
+            : null
+          : row.state,
+      isDefaultBoarding: row.isCompany ? false : isDefaultBoarding,
+    },
+  });
+
+  return NextResponse.json({ ok: true, data: publicCard(updated) });
+}
+
 export async function DELETE(req: Request) {
   let session;
   try {
