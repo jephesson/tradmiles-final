@@ -15,6 +15,9 @@ type Card = {
   last4: string;
   expMonth: number;
   expYear: number;
+  email: string | null;
+  cpf: string | null;
+  birthDate: string | null;
   zip: string | null;
   street: string | null;
   number: string | null;
@@ -42,9 +45,12 @@ export default function DadosPagamentoClient() {
   const [pan, setPan] = useState("");
   const [expMonth, setExpMonth] = useState("");
   const [expYear, setExpYear] = useState("");
+  const [email, setEmail] = useState("");
+  const [cpf, setCpf] = useState("");
+  const [birthDate, setBirthDate] = useState("");
   const [zip, setZip] = useState("");
   const [street, setStreet] = useState("");
-  const [number, setNumber] = useState("");
+  const [complement, setComplement] = useState("");
   const [city, setCity] = useState("");
   const [stateUf, setStateUf] = useState("");
   const [isDefaultBoarding, setIsDefaultBoarding] = useState(true);
@@ -84,9 +90,12 @@ export default function DadosPagamentoClient() {
           pan,
           expMonth: Number(expMonth),
           expYear: Number(expYear),
+          email,
+          cpf,
+          birthDate,
           zip,
           street,
-          number,
+          complement,
           city,
           state: stateUf,
           isDefaultBoarding: isCompany ? false : isDefaultBoarding,
@@ -129,7 +138,7 @@ export default function DadosPagamentoClient() {
             Dados de pagamento
           </h1>
           <p className="mt-1 text-sm text-slate-500">
-            Cartão e endereço para taxa/pagamento na LATAM.{" "}
+            Cartão + cobrança LATAM (nome, CPF, e-mail, endereço).{" "}
             <b>CVV não é salvo</b> — você digita na hora.
           </p>
         </div>
@@ -183,7 +192,7 @@ export default function DadosPagamentoClient() {
             </label>
             <label className="block text-xs font-semibold text-slate-600">
               Nome no cartão
-              <input className={cn(INPUT, "mt-1")} value={holderName} onChange={(e) => setHolderName(e.target.value)} />
+              <input className={cn(INPUT, "mt-1")} value={holderName} onChange={(e) => setHolderName(e.target.value)} placeholder="Nome e sobrenome" />
             </label>
             <label className="block text-xs font-semibold text-slate-600 sm:col-span-2">
               Número (sem CVV)
@@ -209,20 +218,72 @@ export default function DadosPagamentoClient() {
                 inputMode="numeric"
               />
               <span className="mt-0.5 block text-[10px] font-normal text-slate-400">
-                Na LATAM o vencimento vai como MM/AA
+                Na LATAM vira MM/AA
+              </span>
+            </label>
+
+            <div className="sm:col-span-2 mt-1 border-t border-slate-100 pt-3 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+              Dados de cobrança (LATAM)
+            </div>
+
+            <label className="block text-xs font-semibold text-slate-600">
+              CPF
+              <input
+                className={cn(INPUT, "mt-1 font-mono")}
+                value={cpf}
+                onChange={(e) => setCpf(e.target.value.replace(/\D/g, "").slice(0, 11))}
+                placeholder="Somente números"
+                inputMode="numeric"
+              />
+            </label>
+            <label className="block text-xs font-semibold text-slate-600">
+              Data de nascimento
+              <input
+                className={cn(INPUT, "mt-1")}
+                value={birthDate}
+                onChange={(e) => setBirthDate(e.target.value)}
+                placeholder="dd/mm/aaaa"
+              />
+            </label>
+            <label className="block text-xs font-semibold text-slate-600 sm:col-span-2">
+              E-mail
+              <input
+                className={cn(INPUT, "mt-1")}
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="email@exemplo.com"
+              />
+            </label>
+            <label className="block text-xs font-semibold text-slate-600 sm:col-span-2">
+              Endereço (rua e número)
+              <input
+                className={cn(INPUT, "mt-1")}
+                value={street}
+                onChange={(e) => setStreet(e.target.value)}
+                placeholder="Ex.: Marechal Deodoro 1340"
+              />
+              <span className="mt-0.5 block text-[10px] font-normal text-slate-400">
+                Como aparece no banco — rua + número no mesmo campo
               </span>
             </label>
             <label className="block text-xs font-semibold text-slate-600">
-              CEP
-              <input className={cn(INPUT, "mt-1")} value={zip} onChange={(e) => setZip(e.target.value)} />
+              Complemento (opcional)
+              <input
+                className={cn(INPUT, "mt-1")}
+                value={complement}
+                onChange={(e) => setComplement(e.target.value)}
+                placeholder="Apto / sala"
+              />
             </label>
             <label className="block text-xs font-semibold text-slate-600">
-              Número
-              <input className={cn(INPUT, "mt-1")} value={number} onChange={(e) => setNumber(e.target.value)} />
-            </label>
-            <label className="block text-xs font-semibold text-slate-600 sm:col-span-2">
-              Rua
-              <input className={cn(INPUT, "mt-1")} value={street} onChange={(e) => setStreet(e.target.value)} />
+              CEP
+              <input
+                className={cn(INPUT, "mt-1")}
+                value={zip}
+                onChange={(e) => setZip(e.target.value.replace(/\D/g, "").slice(0, 8))}
+                inputMode="numeric"
+              />
             </label>
             <label className="block text-xs font-semibold text-slate-600">
               Cidade
@@ -242,9 +303,6 @@ export default function DadosPagamentoClient() {
                   </option>
                 ))}
               </select>
-              <span className="mt-0.5 block text-[10px] font-normal text-slate-400">
-                Na LATAM abre na lista suspensa pelo nome do estado
-              </span>
             </label>
           </div>
 
@@ -303,6 +361,7 @@ export default function DadosPagamentoClient() {
                 </div>
                 <div className="text-xs text-slate-500">
                   {c.holderName} · {String(c.expMonth).padStart(2, "0")}/{c.expYear}
+                  {c.email ? ` · ${c.email}` : ""}
                   {c.city ? ` · ${c.city}/${c.state || ""}` : ""}
                 </div>
               </div>

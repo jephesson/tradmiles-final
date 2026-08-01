@@ -13,6 +13,22 @@ function bad(error: string, status = 400) {
   return NextResponse.json({ ok: false, error }, { status });
 }
 
+function digitsOnly(s: unknown) {
+  return String(s || "").replace(/\D/g, "");
+}
+
+function normalizeBirthDate(raw: unknown): string | null {
+  const s = String(raw || "").trim();
+  if (!s) return null;
+  const m = s.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})$/);
+  if (!m) return null;
+  const dd = m[1].padStart(2, "0");
+  const mm = m[2].padStart(2, "0");
+  let yyyy = m[3];
+  if (yyyy.length === 2) yyyy = `20${yyyy}`;
+  return `${dd}/${mm}/${yyyy}`;
+}
+
 function publicCard(row: {
   id: string;
   userId: string | null;
@@ -22,6 +38,9 @@ function publicCard(row: {
   last4: string;
   expMonth: number;
   expYear: number;
+  email: string | null;
+  cpf: string | null;
+  birthDate: string | null;
   zip: string | null;
   street: string | null;
   number: string | null;
@@ -41,6 +60,9 @@ function publicCard(row: {
     last4: row.last4,
     expMonth: row.expMonth,
     expYear: row.expYear,
+    email: row.email,
+    cpf: row.cpf,
+    birthDate: row.birthDate,
     zip: row.zip,
     street: row.street,
     number: row.number,
@@ -69,8 +91,6 @@ export async function GET(req: Request) {
   if (all && session.role !== "admin") {
     return bad("Só admin lista todos os cartões.", 403);
   }
-  // Staff do mesmo time pode escolher cartão de outro funcionário na venda
-  // (número completo só sai na sessão da extensão do usuário logado).
 
   const ownerFilter = all
     ? {}
@@ -123,6 +143,9 @@ export async function POST(req: Request) {
   const holderName = String(body?.holderName || "").trim();
   const expMonth = Number(body?.expMonth);
   const expYear = Number(body?.expYear);
+  const email = String(body?.email || "").trim() || null;
+  const cpf = digitsOnly(body?.cpf) || null;
+  const birthDate = normalizeBirthDate(body?.birthDate);
 
   if (!holderName) return bad("Nome no cartão obrigatório.");
   if (!Number.isFinite(expMonth) || expMonth < 1 || expMonth > 12) {
@@ -130,6 +153,10 @@ export async function POST(req: Request) {
   }
   if (!Number.isFinite(expYear) || expYear < 2024) {
     return bad("Ano de validade inválido.");
+  }
+  if (cpf && cpf.length !== 11) return bad("CPF deve ter 11 dígitos.");
+  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return bad("E-mail inválido.");
   }
 
   let enc;
@@ -160,6 +187,9 @@ export async function POST(req: Request) {
       expYear,
       panCipher: enc.panCipher,
       panIv: enc.panIv,
+      email,
+      cpf,
+      birthDate,
       zip: body?.zip ? String(body.zip) : null,
       street: body?.street ? String(body.street) : null,
       number: body?.number ? String(body.number) : null,

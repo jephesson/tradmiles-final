@@ -307,6 +307,12 @@ model EmployeePaymentCard {
   panCipher String
   panIv     String
 
+  /// Dados de cobrança LATAM (além do cartão)
+  email     String?
+  cpf       String?
+  /// dd/mm/aaaa
+  birthDate String?
+
   zip         String?
   street      String?
   number      String?
