@@ -722,11 +722,19 @@ function attachFloatingContacts(
     (p) => !usedCpfs.has(p) && !passengers.some((x) => x.phone === p)
   );
 
-  // Contato no fim do Zap → 1º passageiro (comprador / contato)
-  const first = withCpfMeta({ ...passengers[0] });
-  if (!first.email && freeEmails[0]) first.email = freeEmails[0];
-  if (!first.phone && freePhones[0]) first.phone = freePhones[0];
-  return [first, ...passengers.slice(1).map((p) => withCpfMeta(p))];
+  // Contato do titular (no texto ou no 1º pax) → todos que estiverem sem
+  const titularEmail =
+    freeEmails[0] || passengers.find((p) => p.email)?.email || null;
+  const titularPhone =
+    freePhones[0] || passengers.find((p) => p.phone)?.phone || null;
+
+  return passengers.map((p) =>
+    withCpfMeta({
+      ...p,
+      email: p.email || titularEmail,
+      phone: p.phone || titularPhone,
+    })
+  );
 }
 
 /**

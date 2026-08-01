@@ -1169,7 +1169,7 @@ export default function BiometriaWizardModal({
                         value={latamPassengerText}
                         onChange={(e) => setLatamPassengerText(e.target.value)}
                         placeholder={
-                          "Jaci de Oliveira. Nasc 02.09.1974.\nCPF 07157181770.\n\nemail@exemplo.com\n51999998888\n\n(aceita vários formatos — Zap, Nome:/CPF:, etc.)"
+                          "Isabella Angelis\nNasc 08/07/1982\nCPF 71912231115\n\nOvidio Angelis\n...\n\nemail e tel do titular (vale para todos se faltar)"
                         }
                       />
                       {latamParsedPassengers.length > 0 ? (

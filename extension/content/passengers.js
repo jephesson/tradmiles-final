@@ -501,7 +501,16 @@ function guessGenderFromName(name) {
   return null;
 }
 
-function selectGender(root, gender) {
+function closeOpenMenus() {
+  document.body.dispatchEvent(
+    new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })
+  );
+  document.dispatchEvent(
+    new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })
+  );
+}
+
+async function selectGender(root, gender) {
   if (!gender) return false;
   const label = gender === "F" ? "Feminino" : "Masculino";
   const el = findFieldByWord(root, ["sexo"]);
@@ -509,62 +518,241 @@ function selectGender(root, gender) {
   if (el.tagName === "SELECT") {
     return setNativeValue(el, label);
   }
-  // Combobox / dropdown custom da LATAM
-  el.click?.();
+
+  closeOpenMenus();
+  await sleep(80);
+
   el.focus?.();
-  const tryClick = () => {
-    const hit = Array.from(
-      document.querySelectorAll(
-        '[role="option"], li[role="option"], li, button, span, div'
-      )
-    ).find((o) => {
-      const t = normalizeLabel(textOf(o));
-      return t === normalizeLabel(label) || t === (gender === "F" ? "f" : "m");
-    });
-    if (hit) {
-      hit.click?.();
-      return true;
-    }
-    return false;
-  };
-  if (tryClick()) return true;
-  setTimeout(tryClick, 200);
-  return true;
+  el.click?.();
+  await sleep(280);
+
+  const hit = Array.from(
+    document.querySelectorAll(
+      '[role="option"], li[role="option"], [role="listbox"] li, ul li, button, span, div'
+    )
+  ).find((o) => {
+    if (!isVisible(o)) return false;
+    const t = normalizeLabel(textOf(o));
+    return t === normalizeLabel(label) || t === (gender === "F" ? "f" : "m");
+  });
+
+  if (hit) {
+    hit.scrollIntoView?.({ block: "nearest" });
+    hit.dispatchEvent?.(new MouseEvent("mousedown", { bubbles: true }));
+    hit.dispatchEvent?.(new MouseEvent("mouseup", { bubbles: true }));
+    hit.click?.();
+    await sleep(120);
+  }
+
+  // Fecha lista — se ficar aberta, trava o próximo passageiro
+  closeOpenMenus();
+  await sleep(100);
+  return Boolean(hit) || Boolean(el.value || textOf(el));
 }
 
-function findPassengerSections() {
-  const found = [];
-  const seen = new Set();
-  const headers = Array.from(
-    document.querySelectorAll("h1, h2, h3, h4, h5, button, div, span, strong, p")
-  );
+/**
+ * LATAM v2: campos `passenger-0_*`, `passenger-1_*` …
+ * Funciona mesmo com acordeão fechado.
+ */
+function findPassengerSections(expectedCount) {
+  const byIndex = [];
+  const maxScan = Math.max(expectedCount || 0, 8);
 
-  for (const el of headers) {
-    const t = textOf(el);
-    if (!/^(Adulto|Criança|Crianca|Bebê|Bebe)\b/i.test(t) || t.length > 36) continue;
+  for (let i = 0; i < maxScan; i++) {
+    const marker = document.querySelector(
+      `input[name="passenger-${i}_dateOfBirth"], ` +
+        `input[name^="passenger-${i}_"], ` +
+        `[data-testid*="passenger-${i}_" i], ` +
+        `[id*="passenger-${i}_" i]`
+    );
+    if (!marker && i >= (expectedCount || 1)) break;
+    if (!marker) continue;
 
-    let root = el.parentElement;
-    for (let i = 0; i < 10 && root; i++) {
-      if (visibleTextInputs(root).length >= 3) break;
+    let root = marker.closest?.(
+      "section, article, li, [data-testid*='passenger' i], form, div"
+    );
+    // Sobe até o card do passageiro (sem pegar o form inteiro)
+    for (let up = 0; up < 8 && root && root !== document.body; up++) {
+      const hasOwn = root.querySelector?.(
+        `input[name^="passenger-${i}_"], [data-testid*="passenger-${i}_" i]`
+      );
+      const hasNext = root.querySelector?.(
+        `input[name^="passenger-${i + 1}_"], [data-testid*="passenger-${i + 1}_" i]`
+      );
+      if (hasOwn && !hasNext) break;
+      if (hasOwn && hasNext && root.parentElement) {
+        // root contém dois pax — desce um nível via parent do marker
+        root = marker.closest?.(
+          `[data-testid*="passenger-${i}" i], [id*="passenger-${i}" i]`
+        ) || marker.parentElement;
+        break;
+      }
       root = root.parentElement;
     }
-    if (!root || seen.has(root)) continue;
-    seen.add(root);
+    if (!root || root === document.body) {
+      root = marker.parentElement || document.body;
+    }
 
-    const kindRaw = t
-      .toLowerCase()
-      .normalize("NFD")
-      .replace(/\p{M}/gu, "");
-    let kind = "adult";
-    if (kindRaw.startsWith("crianca")) kind = "child";
-    else if (kindRaw.startsWith("bebe")) kind = "infant";
-    found.push({ kind, root, header: el });
+    // Cabeçalho clicável do acordeão (Adulto N / nome)
+    let header = null;
+    let cur = root;
+    for (let h = 0; h < 6 && cur; h++) {
+      const btn = cur.querySelector?.(
+        "button[aria-expanded], [role='button'][aria-expanded], button"
+      );
+      if (btn) {
+        const bt = textOf(btn);
+        if (
+          /adulto|crianca|criança|bebe|bebê/i.test(bt) ||
+          (bt.length > 2 && bt.length < 48)
+        ) {
+          header = btn;
+          break;
+        }
+      }
+      // botão irmão acima
+      const prev = cur.previousElementSibling;
+      if (prev && /button|header/i.test(prev.tagName + (prev.getAttribute("role") || ""))) {
+        header = prev.querySelector?.("button, [role='button']") || prev;
+        break;
+      }
+      cur = cur.parentElement;
+    }
+
+    // Fallback: botão "Adulto N" na página pela ordem
+    if (!header) {
+      const adultBtns = Array.from(
+        document.querySelectorAll("button, [role='button'], [aria-expanded]")
+      ).filter((b) => /^(Adulto|Criança|Crianca|Bebê|Bebe)\b/i.test(textOf(b)));
+      header = adultBtns[i] || null;
+    }
+
+    byIndex.push({
+      kind: "adult",
+      root,
+      header,
+      title: header ? textOf(header) : `passenger-${i}`,
+      index: i,
+    });
   }
 
+  if (byIndex.length) return byIndex;
+
+  // Fallback legado: cabeçalhos Adulto N
+  const found = [];
+  const seen = new Set();
+  for (const el of document.querySelectorAll(
+    "button, [role='button'], [aria-expanded], h2, h3, h4"
+  )) {
+    const t = textOf(el);
+    if (!/^(Adulto|Criança|Crianca|Bebê|Bebe)\b/i.test(t) || t.length > 40) {
+      continue;
+    }
+    if (seen.has(el)) continue;
+    seen.add(el);
+    found.push({
+      kind: /crianca|criança/i.test(t)
+        ? "child"
+        : /beb/i.test(t)
+          ? "infant"
+          : "adult",
+      root: el.parentElement || document.body,
+      header: el,
+      title: t,
+      index: found.length,
+    });
+  }
+  found.sort(
+    (a, b) =>
+      a.header.getBoundingClientRect().top -
+      b.header.getBoundingClientRect().top
+  );
   if (!found.length) {
-    found.push({ kind: "adult", root: document.body, header: null });
+    found.push({
+      kind: "adult",
+      root: document.body,
+      header: null,
+      title: "",
+      index: 0,
+    });
   }
   return found;
+}
+
+async function expandPassengerSection(sec) {
+  if (!sec) return;
+
+  // Garante que o marcador do índice exista / esteja no DOM
+  const idx = sec.index;
+  if (typeof idx === "number") {
+    const adultBtns = Array.from(
+      document.querySelectorAll("button, [role='button'], [aria-expanded]")
+    ).filter((b) => /^(Adulto|Criança|Crianca|Bebê|Bebe)\b/i.test(textOf(b)));
+    const byOrder = adultBtns[idx];
+    if (byOrder) sec.header = byOrder;
+  }
+
+  const header = sec.header;
+  if (header) {
+    try {
+      header.scrollIntoView?.({ block: "center", behavior: "instant" });
+    } catch {
+      header.scrollIntoView?.({ block: "center" });
+    }
+
+    const ariaOpen = header.getAttribute?.("aria-expanded") === "true";
+    const hasFields =
+      visibleTextInputs(sec.root).length >= 2 ||
+      Boolean(
+        document.querySelector(
+          `input[name="passenger-${idx}_dateOfBirth"], input[name^="passenger-${idx}_"]`
+        )
+      );
+
+    if (!ariaOpen || !hasFields) {
+      header.click?.();
+      await sleep(500);
+    }
+  }
+
+  // Atualiza root para o bloco que contém os inputs deste índice
+  if (typeof idx === "number") {
+    const marker = document.querySelector(
+      `input[name="passenger-${idx}_dateOfBirth"], input[name^="passenger-${idx}_"], [data-testid*="passenger-${idx}_" i]`
+    );
+    if (marker) {
+      let root = marker.parentElement;
+      for (let i = 0; i < 10 && root; i++) {
+        const onlyThis =
+          root.querySelector(`input[name^="passenger-${idx}_"]`) &&
+          !root.querySelector(`input[name^="passenger-${idx + 1}_"]`);
+        if (onlyThis && visibleTextInputs(root).length >= 1) {
+          sec.root = root;
+          break;
+        }
+        root = root.parentElement;
+      }
+      if (marker.closest) {
+        const card = marker.closest("section, article, li, div");
+        if (card && !card.querySelector(`input[name^="passenger-${idx + 1}_"]`)) {
+          sec.root = card;
+        }
+      }
+    }
+  }
+
+  for (let i = 0; i < 12; i++) {
+    const ready =
+      visibleTextInputs(sec.root).length >= 2 ||
+      Boolean(
+        document.querySelector(
+          `input[name="passenger-${idx}_dateOfBirth"], input[name^="passenger-${idx}_firstName"], input[name^="passenger-${idx}_"]`
+        )
+      );
+    if (ready) break;
+    if (header && i === 3) header.click?.();
+    await sleep(180);
+  }
 }
 
 /** CPF na LATAM: só dígitos (sem pontos/traços). */
@@ -600,15 +788,9 @@ function fillInSection(root, pax, kind) {
   if (lastName && setNativeValue(sobEl, lastName)) n++;
 
   n += fillBirthSplit(root, pax);
-  const gender =
-    pax.gender === "F" || pax.gender === "M"
-      ? pax.gender
-      : guessGenderFromName(firstName);
-  if (gender && selectGender(root, gender)) n++;
 
   const cpfEl = findFieldByWord(root, ["cpf"]);
   if (cpf && cpfEl) {
-    // Garante limpar máscara antiga antes de colar só números
     setNativeValue(cpfEl, "");
     if (setNativeValue(cpfEl, cpf)) n++;
   }
@@ -623,23 +805,41 @@ function fillInSection(root, pax, kind) {
     }
   }
 
+  // Sexo por último no bloco — e fecha o menu (senão trava o próximo pax)
+  return n;
+}
+
+async function fillInSectionAsync(root, pax, kind) {
+  let n = fillInSection(root, pax, kind);
+  const { firstName } = splitPassengerName(pax);
+  const gender =
+    pax.gender === "F" || pax.gender === "M"
+      ? pax.gender
+      : guessGenderFromName(firstName);
+  if (gender && (await selectGender(root, gender))) n++;
+
   if (pax.email) {
     const email = String(pax.email).trim().toLowerCase();
-    if (setNativeValue(findFieldByWord(root, ["email", "e-mail"]), email)) n++;
+    // Contato pode estar fora do card do passageiro
+    const emailEl =
+      findFieldByWord(root, ["email", "e-mail"]) ||
+      findFieldByWord(document.body, ["email", "e-mail"]);
+    if (emailEl && setNativeValue(emailEl, email)) n++;
   }
   if (pax.phone) {
     const phone = String(pax.phone).replace(/\D/g, "").replace(/^55/, "");
-    if (
-      setNativeValue(
-        findFieldByWord(root, ["numero", "telefone", "celular"], {
-          excludeWords: ["documento", "passageiro frequente", "cartao"],
-        }),
-        phone
-      )
-    ) {
-      n++;
-    }
+    const phoneEl =
+      findFieldByWord(root, ["numero", "telefone", "celular"], {
+        excludeWords: ["documento", "passageiro frequente", "cartao"],
+      }) ||
+      findFieldByWord(document.body, ["numero", "telefone", "celular"], {
+        excludeWords: ["documento", "passageiro frequente", "cartao", "cartão"],
+      });
+    if (phoneEl && setNativeValue(phoneEl, phone)) n++;
   }
+
+  closeOpenMenus();
+  await sleep(150);
   return n;
 }
 
@@ -679,22 +879,101 @@ function ensureFab() {
 }
 
 async function fillAll(passengers) {
-  const sections = findPassengerSections();
-  const n = Math.min(sections.length, passengers.length);
   let total = 0;
-  for (let i = 0; i < n; i++) {
-    const sec = sections[i];
-    try {
-      sec.header?.scrollIntoView?.({ block: "center" });
-      sec.header?.click?.();
-    } catch {
-      /* ignore */
+  let filled = 0;
+  const max = passengers.length;
+
+  // Prefill contato do titular em todos os pax da sessão
+  const titularEmail =
+    passengers.find((p) => p.email)?.email || null;
+  const titularPhone =
+    passengers.find((p) => p.phone)?.phone || null;
+  const enriched = passengers.map((p) => ({
+    ...p,
+    email: p.email || titularEmail,
+    phone: p.phone || titularPhone,
+  }));
+
+  for (let i = 0; i < max; i++) {
+    closeOpenMenus();
+    await sleep(120);
+
+    const sections = findPassengerSections(max);
+    const sec = sections.find((s) => s.index === i) || sections[i];
+    if (!sec) {
+      console.warn("[TradeMiles] Sem slot para pax", i);
+      continue;
     }
+
+    await expandPassengerSection(sec);
+
+    // Preenche pelos name=passenger-i_* no documento (mais estável)
+    const scopedRoot =
+      document.querySelector(
+        `[data-testid*="passenger-${i}" i], [id*="passenger-${i}" i]`
+      ) || sec.root;
+
+    let root = scopedRoot;
+    const marker = document.querySelector(`input[name^="passenger-${i}_"]`);
+    if (marker) {
+      let r = marker.parentElement;
+      for (let up = 0; up < 12 && r; up++) {
+        if (
+          r.querySelector(`input[name^="passenger-${i}_"]`) &&
+          !r.querySelector(`input[name^="passenger-${i + 1}_"]`)
+        ) {
+          root = r;
+          break;
+        }
+        r = r.parentElement;
+      }
+    }
+
+    // Preenche também pelos name= exatos da LATAM (mais estável)
+    const pax = enriched[i];
+    const { firstName, lastName } = splitPassengerName(pax);
+    const setByName = (suffix, value) => {
+      if (!value) return false;
+      const el = document.querySelector(
+        `input[name="passenger-${i}_${suffix}"], input[data-testid*="passenger-${i}_${suffix}" i]`
+      );
+      return el ? setNativeValue(el, value) : false;
+    };
+    if (firstName) setByName("firstName", firstName);
+    if (lastName) setByName("lastName", lastName);
+    const cpf = cpfDigitsOnly(pax.cpf);
+    if (cpf) {
+      const cpfEl = document.querySelector(
+        `input[name="passenger-${i}_documentNumber"], input[name="passenger-${i}_cpf"], input[name*="passenger-${i}_"][name*="document" i], input[name*="passenger-${i}_"][name*="cpf" i]`
+      );
+      if (cpfEl) {
+        setNativeValue(cpfEl, "");
+        setNativeValue(cpfEl, cpf);
+      }
+    }
+
+    total += await fillInSectionAsync(root, pax, sec.kind);
+    filled++;
+    closeOpenMenus();
     await sleep(300);
-    total += fillInSection(sec.root, passengers[i], sec.kind);
-    await sleep(200);
   }
-  return { sections: n, fields: total };
+
+  // Contato global da reserva
+  if (titularEmail) {
+    const emailEl = findFieldByWord(document.body, ["email", "e-mail"]);
+    if (emailEl) setNativeValue(emailEl, String(titularEmail).toLowerCase());
+  }
+  if (titularPhone) {
+    const phone = String(titularPhone).replace(/\D/g, "").replace(/^55/, "");
+    const phoneEl = findFieldByWord(
+      document.body,
+      ["numero", "telefone", "celular"],
+      { excludeWords: ["documento", "passageiro frequente", "cartao", "cartão"] }
+    );
+    if (phoneEl) setNativeValue(phoneEl, phone);
+  }
+
+  return { sections: filled, fields: total };
 }
 
 async function runFill({ manual } = {}) {
