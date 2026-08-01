@@ -247,10 +247,61 @@ function findDateOfBirthInput(root) {
   );
 }
 
-/** input[type=date] exige YYYY-MM-DD (respeita min/max da LATAM). */
+function birthFieldHasDate(el) {
+  if (!el) return false;
+  const v = String(el.value || "");
+  if (/^\d{4}-\d{2}-\d{2}$/.test(v)) return true;
+  return v.replace(/\D/g, "").length >= 8;
+}
+
+/** Digita caractere a caractere (máscaras React da LATAM). */
+async function typeChars(el, value) {
+  if (!el || value == null || value === "") return false;
+  const str = String(value);
+  el.focus?.();
+  el.click?.();
+
+  const proto = HTMLInputElement.prototype;
+  const setter = Object.getOwnPropertyDescriptor(proto, "value")?.set;
+  if (setter) setter.call(el, "");
+  else el.value = "";
+  el.dispatchEvent(new Event("input", { bubbles: true }));
+
+  let cur = "";
+  for (const ch of str) {
+    cur += ch;
+    el.dispatchEvent(
+      new KeyboardEvent("keydown", { key: ch, bubbles: true, cancelable: true })
+    );
+    const tracker = el._valueTracker;
+    if (tracker) {
+      try {
+        tracker.setValue(cur.slice(0, -1));
+      } catch {
+        /* ignore */
+      }
+    }
+    if (setter) setter.call(el, cur);
+    else el.value = cur;
+    el.dispatchEvent(
+      new InputEvent("input", {
+        bubbles: true,
+        data: ch,
+        inputType: "insertText",
+      })
+    );
+    el.dispatchEvent(new KeyboardEvent("keyup", { key: ch, bubbles: true }));
+    await sleep(30);
+  }
+  el.dispatchEvent(new Event("change", { bubbles: true }));
+  el.dispatchEvent(new Event("blur", { bubbles: true }));
+  return true;
+}
+
+/** input[type=date] exige YYYY-MM-DD. */
 function fillNativeDateInput(el, parts) {
   if (!el || !parts) return false;
-  let iso = `${parts.year}-${parts.month}-${parts.day}`;
+  const iso = `${parts.year}-${parts.month}-${parts.day}`;
   const min = el.getAttribute("min");
   const max = el.getAttribute("max");
   if (min && iso < min) {
@@ -261,6 +312,7 @@ function fillNativeDateInput(el, parts) {
   }
 
   el.focus?.();
+  el.click?.();
   const tracker = el._valueTracker;
   if (tracker) {
     try {
@@ -276,30 +328,34 @@ function fillNativeDateInput(el, parts) {
   if (setter) setter.call(el, iso);
   else el.value = iso;
 
+  try {
+    el.valueAsDate = new Date(
+      Date.UTC(Number(parts.year), Number(parts.month) - 1, Number(parts.day))
+    );
+  } catch {
+    /* ignore */
+  }
+
   el.dispatchEvent(new Event("input", { bubbles: true }));
+  el.dispatchEvent(
+    new InputEvent("input", {
+      bubbles: true,
+      data: iso,
+      inputType: "insertFromPaste",
+    })
+  );
   el.dispatchEvent(new Event("change", { bubbles: true }));
   el.dispatchEvent(new Event("blur", { bubbles: true }));
 
-  // Confirma
-  if (el.value === iso) return true;
-  // Alguns wrappers React precisam do defaultValue path de novo
+  if (el.value === iso || birthFieldHasDate(el)) return true;
   el.setAttribute("value", iso);
   el.dispatchEvent(new Event("input", { bubbles: true }));
   el.dispatchEvent(new Event("change", { bubbles: true }));
-  return el.value === iso || Boolean(el.value);
+  return el.value === iso || birthFieldHasDate(el);
 }
 
-function fillBirthSplit(root, pax) {
-  const parts = birthParts(pax);
-  if (!parts) return 0;
-
-  // LATAM v2: <input type="date" name="passenger-N_dateOfBirth" …>
-  const dateInput = findDateOfBirthInput(root);
-  if (dateInput && (dateInput.type === "date" || /dateofbirth/i.test(dateInput.name || dateInput.id || ""))) {
-    return fillNativeDateInput(dateInput, parts) ? 1 : 0;
-  }
-
-  // Container da data de nascimento (layouts antigos: 3 campos)
+/** Layout antigo: dia / mês / ano separados. */
+function fillBirthSplitFields(root, parts) {
   let container = root;
   const labels = [...root.querySelectorAll("label, span, p, div, legend")];
   for (const lab of labels) {
@@ -332,14 +388,6 @@ function fillBirthSplit(root, pax) {
     inputs.find((i) => /^(aaaa|yyyy|aa|ano)$/i.test((i.placeholder || "").trim())) ||
     inputs.find((i) => i.maxLength === 4);
 
-  const shorties = inputs.filter(
-    (i) =>
-      i.maxLength === 2 ||
-      i.maxLength === 4 ||
-      /dd|mm|aa|ano|dia|mes/i.test(i.placeholder || "") ||
-      i.inputMode === "numeric"
-  );
-
   let n = 0;
   if (dayEl && monthEl && yearEl) {
     if (setNativeValue(dayEl, parts.day)) n++;
@@ -348,6 +396,13 @@ function fillBirthSplit(root, pax) {
     return n;
   }
 
+  const shorties = inputs.filter(
+    (i) =>
+      i.maxLength === 2 ||
+      i.maxLength === 4 ||
+      /dd|mm|aa|ano|dia|mes/i.test(i.placeholder || "") ||
+      i.inputMode === "numeric"
+  );
   if (shorties.length >= 3) {
     shorties.sort(
       (a, b) => a.getBoundingClientRect().left - b.getBoundingClientRect().left
@@ -371,30 +426,115 @@ function fillBirthSplit(root, pax) {
     ) {
       n++;
     }
-    return n;
-  }
-
-  // Fallback texto / type=date genérico
-  const single = dateInput || findDateOfBirthInput(root);
-  if (single) {
-    if (single.type === "date") {
-      return fillNativeDateInput(single, parts) ? 1 : 0;
-    }
-    const ph = normalizeLabel(single.placeholder || "");
-    const joined =
-      ph.includes("dd-mm") || ph.includes("dd - mm")
-        ? `${parts.day}-${parts.month}-${parts.year}`
-        : pax.birthDateLatam || `${parts.day}/${parts.month}/${parts.year}`;
-    if (setNativeValue(single, joined)) return 1;
-    if (setNativeValue(single, `${parts.day}${parts.month}${parts.year}`)) {
-      return 1;
-    }
-    // último recurso: ISO mesmo em text
-    if (setNativeValue(single, `${parts.year}-${parts.month}-${parts.day}`)) {
-      return 1;
-    }
   }
   return n;
+}
+
+/**
+ * Data de nascimento LATAM:
+ * - type=date → YYYY-MM-DD
+ * - máscara texto → digita 8 dígitos (ddmmaaaa), como no pagamento
+ */
+async function fillBirthDate(root, pax, passengerIndex) {
+  const parts = birthParts(pax);
+  if (!parts) return 0;
+
+  const iso = `${parts.year}-${parts.month}-${parts.day}`;
+  const digits = `${parts.day}${parts.month}${parts.year}`;
+  const pretty = `${parts.day}/${parts.month}/${parts.year}`;
+  const spaced = `${parts.day} / ${parts.month} / ${parts.year}`;
+
+  let el = null;
+  if (passengerIndex != null && passengerIndex >= 0) {
+    el = document.querySelector(
+      `input[name="passenger-${passengerIndex}_dateOfBirth"], ` +
+        `input[data-testid*="passenger-${passengerIndex}_dateOfBirth" i]`
+    );
+  }
+  if (!el || !isVisible(el)) el = findDateOfBirthInput(root);
+
+  if (!el) {
+    const split = fillBirthSplitFields(root, parts);
+    return split > 0 ? split : 0;
+  }
+
+  el.scrollIntoView?.({ block: "center", inline: "nearest" });
+  el.focus?.();
+  el.click?.();
+  await sleep(80);
+
+  // Só ISO em input type="date" nativo
+  if (el.type === "date") {
+    if (fillNativeDateInput(el, parts)) return 1;
+  }
+
+  // Máscara React (texto): digitar só dígitos — NÃO colocar ISO aqui
+  await typeChars(el, digits);
+  await sleep(120);
+  if (birthFieldHasDate(el)) return 1;
+
+  setNativeValue(el, pretty);
+  await sleep(80);
+  if (birthFieldHasDate(el)) return 1;
+
+  setNativeValue(el, spaced);
+  await sleep(80);
+  if (birthFieldHasDate(el)) return 1;
+
+  // Digitação lenta
+  const setter = Object.getOwnPropertyDescriptor(
+    HTMLInputElement.prototype,
+    "value"
+  )?.set;
+  if (setter) setter.call(el, "");
+  else el.value = "";
+  el.dispatchEvent(new Event("input", { bubbles: true }));
+  let cur = "";
+  for (const ch of digits) {
+    cur += ch;
+    const tracker = el._valueTracker;
+    if (tracker) {
+      try {
+        tracker.setValue(cur.slice(0, -1));
+      } catch {
+        /* ignore */
+      }
+    }
+    if (setter) setter.call(el, cur);
+    else el.value = cur;
+    el.dispatchEvent(
+      new KeyboardEvent("keydown", { key: ch, bubbles: true })
+    );
+    el.dispatchEvent(
+      new InputEvent("input", {
+        bubbles: true,
+        data: ch,
+        inputType: "insertText",
+      })
+    );
+    el.dispatchEvent(new KeyboardEvent("keyup", { key: ch, bubbles: true }));
+    await sleep(55);
+  }
+  el.dispatchEvent(new Event("change", { bubbles: true }));
+  el.dispatchEvent(new Event("blur", { bubbles: true }));
+  await sleep(100);
+
+  if (birthFieldHasDate(el)) return 1;
+
+  // Último recurso: type=date ISO se o name for dateOfBirth
+  if (/dateofbirth/i.test(el.name || el.id || el.getAttribute("data-testid") || "")) {
+    if (fillNativeDateInput(el, parts)) return 1;
+    if (setNativeValue(el, iso) && birthFieldHasDate(el)) return 1;
+  }
+
+  console.warn("[TradeMiles] Data de nascimento não grudou:", {
+    value: el.value,
+    type: el.type,
+    name: el.name,
+    iso,
+    pretty,
+  });
+  return 0;
 }
 
 /** Heurística pelo 1º nome (igual ao parse do TradeMiles). */
@@ -787,8 +927,6 @@ function fillInSection(root, pax, kind) {
   if (firstName && setNativeValue(nomeEl, firstName)) n++;
   if (lastName && setNativeValue(sobEl, lastName)) n++;
 
-  n += fillBirthSplit(root, pax);
-
   const cpfEl = findFieldByWord(root, ["cpf"]);
   if (cpf && cpfEl) {
     setNativeValue(cpfEl, "");
@@ -805,12 +943,13 @@ function fillInSection(root, pax, kind) {
     }
   }
 
-  // Sexo por último no bloco — e fecha o menu (senão trava o próximo pax)
   return n;
 }
 
-async function fillInSectionAsync(root, pax, kind) {
+async function fillInSectionAsync(root, pax, kind, passengerIndex) {
   let n = fillInSection(root, pax, kind);
+  n += await fillBirthDate(root, pax, passengerIndex);
+
   const { firstName } = splitPassengerName(pax);
   const gender =
     pax.gender === "F" || pax.gender === "M"
@@ -820,7 +959,6 @@ async function fillInSectionAsync(root, pax, kind) {
 
   if (pax.email) {
     const email = String(pax.email).trim().toLowerCase();
-    // Contato pode estar fora do card do passageiro
     const emailEl =
       findFieldByWord(root, ["email", "e-mail"]) ||
       findFieldByWord(document.body, ["email", "e-mail"]);
@@ -952,7 +1090,7 @@ async function fillAll(passengers) {
       }
     }
 
-    total += await fillInSectionAsync(root, pax, sec.kind);
+    total += await fillInSectionAsync(root, pax, sec.kind, i);
     filled++;
     closeOpenMenus();
     await sleep(300);

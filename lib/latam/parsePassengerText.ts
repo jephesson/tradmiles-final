@@ -23,7 +23,7 @@ const PHONE_CANDIDATE_RE =
   /\b(?:\+?55\s*)?(?:\(?\d{2}\)?\s*)?(?:9\d{4}|\d{4})[-\s]?\d{4}\b/;
 
 const LABELED_LINE_RE =
-  /^\s*(nome\s*completo|nome|sobrenome|primeiro\s*nome|ultimo\s*nome|último\s*nome|passageiro|pax|documento|doc|cpf\/?cnpj|cpf|cnpj|rg|data(?:\s+de)?\s*nasc(?:imento)?|dt\.?\s*nasc(?:imento)?|nascido\s*em|nascimento|nasc|dn|e-?mail|email|mail|telefone|celular|fone|zap|wpp|whatsapp|sexo|genero|gênero)\s*(?:\([^)]*\))?\s*[:\-–.=]?\s*(.+)\s*$/i;
+  /^\s*(nome\s*completo|nome|sobrenome|primeiro\s*nome|ultimo\s*nome|último\s*nome|passageiro|pax|documento|doc|cpf\/?cnpj|cpf|cnpj|rg|idt|identidade|cie|data(?:\s+de)?\s*nasc(?:imento)?|dt\.?\s*nasc(?:imento)?|nascido\s*em|nascimento|nasc|dn|e-?mail|email|mail|telefone|celular|fone|zap|wpp|whatsapp|sexo|genero|gênero)\s*(?:\([^)]*\))?\s*[:\-–.=]?\s*(.+)\s*$/i;
 
 function onlyDigits(s: string) {
   return String(s || "").replace(/\D/g, "");
@@ -284,12 +284,13 @@ function normKey(k: string) {
 /** Extrai nome mesmo quando a linha mistura Nasc/CPF/data. */
 function extractNameFromLine(line: string): string {
   let s = String(line || "");
-  s = s.replace(/[*_~`]+/g, " ");
+  s = s.replace(/[*~`]+/g, " ");
+  s = s.replace(/_{2,}/g, " ");
   s = s.replace(EMAIL_RE, " ");
   s = s.replace(DATE_RE, " ");
   s = s.replace(DATE_COMPACT_RE, " ");
   s = s.replace(
-    /\b(nome\s*completo|passageiro|pax|nascido\s*em|nasc(?:imento)?|dt\.?\s*nasc|dn|cpf\/?cnpj|cpf|c\.?p\.?f\.?|cnpj|rg|documento|doc|e-?mail|email|mail|tel(?:efone)?|cel(?:ular)?|whats?app?|zap|wpp|fone|sexo|genero)\b[:\s.=]*/gi,
+    /\b(nome\s*completo|passageiro|pax|nascido\s*em|nasc(?:imento)?|dt\.?\s*nasc|dn|cpf\/?cnpj|cpf|c\.?p\.?f\.?|cnpj|rg|idt|identidade|documento|doc|e-?mail|email|mail|tel(?:efone)?|cel(?:ular)?|whats?app?|zap|wpp|fone|sexo|genero)\b[:\s.=]*/gi,
     " "
   );
   s = s.replace(/\b\d{3}\.?\d{3}\.?\d{3}-?\d{2}\b/g, " ");
@@ -316,16 +317,18 @@ function parseDateFromText(s: string, { allowCompact = false } = {}): string | n
 /** Normaliza texto de Zap: markdown, separadores, rótulos colados. */
 function preprocessPassengerText(raw: string): string {
   let t = String(raw || "").replace(/\r/g, "");
-  t = t.replace(/[*_~]{1,2}/g, "");
+  // Markdown Zap (**bold**, ~~strike~~) — NÃO remove `_` solto (e-mail: nome_sobrenome@…)
+  t = t.replace(/\*{1,2}|~{2}|`{1,3}/g, "");
+  t = t.replace(/_{2}/g, "");
   // "Nome - João" / separadores comuns → quebra de linha
   t = t.replace(/\s*[|•·]\s*/g, "\n");
   t = t.replace(
-    /\s+(?=(?:nome|sobrenome|cpf|cnpj|rg|nasc|nascimento|dn|email|e-mail|tel|fone|cel|whats|zap|doc(?:umento)?)\s*[:\-])/gi,
+    /\s+(?=(?:nome|sobrenome|cpf|cnpj|rg|idt|identidade|nasc|nascimento|dn|email|e-mail|tel|fone|cel|whats|zap|doc(?:umento)?)\s*[:\-])/gi,
     "\n"
   );
   // "Nasc:02.09.1974" / "CPF:071..." sem espaço
   t = t.replace(
-    /\b(cpf|cnpj|rg|nasc(?:imento)?|dn|email|tel|fone|cel)\s*[:\-.=]\s*/gi,
+    /\b(cpf|cnpj|rg|idt|nasc(?:imento)?|dn|email|tel|fone|cel)\s*[:\-.=]\s*/gi,
     (_, k) => `${k}: `
   );
   return t.trim();
@@ -385,13 +388,21 @@ function parseLabeledBlock(block: string): ParsedPassenger | null {
       lastName = sanitizeLatamName(val);
       continue;
     }
+    // Idt/RG/CIE: adulto emite com CPF na LATAM — ignora (não vira documento).
+    if (
+      key === "idt" ||
+      key === "identidade" ||
+      key === "rg" ||
+      key === "cie"
+    ) {
+      continue;
+    }
     if (
       key === "documento" ||
       key === "doc" ||
       key === "cpf" ||
       key === "cnpj" ||
-      key === "cpf/cnpj" ||
-      key === "rg"
+      key === "cpf/cnpj"
     ) {
       const dig = onlyDigits(val);
       const kind = classifyDigits(dig, {
@@ -487,6 +498,19 @@ function parseFreeformBlock(block: string): ParsedPassenger | null {
   for (const line of lines) {
     const labeled = line.match(LABELED_LINE_RE);
     if (labeled) {
+      const key = String(labeled[1] || "")
+        .toLowerCase()
+        .normalize("NFD")
+        .replace(/\p{M}/gu, "");
+      // Idt/RG em adulto não entra na LATAM
+      if (
+        key === "idt" ||
+        key === "identidade" ||
+        key === "rg" ||
+        key === "cie"
+      ) {
+        continue;
+      }
       // Reaproveita parser rotulado para a linha isolada
       const mini = parseLabeledBlock(line);
       if (mini) {
@@ -501,6 +525,9 @@ function parseFreeformBlock(block: string): ParsedPassenger | null {
       continue;
     }
 
+    // Linha de identidade sem rótulo capturado — não vira telefone
+    if (/^\s*(idt|identidade|rg|cie)\b/i.test(line)) continue;
+
     const emailM = line.match(EMAIL_RE);
     if (emailM && !email) {
       email = emailM[0].toLowerCase();
@@ -511,7 +538,7 @@ function parseFreeformBlock(block: string): ParsedPassenger | null {
     }
 
     const labeledPhone = /\b(tel|cel|fone|whats|whatsapp|zap|wpp)\b/i.test(line);
-    const labeledCpf = /\b(cpf|c\.?p\.?f\.?|documento|rg|doc)\b/i.test(line);
+    const labeledCpf = /\b(cpf|c\.?p\.?f\.?|documento|doc)\b/i.test(line);
 
     // CPFs formatados / 11 dígitos — sem misturar com a data na mesma linha
     for (const dig of extractCpfCandidatesFromLine(line)) {
@@ -607,16 +634,21 @@ function extractFloatingContacts(text: string): {
   emails: string[];
   phones: string[];
 } {
-  const emails = Array.from(text.matchAll(new RegExp(EMAIL_RE.source, "gi"))).map(
-    (m) => m[0].toLowerCase()
-  );
+  // Remove linhas de Idt/RG para não virarem "telefone"
+  const cleaned = String(text || "")
+    .split(/\n+/)
+    .filter((ln) => !/^\s*(idt|identidade|rg|cie)\b/i.test(ln))
+    .join("\n");
+
+  const emails = Array.from(
+    cleaned.matchAll(new RegExp(EMAIL_RE.source, "gi"))
+  ).map((m) => m[0].toLowerCase());
   const phones: string[] = [];
-  const chunks = text.match(/\d[\d.\-\s()]{7,}\d/g) || [];
+  const chunks = cleaned.match(/\d[\d.\-\s()]{7,}\d/g) || [];
   for (const chunk of chunks) {
     const dig = onlyDigits(chunk);
     if (DATE_RE.test(chunk) && onlyDigits(chunk).length <= 8) continue;
     const kind = classifyDigits(dig, { alreadyHasCpf: true });
-    // alreadyHasCpf true força telefone quando não é CPF válido
     if (kind === "phone" || (!isValidCpf(dig) && normalizePhone(dig))) {
       const p = normalizePhone(dig) || dig.replace(/^55/, "");
       if (p && !phones.includes(p)) phones.push(p);
@@ -625,11 +657,12 @@ function extractFloatingContacts(text: string): {
       if (!phones.includes(p)) phones.push(p);
     }
   }
-  // Também tenta PHONE_CANDIDATE_RE
-  for (const m of text.matchAll(new RegExp(PHONE_CANDIDATE_RE.source, "g"))) {
+  for (const m of cleaned.matchAll(new RegExp(PHONE_CANDIDATE_RE.source, "g"))) {
     const p = normalizePhone(m[0]);
     if (p && !phones.includes(p) && !isValidCpf(p)) phones.push(p);
   }
+  // Prefere celular 11 dígitos (9º dígito) na frente de fixo/Idt 10 dígitos
+  phones.sort((a, b) => b.length - a.length);
   return { emails: [...new Set(emails)], phones };
 }
 
