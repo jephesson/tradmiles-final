@@ -618,7 +618,30 @@ async function fillBillingBirthDate(billRoot, raw) {
   realClick(birthEl);
   await sleep(80);
 
-  // Limpa máscara
+  // input type="date" → YYYY-MM-DD (não dd/mm)
+  if (birthEl.type === "date" || /dateofbirth/i.test(birthEl.name || birthEl.id || "")) {
+    const iso = `${parts.year}-${parts.month}-${parts.day}`;
+    const setter = Object.getOwnPropertyDescriptor(
+      HTMLInputElement.prototype,
+      "value"
+    )?.set;
+    const tracker = birthEl._valueTracker;
+    if (tracker) {
+      try {
+        tracker.setValue("");
+      } catch {
+        /* ignore */
+      }
+    }
+    if (setter) setter.call(birthEl, iso);
+    else birthEl.value = iso;
+    birthEl.dispatchEvent(new Event("input", { bubbles: true }));
+    birthEl.dispatchEvent(new Event("change", { bubbles: true }));
+    birthEl.dispatchEvent(new Event("blur", { bubbles: true }));
+    if (birthEl.value === iso || birthFieldHasDate(birthEl)) return true;
+  }
+
+  // Limpa máscara (campo texto)
   birthEl.focus?.();
   const proto = HTMLInputElement.prototype;
   const setter = Object.getOwnPropertyDescriptor(proto, "value")?.set;

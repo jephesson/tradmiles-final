@@ -221,11 +221,85 @@ function findLastNameField(root) {
   );
 }
 
+function findDateOfBirthInput(root) {
+  const byTestId = [
+    ...root.querySelectorAll(
+      'input[type="date"][name*="dateOfBirth" i], input[type="date"][data-testid*="dateOfBirth" i], input[data-testid*="dateOfBirth" i], input[name*="dateOfBirth" i]'
+    ),
+  ].find(isVisible);
+  if (byTestId) return byTestId;
+
+  const byType = [...root.querySelectorAll('input[type="date"]')].find((el) => {
+    if (!isVisible(el)) return false;
+    const meta = fieldMeta(el);
+    return (
+      meta.includes("nascimento") ||
+      meta.includes("dateofbirth") ||
+      meta.includes("birth")
+    );
+  });
+  if (byType) return byType;
+
+  return (
+    findFieldByWord(root, ["data de nascimento", "nascimento"], {
+      excludeWords: ["vencimento"],
+    }) || null
+  );
+}
+
+/** input[type=date] exige YYYY-MM-DD (respeita min/max da LATAM). */
+function fillNativeDateInput(el, parts) {
+  if (!el || !parts) return false;
+  let iso = `${parts.year}-${parts.month}-${parts.day}`;
+  const min = el.getAttribute("min");
+  const max = el.getAttribute("max");
+  if (min && iso < min) {
+    console.warn("[TradeMiles] Nascimento abaixo do min LATAM:", iso, min);
+  }
+  if (max && iso > max) {
+    console.warn("[TradeMiles] Nascimento acima do max LATAM:", iso, max);
+  }
+
+  el.focus?.();
+  const tracker = el._valueTracker;
+  if (tracker) {
+    try {
+      tracker.setValue("");
+    } catch {
+      /* ignore */
+    }
+  }
+  const setter = Object.getOwnPropertyDescriptor(
+    HTMLInputElement.prototype,
+    "value"
+  )?.set;
+  if (setter) setter.call(el, iso);
+  else el.value = iso;
+
+  el.dispatchEvent(new Event("input", { bubbles: true }));
+  el.dispatchEvent(new Event("change", { bubbles: true }));
+  el.dispatchEvent(new Event("blur", { bubbles: true }));
+
+  // Confirma
+  if (el.value === iso) return true;
+  // Alguns wrappers React precisam do defaultValue path de novo
+  el.setAttribute("value", iso);
+  el.dispatchEvent(new Event("input", { bubbles: true }));
+  el.dispatchEvent(new Event("change", { bubbles: true }));
+  return el.value === iso || Boolean(el.value);
+}
+
 function fillBirthSplit(root, pax) {
   const parts = birthParts(pax);
   if (!parts) return 0;
 
-  // Container da data de nascimento
+  // LATAM v2: <input type="date" name="passenger-N_dateOfBirth" …>
+  const dateInput = findDateOfBirthInput(root);
+  if (dateInput && (dateInput.type === "date" || /dateofbirth/i.test(dateInput.name || dateInput.id || ""))) {
+    return fillNativeDateInput(dateInput, parts) ? 1 : 0;
+  }
+
+  // Container da data de nascimento (layouts antigos: 3 campos)
   let container = root;
   const labels = [...root.querySelectorAll("label, span, p, div, legend")];
   for (const lab of labels) {
@@ -244,7 +318,7 @@ function fillBirthSplit(root, pax) {
     }
   }
 
-  const inputs = visibleTextInputs(container);
+  const inputs = visibleTextInputs(container).filter((i) => i.type !== "date");
   const dayEl =
     findFieldByWord(container, ["dia"]) ||
     inputs.find((i) => /^(dd|dia)$/i.test((i.placeholder || "").trim())) ||
@@ -258,7 +332,6 @@ function fillBirthSplit(root, pax) {
     inputs.find((i) => /^(aaaa|yyyy|aa|ano)$/i.test((i.placeholder || "").trim())) ||
     inputs.find((i) => i.maxLength === 4);
 
-  // Três inputs curtos na ordem dia/mês/ano
   const shorties = inputs.filter(
     (i) =>
       i.maxLength === 2 ||
@@ -276,7 +349,6 @@ function fillBirthSplit(root, pax) {
   }
 
   if (shorties.length >= 3) {
-    // ordena da esquerda pra direita
     shorties.sort(
       (a, b) => a.getBoundingClientRect().left - b.getBoundingClientRect().left
     );
@@ -288,27 +360,39 @@ function fillBirthSplit(root, pax) {
       rest[1];
     if (setNativeValue(d, parts.day)) n++;
     if (setNativeValue(m, parts.month)) n++;
-    if (y && setNativeValue(y, parts.year.length === 4 && y.maxLength === 2 ? parts.year.slice(-2) : parts.year)) {
+    if (
+      y &&
+      setNativeValue(
+        y,
+        parts.year.length === 4 && y.maxLength === 2
+          ? parts.year.slice(-2)
+          : parts.year
+      )
+    ) {
       n++;
     }
     return n;
   }
 
-  // Fallback: um campo só (LATAM costuma usar dd-mm-aaaa)
-  const single =
-    findFieldByWord(root, ["data de nascimento", "nascimento"]) ||
-    root.querySelector('input[placeholder*="dd" i]');
-  if (single && shorties.length < 3) {
+  // Fallback texto / type=date genérico
+  const single = dateInput || findDateOfBirthInput(root);
+  if (single) {
+    if (single.type === "date") {
+      return fillNativeDateInput(single, parts) ? 1 : 0;
+    }
     const ph = normalizeLabel(single.placeholder || "");
     const joined =
       ph.includes("dd-mm") || ph.includes("dd - mm")
         ? `${parts.day}-${parts.month}-${parts.year}`
-        : pax.birthDateLatam ||
-          `${parts.day}/${parts.month}/${parts.year}`;
+        : pax.birthDateLatam || `${parts.day}/${parts.month}/${parts.year}`;
     if (setNativeValue(single, joined)) return 1;
-    // tenta só dígitos (máscara)
-    const digits = `${parts.day}${parts.month}${parts.year}`;
-    if (setNativeValue(single, digits)) return 1;
+    if (setNativeValue(single, `${parts.day}${parts.month}${parts.year}`)) {
+      return 1;
+    }
+    // último recurso: ISO mesmo em text
+    if (setNativeValue(single, `${parts.year}-${parts.month}-${parts.day}`)) {
+      return 1;
+    }
   }
   return n;
 }
