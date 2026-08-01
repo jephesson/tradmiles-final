@@ -1114,7 +1114,7 @@ export default function BiometriaWizardModal({
                         value={latamPassengerText}
                         onChange={(e) => setLatamPassengerText(e.target.value)}
                         placeholder={
-                          "Nome: WORLEI Babêto\nSobrenome: Militão\nDocumento (CPF/RG): 116.604.897-76\nData Nascimento: 09/02/1988\n\n(ou cole outro formato — um passageiro por bloco)"
+                          "Jaci de Oliveira. Nasc 02.09.1974.\nCPF 07157181770.\n\nemail@exemplo.com\n51999998888\n\n(aceita vários formatos — Zap, Nome:/CPF:, etc.)"
                         }
                       />
                       {latamParsedPassengers.length > 0 ? (

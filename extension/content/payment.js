@@ -396,94 +396,177 @@ async function fillCard(card) {
   await fillExpiry(expEl, card);
 }
 
+function findByAutocomplete(root, names) {
+  const list = Array.isArray(names) ? names : [names];
+  for (const name of list) {
+    const el = [...root.querySelectorAll(`input[autocomplete="${name}"], input[autocomplete*="${name}" i]`)].find(
+      isVisible
+    );
+    if (el) return el;
+  }
+  return null;
+}
+
+async function fillInput(el, value) {
+  if (!el || value == null || value === "") return false;
+  const str = String(value);
+  await typeChars(el, str);
+  await sleep(40);
+  if (String(el.value || "").replace(/\s+/g, " ").trim()) return true;
+  return setNativeValue(el, str);
+}
+
+function findBillingField(billRoot, words, opts = {}) {
+  return (
+    findField(billRoot, words, opts) ||
+    findField(document.body, words, opts)
+  );
+}
+
 async function fillBilling(card) {
   const billRoot =
     findSectionByHeading(/dados de cobrança|dados de cobranca/i) ||
     document.body;
 
+  try {
+    billRoot.scrollIntoView?.({ block: "center" });
+  } catch {
+    /* ignore */
+  }
+  await sleep(200);
+
   const { first, last } = splitHolder(card.holderName || "");
 
   // Nome(s) / Sobrenome(s) — NÃO tocar no "Nome e sobrenome" do cartão
   const nomeEl =
-    findField(billRoot, ["nomes", "nome s"], {
+    findBillingField(billRoot, ["nomes", "nome s"], {
       excludeWords: ["sobrenome", "cartao", "cartão", "nome e sobrenome"],
     }) ||
-    findField(billRoot, ["nome"], {
-      excludeWords: ["sobrenome", "cartao", "cartão", "nome e sobrenome", "usuario"],
-    });
-  const sobEl = findField(billRoot, ["sobrenomes", "sobrenome s", "sobrenome"], {
-    excludeWords: ["nome e sobrenome"],
-  });
+    findBillingField(billRoot, ["nome"], {
+      excludeWords: [
+        "sobrenome",
+        "cartao",
+        "cartão",
+        "nome e sobrenome",
+        "usuario",
+      ],
+    }) ||
+    findByAutocomplete(billRoot, ["given-name"]);
+  const sobEl =
+    findBillingField(billRoot, ["sobrenomes", "sobrenome s", "sobrenome"], {
+      excludeWords: ["nome e sobrenome"],
+    }) || findByAutocomplete(billRoot, ["family-name"]);
 
-  if (first && nomeEl) await typeChars(nomeEl, first);
-  if (last && sobEl) await typeChars(sobEl, last);
+  if (first && nomeEl) await fillInput(nomeEl, first);
+  if (last && sobEl) await fillInput(sobEl, last);
 
   if (card.birthDate) {
-    const birthEl = findField(billRoot, [
+    const birthEl = findBillingField(billRoot, [
       "data de nascimento",
       "nascimento",
     ]);
     if (birthEl) {
       const digits = String(card.birthDate).replace(/\D/g, "");
-      // ddmmAAAA
-      if (digits.length >= 8) await typeChars(birthEl, digits.slice(0, 8));
-      else await typeChars(birthEl, card.birthDate);
+      if (digits.length >= 8) await fillInput(birthEl, digits.slice(0, 8));
+      else await fillInput(birthEl, card.birthDate);
     }
   }
 
   if (card.cpf) {
-    const cpfEl = findField(billRoot, ["cpf"]);
-    if (cpfEl) await typeChars(cpfEl, String(card.cpf).replace(/\D/g, ""));
+    const cpfEl = findBillingField(billRoot, ["cpf"]);
+    if (cpfEl) await fillInput(cpfEl, String(card.cpf).replace(/\D/g, ""));
   }
 
   if (card.email) {
-    const emailEl = findField(billRoot, ["email", "e-mail"]);
-    if (emailEl) await typeChars(emailEl, card.email);
+    const emailEl =
+      findBillingField(billRoot, ["email", "e-mail"]) ||
+      findByAutocomplete(billRoot, ["email"]);
+    if (emailEl) await fillInput(emailEl, card.email);
   }
 
+  // LATAM NÃO completa endereço pelo CEP — preencher tudo manualmente.
   const addr = addressLine(card);
-  if (addr) {
-    const endEl = findField(billRoot, ["endereco", "endereço"], {
-      excludeWords: ["email"],
-    });
-    if (endEl) await typeChars(endEl, addr);
-  }
+  const resolved = card.state ? resolveState(card.state) : null;
 
-  if (card.complement) {
-    const compEl = findField(billRoot, [
-      "apartamento ou escritorio",
-      "apartamento ou escritório",
-      "apartamento",
-      "complemento",
-    ]);
-    if (compEl) await typeChars(compEl, card.complement);
-  }
-
-  const paisEl = findField(billRoot, ["pais", "país"]);
+  const paisEl = findBillingField(billRoot, ["pais", "país"]);
   if (paisEl) await selectDropdown(paisEl, "Brasil");
 
-  if (card.state) {
-    const resolved = resolveState(card.state);
-    const estadoEl = findField(billRoot, ["estado"]);
-    if (estadoEl && resolved) {
-      const ok = await selectDropdown(estadoEl, resolved.name);
-      if (!ok) await selectDropdown(estadoEl, resolved.uf);
-    }
+  async function fillEstado() {
+    const estadoEl =
+      findBillingField(billRoot, ["estado"]) ||
+      findByAutocomplete(document.body, ["address-level1"]);
+    if (!estadoEl || !resolved) return false;
+    let ok = await selectDropdown(estadoEl, resolved.name);
+    if (!ok) ok = await selectDropdown(estadoEl, resolved.uf);
+    return ok;
   }
 
-  if (card.city) {
-    const cityEl = findField(billRoot, ["cidade"]);
-    if (cityEl) await typeChars(cityEl, card.city);
+  async function fillCidade() {
+    if (!card.city) return false;
+    const cityEl =
+      findBillingField(billRoot, ["cidade"]) ||
+      findByAutocomplete(document.body, ["address-level2"]);
+    return cityEl ? fillInput(cityEl, card.city) : false;
   }
 
-  if (card.zip) {
-    const zipEl = findField(billRoot, [
-      "codigo postal",
-      "código postal",
-      "cep",
-    ]);
-    if (zipEl) await typeChars(zipEl, String(card.zip).replace(/\D/g, ""));
+  async function fillEndereco() {
+    if (!addr) return false;
+    const endEl =
+      findBillingField(billRoot, ["endereco", "endereço"], {
+        excludeWords: ["email", "e-mail"],
+      }) ||
+      findByAutocomplete(document.body, [
+        "street-address",
+        "address-line1",
+      ]);
+    return endEl ? fillInput(endEl, addr) : false;
   }
+
+  async function fillComplemento() {
+    if (!card.complement) return false;
+    const compEl =
+      findBillingField(billRoot, [
+        "apartamento ou escritorio",
+        "apartamento ou escritório",
+        "apartamento",
+        "complemento",
+      ]) || findByAutocomplete(document.body, ["address-line2"]);
+    return compEl ? fillInput(compEl, card.complement) : false;
+  }
+
+  async function fillCep() {
+    if (!card.zip) return false;
+    const zipEl =
+      findBillingField(billRoot, [
+        "codigo postal",
+        "código postal",
+        "cep",
+      ]) || findByAutocomplete(document.body, ["postal-code"]);
+    return zipEl
+      ? fillInput(zipEl, String(card.zip).replace(/\D/g, ""))
+      : false;
+  }
+
+  // Ordem estável: localização → rua → CEP (e re-preenche rua/cidade se o CEP limpar)
+  await fillEstado();
+  await sleep(150);
+  await fillCidade();
+  await fillEndereco();
+  await fillComplemento();
+  await fillCep();
+  await sleep(400);
+  // Reaplica endereço/cidade/estado — CEP da LATAM às vezes apaga ou não completa
+  await fillEstado();
+  await fillCidade();
+  await fillEndereco();
+  await fillComplemento();
+
+  console.info("[TradeMiles] cobrança", {
+    addr,
+    city: card.city,
+    state: resolved?.name || card.state,
+    zip: card.zip,
+  });
 }
 
 function ensureFab() {
