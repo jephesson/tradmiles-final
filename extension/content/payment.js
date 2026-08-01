@@ -311,63 +311,186 @@ async function fillExpiry(el, card) {
   return setNativeValue(el, `${mm}/${yy}`);
 }
 
+function realClick(el) {
+  if (!el) return;
+  const opts = { bubbles: true, cancelable: true, view: window };
+  el.scrollIntoView?.({ block: "nearest", inline: "nearest" });
+  el.focus?.();
+  for (const type of [
+    "pointerdown",
+    "mousedown",
+    "pointerup",
+    "mouseup",
+    "click",
+  ]) {
+    el.dispatchEvent(new MouseEvent(type, opts));
+  }
+  // click nativo por cima (alguns handlers só escutam isso)
+  try {
+    el.click();
+  } catch {
+    /* ignore */
+  }
+}
+
+function collectDropdownOptions() {
+  const sels = [
+    '[role="listbox"] [role="option"]',
+    '[role="option"]',
+    "ul[role='listbox'] li",
+    "[class*='Menu'] li",
+    "[class*='menu'] li",
+    "[class*='Dropdown'] li",
+    "[class*='dropdown'] li",
+    "[class*='Select'] li",
+    "[class*='option']",
+    "li",
+  ];
+  const seen = new Set();
+  const out = [];
+  for (const sel of sels) {
+    for (const el of document.querySelectorAll(sel)) {
+      if (seen.has(el) || !isVisible(el)) continue;
+      const t = textOf(el);
+      if (!t || t.length > 48) continue;
+      // ignora itens de UI genéricos
+      if (/^(selecione|buscar|pesquisar|fechar)$/i.test(t)) continue;
+      seen.add(el);
+      out.push(el);
+    }
+  }
+  return out;
+}
+
+function matchOption(el, want) {
+  const t = normalizeLabel(textOf(el));
+  if (!t) return false;
+  if (t === want) return true;
+  // "Rio Grande do Sul" / "RS - Rio Grande do Sul"
+  if (t.startsWith(`${want} `) || t.endsWith(` ${want}`) || t.includes(` - ${want}`) || t.includes(`${want} -`)) {
+    return true;
+  }
+  return false;
+}
+
+function dropdownShowsValue(el, want) {
+  if (!el) return false;
+  const t = normalizeLabel(
+    el.value || el.getAttribute("value") || textOf(el) || ""
+  );
+  return Boolean(t && (t === want || t.includes(want)));
+}
+
 async function selectDropdown(el, label) {
   if (!el || !label) return false;
   const want = normalizeLabel(label);
+  const wantRaw = String(label).trim();
 
   if (el.tagName === "SELECT") {
     return setNativeValue(el, label);
   }
 
-  // Fecha listas abertas
-  document.body.dispatchEvent(
-    new KeyboardEvent("keydown", { key: "Escape", bubbles: true })
-  );
-  await sleep(100);
+  // Gatilho: botão/combobox perto do input
+  const trigger =
+    el.closest?.("button, [role='combobox'], [aria-haspopup='listbox']") ||
+    el.parentElement?.querySelector?.(
+      "button, [role='combobox'], [aria-haspopup='listbox'], svg"
+    )?.closest?.("button, [role='combobox'], [aria-haspopup]") ||
+    el;
 
-  el.focus?.();
-  el.click?.();
-  await sleep(350);
+  // 1) Abrir lista
+  realClick(trigger);
+  if (trigger !== el) realClick(el);
+  await sleep(400);
 
-  const collect = () =>
-    Array.from(
-      document.querySelectorAll(
-        '[role="option"], li[role="option"], [role="listbox"] li, ul li, div[class*="option"]'
-      )
-    ).filter(isVisible);
-
-  let opts = collect();
-  for (let i = 0; i < 8 && opts.length < 5; i++) {
-    await sleep(120);
-    opts = collect();
+  // 2) Se for input/combobox, digita para filtrar a lista
+  const editable =
+    el.tagName === "INPUT" ||
+    el.getAttribute("role") === "combobox" ||
+    el.isContentEditable;
+  if (editable) {
+    await typeChars(el, wantRaw);
+    await sleep(350);
   }
 
-  const hit =
-    opts.find((o) => normalizeLabel(textOf(o)) === want) ||
-    opts.find((o) => {
-      const t = normalizeLabel(textOf(o));
-      return t && t.length < 40 && (t === want || t.startsWith(want));
-    });
+  // 3) Acha a opção e clica de verdade
+  let opts = collectDropdownOptions();
+  for (let i = 0; i < 12 && opts.length < 3; i++) {
+    await sleep(120);
+    opts = collectDropdownOptions();
+  }
 
+  let hit =
+    opts.find((o) => normalizeLabel(textOf(o)) === want) ||
+    opts.find((o) => matchOption(o, want));
+
+  // Preferir o nó folha com o texto exato
   if (hit) {
-    hit.scrollIntoView?.({ block: "nearest" });
-    hit.click?.();
-    hit.dispatchEvent?.(new MouseEvent("mousedown", { bubbles: true }));
-    hit.dispatchEvent?.(new MouseEvent("mouseup", { bubbles: true }));
-    await sleep(150);
+    const leaf = [...hit.querySelectorAll("*")].find(
+      (n) => normalizeLabel(textOf(n)) === want && isVisible(n)
+    );
+    if (leaf) hit = leaf;
+    realClick(hit);
+    await sleep(200);
+    if (dropdownShowsValue(el, want) || dropdownShowsValue(trigger, want)) {
+      return true;
+    }
+    // tenta de novo no container da opção
+    realClick(hit.closest?.("[role='option'], li") || hit);
+    await sleep(200);
+    if (dropdownShowsValue(el, want) || dropdownShowsValue(trigger, want)) {
+      return true;
+    }
+  }
+
+  // 4) Teclado: ArrowDown + Enter na opção filtrada
+  el.focus?.();
+  trigger.focus?.();
+  for (const key of ["ArrowDown", "Enter"]) {
+    const ke = { key, code: key, bubbles: true, cancelable: true };
+    el.dispatchEvent(new KeyboardEvent("keydown", ke));
+    trigger.dispatchEvent(new KeyboardEvent("keydown", ke));
+    document.activeElement?.dispatchEvent?.(new KeyboardEvent("keydown", ke));
+    await sleep(80);
+  }
+  await sleep(200);
+  if (dropdownShowsValue(el, want) || dropdownShowsValue(trigger, want)) {
     return true;
   }
 
-  // Combobox digitável
-  if (el.tagName === "INPUT" || el.getAttribute("role") === "combobox") {
-    await typeChars(el, label);
-    await sleep(250);
-    opts = collect();
-    const hit2 = opts.find((o) => normalizeLabel(textOf(o)) === want);
-    if (hit2) {
-      hit2.click?.();
-      return true;
+  // 5) Última tentativa: clicar em qualquer nó visível com o texto do estado
+  const loose = [...document.querySelectorAll("li, div, span, button, p")].find(
+    (o) => {
+      if (!isVisible(o)) return false;
+      const t = normalizeLabel(textOf(o));
+      return t === want && t.length < 40;
     }
+  );
+  if (loose) {
+    realClick(loose.closest("[role='option'], li, button") || loose);
+    await sleep(200);
+    return (
+      dropdownShowsValue(el, want) ||
+      dropdownShowsValue(trigger, want) ||
+      true
+    );
+  }
+
+  return false;
+}
+
+/** Estado LATAM: tenta nome completo e UF. */
+async function selectEstado(estadoEl, resolved) {
+  if (!estadoEl || !resolved) return false;
+  const names = [resolved.name, resolved.uf].filter(Boolean);
+  for (const name of names) {
+    const ok = await selectDropdown(estadoEl, name);
+    if (ok) return true;
+    // fecha e tenta de novo
+    document.body.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Escape", bubbles: true })
+    );
+    await sleep(200);
   }
   return false;
 }
@@ -496,9 +619,7 @@ async function fillBilling(card) {
       findBillingField(billRoot, ["estado"]) ||
       findByAutocomplete(document.body, ["address-level1"]);
     if (!estadoEl || !resolved) return false;
-    let ok = await selectDropdown(estadoEl, resolved.name);
-    if (!ok) ok = await selectDropdown(estadoEl, resolved.uf);
-    return ok;
+    return selectEstado(estadoEl, resolved);
   }
 
   async function fillCidade() {
