@@ -283,6 +283,9 @@ export function guessGender(name: string): "M" | "F" | null {
     "raissa",
     "laura",
     "flavia",
+    "jackeline",
+    "jacqueline",
+    "jakeline",
   ]);
 
   if (female.has(first)) return "F";
@@ -318,17 +321,65 @@ function extractNameFromLine(line: string): string {
   return sanitizeLatamName(s);
 }
 
+/** Meses em PT (abreviado ou completo) → 01–12. */
+const MONTH_NAME_TO_NUM: Record<string, string> = {
+  jan: "01",
+  janeiro: "01",
+  fev: "02",
+  fevereiro: "02",
+  mar: "03",
+  marco: "03",
+  março: "03",
+  abr: "04",
+  abril: "04",
+  mai: "05",
+  maio: "05",
+  jun: "06",
+  junho: "06",
+  jul: "07",
+  julho: "07",
+  ago: "08",
+  agosto: "08",
+  set: "09",
+  setembro: "09",
+  out: "10",
+  outubro: "10",
+  nov: "11",
+  novembro: "11",
+  dez: "12",
+  dezembro: "12",
+};
+
 function parseDateFromText(s: string, { allowCompact = false } = {}): string | null {
-  const dateM = s.match(DATE_RE);
+  const raw = String(s || "").trim();
+  if (!raw) return null;
+
+  // Numérico clássico: 02/05/1995, 02-05-1995, 02.05.1995
+  const dateM = raw.match(DATE_RE);
   if (dateM) return toISODate(dateM[1], dateM[2], dateM[3]);
-  const dig = onlyDigits(s);
-  // Compacto: com rótulo de nasc, ou valor só com 8 dígitos (ddmmyyyy)
+
+  // Com nome do mês: "--02-MAIO - 1995", "02 MAIO 1995", "15 de junho de 1988"
+  const named = raw.match(
+    /(\d{1,2})\s*[-–./\s]*\s*(?:de\s+)?([A-Za-zÀ-ÿ]{3,9})\s*(?:de\s+)?[-–./\s]*\s*(\d{2,4})/i
+  );
+  if (named) {
+    const monthKey = named[2]
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/\p{M}/gu, "");
+    const mm =
+      MONTH_NAME_TO_NUM[monthKey] || MONTH_NAME_TO_NUM[monthKey.slice(0, 3)];
+    if (mm) return toISODate(named[1], mm, named[3]);
+  }
+
+  // Só dígitos soltos no meio de lixo: "--02--05--1995"
+  const digAll = onlyDigits(raw);
   const canCompact =
     allowCompact ||
-    /\b(nasc|dn|nascimento|nascido)\b/i.test(s) ||
-    /^\d{8}$/.test(dig);
+    /\b(nasc|dn|nascimento|nascido)\b/i.test(raw) ||
+    /^\d{8}$/.test(digAll);
   if (canCompact) {
-    const compact = dig.match(/^(\d{2})(\d{2})(\d{4})$/);
+    const compact = digAll.match(/^(\d{2})(\d{2})(\d{4})$/);
     if (compact) return toISODate(compact[1], compact[2], compact[3]);
   }
   return null;

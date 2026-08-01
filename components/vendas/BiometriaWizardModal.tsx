@@ -1292,8 +1292,8 @@ export default function BiometriaWizardModal({
                               ) : null}
                               {cpfGen && !cpfBad ? (
                                 <div className="mt-1 text-[10px] font-semibold text-sky-800">
-                                  Documento sem CPF — geramos um aleatório.
-                                  Cliente altera no check-in.
+                                  CPF gerado automaticamente (não veio no
+                                  texto). Cliente altera no check-in.
                                 </div>
                               ) : null}
                             </li>
