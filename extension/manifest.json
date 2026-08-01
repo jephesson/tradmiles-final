@@ -1,12 +1,13 @@
 {
   "manifest_version": 3,
   "name": "TradeMiles LATAM Fill",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "Preenche passageiros e pagamento LATAM (REDEMPTION) com dados do TradeMiles.",
   "permissions": ["storage", "activeTab", "tabs"],
   "host_permissions": [
     "https://www.latamairlines.com/*",
     "https://latamairlines.com/*",
+    "https://www.trademiles.com.br/*",
     "https://trademiles.com.br/*",
     "http://localhost:3000/*"
   ],

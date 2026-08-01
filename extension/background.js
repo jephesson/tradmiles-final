@@ -1,4 +1,6 @@
+/** Preferir www — o apex redireciona e o Chrome bloqueia (CORS). */
 const APP_ORIGINS = [
+  "https://www.trademiles.com.br",
   "https://trademiles.com.br",
   "http://localhost:3000",
 ];
@@ -10,11 +12,12 @@ async function fetchFillPayload() {
       const res = await fetch(`${origin}/api/latam-extension/fill-session`, {
         credentials: "include",
         cache: "no-store",
+        redirect: "follow",
       });
       const json = await res.json().catch(() => null);
       if (res.status === 401) {
         lastError =
-          "Faça login no TradeMiles nesta mesma janela do Chrome (não anônima).";
+          "Faça login no TradeMiles nesta mesma janela (use www.trademiles.com.br).";
         continue;
       }
       if (!res.ok || !json?.ok) {
@@ -62,7 +65,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         sendResponse({
           ok: false,
           error:
-            "Content script ausente. Remova a extensão, baixe o ZIP de novo e carregue a pasta. Depois recarregue a LATAM (F5).",
+            "Content script ausente. Remova a extensão, baixe o ZIP 0.1.5 e carregue de novo. F5 na LATAM.",
         });
       }
     })();

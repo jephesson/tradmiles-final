@@ -7,7 +7,7 @@ Preenche formulários na LATAM com dados vindos do TradeMiles (funcionário **lo
 1. Abra `chrome://extensions`
 2. Ative **Modo do desenvolvedor**
 3. **Carregar sem compactação** → selecione esta pasta `extension/`
-4. Faça login em `https://trademiles.com.br` (ou localhost)
+4. Faça login em `https://www.trademiles.com.br` (ou localhost)
 5. Na venda, marque **Usar extensão LATAM** e prepare os passageiros
 6. Abra o link REDEMPTION (`/pagamentos/passageiros?orderId=LA…`) — a extensão preenche
 
