@@ -1188,6 +1188,6 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   return false;
 });
 
+// Só preenche no clique do botão "Preencher TradeMiles" (ou popup).
 ensureFab();
-runFill({ manual: false }).catch((e) => console.warn("[TradeMiles]", e));
-setTimeout(() => void runFill({ manual: false }), 2000);
+setTimeout(ensureFab, 1500);

@@ -18,7 +18,7 @@ chrome.runtime.sendMessage({ type: "TM_GET_FILL_PAYLOAD" }).then((res) => {
   btn.disabled = !on || n === 0;
   if (on && n) {
     hint.textContent =
-      "Se não preencher sozinho, clique no botão com a aba da LATAM aberta.";
+      "Na LATAM, clique no botão preto «Preencher TradeMiles» (canto inferior direito).";
   }
 });
 
