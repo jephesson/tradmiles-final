@@ -16,7 +16,9 @@ export type ParsedPassenger = {
   raw: string;
 };
 
-const DATE_RE = /\b(\d{1,2})[\/\-.\s](\d{1,2})[\/\-.\s](\d{2,4})\b/;
+/** Aceita espaços soltos: 01 / 04 / 1991, 01-04-1991, 01.04.1991 */
+const DATE_RE =
+  /\b(\d{1,2})\s*[\/\-.\s]\s*(\d{1,2})\s*[\/\-.\s]\s*(\d{2,4})\b/;
 /** Data colada: 02091974 ou 020972 */
 const DATE_COMPACT_RE = /\b(\d{2})(\d{2})(\d{4}|\d{2})\b/;
 const EMAIL_RE = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i;
@@ -24,8 +26,54 @@ const EMAIL_RE = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i;
 const PHONE_CANDIDATE_RE =
   /\b(?:\+?55\s*)?(?:\(?\d{2}\)?\s*)?(?:9\d{4}|\d{4})[-\s]?\d{4}\b/;
 
-const LABELED_LINE_RE =
-  /^\s*(nome\s*completo|nome|sobrenome|primeiro\s*nome|ultimo\s*nome|último\s*nome|passageiro|pax|documento|doc|cpf\/?cnpj|cpf|cnpj|rg|idt|identidade|cie|data(?:\s+de)?\s*nasc(?:imento)?|dt\.?\s*nasc(?:imento)?|nascido\s*em|nascimento|nasc|dn|e-?mail|email|mail|telefone|celular|fone|zap|wpp|whatsapp|sexo|genero|gênero)\s*(?:\([^)]*\))?\s*[:\-–.=]?\s*(.+)\s*$/i;
+/**
+ * Rótulos — do mais longo ao mais curto.
+ * Importante: "nascimento"/"sobrenome" antes de "nome"/"nasc" (evita casar no meio).
+ */
+const LABEL_KEYS = [
+  "nome\\s*completo",
+  "data(?:\\s+de)?\\s*nasc(?:imento)?",
+  "dt\\.?\\s*nasc(?:imento)?",
+  "nascido\\s*em",
+  "primeiro\\s*nome",
+  "ultimo\\s*nome",
+  "último\\s*nome",
+  "sobrenome",
+  "nascimento",
+  "documento",
+  "telefone",
+  "celular",
+  "whatsapp",
+  "passageiro",
+  "identidade",
+  "cpf\\/?cnpj",
+  "e-?mail",
+  "genero",
+  "gênero",
+  "email",
+  "mail",
+  "nome",
+  "nasc",
+  "cpf",
+  "cnpj",
+  "doc",
+  "idt",
+  "cie",
+  "rg",
+  "dn",
+  "pax",
+  "fone",
+  "zap",
+  "wpp",
+  "tel",
+  "cel",
+  "sexo",
+].join("|");
+
+const LABELED_LINE_RE = new RegExp(
+  `^\\s*\\b(${LABEL_KEYS})\\b\\s*(?:\\([^)]*\\))?\\s*[:\\-–.=]?\\s*(.+)\\s*$`,
+  "i"
+);
 
 function onlyDigits(s: string) {
   return String(s || "").replace(/\D/g, "");
@@ -385,34 +433,81 @@ function parseDateFromText(s: string, { allowCompact = false } = {}): string | n
   return null;
 }
 
-/** Normaliza texto de Zap: markdown, separadores, rótulos colados. */
+/** Normaliza texto de Zap: espaços estranhos, rótulos colados, datas sujas. */
 function preprocessPassengerText(raw: string): string {
   let t = String(raw || "").replace(/\r/g, "");
-  // Markdown Zap (**bold**, ~~strike~~) — NÃO remove `_` solto (e-mail: nome_sobrenome@…)
+
+  // Espaços unicode (NBSP, estreitos, etc.) → espaço normal
+  t = t.replace(/[\u00A0\u1680\u2000-\u200B\u202F\u205F\u3000\uFEFF]/g, " ");
+  // Tabs / form-feed
+  t = t.replace(/[\t\f\v]+/g, " ");
+
+  // Markdown Zap (**bold**, ~~strike~~) — NÃO remove `_` solto (e-mail)
   t = t.replace(/\*{1,2}|~{2}|`{1,3}/g, "");
   t = t.replace(/_{2}/g, "");
-  // "Nome - João" / separadores comuns → quebra de linha
+
+  // Separadores visuais → quebra
   t = t.replace(/\s*[|•·]\s*/g, "\n");
+
   // Cabeçalho "Passageiro 2" → novo bloco
   t = t.replace(/\bpassageiro\s*\d+\b/gi, "\n\n");
-  // Unifica "Data Nascimento" / "Data de Nascimento" antes de qualquer split
+
+  // Unifica variações de data de nascimento (vários espaços no meio)
   t = t.replace(
     /\bdata\s+(?:de\s+)?nasc(?:imento)?\b/gi,
     "Data Nascimento"
   );
-  // Split por rótulos — NÃO usar nasc|nascimento sozinho (quebrava "Data Nascimento")
+
+  // Colapsa espaços repetidos (mantém quebras de linha)
+  t = t.replace(/[^\S\n]+/g, " ");
+  t = t.replace(/ *\n */g, "\n");
+  t = t.replace(/\n{3,}/g, "\n\n");
+
+  // "Nome :" / "Nome:Valor" / "CPF - 015..." → "Label: valor"
   t = t.replace(
-    /\s+(?=(?:nome|sobrenome|cpf|cnpj|rg|idt|identidade|data\s+nascimento|dn|email|e-mail|tel|fone|cel|whats|zap|doc(?:umento)?)\s*[:\-])/gi,
+    new RegExp(
+      `\\b(${LABEL_KEYS})\\b\\s*(?:\\([^)]*\\))?\\s*[:\\-–.=]\\s*`,
+      "gi"
+    ),
+    (_full, key: string) => `${String(key).replace(/\s+/g, " ").trim()}: `
+  );
+
+  // Rótulo colado no fim do valor: "CoelhoCPF:" / "1995Nome:" (com \b)
+  t = t.replace(
+    new RegExp(
+      `([\\dA-Za-zÀ-ÿ])(?=\\b(?:${LABEL_KEYS})\\b\\s*(?:\\([^)]*\\))?\\s*:)`,
+      "gi"
+    ),
+    "$1\n"
+  );
+
+  // Split por rótulo no meio da linha (com espaço antes)
+  t = t.replace(
+    new RegExp(
+      `\\s+(?=\\b(?:${LABEL_KEYS})\\b\\s*(?:\\([^)]*\\))?\\s*:)`,
+      "gi"
+    ),
     "\n"
   );
-  // "Nasc:02.09.1974" / "CPF:071..." sem espaço
+
+  // Datas numéricas com espaços: "01 / 04 / 1991" → "01/04/1991"
   t = t.replace(
-    /\b(cpf|cnpj|rg|idt|data\s+nascimento|dn|email|tel|fone|cel)\s*[:\-.=]\s*/gi,
-    (full) => {
-      const k = full.replace(/\s*[:\-.=]\s*$/, "").trim();
-      return `${k}: `;
-    }
+    /\b(\d{1,2})\s*[\/\-.]\s*(\d{1,2})\s*[\/\-.]\s*(\d{2,4})\b/g,
+    "$1/$2/$3"
   );
+
+  // Lixo em volta de dia-mês-ano com nome: "--02-MAIO - 1995" → "02-MAIO-1995"
+  t = t.replace(
+    /[-–_\s.]*(\d{1,2})\s*[-–./\s]+\s*([A-Za-zÀ-ÿ]{3,9})\s*[-–./\s]+\s*(\d{2,4})\b/gi,
+    "$1-$2-$3"
+  );
+
+  // Remove hífens/pontos sobrando no começo do valor da data
+  t = t.replace(
+    /\b((?:Data\s+)?Nascimento|DN|Nasc)\s*:\s*[-–_.\s]+/gi,
+    "$1: "
+  );
+
   return t.trim();
 }
 
@@ -897,7 +992,11 @@ function splitIntoBlocks(text: string): string[] {
     for (const line of lines) {
       const trimmed = line.trim();
       if (!trimmed) continue;
-      const startsNome = /^\s*nome\s*(?:\([^)]*\))?\s*[:\-–]/i.test(trimmed);
+      // \b evita casar "Nascimento" / "Sobrenome"
+      const startsNome =
+        /^\s*\bnome\b(?:\s+completo)?\s*(?:\([^)]*\))?\s*[:\-–]/i.test(
+          trimmed
+        );
       if (startsNome && cur.length) {
         byNomeLabel.push(cur.join("\n"));
         cur = [trimmed];
