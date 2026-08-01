@@ -13,30 +13,90 @@ export type ParsedPassenger = {
 };
 
 const DATE_RE = /\b(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})\b/;
-const CPF_RE = /\b(\d{3}\.?\d{3}\.?\d{3}-?\d{2}|\d{11})\b/;
 const EMAIL_RE = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i;
-const PHONE_RE = /\b(?:\+?55\s?)?(?:\(?\d{2}\)?\s?)?(?:9?\d{4})[-\s]?\d{4}\b/;
+/** Celular BR com 9º dígito (DDD + 9 + 8) ou fixo (DDD + 8). */
+const PHONE_CANDIDATE_RE =
+  /\b(?:\+?55\s*)?(?:\(?\d{2}\)?\s*)?(?:9\d{4}|\d{4})[-\s]?\d{4}\b/;
 
-/** Linha "Nome: …" / "Sobrenome: …" / etc. */
 const LABELED_LINE_RE =
-  /^\s*(nome|sobrenome|primeiro\s*nome|ultimo\s*nome|último\s*nome|documento|cpf|rg|data(?:\s+de)?\s*nascimento|nascimento|dn|e-?mail|email|telefone|celular|fone|whatsapp|sexo|genero|gênero)\s*(?:\([^)]*\))?\s*[:\-–]\s*(.+)\s*$/i;
+  /^\s*(nome|sobrenome|primeiro\s*nome|ultimo\s*nome|último\s*nome|documento|cpf|rg|data(?:\s+de)?\s*nascimento|nascimento|nasc|dn|e-?mail|email|telefone|celular|fone|whatsapp|sexo|genero|gênero)\s*(?:\([^)]*\))?\s*[:\-–.]?\s*(.+)\s*$/i;
 
 function onlyDigits(s: string) {
   return String(s || "").replace(/\D/g, "");
 }
 
-/** Sempre 11 dígitos, sem pontuação (formato LATAM). */
+/** Validação de dígitos verificadores do CPF. */
+export function isValidCpf(raw: string | null | undefined): boolean {
+  const cpf = onlyDigits(String(raw || ""));
+  if (cpf.length !== 11) return false;
+  if (/^(\d)\1{10}$/.test(cpf)) return false;
+  let sum = 0;
+  for (let i = 0; i < 9; i++) sum += Number(cpf[i]) * (10 - i);
+  let d1 = (sum * 10) % 11;
+  if (d1 === 10) d1 = 0;
+  if (d1 !== Number(cpf[9])) return false;
+  sum = 0;
+  for (let i = 0; i < 10; i++) sum += Number(cpf[i]) * (11 - i);
+  let d2 = (sum * 10) % 11;
+  if (d2 === 10) d2 = 0;
+  return d2 === Number(cpf[10]);
+}
+
 function normalizeCpf(s: string | null | undefined): string | null {
   const d = onlyDigits(String(s || ""));
-  return d.length === 11 ? d : null;
+  if (d.length !== 11) return null;
+  return isValidCpf(d) ? d : null;
+}
+
+/** Telefone BR: 10 (fixo) ou 11 (celular com 9). Remove 55. */
+function normalizePhone(s: string | null | undefined): string | null {
+  let d = onlyDigits(String(s || ""));
+  if (d.startsWith("55") && (d.length === 12 || d.length === 13)) {
+    d = d.slice(2);
+  }
+  if (d.length === 11 && /^[1-9]\d9\d{8}$/.test(d)) return d;
+  if (d.length === 10 && /^[1-9]\d[2-5]\d{7}$/.test(d)) return d;
+  // Celular sem DDD (9 dígitos) — raro, mas aceita
+  if (d.length === 9 && /^9\d{8}$/.test(d)) return d;
+  return null;
+}
+
+/**
+ * Classifica sequência de 10–11 dígitos: CPF válido vs telefone.
+ * Se já temos CPF, outro número de 10–11 vira telefone.
+ */
+function classifyDigits(
+  digits: string,
+  opts: { alreadyHasCpf?: boolean; labeledAs?: "cpf" | "phone" | null } = {}
+): "cpf" | "phone" | null {
+  const d = onlyDigits(digits);
+  if (opts.labeledAs === "phone") return normalizePhone(d) ? "phone" : null;
+  if (opts.labeledAs === "cpf") return normalizeCpf(d) ? "cpf" : null;
+
+  if (isValidCpf(d)) {
+    // CPF válido que também parece celular: se já há CPF, trata como phone
+    if (opts.alreadyHasCpf && normalizePhone(d)) return "phone";
+    return "cpf";
+  }
+  if (normalizePhone(d)) return "phone";
+  // 11 dígitos inválidos como CPF: quase sempre telefone no chat
+  if (d.length === 11 || d.length === 10) {
+    if (opts.alreadyHasCpf) return "phone";
+    // Prefere telefone se começa com DDD + 9
+    if (d.length === 11 && d[2] === "9") return "phone";
+  }
+  return null;
 }
 
 function toISODate(d: string, m: string, y: string) {
   let year = Number(y);
-  if (year < 100) year += 2000;
+  if (year < 100) year += year >= 30 ? 1900 : 2000;
   const month = String(Number(m)).padStart(2, "0");
   const day = String(Number(d)).padStart(2, "0");
   if (year < 1900 || year > 2100) return null;
+  const mi = Number(month);
+  const di = Number(day);
+  if (mi < 1 || mi > 12 || di < 1 || di > 31) return null;
   return `${year}-${month}-${day}`;
 }
 
@@ -54,7 +114,6 @@ function toLatamDate(iso: string | null) {
   return `${d}-${m}-${y}`;
 }
 
-/** LATAM rejeita acento/caracteres especiais no nome. */
 function sanitizeLatamName(s: string) {
   return String(s || "")
     .normalize("NFD")
@@ -74,7 +133,6 @@ function splitName(full: string) {
   };
 }
 
-/** Heurística simples pelo 1º nome (PT-BR) — só para pré-preencher sexo na LATAM. */
 export function guessGender(name: string): "M" | "F" | null {
   const first = sanitizeLatamName(name).split(/\s+/)[0]?.toLowerCase() || "";
   if (!first) return null;
@@ -137,6 +195,9 @@ export function guessGender(name: string): "M" | "F" | null {
     "wellington",
     "washington",
     "worlei",
+    "ronaldo",
+    "isaias",
+    "jaci",
   ]);
   const female = new Set([
     "alice",
@@ -190,6 +251,38 @@ function normKey(k: string) {
     .trim();
 }
 
+/** Extrai nome mesmo quando a linha mistura Nasc/CPF/data. */
+function extractNameFromLine(line: string): string {
+  let s = String(line || "");
+  s = s.replace(EMAIL_RE, " ");
+  s = s.replace(DATE_RE, " ");
+  s = s.replace(
+    /\b(nasc(?:imento)?|dn|cpf|c\.?p\.?f\.?|rg|documento|e-?mail|email|tel(?:efone)?|cel(?:ular)?|whats?app?|fone|sexo|genero)\b[:\s.]*/gi,
+    " "
+  );
+  s = s.replace(/\b\d{3}\.?\d{3}\.?\d{3}-?\d{2}\b/g, " ");
+  s = s.replace(/\b\d{8,13}\b/g, " ");
+  return sanitizeLatamName(s);
+}
+
+function isContactOnlyBlock(block: string): boolean {
+  const lines = block
+    .split(/\n+/)
+    .map((l) => l.trim())
+    .filter(Boolean);
+  if (!lines.length) return true;
+  let hasName = false;
+  let hasContact = false;
+  for (const line of lines) {
+    const name = extractNameFromLine(line);
+    if (name.split(/\s+/).filter(Boolean).length >= 2) hasName = true;
+    if (EMAIL_RE.test(line)) hasContact = true;
+    const dig = onlyDigits(line);
+    if (dig.length >= 10 && dig.length <= 13) hasContact = true;
+  }
+  return hasContact && !hasName;
+}
+
 function parseLabeledBlock(block: string): ParsedPassenger | null {
   const lines = block
     .split(/\n+/)
@@ -213,30 +306,20 @@ function parseLabeledBlock(block: string): ParsedPassenger | null {
     const val = m[2].trim();
 
     if (key === "nome" || key === "primeiro nome") {
-      // "Nome: WORLEI Babêto" — pode vir nome composto no campo Nome
       firstName = sanitizeLatamName(val);
       continue;
     }
-    if (
-      key === "sobrenome" ||
-      key === "ultimo nome" ||
-      key === "último nome"
-    ) {
+    if (key === "sobrenome" || key === "ultimo nome" || key === "último nome") {
       lastName = sanitizeLatamName(val);
       continue;
     }
-    if (
-      key === "documento" ||
-      key === "cpf" ||
-      key === "rg"
-    ) {
-      cpf = normalizeCpf(val) || normalizeCpf(val.match(CPF_RE)?.[1]);
+    if (key === "documento" || key === "cpf" || key === "rg") {
+      const dig = onlyDigits(val);
+      const kind = classifyDigits(dig, { labeledAs: "cpf", alreadyHasCpf: Boolean(cpf) });
+      if (kind === "cpf") cpf = onlyDigits(dig).slice(0, 11);
       continue;
     }
-    if (
-      key.includes("nascimento") ||
-      key === "dn"
-    ) {
+    if (key.includes("nascimento") || key === "nasc" || key === "dn") {
       const dateM = val.match(DATE_RE);
       if (dateM) birthDate = toISODate(dateM[1], dateM[2], dateM[3]);
       continue;
@@ -252,8 +335,7 @@ function parseLabeledBlock(block: string): ParsedPassenger | null {
       key === "fone" ||
       key === "whatsapp"
     ) {
-      const phoneM = val.match(PHONE_RE) || val.match(/\d{8,}/);
-      if (phoneM) phone = onlyDigits(phoneM[0]).replace(/^55/, "");
+      phone = normalizePhone(val) || onlyDigits(val).replace(/^55/, "") || null;
       continue;
     }
     if (key === "sexo" || key === "genero" || key === "gênero") {
@@ -266,7 +348,6 @@ function parseLabeledBlock(block: string): ParsedPassenger | null {
 
   if (labeledHits < 1) return null;
 
-  // Se "Nome" veio com mais de uma palavra e não há sobrenome, separa
   if (firstName && !lastName) {
     const parts = firstName.split(/\s+/).filter(Boolean);
     if (parts.length >= 2) {
@@ -283,7 +364,7 @@ function parseLabeledBlock(block: string): ParsedPassenger | null {
     birthDate,
     birthDateBR: toBRDate(birthDate),
     birthDateLatam: toLatamDate(birthDate),
-    cpf,
+    cpf: cpf && isValidCpf(cpf) ? cpf : cpf,
     email,
     phone,
     gender: gender || guessGender(firstName),
@@ -302,41 +383,79 @@ function parseFreeformBlock(block: string): ParsedPassenger | null {
   let cpf: string | null = null;
   let email: string | null = null;
   let phone: string | null = null;
-  const nameLines: string[] = [];
+  const nameCandidates: string[] = [];
 
   for (const line of lines) {
-    // Ignora linhas só de rótulo sem valor útil no freeform
-    if (LABELED_LINE_RE.test(line)) continue;
+    const labeled = line.match(LABELED_LINE_RE);
+    if (labeled) {
+      // Reaproveita parser rotulado para a linha isolada
+      const mini = parseLabeledBlock(line);
+      if (mini) {
+        if (mini.firstName && !nameCandidates.length) {
+          nameCandidates.push(`${mini.firstName} ${mini.lastName}`.trim());
+        }
+        if (mini.birthDate && !birthDate) birthDate = mini.birthDate;
+        if (mini.cpf && !cpf) cpf = mini.cpf;
+        if (mini.email && !email) email = mini.email;
+        if (mini.phone && !phone) phone = mini.phone;
+      }
+      continue;
+    }
+
+    const emailM = line.match(EMAIL_RE);
+    if (emailM && !email) {
+      email = emailM[0].toLowerCase();
+    }
 
     const dateM = line.match(DATE_RE);
     if (dateM && !birthDate) {
       birthDate = toISODate(dateM[1], dateM[2], dateM[3]);
-      continue;
     }
-    const emailM = line.match(EMAIL_RE);
-    if (emailM && !email) {
-      email = emailM[0].toLowerCase();
-      continue;
-    }
-    if (!cpf) {
-      const fromLine = normalizeCpf(line) || normalizeCpf(line.match(CPF_RE)?.[1]);
-      if (fromLine) {
-        cpf = fromLine;
+
+    // Todos os grupos de dígitos longos na linha
+    const digitChunks = line.match(/\d[\d.\-\s()]{7,}\d/g) || [];
+    for (const chunk of digitChunks) {
+      const dig = onlyDigits(chunk);
+      if (dig.length < 10 || dig.length > 13) continue;
+      // Pula se for a data já capturada
+      if (dateM && onlyDigits(`${dateM[1]}${dateM[2]}${dateM[3]}`) === dig) {
         continue;
       }
+      const labeledPhone = /\b(tel|cel|fone|whats|whatsapp)\b/i.test(line);
+      const labeledCpf = /\b(cpf|c\.?p\.?f\.?|documento|rg)\b/i.test(line);
+      const kind = classifyDigits(dig, {
+        alreadyHasCpf: Boolean(cpf),
+        labeledAs: labeledPhone ? "phone" : labeledCpf ? "cpf" : null,
+      });
+      if (kind === "cpf" && !cpf) cpf = onlyDigits(dig).slice(-11);
+      else if (kind === "phone" && !phone) {
+        phone = normalizePhone(dig) || onlyDigits(dig).replace(/^55/, "");
+      }
     }
-    const phoneM = line.match(PHONE_RE);
-    if (phoneM && !phone) {
-      phone = onlyDigits(phoneM[0]).replace(/^55/, "");
-      continue;
-    }
-    if (/[A-Za-zÀ-ÿ]{2,}/.test(line) && !EMAIL_RE.test(line)) {
-      nameLines.push(line.replace(/\s+/g, " ").trim());
+
+    const name = extractNameFromLine(line);
+    if (name && /[A-Za-z]{2,}/.test(name)) {
+      // Exige pelo menos 2 tokens OU 1 token se for a única linha com letras
+      const tokens = name.split(/\s+/).filter(Boolean);
+      if (tokens.length >= 2 || (tokens.length === 1 && tokens[0].length >= 3)) {
+        nameCandidates.push(name);
+      }
     }
   }
 
-  const fullName = nameLines[0] || "";
-  if (!fullName && !cpf && !email) return null;
+  // Fallback: se sobrou só um número 11 dígitos e não classificamos
+  if (!cpf && !phone) {
+    const allDigits = onlyDigits(block);
+    // não usar o bloco inteiro se misturar vários números
+  }
+
+  const fullName = nameCandidates[0] || "";
+  // Bloco só de contato → não é passageiro
+  if (!fullName && !cpf) {
+    if (email || phone) return null;
+    return null;
+  }
+
   const { firstName, lastName } = splitName(fullName);
 
   return {
@@ -353,16 +472,84 @@ function parseFreeformBlock(block: string): ParsedPassenger | null {
   };
 }
 
+function mergeParsed(
+  a: ParsedPassenger | null,
+  b: ParsedPassenger | null
+): ParsedPassenger | null {
+  if (!a) return b;
+  if (!b) return a;
+  const birthDate = a.birthDate || b.birthDate;
+  const firstName = a.firstName || b.firstName;
+  const lastName =
+    a.lastName && a.lastName !== a.firstName
+      ? a.lastName
+      : b.lastName || a.lastName;
+  return {
+    firstName,
+    lastName: lastName || firstName,
+    birthDate,
+    birthDateBR: toBRDate(birthDate),
+    birthDateLatam: toLatamDate(birthDate),
+    cpf: a.cpf || b.cpf,
+    email: a.email || b.email,
+    phone: a.phone || b.phone,
+    gender: a.gender || b.gender || guessGender(firstName),
+    raw: a.raw || b.raw,
+  };
+}
+
 function parseBlock(block: string): ParsedPassenger | null {
-  const labeled = parseLabeledBlock(block);
-  if (labeled && (labeled.firstName || labeled.cpf)) return labeled;
-  return parseFreeformBlock(block);
+  // Rotulado sozinho falha em "Jaci... CPF 071..." (só a linha CPF é rotulada).
+  // Sempre mescla com freeform para pegar nome/nasc na mesma mensagem.
+  return mergeParsed(parseLabeledBlock(block), parseFreeformBlock(block));
+}
+
+/** Extrai e-mails/telefones soltos do texto inteiro (contato no fim do Zap). */
+function extractFloatingContacts(text: string): {
+  emails: string[];
+  phones: string[];
+} {
+  const emails = Array.from(text.matchAll(new RegExp(EMAIL_RE.source, "gi"))).map(
+    (m) => m[0].toLowerCase()
+  );
+  const phones: string[] = [];
+  const chunks = text.match(/\d[\d.\-\s()]{7,}\d/g) || [];
+  for (const chunk of chunks) {
+    const dig = onlyDigits(chunk);
+    if (DATE_RE.test(chunk) && onlyDigits(chunk).length <= 8) continue;
+    const kind = classifyDigits(dig, { alreadyHasCpf: true });
+    // alreadyHasCpf true força telefone quando não é CPF válido
+    if (kind === "phone" || (!isValidCpf(dig) && normalizePhone(dig))) {
+      const p = normalizePhone(dig) || dig.replace(/^55/, "");
+      if (p && !phones.includes(p)) phones.push(p);
+    } else if (!isValidCpf(dig) && (dig.length === 10 || dig.length === 11)) {
+      const p = dig.replace(/^55/, "");
+      if (!phones.includes(p)) phones.push(p);
+    }
+  }
+  // Também tenta PHONE_CANDIDATE_RE
+  for (const m of text.matchAll(new RegExp(PHONE_CANDIDATE_RE.source, "g"))) {
+    const p = normalizePhone(m[0]);
+    if (p && !phones.includes(p) && !isValidCpf(p)) phones.push(p);
+  }
+  return { emails: [...new Set(emails)], phones };
 }
 
 function splitIntoBlocks(text: string): string[] {
-  let blocks = text.split(/\n\s*\n+/).map((b) => b.trim()).filter(Boolean);
+  // Une blocos que são só e-mail/telefone ao bloco anterior
+  const raw = text.split(/\n\s*\n+/).map((b) => b.trim()).filter(Boolean);
+  const merged: string[] = [];
+  for (const block of raw) {
+    if (merged.length && isContactOnlyBlock(block)) {
+      merged[merged.length - 1] = `${merged[merged.length - 1]}\n${block}`;
+      continue;
+    }
+    merged.push(block);
+  }
 
-  // Vários passageiros com "Nome:" no mesmo bloco
+  let blocks = merged.length ? merged : raw;
+
+  // Vários "Nome:" no mesmo bloco
   const byNomeLabel: string[] = [];
   for (const block of blocks) {
     const lines = block.split("\n");
@@ -382,27 +569,34 @@ function splitIntoBlocks(text: string): string[] {
   }
   if (byNomeLabel.length > blocks.length) blocks = byNomeLabel;
 
-  // Freeform: fatia a cada linha de nome seguida de dados
-  if (blocks.length === 1 && !LABELED_LINE_RE.test(blocks[0].split("\n")[0] || "")) {
-    const lines = text.split("\n");
+  // Freeform: novo passageiro só quando aparece outro NOME (não e-mail/fone)
+  if (blocks.length === 1) {
+    const lines = blocks[0].split("\n");
     const rebuilt: string[] = [];
     let cur: string[] = [];
     for (const line of lines) {
       const trimmed = line.trim();
       if (!trimmed) continue;
+      const name = extractNameFromLine(trimmed);
+      const tokens = name.split(/\s+/).filter(Boolean);
       const looksName =
-        /[A-Za-zÀ-ÿ]{2,}/.test(trimmed) &&
-        !DATE_RE.test(trimmed) &&
+        tokens.length >= 2 &&
         !EMAIL_RE.test(trimmed) &&
-        !CPF_RE.test(trimmed) &&
-        !LABELED_LINE_RE.test(trimmed) &&
-        onlyDigits(trimmed).length < 10;
-      if (looksName && cur.length) {
-        rebuilt.push(cur.join("\n"));
-        cur = [trimmed];
-      } else {
-        cur.push(trimmed);
+        !/^\s*(cpf|email|tel|cel|fone|nasc)/i.test(trimmed);
+      if (looksName && cur.length && cur.some((l) => extractNameFromLine(l))) {
+        // Só fatia se o bloco atual já tem CPF ou data (passageiro "completo")
+        const curText = cur.join("\n");
+        const curHasData =
+          DATE_RE.test(curText) ||
+          /\b\d{11}\b/.test(onlyDigits(curText)) ||
+          /\bcpf\b/i.test(curText);
+        if (curHasData) {
+          rebuilt.push(cur.join("\n"));
+          cur = [trimmed];
+          continue;
+        }
       }
+      cur.push(trimmed);
     }
     if (cur.length) rebuilt.push(cur.join("\n"));
     if (rebuilt.length > 1) blocks = rebuilt;
@@ -411,18 +605,55 @@ function splitIntoBlocks(text: string): string[] {
   return blocks;
 }
 
+function attachFloatingContacts(
+  passengers: ParsedPassenger[],
+  text: string
+): ParsedPassenger[] {
+  if (!passengers.length) return passengers;
+  const { emails, phones } = extractFloatingContacts(text);
+
+  // CPFs já usados não são telefone
+  const usedCpfs = new Set(
+    passengers.map((p) => p.cpf).filter(Boolean) as string[]
+  );
+
+  const freeEmails = emails.filter(
+    (e) => !passengers.some((p) => p.email === e)
+  );
+  const freePhones = phones.filter(
+    (p) => !usedCpfs.has(p) && !passengers.some((x) => x.phone === p)
+  );
+
+  // Contato no fim do Zap → 1º passageiro (comprador / contato)
+  const first = { ...passengers[0] };
+  if (!first.email && freeEmails[0]) first.email = freeEmails[0];
+  if (!first.phone && freePhones[0]) first.phone = freePhones[0];
+  return [first, ...passengers.slice(1)];
+}
+
 /**
- * Aceita formatos livres e rotulados, ex.:
- * Nome: WORLEI Babêto
- * Sobrenome: Militão
- * Documento (CPF/RG): 116.604.897-76
- * Data Nascimento: 09/02/1988
+ * Aceita formatos livres e rotulados. Ex. WhatsApp:
+ * Jaci de Oliveira. Nasc 02.09.1974.
+ * CPF 07157181770.
+ *
+ * isaiasbrunovooir@gmail.com
+ * 97981039054
  */
 export function parsePassengerText(raw: string): ParsedPassenger[] {
   const text = String(raw || "").replace(/\r/g, "").trim();
   if (!text) return [];
 
-  return splitIntoBlocks(text)
+  const parsed = splitIntoBlocks(text)
     .map(parseBlock)
-    .filter((p): p is ParsedPassenger => Boolean(p && (p.firstName || p.cpf)));
+    .filter((p): p is ParsedPassenger =>
+      Boolean(p && (p.firstName || (p.cpf && isValidCpf(p.cpf))))
+    )
+    // Descarta "passageiro" que é só telefone disfarçado de CPF
+    .filter((p) => {
+      if (p.firstName) return true;
+      if (p.cpf && isValidCpf(p.cpf)) return true;
+      return false;
+    });
+
+  return attachFloatingContacts(parsed, text);
 }

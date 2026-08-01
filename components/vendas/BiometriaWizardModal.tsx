@@ -1118,18 +1118,34 @@ export default function BiometriaWizardModal({
                         }
                       />
                       {latamParsedPassengers.length > 0 ? (
-                        <ul className="mt-1.5 space-y-1 text-[11px] text-slate-600">
+                        <ul className="mt-1.5 space-y-1.5 text-[11px] text-slate-600">
                           {latamParsedPassengers.map((p, i) => (
-                            <li key={`${p.cpf || p.firstName}-${i}`}>
-                              {i + 1}.{" "}
-                              <b>
-                                {p.firstName} {p.lastName}
-                              </b>
-                              {p.birthDateBR ? ` · ${p.birthDateBR}` : ""}
-                              {p.cpf ? ` · CPF ${p.cpf}` : ""}
-                              {p.gender
-                                ? ` · ${p.gender === "F" ? "F" : "M"}`
-                                : ""}
+                            <li
+                              key={`${p.cpf || p.firstName}-${i}`}
+                              className="rounded-md bg-slate-50 px-2 py-1.5"
+                            >
+                              <div>
+                                {i + 1}.{" "}
+                                <b>
+                                  {[p.firstName, p.lastName]
+                                    .filter(Boolean)
+                                    .join(" ") || "(sem nome)"}
+                                </b>
+                                {p.gender
+                                  ? ` · ${p.gender === "F" ? "Fem" : "Masc"}`
+                                  : ""}
+                              </div>
+                              <div className="mt-0.5 text-slate-500">
+                                {p.birthDateBR
+                                  ? `Nasc ${p.birthDateBR}`
+                                  : "Nasc —"}
+                                {" · "}
+                                {p.cpf ? `CPF ${p.cpf}` : "CPF —"}
+                                {" · "}
+                                {p.email || "e-mail —"}
+                                {" · "}
+                                {p.phone ? `Tel ${p.phone}` : "tel —"}
+                              </div>
                             </li>
                           ))}
                         </ul>

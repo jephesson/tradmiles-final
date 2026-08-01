@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "TradeMiles LATAM Fill",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Preenche passageiros e pagamento LATAM (REDEMPTION) com dados do TradeMiles.",
   "permissions": ["storage", "activeTab", "tabs"],
   "host_permissions": [

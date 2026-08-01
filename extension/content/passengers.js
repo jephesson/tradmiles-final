@@ -294,13 +294,21 @@ function fillBirthSplit(root, pax) {
     return n;
   }
 
-  // Fallback: um campo só (layout antigo)
+  // Fallback: um campo só (LATAM costuma usar dd-mm-aaaa)
   const single =
     findFieldByWord(root, ["data de nascimento", "nascimento"]) ||
     root.querySelector('input[placeholder*="dd" i]');
   if (single && shorties.length < 3) {
-    const joined = `${parts.day}/${parts.month}/${parts.year}`;
+    const ph = normalizeLabel(single.placeholder || "");
+    const joined =
+      ph.includes("dd-mm") || ph.includes("dd - mm")
+        ? `${parts.day}-${parts.month}-${parts.year}`
+        : pax.birthDateLatam ||
+          `${parts.day}/${parts.month}/${parts.year}`;
     if (setNativeValue(single, joined)) return 1;
+    // tenta só dígitos (máscara)
+    const digits = `${parts.day}${parts.month}${parts.year}`;
+    if (setNativeValue(single, digits)) return 1;
   }
   return n;
 }
