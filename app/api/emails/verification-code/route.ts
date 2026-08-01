@@ -23,6 +23,7 @@ import {
 } from "@/lib/gmail/parse";
 import {
   pickBestVerificationCode,
+  verificationForwardSubjectQuery,
   verificationSubjectQuery,
 } from "@/lib/gmail/otp";
 import { markEmailRedirecionado } from "@/lib/cedentes/emailRedirecionado";
@@ -113,7 +114,7 @@ export async function GET(req: Request) {
   const qFromCedente = [
     `from:${email}`,
     "newer_than:2d",
-    "(subject:código OR subject:codigo OR subject:verification OR subject:ENC OR subject:Fwd OR subject:Fw: OR subject:Encaminh)",
+    verificationForwardSubjectQuery(program),
   ].join(" ");
 
   try {

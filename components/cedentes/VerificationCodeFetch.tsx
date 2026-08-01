@@ -3,10 +3,11 @@
 import { useCallback, useEffect, useState } from "react";
 import { Copy, Loader2, RefreshCw, ShieldCheck } from "lucide-react";
 import { cn } from "@/lib/cn";
+import { OTP_LOOKBACK_MS } from "@/lib/gmail/otp";
+import { OtpCountdown } from "@/components/cedentes/OtpCountdown";
 
 type Program = "LATAM" | "SMILES";
 
-const CODE_LOOKBACK_MS = 3 * 60 * 1000;
 const POLL_MS = 8_000;
 
 function programLabel(p: Program) {
@@ -48,7 +49,7 @@ export function VerificationCodeFetch({
 }: Props) {
   const hasEmail = Boolean(String(email || "").trim());
   const [afterIso] = useState(
-    () => new Date(Date.now() - CODE_LOOKBACK_MS).toISOString()
+    () => new Date(Date.now() - OTP_LOOKBACK_MS).toISOString()
   );
   const [loading, setLoading] = useState(false);
   const [code, setCode] = useState<string | null>(null);
@@ -118,6 +119,7 @@ export function VerificationCodeFetch({
   }
 
   const arrived = formatArrivedAt(date);
+  const lookbackMin = Math.round(OTP_LOOKBACK_MS / 60_000);
 
   return (
     <div
@@ -134,7 +136,8 @@ export function VerificationCodeFetch({
           </div>
           <p className="mt-1 text-xs text-slate-600">
             Busca na caixa da empresa ({programLabel(program)}), inclusive
-            ENC/Fwd do Outlook — últimos 3 min.
+            ENC/Fwd do Outlook — últimos {lookbackMin} min. Contador de 5 min
+            desde a chegada.
           </p>
         </div>
         <button
@@ -176,11 +179,14 @@ export function VerificationCodeFetch({
             <div className="font-mono text-2xl font-bold tracking-widest text-slate-900">
               {code}
             </div>
-            {arrived ? (
-              <div className="mt-1.5 inline-flex items-center rounded-md border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-900">
-                Chegou às {arrived}
-              </div>
-            ) : null}
+            <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+              {arrived ? (
+                <div className="inline-flex items-center rounded-md border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-900">
+                  Chegou às {arrived}
+                </div>
+              ) : null}
+              <OtpCountdown arrivedIso={date} program={program} />
+            </div>
             {subject ? (
               <div className="mt-1 max-w-md truncate text-[11px] text-slate-500">
                 {subject}

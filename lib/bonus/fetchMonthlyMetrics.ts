@@ -10,6 +10,11 @@ import {
   monthStartDate,
   nextMonthStartDate,
 } from "@/lib/bonus/monthlyBonus";
+import {
+  brazilMonthBounds,
+  calendarMonthBoundsUTC,
+  calendarMonthKeyUTC,
+} from "@/lib/dates/brazilCalendar";
 
 function safeInt(v: unknown, fb = 0) {
   const n = Number(v);
@@ -20,8 +25,9 @@ export async function fetchMonthlyBonusMetrics(team: string, month: string) {
   const startDate = monthStartDate(month);
   const endDate = nextMonthStartDate(month);
 
-  const balcaoStart = new Date(`${month}-01T00:00:00-03:00`);
-  const balcaoEnd = new Date(`${endDate}T00:00:00-03:00`);
+  // Sale.date = calendário (UTC midnight). Compras/balcão = horário real (SP).
+  const { start: saleStart, end: saleEnd } = calendarMonthBoundsUTC(month);
+  const { start: balcaoStart, end: balcaoEnd } = brazilMonthBounds(month);
   const purchaseStart = balcaoStart;
   const purchaseEnd = balcaoEnd;
 
@@ -38,8 +44,12 @@ export async function fetchMonthlyBonusMetrics(team: string, month: string) {
       }),
       prisma.sale.findMany({
         where: {
-          date: { gte: purchaseStart, lt: purchaseEnd },
-          seller: { team },
+          date: { gte: saleStart, lt: saleEnd },
+          paymentStatus: { not: "CANCELED" },
+          OR: [
+            { seller: { team } },
+            { sellerId: null, cedente: { owner: { team } } },
+          ],
         },
         select: {
           sellerId: true,
@@ -101,11 +111,9 @@ export async function fetchMonthlyBonusMetrics(team: string, month: string) {
   for (const p of payouts) {
     const b = (p.breakdown || {}) as {
       commission2Cents?: number;
-      salesCount?: number;
     };
     const a = ensure(p.userId);
     a.c2 += safeInt(b.commission2Cents, 0);
-    a.salesCount += safeInt(b.salesCount, 0);
   }
 
   for (const s of sales) {
@@ -190,7 +198,13 @@ export async function fetchMonthlyBonusMetrics(team: string, month: string) {
 
 export async function fetchHistoricalMaxForSuggest(team: string) {
   const sales = await prisma.sale.findMany({
-    where: { seller: { team } },
+    where: {
+      paymentStatus: { not: "CANCELED" },
+      OR: [
+        { seller: { team } },
+        { sellerId: null, cedente: { owner: { team } } },
+      ],
+    },
     select: {
       date: true,
       points: true,
@@ -219,11 +233,8 @@ export async function fetchHistoricalMaxForSuggest(team: string) {
   const profitByMonth = new Map<string, number>();
 
   for (const s of sales) {
-    const month = new Intl.DateTimeFormat("en-CA", {
-      timeZone: "America/Recife",
-      year: "numeric",
-      month: "2-digit",
-    }).format(s.date);
+    // Mesmo calendário da Sale.date (UTC) — evita dia 1 ir para o mês anterior
+    const month = calendarMonthKeyUTC(s.date);
     const pv = pvSemTaxaFromSaleFields({
       totalCents: s.totalCents,
       embarqueFeeCents: s.embarqueFeeCents,
@@ -237,7 +248,7 @@ export async function fetchHistoricalMaxForSuggest(team: string) {
   for (const p of purchases) {
     if (!p.finalizedAt) continue;
     const month = new Intl.DateTimeFormat("en-CA", {
-      timeZone: "America/Recife",
+      timeZone: "America/Sao_Paulo",
       year: "numeric",
       month: "2-digit",
     }).format(p.finalizedAt);

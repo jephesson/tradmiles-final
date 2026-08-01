@@ -19,6 +19,8 @@ import {
   isValidCpf,
   parsePassengerText,
 } from "@/lib/latam/parsePassengerText";
+import { OTP_LOOKBACK_MS } from "@/lib/gmail/otp";
+import { OtpCountdown } from "@/components/cedentes/OtpCountdown";
 
 type Program = "LATAM" | "SMILES";
 
@@ -44,9 +46,6 @@ type TripKind = "IDA" | "IDA_VOLTA";
 
 const LATAM_SITE_URL = "https://www.latamairlines.com/br/pt";
 const SMILES_SITE_URL = "https://www.smiles.com.br";
-
-/** Olhar ~3 min atrás: evita código antigo e confusão na tela. */
-const CODE_LOOKBACK_MS = 3 * 60 * 1000;
 
 /** Titular virtual no seletor de cartão — taxas da empresa, não do funcionário. */
 const VIAS_OWNER_ID = "__vias_aereas__";
@@ -433,7 +432,7 @@ export default function BiometriaWizardModal({
 
   function startCodeStep() {
     // Se ainda não marcou (WhatsApp/site), olha 3 min atrás — código já pedido na cia.
-    const lookbackMs = Date.now() - CODE_LOOKBACK_MS;
+    const lookbackMs = Date.now() - OTP_LOOKBACK_MS;
     setCodeWatchAfter((prev) => {
       if (!prev) return new Date(lookbackMs).toISOString();
       return new Date(prev).getTime() <= lookbackMs
@@ -798,8 +797,9 @@ export default function BiometriaWizardModal({
             <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-4">
               <div className="font-semibold text-slate-900">2. Código de verificação</div>
               <p className="mt-1 text-xs text-slate-500">
-                Busca o código mais recente da {programLabel(program)} deste cedente, com folga
-                de 3 min (ENC/Fwd do Outlook também)
+                Busca o código mais recente da {programLabel(program)} deste
+                cedente — puxa até 3 min antes; contador de 5 min desde a
+                chegada (ENC/Fwd do Outlook também)
                 {codeWatchAfter
                   ? ` · a partir de ${new Date(codeWatchAfter).toLocaleTimeString("pt-BR", {
                       hour: "2-digit",
@@ -824,11 +824,17 @@ export default function BiometriaWizardModal({
                       <div className="mt-1 font-mono text-3xl font-bold tracking-widest text-slate-900">
                         {otpCode}
                       </div>
-                      {formatArrivedAt(otpMeta?.date) ? (
-                        <div className="mt-2 inline-flex items-center rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-900">
-                          Chegou às {formatArrivedAt(otpMeta?.date)}
-                        </div>
-                      ) : null}
+                      <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                        {formatArrivedAt(otpMeta?.date) ? (
+                          <div className="inline-flex items-center rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-900">
+                            Chegou às {formatArrivedAt(otpMeta?.date)}
+                          </div>
+                        ) : null}
+                        <OtpCountdown
+                          arrivedIso={otpMeta?.date}
+                          program={program}
+                        />
+                      </div>
                       {otpMeta?.subject ? (
                         <div className="mt-1.5 text-xs text-slate-500">{otpMeta.subject}</div>
                       ) : null}

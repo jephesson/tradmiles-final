@@ -1,9 +1,29 @@
 // lib/gmail/otp.ts
 // Extração de códigos de verificação de e-mails de fidelidade.
 
+/** Folga ao abrir a tela: puxa códigos pedidos até 3 min antes. */
+export const OTP_LOOKBACK_MS = 3 * 60 * 1000;
+
+/**
+ * Validade do código a partir da hora de chegada do e-mail.
+ * Smiles: "Esse código é válido por 5 minutos."
+ */
+export const OTP_VALIDITY_MS: Record<"LATAM" | "SMILES", number> = {
+  LATAM: 5 * 60 * 1000,
+  SMILES: 5 * 60 * 1000,
+};
+
 const SUBJECT_BY_PROGRAM: Record<"LATAM" | "SMILES", string[]> = {
   LATAM: ["código de verificação", "codigo de verificacao", "verification code"],
-  SMILES: ["código de verificação", "codigo de verificacao", "código", "verification"],
+  // Biblioteca "Código Smiles" — assunto real do e-mail da Gol/Smiles
+  SMILES: [
+    "aqui está seu código de acesso",
+    "aqui esta seu codigo de acesso",
+    "código de acesso",
+    "codigo de acesso",
+    "código de verificação",
+    "codigo de verificacao",
+  ],
 };
 
 export function verificationSubjectsForProgram(
@@ -14,8 +34,45 @@ export function verificationSubjectsForProgram(
 
 /** Query Gmail preferida: assunto típico do programa. */
 export function verificationSubjectQuery(program: "LATAM" | "SMILES"): string {
-  if (program === "SMILES") return "código";
+  // Filtro da biblioteca: Smiles · assunto · "Aqui está seu código de acesso"
+  if (program === "SMILES") return "Aqui está seu código de acesso";
   return "Código de verificação";
+}
+
+/** Termos extras para ENC/Fwd (assunto pode vir "ENC: Aqui está…"). */
+export function verificationForwardSubjectQuery(
+  program: "LATAM" | "SMILES"
+): string {
+  if (program === "SMILES") {
+    return (
+      'subject:("Aqui está seu código de acesso" OR "código de acesso" OR ' +
+      "código OR codigo OR verification OR ENC OR Fwd OR Fw: OR Encaminh)"
+    );
+  }
+  return (
+    "(subject:código OR subject:codigo OR subject:verification OR " +
+    "subject:ENC OR subject:Fwd OR subject:Fw: OR subject:Encaminh)"
+  );
+}
+
+/** ms restantes até expirar (0 se já expirou). */
+export function otpRemainingMs(
+  arrivedIso: string | null | undefined,
+  program: "LATAM" | "SMILES",
+  nowMs = Date.now()
+): number | null {
+  if (!arrivedIso) return null;
+  const arrived = new Date(arrivedIso).getTime();
+  if (!Number.isFinite(arrived)) return null;
+  const expires = arrived + OTP_VALIDITY_MS[program];
+  return Math.max(0, expires - nowMs);
+}
+
+export function formatOtpCountdown(remainingMs: number): string {
+  const totalSec = Math.ceil(remainingMs / 1000);
+  const mm = Math.floor(totalSec / 60);
+  const ss = totalSec % 60;
+  return `${mm}:${String(ss).padStart(2, "0")}`;
 }
 
 function stripHtml(input: string) {
