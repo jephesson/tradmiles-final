@@ -274,13 +274,17 @@ function extractNameFromLine(line: string): string {
   return sanitizeLatamName(s);
 }
 
-function parseDateFromText(s: string): string | null {
+function parseDateFromText(s: string, { allowCompact = false } = {}): string | null {
   const dateM = s.match(DATE_RE);
   if (dateM) return toISODate(dateM[1], dateM[2], dateM[3]);
-  // Compacto só com contexto de nascimento (evita CPF)
-  if (/\b(nasc|dn|nascimento|nascido)\b/i.test(s)) {
-    const dig = onlyDigits(s);
-    const compact = dig.match(/(?:^|\D)(\d{2})(\d{2})(\d{4})(?:\D|$)/);
+  const dig = onlyDigits(s);
+  // Compacto: com rótulo de nasc, ou valor só com 8 dígitos (ddmmyyyy)
+  const canCompact =
+    allowCompact ||
+    /\b(nasc|dn|nascimento|nascido)\b/i.test(s) ||
+    /^\d{8}$/.test(dig);
+  if (canCompact) {
+    const compact = dig.match(/^(\d{2})(\d{2})(\d{4})$/);
     if (compact) return toISODate(compact[1], compact[2], compact[3]);
   }
   return null;
@@ -380,7 +384,7 @@ function parseLabeledBlock(block: string): ParsedPassenger | null {
       key === "nascido em" ||
       key.startsWith("dt")
     ) {
-      birthDate = parseDateFromText(val) || birthDate;
+      birthDate = parseDateFromText(val, { allowCompact: true }) || birthDate;
       continue;
     }
     if (key === "email" || key === "e-mail" || key === "mail") {
