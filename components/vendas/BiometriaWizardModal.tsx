@@ -48,6 +48,9 @@ const SMILES_SITE_URL = "https://www.smiles.com.br";
 /** Olhar ~3 min atrás: evita código antigo e confusão na tela. */
 const CODE_LOOKBACK_MS = 3 * 60 * 1000;
 
+/** Titular virtual no seletor de cartão — taxas da empresa, não do funcionário. */
+const VIAS_OWNER_ID = "__vias_aereas__";
+
 function formatArrivedAt(iso: string | null | undefined) {
   if (!iso) return null;
   const d = new Date(iso);
@@ -180,6 +183,8 @@ type Props = {
     departureDate: string | null;
     returnDate: string | null;
     skippedOrder: boolean;
+    /** Cartão da taxa na venda: SELF | VIAS | USER:id */
+    feeCardPreset?: string | null;
   }) => void;
 };
 
@@ -435,6 +440,18 @@ export default function BiometriaWizardModal({
     void fetchOtp();
   }, [open, step, manualMode, codeWatchAfter, fetchOtp]);
 
+  function resolveFeeCardPreset(): string | null {
+    const selected = latamPaymentCards.find((c) => c.id === latamPaymentCardId);
+    if (!latamPaymentCardId || !selected) return null;
+    if (selected.isCompany || latamCardOwnerId === VIAS_OWNER_ID) return "VIAS";
+    const me = getSession()?.id || "";
+    if (latamCardOwnerId && latamCardOwnerId === me) return "SELF";
+    if (latamCardOwnerId && latamCardOwnerId !== VIAS_OWNER_ID) {
+      return `USER:${latamCardOwnerId}`;
+    }
+    return "SELF";
+  }
+
   function finish(opts: { purchaseCode: string | null; skippedOrder: boolean }) {
     onComplete({
       purchaseCode: opts.purchaseCode,
@@ -447,6 +464,7 @@ export default function BiometriaWizardModal({
       returnDate:
         searchTrip === "IDA_VOLTA" && searchInbound ? searchInbound : null,
       skippedOrder: opts.skippedOrder,
+      feeCardPreset: resolveFeeCardPreset(),
     });
   }
 
@@ -458,7 +476,10 @@ export default function BiometriaWizardModal({
   async function loadLatamPaymentCards(ownerId?: string) {
     try {
       const me = getSession()?.id || "";
-      const uid = ownerId || latamCardOwnerId || me;
+      const rawOwner = ownerId || latamCardOwnerId || me;
+      const viasMode = rawOwner === VIAS_OWNER_ID;
+      // API: cartões do user + empresa; para Vias pedimos o do logado (inclui company)
+      const uid = viasMode ? me : rawOwner;
       if (!latamCardOwnerId && me) setLatamCardOwnerId(me);
       const qs = uid ? `?userId=${encodeURIComponent(uid)}` : "";
       const res = await fetch(`/api/funcionarios/payment-cards${qs}`, {
@@ -469,7 +490,24 @@ export default function BiometriaWizardModal({
       const list = Array.isArray(json.data) ? json.data : [];
       setLatamPaymentCards(list);
       setLatamPaymentCardId((prev) => {
-        if (prev && list.some((c: { id: string }) => c.id === prev)) return prev;
+        if (prev && list.some((c: { id: string }) => c.id === prev)) {
+          // Se mudou para Vias, força cartão empresa se o atual não for
+          if (viasMode) {
+            const cur = list.find((c: { id: string }) => c.id === prev);
+            if (cur?.isCompany) return prev;
+            return (
+              list.find((c: { isCompany: boolean }) => c.isCompany)?.id || prev
+            );
+          }
+          return prev;
+        }
+        if (viasMode) {
+          return (
+            list.find((c: { isCompany: boolean }) => c.isCompany)?.id ||
+            list[0]?.id ||
+            ""
+          );
+        }
         const def = list.find(
           (c: {
             isDefaultBoarding: boolean;
@@ -552,6 +590,15 @@ export default function BiometriaWizardModal({
     void loadLatamEmployeesForCards();
     void loadLatamPaymentCards();
   }, [open, step]);
+
+  // Cartão empresa → titular Vias Aéreas (taxa da empresa, não do funcionário)
+  useEffect(() => {
+    if (!latamPaymentCardId) return;
+    const card = latamPaymentCards.find((c) => c.id === latamPaymentCardId);
+    if (card?.isCompany && latamCardOwnerId !== VIAS_OWNER_ID) {
+      setLatamCardOwnerId(VIAS_OWNER_ID);
+    }
+  }, [latamPaymentCardId, latamPaymentCards, latamCardOwnerId]);
 
   if (!open) return null;
 
@@ -1195,42 +1242,59 @@ export default function BiometriaWizardModal({
                         Cartão (taxa / pagamento)
                       </div>
                       <p className="mt-0.5 text-[11px] text-slate-500">
-                        Pré-selecionado o cartão padrão de taxa do funcionário.
-                        CVV você digita na LATAM.
+                        Cartão empresa = taxa de embarque da Vias Aéreas. Cartão
+                        do funcionário = taxa dele. CVV você digita na LATAM.
                       </p>
-                      {latamEmployees.length > 0 ? (
-                        <select
-                          className="mt-1.5 mb-1.5 h-9 w-full rounded-lg border border-slate-200 bg-white px-2 text-xs"
-                          value={latamCardOwnerId}
-                          onChange={(e) => {
-                            const id = e.target.value;
-                            setLatamCardOwnerId(id);
-                            setLatamPaymentCardId("");
-                            void loadLatamPaymentCards(id);
-                          }}
-                        >
-                          {latamEmployees.map((u) => (
-                            <option key={u.id} value={u.id}>
-                              {u.name || u.login}
-                              {u.id === getSession()?.id ? " (você)" : ""}
-                            </option>
-                          ))}
-                        </select>
-                      ) : null}
+                      <select
+                        className="mt-1.5 mb-1.5 h-9 w-full rounded-lg border border-slate-200 bg-white px-2 text-xs"
+                        value={latamCardOwnerId || getSession()?.id || ""}
+                        onChange={(e) => {
+                          const id = e.target.value;
+                          setLatamCardOwnerId(id);
+                          setLatamPaymentCardId("");
+                          void loadLatamPaymentCards(id);
+                        }}
+                      >
+                        <option value={VIAS_OWNER_ID}>
+                          Vias Aéreas (empresa)
+                        </option>
+                        {latamEmployees.map((u) => (
+                          <option key={u.id} value={u.id}>
+                            {u.name || u.login}
+                            {u.id === getSession()?.id ? " (você)" : ""}
+                          </option>
+                        ))}
+                      </select>
                       <select
                         className="mt-1 h-9 w-full rounded-lg border border-slate-200 bg-white px-2 text-xs"
                         value={latamPaymentCardId}
-                        onChange={(e) => setLatamPaymentCardId(e.target.value)}
+                        onChange={(e) => {
+                          const id = e.target.value;
+                          setLatamPaymentCardId(id);
+                          const card = latamPaymentCards.find((c) => c.id === id);
+                          if (card?.isCompany) {
+                            setLatamCardOwnerId(VIAS_OWNER_ID);
+                          } else if (card?.userId) {
+                            setLatamCardOwnerId(card.userId);
+                          }
+                        }}
                       >
                         <option value="">Sem cartão (só passageiros)</option>
                         {latamPaymentCards.map((c) => (
                           <option key={c.id} value={c.id}>
-                            {c.isCompany ? "Empresa · " : ""}
+                            {c.isCompany ? "Vias Aéreas · " : ""}
                             {c.label} · •••• {c.last4}
                             {c.isDefaultBoarding ? " (padrão taxa)" : ""}
                           </option>
                         ))}
                       </select>
+                      {latamCardOwnerId === VIAS_OWNER_ID ||
+                      latamPaymentCards.find((c) => c.id === latamPaymentCardId)
+                        ?.isCompany ? (
+                        <p className="mt-1 text-[11px] font-medium text-violet-700">
+                          Taxa de embarque desta emissão: Vias Aéreas
+                        </p>
+                      ) : null}
                       {latamPaymentCards.length === 0 ? (
                         <p className="mt-1 text-[11px] text-slate-500">
                           Nenhum cartão cadastrado. Cadastre em{" "}

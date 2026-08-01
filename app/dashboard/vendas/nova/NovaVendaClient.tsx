@@ -1568,6 +1568,7 @@ export default function NovaVendaClient({
     departureDate: string | null;
     returnDate: string | null;
     skippedOrder: boolean;
+    feeCardPreset?: string | null;
   }) {
     if (result.purchaseCode) {
       setPurchaseCode(result.purchaseCode);
@@ -1576,6 +1577,9 @@ export default function NovaVendaClient({
     setSearchLinkReady(result.searchLink);
     if (result.departureDate) setDepartureDate(result.departureDate);
     if (result.returnDate) setReturnDate(result.returnDate);
+    if (result.feeCardPreset) {
+      setFeeCardPreset(result.feeCardPreset);
+    }
     setLatamEmissionUnlocked(true);
     setBiometriaModalOpen(false);
     setTimeout(() => {
