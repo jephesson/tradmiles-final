@@ -19,10 +19,9 @@ Preenche formulários na LATAM com dados vindos do TradeMiles (funcionário **lo
 
 ## Fluxo na venda
 
-1. No wizard de biometria, após gerar o **link de pesquisa**
-2. Marque **Usar extensão LATAM**
-3. Cole o texto dos passageiros → **Preparar extensão**
-4. Abra a LATAM — passageiros e (se houver) cartão/endereço
+1. No wizard: gere o **link de pesquisa** → Seguir
+2. No passo **Extensão LATAM**, marque e cole os passageiros (qualquer formato)
+3. **Preparar extensão** → abra a LATAM
 
 Cartões: Cadastro → Funcionários → **Dados de pagamento**.
 

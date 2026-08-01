@@ -36,7 +36,7 @@ type Creds = {
   emailRedirecionado?: boolean | null;
 } | null;
 
-type Step = "creds" | "code" | "search" | "bio" | "order";
+type Step = "creds" | "code" | "search" | "extension" | "bio" | "order";
 type TripKind = "IDA" | "IDA_VOLTA";
 
 const LATAM_SITE_URL = "https://www.latamairlines.com/br/pt";
@@ -542,7 +542,7 @@ export default function BiometriaWizardModal({
 
   const stepsForProgram: Step[] =
     program === "LATAM"
-      ? ["creds", "code", "search", "bio", "order"]
+      ? ["creds", "code", "search", "extension", "bio", "order"]
       : ["creds", "code"];
 
   const stepIndex = stepsForProgram.indexOf(step);
@@ -1031,140 +1031,6 @@ export default function BiometriaWizardModal({
                       Abrir pesquisa LATAM
                     </button>
                   </div>
-
-                  <div className="mt-4 rounded-xl border border-slate-200 bg-white p-3">
-                    <label className="flex items-center gap-2 text-sm font-semibold text-slate-800">
-                      <input
-                        type="checkbox"
-                        checked={useLatamExtension}
-                        onChange={(e) => {
-                          const on = e.target.checked;
-                          setUseLatamExtension(on);
-                          if (on) {
-                            void loadLatamEmployeesForCards();
-                            void loadLatamPaymentCards();
-                          } else void syncLatamExtensionSession(false);
-                        }}
-                      />
-                      Usar extensão LATAM
-                    </label>
-                    <p className="mt-1 text-[11px] text-slate-500">
-                      Opcional. Prepare os passageiros aqui, abra a LATAM e a
-                      extensão preenche (se estiver logado no TradeMiles).
-                    </p>
-
-                    {useLatamExtension ? (
-                      <div className="mt-3 space-y-3">
-                        <div>
-                          <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-600">
-                            Passageiros (colar texto)
-                          </div>
-                          <textarea
-                            className="mt-1 min-h-[100px] w-full rounded-lg border border-slate-200 px-3 py-2 text-xs outline-none focus:border-slate-300 focus:ring-2 focus:ring-slate-900/10"
-                            value={latamPassengerText}
-                            onChange={(e) =>
-                              setLatamPassengerText(e.target.value)
-                            }
-                            placeholder={
-                              "Cole nome, data, CPF, e-mail…\nUm passageiro por bloco (linha em branco entre eles)."
-                            }
-                          />
-                          {latamParsedPassengers.length > 0 ? (
-                            <ul className="mt-1.5 space-y-1 text-[11px] text-slate-600">
-                              {latamParsedPassengers.map((p, i) => (
-                                <li key={`${p.cpf || p.firstName}-${i}`}>
-                                  {i + 1}.{" "}
-                                  <b>
-                                    {p.firstName} {p.lastName}
-                                  </b>
-                                  {p.birthDateBR ? ` · ${p.birthDateBR}` : ""}
-                                  {p.cpf ? ` · CPF ${p.cpf}` : ""}
-                                </li>
-                              ))}
-                            </ul>
-                          ) : latamPassengerText.trim() ? (
-                            <p className="mt-1 text-[11px] text-amber-700">
-                              Não deu para organizar — confira o formato.
-                            </p>
-                          ) : null}
-                        </div>
-
-                        <div>
-                          <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-600">
-                            Cartão (taxa / pagamento)
-                          </div>
-                          {latamEmployees.length > 0 ? (
-                            <select
-                              className="mt-1 mb-1.5 h-9 w-full rounded-lg border border-slate-200 bg-white px-2 text-xs"
-                              value={latamCardOwnerId}
-                              onChange={(e) => {
-                                const id = e.target.value;
-                                setLatamCardOwnerId(id);
-                                setLatamPaymentCardId("");
-                                void loadLatamPaymentCards(id);
-                              }}
-                            >
-                              {latamEmployees.map((u) => (
-                                <option key={u.id} value={u.id}>
-                                  {u.name || u.login}
-                                  {u.id === getSession()?.id ? " (você)" : ""}
-                                </option>
-                              ))}
-                            </select>
-                          ) : null}
-                          <select
-                            className="mt-1 h-9 w-full rounded-lg border border-slate-200 bg-white px-2 text-xs"
-                            value={latamPaymentCardId}
-                            onChange={(e) =>
-                              setLatamPaymentCardId(e.target.value)
-                            }
-                          >
-                            <option value="">Sem cartão (só passageiros)</option>
-                            {latamPaymentCards.map((c) => (
-                              <option key={c.id} value={c.id}>
-                                {c.isCompany ? "Empresa · " : ""}
-                                {c.label} · •••• {c.last4}
-                                {c.isDefaultBoarding ? " (padrão taxa)" : ""}
-                              </option>
-                            ))}
-                          </select>
-                          {latamPaymentCards.length === 0 ? (
-                            <p className="mt-1 text-[11px] text-slate-500">
-                              Cadastre em{" "}
-                              <Link
-                                href="/dashboard/funcionarios/dados-pagamento"
-                                className="font-semibold text-sky-700 underline"
-                                target="_blank"
-                              >
-                                Dados de pagamento
-                              </Link>
-                              . CVV não é salvo.
-                            </p>
-                          ) : null}
-                        </div>
-
-                        <button
-                          type="button"
-                          disabled={latamExtSyncing}
-                          onClick={() => void syncLatamExtensionSession(true)}
-                          className="inline-flex h-9 items-center gap-2 rounded-lg bg-slate-900 px-3 text-xs font-semibold text-white disabled:opacity-60"
-                        >
-                          {latamExtSyncing ? (
-                            <Loader2
-                              className="h-3.5 w-3.5 animate-spin"
-                              aria-hidden
-                            />
-                          ) : null}
-                          Preparar extensão
-                        </button>
-                        {latamExtMsg ? (
-                          <p className="text-[11px] text-slate-600">
-                            {latamExtMsg}
-                          </p>
-                        ) : null}
-                      </div>
-                    ) : null}
-                  </div>
                 </div>
               ) : (
                 <div className="mt-4 rounded-xl border border-dashed border-slate-200 bg-white px-3 py-3 text-[11px] text-slate-500">
@@ -1177,6 +1043,178 @@ export default function BiometriaWizardModal({
               <button
                 type="button"
                 onClick={() => setStep("code")}
+                className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+              >
+                Voltar
+              </button>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => setStep("extension")}
+                  className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                >
+                  <SkipForward className="h-4 w-4" aria-hidden />
+                  Pular
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setStep("extension")}
+                  className="inline-flex h-11 items-center justify-center rounded-xl bg-slate-900 px-5 text-sm font-semibold text-white hover:bg-slate-800"
+                >
+                  Seguir
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : null}
+
+        {step === "extension" ? (
+          <div className="mt-5 space-y-4">
+            <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-4">
+              <div className="font-semibold text-slate-900">
+                4. Extensão LATAM (opcional)
+              </div>
+              <p className="mt-1 text-xs text-slate-500">
+                Cole os dados como o cliente mandar (com ou sem rótulos). Depois
+                abra a LATAM com a extensão instalada.
+              </p>
+
+              <div className="mt-3 rounded-xl border border-slate-200 bg-white p-3">
+                <label className="flex items-center gap-2 text-sm font-semibold text-slate-800">
+                  <input
+                    type="checkbox"
+                    checked={useLatamExtension}
+                    onChange={(e) => {
+                      const on = e.target.checked;
+                      setUseLatamExtension(on);
+                      if (on) {
+                        void loadLatamEmployeesForCards();
+                        void loadLatamPaymentCards();
+                      } else void syncLatamExtensionSession(false);
+                    }}
+                  />
+                  Usar extensão LATAM
+                </label>
+                <p className="mt-1 text-[11px] text-slate-500">
+                  Ex.: Nome / Sobrenome / Documento / Data Nascimento — ou texto
+                  livre.
+                </p>
+
+                {useLatamExtension ? (
+                  <div className="mt-3 space-y-3">
+                    <div>
+                      <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-600">
+                        Passageiros (colar texto)
+                      </div>
+                      <textarea
+                        className="mt-1 min-h-[120px] w-full rounded-lg border border-slate-200 px-3 py-2 text-xs outline-none focus:border-slate-300 focus:ring-2 focus:ring-slate-900/10"
+                        value={latamPassengerText}
+                        onChange={(e) => setLatamPassengerText(e.target.value)}
+                        placeholder={
+                          "Nome: WORLEI Babêto\nSobrenome: Militão\nDocumento (CPF/RG): 116.604.897-76\nData Nascimento: 09/02/1988\n\n(ou cole outro formato — um passageiro por bloco)"
+                        }
+                      />
+                      {latamParsedPassengers.length > 0 ? (
+                        <ul className="mt-1.5 space-y-1 text-[11px] text-slate-600">
+                          {latamParsedPassengers.map((p, i) => (
+                            <li key={`${p.cpf || p.firstName}-${i}`}>
+                              {i + 1}.{" "}
+                              <b>
+                                {p.firstName} {p.lastName}
+                              </b>
+                              {p.birthDateBR ? ` · ${p.birthDateBR}` : ""}
+                              {p.cpf ? ` · CPF ${p.cpf}` : ""}
+                              {p.gender
+                                ? ` · ${p.gender === "F" ? "F" : "M"}`
+                                : ""}
+                            </li>
+                          ))}
+                        </ul>
+                      ) : latamPassengerText.trim() ? (
+                        <p className="mt-1 text-[11px] text-amber-700">
+                          Não deu para organizar — confira o formato.
+                        </p>
+                      ) : null}
+                    </div>
+
+                    <div>
+                      <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-600">
+                        Cartão (taxa / pagamento)
+                      </div>
+                      {latamEmployees.length > 0 ? (
+                        <select
+                          className="mt-1 mb-1.5 h-9 w-full rounded-lg border border-slate-200 bg-white px-2 text-xs"
+                          value={latamCardOwnerId}
+                          onChange={(e) => {
+                            const id = e.target.value;
+                            setLatamCardOwnerId(id);
+                            setLatamPaymentCardId("");
+                            void loadLatamPaymentCards(id);
+                          }}
+                        >
+                          {latamEmployees.map((u) => (
+                            <option key={u.id} value={u.id}>
+                              {u.name || u.login}
+                              {u.id === getSession()?.id ? " (você)" : ""}
+                            </option>
+                          ))}
+                        </select>
+                      ) : null}
+                      <select
+                        className="mt-1 h-9 w-full rounded-lg border border-slate-200 bg-white px-2 text-xs"
+                        value={latamPaymentCardId}
+                        onChange={(e) => setLatamPaymentCardId(e.target.value)}
+                      >
+                        <option value="">Sem cartão (só passageiros)</option>
+                        {latamPaymentCards.map((c) => (
+                          <option key={c.id} value={c.id}>
+                            {c.isCompany ? "Empresa · " : ""}
+                            {c.label} · •••• {c.last4}
+                            {c.isDefaultBoarding ? " (padrão taxa)" : ""}
+                          </option>
+                        ))}
+                      </select>
+                      {latamPaymentCards.length === 0 ? (
+                        <p className="mt-1 text-[11px] text-slate-500">
+                          Cadastre em{" "}
+                          <Link
+                            href="/dashboard/funcionarios/dados-pagamento"
+                            className="font-semibold text-sky-700 underline"
+                            target="_blank"
+                          >
+                            Dados de pagamento
+                          </Link>
+                          . CVV não é salvo.
+                        </p>
+                      ) : null}
+                    </div>
+
+                    <button
+                      type="button"
+                      disabled={latamExtSyncing}
+                      onClick={() => void syncLatamExtensionSession(true)}
+                      className="inline-flex h-9 items-center gap-2 rounded-lg bg-slate-900 px-3 text-xs font-semibold text-white disabled:opacity-60"
+                    >
+                      {latamExtSyncing ? (
+                        <Loader2
+                          className="h-3.5 w-3.5 animate-spin"
+                          aria-hidden
+                        />
+                      ) : null}
+                      Preparar extensão
+                    </button>
+                    {latamExtMsg ? (
+                      <p className="text-[11px] text-slate-600">{latamExtMsg}</p>
+                    ) : null}
+                  </div>
+                ) : null}
+              </div>
+            </div>
+
+            <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-between">
+              <button
+                type="button"
+                onClick={() => setStep("search")}
                 className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
               >
                 Voltar
@@ -1206,7 +1244,7 @@ export default function BiometriaWizardModal({
           <div className="mt-5 space-y-4">
             <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-4">
               <div className="font-semibold text-slate-900">
-                4. Envie ao cedente o link da biometria
+                5. Envie ao cedente o link da biometria
               </div>
               <p className="mt-1 text-xs text-slate-500">
                 Depois da pesquisa, envie o link da biometria (muda a cada reserva) e aguarde a
@@ -1250,7 +1288,7 @@ export default function BiometriaWizardModal({
             <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-between">
               <button
                 type="button"
-                onClick={() => setStep("search")}
+                onClick={() => setStep("extension")}
                 className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
               >
                 Voltar
@@ -1269,7 +1307,7 @@ export default function BiometriaWizardModal({
         {step === "order" ? (
           <div className="mt-5 space-y-4">
             <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-4">
-              <div className="font-semibold text-slate-900">5. Order ID e link de pagamento</div>
+              <div className="font-semibold text-slate-900">6. Order ID e link de pagamento</div>
               <p className="mt-1 text-xs text-slate-500">
                 Cole o link da reserva ou o Order ID. Se preferir, pule e siga para a emissão.
               </p>
