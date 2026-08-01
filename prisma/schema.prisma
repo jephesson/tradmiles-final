@@ -254,9 +254,54 @@ model User {
   // ✅ Gmail OAuth (token da caixa conectada)
   gmailConnectionsConnected GmailConnection[] @relation("GmailConnectionConnectedBy")
 
+  // Cartões para taxa/pagamento LATAM (sem CVV)
+  paymentCards EmployeePaymentCard[] @relation("EmployeePaymentCardOwner")
+
   @@index([team])
   @@index([role])
   @@map("users")
+}
+
+/**
+ * Cartão + endereço de cobrança do funcionário (ou da empresa).
+ * Nunca armazena CVV.
+ */
+model EmployeePaymentCard {
+  id   String @id @default(cuid())
+  team String
+
+  /// null = cartão da empresa (ex.: Vias Aéreas)
+  userId String?
+  user   User?   @relation("EmployeePaymentCardOwner", fields: [userId], references: [id], onDelete: Cascade)
+
+  label      String
+  holderName String
+  brand      String?
+  last4      String
+  expMonth   Int
+  expYear    Int
+
+  panCipher String
+  panIv     String
+
+  zip         String?
+  street      String?
+  number      String?
+  complement  String?
+  district    String?
+  city        String?
+  state       String?
+
+  /// Pré-selecionado na venda como cartão da taxa de embarque
+  isDefaultBoarding Boolean @default(false)
+  isCompany         Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([team, userId])
+  @@index([team, isCompany])
+  @@map("employee_payment_cards")
 }
 
 model EmployeeInvite {

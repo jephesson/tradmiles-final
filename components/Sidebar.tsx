@@ -335,6 +335,8 @@ export default function Sidebar() {
     "/dashboard/horario-biometria"
   );
 
+  const isExtensaoLatamRoute = pathname.startsWith("/dashboard/extensao-latam");
+
   // ✅ NOVO: Emissões no balcão
   const isEmissoesBalcaoRoute = pathname.startsWith(
     "/dashboard/emissoes-balcao"
@@ -347,6 +349,7 @@ export default function Sidebar() {
     isAnotacoesRoute ||
     isAtualizacaoTermosRoute ||
     isHorarioBiometriaRoute ||
+    isExtensaoLatamRoute ||
     isImportacoesRoute ||
     isImportacoesEmissoesLatamRoute ||
     isProtocolosRoute ||
@@ -680,6 +683,10 @@ export default function Sidebar() {
 
             <NavLink href="/dashboard/funcionarios/rateio">
               Rateio do lucro
+            </NavLink>
+
+            <NavLink href="/dashboard/funcionarios/dados-pagamento">
+              Dados de pagamento
             </NavLink>
           </SubAccordion>
 
@@ -1134,6 +1141,8 @@ export default function Sidebar() {
           </SubAccordion>
 
           <NavLink href="/dashboard/automacao">Automação</NavLink>
+
+          <NavLink href="/dashboard/extensao-latam">Extensão LATAM</NavLink>
 
           <NavLink href="/dashboard/anotacoes">Anotações</NavLink>
 
