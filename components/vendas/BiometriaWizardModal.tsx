@@ -44,7 +44,8 @@ type Creds = {
 type Step = "creds" | "code" | "search" | "extension" | "bio" | "order";
 type TripKind = "IDA" | "IDA_VOLTA";
 
-const LATAM_SITE_URL = "https://www.latamairlines.com/br/pt";
+const LATAM_SITE_URL =
+  "https://auth.latamairlines.com/u/login/identifier?state=hKFo2SBKT1dOMEF1ZXhiZkViU3hjNWJMOHVkTkFuMDFwOVljQ6Fur3VuaXZlcnNhbC1sb2dpbqN0aWTZIEpCSDM5WlBHb25VLUZVTzVKOFlkRXhySWdOVEFNRDcyo2NpZNkgUDVOSzdzam44MlNiamNaNHMyWmwzWTRhNXd2MmFzQkk&ui_locales=pt";
 const SMILES_SITE_URL = "https://www.smiles.com.br";
 
 /** Titular virtual no seletor de cartão — taxas da empresa, não do funcionário. */
