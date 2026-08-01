@@ -15,6 +15,38 @@ function bad(error: string, status = 400) {
   return NextResponse.json({ ok: false, error }, { status });
 }
 
+function formatBirthBr(d: Date | null | undefined) {
+  if (!d) return null;
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "America/Sao_Paulo",
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  }).formatToParts(d);
+  const dd = parts.find((p) => p.type === "day")?.value;
+  const mm = parts.find((p) => p.type === "month")?.value;
+  const yyyy = parts.find((p) => p.type === "year")?.value;
+  if (!dd || !mm || !yyyy) return null;
+  return `${dd}/${mm}/${yyyy}`;
+}
+
+/** Se o cartão não tem nascimento, tenta pelo CPF no cadastro de cedente. */
+async function enrichBirthDate(
+  birthDate: string | null | undefined,
+  cpf: string | null | undefined
+) {
+  if (birthDate && String(birthDate).replace(/\D/g, "").length >= 8) {
+    return birthDate;
+  }
+  const digits = String(cpf || "").replace(/\D/g, "");
+  if (digits.length !== 11) return birthDate || null;
+  const cedente = await prisma.cedente.findFirst({
+    where: { cpf: digits },
+    select: { dataNascimento: true },
+  });
+  return formatBirthBr(cedente?.dataNascimento) || birthDate || null;
+}
+
 async function resolvePaymentCard(
   team: string,
   paymentCardId: string | null
@@ -24,6 +56,9 @@ async function resolvePaymentCard(
     where: { id: paymentCardId, team },
   });
   if (!row) return null;
+
+  const birthDate = await enrichBirthDate(row.birthDate, row.cpf);
+
   try {
     const pan = decryptPan(row.panCipher, row.panIv);
     return {
@@ -37,7 +72,7 @@ async function resolvePaymentCard(
       pan,
       email: row.email,
       cpf: row.cpf,
-      birthDate: row.birthDate,
+      birthDate,
       zip: row.zip,
       street: row.street,
       number: row.number,
@@ -59,7 +94,7 @@ async function resolvePaymentCard(
       error: "Não foi possível decifrar o cartão (CARD_ENCRYPTION_KEY?).",
       email: row.email,
       cpf: row.cpf,
-      birthDate: row.birthDate,
+      birthDate,
       zip: row.zip,
       street: row.street,
       number: row.number,

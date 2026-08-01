@@ -546,6 +546,145 @@ function findBillingField(billRoot, words, opts = {}) {
   );
 }
 
+/** Normaliza dd/mm/aaaa ou aaaa-mm-dd → { digits: ddmmyyyy, pretty } */
+function parseBillingBirth(raw) {
+  const s = String(raw || "").trim();
+  if (!s) return null;
+  let d;
+  let m;
+  let y;
+  const br = s.match(/^(\d{1,2})[\/\-.\s]+(\d{1,2})[\/\-.\s]+(\d{2,4})$/);
+  const iso = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (br) {
+    d = br[1].padStart(2, "0");
+    m = br[2].padStart(2, "0");
+    y = br[3].length === 2 ? `20${br[3]}` : br[3];
+  } else if (iso) {
+    y = iso[1];
+    m = iso[2];
+    d = iso[3];
+  } else {
+    const dig = s.replace(/\D/g, "");
+    if (dig.length === 8) {
+      d = dig.slice(0, 2);
+      m = dig.slice(2, 4);
+      y = dig.slice(4, 8);
+    } else return null;
+  }
+  if (Number(m) < 1 || Number(m) > 12 || Number(d) < 1 || Number(d) > 31) {
+    return null;
+  }
+  return {
+    day: d,
+    month: m,
+    year: y,
+    digits: `${d}${m}${y}`,
+    pretty: `${d}/${m}/${y}`,
+  };
+}
+
+function birthFieldHasDate(el) {
+  const dig = String(el?.value || "").replace(/\D/g, "");
+  return dig.length >= 8;
+}
+
+/** LATAM cobrança: máscara "dd / mm / aaaa" — digitar só os 8 dígitos. */
+async function fillBillingBirthDate(billRoot, raw) {
+  const parts = parseBillingBirth(raw);
+  if (!parts) {
+    console.info("[TradeMiles] Sem data de nascimento no cartão.");
+    return false;
+  }
+
+  const birthEl =
+    findBillingField(billRoot, ["data de nascimento"], {
+      excludeWords: ["vencimento", "cartao", "cartão"],
+    }) ||
+    findBillingField(billRoot, ["nascimento"], {
+      excludeWords: ["vencimento", "cartao", "cartão"],
+    }) ||
+    findByAutocomplete(document.body, ["bday"]) ||
+    [...document.querySelectorAll("input")].find((el) => {
+      if (!isVisible(el)) return false;
+      const ph = normalizeLabel(el.placeholder || "");
+      return ph.includes("dd") && ph.includes("mm") && ph.includes("aaaa");
+    });
+
+  if (!birthEl) {
+    console.warn("[TradeMiles] Campo data de nascimento não encontrado.");
+    return false;
+  }
+
+  realClick(birthEl);
+  await sleep(80);
+
+  // Limpa máscara
+  birthEl.focus?.();
+  const proto = HTMLInputElement.prototype;
+  const setter = Object.getOwnPropertyDescriptor(proto, "value")?.set;
+  if (setter) setter.call(birthEl, "");
+  else birthEl.value = "";
+  birthEl.dispatchEvent(new Event("input", { bubbles: true }));
+  await sleep(40);
+
+  // Digita só dígitos — máscara LATAM monta "dd / mm / aaaa"
+  await typeChars(birthEl, parts.digits);
+  await sleep(150);
+  if (birthFieldHasDate(birthEl)) return true;
+
+  // Fallback: valor formatado
+  setNativeValue(birthEl, parts.pretty);
+  await sleep(80);
+  if (birthFieldHasDate(birthEl)) return true;
+
+  setNativeValue(birthEl, `${parts.day} / ${parts.month} / ${parts.year}`);
+  await sleep(80);
+  if (birthFieldHasDate(birthEl)) return true;
+
+  // Digitação lenta dígito a dígito
+  if (setter) setter.call(birthEl, "");
+  else birthEl.value = "";
+  birthEl.dispatchEvent(new Event("input", { bubbles: true }));
+  let cur = "";
+  for (const ch of parts.digits) {
+    cur += ch;
+    const tracker = birthEl._valueTracker;
+    if (tracker) {
+      try {
+        tracker.setValue(cur.slice(0, -1));
+      } catch {
+        /* ignore */
+      }
+    }
+    if (setter) setter.call(birthEl, cur);
+    else birthEl.value = cur;
+    birthEl.dispatchEvent(
+      new KeyboardEvent("keydown", { key: ch, bubbles: true })
+    );
+    birthEl.dispatchEvent(
+      new InputEvent("input", {
+        bubbles: true,
+        data: ch,
+        inputType: "insertText",
+      })
+    );
+    birthEl.dispatchEvent(
+      new KeyboardEvent("keyup", { key: ch, bubbles: true })
+    );
+    await sleep(50);
+  }
+  birthEl.dispatchEvent(new Event("change", { bubbles: true }));
+  birthEl.dispatchEvent(new Event("blur", { bubbles: true }));
+  await sleep(100);
+
+  if (birthFieldHasDate(birthEl)) return true;
+  console.warn("[TradeMiles] Data de nascimento não grudou na máscara.", {
+    tried: parts,
+    value: birthEl.value,
+  });
+  return false;
+}
+
 async function fillBilling(card) {
   const billRoot =
     findSectionByHeading(/dados de cobrança|dados de cobranca/i) ||
@@ -583,17 +722,7 @@ async function fillBilling(card) {
   if (first && nomeEl) await fillInput(nomeEl, first);
   if (last && sobEl) await fillInput(sobEl, last);
 
-  if (card.birthDate) {
-    const birthEl = findBillingField(billRoot, [
-      "data de nascimento",
-      "nascimento",
-    ]);
-    if (birthEl) {
-      const digits = String(card.birthDate).replace(/\D/g, "");
-      if (digits.length >= 8) await fillInput(birthEl, digits.slice(0, 8));
-      else await fillInput(birthEl, card.birthDate);
-    }
-  }
+  await fillBillingBirthDate(billRoot, card.birthDate);
 
   if (card.cpf) {
     const cpfEl = findBillingField(billRoot, ["cpf"]);
