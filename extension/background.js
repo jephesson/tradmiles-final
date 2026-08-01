@@ -13,7 +13,8 @@ async function fetchFillPayload() {
       });
       const json = await res.json().catch(() => null);
       if (res.status === 401) {
-        lastError = "Faça login no TradeMiles (mesma janela, não anônima).";
+        lastError =
+          "Faça login no TradeMiles nesta mesma janela do Chrome (não anônima).";
         continue;
       }
       if (!res.ok || !json?.ok) {
@@ -46,7 +47,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       if (!/latamairlines\.com/i.test(tab.url || "")) {
         sendResponse({
           ok: false,
-          error: "Abra a aba da LATAM (passageiros) e tente de novo.",
+          error: "Deixe a aba da LATAM (passageiros) ativa e tente de novo.",
         });
         return;
       }
@@ -54,12 +55,14 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         const result = await chrome.tabs.sendMessage(tab.id, {
           type: "TM_RUN_FILL",
         });
-        sendResponse(result || { ok: false, error: "Sem resposta do content script." });
+        sendResponse(
+          result || { ok: false, error: "Sem resposta do content script." }
+        );
       } catch {
         sendResponse({
           ok: false,
           error:
-            "Recarregue a página da LATAM (ou reinstale a extensão) e tente de novo.",
+            "Content script ausente. Remova a extensão, baixe o ZIP de novo e carregue a pasta. Depois recarregue a LATAM (F5).",
         });
       }
     })();

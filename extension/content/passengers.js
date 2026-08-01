@@ -1,14 +1,15 @@
 /**
- * Passageiros LATAM — layouts:
- * - /pagamentos/passageiros
- * - /v2/passageiros
+ * Passageiros LATAM — /v2/passageiros e /pagamentos/passageiros
+ * Botão flutuante + preenchimento agressivo (React).
  */
 
 function setNativeValue(el, value) {
   if (!el || value == null || value === "") return false;
+  const str = String(value);
   const tag = el.tagName;
+
   if (tag === "SELECT") {
-    const needle = String(value).toLowerCase();
+    const needle = str.toLowerCase();
     const opt = Array.from(el.options || []).find((o) => {
       const t = (o.textContent || "").trim().toLowerCase();
       const v = String(o.value || "").toLowerCase();
@@ -21,17 +22,31 @@ function setNativeValue(el, value) {
     el.dispatchEvent(new Event("change", { bubbles: true }));
     return true;
   }
+
   const proto =
     tag === "TEXTAREA"
       ? HTMLTextAreaElement.prototype
       : HTMLInputElement.prototype;
   const setter = Object.getOwnPropertyDescriptor(proto, "value")?.set;
+
   el.focus?.();
-  if (setter) setter.call(el, String(value));
-  else el.value = String(value);
+  // React controlled inputs
+  const tracker = el._valueTracker;
+  if (tracker) {
+    try {
+      tracker.setValue("");
+    } catch {
+      /* ignore */
+    }
+  }
+  if (setter) setter.call(el, str);
+  else el.value = str;
+
   el.dispatchEvent(new Event("input", { bubbles: true }));
+  el.dispatchEvent(new InputEvent("input", { bubbles: true, data: str, inputType: "insertText" }));
   el.dispatchEvent(new Event("change", { bubbles: true }));
-  el.dispatchEvent(new KeyboardEvent("keyup", { bubbles: true }));
+  el.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, key: "a" }));
+  el.dispatchEvent(new KeyboardEvent("keyup", { bubbles: true, key: "a" }));
   el.dispatchEvent(new Event("blur", { bubbles: true }));
   return true;
 }
@@ -51,6 +66,16 @@ function normalizeLabel(s) {
     .trim();
 }
 
+function isVisible(el) {
+  if (!el) return false;
+  const st = window.getComputedStyle(el);
+  if (st.display === "none" || st.visibility === "hidden" || st.opacity === "0") {
+    return false;
+  }
+  const r = el.getBoundingClientRect();
+  return r.width > 0 && r.height > 0;
+}
+
 function detectDateSep() {
   const ph = Array.from(document.querySelectorAll("input"))
     .map((i) => (i.placeholder || "").toLowerCase())
@@ -58,7 +83,7 @@ function detectDateSep() {
   if (ph && ph.includes("/")) return "/";
   if (ph && ph.includes("-")) return "-";
   if (/\/v2\/passageiros/i.test(location.pathname)) return "/";
-  return "-";
+  return "/";
 }
 
 function toLatamDate(pax) {
@@ -85,58 +110,43 @@ function fieldMeta(el) {
     el.getAttribute("name"),
     el.getAttribute("placeholder"),
     el.getAttribute("id"),
-    el.getAttribute("data-test"),
+    el.getAttribute("data-testid"),
     el.getAttribute("autocomplete"),
   ];
-  const label = el.labels && el.labels[0] ? textOf(el.labels[0]) : "";
-  bits.push(label);
-  // label próximo (floating)
+  if (el.labels?.[0]) bits.push(textOf(el.labels[0]));
   let p = el.parentElement;
-  for (let i = 0; i < 4 && p; i++) {
-    const lab = p.querySelector?.("label, legend, span, p");
+  for (let i = 0; i < 5 && p; i++) {
+    const lab = p.querySelector?.(":scope > label, :scope > span, :scope > p, legend");
     if (lab) bits.push(textOf(lab));
+    // irmão anterior com label
+    const prev = p.previousElementSibling;
+    if (prev && /label|span|p|div/i.test(prev.tagName)) bits.push(textOf(prev));
     p = p.parentElement;
   }
-  return normalizeLabel(bits.filter(Boolean).join(" "));
+  return normalizeLabel(bits.filter(Boolean).join(" | "));
 }
 
-function findField(root, needles, { exact = false } = {}) {
+function findField(root, needles) {
   const ns = (Array.isArray(needles) ? needles : [needles]).map(normalizeLabel);
-  const inputs = root.querySelectorAll(
-    "input:not([type=hidden]):not([type=checkbox]):not([type=radio]), select, textarea"
-  );
+  const inputs = [
+    ...root.querySelectorAll(
+      "input:not([type=hidden]):not([type=checkbox]):not([type=radio]), select, textarea"
+    ),
+  ].filter(isVisible);
+
   for (const el of inputs) {
     const meta = fieldMeta(el);
-    if (!meta) continue;
-    const ok = ns.some((n) =>
-      exact ? meta === n || meta.startsWith(`${n} `) : meta.includes(n)
-    );
-    if (ok) return el;
-  }
-
-  // fallback por texto de label no DOM
-  const nodes = root.querySelectorAll("label, span, p, legend");
-  for (const node of nodes) {
-    const t = normalizeLabel(textOf(node));
-    if (!t || t.length > 80) continue;
-    if (!ns.some((n) => (exact ? t === n : t === n || t.startsWith(`${n} `)))) {
-      continue;
-    }
-    const forId = node.getAttribute?.("for");
-    if (forId) {
-      const byFor = document.getElementById(forId);
-      if (byFor) return byFor;
-    }
-    let cur = node;
-    for (let i = 0; i < 5 && cur; i++) {
-      const input = cur.querySelector?.(
-        "input:not([type=hidden]):not([type=checkbox]):not([type=radio]), select, textarea"
-      );
-      if (input) return input;
-      cur = cur.parentElement;
-    }
+    if (ns.some((n) => meta.includes(n))) return el;
   }
   return null;
+}
+
+function visibleTextInputs(root) {
+  return [
+    ...root.querySelectorAll(
+      'input:not([type=hidden]):not([type=checkbox]):not([type=radio]):not([type=button]):not([type=submit])'
+    ),
+  ].filter(isVisible);
 }
 
 function selectGender(root, gender) {
@@ -150,33 +160,27 @@ function selectGender(root, gender) {
   }
   el.click?.();
   setTimeout(() => {
-    const opts = Array.from(
-      document.querySelectorAll('[role="option"], li, button, span')
-    );
-    const hit = opts.find((o) => textOf(o).toLowerCase() === label.toLowerCase());
+    const hit = Array.from(
+      document.querySelectorAll('[role="option"], li, button, span, div')
+    ).find((o) => normalizeLabel(textOf(o)) === normalizeLabel(label));
     hit?.click?.();
-  }, 150);
+  }, 180);
 }
 
 function findPassengerSections() {
-  const candidates = Array.from(
-    document.querySelectorAll("h1, h2, h3, h4, h5, button, div, span, strong")
-  );
   const found = [];
   const seen = new Set();
+  const headers = Array.from(
+    document.querySelectorAll("h1, h2, h3, h4, h5, button, div, span, strong, p")
+  );
 
-  for (const el of candidates) {
+  for (const el of headers) {
     const t = textOf(el);
-    if (!/^(Adulto|Criança|Crianca|Bebê|Bebe)\b/i.test(t)) continue;
-    if (t.length > 40) continue;
+    if (!/^(Adulto|Criança|Crianca|Bebê|Bebe)\b/i.test(t) || t.length > 36) continue;
 
-    // sobe até um container com vários inputs
     let root = el.parentElement;
-    for (let i = 0; i < 8 && root; i++) {
-      const inputs = root.querySelectorAll(
-        "input:not([type=hidden]):not([type=checkbox]):not([type=radio])"
-      );
-      if (inputs.length >= 3) break;
+    for (let i = 0; i < 10 && root; i++) {
+      if (visibleTextInputs(root).length >= 3) break;
       root = root.parentElement;
     }
     if (!root || seen.has(root)) continue;
@@ -198,60 +202,111 @@ function findPassengerSections() {
   return found;
 }
 
-function fillInSection(section, pax) {
-  const root = section.root;
+function fillByLabels(root, pax, kind) {
+  let n = 0;
   const birth = toLatamDate(pax);
   const cpf = pax.cpf ? String(pax.cpf).replace(/\D/g, "") : null;
-  let filled = 0;
 
-  if (pax.firstName) {
-    const el =
-      findField(root, ["nome"], { exact: true }) ||
-      findField(root, ["given-name", "first name", "firstname"]);
-    if (setNativeValue(el, pax.firstName)) filled++;
-  }
-  if (pax.lastName) {
-    const el =
-      findField(root, ["sobrenome"], { exact: true }) ||
-      findField(root, ["family-name", "last name", "lastname"]);
-    if (setNativeValue(el, pax.lastName)) filled++;
-  }
+  if (pax.firstName && setNativeValue(findField(root, ["nome"]), pax.firstName)) n++;
+  if (pax.lastName && setNativeValue(findField(root, ["sobrenome"]), pax.lastName)) n++;
   if (birth) {
     const el =
-      findField(root, ["data de nascimento"]) ||
-      root.querySelector('input[placeholder*="dd"]');
-    if (setNativeValue(el, birth)) filled++;
+      findField(root, ["data de nascimento", "nascimento"]) ||
+      root.querySelector('input[placeholder*="dd" i]');
+    if (setNativeValue(el, birth)) n++;
   }
-
   selectGender(root, pax.gender);
-
-  if (cpf) {
-    if (setNativeValue(findField(root, ["cpf"], { exact: true }), cpf)) filled++;
-    if (section.kind === "child" || section.kind === "infant") {
-      setNativeValue(
-        findField(root, ["numero de documento", "n de documento", "documento"]),
-        cpf
-      );
-    }
+  if (cpf && setNativeValue(findField(root, ["cpf"]), cpf)) n++;
+  if ((kind === "child" || kind === "infant") && cpf) {
+    setNativeValue(
+      findField(root, ["numero de documento", "n de documento", "documento"]),
+      cpf
+    );
   }
-
-  if (pax.email) {
-    if (setNativeValue(findField(root, ["email", "e-mail"]), pax.email)) filled++;
-  }
+  if (pax.email && setNativeValue(findField(root, ["email", "e-mail"]), pax.email)) n++;
   if (pax.phone) {
     const phone = String(pax.phone).replace(/\D/g, "").replace(/^55/, "");
-    if (setNativeValue(findField(root, ["numero"], { exact: true }), phone)) {
-      filled++;
-    } else {
-      setNativeValue(findField(root, ["número", "telefone", "celular"]), phone);
+    if (
+      setNativeValue(findField(root, ["numero", "telefone", "celular"]), phone)
+    ) {
+      n++;
     }
   }
+  return n;
+}
 
-  return filled;
+/** Fallback: ordem típica dos inputs no card Adulto. */
+function fillByOrder(root, pax) {
+  const inputs = visibleTextInputs(root);
+  if (inputs.length < 2) return 0;
+  let n = 0;
+  const birth = toLatamDate(pax);
+  const cpf = pax.cpf ? String(pax.cpf).replace(/\D/g, "") : null;
+  const phone = pax.phone
+    ? String(pax.phone).replace(/\D/g, "").replace(/^55/, "")
+    : null;
+
+  // Heurística: primeiro texto sem placeholder de data = nome
+  const nonDate = inputs.filter(
+    (i) => !/dd|mm|aaaa|yyyy/i.test(i.placeholder || "")
+  );
+  const dateInput =
+    inputs.find((i) => /dd|mm|aaaa|yyyy/i.test(i.placeholder || "")) || null;
+
+  if (pax.firstName && nonDate[0] && setNativeValue(nonDate[0], pax.firstName)) n++;
+  if (pax.lastName && nonDate[1] && setNativeValue(nonDate[1], pax.lastName)) n++;
+  if (birth && dateInput && setNativeValue(dateInput, birth)) n++;
+
+  // CPF: input com maxLength 11/14 ou meta cpf
+  const cpfEl =
+    findField(root, ["cpf"]) ||
+    inputs.find((i) => String(i.maxLength) === "11" || String(i.maxLength) === "14");
+  if (cpf && cpfEl && setNativeValue(cpfEl, cpf)) n++;
+
+  const emailEl =
+    findField(root, ["email"]) ||
+    inputs.find((i) => i.type === "email" || /@|email/i.test(i.name || i.id || ""));
+  if (pax.email && emailEl && setNativeValue(emailEl, pax.email)) n++;
+
+  const phoneEl = findField(root, ["numero", "telefone"]);
+  if (phone && phoneEl && setNativeValue(phoneEl, phone)) n++;
+
+  return n;
 }
 
 function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
+}
+
+function showToast(msg, ok) {
+  let el = document.getElementById("tm-latam-toast");
+  if (!el) {
+    el = document.createElement("div");
+    el.id = "tm-latam-toast";
+    el.style.cssText =
+      "position:fixed;bottom:80px;right:16px;z-index:2147483647;max-width:320px;padding:10px 12px;border-radius:10px;font:12px/1.35 system-ui,sans-serif;box-shadow:0 8px 24px rgba(0,0,0,.18);";
+    document.documentElement.appendChild(el);
+  }
+  el.style.background = ok ? "#ecfdf5" : "#fff7ed";
+  el.style.color = ok ? "#065f46" : "#9a3412";
+  el.style.border = ok ? "1px solid #a7f3d0" : "1px solid #fdba74";
+  el.textContent = msg;
+  clearTimeout(showToast._t);
+  showToast._t = setTimeout(() => el.remove(), 8000);
+}
+
+function ensureFab() {
+  if (document.getElementById("tm-latam-fab")) return;
+  const btn = document.createElement("button");
+  btn.id = "tm-latam-fab";
+  btn.type = "button";
+  btn.textContent = "Preencher TradeMiles";
+  btn.style.cssText =
+    "position:fixed;bottom:20px;right:16px;z-index:2147483647;height:40px;padding:0 14px;border:0;border-radius:999px;background:#0f172a;color:#fff;font:600 12px system-ui,sans-serif;cursor:pointer;box-shadow:0 8px 24px rgba(15,23,42,.35);";
+  btn.addEventListener("click", () => {
+    void runFill({ manual: true });
+  });
+  document.documentElement.appendChild(btn);
 }
 
 async function fillAll(passengers) {
@@ -259,54 +314,73 @@ async function fillAll(passengers) {
   const n = Math.min(sections.length, passengers.length);
   let total = 0;
   for (let i = 0; i < n; i++) {
+    const sec = sections[i];
     try {
-      sections[i].header?.scrollIntoView?.({ block: "center" });
-      sections[i].header?.click?.();
+      sec.header?.scrollIntoView?.({ block: "center" });
+      sec.header?.click?.();
     } catch {
       /* ignore */
     }
-    await sleep(250);
-    total += fillInSection(sections[i], passengers[i]);
+    await sleep(300);
+    let filled = fillByLabels(sec.root, passengers[i], sec.kind);
+    if (filled < 2) filled = Math.max(filled, fillByOrder(sec.root, passengers[i]));
+    total += filled;
     await sleep(200);
   }
   return { sections: n, fields: total };
 }
 
-async function runFill() {
+async function runFill({ manual } = {}) {
+  ensureFab();
   const res = await chrome.runtime.sendMessage({ type: "TM_GET_FILL_PAYLOAD" });
   if (!res?.ok) {
-    console.warn("[TradeMiles]", res?.error || "Sem payload.");
-    return { ok: false, error: res?.error || "Sem payload" };
+    showToast(res?.error || "Faça login no TradeMiles (mesma janela).", false);
+    return { ok: false, error: res?.error };
   }
   if (!res.data?.useExtension) {
-    console.warn("[TradeMiles] Extensão desligada na venda.");
-    return { ok: false, error: "Extensão desligada na venda (Preparar extensão)." };
+    showToast("Extensão desligada na venda — clique Preparar extensão.", false);
+    return { ok: false, error: "desligada" };
   }
   const passengers = Array.isArray(res.data.passengers) ? res.data.passengers : [];
   if (!passengers.length) {
-    return { ok: false, error: "Nenhum passageiro na sessão." };
+    showToast("Sessão sem passageiros. Prepare de novo na venda.", false);
+    return { ok: false, error: "sem pax" };
   }
 
-  await sleep(400);
-  let result = await fillAll(passengers);
+  // espera form aparecer
+  for (let attempt = 0; attempt < 8; attempt++) {
+    const inputs = visibleTextInputs(document.body);
+    if (inputs.length >= 2) break;
+    await sleep(400);
+  }
 
-  // SPA: tenta de novo se quase nada preencheu
+  let result = await fillAll(passengers);
   if (result.fields < 2) {
-    await sleep(1200);
+    await sleep(900);
     result = await fillAll(passengers);
   }
 
-  console.info("[TradeMiles] Fill:", result, passengers);
-  return { ok: result.fields > 0, ...result, passengers: passengers.length };
+  const ok = result.fields > 0;
+  showToast(
+    ok
+      ? `TradeMiles: ${result.fields} campo(s) · ${passengers.length} pax. Revise.`
+      : "TradeMiles: não achou os campos. Clique de novo em Preencher TradeMiles.",
+    ok
+  );
+  console.info("[TradeMiles] fill", { manual, result, passengers, payload: res.data });
+  return { ok, ...result, passengers: passengers.length };
 }
 
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg?.type === "TM_RUN_FILL") {
-    runFill().then(sendResponse);
+    runFill({ manual: true }).then(sendResponse);
     return true;
   }
   return false;
 });
 
-// Auto ao abrir a página
-runFill().catch((e) => console.warn("[TradeMiles]", e));
+ensureFab();
+// Auto + retries (SPA)
+runFill({ manual: false }).catch((e) => console.warn("[TradeMiles]", e));
+setTimeout(() => void runFill({ manual: false }), 2000);
+setTimeout(() => void runFill({ manual: false }), 4500);

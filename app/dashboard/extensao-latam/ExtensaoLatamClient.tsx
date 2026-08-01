@@ -63,12 +63,20 @@ export default function ExtensaoLatamClient() {
       </div>
 
       <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-        Após atualizar o ZIP: em{" "}
-        <code className="rounded bg-white/80 px-1">chrome://extensions</code>{" "}
-        clique em <b>atualizar</b> (ou remova e carregue de novo). Na LATAM, se
-        não preencher sozinho, abra o ícone da extensão →{" "}
-        <b>Preencher esta aba</b>. TradeMiles e LATAM na <b>mesma</b> janela
-        (não misture anônimo).
+        <b>Não precisa</b> fechar o Chrome nem deslogar. Faça assim:
+        <ol className="mt-2 list-decimal space-y-1 pl-5">
+          <li>Baixe o ZIP de novo (versão 0.1.4+).</li>
+          <li>
+            Em <code className="rounded bg-white/80 px-1">chrome://extensions</code>{" "}
+            remova a extensão antiga → <b>Carregar sem compactação</b> na pasta
+            nova.
+          </li>
+          <li>
+            Na LATAM (F5): deve aparecer o botão preto{" "}
+            <b>Preencher TradeMiles</b> no canto inferior direito — clique nele.
+          </li>
+        </ol>
+        TradeMiles e LATAM na <b>mesma</b> janela (não anônimo separado).
       </div>
     </div>
   );
