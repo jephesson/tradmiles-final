@@ -25,6 +25,12 @@ function onlyDigits(s: string) {
   return String(s || "").replace(/\D/g, "");
 }
 
+/** Sempre 11 dígitos, sem pontuação (formato LATAM). */
+function normalizeCpf(s: string | null | undefined): string | null {
+  const d = onlyDigits(String(s || ""));
+  return d.length === 11 ? d : null;
+}
+
 function toISODate(d: string, m: string, y: string) {
   let year = Number(y);
   if (year < 100) year += 2000;
@@ -224,11 +230,7 @@ function parseLabeledBlock(block: string): ParsedPassenger | null {
       key === "cpf" ||
       key === "rg"
     ) {
-      const cpfM = val.match(CPF_RE);
-      if (cpfM) {
-        const digits = onlyDigits(cpfM[1]);
-        if (digits.length === 11) cpf = digits;
-      }
+      cpf = normalizeCpf(val) || normalizeCpf(val.match(CPF_RE)?.[1]);
       continue;
     }
     if (
@@ -316,11 +318,10 @@ function parseFreeformBlock(block: string): ParsedPassenger | null {
       email = emailM[0].toLowerCase();
       continue;
     }
-    const cpfM = line.match(CPF_RE);
-    if (cpfM && !cpf) {
-      const digits = onlyDigits(cpfM[1]);
-      if (digits.length === 11) {
-        cpf = digits;
+    if (!cpf) {
+      const fromLine = normalizeCpf(line) || normalizeCpf(line.match(CPF_RE)?.[1]);
+      if (fromLine) {
+        cpf = fromLine;
         continue;
       }
     }

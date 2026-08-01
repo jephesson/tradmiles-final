@@ -475,10 +475,16 @@ function findPassengerSections() {
   return found;
 }
 
+/** CPF na LATAM: só dígitos (sem pontos/traços). */
+function cpfDigitsOnly(value) {
+  const d = String(value || "").replace(/\D/g, "");
+  return d.length === 11 ? d : d || null;
+}
+
 function fillInSection(root, pax, kind) {
   let n = 0;
   const { firstName, lastName } = splitPassengerName(pax);
-  const cpf = pax.cpf ? String(pax.cpf).replace(/\D/g, "") : null;
+  const cpf = cpfDigitsOnly(pax.cpf);
 
   const nomeEl = findFirstNameField(root);
   const sobEl = findLastNameField(root);
@@ -492,12 +498,21 @@ function fillInSection(root, pax, kind) {
       : guessGenderFromName(firstName);
   if (gender && selectGender(root, gender)) n++;
 
-  if (cpf && setNativeValue(findFieldByWord(root, ["cpf"]), cpf)) n++;
+  const cpfEl = findFieldByWord(root, ["cpf"]);
+  if (cpf && cpfEl) {
+    // Garante limpar máscara antiga antes de colar só números
+    setNativeValue(cpfEl, "");
+    if (setNativeValue(cpfEl, cpf)) n++;
+  }
   if ((kind === "child" || kind === "infant") && cpf) {
-    setNativeValue(
-      findFieldByWord(root, ["numero de documento", "n de documento"]),
-      cpf
-    );
+    const docEl = findFieldByWord(root, [
+      "numero de documento",
+      "n de documento",
+    ]);
+    if (docEl) {
+      setNativeValue(docEl, "");
+      setNativeValue(docEl, cpf);
+    }
   }
 
   if (pax.email) {
