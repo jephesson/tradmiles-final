@@ -137,18 +137,60 @@ function setNativeValue(el, value) {
   return true;
 }
 
+/** Limpa input React/máscara de verdade (evita PAN duplicado). */
+async function clearInputHard(el) {
+  if (!el) return;
+  el.focus?.();
+  realClick(el);
+  await sleep(30);
+  try {
+    el.select?.();
+    if (typeof el.setSelectionRange === "function") {
+      el.setSelectionRange(0, String(el.value || "").length);
+    }
+  } catch {
+    /* ignore */
+  }
+  try {
+    document.execCommand("selectAll", false);
+  } catch {
+    /* ignore */
+  }
+  const prev = String(el.value || "");
+  const tracker = el._valueTracker;
+  if (tracker) {
+    try {
+      tracker.setValue(prev);
+    } catch {
+      /* ignore */
+    }
+  }
+  const setter = Object.getOwnPropertyDescriptor(
+    HTMLInputElement.prototype,
+    "value"
+  )?.set;
+  if (setter) setter.call(el, "");
+  else el.value = "";
+  el.dispatchEvent(
+    new InputEvent("input", {
+      bubbles: true,
+      inputType: "deleteContentBackward",
+    })
+  );
+  el.dispatchEvent(new Event("change", { bubbles: true }));
+  await sleep(40);
+}
+
 /** Digita caractere a caractere (máscaras React da LATAM). */
-async function typeChars(el, value) {
+async function typeChars(el, value, { clear = true } = {}) {
   if (!el || value == null || value === "") return false;
   const str = String(value);
   el.focus?.();
   el.click?.();
+  if (clear) await clearInputHard(el);
 
   const proto = HTMLInputElement.prototype;
   const setter = Object.getOwnPropertyDescriptor(proto, "value")?.set;
-  if (setter) setter.call(el, "");
-  else el.value = "";
-  el.dispatchEvent(new Event("input", { bubbles: true }));
 
   let cur = "";
   for (const ch of str) {
@@ -248,21 +290,47 @@ function splitHolder(name) {
 }
 
 function addressLine(card) {
-  const street = String(card.street || "").trim();
+  const street = String(card.street || card.district || "").trim();
   const number = String(card.number || "").trim();
-  const complement = String(card.complement || "").trim();
   if (!street) return number || "";
   // Se a rua já termina com número, não concatena de novo
   if (/\d+\s*$/.test(street) || !number) return street;
   if (street.toLowerCase().includes(number.toLowerCase())) return street;
-  return `${street} ${number}`.trim();
+  return `${street}, ${number}`.trim();
+}
+
+function isAddressMeta(meta) {
+  const m = normalizeLabel(meta);
+  if (!m) return false;
+  if (m.includes("email") || m.includes("e-mail")) return false;
+  if (m.includes("codigo postal") || m.includes("cep")) return false;
+  if (m.includes("apartamento") || m.includes("escritorio")) return false;
+  if (m.includes("cartao") || m.includes("cartão")) return false;
+  if (m.includes("cidade") || m.includes("estado") || m.includes("pais")) {
+    return false;
+  }
+  return (
+    m.includes("endereco") ||
+    m.includes("street") ||
+    m.includes("address") ||
+    /\bendereco\b/.test(m)
+  );
 }
 
 /**
  * LATAM: label "Endereço" + helper "Exatamente como aparece em seu banco".
- * NÃO usar findField genérico com exclude email — o meta do pai inclui Email e pulava o campo.
+ * Costuma ser autocomplete (Places) — só setar value não basta.
  */
 function findAddressInput() {
+  const byName = [
+    ...document.querySelectorAll(
+      'input[autocomplete="street-address"], input[autocomplete="address-line1"], ' +
+        'input[name*="street" i], input[name*="address" i], input[name*="endereco" i], ' +
+        'input[data-testid*="street" i], input[data-testid*="address" i], input[data-testid*="endereco" i]'
+    ),
+  ].find((el) => isVisible(el) && isAddressMeta(fieldMeta(el) || el.name || ""));
+  if (byName) return byName;
+
   const byAc = findByAutocomplete(document.body, [
     "street-address",
     "address-line1",
@@ -277,16 +345,19 @@ function findAddressInput() {
   );
   for (const h of helpers) {
     let p = h.parentElement;
-    for (let i = 0; i < 6 && p; i++) {
+    for (let i = 0; i < 8 && p; i++) {
       const input = [...p.querySelectorAll("input:not([type=hidden])")].find(
         (inp) => {
           if (!isVisible(inp)) return false;
-          const meta = normalizeLabel(fieldMeta(inp));
-          // evita pegar e-mail/cep no mesmo card
-          if (meta.includes("email") || meta.includes("e-mail")) return false;
-          if (meta.includes("codigo postal") || meta.includes("cep")) return false;
-          if (meta.includes("apartamento")) return false;
-          return true;
+          const meta = fieldMeta(inp);
+          if (isAddressMeta(meta)) return true;
+          // no mesmo bloco do helper, o input de texto livre costuma ser o endereço
+          const m = normalizeLabel(meta);
+          if (m.includes("email") || m.includes("cpf") || m.includes("cep")) {
+            return false;
+          }
+          if (m.includes("apartamento")) return false;
+          return inp.type === "text" || !inp.type;
         }
       );
       if (input) return input;
@@ -294,25 +365,25 @@ function findAddressInput() {
     }
   }
 
-  // Label exato "Endereço"
+  // Label "Endereço" (curto)
   for (const lab of document.querySelectorAll("label, span, p, div, legend")) {
     const t = normalizeLabel(textOf(lab));
     if (t !== "endereco" && !/^endereco\b/.test(t)) continue;
-    if (t.length > 40) continue;
+    if (t.length > 24) continue;
     if (t.includes("email") || t.includes("e-mail")) continue;
 
     const wrap =
       lab.closest("div, fieldset, label, section") || lab.parentElement;
     if (!wrap) continue;
-    const input = [...wrap.querySelectorAll("input:not([type=hidden]), textarea")].find(
-      (inp) => isVisible(inp)
-    );
+    const input = [
+      ...wrap.querySelectorAll("input:not([type=hidden]), textarea"),
+    ].find((inp) => isVisible(inp));
     if (input) {
       const meta = normalizeLabel(fieldMeta(input));
       if (meta.includes("email") && !meta.includes("endereco")) continue;
+      if (meta.includes("cep") || meta.includes("postal")) continue;
       return input;
     }
-    // input seguinte no DOM
     let sib = lab.nextElementSibling;
     for (let i = 0; i < 5 && sib; i++) {
       if (sib.matches?.("input, textarea") && isVisible(sib)) return sib;
@@ -322,7 +393,7 @@ function findAddressInput() {
     }
   }
 
-  // Fallback: entre email e apartamento/cidade na ordem visual
+  // Fallback visual: entre e-mail e apartamento
   const inputs = [
     ...document.querySelectorAll(
       "input:not([type=hidden]):not([type=checkbox]):not([type=radio])"
@@ -330,7 +401,7 @@ function findAddressInput() {
   ].filter(isVisible);
   const emailIdx = inputs.findIndex((el) => {
     const m = normalizeLabel(fieldMeta(el));
-    return m.includes("email") || m.includes("e-mail");
+    return m.includes("email") || m.includes("e-mail") || el.type === "email";
   });
   const aptIdx = inputs.findIndex((el) => {
     const m = normalizeLabel(fieldMeta(el));
@@ -338,16 +409,72 @@ function findAddressInput() {
   });
   if (emailIdx >= 0) {
     const start = emailIdx + 1;
-    const end = aptIdx > emailIdx ? aptIdx : Math.min(emailIdx + 3, inputs.length);
+    const end = aptIdx > emailIdx ? aptIdx : Math.min(emailIdx + 4, inputs.length);
     for (let i = start; i < end; i++) {
       const m = normalizeLabel(fieldMeta(inputs[i]));
       if (m.includes("cpf") || m.includes("nascimento")) continue;
+      if (m.includes("estado") || m.includes("cidade") || m.includes("cep")) {
+        continue;
+      }
       if (inputs[i].type === "email") continue;
       return inputs[i];
     }
   }
 
   return null;
+}
+
+/** Sugestões do autocomplete de endereço (Places / listbox LATAM). */
+function collectAddressSuggestions() {
+  const sels = [
+    ".pac-item",
+    "[class*='pac-item']",
+    '[role="listbox"] [role="option"]',
+    '[role="option"]',
+    "ul[role='listbox'] li",
+    "[class*='Menu'] li",
+    "[class*='menu'] li",
+    "[class*='Autocomplete'] li",
+    "[class*='autocomplete'] li",
+    "[class*='suggestion']",
+  ];
+  const seen = new Set();
+  const out = [];
+  for (const sel of sels) {
+    for (const el of document.querySelectorAll(sel)) {
+      if (seen.has(el) || !isVisible(el)) continue;
+      const t = textOf(el);
+      if (!t || t.length < 5 || t.length > 140) continue;
+      if (/^(selecione|buscar|pesquisar|fechar|brasil)$/i.test(t)) continue;
+      // ignora UF sozinha
+      if (/^[A-Z]{2}$/.test(t.trim())) continue;
+      seen.add(el);
+      out.push(el);
+    }
+  }
+  return out;
+}
+
+async function pickAddressSuggestion(addr) {
+  const tokens = normalizeLabel(addr)
+    .split(/[\s,]+/)
+    .filter((w) => w.length >= 3 && !/^\d+$/.test(w));
+  let opts = collectAddressSuggestions();
+  for (let i = 0; i < 16 && opts.length < 1; i++) {
+    await sleep(150);
+    opts = collectAddressSuggestions();
+  }
+  if (!opts.length) return false;
+
+  const hit =
+    opts.find((o) => {
+      const t = normalizeLabel(textOf(o));
+      return tokens.some((tok) => t.includes(tok));
+    }) || opts[0];
+
+  realClick(hit.closest?.("[role='option'], li, .pac-item") || hit);
+  await sleep(280);
+  return true;
 }
 
 async function fillAddressField(addr) {
@@ -360,27 +487,83 @@ async function fillAddressField(addr) {
 
   endEl.scrollIntoView?.({ block: "center" });
   realClick(endEl);
-  await sleep(80);
-
-  let ok = await fillInput(endEl, addr);
   await sleep(100);
-  if (String(endEl.value || "").trim()) return true;
+  await clearInputHard(endEl);
 
-  // Força valor nativo
-  ok = setNativeValue(endEl, addr);
-  await sleep(80);
-  if (String(endEl.value || "").trim()) return true;
+  // Digita sem blur no fim — precisa da lista aberta
+  endEl.focus?.();
+  const setter = Object.getOwnPropertyDescriptor(
+    HTMLInputElement.prototype,
+    "value"
+  )?.set;
+  let cur = "";
+  for (const ch of String(addr)) {
+    cur += ch;
+    const tracker = endEl._valueTracker;
+    if (tracker) {
+      try {
+        tracker.setValue(cur.slice(0, -1));
+      } catch {
+        /* ignore */
+      }
+    }
+    if (setter) setter.call(endEl, cur);
+    else endEl.value = cur;
+    endEl.dispatchEvent(
+      new InputEvent("input", {
+        bubbles: true,
+        data: ch,
+        inputType: "insertText",
+      })
+    );
+    await sleep(35);
+  }
+  await sleep(500);
 
-  // Digita de novo mais lento
-  await typeChars(endEl, addr);
-  await sleep(100);
+  // Autocomplete Places / LATAM — escolher sugestão
+  let picked = await pickAddressSuggestion(addr);
+  if (!picked) {
+    endEl.dispatchEvent(
+      new KeyboardEvent("keydown", {
+        key: "ArrowDown",
+        code: "ArrowDown",
+        bubbles: true,
+        cancelable: true,
+      })
+    );
+    await sleep(120);
+    endEl.dispatchEvent(
+      new KeyboardEvent("keydown", {
+        key: "Enter",
+        code: "Enter",
+        bubbles: true,
+        cancelable: true,
+      })
+    );
+    await sleep(250);
+    picked = Boolean(String(endEl.value || "").trim());
+  }
+
+  if (!String(endEl.value || "").trim()) {
+    await typeChars(endEl, addr);
+    await sleep(400);
+    await pickAddressSuggestion(addr);
+  }
+
+  // Blur só depois de escolher
+  endEl.dispatchEvent(new Event("change", { bubbles: true }));
+  endEl.dispatchEvent(new Event("blur", { bubbles: true }));
+  await sleep(120);
+
+  const value = String(endEl.value || "").trim();
   console.info("[TradeMiles] endereço fill", {
-    ok,
-    value: endEl.value,
+    value,
+    picked,
     name: endEl.name,
     testid: endEl.getAttribute("data-testid"),
+    autocomplete: endEl.getAttribute("autocomplete"),
   });
-  return Boolean(String(endEl.value || "").trim());
+  return Boolean(value);
 }
 
 function cardFormOpen() {
@@ -621,12 +804,53 @@ async function selectEstado(estadoEl, resolved) {
   return false;
 }
 
+async function fillPanOnce(panEl, pan) {
+  if (!panEl || !pan) return false;
+  const digits = String(pan).replace(/\D/g, "");
+  if (digits.length < 13) return false;
+
+  const current = String(panEl.value || "").replace(/\D/g, "");
+  // Já preenchido corretamente — não digita de novo (evita PAN duplicado)
+  if (current === digits) return true;
+  if (
+    current.length >= digits.length &&
+    current.endsWith(digits.slice(-4)) &&
+    current.includes(digits.slice(0, 6))
+  ) {
+    return true;
+  }
+
+  await clearInputHard(panEl);
+  await typeChars(panEl, digits, { clear: false });
+  await sleep(80);
+
+  let after = String(panEl.value || "").replace(/\D/g, "");
+  // Se grudou em dobro, limpa e tenta 1x
+  if (after.length >= digits.length * 2 - 2) {
+    console.warn("[TradeMiles] PAN duplicado detectado — limpando.", {
+      afterLen: after.length,
+      want: digits.length,
+    });
+    await clearInputHard(panEl);
+    await typeChars(panEl, digits, { clear: false });
+    after = String(panEl.value || "").replace(/\D/g, "");
+  }
+  return after === digits || after.endsWith(digits.slice(-4));
+}
+
 async function fillCard(card) {
-  const cardRoot = findSectionByHeading(/número do cartão|numero do cartao/i);
+  const cardRoot =
+    findSectionByHeading(/número do cartão|numero do cartao/i) || document.body;
 
   if (card.pan) {
-    const panEl = findField(cardRoot, ["numero do cartao", "número do cartão"]);
-    if (panEl) await typeChars(panEl, String(card.pan).replace(/\D/g, ""));
+    const panEl =
+      findField(cardRoot, ["numero do cartao", "número do cartão"], {
+        excludeWords: ["cpf", "documento", "telefone"],
+      }) ||
+      findField(document.body, ["numero do cartao", "número do cartão"], {
+        excludeWords: ["cpf", "documento", "telefone", "cobranca"],
+      });
+    if (panEl) await fillPanOnce(panEl, card.pan);
   }
 
   // Campo único "Nome e sobrenome" do cartão — nome completo
@@ -636,7 +860,11 @@ async function fillCard(card) {
       excludeWords: ["cobranca", "cobrança", "nome s", "sobrenome s"],
     });
   if (holderEl && card.holderName) {
-    await typeChars(holderEl, card.holderName.trim());
+    const want = card.holderName.trim();
+    const cur = String(holderEl.value || "").trim();
+    if (normalizeLabel(cur) !== normalizeLabel(want)) {
+      await typeChars(holderEl, want);
+    }
   }
 
   const expEl =
@@ -939,25 +1167,28 @@ async function fillBilling(card) {
     );
   }
 
-  // CEP primeiro (às vezes a LATAM libera o endereço depois), depois rua
+  // Estado / cidade / CEP primeiro
   await fillEstado();
   await sleep(150);
   await fillCidade();
   await fillCep();
+  await fillComplemento();
+  await sleep(250);
+
+  // Endereço por último (autocomplete Places) — CEP/estado às vezes limpam a rua
+  await fillAddressField(addr);
   await sleep(350);
-  await fillAddressField(addr);
-  await fillComplemento();
-  await sleep(300);
-  // Reaplica — CEP às vezes limpa a rua
-  await fillEstado();
-  await fillCidade();
-  await fillAddressField(addr);
-  await fillComplemento();
+  // Se ainda vazio, tenta de novo
+  const endCheck = findAddressInput();
+  if (addr && endCheck && !String(endCheck.value || "").trim()) {
+    await fillAddressField(addr);
+  }
 
   const endEl = findAddressInput();
   console.info("[TradeMiles] cobrança", {
     addr,
     street: card.street,
+    district: card.district,
     city: card.city,
     state: resolved?.name || card.state,
     zip: card.zip,
@@ -978,39 +1209,56 @@ function ensureFab() {
   document.documentElement.appendChild(btn);
 }
 
+let fillRunning = false;
+
 async function runFill() {
   ensureFab();
   if (/passageiros/i.test(location.pathname)) return;
-
-  const res = await chrome.runtime.sendMessage({ type: "TM_GET_FILL_PAYLOAD" });
-  if (!res?.ok || !res.data?.useExtension) {
-    console.info("[TradeMiles] Extensão desligada ou sem sessão.");
+  if (fillRunning) {
+    console.info("[TradeMiles] Preenchimento já em andamento — ignorando clique extra.");
     return;
   }
-  const card = res.data.paymentCard;
-  if (!card) {
-    console.info("[TradeMiles] Sem cartão na sessão.");
-    return;
-  }
-  if (card.error) {
-    console.warn("[TradeMiles]", card.error);
-  }
+  fillRunning = true;
+  try {
+    const res = await chrome.runtime.sendMessage({ type: "TM_GET_FILL_PAYLOAD" });
+    if (!res?.ok || !res.data?.useExtension) {
+      console.info("[TradeMiles] Extensão desligada ou sem sessão.");
+      return;
+    }
+    const card = res.data.paymentCard;
+    if (!card) {
+      console.info("[TradeMiles] Sem cartão na sessão.");
+      return;
+    }
+    if (card.error) {
+      console.warn("[TradeMiles]", card.error);
+    }
+    if (!card.street && !card.district) {
+      console.warn(
+        "[TradeMiles] Cartão sem rua cadastrada — o Endereço na LATAM ficará vazio. Salve a rua em Dados de pagamento."
+      );
+    }
 
-  await sleep(500);
-  const opened = await openAddCard();
-  if (!opened) {
-    console.info("[TradeMiles] Abra Adicionar cartão e clique Preencher cartão TM.");
-    return;
+    await sleep(500);
+    const opened = await openAddCard();
+    if (!opened) {
+      console.info(
+        "[TradeMiles] Abra Adicionar cartão e clique Preencher cartão TM."
+      );
+      return;
+    }
+
+    await sleep(400);
+    await fillCard(card);
+    await sleep(200);
+    await fillBilling(card);
+
+    console.info(
+      "[TradeMiles] Preenchido. Digite o CVV e confira endereço / validade."
+    );
+  } finally {
+    fillRunning = false;
   }
-
-  await sleep(400);
-  await fillCard(card);
-  await sleep(200);
-  await fillBilling(card);
-
-  console.info(
-    "[TradeMiles] Preenchido. Digite o CVV e confira estado / validade."
-  );
 }
 
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
