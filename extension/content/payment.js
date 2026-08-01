@@ -250,11 +250,137 @@ function splitHolder(name) {
 function addressLine(card) {
   const street = String(card.street || "").trim();
   const number = String(card.number || "").trim();
-  if (!street) return number;
+  const complement = String(card.complement || "").trim();
+  if (!street) return number || "";
   // Se a rua já termina com número, não concatena de novo
   if (/\d+\s*$/.test(street) || !number) return street;
   if (street.toLowerCase().includes(number.toLowerCase())) return street;
   return `${street} ${number}`.trim();
+}
+
+/**
+ * LATAM: label "Endereço" + helper "Exatamente como aparece em seu banco".
+ * NÃO usar findField genérico com exclude email — o meta do pai inclui Email e pulava o campo.
+ */
+function findAddressInput() {
+  const byAc = findByAutocomplete(document.body, [
+    "street-address",
+    "address-line1",
+  ]);
+  if (byAc && isVisible(byAc)) return byAc;
+
+  // Helper text característico da LATAM
+  const helpers = Array.from(
+    document.querySelectorAll("span, p, div, label, small")
+  ).filter((el) =>
+    /exatamente como aparece em seu banco/i.test(textOf(el))
+  );
+  for (const h of helpers) {
+    let p = h.parentElement;
+    for (let i = 0; i < 6 && p; i++) {
+      const input = [...p.querySelectorAll("input:not([type=hidden])")].find(
+        (inp) => {
+          if (!isVisible(inp)) return false;
+          const meta = normalizeLabel(fieldMeta(inp));
+          // evita pegar e-mail/cep no mesmo card
+          if (meta.includes("email") || meta.includes("e-mail")) return false;
+          if (meta.includes("codigo postal") || meta.includes("cep")) return false;
+          if (meta.includes("apartamento")) return false;
+          return true;
+        }
+      );
+      if (input) return input;
+      p = p.parentElement;
+    }
+  }
+
+  // Label exato "Endereço"
+  for (const lab of document.querySelectorAll("label, span, p, div, legend")) {
+    const t = normalizeLabel(textOf(lab));
+    if (t !== "endereco" && !/^endereco\b/.test(t)) continue;
+    if (t.length > 40) continue;
+    if (t.includes("email") || t.includes("e-mail")) continue;
+
+    const wrap =
+      lab.closest("div, fieldset, label, section") || lab.parentElement;
+    if (!wrap) continue;
+    const input = [...wrap.querySelectorAll("input:not([type=hidden]), textarea")].find(
+      (inp) => isVisible(inp)
+    );
+    if (input) {
+      const meta = normalizeLabel(fieldMeta(input));
+      if (meta.includes("email") && !meta.includes("endereco")) continue;
+      return input;
+    }
+    // input seguinte no DOM
+    let sib = lab.nextElementSibling;
+    for (let i = 0; i < 5 && sib; i++) {
+      if (sib.matches?.("input, textarea") && isVisible(sib)) return sib;
+      const inner = sib.querySelector?.("input, textarea");
+      if (inner && isVisible(inner)) return inner;
+      sib = sib.nextElementSibling;
+    }
+  }
+
+  // Fallback: entre email e apartamento/cidade na ordem visual
+  const inputs = [
+    ...document.querySelectorAll(
+      "input:not([type=hidden]):not([type=checkbox]):not([type=radio])"
+    ),
+  ].filter(isVisible);
+  const emailIdx = inputs.findIndex((el) => {
+    const m = normalizeLabel(fieldMeta(el));
+    return m.includes("email") || m.includes("e-mail");
+  });
+  const aptIdx = inputs.findIndex((el) => {
+    const m = normalizeLabel(fieldMeta(el));
+    return m.includes("apartamento") || m.includes("escritorio");
+  });
+  if (emailIdx >= 0) {
+    const start = emailIdx + 1;
+    const end = aptIdx > emailIdx ? aptIdx : Math.min(emailIdx + 3, inputs.length);
+    for (let i = start; i < end; i++) {
+      const m = normalizeLabel(fieldMeta(inputs[i]));
+      if (m.includes("cpf") || m.includes("nascimento")) continue;
+      if (inputs[i].type === "email") continue;
+      return inputs[i];
+    }
+  }
+
+  return null;
+}
+
+async function fillAddressField(addr) {
+  if (!addr) return false;
+  const endEl = findAddressInput();
+  if (!endEl) {
+    console.warn("[TradeMiles] Campo Endereço não encontrado.");
+    return false;
+  }
+
+  endEl.scrollIntoView?.({ block: "center" });
+  realClick(endEl);
+  await sleep(80);
+
+  let ok = await fillInput(endEl, addr);
+  await sleep(100);
+  if (String(endEl.value || "").trim()) return true;
+
+  // Força valor nativo
+  ok = setNativeValue(endEl, addr);
+  await sleep(80);
+  if (String(endEl.value || "").trim()) return true;
+
+  // Digita de novo mais lento
+  await typeChars(endEl, addr);
+  await sleep(100);
+  console.info("[TradeMiles] endereço fill", {
+    ok,
+    value: endEl.value,
+    name: endEl.name,
+    testid: endEl.getAttribute("data-testid"),
+  });
+  return Boolean(String(endEl.value || "").trim());
 }
 
 function cardFormOpen() {
@@ -782,19 +908,6 @@ async function fillBilling(card) {
     return cityEl ? fillInput(cityEl, card.city) : false;
   }
 
-  async function fillEndereco() {
-    if (!addr) return false;
-    const endEl =
-      findBillingField(billRoot, ["endereco", "endereço"], {
-        excludeWords: ["email", "e-mail"],
-      }) ||
-      findByAutocomplete(document.body, [
-        "street-address",
-        "address-line1",
-      ]);
-    return endEl ? fillInput(endEl, addr) : false;
-  }
-
   async function fillComplemento() {
     if (!card.complement) return false;
     const compEl =
@@ -820,25 +933,36 @@ async function fillBilling(card) {
       : false;
   }
 
-  // Ordem estável: localização → rua → CEP (e re-preenche rua/cidade se o CEP limpar)
+  if (!addr) {
+    console.warn(
+      "[TradeMiles] Cartão sem rua/endereço cadastrado. Preencha em Dados de pagamento."
+    );
+  }
+
+  // CEP primeiro (às vezes a LATAM libera o endereço depois), depois rua
   await fillEstado();
   await sleep(150);
   await fillCidade();
-  await fillEndereco();
-  await fillComplemento();
   await fillCep();
-  await sleep(400);
-  // Reaplica endereço/cidade/estado — CEP da LATAM às vezes apaga ou não completa
+  await sleep(350);
+  await fillAddressField(addr);
+  await fillComplemento();
+  await sleep(300);
+  // Reaplica — CEP às vezes limpa a rua
   await fillEstado();
   await fillCidade();
-  await fillEndereco();
+  await fillAddressField(addr);
   await fillComplemento();
 
+  const endEl = findAddressInput();
   console.info("[TradeMiles] cobrança", {
     addr,
+    street: card.street,
     city: card.city,
     state: resolved?.name || card.state,
     zip: card.zip,
+    enderecoValue: endEl?.value || null,
+    foundEndereco: Boolean(endEl),
   });
 }
 
