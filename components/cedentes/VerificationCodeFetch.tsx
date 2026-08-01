@@ -6,7 +6,7 @@ import { cn } from "@/lib/cn";
 
 type Program = "LATAM" | "SMILES";
 
-const CODE_LOOKBACK_MS = 15 * 60 * 1000;
+const CODE_LOOKBACK_MS = 3 * 60 * 1000;
 const POLL_MS = 8_000;
 
 function programLabel(p: Program) {
@@ -134,7 +134,7 @@ export function VerificationCodeFetch({
           </div>
           <p className="mt-1 text-xs text-slate-600">
             Busca na caixa da empresa ({programLabel(program)}), inclusive
-            ENC/Fwd do Outlook — últimos 15 min.
+            ENC/Fwd do Outlook — últimos 3 min.
           </p>
         </div>
         <button
