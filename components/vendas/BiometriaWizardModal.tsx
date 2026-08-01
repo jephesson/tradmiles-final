@@ -44,7 +44,10 @@ type Creds = {
 type Step = "creds" | "code" | "search" | "extension" | "bio" | "order";
 type TripKind = "IDA" | "IDA_VOLTA";
 
-const LATAM_SITE_URL =
+/** Link curto para a mensagem do cedente. */
+const LATAM_SITE_URL = "https://www.latamairlines.com/br/pt";
+/** Tela de login — só para o atendente abrir/copiar. */
+const LATAM_LOGIN_URL =
   "https://auth.latamairlines.com/u/login/identifier?state=hKFo2SBKT1dOMEF1ZXhiZkViU3hjNWJMOHVkTkFuMDFwOVljQ6Fur3VuaXZlcnNhbC1sb2dpbqN0aWTZIEpCSDM5WlBHb25VLUZVTzVKOFlkRXhySWdOVEFNRDcyo2NpZNkgUDVOSzdzam44MlNiamNaNHMyWmwzWTRhNXd2MmFzQkk&ui_locales=pt";
 const SMILES_SITE_URL = "https://www.smiles.com.br";
 
@@ -141,8 +144,14 @@ function buildWhatsAppUrlFromContact(contact: WhatsAppContact, message: string) 
   return `${base}${sep}text=${encodeURIComponent(message)}`;
 }
 
+/** Link na mensagem WhatsApp (curto, amigável). */
 function siteUrl(program: Program) {
   return program === "SMILES" ? SMILES_SITE_URL : LATAM_SITE_URL;
+}
+
+/** Link que o atendente abre/copia (login direto na LATAM). */
+function openSiteUrl(program: Program) {
+  return program === "SMILES" ? SMILES_SITE_URL : LATAM_LOGIN_URL;
 }
 
 function programLabel(program: Program) {
@@ -727,20 +736,25 @@ export default function BiometriaWizardModal({
                 </div>
               )}
 
-              <div className="mt-3 break-all rounded-xl border border-slate-200 bg-white px-3 py-2 font-mono text-[11px] text-slate-800">
-                {siteUrl(program)}
-              </div>
-              <div className="mt-2 flex flex-wrap gap-2">
+              <div className="mt-3 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => void copyText(openSiteUrl(program))}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[11px] font-medium hover:bg-slate-50"
+                >
+                  <Copy className="h-3.5 w-3.5" aria-hidden />
+                  Copiar link
+                </button>
                 <button
                   type="button"
                   onClick={() => {
                     markCodeWatch();
-                    window.open(siteUrl(program), "_blank", "noopener,noreferrer");
+                    window.open(openSiteUrl(program), "_blank", "noopener,noreferrer");
                   }}
                   className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[11px] font-medium hover:bg-slate-50"
                 >
                   <ExternalLink className="h-3.5 w-3.5" aria-hidden />
-                  Abrir site {programLabel(program)}
+                  Abrir link
                 </button>
               </div>
 
