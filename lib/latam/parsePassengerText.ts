@@ -509,29 +509,29 @@ function parseFreeformBlock(block: string): ParsedPassenger | null {
     if (!birthDate) {
       birthDate = parseDateFromText(line);
     }
-    const dateM = line.match(DATE_RE);
 
-    // Todos os grupos de dígitos longos na linha
-    const digitChunks = line.match(/\d[\d.\-\s()]{7,}\d/g) || [];
-    for (const chunk of digitChunks) {
-      const dig = onlyDigits(chunk);
-      if (dig.length < 10 || dig.length > 13) continue;
-      // Pula se for a data já capturada
-      if (dateM && onlyDigits(`${dateM[1]}${dateM[2]}${dateM[3]}`) === dig) {
-        continue;
-      }
-      const labeledPhone = /\b(tel|cel|fone|whats|whatsapp|zap|wpp)\b/i.test(
-        line
-      );
-      const labeledCpf = /\b(cpf|c\.?p\.?f\.?|documento|rg|doc)\b/i.test(line);
+    const labeledPhone = /\b(tel|cel|fone|whats|whatsapp|zap|wpp)\b/i.test(line);
+    const labeledCpf = /\b(cpf|c\.?p\.?f\.?|documento|rg|doc)\b/i.test(line);
+
+    // CPFs formatados / 11 dígitos — sem misturar com a data na mesma linha
+    for (const dig of extractCpfCandidatesFromLine(line)) {
       const kind = classifyDigits(dig, {
         alreadyHasCpf: Boolean(cpf),
         labeledAs: labeledPhone ? "phone" : labeledCpf ? "cpf" : null,
-        preferCpf: nameCandidates.length > 0,
+        preferCpf: nameCandidates.length > 0 || labeledCpf,
       });
-      if (kind === "cpf" && !cpf) cpf = onlyDigits(dig).slice(-11);
+      if (kind === "cpf" && !cpf) cpf = dig;
       else if (kind === "phone" && !phone) {
-        phone = normalizePhone(dig) || onlyDigits(dig).replace(/^55/, "");
+        phone = normalizePhone(dig) || dig.replace(/^55/, "");
+      }
+    }
+
+    // Telefone com máscara (não CPF)
+    if (!phone && !labeledCpf) {
+      const phoneM = line.match(PHONE_CANDIDATE_RE);
+      if (phoneM) {
+        const p = normalizePhone(phoneM[0]);
+        if (p && !isValidCpf(p)) phone = p;
       }
     }
   }
@@ -693,27 +693,51 @@ function splitBlockByNames(block: string): string[] {
  * "Isabella Angelis 08/07/82 719.122.311-15 Ovidio Angelis 14/11/44 ..."
  */
 function explodeDensePassengerLine(text: string): string | null {
+  // Já bem estruturado em linhas → não remistura
+  const lineCount = text.split(/\n/).filter((l) => l.trim()).length;
+  if (lineCount >= 6) return null;
+
   const compact = text.replace(/\s+/g, " ").trim();
-  // Precisa de pelo menos 2 datas OU 2 CPFs para valer a pena
   const dates = [...compact.matchAll(new RegExp(DATE_RE.source, "g"))];
-  const cpfs = [
-    ...compact.matchAll(/\b\d{3}\.?\d{3}\.?\d{3}-?\d{2}\b/g),
-    ...compact.matchAll(/\b\d{11}\b/g),
-  ];
+  const cpfs = [...compact.matchAll(/\b\d{3}\.?\d{3}\.?\d{3}-?\d{2}\b/g)];
   if (dates.length < 2 && cpfs.length < 2) return null;
 
-  // Insere quebra antes de cada nome que precede data/CPF
-  // Estratégia: quebrar antes de sequência "Palavra Palavra dd/mm"
   let out = compact;
+  // Nome + data → linhas separadas
   out = out.replace(
     /([A-Za-zÀ-ÿ]{2,}(?:\s+[A-Za-zÀ-ÿ]{2,}){1,5})\s+(\d{1,2}[\/\-.]\d{1,2}[\/\-.]\d{2,4})/g,
     "\n$1\n$2"
   );
+  // Data + CPF → linhas separadas (evita blob 080782719…)
+  out = out.replace(
+    /(\d{1,2}[\/\-.]\d{1,2}[\/\-.]\d{2,4})\s+(CPF\s*)?(\d{3}\.?\d{3}\.?\d{3}-?\d{2}|\d{11})/gi,
+    "$1\n$2$3"
+  );
+  // Nome + CPF (sem data na frente)
   out = out.replace(
     /([A-Za-zÀ-ÿ]{2,}(?:\s+[A-Za-zÀ-ÿ]{2,}){1,5})\s+(CPF\s*)?(\d{3}\.?\d{3}\.?\d{3}-?\d{2}|\d{11})/gi,
     "\n$1\n$2$3"
   );
+  // CPF + data (caso Camila)
+  out = out.replace(
+    /(\d{3}\.?\d{3}\.?\d{3}-?\d{2}|\d{11})\s+(\d{1,2}[\/\-.]\d{1,2}[\/\-.]\d{2,4})/g,
+    "$1\n$2"
+  );
   return out.includes("\n") ? out : null;
+}
+
+/** Extrai candidatos a CPF numa linha sem misturar com a data. */
+function extractCpfCandidatesFromLine(line: string): string[] {
+  const out: string[] = [];
+  // Remove datas da linha antes de caçar CPF
+  const withoutDates = line.replace(DATE_RE, " ");
+  for (const m of withoutDates.matchAll(/\b\d{3}\.?\d{3}\.?\d{3}-?\d{2}\b/g)) {
+    out.push(onlyDigits(m[0]));
+  }
+  for (const m of withoutDates.matchAll(/\b\d{11}\b/g)) {
+    out.push(m[0]);
+  }
+  return [...new Set(out.filter((d) => d.length === 11))];
 }
 
 function splitIntoBlocks(text: string): string[] {
