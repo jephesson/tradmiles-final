@@ -10,9 +10,12 @@ import {
   RefreshCw,
   SkipForward,
 } from "lucide-react";
+import Link from "next/link";
 import { cn } from "@/lib/cn";
+import { getSession } from "@/lib/auth";
 import { buildWhatsAppLink } from "@/lib/whatsapp";
 import { EmailNaoSincronizadoAviso } from "@/components/cedentes/EmailNaoSincronizadoAviso";
+import { parsePassengerText } from "@/lib/latam/parsePassengerText";
 
 type Program = "LATAM" | "SMILES";
 
@@ -216,6 +219,32 @@ export default function BiometriaWizardModal({
   const [searchChd, setSearchChd] = useState(0);
   const [searchInf, setSearchInf] = useState(0);
 
+  /** Extensão LATAM — logo após gerar o link de pesquisa. */
+  const [useLatamExtension, setUseLatamExtension] = useState(false);
+  const [latamPassengerText, setLatamPassengerText] = useState("");
+  const [latamPaymentCards, setLatamPaymentCards] = useState<
+    Array<{
+      id: string;
+      label: string;
+      last4: string;
+      isDefaultBoarding: boolean;
+      isCompany: boolean;
+      userId: string | null;
+    }>
+  >([]);
+  const [latamPaymentCardId, setLatamPaymentCardId] = useState("");
+  const [latamCardOwnerId, setLatamCardOwnerId] = useState("");
+  const [latamEmployees, setLatamEmployees] = useState<
+    Array<{ id: string; name: string; login: string }>
+  >([]);
+  const [latamExtSyncing, setLatamExtSyncing] = useState(false);
+  const [latamExtMsg, setLatamExtMsg] = useState<string | null>(null);
+
+  const latamParsedPassengers = useMemo(
+    () => (useLatamExtension ? parsePassengerText(latamPassengerText) : []),
+    [useLatamExtension, latamPassengerText]
+  );
+
   const cpf = creds?.cpf || "";
   const email = creds?.programEmail || creds?.email || "";
   const programPass = creds?.programPassword || creds?.senhaPrograma || "";
@@ -318,6 +347,10 @@ export default function BiometriaWizardModal({
     setSearchAdt(Math.max(1, Math.min(9, Math.floor(initialAdults) || 1)));
     setSearchChd(Math.max(0, Math.min(9, Math.floor(initialChildren) || 0)));
     setSearchInf(Math.max(0, Math.min(9, Math.floor(initialInfants) || 0)));
+    setUseLatamExtension(false);
+    setLatamPassengerText("");
+    setLatamPaymentCardId("");
+    setLatamExtMsg(null);
   }, [
     open,
     cedenteId,
@@ -417,6 +450,92 @@ export default function BiometriaWizardModal({
   function goAfterCode() {
     if (program === "LATAM") setStep("search");
     else finish({ purchaseCode: null, skippedOrder: true });
+  }
+
+  async function loadLatamPaymentCards(ownerId?: string) {
+    try {
+      const me = getSession()?.id || "";
+      const uid = ownerId || latamCardOwnerId || me;
+      if (!latamCardOwnerId && me) setLatamCardOwnerId(me);
+      const qs = uid ? `?userId=${encodeURIComponent(uid)}` : "";
+      const res = await fetch(`/api/funcionarios/payment-cards${qs}`, {
+        cache: "no-store",
+      });
+      const json = await res.json().catch(() => null);
+      if (!res.ok || !json?.ok) return;
+      const list = Array.isArray(json.data) ? json.data : [];
+      setLatamPaymentCards(list);
+      setLatamPaymentCardId((prev) => {
+        if (prev && list.some((c: { id: string }) => c.id === prev)) return prev;
+        const def = list.find(
+          (c: {
+            isDefaultBoarding: boolean;
+            isCompany: boolean;
+            userId: string | null;
+          }) => c.isDefaultBoarding && !c.isCompany && (!uid || c.userId === uid)
+        );
+        return (
+          def?.id ||
+          list.find((c: { isCompany: boolean }) => !c.isCompany)?.id ||
+          list[0]?.id ||
+          ""
+        );
+      });
+    } catch {
+      /* ignore */
+    }
+  }
+
+  async function loadLatamEmployeesForCards() {
+    try {
+      const res = await fetch("/api/funcionarios", { cache: "no-store" });
+      const json = await res.json().catch(() => null);
+      if (!res.ok || !json?.ok) return;
+      const list = (Array.isArray(json.data) ? json.data : [])
+        .filter((u: { isActive?: boolean }) => u.isActive !== false)
+        .map((u: { id: string; name: string; login: string }) => ({
+          id: u.id,
+          name: u.name,
+          login: u.login,
+        }));
+      setLatamEmployees(list);
+      const me = getSession()?.id || "";
+      if (me) setLatamCardOwnerId((prev) => prev || me);
+    } catch {
+      /* ignore */
+    }
+  }
+
+  async function syncLatamExtensionSession(nextUse?: boolean) {
+    const on = typeof nextUse === "boolean" ? nextUse : useLatamExtension;
+    setLatamExtSyncing(true);
+    setLatamExtMsg(null);
+    try {
+      const res = await fetch("/api/latam-extension/fill-session", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          useExtension: on,
+          passengerText: latamPassengerText,
+          paymentCardId: latamPaymentCardId || null,
+          saleHint: extractedOrderId || searchLink || null,
+        }),
+      });
+      const json = await res.json().catch(() => null);
+      if (!res.ok || !json?.ok) {
+        throw new Error(json?.error || "Falha ao sincronizar extensão.");
+      }
+      const n = json.data?.passengers?.length ?? 0;
+      setLatamExtMsg(
+        on
+          ? `Extensão pronta · ${n} passageiro(s). Abra a LATAM com a extensão.`
+          : "Extensão desligada nesta venda."
+      );
+    } catch (e) {
+      setLatamExtMsg(e instanceof Error ? e.message : "Erro ao sincronizar.");
+    } finally {
+      setLatamExtSyncing(false);
+    }
   }
 
   if (!open) return null;
@@ -911,6 +1030,140 @@ export default function BiometriaWizardModal({
                       <ExternalLink className="h-3.5 w-3.5" aria-hidden />
                       Abrir pesquisa LATAM
                     </button>
+                  </div>
+
+                  <div className="mt-4 rounded-xl border border-slate-200 bg-white p-3">
+                    <label className="flex items-center gap-2 text-sm font-semibold text-slate-800">
+                      <input
+                        type="checkbox"
+                        checked={useLatamExtension}
+                        onChange={(e) => {
+                          const on = e.target.checked;
+                          setUseLatamExtension(on);
+                          if (on) {
+                            void loadLatamEmployeesForCards();
+                            void loadLatamPaymentCards();
+                          } else void syncLatamExtensionSession(false);
+                        }}
+                      />
+                      Usar extensão LATAM
+                    </label>
+                    <p className="mt-1 text-[11px] text-slate-500">
+                      Opcional. Prepare os passageiros aqui, abra a LATAM e a
+                      extensão preenche (se estiver logado no TradeMiles).
+                    </p>
+
+                    {useLatamExtension ? (
+                      <div className="mt-3 space-y-3">
+                        <div>
+                          <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-600">
+                            Passageiros (colar texto)
+                          </div>
+                          <textarea
+                            className="mt-1 min-h-[100px] w-full rounded-lg border border-slate-200 px-3 py-2 text-xs outline-none focus:border-slate-300 focus:ring-2 focus:ring-slate-900/10"
+                            value={latamPassengerText}
+                            onChange={(e) =>
+                              setLatamPassengerText(e.target.value)
+                            }
+                            placeholder={
+                              "Cole nome, data, CPF, e-mail…\nUm passageiro por bloco (linha em branco entre eles)."
+                            }
+                          />
+                          {latamParsedPassengers.length > 0 ? (
+                            <ul className="mt-1.5 space-y-1 text-[11px] text-slate-600">
+                              {latamParsedPassengers.map((p, i) => (
+                                <li key={`${p.cpf || p.firstName}-${i}`}>
+                                  {i + 1}.{" "}
+                                  <b>
+                                    {p.firstName} {p.lastName}
+                                  </b>
+                                  {p.birthDateBR ? ` · ${p.birthDateBR}` : ""}
+                                  {p.cpf ? ` · CPF ${p.cpf}` : ""}
+                                </li>
+                              ))}
+                            </ul>
+                          ) : latamPassengerText.trim() ? (
+                            <p className="mt-1 text-[11px] text-amber-700">
+                              Não deu para organizar — confira o formato.
+                            </p>
+                          ) : null}
+                        </div>
+
+                        <div>
+                          <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-600">
+                            Cartão (taxa / pagamento)
+                          </div>
+                          {latamEmployees.length > 0 ? (
+                            <select
+                              className="mt-1 mb-1.5 h-9 w-full rounded-lg border border-slate-200 bg-white px-2 text-xs"
+                              value={latamCardOwnerId}
+                              onChange={(e) => {
+                                const id = e.target.value;
+                                setLatamCardOwnerId(id);
+                                setLatamPaymentCardId("");
+                                void loadLatamPaymentCards(id);
+                              }}
+                            >
+                              {latamEmployees.map((u) => (
+                                <option key={u.id} value={u.id}>
+                                  {u.name || u.login}
+                                  {u.id === getSession()?.id ? " (você)" : ""}
+                                </option>
+                              ))}
+                            </select>
+                          ) : null}
+                          <select
+                            className="mt-1 h-9 w-full rounded-lg border border-slate-200 bg-white px-2 text-xs"
+                            value={latamPaymentCardId}
+                            onChange={(e) =>
+                              setLatamPaymentCardId(e.target.value)
+                            }
+                          >
+                            <option value="">Sem cartão (só passageiros)</option>
+                            {latamPaymentCards.map((c) => (
+                              <option key={c.id} value={c.id}>
+                                {c.isCompany ? "Empresa · " : ""}
+                                {c.label} · •••• {c.last4}
+                                {c.isDefaultBoarding ? " (padrão taxa)" : ""}
+                              </option>
+                            ))}
+                          </select>
+                          {latamPaymentCards.length === 0 ? (
+                            <p className="mt-1 text-[11px] text-slate-500">
+                              Cadastre em{" "}
+                              <Link
+                                href="/dashboard/funcionarios/dados-pagamento"
+                                className="font-semibold text-sky-700 underline"
+                                target="_blank"
+                              >
+                                Dados de pagamento
+                              </Link>
+                              . CVV não é salvo.
+                            </p>
+                          ) : null}
+                        </div>
+
+                        <button
+                          type="button"
+                          disabled={latamExtSyncing}
+                          onClick={() => void syncLatamExtensionSession(true)}
+                          className="inline-flex h-9 items-center gap-2 rounded-lg bg-slate-900 px-3 text-xs font-semibold text-white disabled:opacity-60"
+                        >
+                          {latamExtSyncing ? (
+                            <Loader2
+                              className="h-3.5 w-3.5 animate-spin"
+                              aria-hidden
+                            />
+                          ) : null}
+                          Preparar extensão
+                        </button>
+                        {latamExtMsg ? (
+                          <p className="text-[11px] text-slate-600">
+                            {latamExtMsg}
+                          </p>
+                        ) : null}
+                      </div>
+                    ) : null}
                   </div>
                 </div>
               ) : (

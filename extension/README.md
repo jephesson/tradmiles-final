@@ -19,7 +19,7 @@ Preenche formulários na LATAM com dados vindos do TradeMiles (funcionário **lo
 
 ## Fluxo na venda
 
-1. Gere o link de pesquisa (wizard biometria)
+1. No wizard de biometria, após gerar o **link de pesquisa**
 2. Marque **Usar extensão LATAM**
 3. Cole o texto dos passageiros → **Preparar extensão**
 4. Abra a LATAM — passageiros e (se houver) cartão/endereço
