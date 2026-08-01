@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { CreditCard, Loader2, Plus, Trash2 } from "lucide-react";
 import { getSession } from "@/lib/auth";
 import { cn } from "@/lib/cn";
+import { BR_STATES } from "@/lib/payments/brStates";
 
 type Card = {
   id: string;
@@ -189,12 +190,27 @@ export default function DadosPagamentoClient() {
               <input className={cn(INPUT, "mt-1 font-mono")} value={pan} onChange={(e) => setPan(e.target.value)} inputMode="numeric" autoComplete="off" />
             </label>
             <label className="block text-xs font-semibold text-slate-600">
-              Mês
-              <input className={cn(INPUT, "mt-1")} value={expMonth} onChange={(e) => setExpMonth(e.target.value)} placeholder="MM" />
+              Validade (mês)
+              <input
+                className={cn(INPUT, "mt-1")}
+                value={expMonth}
+                onChange={(e) => setExpMonth(e.target.value.replace(/\D/g, "").slice(0, 2))}
+                placeholder="MM"
+                inputMode="numeric"
+              />
             </label>
             <label className="block text-xs font-semibold text-slate-600">
-              Ano
-              <input className={cn(INPUT, "mt-1")} value={expYear} onChange={(e) => setExpYear(e.target.value)} placeholder="AAAA" />
+              Validade (ano)
+              <input
+                className={cn(INPUT, "mt-1")}
+                value={expYear}
+                onChange={(e) => setExpYear(e.target.value.replace(/\D/g, "").slice(0, 4))}
+                placeholder="AAAA"
+                inputMode="numeric"
+              />
+              <span className="mt-0.5 block text-[10px] font-normal text-slate-400">
+                Na LATAM o vencimento vai como MM/AA
+              </span>
             </label>
             <label className="block text-xs font-semibold text-slate-600">
               CEP
@@ -213,8 +229,22 @@ export default function DadosPagamentoClient() {
               <input className={cn(INPUT, "mt-1")} value={city} onChange={(e) => setCity(e.target.value)} />
             </label>
             <label className="block text-xs font-semibold text-slate-600">
-              UF
-              <input className={cn(INPUT, "mt-1")} value={stateUf} onChange={(e) => setStateUf(e.target.value)} maxLength={2} />
+              Estado
+              <select
+                className={cn(INPUT, "mt-1")}
+                value={stateUf}
+                onChange={(e) => setStateUf(e.target.value)}
+              >
+                <option value="">Selecione</option>
+                {BR_STATES.map((s) => (
+                  <option key={s.uf} value={s.uf}>
+                    {s.name} ({s.uf})
+                  </option>
+                ))}
+              </select>
+              <span className="mt-0.5 block text-[10px] font-normal text-slate-400">
+                Na LATAM abre na lista suspensa pelo nome do estado
+              </span>
             </label>
           </div>
 
