@@ -15,7 +15,10 @@ import { cn } from "@/lib/cn";
 import { getSession } from "@/lib/auth";
 import { buildWhatsAppLink } from "@/lib/whatsapp";
 import { EmailNaoSincronizadoAviso } from "@/components/cedentes/EmailNaoSincronizadoAviso";
-import { parsePassengerText } from "@/lib/latam/parsePassengerText";
+import {
+  isValidCpf,
+  parsePassengerText,
+} from "@/lib/latam/parsePassengerText";
 
 type Program = "LATAM" | "SMILES";
 
@@ -526,9 +529,14 @@ export default function BiometriaWizardModal({
         throw new Error(json?.error || "Falha ao sincronizar extensão.");
       }
       const n = json.data?.passengers?.length ?? 0;
+      const badCpf = latamParsedPassengers.filter(
+        (p) => p.cpf && (p.cpfValid === false || !isValidCpf(p.cpf))
+      ).length;
       setLatamExtMsg(
         on
-          ? `Extensão pronta · ${n} passageiro(s). Abra a LATAM com a extensão.`
+          ? badCpf
+            ? `Extensão pronta · ${n} passageiro(s), mas ${badCpf} CPF incorreto — confira antes de emitir.`
+            : `Extensão pronta · ${n} passageiro(s). Abra a LATAM com a extensão.`
           : "Extensão desligada nesta venda."
       );
     } catch (e) {
@@ -1119,10 +1127,19 @@ export default function BiometriaWizardModal({
                       />
                       {latamParsedPassengers.length > 0 ? (
                         <ul className="mt-1.5 space-y-1.5 text-[11px] text-slate-600">
-                          {latamParsedPassengers.map((p, i) => (
+                          {latamParsedPassengers.map((p, i) => {
+                            const cpfOk =
+                              p.cpfValid !== false &&
+                              (!p.cpf || isValidCpf(p.cpf));
+                            const cpfBad = Boolean(p.cpf && !cpfOk);
+                            return (
                             <li
                               key={`${p.cpf || p.firstName}-${i}`}
-                              className="rounded-md bg-slate-50 px-2 py-1.5"
+                              className={
+                                cpfBad
+                                  ? "rounded-md border border-amber-200 bg-amber-50 px-2 py-1.5"
+                                  : "rounded-md bg-slate-50 px-2 py-1.5"
+                              }
                             >
                               <div>
                                 {i + 1}.{" "}
@@ -1140,14 +1157,31 @@ export default function BiometriaWizardModal({
                                   ? `Nasc ${p.birthDateBR}`
                                   : "Nasc —"}
                                 {" · "}
-                                {p.cpf ? `CPF ${p.cpf}` : "CPF —"}
+                                {p.cpf ? (
+                                  cpfBad ? (
+                                    <span className="font-semibold text-amber-800">
+                                      CPF {p.cpf} (incorreto)
+                                    </span>
+                                  ) : (
+                                    `CPF ${p.cpf}`
+                                  )
+                                ) : (
+                                  "CPF —"
+                                )}
                                 {" · "}
                                 {p.email || "e-mail —"}
                                 {" · "}
                                 {p.phone ? `Tel ${p.phone}` : "tel —"}
                               </div>
+                              {cpfBad ? (
+                                <div className="mt-1 text-[10px] font-semibold text-amber-800">
+                                  CPF inválido — confira os dígitos antes de
+                                  emitir. O valor não foi apagado.
+                                </div>
+                              ) : null}
                             </li>
-                          ))}
+                            );
+                          })}
                         </ul>
                       ) : latamPassengerText.trim() ? (
                         <p className="mt-1 text-[11px] text-amber-700">

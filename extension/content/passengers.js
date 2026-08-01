@@ -573,6 +573,22 @@ function cpfDigitsOnly(value) {
   return d.length === 11 ? d : d || null;
 }
 
+function isValidCpfDigits(raw) {
+  const cpf = String(raw || "").replace(/\D/g, "");
+  if (cpf.length !== 11) return false;
+  if (/^(\d)\1{10}$/.test(cpf)) return false;
+  let sum = 0;
+  for (let i = 0; i < 9; i++) sum += Number(cpf[i]) * (10 - i);
+  let d1 = (sum * 10) % 11;
+  if (d1 === 10) d1 = 0;
+  if (d1 !== Number(cpf[9])) return false;
+  sum = 0;
+  for (let i = 0; i < 10; i++) sum += Number(cpf[i]) * (11 - i);
+  let d2 = (sum * 10) % 11;
+  if (d2 === 10) d2 = 0;
+  return d2 === Number(cpf[10]);
+}
+
 function fillInSection(root, pax, kind) {
   let n = 0;
   const { firstName, lastName } = splitPassengerName(pax);
@@ -709,14 +725,28 @@ async function runFill({ manual } = {}) {
     result = await fillAll(passengers);
   }
 
+  const badCpfs = passengers.filter((p) => {
+    const cpf = cpfDigitsOnly(p.cpf);
+    if (!cpf) return false;
+    if (p.cpfValid === false) return true;
+    return !isValidCpfDigits(cpf);
+  });
+
   const ok = result.fields > 0;
-  showToast(
-    ok
-      ? `TradeMiles: ${result.fields} campo(s) · ${passengers.length} pax. Revise.`
-      : "TradeMiles: não achou os campos. Clique de novo em Preencher TradeMiles.",
-    ok
-  );
-  console.info("[TradeMiles] fill", { manual, result, passengers });
+  if (ok && badCpfs.length) {
+    showToast(
+      `TradeMiles: preenchido, mas CPF incorreto em ${badCpfs.length} pax — confira na LATAM.`,
+      false
+    );
+  } else {
+    showToast(
+      ok
+        ? `TradeMiles: ${result.fields} campo(s) · ${passengers.length} pax. Revise.`
+        : "TradeMiles: não achou os campos. Clique de novo em Preencher TradeMiles.",
+      ok
+    );
+  }
+  console.info("[TradeMiles] fill", { manual, result, passengers, badCpfs });
   return { ok, ...result, passengers: passengers.length };
 }
 

@@ -6,6 +6,8 @@ export type ParsedPassenger = {
   /** Formato LATAM: dd-mm-aaaa */
   birthDateLatam: string | null;
   cpf: string | null;
+  /** false = 11 dígitos mas checksum inválido (mantém o valor e avisa na UI) */
+  cpfValid: boolean | null;
   email: string | null;
   phone: string | null;
   gender: "M" | "F" | null;
@@ -44,10 +46,21 @@ export function isValidCpf(raw: string | null | undefined): boolean {
   return d2 === Number(cpf[10]);
 }
 
-function normalizeCpf(s: string | null | undefined): string | null {
+/** Mantém 11 dígitos mesmo com checksum inválido (para avisar, não apagar). */
+function extractCpfDigits(s: string | null | undefined): string | null {
   const d = onlyDigits(String(s || ""));
-  if (d.length !== 11) return null;
-  return isValidCpf(d) ? d : null;
+  return d.length === 11 ? d : null;
+}
+
+function withCpfMeta<T extends { cpf: string | null }>(
+  p: T
+): T & { cpfValid: boolean | null } {
+  const cpf = extractCpfDigits(p.cpf);
+  return {
+    ...p,
+    cpf,
+    cpfValid: cpf ? isValidCpf(cpf) : null,
+  };
 }
 
 /** Telefone BR: 10 (fixo) ou 11 (celular com 9). Remove 55. */
@@ -69,11 +82,18 @@ function normalizePhone(s: string | null | undefined): string | null {
  */
 function classifyDigits(
   digits: string,
-  opts: { alreadyHasCpf?: boolean; labeledAs?: "cpf" | "phone" | null } = {}
+  opts: {
+    alreadyHasCpf?: boolean;
+    labeledAs?: "cpf" | "phone" | null;
+    /** Já há nome no bloco → 11 dígitos inválidos preferem CPF (avisar) a telefone */
+    preferCpf?: boolean;
+  } = {}
 ): "cpf" | "phone" | null {
   const d = onlyDigits(digits);
   if (opts.labeledAs === "phone") {
-    return normalizePhone(d) || d.length === 10 || d.length === 11 ? "phone" : null;
+    return normalizePhone(d) || d.length === 10 || d.length === 11
+      ? "phone"
+      : null;
   }
   // Rotulado como CPF: aceita 11 dígitos mesmo se checksum falhar
   if (opts.labeledAs === "cpf") {
@@ -81,16 +101,19 @@ function classifyDigits(
   }
 
   if (isValidCpf(d)) {
-    // CPF válido que também parece celular: se já há CPF, trata como phone
     if (opts.alreadyHasCpf && normalizePhone(d)) return "phone";
     return "cpf";
   }
+  // CPF inválido (11 dígitos) mas contexto de passageiro → manter como CPF
+  if (d.length === 11 && opts.preferCpf && !opts.alreadyHasCpf) {
+    return "cpf";
+  }
   if (normalizePhone(d)) return "phone";
-  // 11 dígitos inválidos como CPF: quase sempre telefone no chat
   if (d.length === 11 || d.length === 10) {
     if (opts.alreadyHasCpf) return "phone";
-    // Prefere telefone se começa com DDD + 9
     if (d.length === 11 && d[2] === "9") return "phone";
+    // 11 dígitos que não parecem celular → CPF inválido (avisar)
+    if (d.length === 11) return "cpf";
   }
   return null;
 }
@@ -423,18 +446,18 @@ function parseLabeledBlock(block: string): ParsedPassenger | null {
 
   if (!firstName && !lastName && !cpf) return null;
 
-  return {
+  return withCpfMeta({
     firstName,
     lastName: lastName || firstName,
     birthDate,
     birthDateBR: toBRDate(birthDate),
     birthDateLatam: toLatamDate(birthDate),
-    cpf: cpf && isValidCpf(cpf) ? cpf : cpf,
+    cpf: extractCpfDigits(cpf),
     email,
     phone,
     gender: gender || guessGender(firstName),
     raw: block.trim(),
-  };
+  });
 }
 
 function parseFreeformBlock(block: string): ParsedPassenger | null {
@@ -449,6 +472,17 @@ function parseFreeformBlock(block: string): ParsedPassenger | null {
   let email: string | null = null;
   let phone: string | null = null;
   const nameCandidates: string[] = [];
+
+  for (const line of lines) {
+    const nameEarly = extractNameFromLine(line);
+    const tokens = nameEarly.split(/\s+/).filter(Boolean);
+    if (
+      tokens.length >= 2 ||
+      (tokens.length === 1 && tokens[0].length >= 3)
+    ) {
+      nameCandidates.push(nameEarly);
+    }
+  }
 
   for (const line of lines) {
     const labeled = line.match(LABELED_LINE_RE);
@@ -486,27 +520,26 @@ function parseFreeformBlock(block: string): ParsedPassenger | null {
       if (dateM && onlyDigits(`${dateM[1]}${dateM[2]}${dateM[3]}`) === dig) {
         continue;
       }
-      const labeledPhone = /\b(tel|cel|fone|whats|whatsapp)\b/i.test(line);
-      const labeledCpf = /\b(cpf|c\.?p\.?f\.?|documento|rg)\b/i.test(line);
+      const labeledPhone = /\b(tel|cel|fone|whats|whatsapp|zap|wpp)\b/i.test(
+        line
+      );
+      const labeledCpf = /\b(cpf|c\.?p\.?f\.?|documento|rg|doc)\b/i.test(line);
       const kind = classifyDigits(dig, {
         alreadyHasCpf: Boolean(cpf),
         labeledAs: labeledPhone ? "phone" : labeledCpf ? "cpf" : null,
+        preferCpf: nameCandidates.length > 0,
       });
       if (kind === "cpf" && !cpf) cpf = onlyDigits(dig).slice(-11);
       else if (kind === "phone" && !phone) {
         phone = normalizePhone(dig) || onlyDigits(dig).replace(/^55/, "");
       }
     }
-
-    const name = extractNameFromLine(line);
-    if (name && /[A-Za-z]{2,}/.test(name)) {
-      // Exige pelo menos 2 tokens OU 1 token se for a única linha com letras
-      const tokens = name.split(/\s+/).filter(Boolean);
-      if (tokens.length >= 2 || (tokens.length === 1 && tokens[0].length >= 3)) {
-        nameCandidates.push(name);
-      }
-    }
   }
+
+  // nomes sem duplicar (já coletamos no 1º loop)
+  const uniqueNames = [...new Set(nameCandidates)];
+  nameCandidates.length = 0;
+  nameCandidates.push(...uniqueNames);
 
   // Fallback: se sobrou só um número 11 dígitos e não classificamos
   if (!cpf && !phone) {
@@ -523,18 +556,18 @@ function parseFreeformBlock(block: string): ParsedPassenger | null {
 
   const { firstName, lastName } = splitName(fullName);
 
-  return {
+  return withCpfMeta({
     firstName,
     lastName,
     birthDate,
     birthDateBR: toBRDate(birthDate),
     birthDateLatam: toLatamDate(birthDate),
-    cpf,
+    cpf: extractCpfDigits(cpf),
     email,
     phone,
     gender: guessGender(firstName),
     raw: block.trim(),
-  };
+  });
 }
 
 function mergeParsed(
@@ -549,18 +582,18 @@ function mergeParsed(
     a.lastName && a.lastName !== a.firstName
       ? a.lastName
       : b.lastName || a.lastName;
-  return {
+  return withCpfMeta({
     firstName,
     lastName: lastName || firstName,
     birthDate,
     birthDateBR: toBRDate(birthDate),
     birthDateLatam: toLatamDate(birthDate),
-    cpf: a.cpf || b.cpf,
+    cpf: extractCpfDigits(a.cpf || b.cpf),
     email: a.email || b.email,
     phone: a.phone || b.phone,
     gender: a.gender || b.gender || guessGender(firstName),
     raw: a.raw || b.raw,
-  };
+  });
 }
 
 function parseBlock(block: string): ParsedPassenger | null {
@@ -690,10 +723,10 @@ function attachFloatingContacts(
   );
 
   // Contato no fim do Zap → 1º passageiro (comprador / contato)
-  const first = { ...passengers[0] };
+  const first = withCpfMeta({ ...passengers[0] });
   if (!first.email && freeEmails[0]) first.email = freeEmails[0];
   if (!first.phone && freePhones[0]) first.phone = freePhones[0];
-  return [first, ...passengers.slice(1)];
+  return [first, ...passengers.slice(1).map((p) => withCpfMeta(p))];
 }
 
 /**
@@ -711,14 +744,16 @@ export function parsePassengerText(raw: string): ParsedPassenger[] {
   const parsed = splitIntoBlocks(text)
     .map(parseBlock)
     .filter((p): p is ParsedPassenger =>
-      Boolean(p && (p.firstName || (p.cpf && isValidCpf(p.cpf))))
+      Boolean(p && (p.firstName || extractCpfDigits(p.cpf)))
     )
-    // Descarta "passageiro" que é só telefone disfarçado de CPF
+    // Descarta bloco que é só telefone (11 dígitos inválidos sem nome)
     .filter((p) => {
       if (p.firstName) return true;
-      if (p.cpf && isValidCpf(p.cpf)) return true;
+      if (p.cpf && p.cpfValid) return true;
+      // CPF inválido sozinho sem nome → provavelmente telefone; descarta
       return false;
-    });
+    })
+    .map((p) => withCpfMeta(p));
 
   return attachFloatingContacts(parsed, text);
 }
