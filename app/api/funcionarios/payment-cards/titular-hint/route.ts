@@ -11,9 +11,16 @@ function bad(error: string, status = 400) {
 
 function formatBirth(d: Date | null | undefined) {
   if (!d) return null;
-  const dd = String(d.getUTCDate()).padStart(2, "0");
-  const mm = String(d.getUTCMonth() + 1).padStart(2, "0");
-  const yyyy = String(d.getUTCFullYear());
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "America/Sao_Paulo",
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  }).formatToParts(d);
+  const dd = parts.find((p) => p.type === "day")?.value;
+  const mm = parts.find((p) => p.type === "month")?.value;
+  const yyyy = parts.find((p) => p.type === "year")?.value;
+  if (!dd || !mm || !yyyy) return null;
   return `${dd}/${mm}/${yyyy}`;
 }
 
