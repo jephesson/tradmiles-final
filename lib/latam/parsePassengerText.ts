@@ -65,13 +65,112 @@ function splitName(full: string) {
   };
 }
 
-function guessGender(name: string): "M" | "F" | null {
-  const first = name.trim().split(/\s+/)[0]?.toLowerCase() || "";
+/** Heurística simples pelo 1º nome (PT-BR) — só para pré-preencher sexo na LATAM. */
+export function guessGender(name: string): "M" | "F" | null {
+  const first = sanitizeLatamName(name).split(/\s+/)[0]?.toLowerCase() || "";
   if (!first) return null;
-  if (/(a|e)$/.test(first) && !/(lucas|nicolas|matheus|andre|jose|jose)$/.test(first)) {
-    if (/(a)$/.test(first)) return "F";
-  }
-  if (/(o)$/.test(first)) return "M";
+
+  const male = new Set([
+    "jose",
+    "jorge",
+    "andre",
+    "lucas",
+    "matheus",
+    "mateus",
+    "nicolas",
+    "nicholas",
+    "luca",
+    "noah",
+    "davi",
+    "david",
+    "gabriel",
+    "rafael",
+    "miguel",
+    "samuel",
+    "daniel",
+    "henrique",
+    "felipe",
+    "guilherme",
+    "alexandre",
+    "kaique",
+    "caique",
+    "isaac",
+    "isac",
+    "moises",
+    "juan",
+    "luan",
+    "bryan",
+    "ryan",
+    "ian",
+    "enzo",
+    "lorenzo",
+    "theo",
+    "heitor",
+    "arthur",
+    "artur",
+    "victor",
+    "vitor",
+    "pedro",
+    "paulo",
+    "carlos",
+    "marcos",
+    "luis",
+    "luiz",
+    "bruno",
+    "diego",
+    "tiago",
+    "thiago",
+    "igor",
+    "kevin",
+    "erick",
+    "eric",
+    "joao",
+    "wellington",
+    "washington",
+    "nicholas",
+  ]);
+  const female = new Set([
+    "alice",
+    "beatriz",
+    "raquel",
+    "isabel",
+    "isabelle",
+    "carmen",
+    "ingrid",
+    "lais",
+    "nicole",
+    "michele",
+    "michelle",
+    "irene",
+    "ivone",
+    "elis",
+    "heloise",
+    "louise",
+    "jennifer",
+    "kelly",
+    "yasmin",
+    "iasmin",
+    "milene",
+    "gisele",
+    "giselle",
+    "sheila",
+    "debora",
+    "deborah",
+    "ester",
+    "esther",
+    "ruth",
+    "rayssa",
+    "raissa",
+    "ingrid",
+    "laura",
+    "flavia",
+    "flavia",
+  ]);
+
+  if (female.has(first)) return "F";
+  if (male.has(first)) return "M";
+  if (first.endsWith("a")) return "F";
+  if (first.endsWith("o")) return "M";
   return null;
 }
 

@@ -65,7 +65,7 @@ export default function ExtensaoLatamClient() {
       <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
         <b>Não precisa</b> fechar o Chrome nem deslogar. Faça assim:
         <ol className="mt-2 list-decimal space-y-1 pl-5">
-          <li>Baixe o ZIP de novo (versão 0.1.6+).</li>
+          <li>Baixe o ZIP de novo (versão 0.1.7+).</li>
           <li>
             Em <code className="rounded bg-white/80 px-1">chrome://extensions</code>{" "}
             remova a extensão antiga → <b>Carregar sem compactação</b> na pasta

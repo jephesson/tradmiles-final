@@ -305,22 +305,139 @@ function fillBirthSplit(root, pax) {
   return n;
 }
 
+/** Heurística pelo 1º nome (igual ao parse do TradeMiles). */
+function guessGenderFromName(name) {
+  const first = sanitizeLatamName(name).split(/\s+/)[0]?.toLowerCase() || "";
+  if (!first) return null;
+  const male = new Set([
+    "jose",
+    "jorge",
+    "andre",
+    "lucas",
+    "matheus",
+    "mateus",
+    "nicolas",
+    "nicholas",
+    "luca",
+    "noah",
+    "davi",
+    "david",
+    "gabriel",
+    "rafael",
+    "miguel",
+    "samuel",
+    "daniel",
+    "henrique",
+    "felipe",
+    "guilherme",
+    "alexandre",
+    "kaique",
+    "caique",
+    "isaac",
+    "isac",
+    "moises",
+    "juan",
+    "luan",
+    "bryan",
+    "ryan",
+    "ian",
+    "enzo",
+    "lorenzo",
+    "theo",
+    "heitor",
+    "arthur",
+    "artur",
+    "victor",
+    "vitor",
+    "pedro",
+    "paulo",
+    "carlos",
+    "marcos",
+    "luis",
+    "luiz",
+    "bruno",
+    "diego",
+    "tiago",
+    "thiago",
+    "igor",
+    "kevin",
+    "erick",
+    "eric",
+    "joao",
+    "wellington",
+    "washington",
+  ]);
+  const female = new Set([
+    "alice",
+    "beatriz",
+    "raquel",
+    "isabel",
+    "isabelle",
+    "carmen",
+    "ingrid",
+    "lais",
+    "nicole",
+    "michele",
+    "michelle",
+    "irene",
+    "ivone",
+    "elis",
+    "heloise",
+    "louise",
+    "jennifer",
+    "kelly",
+    "yasmin",
+    "iasmin",
+    "milene",
+    "gisele",
+    "giselle",
+    "sheila",
+    "debora",
+    "deborah",
+    "ester",
+    "esther",
+    "ruth",
+    "rayssa",
+    "raissa",
+    "laura",
+    "flavia",
+  ]);
+  if (female.has(first)) return "F";
+  if (male.has(first)) return "M";
+  if (first.endsWith("a")) return "F";
+  if (first.endsWith("o")) return "M";
+  return null;
+}
+
 function selectGender(root, gender) {
-  if (!gender) return;
+  if (!gender) return false;
   const label = gender === "F" ? "Feminino" : "Masculino";
   const el = findFieldByWord(root, ["sexo"]);
-  if (!el) return;
+  if (!el) return false;
   if (el.tagName === "SELECT") {
-    setNativeValue(el, label);
-    return;
+    return setNativeValue(el, label);
   }
+  // Combobox / dropdown custom da LATAM
   el.click?.();
-  setTimeout(() => {
+  el.focus?.();
+  const tryClick = () => {
     const hit = Array.from(
-      document.querySelectorAll('[role="option"], li, button, span, div')
-    ).find((o) => normalizeLabel(textOf(o)) === normalizeLabel(label));
-    hit?.click?.();
-  }, 180);
+      document.querySelectorAll(
+        '[role="option"], li[role="option"], li, button, span, div'
+      )
+    ).find((o) => {
+      const t = normalizeLabel(textOf(o));
+      return t === normalizeLabel(label) || t === (gender === "F" ? "f" : "m");
+    });
+    if (hit) {
+      hit.click?.();
+      return true;
+    }
+    return false;
+  };
+  if (tryClick()) return true;
+  setTimeout(tryClick, 200);
+  return true;
 }
 
 function findPassengerSections() {
@@ -369,7 +486,11 @@ function fillInSection(root, pax, kind) {
   if (lastName && setNativeValue(sobEl, lastName)) n++;
 
   n += fillBirthSplit(root, pax);
-  selectGender(root, pax.gender || (firstName.endsWith("a") ? "F" : null));
+  const gender =
+    pax.gender === "F" || pax.gender === "M"
+      ? pax.gender
+      : guessGenderFromName(firstName);
+  if (gender && selectGender(root, gender)) n++;
 
   if (cpf && setNativeValue(findFieldByWord(root, ["cpf"]), cpf)) n++;
   if ((kind === "child" || kind === "infant") && cpf) {
