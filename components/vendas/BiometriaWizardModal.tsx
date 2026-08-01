@@ -1236,12 +1236,15 @@ export default function BiometriaWizardModal({
                               p.cpfValid !== false &&
                               (!p.cpf || isValidCpf(p.cpf));
                             const cpfBad = Boolean(p.cpf && !cpfOk);
+                            const cpfGen = Boolean(p.cpfGenerated);
                             return (
                             <li
                               key={`${p.cpf || p.firstName}-${i}`}
                               className={
                                 cpfBad
                                   ? "rounded-md border border-amber-200 bg-amber-50 px-2 py-1.5"
+                                  : cpfGen
+                                    ? "rounded-md border border-sky-200 bg-sky-50 px-2 py-1.5"
                                   : "rounded-md bg-slate-50 px-2 py-1.5"
                               }
                             >
@@ -1266,6 +1269,10 @@ export default function BiometriaWizardModal({
                                     <span className="font-semibold text-amber-800">
                                       CPF {p.cpf} (incorreto)
                                     </span>
+                                  ) : cpfGen ? (
+                                    <span className="font-semibold text-sky-800">
+                                      CPF {p.cpf} (gerado)
+                                    </span>
                                   ) : (
                                     `CPF ${p.cpf}`
                                   )
@@ -1281,6 +1288,12 @@ export default function BiometriaWizardModal({
                                 <div className="mt-1 text-[10px] font-semibold text-amber-800">
                                   CPF inválido — confira os dígitos antes de
                                   emitir. O valor não foi apagado.
+                                </div>
+                              ) : null}
+                              {cpfGen && !cpfBad ? (
+                                <div className="mt-1 text-[10px] font-semibold text-sky-800">
+                                  Documento sem CPF — geramos um aleatório.
+                                  Cliente altera no check-in.
                                 </div>
                               ) : null}
                             </li>

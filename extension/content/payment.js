@@ -602,11 +602,35 @@ async function openAddCard() {
   return cardFormOpen();
 }
 
-async function fillExpiry(el, card) {
+async function fillExpiry(el, card, panEl) {
   if (!el || !card?.expMonth || !card?.expYear) return false;
+  // Nunca digitar vencimento no campo do PAN (vira "só 4 dígitos" no cartão)
+  if (panEl && el === panEl) {
+    console.warn("[TradeMiles] Vencimento apontou para o campo do PAN — ignorando.");
+    return false;
+  }
+  const meta = normalizeLabel(
+    `${fieldMeta(el)} ${el.name || ""} ${el.placeholder || ""} ${el.getAttribute("data-testid") || ""}`
+  );
+  if (
+    (meta.includes("numero") && meta.includes("cartao")) ||
+    meta.includes("cardnumber") ||
+    meta.includes("pan")
+  ) {
+    console.warn("[TradeMiles] Campo de vencimento parece ser o PAN — ignorando.", meta);
+    return false;
+  }
+  if (
+    !/(vencimento|validade|expir|expmonth|exp\.?date|mm\s*\/?\s*aa|mm\s*\/?\s*yy)/i.test(
+      meta
+    )
+  ) {
+    console.warn("[TradeMiles] Campo não parece vencimento — ignorando.", meta);
+    return false;
+  }
+
   const mm = String(card.expMonth).padStart(2, "0");
   const yy = String(card.expYear).slice(-2);
-  // Máscara LATAM: digitar só os 4 dígitos
   await typeChars(el, `${mm}${yy}`);
   await sleep(80);
   const digits = String(el.value || "").replace(/\D/g, "");
@@ -616,7 +640,6 @@ async function fillExpiry(el, card) {
   ) {
     return true;
   }
-  // fallback
   return setNativeValue(el, `${mm}/${yy}`);
 }
 
@@ -808,13 +831,15 @@ async function fillPanOnce(panEl, pan) {
   if (!panEl || !pan) return false;
   const digits = String(pan).replace(/\D/g, "");
   if (digits.length < 13) return false;
+  const last4 = digits.slice(-4);
 
   const current = String(panEl.value || "").replace(/\D/g, "");
-  // Já preenchido corretamente — não digita de novo (evita PAN duplicado)
+  // Já preenchido / LATAM mascarou para os 4 finais — NÃO reescrever
   if (current === digits) return true;
+  if (current === last4) return true;
   if (
     current.length >= digits.length &&
-    current.endsWith(digits.slice(-4)) &&
+    current.endsWith(last4) &&
     current.includes(digits.slice(0, 6))
   ) {
     return true;
@@ -822,7 +847,7 @@ async function fillPanOnce(panEl, pan) {
 
   await clearInputHard(panEl);
   await typeChars(panEl, digits, { clear: false });
-  await sleep(80);
+  await sleep(120);
 
   let after = String(panEl.value || "").replace(/\D/g, "");
   // Se grudou em dobro, limpa e tenta 1x
@@ -835,20 +860,29 @@ async function fillPanOnce(panEl, pan) {
     await typeChars(panEl, digits, { clear: false });
     after = String(panEl.value || "").replace(/\D/g, "");
   }
-  return after === digits || after.endsWith(digits.slice(-4));
+  // Aceita máscara LATAM (só last4) como sucesso
+  return after === digits || after === last4 || after.endsWith(last4);
 }
 
 async function fillCard(card) {
   const cardRoot =
     findSectionByHeading(/número do cartão|numero do cartao/i) || document.body;
 
+  let panEl = null;
   if (card.pan) {
-    const panEl =
+    panEl =
       findField(cardRoot, ["numero do cartao", "número do cartão"], {
-        excludeWords: ["cpf", "documento", "telefone"],
+        excludeWords: ["cpf", "documento", "telefone", "vencimento", "validade"],
       }) ||
       findField(document.body, ["numero do cartao", "número do cartão"], {
-        excludeWords: ["cpf", "documento", "telefone", "cobranca"],
+        excludeWords: [
+          "cpf",
+          "documento",
+          "telefone",
+          "cobranca",
+          "vencimento",
+          "validade",
+        ],
       });
     if (panEl) await fillPanOnce(panEl, card.pan);
   }
@@ -859,7 +893,7 @@ async function fillCard(card) {
     findField(document.body, ["nome e sobrenome"], {
       excludeWords: ["cobranca", "cobrança", "nome s", "sobrenome s"],
     });
-  if (holderEl && card.holderName) {
+  if (holderEl && card.holderName && holderEl !== panEl) {
     const want = card.holderName.trim();
     const cur = String(holderEl.value || "").trim();
     if (normalizeLabel(cur) !== normalizeLabel(want)) {
@@ -868,9 +902,17 @@ async function fillCard(card) {
   }
 
   const expEl =
-    findField(cardRoot, ["vencimento"]) ||
-    findField(document.body, ["vencimento"]);
-  await fillExpiry(expEl, card);
+    findField(cardRoot, ["vencimento", "validade"], {
+      excludeWords: ["numero do cartao", "número do cartão", "cpf"],
+    }) ||
+    findField(document.body, ["vencimento", "validade"], {
+      excludeWords: ["numero do cartao", "número do cartão", "cpf"],
+    });
+  if (expEl && expEl !== panEl) {
+    await fillExpiry(expEl, card, panEl);
+  }
+
+  // Não mexer mais no PAN depois do vencimento
 }
 
 function findByAutocomplete(root, names) {

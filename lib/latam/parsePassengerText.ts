@@ -8,6 +8,8 @@ export type ParsedPassenger = {
   cpf: string | null;
   /** false = 11 dígitos mas checksum inválido (mantém o valor e avisa na UI) */
   cpfValid: boolean | null;
+  /** true = CPF gerado (documento veio RG/passaporte sem CPF) */
+  cpfGenerated?: boolean;
   email: string | null;
   phone: string | null;
   gender: "M" | "F" | null;
@@ -44,6 +46,24 @@ export function isValidCpf(raw: string | null | undefined): boolean {
   let d2 = (sum * 10) % 11;
   if (d2 === 10) d2 = 0;
   return d2 === Number(cpf[10]);
+}
+
+/** CPF válido aleatório — cliente troca no check-in quando veio só RG/passaporte. */
+export function generateValidCpf(): string {
+  const n: number[] = [];
+  for (let i = 0; i < 9; i++) n.push(Math.floor(Math.random() * 10));
+  if (n.every((d) => d === n[0])) n[8] = (n[8] + 1) % 10;
+  let sum = 0;
+  for (let i = 0; i < 9; i++) sum += n[i] * (10 - i);
+  let d1 = (sum * 10) % 11;
+  if (d1 === 10) d1 = 0;
+  n.push(d1);
+  sum = 0;
+  for (let i = 0; i < 10; i++) sum += n[i] * (11 - i);
+  let d2 = (sum * 10) % 11;
+  if (d2 === 10) d2 = 0;
+  n.push(d2);
+  return n.join("");
 }
 
 /** Mantém 11 dígitos mesmo com checksum inválido (para avisar, não apagar). */
@@ -290,7 +310,7 @@ function extractNameFromLine(line: string): string {
   s = s.replace(DATE_RE, " ");
   s = s.replace(DATE_COMPACT_RE, " ");
   s = s.replace(
-    /\b(nome\s*completo|passageiro|pax|nascido\s*em|nasc(?:imento)?|dt\.?\s*nasc|dn|cpf\/?cnpj|cpf|c\.?p\.?f\.?|cnpj|rg|idt|identidade|documento|doc|e-?mail|email|mail|tel(?:efone)?|cel(?:ular)?|whats?app?|zap|wpp|fone|sexo|genero)\b[:\s.=]*/gi,
+    /\b(nome\s*completo|passageiro|pax|data\s+(?:de\s+)?nasc(?:imento)?|nascido\s*em|nasc(?:imento)?|dt\.?\s*nasc|dn|cpf\/?cnpj|cpf|c\.?p\.?f\.?|cnpj|rg|idt|identidade|documento|doc|e-?mail|email|mail|tel(?:efone)?|cel(?:ular)?|whats?app?|zap|wpp|fone|sexo|genero)\b[:\s.=]*/gi,
     " "
   );
   s = s.replace(/\b\d{3}\.?\d{3}\.?\d{3}-?\d{2}\b/g, " ");
@@ -322,14 +342,25 @@ function preprocessPassengerText(raw: string): string {
   t = t.replace(/_{2}/g, "");
   // "Nome - João" / separadores comuns → quebra de linha
   t = t.replace(/\s*[|•·]\s*/g, "\n");
+  // Cabeçalho "Passageiro 2" → novo bloco
+  t = t.replace(/\bpassageiro\s*\d+\b/gi, "\n\n");
+  // Unifica "Data Nascimento" / "Data de Nascimento" antes de qualquer split
   t = t.replace(
-    /\s+(?=(?:nome|sobrenome|cpf|cnpj|rg|idt|identidade|nasc|nascimento|dn|email|e-mail|tel|fone|cel|whats|zap|doc(?:umento)?)\s*[:\-])/gi,
+    /\bdata\s+(?:de\s+)?nasc(?:imento)?\b/gi,
+    "Data Nascimento"
+  );
+  // Split por rótulos — NÃO usar nasc|nascimento sozinho (quebrava "Data Nascimento")
+  t = t.replace(
+    /\s+(?=(?:nome|sobrenome|cpf|cnpj|rg|idt|identidade|data\s+nascimento|dn|email|e-mail|tel|fone|cel|whats|zap|doc(?:umento)?)\s*[:\-])/gi,
     "\n"
   );
   // "Nasc:02.09.1974" / "CPF:071..." sem espaço
   t = t.replace(
-    /\b(cpf|cnpj|rg|idt|nasc(?:imento)?|dn|email|tel|fone|cel)\s*[:\-.=]\s*/gi,
-    (_, k) => `${k}: `
+    /\b(cpf|cnpj|rg|idt|data\s+nascimento|dn|email|tel|fone|cel)\s*[:\-.=]\s*/gi,
+    (full) => {
+      const k = full.replace(/\s*[:\-.=]\s*$/, "").trim();
+      return `${k}: `;
+    }
   );
   return t.trim();
 }
@@ -377,10 +408,14 @@ function parseLabeledBlock(block: string): ParsedPassenger | null {
     if (
       key === "nome" ||
       key === "nome completo" ||
-      key === "primeiro nome" ||
-      key === "passageiro" ||
-      key === "pax"
+      key === "primeiro nome"
     ) {
+      firstName = sanitizeLatamName(val);
+      continue;
+    }
+    // "Passageiro 2" / "Pax 1" = cabeçalho, não nome
+    if (key === "passageiro" || key === "pax") {
+      if (/^\d+$/.test(val.trim())) continue;
       firstName = sanitizeLatamName(val);
       continue;
     }
@@ -405,17 +440,21 @@ function parseLabeledBlock(block: string): ParsedPassenger | null {
       key === "cpf/cnpj"
     ) {
       const dig = onlyDigits(val);
-      const kind = classifyDigits(dig, {
-        labeledAs: "cpf",
-        alreadyHasCpf: Boolean(cpf),
-      });
-      if (kind === "cpf") cpf = onlyDigits(dig).slice(0, 11);
+      // Só aceita CPF real (11 dígitos). RG/passaporte (R250886, P746212) → gera depois.
+      if (dig.length === 11) {
+        const kind = classifyDigits(dig, {
+          labeledAs: "cpf",
+          alreadyHasCpf: Boolean(cpf),
+        });
+        if (kind === "cpf") cpf = dig.slice(0, 11);
+      }
       continue;
     }
     if (
       key.includes("nasc") ||
       key === "dn" ||
       key === "nascido em" ||
+      key === "data nascimento" ||
       key.startsWith("dt")
     ) {
       birthDate = parseDateFromText(val, { allowCompact: true }) || birthDate;
@@ -668,12 +707,13 @@ function extractFloatingContacts(text: string): {
 
 function lineLooksLikeName(trimmed: string): boolean {
   if (!trimmed || EMAIL_RE.test(trimmed)) return false;
-  if (/^\s*(cpf|cnpj|email|e-mail|tel|cel|fone|zap|whats|nasc)/i.test(trimmed)) {
-    // "CPF 861..." não é nome; "Camila Sales" sim
-    if (/^\s*cpf\b/i.test(trimmed) && !/[A-Za-zÀ-ÿ]{3,}/.test(trimmed.replace(/cpf/i, ""))) {
-      return false;
-    }
-    if (/^\s*(email|tel|cel|fone|zap|whats|nasc)/i.test(trimmed)) return false;
+  // Linha rotulada (Data Nascimento:, Documento:, etc.) nunca é nome de pax
+  if (
+    /^\s*(nome|sobrenome|documento|doc|cpf|cnpj|rg|idt|identidade|data\s+(?:de\s+)?nasc|nasc(?:imento)?|dn|e-?mail|email|tel|cel|fone|zap|whats|passageiro|pax)\b/i.test(
+      trimmed
+    )
+  ) {
+    return false;
   }
   // Só data ou só CPF
   if (DATE_RE.test(trimmed) && !/[A-Za-zÀ-ÿ]{3,}/.test(trimmed)) return false;
@@ -683,6 +723,7 @@ function lineLooksLikeName(trimmed: string): boolean {
   }
   const name = extractNameFromLine(trimmed);
   const tokens = name.split(/\s+/).filter(Boolean);
+  if (tokens.length === 1 && isBogusPassengerName(tokens[0])) return false;
   return tokens.length >= 2 || (tokens.length === 1 && tokens[0].length >= 4);
 }
 
@@ -890,6 +931,20 @@ function applySharedContacts(
  * @param titular Contato do titular do cartão/funcionário — usado só se o texto
  *                não trouxer e-mail/telefone.
  */
+function isBogusPassengerName(name: string) {
+  const n = String(name || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/\p{M}/gu, "")
+    .trim();
+  return (
+    !n ||
+    /^(data|nascimento|nasc|dn|passageiro|pax|nome|sobrenome|documento|cpf|rg)$/.test(
+      n
+    )
+  );
+}
+
 export function parsePassengerText(
   raw: string,
   titular?: TitularContact | null
@@ -902,14 +957,29 @@ export function parsePassengerText(
     .filter((p): p is ParsedPassenger =>
       Boolean(p && (p.firstName || extractCpfDigits(p.cpf)))
     )
-    // Descarta bloco que é só telefone (11 dígitos inválidos sem nome)
     .filter((p) => {
+      if (isBogusPassengerName(p.firstName) && isBogusPassengerName(p.lastName)) {
+        return false;
+      }
+      if (isBogusPassengerName(p.firstName) && !p.cpf && !p.birthDate) {
+        return false;
+      }
       if (p.firstName) return true;
       if (p.cpf && p.cpfValid) return true;
-      // CPF inválido sozinho sem nome → provavelmente telefone; descarta
       return false;
     })
-    .map((p) => withCpfMeta(p));
+    .map((p) => {
+      const meta = withCpfMeta(p);
+      // Sem CPF (RG/passaporte) → gera válido; cliente altera no check-in
+      if (!meta.cpf) {
+        const generated = generateValidCpf();
+        return {
+          ...withCpfMeta({ ...meta, cpf: generated }),
+          cpfGenerated: true,
+        };
+      }
+      return meta;
+    });
 
   return applySharedContacts(parsed, text, titular);
 }

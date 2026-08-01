@@ -465,12 +465,25 @@ async function fillBirthDate(root, pax, passengerIndex) {
 
   // Só ISO em input type="date" nativo
   if (el.type === "date") {
-    if (fillNativeDateInput(el, parts)) return 1;
+    if (fillNativeDateInput(el, parts)) {
+      await sleep(80);
+      // Reaplica — React LATAM às vezes limpa no 1º set
+      if (!birthFieldHasDate(el) || el.value !== iso) {
+        fillNativeDateInput(el, parts);
+        await sleep(80);
+      }
+      if (birthFieldHasDate(el)) return 1;
+    }
   }
 
   // Máscara React (texto): digitar só dígitos — NÃO colocar ISO aqui
   await typeChars(el, digits);
   await sleep(120);
+  if (birthFieldHasDate(el)) return 1;
+
+  // Formato com espaços (igual cobrança)
+  await typeChars(el, spaced.replace(/\s+/g, ""));
+  await sleep(100);
   if (birthFieldHasDate(el)) return 1;
 
   setNativeValue(el, pretty);
