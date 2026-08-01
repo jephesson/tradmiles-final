@@ -299,20 +299,54 @@ function addressLine(card) {
   return `${street}, ${number}`.trim();
 }
 
+/** Campo do número do cartão (PAN) — nunca preencher com endereço. */
+function isPanField(el) {
+  if (!el) return false;
+  if (filledPanEl && el === filledPanEl) return true;
+  const meta = normalizeLabel(
+    `${fieldMeta(el)} ${el.name || ""} ${el.id || ""} ${el.getAttribute("data-testid") || ""} ${el.placeholder || ""} ${el.getAttribute("autocomplete") || ""}`
+  );
+  if (!meta) return false;
+  if (meta.includes("cc-number") || meta.includes("cardnumber")) return true;
+  if (meta.includes("pan") && meta.includes("card")) return true;
+  if (
+    (meta.includes("numero") || meta.includes("number")) &&
+    (meta.includes("cartao") || meta.includes("card"))
+  ) {
+    return true;
+  }
+  // inputmode/numeric longo costuma ser cartão
+  if (
+    el.inputMode === "numeric" &&
+    (meta.includes("cartao") || meta.includes("card") || el.maxLength >= 16)
+  ) {
+    if (meta.includes("cpf") || meta.includes("cep") || meta.includes("postal")) {
+      return false;
+    }
+    if (meta.includes("vencimento") || meta.includes("cvv") || meta.includes("cvc")) {
+      return false;
+    }
+    return meta.includes("cartao") || meta.includes("card") || meta.includes("numero do");
+  }
+  return false;
+}
+
 function isAddressMeta(meta) {
   const m = normalizeLabel(meta);
   if (!m) return false;
   if (m.includes("email") || m.includes("e-mail")) return false;
   if (m.includes("codigo postal") || m.includes("cep")) return false;
   if (m.includes("apartamento") || m.includes("escritorio")) return false;
-  if (m.includes("cartao") || m.includes("cartão")) return false;
+  if (m.includes("cartao") || m.includes("card")) return false;
+  if (m.includes("vencimento") || m.includes("cvv")) return false;
   if (m.includes("cidade") || m.includes("estado") || m.includes("pais")) {
     return false;
   }
+  if (m.includes("numero do cartao") || m.includes("cardnumber")) return false;
   return (
     m.includes("endereco") ||
     m.includes("street") ||
-    m.includes("address") ||
+    (m.includes("address") && !m.includes("email")) ||
     /\bendereco\b/.test(m)
   );
 }
@@ -320,44 +354,44 @@ function isAddressMeta(meta) {
 /**
  * LATAM: label "Endereço" + helper "Exatamente como aparece em seu banco".
  * Costuma ser autocomplete (Places) — só setar value não basta.
+ * NUNCA retorna o campo do PAN.
  */
-function findAddressInput() {
+function findAddressInput(root) {
+  const scope = root || document.body;
+
+  const safe = (el) =>
+    Boolean(el && isVisible(el) && !isPanField(el) && isAddressMeta(fieldMeta(el) || el.name || ""));
+
   const byName = [
-    ...document.querySelectorAll(
+    ...scope.querySelectorAll(
       'input[autocomplete="street-address"], input[autocomplete="address-line1"], ' +
-        'input[name*="street" i], input[name*="address" i], input[name*="endereco" i], ' +
-        'input[data-testid*="street" i], input[data-testid*="address" i], input[data-testid*="endereco" i]'
+        'input[name*="street" i], input[name*="endereco" i], ' +
+        'input[data-testid*="street" i], input[data-testid*="endereco" i], ' +
+        'input[name*="addressLine" i], input[data-testid*="addressLine" i]'
     ),
-  ].find((el) => isVisible(el) && isAddressMeta(fieldMeta(el) || el.name || ""));
+  ].find(safe);
   if (byName) return byName;
 
-  const byAc = findByAutocomplete(document.body, [
-    "street-address",
-    "address-line1",
-  ]);
-  if (byAc && isVisible(byAc)) return byAc;
+  const byAc = [
+    ...scope.querySelectorAll(
+      'input[autocomplete="street-address"], input[autocomplete="address-line1"]'
+    ),
+  ].find((el) => isVisible(el) && !isPanField(el));
+  if (byAc) return byAc;
 
-  // Helper text característico da LATAM
+  // Helper text característico da LATAM (só com meta de endereço)
   const helpers = Array.from(
-    document.querySelectorAll("span, p, div, label, small")
+    scope.querySelectorAll("span, p, div, label, small")
   ).filter((el) =>
     /exatamente como aparece em seu banco/i.test(textOf(el))
   );
   for (const h of helpers) {
     let p = h.parentElement;
-    for (let i = 0; i < 8 && p; i++) {
+    for (let i = 0; i < 6 && p; i++) {
       const input = [...p.querySelectorAll("input:not([type=hidden])")].find(
         (inp) => {
-          if (!isVisible(inp)) return false;
-          const meta = fieldMeta(inp);
-          if (isAddressMeta(meta)) return true;
-          // no mesmo bloco do helper, o input de texto livre costuma ser o endereço
-          const m = normalizeLabel(meta);
-          if (m.includes("email") || m.includes("cpf") || m.includes("cep")) {
-            return false;
-          }
-          if (m.includes("apartamento")) return false;
-          return inp.type === "text" || !inp.type;
+          if (!isVisible(inp) || isPanField(inp)) return false;
+          return isAddressMeta(fieldMeta(inp));
         }
       );
       if (input) return input;
@@ -366,7 +400,7 @@ function findAddressInput() {
   }
 
   // Label "Endereço" (curto)
-  for (const lab of document.querySelectorAll("label, span, p, div, legend")) {
+  for (const lab of scope.querySelectorAll("label, span, p, div, legend")) {
     const t = normalizeLabel(textOf(lab));
     if (t !== "endereco" && !/^endereco\b/.test(t)) continue;
     if (t.length > 24) continue;
@@ -377,28 +411,36 @@ function findAddressInput() {
     if (!wrap) continue;
     const input = [
       ...wrap.querySelectorAll("input:not([type=hidden]), textarea"),
-    ].find((inp) => isVisible(inp));
+    ].find((inp) => isVisible(inp) && !isPanField(inp));
     if (input) {
       const meta = normalizeLabel(fieldMeta(input));
+      if (isPanField(input)) continue;
       if (meta.includes("email") && !meta.includes("endereco")) continue;
       if (meta.includes("cep") || meta.includes("postal")) continue;
-      return input;
+      if (meta.includes("cartao") || meta.includes("card")) continue;
+      // Só aceita se parecer endereço OU estiver no helper/bloco de cobrança
+      if (isAddressMeta(meta) || meta.includes("endereco") || !meta) {
+        // sem meta útil mas label era Endereço → ok, desde que não seja PAN
+        if (!isPanField(input)) return input;
+      }
     }
     let sib = lab.nextElementSibling;
     for (let i = 0; i < 5 && sib; i++) {
-      if (sib.matches?.("input, textarea") && isVisible(sib)) return sib;
+      if (sib.matches?.("input, textarea") && isVisible(sib) && !isPanField(sib)) {
+        return sib;
+      }
       const inner = sib.querySelector?.("input, textarea");
-      if (inner && isVisible(inner)) return inner;
+      if (inner && isVisible(inner) && !isPanField(inner)) return inner;
       sib = sib.nextElementSibling;
     }
   }
 
-  // Fallback visual: entre e-mail e apartamento
+  // Fallback visual: entre e-mail e apartamento (só na cobrança)
   const inputs = [
-    ...document.querySelectorAll(
+    ...scope.querySelectorAll(
       "input:not([type=hidden]):not([type=checkbox]):not([type=radio])"
     ),
-  ].filter(isVisible);
+  ].filter((el) => isVisible(el) && !isPanField(el));
   const emailIdx = inputs.findIndex((el) => {
     const m = normalizeLabel(fieldMeta(el));
     return m.includes("email") || m.includes("e-mail") || el.type === "email";
@@ -411,13 +453,21 @@ function findAddressInput() {
     const start = emailIdx + 1;
     const end = aptIdx > emailIdx ? aptIdx : Math.min(emailIdx + 4, inputs.length);
     for (let i = start; i < end; i++) {
-      const m = normalizeLabel(fieldMeta(inputs[i]));
+      const el = inputs[i];
+      if (isPanField(el)) continue;
+      const m = normalizeLabel(fieldMeta(el));
       if (m.includes("cpf") || m.includes("nascimento")) continue;
       if (m.includes("estado") || m.includes("cidade") || m.includes("cep")) {
         continue;
       }
-      if (inputs[i].type === "email") continue;
-      return inputs[i];
+      if (m.includes("cartao") || m.includes("card") || m.includes("vencimento")) {
+        continue;
+      }
+      if (el.type === "email") continue;
+      // Prefere meta de endereço; senão aceita texto entre email e apto
+      if (isAddressMeta(m) || m.includes("endereco") || el.type === "text" || !el.type) {
+        return el;
+      }
     }
   }
 
@@ -477,11 +527,18 @@ async function pickAddressSuggestion(addr) {
   return true;
 }
 
-async function fillAddressField(addr) {
+async function fillAddressField(addr, root) {
   if (!addr) return false;
-  const endEl = findAddressInput();
+  const endEl = findAddressInput(root);
   if (!endEl) {
     console.warn("[TradeMiles] Campo Endereço não encontrado.");
+    return false;
+  }
+  if (isPanField(endEl) || (filledPanEl && endEl === filledPanEl)) {
+    console.warn(
+      "[TradeMiles] Bloqueado: tentou escrever endereço no número do cartão.",
+      { name: endEl.name, testid: endEl.getAttribute("data-testid") }
+    );
     return false;
   }
 
@@ -872,7 +929,15 @@ async function fillCard(card) {
   if (card.pan) {
     panEl =
       findField(cardRoot, ["numero do cartao", "número do cartão"], {
-        excludeWords: ["cpf", "documento", "telefone", "vencimento", "validade"],
+        excludeWords: [
+          "cpf",
+          "documento",
+          "telefone",
+          "vencimento",
+          "validade",
+          "endereco",
+          "endereço",
+        ],
       }) ||
       findField(document.body, ["numero do cartao", "número do cartão"], {
         excludeWords: [
@@ -882,9 +947,14 @@ async function fillCard(card) {
           "cobranca",
           "vencimento",
           "validade",
+          "endereco",
+          "endereço",
         ],
       });
-    if (panEl) await fillPanOnce(panEl, card.pan);
+    if (panEl) {
+      filledPanEl = panEl;
+      await fillPanOnce(panEl, card.pan);
+    }
   }
 
   // Campo único "Nome e sobrenome" do cartão — nome completo
@@ -1217,16 +1287,36 @@ async function fillBilling(card) {
   await fillComplemento();
   await sleep(250);
 
-  // Endereço por último (autocomplete Places) — CEP/estado às vezes limpam a rua
-  await fillAddressField(addr);
+  // Endereço por último — só na seção de cobrança (nunca no PAN)
+  await fillAddressField(addr, billRoot);
   await sleep(350);
-  // Se ainda vazio, tenta de novo
-  const endCheck = findAddressInput();
-  if (addr && endCheck && !String(endCheck.value || "").trim()) {
-    await fillAddressField(addr);
+  const endCheck = findAddressInput(billRoot);
+  if (
+    addr &&
+    endCheck &&
+    !isPanField(endCheck) &&
+    !String(endCheck.value || "").trim()
+  ) {
+    await fillAddressField(addr, billRoot);
   }
 
-  const endEl = findAddressInput();
+  // Se o PAN foi sobrescrito por engano, restaura
+  if (filledPanEl && card.pan) {
+    const panNow = String(filledPanEl.value || "").replace(/\D/g, "");
+    const want = String(card.pan).replace(/\D/g, "");
+    const looksLikeAddress =
+      /[A-Za-zÀ-ÿ]{3,}/.test(String(filledPanEl.value || "")) ||
+      (panNow.length > 0 &&
+        panNow !== want &&
+        panNow !== want.slice(-4) &&
+        !want.startsWith(panNow.slice(0, 6)));
+    if (looksLikeAddress || (panNow.length > 0 && panNow.length < 12 && panNow !== want.slice(-4))) {
+      console.warn("[TradeMiles] PAN alterado após cobrança — restaurando.");
+      await fillPanOnce(filledPanEl, card.pan);
+    }
+  }
+
+  const endEl = findAddressInput(billRoot);
   console.info("[TradeMiles] cobrança", {
     addr,
     street: card.street,
@@ -1234,8 +1324,11 @@ async function fillBilling(card) {
     city: card.city,
     state: resolved?.name || card.state,
     zip: card.zip,
-    enderecoValue: endEl?.value || null,
-    foundEndereco: Boolean(endEl),
+    enderecoValue: endEl && !isPanField(endEl) ? endEl.value : null,
+    foundEndereco: Boolean(endEl && !isPanField(endEl)),
+    panStillOk: filledPanEl
+      ? String(filledPanEl.value || "").replace(/\D/g, "").slice(-4)
+      : null,
   });
 }
 
@@ -1252,6 +1345,8 @@ function ensureFab() {
 }
 
 let fillRunning = false;
+/** Referência do input do PAN nesta execução — bloqueia endereço nele. */
+let filledPanEl = null;
 
 async function runFill() {
   ensureFab();
@@ -1261,6 +1356,7 @@ async function runFill() {
     return;
   }
   fillRunning = true;
+  filledPanEl = null;
   try {
     const res = await chrome.runtime.sendMessage({ type: "TM_GET_FILL_PAYLOAD" });
     if (!res?.ok || !res.data?.useExtension) {
