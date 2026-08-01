@@ -633,9 +633,102 @@ function extractFloatingContacts(text: string): {
   return { emails: [...new Set(emails)], phones };
 }
 
+function lineLooksLikeName(trimmed: string): boolean {
+  if (!trimmed || EMAIL_RE.test(trimmed)) return false;
+  if (/^\s*(cpf|cnpj|email|e-mail|tel|cel|fone|zap|whats|nasc)/i.test(trimmed)) {
+    // "CPF 861..." não é nome; "Camila Sales" sim
+    if (/^\s*cpf\b/i.test(trimmed) && !/[A-Za-zÀ-ÿ]{3,}/.test(trimmed.replace(/cpf/i, ""))) {
+      return false;
+    }
+    if (/^\s*(email|tel|cel|fone|zap|whats|nasc)/i.test(trimmed)) return false;
+  }
+  // Só data ou só CPF
+  if (DATE_RE.test(trimmed) && !/[A-Za-zÀ-ÿ]{3,}/.test(trimmed)) return false;
+  const dig = onlyDigits(trimmed);
+  if (dig.length >= 10 && dig.length <= 11 && !/[A-Za-zÀ-ÿ]{3,}/.test(trimmed)) {
+    return false;
+  }
+  const name = extractNameFromLine(trimmed);
+  const tokens = name.split(/\s+/).filter(Boolean);
+  return tokens.length >= 2 || (tokens.length === 1 && tokens[0].length >= 4);
+}
+
+function blockHasPaxData(lines: string[]): boolean {
+  const text = lines.join("\n");
+  if (DATE_RE.test(text)) return true;
+  if (/\bcpf\b/i.test(text)) return true;
+  // CPF formatado ou 11 dígitos em alguma linha
+  for (const line of lines) {
+    const dig = onlyDigits(line);
+    if (dig.length === 11) return true;
+    if (/\d{3}\.?\d{3}\.?\d{3}-?\d{2}/.test(line)) return true;
+  }
+  return false;
+}
+
+/** Fatia um bloco em vários pax sempre que achar novo nome. */
+function splitBlockByNames(block: string): string[] {
+  const lines = block.split(/\n+/).map((l) => l.trim()).filter(Boolean);
+  if (!lines.length) return [];
+
+  const rebuilt: string[] = [];
+  let cur: string[] = [];
+
+  for (const trimmed of lines) {
+    const looksName = lineLooksLikeName(trimmed);
+    if (looksName && cur.length && blockHasPaxData(cur)) {
+      // Novo nome depois de data/CPF do anterior
+      rebuilt.push(cur.join("\n"));
+      cur = [trimmed];
+      continue;
+    }
+    cur.push(trimmed);
+  }
+  if (cur.length) rebuilt.push(cur.join("\n"));
+  return rebuilt.length ? rebuilt : [block];
+}
+
+/**
+ * Formato colado numa linha / poucas linhas:
+ * "Isabella Angelis 08/07/82 719.122.311-15 Ovidio Angelis 14/11/44 ..."
+ */
+function explodeDensePassengerLine(text: string): string | null {
+  const compact = text.replace(/\s+/g, " ").trim();
+  // Precisa de pelo menos 2 datas OU 2 CPFs para valer a pena
+  const dates = [...compact.matchAll(new RegExp(DATE_RE.source, "g"))];
+  const cpfs = [
+    ...compact.matchAll(/\b\d{3}\.?\d{3}\.?\d{3}-?\d{2}\b/g),
+    ...compact.matchAll(/\b\d{11}\b/g),
+  ];
+  if (dates.length < 2 && cpfs.length < 2) return null;
+
+  // Insere quebra antes de cada nome que precede data/CPF
+  // Estratégia: quebrar antes de sequência "Palavra Palavra dd/mm"
+  let out = compact;
+  out = out.replace(
+    /([A-Za-zÀ-ÿ]{2,}(?:\s+[A-Za-zÀ-ÿ]{2,}){1,5})\s+(\d{1,2}[\/\-.]\d{1,2}[\/\-.]\d{2,4})/g,
+    "\n$1\n$2"
+  );
+  out = out.replace(
+    /([A-Za-zÀ-ÿ]{2,}(?:\s+[A-Za-zÀ-ÿ]{2,}){1,5})\s+(CPF\s*)?(\d{3}\.?\d{3}\.?\d{3}-?\d{2}|\d{11})/gi,
+    "\n$1\n$2$3"
+  );
+  return out.includes("\n") ? out : null;
+}
+
 function splitIntoBlocks(text: string): string[] {
+  // Zap às vezes cola com \u2028 / espaços estranhos
+  let normalized = text
+    .replace(/\u2028|\u2029/g, "\n")
+    .replace(/\r\n?/g, "\n")
+    .replace(/[ \t]+\n/g, "\n")
+    .trim();
+
+  const dense = explodeDensePassengerLine(normalized);
+  if (dense) normalized = dense;
+
   // Une blocos que são só e-mail/telefone ao bloco anterior
-  const raw = text.split(/\n\s*\n+/).map((b) => b.trim()).filter(Boolean);
+  const raw = normalized.split(/\n\s*\n+/).map((b) => b.trim()).filter(Boolean);
   const merged: string[] = [];
   for (const block of raw) {
     if (merged.length && isContactOnlyBlock(block)) {
@@ -667,40 +760,17 @@ function splitIntoBlocks(text: string): string[] {
   }
   if (byNomeLabel.length > blocks.length) blocks = byNomeLabel;
 
-  // Freeform: novo passageiro só quando aparece outro NOME (não e-mail/fone)
-  if (blocks.length === 1) {
-    const lines = blocks[0].split("\n");
-    const rebuilt: string[] = [];
-    let cur: string[] = [];
-    for (const line of lines) {
-      const trimmed = line.trim();
-      if (!trimmed) continue;
-      const name = extractNameFromLine(trimmed);
-      const tokens = name.split(/\s+/).filter(Boolean);
-      const looksName =
-        tokens.length >= 2 &&
-        !EMAIL_RE.test(trimmed) &&
-        !/^\s*(cpf|email|tel|cel|fone|nasc)/i.test(trimmed);
-      if (looksName && cur.length && cur.some((l) => extractNameFromLine(l))) {
-        // Só fatia se o bloco atual já tem CPF ou data (passageiro "completo")
-        const curText = cur.join("\n");
-        const curHasData =
-          DATE_RE.test(curText) ||
-          /\b\d{11}\b/.test(onlyDigits(curText)) ||
-          /\bcpf\b/i.test(curText);
-        if (curHasData) {
-          rebuilt.push(cur.join("\n"));
-          cur = [trimmed];
-          continue;
-        }
-      }
-      cur.push(trimmed);
-    }
-    if (cur.length) rebuilt.push(cur.join("\n"));
-    if (rebuilt.length > 1) blocks = rebuilt;
+  // Sempre fatia por nome — inclusive quando já há 2+ blocos (bug: Zap cria 1 linha em branco no meio)
+  const byNames: string[] = [];
+  for (const block of blocks) {
+    byNames.push(...splitBlockByNames(block));
+  }
+  if (byNames.length > blocks.length) blocks = byNames;
+  else if (byNames.length === blocks.length && byNames.length > 0) {
+    blocks = byNames;
   }
 
-  return blocks;
+  return blocks.filter(Boolean);
 }
 
 function attachFloatingContacts(
