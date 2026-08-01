@@ -219,8 +219,8 @@ export default function BiometriaWizardModal({
   const [searchChd, setSearchChd] = useState(0);
   const [searchInf, setSearchInf] = useState(0);
 
-  /** Extensão LATAM — logo após gerar o link de pesquisa. */
-  const [useLatamExtension, setUseLatamExtension] = useState(false);
+  /** Extensão LATAM — passo após o link de pesquisa. */
+  const [useLatamExtension, setUseLatamExtension] = useState(true);
   const [latamPassengerText, setLatamPassengerText] = useState("");
   const [latamPaymentCards, setLatamPaymentCards] = useState<
     Array<{
@@ -347,7 +347,7 @@ export default function BiometriaWizardModal({
     setSearchAdt(Math.max(1, Math.min(9, Math.floor(initialAdults) || 1)));
     setSearchChd(Math.max(0, Math.min(9, Math.floor(initialChildren) || 0)));
     setSearchInf(Math.max(0, Math.min(9, Math.floor(initialInfants) || 0)));
-    setUseLatamExtension(false);
+    setUseLatamExtension(true);
     setLatamPassengerText("");
     setLatamPaymentCardId("");
     setLatamExtMsg(null);
@@ -537,6 +537,13 @@ export default function BiometriaWizardModal({
       setLatamExtSyncing(false);
     }
   }
+
+  // Ao entrar no passo: carrega cartões e pré-seleciona o padrão de taxa
+  useEffect(() => {
+    if (!open || step !== "extension") return;
+    void loadLatamEmployeesForCards();
+    void loadLatamPaymentCards();
+  }, [open, step]);
 
   if (!open) return null;
 
@@ -1072,11 +1079,11 @@ export default function BiometriaWizardModal({
           <div className="mt-5 space-y-4">
             <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-4">
               <div className="font-semibold text-slate-900">
-                4. Extensão LATAM (opcional)
+                4. Extensão LATAM
               </div>
               <p className="mt-1 text-xs text-slate-500">
-                Cole os dados como o cliente mandar (com ou sem rótulos). Depois
-                abra a LATAM com a extensão instalada.
+                Prepare passageiros e cartão para preencher na LATAM. Desmarque
+                só se for emitir sem a extensão.
               </p>
 
               <div className="mt-3 rounded-xl border border-slate-200 bg-white p-3">
@@ -1095,10 +1102,6 @@ export default function BiometriaWizardModal({
                   />
                   Usar extensão LATAM
                 </label>
-                <p className="mt-1 text-[11px] text-slate-500">
-                  Ex.: Nome / Sobrenome / Documento / Data Nascimento — ou texto
-                  livre.
-                </p>
 
                 {useLatamExtension ? (
                   <div className="mt-3 space-y-3">
@@ -1141,9 +1144,13 @@ export default function BiometriaWizardModal({
                       <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-600">
                         Cartão (taxa / pagamento)
                       </div>
+                      <p className="mt-0.5 text-[11px] text-slate-500">
+                        Pré-selecionado o cartão padrão de taxa do funcionário.
+                        CVV você digita na LATAM.
+                      </p>
                       {latamEmployees.length > 0 ? (
                         <select
-                          className="mt-1 mb-1.5 h-9 w-full rounded-lg border border-slate-200 bg-white px-2 text-xs"
+                          className="mt-1.5 mb-1.5 h-9 w-full rounded-lg border border-slate-200 bg-white px-2 text-xs"
                           value={latamCardOwnerId}
                           onChange={(e) => {
                             const id = e.target.value;
@@ -1176,7 +1183,7 @@ export default function BiometriaWizardModal({
                       </select>
                       {latamPaymentCards.length === 0 ? (
                         <p className="mt-1 text-[11px] text-slate-500">
-                          Cadastre em{" "}
+                          Nenhum cartão cadastrado. Cadastre em{" "}
                           <Link
                             href="/dashboard/funcionarios/dados-pagamento"
                             className="font-semibold text-sky-700 underline"
@@ -1184,7 +1191,7 @@ export default function BiometriaWizardModal({
                           >
                             Dados de pagamento
                           </Link>
-                          . CVV não é salvo.
+                          .
                         </p>
                       ) : null}
                     </div>
