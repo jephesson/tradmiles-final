@@ -35,7 +35,6 @@ async function resolvePaymentCard(
       expMonth: row.expMonth,
       expYear: row.expYear,
       pan,
-      // CVV nunca sai daqui — funcionário digita na LATAM
       zip: row.zip,
       street: row.street,
       number: row.number,
@@ -75,7 +74,7 @@ export async function GET(req: Request) {
     return bad("Não autenticado", 401);
   }
 
-  const row = getFillSession(session.userId);
+  const row = await getFillSession(session.userId);
   const base = row || {
     useExtension: false,
     passengers: [],
@@ -108,27 +107,19 @@ export async function PUT(req: Request) {
 
   const body = await req.json().catch(() => ({}));
   const useExtension = Boolean(body?.useExtension);
-  let paymentCardId = body?.paymentCardId
-    ? String(body.paymentCardId)
-    : null;
+  // null/"" = sem cartão (não forçar cartão padrão)
+  const paymentCardId =
+    body?.paymentCardId == null || body?.paymentCardId === ""
+      ? null
+      : String(body.paymentCardId);
   const saleHint = body?.saleHint ? String(body.saleHint) : null;
 
   let passengers = Array.isArray(body?.passengers) ? body.passengers : null;
   if (!passengers && typeof body?.passengerText === "string") {
     passengers = parsePassengerText(body.passengerText);
   }
-  if (!passengers) passengers = getFillSession(session.userId)?.passengers || [];
-
-  // Se ligou a extensão sem cartão, usa o padrão de taxa do funcionário
-  if (useExtension && !paymentCardId) {
-    const def = await prisma.employeePaymentCard.findFirst({
-      where: {
-        team: session.team,
-        userId: session.userId,
-        isDefaultBoarding: true,
-      },
-    });
-    paymentCardId = def?.id || null;
+  if (!passengers) {
+    passengers = (await getFillSession(session.userId))?.passengers || [];
   }
 
   if (paymentCardId) {
@@ -138,17 +129,17 @@ export async function PUT(req: Request) {
     if (!card) return bad("Cartão não encontrado.");
   }
 
-  setFillSession({
+  await setFillSession({
     userId: session.userId,
+    team: session.team,
     useExtension,
     passengers,
     paymentCardId,
     saleHint,
-    updatedAt: Date.now(),
   });
 
   return NextResponse.json({
     ok: true,
-    data: getFillSession(session.userId),
+    data: await getFillSession(session.userId),
   });
 }

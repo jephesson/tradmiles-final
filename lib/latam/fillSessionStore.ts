@@ -1,40 +1,74 @@
+import { prisma } from "@/lib/prisma";
 import type { ParsedPassenger } from "@/lib/latam/parsePassengerText";
 
 export type LatamFillSession = {
   userId: string;
   useExtension: boolean;
   passengers: ParsedPassenger[];
-  /** Cartão escolhido (sem CVV). */
   paymentCardId: string | null;
   saleHint: string | null;
   updatedAt: number;
 };
 
-const g = globalThis as unknown as {
-  __tmLatamFillSessions?: Map<string, LatamFillSession>;
-};
-
-function map() {
-  if (!g.__tmLatamFillSessions) g.__tmLatamFillSessions = new Map();
-  return g.__tmLatamFillSessions;
-}
-
 const TTL_MS = 2 * 60 * 60 * 1000;
 
-export function setFillSession(session: LatamFillSession) {
-  map().set(session.userId, { ...session, updatedAt: Date.now() });
+function parsePassengers(raw: string): ParsedPassenger[] {
+  try {
+    const v = JSON.parse(raw || "[]");
+    return Array.isArray(v) ? v : [];
+  } catch {
+    return [];
+  }
 }
 
-export function getFillSession(userId: string): LatamFillSession | null {
-  const row = map().get(userId);
+export async function setFillSession(session: {
+  userId: string;
+  team: string;
+  useExtension: boolean;
+  passengers: ParsedPassenger[];
+  paymentCardId: string | null;
+  saleHint: string | null;
+}) {
+  await prisma.latamFillSession.upsert({
+    where: { userId: session.userId },
+    create: {
+      userId: session.userId,
+      team: session.team,
+      useExtension: session.useExtension,
+      passengersJson: JSON.stringify(session.passengers || []),
+      paymentCardId: session.paymentCardId,
+      saleHint: session.saleHint,
+    },
+    update: {
+      team: session.team,
+      useExtension: session.useExtension,
+      passengersJson: JSON.stringify(session.passengers || []),
+      paymentCardId: session.paymentCardId,
+      saleHint: session.saleHint,
+    },
+  });
+}
+
+export async function getFillSession(
+  userId: string
+): Promise<LatamFillSession | null> {
+  const row = await prisma.latamFillSession.findUnique({ where: { userId } });
   if (!row) return null;
-  if (Date.now() - row.updatedAt > TTL_MS) {
-    map().delete(userId);
+  const updatedAt = row.updatedAt.getTime();
+  if (Date.now() - updatedAt > TTL_MS) {
+    await prisma.latamFillSession.delete({ where: { userId } }).catch(() => null);
     return null;
   }
-  return row;
+  return {
+    userId: row.userId,
+    useExtension: row.useExtension,
+    passengers: parsePassengers(row.passengersJson),
+    paymentCardId: row.paymentCardId,
+    saleHint: row.saleHint,
+    updatedAt,
+  };
 }
 
-export function clearFillSession(userId: string) {
-  map().delete(userId);
+export async function clearFillSession(userId: string) {
+  await prisma.latamFillSession.delete({ where: { userId } }).catch(() => null);
 }

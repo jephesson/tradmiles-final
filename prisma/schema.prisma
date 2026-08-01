@@ -257,9 +257,32 @@ model User {
   // Cartões para taxa/pagamento LATAM (sem CVV)
   paymentCards EmployeePaymentCard[] @relation("EmployeePaymentCardOwner")
 
+  latamFillSession LatamFillSession?
+
   @@index([team])
   @@index([role])
   @@map("users")
+}
+
+/**
+ * Sessão temporária da extensão LATAM (por funcionário logado).
+ * Persistida no DB porque memória some no Vercel serverless.
+ */
+model LatamFillSession {
+  userId String @id
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  team String
+
+  useExtension   Boolean @default(false)
+  passengersJson String  @default("[]")
+  paymentCardId  String?
+  saleHint       String?
+
+  updatedAt DateTime @updatedAt
+
+  @@index([team])
+  @@map("latam_fill_sessions")
 }
 
 /**

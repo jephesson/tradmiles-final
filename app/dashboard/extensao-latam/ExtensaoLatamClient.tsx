@@ -59,8 +59,16 @@ export default function ExtensaoLatamClient() {
         >
           Dados de pagamento
         </Link>
-        . Deixe a extensão <b>desligada</b> na venda se não for usar (evita
-        erro na fase de testes).
+        . Deixe a extensão <b>desligada</b> na venda se não for usar.
+      </div>
+
+      <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+        Após atualizar o ZIP: em{" "}
+        <code className="rounded bg-white/80 px-1">chrome://extensions</code>{" "}
+        clique em <b>atualizar</b> (ou remova e carregue de novo). Na LATAM, se
+        não preencher sozinho, abra o ícone da extensão →{" "}
+        <b>Preencher esta aba</b>. TradeMiles e LATAM na <b>mesma</b> janela
+        (não misture anônimo).
       </div>
     </div>
   );
