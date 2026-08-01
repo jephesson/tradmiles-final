@@ -44,11 +44,21 @@ function toLatamDate(iso: string | null) {
   return `${d}-${m}-${y}`;
 }
 
+/** LATAM rejeita acento/caracteres especiais no nome. */
+function sanitizeLatamName(s: string) {
+  return String(s || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^A-Za-z\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 function splitName(full: string) {
-  const parts = full.trim().split(/\s+/).filter(Boolean);
+  const parts = sanitizeLatamName(full).split(/\s+/).filter(Boolean);
   if (parts.length === 0) return { firstName: "", lastName: "" };
   if (parts.length === 1) return { firstName: parts[0], lastName: parts[0] };
-  // Heurística: 1º token = nome; resto = sobrenome (LATAM costuma querer assim)
+  // 1º token = nome; resto = sobrenome
   return {
     firstName: parts[0],
     lastName: parts.slice(1).join(" "),

@@ -1,6 +1,8 @@
 /**
  * Passageiros LATAM — /v2/passageiros e /pagamentos/passageiros
- * Botão flutuante + preenchimento agressivo (React).
+ * - Nome / sobrenome separados (não confundir "nome" com "sobrenome")
+ * - Remove acentos e caracteres especiais
+ * - Data: dia, mês e ano em campos separados
  */
 
 function setNativeValue(el, value) {
@@ -30,7 +32,6 @@ function setNativeValue(el, value) {
   const setter = Object.getOwnPropertyDescriptor(proto, "value")?.set;
 
   el.focus?.();
-  // React controlled inputs
   const tracker = el._valueTracker;
   if (tracker) {
     try {
@@ -39,14 +40,19 @@ function setNativeValue(el, value) {
       /* ignore */
     }
   }
-  if (setter) setter.call(el, str);
-  else el.value = str;
+  // Respeita maxLength do campo
+  let out = str;
+  if (el.maxLength > 0 && out.length > el.maxLength) {
+    out = out.slice(0, el.maxLength);
+  }
+  if (setter) setter.call(el, out);
+  else el.value = out;
 
   el.dispatchEvent(new Event("input", { bubbles: true }));
-  el.dispatchEvent(new InputEvent("input", { bubbles: true, data: str, inputType: "insertText" }));
+  el.dispatchEvent(
+    new InputEvent("input", { bubbles: true, data: out, inputType: "insertText" })
+  );
   el.dispatchEvent(new Event("change", { bubbles: true }));
-  el.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, key: "a" }));
-  el.dispatchEvent(new KeyboardEvent("keyup", { bubbles: true, key: "a" }));
   el.dispatchEvent(new Event("blur", { bubbles: true }));
   return true;
 }
@@ -66,6 +72,74 @@ function normalizeLabel(s) {
     .trim();
 }
 
+/** LATAM: só letras/espaços, sem acento nem especiais. */
+function sanitizeLatamName(s) {
+  return String(s || "")
+    .normalize("NFD")
+    .replace(/\p{M}/gu, "")
+    .replace(/[^A-Za-z\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function splitPassengerName(pax) {
+  let first = sanitizeLatamName(pax.firstName);
+  let last = sanitizeLatamName(pax.lastName);
+
+  // Se veio tudo no sobrenome / nome colado
+  if (!first && last) {
+    const parts = last.split(/\s+/).filter(Boolean);
+    if (parts.length >= 2) {
+      first = parts[0];
+      last = parts.slice(1).join(" ");
+    }
+  }
+  if (first && !last) last = first;
+  if (first && last && first === last) {
+    const parts = first.split(/\s+/).filter(Boolean);
+    if (parts.length >= 2) {
+      first = parts[0];
+      last = parts.slice(1).join(" ");
+    }
+  }
+  // Evita nome completo no sobrenome se first ainda estiver vazio
+  if (!first && pax.raw) {
+    const line = sanitizeLatamName(
+      String(pax.raw)
+        .split("\n")
+        .map((l) => l.trim())
+        .find((l) => /[A-Za-z]{2,}/.test(l) && !/\d{3}/.test(l)) || ""
+    );
+    const parts = line.split(/\s+/).filter(Boolean);
+    if (parts.length >= 2) {
+      first = parts[0];
+      last = parts.slice(1).join(" ");
+    }
+  }
+  return { firstName: first, lastName: last };
+}
+
+function birthParts(pax) {
+  let d;
+  let m;
+  let y;
+  if (pax.birthDate && /^\d{4}-\d{2}-\d{2}$/.test(pax.birthDate)) {
+    [y, m, d] = pax.birthDate.split("-");
+  } else if (pax.birthDateBR) {
+    const parts = String(pax.birthDateBR).split(/[\/\-.\s]+/);
+    if (parts.length >= 3) [d, m, y] = parts;
+  } else if (pax.birthDateLatam) {
+    const parts = String(pax.birthDateLatam).split(/[\/\-.\s]+/);
+    if (parts.length >= 3) [d, m, y] = parts;
+  }
+  if (!d || !m || !y) return null;
+  return {
+    day: String(Number(d)).padStart(2, "0"),
+    month: String(Number(m)).padStart(2, "0"),
+    year: String(y).length === 2 ? `20${y}` : String(y),
+  };
+}
+
 function isVisible(el) {
   if (!el) return false;
   const st = window.getComputedStyle(el);
@@ -74,34 +148,6 @@ function isVisible(el) {
   }
   const r = el.getBoundingClientRect();
   return r.width > 0 && r.height > 0;
-}
-
-function detectDateSep() {
-  const ph = Array.from(document.querySelectorAll("input"))
-    .map((i) => (i.placeholder || "").toLowerCase())
-    .find((p) => p.includes("dd") && p.includes("mm"));
-  if (ph && ph.includes("/")) return "/";
-  if (ph && ph.includes("-")) return "-";
-  if (/\/v2\/passageiros/i.test(location.pathname)) return "/";
-  return "/";
-}
-
-function toLatamDate(pax) {
-  const sep = detectDateSep();
-  let d;
-  let m;
-  let y;
-  if (pax.birthDate && /^\d{4}-\d{2}-\d{2}$/.test(pax.birthDate)) {
-    [y, m, d] = pax.birthDate.split("-");
-  } else if (pax.birthDateBR) {
-    const parts = String(pax.birthDateBR).split(/[\/\-.]/);
-    if (parts.length === 3) [d, m, y] = parts;
-  } else if (pax.birthDateLatam) {
-    const parts = String(pax.birthDateLatam).split(/[\/\-.]/);
-    if (parts.length === 3) [d, m, y] = parts;
-  }
-  if (!d || !m || !y) return null;
-  return `${d}${sep}${m}${sep}${y}`;
 }
 
 function fieldMeta(el) {
@@ -116,9 +162,10 @@ function fieldMeta(el) {
   if (el.labels?.[0]) bits.push(textOf(el.labels[0]));
   let p = el.parentElement;
   for (let i = 0; i < 5 && p; i++) {
-    const lab = p.querySelector?.(":scope > label, :scope > span, :scope > p, legend");
+    const lab = p.querySelector?.(
+      ":scope > label, :scope > span, :scope > p, legend"
+    );
     if (lab) bits.push(textOf(lab));
-    // irmão anterior com label
     const prev = p.previousElementSibling;
     if (prev && /label|span|p|div/i.test(prev.tagName)) bits.push(textOf(prev));
     p = p.parentElement;
@@ -126,8 +173,18 @@ function fieldMeta(el) {
   return normalizeLabel(bits.filter(Boolean).join(" | "));
 }
 
-function findField(root, needles) {
-  const ns = (Array.isArray(needles) ? needles : [needles]).map(normalizeLabel);
+function visibleTextInputs(root) {
+  return [
+    ...root.querySelectorAll(
+      "input:not([type=hidden]):not([type=checkbox]):not([type=radio]):not([type=button]):not([type=submit])"
+    ),
+  ].filter(isVisible);
+}
+
+/** Match por rótulo com palavra inteira — evita "nome" ⊆ "sobrenome". */
+function findFieldByWord(root, words, { excludeWords = [] } = {}) {
+  const needles = (Array.isArray(words) ? words : [words]).map(normalizeLabel);
+  const excludes = excludeWords.map(normalizeLabel);
   const inputs = [
     ...root.querySelectorAll(
       "input:not([type=hidden]):not([type=checkbox]):not([type=radio]), select, textarea"
@@ -136,23 +193,122 @@ function findField(root, needles) {
 
   for (const el of inputs) {
     const meta = fieldMeta(el);
-    if (ns.some((n) => meta.includes(n))) return el;
+    if (excludes.some((ex) => meta.includes(ex))) continue;
+    const ok = needles.some((n) => {
+      const re = new RegExp(`(^|[^a-z])${n.replace(/\s+/g, "\\s+")}([^a-z]|$)`);
+      return re.test(meta);
+    });
+    if (ok) return el;
   }
   return null;
 }
 
-function visibleTextInputs(root) {
-  return [
-    ...root.querySelectorAll(
-      'input:not([type=hidden]):not([type=checkbox]):not([type=radio]):not([type=button]):not([type=submit])'
-    ),
-  ].filter(isVisible);
+function findFirstNameField(root) {
+  return (
+    findFieldByWord(root, ["nome"], {
+      excludeWords: ["sobrenome", "nome e sobrenome", "passageiro frequente"],
+    }) ||
+    [...root.querySelectorAll('input[autocomplete="given-name"]')].find(isVisible) ||
+    null
+  );
+}
+
+function findLastNameField(root) {
+  return (
+    findFieldByWord(root, ["sobrenome"]) ||
+    [...root.querySelectorAll('input[autocomplete="family-name"]')].find(isVisible) ||
+    null
+  );
+}
+
+function fillBirthSplit(root, pax) {
+  const parts = birthParts(pax);
+  if (!parts) return 0;
+
+  // Container da data de nascimento
+  let container = root;
+  const labels = [...root.querySelectorAll("label, span, p, div, legend")];
+  for (const lab of labels) {
+    const t = normalizeLabel(textOf(lab));
+    if (t.includes("data de nascimento") || t === "nascimento") {
+      let cur = lab.parentElement;
+      for (let i = 0; i < 6 && cur; i++) {
+        const ins = visibleTextInputs(cur);
+        if (ins.length >= 3 && ins.length <= 8) {
+          container = cur;
+          break;
+        }
+        cur = cur.parentElement;
+      }
+      break;
+    }
+  }
+
+  const inputs = visibleTextInputs(container);
+  const dayEl =
+    findFieldByWord(container, ["dia"]) ||
+    inputs.find((i) => /^(dd|dia)$/i.test((i.placeholder || "").trim())) ||
+    inputs.find((i) => i.maxLength === 2 && /day|dia|dd/i.test(fieldMeta(i)));
+  const monthEl =
+    findFieldByWord(container, ["mes", "mês"]) ||
+    inputs.find((i) => /^(mm|mes|mês)$/i.test((i.placeholder || "").trim())) ||
+    inputs.find((i) => i.maxLength === 2 && /month|mes|mm/i.test(fieldMeta(i)));
+  const yearEl =
+    findFieldByWord(container, ["ano", "aaaa", "yyyy"]) ||
+    inputs.find((i) => /^(aaaa|yyyy|aa|ano)$/i.test((i.placeholder || "").trim())) ||
+    inputs.find((i) => i.maxLength === 4);
+
+  // Três inputs curtos na ordem dia/mês/ano
+  const shorties = inputs.filter(
+    (i) =>
+      i.maxLength === 2 ||
+      i.maxLength === 4 ||
+      /dd|mm|aa|ano|dia|mes/i.test(i.placeholder || "") ||
+      i.inputMode === "numeric"
+  );
+
+  let n = 0;
+  if (dayEl && monthEl && yearEl) {
+    if (setNativeValue(dayEl, parts.day)) n++;
+    if (setNativeValue(monthEl, parts.month)) n++;
+    if (setNativeValue(yearEl, parts.year)) n++;
+    return n;
+  }
+
+  if (shorties.length >= 3) {
+    // ordena da esquerda pra direita
+    shorties.sort(
+      (a, b) => a.getBoundingClientRect().left - b.getBoundingClientRect().left
+    );
+    const d = shorties.find((i) => i.maxLength === 2) || shorties[0];
+    const rest = shorties.filter((i) => i !== d);
+    const m = rest.find((i) => i.maxLength === 2) || rest[0];
+    const y =
+      rest.find((i) => i !== m && (i.maxLength === 4 || i.maxLength === 2)) ||
+      rest[1];
+    if (setNativeValue(d, parts.day)) n++;
+    if (setNativeValue(m, parts.month)) n++;
+    if (y && setNativeValue(y, parts.year.length === 4 && y.maxLength === 2 ? parts.year.slice(-2) : parts.year)) {
+      n++;
+    }
+    return n;
+  }
+
+  // Fallback: um campo só (layout antigo)
+  const single =
+    findFieldByWord(root, ["data de nascimento", "nascimento"]) ||
+    root.querySelector('input[placeholder*="dd" i]');
+  if (single && shorties.length < 3) {
+    const joined = `${parts.day}/${parts.month}/${parts.year}`;
+    if (setNativeValue(single, joined)) return 1;
+  }
+  return n;
 }
 
 function selectGender(root, gender) {
   if (!gender) return;
   const label = gender === "F" ? "Feminino" : "Masculino";
-  const el = findField(root, ["sexo"]);
+  const el = findFieldByWord(root, ["sexo"]);
   if (!el) return;
   if (el.tagName === "SELECT") {
     setNativeValue(el, label);
@@ -202,75 +358,44 @@ function findPassengerSections() {
   return found;
 }
 
-function fillByLabels(root, pax, kind) {
+function fillInSection(root, pax, kind) {
   let n = 0;
-  const birth = toLatamDate(pax);
+  const { firstName, lastName } = splitPassengerName(pax);
   const cpf = pax.cpf ? String(pax.cpf).replace(/\D/g, "") : null;
 
-  if (pax.firstName && setNativeValue(findField(root, ["nome"]), pax.firstName)) n++;
-  if (pax.lastName && setNativeValue(findField(root, ["sobrenome"]), pax.lastName)) n++;
-  if (birth) {
-    const el =
-      findField(root, ["data de nascimento", "nascimento"]) ||
-      root.querySelector('input[placeholder*="dd" i]');
-    if (setNativeValue(el, birth)) n++;
-  }
-  selectGender(root, pax.gender);
-  if (cpf && setNativeValue(findField(root, ["cpf"]), cpf)) n++;
+  const nomeEl = findFirstNameField(root);
+  const sobEl = findLastNameField(root);
+  if (firstName && setNativeValue(nomeEl, firstName)) n++;
+  if (lastName && setNativeValue(sobEl, lastName)) n++;
+
+  n += fillBirthSplit(root, pax);
+  selectGender(root, pax.gender || (firstName.endsWith("a") ? "F" : null));
+
+  if (cpf && setNativeValue(findFieldByWord(root, ["cpf"]), cpf)) n++;
   if ((kind === "child" || kind === "infant") && cpf) {
     setNativeValue(
-      findField(root, ["numero de documento", "n de documento", "documento"]),
+      findFieldByWord(root, ["numero de documento", "n de documento"]),
       cpf
     );
   }
-  if (pax.email && setNativeValue(findField(root, ["email", "e-mail"]), pax.email)) n++;
+
+  if (pax.email) {
+    const email = String(pax.email).trim().toLowerCase();
+    if (setNativeValue(findFieldByWord(root, ["email", "e-mail"]), email)) n++;
+  }
   if (pax.phone) {
     const phone = String(pax.phone).replace(/\D/g, "").replace(/^55/, "");
     if (
-      setNativeValue(findField(root, ["numero", "telefone", "celular"]), phone)
+      setNativeValue(
+        findFieldByWord(root, ["numero", "telefone", "celular"], {
+          excludeWords: ["documento", "passageiro frequente", "cartao"],
+        }),
+        phone
+      )
     ) {
       n++;
     }
   }
-  return n;
-}
-
-/** Fallback: ordem típica dos inputs no card Adulto. */
-function fillByOrder(root, pax) {
-  const inputs = visibleTextInputs(root);
-  if (inputs.length < 2) return 0;
-  let n = 0;
-  const birth = toLatamDate(pax);
-  const cpf = pax.cpf ? String(pax.cpf).replace(/\D/g, "") : null;
-  const phone = pax.phone
-    ? String(pax.phone).replace(/\D/g, "").replace(/^55/, "")
-    : null;
-
-  // Heurística: primeiro texto sem placeholder de data = nome
-  const nonDate = inputs.filter(
-    (i) => !/dd|mm|aaaa|yyyy/i.test(i.placeholder || "")
-  );
-  const dateInput =
-    inputs.find((i) => /dd|mm|aaaa|yyyy/i.test(i.placeholder || "")) || null;
-
-  if (pax.firstName && nonDate[0] && setNativeValue(nonDate[0], pax.firstName)) n++;
-  if (pax.lastName && nonDate[1] && setNativeValue(nonDate[1], pax.lastName)) n++;
-  if (birth && dateInput && setNativeValue(dateInput, birth)) n++;
-
-  // CPF: input com maxLength 11/14 ou meta cpf
-  const cpfEl =
-    findField(root, ["cpf"]) ||
-    inputs.find((i) => String(i.maxLength) === "11" || String(i.maxLength) === "14");
-  if (cpf && cpfEl && setNativeValue(cpfEl, cpf)) n++;
-
-  const emailEl =
-    findField(root, ["email"]) ||
-    inputs.find((i) => i.type === "email" || /@|email/i.test(i.name || i.id || ""));
-  if (pax.email && emailEl && setNativeValue(emailEl, pax.email)) n++;
-
-  const phoneEl = findField(root, ["numero", "telefone"]);
-  if (phone && phoneEl && setNativeValue(phoneEl, phone)) n++;
-
   return n;
 }
 
@@ -322,9 +447,7 @@ async function fillAll(passengers) {
       /* ignore */
     }
     await sleep(300);
-    let filled = fillByLabels(sec.root, passengers[i], sec.kind);
-    if (filled < 2) filled = Math.max(filled, fillByOrder(sec.root, passengers[i]));
-    total += filled;
+    total += fillInSection(sec.root, passengers[i], sec.kind);
     await sleep(200);
   }
   return { sections: n, fields: total };
@@ -347,15 +470,13 @@ async function runFill({ manual } = {}) {
     return { ok: false, error: "sem pax" };
   }
 
-  // espera form aparecer
   for (let attempt = 0; attempt < 8; attempt++) {
-    const inputs = visibleTextInputs(document.body);
-    if (inputs.length >= 2) break;
+    if (visibleTextInputs(document.body).length >= 2) break;
     await sleep(400);
   }
 
   let result = await fillAll(passengers);
-  if (result.fields < 2) {
+  if (result.fields < 3) {
     await sleep(900);
     result = await fillAll(passengers);
   }
@@ -367,7 +488,7 @@ async function runFill({ manual } = {}) {
       : "TradeMiles: não achou os campos. Clique de novo em Preencher TradeMiles.",
     ok
   );
-  console.info("[TradeMiles] fill", { manual, result, passengers, payload: res.data });
+  console.info("[TradeMiles] fill", { manual, result, passengers });
   return { ok, ...result, passengers: passengers.length };
 }
 
@@ -380,7 +501,5 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
 });
 
 ensureFab();
-// Auto + retries (SPA)
 runFill({ manual: false }).catch((e) => console.warn("[TradeMiles]", e));
 setTimeout(() => void runFill({ manual: false }), 2000);
-setTimeout(() => void runFill({ manual: false }), 4500);
