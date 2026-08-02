@@ -1419,8 +1419,76 @@ function checkRepeatContactCheckbox(root = document.body) {
   return false;
 }
 
+/**
+ * Campo "Número" do contato LATAM.
+ * Cuidado: NÃO excluir por "codigo" no meta — o +55 fica no mesmo bloco
+ * e fazia a busca pular o telefone.
+ */
+function findPhoneInput(root, idx = 0) {
+  const scope = root || findContactSectionRoot() || document.body;
+  const named = [
+    `input[name="passenger-${idx}_phoneNumber"]`,
+    `input[name="passenger-${idx}_phone"]`,
+    `input[name="passenger-${idx}_mobilePhone"]`,
+    `input[name="passenger-${idx}_contactPhone"]`,
+    `input[name="passenger-0_phoneNumber"]`,
+    `input[name="passenger-0_phone"]`,
+    `input[name*="phoneNumber" i]`,
+    `input[name*="PhoneNumber" i]`,
+    `input[autocomplete="tel"]`,
+    `input[autocomplete="tel-national"]`,
+    `input[type="tel"]`,
+    `input[inputmode="tel"]`,
+  ];
+  for (const sel of named) {
+    try {
+      const el = [...document.querySelectorAll(sel)].find(isVisible);
+      if (!el) continue;
+      const meta = fieldMeta(el);
+      if (meta.includes("email")) continue;
+      if (meta.includes("documento") || meta.includes("cpf")) continue;
+      // DDI / código do país (curto)
+      if (el.maxLength > 0 && el.maxLength <= 4) continue;
+      return el;
+    } catch {
+      /* selector inválido em algum browser */
+    }
+  }
+
+  const candidates = visibleTextInputs(scope).filter((el) => {
+    if (el.type === "email") return false;
+    const meta = fieldMeta(el);
+    if (meta.includes("email") || meta.includes("e-mail")) return false;
+    if (meta.includes("documento") || meta.includes("cpf")) return false;
+    if (meta.includes("passageiro frequente")) return false;
+    if (meta.includes("nascimento")) return false;
+    if (el.maxLength > 0 && el.maxLength <= 4) return false;
+    return (
+      /\bnumero\b/.test(meta) ||
+      /\btelefone\b/.test(meta) ||
+      /\bcelular\b/.test(meta) ||
+      el.type === "tel" ||
+      el.inputMode === "tel" ||
+      el.inputMode === "numeric"
+    );
+  });
+
+  // Prefere o que tem rótulo "numero" (ao lado do Código +55)
+  const byNumero = candidates.find((el) => /\bnumero\b/.test(fieldMeta(el)));
+  if (byNumero) return byNumero;
+  return candidates[0] || null;
+}
+
+function normalizePhoneDigits(phone) {
+  let d = String(phone || "").replace(/\D/g, "");
+  if (d.startsWith("55") && d.length >= 12) d = d.slice(2);
+  // Só DDD+número (10 ou 11)
+  if (d.length > 11) d = d.slice(-11);
+  return d;
+}
+
 /** Contato fica no 1º pax no v2 — preencher com a ficha dele aberta. */
-function fillContactFields(email, phone, { passengerIndex = 0 } = {}) {
+async function fillContactFields(email, phone, { passengerIndex = 0 } = {}) {
   let n = 0;
   const root = findContactSectionRoot();
   const idx = passengerIndex;
@@ -1434,43 +1502,49 @@ function fillContactFields(email, phone, { passengerIndex = 0 } = {}) {
       findFieldByWord(root, ["email", "e-mail"]) ||
       findFieldByWord(document.body, ["email", "e-mail"]);
     if (emailEl && isVisible(emailEl)) {
-      // Contato precisa de eventos reais (máscara/validação LATAM)
       if (setNativeValue(emailEl, want)) n++;
     }
   }
 
   if (phone) {
-    const digits = String(phone).replace(/\D/g, "").replace(/^55/, "");
-    const phoneEl =
-      document.querySelector(
-        `input[name="passenger-${idx}_phone"], input[name="passenger-0_phone"], input[name*="passenger-${idx}_"][name*="phone" i], input[name*="passenger-0_"][name*="phone" i], input[autocomplete="tel"], input[autocomplete="tel-national"]`
-      ) ||
-      findFieldByWord(root, ["telefone", "celular", "numero"], {
-        excludeWords: [
-          "documento",
-          "passageiro frequente",
-          "cartao",
-          "cartão",
-          "cpf",
-          "codigo",
-        ],
-      }) ||
-      findFieldByWord(document.body, ["telefone", "celular", "numero"], {
-        excludeWords: [
-          "documento",
-          "passageiro frequente",
-          "cartao",
-          "cartão",
-          "cpf",
-          "codigo",
-        ],
-      });
-    if (phoneEl && isVisible(phoneEl)) {
-      if (setNativeValue(phoneEl, digits)) n++;
+    const digits = normalizePhoneDigits(phone);
+    if (digits.length >= 10) {
+      const phoneEl =
+        findPhoneInput(root, idx) || findPhoneInput(document.body, idx);
+      if (phoneEl) {
+        console.info("[TradeMiles] telefone →", {
+          name: phoneEl.name,
+          id: phoneEl.id,
+          testid: phoneEl.getAttribute("data-testid"),
+          placeholder: phoneEl.placeholder,
+          meta: fieldMeta(phoneEl).slice(0, 120),
+          digits,
+        });
+        // Máscara LATAM: digitar dígitos (DDD + número)
+        await typeChars(phoneEl, digits, { clear: true, delay: 35 });
+        await sleep(120);
+        const got = String(phoneEl.value || "").replace(/\D/g, "");
+        if (got.length >= 10) {
+          n++;
+        } else {
+          setNativeValue(phoneEl, digits);
+          await sleep(80);
+          if (String(phoneEl.value || "").replace(/\D/g, "").length >= 10) n++;
+          else
+            console.warn("[TradeMiles] Telefone não grudou:", phoneEl.value);
+        }
+      } else {
+        console.warn("[TradeMiles] Campo telefone/número não encontrado");
+      }
+    } else {
+      console.warn("[TradeMiles] Telefone inválido no payload:", phone);
     }
   }
 
-  if (checkRepeatContactCheckbox(root) || checkRepeatContactCheckbox(document.body)) {
+  if (
+    checkRepeatContactCheckbox(root) ||
+    checkRepeatContactCheckbox(document.body)
+  ) {
     n++;
   }
   return n;
@@ -1550,7 +1624,7 @@ async function fillOnePassengerConfirmForm(pax, idx, opts = {}) {
   }
 
   if (opts.email || opts.phone) {
-    n += fillContactFields(opts.email, opts.phone);
+    n += await fillContactFields(opts.email, opts.phone);
     const check = Array.from(
       root.querySelectorAll('input[type="checkbox"]')
     ).find((c) => {
@@ -1705,7 +1779,7 @@ async function fillAllConfirmForm(passengers) {
   }
 
   if (pageStillHasPassengerForm()) {
-    fillContactFields(titularEmail, titularPhone);
+    await fillContactFields(titularEmail, titularPhone);
   }
 
   return { sections: passengers.length, fields: total, form: "confirm" };
@@ -1731,21 +1805,24 @@ async function fillAllAccordion(passengers) {
     // Tem que preencher AINDA com a ficha 0 aberta — se deixar pro fim, cai no 2º.
     if (i === 0 && (titularEmail || titularPhone)) {
       await sleep(200);
-      total += fillContactFields(titularEmail, titularPhone, {
+      total += await fillContactFields(titularEmail, titularPhone, {
         passengerIndex: 0,
       });
       await sleep(150);
-      // Garante de novo se a LATAM limpou
+      // Garante de novo se a LATAM limpou e-mail ou telefone
       const emailEl =
         document.querySelector(
           `input[name="passenger-0_email"], input[type="email"]`
         ) || findFieldByWord(findContactSectionRoot(), ["email", "e-mail"]);
-      if (
-        titularEmail &&
-        emailEl &&
-        !String(emailEl.value || "").includes("@")
-      ) {
-        total += fillContactFields(titularEmail, titularPhone, {
+      const phoneEl = findPhoneInput(findContactSectionRoot(), 0);
+      const emailMissing =
+        titularEmail && emailEl && !String(emailEl.value || "").includes("@");
+      const phoneMissing =
+        titularPhone &&
+        (!phoneEl ||
+          String(phoneEl.value || "").replace(/\D/g, "").length < 10);
+      if (emailMissing || phoneMissing) {
+        total += await fillContactFields(titularEmail, titularPhone, {
           passengerIndex: 0,
         });
       }
@@ -1765,18 +1842,24 @@ async function fillAllAccordion(passengers) {
     }
   }
 
-  // Se o e-mail do 1º ainda estiver vazio, reabre o pax 0 e preenche
+  // Se e-mail/telefone do 1º ainda vazios, reabre o pax 0 e preenche
   await ensurePassengerExpanded(0);
   await sleep(300);
-  const emailStillEmpty = (() => {
-    const el =
+  const contactStillEmpty = (() => {
+    const emailEl =
       document.querySelector(
         `input[name="passenger-0_email"], input[type="email"]`
       ) || findFieldByWord(findContactSectionRoot(), ["email", "e-mail"]);
-    return !el || !String(el.value || "").includes("@");
+    const phoneEl = findPhoneInput(findContactSectionRoot(), 0);
+    const emailOk =
+      !titularEmail || String(emailEl?.value || "").includes("@");
+    const phoneOk =
+      !titularPhone ||
+      String(phoneEl?.value || "").replace(/\D/g, "").length >= 10;
+    return !emailOk || !phoneOk;
   })();
-  if (emailStillEmpty && (titularEmail || titularPhone)) {
-    total += fillContactFields(titularEmail, titularPhone, {
+  if (contactStillEmpty && (titularEmail || titularPhone)) {
+    total += await fillContactFields(titularEmail, titularPhone, {
       passengerIndex: 0,
     });
   }
