@@ -737,16 +737,38 @@ function guessGenderFromName(name) {
   return null;
 }
 
+/**
+ * Popover "Passageiros salvos" — NUNCA pegar div/section grandes:
+ * esconder o pai apaga a página inteira da LATAM.
+ */
 function savedPassengersPopoverEls() {
-  return Array.from(
+  const candidates = Array.from(
     document.querySelectorAll(
-      '[role="listbox"], [role="dialog"], [role="menu"], [class*="popover" i], [class*="dropdown" i], [class*="autocomplete" i], div, section, aside'
+      '[role="listbox"], [role="dialog"], [role="menu"], [class*="popover" i], [class*="Popper" i], [class*="autocomplete" i], [class*="Autocomplete" i]'
     )
-  ).filter((el) => {
+  );
+  return candidates.filter((el) => {
     if (!isVisible(el)) return false;
-    const t = normalizeLabel(textOf(el).slice(0, 120));
+    const r = el.getBoundingClientRect();
+    // Popover é pequeno; container da página é enorme
+    if (r.width > 480 || r.height > 420 || r.width < 40 || r.height < 20) {
+      return false;
+    }
+    const t = normalizeLabel(textOf(el).slice(0, 200));
     return t.includes("passageiros salvos") || t.includes("passageiro salvo");
   });
+}
+
+function isSavedPassengersPopoverOpen() {
+  // Detecta pelo título sem selecionar ancestrais grandes
+  return Array.from(document.querySelectorAll("h1, h2, h3, h4, h5, h6, p, span, div, label"))
+    .some((el) => {
+      if (!isVisible(el)) return false;
+      const t = normalizeLabel(textOf(el));
+      if (t !== "passageiros salvos" && t !== "passageiro salvo") return false;
+      const r = el.getBoundingClientRect();
+      return r.width < 480 && r.height < 80;
+    });
 }
 
 /** Escape leve — não clica no body (isso atrapalha a máscara da data). */
@@ -763,35 +785,51 @@ function closeOpenMenus() {
   );
 }
 
-/** Só age se o popover "Passageiros salvos" estiver aberto. */
+/** Fecha só o popover — Escape + blur. Sem display:none em containers. */
 async function dismissSavedPassengersPopover() {
-  let pops = savedPassengersPopoverEls();
-  if (!pops.length) return false;
+  if (!isSavedPassengersPopoverOpen() && !savedPassengersPopoverEls().length) {
+    return false;
+  }
 
   const active = document.activeElement;
   if (active && (active.tagName === "INPUT" || active.tagName === "TEXTAREA")) {
     active.blur?.();
   }
   closeOpenMenus();
-  await sleep(60);
+  await sleep(80);
   closeOpenMenus();
+  await sleep(80);
 
-  pops = savedPassengersPopoverEls();
-  for (const el of pops) {
-    const closer = el.querySelector?.(
-      'button[aria-label*="fechar" i], button[aria-label*="close" i]'
-    );
-    closer?.click?.();
+  // Último recurso: esconde só o listbox/popover PEQUENO, nunca o form
+  for (const el of savedPassengersPopoverEls()) {
     try {
-      el.style.setProperty("display", "none", "important");
-      el.setAttribute("hidden", "true");
+      el.style.setProperty("visibility", "hidden", "important");
+      el.style.setProperty("pointer-events", "none", "important");
       el.setAttribute("aria-hidden", "true");
     } catch {
       /* ignore */
     }
   }
-  await sleep(80);
   return true;
+}
+
+async function waitForPassengerFormReady({ timeoutMs = 20000 } = {}) {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    const root = currentPassengerFormRoot();
+    const inputs = visibleTextInputs(root);
+    const hasName =
+      Boolean(document.querySelector(`input[name="passenger-0_firstName"]`)) ||
+      Boolean(findFirstNameField(root));
+    const hasConfirm = Boolean(findConfirmDadosButton());
+    const hasDob = Boolean(findDateOfBirthInput(root));
+    if (inputs.length >= 2 && (hasName || hasDob) && (hasConfirm || getPassengerFormKind() === "accordion")) {
+      return true;
+    }
+    // Página em branco / ainda hidratando
+    await sleep(400);
+  }
+  return false;
 }
 
 function genderFieldShows(el, gender) {
@@ -1480,6 +1518,12 @@ async function fillAllConfirmForm(passengers) {
   const titularEmail = passengers.find((p) => p.email)?.email || null;
   const titularPhone = passengers.find((p) => p.phone)?.phone || null;
 
+  const ready = await waitForPassengerFormReady({ timeoutMs: 25000 });
+  if (!ready) {
+    console.warn("[TradeMiles] Formulário Confirmar dados não carregou a tempo");
+    return { sections: 0, fields: 0, form: "confirm", error: "form_not_ready" };
+  }
+
   for (let i = 0; i < passengers.length; i++) {
     const pax = {
       ...passengers[i],
@@ -1487,10 +1531,10 @@ async function fillAllConfirmForm(passengers) {
       phone: passengers[i].phone || titularPhone,
     };
 
-    // Espera o formulário do pax atual
-    for (let w = 0; w < 15; w++) {
-      if (visibleTextInputs(currentPassengerFormRoot()).length >= 2) break;
-      await sleep(350);
+    const formReady = await waitForPassengerFormReady({ timeoutMs: 15000 });
+    if (!formReady) {
+      console.warn("[TradeMiles] Campos sumiram antes do pax", i);
+      break;
     }
 
     await dismissSavedPassengersPopover();
@@ -1500,15 +1544,24 @@ async function fillAllConfirmForm(passengers) {
       phone: i === 0 ? pax.phone : null,
     });
 
-    const confirmed = await clickConfirmDados();
+    // Espera o botão aparecer (LATAM habilita após validar)
+    let confirmed = false;
+    for (let t = 0; t < 12; t++) {
+      if (findConfirmDadosButton()) {
+        confirmed = await clickConfirmDados();
+        if (confirmed) break;
+      }
+      await sleep(400);
+    }
     if (!confirmed) {
       console.warn("[TradeMiles] Botão Confirmar dados não encontrado no pax", i);
+      // Não continua no próximo sem confirmar — evita bagunçar
       break;
     }
 
-    // Próximo pax: espera nome limpar / mudar (não fica clicando expand)
+    // Próximo pax: espera nome limpar / mudar
     if (i < passengers.length - 1) {
-      for (let w = 0; w < 20; w++) {
+      for (let w = 0; w < 25; w++) {
         await sleep(400);
         if (!findConfirmDadosButton()) continue;
         const nameEl =
@@ -1520,7 +1573,6 @@ async function fillAllConfirmForm(passengers) {
     }
   }
 
-  // Contato de novo no fim (às vezes só libera após o último confirmar)
   fillContactFields(titularEmail, titularPhone);
 
   return { sections: passengers.length, fields: total, form: "confirm" };
@@ -1613,7 +1665,12 @@ async function runFill({ manual } = {}) {
     });
 
     const ok = result.fields > 0;
-    if (ok && badCpfs.length) {
+    if (result.error === "form_not_ready") {
+      showToast(
+        "TradeMiles: a LATAM ainda não carregou o formulário. Espere a página aparecer e clique de novo.",
+        false
+      );
+    } else if (ok && badCpfs.length) {
       showToast(
         `TradeMiles: preenchido, mas CPF incorreto em ${badCpfs.length} pax — confira na LATAM.`,
         false
@@ -1624,7 +1681,7 @@ async function runFill({ manual } = {}) {
           ? `TradeMiles: ${result.fields} campo(s) · ${passengers.length} pax${
               kind === "confirm" ? " · confirmou dados" : ""
             }. Revise.`
-          : "TradeMiles: não achou os campos. Clique de novo em Preencher TradeMiles.",
+          : "TradeMiles: não achou os campos. Espere a página carregar e clique de novo.",
         ok
       );
     }
