@@ -526,8 +526,10 @@ function findPassengerDobInput(passengerIndex, root) {
 /**
  * Data de nascimento LATAM (placeholder "dd / mm / aaaa"):
  * digitar 8 dígitos; type=date → YYYY-MM-DD.
+ * opts.expand=false no formulário com "Confirmar dados" (evita loop abrir/fechar).
  */
-async function fillBirthDate(root, pax, passengerIndex) {
+async function fillBirthDate(root, pax, passengerIndex, opts = {}) {
+  const expand = opts.expand !== false;
   const parts = birthParts(pax);
   if (!parts) {
     console.warn("[TradeMiles] Pax sem data de nascimento no payload", pax);
@@ -539,13 +541,13 @@ async function fillBirthDate(root, pax, passengerIndex) {
   const pretty = `${parts.day}/${parts.month}/${parts.year}`;
   const spaced = `${parts.day} / ${parts.month} / ${parts.year}`;
 
-  if (passengerIndex != null && passengerIndex >= 0) {
+  if (expand && passengerIndex != null && passengerIndex >= 0) {
     await ensurePassengerExpanded(passengerIndex);
     await sleep(200);
   }
 
   let el = findPassengerDobInput(passengerIndex, root);
-  if (el && !isVisible(el) && passengerIndex != null) {
+  if (el && !isVisible(el) && expand && passengerIndex != null) {
     await ensurePassengerExpanded(passengerIndex);
     await sleep(350);
     el = findPassengerDobInput(passengerIndex, root);
@@ -1064,32 +1066,90 @@ function passengerRoot(idx) {
   return marker.parentElement || document.body;
 }
 
-/** Reabre a ficha do passageiro N até os campos ficarem visíveis. */
+function getPassengerFormKind() {
+  const path = `${location.pathname}${location.search}`;
+  if (/\/pagamentos\/passageiros/i.test(path)) return "confirm";
+  if (findConfirmDadosButton()) return "confirm";
+  return "accordion";
+}
+
+function findConfirmDadosButton() {
+  return (
+    Array.from(document.querySelectorAll("button")).find((btn) => {
+      if (!isVisible(btn)) return false;
+      const t = normalizeLabel(textOf(btn));
+      return t === "confirmar dados" || t.startsWith("confirmar dados");
+    }) || null
+  );
+}
+
+async function clickConfirmDados() {
+  const btn = findConfirmDadosButton();
+  if (!btn) return false;
+  try {
+    btn.scrollIntoView?.({ block: "center", behavior: "instant" });
+  } catch {
+    btn.scrollIntoView?.({ block: "center" });
+  }
+  btn.focus?.();
+  btn.click?.();
+  await sleep(900);
+  return true;
+}
+
+/** Escopo do formulário atual (perto do botão Confirmar dados). */
+function currentPassengerFormRoot() {
+  const btn = findConfirmDadosButton();
+  if (btn) {
+    let p = btn.parentElement;
+    for (let i = 0; i < 14 && p; i++) {
+      const inputs = visibleTextInputs(p);
+      if (inputs.length >= 3) return p;
+      p = p.parentElement;
+    }
+  }
+  if (document.querySelector(`input[name^="passenger-0_"]`)) {
+    return passengerRoot(0);
+  }
+  return document.body;
+}
+
+/** Reabre a ficha do passageiro N (só no formulário acordeão /v2). */
 async function ensurePassengerExpanded(idx) {
+  if (getPassengerFormKind() === "confirm") {
+    return {
+      header: null,
+      root: currentPassengerFormRoot(),
+      open: visibleTextInputs(currentPassengerFormRoot()).length >= 2,
+    };
+  }
+
+  if (passengerFieldsVisible(idx)) {
+    return {
+      header: findAccordionHeaderForPassenger(idx),
+      root: passengerRoot(idx),
+      open: true,
+    };
+  }
+
   const header =
     findAccordionHeaderForPassenger(idx) ||
-    // fallback legado: "Adulto N" só se ainda existir
     Array.from(
       document.querySelectorAll("button[aria-expanded], [role='button'][aria-expanded]")
     ).filter((b) => /^(Adulto|Criança|Crianca|Bebê|Bebe)\b/i.test(textOf(b)))[idx] ||
     null;
 
-  if (header) {
+  // Nunca clicar em botão sem aria-expanded (evita "Confirmar dados" / loop)
+  if (
+    header &&
+    header.getAttribute?.("aria-expanded") != null &&
+    header.getAttribute("aria-expanded") !== "true"
+  ) {
     try {
       header.scrollIntoView?.({ block: "center", behavior: "instant" });
     } catch {
       header.scrollIntoView?.({ block: "center" });
     }
-  }
-
-  // Critério real: campo visível — inputs no DOM com acordeão fechado enganam.
-  for (let attempt = 0; attempt < 5; attempt++) {
-    if (passengerFieldsVisible(idx)) break;
-    header?.click?.();
-    await sleep(500 + attempt * 80);
-  }
-
-  if (header?.getAttribute?.("aria-expanded") === "false" && !passengerFieldsVisible(idx)) {
     header.click?.();
     await sleep(550);
   }
@@ -1287,8 +1347,84 @@ function ensureFab() {
   document.documentElement.appendChild(btn);
 }
 
-/** Preenche um pax completo com a ficha aberta (nome → fecha popover → data). */
-async function fillOnePassengerComplete(i, pax) {
+function fillContactFields(email, phone) {
+  let n = 0;
+  if (email) {
+    const emailEl = findFieldByWord(document.body, ["email", "e-mail"]);
+    if (emailEl && setNativeValue(emailEl, String(email).toLowerCase())) n++;
+  }
+  if (phone) {
+    const digits = String(phone).replace(/\D/g, "").replace(/^55/, "");
+    const phoneEl = findFieldByWord(
+      document.body,
+      ["numero", "telefone", "celular"],
+      { excludeWords: ["documento", "passageiro frequente", "cartao", "cartão"] }
+    );
+    if (phoneEl && setNativeValue(phoneEl, digits)) n++;
+  }
+  return n;
+}
+
+/** Formulário /pagamentos/passageiros — um pax por vez + Confirmar dados. */
+async function fillOnePassengerConfirmForm(pax, opts = {}) {
+  let n = 0;
+  const root = currentPassengerFormRoot();
+  const { firstName, lastName } = splitPassengerName(pax);
+
+  // Neste fluxo o pax ativo costuma ser passenger-0_*
+  const setByName = (suffix, value) => {
+    if (!value) return false;
+    const el =
+      document.querySelector(`input[name="passenger-0_${suffix}"]`) ||
+      root.querySelector?.(`input[name$="_${suffix}"]`) ||
+      null;
+    return el ? setNativeValue(el, value) : false;
+  };
+
+  if (firstName && setByName("firstName", firstName)) n++;
+  await dismissSavedPassengersPopover();
+  if (lastName && setByName("lastName", lastName)) n++;
+  await dismissSavedPassengersPopover();
+
+  n += fillInSection(root, pax, "adult");
+  await dismissSavedPassengersPopover();
+
+  const cpf = cpfDigitsOnly(pax.cpf);
+  if (cpf) {
+    const cpfEl =
+      document.querySelector(
+        `input[name="passenger-0_documentNumber"], input[name="passenger-0_cpf"]`
+      ) || findFieldByWord(root, ["cpf"]);
+    if (cpfEl) {
+      setNativeValue(cpfEl, "");
+      setNativeValue(cpfEl, cpf);
+      n++;
+    }
+  }
+
+  const gender = resolvePaxGender(pax);
+  if (gender && (await selectGender(root, gender, 0))) n++;
+  closeOpenMenus();
+  await sleep(100);
+
+  // Sem expand — evita loop abrir/fechar neste formulário
+  n += await fillBirthDate(root, pax, 0, { expand: false });
+  const dobCheck =
+    findPassengerDobInput(0, root) || findDateOfBirthInput(root);
+  if (!dobCheck || !birthFieldHasDate(dobCheck)) {
+    n += await fillBirthDate(root, pax, null, { expand: false });
+  }
+
+  if (opts.email || opts.phone) {
+    n += fillContactFields(opts.email, opts.phone);
+  }
+
+  await sleep(200);
+  return n;
+}
+
+/** Formulário /v2/passageiros — acordeão com vários pax na mesma página. */
+async function fillOnePassengerAccordion(i, pax) {
   let n = 0;
   const opened = await ensurePassengerExpanded(i);
   const root = opened.root;
@@ -1310,7 +1446,7 @@ async function fillOnePassengerComplete(i, pax) {
   const cpf = cpfDigitsOnly(pax.cpf);
   if (cpf) {
     const cpfEl = document.querySelector(
-      `input[name="passenger-${i}_documentNumber"], input[name="passenger-${i}_cpf"], input[name*="passenger-${i}_"][name*="document" i], input[name*="passenger-${i}_"][name*="cpf" i]`
+      `input[name="passenger-${i}_documentNumber"], input[name="passenger-${i}_cpf"], input[name*="passenger-${i}_"][name*="document" i]`
     );
     if (cpfEl) {
       setNativeValue(cpfEl, "");
@@ -1327,41 +1463,86 @@ async function fillOnePassengerComplete(i, pax) {
   closeOpenMenus();
   await sleep(120);
 
-  // Data NA MESMA ficha aberta — sem clicar fora / body
-  n += await fillBirthDate(root, pax, i);
-  let dobEl = findPassengerDobInput(i, root);
+  n += await fillBirthDate(root, pax, i, { expand: true });
+  const dobEl = findPassengerDobInput(i, root);
   if (!dobEl || !birthFieldHasDate(dobEl)) {
     await ensurePassengerExpanded(i);
     await sleep(300);
-    n += await fillBirthDate(passengerRoot(i), pax, i);
+    n += await fillBirthDate(passengerRoot(i), pax, i, { expand: true });
   }
 
   await sleep(200);
   return n;
 }
 
-async function fillAll(passengers) {
+async function fillAllConfirmForm(passengers) {
+  let total = 0;
+  const titularEmail = passengers.find((p) => p.email)?.email || null;
+  const titularPhone = passengers.find((p) => p.phone)?.phone || null;
+
+  for (let i = 0; i < passengers.length; i++) {
+    const pax = {
+      ...passengers[i],
+      email: passengers[i].email || titularEmail,
+      phone: passengers[i].phone || titularPhone,
+    };
+
+    // Espera o formulário do pax atual
+    for (let w = 0; w < 15; w++) {
+      if (visibleTextInputs(currentPassengerFormRoot()).length >= 2) break;
+      await sleep(350);
+    }
+
+    await dismissSavedPassengersPopover();
+    const prevName = splitPassengerName(pax).firstName;
+    total += await fillOnePassengerConfirmForm(pax, {
+      email: i === 0 ? pax.email : null,
+      phone: i === 0 ? pax.phone : null,
+    });
+
+    const confirmed = await clickConfirmDados();
+    if (!confirmed) {
+      console.warn("[TradeMiles] Botão Confirmar dados não encontrado no pax", i);
+      break;
+    }
+
+    // Próximo pax: espera nome limpar / mudar (não fica clicando expand)
+    if (i < passengers.length - 1) {
+      for (let w = 0; w < 20; w++) {
+        await sleep(400);
+        if (!findConfirmDadosButton()) continue;
+        const nameEl =
+          document.querySelector(`input[name="passenger-0_firstName"]`) ||
+          findFirstNameField(currentPassengerFormRoot());
+        const cur = sanitizeLatamName(nameEl?.value || "");
+        if (!cur || (prevName && cur !== sanitizeLatamName(prevName))) break;
+      }
+    }
+  }
+
+  // Contato de novo no fim (às vezes só libera após o último confirmar)
+  fillContactFields(titularEmail, titularPhone);
+
+  return { sections: passengers.length, fields: total, form: "confirm" };
+}
+
+async function fillAllAccordion(passengers) {
   let total = 0;
   const max = passengers.length;
-
-  const titularEmail =
-    passengers.find((p) => p.email)?.email || null;
-  const titularPhone =
-    passengers.find((p) => p.phone)?.phone || null;
+  const titularEmail = passengers.find((p) => p.email)?.email || null;
+  const titularPhone = passengers.find((p) => p.phone)?.phone || null;
   const enriched = passengers.map((p) => ({
     ...p,
     email: p.email || titularEmail,
     phone: p.phone || titularPhone,
   }));
 
-  // Um pax por vez: abre ficha → preenche tudo (inclui data) → próximo
   for (let i = 0; i < max; i++) {
     await dismissSavedPassengersPopover();
     await sleep(120);
-    total += await fillOnePassengerComplete(i, enriched[i]);
+    total += await fillOnePassengerAccordion(i, enriched[i]);
   }
 
-  // Com 2+ pax: reabre quem ficou sem data
   if (max > 1) {
     for (let i = 0; i < max; i++) {
       const dobEl = findPassengerDobInput(i, document.body);
@@ -1369,81 +1550,89 @@ async function fillAll(passengers) {
       await dismissSavedPassengersPopover();
       await ensurePassengerExpanded(i);
       await sleep(250);
-      total += await fillBirthDate(passengerRoot(i), enriched[i], i);
+      total += await fillBirthDate(passengerRoot(i), enriched[i], i, { expand: true });
     }
   }
 
   await dismissSavedPassengersPopover();
+  fillContactFields(titularEmail, titularPhone);
 
-  // Contato global no fim
-  if (titularEmail) {
-    const emailEl = findFieldByWord(document.body, ["email", "e-mail"]);
-    if (emailEl) setNativeValue(emailEl, String(titularEmail).toLowerCase());
-  }
-  if (titularPhone) {
-    const phone = String(titularPhone).replace(/\D/g, "").replace(/^55/, "");
-    const phoneEl = findFieldByWord(
-      document.body,
-      ["numero", "telefone", "celular"],
-      { excludeWords: ["documento", "passageiro frequente", "cartao", "cartão"] }
-    );
-    if (phoneEl) setNativeValue(phoneEl, phone);
-  }
-
-  return { sections: max, fields: total };
+  return { sections: max, fields: total, form: "accordion" };
 }
+
+async function fillAll(passengers) {
+  const kind = getPassengerFormKind();
+  console.info("[TradeMiles] formulário passageiros:", kind, location.pathname);
+  if (kind === "confirm") return fillAllConfirmForm(passengers);
+  return fillAllAccordion(passengers);
+}
+
+let fillRunning = false;
 
 async function runFill({ manual } = {}) {
   ensureFab();
-  const res = await chrome.runtime.sendMessage({ type: "TM_GET_FILL_PAYLOAD" });
-  if (!res?.ok) {
-    showToast(res?.error || "Faça login no TradeMiles (mesma janela).", false);
-    return { ok: false, error: res?.error };
+  if (fillRunning) {
+    showToast("TradeMiles: já estou preenchendo…", false);
+    return { ok: false, error: "busy" };
   }
-  if (!res.data?.useExtension) {
-    showToast("Extensão desligada na venda — clique Preparar extensão.", false);
-    return { ok: false, error: "desligada" };
-  }
-  const passengers = Array.isArray(res.data.passengers) ? res.data.passengers : [];
-  if (!passengers.length) {
-    showToast("Sessão sem passageiros. Prepare de novo na venda.", false);
-    return { ok: false, error: "sem pax" };
-  }
+  fillRunning = true;
+  try {
+    const res = await chrome.runtime.sendMessage({ type: "TM_GET_FILL_PAYLOAD" });
+    if (!res?.ok) {
+      showToast(res?.error || "Faça login no TradeMiles (mesma janela).", false);
+      return { ok: false, error: res?.error };
+    }
+    if (!res.data?.useExtension) {
+      showToast("Extensão desligada na venda — clique Preparar extensão.", false);
+      return { ok: false, error: "desligada" };
+    }
+    const passengers = Array.isArray(res.data.passengers) ? res.data.passengers : [];
+    if (!passengers.length) {
+      showToast("Sessão sem passageiros. Prepare de novo na venda.", false);
+      return { ok: false, error: "sem pax" };
+    }
 
-  for (let attempt = 0; attempt < 8; attempt++) {
-    if (visibleTextInputs(document.body).length >= 2) break;
-    await sleep(400);
-  }
+    for (let attempt = 0; attempt < 8; attempt++) {
+      if (visibleTextInputs(document.body).length >= 2) break;
+      await sleep(400);
+    }
 
-  let result = await fillAll(passengers);
-  if (result.fields < 3) {
-    await sleep(900);
-    result = await fillAll(passengers);
-  }
+    const kind = getPassengerFormKind();
+    let result = await fillAll(passengers);
+    // Retry só no acordeão — no "Confirmar dados" um 2º fillAll causa loop
+    if (kind === "accordion" && result.fields < 3) {
+      await sleep(900);
+      result = await fillAll(passengers);
+    }
 
-  const badCpfs = passengers.filter((p) => {
-    const cpf = cpfDigitsOnly(p.cpf);
-    if (!cpf) return false;
-    if (p.cpfValid === false) return true;
-    return !isValidCpfDigits(cpf);
-  });
+    const badCpfs = passengers.filter((p) => {
+      const cpf = cpfDigitsOnly(p.cpf);
+      if (!cpf) return false;
+      if (p.cpfValid === false) return true;
+      return !isValidCpfDigits(cpf);
+    });
 
-  const ok = result.fields > 0;
-  if (ok && badCpfs.length) {
-    showToast(
-      `TradeMiles: preenchido, mas CPF incorreto em ${badCpfs.length} pax — confira na LATAM.`,
-      false
-    );
-  } else {
-    showToast(
-      ok
-        ? `TradeMiles: ${result.fields} campo(s) · ${passengers.length} pax. Revise.`
-        : "TradeMiles: não achou os campos. Clique de novo em Preencher TradeMiles.",
-      ok
-    );
+    const ok = result.fields > 0;
+    if (ok && badCpfs.length) {
+      showToast(
+        `TradeMiles: preenchido, mas CPF incorreto em ${badCpfs.length} pax — confira na LATAM.`,
+        false
+      );
+    } else {
+      showToast(
+        ok
+          ? `TradeMiles: ${result.fields} campo(s) · ${passengers.length} pax${
+              kind === "confirm" ? " · confirmou dados" : ""
+            }. Revise.`
+          : "TradeMiles: não achou os campos. Clique de novo em Preencher TradeMiles.",
+        ok
+      );
+    }
+    console.info("[TradeMiles] fill", { manual, kind, result, passengers, badCpfs });
+    return { ok, ...result, passengers: passengers.length };
+  } finally {
+    fillRunning = false;
   }
-  console.info("[TradeMiles] fill", { manual, result, passengers, badCpfs });
-  return { ok, ...result, passengers: passengers.length };
 }
 
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
