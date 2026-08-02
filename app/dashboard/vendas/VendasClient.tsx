@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { FilterX, Plus, RefreshCw, Search, ShoppingBag } from "lucide-react";
 import { cn } from "@/lib/cn";
+import { buildClientChargeMessageFromSale } from "@/lib/vendas/buildClientChargeMessage";
 
 function fmtMoneyBR(cents: number) {
   return ((cents || 0) / 100).toLocaleString("pt-BR", {
@@ -168,6 +169,8 @@ type SaleRow = {
 
   cedente?: { id: string; identificador: string; nomeCompleto: string } | null;
 
+  seller?: { id: string; name: string; login: string } | null;
+
   purchase?: { id: string; numero: string } | null;
 
   receivable?: {
@@ -326,6 +329,27 @@ export default function VendasClient() {
   const [updatingId, setUpdatingId] = useState<string | null>(null);
   const [user, setUser] = useState<UserSession | null>(null);
   const [users, setUsers] = useState<UserLite[]>([]);
+
+  // Mensagem de cobrança (mesma do final da venda)
+  const [chargeMsgOpen, setChargeMsgOpen] = useState(false);
+  const [chargeMsg, setChargeMsg] = useState("");
+  const [chargeMsgTitle, setChargeMsgTitle] = useState("");
+
+  function openChargeMessage(r: SaleRow) {
+    const msg = buildClientChargeMessageFromSale(r);
+    setChargeMsg(msg);
+    setChargeMsgTitle(`${r.cliente.nome} · ${r.locator || r.numero}`);
+    setChargeMsgOpen(true);
+  }
+
+  async function copyChargeMessage() {
+    try {
+      await navigator.clipboard.writeText(chargeMsg);
+      alert("Mensagem de cobrança copiada.");
+    } catch {
+      alert("Não foi possível copiar automaticamente. Selecione o texto e copie.");
+    }
+  }
 
   // ✅ modal de detalhes
   const [detailsId, setDetailsId] = useState<string | null>(null);
@@ -1097,9 +1121,27 @@ export default function VendasClient() {
                       onClick={(e) => e.stopPropagation()} // ✅ não abrir detalhes ao clicar nos botões
                     >
                       {r.paymentStatus === "CANCELED" ? (
-                        <span className="text-xs text-slate-400">—</span>
+                        <div className="flex justify-end gap-2">
+                          <button
+                            type="button"
+                            onClick={() => openChargeMessage(r)}
+                            className="rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-800 shadow-sm transition hover:border-slate-300 hover:bg-slate-50"
+                            title="Gerar mensagem de cobrança (PIX + valores)"
+                          >
+                            Mensagem
+                          </button>
+                        </div>
                       ) : (
                         <div className="flex justify-end gap-2">
+                          <button
+                            type="button"
+                            onClick={() => openChargeMessage(r)}
+                            className="rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-800 shadow-sm transition hover:border-slate-300 hover:bg-slate-50"
+                            title="Gerar mensagem de cobrança (PIX + valores)"
+                          >
+                            Mensagem
+                          </button>
+
                           <button
                             type="button"
                             onClick={() => togglePago(r)}
@@ -1661,6 +1703,15 @@ export default function VendasClient() {
               </div>
 
               <div className="flex flex-wrap gap-2 justify-end border-t border-slate-200 pt-4">
+                <button
+                  type="button"
+                  onClick={() => openChargeMessage(details)}
+                  className="min-h-[44px] rounded-xl border px-4 py-2.5 text-base font-medium hover:bg-slate-50"
+                  title="Gerar mensagem de cobrança (PIX + valores)"
+                >
+                  Mensagem de cobrança
+                </button>
+
                 {details.paymentStatus !== "CANCELED" ? (
                   <>
                     <button
@@ -1697,6 +1748,62 @@ export default function VendasClient() {
               <div className="text-sm text-slate-500">
                 Dica: aperta <span className="font-mono">ESC</span> pra fechar.
               </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {chargeMsgOpen ? (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/45 p-4 backdrop-blur-[2px]"
+          onMouseDown={() => setChargeMsgOpen(false)}
+        >
+          <div
+            className="w-full max-w-2xl rounded-2xl border border-slate-200/90 bg-white p-5 shadow-2xl shadow-slate-900/20 sm:p-6"
+            onMouseDown={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <div className="text-lg font-bold tracking-tight text-slate-900">
+                  Mensagem de cobrança
+                </div>
+                <div className="mt-1 text-xs text-slate-500">{chargeMsgTitle}</div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setChargeMsgOpen(false)}
+                className="rounded-xl border border-slate-200 bg-white px-2.5 py-1 text-sm text-slate-600 hover:bg-slate-50"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="mt-4">
+              <textarea
+                className="min-h-[280px] w-full resize-y rounded-xl border border-slate-200 bg-white px-3 py-2.5 font-mono text-[13px] leading-relaxed text-slate-800 shadow-sm outline-none focus:border-slate-400"
+                value={chargeMsg}
+                onChange={(e) => setChargeMsg(e.target.value)}
+              />
+              <div className="mt-2 text-[11px] text-slate-500">
+                Mesma mensagem do final da venda (valores, PIX Vias Aéreas e avisos).
+              </div>
+            </div>
+
+            <div className="mt-5 flex flex-wrap justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setChargeMsgOpen(false)}
+                className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-800 hover:bg-slate-50"
+              >
+                Fechar
+              </button>
+              <button
+                type="button"
+                onClick={() => void copyChargeMessage()}
+                className="rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white hover:bg-slate-800"
+              >
+                Copiar mensagem
+              </button>
             </div>
           </div>
         </div>

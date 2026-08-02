@@ -31,6 +31,7 @@ import {
 import BiometriaWizardModal from "@/components/vendas/BiometriaWizardModal";
 import { EmailNaoSincronizadoAviso } from "@/components/cedentes/EmailNaoSincronizadoAviso";
 import { purchaseCodeFromLatamPdfUrl } from "@/lib/latam/parseReceiptPdf";
+import { buildClientChargeMessage } from "@/lib/vendas/buildClientChargeMessage";
 
 type Program = "LATAM" | "SMILES" | "LIVELO" | "ESFERA";
 type PointsMode = "TOTAL" | "POR_PAX";
@@ -1237,114 +1238,6 @@ export default function NovaVendaClient({
     setConfirmOpen(false);
   }
 
-  function toBRDate(iso: string) {
-    const m = String(iso || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
-    return m ? `${m[3]}/${m[2]}/${m[1]}` : iso;
-  }
-
-  function cap1(s?: string | null) {
-    const v = (s || "").trim();
-    if (!v) return "";
-    return v.charAt(0).toUpperCase() + v.slice(1);
-  }
-
-  function buildTelegramMessage(args: {
-    saleId?: string | null;
-    cliente: ClienteLite | null;
-    program: Program;
-
-    tripKind: TripKind;
-    idaMode: PointsMode;
-    idaInput: number;
-    idaTotalPoints: number;
-    voltaMode: PointsMode;
-    voltaInput: number;
-    voltaTotalPoints: number;
-
-    passengers: number;
-    pointsTotal: number;
-
-    milheiroCents: number;
-    pointsValueCents: number;
-    embarqueFeeCents: number;
-    totalCents: number;
-    locator: string;
-    compraNumero: string;
-    cedenteNome: string;
-    responsavelNome: string;
-    feeCardLabel: string;
-    dateISO: string;
-    vendedorNome?: string | null;
-  }) {
-    const lines: string[] = [];
-
-    lines.push("Parabéns — sua passagem foi emitida com sucesso!");
-    lines.push("");
-    lines.push("Resumo da emissão:");
-    lines.push("");
-
-    lines.push(`📅 Data da emissão: ${toBRDate(args.dateISO)}`);
-
-    if (args.vendedorNome) lines.push(`👤 Vendedor(a): ${cap1(args.vendedorNome)}`);
-    if (args.cliente) lines.push(`🧾 Cliente: ${args.cliente.nome}`);
-
-    lines.push(`✈️ Programa: ${args.program}`);
-    lines.push(`🎯 Pontos: ${fmtInt(args.pointsTotal)}`);
-    lines.push(`👥 Passageiros (PAX): ${fmtInt(args.passengers)}`);
-    lines.push(`💸 Milheiro: ${fmtMoneyBR(args.milheiroCents)}`);
-    lines.push(`🧮 Valor dos pontos: ${fmtMoneyBR(args.pointsValueCents)}`);
-    lines.push(`🛄 Taxa de embarque: ${fmtMoneyBR(args.embarqueFeeCents)}`);
-    lines.push(`💰 Total: ${fmtMoneyBR(args.totalCents)}`);
-    lines.push(`💳 Cartão usado: ${args.feeCardLabel || "—"}`);
-
-    if (args.locator?.trim())
-      lines.push(`🔎 Localizador: ${args.locator.trim()}`);
-
-    lines.push("");
-    lines.push("Pagamento");
-    lines.push("Pix: 63817773000185 (CNPJ)");
-    lines.push("Nome: Vias Aereas");
-    lines.push("Banco: Inter");
-    lines.push(`Valor a pagar: ${fmtMoneyBR(args.totalCents)}`);
-    lines.push("");
-    lines.push("⚠️ Antes de viajar");
-    lines.push(
-      "Confira datas, horários e os dados dos passageiros. Em caso de divergência, avise em até 24 horas após a emissão. Depois desse prazo, ajustes podem gerar taxa administrativa de R$ 30,00."
-    );
-
-    if (args.program === "LATAM" || args.program === "SMILES") {
-      const perCpfCents = args.program === "LATAM" ? 15_000 : 10_000;
-      const pax = Math.max(0, Math.floor(Number(args.passengers) || 0));
-      const totalCancelCents = perCpfCents * pax;
-      const prog = args.program === "LATAM" ? "LATAM" : "Smiles";
-      lines.push("");
-      lines.push(`🎫 Cancelamento da passagem (${prog})`);
-      lines.push(
-        args.program === "LATAM"
-          ? `Em caso de cancelamento, a taxa é de ${fmtMoneyBR(perCpfCents)} por CPF (por passageiro) na LATAM.`
-          : `Em caso de cancelamento, a taxa é de ${fmtMoneyBR(perCpfCents)} por CPF (por passageiro) na Smiles.`
-      );
-      if (pax > 0) {
-        lines.push(
-          `Nesta emissão: ${fmtInt(pax)} ${pax === 1 ? "passageiro" : "passageiros"} → total estimado da taxa em cancelamento: ${fmtMoneyBR(totalCancelCents)}.`
-        );
-      } else {
-        lines.push(
-          `Total estimado da taxa em cancelamento: ${fmtMoneyBR(totalCancelCents)} (conferir número de passageiros na reserva).`
-        );
-      }
-    }
-
-    lines.push("");
-    lines.push(
-      "📌 Atenção: emissões com menos de 24 horas de antecedência ou com voo em até 7 dias podem estar sujeitas a taxas adicionais (Resolução ANAC nº 400)."
-    );
-    lines.push("");
-    lines.push("Qualquer dúvida, fale conosco. Boa viagem! ✈️");
-
-    return lines.join("\n");
-  }
-
   async function doSave() {
     if (isSaving) return; // ✅ trava duplo clique
 
@@ -1410,56 +1303,24 @@ export default function NovaVendaClient({
 
     setIsSaving(true);
     try {
-      const out = await api<any>("/api/vendas", {
+      await api<any>("/api/vendas", {
         method: "POST",
         body: JSON.stringify(payload),
       });
 
-      const sale =
-        out?.data?.sale ||
-        out?.sale ||
-        out?.data?.venda ||
-        out?.venda ||
-        out?.data ||
-        null;
-
-      const saleId =
-        sale?.id ||
-        sale?.saleId ||
-        out?.data?.saleId ||
-        out?.saleId ||
-        out?.data?.id ||
-        out?.id ||
-        null;
-
-
-      const msg = buildTelegramMessage({
-        saleId: saleId ? String(saleId) : null,
-        cliente: selectedCliente,
+      const msg = buildClientChargeMessage({
+        dateISO,
+        vendedorNome: effectiveSeller?.name || me?.name || null,
+        clienteNome: selectedCliente?.nome || null,
         program,
-
-        tripKind,
-        idaMode,
-        idaInput,
-        idaTotalPoints,
-        voltaMode,
-        voltaInput,
-        voltaTotalPoints,
-
-        passengers,
         pointsTotal,
-
+        passengers,
         milheiroCents,
         pointsValueCents,
         embarqueFeeCents,
         totalCents,
-        locator,
-        compraNumero: purchaseNumero,
-        cedenteNome: sel.cedente.nomeCompleto,
-        responsavelNome: sel.cedente.owner.name,
         feeCardLabel: feeCardLabel || "—",
-        dateISO,
-        vendedorNome: effectiveSeller?.name || me?.name || null,
+        locator,
       });
 
       setPostSaveMsg(msg);
