@@ -667,6 +667,7 @@ function parseFreeformBlock(block: string): ParsedPassenger | null {
   let cpf: string | null = null;
   let email: string | null = null;
   let phone: string | null = null;
+  let gender: "M" | "F" | null = null;
   const nameCandidates: string[] = [];
 
   for (const line of lines) {
@@ -674,7 +675,9 @@ function parseFreeformBlock(block: string): ParsedPassenger | null {
     const tokens = nameEarly.split(/\s+/).filter(Boolean);
     if (
       tokens.length >= 2 ||
-      (tokens.length === 1 && tokens[0].length >= 3)
+      (tokens.length === 1 &&
+        tokens[0].length >= 3 &&
+        !isBogusPassengerName(tokens[0]))
     ) {
       nameCandidates.push(nameEarly);
     }
@@ -687,6 +690,8 @@ function parseFreeformBlock(block: string): ParsedPassenger | null {
         .toLowerCase()
         .normalize("NFD")
         .replace(/\p{M}/gu, "");
+      const val = String(labeled[2] || "").trim();
+
       // Idt/RG em adulto não entra na LATAM
       if (
         key === "idt" ||
@@ -696,7 +701,44 @@ function parseFreeformBlock(block: string): ParsedPassenger | null {
       ) {
         continue;
       }
-      // Reaproveita parser rotulado para a linha isolada
+
+      // Sempre extrai data/sexo/cpf da linha rotulada — parseLabeledBlock
+      // isolado (só "Nasc …") retorna null e antes perdíamos a data.
+      if (
+        key.includes("nasc") ||
+        key === "dn" ||
+        key === "nascido em" ||
+        key === "data nascimento" ||
+        key.startsWith("dt")
+      ) {
+        if (!birthDate) {
+          birthDate = parseDateFromText(val, { allowCompact: true });
+        }
+      } else if (key === "sexo" || key === "genero" || key === "gênero") {
+        const g = val.toLowerCase();
+        if (!gender) {
+          if (/^f|fem/.test(g)) gender = "F";
+          else if (/^m|masc/.test(g)) gender = "M";
+        }
+      } else if (
+        key === "cpf" ||
+        key === "cnpj" ||
+        key === "cpf/cnpj" ||
+        key === "documento" ||
+        key === "doc"
+      ) {
+        const dig = onlyDigits(val);
+        if (dig.length === 11 && !cpf) {
+          const kind = classifyDigits(dig, {
+            labeledAs: "cpf",
+            alreadyHasCpf: false,
+            preferCpf: true,
+          });
+          if (kind === "cpf") cpf = dig;
+        }
+      }
+
+      // Reaproveita parser rotulado para a linha isolada (nome etc.)
       const mini = parseLabeledBlock(line);
       if (mini) {
         if (mini.firstName && !nameCandidates.length) {
@@ -706,6 +748,7 @@ function parseFreeformBlock(block: string): ParsedPassenger | null {
         if (mini.cpf && !cpf) cpf = mini.cpf;
         if (mini.email && !email) email = mini.email;
         if (mini.phone && !phone) phone = mini.phone;
+        if (mini.gender && !gender) gender = mini.gender;
       }
       continue;
     }
@@ -777,7 +820,7 @@ function parseFreeformBlock(block: string): ParsedPassenger | null {
     cpf: extractCpfDigits(cpf),
     email,
     phone,
-    gender: guessGender(firstName),
+    gender: gender || guessGender(firstName),
     raw: block.trim(),
   });
 }
@@ -853,12 +896,16 @@ function extractFloatingContacts(text: string): {
 
 function lineLooksLikeName(trimmed: string): boolean {
   if (!trimmed || EMAIL_RE.test(trimmed)) return false;
-  // Linha rotulada (Data Nascimento:, Documento:, etc.) nunca é nome de pax
+  // Linha rotulada (Data Nascimento:, Documento:, Sexo:, etc.) nunca é nome de pax
   if (
-    /^\s*(nome|sobrenome|documento|doc|cpf|cnpj|rg|idt|identidade|data\s+(?:de\s+)?nasc|nasc(?:imento)?|dn|e-?mail|email|tel|cel|fone|zap|whats|passageiro|pax)\b/i.test(
+    /^\s*(nome|sobrenome|documento|doc|cpf|cnpj|rg|idt|identidade|data\s+(?:de\s+)?nasc|nasc(?:imento)?|dn|e-?mail|email|tel|cel|fone|zap|whats|passageiro|pax|sexo|genero|gênero)\b/i.test(
       trimmed
     )
   ) {
+    return false;
+  }
+  // Só sexo sem rótulo
+  if (/^\s*(feminino|masculino|fem\.?|masc\.?)\s*$/i.test(trimmed)) {
     return false;
   }
   // Só data ou só CPF
@@ -870,6 +917,7 @@ function lineLooksLikeName(trimmed: string): boolean {
   const name = extractNameFromLine(trimmed);
   const tokens = name.split(/\s+/).filter(Boolean);
   if (tokens.length === 1 && isBogusPassengerName(tokens[0])) return false;
+  if (tokens.every((t) => isBogusPassengerName(t))) return false;
   return tokens.length >= 2 || (tokens.length === 1 && tokens[0].length >= 4);
 }
 
@@ -1089,7 +1137,7 @@ function isBogusPassengerName(name: string) {
     .trim();
   return (
     !n ||
-    /^(data|nascimento|nasc|dn|passageiro|pax|nome|sobrenome|documento|cpf|rg)$/.test(
+    /^(data|nascimento|nasc|dn|passageiro|pax|nome|sobrenome|documento|doc|cpf|rg|sexo|genero|feminino|masculino|fem|masc)$/.test(
       n
     )
   );
