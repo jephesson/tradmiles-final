@@ -393,7 +393,18 @@ async function typeChars(el, value, { clear = true, delay = 40 } = {}) {
   return true;
 }
 
-/** input[type=date] exige YYYY-MM-DD. */
+/** Rola o campo pro centro — a LATAM só aceita type=date quando está na viewport. */
+async function bringFieldIntoView(el) {
+  if (!el) return;
+  try {
+    el.scrollIntoView({ block: "center", inline: "nearest", behavior: "instant" });
+  } catch {
+    el.scrollIntoView?.({ block: "center", inline: "nearest" });
+  }
+  await sleep(120);
+}
+
+/** input[type=date] da LATAM: só YYYY-MM-DD (nunca digitar 01031999). */
 function fillNativeDateInput(el, parts) {
   if (!el || !parts) return false;
   const iso = `${parts.year}-${parts.month}-${parts.day}`;
@@ -407,11 +418,10 @@ function fillNativeDateInput(el, parts) {
   }
 
   el.focus?.();
-  el.click?.();
   const tracker = el._valueTracker;
   if (tracker) {
     try {
-      tracker.setValue("");
+      tracker.setValue(el.value || "");
     } catch {
       /* ignore */
     }
@@ -423,13 +433,19 @@ function fillNativeDateInput(el, parts) {
   if (setter) setter.call(el, iso);
   else el.value = iso;
 
+  // Data LOCAL — UTC muda o dia no Brasil e a LATAM rejeita / limpa
   try {
     el.valueAsDate = new Date(
-      Date.UTC(Number(parts.year), Number(parts.month) - 1, Number(parts.day))
+      Number(parts.year),
+      Number(parts.month) - 1,
+      Number(parts.day)
     );
   } catch {
     /* ignore */
   }
+  // Garante de novo a string ISO (valueAsDate às vezes formata diferente)
+  if (setter) setter.call(el, iso);
+  else el.value = iso;
 
   el.dispatchEvent(new Event("input", { bubbles: true }));
   el.dispatchEvent(
@@ -442,11 +458,7 @@ function fillNativeDateInput(el, parts) {
   el.dispatchEvent(new Event("change", { bubbles: true }));
   el.dispatchEvent(new Event("blur", { bubbles: true }));
 
-  if (el.value === iso || birthFieldHasDate(el)) return true;
-  el.setAttribute("value", iso);
-  el.dispatchEvent(new Event("input", { bubbles: true }));
-  el.dispatchEvent(new Event("change", { bubbles: true }));
-  return el.value === iso || birthFieldHasDate(el);
+  return el.value === iso;
 }
 
 /** Layout antigo: dia / mês / ano separados. */
@@ -592,117 +604,58 @@ async function fillBirthDate(root, pax, passengerIndex, opts = {}) {
   }
 
   const iso = `${parts.year}-${parts.month}-${parts.day}`;
-  const digits = `${parts.day}${parts.month}${parts.year}`;
-  const pretty = `${parts.day}/${parts.month}/${parts.year}`;
-  const spaced = `${parts.day} / ${parts.month} / ${parts.year}`;
 
   if (expand && passengerIndex != null && passengerIndex >= 0) {
     await ensurePassengerExpanded(passengerIndex);
-    await sleep(250);
+    await sleep(200);
   }
 
   let el = resolveDobInputForPax(passengerIndex, root);
-  if (el && !isVisible(el) && passengerIndex != null && passengerIndex >= 0) {
-    await ensurePassengerExpanded(passengerIndex);
-    await sleep(400);
-    el = resolveDobInputForPax(passengerIndex, root);
-  }
-
-  // Com índice: nunca usa DOB de outro pax (antes caía no do Adulto 1)
-  if ((!el || !isVisible(el)) && (passengerIndex == null || passengerIndex < 0)) {
+  // Named field: existe no DOM mesmo fora da tela — não desistir por isVisible
+  if (!el && (passengerIndex == null || passengerIndex < 0)) {
     el = findDateOfBirthInput(root || document.body);
   }
-
-  if (!el || !isVisible(el)) {
-    if (passengerIndex != null && passengerIndex >= 0) {
-      console.warn("[TradeMiles] DOB invisível pax", passengerIndex);
-    }
-    const scope =
-      passengerIndex != null && passengerIndex >= 0
-        ? passengerRoot(passengerIndex)
-        : root || document.body;
-    const split = fillBirthSplitFields(scope, parts);
-    return split > 0 ? split : 0;
+  if (!el) {
+    console.warn("[TradeMiles] DOB não achado pax", passengerIndex);
+    return 0;
   }
 
   if (dobMatchesParts(el, parts)) return 1;
 
-  // Data errada no campo → limpa antes
-  if (birthFieldHasDate(el) && !dobMatchesParts(el, parts)) {
-    await clearInputHard(el);
-    await sleep(80);
-  }
+  await bringFieldIntoView(el);
 
-  el.scrollIntoView?.({ block: "center", inline: "nearest" });
-  el.focus?.();
-  el.click?.();
-  await sleep(100);
-
-  // Só ISO em input type="date" nativo
-  if (el.type === "date") {
-    if (fillNativeDateInput(el, parts)) {
-      await sleep(80);
-      if (!dobMatchesParts(el, parts)) {
-        fillNativeDateInput(el, parts);
-        await sleep(80);
+  // v2 LATAM: type="date" → APENAS ISO. Digitar dígitos APAGA o campo.
+  if (el.type === "date" || /date-picker|dateofbirth/i.test(el.name + el.id + (el.getAttribute("data-testid") || ""))) {
+    for (let t = 0; t < 2; t++) {
+      await bringFieldIntoView(el);
+      if (fillNativeDateInput(el, parts)) {
+        await sleep(100);
+        if (dobMatchesParts(el, parts)) return 1;
       }
-      if (dobMatchesParts(el, parts)) return 1;
+      await sleep(120);
     }
+    console.warn("[TradeMiles] type=date não grudou:", {
+      pax: passengerIndex,
+      value: el.value,
+      iso,
+      min: el.min,
+      max: el.max,
+    });
+    return dobMatchesParts(el, parts) ? 1 : 0;
   }
 
-  // Máscara "dd / mm / aaaa" ou "dd-mm-aaaa": só os 8 dígitos
+  // Fallback raro: máscara texto (formulário antigo)
+  const digits = `${parts.day}${parts.month}${parts.year}`;
   await typeChars(el, digits, { clear: true, delay: 45 });
-  await sleep(160);
-  if (dobMatchesParts(el, parts)) return 1;
-
-  // Digitação mais lenta
-  await typeChars(el, digits, { clear: true, delay: 70 });
-  await sleep(160);
-  if (dobMatchesParts(el, parts)) return 1;
-
-  // Valor formatado com hífen (pagamentos/passageiros)
-  const dashed = `${parts.day}-${parts.month}-${parts.year}`;
-  await typeChars(el, dashed, { clear: true, delay: 35 });
   await sleep(120);
   if (dobMatchesParts(el, parts)) return 1;
-
-  // Valor já formatado com espaços (como a máscara exibe)
-  await typeChars(el, spaced, { clear: true, delay: 35 });
-  await sleep(120);
-  if (dobMatchesParts(el, parts)) return 1;
-
-  setNativeValue(el, pretty);
-  await sleep(80);
-  if (dobMatchesParts(el, parts)) return 1;
-
-  setNativeValue(el, dashed);
-  await sleep(80);
-  if (dobMatchesParts(el, parts)) return 1;
-
-  setNativeValue(el, spaced);
-  await sleep(80);
-  if (dobMatchesParts(el, parts)) return 1;
-
-  if (
-    /dateofbirth/i.test(
-      el.name || el.id || el.getAttribute("data-testid") || ""
-    )
-  ) {
-    if (fillNativeDateInput(el, parts)) return 1;
-    if (setNativeValue(el, iso) && birthFieldHasDate(el)) return 1;
-  }
 
   console.warn("[TradeMiles] Data de nascimento não grudou:", {
     pax: passengerIndex,
     value: el.value,
     type: el.type,
     name: el.name,
-    id: el.id,
-    placeholder: el.placeholder,
-    testid: el.getAttribute("data-testid"),
     iso,
-    pretty,
-    digits,
   });
   return 0;
 }
@@ -914,55 +867,88 @@ function genderFieldShows(el, gender) {
   return false;
 }
 
+/**
+ * Campo Sexo do pax N.
+ * NÃO usar [data-testid*="gender"] solto — pega o listitem
+ * `passenger-N_gender-male--autocomplete__listitem...` e quebra a seleção.
+ */
 function findGenderControl(passengerIndex, root) {
   if (passengerIndex != null && passengerIndex >= 0) {
-    const named = document.querySelector(
-      `input[name="passenger-${passengerIndex}_gender"], ` +
-        `select[name="passenger-${passengerIndex}_gender"], ` +
-        `input[name="passenger-${passengerIndex}_sex"], ` +
-        `select[name="passenger-${passengerIndex}_sex"], ` +
-        `button[name="passenger-${passengerIndex}_gender"], ` +
-        `[data-testid*="passenger-${passengerIndex}_gender" i], ` +
-        `[id*="passenger-${passengerIndex}_gender" i], ` +
-        `[name="passenger-${passengerIndex}_gender"]`
-    );
+    const i = passengerIndex;
+    const named =
+      document.querySelector(`input[name="passenger-${i}_gender"]`) ||
+      document.querySelector(`select[name="passenger-${i}_gender"]`) ||
+      document.querySelector(
+        `input[data-testid*="passenger-${i}_gender"][data-testid*="input" i]`
+      ) ||
+      document.querySelector(
+        `input[id*="passenger-${i}_gender"]:not([id*="listitem"])`
+      ) ||
+      document.querySelector(
+        `[data-testid="passenger-${i}_gender--autocomplete__input"]`
+      ) ||
+      document.querySelector(
+        `input[data-testid*="passenger-${i}_gender--autocomplete" i]`
+      );
     if (named) return named;
   }
-  // Com índice conhecido, NÃO cai no sexo de outro pax
   if (passengerIndex != null && passengerIndex >= 0) {
-    const scope = root && root !== document.body ? root : passengerRoot(passengerIndex);
+    const scope =
+      root && root !== document.body ? root : passengerRoot(passengerIndex);
     return findFieldByWord(scope, ["sexo"]);
   }
   return findFieldByWord(root || document.body, ["sexo"]);
 }
 
-function findGenderOption(label) {
+/** Opção LATAM: data-testid passenger-N_gender-female|male--…listitem… */
+function findGenderListItem(passengerIndex, gender) {
+  const side = gender === "F" ? "female" : "male";
+  const label = gender === "F" ? "Feminino" : "Masculino";
+  if (passengerIndex != null && passengerIndex >= 0) {
+    const byTestId = Array.from(
+      document.querySelectorAll(
+        `[data-testid*="passenger-${passengerIndex}_gender-${side}" i]`
+      )
+    ).find((o) => {
+      const tid = o.getAttribute("data-testid") || "";
+      return /listitem|menuitem|option/i.test(tid) || o.getAttribute("role");
+    });
+    if (byTestId) {
+      return (
+        byTestId.closest?.(
+          '[role="option"], [role="menuitem"], li, [data-testid*="listitem"]'
+        ) || byTestId
+      );
+    }
+  }
   const want = normalizeLabel(label);
-  const sels = [
-    '[role="listbox"] [role="option"]',
-    '[role="option"]',
-    'ul[role="listbox"] li',
-    ".MuiMenu-list li",
-    ".MuiAutocomplete-option",
-    '[role="menu"] [role="menuitem"]',
-    "li[data-value]",
-  ];
-  for (const sel of sels) {
-    const hit = Array.from(document.querySelectorAll(sel)).find((o) => {
+  return (
+    Array.from(
+      document.querySelectorAll(
+        '[role="listbox"] [role="option"], [role="option"], [role="menuitem"], [data-testid*="listitem" i]'
+      )
+    ).find((o) => {
       if (!isVisible(o)) return false;
       const t = normalizeLabel(textOf(o));
-      const v = normalizeLabel(o.getAttribute?.("data-value") || o.value || "");
-      return (
-        t === want ||
-        t.startsWith(want + " ") ||
-        v === want ||
-        v === (want === "feminino" ? "f" : "m") ||
-        v === (want === "feminino" ? "female" : "male")
-      );
-    });
-    if (hit) return hit;
-  }
-  return null;
+      return t === want || t.startsWith(want + " ");
+    }) || null
+  );
+}
+
+async function clickLatamOption(hit) {
+  if (!hit) return false;
+  const target =
+    hit.closest?.(
+      '[role="option"], [role="menuitem"], li, [data-testid*="listitem"]'
+    ) || hit;
+  target.scrollIntoView?.({ block: "nearest" });
+  target.dispatchEvent?.(new MouseEvent("pointerdown", { bubbles: true }));
+  target.dispatchEvent?.(new MouseEvent("mousedown", { bubbles: true }));
+  target.dispatchEvent?.(new MouseEvent("mouseup", { bubbles: true }));
+  target.dispatchEvent?.(new MouseEvent("click", { bubbles: true }));
+  target.click?.();
+  await sleep(180);
+  return true;
 }
 
 async function selectGender(root, gender, passengerIndex) {
@@ -985,67 +971,42 @@ async function selectGender(root, gender, passengerIndex) {
   }
 
   for (let attempt = 0; attempt < 3; attempt++) {
-    if (!isVisible(el) && passengerIndex != null) {
-      await ensurePassengerExpanded(passengerIndex);
-      await sleep(350);
-      el = findGenderControl(passengerIndex, root) || el;
-    }
-
-    el.scrollIntoView?.({ block: "center", inline: "nearest" });
+    await bringFieldIntoView(el);
     el.focus?.();
     el.click?.();
-    await sleep(280 + attempt * 120);
+    await sleep(300 + attempt * 100);
 
-    let hit = findGenderOption(label);
+    let hit = findGenderListItem(passengerIndex, gender);
     if (!hit) {
-      // Às vezes a lista demora / está em portal
       await sleep(250);
-      hit = findGenderOption(label);
+      hit = findGenderListItem(passengerIndex, gender);
     }
 
     if (hit) {
-      hit.scrollIntoView?.({ block: "nearest" });
-      hit.dispatchEvent?.(new MouseEvent("pointerdown", { bubbles: true }));
-      hit.dispatchEvent?.(new MouseEvent("mousedown", { bubbles: true }));
-      hit.dispatchEvent?.(new MouseEvent("mouseup", { bubbles: true }));
-      hit.dispatchEvent?.(new MouseEvent("click", { bubbles: true }));
-      hit.click?.();
-      await sleep(200);
-    } else {
-      // Fallback teclado: F / M na lista aberta
-      const key = gender === "F" ? "f" : "m";
-      el.dispatchEvent(
-        new KeyboardEvent("keydown", {
-          key,
-          bubbles: true,
-          cancelable: true,
-        })
-      );
-      await sleep(80);
-      el.dispatchEvent(
-        new KeyboardEvent("keydown", {
-          key: "Enter",
-          code: "Enter",
-          keyCode: 13,
-          bubbles: true,
-          cancelable: true,
-        })
-      );
-      await sleep(150);
+      await clickLatamOption(hit);
     }
 
-    closeOpenMenus();
-    await sleep(100);
+    await sleep(120);
     el = findGenderControl(passengerIndex, root) || el;
     if (genderFieldShows(el, gender)) {
       console.info("[TradeMiles] Sexo OK pax", passengerIndex, gender);
+      closeOpenMenus();
       return true;
+    }
+
+    // Confirma pelo testid da opção selecionada / texto ao redor
+    const chosen = findGenderListItem(passengerIndex, gender);
+    if (chosen && !isVisible(chosen)) {
+      // lista fechou — confere de novo o controle
+      if (genderFieldShows(el, gender)) return true;
     }
   }
 
+  closeOpenMenus();
   console.warn("[TradeMiles] Sexo não grudou pax", passengerIndex, {
     want: gender,
     shown: el?.value || textOf(el),
+    controlTestId: el?.getAttribute?.("data-testid"),
   });
   return false;
 }
@@ -1394,14 +1355,18 @@ function currentPassengerFormRoot() {
   return document.body;
 }
 
-/** Reabre a ficha do passageiro N (só no formulário acordeão /v2). */
+/** Reabre a ficha do passageiro N — só clica se estiver fechada (um clique a mais apaga tudo). */
 async function ensurePassengerExpanded(idx) {
   if (getPassengerFormKind() === "confirm") {
     return expandAdultoSlot(idx);
   }
 
-  // Campos já visíveis → não clica em nada (evita "Passageiros salvos")
-  if (passengerFieldsVisible(idx)) {
+  const dob = document.querySelector(
+    `input[name="passenger-${idx}_dateOfBirth"]`
+  );
+  // Já utilizável (visível ou só fora da viewport) → só rola, sem clicar cabeçalho
+  if (dob && passengerFieldsVisible(idx)) {
+    await bringFieldIntoView(dob);
     return {
       header: findAccordionHeaderForPassenger(idx),
       root: passengerRoot(idx),
@@ -1410,51 +1375,41 @@ async function ensurePassengerExpanded(idx) {
   }
 
   const header = findAccordionHeaderForPassenger(idx);
-  if (header && isPassengerCardToggle(header)) {
-    const expanded = header.getAttribute?.("aria-expanded");
-    // Abre se fechado OU se aria não ajuda mas campos estão ocultos
-    if (expanded === "false" || expanded == null || expanded === "true") {
-      // expanded=true mas campos invisíveis → reclica (estado inconsistente)
-      if (expanded !== "true" || !passengerFieldsVisible(idx)) {
-        try {
-          header.scrollIntoView?.({ block: "center", behavior: "instant" });
-        } catch {
-          header.scrollIntoView?.({ block: "center" });
-        }
-        // Se diz aberto mas campos sumiram, um clique pode fechar — tenta abrir
-        if (expanded === "true" && !passengerFieldsVisible(idx)) {
-          header.click?.();
-          await sleep(400);
-        }
-        if (!passengerFieldsVisible(idx)) {
-          header.click?.();
-          await sleep(600);
-        }
-      }
-    }
-  }
-
-  // 2ª chance: botão "Adulto N" pelo número
-  if (!passengerFieldsVisible(idx)) {
+  if (
+    header &&
+    isPassengerCardToggle(header) &&
+    header.getAttribute?.("aria-expanded") === "false"
+  ) {
+    await bringFieldIntoView(header);
+    header.click?.();
+    await sleep(550);
+  } else if (!dob) {
     const want = idx + 1;
     const btn = Array.from(
       document.querySelectorAll("button, [role='button']")
     ).find((b) => {
       if (!isVisible(b) || isUnsafeClickTarget(b)) return false;
-      const m = textOf(b).match(/^(Adulto|Criança|Crianca|Bebê|Bebe)\s*(\d+)\b/i);
+      const m = textOf(b).match(
+        /^(Adulto|Criança|Crianca|Bebê|Bebe)\s*(\d+)\b/i
+      );
       return m && Number(m[2]) === want;
     });
-    if (btn) {
-      btn.scrollIntoView?.({ block: "center" });
+    if (btn && btn.getAttribute?.("aria-expanded") !== "true") {
+      await bringFieldIntoView(btn);
       btn.click?.();
-      await sleep(600);
+      await sleep(550);
     }
+  } else if (dob) {
+    // Existe no DOM mas ainda não "visível" — rola; não reclica (evita fechar)
+    await bringFieldIntoView(dob);
   }
 
   return {
     header: findAccordionHeaderForPassenger(idx),
     root: passengerRoot(idx),
-    open: passengerFieldsVisible(idx),
+    open: Boolean(
+      document.querySelector(`input[name="passenger-${idx}_dateOfBirth"]`)
+    ),
   };
 }
 
@@ -1823,86 +1778,58 @@ async function fillOnePassengerConfirmForm(pax, idx, opts = {}) {
   return { fields: n, root };
 }
 
-/** Formulário /v2/passageiros — acordeão com vários pax na mesma página. */
+/**
+ * v2 acordeão — ordem igual pagamento: campo a campo, um pax por vez.
+ * Nome → sobrenome → nascimento (type=date) → sexo (autocomplete) → CPF.
+ */
 async function fillOnePassengerAccordion(i, pax) {
   let n = 0;
-  const opened = await ensurePassengerExpanded(i);
-  let root = opened.root || passengerRoot(i);
-
-  if (!opened.open) {
-    console.warn("[TradeMiles] Ficha do pax", i, "não abriu — tentando de novo");
-    await sleep(400);
-    const again = await ensurePassengerExpanded(i);
-    root = again.root || root;
-  }
+  await ensurePassengerExpanded(i);
+  await sleep(250);
 
   const { firstName, lastName } = splitPassengerName(pax);
-  const setByName = (suffix, value) => {
+  const setByName = async (suffix, value) => {
     if (!value) return false;
     const el = document.querySelector(
-      `input[name="passenger-${i}_${suffix}"], input[data-testid*="passenger-${i}_${suffix}" i]`
+      `input[name="passenger-${i}_${suffix}"]`
     );
-    // soft: não foca → não abre "Passageiros salvos"
-    return el ? setNativeValue(el, value, { soft: true }) : false;
+    if (!el) return false;
+    await bringFieldIntoView(el);
+    return setNativeValue(el, value, { soft: true });
   };
 
-  if (firstName && setByName("firstName", firstName)) n++;
-  if (lastName && setByName("lastName", lastName)) n++;
+  if (firstName && (await setByName("firstName", firstName))) n++;
+  await sleep(80);
+  if (lastName && (await setByName("lastName", lastName))) n++;
   await dismissSavedPassengersPopover();
+  await sleep(100);
+
+  // Nascimento (type=date ISO) — rola sozinho, sem o usuário rolar
+  console.info("[TradeMiles] pax", i, "preenchendo nascimento…");
+  n += await fillBirthDate(passengerRoot(i), pax, i, { expand: false });
+  await sleep(150);
+
+  // Sexo via listitem passenger-N_gender-female|male
+  const gender = resolvePaxGender(pax);
+  console.info("[TradeMiles] pax", i, "sexo payload:", gender, pax.gender);
+  if (gender && (await selectGender(passengerRoot(i), gender, i))) n++;
+  await sleep(120);
 
   const cpf = cpfDigitsOnly(pax.cpf);
   if (cpf) {
-    const cpfEl = document.querySelector(
-      `input[name="passenger-${i}_documentNumber"], input[name="passenger-${i}_cpf"], input[name*="passenger-${i}_"][name*="document" i]`
-    );
+    const cpfEl =
+      document.querySelector(
+        `input[name="passenger-${i}_documentNumber"]`
+      ) ||
+      document.querySelector(`input[name="passenger-${i}_cpf"]`) ||
+      document.querySelector(
+        `input[name*="passenger-${i}_"][name*="document" i]`
+      );
     if (cpfEl) {
+      await bringFieldIntoView(cpfEl);
       setNativeValue(cpfEl, "", { soft: true });
       if (setNativeValue(cpfEl, cpf, { soft: true })) n++;
     }
-  }
-
-  n += fillInSection(root, pax, "adult");
-  await dismissSavedPassengersPopover();
-
-  const gender = resolvePaxGender(pax);
-  console.info("[TradeMiles] pax", i, "sexo payload:", gender, pax.gender);
-
-  // Sexo ANTES da data — e com retry (2º pax costumava ficar Masculino default)
-  for (let gTry = 0; gTry < 3; gTry++) {
-    if (!gender) break;
-    const gEl = findGenderControl(i, root);
-    if (gEl && genderFieldShows(gEl, gender)) {
-      n++;
-      break;
-    }
-    await ensurePassengerExpanded(i);
-    if (await selectGender(passengerRoot(i), gender, i)) {
-      n++;
-      break;
-    }
-    await sleep(250);
-  }
-  await sleep(100);
-
-  // Data com verify no campo passenger-i_* (não no do 1º)
-  for (let dTry = 0; dTry < 3; dTry++) {
-    const dobEl = resolveDobInputForPax(i, passengerRoot(i));
-    if (dobEl && dobMatchesParts(dobEl, birthParts(pax))) {
-      n++;
-      break;
-    }
-    await ensurePassengerExpanded(i);
-    await sleep(200);
-    const filled = await fillBirthDate(passengerRoot(i), pax, i, {
-      expand: true,
-    });
-    if (filled > 0) n += filled;
-    const after = resolveDobInputForPax(i, passengerRoot(i));
-    if (after && (dobMatchesParts(after, birthParts(pax)) || birthFieldHasDate(after))) {
-      break;
-    }
-    console.warn("[TradeMiles] Retry data pax", i, "tentativa", dTry + 1);
-    await sleep(300);
   }
 
   await dismissSavedPassengersPopover();
@@ -2013,78 +1940,18 @@ async function fillAllAccordion(passengers) {
 
   for (let i = 0; i < max; i++) {
     await dismissSavedPassengersPopover();
-    await sleep(120);
+    console.info("[TradeMiles] —— passageiro", i + 1, "de", max, "——");
     total += await fillOnePassengerAccordion(i, enriched[i]);
 
-    // No v2 o contato fica no 1º passageiro (+ checkbox repetir).
-    // Tem que preencher AINDA com a ficha 0 aberta — se deixar pro fim, cai no 2º.
+    // Contato só no 1º (checkbox repetir), ainda com a ficha 0 aberta
     if (i === 0 && (titularEmail || titularPhone)) {
       await sleep(200);
       total += await fillContactFields(titularEmail, titularPhone, {
         passengerIndex: 0,
       });
-      await sleep(150);
-      // Garante de novo se a LATAM limpou e-mail ou telefone
-      const emailEl =
-        document.querySelector(
-          `input[name="passenger-0_email"], input[type="email"]`
-        ) || findFieldByWord(findContactSectionRoot(), ["email", "e-mail"]);
-      const phoneEl = findPhoneInput(findContactSectionRoot(), 0);
-      const emailMissing =
-        titularEmail && emailEl && !String(emailEl.value || "").includes("@");
-      const phoneMissing =
-        titularPhone &&
-        (!phoneEl ||
-          String(phoneEl.value || "").replace(/\D/g, "").length < 10);
-      if (emailMissing || phoneMissing) {
-        total += await fillContactFields(titularEmail, titularPhone, {
-          passengerIndex: 0,
-        });
-      }
     }
-  }
 
-  // Varredura final: data + sexo de cada pax (o 2º costumava ficar pela metade)
-  if (max > 1) {
-    for (let i = 0; i < max; i++) {
-      await dismissSavedPassengersPopover();
-      await ensurePassengerExpanded(i);
-      await sleep(250);
-      const parts = birthParts(enriched[i]);
-      const dobEl = resolveDobInputForPax(i, passengerRoot(i));
-      if (parts && !(dobEl && dobMatchesParts(dobEl, parts))) {
-        total += await fillBirthDate(passengerRoot(i), enriched[i], i, {
-          expand: true,
-        });
-      }
-      const g = resolvePaxGender(enriched[i]);
-      const gEl = findGenderControl(i, passengerRoot(i));
-      if (g && !(gEl && genderFieldShows(gEl, g))) {
-        if (await selectGender(passengerRoot(i), g, i)) total++;
-      }
-    }
-  }
-
-  // Se e-mail/telefone do 1º ainda vazios, reabre o pax 0 e preenche
-  await ensurePassengerExpanded(0);
-  await sleep(300);
-  const contactStillEmpty = (() => {
-    const emailEl =
-      document.querySelector(
-        `input[name="passenger-0_email"], input[type="email"]`
-      ) || findFieldByWord(findContactSectionRoot(), ["email", "e-mail"]);
-    const phoneEl = findPhoneInput(findContactSectionRoot(), 0);
-    const emailOk =
-      !titularEmail || String(emailEl?.value || "").includes("@");
-    const phoneOk =
-      !titularPhone ||
-      String(phoneEl?.value || "").replace(/\D/g, "").length >= 10;
-    return !emailOk || !phoneOk;
-  })();
-  if (contactStillEmpty && (titularEmail || titularPhone)) {
-    total += await fillContactFields(titularEmail, titularPhone, {
-      passengerIndex: 0,
-    });
+    await sleep(300);
   }
 
   await dismissSavedPassengersPopover();
