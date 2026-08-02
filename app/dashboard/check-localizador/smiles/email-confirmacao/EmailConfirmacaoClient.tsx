@@ -14,6 +14,13 @@ import {
   Undo2,
 } from "lucide-react";
 import { cn } from "@/lib/cn";
+import {
+  calendarDaysUntil,
+  formatCalendarDateBR,
+  formatCalendarDayMonthPT,
+  formatCalendarFullDatePT,
+  formatInstantDateBR,
+} from "@/lib/dates/brazilCalendar";
 
 const DESTINO = "confirme@voegol.com.br";
 
@@ -56,30 +63,17 @@ const CONTROL =
   "h-11 rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-900 shadow-sm outline-none transition focus:border-slate-300 focus:ring-2 focus:ring-slate-900/10";
 
 function fmtDateBR(iso: string | null | undefined) {
-  if (!iso) return "—";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "—";
-  return d.toLocaleDateString("pt-BR");
+  return formatCalendarDateBR(iso);
 }
 
 /** "19 de julho" — usado no corpo da mensagem. */
 function fmtDayMonthPT(iso: string | null | undefined) {
-  if (!iso) return "—";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "—";
-  return d.toLocaleDateString("pt-BR", { day: "numeric", month: "long" });
+  return formatCalendarDayMonthPT(iso);
 }
 
 /** "23 de julho de 2026" — usado no corpo da mensagem. */
 function fmtFullDatePT(iso: string | null | undefined) {
-  if (!iso) return "—";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "—";
-  return d.toLocaleDateString("pt-BR", {
-    day: "numeric",
-    month: "long",
-    year: "numeric",
-  });
+  return formatCalendarFullDatePT(iso);
 }
 
 function maskCpf(cpf: string) {
@@ -89,13 +83,7 @@ function maskCpf(cpf: string) {
 }
 
 function daysUntil(iso: string | null | undefined) {
-  if (!iso) return null;
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return null;
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  d.setHours(0, 0, 0, 0);
-  return Math.round((d.getTime() - today.getTime()) / 86400000);
+  return calendarDaysUntil(iso);
 }
 
 function buildMessage(row: Row, passengerNames: string) {
@@ -328,7 +316,7 @@ function RowItem({
               <>
                 <span>•</span>
                 <span className="font-semibold text-emerald-700">
-                  Enviado {fmtDateBR(row.sentAt)}
+                  Enviado {formatInstantDateBR(row.sentAt)}
                   {row.sentBy ? ` por @${row.sentBy.login}` : ""}
                 </span>
               </>

@@ -1,6 +1,12 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import {
+  calendarYmdFromIso,
+  formatCalendarDateBR,
+  formatInstantDateBR,
+  todayYmdSaoPaulo,
+} from "@/lib/dates/brazilCalendar";
 
 type Mode = "latam" | "smiles";
 type LatamManualStatus = "CANCELADO" | "CONFIRMADO" | "ALTERADO";
@@ -32,34 +38,34 @@ type SmilesRow = RowBase & {
   departureAirportIata: string | null;
 };
 
-function fmtDateBR(v?: string | null) {
-  if (!v) return "-";
-  const d = new Date(v);
-  if (Number.isNaN(d.getTime())) return "-";
-  return d.toLocaleDateString("pt-BR");
+function fmtDateBR(iso: string | null | undefined) {
+  return formatCalendarDateBR(iso).replace("—", "-");
+}
+
+function fmtCheckedAt(v?: string | null) {
+  return formatInstantDateBR(v).replace("—", "-");
 }
 
 function parseDateMs(v?: string | null) {
-  if (!v) return null;
-  const dt = new Date(v);
-  if (Number.isNaN(dt.getTime())) return null;
-  return dt.getTime();
+  const ymd = calendarYmdFromIso(v);
+  if (!ymd) return null;
+  const [y, m, d] = ymd.split("-").map(Number);
+  return Date.UTC(y, m - 1, d);
 }
 
 function nextFlightLabel(v1?: string | null, v2?: string | null) {
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const todayMs = today.getTime();
+  const todayYmd = todayYmdSaoPaulo();
+  const todayMs = parseDateMs(todayYmd)!;
 
   const items = [
     { label: "Ida", v: v1 },
     { label: "Volta", v: v2 },
   ]
     .map((x) => {
-      const dt = x.v ? new Date(x.v) : null;
-      return dt && !Number.isNaN(dt.getTime()) ? { label: x.label, ms: dt.getTime() } : null;
+      const ms = parseDateMs(x.v);
+      return ms != null ? { label: x.label, ms, ymd: calendarYmdFromIso(x.v)! } : null;
     })
-    .filter((x): x is { label: string; ms: number } => x != null);
+    .filter((x): x is { label: string; ms: number; ymd: string } => x != null);
 
   if (!items.length) return "-";
 
@@ -68,7 +74,7 @@ function nextFlightLabel(v1?: string | null, v2?: string | null) {
     ? upcoming.sort((a, b) => a.ms - b.ms)[0]
     : items.sort((a, b) => Math.abs(a.ms - todayMs) - Math.abs(b.ms - todayMs))[0];
 
-  return `${chosen.label} (${new Date(chosen.ms).toLocaleDateString("pt-BR")})`;
+  return `${chosen.label} (${fmtDateBR(chosen.ymd)})`;
 }
 
 function statusLabel(v?: string | null) {
@@ -465,7 +471,7 @@ export default function CheckLocalizadorClient({ mode }: { mode: Mode }) {
                         </select>
                         {r.smilesLocatorManualCheckedAt ? (
                           <div className={`text-xs ${manualSubtextClass}`}>
-                            Checado em {fmtDateBR(r.smilesLocatorManualCheckedAt)}
+                            Checado em {fmtCheckedAt(r.smilesLocatorManualCheckedAt)}
                           </div>
                         ) : null}
                         {r.smilesLocatorManualStatus === "DERRUBADO" &&
@@ -483,7 +489,7 @@ export default function CheckLocalizadorClient({ mode }: { mode: Mode }) {
                         {statusLabel(r.latamLocatorCheckStatus)}
                       </div>
                       <div className="text-xs text-slate-500">
-                        {fmtDateBR(r.latamLocatorCheckedAt)}
+                        {fmtCheckedAt(r.latamLocatorCheckedAt)}
                       </div>
                       {r.latamLocatorCheckNote ? (
                         <div className="text-xs text-slate-500 mt-1 max-w-[280px] break-words">
