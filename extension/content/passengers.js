@@ -404,7 +404,7 @@ async function bringFieldIntoView(el) {
   await sleep(120);
 }
 
-/** input[type=date] da LATAM: só YYYY-MM-DD (nunca digitar 01031999). */
+/** input[type=date] da LATAM: só YYYY-MM-DD. Sem click (abre calendário) nem valueAsDate. */
 function fillNativeDateInput(el, parts) {
   if (!el || !parts) return false;
   const iso = `${parts.year}-${parts.month}-${parts.day}`;
@@ -417,7 +417,6 @@ function fillNativeDateInput(el, parts) {
     console.warn("[TradeMiles] Nascimento acima do max LATAM:", iso, max);
   }
 
-  el.focus?.();
   const tracker = el._valueTracker;
   if (tracker) {
     try {
@@ -433,20 +432,6 @@ function fillNativeDateInput(el, parts) {
   if (setter) setter.call(el, iso);
   else el.value = iso;
 
-  // Data LOCAL — UTC muda o dia no Brasil e a LATAM rejeita / limpa
-  try {
-    el.valueAsDate = new Date(
-      Number(parts.year),
-      Number(parts.month) - 1,
-      Number(parts.day)
-    );
-  } catch {
-    /* ignore */
-  }
-  // Garante de novo a string ISO (valueAsDate às vezes formata diferente)
-  if (setter) setter.call(el, iso);
-  else el.value = iso;
-
   el.dispatchEvent(new Event("input", { bubbles: true }));
   el.dispatchEvent(
     new InputEvent("input", {
@@ -456,7 +441,6 @@ function fillNativeDateInput(el, parts) {
     })
   );
   el.dispatchEvent(new Event("change", { bubbles: true }));
-  el.dispatchEvent(new Event("blur", { bubbles: true }));
 
   return el.value === iso;
 }
@@ -900,7 +884,7 @@ function findGenderControl(passengerIndex, root) {
   return findFieldByWord(root || document.body, ["sexo"]);
 }
 
-/** Opção LATAM: data-testid passenger-N_gender-female|male--…listitem… */
+/** Opção LATAM visível: passenger-N_gender-female|male--…listitem… */
 function findGenderListItem(passengerIndex, gender) {
   const side = gender === "F" ? "female" : "male";
   const label = gender === "F" ? "Feminino" : "Masculino";
@@ -910,6 +894,7 @@ function findGenderListItem(passengerIndex, gender) {
         `[data-testid*="passenger-${passengerIndex}_gender-${side}" i]`
       )
     ).find((o) => {
+      if (!isVisible(o)) return false; // NUNCA clicar opção oculta (apaga a página)
       const tid = o.getAttribute("data-testid") || "";
       return /listitem|menuitem|option/i.test(tid) || o.getAttribute("role");
     });
@@ -925,7 +910,7 @@ function findGenderListItem(passengerIndex, gender) {
   return (
     Array.from(
       document.querySelectorAll(
-        '[role="listbox"] [role="option"], [role="option"], [role="menuitem"], [data-testid*="listitem" i]'
+        '[role="listbox"] [role="option"], [role="option"], [role="menuitem"]'
       )
     ).find((o) => {
       if (!isVisible(o)) return false;
@@ -936,18 +921,14 @@ function findGenderListItem(passengerIndex, gender) {
 }
 
 async function clickLatamOption(hit) {
-  if (!hit) return false;
+  if (!hit || !isVisible(hit)) return false;
   const target =
     hit.closest?.(
       '[role="option"], [role="menuitem"], li, [data-testid*="listitem"]'
     ) || hit;
-  target.scrollIntoView?.({ block: "nearest" });
-  target.dispatchEvent?.(new MouseEvent("pointerdown", { bubbles: true }));
-  target.dispatchEvent?.(new MouseEvent("mousedown", { bubbles: true }));
-  target.dispatchEvent?.(new MouseEvent("mouseup", { bubbles: true }));
-  target.dispatchEvent?.(new MouseEvent("click", { bubbles: true }));
+  if (!isVisible(target)) return false;
   target.click?.();
-  await sleep(180);
+  await sleep(200);
   return true;
 }
 
@@ -970,45 +951,88 @@ async function selectGender(root, gender, passengerIndex) {
     return ok && genderFieldShows(el, gender);
   }
 
-  for (let attempt = 0; attempt < 3; attempt++) {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    if (!pageStillHasPassengerForm()) return false;
     await bringFieldIntoView(el);
-    el.focus?.();
     el.click?.();
-    await sleep(300 + attempt * 100);
+    await sleep(350);
 
-    let hit = findGenderListItem(passengerIndex, gender);
+    const hit = findGenderListItem(passengerIndex, gender);
     if (!hit) {
-      await sleep(250);
-      hit = findGenderListItem(passengerIndex, gender);
-    }
-
-    if (hit) {
+      await sleep(300);
+      const hit2 = findGenderListItem(passengerIndex, gender);
+      if (hit2) await clickLatamOption(hit2);
+    } else {
       await clickLatamOption(hit);
     }
 
-    await sleep(120);
+    await sleep(150);
     el = findGenderControl(passengerIndex, root) || el;
     if (genderFieldShows(el, gender)) {
       console.info("[TradeMiles] Sexo OK pax", passengerIndex, gender);
-      closeOpenMenus();
       return true;
-    }
-
-    // Confirma pelo testid da opção selecionada / texto ao redor
-    const chosen = findGenderListItem(passengerIndex, gender);
-    if (chosen && !isVisible(chosen)) {
-      // lista fechou — confere de novo o controle
-      if (genderFieldShows(el, gender)) return true;
     }
   }
 
-  closeOpenMenus();
-  console.warn("[TradeMiles] Sexo não grudou pax", passengerIndex, {
-    want: gender,
-    shown: el?.value || textOf(el),
-    controlTestId: el?.getAttribute?.("data-testid"),
-  });
+  // Sem Escape — na LATAM isso já derrubou o acordeão
+  console.warn("[TradeMiles] Sexo não grudou pax", passengerIndex, gender);
   return false;
+}
+
+/** CPF do pax N — name/testid/rótulo. */
+function findCpfInput(passengerIndex, root) {
+  const i = passengerIndex;
+  if (i != null && i >= 0) {
+    const named =
+      document.querySelector(`input[name="passenger-${i}_documentNumber"]`) ||
+      document.querySelector(`input[name="passenger-${i}_cpf"]`) ||
+      document.querySelector(`input[name="passenger-${i}_document"]`) ||
+      document.querySelector(
+        `input[data-testid*="passenger-${i}_documentNumber" i]`
+      ) ||
+      document.querySelector(
+        `input[data-testid*="passenger-${i}_cpf" i]`
+      ) ||
+      document.querySelector(
+        `input[id*="passenger-${i}"][id*="document" i]`
+      ) ||
+      document.querySelector(
+        `input[name*="passenger-${i}_"][name*="document" i]`
+      );
+    if (named) return named;
+  }
+  const scope =
+    root && root !== document.body
+      ? root
+      : i != null && i >= 0
+        ? passengerRoot(i)
+        : document.body;
+  return findFieldByWord(scope, ["cpf"], {
+    excludeWords: ["codigo", "email"],
+  });
+}
+
+async function fillCpfForPassenger(i, pax) {
+  const cpf = cpfDigitsOnly(pax.cpf);
+  if (!cpf) return 0;
+  const el = findCpfInput(i, passengerRoot(i));
+  if (!el) {
+    console.warn("[TradeMiles] CPF não achado pax", i);
+    return 0;
+  }
+  await bringFieldIntoView(el);
+  const cur = String(el.value || "").replace(/\D/g, "");
+  if (cur === cpf) return 1;
+  // soft: não foca forte (evita popover); se falhar, digita
+  if (setNativeValue(el, cpf, { soft: true })) {
+    await sleep(80);
+    if (String(el.value || "").replace(/\D/g, "") === cpf) return 1;
+  }
+  await typeChars(el, cpf, { clear: true, delay: 25 });
+  await sleep(80);
+  const ok = String(el.value || "").replace(/\D/g, "") === cpf;
+  if (!ok) console.warn("[TradeMiles] CPF não grudou pax", i, el.name, el.value);
+  return ok ? 1 : 0;
 }
 
 /**
@@ -1779,13 +1803,20 @@ async function fillOnePassengerConfirmForm(pax, idx, opts = {}) {
 }
 
 /**
- * v2 acordeão — ordem igual pagamento: campo a campo, um pax por vez.
- * Nome → sobrenome → nascimento (type=date) → sexo (autocomplete) → CPF.
+ * v2 acordeão — campo a campo, um pax por vez.
+ * Nome → sobrenome → CPF → nascimento → sexo.
+ * (CPF antes do sexo: clique errado no sexo já apagou a ficha)
  */
 async function fillOnePassengerAccordion(i, pax) {
   let n = 0;
   await ensurePassengerExpanded(i);
-  await sleep(250);
+  await sleep(300);
+
+  if (!document.querySelector(`input[name="passenger-${i}_firstName"]`)) {
+    console.warn("[TradeMiles] Campos do pax", i, "não estão no DOM");
+    return 0;
+  }
+  if (!pageStillHasPassengerForm()) return 0;
 
   const { firstName, lastName } = splitPassengerName(pax);
   const setByName = async (suffix, value) => {
@@ -1804,33 +1835,26 @@ async function fillOnePassengerAccordion(i, pax) {
   await dismissSavedPassengersPopover();
   await sleep(100);
 
-  // Nascimento (type=date ISO) — rola sozinho, sem o usuário rolar
-  console.info("[TradeMiles] pax", i, "preenchendo nascimento…");
-  n += await fillBirthDate(passengerRoot(i), pax, i, { expand: false });
-  await sleep(150);
+  console.info("[TradeMiles] pax", i, "CPF…");
+  n += await fillCpfForPassenger(i, pax);
+  await sleep(100);
+  if (!pageStillHasPassengerForm()) {
+    console.warn("[TradeMiles] Página sumiu após CPF pax", i);
+    return n;
+  }
 
-  // Sexo via listitem passenger-N_gender-female|male
+  console.info("[TradeMiles] pax", i, "nascimento…");
+  n += await fillBirthDate(passengerRoot(i), pax, i, { expand: false });
+  await sleep(120);
+  if (!pageStillHasPassengerForm()) {
+    console.warn("[TradeMiles] Página sumiu após nascimento pax", i);
+    return n;
+  }
+
   const gender = resolvePaxGender(pax);
-  console.info("[TradeMiles] pax", i, "sexo payload:", gender, pax.gender);
+  console.info("[TradeMiles] pax", i, "sexo:", gender);
   if (gender && (await selectGender(passengerRoot(i), gender, i))) n++;
   await sleep(120);
-
-  const cpf = cpfDigitsOnly(pax.cpf);
-  if (cpf) {
-    const cpfEl =
-      document.querySelector(
-        `input[name="passenger-${i}_documentNumber"]`
-      ) ||
-      document.querySelector(`input[name="passenger-${i}_cpf"]`) ||
-      document.querySelector(
-        `input[name*="passenger-${i}_"][name*="document" i]`
-      );
-    if (cpfEl) {
-      await bringFieldIntoView(cpfEl);
-      setNativeValue(cpfEl, "", { soft: true });
-      if (setNativeValue(cpfEl, cpf, { soft: true })) n++;
-    }
-  }
 
   await dismissSavedPassengersPopover();
   await sleep(200);
@@ -1939,6 +1963,15 @@ async function fillAllAccordion(passengers) {
   }));
 
   for (let i = 0; i < max; i++) {
+    if (!pageStillHasPassengerForm()) {
+      console.warn("[TradeMiles] Página em branco antes do pax", i);
+      return {
+        sections: i,
+        fields: total,
+        form: "accordion",
+        error: "page_blanked",
+      };
+    }
     await dismissSavedPassengersPopover();
     console.info("[TradeMiles] —— passageiro", i + 1, "de", max, "——");
     total += await fillOnePassengerAccordion(i, enriched[i]);
@@ -1946,12 +1979,24 @@ async function fillAllAccordion(passengers) {
     // Contato só no 1º (checkbox repetir), ainda com a ficha 0 aberta
     if (i === 0 && (titularEmail || titularPhone)) {
       await sleep(200);
-      total += await fillContactFields(titularEmail, titularPhone, {
-        passengerIndex: 0,
-      });
+      if (pageStillHasPassengerForm()) {
+        total += await fillContactFields(titularEmail, titularPhone, {
+          passengerIndex: 0,
+        });
+      }
     }
 
-    await sleep(300);
+    if (!pageStillHasPassengerForm()) {
+      console.warn("[TradeMiles] Página em branco após pax", i);
+      return {
+        sections: i,
+        fields: total,
+        form: "accordion",
+        error: "page_blanked",
+      };
+    }
+
+    await sleep(350);
   }
 
   await dismissSavedPassengersPopover();
