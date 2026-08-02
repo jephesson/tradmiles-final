@@ -5,7 +5,10 @@
  * - Data: dia, mês e ano em campos separados
  */
 
-function setNativeValue(el, value) {
+/**
+ * soft:true — não dá focus (evita abrir "Passageiros salvos" no nome).
+ */
+function setNativeValue(el, value, { soft = false } = {}) {
   if (!el || value == null || value === "") return false;
   const str = String(value);
   const tag = el.tagName;
@@ -18,7 +21,7 @@ function setNativeValue(el, value) {
       return t === needle || t.includes(needle) || v === needle;
     });
     if (!opt) return false;
-    el.focus?.();
+    if (!soft) el.focus?.();
     el.value = opt.value;
     el.dispatchEvent(new Event("input", { bubbles: true }));
     el.dispatchEvent(new Event("change", { bubbles: true }));
@@ -31,11 +34,11 @@ function setNativeValue(el, value) {
       : HTMLInputElement.prototype;
   const setter = Object.getOwnPropertyDescriptor(proto, "value")?.set;
 
-  el.focus?.();
+  if (!soft) el.focus?.();
   const tracker = el._valueTracker;
   if (tracker) {
     try {
-      tracker.setValue("");
+      tracker.setValue(el.value || "");
     } catch {
       /* ignore */
     }
@@ -53,8 +56,39 @@ function setNativeValue(el, value) {
     new InputEvent("input", { bubbles: true, data: out, inputType: "insertText" })
   );
   el.dispatchEvent(new Event("change", { bubbles: true }));
-  el.dispatchEvent(new Event("blur", { bubbles: true }));
+  if (!soft) el.dispatchEvent(new Event("blur", { bubbles: true }));
   return true;
+}
+
+/** Nunca clicar nisto — é o que abre o popover e trava o fill. */
+function isUnsafeClickTarget(el) {
+  if (!el) return true;
+  const t = normalizeLabel(textOf(el));
+  if (!t) return false;
+  if (t.includes("passageiros salvos") || t.includes("passageiro salvo")) {
+    return true;
+  }
+  if (t.includes("preencher trademiles")) return true;
+  if (t.includes("continuar com o pagamento")) return true;
+  return false;
+}
+
+/** Toggle da ficha do pax (Adulto N / nome) — não o autocomplete. */
+function isPassengerCardToggle(el) {
+  if (!el || !isVisible(el) || isUnsafeClickTarget(el)) return false;
+  const t = normalizeLabel(textOf(el));
+  if (!t || t.length > 90) return false;
+  if (t.includes("confirmar dados")) return false;
+  if (/^(adulto|crianca|criança|bebe|bebê)\b/.test(t)) return true;
+  // Cabeçalho já com nome do passageiro (após preencher)
+  if (
+    el.getAttribute?.("aria-expanded") != null &&
+    t.length >= 4 &&
+    !t.includes("salvo")
+  ) {
+    return true;
+  }
+  return false;
 }
 
 function textOf(el) {
@@ -914,39 +948,8 @@ function findPassengerSections(expectedCount) {
       root = marker.parentElement || document.body;
     }
 
-    // Cabeçalho clicável do acordeão (Adulto N / nome)
-    let header = null;
-    let cur = root;
-    for (let h = 0; h < 6 && cur; h++) {
-      const btn = cur.querySelector?.(
-        "button[aria-expanded], [role='button'][aria-expanded], button"
-      );
-      if (btn) {
-        const bt = textOf(btn);
-        if (
-          /adulto|crianca|criança|bebe|bebê/i.test(bt) ||
-          (bt.length > 2 && bt.length < 48)
-        ) {
-          header = btn;
-          break;
-        }
-      }
-      // botão irmão acima
-      const prev = cur.previousElementSibling;
-      if (prev && /button|header/i.test(prev.tagName + (prev.getAttribute("role") || ""))) {
-        header = prev.querySelector?.("button, [role='button']") || prev;
-        break;
-      }
-      cur = cur.parentElement;
-    }
-
-    // Fallback: botão "Adulto N" na página pela ordem
-    if (!header) {
-      const adultBtns = Array.from(
-        document.querySelectorAll("button, [role='button'], [aria-expanded]")
-      ).filter((b) => /^(Adulto|Criança|Crianca|Bebê|Bebe)\b/i.test(textOf(b)));
-      header = adultBtns[i] || null;
-    }
+    // Cabeçalho da ficha — nunca "Passageiros salvos"
+    let header = findAccordionHeaderForPassenger(i);
 
     byIndex.push({
       kind: "adult",
@@ -1013,37 +1016,38 @@ function findAccordionHeaderForPassenger(idx) {
   );
   if (!marker) return null;
 
+  // Preferência: botão Adulto N na ordem (nunca "Passageiros salvos")
+  const adultBtns = Array.from(
+    document.querySelectorAll("button[aria-expanded], [role='button'][aria-expanded]")
+  ).filter((b) => isPassengerCardToggle(b) && /^(Adulto|Criança|Crianca|Bebê|Bebe)\b/i.test(textOf(b)));
+  if (adultBtns[idx]) return adultBtns[idx];
+
+  // Sobe o DOM: pega o toggle da ficha (mais externo), ignorando Passageiros salvos
+  let best = null;
   let node = marker.parentElement;
   for (let up = 0; up < 16 && node && node !== document.body; up++) {
-    const onlyThis =
-      node.querySelector(`input[name^="passenger-${idx}_"]`) &&
-      !node.querySelector(`input[name^="passenger-${idx + 1}_"]`);
-    if (onlyThis) {
-      const direct = [
-        ...node.querySelectorAll(
-          "button[aria-expanded], [role='button'][aria-expanded]"
-        ),
-      ].find((b) => {
-        const pos = b.compareDocumentPosition(marker);
-        return Boolean(pos & Node.DOCUMENT_POSITION_FOLLOWING);
-      });
-      if (direct) return direct;
-
-      let sib = node.previousElementSibling;
-      for (let s = 0; s < 4 && sib; s++) {
-        if (sib.matches?.("button[aria-expanded], [role='button'][aria-expanded]")) {
-          return sib;
-        }
-        const inner = sib.querySelector?.(
-          "button[aria-expanded], [role='button'][aria-expanded]"
-        );
-        if (inner) return inner;
-        sib = sib.previousElementSibling;
+    const buttons = [
+      ...node.querySelectorAll(
+        "button[aria-expanded], [role='button'][aria-expanded]"
+      ),
+    ].filter(isPassengerCardToggle);
+    for (const b of buttons) {
+      const pos = b.compareDocumentPosition(marker);
+      if (
+        pos & Node.DOCUMENT_POSITION_FOLLOWING ||
+        pos & Node.DOCUMENT_POSITION_CONTAINED_BY
+      ) {
+        best = b;
       }
+    }
+    if (node.matches?.("button[aria-expanded], [role='button'][aria-expanded]") &&
+      isPassengerCardToggle(node)
+    ) {
+      best = node;
     }
     node = node.parentElement;
   }
-  return null;
+  return best;
 }
 
 function passengerFieldsVisible(idx) {
@@ -1071,11 +1075,24 @@ function passengerRoot(idx) {
   return marker.parentElement || document.body;
 }
 
+/**
+ * Identifica pelo URL (mais estável que heurística):
+ * - /v2/passageiros → acordeão, sem "Confirmar dados"
+ * - /pagamentos/passageiros → ficha + botão Confirmar dados
+ */
 function getPassengerFormKind() {
-  const path = `${location.pathname}${location.search}`;
+  const path = location.pathname || "";
+  if (/\/v2\/passageiros/i.test(path)) return "accordion";
   if (/\/pagamentos\/passageiros/i.test(path)) return "confirm";
+  // Fallback se a LATAM mudar o path
   if (findConfirmDadosButton()) return "confirm";
   return "accordion";
+}
+
+function formKindLabel(kind) {
+  return kind === "confirm"
+    ? "pagamentos (Confirmar dados)"
+    : "v2 (acordeão)";
 }
 
 function findConfirmDadosButton(root = document) {
@@ -1116,7 +1133,7 @@ function findAdultoHeaderButtons() {
     if (!/^(Adulto|Criança|Crianca|Bebê|Bebe)\s*\d*\b/i.test(t) || t.length > 36) {
       continue;
     }
-    // Evita o próprio "Confirmar dados" e botões enormes
+    if (isUnsafeClickTarget(el)) continue;
     if (normalizeLabel(t).includes("confirmar")) continue;
     const r = el.getBoundingClientRect();
     if (r.height > 80 || r.width > 600) continue;
@@ -1225,6 +1242,7 @@ async function ensurePassengerExpanded(idx) {
     return expandAdultoSlot(idx);
   }
 
+  // Campos já visíveis → não clica em nada (evita "Passageiros salvos")
   if (passengerFieldsVisible(idx)) {
     return {
       header: findAccordionHeaderForPassenger(idx),
@@ -1233,18 +1251,11 @@ async function ensurePassengerExpanded(idx) {
     };
   }
 
-  const header =
-    findAccordionHeaderForPassenger(idx) ||
-    Array.from(
-      document.querySelectorAll("button[aria-expanded], [role='button'][aria-expanded]")
-    ).filter((b) => /^(Adulto|Criança|Crianca|Bebê|Bebe)\b/i.test(textOf(b)))[idx] ||
-    null;
-
-  // Nunca clicar em botão sem aria-expanded (evita "Confirmar dados" / loop)
+  const header = findAccordionHeaderForPassenger(idx);
   if (
     header &&
-    header.getAttribute?.("aria-expanded") != null &&
-    header.getAttribute("aria-expanded") !== "true"
+    isPassengerCardToggle(header) &&
+    header.getAttribute?.("aria-expanded") === "false"
   ) {
     try {
       header.scrollIntoView?.({ block: "center", behavior: "instant" });
@@ -1300,13 +1311,14 @@ function fillInSection(root, pax, kind) {
 
   const nomeEl = findFirstNameField(root);
   const sobEl = findLastNameField(root);
-  if (firstName && setNativeValue(nomeEl, firstName)) n++;
-  if (lastName && setNativeValue(sobEl, lastName)) n++;
+  // soft: evita abrir "Passageiros salvos"
+  if (firstName && setNativeValue(nomeEl, firstName, { soft: true })) n++;
+  if (lastName && setNativeValue(sobEl, lastName, { soft: true })) n++;
 
   const cpfEl = findFieldByWord(root, ["cpf"]);
   if (cpf && cpfEl) {
-    setNativeValue(cpfEl, "");
-    if (setNativeValue(cpfEl, cpf)) n++;
+    setNativeValue(cpfEl, "", { soft: true });
+    if (setNativeValue(cpfEl, cpf, { soft: true })) n++;
   }
   if ((kind === "child" || kind === "infant") && cpf) {
     const docEl = findFieldByWord(root, [
@@ -1411,18 +1423,22 @@ async function fillOnePassengerConfirmForm(pax, idx, opts = {}) {
       document.querySelector(`input[name="passenger-${idx}_${suffix}"]`) ||
       document.querySelector(`input[name="passenger-0_${suffix}"]`) ||
       null;
-    return el && isVisible(el) ? setNativeValue(el, value) : false;
+    return el && isVisible(el)
+      ? setNativeValue(el, value, { soft: true })
+      : false;
   };
 
   // Nome (uma vez) — Escape se abrir "Passageiros salvos"
   if (firstName) {
     if (setByName("firstName", firstName)) n++;
-    else if (setNativeValue(findFirstNameField(root), firstName)) n++;
+    else if (setNativeValue(findFirstNameField(root), firstName, { soft: true }))
+      n++;
     await dismissSavedPassengersPopover();
   }
   if (lastName) {
     if (setByName("lastName", lastName)) n++;
-    else if (setNativeValue(findLastNameField(root), lastName)) n++;
+    else if (setNativeValue(findLastNameField(root), lastName, { soft: true }))
+      n++;
     await dismissSavedPassengersPopover();
   }
 
@@ -1433,8 +1449,8 @@ async function fillOnePassengerConfirmForm(pax, idx, opts = {}) {
         `input[name="passenger-${idx}_documentNumber"], input[name="passenger-${idx}_cpf"], input[name="passenger-0_documentNumber"], input[name="passenger-0_cpf"]`
       ) || findFieldByWord(root, ["cpf"]);
     if (cpfEl && isVisible(cpfEl)) {
-      setNativeValue(cpfEl, "");
-      if (setNativeValue(cpfEl, cpf)) n++;
+      setNativeValue(cpfEl, "", { soft: true });
+      if (setNativeValue(cpfEl, cpf, { soft: true })) n++;
     }
   }
 
@@ -1481,7 +1497,7 @@ async function fillOnePassengerConfirmForm(pax, idx, opts = {}) {
 async function fillOnePassengerAccordion(i, pax) {
   let n = 0;
   const opened = await ensurePassengerExpanded(i);
-  const root = opened.root;
+  const root = opened.root || passengerRoot(i);
 
   const { firstName, lastName } = splitPassengerName(pax);
   const setByName = (suffix, value) => {
@@ -1489,11 +1505,11 @@ async function fillOnePassengerAccordion(i, pax) {
     const el = document.querySelector(
       `input[name="passenger-${i}_${suffix}"], input[data-testid*="passenger-${i}_${suffix}" i]`
     );
-    return el ? setNativeValue(el, value) : false;
+    // soft: não foca → não abre "Passageiros salvos"
+    return el ? setNativeValue(el, value, { soft: true }) : false;
   };
 
   if (firstName && setByName("firstName", firstName)) n++;
-  await dismissSavedPassengersPopover();
   if (lastName && setByName("lastName", lastName)) n++;
   await dismissSavedPassengersPopover();
 
@@ -1503,13 +1519,11 @@ async function fillOnePassengerAccordion(i, pax) {
       `input[name="passenger-${i}_documentNumber"], input[name="passenger-${i}_cpf"], input[name*="passenger-${i}_"][name*="document" i]`
     );
     if (cpfEl) {
-      setNativeValue(cpfEl, "");
-      setNativeValue(cpfEl, cpf);
-      n++;
+      setNativeValue(cpfEl, "", { soft: true });
+      if (setNativeValue(cpfEl, cpf, { soft: true })) n++;
     }
   }
 
-  // Completa CPF/nome via labels se name= falhou
   n += fillInSection(root, pax, "adult");
   await dismissSavedPassengersPopover();
 
@@ -1517,13 +1531,18 @@ async function fillOnePassengerAccordion(i, pax) {
   if (gender && (await selectGender(root, gender, i))) n++;
   await sleep(100);
 
-  n += await fillBirthDate(root, pax, i, { expand: true });
+  // Data: expand=false se campos já visíveis (não reclica cabeçalho)
+  const canSee = passengerFieldsVisible(i);
+  n += await fillBirthDate(root, pax, i, { expand: !canSee });
   if (!birthFieldHasDate(findPassengerDobInput(i, root))) {
-    await ensurePassengerExpanded(i);
-    await sleep(300);
-    n += await fillBirthDate(passengerRoot(i), pax, i, { expand: true });
+    if (!passengerFieldsVisible(i)) {
+      await ensurePassengerExpanded(i);
+      await sleep(300);
+    }
+    n += await fillBirthDate(passengerRoot(i), pax, i, { expand: false });
   }
 
+  await dismissSavedPassengersPopover();
   await sleep(200);
   return n;
 }
@@ -1654,7 +1673,11 @@ async function fillAllAccordion(passengers) {
 
 async function fillAll(passengers) {
   const kind = getPassengerFormKind();
-  console.info("[TradeMiles] formulário passageiros:", kind, location.pathname);
+  console.info(
+    "[TradeMiles] formulário:",
+    formKindLabel(kind),
+    location.pathname
+  );
   if (kind === "confirm") return fillAllConfirmForm(passengers);
   return fillAllAccordion(passengers);
 }
@@ -1690,6 +1713,8 @@ async function runFill({ manual } = {}) {
     }
 
     const kind = getPassengerFormKind();
+    const kindLabel = formKindLabel(kind);
+    showToast(`TradeMiles: detectou ${kindLabel}…`, true);
     let result = await fillAll(passengers);
     // Retry só no acordeão — no "Confirmar dados" um 2º fillAll causa loop
     if (kind === "accordion" && result.fields < 3) {
@@ -1723,14 +1748,20 @@ async function runFill({ manual } = {}) {
     } else {
       showToast(
         ok
-          ? `TradeMiles: ${result.fields} campo(s) · ${passengers.length} pax${
-              kind === "confirm" ? " · confirmou dados" : ""
-            }. Revise.`
+          ? `TradeMiles (${kindLabel}): ${result.fields} campo(s) · ${passengers.length} pax. Revise.`
           : "TradeMiles: não achou os campos. Espere a página carregar e clique de novo.",
         ok
       );
     }
-    console.info("[TradeMiles] fill", { manual, kind, result, passengers, badCpfs });
+    console.info("[TradeMiles] fill", {
+      manual,
+      kind,
+      kindLabel,
+      path: location.pathname,
+      result,
+      passengers,
+      badCpfs,
+    });
     return { ok, ...result, passengers: passengers.length };
   } finally {
     fillRunning = false;
