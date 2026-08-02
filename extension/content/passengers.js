@@ -551,6 +551,38 @@ function findPassengerDobInput(passengerIndex, root) {
  * digitar 8 dígitos; type=date → YYYY-MM-DD.
  * opts.expand=false no formulário com "Confirmar dados" (evita loop abrir/fechar).
  */
+function dobMatchesParts(el, parts) {
+  if (!el || !parts) return false;
+  const iso = `${parts.year}-${parts.month}-${parts.day}`;
+  const digits = `${parts.day}${parts.month}${parts.year}`;
+  const cur = String(el.value || "").replace(/\D/g, "");
+  return cur === digits || el.value === iso;
+}
+
+/** Campo DOB do pax N — sem cair no nascimento de outro passageiro. */
+function resolveDobInputForPax(passengerIndex, root) {
+  if (passengerIndex != null && passengerIndex >= 0) {
+    const named =
+      document.querySelector(
+        `input[name="passenger-${passengerIndex}_dateOfBirth"]`
+      ) ||
+      document.querySelector(
+        `input[data-testid*="passenger-${passengerIndex}_dateOfBirth" i]`
+      ) ||
+      document.querySelector(
+        `input[id*="passenger-${passengerIndex}"][id*="dateOfBirth" i]`
+      ) ||
+      document.querySelector(
+        `input[name*="passenger-${passengerIndex}"][name*="Birth" i]`
+      );
+    if (named) return named;
+    const scope =
+      root && root !== document.body ? root : passengerRoot(passengerIndex);
+    return findDateOfBirthInput(scope);
+  }
+  return findDateOfBirthInput(root || document.body);
+}
+
 async function fillBirthDate(root, pax, passengerIndex, opts = {}) {
   const expand = opts.expand !== false;
   const parts = birthParts(pax);
@@ -566,27 +598,39 @@ async function fillBirthDate(root, pax, passengerIndex, opts = {}) {
 
   if (expand && passengerIndex != null && passengerIndex >= 0) {
     await ensurePassengerExpanded(passengerIndex);
-    await sleep(200);
+    await sleep(250);
   }
 
-  let el = findPassengerDobInput(passengerIndex, root);
-  if (el && !isVisible(el) && expand && passengerIndex != null) {
+  let el = resolveDobInputForPax(passengerIndex, root);
+  if (el && !isVisible(el) && passengerIndex != null && passengerIndex >= 0) {
     await ensurePassengerExpanded(passengerIndex);
-    await sleep(350);
-    el = findPassengerDobInput(passengerIndex, root);
+    await sleep(400);
+    el = resolveDobInputForPax(passengerIndex, root);
   }
-  if (!el || !isVisible(el)) {
+
+  // Com índice: nunca usa DOB de outro pax (antes caía no do Adulto 1)
+  if ((!el || !isVisible(el)) && (passengerIndex == null || passengerIndex < 0)) {
     el = findDateOfBirthInput(root || document.body);
   }
 
-  if (!el) {
-    const split = fillBirthSplitFields(root || document.body, parts);
+  if (!el || !isVisible(el)) {
+    if (passengerIndex != null && passengerIndex >= 0) {
+      console.warn("[TradeMiles] DOB invisível pax", passengerIndex);
+    }
+    const scope =
+      passengerIndex != null && passengerIndex >= 0
+        ? passengerRoot(passengerIndex)
+        : root || document.body;
+    const split = fillBirthSplitFields(scope, parts);
     return split > 0 ? split : 0;
   }
 
-  if (birthFieldHasDate(el)) {
-    const cur = String(el.value || "").replace(/\D/g, "");
-    if (cur === digits || el.value === iso) return 1;
+  if (dobMatchesParts(el, parts)) return 1;
+
+  // Data errada no campo → limpa antes
+  if (birthFieldHasDate(el) && !dobMatchesParts(el, parts)) {
+    await clearInputHard(el);
+    await sleep(80);
   }
 
   el.scrollIntoView?.({ block: "center", inline: "nearest" });
@@ -598,53 +642,58 @@ async function fillBirthDate(root, pax, passengerIndex, opts = {}) {
   if (el.type === "date") {
     if (fillNativeDateInput(el, parts)) {
       await sleep(80);
-      if (!birthFieldHasDate(el) || el.value !== iso) {
+      if (!dobMatchesParts(el, parts)) {
         fillNativeDateInput(el, parts);
         await sleep(80);
       }
-      if (birthFieldHasDate(el)) return 1;
+      if (dobMatchesParts(el, parts)) return 1;
     }
   }
 
   // Máscara "dd / mm / aaaa" ou "dd-mm-aaaa": só os 8 dígitos
   await typeChars(el, digits, { clear: true, delay: 45 });
   await sleep(160);
-  if (birthFieldHasDate(el)) return 1;
+  if (dobMatchesParts(el, parts)) return 1;
 
   // Digitação mais lenta
   await typeChars(el, digits, { clear: true, delay: 70 });
   await sleep(160);
-  if (birthFieldHasDate(el)) return 1;
+  if (dobMatchesParts(el, parts)) return 1;
 
   // Valor formatado com hífen (pagamentos/passageiros)
   const dashed = `${parts.day}-${parts.month}-${parts.year}`;
   await typeChars(el, dashed, { clear: true, delay: 35 });
   await sleep(120);
-  if (birthFieldHasDate(el)) return 1;
+  if (dobMatchesParts(el, parts)) return 1;
 
   // Valor já formatado com espaços (como a máscara exibe)
   await typeChars(el, spaced, { clear: true, delay: 35 });
   await sleep(120);
-  if (birthFieldHasDate(el)) return 1;
+  if (dobMatchesParts(el, parts)) return 1;
 
   setNativeValue(el, pretty);
   await sleep(80);
-  if (birthFieldHasDate(el)) return 1;
+  if (dobMatchesParts(el, parts)) return 1;
 
   setNativeValue(el, dashed);
   await sleep(80);
-  if (birthFieldHasDate(el)) return 1;
+  if (dobMatchesParts(el, parts)) return 1;
 
   setNativeValue(el, spaced);
   await sleep(80);
-  if (birthFieldHasDate(el)) return 1;
+  if (dobMatchesParts(el, parts)) return 1;
 
-  if (/dateofbirth/i.test(el.name || el.id || el.getAttribute("data-testid") || "")) {
+  if (
+    /dateofbirth/i.test(
+      el.name || el.id || el.getAttribute("data-testid") || ""
+    )
+  ) {
     if (fillNativeDateInput(el, parts)) return 1;
     if (setNativeValue(el, iso) && birthFieldHasDate(el)) return 1;
   }
 
   console.warn("[TradeMiles] Data de nascimento não grudou:", {
+    pax: passengerIndex,
     value: el.value,
     type: el.type,
     name: el.name,
@@ -847,65 +896,158 @@ async function waitForPassengerFormReady({ timeoutMs = 20000 } = {}) {
 function genderFieldShows(el, gender) {
   if (!el || !gender) return false;
   const want = gender === "F" ? "feminino" : "masculino";
-  const t = normalizeLabel(el.value || textOf(el) || el.getAttribute?.("aria-label"));
-  if (!t) return false;
-  if (t.includes(want)) return true;
-  if (gender === "F" && (t === "f" || t === "female")) return true;
-  if (gender === "M" && (t === "m" || t === "male")) return true;
+  const t = normalizeLabel(
+    el.value ||
+      textOf(el) ||
+      el.getAttribute?.("aria-label") ||
+      el.getAttribute?.("aria-labelledby")
+  );
+  // Combobox MUI: texto no parent / sibling
+  const wrap = normalizeLabel(
+    textOf(el.closest?.("[class*='MuiSelect'], [class*='mui'], label") || el.parentElement)
+  );
+  const hay = `${t} ${wrap}`;
+  if (!hay.trim()) return false;
+  if (hay.includes(want)) return true;
+  if (gender === "F" && (/\bfemale\b/.test(hay) || hay === "f")) return true;
+  if (gender === "M" && (/\bmale\b/.test(hay) || hay === "m")) return true;
   return false;
+}
+
+function findGenderControl(passengerIndex, root) {
+  if (passengerIndex != null && passengerIndex >= 0) {
+    const named = document.querySelector(
+      `input[name="passenger-${passengerIndex}_gender"], ` +
+        `select[name="passenger-${passengerIndex}_gender"], ` +
+        `input[name="passenger-${passengerIndex}_sex"], ` +
+        `select[name="passenger-${passengerIndex}_sex"], ` +
+        `button[name="passenger-${passengerIndex}_gender"], ` +
+        `[data-testid*="passenger-${passengerIndex}_gender" i], ` +
+        `[id*="passenger-${passengerIndex}_gender" i], ` +
+        `[name="passenger-${passengerIndex}_gender"]`
+    );
+    if (named) return named;
+  }
+  // Com índice conhecido, NÃO cai no sexo de outro pax
+  if (passengerIndex != null && passengerIndex >= 0) {
+    const scope = root && root !== document.body ? root : passengerRoot(passengerIndex);
+    return findFieldByWord(scope, ["sexo"]);
+  }
+  return findFieldByWord(root || document.body, ["sexo"]);
+}
+
+function findGenderOption(label) {
+  const want = normalizeLabel(label);
+  const sels = [
+    '[role="listbox"] [role="option"]',
+    '[role="option"]',
+    'ul[role="listbox"] li',
+    ".MuiMenu-list li",
+    ".MuiAutocomplete-option",
+    '[role="menu"] [role="menuitem"]',
+    "li[data-value]",
+  ];
+  for (const sel of sels) {
+    const hit = Array.from(document.querySelectorAll(sel)).find((o) => {
+      if (!isVisible(o)) return false;
+      const t = normalizeLabel(textOf(o));
+      const v = normalizeLabel(o.getAttribute?.("data-value") || o.value || "");
+      return (
+        t === want ||
+        t.startsWith(want + " ") ||
+        v === want ||
+        v === (want === "feminino" ? "f" : "m") ||
+        v === (want === "feminino" ? "female" : "male")
+      );
+    });
+    if (hit) return hit;
+  }
+  return null;
 }
 
 async function selectGender(root, gender, passengerIndex) {
   if (!gender) return false;
   const label = gender === "F" ? "Feminino" : "Masculino";
-  let el = null;
-  if (passengerIndex != null && passengerIndex >= 0) {
-    el = document.querySelector(
-      `input[name="passenger-${passengerIndex}_gender"], ` +
-        `select[name="passenger-${passengerIndex}_gender"], ` +
-        `input[name="passenger-${passengerIndex}_sex"], ` +
-        `select[name="passenger-${passengerIndex}_sex"], ` +
-        `[data-testid*="passenger-${passengerIndex}_gender" i], ` +
-        `[name="passenger-${passengerIndex}_gender"]`
-    );
+  let el = findGenderControl(passengerIndex, root);
+  if (!el) {
+    console.warn("[TradeMiles] Campo sexo não achado pax", passengerIndex);
+    return false;
   }
-  if (!el || !isVisible(el)) el = findFieldByWord(root || document.body, ["sexo"]);
-  if (!el) return false;
 
   if (genderFieldShows(el, gender)) return true;
 
   if (el.tagName === "SELECT") {
-    const ok = setNativeValue(el, label);
+    const ok =
+      setNativeValue(el, label) ||
+      setNativeValue(el, gender) ||
+      setNativeValue(el, gender === "F" ? "female" : "male");
     return ok && genderFieldShows(el, gender);
   }
 
-  el.focus?.();
-  el.click?.();
-  await sleep(300);
+  for (let attempt = 0; attempt < 3; attempt++) {
+    if (!isVisible(el) && passengerIndex != null) {
+      await ensurePassengerExpanded(passengerIndex);
+      await sleep(350);
+      el = findGenderControl(passengerIndex, root) || el;
+    }
 
-  // Só opções de listbox — NUNCA "m"/"f" solto em div qualquer (já causou clique errado)
-  const want = normalizeLabel(label);
-  const hit = Array.from(
-    document.querySelectorAll(
-      '[role="listbox"] [role="option"], [role="option"], ul[role="listbox"] li, .MuiMenu-list li, .MuiAutocomplete-option'
-    )
-  ).find((o) => {
-    if (!isVisible(o)) return false;
-    const t = normalizeLabel(textOf(o));
-    return t === want || t.startsWith(want + " ");
-  });
+    el.scrollIntoView?.({ block: "center", inline: "nearest" });
+    el.focus?.();
+    el.click?.();
+    await sleep(280 + attempt * 120);
 
-  if (hit) {
-    hit.scrollIntoView?.({ block: "nearest" });
-    hit.dispatchEvent?.(new MouseEvent("mousedown", { bubbles: true }));
-    hit.dispatchEvent?.(new MouseEvent("mouseup", { bubbles: true }));
-    hit.click?.();
-    await sleep(150);
+    let hit = findGenderOption(label);
+    if (!hit) {
+      // Às vezes a lista demora / está em portal
+      await sleep(250);
+      hit = findGenderOption(label);
+    }
+
+    if (hit) {
+      hit.scrollIntoView?.({ block: "nearest" });
+      hit.dispatchEvent?.(new MouseEvent("pointerdown", { bubbles: true }));
+      hit.dispatchEvent?.(new MouseEvent("mousedown", { bubbles: true }));
+      hit.dispatchEvent?.(new MouseEvent("mouseup", { bubbles: true }));
+      hit.dispatchEvent?.(new MouseEvent("click", { bubbles: true }));
+      hit.click?.();
+      await sleep(200);
+    } else {
+      // Fallback teclado: F / M na lista aberta
+      const key = gender === "F" ? "f" : "m";
+      el.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key,
+          bubbles: true,
+          cancelable: true,
+        })
+      );
+      await sleep(80);
+      el.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "Enter",
+          code: "Enter",
+          keyCode: 13,
+          bubbles: true,
+          cancelable: true,
+        })
+      );
+      await sleep(150);
+    }
+
+    closeOpenMenus();
+    await sleep(100);
+    el = findGenderControl(passengerIndex, root) || el;
+    if (genderFieldShows(el, gender)) {
+      console.info("[TradeMiles] Sexo OK pax", passengerIndex, gender);
+      return true;
+    }
   }
 
-  closeOpenMenus();
-  await sleep(80);
-  return genderFieldShows(el, gender);
+  console.warn("[TradeMiles] Sexo não grudou pax", passengerIndex, {
+    want: gender,
+    shown: el?.value || textOf(el),
+  });
+  return false;
 }
 
 /**
@@ -1007,9 +1149,9 @@ function findPassengerSections(expectedCount) {
 }
 
 /**
- * Depois do preenchimento o título vira o nome (ex.: "Katia…") e deixa de
- * ser "Adulto 1". Por isso NÃO buscamos por /^Adulto/ — achamos o cabeçalho
- * a partir do input passenger-N_*.
+ * Cabeçalho da ficha do pax N.
+ * NÃO usar adultBtns[idx]: depois do fill o "Adulto 1" vira o nome e some
+ * da lista — adultBtns[0] passa a ser o Adulto 2 (bug no 2º passageiro).
  */
 function findAccordionHeaderForPassenger(idx) {
   const marker = document.querySelector(
@@ -1019,13 +1161,21 @@ function findAccordionHeaderForPassenger(idx) {
   );
   if (!marker) return null;
 
-  // Preferência: botão Adulto N na ordem (nunca "Passageiros salvos")
-  const adultBtns = Array.from(
-    document.querySelectorAll("button[aria-expanded], [role='button'][aria-expanded]")
-  ).filter((b) => isPassengerCardToggle(b) && /^(Adulto|Criança|Crianca|Bebê|Bebe)\b/i.test(textOf(b)));
-  if (adultBtns[idx]) return adultBtns[idx];
+  const wantOrder = idx + 1;
+  // Adulto/Criança ainda com número (antes do título virar o nome)
+  const byNumber = Array.from(
+    document.querySelectorAll(
+      "button[aria-expanded], [role='button'][aria-expanded]"
+    )
+  ).find((b) => {
+    if (!isPassengerCardToggle(b)) return false;
+    const t = textOf(b);
+    const m = t.match(/^(Adulto|Criança|Crianca|Bebê|Bebe)\s*(\d+)\b/i);
+    return m && Number(m[2]) === wantOrder;
+  });
+  if (byNumber) return byNumber;
 
-  // Sobe o DOM: pega o toggle da ficha (mais externo), ignorando Passageiros salvos
+  // Sobe o DOM a partir do input passenger-N_*
   let best = null;
   let node = marker.parentElement;
   for (let up = 0; up < 16 && node && node !== document.body; up++) {
@@ -1035,15 +1185,20 @@ function findAccordionHeaderForPassenger(idx) {
       ),
     ].filter(isPassengerCardToggle);
     for (const b of buttons) {
+      // Só toggles que "possuem" este marker (antes dele no DOM / contém)
       const pos = b.compareDocumentPosition(marker);
       if (
         pos & Node.DOCUMENT_POSITION_FOLLOWING ||
         pos & Node.DOCUMENT_POSITION_CONTAINED_BY
       ) {
+        // Prefere o mais próximo do marker (último encontrado subindo)
         best = b;
       }
     }
-    if (node.matches?.("button[aria-expanded], [role='button'][aria-expanded]") &&
+    if (
+      node.matches?.(
+        "button[aria-expanded], [role='button'][aria-expanded]"
+      ) &&
       isPassengerCardToggle(node)
     ) {
       best = node;
@@ -1255,22 +1410,49 @@ async function ensurePassengerExpanded(idx) {
   }
 
   const header = findAccordionHeaderForPassenger(idx);
-  if (
-    header &&
-    isPassengerCardToggle(header) &&
-    header.getAttribute?.("aria-expanded") === "false"
-  ) {
-    try {
-      header.scrollIntoView?.({ block: "center", behavior: "instant" });
-    } catch {
-      header.scrollIntoView?.({ block: "center" });
+  if (header && isPassengerCardToggle(header)) {
+    const expanded = header.getAttribute?.("aria-expanded");
+    // Abre se fechado OU se aria não ajuda mas campos estão ocultos
+    if (expanded === "false" || expanded == null || expanded === "true") {
+      // expanded=true mas campos invisíveis → reclica (estado inconsistente)
+      if (expanded !== "true" || !passengerFieldsVisible(idx)) {
+        try {
+          header.scrollIntoView?.({ block: "center", behavior: "instant" });
+        } catch {
+          header.scrollIntoView?.({ block: "center" });
+        }
+        // Se diz aberto mas campos sumiram, um clique pode fechar — tenta abrir
+        if (expanded === "true" && !passengerFieldsVisible(idx)) {
+          header.click?.();
+          await sleep(400);
+        }
+        if (!passengerFieldsVisible(idx)) {
+          header.click?.();
+          await sleep(600);
+        }
+      }
     }
-    header.click?.();
-    await sleep(550);
+  }
+
+  // 2ª chance: botão "Adulto N" pelo número
+  if (!passengerFieldsVisible(idx)) {
+    const want = idx + 1;
+    const btn = Array.from(
+      document.querySelectorAll("button, [role='button']")
+    ).find((b) => {
+      if (!isVisible(b) || isUnsafeClickTarget(b)) return false;
+      const m = textOf(b).match(/^(Adulto|Criança|Crianca|Bebê|Bebe)\s*(\d+)\b/i);
+      return m && Number(m[2]) === want;
+    });
+    if (btn) {
+      btn.scrollIntoView?.({ block: "center" });
+      btn.click?.();
+      await sleep(600);
+    }
   }
 
   return {
-    header,
+    header: findAccordionHeaderForPassenger(idx),
     root: passengerRoot(idx),
     open: passengerFieldsVisible(idx),
   };
@@ -1645,7 +1827,14 @@ async function fillOnePassengerConfirmForm(pax, idx, opts = {}) {
 async function fillOnePassengerAccordion(i, pax) {
   let n = 0;
   const opened = await ensurePassengerExpanded(i);
-  const root = opened.root || passengerRoot(i);
+  let root = opened.root || passengerRoot(i);
+
+  if (!opened.open) {
+    console.warn("[TradeMiles] Ficha do pax", i, "não abriu — tentando de novo");
+    await sleep(400);
+    const again = await ensurePassengerExpanded(i);
+    root = again.root || root;
+  }
 
   const { firstName, lastName } = splitPassengerName(pax);
   const setByName = (suffix, value) => {
@@ -1676,18 +1865,44 @@ async function fillOnePassengerAccordion(i, pax) {
   await dismissSavedPassengersPopover();
 
   const gender = resolvePaxGender(pax);
-  if (gender && (await selectGender(root, gender, i))) n++;
+  console.info("[TradeMiles] pax", i, "sexo payload:", gender, pax.gender);
+
+  // Sexo ANTES da data — e com retry (2º pax costumava ficar Masculino default)
+  for (let gTry = 0; gTry < 3; gTry++) {
+    if (!gender) break;
+    const gEl = findGenderControl(i, root);
+    if (gEl && genderFieldShows(gEl, gender)) {
+      n++;
+      break;
+    }
+    await ensurePassengerExpanded(i);
+    if (await selectGender(passengerRoot(i), gender, i)) {
+      n++;
+      break;
+    }
+    await sleep(250);
+  }
   await sleep(100);
 
-  // Data: expand=false se campos já visíveis (não reclica cabeçalho)
-  const canSee = passengerFieldsVisible(i);
-  n += await fillBirthDate(root, pax, i, { expand: !canSee });
-  if (!birthFieldHasDate(findPassengerDobInput(i, root))) {
-    if (!passengerFieldsVisible(i)) {
-      await ensurePassengerExpanded(i);
-      await sleep(300);
+  // Data com verify no campo passenger-i_* (não no do 1º)
+  for (let dTry = 0; dTry < 3; dTry++) {
+    const dobEl = resolveDobInputForPax(i, passengerRoot(i));
+    if (dobEl && dobMatchesParts(dobEl, birthParts(pax))) {
+      n++;
+      break;
     }
-    n += await fillBirthDate(passengerRoot(i), pax, i, { expand: false });
+    await ensurePassengerExpanded(i);
+    await sleep(200);
+    const filled = await fillBirthDate(passengerRoot(i), pax, i, {
+      expand: true,
+    });
+    if (filled > 0) n += filled;
+    const after = resolveDobInputForPax(i, passengerRoot(i));
+    if (after && (dobMatchesParts(after, birthParts(pax)) || birthFieldHasDate(after))) {
+      break;
+    }
+    console.warn("[TradeMiles] Retry data pax", i, "tentativa", dTry + 1);
+    await sleep(300);
   }
 
   await dismissSavedPassengersPopover();
@@ -1829,16 +2044,24 @@ async function fillAllAccordion(passengers) {
     }
   }
 
+  // Varredura final: data + sexo de cada pax (o 2º costumava ficar pela metade)
   if (max > 1) {
     for (let i = 0; i < max; i++) {
-      const dobEl = findPassengerDobInput(i, document.body);
-      if (dobEl && birthFieldHasDate(dobEl)) continue;
       await dismissSavedPassengersPopover();
       await ensurePassengerExpanded(i);
       await sleep(250);
-      total += await fillBirthDate(passengerRoot(i), enriched[i], i, {
-        expand: true,
-      });
+      const parts = birthParts(enriched[i]);
+      const dobEl = resolveDobInputForPax(i, passengerRoot(i));
+      if (parts && !(dobEl && dobMatchesParts(dobEl, parts))) {
+        total += await fillBirthDate(passengerRoot(i), enriched[i], i, {
+          expand: true,
+        });
+      }
+      const g = resolvePaxGender(enriched[i]);
+      const gEl = findGenderControl(i, passengerRoot(i));
+      if (g && !(gEl && genderFieldShows(gEl, g))) {
+        if (await selectGender(passengerRoot(i), g, i)) total++;
+      }
     }
   }
 
