@@ -7,7 +7,7 @@ import { cn } from "@/lib/cn";
 import { buildClientChargeMessageFromSale } from "@/lib/vendas/buildClientChargeMessage";
 
 const ACTION_BTN =
-  "inline-flex h-8 items-center justify-center gap-1.5 rounded-lg px-2.5 text-[12px] font-semibold tracking-tight transition disabled:pointer-events-none disabled:opacity-50";
+  "inline-flex h-8 w-full items-center justify-center gap-1.5 rounded-lg px-2 text-[12px] font-semibold tracking-tight transition disabled:pointer-events-none disabled:opacity-50";
 const ACTION_BTN_MSG =
   "border border-sky-200/90 bg-sky-50 text-sky-900 shadow-sm shadow-sky-100/50 hover:border-sky-300 hover:bg-sky-100";
 const ACTION_BTN_PAY =
@@ -16,7 +16,7 @@ const ACTION_BTN_UNPAY =
   "border border-amber-200 bg-amber-50 text-amber-950 shadow-sm shadow-amber-100/60 hover:border-amber-300 hover:bg-amber-100";
 const ACTION_BTN_CANCEL =
   "border border-rose-200/90 bg-white text-rose-700 shadow-sm hover:border-rose-300 hover:bg-rose-50";
-
+const ACTION_STACK = "flex w-[108px] flex-col gap-1";
 function fmtMoneyBR(cents: number) {
   return ((cents || 0) / 100).toLocaleString("pt-BR", {
     style: "currency",
@@ -1025,29 +1025,27 @@ export default function VendasClient() {
 
       <div className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm shadow-slate-200/40">
         <div className="overflow-x-auto">
-          <table className="w-full text-sm">
+          <table className="w-full table-fixed text-sm">
             <thead className="border-b border-slate-200 bg-slate-50/95">
               <tr className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                <th className="w-[120px] px-4 py-3 text-left">Data</th>
-                <th className="w-[130px] px-4 py-3 text-left">Venda</th>
-                <th className="w-[260px] px-4 py-3 text-left">Cliente</th>
-                <th className="w-[280px] px-4 py-3 text-left">Cedente</th>
-                <th className="w-[120px] px-4 py-3 text-left">Programa</th>
-                <th className="w-[140px] px-4 py-3 text-right">Pontos</th>
-                <th className="w-[130px] px-4 py-3 text-right">Milheiro</th>
-                <th className="w-[100px] px-4 py-3 text-right">Pax</th>
-                <th className="w-[160px] px-4 py-3 text-right">Total</th>
-                <th className="w-[170px] px-4 py-3 text-right">A receber</th>
-                <th className="w-[140px] px-4 py-3 text-left">Status</th>
-                <th className="w-[140px] px-4 py-3 text-left">Loc</th>
-                <th className="min-w-[280px] px-4 py-3 text-right">Ação</th>
+                <th className="w-[88px] px-3 py-3 text-left">Data</th>
+                <th className="w-[200px] px-3 py-3 text-left">Venda / Cliente</th>
+                <th className="w-[200px] px-3 py-3 text-left">Cedente</th>
+                <th className="w-[88px] px-3 py-3 text-left">Programa</th>
+                <th className="w-[92px] px-3 py-3 text-right">Pontos</th>
+                <th className="w-[88px] px-3 py-3 text-right">Milheiro</th>
+                <th className="w-[52px] px-3 py-3 text-right">Pax</th>
+                <th className="w-[110px] px-3 py-3 text-right">A receber</th>
+                <th className="w-[96px] px-3 py-3 text-left">Status</th>
+                <th className="w-[84px] px-3 py-3 text-left">Loc</th>
+                <th className="w-[124px] px-3 py-3 text-right">Ação</th>
               </tr>
             </thead>
 
             <tbody className="divide-y divide-slate-100">
               {filtered.length === 0 && !loading ? (
                 <tr>
-                  <td colSpan={13} className="px-4 py-0">
+                  <td colSpan={11} className="px-4 py-0">
                     <div className="flex flex-col items-center justify-center gap-2 py-14 text-center">
                       <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-100 text-slate-400 ring-1 ring-slate-200/80">
                         <ShoppingBag className="h-6 w-6" strokeWidth={1.75} aria-hidden />
@@ -1072,11 +1070,12 @@ export default function VendasClient() {
                     onClick={() => setDetailsId(r.id)}
                     title="Clique para ver detalhes"
                   >
-                    <td className="px-4 py-3.5 text-slate-700">{fmtDateBR(r.date)}</td>
+                    <td className="px-3 py-3 text-slate-700">{fmtDateBR(r.date)}</td>
 
-                    <td className="px-4 py-3.5 font-mono">
+                    <td className="px-3 py-3">
                       <button
-                        className="font-semibold text-slate-900 underline decoration-slate-300 underline-offset-2 hover:decoration-sky-500"
+                        type="button"
+                        className="font-mono text-[12px] font-semibold text-slate-900 underline decoration-slate-300 underline-offset-2 hover:decoration-sky-500"
                         onClick={(e) => {
                           e.stopPropagation();
                           setDetailsId(r.id);
@@ -1084,49 +1083,48 @@ export default function VendasClient() {
                       >
                         {r.numero}
                       </button>
+                      <div className="mt-0.5 truncate font-semibold text-slate-900" title={r.cliente.nome}>
+                        {r.cliente.nome}
+                      </div>
+                      <div className="truncate text-[11px] text-slate-500">{r.cliente.identificador}</div>
                     </td>
 
-                    <td className="px-4 py-3.5">
-                      <div className="font-semibold text-slate-900">{r.cliente.nome}</div>
-                      <div className="text-xs text-slate-500">{r.cliente.identificador}</div>
-                    </td>
-
-                    <td className="px-4 py-3.5">
+                    <td className="px-3 py-3">
                       {r.cedente?.nomeCompleto ? (
                         <>
-                          <div className="font-medium text-slate-800">{r.cedente.nomeCompleto}</div>
-                          <div className="text-xs text-slate-500">{r.cedente.identificador}</div>
+                          <div className="truncate font-medium text-slate-800" title={r.cedente.nomeCompleto}>
+                            {r.cedente.nomeCompleto}
+                          </div>
+                          <div className="truncate text-[11px] text-slate-500">
+                            {r.cedente.identificador}
+                          </div>
                         </>
                       ) : (
                         <div className="text-slate-400">—</div>
                       )}
                     </td>
 
-                    <td className="px-4 py-3.5">
+                    <td className="px-3 py-3">
                       <span className="inline-flex rounded-md bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-700 ring-1 ring-slate-200/80">
                         {r.program}
                       </span>
                     </td>
-                    <td className="px-4 py-3.5 text-right tabular-nums text-slate-800">{fmtInt(r.points)}</td>
-                    <td className="px-4 py-3.5 text-right tabular-nums text-slate-700">
+                    <td className="px-3 py-3 text-right tabular-nums text-slate-800">{fmtInt(r.points)}</td>
+                    <td className="px-3 py-3 text-right tabular-nums text-slate-700">
                       {fmtMoneyBR(r.milheiroCents)}
                     </td>
-                    <td className="px-4 py-3.5 text-right tabular-nums text-slate-700">{fmtInt(r.passengers)}</td>
-
-                    <td className="px-4 py-3.5 text-right font-semibold tabular-nums text-slate-900">
-                      {fmtMoneyBR(r.totalCents)}
-                    </td>
+                    <td className="px-3 py-3 text-right tabular-nums text-slate-700">{fmtInt(r.passengers)}</td>
 
                     <td
                       className={cn(
-                        "px-4 py-3.5 text-right font-semibold tabular-nums",
+                        "px-3 py-3 text-right font-semibold tabular-nums",
                         pend > 0 ? "text-amber-800" : "text-slate-600"
                       )}
                     >
                       {fmtMoneyBR(pend)}
                     </td>
 
-                    <td className="px-4 py-3.5">
+                    <td className="px-3 py-3">
                       <span
                         className={cn(
                           "inline-flex rounded-full border px-2.5 py-1 text-[11px] font-semibold",
@@ -1137,13 +1135,13 @@ export default function VendasClient() {
                       </span>
                     </td>
 
-                    <td className="px-4 py-3.5 font-mono text-xs text-slate-600">{r.locator || "—"}</td>
+                    <td className="px-3 py-3 font-mono text-xs text-slate-600">{r.locator || "—"}</td>
 
                     <td
-                      className="px-4 py-3.5 text-right"
+                      className="px-3 py-3 text-right align-middle"
                       onClick={(e) => e.stopPropagation()}
                     >
-                      <div className="inline-flex flex-wrap items-center justify-end gap-1.5">
+                      <div className={cn(ACTION_STACK, "ml-auto")}>
                         <button
                           type="button"
                           onClick={() => openChargeMessage(r)}
@@ -1198,7 +1196,7 @@ export default function VendasClient() {
 
               {loading ? (
                 <tr>
-                  <td colSpan={13} className="px-4 py-10 text-center">
+                  <td colSpan={11} className="px-4 py-10 text-center">
                     <span className="inline-flex items-center gap-2 text-sm font-medium text-slate-600">
                       <RefreshCw className="h-4 w-4 animate-spin text-slate-400" strokeWidth={2} aria-hidden />
                       Carregando...
