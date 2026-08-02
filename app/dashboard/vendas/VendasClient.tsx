@@ -1023,22 +1023,22 @@ export default function VendasClient() {
         />
       </div>
 
-      <div className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm shadow-slate-200/40">
+      <div className="rounded-2xl border border-slate-200/80 bg-white shadow-sm shadow-slate-200/40">
         <div className="overflow-x-auto">
-          <table className="w-full table-fixed text-sm">
+          <table className="w-full min-w-0 table-fixed text-sm">
             <thead className="border-b border-slate-200 bg-slate-50/95">
               <tr className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
                 <th className="w-[88px] px-3 py-3 text-left">Data</th>
-                <th className="w-[200px] px-3 py-3 text-left">Venda / Cliente</th>
-                <th className="w-[200px] px-3 py-3 text-left">Cedente</th>
-                <th className="w-[88px] px-3 py-3 text-left">Programa</th>
-                <th className="w-[92px] px-3 py-3 text-right">Pontos</th>
-                <th className="w-[88px] px-3 py-3 text-right">Milheiro</th>
-                <th className="w-[52px] px-3 py-3 text-right">Pax</th>
-                <th className="w-[110px] px-3 py-3 text-right">A receber</th>
-                <th className="w-[96px] px-3 py-3 text-left">Status</th>
-                <th className="w-[84px] px-3 py-3 text-left">Loc</th>
-                <th className="w-[124px] px-3 py-3 text-right">Ação</th>
+                <th className="w-[190px] px-3 py-3 text-left">Venda / Cliente</th>
+                <th className="w-[140px] px-3 py-3 text-left">Cedente</th>
+                <th className="w-[80px] px-3 py-3 text-left">Programa</th>
+                <th className="w-[84px] px-3 py-3 text-right">Pontos</th>
+                <th className="w-[80px] px-3 py-3 text-right">Milheiro</th>
+                <th className="w-[48px] px-3 py-3 text-right">Pax</th>
+                <th className="w-[100px] px-3 py-3 text-right">A receber</th>
+                <th className="w-[90px] px-3 py-3 text-left">Status</th>
+                <th className="w-[76px] px-3 py-3 text-left">Loc</th>
+                <th className="w-[116px] px-3 py-3 text-right">Ação</th>
               </tr>
             </thead>
 
@@ -1091,14 +1091,12 @@ export default function VendasClient() {
 
                     <td className="px-3 py-3">
                       {r.cedente?.nomeCompleto ? (
-                        <>
-                          <div className="truncate font-medium text-slate-800" title={r.cedente.nomeCompleto}>
-                            {r.cedente.nomeCompleto}
-                          </div>
-                          <div className="truncate text-[11px] text-slate-500">
-                            {r.cedente.identificador}
-                          </div>
-                        </>
+                        <div
+                          className="text-[13px] font-medium leading-snug text-slate-800 break-words"
+                          title={r.cedente.nomeCompleto}
+                        >
+                          {r.cedente.nomeCompleto}
+                        </div>
                       ) : (
                         <div className="text-slate-400">—</div>
                       )}
