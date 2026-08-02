@@ -2,9 +2,20 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { FilterX, Plus, RefreshCw, Search, ShoppingBag } from "lucide-react";
+import { FilterX, MessageSquareText, Plus, RefreshCw, Search, ShoppingBag, CircleCheck, Ban } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { buildClientChargeMessageFromSale } from "@/lib/vendas/buildClientChargeMessage";
+
+const ACTION_BTN =
+  "inline-flex h-8 items-center justify-center gap-1.5 rounded-lg px-2.5 text-[12px] font-semibold tracking-tight transition disabled:pointer-events-none disabled:opacity-50";
+const ACTION_BTN_MSG =
+  "border border-sky-200/90 bg-sky-50 text-sky-900 shadow-sm shadow-sky-100/50 hover:border-sky-300 hover:bg-sky-100";
+const ACTION_BTN_PAY =
+  "border border-emerald-600/20 bg-emerald-600 text-white shadow-sm shadow-emerald-700/20 hover:bg-emerald-700";
+const ACTION_BTN_UNPAY =
+  "border border-amber-200 bg-amber-50 text-amber-950 shadow-sm shadow-amber-100/60 hover:border-amber-300 hover:bg-amber-100";
+const ACTION_BTN_CANCEL =
+  "border border-rose-200/90 bg-white text-rose-700 shadow-sm hover:border-rose-300 hover:bg-rose-50";
 
 function fmtMoneyBR(cents: number) {
   return ((cents || 0) / 100).toLocaleString("pt-BR", {
@@ -113,11 +124,19 @@ function SummaryStat({
   accent: keyof typeof SUMMARY_BAR;
 }) {
   return (
-    <div className="relative overflow-hidden rounded-2xl border border-slate-200/80 bg-gradient-to-br from-white to-slate-50/70 p-4 shadow-sm shadow-slate-200/35">
-      <div className={cn("absolute left-0 top-0 h-full w-1 rounded-r", SUMMARY_BAR[accent])} aria-hidden />
+    <div className="relative overflow-hidden rounded-2xl border border-slate-200/80 bg-gradient-to-br from-white via-white to-slate-50/80 p-4 shadow-sm shadow-slate-200/40">
+      <div
+        className={cn("absolute inset-x-0 top-0 h-0.5", SUMMARY_BAR[accent])}
+        aria-hidden
+      />
+      <div className={cn("absolute left-0 top-0 h-full w-1", SUMMARY_BAR[accent])} aria-hidden />
       <div className="pl-3">
-        <div className="text-[11px] font-semibold uppercase leading-snug tracking-wide text-slate-500">{label}</div>
-        <div className="mt-1.5 text-lg font-bold tabular-nums tracking-tight text-slate-900">{value}</div>
+        <div className="text-[11px] font-semibold uppercase leading-snug tracking-wide text-slate-500">
+          {label}
+        </div>
+        <div className="mt-1.5 text-xl font-bold tabular-nums tracking-tight text-slate-900">
+          {value}
+        </div>
       </div>
     </div>
   );
@@ -897,7 +916,7 @@ export default function VendasClient() {
           <button
             type="button"
             onClick={() => load()}
-            className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-medium text-slate-800 shadow-sm transition hover:border-slate-300 hover:bg-slate-50 disabled:pointer-events-none disabled:opacity-55"
+            className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-slate-200/90 bg-white px-4 text-sm font-medium text-slate-700 shadow-sm transition hover:border-slate-300 hover:bg-slate-50 disabled:pointer-events-none disabled:opacity-55"
             disabled={loading}
           >
             <RefreshCw className={cn("h-4 w-4 text-slate-500", loading && "animate-spin")} strokeWidth={2} aria-hidden />
@@ -905,7 +924,7 @@ export default function VendasClient() {
           </button>
           <Link
             href="/dashboard/vendas/nova"
-            className="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-slate-900 px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800"
+            className="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-slate-900 px-4 text-sm font-semibold text-white shadow-md shadow-slate-900/20 transition hover:bg-slate-800"
           >
             <Plus className="h-4 w-4 shrink-0" strokeWidth={2} aria-hidden />
             Nova venda
@@ -1021,7 +1040,7 @@ export default function VendasClient() {
                 <th className="w-[170px] px-4 py-3 text-right">A receber</th>
                 <th className="w-[140px] px-4 py-3 text-left">Status</th>
                 <th className="w-[140px] px-4 py-3 text-left">Loc</th>
-                <th className="w-[200px] px-4 py-3 text-right">Ação</th>
+                <th className="min-w-[280px] px-4 py-3 text-right">Ação</th>
               </tr>
             </thead>
 
@@ -1049,15 +1068,15 @@ export default function VendasClient() {
                 return (
                   <tr
                     key={r.id}
-                    className="cursor-pointer transition hover:bg-slate-50/90"
+                    className="cursor-pointer transition hover:bg-sky-50/40"
                     onClick={() => setDetailsId(r.id)}
                     title="Clique para ver detalhes"
                   >
-                    <td className="px-4 py-3">{fmtDateBR(r.date)}</td>
+                    <td className="px-4 py-3.5 text-slate-700">{fmtDateBR(r.date)}</td>
 
-                    <td className="px-4 py-3 font-mono">
+                    <td className="px-4 py-3.5 font-mono">
                       <button
-                        className="underline decoration-slate-300 underline-offset-2 hover:decoration-slate-500"
+                        className="font-semibold text-slate-900 underline decoration-slate-300 underline-offset-2 hover:decoration-sky-500"
                         onClick={(e) => {
                           e.stopPropagation();
                           setDetailsId(r.id);
@@ -1067,15 +1086,15 @@ export default function VendasClient() {
                       </button>
                     </td>
 
-                    <td className="px-4 py-3">
+                    <td className="px-4 py-3.5">
                       <div className="font-semibold text-slate-900">{r.cliente.nome}</div>
                       <div className="text-xs text-slate-500">{r.cliente.identificador}</div>
                     </td>
 
-                    <td className="px-4 py-3">
+                    <td className="px-4 py-3.5">
                       {r.cedente?.nomeCompleto ? (
                         <>
-                          <div className="font-medium">{r.cedente.nomeCompleto}</div>
+                          <div className="font-medium text-slate-800">{r.cedente.nomeCompleto}</div>
                           <div className="text-xs text-slate-500">{r.cedente.identificador}</div>
                         </>
                       ) : (
@@ -1083,27 +1102,31 @@ export default function VendasClient() {
                       )}
                     </td>
 
-                    <td className="px-4 py-3">{r.program}</td>
-                    <td className="px-4 py-3 text-right tabular-nums">{fmtInt(r.points)}</td>
-                    <td className="px-4 py-3 text-right tabular-nums">
+                    <td className="px-4 py-3.5">
+                      <span className="inline-flex rounded-md bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-700 ring-1 ring-slate-200/80">
+                        {r.program}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3.5 text-right tabular-nums text-slate-800">{fmtInt(r.points)}</td>
+                    <td className="px-4 py-3.5 text-right tabular-nums text-slate-700">
                       {fmtMoneyBR(r.milheiroCents)}
                     </td>
-                    <td className="px-4 py-3 text-right tabular-nums">{fmtInt(r.passengers)}</td>
+                    <td className="px-4 py-3.5 text-right tabular-nums text-slate-700">{fmtInt(r.passengers)}</td>
 
-                    <td className="px-4 py-3 text-right font-semibold tabular-nums text-slate-900">
+                    <td className="px-4 py-3.5 text-right font-semibold tabular-nums text-slate-900">
                       {fmtMoneyBR(r.totalCents)}
                     </td>
 
                     <td
                       className={cn(
-                        "px-4 py-3 text-right font-semibold tabular-nums",
+                        "px-4 py-3.5 text-right font-semibold tabular-nums",
                         pend > 0 ? "text-amber-800" : "text-slate-600"
                       )}
                     >
                       {fmtMoneyBR(pend)}
                     </td>
 
-                    <td className="px-4 py-3">
+                    <td className="px-4 py-3.5">
                       <span
                         className={cn(
                           "inline-flex rounded-full border px-2.5 py-1 text-[11px] font-semibold",
@@ -1114,65 +1137,60 @@ export default function VendasClient() {
                       </span>
                     </td>
 
-                    <td className="px-4 py-3 font-mono text-xs">{r.locator || "—"}</td>
+                    <td className="px-4 py-3.5 font-mono text-xs text-slate-600">{r.locator || "—"}</td>
 
                     <td
-                      className="px-4 py-3 text-right"
-                      onClick={(e) => e.stopPropagation()} // ✅ não abrir detalhes ao clicar nos botões
+                      className="px-4 py-3.5 text-right"
+                      onClick={(e) => e.stopPropagation()}
                     >
-                      {r.paymentStatus === "CANCELED" ? (
-                        <div className="flex justify-end gap-2">
-                          <button
-                            type="button"
-                            onClick={() => openChargeMessage(r)}
-                            className="rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-800 shadow-sm transition hover:border-slate-300 hover:bg-slate-50"
-                            title="Gerar mensagem de cobrança (PIX + valores)"
-                          >
-                            Mensagem
-                          </button>
-                        </div>
-                      ) : (
-                        <div className="flex justify-end gap-2">
-                          <button
-                            type="button"
-                            onClick={() => openChargeMessage(r)}
-                            className="rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-800 shadow-sm transition hover:border-slate-300 hover:bg-slate-50"
-                            title="Gerar mensagem de cobrança (PIX + valores)"
-                          >
-                            Mensagem
-                          </button>
+                      <div className="inline-flex flex-wrap items-center justify-end gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => openChargeMessage(r)}
+                          className={cn(ACTION_BTN, ACTION_BTN_MSG)}
+                          title="Gerar mensagem de cobrança (PIX + valores)"
+                        >
+                          <MessageSquareText className="h-3.5 w-3.5 shrink-0 opacity-80" strokeWidth={2} aria-hidden />
+                          Mensagem
+                        </button>
 
-                          <button
-                            type="button"
-                            onClick={() => togglePago(r)}
-                            disabled={isBusy}
-                            className={cn(
-                              "rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-800 shadow-sm transition",
-                              isBusy ? "cursor-not-allowed opacity-60" : "hover:border-slate-300 hover:bg-slate-50"
-                            )}
-                            title={r.paymentStatus === "PAID" ? "Marcar como pendente" : "Marcar como pago"}
-                          >
-                            {isBusy
-                              ? "Salvando..."
-                              : r.paymentStatus === "PAID"
-                              ? "Marcar pendente"
-                              : "Marcar pago"}
-                          </button>
+                        {r.paymentStatus !== "CANCELED" ? (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => togglePago(r)}
+                              disabled={isBusy}
+                              className={cn(
+                                ACTION_BTN,
+                                r.paymentStatus === "PAID" ? ACTION_BTN_UNPAY : ACTION_BTN_PAY
+                              )}
+                              title={
+                                r.paymentStatus === "PAID"
+                                  ? "Marcar como pendente"
+                                  : "Marcar como pago"
+                              }
+                            >
+                              <CircleCheck className="h-3.5 w-3.5 shrink-0" strokeWidth={2.25} aria-hidden />
+                              {isBusy
+                                ? "…"
+                                : r.paymentStatus === "PAID"
+                                  ? "Pendente"
+                                  : "Pago"}
+                            </button>
 
-                          <button
-                            type="button"
-                            onClick={() => cancelSale(r)}
-                            disabled={isBusy}
-                            className={cn(
-                              "rounded-xl border border-red-200 bg-white px-3 py-1.5 text-sm font-medium text-red-800 shadow-sm transition",
-                              isBusy ? "cursor-not-allowed opacity-60" : "hover:border-red-300 hover:bg-red-50"
-                            )}
-                            title="Cancelar venda (estorna pontos e opcionalmente reseta passageiros)"
-                          >
-                            Cancelar
-                          </button>
-                        </div>
-                      )}
+                            <button
+                              type="button"
+                              onClick={() => cancelSale(r)}
+                              disabled={isBusy}
+                              className={cn(ACTION_BTN, ACTION_BTN_CANCEL)}
+                              title="Cancelar venda (estorna pontos e opcionalmente reseta passageiros)"
+                            >
+                              <Ban className="h-3.5 w-3.5 shrink-0 opacity-90" strokeWidth={2} aria-hidden />
+                              Cancelar
+                            </button>
+                          </>
+                        ) : null}
+                      </div>
                     </td>
                   </tr>
                 );
@@ -1706,9 +1724,10 @@ export default function VendasClient() {
                 <button
                   type="button"
                   onClick={() => openChargeMessage(details)}
-                  className="min-h-[44px] rounded-xl border px-4 py-2.5 text-base font-medium hover:bg-slate-50"
+                  className={cn(ACTION_BTN, ACTION_BTN_MSG, "h-10 px-4 text-sm")}
                   title="Gerar mensagem de cobrança (PIX + valores)"
                 >
+                  <MessageSquareText className="h-4 w-4 shrink-0 opacity-80" strokeWidth={2} aria-hidden />
                   Mensagem de cobrança
                 </button>
 
@@ -1718,10 +1737,12 @@ export default function VendasClient() {
                       onClick={() => togglePago(details)}
                       disabled={updatingId === details.id}
                       className={cn(
-                        "min-h-[44px] rounded-xl border px-4 py-2.5 text-base font-medium",
-                        updatingId === details.id ? "opacity-60 cursor-not-allowed" : "hover:bg-slate-50"
+                        ACTION_BTN,
+                        "h-10 px-4 text-sm",
+                        details.paymentStatus === "PAID" ? ACTION_BTN_UNPAY : ACTION_BTN_PAY
                       )}
                     >
+                      <CircleCheck className="h-4 w-4 shrink-0" strokeWidth={2.25} aria-hidden />
                       {updatingId === details.id
                         ? "Salvando..."
                         : details.paymentStatus === "PAID"
@@ -1732,11 +1753,9 @@ export default function VendasClient() {
                     <button
                       onClick={() => cancelSale(details)}
                       disabled={updatingId === details.id}
-                      className={cn(
-                        "min-h-[44px] rounded-xl border border-red-300 px-4 py-2.5 text-base font-medium text-red-700",
-                        updatingId === details.id ? "opacity-60 cursor-not-allowed" : "hover:bg-red-50"
-                      )}
+                      className={cn(ACTION_BTN, ACTION_BTN_CANCEL, "h-10 px-4 text-sm")}
                     >
+                      <Ban className="h-4 w-4 shrink-0 opacity-90" strokeWidth={2} aria-hidden />
                       Cancelar venda
                     </button>
                   </>
