@@ -583,7 +583,7 @@ async function fillBirthDate(root, pax, passengerIndex, opts = {}) {
     }
   }
 
-  // Máscara "dd / mm / aaaa": só os 8 dígitos
+  // Máscara "dd / mm / aaaa" ou "dd-mm-aaaa": só os 8 dígitos
   await typeChars(el, digits, { clear: true, delay: 45 });
   await sleep(160);
   if (birthFieldHasDate(el)) return 1;
@@ -593,12 +593,22 @@ async function fillBirthDate(root, pax, passengerIndex, opts = {}) {
   await sleep(160);
   if (birthFieldHasDate(el)) return 1;
 
+  // Valor formatado com hífen (pagamentos/passageiros)
+  const dashed = `${parts.day}-${parts.month}-${parts.year}`;
+  await typeChars(el, dashed, { clear: true, delay: 35 });
+  await sleep(120);
+  if (birthFieldHasDate(el)) return 1;
+
   // Valor já formatado com espaços (como a máscara exibe)
   await typeChars(el, spaced, { clear: true, delay: 35 });
   await sleep(120);
   if (birthFieldHasDate(el)) return 1;
 
   setNativeValue(el, pretty);
+  await sleep(80);
+  if (birthFieldHasDate(el)) return 1;
+
+  setNativeValue(el, dashed);
   await sleep(80);
   if (birthFieldHasDate(el)) return 1;
 
@@ -1111,9 +1121,10 @@ function getPassengerFormKind() {
   return "accordion";
 }
 
-function findConfirmDadosButton() {
+function findConfirmDadosButton(root = document) {
+  const scope = root && root.querySelectorAll ? root : document;
   return (
-    Array.from(document.querySelectorAll("button")).find((btn) => {
+    Array.from(scope.querySelectorAll("button")).find((btn) => {
       if (!isVisible(btn)) return false;
       const t = normalizeLabel(textOf(btn));
       return t === "confirmar dados" || t.startsWith("confirmar dados");
@@ -1121,8 +1132,8 @@ function findConfirmDadosButton() {
   );
 }
 
-async function clickConfirmDados() {
-  const btn = findConfirmDadosButton();
+async function clickConfirmDados(root) {
+  const btn = findConfirmDadosButton(root || document);
   if (!btn) return false;
   try {
     btn.scrollIntoView?.({ block: "center", behavior: "instant" });
@@ -1133,6 +1144,91 @@ async function clickConfirmDados() {
   btn.click?.();
   await sleep(900);
   return true;
+}
+
+/** Cabeçalhos Adulto 1 / Adulto 2 neste formulário híbrido. */
+function findAdultoHeaderButtons() {
+  const nodes = Array.from(
+    document.querySelectorAll(
+      "button, [role='button'], [aria-expanded], h2, h3, h4, div, span"
+    )
+  );
+  const found = [];
+  const seen = new Set();
+  for (const el of nodes) {
+    if (!isVisible(el)) continue;
+    const t = textOf(el);
+    if (!/^(Adulto|Criança|Crianca|Bebê|Bebe)\b/i.test(t) || t.length > 36) {
+      continue;
+    }
+    const clickable =
+      el.closest?.("button, [role='button'], [aria-expanded]") ||
+      (el.matches?.("button, [role='button'], [aria-expanded]") ? el : null) ||
+      el;
+    if (seen.has(clickable)) continue;
+    seen.add(clickable);
+    const numMatch = t.match(/(\d+)/);
+    found.push({
+      el: clickable,
+      title: t,
+      order: numMatch ? Number(numMatch[1]) : found.length + 1,
+      top: clickable.getBoundingClientRect().top,
+    });
+  }
+  found.sort((a, b) => a.order - b.order || a.top - b.top);
+  return found;
+}
+
+function formRootNear(el) {
+  if (!el) return document.body;
+  let p = el.parentElement;
+  for (let i = 0; i < 14 && p; i++) {
+    const inputs = visibleTextInputs(p);
+    const hasConfirm = Boolean(findConfirmDadosButton(p));
+    if (inputs.length >= 3 || (inputs.length >= 2 && hasConfirm)) return p;
+    p = p.parentElement;
+  }
+  return el.parentElement || document.body;
+}
+
+/**
+ * Abre Adulto N SEM toggle se já estiver aberto (evita loop abrir/fechar).
+ */
+async function expandAdultoSlot(idx) {
+  const headers = findAdultoHeaderButtons();
+  const slot =
+    headers.find((h) => h.order === idx + 1) || headers[idx] || null;
+  if (!slot) {
+    return {
+      header: null,
+      root: currentPassengerFormRoot(),
+      open: visibleTextInputs(document.body).length >= 2,
+    };
+  }
+
+  const rootGuess = formRootNear(slot.el);
+  const fieldsOpen =
+    visibleTextInputs(rootGuess).length >= 2 ||
+    Boolean(findConfirmDadosButton(rootGuess)) ||
+    Boolean(findDateOfBirthInput(rootGuess));
+  const ariaOpen = slot.el.getAttribute?.("aria-expanded") === "true";
+
+  if (!fieldsOpen && !ariaOpen) {
+    try {
+      slot.el.scrollIntoView?.({ block: "center", behavior: "instant" });
+    } catch {
+      slot.el.scrollIntoView?.({ block: "center" });
+    }
+    slot.el.click?.();
+    await sleep(650);
+  }
+
+  const root = formRootNear(slot.el);
+  return {
+    header: slot.el,
+    root,
+    open: visibleTextInputs(root).length >= 2,
+  };
 }
 
 /** Escopo do formulário atual (perto do botão Confirmar dados). */
@@ -1155,11 +1251,7 @@ function currentPassengerFormRoot() {
 /** Reabre a ficha do passageiro N (só no formulário acordeão /v2). */
 async function ensurePassengerExpanded(idx) {
   if (getPassengerFormKind() === "confirm") {
-    return {
-      header: null,
-      root: currentPassengerFormRoot(),
-      open: visibleTextInputs(currentPassengerFormRoot()).length >= 2,
-    };
+    return expandAdultoSlot(idx);
   }
 
   if (passengerFieldsVisible(idx)) {
@@ -1403,25 +1495,32 @@ function fillContactFields(email, phone) {
   return n;
 }
 
-/** Formulário /pagamentos/passageiros — um pax por vez + Confirmar dados. */
-async function fillOnePassengerConfirmForm(pax, opts = {}) {
+/** Formulário /pagamentos/passageiros — Adulto N + Confirmar dados. */
+async function fillOnePassengerConfirmForm(pax, idx, opts = {}) {
   let n = 0;
-  const root = currentPassengerFormRoot();
+  const opened = await expandAdultoSlot(idx);
+  const root = opened.root || currentPassengerFormRoot();
   const { firstName, lastName } = splitPassengerName(pax);
 
-  // Neste fluxo o pax ativo costuma ser passenger-0_*
+  // Pode ser passenger-0_* (remonta) ou passenger-N_*
   const setByName = (suffix, value) => {
     if (!value) return false;
     const el =
+      document.querySelector(`input[name="passenger-${idx}_${suffix}"]`) ||
       document.querySelector(`input[name="passenger-0_${suffix}"]`) ||
-      root.querySelector?.(`input[name$="_${suffix}"]`) ||
+      root.querySelector?.(
+        `input[name$="_${suffix}"], input[data-testid$="_${suffix}" i]`
+      ) ||
       null;
-    return el ? setNativeValue(el, value) : false;
+    return el && isVisible(el) ? setNativeValue(el, value) : false;
   };
 
   if (firstName && setByName("firstName", firstName)) n++;
+  else if (firstName && setNativeValue(findFirstNameField(root), firstName)) n++;
   await dismissSavedPassengersPopover();
+
   if (lastName && setByName("lastName", lastName)) n++;
+  else if (lastName && setNativeValue(findLastNameField(root), lastName)) n++;
   await dismissSavedPassengersPopover();
 
   n += fillInSection(root, pax, "adult");
@@ -1431,9 +1530,9 @@ async function fillOnePassengerConfirmForm(pax, opts = {}) {
   if (cpf) {
     const cpfEl =
       document.querySelector(
-        `input[name="passenger-0_documentNumber"], input[name="passenger-0_cpf"]`
-      ) || findFieldByWord(root, ["cpf"]);
-    if (cpfEl) {
+        `input[name="passenger-${idx}_documentNumber"], input[name="passenger-${idx}_cpf"], input[name="passenger-0_documentNumber"], input[name="passenger-0_cpf"]`
+      ) || findFieldByWord(root, ["cpf", "documento"]);
+    if (cpfEl && isVisible(cpfEl)) {
       setNativeValue(cpfEl, "");
       setNativeValue(cpfEl, cpf);
       n++;
@@ -1441,24 +1540,46 @@ async function fillOnePassengerConfirmForm(pax, opts = {}) {
   }
 
   const gender = resolvePaxGender(pax);
-  if (gender && (await selectGender(root, gender, 0))) n++;
+  if (gender && (await selectGender(root, gender, idx))) n++;
+  else if (gender && (await selectGender(root, gender, 0))) n++;
   closeOpenMenus();
   await sleep(100);
 
-  // Sem expand — evita loop abrir/fechar neste formulário
-  n += await fillBirthDate(root, pax, 0, { expand: false });
-  const dobCheck =
-    findPassengerDobInput(0, root) || findDateOfBirthInput(root);
+  // Data sem re-clicar Adulto (já aberto)
+  n += await fillBirthDate(root, pax, idx, { expand: false });
+  let dobCheck =
+    findPassengerDobInput(idx, root) ||
+    findPassengerDobInput(0, root) ||
+    findDateOfBirthInput(root);
+  if (!dobCheck || !birthFieldHasDate(dobCheck)) {
+    n += await fillBirthDate(root, pax, 0, { expand: false });
+  }
   if (!dobCheck || !birthFieldHasDate(dobCheck)) {
     n += await fillBirthDate(root, pax, null, { expand: false });
   }
 
   if (opts.email || opts.phone) {
     n += fillContactFields(opts.email, opts.phone);
+    // Marca "Repetir informação de contato…" se existir
+    const repeat = Array.from(root.querySelectorAll("label, span, div"))
+      .find((el) =>
+        normalizeLabel(textOf(el)).includes("repetir informacao de contato")
+      );
+    const check =
+      repeat?.querySelector?.('input[type="checkbox"]') ||
+      repeat?.closest?.("label")?.querySelector?.('input[type="checkbox"]') ||
+      Array.from(root.querySelectorAll('input[type="checkbox"]')).find((c) => {
+        const lab = c.closest("label") || c.parentElement;
+        return normalizeLabel(textOf(lab)).includes("repetir informacao");
+      });
+    if (check && !check.checked) {
+      check.click?.();
+      n++;
+    }
   }
 
   await sleep(200);
-  return n;
+  return { fields: n, root };
 }
 
 /** Formulário /v2/passageiros — acordeão com vários pax na mesma página. */
@@ -1531,46 +1652,35 @@ async function fillAllConfirmForm(passengers) {
       phone: passengers[i].phone || titularPhone,
     };
 
-    const formReady = await waitForPassengerFormReady({ timeoutMs: 15000 });
-    if (!formReady) {
-      console.warn("[TradeMiles] Campos sumiram antes do pax", i);
-      break;
-    }
-
     await dismissSavedPassengersPopover();
-    const prevName = splitPassengerName(pax).firstName;
-    total += await fillOnePassengerConfirmForm(pax, {
+    // Abre Adulto N (não toggles se já aberto)
+    await expandAdultoSlot(i);
+    await sleep(300);
+
+    const filled = await fillOnePassengerConfirmForm(pax, i, {
       email: i === 0 ? pax.email : null,
       phone: i === 0 ? pax.phone : null,
     });
+    total += filled.fields || 0;
+    const root = filled.root || currentPassengerFormRoot();
 
-    // Espera o botão aparecer (LATAM habilita após validar)
+    // Confirmar dados deste Adulto
     let confirmed = false;
-    for (let t = 0; t < 12; t++) {
-      if (findConfirmDadosButton()) {
-        confirmed = await clickConfirmDados();
+    for (let t = 0; t < 15; t++) {
+      if (findConfirmDadosButton(root) || findConfirmDadosButton(document)) {
+        confirmed =
+          (await clickConfirmDados(root)) ||
+          (await clickConfirmDados(document));
         if (confirmed) break;
       }
       await sleep(400);
     }
     if (!confirmed) {
       console.warn("[TradeMiles] Botão Confirmar dados não encontrado no pax", i);
-      // Não continua no próximo sem confirmar — evita bagunçar
       break;
     }
 
-    // Próximo pax: espera nome limpar / mudar
-    if (i < passengers.length - 1) {
-      for (let w = 0; w < 25; w++) {
-        await sleep(400);
-        if (!findConfirmDadosButton()) continue;
-        const nameEl =
-          document.querySelector(`input[name="passenger-0_firstName"]`) ||
-          findFirstNameField(currentPassengerFormRoot());
-        const cur = sanitizeLatamName(nameEl?.value || "");
-        if (!cur || (prevName && cur !== sanitizeLatamName(prevName))) break;
-      }
-    }
+    await sleep(700);
   }
 
   fillContactFields(titularEmail, titularPhone);
