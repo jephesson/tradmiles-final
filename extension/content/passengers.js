@@ -119,6 +119,17 @@ function splitPassengerName(pax) {
   return { firstName: first, lastName: last };
 }
 
+function expandBirthYear(y) {
+  const s = String(y || "").replace(/\D/g, "");
+  if (s.length === 4) return s;
+  if (s.length === 2) {
+    const n = Number(s);
+    // 00–30 → 2000–2030 (criança); 31–99 → 1931–1999
+    return `${n <= 30 ? "20" : "19"}${s.padStart(2, "0")}`;
+  }
+  return s;
+}
+
 function birthParts(pax) {
   let d;
   let m;
@@ -133,10 +144,12 @@ function birthParts(pax) {
     if (parts.length >= 3) [d, m, y] = parts;
   }
   if (!d || !m || !y) return null;
+  const year = expandBirthYear(y);
+  if (year.length !== 4) return null;
   return {
     day: String(Number(d)).padStart(2, "0"),
     month: String(Number(m)).padStart(2, "0"),
-    year: String(y).length === 2 ? `20${y}` : String(y),
+    year,
   };
 }
 
@@ -222,14 +235,27 @@ function findLastNameField(root) {
 }
 
 function findDateOfBirthInput(root) {
+  const scope = root || document.body;
   const byTestId = [
-    ...root.querySelectorAll(
+    ...scope.querySelectorAll(
       'input[type="date"][name*="dateOfBirth" i], input[type="date"][data-testid*="dateOfBirth" i], input[data-testid*="dateOfBirth" i], input[name*="dateOfBirth" i]'
     ),
   ].find(isVisible);
   if (byTestId) return byTestId;
 
-  const byType = [...root.querySelectorAll('input[type="date"]')].find((el) => {
+  // Máscara visual LATAM: placeholder "dd / mm / aaaa"
+  const byPlaceholder = [...scope.querySelectorAll("input")].find((el) => {
+    if (!isVisible(el)) return false;
+    const ph = normalizeLabel(el.placeholder || "");
+    return (
+      ph.includes("dd") &&
+      ph.includes("mm") &&
+      (ph.includes("aaaa") || ph.includes("yyyy"))
+    );
+  });
+  if (byPlaceholder) return byPlaceholder;
+
+  const byType = [...scope.querySelectorAll('input[type="date"]')].find((el) => {
     if (!isVisible(el)) return false;
     const meta = fieldMeta(el);
     return (
@@ -241,7 +267,7 @@ function findDateOfBirthInput(root) {
   if (byType) return byType;
 
   return (
-    findFieldByWord(root, ["data de nascimento", "nascimento"], {
+    findFieldByWord(scope, ["data de nascimento", "nascimento"], {
       excludeWords: ["vencimento"],
     }) || null
   );
@@ -254,24 +280,70 @@ function birthFieldHasDate(el) {
   return v.replace(/\D/g, "").length >= 8;
 }
 
-/** Digita caractere a caractere (máscaras React da LATAM). */
-async function typeChars(el, value) {
-  if (!el || value == null || value === "") return false;
-  const str = String(value);
+async function clearInputHard(el) {
+  if (!el) return;
   el.focus?.();
-  el.click?.();
-
   const proto = HTMLInputElement.prototype;
   const setter = Object.getOwnPropertyDescriptor(proto, "value")?.set;
+  const tracker = el._valueTracker;
+  if (tracker) {
+    try {
+      tracker.setValue(el.value || "x");
+    } catch {
+      /* ignore */
+    }
+  }
   if (setter) setter.call(el, "");
   else el.value = "";
   el.dispatchEvent(new Event("input", { bubbles: true }));
+  el.dispatchEvent(new Event("change", { bubbles: true }));
+  try {
+    el.select?.();
+    document.execCommand?.("delete");
+  } catch {
+    /* ignore */
+  }
+}
+
+/** Digita caractere a caractere (máscaras React da LATAM: dd / mm / aaaa). */
+async function typeChars(el, value, { clear = true, delay = 40 } = {}) {
+  if (!el || value == null || value === "") return false;
+  const str = String(value);
+  el.scrollIntoView?.({ block: "center", inline: "nearest" });
+  el.focus?.();
+  el.click?.();
+  if (clear) {
+    await clearInputHard(el);
+    await sleep(40);
+  }
+
+  const proto = HTMLInputElement.prototype;
+  const setter = Object.getOwnPropertyDescriptor(proto, "value")?.set;
+
+  // Preferência: insertText (máscaras React/LATAM costumam ouvir isso)
+  let usedExec = false;
+  try {
+    if (document.execCommand) {
+      usedExec = document.execCommand("insertText", false, str);
+    }
+  } catch {
+    usedExec = false;
+  }
+  if (usedExec && birthFieldHasDate(el)) {
+    el.dispatchEvent(new Event("change", { bubbles: true }));
+    el.dispatchEvent(new Event("blur", { bubbles: true }));
+    return true;
+  }
+  if (usedExec) await clearInputHard(el);
 
   let cur = "";
   for (const ch of str) {
     cur += ch;
     el.dispatchEvent(
       new KeyboardEvent("keydown", { key: ch, bubbles: true, cancelable: true })
+    );
+    el.dispatchEvent(
+      new KeyboardEvent("keypress", { key: ch, bubbles: true, cancelable: true })
     );
     const tracker = el._valueTracker;
     if (tracker) {
@@ -291,7 +363,7 @@ async function typeChars(el, value) {
       })
     );
     el.dispatchEvent(new KeyboardEvent("keyup", { key: ch, bubbles: true }));
-    await sleep(30);
+    await sleep(delay);
   }
   el.dispatchEvent(new Event("change", { bubbles: true }));
   el.dispatchEvent(new Event("blur", { bubbles: true }));
@@ -430,44 +502,77 @@ function fillBirthSplitFields(root, parts) {
   return n;
 }
 
+function findPassengerDobInput(passengerIndex, root) {
+  let el = null;
+  if (passengerIndex != null && passengerIndex >= 0) {
+    el =
+      document.querySelector(
+        `input[name="passenger-${passengerIndex}_dateOfBirth"]`
+      ) ||
+      document.querySelector(
+        `input[data-testid*="passenger-${passengerIndex}_dateOfBirth" i]`
+      ) ||
+      document.querySelector(
+        `input[id*="passenger-${passengerIndex}"][id*="dateOfBirth" i]`
+      ) ||
+      document.querySelector(
+        `input[name*="passenger-${passengerIndex}"][name*="Birth" i]`
+      );
+  }
+  if (el) return el;
+  return findDateOfBirthInput(root || document.body);
+}
+
 /**
- * Data de nascimento LATAM:
- * - type=date → YYYY-MM-DD
- * - máscara texto → digita 8 dígitos (ddmmaaaa), como no pagamento
+ * Data de nascimento LATAM (placeholder "dd / mm / aaaa"):
+ * digitar 8 dígitos; type=date → YYYY-MM-DD.
  */
 async function fillBirthDate(root, pax, passengerIndex) {
   const parts = birthParts(pax);
-  if (!parts) return 0;
+  if (!parts) {
+    console.warn("[TradeMiles] Pax sem data de nascimento no payload", pax);
+    return 0;
+  }
 
   const iso = `${parts.year}-${parts.month}-${parts.day}`;
   const digits = `${parts.day}${parts.month}${parts.year}`;
   const pretty = `${parts.day}/${parts.month}/${parts.year}`;
   const spaced = `${parts.day} / ${parts.month} / ${parts.year}`;
 
-  let el = null;
   if (passengerIndex != null && passengerIndex >= 0) {
-    el = document.querySelector(
-      `input[name="passenger-${passengerIndex}_dateOfBirth"], ` +
-        `input[data-testid*="passenger-${passengerIndex}_dateOfBirth" i]`
-    );
+    await ensurePassengerExpanded(passengerIndex);
+    await sleep(200);
   }
-  if (!el || !isVisible(el)) el = findDateOfBirthInput(root);
+
+  let el = findPassengerDobInput(passengerIndex, root);
+  if (el && !isVisible(el) && passengerIndex != null) {
+    await ensurePassengerExpanded(passengerIndex);
+    await sleep(350);
+    el = findPassengerDobInput(passengerIndex, root);
+  }
+  if (!el || !isVisible(el)) {
+    el = findDateOfBirthInput(root || document.body);
+  }
 
   if (!el) {
-    const split = fillBirthSplitFields(root, parts);
+    const split = fillBirthSplitFields(root || document.body, parts);
     return split > 0 ? split : 0;
+  }
+
+  if (birthFieldHasDate(el)) {
+    const cur = String(el.value || "").replace(/\D/g, "");
+    if (cur === digits || el.value === iso) return 1;
   }
 
   el.scrollIntoView?.({ block: "center", inline: "nearest" });
   el.focus?.();
   el.click?.();
-  await sleep(80);
+  await sleep(100);
 
   // Só ISO em input type="date" nativo
   if (el.type === "date") {
     if (fillNativeDateInput(el, parts)) {
       await sleep(80);
-      // Reaplica — React LATAM às vezes limpa no 1º set
       if (!birthFieldHasDate(el) || el.value !== iso) {
         fillNativeDateInput(el, parts);
         await sleep(80);
@@ -476,14 +581,19 @@ async function fillBirthDate(root, pax, passengerIndex) {
     }
   }
 
-  // Máscara React (texto): digitar só dígitos — NÃO colocar ISO aqui
-  await typeChars(el, digits);
-  await sleep(120);
+  // Máscara "dd / mm / aaaa": só os 8 dígitos
+  await typeChars(el, digits, { clear: true, delay: 45 });
+  await sleep(160);
   if (birthFieldHasDate(el)) return 1;
 
-  // Formato com espaços (igual cobrança)
-  await typeChars(el, spaced.replace(/\s+/g, ""));
-  await sleep(100);
+  // Digitação mais lenta
+  await typeChars(el, digits, { clear: true, delay: 70 });
+  await sleep(160);
+  if (birthFieldHasDate(el)) return 1;
+
+  // Valor já formatado com espaços (como a máscara exibe)
+  await typeChars(el, spaced, { clear: true, delay: 35 });
+  await sleep(120);
   if (birthFieldHasDate(el)) return 1;
 
   setNativeValue(el, pretty);
@@ -494,47 +604,6 @@ async function fillBirthDate(root, pax, passengerIndex) {
   await sleep(80);
   if (birthFieldHasDate(el)) return 1;
 
-  // Digitação lenta
-  const setter = Object.getOwnPropertyDescriptor(
-    HTMLInputElement.prototype,
-    "value"
-  )?.set;
-  if (setter) setter.call(el, "");
-  else el.value = "";
-  el.dispatchEvent(new Event("input", { bubbles: true }));
-  let cur = "";
-  for (const ch of digits) {
-    cur += ch;
-    const tracker = el._valueTracker;
-    if (tracker) {
-      try {
-        tracker.setValue(cur.slice(0, -1));
-      } catch {
-        /* ignore */
-      }
-    }
-    if (setter) setter.call(el, cur);
-    else el.value = cur;
-    el.dispatchEvent(
-      new KeyboardEvent("keydown", { key: ch, bubbles: true })
-    );
-    el.dispatchEvent(
-      new InputEvent("input", {
-        bubbles: true,
-        data: ch,
-        inputType: "insertText",
-      })
-    );
-    el.dispatchEvent(new KeyboardEvent("keyup", { key: ch, bubbles: true }));
-    await sleep(55);
-  }
-  el.dispatchEvent(new Event("change", { bubbles: true }));
-  el.dispatchEvent(new Event("blur", { bubbles: true }));
-  await sleep(100);
-
-  if (birthFieldHasDate(el)) return 1;
-
-  // Último recurso: type=date ISO se o name for dateOfBirth
   if (/dateofbirth/i.test(el.name || el.id || el.getAttribute("data-testid") || "")) {
     if (fillNativeDateInput(el, parts)) return 1;
     if (setNativeValue(el, iso) && birthFieldHasDate(el)) return 1;
@@ -544,8 +613,12 @@ async function fillBirthDate(root, pax, passengerIndex) {
     value: el.value,
     type: el.type,
     name: el.name,
+    id: el.id,
+    placeholder: el.placeholder,
+    testid: el.getAttribute("data-testid"),
     iso,
     pretty,
+    digits,
   });
   return 0;
 }
@@ -662,13 +735,61 @@ function guessGenderFromName(name) {
   return null;
 }
 
+function savedPassengersPopoverEls() {
+  return Array.from(
+    document.querySelectorAll(
+      '[role="listbox"], [role="dialog"], [role="menu"], [class*="popover" i], [class*="dropdown" i], [class*="autocomplete" i], div, section, aside'
+    )
+  ).filter((el) => {
+    if (!isVisible(el)) return false;
+    const t = normalizeLabel(textOf(el).slice(0, 120));
+    return t.includes("passageiros salvos") || t.includes("passageiro salvo");
+  });
+}
+
+/** Escape leve — não clica no body (isso atrapalha a máscara da data). */
 function closeOpenMenus() {
-  document.body.dispatchEvent(
-    new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })
-  );
   document.dispatchEvent(
-    new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })
+    new KeyboardEvent("keydown", {
+      key: "Escape",
+      code: "Escape",
+      keyCode: 27,
+      which: 27,
+      bubbles: true,
+      cancelable: true,
+    })
   );
+}
+
+/** Só age se o popover "Passageiros salvos" estiver aberto. */
+async function dismissSavedPassengersPopover() {
+  let pops = savedPassengersPopoverEls();
+  if (!pops.length) return false;
+
+  const active = document.activeElement;
+  if (active && (active.tagName === "INPUT" || active.tagName === "TEXTAREA")) {
+    active.blur?.();
+  }
+  closeOpenMenus();
+  await sleep(60);
+  closeOpenMenus();
+
+  pops = savedPassengersPopoverEls();
+  for (const el of pops) {
+    const closer = el.querySelector?.(
+      'button[aria-label*="fechar" i], button[aria-label*="close" i]'
+    );
+    closer?.click?.();
+    try {
+      el.style.setProperty("display", "none", "important");
+      el.setAttribute("hidden", "true");
+      el.setAttribute("aria-hidden", "true");
+    } catch {
+      /* ignore */
+    }
+  }
+  await sleep(80);
+  return true;
 }
 
 function genderFieldShows(el, gender) {
@@ -1166,7 +1287,8 @@ function ensureFab() {
   document.documentElement.appendChild(btn);
 }
 
-async function fillPassengerBasics(i, pax) {
+/** Preenche um pax completo com a ficha aberta (nome → fecha popover → data). */
+async function fillOnePassengerComplete(i, pax) {
   let n = 0;
   const opened = await ensurePassengerExpanded(i);
   const root = opened.root;
@@ -1179,8 +1301,11 @@ async function fillPassengerBasics(i, pax) {
     );
     return el ? setNativeValue(el, value) : false;
   };
+
   if (firstName && setByName("firstName", firstName)) n++;
+  await dismissSavedPassengersPopover();
   if (lastName && setByName("lastName", lastName)) n++;
+  await dismissSavedPassengersPopover();
 
   const cpf = cpfDigitsOnly(pax.cpf);
   if (cpf) {
@@ -1194,49 +1319,24 @@ async function fillPassengerBasics(i, pax) {
     }
   }
 
-  // Nome/CPF/sexo via helpers de seção (sem data — data é fase 2)
   n += fillInSection(root, pax, "adult");
+  await dismissSavedPassengersPopover();
+
   const gender = resolvePaxGender(pax);
   if (gender && (await selectGender(root, gender, i))) n++;
-
   closeOpenMenus();
-  await sleep(250);
-  return n;
-}
+  await sleep(120);
 
-/** Fase 2: reabre a ficha e completa data de nascimento. */
-async function fillPassengerDobPhase(i, pax) {
-  let n = 0;
-  const opened = await ensurePassengerExpanded(i);
-  if (!opened.open) {
-    console.warn("[TradeMiles] Não conseguiu reabrir ficha do pax", i);
-  }
-  const root = opened.root;
-
+  // Data NA MESMA ficha aberta — sem clicar fora / body
   n += await fillBirthDate(root, pax, i);
-  const dobEl = document.querySelector(
-    `input[name="passenger-${i}_dateOfBirth"]`
-  );
+  let dobEl = findPassengerDobInput(i, root);
   if (!dobEl || !birthFieldHasDate(dobEl)) {
-    // Força outro clique na ficha e tenta de novo
-    opened.header?.click?.();
-    await sleep(550);
+    await ensurePassengerExpanded(i);
+    await sleep(300);
     n += await fillBirthDate(passengerRoot(i), pax, i);
   }
 
-  const gender = resolvePaxGender(pax);
-  if (gender) {
-    const sexEl =
-      document.querySelector(
-        `input[name="passenger-${i}_gender"], select[name="passenger-${i}_gender"], [data-testid*="passenger-${i}_gender" i]`
-      ) || findFieldByWord(root, ["sexo"]);
-    if (!genderFieldShows(sexEl, gender)) {
-      if (await selectGender(root, gender, i)) n++;
-    }
-  }
-
-  closeOpenMenus();
-  await sleep(300);
+  await sleep(200);
   return n;
 }
 
@@ -1254,39 +1354,28 @@ async function fillAll(passengers) {
     phone: p.phone || titularPhone,
   }));
 
-  // Fase 1 — basicos de cada pax (nome, CPF, sexo)
+  // Um pax por vez: abre ficha → preenche tudo (inclui data) → próximo
   for (let i = 0; i < max; i++) {
-    closeOpenMenus();
+    await dismissSavedPassengersPopover();
     await sleep(120);
-    total += await fillPassengerBasics(i, enriched[i]);
+    total += await fillOnePassengerComplete(i, enriched[i]);
   }
 
-  // Fase 2 — reabre CADA ficha (não só a última) e preenche nascimento
-  for (let i = 0; i < max; i++) {
-    closeOpenMenus();
-    await sleep(150);
-    total += await fillPassengerDobPhase(i, enriched[i]);
-  }
-
-  // Com 2+ pax: varredura final (LATAM às vezes limpa o 1º ao abrir o 2º)
+  // Com 2+ pax: reabre quem ficou sem data
   if (max > 1) {
     for (let i = 0; i < max; i++) {
-      const dobEl = document.querySelector(
-        `input[name="passenger-${i}_dateOfBirth"]`
-      );
-      const needsDob = !dobEl || !birthFieldHasDate(dobEl);
-      const gender = resolvePaxGender(enriched[i]);
-      const sexEl = document.querySelector(
-        `input[name="passenger-${i}_gender"], select[name="passenger-${i}_gender"], [data-testid*="passenger-${i}_gender" i]`
-      );
-      const needsSex = gender && !genderFieldShows(sexEl, gender);
-      if (needsDob || needsSex) {
-        total += await fillPassengerDobPhase(i, enriched[i]);
-      }
+      const dobEl = findPassengerDobInput(i, document.body);
+      if (dobEl && birthFieldHasDate(dobEl)) continue;
+      await dismissSavedPassengersPopover();
+      await ensurePassengerExpanded(i);
+      await sleep(250);
+      total += await fillBirthDate(passengerRoot(i), enriched[i], i);
     }
   }
 
-  // Fase 3 — contato global (e-mail / telefone) no fim
+  await dismissSavedPassengersPopover();
+
+  // Contato global no fim
   if (titularEmail) {
     const emailEl = findFieldByWord(document.body, ["email", "e-mail"]);
     if (emailEl) setNativeValue(emailEl, String(titularEmail).toLowerCase());
