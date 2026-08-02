@@ -747,6 +747,9 @@ function guessGenderFromName(name) {
     "sheila",
     "debora",
     "deborah",
+    "thamyres",
+    "thamires",
+    "odete",
     "ester",
     "esther",
     "ruth",
@@ -1375,18 +1378,74 @@ function ensureFab() {
   document.documentElement.appendChild(btn);
 }
 
-function fillContactFields(email, phone) {
-  let n = 0;
-  if (email) {
-    const emailEl = findFieldByWord(document.body, ["email", "e-mail"]);
-    if (emailEl && setNativeValue(emailEl, String(email).toLowerCase())) n++;
+function findContactSectionRoot() {
+  const labels = Array.from(
+    document.querySelectorAll("h1, h2, h3, h4, h5, legend, span, p, div, label")
+  );
+  const title = labels.find((el) => {
+    if (!isVisible(el)) return false;
+    const t = normalizeLabel(textOf(el));
+    return (
+      t === "informacao de contato" ||
+      t.startsWith("informacao de contato") ||
+      t === "dados de contato"
+    );
+  });
+  if (!title) return document.body;
+  let p = title.parentElement;
+  for (let i = 0; i < 10 && p; i++) {
+    if (visibleTextInputs(p).length >= 1) return p;
+    p = p.parentElement;
   }
+  return title.parentElement || document.body;
+}
+
+function checkRepeatContactCheckbox(root = document.body) {
+  const check = Array.from(root.querySelectorAll('input[type="checkbox"]')).find(
+    (c) => {
+      const lab = c.closest("label") || c.parentElement;
+      const t = normalizeLabel(textOf(lab));
+      return (
+        t.includes("repetir informacao de contato") ||
+        t.includes("repetir informacao") ||
+        t.includes("restante dos passageiros")
+      );
+    }
+  );
+  if (check && !check.checked) {
+    check.click?.();
+    return true;
+  }
+  return false;
+}
+
+/** Contato fica no 1º pax no v2 — preencher com a ficha dele aberta. */
+function fillContactFields(email, phone, { passengerIndex = 0 } = {}) {
+  let n = 0;
+  const root = findContactSectionRoot();
+  const idx = passengerIndex;
+
+  if (email) {
+    const want = String(email).trim().toLowerCase();
+    const emailEl =
+      document.querySelector(
+        `input[name="passenger-${idx}_email"], input[name="passenger-0_email"], input[type="email"], input[autocomplete="email"]`
+      ) ||
+      findFieldByWord(root, ["email", "e-mail"]) ||
+      findFieldByWord(document.body, ["email", "e-mail"]);
+    if (emailEl && isVisible(emailEl)) {
+      // Contato precisa de eventos reais (máscara/validação LATAM)
+      if (setNativeValue(emailEl, want)) n++;
+    }
+  }
+
   if (phone) {
     const digits = String(phone).replace(/\D/g, "").replace(/^55/, "");
-    const phoneEl = findFieldByWord(
-      document.body,
-      ["telefone", "celular", "numero"],
-      {
+    const phoneEl =
+      document.querySelector(
+        `input[name="passenger-${idx}_phone"], input[name="passenger-0_phone"], input[name*="passenger-${idx}_"][name*="phone" i], input[name*="passenger-0_"][name*="phone" i], input[autocomplete="tel"], input[autocomplete="tel-national"]`
+      ) ||
+      findFieldByWord(root, ["telefone", "celular", "numero"], {
         excludeWords: [
           "documento",
           "passageiro frequente",
@@ -1395,9 +1454,24 @@ function fillContactFields(email, phone) {
           "cpf",
           "codigo",
         ],
-      }
-    );
-    if (phoneEl && setNativeValue(phoneEl, digits)) n++;
+      }) ||
+      findFieldByWord(document.body, ["telefone", "celular", "numero"], {
+        excludeWords: [
+          "documento",
+          "passageiro frequente",
+          "cartao",
+          "cartão",
+          "cpf",
+          "codigo",
+        ],
+      });
+    if (phoneEl && isVisible(phoneEl)) {
+      if (setNativeValue(phoneEl, digits)) n++;
+    }
+  }
+
+  if (checkRepeatContactCheckbox(root) || checkRepeatContactCheckbox(document.body)) {
+    n++;
   }
   return n;
 }
@@ -1652,6 +1726,30 @@ async function fillAllAccordion(passengers) {
     await dismissSavedPassengersPopover();
     await sleep(120);
     total += await fillOnePassengerAccordion(i, enriched[i]);
+
+    // No v2 o contato fica no 1º passageiro (+ checkbox repetir).
+    // Tem que preencher AINDA com a ficha 0 aberta — se deixar pro fim, cai no 2º.
+    if (i === 0 && (titularEmail || titularPhone)) {
+      await sleep(200);
+      total += fillContactFields(titularEmail, titularPhone, {
+        passengerIndex: 0,
+      });
+      await sleep(150);
+      // Garante de novo se a LATAM limpou
+      const emailEl =
+        document.querySelector(
+          `input[name="passenger-0_email"], input[type="email"]`
+        ) || findFieldByWord(findContactSectionRoot(), ["email", "e-mail"]);
+      if (
+        titularEmail &&
+        emailEl &&
+        !String(emailEl.value || "").includes("@")
+      ) {
+        total += fillContactFields(titularEmail, titularPhone, {
+          passengerIndex: 0,
+        });
+      }
+    }
   }
 
   if (max > 1) {
@@ -1661,13 +1759,29 @@ async function fillAllAccordion(passengers) {
       await dismissSavedPassengersPopover();
       await ensurePassengerExpanded(i);
       await sleep(250);
-      total += await fillBirthDate(passengerRoot(i), enriched[i], i, { expand: true });
+      total += await fillBirthDate(passengerRoot(i), enriched[i], i, {
+        expand: true,
+      });
     }
   }
 
-  await dismissSavedPassengersPopover();
-  fillContactFields(titularEmail, titularPhone);
+  // Se o e-mail do 1º ainda estiver vazio, reabre o pax 0 e preenche
+  await ensurePassengerExpanded(0);
+  await sleep(300);
+  const emailStillEmpty = (() => {
+    const el =
+      document.querySelector(
+        `input[name="passenger-0_email"], input[type="email"]`
+      ) || findFieldByWord(findContactSectionRoot(), ["email", "e-mail"]);
+    return !el || !String(el.value || "").includes("@");
+  })();
+  if (emailStillEmpty && (titularEmail || titularPhone)) {
+    total += fillContactFields(titularEmail, titularPhone, {
+      passengerIndex: 0,
+    });
+  }
 
+  await dismissSavedPassengersPopover();
   return { sections: max, fields: total, form: "accordion" };
 }
 
