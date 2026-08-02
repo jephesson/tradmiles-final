@@ -747,38 +747,16 @@ function guessGenderFromName(name) {
   return null;
 }
 
-/**
- * Popover "Passageiros salvos" — NUNCA pegar div/section grandes:
- * esconder o pai apaga a página inteira da LATAM.
- */
-function savedPassengersPopoverEls() {
-  const candidates = Array.from(
-    document.querySelectorAll(
-      '[role="listbox"], [role="dialog"], [role="menu"], [class*="popover" i], [class*="Popper" i], [class*="autocomplete" i], [class*="Autocomplete" i]'
-    )
-  );
-  return candidates.filter((el) => {
-    if (!isVisible(el)) return false;
-    const r = el.getBoundingClientRect();
-    // Popover é pequeno; container da página é enorme
-    if (r.width > 480 || r.height > 420 || r.width < 40 || r.height < 20) {
-      return false;
-    }
-    const t = normalizeLabel(textOf(el).slice(0, 200));
-    return t.includes("passageiros salvos") || t.includes("passageiro salvo");
-  });
-}
-
 function isSavedPassengersPopoverOpen() {
-  // Detecta pelo título sem selecionar ancestrais grandes
-  return Array.from(document.querySelectorAll("h1, h2, h3, h4, h5, h6, p, span, div, label"))
-    .some((el) => {
-      if (!isVisible(el)) return false;
-      const t = normalizeLabel(textOf(el));
-      if (t !== "passageiros salvos" && t !== "passageiro salvo") return false;
-      const r = el.getBoundingClientRect();
-      return r.width < 480 && r.height < 80;
-    });
+  return Array.from(
+    document.querySelectorAll("h1, h2, h3, h4, h5, h6, p, span, label")
+  ).some((el) => {
+    if (!isVisible(el)) return false;
+    const t = normalizeLabel(textOf(el));
+    if (t !== "passageiros salvos" && t !== "passageiro salvo") return false;
+    const r = el.getBoundingClientRect();
+    return r.width > 0 && r.width < 420 && r.height < 60;
+  });
 }
 
 /** Escape leve — não clica no body (isso atrapalha a máscara da data). */
@@ -795,32 +773,30 @@ function closeOpenMenus() {
   );
 }
 
-/** Fecha só o popover — Escape + blur. Sem display:none em containers. */
+/**
+ * Fecha popover só com Escape/blur.
+ * NUNCA altera style/display/hidden no DOM — isso já apagou a página LATAM.
+ */
 async function dismissSavedPassengersPopover() {
-  if (!isSavedPassengersPopoverOpen() && !savedPassengersPopoverEls().length) {
-    return false;
-  }
-
+  if (!isSavedPassengersPopoverOpen()) return false;
   const active = document.activeElement;
   if (active && (active.tagName === "INPUT" || active.tagName === "TEXTAREA")) {
     active.blur?.();
   }
   closeOpenMenus();
-  await sleep(80);
+  await sleep(100);
   closeOpenMenus();
-  await sleep(80);
-
-  // Último recurso: esconde só o listbox/popover PEQUENO, nunca o form
-  for (const el of savedPassengersPopoverEls()) {
-    try {
-      el.style.setProperty("visibility", "hidden", "important");
-      el.style.setProperty("pointer-events", "none", "important");
-      el.setAttribute("aria-hidden", "true");
-    } catch {
-      /* ignore */
-    }
-  }
+  await sleep(100);
   return true;
+}
+
+function pageStillHasPassengerForm() {
+  return (
+    visibleTextInputs(document.body).length >= 2 ||
+    Boolean(findConfirmDadosButton(document)) ||
+    Boolean(findDateOfBirthInput(document.body)) ||
+    /adulto\s*\d/i.test(document.body?.innerText || "")
+  );
 }
 
 async function waitForPassengerFormReady({ timeoutMs = 20000 } = {}) {
@@ -1146,33 +1122,31 @@ async function clickConfirmDados(root) {
   return true;
 }
 
-/** Cabeçalhos Adulto 1 / Adulto 2 neste formulário híbrido. */
+/** Só botões reais "Adulto N" — nunca div/span solto (clique errado some a página). */
 function findAdultoHeaderButtons() {
   const nodes = Array.from(
-    document.querySelectorAll(
-      "button, [role='button'], [aria-expanded], h2, h3, h4, div, span"
-    )
+    document.querySelectorAll("button, [role='button']")
   );
   const found = [];
   const seen = new Set();
   for (const el of nodes) {
     if (!isVisible(el)) continue;
     const t = textOf(el);
-    if (!/^(Adulto|Criança|Crianca|Bebê|Bebe)\b/i.test(t) || t.length > 36) {
+    if (!/^(Adulto|Criança|Crianca|Bebê|Bebe)\s*\d*\b/i.test(t) || t.length > 36) {
       continue;
     }
-    const clickable =
-      el.closest?.("button, [role='button'], [aria-expanded]") ||
-      (el.matches?.("button, [role='button'], [aria-expanded]") ? el : null) ||
-      el;
-    if (seen.has(clickable)) continue;
-    seen.add(clickable);
+    // Evita o próprio "Confirmar dados" e botões enormes
+    if (normalizeLabel(t).includes("confirmar")) continue;
+    const r = el.getBoundingClientRect();
+    if (r.height > 80 || r.width > 600) continue;
+    if (seen.has(el)) continue;
+    seen.add(el);
     const numMatch = t.match(/(\d+)/);
     found.push({
-      el: clickable,
+      el,
       title: t,
       order: numMatch ? Number(numMatch[1]) : found.length + 1,
-      top: clickable.getBoundingClientRect().top,
+      top: r.top,
     });
   }
   found.sort((a, b) => a.order - b.order || a.top - b.top);
@@ -1192,42 +1166,58 @@ function formRootNear(el) {
 }
 
 /**
- * Abre Adulto N SEM toggle se já estiver aberto (evita loop abrir/fechar).
+ * Adulto 1: NÃO clica se o form já está visível (clicar fecha e some tudo).
+ * Adulto 2+: só clica no botão "Adulto N" se os campos dele não estão abertos.
  */
 async function expandAdultoSlot(idx) {
+  const formVisible =
+    Boolean(findConfirmDadosButton(document)) ||
+    Boolean(findDateOfBirthInput(document.body)) ||
+    Boolean(findFirstNameField(document.body));
+
+  // Primeiro adulto: usa o que já está na tela
+  if (idx === 0 && formVisible) {
+    return {
+      header: null,
+      root: currentPassengerFormRoot(),
+      open: true,
+    };
+  }
+
   const headers = findAdultoHeaderButtons();
-  const slot =
-    headers.find((h) => h.order === idx + 1) || headers[idx] || null;
+  const slot = headers.find((h) => h.order === idx + 1) || null;
   if (!slot) {
     return {
       header: null,
       root: currentPassengerFormRoot(),
-      open: visibleTextInputs(document.body).length >= 2,
+      open: formVisible,
     };
   }
 
   const rootGuess = formRootNear(slot.el);
   const fieldsOpen =
-    visibleTextInputs(rootGuess).length >= 2 ||
-    Boolean(findConfirmDadosButton(rootGuess)) ||
-    Boolean(findDateOfBirthInput(rootGuess));
+    visibleTextInputs(rootGuess).length >= 2 &&
+    (Boolean(findConfirmDadosButton(rootGuess)) ||
+      Boolean(findDateOfBirthInput(rootGuess)));
   const ariaOpen = slot.el.getAttribute?.("aria-expanded") === "true";
 
-  if (!fieldsOpen && !ariaOpen) {
-    try {
-      slot.el.scrollIntoView?.({ block: "center", behavior: "instant" });
-    } catch {
-      slot.el.scrollIntoView?.({ block: "center" });
-    }
+  // Só abre se estiver claramente fechado
+  if (!fieldsOpen && ariaOpen === false) {
+    const before = visibleTextInputs(document.body).length;
     slot.el.click?.();
-    await sleep(650);
+    await sleep(700);
+    if (visibleTextInputs(document.body).length < Math.min(2, before)) {
+      console.warn("[TradeMiles] Clique no Adulto removeu campos — parando.");
+      // Tenta reabrir
+      slot.el.click?.();
+      await sleep(700);
+    }
   }
 
-  const root = formRootNear(slot.el);
   return {
     header: slot.el,
-    root,
-    open: visibleTextInputs(root).length >= 2,
+    root: formRootNear(slot.el),
+    open: visibleTextInputs(formRootNear(slot.el)).length >= 2,
   };
 }
 
@@ -1498,7 +1488,11 @@ function fillContactFields(email, phone) {
 /** Formulário /pagamentos/passageiros — Adulto N + Confirmar dados. */
 async function fillOnePassengerConfirmForm(pax, idx, opts = {}) {
   let n = 0;
-  const opened = await expandAdultoSlot(idx);
+  // Adulto 1: não mexe no cabeçalho. Demais: expandAdultoSlot já foi chamado no fillAll.
+  const opened =
+    idx === 0
+      ? { root: currentPassengerFormRoot(), open: true }
+      : await expandAdultoSlot(idx);
   const root = opened.root || currentPassengerFormRoot();
   const { firstName, lastName } = splitPassengerName(pax);
 
@@ -1640,22 +1634,42 @@ async function fillAllConfirmForm(passengers) {
   const titularPhone = passengers.find((p) => p.phone)?.phone || null;
 
   const ready = await waitForPassengerFormReady({ timeoutMs: 25000 });
-  if (!ready) {
+  if (!ready || !pageStillHasPassengerForm()) {
     console.warn("[TradeMiles] Formulário Confirmar dados não carregou a tempo");
     return { sections: 0, fields: 0, form: "confirm", error: "form_not_ready" };
   }
 
   for (let i = 0; i < passengers.length; i++) {
+    if (!pageStillHasPassengerForm()) {
+      console.warn("[TradeMiles] Página sumiu antes do pax", i);
+      return {
+        sections: i,
+        fields: total,
+        form: "confirm",
+        error: "page_blanked",
+      };
+    }
+
     const pax = {
       ...passengers[i],
       email: passengers[i].email || titularEmail,
       phone: passengers[i].phone || titularPhone,
     };
 
-    await dismissSavedPassengersPopover();
-    // Abre Adulto N (não toggles se já aberto)
-    await expandAdultoSlot(i);
-    await sleep(300);
+    // Adulto 1 já vem aberto — não clica cabeçalho. Adulto 2+ abre só se precisar.
+    if (i > 0) {
+      await expandAdultoSlot(i);
+      await sleep(400);
+    }
+
+    if (!pageStillHasPassengerForm()) {
+      return {
+        sections: i,
+        fields: total,
+        form: "confirm",
+        error: "page_blanked",
+      };
+    }
 
     const filled = await fillOnePassengerConfirmForm(pax, i, {
       email: i === 0 ? pax.email : null,
@@ -1664,9 +1678,23 @@ async function fillAllConfirmForm(passengers) {
     total += filled.fields || 0;
     const root = filled.root || currentPassengerFormRoot();
 
-    // Confirmar dados deste Adulto
+    if (!pageStillHasPassengerForm()) {
+      return {
+        sections: i,
+        fields: total,
+        form: "confirm",
+        error: "page_blanked",
+      };
+    }
+
+    // Só confirma se preencheu algo (confirma vazio quebra a LATAM)
+    if ((filled.fields || 0) < 2) {
+      console.warn("[TradeMiles] Poucos campos no pax", i, filled.fields);
+      break;
+    }
+
     let confirmed = false;
-    for (let t = 0; t < 15; t++) {
+    for (let t = 0; t < 12; t++) {
       if (findConfirmDadosButton(root) || findConfirmDadosButton(document)) {
         confirmed =
           (await clickConfirmDados(root)) ||
@@ -1680,10 +1708,12 @@ async function fillAllConfirmForm(passengers) {
       break;
     }
 
-    await sleep(700);
+    await sleep(800);
   }
 
-  fillContactFields(titularEmail, titularPhone);
+  if (pageStillHasPassengerForm()) {
+    fillContactFields(titularEmail, titularPhone);
+  }
 
   return { sections: passengers.length, fields: total, form: "confirm" };
 }
@@ -1778,6 +1808,11 @@ async function runFill({ manual } = {}) {
     if (result.error === "form_not_ready") {
       showToast(
         "TradeMiles: a LATAM ainda não carregou o formulário. Espere a página aparecer e clique de novo.",
+        false
+      );
+    } else if (result.error === "page_blanked") {
+      showToast(
+        "TradeMiles: a página da LATAM sumiu. Dê F5 e clique em Preencher de novo.",
         false
       );
     } else if (ok && badCpfs.length) {
