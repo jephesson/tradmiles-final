@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "TradeMiles LATAM Fill",
-  "version": "0.2.29",
+  "version": "0.2.36",
   "description": "Preenche passageiros e pagamento LATAM (REDEMPTION) com dados do TradeMiles.",
   "permissions": ["storage", "activeTab", "tabs"],
   "host_permissions": [
@@ -15,6 +15,18 @@
     "service_worker": "background.js"
   },
   "content_scripts": [
+    {
+      "matches": [
+        "https://www.latamairlines.com/*/pagamentos/passageiros*",
+        "https://www.latamairlines.com/*/v2/passageiros*",
+        "https://latamairlines.com/*/pagamentos/passageiros*",
+        "https://latamairlines.com/*/v2/passageiros*"
+      ],
+      "js": ["content/page-hooks.js"],
+      "run_at": "document_start",
+      "world": "MAIN",
+      "all_frames": false
+    },
     {
       "matches": [
         "https://www.latamairlines.com/*/pagamentos/passageiros*",

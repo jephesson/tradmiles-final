@@ -65,7 +65,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         sendResponse({
           ok: false,
           error:
-            "Content script ausente. Remova a extensão, baixe o ZIP 0.1.5 e carregue de novo. F5 na LATAM.",
+            "Content script ausente. Remova a extensão, baixe o ZIP novo e carregue de novo. F5 na LATAM.",
         });
       }
     })();
