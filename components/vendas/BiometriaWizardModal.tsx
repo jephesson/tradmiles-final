@@ -9,6 +9,7 @@ import {
   MessageCircle,
   RefreshCw,
   SkipForward,
+  Upload,
 } from "lucide-react";
 import Link from "next/link";
 import { cn } from "@/lib/cn";
@@ -239,6 +240,9 @@ export default function BiometriaWizardModal({
   /** Extensão LATAM — passo após o link de pesquisa. */
   const [useLatamExtension, setUseLatamExtension] = useState(true);
   const [latamPassengerText, setLatamPassengerText] = useState("");
+  const [docExtracting, setDocExtracting] = useState(false);
+  const [docExtractError, setDocExtractError] = useState("");
+  const [docExtractWarnings, setDocExtractWarnings] = useState<string[]>([]);
   const [latamPaymentCards, setLatamPaymentCards] = useState<
     Array<{
       id: string;
@@ -375,6 +379,9 @@ export default function BiometriaWizardModal({
     setSearchInf(Math.max(0, Math.min(9, Math.floor(initialInfants) || 0)));
     setUseLatamExtension(true);
     setLatamPassengerText("");
+    setDocExtracting(false);
+    setDocExtractError("");
+    setDocExtractWarnings([]);
     setLatamPaymentCardId("");
     setLatamExtMsg(null);
   }, [
@@ -591,6 +598,42 @@ export default function BiometriaWizardModal({
       });
     } catch {
       setLatamTitularContact({ email: null, phone: null });
+    }
+  }
+
+  async function extractDocumentsFromFiles(fileList: FileList | null) {
+    if (!fileList?.length) return;
+    setDocExtracting(true);
+    setDocExtractError("");
+    setDocExtractWarnings([]);
+    try {
+      const fd = new FormData();
+      Array.from(fileList)
+        .slice(0, 8)
+        .forEach((f) => fd.append("files", f));
+      fd.append("existingText", latamPassengerText);
+      const res = await fetch("/api/documents/extract", {
+        method: "POST",
+        body: fd,
+      });
+      const json = await res.json().catch(() => null);
+      if (!res.ok || !json?.ok) {
+        throw new Error(json?.error || "Falha ao ler documentos.");
+      }
+      const merged = String(json.mergedText || json.passengerText || "");
+      setLatamPassengerText(merged);
+      setDocExtractWarnings(
+        Array.isArray(json.warnings) ? json.warnings.map(String) : []
+      );
+      if (!json.passengers?.length) {
+        setDocExtractError(
+          "Nenhum passageiro reconhecido — confira a foto ou cole o texto."
+        );
+      }
+    } catch (e: any) {
+      setDocExtractError(e?.message || "Falha ao ler documentos.");
+    } finally {
+      setDocExtracting(false);
     }
   }
 
@@ -1233,9 +1276,39 @@ export default function BiometriaWizardModal({
                 {useLatamExtension ? (
                   <div className="mt-3 space-y-3">
                     <div>
-                      <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-600">
-                        Passageiros (colar texto)
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-600">
+                          Passageiros (foto do doc ou colar texto)
+                        </div>
+                        <label
+                          className={cn(
+                            "inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-700 shadow-sm hover:bg-slate-50",
+                            docExtracting && "pointer-events-none opacity-60"
+                          )}
+                        >
+                          {docExtracting ? (
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          ) : (
+                            <Upload className="h-3.5 w-3.5" />
+                          )}
+                          {docExtracting ? "Lendo…" : "Ler documentos"}
+                          <input
+                            type="file"
+                            accept="image/jpeg,image/png,image/webp,image/jpg"
+                            multiple
+                            className="hidden"
+                            disabled={docExtracting}
+                            onChange={(e) => {
+                              void extractDocumentsFromFiles(e.target.files);
+                              e.target.value = "";
+                            }}
+                          />
+                        </label>
                       </div>
+                      <p className="mt-1 text-[10px] text-slate-500">
+                        RG, CIN, CNH ou certidão (até 8 fotos). Revise o texto
+                        antes de preparar a extensão.
+                      </p>
                       <textarea
                         className="mt-1 min-h-[120px] w-full rounded-lg border border-slate-200 px-3 py-2 text-xs outline-none focus:border-slate-300 focus:ring-2 focus:ring-slate-900/10"
                         value={latamPassengerText}
@@ -1244,6 +1317,18 @@ export default function BiometriaWizardModal({
                           "Isabella Angelis\nNasc 08/07/1982\nCPF 71912231115\n\nOvidio Angelis\n...\n\nemail@exemplo.com\n11999999999\n(1 e-mail + 1 tel → todos; se omitir → titular do cartão)"
                         }
                       />
+                      {docExtractError ? (
+                        <p className="mt-1 text-[11px] font-medium text-amber-800">
+                          {docExtractError}
+                        </p>
+                      ) : null}
+                      {docExtractWarnings.length > 0 ? (
+                        <ul className="mt-1 space-y-0.5 text-[10px] text-slate-500">
+                          {docExtractWarnings.map((w, i) => (
+                            <li key={`${w}-${i}`}>• {w}</li>
+                          ))}
+                        </ul>
+                      ) : null}
                       {latamParsedPassengers.length > 0 ? (
                         <ul className="mt-1.5 space-y-1.5 text-[11px] text-slate-600">
                           {latamParsedPassengers.map((p, i) => {

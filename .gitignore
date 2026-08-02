@@ -43,3 +43,7 @@ next-env.d.ts
 /app/generated/prisma
 
 .latam_profile/
+
+# Amostras PII de documentos (só local)
+/private-doc-samples/
+prisma/dev.db
