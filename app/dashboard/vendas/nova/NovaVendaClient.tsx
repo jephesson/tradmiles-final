@@ -1214,6 +1214,15 @@ export default function NovaVendaClient({
 
   const [postSaveOpen, setPostSaveOpen] = useState(false);
   const [postSaveMsg, setPostSaveMsg] = useState("");
+  const [finalizeSuggest, setFinalizeSuggest] = useState<{
+    purchaseId: string;
+    purchaseNumero: string;
+    remainingPoints: number;
+    profitCents: number;
+    threshold: number;
+  } | null>(null);
+  const [finalizeSuggestOpen, setFinalizeSuggestOpen] = useState(false);
+  const [finalizeBusy, setFinalizeBusy] = useState(false);
 
   // ✅ confirmação + overlay saving
   const [confirmOpen, setConfirmOpen] = useState(false);
@@ -1303,7 +1312,17 @@ export default function NovaVendaClient({
 
     setIsSaving(true);
     try {
-      await api<any>("/api/vendas", {
+      const created = await api<{
+        ok: true;
+        sale: { id: string; numero: string };
+        finalizeSuggest: {
+          purchaseId: string;
+          purchaseNumero: string;
+          remainingPoints: number;
+          profitCents: number;
+          threshold: number;
+        } | null;
+      }>("/api/vendas", {
         method: "POST",
         body: JSON.stringify(payload),
       });
@@ -1323,6 +1342,8 @@ export default function NovaVendaClient({
         locator,
       });
 
+      setFinalizeSuggest(created.finalizeSuggest ?? null);
+      setFinalizeSuggestOpen(false);
       setPostSaveMsg(msg);
       setPostSaveOpen(true);
     } catch (e: any) {
@@ -1330,6 +1351,48 @@ export default function NovaVendaClient({
     } finally {
       setIsSaving(false);
     }
+  }
+
+  function dismissChargeMessage(opts?: { copy?: boolean; goVendasIfNoSuggest?: boolean }) {
+    void (async () => {
+      if (opts?.copy) {
+        try {
+          await navigator.clipboard.writeText(postSaveMsg);
+        } catch {}
+      }
+      setPostSaveOpen(false);
+      if (finalizeSuggest) {
+        setFinalizeSuggestOpen(true);
+        return;
+      }
+      if (opts?.goVendasIfNoSuggest !== false) {
+        window.location.href = "/dashboard/vendas";
+      }
+    })();
+  }
+
+  async function acceptFinalizeSuggest() {
+    if (!finalizeSuggest || finalizeBusy) return;
+    setFinalizeBusy(true);
+    try {
+      await api<{ ok: true }>("/api/vendas/compras-finalizar", {
+        method: "PATCH",
+        body: JSON.stringify({ purchaseId: finalizeSuggest.purchaseId }),
+      });
+      setFinalizeSuggestOpen(false);
+      setFinalizeSuggest(null);
+      window.location.href = "/dashboard/vendas";
+    } catch (e: any) {
+      alert(e?.message || "Falha ao finalizar a compra.");
+    } finally {
+      setFinalizeBusy(false);
+    }
+  }
+
+  function declineFinalizeSuggest() {
+    setFinalizeSuggestOpen(false);
+    setFinalizeSuggest(null);
+    window.location.href = "/dashboard/vendas";
   }
 
   const filteredSuggestions = useMemo(() => {
@@ -3627,7 +3690,7 @@ export default function NovaVendaClient({
 
               <button
                 type="button"
-                onClick={() => setPostSaveOpen(false)}
+                onClick={() => dismissChargeMessage({ goVendasIfNoSuggest: false })}
                 className="rounded-xl border border-slate-200 bg-white px-2.5 py-1 text-sm text-slate-600 hover:bg-slate-50"
               >
                 ✕
@@ -3661,15 +3724,63 @@ export default function NovaVendaClient({
 
               <button
                 type="button"
-                onClick={async () => {
-                  try {
-                    await navigator.clipboard.writeText(postSaveMsg);
-                  } catch {}
-                  window.location.href = "/dashboard/vendas";
-                }}
+                onClick={() => dismissChargeMessage({ copy: true })}
                 className={BTN_PRIMARY}
               >
                 Copiar e ir para vendas
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {finalizeSuggestOpen && finalizeSuggest ? (
+        <div className="fixed inset-0 z-[55] flex items-center justify-center bg-slate-900/45 p-4 backdrop-blur-[2px]">
+          <div className="w-full max-w-md rounded-2xl border border-slate-200/90 bg-white p-5 shadow-2xl shadow-slate-900/20 sm:p-6">
+            <div className="text-lg font-bold tracking-tight text-slate-900">
+              Finalizar esta compra?
+            </div>
+            <p className="mt-2 text-sm text-slate-600">
+              A compra <span className="font-semibold text-slate-900">{finalizeSuggest.purchaseNumero}</span>{" "}
+              ficou com menos de {fmtInt(finalizeSuggest.threshold)} pontos. Quer finalizar agora?
+            </p>
+
+            <div className="mt-4 space-y-2 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm">
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-slate-600">Pontos sobrando</span>
+                <span className="font-semibold tabular-nums text-slate-900">
+                  {fmtInt(finalizeSuggest.remainingPoints)} pts
+                </span>
+              </div>
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-slate-600">Lucro da conta</span>
+                <span
+                  className={cn(
+                    "font-semibold tabular-nums",
+                    finalizeSuggest.profitCents >= 0 ? "text-emerald-700" : "text-rose-700"
+                  )}
+                >
+                  {fmtMoneyBR(finalizeSuggest.profitCents)}
+                </span>
+              </div>
+            </div>
+
+            <div className="mt-5 flex flex-wrap justify-end gap-2">
+              <button
+                type="button"
+                onClick={declineFinalizeSuggest}
+                disabled={finalizeBusy}
+                className={BTN_SECONDARY}
+              >
+                Não
+              </button>
+              <button
+                type="button"
+                onClick={() => void acceptFinalizeSuggest()}
+                disabled={finalizeBusy}
+                className={cn(BTN_PRIMARY, finalizeBusy && "pointer-events-none opacity-60")}
+              >
+                {finalizeBusy ? "Finalizando…" : "Sim, finalizar"}
               </button>
             </div>
           </div>

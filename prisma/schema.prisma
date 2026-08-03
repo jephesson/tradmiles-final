@@ -929,6 +929,8 @@ model Settings {
   vendorCommissionBps Int @default(100)
   /// Bônus por indicação de cedente aprovada (centavos).
   cedenteReferralBonusCents Int @default(2000)
+  /// Após venda: sugerir finalizar compra se sobrar menos que este total de pontos.
+  finalizeSuggestBelowPoints Int @default(5000)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

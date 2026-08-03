@@ -379,10 +379,18 @@ export async function POST(req: Request) {
       where: { key: "default" },
       create: { key: "default" },
       update: {},
-      select: { employeeC1Bps: true, employeeBonusAboveMetaBps: true },
+      select: {
+        employeeC1Bps: true,
+        employeeBonusAboveMetaBps: true,
+        finalizeSuggestBelowPoints: true,
+      },
     });
     const employeeC1Bps = resolveEmployeeC1Bps(commissionSettings);
     const employeeBonusAboveMetaBps = resolveEmployeeBonusAboveMetaBps(commissionSettings);
+    const finalizeSuggestBelowPoints = Math.max(
+      0,
+      clampInt(commissionSettings.finalizeSuggestBelowPoints ?? 5000)
+    );
 
     const result = await prisma.$transaction(async (tx) => {
       const effectiveSellerId = sellerIdRaw || userId;
@@ -424,8 +432,12 @@ export async function POST(req: Request) {
             where: { numero: purchaseKey.toUpperCase(), cedenteId },
             select: {
               id: true,
+              numero: true,
               cedenteId: true,
               status: true,
+              finalizedAt: true,
+              pontosCiaTotal: true,
+              totalCents: true,
               metaMilheiroCents: true,
               custoMilheiroCents: true,
             },
@@ -434,8 +446,12 @@ export async function POST(req: Request) {
             where: { id: purchaseKey },
             select: {
               id: true,
+              numero: true,
               cedenteId: true,
               status: true,
+              finalizedAt: true,
+              pontosCiaTotal: true,
+              totalCents: true,
               metaMilheiroCents: true,
               custoMilheiroCents: true,
             },
@@ -592,7 +608,45 @@ export async function POST(req: Request) {
         },
       });
 
-      return sale;
+      const soldAgg = await tx.sale.aggregate({
+        where: {
+          purchaseId: purchaseIdReal,
+          paymentStatus: { not: "CANCELED" },
+        },
+        _sum: {
+          points: true,
+          pointsValueCents: true,
+          totalCents: true,
+        },
+      });
+
+      const soldPoints = clampInt(soldAgg._sum.points);
+      const salesTotalCents = clampInt(soldAgg._sum.totalCents);
+      let salesPointsValueCents = clampInt(soldAgg._sum.pointsValueCents);
+      if (salesPointsValueCents <= 0 && salesTotalCents > 0) {
+        salesPointsValueCents = salesTotalCents;
+      }
+
+      const pointsTotal = clampInt(purchase.pontosCiaTotal);
+      const remainingPoints = Math.max(pointsTotal - soldPoints, 0);
+      const purchaseTotalCents = clampInt(purchase.totalCents);
+      const profitCents = salesPointsValueCents - purchaseTotalCents;
+      const alreadyFinalized = Boolean(purchase.finalizedAt);
+      const shouldSuggest =
+        !alreadyFinalized && remainingPoints < finalizeSuggestBelowPoints;
+
+      return {
+        sale,
+        finalizeSuggest: shouldSuggest
+          ? {
+              purchaseId: purchaseIdReal,
+              purchaseNumero: purchase.numero,
+              remainingPoints,
+              profitCents,
+              threshold: finalizeSuggestBelowPoints,
+            }
+          : null,
+      };
     });
 
     const payoutAutoCompute = await triggerEmployeePayoutAutoCompute(req, {
@@ -600,7 +654,12 @@ export async function POST(req: Request) {
       fallbackBasis: "SALE_DATE",
     });
 
-    return NextResponse.json({ ok: true, sale: result, payoutAutoCompute });
+    return NextResponse.json({
+      ok: true,
+      sale: result.sale,
+      finalizeSuggest: result.finalizeSuggest,
+      payoutAutoCompute,
+    });
   } catch (e: unknown) {
     return NextResponse.json(
       { ok: false, error: getErrorMessage(e, "Erro ao criar venda") },

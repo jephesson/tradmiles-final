@@ -67,6 +67,7 @@ export async function GET(req: NextRequest) {
         employeeBonusAboveMetaBps: true,
         vendorCommissionBps: true,
         cedenteReferralBonusCents: true,
+        finalizeSuggestBelowPoints: true,
       },
     });
 
@@ -78,6 +79,7 @@ export async function GET(req: NextRequest) {
         vendorCommissionBps: clampVendorCommissionBps(row.vendorCommissionBps ?? DEFAULT_VENDOR_COMMISSION_BPS),
         cedenteReferralBonusCents:
           row.cedenteReferralBonusCents ?? DEFAULT_CEDENTE_REFERRAL_BONUS_CENTS,
+        finalizeSuggestBelowPoints: Math.max(0, Math.trunc(row.finalizeSuggestBelowPoints ?? 5000)),
       },
     });
   } catch (e: unknown) {
@@ -128,6 +130,15 @@ export async function POST(req: NextRequest) {
     });
     if (!referralParsed.ok) return NextResponse.json({ ok: false, error: referralParsed.error }, { status: 400 });
 
+    const thresholdRaw = Number(String(body?.finalizeSuggestBelowPoints ?? "").replace(/\./g, "").replace(",", "."));
+    if (!Number.isFinite(thresholdRaw) || thresholdRaw < 0 || thresholdRaw > 10_000_000) {
+      return NextResponse.json(
+        { ok: false, error: "Limiar de sugestão de finalizar: use um valor entre 0 e 10.000.000 pontos." },
+        { status: 400 }
+      );
+    }
+    const finalizeSuggestBelowPoints = Math.max(0, Math.trunc(thresholdRaw));
+
     const employeeC1Bps = clampBps(percentToC1Bps(c1Parsed.value), 10000);
     const employeeBonusAboveMetaBps = clampBps(percentToBonusAboveMetaBps(bonusParsed.value), 10000);
     const vendorCommissionBps = clampVendorCommissionBps(Math.round(vendorParsed.value * 100));
@@ -141,13 +152,21 @@ export async function POST(req: NextRequest) {
         employeeBonusAboveMetaBps,
         vendorCommissionBps,
         cedenteReferralBonusCents,
+        finalizeSuggestBelowPoints,
       },
-      update: { employeeC1Bps, employeeBonusAboveMetaBps, vendorCommissionBps, cedenteReferralBonusCents },
+      update: {
+        employeeC1Bps,
+        employeeBonusAboveMetaBps,
+        vendorCommissionBps,
+        cedenteReferralBonusCents,
+        finalizeSuggestBelowPoints,
+      },
       select: {
         employeeC1Bps: true,
         employeeBonusAboveMetaBps: true,
         vendorCommissionBps: true,
         cedenteReferralBonusCents: true,
+        finalizeSuggestBelowPoints: true,
       },
     });
 
@@ -158,6 +177,7 @@ export async function POST(req: NextRequest) {
         employeeBonusAboveMetaBps: saved.employeeBonusAboveMetaBps,
         vendorCommissionBps: saved.vendorCommissionBps,
         cedenteReferralBonusCents: saved.cedenteReferralBonusCents,
+        finalizeSuggestBelowPoints: saved.finalizeSuggestBelowPoints,
       },
     });
   } catch (e: unknown) {
