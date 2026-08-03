@@ -203,16 +203,34 @@ export function parseLatamReceiptText(rawText: string): LatamReceiptParsed {
     if (miles) hints.push("miles");
   }
 
+  // Na venda usamos o que o cliente pagou em R$ (Total pago), não só a linha
+  // "Taxas e/ou impostos" — que pode ser menor quando há tarifa + taxas em dinheiro.
   let taxReaisCents: number | null = null;
-  const taxM =
+  const totalPagoM =
     compact.match(
-      /(?:taxas?\s+e\/ou\s+impostos|taxas?|taxa\s+de\s+embarque)[^\d]{0,40}BRL\s*([\d.]+,\d{2})/i
+      /Total\s+pago[^\n\r]{0,80}?BRL\s*([\d.]+,\d{2})/i
+    ) ||
+    compact.match(
+      /Total\s+pago\s*\([^)]*\)\s*(?:BR\s*:?\s*)?BRL\s*([\d.]+,\d{2})/i
+    ) ||
+    compact.match(
+      /\(2\)\s*BR\s*:\s*BRL\s*([\d.]+,\d{2})/i
+    );
+  const taxLineM =
+    compact.match(
+      /(?:taxas?\s+e\/ou\s+impostos|taxa\s+de\s+embarque)[^\d]{0,40}BRL\s*([\d.]+,\d{2})/i
     ) ||
     compact.match(/BRL\s*([\d.]+,\d{2})\s*Millas/i) ||
     compact.match(/R\$\s*([\d.]+,\d{2})\s*(?:em\s+)?taxas?/i);
-  if (taxM?.[1]) {
-    taxReaisCents = parseBrMoneyToCents(taxM[1]);
-    if (taxReaisCents != null) hints.push("tax");
+
+  const totalCents = totalPagoM?.[1] ? parseBrMoneyToCents(totalPagoM[1]) : null;
+  const taxLineCents = taxLineM?.[1] ? parseBrMoneyToCents(taxLineM[1]) : null;
+  if (totalCents != null && totalCents > 0) {
+    taxReaisCents = totalCents;
+    hints.push("tax_total_pago");
+  } else if (taxLineCents != null) {
+    taxReaisCents = taxLineCents;
+    hints.push("tax");
   }
 
   let ticketNumber: string | null = null;
