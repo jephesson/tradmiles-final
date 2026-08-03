@@ -64,10 +64,10 @@ const ACTION_ITEMS = [
     match: (path: string) => path.startsWith("/dashboard/compras"),
   },
   {
-    href: "/dashboard/comissoes/cedentes",
+    href: "/dashboard/comissoes/funcionarios",
     label: "Comissão",
     icon: Percent,
-    match: (path: string) => path.startsWith("/dashboard/comissoes"),
+    match: (path: string) => path.startsWith("/dashboard/comissoes/funcionarios"),
   },
 ] as const;
 
