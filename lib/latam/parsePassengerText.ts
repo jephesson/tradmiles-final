@@ -44,9 +44,11 @@ const LABEL_KEYS = [
   "telefone",
   "celular",
   "whatsapp",
+  "passageira",
   "passageiro",
   "identidade",
   "cpf\\/?cnpj",
+  "contato",
   "e-?mail",
   "genero",
   "gênero",
@@ -361,7 +363,7 @@ function extractNameFromLine(line: string): string {
   s = s.replace(DATE_RE, " ");
   s = s.replace(DATE_COMPACT_RE, " ");
   s = s.replace(
-    /\b(nome\s*completo|passageiro|pax|data\s+(?:de\s+)?nasc(?:imento)?|nascido\s*em|nasc(?:imento)?|dt\.?\s*nasc|dn|cpf\/?cnpj|cpf|c\.?p\.?f\.?|cnpj|rg|idt|identidade|documento|doc|e-?mail|email|mail|tel(?:efone)?|cel(?:ular)?|whats?app?|zap|wpp|fone|sexo|genero)\b[:\s.=]*/gi,
+    /\b(nome\s*completo|passageira|passageiro|pax|contato|data\s+(?:de\s+)?nasc(?:imento)?|nascido\s*em|nasc(?:imento)?|dt\.?\s*nasc|dn|cpf\/?cnpj|cpf|c\.?p\.?f\.?|cnpj|rg|idt|identidade|documento|doc|e-?mail|email|mail|tel(?:efone)?|cel(?:ular)?|whats?app?|zap|wpp|fone|sexo|genero)\b[:\s.=]*/gi,
     " "
   );
   s = s.replace(/\b\d{3}\.?\d{3}\.?\d{3}-?\d{2}\b/g, " ");
@@ -520,6 +522,8 @@ function isContactOnlyBlock(block: string): boolean {
   let hasName = false;
   let hasContact = false;
   for (const line of lines) {
+    // Cabeçalho "Contato:" sem valor não conta como nome de pax
+    if (/^\s*contato\s*[:\-–.]?\s*$/i.test(line)) continue;
     const name = extractNameFromLine(line);
     if (name.split(/\s+/).filter(Boolean).length >= 2) hasName = true;
     if (EMAIL_RE.test(line)) hasContact = true;
@@ -560,9 +564,19 @@ function parseLabeledBlock(block: string): ParsedPassenger | null {
       continue;
     }
     // "Passageiro 2" / "Pax 1" = cabeçalho, não nome
-    if (key === "passageiro" || key === "pax") {
+    if (key === "passageiro" || key === "passageira" || key === "pax") {
       if (/^\d+$/.test(val.trim())) continue;
       firstName = sanitizeLatamName(val);
+      if (key === "passageira" && !gender) gender = "F";
+      if (key === "passageiro" && !gender) gender = "M";
+      continue;
+    }
+    // "Contato:" só agrupa e-mail/telefone — não é passageiro
+    if (key === "contato") {
+      const emailM = val.match(EMAIL_RE);
+      if (emailM) email = emailM[0].toLowerCase();
+      const maybePhone = normalizePhone(val);
+      if (maybePhone) phone = maybePhone;
       continue;
     }
     if (key === "sobrenome" || key === "ultimo nome" || key === "último nome") {
@@ -898,7 +912,7 @@ function lineLooksLikeName(trimmed: string): boolean {
   if (!trimmed || EMAIL_RE.test(trimmed)) return false;
   // Linha rotulada (Data Nascimento:, Documento:, Sexo:, etc.) nunca é nome de pax
   if (
-    /^\s*(nome|sobrenome|documento|doc|cpf|cnpj|rg|idt|identidade|data\s+(?:de\s+)?nasc|nasc(?:imento)?|dn|e-?mail|email|tel|cel|fone|zap|whats|passageiro|pax|sexo|genero|gênero)\b/i.test(
+    /^\s*(nome|sobrenome|documento|doc|cpf|cnpj|rg|idt|identidade|data\s+(?:de\s+)?nasc|nasc(?:imento)?|dn|e-?mail|email|tel|cel|fone|zap|whats|passageira|passageiro|pax|contato|sexo|genero|gênero)\b/i.test(
       trimmed
     )
   ) {
@@ -1137,7 +1151,7 @@ function isBogusPassengerName(name: string) {
     .trim();
   return (
     !n ||
-    /^(data|nascimento|nasc|dn|passageiro|pax|nome|sobrenome|documento|doc|cpf|rg|sexo|genero|feminino|masculino|fem|masc)$/.test(
+    /^(data|nascimento|nasc|dn|passageira|passageiro|pax|contato|nome|sobrenome|documento|doc|cpf|rg|sexo|genero|feminino|masculino|fem|masc)$/.test(
       n
     )
   );
