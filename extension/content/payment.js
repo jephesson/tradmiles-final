@@ -59,12 +59,24 @@ function escapeRe(s) {
 
 function isVisible(el) {
   if (!el) return false;
-  const st = window.getComputedStyle(el);
-  if (st.display === "none" || st.visibility === "hidden" || st.opacity === "0") {
+  try {
+    const st = window.getComputedStyle(el);
+    if (
+      st.display === "none" ||
+      st.visibility === "hidden" ||
+      st.opacity === "0"
+    ) {
+      return false;
+    }
+  } catch {
+    /* pattern/CSS inválido */
+  }
+  try {
+    const r = el.getBoundingClientRect();
+    return r.width > 0 && r.height > 0;
+  } catch {
     return false;
   }
-  const r = el.getBoundingClientRect();
-  return r.width > 0 && r.height > 0;
 }
 
 function fieldMeta(el) {
