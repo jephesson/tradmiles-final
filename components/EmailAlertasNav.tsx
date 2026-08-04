@@ -195,10 +195,37 @@ export default function EmailAlertasNav() {
     })();
   }, [refresh]);
 
+  // Poll a cada 10 min só com a aba visível (pausa em segundo plano).
   useEffect(() => {
-    void refresh();
-    const t = window.setInterval(() => void refresh(), 60_000);
+    const POLL_MS = 10 * 60_000;
+    let timer: number | null = null;
+
+    const stop = () => {
+      if (timer != null) {
+        window.clearInterval(timer);
+        timer = null;
+      }
+    };
+
+    const start = () => {
+      stop();
+      if (document.visibilityState !== "visible") return;
+      timer = window.setInterval(() => {
+        if (document.visibilityState === "visible") void refresh();
+      }, POLL_MS);
+    };
+
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") {
+        void refresh();
+        start();
+      } else {
+        stop();
+      }
+    };
+
     const onFocus = () => {
+      if (document.visibilityState !== "visible") return;
       const uid = getSession()?.id || userId;
       void (async () => {
         try {
@@ -215,6 +242,7 @@ export default function EmailAlertasNav() {
         void refresh();
       })();
     };
+
     const onStorage = (e: StorageEvent) => {
       if (
         e.key === "tm.emailAlertFilterIds" ||
@@ -226,14 +254,18 @@ export default function EmailAlertasNav() {
         void refresh();
       }
     };
+
+    start();
+    document.addEventListener("visibilitychange", onVisibility);
     window.addEventListener("focus", onFocus);
     window.addEventListener("storage", onStorage);
     return () => {
-      window.clearInterval(t);
+      stop();
+      document.removeEventListener("visibilitychange", onVisibility);
       window.removeEventListener("focus", onFocus);
       window.removeEventListener("storage", onStorage);
     };
-  }, [refresh]);
+  }, [refresh, userId]);
 
   const updatePanelPos = useCallback(() => {
     const btn = btnRef.current;
