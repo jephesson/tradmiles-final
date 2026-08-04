@@ -174,11 +174,12 @@ function classifyDigits(
     if (opts.alreadyHasCpf && normalizePhone(d)) return "phone";
     return "cpf";
   }
+  // Celular BR (DDD + 9…): nunca vira CPF "inválido" por preferência
+  if (normalizePhone(d)) return "phone";
   // CPF inválido (11 dígitos) mas contexto de passageiro → manter como CPF
   if (d.length === 11 && opts.preferCpf && !opts.alreadyHasCpf) {
     return "cpf";
   }
-  if (normalizePhone(d)) return "phone";
   if (d.length === 11 || d.length === 10) {
     if (opts.alreadyHasCpf) return "phone";
     if (d.length === 11 && d[2] === "9") return "phone";
@@ -366,7 +367,7 @@ function extractNameFromLine(line: string): string {
     /\b(nome\s*completo|passageira|passageiro|pax|contato|data\s+(?:de\s+)?nasc(?:imento)?|nascido\s*em|nasc(?:imento)?|dt\.?\s*nasc|dn|cpf\/?cnpj|cpf|c\.?p\.?f\.?|cnpj|rg|idt|identidade|documento|doc|e-?mail|email|mail|tel(?:efone)?|cel(?:ular)?|whats?app?|zap|wpp|fone|sexo|genero)\b[:\s.=]*/gi,
     " "
   );
-  s = s.replace(/\b\d{3}\.?\d{3}\.?\d{3}-?\d{2}\b/g, " ");
+  s = s.replace(/\b\d{3}\.?\d{3}\.?\d{3}[\-.]?\d{2}\b/g, " ");
   s = s.replace(/\b\d{8,13}\b/g, " ");
   return sanitizeLatamName(s);
 }
@@ -439,8 +440,11 @@ function parseDateFromText(s: string, { allowCompact = false } = {}): string | n
 function preprocessPassengerText(raw: string): string {
   let t = String(raw || "").replace(/\r/g, "");
 
-  // Espaços unicode (NBSP, estreitos, etc.) → espaço normal
-  t = t.replace(/[\u00A0\u1680\u2000-\u200B\u202F\u205F\u3000\uFEFF]/g, " ");
+  // Espaços unicode (NBSP, estreitos, word joiner do WhatsApp, etc.) → espaço normal
+  t = t.replace(
+    /[\u00A0\u1680\u2000-\u200B\u200C\u200D\u202F\u205F\u2060\u3000\uFEFF]/g,
+    " "
+  );
   // Tabs / form-feed
   t = t.replace(/[\t\f\v]+/g, " ");
 
@@ -448,16 +452,16 @@ function preprocessPassengerText(raw: string): string {
   t = t.replace(/\*{1,2}|~{2}|`{1,3}/g, "");
   t = t.replace(/_{2}/g, "");
 
-  // Separadores visuais → quebra
-  t = t.replace(/\s*[|•·]\s*/g, "\n");
+  // Separadores visuais / bullets (•, ∙, ●, ○, ■…) → quebra
+  t = t.replace(/\s*[|•·∙●○■□▪▫‣⁃]\s*/g, "\n");
 
   // Cabeçalho "Passageiro 2" → novo bloco
   t = t.replace(/\bpassageiro\s*\d+\b/gi, "\n\n");
 
-  // Unifica variações de data de nascimento (vários espaços no meio)
+  // Unifica variações de data de nascimento num rótulo só (evita split em "Data"+"Nascimento")
   t = t.replace(
     /\bdata\s+(?:de\s+)?nasc(?:imento)?\b/gi,
-    "Data Nascimento"
+    "Nascimento"
   );
 
   // Colapsa espaços repetidos (mantém quebras de linha)
@@ -981,7 +985,7 @@ function explodeDensePassengerLine(text: string): string | null {
 
   const compact = text.replace(/\s+/g, " ").trim();
   const dates = [...compact.matchAll(new RegExp(DATE_RE.source, "g"))];
-  const cpfs = [...compact.matchAll(/\b\d{3}\.?\d{3}\.?\d{3}-?\d{2}\b/g)];
+  const cpfs = [...compact.matchAll(/\b\d{3}\.?\d{3}\.?\d{3}[\-.]?\d{2}\b/g)];
   if (dates.length < 2 && cpfs.length < 2) return null;
 
   let out = compact;
@@ -992,17 +996,17 @@ function explodeDensePassengerLine(text: string): string | null {
   );
   // Data + CPF → linhas separadas (evita blob 080782719…)
   out = out.replace(
-    /(\d{1,2}[\/\-.]\d{1,2}[\/\-.]\d{2,4})\s+(CPF\s*)?(\d{3}\.?\d{3}\.?\d{3}-?\d{2}|\d{11})/gi,
+    /(\d{1,2}[\/\-.]\d{1,2}[\/\-.]\d{2,4})\s+(CPF\s*)?(\d{3}\.?\d{3}\.?\d{3}[\-.]?\d{2}|\d{11})/gi,
     "$1\n$2$3"
   );
   // Nome + CPF (sem data na frente)
   out = out.replace(
-    /([A-Za-zÀ-ÿ]{2,}(?:\s+[A-Za-zÀ-ÿ]{2,}){1,5})\s+(CPF\s*)?(\d{3}\.?\d{3}\.?\d{3}-?\d{2}|\d{11})/gi,
+    /([A-Za-zÀ-ÿ]{2,}(?:\s+[A-Za-zÀ-ÿ]{2,}){1,5})\s+(CPF\s*)?(\d{3}\.?\d{3}\.?\d{3}[\-.]?\d{2}|\d{11})/gi,
     "\n$1\n$2$3"
   );
   // CPF + data (caso Camila)
   out = out.replace(
-    /(\d{3}\.?\d{3}\.?\d{3}-?\d{2}|\d{11})\s+(\d{1,2}[\/\-.]\d{1,2}[\/\-.]\d{2,4})/g,
+    /(\d{3}\.?\d{3}\.?\d{3}[\-.]?\d{2}|\d{11})\s+(\d{1,2}[\/\-.]\d{1,2}[\/\-.]\d{2,4})/g,
     "$1\n$2"
   );
   return out.includes("\n") ? out : null;
@@ -1013,7 +1017,8 @@ function extractCpfCandidatesFromLine(line: string): string[] {
   const out: string[] = [];
   // Remove datas da linha antes de caçar CPF
   const withoutDates = line.replace(DATE_RE, " ");
-  for (const m of withoutDates.matchAll(/\b\d{3}\.?\d{3}\.?\d{3}-?\d{2}\b/g)) {
+  // Aceita 044.672.853-50 e também 044.672.853.50 (ponto no fim, comum no Zap)
+  for (const m of withoutDates.matchAll(/\b\d{3}\.?\d{3}\.?\d{3}[\-.]?\d{2}\b/g)) {
     out.push(onlyDigits(m[0]));
   }
   for (const m of withoutDates.matchAll(/\b\d{11}\b/g)) {
