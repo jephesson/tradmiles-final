@@ -13,6 +13,7 @@ import {
   Trash2,
   Unlink,
   User,
+  UserCheck,
   UserX,
   X,
 } from "lucide-react";
@@ -702,8 +703,10 @@ export default function EmailsClient() {
           <p className="mt-0.5 text-sm text-slate-500">
             <span className="font-medium text-slate-600">Todos</span> = caixa de
             entrada da empresa
-            {mailbox ? ` · ${mailbox}` : ""} (encaminhamento automático). Os
-            chips e o filtro de cedente afunilam em cima disso.
+            {mailbox ? ` · ${mailbox}` : ""} (encaminhamento automático). Use{" "}
+            <span className="font-medium text-slate-600">Com cedente</span> /
+            <span className="font-medium text-slate-600"> Sem cedente</span> ou
+            os chips para filtrar.
           </p>
         </div>
 
@@ -830,17 +833,32 @@ export default function EmailsClient() {
 
           <button
             type="button"
-            onClick={() => setScope(scope === "unmatched" ? "matched" : "unmatched")}
+            onClick={() => setScope(scope === "matched" ? "all" : "matched")}
+            className={cn(
+              "inline-flex h-9 items-center gap-1.5 rounded-xl px-3 text-sm font-semibold transition",
+              scope === "matched"
+                ? "bg-emerald-100 text-emerald-900 ring-1 ring-emerald-200"
+                : "text-slate-600 hover:bg-slate-100"
+            )}
+            title="Só e-mails identificados com cedente cadastrado"
+          >
+            <UserCheck className="h-4 w-4" aria-hidden />
+            Com cedente
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setScope(scope === "unmatched" ? "all" : "unmatched")}
             className={cn(
               "inline-flex h-9 items-center gap-1.5 rounded-xl px-3 text-sm font-semibold transition",
               scope === "unmatched"
                 ? "bg-amber-100 text-amber-900 ring-1 ring-amber-200"
                 : "text-slate-600 hover:bg-slate-100"
             )}
-            title="Alternar e-mails sem cedente identificado"
+            title="Só e-mails sem cedente identificado"
           >
             <UserX className="h-4 w-4" aria-hidden />
-            {scope === "unmatched" ? "Vendo sem cedente" : "Sem cedente"}
+            Sem cedente
           </button>
 
           <button
