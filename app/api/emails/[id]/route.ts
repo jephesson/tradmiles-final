@@ -19,6 +19,7 @@ import {
   messageDate,
   type CedenteLite,
 } from "@/lib/gmail/parse";
+import { pickBestVerificationCode } from "@/lib/gmail/otp";
 import {
   sanitizeEmailHtml,
   textToHtml,
@@ -96,6 +97,10 @@ export async function GET(
         cedentes
       );
 
+    const verificationCode = pickBestVerificationCode(
+      `${subject}\n${text || ""}\n${html || ""}`
+    );
+
     if (cedente?.id) {
       void markEmailRedirecionado(cedente.id, {
         byUserId: null,
@@ -116,6 +121,7 @@ export async function GET(
         date: date ? date.toISOString() : null,
         text: text || "",
         document: wrapEmailDocument(bodyHtml),
+        verificationCode,
         cedente: cedente
           ? {
               id: cedente.id,

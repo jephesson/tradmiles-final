@@ -110,6 +110,31 @@ export type CedenteLite = {
   email: string;
 };
 
+/** Colapsa letras repetidas no local-part (nascimeento ≈ nascimento). */
+export function normalizeEmailKey(value: string): string {
+  const email = String(value || "").trim().toLowerCase();
+  const at = email.lastIndexOf("@");
+  if (at <= 0) return email;
+  const local = email.slice(0, at).replace(/\./g, "").replace(/(.)\1+/g, "$1");
+  const domain = email.slice(at + 1);
+  return `${local}@${domain}`;
+}
+
+function lookupCedenteByEmail(
+  address: string,
+  byEmail: Map<string, CedenteLite>
+): CedenteLite | null {
+  if (!address) return null;
+  const exact = byEmail.get(address);
+  if (exact) return exact;
+  const want = normalizeEmailKey(address);
+  if (!want.includes("@")) return null;
+  for (const c of byEmail.values()) {
+    if (normalizeEmailKey(c.email) === want) return c;
+  }
+  return null;
+}
+
 /**
  * Casa a mensagem com um cedente:
  * 1) destinatários (encaminhamento automático do Gmail)
@@ -120,15 +145,16 @@ export function matchCedenteByHeaders(
   byEmail: Map<string, CedenteLite>,
   mailbox: string
 ): CedenteLite | null {
+  const mailboxKey = mailbox ? normalizeEmailKey(mailbox) : "";
   for (const address of collectRecipients(message)) {
-    if (mailbox && address === mailbox) continue;
-    const hit = byEmail.get(address);
+    if (mailboxKey && normalizeEmailKey(address) === mailboxKey) continue;
+    const hit = lookupCedenteByEmail(address, byEmail);
     if (hit) return hit;
   }
 
   const from = firstAddress(headerValue(message, "From"));
-  if (from && (!mailbox || from !== mailbox)) {
-    const hit = byEmail.get(from);
+  if (from && (!mailboxKey || normalizeEmailKey(from) !== mailboxKey)) {
+    const hit = lookupCedenteByEmail(from, byEmail);
     if (hit) return hit;
   }
 
@@ -145,10 +171,11 @@ export function matchCedenteByBody(
   mailbox: string
 ): CedenteLite | null {
   if (!body) return null;
+  const mailboxKey = mailbox ? normalizeEmailKey(mailbox) : "";
 
   for (const address of extractAddresses(body)) {
-    if (mailbox && address === mailbox) continue;
-    const hit = byEmail.get(address);
+    if (mailboxKey && normalizeEmailKey(address) === mailboxKey) continue;
+    const hit = lookupCedenteByEmail(address, byEmail);
     if (hit) return hit;
   }
 
@@ -188,14 +215,19 @@ export function matchCedenteByNomeInText(
 
     const hits = parts.filter((p) => hay.includes(p)).length;
     const first = parts[0];
-    // LATAM: "Olá JOSÉ" — basta o primeiro nome após saudação.
+    const second = parts[1];
+    // LATAM: "Olá JOSE LUIS" / "Olá JOSÉ"
     const olaFirst =
       Boolean(first) &&
       first.length >= 3 &&
       new RegExp(`\\bola\\s+${first}\\b`).test(hay);
+    const olaFirstLast =
+      Boolean(first) &&
+      Boolean(second) &&
+      new RegExp(`\\bola\\s+${first}\\s+${second}\\b`).test(hay);
 
-    if (olaFirst && hits >= 1) {
-      const score = 0.85 + hits / Math.max(parts.length, 1) / 10;
+    if (olaFirstLast || (olaFirst && hits >= 1)) {
+      const score = olaFirstLast ? 0.95 : 0.85 + hits / Math.max(parts.length, 1) / 10;
       if (score > bestScore) {
         best = c;
         bestScore = score;

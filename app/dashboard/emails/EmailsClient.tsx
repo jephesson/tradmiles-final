@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
+  Copy,
   Inbox,
   Link2,
   Loader2,
@@ -109,6 +110,7 @@ type Detail = {
   subject: string;
   date: string | null;
   document: string;
+  verificationCode?: string | null;
   cedente: CedenteRef | null;
 };
 
@@ -1068,6 +1070,29 @@ export default function EmailsClient() {
                     </>
                   ) : null}
                 </div>
+
+                {detail.verificationCode ? (
+                  <div className="flex flex-wrap items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2">
+                    <div className="text-[11px] font-semibold uppercase tracking-wide text-emerald-800">
+                      Código
+                    </div>
+                    <div className="font-mono text-xl font-bold tracking-widest text-slate-900">
+                      {detail.verificationCode}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        void navigator.clipboard?.writeText(
+                          String(detail.verificationCode)
+                        );
+                      }}
+                      className="ml-auto inline-flex items-center gap-1.5 rounded-lg border border-emerald-200 bg-white px-2.5 py-1 text-xs font-semibold text-emerald-900 hover:bg-emerald-50"
+                    >
+                      <Copy className="h-3.5 w-3.5" aria-hidden />
+                      Copiar
+                    </button>
+                  </div>
+                ) : null}
               </div>
 
               <iframe
