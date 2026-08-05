@@ -48,7 +48,6 @@ type AlertRow = {
   cedente: CedenteRef | null;
   filterId: string;
   filterName: string;
-  verificationCode?: string | null;
 };
 
 type Detail = {
@@ -60,7 +59,6 @@ type Detail = {
   date: string | null;
   document: string;
   cedente: CedenteRef | null;
-  verificationCode?: string | null;
 };
 
 function fmtRelative(iso: string | null) {
