@@ -8,10 +8,79 @@
 /**
  * soft:true — não dá focus (evita abrir "Passageiros salvos" no nome).
  */
+function safeScrollIntoView(el) {
+  if (!el) return;
+  try {
+    el.scrollIntoView?.({ block: "center", behavior: "instant" });
+  } catch {
+    try {
+      el.scrollIntoView?.({ block: "center" });
+    } catch {
+      /* pattern inválido da LATAM estoura scrollIntoView — ignora */
+    }
+  }
+}
+
+/** LATAM coloca `pattern` inválido (Chrome /v) — remove antes de focar/digitar. */
+function disarmBadPattern(el) {
+  if (!el || !el.getAttribute) return;
+  try {
+    const pat = el.getAttribute("pattern");
+    if (!pat) return;
+    if (!el.dataset.tmPattern) el.dataset.tmPattern = pat;
+    el.removeAttribute("pattern");
+  } catch {
+    /* ignore */
+  }
+}
+
+/** Telefone no form pagamentos: type="email" (!), name passengerInfo.phones[0].number */
+function isLatamPhoneField(el) {
+  if (!el) return false;
+  const blob = [
+    el.name,
+    el.id,
+    el.getAttribute?.("data-testid"),
+    el.getAttribute?.("aria-label"),
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+  return (
+    blob.includes("phones[0].number") ||
+    blob.includes("phones0-number") ||
+    blob.includes("passengerinfo.phones") ||
+    blob.includes("número de telefone") ||
+    blob.includes("numero de telefone") ||
+    /telefone/.test(blob)
+  );
+}
+
+function isLatamEmailField(el) {
+  if (!el) return false;
+  if (isLatamPhoneField(el)) return false;
+  const blob = [
+    el.name,
+    el.id,
+    el.getAttribute?.("data-testid"),
+    el.getAttribute?.("aria-label"),
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+  return (
+    blob.includes("passengerinfo.emails") ||
+    blob.includes("passengerinfo-emails") ||
+    blob.includes("insira o email") ||
+    (el.type === "email" && /email/.test(blob))
+  );
+}
+
 function setNativeValue(el, value, { soft = false } = {}) {
   if (!el || value == null || value === "") return false;
   const str = String(value);
   const tag = el.tagName;
+  disarmBadPattern(el);
 
   if (tag === "SELECT") {
     const needle = str.toLowerCase();
@@ -21,7 +90,13 @@ function setNativeValue(el, value, { soft = false } = {}) {
       return t === needle || t.includes(needle) || v === needle;
     });
     if (!opt) return false;
-    if (!soft) el.focus?.();
+    if (!soft) {
+      try {
+        el.focus?.();
+      } catch {
+        /* ignore */
+      }
+    }
     el.value = opt.value;
     el.dispatchEvent(new Event("input", { bubbles: true }));
     el.dispatchEvent(new Event("change", { bubbles: true }));
@@ -34,7 +109,13 @@ function setNativeValue(el, value, { soft = false } = {}) {
       : HTMLInputElement.prototype;
   const setter = Object.getOwnPropertyDescriptor(proto, "value")?.set;
 
-  if (!soft) el.focus?.();
+  if (!soft) {
+    try {
+      el.focus?.();
+    } catch {
+      /* ignore */
+    }
+  }
   const tracker = el._valueTracker;
   if (tracker) {
     try {
@@ -43,10 +124,14 @@ function setNativeValue(el, value, { soft = false } = {}) {
       /* ignore */
     }
   }
-  // Respeita maxLength do campo
+  // Respeita maxLength do campo (exceto quando truncaria e-mail válido)
   let out = str;
   if (el.maxLength > 0 && out.length > el.maxLength) {
-    out = out.slice(0, el.maxLength);
+    const looksEmail = /@/.test(out) && el.type === "email";
+    const isPhoneField = isLatamPhoneField(el);
+    if (!(looksEmail && !isPhoneField)) {
+      out = out.slice(0, el.maxLength);
+    }
   }
   if (setter) setter.call(el, out);
   else el.value = out;
@@ -56,7 +141,13 @@ function setNativeValue(el, value, { soft = false } = {}) {
     new InputEvent("input", { bubbles: true, data: out, inputType: "insertText" })
   );
   el.dispatchEvent(new Event("change", { bubbles: true }));
-  if (!soft) el.dispatchEvent(new Event("blur", { bubbles: true }));
+  if (!soft) {
+    try {
+      el.dispatchEvent(new Event("blur", { bubbles: true }));
+    } catch {
+      /* ignore */
+    }
+  }
   return true;
 }
 
@@ -315,26 +406,53 @@ function birthParts(pax) {
 
 function isVisible(el) {
   if (!el) return false;
-  // LATAM coloca `pattern` inválido no e-mail (Chrome /v). Ler computed style
-  // nesses inputs estoura SyntaxError — nunca deixar isso derrubar o fill.
-  try {
-    const st = window.getComputedStyle(el);
-    if (
-      st.display === "none" ||
-      st.visibility === "hidden" ||
-      st.opacity === "0"
-    ) {
-      return false;
-    }
-  } catch {
-    /* pattern/CSS inválido no elemento — cai no rect */
-  }
+  // NÃO usar getComputedStyle: o e-mail da LATAM tem `pattern` inválido (flag /v)
+  // e o Chrome estoura ao ler display/rect nesse input.
   try {
     const r = el.getBoundingClientRect();
-    return r.width > 0 && r.height > 0;
+    if (r.width < 2 || r.height < 2) return false;
+    if (r.bottom < 0 || r.top > (window.innerHeight || 800) + 50) return false;
+    return true;
   } catch {
-    return false;
+    // pattern inválido: getBoundingClientRect estoura — para inputs de formulário
+    // assume visível (senão o bloco de contato inteiro some da busca).
+    const tag = el.tagName;
+    return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || tag === "BUTTON";
   }
+}
+
+/** Tem tamanho no layout (pode estar abaixo da dobra — Confirmar dados). */
+function hasLayoutSize(el) {
+  if (!el) return false;
+  try {
+    const r = el.getBoundingClientRect();
+    return r.width >= 2 && r.height >= 2;
+  } catch {
+    const tag = el.tagName;
+    return (
+      tag === "INPUT" ||
+      tag === "TEXTAREA" ||
+      tag === "SELECT" ||
+      tag === "BUTTON"
+    );
+  }
+}
+
+function ownFieldLabel(el) {
+  if (!el) return "";
+  return normalizeLabel(
+    [
+      el.getAttribute("aria-label"),
+      el.getAttribute("name"),
+      el.getAttribute("placeholder"),
+      el.getAttribute("id"),
+      el.getAttribute("data-testid"),
+      el.getAttribute("autocomplete"),
+      el.labels?.[0] ? textOf(el.labels[0]) : "",
+    ]
+      .filter(Boolean)
+      .join(" ")
+  );
 }
 
 function fieldMeta(el) {
@@ -483,16 +601,33 @@ async function clearInputHard(el) {
 async function typeChars(el, value, { clear = true, delay = 40 } = {}) {
   if (!el || value == null || value === "") return false;
   const str = String(value);
-  el.scrollIntoView?.({ block: "center", inline: "nearest" });
-  el.focus?.();
-  el.click?.();
+  disarmBadPattern(el);
+  safeScrollIntoView(el);
+  try {
+    el.focus?.();
+  } catch {
+    /* ignore */
+  }
+  try {
+    el.click?.();
+  } catch {
+    /* ignore */
+  }
   await sleep(30);
-  if (document.activeElement !== el) el.focus?.();
+  try {
+    if (document.activeElement !== el) el.focus?.();
+  } catch {
+    /* ignore */
+  }
 
   if (clear) {
     await clearInputHard(el);
     await sleep(40);
-    el.focus?.();
+    try {
+      el.focus?.();
+    } catch {
+      /* ignore */
+    }
   }
 
   const proto = HTMLInputElement.prototype;
@@ -650,6 +785,15 @@ function fillBirthSplitFields(root, parts) {
 }
 
 function findPassengerDobInput(passengerIndex, root) {
+  if (
+    getPassengerFormKind() === "confirm" &&
+    passengerIndex != null &&
+    passengerIndex >= 0
+  ) {
+    const adt = findConfirmAdtField(passengerIndex + 1, "dob");
+    if (adt) return adt;
+  }
+
   let el = null;
   if (passengerIndex != null && passengerIndex >= 0) {
     el =
@@ -954,17 +1098,39 @@ function pageStillHasPassengerForm() {
 async function waitForPassengerFormReady({ timeoutMs = 20000 } = {}) {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
+    const kind = getPassengerFormKind();
     const root = currentPassengerFormRoot();
     const inputs = visibleTextInputs(root);
     const hasName =
       Boolean(document.querySelector(`input[name="passenger-0_firstName"]`)) ||
-      Boolean(findFirstNameField(root));
-    const hasConfirm = Boolean(findConfirmDadosButton());
-    const hasDob = Boolean(findDateOfBirthInput(root));
-    if (inputs.length >= 2 && (hasName || hasDob) && (hasConfirm || getPassengerFormKind() === "accordion")) {
+      Boolean(document.querySelector('input[name="passengerDetails.firstName"]')) ||
+      Boolean(document.querySelector('input[name="passengerInfo.firstName"]')) ||
+      Boolean(document.querySelector('input[id*="passengerDetails-firstName" i]')) ||
+      Boolean(document.querySelector('input[name*="firstName" i]')) ||
+      Boolean(findFirstNameField(root)) ||
+      Boolean(findConfirmNameInput("first"));
+    const hasDob =
+      Boolean(findDateOfBirthInput(root)) ||
+      Boolean(document.querySelector('input[id*="dateOfBirth" i]')) ||
+      Boolean(document.querySelector('input[name*="dateOfBirth" i]'));
+    // Confirmar pode estar ABAIXO da dobra — isVisible falha e travava o fill inteiro
+    const hasConfirmInDom = Boolean(
+      findConfirmDadosButton(document) ||
+        [...document.querySelectorAll("span.MuiButton-label, button")].some(
+          (el) => {
+            const t = normalizeLabel(textOf(el));
+            return t === "confirmar dados" || t.startsWith("confirmar dados");
+          }
+        )
+    );
+    // /pagamentos: nome/data bastam para começar (não esperar Confirmar na viewport)
+    if (
+      inputs.length >= 2 &&
+      (hasName || hasDob) &&
+      (kind === "confirm" || kind === "accordion" || hasConfirmInDom)
+    ) {
       return true;
     }
-    // Página em branco / ainda hidratando
     await sleep(400);
   }
   return false;
@@ -1019,15 +1185,64 @@ function reactClickInPage(el) {
   });
 }
 
+/** Seta value no mundo MAIN (controlled inputs React da LATAM). */
+function reactSetValueInPage(el, value) {
+  if (!el) return Promise.resolve(false);
+  const mark = `tm-val-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+  el.setAttribute("data-tm-pick", mark);
+  const selector = `[data-tm-pick="${mark}"]`;
+  const id = mark;
+  return new Promise((resolve) => {
+    const onMsg = (ev) => {
+      const data = ev.data;
+      if (
+        !data ||
+        data.source !== "trademiles-page" ||
+        data.type !== "react-set-value-done" ||
+        data.id !== id
+      ) {
+        return;
+      }
+      window.removeEventListener("message", onMsg);
+      el.removeAttribute("data-tm-pick");
+      resolve(!!data.ok);
+    };
+    window.addEventListener("message", onMsg);
+    window.postMessage(
+      {
+        source: "trademiles",
+        type: "react-set-value",
+        id,
+        selector,
+        value: String(value ?? ""),
+      },
+      "*"
+    );
+    setTimeout(() => {
+      window.removeEventListener("message", onMsg);
+      el.removeAttribute("data-tm-pick");
+      resolve(false);
+    }, 800);
+  });
+}
+
 async function selectGender(root, gender, passengerIndex) {
   if (!gender) return false;
   const label = gender === "F" ? "Feminino" : "Masculino";
   const side = gender === "F" ? "female" : "male";
   let el = null;
-  if (passengerIndex != null && passengerIndex >= 0) {
+  if (
+    getPassengerFormKind() === "confirm" &&
+    passengerIndex != null &&
+    passengerIndex >= 0
+  ) {
+    el = findConfirmAdtField(passengerIndex + 1, "gender");
+  }
+  if (passengerIndex != null && passengerIndex >= 0 && (!el || !isVisible(el))) {
     const i = passengerIndex;
     // NÃO usar [data-testid*="gender"] solto — pega listitem male/female
     el =
+      el ||
       document.querySelector(`input[name="passenger-${i}_gender"]`) ||
       document.querySelector(
         `input[data-testid="passenger-${i}_gender--select__trigger--text-field"]`
@@ -1318,8 +1533,13 @@ function findPassengerExpandToggle(idx) {
   return null;
 }
 
-/** Campo CPF do pax N — na LATAM v2 é taxDocument (não documentNumber). */
+/** Campo CPF do pax N — na LATAM v2 é taxDocument; no pagamentos é taxDocument.documentNumber ADT_N. */
 function findCpfInputForPax(i) {
+  if (getPassengerFormKind() === "confirm") {
+    const el = findConfirmAdtField(Number(i) + 1, "cpf");
+    if (el) return el;
+  }
+
   const named =
     document.querySelector(`input[name="passenger-${i}_taxDocument"]`) ||
     document.querySelector(
@@ -1441,48 +1661,375 @@ function formKindLabel(kind) {
     : "v2 (acordeão)";
 }
 
-function findConfirmDadosButton(root = document) {
-  const scope = root && root.querySelectorAll ? root : document;
+function getAdultoAccordionContent(adultNumber) {
+  const n = Number(adultNumber);
+  if (!n) return null;
   return (
-    Array.from(scope.querySelectorAll("button")).find((btn) => {
-      if (!isVisible(btn)) return false;
-      const t = normalizeLabel(textOf(btn));
-      return t === "confirmar dados" || t.startsWith("confirmar dados");
-    }) || null
+    document.getElementById(`accordion-passenger-ADT_${n}-content`) ||
+    document.querySelector(`#accordion-passenger-ADT_${n}-content`) ||
+    document.querySelector(
+      `[id="accordion-passenger-ADT_${n}-content"]`
+    ) ||
+    document.querySelector(
+      `[aria-labelledby="accordion-passenger-ADT_${n}"]`
+    ) ||
+    null
   );
 }
 
-async function clickConfirmDados(root) {
-  const btn = findConfirmDadosButton(root || document);
-  if (!btn) return false;
-  try {
-    btn.scrollIntoView?.({ block: "center", behavior: "instant" });
-  } catch {
-    btn.scrollIntoView?.({ block: "center" });
+/**
+ * Cada Adulto tem SEU botão "Confirmar dados" dentro do painel ADT_N.
+ * Sempre preferir o do adultNumber atual — o .find() global pega o errado/escondido.
+ */
+function findConfirmDadosButton(root = document, adultNumber = null) {
+  const matchConfirm = (el) => {
+    try {
+      const t = normalizeLabel(textOf(el));
+      return t === "confirmar dados" || t.startsWith("confirmar dados");
+    } catch {
+      return false;
+    }
+  };
+
+  const toButton = (el) =>
+    el.closest?.("button") ||
+    (el.tagName === "BUTTON" ? el : el.closest?.('[role="button"]')) ||
+    el;
+
+  const searchIn = (scope, { requireVisible = true } = {}) => {
+    if (!scope || !scope.querySelectorAll) return null;
+    const nodes = Array.from(
+      scope.querySelectorAll(
+        "span.MuiButton-label, button, [role='button'], a"
+      )
+    ).filter(matchConfirm);
+    for (const el of nodes) {
+      const btn = toButton(el);
+      if (!requireVisible) {
+        if (hasLayoutSize(btn) || hasLayoutSize(el)) return btn;
+        continue;
+      }
+      try {
+        if (isVisible(btn) || isVisible(el)) return btn;
+      } catch {
+        if (hasLayoutSize(btn) || hasLayoutSize(el)) return btn;
+      }
+    }
+    return null;
+  };
+
+  // 1) Painel do Adulto N (conteúdo do acordeão)
+  if (adultNumber) {
+    const content = getAdultoAccordionContent(adultNumber);
+    if (content) {
+      const hit =
+        searchIn(content, { requireVisible: true }) ||
+        searchIn(content, { requireVisible: false });
+      if (hit) return hit;
+    }
+    // Região do MuiAccordion (summary + details)
+    const summary = findAdultoAccordionByAdt(adultNumber);
+    if (summary) {
+      let p = summary.parentElement;
+      for (let i = 0; i < 6 && p; i++) {
+        const hit =
+          searchIn(p, { requireVisible: true }) ||
+          searchIn(p, { requireVisible: false });
+        if (hit) return hit;
+        p = p.parentElement;
+      }
+    }
   }
-  btn.focus?.();
-  btn.click?.();
+
+  // 2) root passado (ficha atual)
+  if (root && root !== document) {
+    const hit =
+      searchIn(root, { requireVisible: true }) ||
+      searchIn(root, { requireVisible: false });
+    if (hit) return hit;
+  }
+
+  // 3) Accordion aberto (Confirmar costuma estar abaixo da dobra)
+  for (let n = 1; n <= 9; n++) {
+    const summary = findAdultoAccordionByAdt(n);
+    if (!summary || summary.getAttribute("aria-expanded") !== "true") continue;
+    const content = getAdultoAccordionContent(n);
+    const hit =
+      searchIn(content, { requireVisible: true }) ||
+      searchIn(content, { requireVisible: false }) ||
+      searchIn(summary.parentElement, { requireVisible: false });
+    if (hit) return hit;
+  }
+
+  // 4) Documento — visível, senão com layout (off-screen)
+  return (
+    searchIn(document, { requireVisible: true }) ||
+    searchIn(document, { requireVisible: false })
+  );
+}
+
+function confirmButtonLooksEnabled(btn) {
+  if (!btn) return false;
+  if (btn.disabled) return false;
+  if (btn.getAttribute?.("aria-disabled") === "true") return false;
+  if (btn.classList?.contains("Mui-disabled")) return false;
+  try {
+    const st = btn.getAttribute("style") || "";
+    if (/pointer-events\s*:\s*none/i.test(st)) return false;
+  } catch {
+    /* ignore */
+  }
+  return true;
+}
+
+/** Espera confirmação do Adulto N (próximo pode abrir com Confirmar já visível). */
+async function waitConfirmAccepted({
+  beforeFirstName = "",
+  adultNumber = 1,
+  timeoutMs = 12000,
+} = {}) {
+  const start = Date.now();
+  let goneStreak = 0;
+
+  const currentLooksDone = () => {
+    const current = findAdultoAccordionByAdt(adultNumber);
+    if (!current) return false;
+    const expanded = current.getAttribute("aria-expanded") === "true";
+    const summary = normalizeLabel(textOf(current)).slice(0, 120);
+    // Depois de confirmar: some "Adulto N" vazio e aparece nome/CPF
+    const stillEmptyLabel = new RegExp(
+      `^adulto\\s*${adultNumber}\\b`
+    ).test(summary);
+    const hasCpfHint = /\d{5,}/.test(summary.replace(/\s/g, ""));
+    const hasPersonName =
+      summary.length > 12 && !stillEmptyLabel && !summary.startsWith("adulto");
+    if (!expanded && (hasPersonName || hasCpfHint || !stillEmptyLabel)) {
+      return true;
+    }
+    if (!expanded && !stillEmptyLabel) return true;
+    return false;
+  };
+
+  const nextLooksOpen = () => {
+    const next = findAdultoAccordionByAdt(adultNumber + 1);
+    if (!next) return false;
+    return next.getAttribute("aria-expanded") === "true";
+  };
+
+  while (Date.now() - start < timeoutMs) {
+    // Sucesso típico pax 2→3: atual fechou e/ou próximo abriu (Confirmar já na tela)
+    if (currentLooksDone()) {
+      console.info("[TradeMiles] Confirmar OK — Adulto", adultNumber, "fechou/concluiu");
+      await sleep(500);
+      return true;
+    }
+    if (nextLooksOpen()) {
+      const nameVal = String(findConfirmNameInput("first")?.value || "").trim();
+      if (
+        !beforeFirstName ||
+        !nameVal ||
+        normalizeLabel(nameVal) !== normalizeLabel(beforeFirstName)
+      ) {
+        console.info("[TradeMiles] Confirmar OK — Adulto", adultNumber + 1, "já aberto");
+        await sleep(500);
+        return true;
+      }
+    }
+
+    const btn = findConfirmDadosButton(document, adultNumber);
+    if (!btn) {
+      goneStreak += 1;
+      if (goneStreak >= 3) {
+        await sleep(400);
+        return true;
+      }
+    } else {
+      goneStreak = 0;
+      // Confirmar ainda visível do PRÓXIMO adulto — atual já concluiu
+      if (currentLooksDone() || (Date.now() - start > 2500 && nextLooksOpen())) {
+        await sleep(400);
+        return true;
+      }
+    }
+    await sleep(300);
+  }
+
+  if (currentLooksDone() || nextLooksOpen()) return true;
+  return false;
+}
+
+/** Clica "Confirmar dados" no mundo MAIN (React/MUI). Cada Adulto tem o seu. */
+function clickConfirmDadosInPage(adultNumber) {
+  const id = `tm-confirm-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+  return new Promise((resolve) => {
+    const onMsg = (ev) => {
+      const data = ev.data;
+      if (
+        !data ||
+        data.source !== "trademiles-page" ||
+        data.type !== "click-confirm-dados-done" ||
+        data.id !== id
+      ) {
+        return;
+      }
+      window.removeEventListener("message", onMsg);
+      console.info("[TradeMiles] click-confirm-dados MAIN", {
+        adultNumber,
+        ok: data.ok,
+        how: data.how,
+      });
+      resolve(!!data.ok);
+    };
+    window.addEventListener("message", onMsg);
+    window.postMessage(
+      {
+        source: "trademiles",
+        type: "click-confirm-dados",
+        id,
+        adultNumber: adultNumber || null,
+      },
+      "*"
+    );
+    setTimeout(() => {
+      window.removeEventListener("message", onMsg);
+      resolve(false);
+    }, 1500);
+  });
+}
+
+async function clickConfirmDados(root, adultNumber = null) {
+  // 1) Clique no MAIN world — único que gruda no MUI da LATAM
+  const mainOk = await clickConfirmDadosInPage(adultNumber);
+  if (mainOk) {
+    await sleep(900);
+    return true;
+  }
+
+  // 2) Fallback: span.MuiButton-label → .MuiButtonBase-root
+  const labels = Array.from(
+    document.querySelectorAll("span.MuiButton-label")
+  ).filter((el) => {
+    const t = normalizeLabel(textOf(el));
+    return t === "confirmar dados" || t.startsWith("confirmar dados");
+  });
+
+  let target = null;
+  const content = adultNumber ? getAdultoAccordionContent(adultNumber) : null;
+  for (const lab of labels) {
+    const btn =
+      lab.closest("button") ||
+      lab.closest(".MuiButtonBase-root") ||
+      lab.closest('[role="button"]');
+    if (!btn) continue;
+    if (content && !(content.contains(btn) || content.contains(lab))) continue;
+    try {
+      if (isVisible(btn) || isVisible(lab)) {
+        target = { btn, lab };
+        break;
+      }
+    } catch {
+      target = { btn, lab };
+      break;
+    }
+  }
+  if (!target && labels.length) {
+    const lab = labels[labels.length - 1];
+    target = {
+      btn:
+        lab.closest("button") ||
+        lab.closest(".MuiButtonBase-root") ||
+        lab,
+      lab,
+    };
+  }
+
+  if (!target) {
+    const btn =
+      findConfirmDadosButton(root || document, adultNumber) ||
+      findConfirmDadosButton(document, adultNumber);
+    if (!btn) {
+      console.warn(
+        "[TradeMiles] Confirmar dados NÃO achado",
+        adultNumber ? `ADT_${adultNumber}` : ""
+      );
+      return false;
+    }
+    target = { btn, lab: btn.querySelector("span.MuiButton-label") };
+  }
+
+  safeScrollIntoView(target.btn);
+  try {
+    target.btn.disabled = false;
+    target.btn.setAttribute("aria-disabled", "false");
+    target.btn.classList?.remove?.("Mui-disabled");
+  } catch {
+    /* ignore */
+  }
+  await reactClickInPage(target.btn);
+  try {
+    target.btn.click();
+  } catch {
+    /* ignore */
+  }
+  if (target.lab) {
+    await reactClickInPage(target.lab);
+    try {
+      target.lab.click();
+    } catch {
+      /* ignore */
+    }
+  }
+  // Retry MAIN uma vez
+  await clickConfirmDadosInPage(adultNumber);
+  console.info("[TradeMiles] Clique Confirmar fallback", {
+    adultNumber,
+    tag: target.btn.tagName,
+  });
   await sleep(900);
   return true;
 }
 
-/** Só botões reais "Adulto N" — nunca div/span solto (clique errado some a página). */
+async function ensurePhoneFilledForConfirm(phone) {
+  if (!phone) return true;
+  const digitsWant = normalizePhoneDigits(phone);
+  if (digitsWant.length < 10) return false;
+  for (let t = 0; t < 5; t++) {
+    const el = findPhoneInput(findContactSectionRoot(), 0);
+    const got = String(el?.value || "").replace(/\D/g, "");
+    if (got.length >= 10) return true;
+    await ensureContactSectionOpen();
+    await fillContactFields(null, phone, {
+      passengerIndex: visibleActivePassengerIndex(),
+    });
+    await sleep(200);
+  }
+  const el = findPhoneInput(findContactSectionRoot(), 0);
+  return String(el?.value || "").replace(/\D/g, "").length >= 10;
+}
+
+/** Só botões/acordeões "Adulto N" — inclui MUI AccordionSummary. */
 function findAdultoHeaderButtons() {
   const nodes = Array.from(
-    document.querySelectorAll("button, [role='button']")
+    document.querySelectorAll(
+      "button, [role='button'], [aria-expanded], [class*='AccordionSummary'], [class*='accordion-summary' i]"
+    )
   );
   const found = [];
   const seen = new Set();
   for (const el of nodes) {
-    if (!isVisible(el)) continue;
-    const t = textOf(el);
-    if (!/^(Adulto|Criança|Crianca|Bebê|Bebe)\s*\d*\b/i.test(t) || t.length > 36) {
+    try {
+      if (!isVisible(el)) continue;
+    } catch {
+      continue;
+    }
+    const t = textOf(el).split("\n")[0].trim();
+    if (!/^(Adulto|Criança|Crianca|Bebê|Bebe)\s*\d+\b/i.test(t) || t.length > 40) {
       continue;
     }
     if (isUnsafeClickTarget(el)) continue;
     if (normalizeLabel(t).includes("confirmar")) continue;
     const r = el.getBoundingClientRect();
-    if (r.height > 80 || r.width > 600) continue;
+    if (r.height > 100 || r.width > 700) continue;
     if (seen.has(el)) continue;
     seen.add(el);
     const numMatch = t.match(/(\d+)/);
@@ -1509,105 +2056,371 @@ function formRootNear(el) {
   return el.parentElement || document.body;
 }
 
+/** Primeiro input VISÍVEL que casa com os seletores (evita pegar Adulto 1 escondido). */
+function queryVisibleInput(selectors) {
+  const list = Array.isArray(selectors) ? selectors : [selectors];
+  for (const sel of list) {
+    try {
+      for (const el of document.querySelectorAll(sel)) {
+        if (!el || el.disabled) continue;
+        if (isLatamEmailField(el) || isLatamPhoneField(el)) continue;
+        try {
+          if (isVisible(el)) return el;
+        } catch {
+          /* pattern inválido — se tem size, aceita */
+          try {
+            const r = el.getBoundingClientRect?.();
+            if (r && r.width > 2 && r.height > 2) return el;
+          } catch {
+            /* ignore */
+          }
+        }
+      }
+    } catch {
+      /* selector inválido */
+    }
+  }
+  return null;
+}
+
+/** Ficha de edição aberta (após Confirmar a LATAM abre o próximo sozinha). */
+function confirmAdultFormIsOpen() {
+  const first = findConfirmNameInput("first");
+  const last = findConfirmNameInput("last");
+  const btn = findConfirmDadosButton(document);
+
+  // Ideal: nome + sobrenome visíveis
+  if (
+    first &&
+    last &&
+    !first.disabled &&
+    !last.disabled &&
+    !first.readOnly &&
+    !last.readOnly
+  ) {
+    return true;
+  }
+
+  // Confirmar + nome (sobrenome às vezes demora 1 frame)
+  if (btn && first && !first.disabled) return true;
+
+  // Confirmar + vários campos da ficha (nome pode ter seletor diferente)
+  if (btn) {
+    const inputs = visibleTextInputs(
+      currentPassengerFormRoot() || document.body
+    );
+    if (inputs.length >= 3) return true;
+    const dob = findDateOfBirthInput(document.body);
+    try {
+      if (dob && isVisible(dob)) return true;
+    } catch {
+      if (dob) return true;
+    }
+  }
+
+  return false;
+}
+
+async function clickAdultoHeader(el) {
+  if (!el) return false;
+  safeScrollIntoView(el);
+  await sleep(150);
+  await reactClickInPage(el);
+  try {
+    el.dispatchEvent(
+      new PointerEvent("pointerdown", {
+        bubbles: true,
+        cancelable: true,
+        pointerId: 1,
+        pointerType: "mouse",
+        isPrimary: true,
+        button: 0,
+      })
+    );
+    el.dispatchEvent(
+      new PointerEvent("pointerup", {
+        bubbles: true,
+        cancelable: true,
+        pointerId: 1,
+        pointerType: "mouse",
+        isPrimary: true,
+        button: 0,
+      })
+    );
+    el.dispatchEvent(
+      new MouseEvent("click", { bubbles: true, cancelable: true, view: window })
+    );
+  } catch {
+    /* ignore */
+  }
+  try {
+    el.click?.();
+  } catch {
+    /* ignore */
+  }
+  // Chevron interno (MUI Accordion)
+  const icon = el.querySelector?.(
+    "[class*='ExpandMore'], [class*='expand'], svg, [class*='Icon']"
+  );
+  if (icon) {
+    try {
+      icon.dispatchEvent?.(
+        new MouseEvent("click", { bubbles: true, cancelable: true, view: window })
+      );
+    } catch {
+      /* ignore */
+    }
+  }
+  return true;
+}
+
 /**
- * Adulto 1: NÃO clica se o form já está visível (clicar fecha e some tudo).
- * Adulto 2+: SEMPRE clica no cabeçalho "Adulto N" (não confiar em formRootNear
- * do documento inteiro — isso via o Adulto 1 aberto e pulava o clique).
+ * Acordeão LATAM /pagamentos:
+ * <div role="button" id="accordion-passenger-ADT_2"
+ *   data-testid="accordion-passenger-ADT_2-accordion" aria-expanded="false">
+ */
+function findAdultoAccordionByAdt(adultNumber) {
+  const n = Number(adultNumber);
+  if (!n || n < 1) return null;
+  return (
+    document.querySelector(
+      `[data-testid="accordion-passenger-ADT_${n}-accordion"]`
+    ) ||
+    document.querySelector(`#accordion-passenger-ADT_${n}`) ||
+    document.querySelector(
+      `[aria-controls="accordion-passenger-ADT_${n}-content"]`
+    ) ||
+    null
+  );
+}
+
+/**
+ * Adulto aberto no /pagamentos (accordion-passenger-ADT_N).
+ * IDs reais LATAM: passengerDetails-firstName-ADT_1, taxDocument-documentNumber-ADT_1…
+ */
+function getOpenConfirmAdultNumber() {
+  for (let n = 1; n <= 9; n++) {
+    const el = findAdultoAccordionByAdt(n);
+    if (el && el.getAttribute("aria-expanded") === "true") return n;
+  }
+  for (let n = 1; n <= 9; n++) {
+    const el =
+      document.getElementById(`passengerDetails-firstName-ADT_${n}`) ||
+      document.querySelector(
+        `input[data-testid="passengerDetails-firstName-ADT_${n}-textfield-input"]`
+      );
+    try {
+      if (el && isVisible(el)) return n;
+    } catch {
+      if (el) return n;
+    }
+  }
+  return 1;
+}
+
+function findConfirmAdtField(adultNumber, key) {
+  const n = Number(adultNumber) || getOpenConfirmAdultNumber();
+  const map = {
+    firstName: {
+      id: `passengerDetails-firstName-ADT_${n}`,
+      name: "passengerDetails.firstName",
+      testid: `passengerDetails-firstName-ADT_${n}-textfield-input`,
+    },
+    lastName: {
+      id: `passengerDetails-lastName-ADT_${n}`,
+      name: "passengerDetails.lastName",
+      testid: `passengerDetails-lastName-ADT_${n}-textfield-input`,
+    },
+    dob: {
+      id: `passengerInfo-dateOfBirth-ADT_${n}`,
+      name: "passengerInfo.dateOfBirth",
+    },
+    gender: {
+      id: `passengerInfo-gender-ADT_${n}`,
+      name: "passengerInfo.gender",
+      testid: `passengerInfo-gender-ADT_${n}-select-input`,
+    },
+    cpf: {
+      id: `taxDocument-documentNumber-ADT_${n}`,
+      name: "taxDocument.documentNumber",
+      testid: `taxDocument-documentNumber-ADT_${n}-textfield-input`,
+    },
+    email: {
+      id: `passengerInfo-emails-ADT_${n}`,
+      name: "passengerInfo.emails",
+      testid: `passengerInfo-emails-ADT_${n}-textfield-input`,
+    },
+    phone: {
+      id: `passengerInfo-phones0-number-ADT_${n}`,
+      name: "passengerInfo.phones[0].number",
+      testid: `passengerInfo-phones0-number-ADT_${n}-textfield-input`,
+    },
+  };
+  const spec = map[key];
+  if (!spec || !n) return null;
+
+  const content = getAdultoAccordionContent(n);
+  const tryPick = (el) => {
+    if (!el) return null;
+    try {
+      if (isVisible(el)) return el;
+    } catch {
+      return el;
+    }
+    if (content && content.contains?.(el) && hasLayoutSize(el)) return el;
+    return null;
+  };
+
+  const fromScope = (scope) => {
+    if (!scope?.querySelector) return null;
+    let el =
+      (spec.id && document.getElementById(spec.id)) ||
+      (spec.testid &&
+        scope.querySelector(`input[data-testid="${spec.testid}"]`)) ||
+      null;
+    if (el && scope !== document && !scope.contains(el)) {
+      el =
+        (spec.testid &&
+          scope.querySelector(`input[data-testid="${spec.testid}"]`)) ||
+        (spec.id && scope.querySelector(`#${CSS.escape(spec.id)}`)) ||
+        null;
+    }
+    if (!el && spec.name) {
+      const nodes = [...scope.querySelectorAll(`input[name="${spec.name}"]`)];
+      el =
+        nodes.find((node) => (node.id || "").includes(`ADT_${n}`)) ||
+        nodes.find((node) => tryPick(node)) ||
+        nodes[0] ||
+        null;
+    }
+    if (!el && spec.id) {
+      el = scope.querySelector(`#${CSS.escape(spec.id)}`);
+    }
+    return tryPick(el) || (el && content && content.contains(el) ? el : null);
+  };
+
+  return (
+    fromScope(content) ||
+    fromScope(document) ||
+    (spec.id ? document.getElementById(spec.id) : null)
+  );
+}
+
+function isAdultoAccordionExpanded(adultNumber) {
+  const el = findAdultoAccordionByAdt(adultNumber);
+  if (!el) return false;
+  if (el.getAttribute("aria-expanded") === "true") return true;
+  const content =
+    document.getElementById(`accordion-passenger-ADT_${adultNumber}-content`) ||
+    document.querySelector(
+      `#accordion-passenger-ADT_${adultNumber}-content, [id*="ADT_${adultNumber}-content"]`
+    );
+  if (content) {
+    try {
+      if (isVisible(content) && visibleTextInputs(content).length >= 2) {
+        return true;
+      }
+    } catch {
+      if (visibleTextInputs(content).length >= 2) return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Espera a LATAM abrir sozinha; se continuar aria-expanded=false, UM clique
+ * no AccordionSummary certo (data-testid accordion-passenger-ADT_N).
+ */
+async function ensureAdultoAccordionOpen(adultNumber) {
+  const n = Number(adultNumber);
+  console.info("[TradeMiles] ensureAdultoAccordionOpen ADT_", n);
+
+  // Só considera "já aberto" se ESTE Adulto N está expandido
+  if (isAdultoAccordionExpanded(n)) {
+    await sleep(400);
+    if (isAdultoAccordionExpanded(n) || confirmAdultFormIsOpen()) return true;
+  }
+
+  // Espera abrir sozinho após Confirmar (~6s)
+  const waitStart = Date.now();
+  while (Date.now() - waitStart < 6000) {
+    if (confirmAdultFormIsOpen() || isAdultoAccordionExpanded(n)) {
+      await sleep(500);
+      return true;
+    }
+    await sleep(300);
+  }
+
+  const header = findAdultoAccordionByAdt(n);
+  if (!header) {
+    console.warn("[TradeMiles] Accordion ADT_", n, "não encontrado no DOM");
+    return confirmAdultFormIsOpen();
+  }
+
+  // Ainda fechado — UM clique no summary (não spam)
+  if (header.getAttribute("aria-expanded") !== "true") {
+    console.info(
+      "[TradeMiles] Clique único em accordion-passenger-ADT_",
+      n
+    );
+    await clickAdultoHeader(header);
+    await sleep(1200);
+  }
+
+  for (let w = 0; w < 16; w++) {
+    if (
+      header.getAttribute("aria-expanded") === "true" ||
+      confirmAdultFormIsOpen() ||
+      isAdultoAccordionExpanded(n)
+    ) {
+      await sleep(400);
+      return true;
+    }
+    await sleep(300);
+  }
+
+  return (
+    confirmAdultFormIsOpen() ||
+    isAdultoAccordionExpanded(n) ||
+    Boolean(findConfirmDadosButton(document))
+  );
+}
+
+/**
+ * Adulto 1: não clica.
+ * Adulto 2+: usa accordion-passenger-ADT_N (espera sozinho, 1 clique se preciso).
  */
 async function expandAdultoSlot(idx) {
-  const formVisible =
-    Boolean(findConfirmDadosButton(document)) ||
-    Boolean(findDateOfBirthInput(document.body)) ||
-    Boolean(findFirstNameField(document.body));
-
-  // Primeiro adulto: usa o que já está na tela
-  if (idx === 0 && formVisible) {
+  const adultNumber = idx + 1;
+  if (idx === 0) {
     return {
-      header: null,
+      header: findAdultoAccordionByAdt(1),
       root: currentPassengerFormRoot(),
-      open: true,
+      open: confirmAdultFormIsOpen() || Boolean(findConfirmDadosButton(document)),
     };
   }
 
-  const headers = findAdultoHeaderButtons();
-  const slot = headers.find((h) => h.order === idx + 1) || null;
-  if (!slot) {
-    console.warn("[TradeMiles] Cabeçalho Adulto", idx + 1, "não encontrado");
-    return {
-      header: null,
-      root: currentPassengerFormRoot(),
-      open: formVisible,
-    };
-  }
-
-  try {
-    slot.el.scrollIntoView?.({ block: "center", behavior: "instant" });
-  } catch {
-    slot.el.scrollIntoView?.({ block: "center" });
-  }
-  await sleep(200);
-
-  const ariaOpen = slot.el.getAttribute?.("aria-expanded") === "true";
-  // idx>0: sempre tenta abrir (exceto se aria diz aberto E já há campos
-  // só neste item — não no documento inteiro)
-  const itemRoot = (() => {
-    let p = slot.el.parentElement;
-    for (let i = 0; i < 8 && p; i++) {
-      const otherAdults = findAdultoHeaderButtons().filter(
-        (h) => h.el !== slot.el && p.contains(h.el)
-      );
-      if (otherAdults.length === 0 && visibleTextInputs(p).length >= 2) {
-        return p;
-      }
-      if (otherAdults.length === 0) {
-        const maybe = p;
-        p = p.parentElement;
-        if (!p) return maybe;
-        continue;
-      }
-      p = p.parentElement;
-    }
-    return slot.el.parentElement || document.body;
-  })();
-
-  const fieldsHere = visibleTextInputs(itemRoot).length >= 2;
-  if (!(ariaOpen && fieldsHere)) {
-    const beforeName =
-      findFirstNameField(document.body)?.value ||
-      document.querySelector('input[name$="_firstName"]')?.value ||
-      "";
-    slot.el.click?.();
-    await sleep(850);
-    // Se a LATAM fechou tudo, tenta de novo
-    if (visibleTextInputs(document.body).length < 2) {
-      slot.el.click?.();
-      await sleep(850);
-    }
-    // Espera trocar o formulário ativo
-    for (let t = 0; t < 10; t++) {
-      const nowName =
-        findFirstNameField(document.body)?.value ||
-        document.querySelector('input[name$="_firstName"]')?.value ||
-        "";
-      if (
-        visibleTextInputs(document.body).length >= 2 &&
-        (t >= 3 || nowName !== beforeName || !beforeName)
-      ) {
-        break;
-      }
-      await sleep(200);
-    }
-  }
-
+  const open = await ensureAdultoAccordionOpen(adultNumber);
   return {
-    header: slot.el,
+    header: findAdultoAccordionByAdt(adultNumber),
     root: currentPassengerFormRoot(),
-    open: visibleTextInputs(currentPassengerFormRoot()).length >= 2,
+    open,
   };
 }
 
-/** Escopo do formulário atual (perto do botão Confirmar dados). */
+/** Escopo do formulário atual (painel ADT aberto ou perto do Confirmar). */
 function currentPassengerFormRoot() {
+  if (getPassengerFormKind() === "confirm") {
+    const n = getOpenConfirmAdultNumber();
+    const content = getAdultoAccordionContent(n);
+    if (content) {
+      try {
+        if (visibleTextInputs(content).length >= 2) return content;
+      } catch {
+        if (content.querySelectorAll("input").length >= 2) return content;
+      }
+    }
+  }
   const btn = findConfirmDadosButton();
   if (btn) {
     let p = btn.parentElement;
@@ -1777,11 +2590,15 @@ function findContactSectionRoot() {
   });
   if (!title) return document.body;
   let p = title.parentElement;
-  for (let i = 0; i < 10 && p; i++) {
-    if (visibleTextInputs(p).length >= 1) return p;
+  let best = title.parentElement || document.body;
+  for (let i = 0; i < 12 && p; i++) {
+    const inputs = visibleTextInputs(p);
+    // Precisa e-mail + número (não parar no 1º input só do e-mail)
+    if (inputs.length >= 2) return p;
+    if (inputs.length >= 1) best = p;
     p = p.parentElement;
   }
-  return title.parentElement || document.body;
+  return best;
 }
 
 function checkRepeatContactCheckbox(root = document.body) {
@@ -1803,25 +2620,152 @@ function checkRepeatContactCheckbox(root = document.body) {
   return false;
 }
 
+function isLikelyCountryCodeInput(el) {
+  if (!el) return true;
+  // DDI costuma ser curto (+55)
+  if (el.maxLength > 0 && el.maxLength <= 4) return true;
+  // Só atributos PRÓPRIOS — fieldMeta pega "Código" + "Número" no mesmo row
+  // e classificava o telefone como DDI (bug: Número nunca preenchia).
+  const own = ownFieldLabel(el);
+  if (/\bnumero\b/.test(own) || /\btelefone\b/.test(own) || /\bcelular\b/.test(own)) {
+    return false;
+  }
+  return (
+    /\bcodigo\b/.test(own) ||
+    /\bdial\b/.test(own) ||
+    /\bcountry.?code\b/.test(own) ||
+    /\bddi\b/.test(own) ||
+    own.includes("phone country") ||
+    own.includes("codigo do pais") ||
+    own.includes("phoneCountry") ||
+    own.includes("countrycalling")
+  );
+}
+
+function isLikelyPhoneNumberInput(el) {
+  if (!el) return false;
+  try {
+    if (el.type === "hidden" || el.type === "checkbox") return false;
+    // LATAM bug (só /pagamentos): telefone vem como type="email"
+    if (el.type === "email") {
+      if (getPassengerFormKind() === "confirm" && isLatamPhoneField(el)) {
+        return true;
+      }
+      return false;
+    }
+    if (getPassengerFormKind() === "confirm" && isLatamPhoneField(el)) return true;
+    if (isLikelyCountryCodeInput(el)) return false;
+    const own = ownFieldLabel(el);
+    const meta = fieldMeta(el);
+    if (own.includes("email") || meta.includes("e-mail")) {
+      if (!/\bnumero\b/.test(own) && !/\btelefone\b/.test(own)) return false;
+    }
+    if (/\bcpf\b/.test(own) || own.includes("documento")) return false;
+    if (meta.includes("passageiro frequente") && !/\bnumero\b/.test(own)) {
+      return false;
+    }
+    if (meta.includes("nascimento") && !/\bnumero\b/.test(own)) return false;
+    if (
+      (/\bnome\b/.test(own) || /\bsobrenome\b/.test(own)) &&
+      !/\bnumero\b/.test(own)
+    ) {
+      return false;
+    }
+    if (/\bnumero\b/.test(own) || /\bnumero\b/.test(meta)) return true;
+    if (el.type === "tel" || el.inputMode === "tel") return true;
+    if (el.autocomplete === "tel" || el.autocomplete === "tel-national") {
+      return true;
+    }
+    if (
+      /\btelefone\b/.test(own) ||
+      /\btelefone\b/.test(meta) ||
+      /\bcelular\b/.test(own) ||
+      /\bcelular\b/.test(meta) ||
+      /\bphone\b/.test(own) ||
+      /\bmobile\b/.test(own)
+    ) {
+      return true;
+    }
+    const name = normalizeLabel(el.name || el.id || "").replace(/\s+/g, "");
+    if (
+      /passengerinfo_number|phones?\[|phones0|contact.*number|phone.?number|phonenumber|_number$|_phone\b/.test(
+        name
+      )
+    ) {
+      return true;
+    }
+    return false;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Campo "Número" do contato LATAM.
- * Cuidado: NÃO excluir por "codigo" no meta — o +55 fica no mesmo bloco
- * e fazia a busca pular o telefone.
+ * No /pagamentos/passageiros: name="passengerInfo.phones[0].number" (type=email!).
+ * No /v2 mantém os seletores antigos (passenger-N_phone…).
  */
 function findPhoneInput(root, idx = 0) {
-  const scope = root || findContactSectionRoot() || document.body;
+  // Só no formulário "Confirmar dados" — não altera o v2/acordeão
+  if (getPassengerFormKind() === "confirm") {
+    const adt = findConfirmAdtField(Number(idx) + 1, "phone");
+    if (adt) return adt;
+    const exact = [
+      'input[name="passengerInfo.phones[0].number"]',
+      'input[id*="phones0-number" i]',
+      'input[data-testid*="phones0-number" i]',
+      'input[name*="phones[0].number"]',
+      'input[name*="phones"][name*="number"]',
+    ];
+    for (const sel of exact) {
+      try {
+        const nodes = [...document.querySelectorAll(sel)];
+        const el =
+          nodes.find((node) => {
+            try {
+              return isVisible(node);
+            } catch {
+              return hasLayoutSize(node);
+            }
+          }) || nodes[0];
+        if (el) return el;
+      } catch {
+        /* ignore */
+      }
+    }
+
+    try {
+      const byAria = [...document.querySelectorAll("input")].find((el) =>
+        isLatamPhoneField(el)
+      );
+      if (byAria) return byAria;
+    } catch {
+      /* ignore */
+    }
+  }
+
+  const safeRect = (el) => {
+    try {
+      return el.getBoundingClientRect();
+    } catch {
+      return { top: 0, left: 0, width: 1, height: 1, bottom: 1, right: 1 };
+    }
+  };
+
   const named = [
     `input[name="passenger-${idx}_passengerInfo_number"]`,
     `input[data-testid="passenger-${idx}_passengerInfo_number--text-field"]`,
     `input[name="passenger-0_passengerInfo_number"]`,
     `input[data-testid="passenger-0_passengerInfo_number--text-field"]`,
+    `input[name*="passengerInfo_number" i]`,
+    `input[data-testid*="passengerInfo_number" i]`,
     `input[name="passenger-${idx}_phoneNumber"]`,
     `input[name="passenger-${idx}_phone"]`,
-    `input[name="passenger-${idx}_mobilePhone"]`,
     `input[name="passenger-0_phoneNumber"]`,
     `input[name="passenger-0_phone"]`,
-    `input[autocomplete="tel"]`,
+    `input[name*="phoneNumber" i]`,
     `input[autocomplete="tel-national"]`,
+    `input[autocomplete="tel"]`,
     `input[type="tel"]`,
     `input[inputmode="tel"]`,
   ];
@@ -1829,87 +2773,205 @@ function findPhoneInput(root, idx = 0) {
     try {
       const el = [...document.querySelectorAll(sel)].find((node) => {
         try {
-          return isVisible(node);
+          // No v2, type=email continua NÃO sendo telefone
+          if (getPassengerFormKind() !== "confirm" && node.type === "email") {
+            return false;
+          }
+          return isLikelyPhoneNumberInput(node);
         } catch {
           return false;
         }
       });
-      if (!el) continue;
-      let meta = "";
-      try {
-        meta = fieldMeta(el);
-      } catch {
-        meta = String(el.name || el.id || "");
-      }
-      if (meta.includes("email")) continue;
-      if (meta.includes("documento") || meta.includes("cpf")) continue;
-      // DDI / código do país (curto)
-      if (el.maxLength > 0 && el.maxLength <= 4) continue;
-      return el;
+      if (el) return el;
     } catch {
-      /* selector inválido em algum browser */
+      /* selector inválido */
     }
   }
 
-  // Fallback amplo: input ao lado do e-mail / com aria Número
-  try {
-    const byAria = [...document.querySelectorAll("input")].find((el) => {
-      try {
-        if (!isVisible(el)) return false;
-        const aria = normalizeLabel(el.getAttribute("aria-label") || "");
-        const ph = normalizeLabel(el.placeholder || "");
-        const name = normalizeLabel(el.name || "");
+  // Heurísticas extras (Número / após e-mail) só no confirm form
+  if (getPassengerFormKind() !== "confirm") {
+    // Fallback v2 clássico: rótulo telefone/número sem type=email
+    try {
+      const scope = root || findContactSectionRoot() || document.body;
+      const candidates = visibleTextInputs(scope).filter((el) => {
         if (el.type === "email") return false;
-        if (aria === "numero" || ph === "numero" || /\bnumber\b/.test(name)) {
-          return el.maxLength === 0 || el.maxLength > 4;
-        }
-        return false;
+        const meta = fieldMeta(el);
+        if (meta.includes("email") || meta.includes("e-mail")) return false;
+        if (meta.includes("documento") || meta.includes("cpf")) return false;
+        if (el.maxLength > 0 && el.maxLength <= 4) return false;
+        return (
+          /\bnumero\b/.test(meta) ||
+          /\btelefone\b/.test(meta) ||
+          /\bcelular\b/.test(meta) ||
+          el.type === "tel" ||
+          el.inputMode === "tel"
+        );
+      });
+      const byNumero = candidates.find((el) => /\bnumero\b/.test(fieldMeta(el)));
+      return byNumero || candidates[0] || null;
+    } catch {
+      return null;
+    }
+  }
+
+  try {
+    const byNumero = [...document.querySelectorAll("input")].find((el) => {
+      try {
+        if (isLatamEmailField(el)) return false;
+        if (isLikelyCountryCodeInput(el)) return false;
+        const own = ownFieldLabel(el);
+        const meta = fieldMeta(el);
+        return (
+          isLatamPhoneField(el) ||
+          /\bnumero\b/.test(own) ||
+          /\bnumero\b/.test(meta) ||
+          /\btelefone\b/.test(own)
+        );
       } catch {
         return false;
       }
     });
-    if (byAria) return byAria;
+    if (byNumero) return byNumero;
   } catch {
     /* ignore */
   }
 
-  const candidates = visibleTextInputs(scope).filter((el) => {
-    if (el.type === "email") return false;
-    const meta = fieldMeta(el);
-    if (meta.includes("email") || meta.includes("e-mail")) return false;
-    if (meta.includes("documento") || meta.includes("cpf")) return false;
-    if (meta.includes("passageiro frequente")) return false;
-    if (meta.includes("nascimento")) return false;
-    if (meta.includes("nome") || meta.includes("sobrenome")) return false;
-    if (el.maxLength > 0 && el.maxLength <= 4) return false;
-    return (
-      /\bnumero\b/.test(meta) ||
-      /\btelefone\b/.test(meta) ||
-      /\bcelular\b/.test(meta) ||
-      el.type === "tel" ||
-      el.inputMode === "tel" ||
-      el.inputMode === "numeric"
-    );
-  });
-
-  // Prefere o que tem rótulo "numero" (ao lado do Código +55)
-  const byNumero = candidates.find((el) => /\bnumero\b/.test(fieldMeta(el)));
-  if (byNumero) return byNumero;
-
-  // Perto do e-mail / bandeira +55
-  const emailEl =
-    scope.querySelector?.('input[type="email"]') ||
-    [...visibleTextInputs(scope)].find((el) => el.type === "email");
-  if (emailEl) {
-    const near = candidates.find((el) => {
-      const er = emailEl.getBoundingClientRect();
-      const pr = el.getBoundingClientRect();
-      return Math.abs(pr.top - er.top) < 80 && pr.left >= er.left - 40;
-    });
-    if (near) return near;
+  // Ordem no DOM: inputs logo após o e-mail real
+  try {
+    const emailEl = findLatamEmailInput();
+    if (emailEl) {
+      const all = [
+        ...document.querySelectorAll(
+          "input:not([type=hidden]):not([type=checkbox]):not([type=radio]):not([type=button]):not([type=submit])"
+        ),
+      ];
+      const ei = all.indexOf(emailEl);
+      if (ei >= 0) {
+        const after = all.slice(ei + 1, ei + 6);
+        const phone =
+          after.find((el) => isLatamPhoneField(el) || isLikelyPhoneNumberInput(el)) ||
+          after.find((el) => !isLikelyCountryCodeInput(el) && !isLatamEmailField(el));
+        if (phone) return phone;
+      }
+    }
+  } catch {
+    /* ignore */
   }
 
-  return candidates[0] || null;
+  const scopes = [root, findContactSectionRoot(), document.body].filter(Boolean);
+  for (const scope of scopes) {
+    const emailEl = findLatamEmailInput() || scope.querySelector?.('input[type="email"]');
+    if (!emailEl) continue;
+
+    const contactRoot = (() => {
+      let p = emailEl.parentElement;
+      for (let i = 0; i < 10 && p; i++) {
+        const inputs = [
+          ...p.querySelectorAll(
+            "input:not([type=hidden]):not([type=checkbox]):not([type=radio])"
+          ),
+        ];
+        if (inputs.length >= 2) return p;
+        p = p.parentElement;
+      }
+      return emailEl.closest("form") || scope || document.body;
+    })();
+
+    const candidates = [
+      ...contactRoot.querySelectorAll(
+        "input:not([type=hidden]):not([type=checkbox]):not([type=radio])"
+      ),
+    ].filter((el) => el !== emailEl && !isLatamEmailField(el));
+
+    const near = candidates
+      .filter((el) => !isLikelyCountryCodeInput(el) || isLatamPhoneField(el))
+      .sort((a, b) => {
+        const er = safeRect(emailEl);
+        const score = (el) => {
+          const r = safeRect(el);
+          const dy = Math.abs(r.top - er.top);
+          const dx = Math.abs(r.left - er.left);
+          const phoneBonus = isLatamPhoneField(el) ? -500 : 0;
+          const numeroBonus =
+            /\bnumero\b/.test(ownFieldLabel(el)) || /\bnumero\b/.test(fieldMeta(el))
+              ? -200
+              : 0;
+          return dy * 3 + dx + phoneBonus + numeroBonus;
+        };
+        return score(a) - score(b);
+      });
+
+    const pick =
+      near.find((el) => isLatamPhoneField(el)) ||
+      near.find((el) => isLikelyPhoneNumberInput(el)) ||
+      near[0];
+    if (pick) return pick;
+  }
+
+  return null;
+}
+
+function findLatamEmailInput(idx = 0) {
+  // Seletores do /pagamentos/passageiros só no confirm
+  if (getPassengerFormKind() === "confirm") {
+    const adt = findConfirmAdtField(Number(idx) + 1, "email");
+    if (adt) return adt;
+    const exact = [
+      'input[name="passengerInfo.emails"]',
+      'input[id*="passengerInfo-emails" i]',
+      'input[data-testid*="passengerInfo-emails" i]',
+    ];
+    for (const sel of exact) {
+      try {
+        const nodes = [...document.querySelectorAll(sel)];
+        const el =
+          nodes.find((node) => {
+            try {
+              return isVisible(node) && !isLatamPhoneField(node);
+            } catch {
+              return !isLatamPhoneField(node);
+            }
+          }) || nodes.find((node) => !isLatamPhoneField(node));
+        if (el) return el;
+      } catch {
+        /* ignore */
+      }
+    }
+    try {
+      const el = [...document.querySelectorAll("input")].find((node) =>
+        isLatamEmailField(node)
+      );
+      if (el) return el;
+    } catch {
+      /* ignore */
+    }
+  }
+
+  const exactV2 = [
+    `input[name="passenger-${idx}_passengerInfo_email"]`,
+    `input[data-testid="passenger-${idx}_passengerInfo_email--text-field"]`,
+    'input[name="passenger-0_passengerInfo_email"]',
+    `input[name="passenger-${idx}_email"]`,
+    'input[name="passenger-0_email"]',
+    'input[type="email"]',
+    'input[autocomplete="email"]',
+  ];
+  for (const sel of exactV2) {
+    try {
+      const el = document.querySelector(sel);
+      if (!el) continue;
+      // No confirm, não pegar o telefone disfarçado de email
+      if (getPassengerFormKind() === "confirm" && isLatamPhoneField(el)) continue;
+      return el;
+    } catch {
+      /* ignore */
+    }
+  }
+  return (
+    findFieldByWord(findContactSectionRoot(), ["email", "e-mail"]) ||
+    findFieldByWord(document.body, ["email", "e-mail"]) ||
+    null
+  );
 }
 
 function normalizePhoneDigits(phone) {
@@ -1923,28 +2985,33 @@ function normalizePhoneDigits(phone) {
 /** Contato fica no 1º pax no v2 — preencher com a ficha dele aberta. */
 async function fillContactFields(email, phone, { passengerIndex = 0 } = {}) {
   let n = 0;
-  const root = findContactSectionRoot();
   const idx = passengerIndex;
 
   if (email) {
     const want = String(email).trim().toLowerCase();
-    const emailEl =
-      document.querySelector(
-        `input[name="passenger-${idx}_passengerInfo_email"]`
-      ) ||
-      document.querySelector(
-        `input[data-testid="passenger-${idx}_passengerInfo_email--text-field"]`
-      ) ||
-      document.querySelector(
-        `input[name="passenger-0_passengerInfo_email"]`
-      ) ||
-      document.querySelector(
-        `input[name="passenger-${idx}_email"], input[name="passenger-0_email"], input[type="email"], input[autocomplete="email"]`
-      ) ||
-      findFieldByWord(root, ["email", "e-mail"]) ||
-      findFieldByWord(document.body, ["email", "e-mail"]);
-    if (emailEl && isVisible(emailEl)) {
-      if (setNativeValue(emailEl, want)) n++;
+    const emailEl = findLatamEmailInput(idx);
+    if (emailEl) {
+      disarmBadPattern(emailEl);
+      safeScrollIntoView(emailEl);
+      setNativeValue(emailEl, want);
+      await reactSetValueInPage(emailEl, want);
+      await sleep(80);
+      let got = String(emailEl.value || "").trim().toLowerCase();
+      if (got !== want) {
+        // Garante caractere a caractere se o React engoliu o final (.co vs .com)
+        await typeChars(emailEl, want, { clear: true, delay: 18 });
+        await sleep(60);
+        got = String(emailEl.value || "").trim().toLowerCase();
+        if (got !== want) {
+          await reactSetValueInPage(emailEl, want);
+          setNativeValue(emailEl, want);
+          got = String(emailEl.value || "").trim().toLowerCase();
+        }
+      }
+      if (got.includes("@")) n++;
+      console.info("[TradeMiles] email →", { want, got, name: emailEl.name });
+    } else {
+      console.warn("[TradeMiles] Campo e-mail não encontrado");
     }
   }
 
@@ -1952,29 +3019,36 @@ async function fillContactFields(email, phone, { passengerIndex = 0 } = {}) {
     const digits = normalizePhoneDigits(phone);
     if (digits.length >= 10) {
       const phoneEl =
-        findPhoneInput(root, idx) || findPhoneInput(document.body, idx);
+        findPhoneInput(null, idx) || findPhoneInput(document.body, idx);
       if (phoneEl) {
         console.info("[TradeMiles] telefone →", {
           name: phoneEl.name,
           id: phoneEl.id,
           testid: phoneEl.getAttribute("data-testid"),
-          placeholder: phoneEl.placeholder,
-          meta: fieldMeta(phoneEl).slice(0, 120),
+          type: phoneEl.type,
           digits,
         });
-        // Máscara LATAM: digitar dígitos (DDD + número)
-        await typeChars(phoneEl, digits, { clear: true, delay: 35 });
-        await sleep(120);
-        const got = String(phoneEl.value || "").replace(/\D/g, "");
-        if (got.length >= 10) {
-          n++;
-        } else {
+        disarmBadPattern(phoneEl);
+        // Só no confirm: LATAM marca telefone como type="email"
+        if (getPassengerFormKind() === "confirm") {
+          try {
+            if (phoneEl.type === "email") phoneEl.setAttribute("type", "text");
+          } catch {
+            /* ignore */
+          }
+        }
+        safeScrollIntoView(phoneEl);
+        await typeChars(phoneEl, digits, { clear: true, delay: 28 });
+        await sleep(100);
+        let got = String(phoneEl.value || "").replace(/\D/g, "");
+        if (got.length < 10) {
+          await reactSetValueInPage(phoneEl, digits);
           setNativeValue(phoneEl, digits);
           await sleep(80);
-          if (String(phoneEl.value || "").replace(/\D/g, "").length >= 10) n++;
-          else
-            console.warn("[TradeMiles] Telefone não grudou:", phoneEl.value);
+          got = String(phoneEl.value || "").replace(/\D/g, "");
         }
+        if (got.length >= 10) n++;
+        else console.warn("[TradeMiles] Telefone não grudou:", phoneEl.value);
       } else {
         console.warn("[TradeMiles] Campo telefone/número não encontrado");
       }
@@ -1984,7 +3058,7 @@ async function fillContactFields(email, phone, { passengerIndex = 0 } = {}) {
   }
 
   if (
-    checkRepeatContactCheckbox(root) ||
+    checkRepeatContactCheckbox(findContactSectionRoot()) ||
     checkRepeatContactCheckbox(document.body)
   ) {
     n++;
@@ -2016,39 +3090,231 @@ function visibleActivePassengerIndex() {
   return 0;
 }
 
+/** Espera a ficha do próximo Adulto (LATAM abre sozinha — sem clicar). */
+async function waitForConfirmNameFieldsReady({ timeoutMs = 14000 } = {}) {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    if (confirmAdultFormIsOpen()) {
+      await sleep(500);
+      return true;
+    }
+    await sleep(300);
+  }
+  console.warn("[TradeMiles] Timeout esperando ficha do próximo Adulto");
+  return confirmAdultFormIsOpen();
+}
+
+/**
+ * Depois do Confirmar: espera ADT_N abrir (sozinho ou 1 clique no accordion certo).
+ */
+async function waitNextAdultAfterConfirm({
+  previousFirstName = "",
+  adultNumber = 2,
+  timeoutMs = 16000,
+} = {}) {
+  console.info(
+    "[TradeMiles] Pós-Confirmar → Adulto",
+    adultNumber,
+    "(accordion-passenger-ADT_" + adultNumber + ")"
+  );
+  await sleep(700);
+
+  // Caminho principal: ensure com espera + no máx. 1 clique no data-testid
+  const opened = await ensureAdultoAccordionOpen(adultNumber);
+  if (opened) {
+    // Acomoda hidratação dos inputs
+    const start = Date.now();
+    while (Date.now() - start < Math.min(8000, timeoutMs)) {
+      if (confirmAdultFormIsOpen() || findConfirmDadosButton(document)) {
+        const firstEl = findConfirmNameInput("first");
+        const firstVal = String(firstEl?.value || "").trim();
+        const looksNew =
+          !firstVal ||
+          !previousFirstName ||
+          normalizeLabel(firstVal) !== normalizeLabel(previousFirstName);
+        if (looksNew || Date.now() - start > 1200) {
+          await sleep(400);
+          return true;
+        }
+      }
+      await sleep(300);
+    }
+    return true;
+  }
+  return false;
+}
+
+/** Nome/sobrenome do form /pagamentos — IDs passengerDetails-*-ADT_N. */
+function findConfirmNameInput(which = "first", adultNumber = null) {
+  const isFirst = which === "first";
+  const n = adultNumber || getOpenConfirmAdultNumber();
+  if (getPassengerFormKind() === "confirm") {
+    const adt = findConfirmAdtField(n, isFirst ? "firstName" : "lastName");
+    if (adt) return adt;
+  }
+
+  const exact = isFirst
+    ? [
+        'input[name="passengerDetails.firstName"]',
+        'input[id*="passengerDetails-firstName" i]',
+        'input[data-testid*="passengerDetails-firstName" i]',
+        'input[name="passengerInfo.firstName"]',
+        'input[name="passengerInfo.name"]',
+        'input[id*="firstName" i]',
+        'input[data-testid*="firstName" i]',
+        'input[name*="firstName" i]',
+        'input[autocomplete="given-name"]',
+      ]
+    : [
+        'input[name="passengerDetails.lastName"]',
+        'input[id*="passengerDetails-lastName" i]',
+        'input[data-testid*="passengerDetails-lastName" i]',
+        'input[name="passengerInfo.lastName"]',
+        'input[name="passengerInfo.surname"]',
+        'input[id*="lastName" i]',
+        'input[data-testid*="lastName" i]',
+        'input[name*="lastName" i]',
+        'input[autocomplete="family-name"]',
+      ];
+  const hit = queryVisibleInput(exact);
+  if (hit) return hit;
+
+  const root = currentPassengerFormRoot();
+  const byWord = isFirst
+    ? findFirstNameField(root) || findFirstNameField(document.body)
+    : findLastNameField(root) || findLastNameField(document.body);
+  if (byWord) {
+    try {
+      if (isVisible(byWord)) return byWord;
+    } catch {
+      return byWord;
+    }
+  }
+  return null;
+}
+
+function fieldShowsRequiredError(el) {
+  if (!el) return false;
+  try {
+    if (el.getAttribute("aria-invalid") === "true") return true;
+    let p = el.parentElement;
+    for (let i = 0; i < 6 && p; i++) {
+      const t = normalizeLabel(textOf(p));
+      if (t.includes("este campo e obrigatorio")) return true;
+      p = p.parentElement;
+    }
+  } catch {
+    /* ignore */
+  }
+  return false;
+}
+
+/** Preenche nome no confirm form de um jeito que o React/Formik aceita. */
+async function fillConfirmNameField(el, value) {
+  if (!el || !value) return false;
+  try {
+    if (!isVisible(el)) {
+      console.warn("[TradeMiles] Nome alvo não está visível — pulando");
+      return false;
+    }
+  } catch {
+    /* continua */
+  }
+  disarmBadPattern(el);
+  safeScrollIntoView(el);
+  await dismissSavedPassengersPopover();
+  await typeChars(el, value, { clear: true, delay: 22 });
+  await sleep(60);
+  await reactSetValueInPage(el, value);
+  setNativeValue(el, value, { soft: false });
+  await sleep(80);
+  await dismissSavedPassengersPopover();
+  const got = String(el.value || "").trim();
+  if (!got) return false;
+  // Aceita se igual ou se começou certo (máscara/maxLength)
+  const want = normalizeLabel(value);
+  const gotN = normalizeLabel(got);
+  return gotN === want || gotN.startsWith(want.slice(0, Math.min(6, want.length)));
+}
+
 /** Formulário /pagamentos/passageiros — Adulto N + Confirmar dados. */
 async function fillOnePassengerConfirmForm(pax, idx, opts = {}) {
   let n = 0;
+  const adultNumber = idx + 1;
+
+  // Adulto 2+: espera a LATAM abrir/hidratar os campos de nome
+  if (idx > 0) {
+    const ready = await waitForConfirmNameFieldsReady({ timeoutMs: 14000 });
+    console.info("[TradeMiles] Campos nome prontos pax", idx + 1, ready);
+    if (!ready) {
+      await sleep(800);
+      await waitForConfirmNameFieldsReady({ timeoutMs: 6000 });
+    }
+  }
+
   const root = currentPassengerFormRoot();
-  // Na prática a LATAM reusa o slot visível (muitas vezes passenger-0_*).
-  // NUNCA cair no passenger-0_ "escondido" de outro índice — isso reescrevia o Adulto 1.
-  const activeIdx = visibleActivePassengerIndex();
+  const activeIdx = idx;
   const limits = nameFieldLimits(root);
   const { firstName, lastName } = splitPassengerName(pax, limits);
 
-  const setByName = (suffix, value) => {
-    if (!value) return false;
-    const el = document.querySelector(
-      `input[name="passenger-${activeIdx}_${suffix}"]`
-    );
-    if (el && isVisible(el)) {
-      return setNativeValue(el, value, { soft: true });
-    }
-    return false;
-  };
-
-  // Nome (uma vez) — Escape se abrir "Passageiros salvos"
+  // Nome/sobrenome ANTES de CPF/data — e só em campo visível
   if (firstName) {
-    if (setByName("firstName", firstName)) n++;
-    else if (setNativeValue(findFirstNameField(root), firstName, { soft: true }))
-      n++;
+    let ok = false;
+    for (let attempt = 0; attempt < 8 && !ok; attempt++) {
+      if (!confirmAdultFormIsOpen()) {
+        // Espera abrir sozinho; expandAdultoSlot só clica no fim
+        await waitForConfirmNameFieldsReady({ timeoutMs: 5000 });
+        if (!confirmAdultFormIsOpen()) {
+          await expandAdultoSlot(idx);
+        }
+      }
+      const el = findConfirmNameInput("first", adultNumber);
+      if (el) ok = await fillConfirmNameField(el, firstName);
+      else await sleep(400);
+    }
+    if (ok) n++;
+    else console.warn("[TradeMiles] Nome não preenchido no pax", idx + 1);
     await dismissSavedPassengersPopover();
   }
   if (lastName) {
-    if (setByName("lastName", lastName)) n++;
-    else if (setNativeValue(findLastNameField(root), lastName, { soft: true }))
-      n++;
+    let ok = false;
+    for (let attempt = 0; attempt < 8 && !ok; attempt++) {
+      if (!confirmAdultFormIsOpen()) {
+        await waitForConfirmNameFieldsReady({ timeoutMs: 5000 });
+        if (!confirmAdultFormIsOpen()) {
+          await expandAdultoSlot(idx);
+        }
+      }
+      const el = findConfirmNameInput("last", adultNumber);
+      if (el) ok = await fillConfirmNameField(el, lastName);
+      else await sleep(400);
+    }
+    if (ok) n++;
+    else console.warn("[TradeMiles] Sobrenome não preenchido no pax", idx + 1);
     await dismissSavedPassengersPopover();
+  }
+
+  // Sem nome não adianta seguir (Confirmar vai falhar / pax incompleto)
+  const nameNow = String(
+    findConfirmNameInput("first", adultNumber)?.value || ""
+  ).trim();
+  if (firstName && !nameNow) {
+    console.warn(
+      "[TradeMiles] Abortando pax",
+      idx + 1,
+      "— nome ainda vazio após tentativas"
+    );
+    return { fields: n, root: currentPassengerFormRoot(), activeIdx, nameFailed: true };
+  }
+
+  // Se ainda mostra obrigatório, tenta de novo
+  const firstEl = findConfirmNameInput("first", adultNumber);
+  const lastEl = findConfirmNameInput("last", adultNumber);
+  if (firstName && firstEl && fieldShowsRequiredError(firstEl)) {
+    await fillConfirmNameField(firstEl, firstName);
+  }
+  if (lastName && lastEl && fieldShowsRequiredError(lastEl)) {
+    await fillConfirmNameField(lastEl, lastName);
   }
 
   n += await fillCpfForPax(activeIdx, pax);
@@ -2060,7 +3326,6 @@ async function fillOnePassengerConfirmForm(pax, idx, opts = {}) {
   }
   await sleep(80);
 
-  // Data — só no índice ativo / root visível (sem fallback silencioso p/ pax 0 errado)
   let dobOk = false;
   if ((await fillBirthDate(root, pax, activeIdx, { expand: false })) > 0)
     dobOk = true;
@@ -2256,15 +3521,11 @@ async function fillAllConfirmForm(passengers) {
       phone: passengers[i].phone || titularPhone,
     };
 
-    // Adulto 1 já vem aberto — não clica cabeçalho. Adulto 2+ abre SEMPRE.
+    // Adulto 2+: accordion-passenger-ADT_N
     if (i > 0) {
-      const opened = await expandAdultoSlot(i);
-      console.info("[TradeMiles] Abriu Adulto", i + 1, opened);
+      const opened = await ensureAdultoAccordionOpen(i + 1);
+      console.info("[TradeMiles] Adulto", i + 1, "accordion aberto:", opened);
       await sleep(500);
-      if (!opened.open) {
-        await expandAdultoSlot(i);
-        await sleep(500);
-      }
     }
 
     if (!pageStillHasPassengerForm()) {
@@ -2276,6 +3537,7 @@ async function fillAllConfirmForm(passengers) {
       };
     }
 
+    // Contato no 1º pax (checkbox "repetir"); demais só dados pessoais
     const filled = await fillOnePassengerConfirmForm(pax, i, {
       email: i === 0 ? pax.email : null,
       phone: i === 0 ? pax.phone : null,
@@ -2283,6 +3545,11 @@ async function fillAllConfirmForm(passengers) {
     total += filled.fields || 0;
     const root = filled.root || currentPassengerFormRoot();
 
+    if (filled.nameFailed) {
+      console.warn("[TradeMiles] Parando — nome do pax", i + 1, "falhou");
+      break;
+    }
+
     if (!pageStillHasPassengerForm()) {
       return {
         sections: i,
@@ -2292,41 +3559,151 @@ async function fillAllConfirmForm(passengers) {
       };
     }
 
-    // Só confirma se preencheu algo (confirma vazio quebra a LATAM)
     if ((filled.fields || 0) < 2) {
       console.warn("[TradeMiles] Poucos campos no pax", i, filled.fields);
       break;
     }
 
-    let confirmed = false;
-    for (let t = 0; t < 12; t++) {
-      if (findConfirmDadosButton(root) || findConfirmDadosButton(document)) {
-        confirmed =
-          (await clickConfirmDados(root)) ||
-          (await clickConfirmDados(document));
-        if (confirmed) break;
+    // Sem telefone o Confirmar fica bloqueado — tenta até grudar
+    if (i === 0 && pax.phone) {
+      const phoneOk = await ensurePhoneFilledForConfirm(pax.phone);
+      console.info("[TradeMiles] telefone ok antes do Confirmar:", phoneOk);
+      if (!phoneOk) {
+        console.warn(
+          "[TradeMiles] Telefone obrigatório vazio — não dá para Confirmar"
+        );
+        break;
       }
-      await sleep(400);
+    }
+
+    // Nome ainda "obrigatório" no React → Confirmar não gruda
+    {
+      const limits = nameFieldLimits(root);
+      const { firstName, lastName } = splitPassengerName(pax, limits);
+      const firstEl = findConfirmNameInput("first");
+      const lastEl = findConfirmNameInput("last");
+      if (firstName && firstEl && fieldShowsRequiredError(firstEl)) {
+        await fillConfirmNameField(firstEl, firstName);
+      }
+      if (lastName && lastEl && fieldShowsRequiredError(lastEl)) {
+        await fillConfirmNameField(lastEl, lastName);
+      }
+      await sleep(200);
+    }
+
+    let confirmed = false;
+    const adultNumber = i + 1;
+    for (let t = 0; t < 16; t++) {
+      const btn =
+        findConfirmDadosButton(root, adultNumber) ||
+        findConfirmDadosButton(document, adultNumber) ||
+        findConfirmDadosButton(document);
+      if (!btn) {
+        // Só aceita "já confirmado" se o acordeão deste Adulto realmente fechou
+        const acc = findAdultoAccordionByAdt(adultNumber);
+        const closed =
+          acc && acc.getAttribute("aria-expanded") === "false";
+        const summary = acc ? normalizeLabel(textOf(acc)) : "";
+        const stillEmpty = new RegExp(`^adulto\\s*${adultNumber}\\b`).test(
+          summary
+        );
+        if (closed && !stillEmpty) {
+          confirmed = true;
+          break;
+        }
+        console.warn(
+          "[TradeMiles] Confirmar ADT_",
+          adultNumber,
+          "não encontrado — retry",
+          t
+        );
+        await sleep(500);
+        continue;
+      }
+      if (!confirmButtonLooksEnabled(btn)) {
+        const limits = nameFieldLimits(root);
+        const { firstName, lastName } = splitPassengerName(pax, limits);
+        const firstEl = findConfirmNameInput("first");
+        const lastEl = findConfirmNameInput("last");
+        if (firstName && firstEl) await fillConfirmNameField(firstEl, firstName);
+        if (lastName && lastEl) await fillConfirmNameField(lastEl, lastName);
+        if (i === 0 && pax.phone) await ensurePhoneFilledForConfirm(pax.phone);
+        await sleep(250);
+      }
+      const firstEl = findConfirmNameInput("first");
+      if (firstEl && fieldShowsRequiredError(firstEl)) {
+        const limits = nameFieldLimits(root);
+        const { firstName, lastName } = splitPassengerName(pax, limits);
+        if (firstName) await fillConfirmNameField(firstEl, firstName);
+        const lastEl = findConfirmNameInput("last");
+        if (lastName && lastEl) await fillConfirmNameField(lastEl, lastName);
+      }
+      const beforeName =
+        findConfirmNameInput("first")?.value ||
+        findFirstNameField(document.body)?.value ||
+        "";
+      console.info(
+        "[TradeMiles] Tentando Confirmar dados do Adulto",
+        adultNumber,
+        "tentativa",
+        t + 1
+      );
+      const clicked =
+        (await clickConfirmDados(root, adultNumber)) ||
+        (await clickConfirmDados(document, adultNumber));
+      if (clicked) {
+        const accepted = await waitConfirmAccepted({
+          beforeFirstName: beforeName,
+          adultNumber,
+          timeoutMs: 10000,
+        });
+        if (accepted) {
+          confirmed = true;
+          break;
+        }
+        console.warn(
+          "[TradeMiles] Confirmar clicou mas Adulto",
+          adultNumber,
+          "não fechou",
+          t
+        );
+      }
+      await sleep(450);
     }
     if (!confirmed) {
-      console.warn("[TradeMiles] Botão Confirmar dados não encontrado no pax", i);
+      console.warn("[TradeMiles] Não confirmou o pax", i);
       break;
     }
 
-    await sleep(900);
+    console.info("[TradeMiles] Pax", i + 1, "confirmado");
+    // Espera a LATAM liberar o próximo Adulto (demora após Confirmar)
+    if (i < passengers.length - 1) {
+      const prevFirst =
+        splitPassengerName(pax, nameFieldLimits(currentPassengerFormRoot()))
+          .firstName || "";
+      const nextReady = await waitNextAdultAfterConfirm({
+        previousFirstName: prevFirst,
+        adultNumber: i + 2,
+        timeoutMs: 16000,
+      });
+      console.info(
+        "[TradeMiles] Próximo Adulto",
+        i + 2,
+        "após confirmar:",
+        nextReady
+      );
+    } else {
+      await sleep(500);
+    }
   }
 
-  if (pageStillHasPassengerForm()) {
-    await ensureContactSectionOpen();
-    total += await fillContactFields(titularEmail, titularPhone, {
-      passengerIndex: visibleActivePassengerIndex(),
-    });
-    // Segunda tentativa no telefone (máscara React às vezes engole a 1ª)
+  // Contato já foi no pax 0; só retenta se Continuar ainda bloquear
+  if (pageStillHasPassengerForm() && titularPhone) {
     const phoneEl = findPhoneInput(findContactSectionRoot(), 0);
     const phoneDigits = String(phoneEl?.value || "").replace(/\D/g, "");
-    if (titularPhone && phoneDigits.length < 10) {
-      await sleep(200);
-      total += await fillContactFields(null, titularPhone, {
+    if (phoneDigits.length < 10) {
+      await ensureContactSectionOpen();
+      total += await fillContactFields(titularEmail, titularPhone, {
         passengerIndex: visibleActivePassengerIndex(),
       });
     }
