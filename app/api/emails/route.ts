@@ -25,6 +25,7 @@ import {
   displayName,
   firstAddress,
   headerValue,
+  matchCedenteByBody,
   matchCedenteByHeaders,
   matchCedenteByNomeInText,
   messageDate,
@@ -106,8 +107,10 @@ function mapMessage(
   const fromName = displayName(from);
   const subject = headerValue(message, "Subject") || "(sem assunto)";
   const snippet = message.snippet || "";
+  // Identificar cedente é bônus — a lista (Todos) não depende disso.
   const cedente =
     matchCedenteByHeaders(message, byEmail, mailbox) ||
+    matchCedenteByBody(snippet, byEmail, mailbox) ||
     matchCedenteByNomeInText(`${subject}\n${snippet}`, cedentes);
   const date = messageDate(message);
 

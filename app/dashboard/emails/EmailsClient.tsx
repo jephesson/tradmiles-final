@@ -701,12 +701,16 @@ export default function EmailsClient() {
             E-mail
           </h1>
           <p className="mt-0.5 text-sm text-slate-500">
-            <span className="font-medium text-slate-600">Todos</span> = caixa de
-            entrada da empresa
-            {mailbox ? ` · ${mailbox}` : ""} (encaminhamento automático). Use{" "}
+            <span className="font-medium text-slate-600">Todos</span> mostra{" "}
+            <span className="font-medium text-slate-600">
+              tudo que chega
+            </span>{" "}
+            na caixa
+            {mailbox ? ` · ${mailbox}` : ""} — inclusive sem cedente
+            identificado.{" "}
             <span className="font-medium text-slate-600">Com cedente</span> /
-            <span className="font-medium text-slate-600"> Sem cedente</span> ou
-            os chips para filtrar.
+            <span className="font-medium text-slate-600"> Sem cedente</span> e
+            os chips só filtram.
           </p>
         </div>
 
