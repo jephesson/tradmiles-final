@@ -868,11 +868,12 @@ export default function VendasClient() {
   }
 
   function statusLabel(r: SaleRow) {
-    return r.paymentStatus === "PAID"
-      ? "Pago"
-      : r.paymentStatus === "CANCELED"
-      ? "Cancelado"
-      : "Pendente";
+    if (r.paymentStatus === "PAID") {
+      const paid = Math.max(0, r.totalCents || 0);
+      return paid > 0 ? `Pago · ${fmtMoneyBR(paid)}` : "Pago";
+    }
+    if (r.paymentStatus === "CANCELED") return "Cancelado";
+    return "Pendente";
   }
 
   function chip(active: boolean) {
@@ -1125,7 +1126,7 @@ export default function VendasClient() {
                     <td className="px-3 py-3">
                       <span
                         className={cn(
-                          "inline-flex rounded-full border px-2.5 py-1 text-[11px] font-semibold",
+                          "inline-flex max-w-[11rem] flex-wrap rounded-full border px-2.5 py-1 text-[11px] font-semibold",
                           statusBadge(r)
                         )}
                       >
