@@ -183,3 +183,35 @@ export function extractVerificationCodes(raw: string): string[] {
 export function pickBestVerificationCode(raw: string): string | null {
   return extractVerificationCodes(raw)[0] || null;
 }
+
+/**
+ * Chips/alertas de OTP: usa a mesma query robusta do modal de credenciais.
+ * Evita query fraca ("código de verificação") no Smiles e OR quebrado.
+ */
+export function resolveOtpFilterGmailQuery(input: {
+  name?: string;
+  query: string;
+  program: string;
+}): string | null {
+  const name = String(input.name || "").toLowerCase();
+  const query = String(input.query || "").toLowerCase();
+  const program = String(input.program || "").toUpperCase();
+  const blob = `${name} ${query}`;
+
+  const looksOtp =
+    /c[oó]digo/.test(blob) ||
+    /verifica/.test(blob) ||
+    /acesso/.test(blob) ||
+    /otp/.test(blob);
+
+  if (!looksOtp) return null;
+
+  if (program === "SMILES" || /\bsmiles\b|\bgol\b/.test(blob)) {
+    return verificationSubjectQuery("SMILES");
+  }
+  if (program === "LATAM" || /\blatam\b/.test(blob)) {
+    return verificationSubjectQuery("LATAM");
+  }
+  // Sem programa: cobre LATAM + Smiles
+  return `(${verificationSubjectQuery("LATAM")} OR ${verificationSubjectQuery("SMILES")})`;
+}

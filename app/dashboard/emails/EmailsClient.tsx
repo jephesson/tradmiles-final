@@ -35,6 +35,7 @@ import {
   type EmailSavedFilter,
   type EmailSearchIn,
 } from "@/lib/email-filters-storage";
+import { resolveOtpFilterGmailQuery } from "@/lib/gmail/otp";
 
 type Program = "SMILES" | "LATAM" | "LIVELO";
 type ProgramFilter = EmailProgramFilter;
@@ -431,13 +432,24 @@ export default function EmailsClient() {
       params.set("program", program);
       params.set("scope", scope);
       params.set("days", String(days));
-      params.set("searchIn", searchIn);
+      const active = activeFilterId
+        ? savedFilters.find((f) => f.id === activeFilterId)
+        : null;
+      const otpQ = active
+        ? resolveOtpFilterGmailQuery(active)
+        : resolveOtpFilterGmailQuery({
+            name: "",
+            query: search,
+            program,
+          });
+      params.set("searchIn", otpQ ? "subject" : searchIn);
       if (cedenteId) params.set("cedenteId", cedenteId);
-      if (search.trim()) params.set("q", search.trim());
+      const q = (otpQ || search).trim();
+      if (q) params.set("q", q);
       if (pageToken) params.set("pageToken", pageToken);
       return params.toString();
     },
-    [program, scope, days, cedenteId, search, searchIn]
+    [program, scope, days, cedenteId, search, searchIn, activeFilterId, savedFilters]
   );
 
   const clearActiveFilter = useCallback(() => {
@@ -1132,7 +1144,7 @@ export default function EmailsClient() {
               <input
                 value={draftName}
                 onChange={(e) => setDraftName(e.target.value)}
-                placeholder="Nome (ex.: Código de verificação)"
+                placeholder="Assunto (LATAM: código de verificação · Smiles: aqui está seu código de acesso)"
                 className={cn(CONTROL, "w-full")}
               />
               <select

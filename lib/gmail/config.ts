@@ -172,6 +172,8 @@ export type EmailSearchIn = "subject" | "anywhere";
  *
  * Se o usuário já digitar operadores do Gmail (subject:, from:, etc.),
  * o termo é passado direto.
+ *
+ * OR entre frases: `a OR b` vira subject:("a" OR "b") — não uma frase literal.
  */
 export function buildContentQuery(raw: string, searchIn: EmailSearchIn = "anywhere"): string {
   const term = raw.trim();
@@ -180,6 +182,21 @@ export function buildContentQuery(raw: string, searchIn: EmailSearchIn = "anywhe
   // Operadores avançados: não reescreve.
   if (/\b(subject|from|to|cc|bcc|has|label|is|filename|newer_than|older_than|deliveredto):/i.test(term)) {
     return `(${term})`;
+  }
+
+  // Várias alternativas: "foo OR bar" / `"foo" OR "bar"`
+  if (/\sOR\s/i.test(term)) {
+    const parts = term
+      .split(/\sOR\s/i)
+      .map((p) => p.replace(/"/g, "").trim())
+      .filter(Boolean);
+    if (parts.length >= 2) {
+      const or = parts
+        .map((p) => (/\s/.test(p) || /[()]/.test(p) ? `"${p}"` : p))
+        .join(" OR ");
+      if (searchIn === "subject") return `subject:(${or})`;
+      return `(${or})`;
+    }
   }
 
   const cleaned = term.replace(/"/g, "").trim();
