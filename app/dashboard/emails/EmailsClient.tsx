@@ -1144,7 +1144,7 @@ export default function EmailsClient() {
               <input
                 value={draftName}
                 onChange={(e) => setDraftName(e.target.value)}
-                placeholder="Assunto (LATAM: código de verificação · Smiles: aqui está seu código de acesso)"
+                placeholder="Nome do chip (ex.: Código Smiles SM)"
                 className={cn(CONTROL, "w-full")}
               />
               <select
@@ -1170,9 +1170,13 @@ export default function EmailsClient() {
                 value={draftQuery}
                 onChange={(e) => setDraftQuery(e.target.value)}
                 placeholder={
-                  draftSearchIn === "subject"
-                    ? "Código ou texto do título…"
-                    : "Palavras ou trecho…"
+                  draftProgram === "SMILES"
+                    ? "aqui está seu código de acesso"
+                    : draftProgram === "LATAM"
+                      ? "código de verificação"
+                      : draftSearchIn === "subject"
+                        ? "Código ou texto do título…"
+                        : "Palavras ou trecho…"
                 }
                 className={cn(CONTROL, "w-full")}
               />
