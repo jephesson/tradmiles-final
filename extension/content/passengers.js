@@ -1136,15 +1136,88 @@ async function waitForPassengerFormReady({ timeoutMs = 20000 } = {}) {
   return false;
 }
 
+function genderMuiDisplayText(el) {
+  if (!el) return "";
+  const root =
+    el.closest?.(".MuiSelect-root, .MuiInputBase-root, .MuiFormControl-root") ||
+    el.parentElement;
+  const display =
+    root?.querySelector?.(".MuiSelect-select") ||
+    root?.querySelector?.('[role="button"][aria-haspopup="listbox"]');
+  return display ? textOf(display) : "";
+}
+
+/** Superfície clicável do MUI Select (input nativo costuma ter size 0). */
+function genderOpenTarget(el) {
+  if (!el) return null;
+  const root =
+    el.closest?.(".MuiSelect-root, .MuiInputBase-root, .MuiFormControl-root") ||
+    el.parentElement;
+  return (
+    root?.querySelector?.(".MuiSelect-select") ||
+    root?.querySelector?.('[role="button"][aria-haspopup="listbox"]') ||
+    root?.querySelector?.('[aria-haspopup="listbox"]') ||
+    el
+  );
+}
+
 function genderFieldShows(el, gender) {
   if (!el || !gender) return false;
   const want = gender === "F" ? "feminino" : "masculino";
-  const t = normalizeLabel(el.value || textOf(el) || el.getAttribute?.("aria-label"));
+  const dataWant = gender === "F" ? "female" : "male";
+  // Preferir value do input (MALE/FEMALE) — evita falso positivo pelo rótulo "Sexo"
+  const rawVal = String(el.value || "").trim().toLowerCase();
+  if (rawVal) {
+    if (
+      rawVal.includes(want) ||
+      rawVal === dataWant ||
+      rawVal === gender.toLowerCase()
+    )
+      return true;
+    if (gender === "F" && (rawVal === "f" || rawVal === "female")) return true;
+    if (gender === "M" && (rawVal === "m" || rawVal === "male")) return true;
+    if (
+      rawVal === "male" ||
+      rawVal === "female" ||
+      rawVal === "masculino" ||
+      rawVal === "feminino" ||
+      rawVal === "m" ||
+      rawVal === "f"
+    ) {
+      return false;
+    }
+  }
+  const t = normalizeLabel(
+    textOf(el) || el.getAttribute?.("aria-label") || genderMuiDisplayText(el)
+  );
   if (!t) return false;
-  if (t.includes(want)) return true;
+  if (t === want || t.startsWith(want + " ") || t.includes(want)) return true;
   if (gender === "F" && (t === "f" || t === "female")) return true;
   if (gender === "M" && (t === "m" || t === "male")) return true;
   return false;
+}
+
+function findGenderOption(gender) {
+  const dataValue = gender === "F" ? "FEMALE" : "MALE";
+  const label = gender === "F" ? "Feminino" : "Masculino";
+  const want = normalizeLabel(label);
+
+  const byData = Array.from(
+    document.querySelectorAll(
+      `li[role="option"][data-value="${dataValue}"], [role="option"][data-value="${dataValue}"], li.MuiMenuItem-root[data-value="${dataValue}"]`
+    )
+  ).find((o) => hasLayoutSize(o));
+  if (byData) return byData;
+
+  return Array.from(
+    document.querySelectorAll(
+      'li.MuiMenuItem-root[role="option"], [role="listbox"] [role="option"], [role="option"], [role="menuitem"]'
+    )
+  ).find((o) => {
+    if (!hasLayoutSize(o)) return false;
+    const t = normalizeLabel(textOf(o));
+    return t === want || t.startsWith(want + " ");
+  });
 }
 
 /**
@@ -1231,6 +1304,7 @@ async function selectGender(root, gender, passengerIndex) {
   const label = gender === "F" ? "Feminino" : "Masculino";
   const side = gender === "F" ? "female" : "male";
   let el = null;
+
   if (
     getPassengerFormKind() === "confirm" &&
     passengerIndex != null &&
@@ -1238,11 +1312,10 @@ async function selectGender(root, gender, passengerIndex) {
   ) {
     el = findConfirmAdtField(passengerIndex + 1, "gender");
   }
-  if (passengerIndex != null && passengerIndex >= 0 && (!el || !isVisible(el))) {
+  if (passengerIndex != null && passengerIndex >= 0 && !el) {
     const i = passengerIndex;
     // NÃO usar [data-testid*="gender"] solto — pega listitem male/female
     el =
-      el ||
       document.querySelector(`input[name="passenger-${i}_gender"]`) ||
       document.querySelector(
         `input[data-testid="passenger-${i}_gender--select__trigger--text-field"]`
@@ -1255,70 +1328,124 @@ async function selectGender(root, gender, passengerIndex) {
         `input[data-testid*="passenger-${i}_gender"][data-testid*="trigger" i]`
       );
   }
-  if (!el || !isVisible(el)) el = findFieldByWord(root || document.body, ["sexo"]);
-  if (!el) return false;
 
-  if (genderFieldShows(el, gender)) return true;
+  // Formulário antigo /pagamentos: MUI Select — input escondido (size 0),
+  // isVisible falha e findFieldByWord nem encontra → "nem tenta clicar"
+  if (!el) {
+    const scope = root && root.querySelectorAll ? root : document;
+    el =
+      scope.querySelector?.('input[name="passengerInfo.gender"]') ||
+      scope.querySelector?.('input[id*="passengerInfo-gender" i]') ||
+      document.querySelector('input[name="passengerInfo.gender"]') ||
+      document.querySelector('input[id*="passengerInfo-gender" i]');
+  }
+  if (!el) el = findFieldByWord(root || document.body, ["sexo"]);
+  if (!el) {
+    console.warn("[TradeMiles] Campo Sexo não encontrado");
+    return false;
+  }
+
+  if (genderFieldShows(el, gender)) {
+    console.info("[TradeMiles] Sexo já OK:", el.value || genderMuiDisplayText(el));
+    return true;
+  }
+
+  console.info("[TradeMiles] Selecionando sexo →", label, {
+    name: el.name,
+    id: el.id,
+    value: el.value,
+  });
 
   if (el.tagName === "SELECT") {
-    const ok = setNativeValue(el, label);
+    const ok =
+      setNativeValue(el, label) ||
+      setNativeValue(el, gender === "F" ? "FEMALE" : "MALE") ||
+      setNativeValue(el, gender === "F" ? "F" : "M");
     return ok && genderFieldShows(el, gender);
   }
 
-  el.scrollIntoView?.({ block: "center", inline: "nearest" });
-  el.focus?.();
-  el.click?.();
-  await sleep(450);
+  const openEl = genderOpenTarget(el);
+  safeScrollIntoView(openEl || el);
+  await sleep(120);
+  if (openEl) {
+    await reactClickInPage(openEl);
+    openEl.click?.();
+  } else {
+    await reactClickInPage(el);
+    el.focus?.();
+    el.click?.();
+  }
+  await sleep(400);
 
-  // Preferência: listitem exato passenger-N_gender-female|male (só VISÍVEL)
   let hit = null;
-  if (passengerIndex != null && passengerIndex >= 0) {
-    const i = passengerIndex;
-    hit =
-      Array.from(
-        document.querySelectorAll(
-          `[data-testid="passenger-${i}_gender-${side}--autocomplete__listitem"]`
-        )
-      ).find((o) => isVisible(o)) ||
-      Array.from(
-        document.querySelectorAll(
-          `[data-testid*="passenger-${i}_gender-${side}" i][role="option"]`
-        )
-      ).find((o) => isVisible(o));
-    if (!hit) {
-      const nested = Array.from(
-        document.querySelectorAll(
-          `[data-testid*="passenger-${i}_gender-${side}" i]`
-        )
-      ).find((o) => isVisible(o));
-      if (nested) {
-        hit =
-          nested.closest?.(
-            '[role="option"], [role="menuitem"], li, [data-testid*="listitem"]'
-          ) || nested;
+  for (let attempt = 0; attempt < 8 && !hit; attempt++) {
+    if (passengerIndex != null && passengerIndex >= 0) {
+      const i = passengerIndex;
+      hit =
+        Array.from(
+          document.querySelectorAll(
+            `[data-testid="passenger-${i}_gender-${side}--autocomplete__listitem"]`
+          )
+        ).find((o) => hasLayoutSize(o)) ||
+        Array.from(
+          document.querySelectorAll(
+            `[data-testid*="passenger-${i}_gender-${side}" i][role="option"]`
+          )
+        ).find((o) => hasLayoutSize(o));
+      if (!hit) {
+        const nested = Array.from(
+          document.querySelectorAll(
+            `[data-testid*="passenger-${i}_gender-${side}" i]`
+          )
+        ).find((o) => hasLayoutSize(o));
+        if (nested) {
+          hit =
+            nested.closest?.(
+              '[role="option"], [role="menuitem"], li, [data-testid*="listitem"]'
+            ) || nested;
+        }
       }
     }
-  }
-  if (!hit || !isVisible(hit)) {
-    const want = normalizeLabel(label);
-    hit = Array.from(
-      document.querySelectorAll(
-        '[role="listbox"] [role="option"], [role="option"], [role="menuitem"]'
-      )
-    ).find((o) => {
-      if (!isVisible(o)) return false;
-      const t = normalizeLabel(textOf(o));
-      return t === want || t.startsWith(want + " ");
-    });
+    if (!hit) hit = findGenderOption(gender);
+    if (!hit) {
+      if (attempt === 2 || attempt === 5) {
+        const again = genderOpenTarget(el);
+        if (again) {
+          await reactClickInPage(again);
+          again.click?.();
+        }
+      }
+      await sleep(150);
+    }
   }
 
-  if (hit && isVisible(hit)) {
+  if (hit) {
+    console.info(
+      "[TradeMiles] Clique opção sexo:",
+      hit.getAttribute("data-value") || textOf(hit)
+    );
     const ok = await reactClickInPage(hit);
-    if (!ok) hit.click?.();
-    await sleep(250);
+    if (!ok) {
+      hit.dispatchEvent?.(
+        new MouseEvent("mousedown", { bubbles: true, cancelable: true, view: window })
+      );
+      hit.dispatchEvent?.(
+        new MouseEvent("mouseup", { bubbles: true, cancelable: true, view: window })
+      );
+      hit.click?.();
+    }
+    await sleep(280);
+  } else {
+    console.warn("[TradeMiles] Opção de sexo não apareceu no menu");
   }
 
   // Sem Escape — na LATAM isso já derrubou o acordeão
+  if (!genderFieldShows(el, gender)) {
+    const code = gender === "F" ? "FEMALE" : "MALE";
+    await reactSetValueInPage(el, code);
+    setNativeValue(el, code, { soft: false });
+    await sleep(120);
+  }
   return genderFieldShows(el, gender);
 }
 
