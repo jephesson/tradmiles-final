@@ -175,22 +175,40 @@ export function matchCedenteByNomeInText(
   candidates: CedenteLite[]
 ): CedenteLite | null {
   const hay = normalizePersonName(text);
-  if (!hay || hay.length < 8) return null;
+  if (!hay || hay.length < 5) return null;
 
   let best: CedenteLite | null = null;
   let bestScore = 0;
 
   for (const c of candidates) {
     const nome = normalizePersonName(c.nomeCompleto);
-    if (!nome || nome.length < 8) continue;
+    if (!nome || nome.length < 5) continue;
     const parts = nome.split(" ").filter((p) => p.length >= 3);
-    if (parts.length < 2) continue;
+    if (!parts.length) continue;
+
     const hits = parts.filter((p) => hay.includes(p)).length;
+    const first = parts[0];
+    // LATAM: "Olá JOSÉ" — basta o primeiro nome após saudação.
+    const olaFirst =
+      Boolean(first) &&
+      first.length >= 3 &&
+      new RegExp(`\\bola\\s+${first}\\b`).test(hay);
+
+    if (olaFirst && hits >= 1) {
+      const score = 0.85 + hits / Math.max(parts.length, 1) / 10;
+      if (score > bestScore) {
+        best = c;
+        bestScore = score;
+      }
+      continue;
+    }
+
+    if (parts.length < 2) continue;
     if (hits < Math.min(2, parts.length)) continue;
     // Exige pelo menos ~60% dos tokens (evita falso positivo com nome curto).
     const score = hits / parts.length;
     if (score < 0.6) continue;
-    if (score > bestScore || (score === bestScore && hits > bestScore)) {
+    if (score > bestScore) {
       best = c;
       bestScore = score;
     }

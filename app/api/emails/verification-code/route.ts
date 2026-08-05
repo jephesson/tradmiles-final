@@ -171,21 +171,19 @@ export async function GET(req: Request) {
       })
       .sort((a, b) => (b.date?.getTime() || 0) - (a.date?.getTime() || 0));
 
-    // Até 8 recentes: já casados + os que podem casar só no corpo.
-    const top = [
-      ...dated.filter((r) => r.matched),
-      ...dated.filter((r) => r.needsBodyCheck),
-    ].slice(0, 8);
+    // Por data (não priorizar só os já casados — o mais recente pode casar no corpo).
+    const top = dated.slice(0, 12);
 
     const codes = await mapWithConcurrency(top, 3, async (row) => {
       const full = await getMessageFull(row.message.id);
       const { html, text } = extractBody(full.payload);
       const body = `${text || ""}\n${html || ""}`;
+      const hay = `${row.subject}\n${body}`;
       let matched = row.matched;
       if (!matched) {
         matched = Boolean(
           matchCedenteByBody(body, byEmail, cfg.mailbox) ||
-            matchCedenteByNomeInText(`${row.subject}\n${body}`, [lite])
+            matchCedenteByNomeInText(hay, [lite])
         );
       }
       if (!matched) {
@@ -196,7 +194,8 @@ export async function GET(req: Request) {
           code: null as string | null,
         };
       }
-      const code = pickBestVerificationCode(body);
+      // Assunto LATAM às vezes traz o código: "…para fazer login é 123456"
+      const code = pickBestVerificationCode(hay);
       return {
         messageId: row.message.id,
         subject: row.subject || "(sem assunto)",

@@ -88,33 +88,89 @@ function stripHtml(input: string) {
     .trim();
 }
 
+function scoreOtpCandidate(
+  code: string,
+  lowerContext: string,
+  bonus = 0
+): number {
+  const n = Number(code);
+  if (!Number.isFinite(n)) return -1;
+  if (n >= 1900 && n <= 2100 && code.length === 4) return -1;
+  if (/^0+$/.test(code) || /^1+$/.test(code)) return -1;
+
+  let score =
+    code.length === 6 ? 10 : code.length === 5 || code.length === 7 ? 6 : 3;
+  score += bonus;
+  const idx = lowerContext.indexOf(code.toLowerCase());
+  if (idx >= 0) {
+    const window = lowerContext.slice(
+      Math.max(0, idx - 48),
+      idx + code.length + 48
+    );
+    if (/c[oó]digo|code|verifica|otp|token|senha|login|acesso/.test(window)) {
+      score += 8;
+    }
+  }
+  return score;
+}
+
 /**
  * Extrai candidatos a OTP (4–8 dígitos). Prefere 6 dígitos e códigos
- * próximos às palavras "código" / "code".
+ * próximos às palavras "código" / "code" / "login é".
+ * LATAM às vezes põe o código em imagem (alt) ou com espaços (1 2 3 4 5 6).
  */
 export function extractVerificationCodes(raw: string): string[] {
-  const text = stripHtml(raw);
-  if (!text) return [];
+  const rawStr = String(raw || "");
+  if (!rawStr.trim()) return [];
 
-  const lower = text.toLowerCase();
   const scored = new Map<string, number>();
+  const consider = (code: string, context: string, bonus = 0) => {
+    const digits = String(code || "").replace(/\D/g, "");
+    if (digits.length < 4 || digits.length > 8) return;
+    const score = scoreOtpCandidate(digits, context.toLowerCase(), bonus);
+    if (score < 0) return;
+    scored.set(digits, Math.max(scored.get(digits) || 0, score));
+  };
 
+  // alt/title/aria-label em img/td (código em imagem da LATAM)
+  const attrRe =
+    /<(?:img|td|span|div|strong|b)[^>]*\b(?:alt|title|aria-label)=["'](\d{4,8})["'][^>]*>/gi;
+  let attrMatch: RegExpExecArray | null;
+  while ((attrMatch = attrRe.exec(rawStr))) {
+    consider(attrMatch[1], rawStr, 14);
+  }
+
+  const text = stripHtml(rawStr);
+  const lower = text.toLowerCase();
+
+  // Padrões explícitos LATAM/Smiles
+  const explicit = [
+    /c[oó]digo\s+de\s+verifica[cç][aã]o[^0-9]{0,40}(\d{4,8})/gi,
+    /c[oó]digo\s+de\s+acesso[^0-9]{0,40}(\d{4,8})/gi,
+    /fazer\s+login\s+[eé]\s*(\d{4,8})/gi,
+    /verifica[cç][aã]o\s+para\s+fazer\s+login\s+[eé]\s*(\d{4,8})/gi,
+    /seu\s+c[oó]digo[^0-9]{0,40}(\d{4,8})/gi,
+    /(?:^|[^\d])(\d{4,8})(?:[^\d]|$)/g,
+  ];
+  for (const re of explicit.slice(0, 5)) {
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(text))) {
+      consider(m[1], text, 16);
+    }
+  }
+
+  // Dígitos espaçados: "1 2 3 4 5 6" ou "12 34 56"
+  const spacedRe = /\b(?:\d(?:\s+|-)){3,7}\d\b/g;
+  let spaced: RegExpExecArray | null;
+  while ((spaced = spacedRe.exec(text))) {
+    consider(spaced[0], text, 12);
+  }
+
+  // Fallback genérico
   const re = /\b(\d{4,8})\b/g;
   let match: RegExpExecArray | null;
   while ((match = re.exec(text))) {
-    const code = match[1];
-    const n = Number(code);
-    // Descarta anos óbvios e sequências fracas.
-    if (n >= 1900 && n <= 2100 && code.length === 4) continue;
-    if (/^0+$/.test(code) || /^1+$/.test(code)) continue;
-
-    let score = code.length === 6 ? 10 : code.length === 5 || code.length === 7 ? 6 : 3;
-    const idx = lower.indexOf(code.toLowerCase());
-    if (idx >= 0) {
-      const window = lower.slice(Math.max(0, idx - 40), idx + code.length + 40);
-      if (/c[oó]digo|code|verifica|otp|token|senha/.test(window)) score += 8;
-    }
-    scored.set(code, Math.max(scored.get(code) || 0, score));
+    consider(match[1], lower, 0);
   }
 
   return Array.from(scored.entries())
