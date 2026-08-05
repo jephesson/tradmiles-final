@@ -35,11 +35,13 @@ export function verificationSubjectsForProgram(
   return SUBJECT_BY_PROGRAM[program] || SUBJECT_BY_PROGRAM.LATAM;
 }
 
-/** Query Gmail preferida: assuntos típicos do programa (OR). */
+/** Query Gmail por assunto(s) do programa — já com operador subject:. */
 export function verificationSubjectQuery(program: "LATAM" | "SMILES"): string {
   const subjects = verificationSubjectsForProgram(program);
-  if (subjects.length === 1) return subjects[0];
-  return subjects.map((s) => `"${s}"`).join(" OR ");
+  if (!subjects.length) return "";
+  if (subjects.length === 1) return `subject:"${subjects[0]}"`;
+  // NÃO passar por buildContentQuery: ele tira as aspas e vira uma frase só.
+  return `subject:(${subjects.map((s) => `"${s}"`).join(" OR ")})`;
 }
 
 /** Termos extras para ENC/Fwd (assunto pode vir "ENC: Aqui está…"). */

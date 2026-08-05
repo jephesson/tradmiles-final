@@ -3,7 +3,6 @@ import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/require-session";
 import {
   METADATA_HEADERS,
-  buildContentQuery,
   buildSenderQuery,
 } from "@/lib/gmail/config";
 import {
@@ -115,22 +114,28 @@ export async function GET(req: Request) {
   const qFromProgram = [
     buildSenderQuery([program]),
     "newer_than:2d",
-    buildContentQuery(subjectQ, "subject"),
+    subjectQ,
     cedenteAddr,
-  ].join(" ");
+  ]
+    .filter(Boolean)
+    .join(" ");
   // Encaminhamento manual (Outlook/Gmail ENC/Fwd): From = cedente.
   const qFromCedente = [
     `from:${email}`,
     "newer_than:2d",
     verificationForwardSubjectQuery(program),
-  ].join(" ");
+  ]
+    .filter(Boolean)
+    .join(" ");
   // Caixa da empresa: To vira vias — busca códigos recentes da cia e casa por
-  // header, corpo ou nome no assunto (Smiles coloca o nome no subject).
+  // header, corpo ou nome (LATAM: "Olá JOSÉ" / Smiles: nome no assunto).
   const qInboxProgram = [
     buildSenderQuery([program]),
     "newer_than:1d",
-    buildContentQuery(subjectQ, "subject"),
-  ].join(" ");
+    subjectQ,
+  ]
+    .filter(Boolean)
+    .join(" ");
 
   try {
     const [listProgram, listForward, listInbox] = await Promise.all([
