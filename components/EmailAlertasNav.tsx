@@ -169,24 +169,6 @@ export default function EmailAlertasNav() {
         const tb = b.date ? new Date(b.date).getTime() : 0;
         return tb - ta;
       });
-
-      // Puxa o OTP dos mais recentes (mesmo caminho do modal de credenciais).
-      const top = merged.slice(0, 8);
-      await Promise.all(
-        top.map(async (row) => {
-          try {
-            const res = await fetch(`/api/emails/${encodeURIComponent(row.id)}`, {
-              cache: "no-store",
-            });
-            const json = await res.json().catch(() => null);
-            const code = json?.message?.verificationCode;
-            if (code) row.verificationCode = String(code);
-          } catch {
-            /* ignore */
-          }
-        })
-      );
-
       setRows(merged);
     } catch {
       // silencioso: badge fica com último estado
@@ -500,11 +482,6 @@ export default function EmailAlertasNav() {
                           <div className="mt-1 line-clamp-2 text-xs text-slate-600">
                             {row.subject}
                           </div>
-                          {row.verificationCode ? (
-                            <div className="mt-1.5 inline-flex items-center gap-1.5 rounded-md border border-emerald-200 bg-emerald-50 px-2 py-0.5 font-mono text-sm font-bold tracking-wider text-emerald-950">
-                              {row.verificationCode}
-                            </div>
-                          ) : null}
                           <div className="mt-1 text-[11px] text-slate-400">
                             {fmtRelative(row.date)}
                             {row.program ? ` · ${row.program}` : ""}
@@ -596,36 +573,13 @@ export default function EmailAlertasNav() {
                   Abrindo mensagem…
                 </div>
               ) : detail ? (
-                <>
-                  {detail.verificationCode ? (
-                    <div className="flex flex-wrap items-center gap-2 border-b border-emerald-100 bg-emerald-50 px-4 py-2.5">
-                      <div className="text-[11px] font-semibold uppercase tracking-wide text-emerald-800">
-                        Código
-                      </div>
-                      <div className="font-mono text-xl font-bold tracking-widest text-slate-900">
-                        {detail.verificationCode}
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          void navigator.clipboard?.writeText(
-                            String(detail.verificationCode)
-                          );
-                        }}
-                        className="ml-auto rounded-lg border border-emerald-200 bg-white px-2.5 py-1 text-xs font-semibold text-emerald-900 hover:bg-emerald-50"
-                      >
-                        Copiar
-                      </button>
-                    </div>
-                  ) : null}
-                  <iframe
-                    title={detail.subject}
-                    srcDoc={detail.document}
-                    sandbox=""
-                    referrerPolicy="no-referrer"
-                    className="min-h-[60vh] w-full flex-1 border-0 bg-white"
-                  />
-                </>
+                <iframe
+                  title={detail.subject}
+                  srcDoc={detail.document}
+                  sandbox=""
+                  referrerPolicy="no-referrer"
+                  className="min-h-[60vh] w-full flex-1 border-0 bg-white"
+                />
               ) : null}
             </div>
           </div>,
