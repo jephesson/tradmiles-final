@@ -15,6 +15,7 @@ import {
   headerValue,
   matchCedenteByBody,
   matchCedenteByHeaders,
+  matchCedenteByNomeInText,
   messageDate,
   type CedenteLite,
 } from "@/lib/gmail/parse";
@@ -80,16 +81,20 @@ export async function GET(
     const cedentes = await loadCedentes();
     const byEmail = new Map(cedentes.map((c) => [c.email, c]));
 
-    // Cabeçalhos cobrem o encaminhamento automático; o corpo cobre o manual.
-    const cedente =
-      matchCedenteByHeaders(message, byEmail, cfg.mailbox) ??
-      matchCedenteByBody(text || html, byEmail, cfg.mailbox);
-
     const from = headerValue(message, "From");
     const fromAddress = firstAddress(from);
     const fromName = displayName(from);
     const subject = headerValue(message, "Subject") || "(sem assunto)";
     const date = messageDate(message);
+
+    // Cabeçalhos cobrem o forward; corpo/nome no assunto cobrem o resto.
+    const cedente =
+      matchCedenteByHeaders(message, byEmail, cfg.mailbox) ??
+      matchCedenteByBody(text || html, byEmail, cfg.mailbox) ??
+      matchCedenteByNomeInText(
+        `${subject}\n${text || ""}\n${html || ""}`,
+        cedentes
+      );
 
     if (cedente?.id) {
       void markEmailRedirecionado(cedente.id, {

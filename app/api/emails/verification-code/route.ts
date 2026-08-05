@@ -18,7 +18,9 @@ import {
 import {
   extractBody,
   headerValue,
+  matchCedenteByBody,
   matchCedenteByHeaders,
+  matchCedenteByNomeInText,
   messageDate,
 } from "@/lib/gmail/parse";
 import {
@@ -32,7 +34,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 /** Folga antes do horário marcado (código pedido na cia antes de voltar ao TradeMiles). */
-const AFTER_SKEW_MS = 3 * 60 * 1000;
+const AFTER_SKEW_MS = 5 * 60 * 1000;
 
 function bad(error: string, status = 400) {
   return NextResponse.json({ ok: false, error }, { status });
@@ -103,6 +105,12 @@ export async function GET(req: Request) {
 
   const subjectQ = verificationSubjectQuery(program);
   const cedenteAddr = `(to:${email} OR deliveredto:${email} OR cc:${email} OR from:${email})`;
+  const lite = {
+    id: cedente.id,
+    identificador: cedente.identificador,
+    nomeCompleto: cedente.nomeCompleto,
+    email,
+  };
   // Encaminhamento automático: From = cia, To/Delivered-To = e-mail do cedente.
   const qFromProgram = [
     buildSenderQuery([program]),
@@ -116,55 +124,82 @@ export async function GET(req: Request) {
     "newer_than:2d",
     verificationForwardSubjectQuery(program),
   ].join(" ");
+  // Caixa da empresa: To vira vias — busca códigos recentes da cia e casa por
+  // header, corpo ou nome no assunto (Smiles coloca o nome no subject).
+  const qInboxProgram = [
+    buildSenderQuery([program]),
+    "newer_than:1d",
+    buildContentQuery(subjectQ, "subject"),
+  ].join(" ");
 
   try {
-    const [listProgram, listForward] = await Promise.all([
+    const [listProgram, listForward, listInbox] = await Promise.all([
       listMessages({ q: qFromProgram, maxResults: 12 }),
       listMessages({ q: qFromCedente, maxResults: 12 }),
+      listMessages({ q: qInboxProgram, maxResults: 20 }),
     ]);
     const idSet = new Set<string>();
     for (const m of listProgram.messages || []) idSet.add(m.id);
     for (const m of listForward.messages || []) idSet.add(m.id);
+    for (const m of listInbox.messages || []) idSet.add(m.id);
     const ids = Array.from(idSet);
 
     const metas = await mapWithConcurrency(ids, 6, (id) =>
       getMessageMetadata(id, METADATA_HEADERS)
     );
 
-    const byEmail = new Map([
-      [
-        email,
-        {
-          id: cedente.id,
-          identificador: cedente.identificador,
-          nomeCompleto: cedente.nomeCompleto,
-          email,
-        },
-      ],
-    ]);
+    const byEmail = new Map([[email, lite]]);
 
-    const candidates = metas
+    const dated = metas
       .map((message) => {
         const date = messageDate(message);
-        const matched = matchCedenteByHeaders(message, byEmail, cfg.mailbox);
-        return { message, date, matched };
+        const subject = headerValue(message, "Subject") || "";
+        const byHeader = matchCedenteByHeaders(message, byEmail, cfg.mailbox);
+        const byName = matchCedenteByNomeInText(subject, [lite]);
+        return {
+          message,
+          date,
+          subject,
+          matched: Boolean(byHeader || byName),
+          needsBodyCheck: !byHeader && !byName,
+        };
       })
       .filter((row) => {
-        if (!row.matched) return false;
         if (!row.date) return false;
         if (afterFloor && row.date.getTime() < afterFloor) return false;
         return true;
       })
       .sort((a, b) => (b.date?.getTime() || 0) - (a.date?.getTime() || 0));
 
-    const top = candidates.slice(0, 5);
+    // Até 8 recentes: já casados + os que podem casar só no corpo.
+    const top = [
+      ...dated.filter((r) => r.matched),
+      ...dated.filter((r) => r.needsBodyCheck),
+    ].slice(0, 8);
+
     const codes = await mapWithConcurrency(top, 3, async (row) => {
       const full = await getMessageFull(row.message.id);
       const { html, text } = extractBody(full.payload);
-      const code = pickBestVerificationCode(text || html);
+      const body = `${text || ""}\n${html || ""}`;
+      let matched = row.matched;
+      if (!matched) {
+        matched = Boolean(
+          matchCedenteByBody(body, byEmail, cfg.mailbox) ||
+            matchCedenteByNomeInText(`${row.subject}\n${body}`, [lite])
+        );
+      }
+      if (!matched) {
+        return {
+          messageId: row.message.id,
+          subject: row.subject || "(sem assunto)",
+          date: row.date ? row.date.toISOString() : null,
+          code: null as string | null,
+        };
+      }
+      const code = pickBestVerificationCode(body);
       return {
         messageId: row.message.id,
-        subject: headerValue(row.message, "Subject") || "(sem assunto)",
+        subject: row.subject || "(sem assunto)",
         date: row.date ? row.date.toISOString() : null,
         code,
       };
@@ -195,7 +230,7 @@ export async function GET(req: Request) {
       cedenteEmail: email,
       after: afterIso || null,
       afterFloor: afterFloor ? new Date(afterFloor).toISOString() : null,
-      query: `${qFromProgram} | ${qFromCedente}`,
+      query: `${qFromProgram} | ${qFromCedente} | ${qInboxProgram}`,
       codes: withCode,
       latest,
     });

@@ -7,7 +7,6 @@ import {
   EMAIL_PROGRAMS,
   MAX_PAGE_SIZE,
   METADATA_HEADERS,
-  buildCedenteAddressQueries,
   buildContentQuery,
   buildInboxProgramQuery,
   programFromHints,
@@ -27,6 +26,7 @@ import {
   firstAddress,
   headerValue,
   matchCedenteByHeaders,
+  matchCedenteByNomeInText,
   messageDate,
   type CedenteLite,
 } from "@/lib/gmail/parse";
@@ -98,6 +98,7 @@ type EmailRow = {
 function mapMessage(
   message: Awaited<ReturnType<typeof getMessageMetadata>>,
   byEmail: Map<string, CedenteLite>,
+  cedentes: CedenteLite[],
   mailbox: string
 ): EmailRow {
   const from = headerValue(message, "From");
@@ -105,7 +106,9 @@ function mapMessage(
   const fromName = displayName(from);
   const subject = headerValue(message, "Subject") || "(sem assunto)";
   const snippet = message.snippet || "";
-  const cedente = matchCedenteByHeaders(message, byEmail, mailbox);
+  const cedente =
+    matchCedenteByHeaders(message, byEmail, mailbox) ||
+    matchCedenteByNomeInText(`${subject}\n${snippet}`, cedentes);
   const date = messageDate(message);
 
   return {
@@ -153,7 +156,9 @@ export async function GET(req: Request) {
   const url = new URL(req.url);
   const programs = parsePrograms(url.searchParams.get("program"));
   const cedenteId = (url.searchParams.get("cedenteId") || "").trim();
-  const scope = (url.searchParams.get("scope") || "matched").trim();
+  // Default: caixa inteira do vias (encaminhamento automático).
+  // matched/unmatched só quando o usuário clica no filtro "Sem cedente"/etc.
+  const scope = (url.searchParams.get("scope") || "all").trim();
   const search = (url.searchParams.get("q") || "").trim();
   const searchInRaw = (url.searchParams.get("searchIn") || "anywhere").trim().toLowerCase();
   const searchIn: EmailSearchIn = searchInRaw === "subject" ? "subject" : "anywhere";
@@ -175,78 +180,50 @@ export async function GET(req: Request) {
   const byEmail = new Map(cedentes.map((c) => [c.email, c]));
 
   const contentQuery = buildContentQuery(search, searchIn);
-  const baseParts = [`newer_than:${windowDays}d`];
+  // Base = inbox da empresa. Chips/busca entram aqui; casar cedente é pós-processamento.
+  const baseParts = [`in:inbox`, `newer_than:${windowDays}d`];
   if (contentQuery) baseParts.push(contentQuery);
+  if (programs.length) {
+    const sender = buildInboxProgramQuery(programs);
+    if (sender) baseParts.push(sender);
+  }
 
-  /** Queries Gmail a executar (programas + participação de cedentes). */
-  const gmailQueries: string[] = [];
-  let primaryQuery = "";
+  const targetCedente = cedenteId
+    ? cedentes.find((c) => c.id === cedenteId) || null
+    : null;
+  if (cedenteId && !targetCedente) {
+    return bad("Cedente não encontrado ou sem e-mail cadastrado.", 404);
+  }
 
-  if (cedenteId) {
-    const target = cedentes.find((c) => c.id === cedenteId);
-    if (!target) return bad("Cedente não encontrado ou sem e-mail cadastrado.", 404);
-    const parts = [
-      ...baseParts,
-      `(to:${target.email} OR deliveredto:${target.email} OR cc:${target.email} OR from:${target.email})`,
-    ];
-    // Chip de cia: afina em cima do que já veio pro e-mail do cedente.
-    if (programs.length) {
-      const sender = buildInboxProgramQuery(programs);
-      if (sender) parts.push(sender);
-    }
-    primaryQuery = parts.filter(Boolean).join(" ");
-    gmailQueries.push(primaryQuery);
-  } else if (programs.length) {
-    // Chip de uma cia (sem cedente específico).
-    primaryQuery = [...baseParts, buildInboxProgramQuery(programs)]
-      .filter(Boolean)
-      .join(" ");
-    gmailQueries.push(primaryQuery);
-  } else if (scope === "unmatched") {
-    // Sem cedente: ainda olha remetentes de cias para achar o que não casou.
-    primaryQuery = [...baseParts, buildInboxProgramQuery([])]
-      .filter(Boolean)
-      .join(" ");
-    gmailQueries.push(primaryQuery);
-  } else {
-    // Todos: tudo recebido ligado ao e-mail cadastrado do cedente.
-    // O redirecionamento já foi configurado na caixa do cedente; filtros = chips.
-    const cedenteQs = buildCedenteAddressQueries(
-      cedentes.map((c) => c.email),
-      { batchSize: 35, maxBatches: 10 }
+  /** Query principal: caixa do vias (+ chip/busca). */
+  const primaryQuery = baseParts.filter(Boolean).join(" ");
+  const gmailQueries: string[] = [primaryQuery];
+
+  // Atalho: se filtrou cedente, também busca pelo endereço (quando o forward preserva To).
+  if (targetCedente) {
+    gmailQueries.push(
+      [
+        `in:inbox`,
+        `newer_than:${windowDays}d`,
+        `(to:${targetCedente.email} OR deliveredto:${targetCedente.email} OR cc:${targetCedente.email} OR from:${targetCedente.email})`,
+        contentQuery,
+        programs.length ? buildInboxProgramQuery(programs) : "",
+      ]
+        .filter(Boolean)
+        .join(" ")
     );
-    if (!cedenteQs.length) {
-      return NextResponse.json({
-        ok: true,
-        configured: true,
-        canConnect: cfg.canConnect,
-        isAdmin: session.role === "admin",
-        mailbox: cfg.mailbox || null,
-        source: cfg.source,
-        query: "",
-        rows: [],
-        nextPageToken: null,
-        summary: { total: 0, matched: 0, unmatched: 0 },
-      });
-    }
-    primaryQuery = [...baseParts, cedenteQs[0]].filter(Boolean).join(" ");
-    gmailQueries.push(primaryQuery);
-    if (!pageToken) {
-      for (const cq of cedenteQs.slice(1)) {
-        gmailQueries.push([...baseParts, cq].filter(Boolean).join(" "));
-      }
-    }
   }
 
   try {
     const idSet = new Set<string>();
     let nextPageToken: string | null = null;
-    let pageMatched = 0;
-    let pageUnmatched = 0;
 
-    // 1) Query principal: pode paginar / varrer várias páginas.
+    // Precisa varrer mais páginas quando filtra cedente / com|sem cedente.
+    const needsScan =
+      Boolean(cedenteId) || scope === "matched" || scope === "unmatched";
+    const maxPages = needsScan ? SCOPE_SCAN_PAGES : 1;
+
     {
-      const maxPages = scope === "all" ? 1 : SCOPE_SCAN_PAGES;
       let token = pageToken;
       let pages = 0;
       while (pages < maxPages) {
@@ -258,15 +235,15 @@ export async function GET(req: Request) {
         });
         for (const m of list.messages || []) idSet.add(m.id);
         nextPageToken = list.nextPageToken || null;
-        if (!list.messages?.length || scope === "all" || idSet.size >= limit * 3) {
-          break;
-        }
+        if (!list.messages?.length) break;
+        if (!needsScan) break;
+        if (idSet.size >= limit * 4) break;
         if (!nextPageToken) break;
         token = nextPageToken;
       }
     }
 
-    // 2) Queries extras (cedentes): uma página cada, em paralelo.
+    // Queries extras (ex.: endereço do cedente): uma página cada.
     const extraQueries = gmailQueries.slice(1);
     if (extraQueries.length) {
       const extras = await mapWithConcurrency(extraQueries, 3, async (q) => {
@@ -299,18 +276,18 @@ export async function GET(req: Request) {
     );
 
     const mapped = messages.map((message) =>
-      mapMessage(message, byEmail, cfg.mailbox)
+      mapMessage(message, byEmail, cedentes, cfg.mailbox)
     );
 
-    pageMatched = mapped.filter((r) => r.cedente).length;
-    pageUnmatched = mapped.filter((r) => !r.cedente).length;
-
-    const filtered =
-      scope === "matched"
-        ? mapped.filter((r) => r.cedente)
-        : scope === "unmatched"
-          ? mapped.filter((r) => !r.cedente)
-          : mapped;
+    let filtered = mapped;
+    if (cedenteId) {
+      filtered = filtered.filter((r) => r.cedente?.id === cedenteId);
+    }
+    if (scope === "matched") {
+      filtered = filtered.filter((r) => r.cedente);
+    } else if (scope === "unmatched") {
+      filtered = filtered.filter((r) => !r.cedente);
+    }
 
     filtered.sort((a, b) => {
       const ka = a.date ? new Date(a.date).getTime() : 0;
@@ -347,21 +324,12 @@ export async function GET(req: Request) {
       source: cfg.source,
       query: primaryQuery,
       rows: collected,
-      nextPageToken: collected.length >= limit ? nextPageToken : null,
+      nextPageToken:
+        !needsScan && collected.length >= limit ? nextPageToken : null,
       summary: {
         total: collected.length,
-        matched:
-          scope === "matched"
-            ? collected.length
-            : scope === "unmatched"
-              ? 0
-              : pageMatched,
-        unmatched:
-          scope === "unmatched"
-            ? collected.length
-            : scope === "matched"
-              ? 0
-              : pageUnmatched,
+        matched: collected.filter((r) => r.cedente).length,
+        unmatched: collected.filter((r) => !r.cedente).length,
       },
     });
   } catch (err) {

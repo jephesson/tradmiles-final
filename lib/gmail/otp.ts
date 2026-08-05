@@ -1,8 +1,11 @@
 // lib/gmail/otp.ts
 // Extração de códigos de verificação de e-mails de fidelidade.
 
-/** Folga ao abrir a tela: puxa códigos pedidos até 3 min antes. */
-export const OTP_LOOKBACK_MS = 3 * 60 * 1000;
+/**
+ * Folga ao buscar código: puxa e-mails dos últimos N min.
+ * Antes era 3 min e o código sumia se o modal abrisse um pouco tarde.
+ */
+export const OTP_LOOKBACK_MS = 15 * 60 * 1000;
 
 /**
  * Validade do código a partir da hora de chegada do e-mail.
@@ -32,11 +35,11 @@ export function verificationSubjectsForProgram(
   return SUBJECT_BY_PROGRAM[program] || SUBJECT_BY_PROGRAM.LATAM;
 }
 
-/** Query Gmail preferida: assunto típico do programa. */
+/** Query Gmail preferida: assuntos típicos do programa (OR). */
 export function verificationSubjectQuery(program: "LATAM" | "SMILES"): string {
-  // Filtro da biblioteca: Smiles · assunto · "Aqui está seu código de acesso"
-  if (program === "SMILES") return "Aqui está seu código de acesso";
-  return "Código de verificação";
+  const subjects = verificationSubjectsForProgram(program);
+  if (subjects.length === 1) return subjects[0];
+  return subjects.map((s) => `"${s}"`).join(" OR ");
 }
 
 /** Termos extras para ENC/Fwd (assunto pode vir "ENC: Aqui está…"). */

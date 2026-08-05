@@ -350,7 +350,7 @@ export default function EmailsClient() {
   const [oauthOk, setOauthOk] = useState(false);
 
   const [program, setProgram] = useState<ProgramFilter>("ALL");
-  const [scope, setScope] = useState<Scope>("matched");
+  const [scope, setScope] = useState<Scope>("all");
   const [cedenteId, setCedenteId] = useState("");
   const [cedenteLabel, setCedenteLabel] = useState("");
   const [search, setSearch] = useState("");
@@ -442,7 +442,9 @@ export default function EmailsClient() {
     setSearch("");
     setSearchIn("anywhere");
     setProgram("ALL");
-    setScope("matched");
+    setScope("all");
+    setCedenteId("");
+    setCedenteLabel("");
   }, []);
 
   const applySavedFilter = useCallback((filter: SavedFilter) => {
@@ -450,8 +452,8 @@ export default function EmailsClient() {
     setSearch(filter.query);
     setSearchIn(filter.searchIn);
     setProgram(filter.program);
-    // Filtros/chips atuam em cima dos e-mails com cedente.
-    setScope("matched");
+    // Chip filtra a caixa do vias — não esconde e-mail sem cedente casado.
+    setScope("all");
   }, []);
 
   const createFilter = useCallback(
@@ -698,10 +700,10 @@ export default function EmailsClient() {
             E-mail
           </h1>
           <p className="mt-0.5 text-sm text-slate-500">
-            <span className="font-medium text-slate-600">Todos</span> = e-mails
-            recebidos ligados ao cedente cadastrado
-            {mailbox ? ` · ${mailbox}` : ""}. Os chips filtram o que você
-            quiser (código, clube, comprovante…).
+            <span className="font-medium text-slate-600">Todos</span> = caixa de
+            entrada da empresa
+            {mailbox ? ` · ${mailbox}` : ""} (encaminhamento automático). Os
+            chips e o filtro de cedente afunilam em cima disso.
           </p>
         </div>
 
@@ -776,11 +778,12 @@ export default function EmailsClient() {
               !activeFilterId &&
                 program === "ALL" &&
                 !search.trim() &&
-                scope === "matched"
+                scope === "all" &&
+                !cedenteId
                 ? "bg-slate-900 text-white shadow-sm"
                 : "text-slate-600 hover:bg-slate-100"
             )}
-            title="E-mails recebidos ligados ao cedente cadastrado"
+            title="Toda a caixa de entrada da empresa"
           >
             Todos
           </button>

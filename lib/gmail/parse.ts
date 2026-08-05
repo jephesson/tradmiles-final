@@ -154,3 +154,47 @@ export function matchCedenteByBody(
 
   return null;
 }
+
+function normalizePersonName(value: string): string {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/**
+ * Smiles coloca o nome no assunto:
+ * "Aqui está seu código de acesso… - ROSILENE FLORIANO DO NASCIMENTO MAIA"
+ * Útil quando o encaminhamento some com o e-mail nos headers.
+ */
+export function matchCedenteByNomeInText(
+  text: string,
+  candidates: CedenteLite[]
+): CedenteLite | null {
+  const hay = normalizePersonName(text);
+  if (!hay || hay.length < 8) return null;
+
+  let best: CedenteLite | null = null;
+  let bestScore = 0;
+
+  for (const c of candidates) {
+    const nome = normalizePersonName(c.nomeCompleto);
+    if (!nome || nome.length < 8) continue;
+    const parts = nome.split(" ").filter((p) => p.length >= 3);
+    if (parts.length < 2) continue;
+    const hits = parts.filter((p) => hay.includes(p)).length;
+    if (hits < Math.min(2, parts.length)) continue;
+    // Exige pelo menos ~60% dos tokens (evita falso positivo com nome curto).
+    const score = hits / parts.length;
+    if (score < 0.6) continue;
+    if (score > bestScore || (score === bestScore && hits > bestScore)) {
+      best = c;
+      bestScore = score;
+    }
+  }
+
+  return best;
+}

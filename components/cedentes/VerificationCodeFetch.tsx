@@ -48,9 +48,6 @@ export function VerificationCodeFetch({
   className,
 }: Props) {
   const hasEmail = Boolean(String(email || "").trim());
-  const [afterIso] = useState(
-    () => new Date(Date.now() - OTP_LOOKBACK_MS).toISOString()
-  );
   const [loading, setLoading] = useState(false);
   const [code, setCode] = useState<string | null>(null);
   const [subject, setSubject] = useState<string | null>(null);
@@ -65,10 +62,11 @@ export function VerificationCodeFetch({
     setLoading(true);
     setError(null);
     try {
+      // Janela deslizante: cada poll/Atualizar olha os últimos N min (não congela na abertura).
       const params = new URLSearchParams({
         cedenteId,
         program,
-        after: afterIso,
+        after: new Date(Date.now() - OTP_LOOKBACK_MS).toISOString(),
       });
       const res = await fetch(`/api/emails/verification-code?${params}`, {
         cache: "no-store",
@@ -102,7 +100,7 @@ export function VerificationCodeFetch({
     } finally {
       setLoading(false);
     }
-  }, [afterIso, cedenteId, hasEmail, program]);
+  }, [cedenteId, hasEmail, program]);
 
   useEffect(() => {
     if (!hasEmail) return;
