@@ -42,7 +42,7 @@ type Creds = {
   emailRedirecionado?: boolean | null;
 } | null;
 
-type Step = "creds" | "code" | "search" | "extension" | "bio" | "order";
+type Step = "creds" | "code" | "search" | "extension" | "order";
 type TripKind = "IDA" | "IDA_VOLTA";
 
 /** Link curto para a mensagem do cedente. */
@@ -136,6 +136,37 @@ function buildLatamPagamentoLink(orderId: string) {
   )}&flow=BOOKING-REDEMPTION`;
 }
 
+const UNICO_UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Intro Unico → process com o mesmo id.
+ * Se já for /process/{id}, devolve o link como veio.
+ */
+function normalizeUnicoBiometriaLink(raw: string): string | null {
+  const s = String(raw || "").trim();
+  if (!s) return null;
+  try {
+    const url = new URL(s);
+    if (!/unico\.app$/i.test(url.hostname)) return null;
+
+    const processMatch = url.pathname.match(
+      /^\/process\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\/?$/i
+    );
+    if (processMatch) return s;
+
+    if (/\/flow\/intro/i.test(url.pathname)) {
+      const id = String(url.searchParams.get("id") || "").trim();
+      if (UNICO_UUID_RE.test(id)) {
+        return `https://cadastro.unico.app/process/${id}?collect-data=true`;
+      }
+    }
+  } catch {
+    // não é URL
+  }
+  return null;
+}
+
 function buildWhatsAppUrlFromContact(contact: WhatsAppContact, message: string) {
   if (!contact || !message.trim()) return null;
   if (contact.whatsappE164) return buildWhatsAppLink(contact.whatsappE164, message);
@@ -227,6 +258,7 @@ export default function BiometriaWizardModal({
   const [otpSynced, setOtpSynced] = useState(true);
   const [otpReason, setOtpReason] = useState<string | null>(null);
   const [orderLinkInput, setOrderLinkInput] = useState("");
+  const [bioLinkInput, setBioLinkInput] = useState("");
 
   const [searchTrip, setSearchTrip] = useState<TripKind>("IDA");
   const [searchOrigin, setSearchOrigin] = useState("");
@@ -288,6 +320,24 @@ export default function BiometriaWizardModal({
     () => (extractedOrderId ? buildLatamPagamentoLink(extractedOrderId) : null),
     [extractedOrderId]
   );
+  const bioLinkNormalized = useMemo(
+    () => (program === "LATAM" ? normalizeUnicoBiometriaLink(bioLinkInput) : null),
+    [bioLinkInput, program]
+  );
+  const bioSendMessage = useMemo(() => {
+    if (!bioLinkNormalized) return "";
+    const nome = cedenteNome?.trim();
+    return [
+      nome ? `Olá, ${nome}! Tudo bem?` : "Olá, tudo bem?",
+      "",
+      "Segue o link da biometria:",
+      bioLinkNormalized,
+    ].join("\n");
+  }, [bioLinkNormalized, cedenteNome]);
+  const bioWaUrl = useMemo(
+    () => buildWhatsAppUrlFromContact(whatsapp, bioSendMessage),
+    [whatsapp, bioSendMessage]
+  );
 
   const searchLink = useMemo(
     () =>
@@ -328,18 +378,9 @@ export default function BiometriaWizardModal({
     ].join("\n");
   }, [cedenteNome, program, cpf, programPass]);
 
-  const bioMessage = useMemo(() => {
-    if (!cedenteNome) return "";
-    return `Olá, ${cedenteNome}! Tudo bem? Está disponível para fazer uma biometria agora? Logo mais eu te envio`;
-  }, [cedenteNome]);
-
   const loginWaUrl = useMemo(
     () => buildWhatsAppUrlFromContact(whatsapp, loginMessage),
     [whatsapp, loginMessage]
-  );
-  const bioWaUrl = useMemo(
-    () => buildWhatsAppUrlFromContact(whatsapp, bioMessage),
-    [whatsapp, bioMessage]
   );
 
   const manualEmailMessage = useMemo(() => {
@@ -369,6 +410,7 @@ export default function BiometriaWizardModal({
     setOtpSynced(true);
     setOtpReason(null);
     setOrderLinkInput("");
+    setBioLinkInput("");
     setSearchTrip(initialTripKind);
     setSearchOrigin("");
     setSearchDestination("");
@@ -707,7 +749,7 @@ export default function BiometriaWizardModal({
 
   const stepsForProgram: Step[] =
     program === "LATAM"
-      ? ["creds", "code", "search", "extension", "bio", "order"]
+      ? ["creds", "code", "search", "extension", "order"]
       : ["creds", "code"];
 
   const stepIndex = stepsForProgram.indexOf(step);
@@ -1513,7 +1555,7 @@ export default function BiometriaWizardModal({
               <div className="flex flex-wrap gap-2">
                 <button
                   type="button"
-                  onClick={() => setStep("bio")}
+                  onClick={() => setStep("order")}
                   className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50"
                 >
                   <SkipForward className="h-4 w-4" aria-hidden />
@@ -1521,7 +1563,7 @@ export default function BiometriaWizardModal({
                 </button>
                 <button
                   type="button"
-                  onClick={() => setStep("bio")}
+                  onClick={() => setStep("order")}
                   className="inline-flex h-11 items-center justify-center rounded-xl bg-slate-900 px-5 text-sm font-semibold text-white hover:bg-slate-800"
                 >
                   Seguir
@@ -1531,74 +1573,12 @@ export default function BiometriaWizardModal({
           </div>
         ) : null}
 
-        {step === "bio" ? (
-          <div className="mt-5 space-y-4">
-            <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-4">
-              <div className="font-semibold text-slate-900">
-                5. Envie ao cedente o link da biometria
-              </div>
-              <p className="mt-1 text-xs text-slate-500">
-                Depois da pesquisa, envie o link da biometria (muda a cada reserva) e aguarde a
-                conclusão.
-              </p>
-              {bioMessage ? (
-                <>
-                  <div className="mt-3 whitespace-pre-wrap rounded-xl border border-slate-200 bg-white px-3 py-2 text-[11px] text-slate-700">
-                    {bioMessage}
-                  </div>
-                  <div className="mt-2 flex flex-wrap gap-2">
-                    <button
-                      type="button"
-                      onClick={() => void copyText(bioMessage)}
-                      className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[11px] font-medium hover:bg-slate-50"
-                    >
-                      <Copy className="h-3.5 w-3.5" aria-hidden />
-                      Copiar mensagem
-                    </button>
-                    <button
-                      type="button"
-                      disabled={!bioWaUrl}
-                      onClick={() => {
-                        if (!bioWaUrl) return;
-                        window.open(bioWaUrl, "_blank", "noopener,noreferrer");
-                      }}
-                      className={cn(
-                        "inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[11px] font-medium",
-                        bioWaUrl
-                          ? "border-emerald-200 bg-emerald-50 text-emerald-800"
-                          : "cursor-not-allowed border-slate-200 text-slate-400"
-                      )}
-                    >
-                      <MessageCircle className="h-3.5 w-3.5" aria-hidden />
-                      Enviar por WhatsApp
-                    </button>
-                  </div>
-                </>
-              ) : null}
-            </div>
-            <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-between">
-              <button
-                type="button"
-                onClick={() => setStep("extension")}
-                className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
-              >
-                Voltar
-              </button>
-              <button
-                type="button"
-                onClick={() => setStep("order")}
-                className="inline-flex h-11 items-center justify-center rounded-xl bg-slate-900 px-5 text-sm font-semibold text-white hover:bg-slate-800"
-              >
-                Seguir
-              </button>
-            </div>
-          </div>
-        ) : null}
-
         {step === "order" ? (
           <div className="mt-5 space-y-4">
             <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-4">
-              <div className="font-semibold text-slate-900">6. Order ID e link de pagamento</div>
+              <div className="font-semibold text-slate-900">
+                5. Order ID e link de pagamento
+              </div>
               <p className="mt-1 text-xs text-slate-500">
                 Cole o link da reserva ou o Order ID. Se preferir, pule e siga para a emissão.
               </p>
@@ -1647,10 +1627,78 @@ export default function BiometriaWizardModal({
               ) : null}
             </div>
 
+            <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-4">
+              <div className="font-semibold text-slate-900">
+                Link da biometria (Unico)
+              </div>
+              <p className="mt-1 text-xs text-slate-500">
+                Cole o link do intro ou do process. O intro é convertido automaticamente para o
+                link que o cedente deve abrir.
+              </p>
+              <input
+                className="mt-3 h-11 w-full rounded-xl border border-slate-200 bg-white px-3 font-mono text-sm outline-none focus:ring-2 focus:ring-slate-900/10"
+                value={bioLinkInput}
+                onChange={(e) => setBioLinkInput(e.target.value)}
+                placeholder="https://cadastro.unico.app/flow/intro?…&id=…"
+              />
+              {bioLinkInput.trim() && !bioLinkNormalized ? (
+                <div className="mt-2 text-[11px] text-rose-600">
+                  Link Unico inválido. Use o intro (com id=) ou o /process/….
+                </div>
+              ) : null}
+              {bioLinkNormalized ? (
+                <div className="mt-3">
+                  <div className="break-all rounded-xl border border-emerald-200 bg-white px-3 py-2 font-mono text-[11px]">
+                    {bioLinkNormalized}
+                  </div>
+                  {bioLinkNormalized !== bioLinkInput.trim() ? (
+                    <div className="mt-1.5 text-[11px] text-emerald-700">
+                      Convertido do intro → process
+                    </div>
+                  ) : null}
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => void copyText(bioLinkNormalized)}
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[11px] font-medium hover:bg-slate-50"
+                    >
+                      <Copy className="h-3.5 w-3.5" aria-hidden />
+                      Copiar link
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void copyText(bioSendMessage)}
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[11px] font-medium hover:bg-slate-50"
+                    >
+                      <Copy className="h-3.5 w-3.5" aria-hidden />
+                      Copiar mensagem
+                    </button>
+                    <button
+                      type="button"
+                      disabled={!bioWaUrl}
+                      onClick={() => {
+                        if (!bioWaUrl) return;
+                        window.open(bioWaUrl, "_blank", "noopener,noreferrer");
+                      }}
+                      className={cn(
+                        "inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[11px] font-medium",
+                        bioWaUrl
+                          ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+                          : "cursor-not-allowed border-slate-200 text-slate-400"
+                      )}
+                    >
+                      <MessageCircle className="h-3.5 w-3.5" aria-hidden />
+                      Enviar por WhatsApp
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+            </div>
+
             <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-between">
               <button
                 type="button"
-                onClick={() => setStep("bio")}
+                onClick={() => setStep("extension")}
                 className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
               >
                 Voltar
