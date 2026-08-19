@@ -30,7 +30,10 @@ import {
 } from "@/lib/payouts/employeeCommissionRates";
 import BiometriaWizardModal from "@/components/vendas/BiometriaWizardModal";
 import { EmailNaoSincronizadoAviso } from "@/components/cedentes/EmailNaoSincronizadoAviso";
-import { purchaseCodeFromLatamPdfUrl } from "@/lib/latam/parseReceiptPdf";
+import {
+  isProcessableLatamReceiptInput,
+  purchaseCodeFromLatamPdfUrl,
+} from "@/lib/latam/parseReceiptPdf";
 import { buildClientChargeMessage } from "@/lib/vendas/buildClientChargeMessage";
 
 type Program = "LATAM" | "SMILES" | "LIVELO" | "ESFERA";
@@ -1591,7 +1594,7 @@ export default function NovaVendaClient({
     if (program !== "LATAM") return;
     const url = String(rawUrl ?? latamPdfUrl).trim();
     if (!url) {
-      setLatamPdfError("Cole o link do PDF da LATAM.");
+      setLatamPdfError("Cole o link do comprovante ou o Order ID (LA…).");
       return;
     }
 
@@ -1667,9 +1670,7 @@ export default function NovaVendaClient({
       lastLatamPdfExtractUrl.current = "";
       return;
     }
-    const looksLikeLatamPdf =
-      /latamairlines\.com\/documents-pdf\//i.test(url) ||
-      Boolean(purchaseCodeFromLatamPdfUrl(url));
+    const looksLikeLatamPdf = isProcessableLatamReceiptInput(url);
     if (!looksLikeLatamPdf) return;
     if (url === lastLatamPdfExtractUrl.current) return;
 
@@ -2948,7 +2949,7 @@ export default function NovaVendaClient({
                             className={cn(CONTROL_INPUT, "font-mono text-[12px] pr-10")}
                             value={latamPdfUrl}
                             onChange={(e) => setLatamPdfUrl(e.target.value)}
-                            placeholder="https://www.latamairlines.com/documents-pdf/LA….pdf"
+                            placeholder="Link do PDF (LATAM, Google Storage…) ou Order ID LA…"
                           />
                           {latamPdfLoading ? (
                             <Loader2

@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { extractText, getDocumentProxy } from "unpdf";
 import { requireSession } from "@/lib/require-session";
 import {
-  isAllowedLatamPdfUrl,
+  isProcessableLatamReceiptInput,
   parseLatamReceiptText,
   purchaseCodeFromLatamPdfUrl,
   type LatamReceiptParsed,
@@ -125,9 +125,11 @@ export async function POST(req: Request) {
     const body = (await req.json().catch(() => null)) as { url?: string } | null;
     const url = String(body?.url || "").trim();
 
-    if (!url) return bad("Cole o link do PDF da LATAM.");
-    if (!isAllowedLatamPdfUrl(url)) {
-      return bad("URL inválida. Use um link https://www.latamairlines.com/...");
+    if (!url) return bad("Cole o link do PDF ou o Order ID (LA…).");
+    if (!isProcessableLatamReceiptInput(url)) {
+      return bad(
+        "Entrada inválida. Cole o link do comprovante (LATAM, Google Storage, etc.) ou o Order ID LA…."
+      );
     }
 
     const fromUrlCode = purchaseCodeFromLatamPdfUrl(url);

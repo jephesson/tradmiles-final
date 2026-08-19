@@ -139,30 +139,51 @@ function buildLatamPagamentoLink(orderId: string) {
 const UNICO_UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+function isUnicoHost(hostname: string) {
+  const host = hostname.toLowerCase();
+  return (
+    host === "cadastro.unico.app" ||
+    host === "id.unico.io" ||
+    /(?:^|\.)unico\.(app|io)$/.test(host)
+  );
+}
+
+function unicoProcessLinkFromId(id: string) {
+  return `https://cadastro.unico.app/process/${id}?collect-data=true`;
+}
+
 /**
- * Intro Unico → process com o mesmo id.
- * Se já for /process/{id}, devolve o link como veio.
+ * Qualquer link Unico com ?id=uuid → process.
+ * Aceita id.unico.io/flow, cadastro.unico.app/flow/intro, /process/{id}, ou UUID puro.
  */
 function normalizeUnicoBiometriaLink(raw: string): string | null {
   const s = String(raw || "").trim();
   if (!s) return null;
+
+  if (UNICO_UUID_RE.test(s)) return unicoProcessLinkFromId(s);
+
   try {
     const url = new URL(s);
-    if (!/unico\.app$/i.test(url.hostname)) return null;
+    if (!isUnicoHost(url.hostname)) {
+      const id = String(url.searchParams.get("id") || "").trim();
+      if (UNICO_UUID_RE.test(id)) return unicoProcessLinkFromId(id);
+      return null;
+    }
 
     const processMatch = url.pathname.match(
       /^\/process\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\/?$/i
     );
-    if (processMatch) return s;
+    if (processMatch?.[1]) return unicoProcessLinkFromId(processMatch[1]);
 
-    if (/\/flow\/intro/i.test(url.pathname)) {
-      const id = String(url.searchParams.get("id") || "").trim();
-      if (UNICO_UUID_RE.test(id)) {
-        return `https://cadastro.unico.app/process/${id}?collect-data=true`;
-      }
-    }
+    const id = String(url.searchParams.get("id") || "").trim();
+    if (UNICO_UUID_RE.test(id)) return unicoProcessLinkFromId(id);
   } catch {
-    // não é URL
+    const idMatch = s.match(
+      /([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i
+    );
+    if (idMatch?.[1] && UNICO_UUID_RE.test(idMatch[1])) {
+      return unicoProcessLinkFromId(idMatch[1]);
+    }
   }
   return null;
 }

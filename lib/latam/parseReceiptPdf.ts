@@ -111,29 +111,64 @@ function cityToIata(raw: string): string | null {
   return null;
 }
 
-/** Order ID embutido no path do PDF LATAM. */
-export function purchaseCodeFromLatamPdfUrl(url: string): string | null {
-  const s = String(url || "").trim();
+/** Order ID (LA…) em link de PDF, pagamento ou texto colado. */
+export function purchaseCodeFromLatamPdfUrl(input: string): string | null {
+  const s = String(input || "").trim();
+  if (!s) return null;
+
+  try {
+    const url = new URL(s);
+    const fromParam = url.searchParams.get("orderId") || url.searchParams.get("orderid");
+    if (fromParam && /^LA[A-Z0-9]+$/i.test(fromParam.trim())) {
+      return fromParam.trim().toUpperCase();
+    }
+  } catch {
+    // segue heurísticas abaixo
+  }
+
+  const fromQuery = s.match(/orderId=([A-Za-z0-9]+)/i);
+  if (fromQuery?.[1] && /^LA[A-Z0-9]+$/i.test(fromQuery[1])) {
+    return fromQuery[1].toUpperCase();
+  }
+
   const m =
     s.match(/documents-pdf\/(LA[A-Z0-9]+)/i) ||
     s.match(/\/(LA[A-Z0-9]{6,})-/i) ||
     s.match(/\b(LA[A-Z0-9]{6,})\b/i);
-  return m?.[1] ? m[1].toUpperCase() : null;
+  if (m?.[1]) return m[1].toUpperCase();
+
+  const cleaned = s.replace(/[^a-zA-Z0-9]/g, "").toUpperCase();
+  if (/^LA[A-Z0-9]{6,}$/.test(cleaned)) return cleaned;
+
+  return null;
 }
 
-export function isAllowedLatamPdfUrl(url: string): boolean {
+/** Aceita link GCS, latamairlines, PDF ou só o Order ID — o LA… é o que importa. */
+export function isProcessableLatamReceiptInput(input: string): boolean {
+  const s = String(input || "").trim();
+  if (!s) return false;
+  if (purchaseCodeFromLatamPdfUrl(s)) return true;
+
   try {
-    const u = new URL(url);
-    if (u.protocol !== "https:") return false;
+    const u = new URL(s);
+    if (u.protocol !== "https:" && u.protocol !== "http:") return false;
     const host = u.hostname.toLowerCase();
-    return (
-      host === "www.latamairlines.com" ||
-      host === "latamairlines.com" ||
-      host.endsWith(".latamairlines.com")
-    );
+    if (
+      host.includes("latamairlines.com") ||
+      host.includes("googleapis.com") ||
+      host.includes("gstatic.com")
+    ) {
+      return true;
+    }
+    return /\.pdf(\?|#|$)/i.test(u.pathname);
   } catch {
     return false;
   }
+}
+
+/** @deprecated use isProcessableLatamReceiptInput */
+export function isAllowedLatamPdfUrl(url: string): boolean {
+  return isProcessableLatamReceiptInput(url);
 }
 
 export function parseLatamReceiptText(rawText: string): LatamReceiptParsed {
