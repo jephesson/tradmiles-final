@@ -259,6 +259,9 @@ model User {
 
   latamFillSession LatamFillSession?
 
+  despesasCreated           Despesa[]           @relation("DespesaCreatedBy")
+  despesasRecorrentesCreated DespesaRecorrente[] @relation("DespesaRecorrenteCreatedBy")
+
   @@index([team])
   @@index([role])
   @@map("users")
@@ -2162,4 +2165,82 @@ model BonusMonthResult {
   @@index([team, month])
   @@index([userId])
   @@map("bonus_month_results")
+}
+
+/**
+ * =========================
+ * ✅ DESPESAS OPERACIONAIS
+ * =========================
+ */
+enum DespesaStatus {
+  PENDING
+  PAID
+  CANCELED
+}
+
+enum DespesaCategoria {
+  OPERACIONAL
+  ADMINISTRATIVO
+  MARKETING
+  TECNOLOGIA
+  PESSOAL
+  OUTROS
+}
+
+model DespesaRecorrente {
+  id String @id @default(cuid())
+
+  team String
+
+  title       String
+  description String?
+  amountCents Int
+  category    DespesaCategoria @default(OPERACIONAL)
+
+  /// Dia do mês (1–28) em que a despesa vence / é esperada
+  dayOfMonth Int @default(5)
+
+  active Boolean @default(true)
+
+  createdById String?
+  createdBy   User? @relation("DespesaRecorrenteCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+
+  despesas Despesa[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([team, active])
+  @@map("despesas_recorrentes")
+}
+
+model Despesa {
+  id String @id @default(cuid())
+
+  team           String
+  referenceMonth String // YYYY-MM
+
+  title       String
+  description String?
+  amountCents Int
+  category    DespesaCategoria @default(OPERACIONAL)
+
+  status  DespesaStatus @default(PENDING)
+  dueDate DateTime?
+  paidAt  DateTime?
+
+  recurringId String?
+  recurring   DespesaRecorrente? @relation(fields: [recurringId], references: [id], onDelete: SetNull)
+
+  createdById String?
+  createdBy   User? @relation("DespesaCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([team, referenceMonth, recurringId], map: "uniq_despesa_team_month_recurring")
+  @@index([team, referenceMonth])
+  @@index([team, status])
+  @@index([recurringId])
+  @@map("despesas")
 }

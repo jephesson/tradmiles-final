@@ -250,6 +250,7 @@ export default function Sidebar() {
 
   // ✅ NOVO: Prejuízo
   const isPrejuizoRoute = pathname.startsWith("/dashboard/prejuizo");
+  const isDespesasRoute = pathname.startsWith("/dashboard/despesas");
 
   const isDadosContabeisRoute = pathname.startsWith("/dashboard/dados-contabeis");
   const isContabilidadeRoute = isDadosContabeisRoute || isImpostosRoute;
@@ -257,6 +258,7 @@ export default function Sidebar() {
   const isFinanceiroRoute =
     isDividasRoute ||
     isDividasAReceberRoute ||
+    isDespesasRoute ||
     isImpostosRoute ||
     isResumoRoute ||
     isCaixaImediatoRoute ||
@@ -981,6 +983,8 @@ export default function Sidebar() {
           <NavLink href="/dashboard/prejuizo">Prejuízo</NavLink>
 
           <NavLink href="/dashboard/dividas">Dívidas</NavLink>
+
+          <NavLink href="/dashboard/despesas">Despesas</NavLink>
 
           {/* ✅ rota separada */}
           <NavLink href="/dashboard/dividas-a-receber">
