@@ -268,10 +268,11 @@ function BonusProgressCard({
   }
 
   const todayMet = bonus.dailyTargetCents > 0 && bonus.todayRevenueCents >= bonus.dailyTargetCents;
+  const remainingCents = Math.max(0, bonus.revenueGoalCents - bonus.revenueCents);
 
   return (
-    <section className="rounded-2xl border border-indigo-200/80 bg-gradient-to-br from-indigo-50/90 via-white to-white p-5 shadow-sm">
-      <div className="flex flex-wrap items-start justify-between gap-3 border-b border-indigo-100/80 pb-4">
+    <section className="overflow-hidden rounded-2xl border border-indigo-200/80 bg-white shadow-sm">
+      <div className="flex flex-wrap items-start justify-between gap-3 border-b border-indigo-100 bg-gradient-to-r from-indigo-50/90 to-white px-5 py-4">
         <div className="flex items-start gap-3">
           <div className="rounded-xl bg-indigo-100 p-2 text-indigo-700">
             <Target className="h-5 w-5" aria-hidden />
@@ -292,22 +293,79 @@ function BonusProgressCard({
         </Link>
       </div>
 
-      <div className="mt-4 grid gap-5 lg:grid-cols-2">
-        <div>
-          <div className="flex items-end justify-between gap-2">
+      <div className="p-5">
+        {!bonus.revenueGoalMet ? (
+          <div className="rounded-xl border-2 border-indigo-300 bg-indigo-600 px-4 py-4 text-white shadow-sm sm:flex sm:items-center sm:justify-between sm:gap-6">
             <div>
-              <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                Meta do mês
+              <div className="text-[11px] font-semibold uppercase tracking-wide text-indigo-100">
+                Para bater a meta
               </div>
-              <div className="mt-1 text-xl font-bold tabular-nums text-slate-900">
-                {fmtMoney(bonus.revenueCents)}
+              <div className="mt-1 flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+                <span className="text-sm text-indigo-100">Faltam</span>
+                <span className="text-3xl font-bold tabular-nums leading-none">
+                  {bonus.daysRemaining}
+                </span>
+                <span className="text-sm font-medium text-indigo-100">
+                  dia{bonus.daysRemaining === 1 ? "" : "s"}
+                </span>
               </div>
             </div>
-            <div className="text-right text-xs text-slate-500">
-              Meta {fmtMoney(bonus.revenueGoalCents)}
+            <div className="mt-3 sm:mt-0 sm:text-right">
+              <div className="text-[11px] font-semibold uppercase tracking-wide text-indigo-100">
+                Média diária necessária
+              </div>
+              <div className="mt-1 text-2xl font-bold tabular-nums sm:text-3xl">
+                {fmtMoney(bonus.dailyTargetCents)}
+                <span className="text-base font-semibold text-indigo-100">/dia</span>
+              </div>
             </div>
           </div>
-          <div className="mt-3 h-2.5 overflow-hidden rounded-full bg-slate-100">
+        ) : (
+          <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-4 text-center">
+            <div className="text-sm font-semibold text-emerald-800">Meta mensal batida</div>
+            <div className="mt-1 text-xs text-emerald-700">Parabéns — bônus liberado conforme regras do mês.</div>
+          </div>
+        )}
+
+        <div className="mt-4 grid gap-3 sm:grid-cols-3">
+          <div className="rounded-xl border-2 border-indigo-200 bg-indigo-50/60 px-4 py-3">
+            <div className="text-[11px] font-semibold uppercase tracking-wide text-indigo-600">
+              Meta do mês
+            </div>
+            <div className="mt-1 text-2xl font-bold tabular-nums text-indigo-950">
+              {fmtMoney(bonus.revenueGoalCents)}
+            </div>
+          </div>
+          <div className="rounded-xl border border-slate-200 bg-slate-50/80 px-4 py-3">
+            <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+              Vendido
+            </div>
+            <div className="mt-1 text-2xl font-bold tabular-nums text-slate-900">
+              {fmtMoney(bonus.revenueCents)}
+            </div>
+            <div className="mt-0.5 text-xs font-medium text-slate-500">{bonus.monthRevenuePct}% da meta</div>
+          </div>
+          <div className="rounded-xl border border-slate-200 bg-slate-50/80 px-4 py-3">
+            <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+              Falta vender
+            </div>
+            <div className="mt-1 text-2xl font-bold tabular-nums text-slate-900">
+              {bonus.revenueGoalMet ? fmtMoney(0) : fmtMoney(remainingCents)}
+            </div>
+            {!bonus.revenueGoalMet ? (
+              <div className="mt-0.5 text-xs font-medium text-slate-500">
+                até {fmtMoney(bonus.revenueGoalCents)}
+              </div>
+            ) : null}
+          </div>
+        </div>
+
+        <div className="mt-4">
+          <div className="mb-2 flex items-center justify-between text-xs text-slate-500">
+            <span>Progresso do mês</span>
+            <span className="font-semibold tabular-nums text-slate-700">{bonus.monthRevenuePct}%</span>
+          </div>
+          <div className="h-3 overflow-hidden rounded-full bg-slate-100">
             <div
               className={cn(
                 "h-full rounded-full transition-all",
@@ -316,44 +374,34 @@ function BonusProgressCard({
               style={{ width: `${bonus.monthRevenuePct}%` }}
             />
           </div>
-          <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-xs">
-            <span className="text-slate-500">{bonus.monthRevenuePct}% da meta</span>
-            {bonus.revenueGoalMet ? (
-              <span className="rounded-full bg-emerald-50 px-2 py-0.5 font-semibold text-emerald-700">
-                Meta batida
-              </span>
-            ) : (
-              <span className="text-slate-600">
-                Faltam {bonus.daysRemaining} dia{bonus.daysRemaining === 1 ? "" : "s"} · precisa{" "}
-                <span className="font-semibold text-indigo-800">
-                  {fmtMoney(bonus.dailyTargetCents)}/dia
-                </span>{" "}
-                em média
-              </span>
-            )}
-          </div>
         </div>
 
-        <div className="rounded-xl border border-slate-200/80 bg-white/80 p-4">
-          <div className="flex items-center gap-2">
-            <TrendingUp className="h-4 w-4 text-slate-500" aria-hidden />
-            <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-              Progresso de hoje
+        <div className="mt-5 rounded-xl border border-slate-200 bg-slate-50/50 p-4">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <TrendingUp className="h-4 w-4 text-slate-500" aria-hidden />
+              <div>
+                <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                  Progresso de hoje
+                </div>
+                <div className="mt-1 text-xl font-bold tabular-nums text-slate-900">
+                  {fmtMoney(bonus.todayRevenueCents)}
+                </div>
+              </div>
             </div>
-          </div>
-          <div className="mt-2 flex items-end justify-between gap-2">
-            <div className="text-xl font-bold tabular-nums text-slate-900">
-              {fmtMoney(bonus.todayRevenueCents)}
-            </div>
-            {bonus.revenueGoalMet ? (
-              <span className="text-xs text-emerald-700">Meta mensal já atingida</span>
-            ) : bonus.dailyTargetCents > 0 ? (
-              <span className="text-xs text-slate-500">Meta do dia {fmtMoney(bonus.dailyTargetCents)}</span>
+            {!bonus.revenueGoalMet && bonus.dailyTargetCents > 0 ? (
+              <div className="text-right">
+                <div className="text-[11px] text-slate-500">Meta do dia</div>
+                <div className="text-sm font-bold tabular-nums text-slate-800">
+                  {fmtMoney(bonus.dailyTargetCents)}
+                </div>
+              </div>
             ) : null}
           </div>
+
           {!bonus.revenueGoalMet && bonus.dailyTargetCents > 0 ? (
             <>
-              <div className="mt-3 h-2.5 overflow-hidden rounded-full bg-slate-100">
+              <div className="mt-3 h-2 overflow-hidden rounded-full bg-white">
                 <div
                   className={cn(
                     "h-full rounded-full transition-all",
@@ -366,8 +414,8 @@ function BonusProgressCard({
                 <span className="text-slate-500">{bonus.todayVsDailyPct}% da meta diária</span>
                 <span
                   className={cn(
-                    "rounded-full px-2 py-0.5 font-semibold",
-                    todayMet ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700"
+                    "rounded-full px-2.5 py-0.5 font-semibold",
+                    todayMet ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"
                   )}
                 >
                   {todayMet ? "Dia no ritmo" : "Abaixo do ritmo"}
@@ -375,7 +423,7 @@ function BonusProgressCard({
               </div>
             </>
           ) : (
-            <p className="mt-2 text-xs text-slate-500 capitalize">{todayLabel}</p>
+            <p className="mt-2 text-xs capitalize text-slate-500">{todayLabel}</p>
           )}
           <p className="mt-2 text-[11px] text-slate-500">
             {bonus.todaySalesCount} venda{bonus.todaySalesCount === 1 ? "" : "s"} de milhas
