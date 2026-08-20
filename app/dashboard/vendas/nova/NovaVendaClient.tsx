@@ -2181,8 +2181,9 @@ export default function NovaVendaClient({
                     const sug =
                       sel.suggestedPtsPerPax ??
                       suggestedPtsPerPaxFrom(sel.pts, sel.availablePassengersYear);
+                    const used = salePtsPerPax(sel.pointsNeeded, sel.passengersNeeded);
                     const below = isBelowSuggestedAvg(sel);
-                    if (sug <= 0) return null;
+                    if (used <= 0) return null;
                     return (
                       <span
                         className={cn(
@@ -2192,10 +2193,10 @@ export default function NovaVendaClient({
                             : "bg-white"
                         )}
                       >
-                        <b className="tabular-nums">{fmtInt(sug)}</b>
+                        Usado: <b className="tabular-nums">{fmtInt(used)}</b>
                         <span className="font-medium text-slate-600">/Por pax</span>
-                        {below ? (
-                          <span className="ml-1 font-semibold">· abaixo</span>
+                        {below && sug > 0 ? (
+                          <span className="ml-1 font-semibold">· abaixo de {fmtInt(sug)}</span>
                         ) : null}
                       </span>
                     );
@@ -2478,7 +2479,7 @@ export default function NovaVendaClient({
                   <tr>
                     <th className="px-4 py-3 w-[320px]">Cedente</th>
                     <th className="px-4 py-3 w-[200px]">Responsável</th>
-                    <th className="px-4 py-3 text-right w-[160px]">Média</th>
+                    <th className="px-4 py-3 text-right w-[160px]">Pts usados</th>
                     <th className="px-4 py-3 text-right w-[120px]">Pts</th>
                     <th className="px-4 py-3 text-right w-[260px]">PAX disp. (após)</th>
                     <th className="px-4 py-3 text-right w-[120px]">Sobra</th>
@@ -2519,6 +2520,7 @@ export default function NovaVendaClient({
                     const sugPts =
                       s.suggestedPtsPerPax ??
                       suggestedPtsPerPaxFrom(s.pts, s.availablePassengersYear);
+                    const usedPerPax = salePtsPerPax(s.pointsNeeded, s.passengersNeeded);
                     const belowAvg = isBelowSuggestedAvg(s);
 
                     return (
@@ -2565,16 +2567,20 @@ export default function NovaVendaClient({
                           <div className="text-xs text-slate-500">@{s.cedente.owner.login}</div>
                         </td>
                         <td className="px-4 py-3 text-right">
-                          {sugPts > 0 ? (
+                          {usedPerPax > 0 ? (
                             <div
                               className={cn(
                                 "leading-tight",
                                 belowAvg ? "text-amber-800" : "text-slate-900"
                               )}
-                              title={`pts ÷ (PAX livres − 1) = ${fmtInt(s.pts)} ÷ ${Math.max(1, (s.availablePassengersYear || 0) - 1)}`}
+                              title={
+                                sugPts > 0
+                                  ? `Esta venda: ${fmtInt(usedPerPax)} pts/pax. Sugestão da conta: ${fmtInt(sugPts)} pts/pax (estoque ÷ PAX livres − 1).`
+                                  : `Pontos desta venda ÷ passageiros = ${fmtInt(s.pointsNeeded)} ÷ ${fmtInt(s.passengersNeeded)}`
+                              }
                             >
                               <span className="tabular-nums text-sm font-bold">
-                                {fmtInt(sugPts)}
+                                {fmtInt(usedPerPax)}
                               </span>
                               <span
                                 className={cn(
@@ -2584,9 +2590,9 @@ export default function NovaVendaClient({
                               >
                                 /Por pax
                               </span>
-                              {belowAvg ? (
+                              {belowAvg && sugPts > 0 ? (
                                 <div className="mt-0.5 text-[11px] font-medium text-amber-700">
-                                  abaixo
+                                  abaixo de {fmtInt(sugPts)}
                                 </div>
                               ) : null}
                             </div>

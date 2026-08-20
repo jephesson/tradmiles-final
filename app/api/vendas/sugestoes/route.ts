@@ -160,11 +160,12 @@ export async function GET(req: Request) {
     // Impedir bloqueio: não oferece opção se a venda estouraria o limite de PAX
     .filter((r) => !(r.cedente.impedirBloqueioPax && r.alerts.includes("PASSAGEIROS_ESTOURADOS_COM_PONTOS")));
 
-  // sort: elegíveis por bucket e sobrar menos; depois ineligíveis
-  rows.sort((a, b) => {
+  // sort: elegíveis por bucket e sobrar menos (inelegíveis ficam de fora)
+  const eligibleRows = rows.filter((r) => r.eligible && r.priorityLabel !== "INELIGIVEL");
+  eligibleRows.sort((a, b) => {
     if (a.priorityBucket !== b.priorityBucket) return a.priorityBucket - b.priorityBucket;
     return a.leftoverPoints - b.leftoverPoints;
   });
 
-  return NextResponse.json({ ok: true, suggestions: rows.slice(0, 60) });
+  return NextResponse.json({ ok: true, suggestions: eligibleRows.slice(0, 60) });
 }
