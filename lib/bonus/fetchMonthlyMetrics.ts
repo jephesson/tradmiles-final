@@ -14,6 +14,8 @@ import {
   brazilMonthBounds,
   calendarMonthBoundsUTC,
   calendarMonthKeyUTC,
+  dayBoundsBrazil,
+  dayBoundsCalendarUTC,
 } from "@/lib/dates/brazilCalendar";
 
 function safeInt(v: unknown, fb = 0) {
@@ -262,4 +264,53 @@ export async function fetchHistoricalMaxForSuggest(team: string) {
   const maxProfitCents = Math.max(0, ...Array.from(profitByMonth.values()));
 
   return { maxRevenueCents, maxProfitCents };
+}
+
+/** Faturamento do dia (PV sem taxa + cobrança balcão), mesma base da meta de bônus. */
+export async function fetchTodayBonusRevenue(team: string, todayISO: string) {
+  const { start: saleStart, end: saleEnd } = dayBoundsCalendarUTC(todayISO);
+  const { start: balcaoStart, end: balcaoEnd } = dayBoundsBrazil(todayISO);
+
+  const [sales, balcaoOps] = await Promise.all([
+    prisma.sale.findMany({
+      where: {
+        date: { gte: saleStart, lt: saleEnd },
+        paymentStatus: { not: "CANCELED" },
+        OR: [
+          { seller: { team } },
+          { sellerId: null, cedente: { owner: { team } } },
+        ],
+      },
+      select: {
+        points: true,
+        milheiroCents: true,
+        totalCents: true,
+        embarqueFeeCents: true,
+        pointsValueCents: true,
+      },
+    }),
+    prisma.balcaoOperacao.findMany({
+      where: {
+        team,
+        createdAt: { gte: balcaoStart, lt: balcaoEnd },
+      },
+      select: { customerChargeCents: true },
+    }),
+  ]);
+
+  let revenueCents = 0;
+  for (const s of sales) {
+    revenueCents += pvSemTaxaFromSaleFields({
+      totalCents: s.totalCents,
+      embarqueFeeCents: s.embarqueFeeCents,
+      pointsValueCents: s.pointsValueCents,
+      points: s.points,
+      milheiroCents: s.milheiroCents,
+    });
+  }
+  for (const op of balcaoOps) {
+    revenueCents += safeInt(op.customerChargeCents, 0);
+  }
+
+  return { revenueCents, salesCount: sales.length, balcaoCount: balcaoOps.length };
 }

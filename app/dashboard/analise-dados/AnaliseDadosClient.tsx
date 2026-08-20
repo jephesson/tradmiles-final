@@ -133,7 +133,6 @@ function splitMilhasProfit(totalProfit: number, channel: SalesChannelSplit | nul
 
 function buildChannelBreakdownRows(args: {
   channel: SalesChannelSplit | null | undefined;
-  feeCents: number;
   compraBalcaoCents: number;
   extraTotalDetail?: string;
 }): BreakdownRow[] {
@@ -141,9 +140,7 @@ function buildChannelBreakdownRows(args: {
   const final = Number(args.channel?.clienteFinalCents || 0);
   const outros = Number(args.channel?.outrosOrigemCents || 0);
   const compra = Number(args.compraBalcaoCents || 0);
-  const fee = Number(args.feeCents || 0);
   const pctBase = venda + final + outros + compra;
-  const total = pctBase + fee;
 
   const rows: BreakdownRow[] = [
     {
@@ -171,22 +168,16 @@ function buildChannelBreakdownRows(args: {
 
   rows.push(
     {
-      label: LBL.taxa,
-      value: fmtMoneyBR(fee),
-      detail: "Fora do percentual",
-      pct: null,
-    },
-    {
       label: LBL.compraBalcao,
       value: fmtMoneyBR(compra),
       pct: sharePct(compra, pctBase),
     },
     {
       label: LBL.total,
-      value: fmtMoneyBR(total),
+      value: fmtMoneyBR(pctBase),
       detail: args.extraTotalDetail,
       emphasis: true,
-      pct: null,
+      pct: pctBase > 0 ? 100 : null,
     }
   );
 
@@ -1959,7 +1950,6 @@ export default function AnaliseDadosClient() {
     (): BreakdownRow[] =>
       buildChannelBreakdownRows({
         channel: (today as any)?.salesByChannel,
-        feeCents: Number(today?.feeCents || 0),
         compraBalcaoCents: Number(balcaoToday?.customerChargeCents || 0),
       }),
     [today, balcaoToday]
@@ -1970,7 +1960,6 @@ export default function AnaliseDadosClient() {
       (consolidated as any)?.salesByChannel || (data?.summary as any)?.salesByChannel || null;
     return buildChannelBreakdownRows({
       channel,
-      feeCents: Number(data?.summary?.feeCents || 0),
       compraBalcaoCents: Number(consolidated?.soldBalcaoCents || 0),
       extraTotalDetail: `LATAM ${fmtMoneyBR(kpis?.latam || 0)} / Smiles ${fmtMoneyBR(kpis?.smiles || 0)} • Clubes: LATAM ${fmtInt(kpis?.clubsLatam || 0)} | Smiles ${fmtInt(kpis?.clubsSmiles || 0)}`,
     });
@@ -1988,40 +1977,6 @@ export default function AnaliseDadosClient() {
     () => splitMilhasProfit(Number(consolidated?.profitSalesAfterTaxWithoutFeeCents || 0), monthChannel),
     [consolidated, monthChannel]
   );
-
-  const purchaseBreakdownRows = useMemo((): BreakdownRow[] => {
-    const latam = Number(selectedPurchaseMonth?.latam || 0);
-    const smiles = Number(selectedPurchaseMonth?.smiles || 0);
-    const other = Number(selectedPurchaseMonth?.other || 0) + Number(selectedPurchaseMonth?.withoutCia || 0);
-    const total = Number(selectedPurchaseMonth?.total || 0);
-    return [
-      {
-        label: "LATAM",
-        value: fmtInt(latam),
-        detail: `Período: ${fmtInt(purchaseTotals?.latam || 0)} compras`,
-        pct: sharePct(latam, total),
-      },
-      {
-        label: "Smiles",
-        value: fmtInt(smiles),
-        detail: `Período: ${fmtInt(purchaseTotals?.smiles || 0)} compras`,
-        pct: sharePct(smiles, total),
-      },
-      {
-        label: "Outras / sem cia",
-        value: fmtInt(other),
-        detail: `Período: ${fmtInt((purchaseTotals?.other || 0) + (purchaseTotals?.withoutCia || 0))} compras`,
-        pct: sharePct(other, total),
-      },
-      {
-        label: "Total",
-        value: fmtInt(total),
-        detail: `Abertas ${fmtInt(selectedPurchaseMonth?.open || 0)} • Finalizadas ${fmtInt(selectedPurchaseMonth?.closed || 0)} • Canceladas ${fmtInt(selectedPurchaseMonth?.canceled || 0)}`,
-        emphasis: true,
-        pct: total > 0 ? 100 : null,
-      },
-    ];
-  }, [selectedPurchaseMonth, purchaseTotals]);
 
   const purchaseMonthsNonZero = useMemo(
     () => purchaseMonths.filter((row) => Number(row.total || 0) > 0),
@@ -2165,7 +2120,7 @@ export default function AnaliseDadosClient() {
       {/* HOJE */}
       <BreakdownPanel
         title={`Resumo de hoje · ${today?.date ? dayKeyToDisplay(today.date) : "—"}`}
-        subtitle="Percentual sobre Venda no Balcão, Cliente Final e Cliente final (via balcão) — taxa de embarque à parte."
+        subtitle="Percentual sobre os três canais de venda (sem taxa de embarque)."
         rows={todayBreakdownRows}
       />
 
@@ -2195,33 +2150,15 @@ export default function AnaliseDadosClient() {
       {/* MÊS FOCO */}
       <BreakdownPanel
         title={`Vendas do mês · ${monthDisplay}`}
-        subtitle="Percentual dos canais de venda/compra; taxa de embarque não entra na base."
+        subtitle="Participação percentual de cada canal no mês."
         rows={monthBreakdownRows}
       />
 
-      <div className="space-y-5">
-        <div className="rounded-2xl border border-slate-200/80 bg-gradient-to-br from-slate-50/70 to-white p-5 shadow-sm shadow-slate-200/40">
-          <div className="text-sm font-semibold tracking-tight text-slate-900">Compras por companhia</div>
-          <div className="mt-1.5 text-xs leading-relaxed text-slate-600">
-            Contagem de compras criadas no mês foco, separando LATAM e Smiles.
-          </div>
-        </div>
-
-        <BreakdownPanel
-          title={`Compras · ${monthDisplay}`}
-          subtitle="Quantidade por companhia e percentual sobre o total do mês."
-          rows={purchaseBreakdownRows}
-          valueHeader="Qtd"
-        />
-
-        <PurchaseMonthlyChart
-          title="Compras por mês (LATAM x Smiles)"
-          data={purchaseMonthsNonZero}
-          footer={`Total no período: ${fmtInt(purchaseTotals?.total || 0)} compras • LATAM ${fmtInt(
-            purchaseTotals?.latam || 0
-          )} • Smiles ${fmtInt(purchaseTotals?.smiles || 0)}`}
-        />
-      </div>
+      <PurchaseMonthlyChart
+        title={`Compras por mês (LATAM x Smiles) · foco ${monthDisplay}`}
+        data={purchaseMonthsNonZero}
+        footer={`Mês foco: ${fmtInt(selectedPurchaseMonth?.total || 0)} compras (LATAM ${fmtInt(selectedPurchaseMonth?.latam || 0)}, Smiles ${fmtInt(selectedPurchaseMonth?.smiles || 0)}) • Período: ${fmtInt(purchaseTotals?.total || 0)} compras • LATAM ${fmtInt(purchaseTotals?.latam || 0)} • Smiles ${fmtInt(purchaseTotals?.smiles || 0)}`}
+      />
 
       {/* RESULTADO FINANCEIRO */}
       <div className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm shadow-slate-200/40">
@@ -2230,7 +2167,7 @@ export default function AnaliseDadosClient() {
             Resultado financeiro · {monthDisplay}
           </div>
           <div className="mt-1 text-xs text-slate-500">
-            Vendas e lucro líquido (pós-imposto), com prejuízo debitado nas milhas.
+            Valores vendidos e lucro líquido por canal (sem taxa de embarque).
           </div>
         </div>
         <div className="overflow-x-auto rounded-xl border border-slate-100">
@@ -2250,47 +2187,29 @@ export default function AnaliseDadosClient() {
                 const soldFinal = Number(consolidated?.soldClienteFinalCents || monthChannel?.clienteFinalCents || 0);
                 const soldOutros = Number(consolidated?.soldOutrosOrigemCents || monthChannel?.outrosOrigemCents || 0);
                 const soldCompra = Number(consolidated?.soldBalcaoCents || 0);
-                const fee = Number(data?.summary?.feeCents || 0);
                 const milhasSold = soldVenda + soldFinal + soldOutros;
                 const profitCompra = Number(consolidated?.profitBalcaoAfterTaxCents || 0);
                 const loss = Number(currentMonthPerformance?.lossCents || currentVsPrevious?.currentLossCents || 0);
+                const soldTotal = milhasSold + soldCompra;
 
                 return (
                   <>
-                    <tr className="border-b border-slate-100">
-                      <td className="px-3 py-2.5">Vendido (sem taxa)</td>
+                    <tr className="border-b border-slate-100 bg-slate-50/50 font-medium">
+                      <td className="px-3 py-2.5">Vendido</td>
                       <td className="px-3 py-2.5 text-right tabular-nums">{fmtMoneyBR(soldVenda)}</td>
                       <td className="px-3 py-2.5 text-right tabular-nums">{fmtMoneyBR(soldFinal)}</td>
                       <td className="px-3 py-2.5 text-right tabular-nums">{fmtMoneyBR(soldCompra)}</td>
-                      <td className="px-3 py-2.5 text-right font-semibold tabular-nums">
-                        {fmtMoneyBR(milhasSold + soldCompra)}
-                      </td>
+                      <td className="px-3 py-2.5 text-right font-semibold tabular-nums">{fmtMoneyBR(soldTotal)}</td>
                     </tr>
                     {soldOutros > 0 ? (
                       <tr className="border-b border-slate-100 text-xs text-slate-600">
-                        <td className="px-3 py-2.5 pl-6">{LBL.outros} (incluído no total de milhas)</td>
+                        <td className="px-3 py-2.5 pl-6">{LBL.outros}</td>
                         <td className="px-3 py-2.5 text-right tabular-nums" colSpan={3}>
                           {fmtMoneyBR(soldOutros)}
                         </td>
                         <td className="px-3 py-2.5 text-right tabular-nums">{fmtMoneyBR(soldOutros)}</td>
                       </tr>
                     ) : null}
-                    <tr className="border-b border-slate-100">
-                      <td className="px-3 py-2.5">{LBL.taxa}</td>
-                      <td className="px-3 py-2.5 text-right tabular-nums" colSpan={3}>
-                        {fmtMoneyBR(fee)}
-                      </td>
-                      <td className="px-3 py-2.5 text-right tabular-nums">{fmtMoneyBR(fee)}</td>
-                    </tr>
-                    <tr className="border-b border-slate-100 bg-slate-50/70 font-semibold">
-                      <td className="px-3 py-2.5">Vendido (com taxa)</td>
-                      <td className="px-3 py-2.5 text-right tabular-nums">{fmtMoneyBR(soldVenda)}</td>
-                      <td className="px-3 py-2.5 text-right tabular-nums">{fmtMoneyBR(soldFinal)}</td>
-                      <td className="px-3 py-2.5 text-right tabular-nums">{fmtMoneyBR(soldCompra)}</td>
-                      <td className="px-3 py-2.5 text-right tabular-nums">
-                        {fmtMoneyBR(milhasSold + fee + soldCompra)}
-                      </td>
-                    </tr>
                     <tr className="border-b border-slate-100">
                       <td className="px-3 py-2.5">Lucro líquido</td>
                       <td className="px-3 py-2.5 text-right tabular-nums">{fmtMoneyBR(monthProfitSplit.venda)}</td>
@@ -2319,20 +2238,19 @@ export default function AnaliseDadosClient() {
                     </tr>
                     <tr className="border-b border-slate-100">
                       <td className="px-3 py-2.5">Prejuízo debitado (milhas)</td>
-                      <td className="px-3 py-2.5 text-right tabular-nums text-rose-700" colSpan={3}>
+                      <td className="px-3 py-2.5 text-right tabular-nums text-rose-700" colSpan={4}>
                         {fmtMoneyBR(loss)}
                       </td>
-                      <td className="px-3 py-2.5 text-right tabular-nums text-rose-700">{fmtMoneyBR(loss)}</td>
                     </tr>
                   </>
                 );
               })()}
               <tr className="bg-indigo-50/60 font-semibold text-indigo-950">
                 <td className="px-3 py-2.5">
-                  Comparação · {monthKeyToDisplay(currentVsPrevious?.previousMonth)} → {monthDisplay}
+                  vs {monthKeyToDisplay(currentVsPrevious?.previousMonth)}
                 </td>
-                <td className="px-3 py-2.5 text-right tabular-nums" colSpan={2}>
-                  Lucro anterior: {fmtMoneyBR(currentVsPrevious?.previousProfitCents || 0)}
+                <td className="px-3 py-2.5 text-right tabular-nums" colSpan={3}>
+                  Lucro anterior {fmtMoneyBR(currentVsPrevious?.previousProfitCents || 0)}
                 </td>
                 <td
                   className={cn(
@@ -2349,12 +2267,6 @@ export default function AnaliseDadosClient() {
             </tbody>
           </table>
         </div>
-        {balcaoMonth ? (
-          <div className="mt-3 text-xs text-slate-500">
-            {LBL.compraBalcao}: lucro bruto {fmtMoneyBR(balcaoMonth.profitCents || 0)} • imposto{" "}
-            {fmtMoneyBR(balcaoMonth.taxCents || 0)}
-          </div>
-        ) : null}
       </div>
 
       <SimpleLineChart

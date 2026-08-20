@@ -57,6 +57,30 @@ export function calendarYmdFromIso(iso: string | null | undefined): string | nul
   return d.toISOString().slice(0, 10);
 }
 
+/** Meia-noite UTC de um dia de calendário (Sale.date). */
+export function dayStartCalendarUTC(yyyyMmDd: string): Date {
+  const [y, m, d] = String(yyyyMmDd || "")
+    .split("-")
+    .map((x) => Number(x));
+  return new Date(Date.UTC(y || 1970, (m || 1) - 1, d || 1, 0, 0, 0, 0));
+}
+
+/** Janela [start, end) para Sale.date em calendário UTC. */
+export function dayBoundsCalendarUTC(yyyyMmDd: string): { start: Date; end: Date } {
+  const start = dayStartCalendarUTC(yyyyMmDd);
+  const end = new Date(start);
+  end.setUTCDate(end.getUTCDate() + 1);
+  return { start, end };
+}
+
+/** Janela [start, end) para timestamps reais em America/Sao_Paulo (−03). */
+export function dayBoundsBrazil(yyyyMmDd: string): { start: Date; end: Date } {
+  const start = new Date(`${yyyyMmDd}T00:00:00-03:00`);
+  const end = new Date(`${yyyyMmDd}T00:00:00-03:00`);
+  end.setDate(end.getDate() + 1);
+  return { start, end };
+}
+
 /** YYYY-MM-DD de hoje em America/Sao_Paulo. */
 export function todayYmdSaoPaulo(now = new Date()): string {
   const parts = new Intl.DateTimeFormat("en-CA", {

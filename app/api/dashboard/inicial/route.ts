@@ -1,6 +1,16 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/auth-server";
+import {
+  computeDailyRevenueTargetCents,
+  currentMonthISORecife,
+  daysRemainingInMonth,
+  monthLabelPT,
+} from "@/lib/bonus/monthlyBonus";
+import {
+  fetchMonthlyBonusMetrics,
+  fetchTodayBonusRevenue,
+} from "@/lib/bonus/fetchMonthlyMetrics";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -69,7 +79,7 @@ export async function GET() {
     const todayISO = todayRecifeISO();
     const nowMin = nowMinutesRecife();
 
-    const [events, users] = await Promise.all([
+    const [events, users, bonusSetting, bonusMetrics, todayRevenue] = await Promise.all([
       prisma.agendaEvent.findMany({
         where: {
           team: session.team,
@@ -86,6 +96,18 @@ export async function GET() {
         select: { id: true, name: true, login: true, lastPresenceAt: true },
         orderBy: { name: "asc" },
       }),
+      prisma.bonusMonthSetting.findUnique({
+        where: {
+          team_month: { team: session.team, month: currentMonthISORecife() },
+        },
+        select: {
+          isActive: true,
+          revenueGoalCents: true,
+          profitGoalCents: true,
+        },
+      }),
+      fetchMonthlyBonusMetrics(session.team, currentMonthISORecife()),
+      fetchTodayBonusRevenue(session.team, todayISO),
     ]);
 
     const now = Date.now();
@@ -136,6 +158,28 @@ export async function GET() {
       };
     });
 
+    const bonusMonth = currentMonthISORecife();
+    const revenueGoalCents = bonusSetting?.revenueGoalCents ?? 0;
+    const revenueCents = bonusMetrics.revenueCents;
+    const revenueGoalMet = revenueGoalCents > 0 && revenueCents >= revenueGoalCents;
+    const daysRemaining = daysRemainingInMonth(bonusMonth, todayISO);
+    const dailyTargetCents = computeDailyRevenueTargetCents({
+      revenueGoalCents,
+      revenueCents,
+      daysRemaining,
+    });
+    const todayRevenueCents = todayRevenue.revenueCents;
+    const todayVsDailyPct =
+      dailyTargetCents > 0
+        ? Math.min(100, Math.round((todayRevenueCents / dailyTargetCents) * 100))
+        : revenueGoalMet
+          ? 100
+          : 0;
+    const monthRevenuePct =
+      revenueGoalCents > 0
+        ? Math.min(100, Math.round((revenueCents / revenueGoalCents) * 100))
+        : 0;
+
     return NextResponse.json(
       {
         ok: true,
@@ -146,6 +190,21 @@ export async function GET() {
           agendaToday,
           expectedShiftEventIds,
           teamPresence,
+          bonusProgress: {
+            month: bonusMonth,
+            monthLabel: monthLabelPT(bonusMonth),
+            isActive: bonusSetting?.isActive ?? false,
+            revenueGoalCents,
+            revenueCents,
+            revenueGoalMet,
+            monthRevenuePct,
+            daysRemaining,
+            dailyTargetCents,
+            todayRevenueCents,
+            todayVsDailyPct,
+            todaySalesCount: todayRevenue.salesCount,
+            todayBalcaoCount: todayRevenue.balcaoCount,
+          },
         },
       },
       { headers: noCache() }

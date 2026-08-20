@@ -294,3 +294,33 @@ export function suggestGoalsFromMax(maxRevenueCents: number, maxProfitCents: num
     profitGoalCents: Math.round(Math.max(0, maxProfitCents) * 1.1),
   };
 }
+
+export function daysInMonthFromKey(month: string): number {
+  const [yRaw, mRaw] = month.split("-");
+  const y = Number(yRaw);
+  const m = Number(mRaw);
+  if (!y || !m) return 30;
+  return new Date(y, m, 0).getDate();
+}
+
+/** Dias restantes no mês civil, incluindo hoje. */
+export function daysRemainingInMonth(month: string, todayISO: string): number {
+  const m = todayISO.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m || `${m[1]}-${m[2]}` !== month) return 0;
+  const day = Number(m[3]);
+  const dim = daysInMonthFromKey(month);
+  return Math.max(0, dim - day + 1);
+}
+
+/** Média diária de faturamento (PV sem taxa + balcão) para bater a meta de bônus. */
+export function computeDailyRevenueTargetCents(args: {
+  revenueGoalCents: number;
+  revenueCents: number;
+  daysRemaining: number;
+}): number {
+  const goal = Math.max(0, args.revenueGoalCents);
+  const current = Math.max(0, args.revenueCents);
+  if (goal <= 0 || current >= goal) return 0;
+  const days = Math.max(1, args.daysRemaining);
+  return Math.ceil((goal - current) / days);
+}
