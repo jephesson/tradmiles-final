@@ -120,6 +120,10 @@ export async function analyzePixEmailContent(args: {
     return { parsed: null, match: emptyMatch };
   }
 
+  if (parsed.direction === "OUT") {
+    return { parsed: null, match: emptyMatch };
+  }
+
   const [pendingSales, employees, learnedAliases] = await Promise.all([
     loadPendingSales(team),
     loadEmployees(team),

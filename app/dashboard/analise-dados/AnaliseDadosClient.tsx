@@ -68,29 +68,31 @@ function elapsedDaysInMonthFromKey(monthKey?: string | null, todayISO?: string |
   return Math.max(1, Math.min(totalDays, day));
 }
 
-function monthLabelLongPT(monthKey?: string | null) {
+function monthKeyToDisplay(monthKey?: string | null) {
   const raw = String(monthKey || "").trim();
   const m = raw.match(/^(\d{4})-(\d{2})$/);
   if (!m) return raw || "—";
-  const dt = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, 1));
-  return new Intl.DateTimeFormat("pt-BR", {
-    month: "long",
-    year: "numeric",
-    timeZone: "UTC",
-  }).format(dt);
+  return `${m[2]}/${m[1]}`;
 }
 
-function dayLabelLongPT(dayKey?: string | null) {
+function dayKeyToDisplay(dayKey?: string | null) {
   const raw = String(dayKey || "").trim();
   const m = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if (!m) return raw || "—";
-  const dt = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
-  return new Intl.DateTimeFormat("pt-BR", {
-    day: "2-digit",
-    month: "long",
-    year: "numeric",
-    timeZone: "UTC",
-  }).format(dt);
+  return `${m[3]}/${m[2]}/${m[1]}`;
+}
+
+function monthLabelLongPT(monthKey?: string | null) {
+  return monthKeyToDisplay(monthKey);
+}
+
+function dayLabelLongPT(dayKey?: string | null) {
+  return dayKeyToDisplay(dayKey);
+}
+
+function sharePct(part: number, total: number) {
+  if (!total) return null;
+  return (part / total) * 100;
 }
 
 /** Alinhado ao analytics (UTC por chave YYYY-MM-DD). */
@@ -230,6 +232,65 @@ function Card({
         <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">{title}</div>
         <div className="mt-2 text-xl font-bold tabular-nums tracking-tight text-slate-900">{value}</div>
         {sub ? <div className="mt-2 text-xs leading-snug text-slate-600">{sub}</div> : null}
+      </div>
+    </div>
+  );
+}
+
+type BreakdownRow = {
+  label: string;
+  value: string;
+  detail?: string;
+  pct?: number | null;
+  emphasis?: boolean;
+};
+
+function BreakdownPanel({
+  title,
+  subtitle,
+  rows,
+  valueHeader = "Valor",
+}: {
+  title: string;
+  subtitle?: string;
+  rows: BreakdownRow[];
+  valueHeader?: string;
+}) {
+  return (
+    <div className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm shadow-slate-200/40">
+      <div className="mb-4 border-b border-slate-100 pb-3">
+        <div className="text-sm font-semibold tracking-tight text-slate-900">{title}</div>
+        {subtitle ? <div className="mt-1 text-xs text-slate-500">{subtitle}</div> : null}
+      </div>
+      <div className="overflow-x-auto rounded-xl border border-slate-100">
+        <table className="w-full min-w-[480px] text-sm">
+          <thead className="border-b border-slate-200 bg-slate-50/90">
+            <tr className="text-left text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+              <th className="px-3 py-2.5">Item</th>
+              <th className="px-3 py-2.5 text-right">{valueHeader}</th>
+              <th className="px-3 py-2.5">Detalhe</th>
+              <th className="px-3 py-2.5 text-right">%</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row) => (
+              <tr
+                key={row.label}
+                className={cn(
+                  "border-b border-slate-100 last:border-0",
+                  row.emphasis ? "bg-slate-50/90 font-semibold text-slate-900" : "text-slate-800"
+                )}
+              >
+                <td className="px-3 py-2.5">{row.label}</td>
+                <td className="px-3 py-2.5 text-right tabular-nums">{row.value}</td>
+                <td className="px-3 py-2.5 text-xs text-slate-600">{row.detail || "—"}</td>
+                <td className="px-3 py-2.5 text-right tabular-nums text-slate-600">
+                  {row.pct != null ? fmtPctRaw(row.pct) : "—"}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
     </div>
   );
@@ -878,7 +939,7 @@ function PurchaseMonthlyChart({
       </div>
 
       <div className="space-y-3">
-        {data.map((row) => {
+        {data.filter((row) => Number(row.total || 0) > 0).map((row) => {
           const total = Math.max(0, Number(row.total || 0));
           const latam = Math.max(0, Number(row.latam || 0));
           const smiles = Math.max(0, Number(row.smiles || 0));
@@ -890,7 +951,7 @@ function PurchaseMonthlyChart({
 
           return (
             <div key={row.key} className="grid grid-cols-[72px,1fr,64px] items-center gap-3">
-              <div className="text-xs text-neutral-600">{row.label}</div>
+              <div className="text-xs text-neutral-600">{monthKeyToDisplay(row.key) || row.label}</div>
               <div className="h-7 rounded-full bg-neutral-100">
                 {total > 0 ? (
                   <div className="flex h-7 overflow-hidden rounded-full" style={{ width: `${totalW}%` }}>
@@ -1138,15 +1199,6 @@ export default function AnaliseDadosClient() {
   const balcaoByAirline = ((data as any)?.balcao?.byAirline || []) as any[];
   const balcaoByEmployee = ((data as any)?.balcao?.byEmployee || []) as any[];
   const consolidated = (data as any)?.consolidated || null;
-
-  // ✅ FIX: total por funcionário HOJE (API manda "todayByEmployee")
-  // Mantém fallback em "byEmployeeToday" pra não quebrar deploy antigo.
-  const byEmployeeToday = useMemo(() => {
-    const j = data as any;
-    return ((j?.todayByEmployee || j?.byEmployeeToday || []) as any[]).slice();
-  }, [data]);
-
-  const todayLabel = today?.date ? String(today.date) : "";
 
   const balcaoDaySoldByKey = useMemo(() => {
     const m = new Map<string, number>();
@@ -1797,16 +1849,117 @@ export default function AnaliseDadosClient() {
 
   const chartPeriodLabel = useMemo(() => {
     if (chartMode === "MONTH") return `${fmtInt(monthsBack)} meses`;
-    if (daysPreset === "CUSTOM" && dateFrom && dateTo) return `${dateFrom} → ${dateTo}`;
+    if (daysPreset === "CUSTOM" && dateFrom && dateTo) {
+      return `${dayKeyToDisplay(dateFrom)} → ${dayKeyToDisplay(dateTo)}`;
+    }
     return `últimos ${fmtInt(daysBack)} dias`;
   }, [chartMode, monthsBack, daysPreset, dateFrom, dateTo, daysBack]);
 
-  const comparisonTone: CardTone =
-    currentVsPrevious?.deltaProfitPercent == null
-      ? "slate"
-      : currentVsPrevious.deltaProfitPercent >= 0
-        ? "emerald"
-        : "rose";
+  const monthDisplay = monthKeyToDisplay(monthLabel);
+
+  const todayBreakdownRows = useMemo((): BreakdownRow[] => {
+    const particular = Number(today?.grossCents || 0);
+    const fee = Number(today?.feeCents || 0);
+    const balcao = Number(balcaoToday?.customerChargeCents || 0);
+    const total = particular + fee + balcao;
+    return [
+      {
+        label: "Particular (milhas)",
+        value: fmtMoneyBR(particular),
+        detail: `${fmtInt(today?.salesCount || 0)} vendas • ${fmtInt(today?.passengers || 0)} pax`,
+        pct: sharePct(particular, total),
+      },
+      {
+        label: "Taxa de embarque",
+        value: fmtMoneyBR(fee),
+        pct: sharePct(fee, total),
+      },
+      {
+        label: "Balcão",
+        value: fmtMoneyBR(balcao),
+        detail: `${fmtInt(balcaoToday?.operationsCount || 0)} ops • lucro ${fmtMoneyBR(balcaoToday?.netProfitCents || 0)}`,
+        pct: sharePct(balcao, total),
+      },
+      {
+        label: "Total",
+        value: fmtMoneyBR(total),
+        emphasis: true,
+        pct: total > 0 ? 100 : null,
+      },
+    ];
+  }, [today, balcaoToday]);
+
+  const monthBreakdownRows = useMemo((): BreakdownRow[] => {
+    const particular = Number(consolidated?.soldSalesCents || kpis?.gross || 0);
+    const fee = Number(data?.summary?.feeCents || 0);
+    const balcao = Number(consolidated?.soldBalcaoCents || 0);
+    const total = particular + fee + balcao;
+    return [
+      {
+        label: "Particular (milhas)",
+        value: fmtMoneyBR(particular),
+        detail: `${fmtInt(kpis?.count || 0)} vendas • ${fmtInt(kpis?.pax || 0)} pax • LATAM ${fmtMoneyBR(kpis?.latam || 0)} / Smiles ${fmtMoneyBR(kpis?.smiles || 0)}`,
+        pct: sharePct(particular, total),
+      },
+      {
+        label: "Taxa de embarque",
+        value: fmtMoneyBR(fee),
+        pct: sharePct(fee, total),
+      },
+      {
+        label: "Balcão",
+        value: fmtMoneyBR(balcao),
+        detail: `${fmtInt(balcaoMonth?.operationsCount || 0)} ops • ${fmtInt(balcaoMonth?.points || 0)} pts • lucro ${fmtMoneyBR(balcaoMonth?.netProfitCents || 0)}`,
+        pct: sharePct(balcao, total),
+      },
+      {
+        label: "Total",
+        value: fmtMoneyBR(total),
+        detail: `Clubes: LATAM ${fmtInt(kpis?.clubsLatam || 0)} | Smiles ${fmtInt(kpis?.clubsSmiles || 0)}`,
+        emphasis: true,
+        pct: total > 0 ? 100 : null,
+      },
+    ];
+  }, [consolidated, kpis, data, balcaoMonth]);
+
+  const purchaseBreakdownRows = useMemo((): BreakdownRow[] => {
+    const latam = Number(selectedPurchaseMonth?.latam || 0);
+    const smiles = Number(selectedPurchaseMonth?.smiles || 0);
+    const other = Number(selectedPurchaseMonth?.other || 0) + Number(selectedPurchaseMonth?.withoutCia || 0);
+    const total = Number(selectedPurchaseMonth?.total || 0);
+    return [
+      {
+        label: "LATAM",
+        value: fmtInt(latam),
+        detail: `Período: ${fmtInt(purchaseTotals?.latam || 0)} compras`,
+        pct: sharePct(latam, total),
+      },
+      {
+        label: "Smiles",
+        value: fmtInt(smiles),
+        detail: `Período: ${fmtInt(purchaseTotals?.smiles || 0)} compras`,
+        pct: sharePct(smiles, total),
+      },
+      {
+        label: "Outras / sem cia",
+        value: fmtInt(other),
+        detail: `Período: ${fmtInt((purchaseTotals?.other || 0) + (purchaseTotals?.withoutCia || 0))} compras`,
+        pct: sharePct(other, total),
+      },
+      {
+        label: "Total",
+        value: fmtInt(total),
+        detail: `Abertas ${fmtInt(selectedPurchaseMonth?.open || 0)} • Finalizadas ${fmtInt(selectedPurchaseMonth?.closed || 0)} • Canceladas ${fmtInt(selectedPurchaseMonth?.canceled || 0)}`,
+        emphasis: true,
+        pct: total > 0 ? 100 : null,
+      },
+    ];
+  }, [selectedPurchaseMonth, purchaseTotals]);
+
+  const purchaseMonthsNonZero = useMemo(
+    () => purchaseMonths.filter((row) => Number(row.total || 0) > 0),
+    [purchaseMonths]
+  );
 
   const milheiroTone = (deltaPct: number | null | undefined, delta: number | undefined): CardTone => {
     if (deltaPct == null || delta == null) return "slate";
@@ -1835,8 +1988,16 @@ export default function AnaliseDadosClient() {
           </div>
           <div>
             <h1 className="text-3xl font-bold tracking-tight text-slate-900">Análise de dados</h1>
-            <p className="mt-2 max-w-2xl text-sm leading-relaxed text-slate-600">
-              Vendas, passageiros, dias, funcionários, clientes e clubes.
+            <p className="mt-2 max-w-3xl text-sm leading-relaxed text-slate-600">
+              Mês foco <span className="font-medium text-slate-800">{monthDisplay}</span>
+              {" · "}
+              Gráfico: {chartPeriodLabel}
+              {today?.date ? (
+                <>
+                  {" · "}
+                  Hoje <span className="font-medium text-slate-800">{dayKeyToDisplay(today.date)}</span>
+                </>
+              ) : null}
             </p>
           </div>
         </div>
@@ -1852,7 +2013,7 @@ export default function AnaliseDadosClient() {
           <select className={ANALISE_SELECT} value={focusYM} onChange={(e) => setFocusYM(e.target.value)}>
             {monthOptions.map((m) => (
               <option key={m} value={m}>
-                {m}
+                {monthKeyToDisplay(m)}
               </option>
             ))}
           </select>
@@ -1935,34 +2096,11 @@ export default function AnaliseDadosClient() {
       </div>
 
       {/* HOJE */}
-      <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
-        <Card
-          title={today?.date ? `Total vendido hoje (${today.date})` : "Total vendido hoje"}
-          value={fmtMoneyBR(today?.grossCents || 0)}
-          sub={`${fmtInt(today?.salesCount || 0)} vendas • ${fmtInt(today?.passengers || 0)} pax`}
-          tone="sky"
-        />
-        <Card
-          title="Total do dia (com taxa embarque)"
-          value={fmtMoneyBR(today?.totalCents || 0)}
-          sub={`Taxa embarque: ${fmtMoneyBR(today?.feeCents || 0)}`}
-          tone="emerald"
-        />
-        <Card
-          title="Mês selecionado"
-          value={data?.summary?.monthLabel || (data?.filters?.month || focusYM) || "—"}
-          sub={`Período no gráfico: ${chartPeriodLabel}`}
-          tone="amber"
-        />
-        <Card
-          title="Balcão hoje (valor vendido)"
-          value={fmtMoneyBR(balcaoToday?.customerChargeCents || 0)}
-          sub={`${fmtInt(balcaoToday?.operationsCount || 0)} operações • lucro líquido: ${fmtMoneyBR(
-            balcaoToday?.netProfitCents || 0
-          )}`}
-          tone="teal"
-        />
-      </div>
+      <BreakdownPanel
+        title={`Resumo de hoje · ${today?.date ? dayKeyToDisplay(today.date) : "—"}`}
+        subtitle="Particular = vendas de milhas fora do balcão. Taxa de embarque separada do total."
+        rows={todayBreakdownRows}
+      />
 
       <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
         <Card
@@ -1970,7 +2108,7 @@ export default function AnaliseDadosClient() {
           value={fmtMoneyBR(salesDailyHistorySummary?.grossCents || 0)}
           sub={
             salesDailyHistorySummary
-              ? dayLabelLongPT(salesDailyHistorySummary.key)
+              ? dayKeyToDisplay(salesDailyHistorySummary.key)
               : "Sem histórico suficiente"
           }
           tone="sky"
@@ -1978,250 +2116,167 @@ export default function AnaliseDadosClient() {
         <Card
           title="Maior mês vendido (histórico)"
           value={fmtMoneyBR(salesMonthlyHistorySummary?.grossCents || 0)}
-          sub={salesMonthlyHistorySummary ? salesMonthlyHistorySummary.label : "Sem histórico suficiente"}
+          sub={
+            salesMonthlyHistorySummary
+              ? monthKeyToDisplay(salesMonthlyHistorySummary.key)
+              : "Sem histórico suficiente"
+          }
           tone="emerald"
         />
       </div>
 
-      {/* HOJE por funcionário */}
-      <div className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm shadow-slate-200/40">
-        <div className="mb-4 flex items-center justify-between border-b border-slate-100 pb-3">
-          <div className="text-sm font-semibold tracking-tight text-slate-900">
-            Total por funcionário {todayLabel ? `(hoje ${todayLabel})` : "(hoje)"}
-          </div>
-        </div>
-
-        <div className="overflow-x-auto rounded-xl border border-slate-100">
-          <table className="w-full min-w-[720px] text-sm">
-            <thead className="border-b border-slate-200 bg-slate-50/90">
-              <tr className="text-left text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                <th className="px-3 py-2.5">Funcionário</th>
-                <th className="px-3 py-2.5">Vendas</th>
-                <th className="px-3 py-2.5">PAX</th>
-                <th className="px-3 py-2.5 text-right">Total (sem taxa)</th>
-              </tr>
-            </thead>
-            <tbody>
-              {byEmployeeToday.map((r: any) => (
-                <tr key={r.id} className="border-b border-slate-100 transition hover:bg-slate-50/70">
-                  <td className="px-3 py-2.5">
-                    <div className="font-medium">{r.name}</div>
-                    <div className="text-xs text-neutral-500">{r.login}</div>
-                  </td>
-                  <td className="px-3 py-2.5 tabular-nums">{fmtInt(r.salesCount || 0)}</td>
-                  <td className="px-3 py-2.5 tabular-nums">{fmtInt(r.passengers || 0)}</td>
-                  <td className="px-3 py-2.5 text-right font-semibold tabular-nums">{fmtMoneyBR(r.grossCents || 0)}</td>
-                </tr>
-              ))}
-
-              {!byEmployeeToday.length ? (
-                <tr>
-                  <td className="py-4 text-sm text-neutral-500" colSpan={4}>
-                    Sem vendas hoje.
-                  </td>
-                </tr>
-              ) : null}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      {/* KPIs */}
-      <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
-        <Card
-          title="Total vendido no mês (milhas)"
-          value={fmtMoneyBR(consolidated?.soldSalesCents || kpis?.gross || 0)}
-          sub={`Média mensal (milhas): ${fmtMoneyBR(avgMonthlySalesCents)} • Total com balcão: ${fmtMoneyBR(
-            consolidated?.soldTotalCents || kpis?.gross || 0
-          )}`}
-          tone="teal"
-        />
-        <Card title="Quantidade de vendas no mês" value={fmtInt(kpis?.count || 0)} tone="sky" />
-        <Card title="Passageiros emitidos no mês" value={fmtInt(kpis?.pax || 0)} tone="emerald" />
-        <Card
-          title="LATAM vs SMILES (mês)"
-          value={`${fmtMoneyBR(kpis?.latam || 0)} / ${fmtMoneyBR(kpis?.smiles || 0)}`}
-          sub={`Clubes: LATAM ${fmtInt(kpis?.clubsLatam || 0)} | SMILES ${fmtInt(kpis?.clubsSmiles || 0)}`}
-          tone="rose"
-        />
-      </div>
+      {/* MÊS FOCO */}
+      <BreakdownPanel
+        title={`Vendas do mês · ${monthDisplay}`}
+        subtitle="Particular, taxa de embarque e balcão com participação percentual."
+        rows={monthBreakdownRows}
+      />
 
       <div className="space-y-5">
         <div className="rounded-2xl border border-slate-200/80 bg-gradient-to-br from-slate-50/70 to-white p-5 shadow-sm shadow-slate-200/40">
           <div className="text-sm font-semibold tracking-tight text-slate-900">Compras por companhia</div>
           <div className="mt-1.5 text-xs leading-relaxed text-slate-600">
-            Contagem de compras criadas por mês, separando LATAM e Smiles. Outras cias e compras sem cia ficam destacadas
-            apenas como apoio.
+            Contagem de compras criadas no mês foco, separando LATAM e Smiles.
           </div>
         </div>
 
-        <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
-          <Card
-            title={`Compras no mês ${selectedPurchaseMonth?.label || monthLabel || "—"}`}
-            value={fmtInt(selectedPurchaseMonth?.total || 0)}
-            sub={`Abertas ${fmtInt(selectedPurchaseMonth?.open || 0)} • Liberadas/finalizadas ${fmtInt(
-              selectedPurchaseMonth?.closed || 0
-            )} • Canceladas ${fmtInt(selectedPurchaseMonth?.canceled || 0)}`}
-            tone="slate"
-          />
-          <Card
-            title="Compras LATAM no mês"
-            value={fmtInt(selectedPurchaseMonth?.latam || 0)}
-            sub={`No período: ${fmtInt(purchaseTotals?.latam || 0)} compras LATAM`}
-            tone="sky"
-          />
-          <Card
-            title="Compras Smiles no mês"
-            value={fmtInt(selectedPurchaseMonth?.smiles || 0)}
-            sub={`No período: ${fmtInt(purchaseTotals?.smiles || 0)} compras Smiles`}
-            tone="emerald"
-          />
-          <Card
-            title="Outras/sem cia no mês"
-            value={fmtInt((selectedPurchaseMonth?.other || 0) + (selectedPurchaseMonth?.withoutCia || 0))}
-            sub={`Total do período: ${fmtInt(
-              (purchaseTotals?.other || 0) + (purchaseTotals?.withoutCia || 0)
-            )}`}
-            tone="amber"
-          />
-        </div>
+        <BreakdownPanel
+          title={`Compras · ${monthDisplay}`}
+          subtitle="Quantidade por companhia e percentual sobre o total do mês."
+          rows={purchaseBreakdownRows}
+          valueHeader="Qtd"
+        />
 
         <PurchaseMonthlyChart
           title="Compras por mês (LATAM x Smiles)"
-          data={purchaseMonths}
+          data={purchaseMonthsNonZero}
           footer={`Total no período: ${fmtInt(purchaseTotals?.total || 0)} compras • LATAM ${fmtInt(
             purchaseTotals?.latam || 0
           )} • Smiles ${fmtInt(purchaseTotals?.smiles || 0)}`}
         />
       </div>
 
-      <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
-        <div className="rounded-2xl border-2 border-indigo-200 bg-gradient-to-br from-indigo-50 via-white to-sky-50 p-5 shadow-sm">
-          <div className="inline-flex rounded-full border border-indigo-300 bg-indigo-100 px-2 py-0.5 text-[11px] font-semibold text-indigo-700">
-            Principal
+      {/* RESULTADO FINANCEIRO */}
+      <div className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm shadow-slate-200/40">
+        <div className="mb-4 border-b border-slate-100 pb-3">
+          <div className="text-sm font-semibold tracking-tight text-slate-900">
+            Resultado financeiro · {monthDisplay}
           </div>
-          <div className="mt-2 text-xs uppercase tracking-wide text-indigo-700">Total mês (milhas + balcão)</div>
-          <div className="mt-1 text-3xl font-bold text-indigo-950">
-            {fmtMoneyBR(consolidated?.soldTotalCents || 0)}
-          </div>
-          <div className="mt-2 text-sm text-indigo-900/80">
-            Milhas: {fmtMoneyBR(consolidated?.soldSalesCents || 0)} • Balcão:{" "}
-            {fmtMoneyBR(consolidated?.soldBalcaoCents || 0)}
+          <div className="mt-1 text-xs text-slate-500">
+            Vendas e lucro líquido (pós-imposto), com prejuízo debitado nas milhas.
           </div>
         </div>
-
-        <div className="rounded-2xl border-2 border-emerald-200 bg-gradient-to-br from-emerald-50 via-white to-teal-50 p-5 shadow-sm">
-          <div className="inline-flex rounded-full border border-emerald-300 bg-emerald-100 px-2 py-0.5 text-[11px] font-semibold text-emerald-700">
-            Principal
-          </div>
-          <div className="mt-2 text-xs uppercase tracking-wide text-emerald-700">
-            Lucro mês (milhas + balcão)
-          </div>
-          <div className="mt-1 text-3xl font-bold text-emerald-950">
-            {fmtMoneyBR(consolidated?.profitTotalAfterTaxCents || 0)}
-          </div>
-          <div className="mt-2 text-sm text-emerald-900/80">
-            Milhas: {fmtMoneyBR(consolidated?.profitSalesAfterTaxWithoutFeeCents || 0)} • Balcão:{" "}
-            {fmtMoneyBR(consolidated?.profitBalcaoAfterTaxCents || 0)}
-            {profitPerDayComparison
-              ? ` • Lucro/dia (${profitPerDayComparison.currentMonth}, ${fmtInt(
-                  profitPerDayComparison.currentMonthDays || 0
-                )} dias corridos): ${fmtMoneyBR(
-                  profitPerDayComparison.currentPerDay
-                )} • Mês ${profitPerDayComparison.previousMonth}: ${fmtMoneyBR(
-                  profitPerDayComparison.previousPerDay
-                )} • Δ: ${(profitPerDayComparison.delta || 0) > 0 ? "+" : ""}${fmtMoneyBR(
-                  profitPerDayComparison.delta || 0
-                )}${profitPerDayComparison.deltaPct == null ? " (—)" : ` (${fmtPct(profitPerDayComparison.deltaPct)})`}`
-              : ""}
-          </div>
+        <div className="overflow-x-auto rounded-xl border border-slate-100">
+          <table className="w-full min-w-[720px] text-sm">
+            <thead className="border-b border-slate-200 bg-slate-50/90">
+              <tr className="text-left text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                <th className="px-3 py-2.5">Indicador</th>
+                <th className="px-3 py-2.5 text-right">Particular</th>
+                <th className="px-3 py-2.5 text-right">Balcão</th>
+                <th className="px-3 py-2.5 text-right">Total</th>
+              </tr>
+            </thead>
+            <tbody className="text-slate-800">
+              <tr className="border-b border-slate-100">
+                <td className="px-3 py-2.5">Vendido (sem taxa)</td>
+                <td className="px-3 py-2.5 text-right tabular-nums">{fmtMoneyBR(consolidated?.soldSalesCents || 0)}</td>
+                <td className="px-3 py-2.5 text-right tabular-nums">{fmtMoneyBR(consolidated?.soldBalcaoCents || 0)}</td>
+                <td className="px-3 py-2.5 text-right font-semibold tabular-nums">
+                  {fmtMoneyBR((consolidated?.soldSalesCents || 0) + (consolidated?.soldBalcaoCents || 0))}
+                </td>
+              </tr>
+              <tr className="border-b border-slate-100">
+                <td className="px-3 py-2.5">Taxa de embarque</td>
+                <td className="px-3 py-2.5 text-right tabular-nums">{fmtMoneyBR(data?.summary?.feeCents || 0)}</td>
+                <td className="px-3 py-2.5 text-right tabular-nums">—</td>
+                <td className="px-3 py-2.5 text-right tabular-nums">{fmtMoneyBR(data?.summary?.feeCents || 0)}</td>
+              </tr>
+              <tr className="border-b border-slate-100 bg-slate-50/70 font-semibold">
+                <td className="px-3 py-2.5">Vendido (com taxa)</td>
+                <td className="px-3 py-2.5 text-right tabular-nums">
+                  {fmtMoneyBR((consolidated?.soldSalesCents || 0) + (data?.summary?.feeCents || 0))}
+                </td>
+                <td className="px-3 py-2.5 text-right tabular-nums">{fmtMoneyBR(consolidated?.soldBalcaoCents || 0)}</td>
+                <td className="px-3 py-2.5 text-right tabular-nums">
+                  {fmtMoneyBR(
+                    (consolidated?.soldSalesCents || 0) +
+                      (data?.summary?.feeCents || 0) +
+                      (consolidated?.soldBalcaoCents || 0)
+                  )}
+                </td>
+              </tr>
+              <tr className="border-b border-slate-100">
+                <td className="px-3 py-2.5">Lucro líquido</td>
+                <td className="px-3 py-2.5 text-right tabular-nums">
+                  {fmtMoneyBR(consolidated?.profitSalesAfterTaxWithoutFeeCents || 0)}
+                </td>
+                <td className="px-3 py-2.5 text-right tabular-nums">
+                  {fmtMoneyBR(consolidated?.profitBalcaoAfterTaxCents || 0)}
+                </td>
+                <td className="px-3 py-2.5 text-right font-semibold tabular-nums text-emerald-800">
+                  {fmtMoneyBR(consolidated?.profitTotalAfterTaxCents || 0)}
+                </td>
+              </tr>
+              <tr className="border-b border-slate-100">
+                <td className="px-3 py-2.5">Margem sobre vendido</td>
+                <td className="px-3 py-2.5 text-right tabular-nums">
+                  {consolidated?.soldSalesCents
+                    ? fmtPctRaw(
+                        ((consolidated?.profitSalesAfterTaxWithoutFeeCents || 0) / consolidated.soldSalesCents) * 100
+                      )
+                    : "—"}
+                </td>
+                <td className="px-3 py-2.5 text-right tabular-nums">
+                  {consolidated?.soldBalcaoCents
+                    ? fmtPctRaw(
+                        ((consolidated?.profitBalcaoAfterTaxCents || 0) / consolidated.soldBalcaoCents) * 100
+                      )
+                    : "—"}
+                </td>
+                <td className="px-3 py-2.5 text-right tabular-nums">
+                  {currentMonthPerformance?.salesOverProfitPercent != null
+                    ? fmtPctRaw(currentMonthPerformance.salesOverProfitPercent)
+                    : "—"}
+                </td>
+              </tr>
+              <tr className="border-b border-slate-100">
+                <td className="px-3 py-2.5">Prejuízo debitado (milhas)</td>
+                <td className="px-3 py-2.5 text-right tabular-nums text-rose-700">
+                  {fmtMoneyBR(currentMonthPerformance?.lossCents || currentVsPrevious?.currentLossCents || 0)}
+                </td>
+                <td className="px-3 py-2.5 text-right tabular-nums">—</td>
+                <td className="px-3 py-2.5 text-right tabular-nums text-rose-700">
+                  {fmtMoneyBR(currentMonthPerformance?.lossCents || currentVsPrevious?.currentLossCents || 0)}
+                </td>
+              </tr>
+              <tr className="bg-indigo-50/60 font-semibold text-indigo-950">
+                <td className="px-3 py-2.5">
+                  Comparação · {monthKeyToDisplay(currentVsPrevious?.previousMonth)} → {monthDisplay}
+                </td>
+                <td className="px-3 py-2.5 text-right tabular-nums" colSpan={2}>
+                  Lucro anterior: {fmtMoneyBR(currentVsPrevious?.previousProfitCents || 0)}
+                </td>
+                <td
+                  className={cn(
+                    "px-3 py-2.5 text-right tabular-nums",
+                    (currentVsPrevious?.deltaProfitCents || 0) >= 0 ? "text-emerald-700" : "text-rose-700"
+                  )}
+                >
+                  {currentVsPrevious?.deltaProfitPercent == null
+                    ? "—"
+                    : fmtPctSigned(currentVsPrevious.deltaProfitPercent)}{" "}
+                  ({fmtMoneyBR(currentVsPrevious?.deltaProfitCents || 0)})
+                </td>
+              </tr>
+            </tbody>
+          </table>
         </div>
-      </div>
-
-      <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
-        <Card
-          title="Balcão no mês (valor vendido)"
-          value={fmtMoneyBR(balcaoMonth?.customerChargeCents || 0)}
-          sub={`${fmtInt(balcaoMonth?.operationsCount || 0)} operações • ${fmtInt(
-            balcaoMonth?.points || 0
-          )} pontos`}
-          tone="amber"
-        />
-        <Card
-          title="Balcão no mês (lucro líquido)"
-          value={fmtMoneyBR(balcaoMonth?.netProfitCents || 0)}
-          sub={`Lucro bruto: ${fmtMoneyBR(balcaoMonth?.profitCents || 0)} • Imposto: ${fmtMoneyBR(
-            balcaoMonth?.taxCents || 0
-          )}`}
-          tone="emerald"
-        />
-      </div>
-
-      <div className="rounded-2xl border border-indigo-100 bg-gradient-to-br from-indigo-50/90 to-white p-4 shadow-sm">
-        <div className="text-xs text-indigo-700">Métrica do mês corrente {currentMonthPerformance?.month || "—"}</div>
-        <div className="mt-1 text-2xl font-semibold text-indigo-900">
-          {currentMonthPerformance?.salesOverProfitPercent !== null &&
-          currentMonthPerformance?.salesOverProfitPercent !== undefined
-            ? fmtPctRaw(currentMonthPerformance.salesOverProfitPercent)
-            : "—"}
-        </div>
-        <div className="mt-1 text-sm text-indigo-900/80">
-          Lucro pós-imposto com débito de prejuízo (sem taxa) ÷ Vendas sem taxa
-        </div>
-        <div className="mt-2 text-xs text-indigo-900/70">
-          Vendas totais: {fmtMoneyBR(currentMonthPerformance?.soldWithoutFeeCents || 0)} (Milhas:{" "}
-          {fmtMoneyBR(currentMonthPerformance?.soldSalesCents || 0)} • Balcão:{" "}
-          {fmtMoneyBR(currentMonthPerformance?.soldBalcaoCents || 0)}) • Lucro total:{" "}
-          {fmtMoneyBR(currentMonthPerformance?.profitAfterTaxWithoutFeeCents || 0)} (Milhas:{" "}
-          {fmtMoneyBR(currentMonthPerformance?.profitSalesCents || 0)} • Balcão:{" "}
-          {fmtMoneyBR(currentMonthPerformance?.profitBalcaoCents || 0)}) • Prejuízo debitado (milhas):{" "}
-          {fmtMoneyBR(currentMonthPerformance?.lossCents || 0)}
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
-        <Card
-          title={`Lucro ${currentVsPrevious?.currentMonth || "mês corrente"} (pós-imposto e prejuízo)`}
-          value={fmtMoneyBR(currentVsPrevious?.currentProfitCents || 0)}
-          sub={
-            currentVsPrevious?.currentProfitPercent == null
-              ? `Milhas: ${fmtMoneyBR(currentVsPrevious?.currentProfitSalesCents || 0)} • Balcão: ${fmtMoneyBR(
-                  currentVsPrevious?.currentProfitBalcaoCents || 0
-                )} • Prejuízo (milhas): ${fmtMoneyBR(currentVsPrevious?.currentLossCents || 0)}`
-              : `Milhas: ${fmtMoneyBR(currentVsPrevious?.currentProfitSalesCents || 0)} • Balcão: ${fmtMoneyBR(
-                  currentVsPrevious?.currentProfitBalcaoCents || 0
-                )} • Margem total: ${fmtPctRaw(currentVsPrevious.currentProfitPercent)} • Prejuízo (milhas): ${fmtMoneyBR(
-                  currentVsPrevious?.currentLossCents || 0
-                )}`
-          }
-          tone="emerald"
-        />
-        <Card
-          title={`Lucro ${currentVsPrevious?.previousMonth || "mês anterior"} (pós-imposto e prejuízo)`}
-          value={fmtMoneyBR(currentVsPrevious?.previousProfitCents || 0)}
-          sub={
-            currentVsPrevious?.previousProfitPercent == null
-              ? `Milhas: ${fmtMoneyBR(currentVsPrevious?.previousProfitSalesCents || 0)} • Balcão: ${fmtMoneyBR(
-                  currentVsPrevious?.previousProfitBalcaoCents || 0
-                )} • Prejuízo (milhas): ${fmtMoneyBR(currentVsPrevious?.previousLossCents || 0)}`
-              : `Milhas: ${fmtMoneyBR(currentVsPrevious?.previousProfitSalesCents || 0)} • Balcão: ${fmtMoneyBR(
-                  currentVsPrevious?.previousProfitBalcaoCents || 0
-                )} • Margem total: ${fmtPctRaw(currentVsPrevious.previousProfitPercent)} • Prejuízo (milhas): ${fmtMoneyBR(
-                  currentVsPrevious?.previousLossCents || 0
-                )}`
-          }
-          tone="sky"
-        />
-        <Card
-          title="Comparação com mês anterior"
-          value={
-            currentVsPrevious?.deltaProfitPercent == null
-              ? "—"
-              : fmtPctSigned(currentVsPrevious.deltaProfitPercent)
-          }
-          sub={`Diferença de lucro total: ${fmtMoneyBR(currentVsPrevious?.deltaProfitCents || 0)}`}
-          tone={comparisonTone}
-        />
+        {balcaoMonth ? (
+          <div className="mt-3 text-xs text-slate-500">
+            Balcão: lucro bruto {fmtMoneyBR(balcaoMonth.profitCents || 0)} • imposto{" "}
+            {fmtMoneyBR(balcaoMonth.taxCents || 0)}
+          </div>
+        ) : null}
       </div>
 
       <SimpleLineChart
@@ -2611,7 +2666,7 @@ export default function AnaliseDadosClient() {
                 key={m.month}
                 className="flex flex-col gap-1 rounded-xl border border-slate-100 bg-slate-50/50 p-3 shadow-sm"
               >
-                <div className="text-xs text-neutral-500">{m.month}</div>
+                <div className="text-xs text-neutral-500">{monthKeyToDisplay(m.month)}</div>
                 <div className="text-sm">
                   <span className="inline-flex items-center gap-1 font-semibold text-sky-700">
                     <span className="h-2 w-2 rounded-full bg-sky-500" /> LATAM:
@@ -2630,72 +2685,20 @@ export default function AnaliseDadosClient() {
       </div>
 
       {/* Funcionários (mês foco) */}
-      <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
-        <SimplePieChart
-          title={`Distribuição de vendas por funcionário (mês ${monthLabel})`}
-          data={byEmployeeMonthPie}
-          totalLabel={
-            byEmployeeMonthPie.length
-              ? `Total do mês: ${fmtMoneyBR(kpis?.gross || 0)}`
-              : undefined
-          }
-        />
-
-        <div className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm shadow-slate-200/40">
-          <div className="mb-4 flex items-center justify-between border-b border-slate-100 pb-3">
-            <div className="text-sm font-semibold tracking-tight text-slate-900">
-              Total por funcionário (mês {monthLabel})
-            </div>
-          </div>
-          <div className="overflow-x-auto rounded-xl border border-slate-100">
-            <table className="w-full min-w-[720px] text-sm">
-              <thead className="border-b border-slate-200 bg-slate-50/90">
-                <tr className="text-left text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                  <th className="px-3 py-2.5">Funcionário</th>
-                  <th className="px-3 py-2.5">Vendas</th>
-                  <th className="px-3 py-2.5">PAX</th>
-                  <th className="px-3 py-2.5 text-right">Total (sem taxa)</th>
-                </tr>
-              </thead>
-              <tbody>
-                {(data?.byEmployee || []).map((r: any, i: number) => (
-                  <tr key={r.id} className="border-b border-slate-100 transition hover:bg-slate-50/70">
-                    <td className="px-3 py-2.5">
-                      <div className="flex items-center gap-2">
-                        <span
-                          className="h-2 w-2 rounded-full"
-                          style={{ background: CHART_COLORS[i % CHART_COLORS.length] }}
-                        />
-                        <div>
-                          <div className="font-medium">{r.name}</div>
-                          <div className="text-xs text-neutral-500">{r.login}</div>
-                        </div>
-                      </div>
-                    </td>
-                    <td className="px-3 py-2.5 tabular-nums">{fmtInt(r.salesCount)}</td>
-                    <td className="px-3 py-2.5 tabular-nums">{fmtInt(r.passengers)}</td>
-                    <td className="px-3 py-2.5 text-right font-semibold tabular-nums">{fmtMoneyBR(r.grossCents)}</td>
-                  </tr>
-                ))}
-                {!data?.byEmployee?.length ? (
-                  <tr>
-                    <td className="py-4 text-sm text-neutral-500" colSpan={4}>
-                      Sem vendas no mês foco.
-                    </td>
-                  </tr>
-                ) : null}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </div>
+      <SimplePieChart
+        title={`Distribuição de vendas por funcionário · ${monthDisplay}`}
+        data={byEmployeeMonthPie}
+        totalLabel={
+          byEmployeeMonthPie.length ? `Total do mês: ${fmtMoneyBR(kpis?.gross || 0)}` : undefined
+        }
+      />
 
       {/* Emissões de balcão (mês foco) */}
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
         <div className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm shadow-slate-200/40">
           <div className="mb-4 flex items-center justify-between border-b border-slate-100 pb-3">
             <div className="text-sm font-semibold tracking-tight text-slate-900">
-              Emissões de balcão por cia (mês {monthLabel})
+              Emissões de balcão por cia · {monthDisplay}
             </div>
           </div>
           <div className="overflow-x-auto rounded-xl border border-slate-100">
@@ -2734,7 +2737,7 @@ export default function AnaliseDadosClient() {
         <div className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm shadow-slate-200/40">
           <div className="mb-4 flex items-center justify-between border-b border-slate-100 pb-3">
             <div className="text-sm font-semibold tracking-tight text-slate-900">
-              Emissões de balcão por funcionário (mês {monthLabel})
+              Emissões de balcão por funcionário · {monthDisplay}
             </div>
           </div>
           <div className="overflow-x-auto rounded-xl border border-slate-100">

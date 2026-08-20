@@ -97,10 +97,8 @@ export function parsePixEmailText(subject: string, body: string): ParsedPixEmail
   const accM = text.match(/na conta\s+(\d{4,})/i);
   if (accM?.[1]) payeeAccount = accM[1];
 
-  // Ignora cobranças internas sem destinatário identificável.
-  if (text.includes(COMPANY_CNPJ) && direction === "OUT" && !payerName) {
-    return null;
-  }
+  // Alertas só para Pix recebido — saídas não entram na fila.
+  if (direction === "OUT") return null;
 
   return {
     bank: detectBank(text),

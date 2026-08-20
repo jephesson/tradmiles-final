@@ -19,7 +19,6 @@ import {
 import { BANK_PIX_GMAIL_QUERY, isBankPixSender, parsePixEmailText } from "@/lib/pix/parsePixEmail";
 import { analyzePixEmailContent, buildPixAlertRow } from "@/lib/pix/analyzePixEmail";
 import { classifyAndMatchPix } from "@/lib/pix/matchPixToPendingSales";
-import type { PixMatchResult } from "@/lib/pix/types";
 import { prisma } from "@/lib/prisma";
 import { METADATA_HEADERS } from "@/lib/gmail/config";
 
@@ -31,16 +30,6 @@ const FETCH_CONCURRENCY = 6;
 function bad(error: string, status = 400) {
   return NextResponse.json({ ok: false, error }, { status });
 }
-
-const emptyMatch: PixMatchResult = {
-  classification: "UNKNOWN",
-  classificationLabel: "Pix desconhecido",
-  suggestedSales: [],
-  matchKind: "none",
-  matchedTotalCents: 0,
-  amountDiffCents: 0,
-  employeeName: null,
-};
 
 export async function GET(req: Request) {
   let session;
@@ -118,14 +107,12 @@ export async function GET(req: Request) {
         const snippet = message!.snippet || "";
         const date = messageDate(message!);
 
-        if (!isBankPixSender(fromAddress, fromName, subject) && !parsePixEmailText(subject, snippet)) {
-          return null;
-        }
-
         const parsed = parsePixEmailText(subject, snippet);
-        const match = parsed
-          ? classifyAndMatchPix({ parsed, pendingSales: salesLite, employees, learnedAliases })
-          : emptyMatch;
+        if (!parsed) return null;
+
+        if (!isBankPixSender(fromAddress, fromName, subject)) return null;
+
+        const match = classifyAndMatchPix({ parsed, pendingSales: salesLite, employees, learnedAliases });
 
         return buildPixAlertRow({
           id: message!.id,
@@ -180,6 +167,10 @@ export async function POST(req: Request) {
       body: fullText,
       useAi: true,
     });
+
+    if (!result.parsed) {
+      return bad("Este e-mail não é um Pix recebido elegível para alerta.", 404);
+    }
 
     return NextResponse.json({
       ok: true,
