@@ -109,7 +109,9 @@ export default function PixAlertModal({ messageId, onClose, onConfirmed, onDismi
         <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
           <div className="flex items-center gap-2">
             <Banknote className="h-5 w-5 text-emerald-600" />
-            <div className="text-base font-semibold text-slate-900">Pix recebido</div>
+            <div className="text-base font-semibold text-slate-900">
+              {row?.parsed?.direction === "OUT" ? "Pix enviado" : "Pix recebido"}
+            </div>
           </div>
           <button
             type="button"
@@ -136,7 +138,9 @@ export default function PixAlertModal({ messageId, onClose, onConfirmed, onDismi
                   {row.parsed ? fmtMoney(row.parsed.amountCents) : "—"}
                 </div>
                 {row.parsed?.payerName && (
-                  <div className="mt-1 text-sm text-slate-700">De: {row.parsed.payerName}</div>
+                  <div className="mt-1 text-sm text-slate-700">
+                    {row.parsed.direction === "OUT" ? "Para:" : "De:"} {row.parsed.payerName}
+                  </div>
                 )}
                 <div className="mt-1 text-xs text-slate-500">{fmtDate(row.date)} · {row.subject}</div>
               </div>
@@ -213,6 +217,10 @@ export default function PixAlertModal({ messageId, onClose, onConfirmed, onDismi
                       Soma das vendas selecionadas bate com o Pix recebido.
                     </div>
                   )}
+                </div>
+              ) : row.match.classification === "COMPANY_INTERNAL" ? (
+                <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
+                  Pix de saída — não é recebimento de cliente. Pode dispensar.
                 </div>
               ) : row.match.classification === "UNKNOWN" ? (
                 <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">

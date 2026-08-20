@@ -9,7 +9,7 @@ Responda SOMENTE JSON válido:
   "payeeAccount": string | null,
   "bank": "INTER" | "NUBANK" | "OTHER"
 }
-amountCents em centavos (R$ 10,50 → 1050). direction IN = recebido, OUT = enviado.`;
+amountCents em centavos (R$ 10,50 → 1050). direction IN = recebido, OUT = enviado/pagamento realizado.`;
 
 export async function interpretPixEmailWithAI(
   subject: string,

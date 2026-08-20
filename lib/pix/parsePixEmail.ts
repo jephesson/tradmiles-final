@@ -38,12 +38,12 @@ export function parsePixEmailText(subject: string, body: string): ParsedPixEmail
     lower.includes("transferência");
   if (!isPix) return null;
 
-  const direction: ParsedPixEmail["direction"] =
-    /pix recebido|recebemos o valor|voce recebeu|você recebeu|creditado/i.test(text)
-      ? "IN"
-      : /pix enviado|enviamos o valor|voce enviou|você enviou|debitado/i.test(text)
-        ? "OUT"
-        : "IN";
+  const isOut =
+    /pix enviado|enviamos o valor|voce enviou|você enviou|debitado|pagamento pix realizado|foi realizado um pagamento|realizado um pagamento da sua conta|dados de destino/i.test(
+      text
+    );
+  const isIn = /pix recebido|recebemos o valor|voce recebeu|você recebeu|creditado/i.test(text);
+  const direction: ParsedPixEmail["direction"] = isOut && !isIn ? "OUT" : isIn ? "IN" : isOut ? "OUT" : "IN";
 
   let amountCents: number | null = null;
   const amountPatterns = [
@@ -61,20 +61,35 @@ export function parsePixEmailText(subject: string, body: string): ParsedPixEmail
   if (amountCents == null) return null;
 
   let payerName: string | null = null;
-  const payerPatterns = [
-    /recebemos o valor de\s*r\$\s*[\d.,]+\s+de\s+(.+?),\s*na conta/i,
-    /recebemos o valor de\s*r\$\s*[\d.,]+\s+de\s+(.+?)(?:\.|$)/i,
-    /valor de\s*r\$\s*[\d.,]+\s+de\s+(.+?)(?:,\s*na conta|\.|$)/i,
-    /r\$\s*[\d.]+,\d{2}\s+de\s+(.+?)(?:,\s*na conta|\.|$)/i,
-    /de\s+(.+?),\s*na conta\s+\d/i,
-    /pix recebido de\s+(.+?)(?:\.|,|$)/i,
-  ];
-  for (const re of payerPatterns) {
-    const m = text.match(re);
-    if (m?.[1]) {
-      payerName = cleanPayerName(m[1]);
-      if (payerName && payerName.length >= 3) break;
-      payerName = null;
+  if (direction === "OUT") {
+    const payeePatterns = [
+      /dados de destino[\s\S]*?nome:\s*(.+?)(?:\s*cpf|\s*cnpj|$)/i,
+      /\bnome:\s*(.+?)(?:\s*cpf\/cnpj|\s*cnpj|\s*cpf|$)/i,
+    ];
+    for (const re of payeePatterns) {
+      const m = text.match(re);
+      if (m?.[1]) {
+        payerName = cleanPayerName(m[1]);
+        if (payerName && payerName.length >= 3) break;
+        payerName = null;
+      }
+    }
+  } else {
+    const payerPatterns = [
+      /recebemos o valor de\s*r\$\s*[\d.,]+\s+de\s+(.+?),\s*na conta/i,
+      /recebemos o valor de\s*r\$\s*[\d.,]+\s+de\s+(.+?)(?:\.|$)/i,
+      /valor de\s*r\$\s*[\d.,]+\s+de\s+(.+?)(?:,\s*na conta|\.|$)/i,
+      /r\$\s*[\d.]+,\d{2}\s+de\s+(.+?)(?:,\s*na conta|\.|$)/i,
+      /de\s+(.+?),\s*na conta\s+\d/i,
+      /pix recebido de\s+(.+?)(?:\.|,|$)/i,
+    ];
+    for (const re of payerPatterns) {
+      const m = text.match(re);
+      if (m?.[1]) {
+        payerName = cleanPayerName(m[1]);
+        if (payerName && payerName.length >= 3) break;
+        payerName = null;
+      }
     }
   }
 
@@ -82,7 +97,7 @@ export function parsePixEmailText(subject: string, body: string): ParsedPixEmail
   const accM = text.match(/na conta\s+(\d{4,})/i);
   if (accM?.[1]) payeeAccount = accM[1];
 
-  // Ignora e-mails de cobrança enviados pela própria empresa (só aviso ao cliente).
+  // Ignora cobranças internas sem destinatário identificável.
   if (text.includes(COMPANY_CNPJ) && direction === "OUT" && !payerName) {
     return null;
   }

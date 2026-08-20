@@ -127,9 +127,16 @@ export function classifyAndMatchPix(args: {
   );
 
   if (parsed.direction === "OUT") {
+    const dest = payer.trim();
+    const toCompany =
+      COMPANY_NAMES.some((n) => payerNorm.includes(n)) || payerNorm.includes(COMPANY_CNPJ);
     return {
       classification: "COMPANY_INTERNAL",
-      classificationLabel: "Pix enviado (saída)",
+      classificationLabel: dest
+        ? toCompany
+          ? `Pix enviado para ${dest} (interno)`
+          : `Pix enviado para ${dest}`
+        : "Pix enviado (saída)",
       suggestedSales: [],
       matchKind: "none",
       matchedTotalCents: 0,
