@@ -537,11 +537,15 @@ export default function EmailAlertasNav() {
                     const showAction =
                       !isHistory &&
                       !isPix &&
+                      actionCfg != null &&
                       canUserUseAlertAction(actionCfg, userId);
-                    const actionHref = buildAlertActionHref(actionCfg, {
-                      cedenteId: row.cedente?.id,
-                      emailId: row.id,
-                    });
+                    const actionHref =
+                      actionCfg != null
+                        ? buildAlertActionHref(actionCfg, {
+                            cedenteId: row.cedente?.id,
+                            emailId: row.id,
+                          })
+                        : "#";
                     const ActionIcon =
                       actionCfg?.action === "COMPRA"
                         ? ShoppingCart

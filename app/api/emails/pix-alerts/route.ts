@@ -21,6 +21,7 @@ import { analyzePixEmailContent, buildPixAlertRow } from "@/lib/pix/analyzePixEm
 import { classifyAndMatchPix } from "@/lib/pix/matchPixToPendingSales";
 import type { PixMatchResult } from "@/lib/pix/types";
 import { prisma } from "@/lib/prisma";
+import { METADATA_HEADERS } from "@/lib/gmail/config";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -96,7 +97,7 @@ export async function GET(req: Request) {
     }));
 
     const metas = await mapWithConcurrency(ids, FETCH_CONCURRENCY, (id) =>
-      getMessageMetadata(id)
+      getMessageMetadata(id, METADATA_HEADERS)
     );
 
     const rows = metas
