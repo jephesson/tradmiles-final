@@ -252,6 +252,10 @@ type SalesChannelSplit = {
   passengersVendaBalcao: number;
   passengersClienteFinal: number;
   passengersOutros: number;
+  /** Lucro líquido por canal: (PV − custo milheiro×pts) pós-imposto. */
+  profitVendaBalcaoCents: number;
+  profitClienteFinalCents: number;
+  profitOutrosOrigemCents: number;
 };
 
 function emptySalesChannelSplit(): SalesChannelSplit {
@@ -265,30 +269,72 @@ function emptySalesChannelSplit(): SalesChannelSplit {
     passengersVendaBalcao: 0,
     passengersClienteFinal: 0,
     passengersOutros: 0,
+    profitVendaBalcaoCents: 0,
+    profitClienteFinalCents: 0,
+    profitOutrosOrigemCents: 0,
   };
+}
+
+function costMilheiroFallback(
+  program: string,
+  rates: {
+    latamRateCents: number;
+    smilesRateCents: number;
+    liveloRateCents: number;
+    esferaRateCents: number;
+  }
+) {
+  if (program === "LATAM") return rates.latamRateCents;
+  if (program === "SMILES") return rates.smilesRateCents;
+  if (program === "LIVELO") return rates.liveloRateCents;
+  if (program === "ESFERA") return rates.esferaRateCents;
+  return rates.latamRateCents;
+}
+
+/** Lucro bruto da venda: PV sem taxa − (pontos/1000 × custo milheiro). */
+function saleGrossProfitCents(args: {
+  points: number;
+  milheiroCents: number;
+  costMilheiroCents: number;
+}) {
+  const points = Math.max(0, Number(args.points || 0));
+  const pv = pointsValueCents(points, Number(args.milheiroCents || 0));
+  const costMil = Math.max(0, Number(args.costMilheiroCents || 0));
+  const cost = points > 0 && costMil > 0 ? Math.round((points * costMil) / 1000) : 0;
+  return pv - cost;
+}
+
+function taxOnProfitCents(grossProfitCents: number, taxPercent: number) {
+  if (grossProfitCents <= 0) return 0;
+  const pct = Math.max(0, Number(taxPercent || 0));
+  return Math.round(grossProfitCents * (pct / 100));
 }
 
 function accumulateSalesChannel(
   split: SalesChannelSplit,
   gross: number,
   pax: number,
-  origem?: string | null
+  origem?: string | null,
+  profitNetCents = 0
 ) {
   if (origem === "BALCAO_MILHAS") {
     split.vendaBalcaoCents += gross;
     split.salesCountVendaBalcao += 1;
     split.passengersVendaBalcao += pax;
+    split.profitVendaBalcaoCents += profitNetCents;
     return;
   }
   if (origem === "PARTICULAR") {
     split.clienteFinalCents += gross;
     split.salesCountClienteFinal += 1;
     split.passengersClienteFinal += pax;
+    split.profitClienteFinalCents += profitNetCents;
     return;
   }
   split.outrosOrigemCents += gross;
   split.salesCountOutros += 1;
   split.passengersOutros += pax;
+  split.profitOutrosOrigemCents += profitNetCents;
 }
 
 function toBalcaoSummaryOut(v: BalcaoAgg) {
@@ -565,6 +611,7 @@ export async function GET(req: NextRequest) {
         sellerId: true,
         seller: { select: { id: true, name: true, login: true } },
         cliente: { select: { id: true, nome: true, identificador: true, origem: true } },
+        purchase: { select: { custoMilheiroCents: true } },
       },
       orderBy: { date: "asc" },
     });
@@ -706,18 +753,52 @@ export async function GET(req: NextRequest) {
     let paxMonth = 0;
     const monthChannel = emptySalesChannelSplit();
 
+    const milhasProfitSettings = await prisma.settings.upsert({
+      where: { key: "default" },
+      create: { key: "default" },
+      update: {},
+      select: {
+        taxPercent: true,
+        taxEffectiveFrom: true,
+        latamRateCents: true,
+        smilesRateCents: true,
+        liveloRateCents: true,
+        esferaRateCents: true,
+      },
+    });
+    const milhasTaxPercent = Math.max(0, Number(milhasProfitSettings.taxPercent ?? 8));
+    const milhasCostRates = {
+      latamRateCents: Number(milhasProfitSettings.latamRateCents ?? 2000),
+      smilesRateCents: Number(milhasProfitSettings.smilesRateCents ?? 1800),
+      liveloRateCents: Number(milhasProfitSettings.liveloRateCents ?? 2200),
+      esferaRateCents: Number(milhasProfitSettings.esferaRateCents ?? 1700),
+    };
+
     for (const s of monthSales) {
-      const gross = pointsValueCents(Number(s.points || 0), Number(s.milheiroCents || 0));
+      const points = Number(s.points || 0);
+      const gross = pointsValueCents(points, Number(s.milheiroCents || 0));
       const fee = Math.max(0, Number(s.embarqueFeeCents || 0));
       grossMonth += gross;
       feeMonth += fee;
       totalMonth += gross + fee;
       paxMonth += Math.max(0, Number(s.passengers || 0));
+
+      const costDb = Number(s.purchase?.custoMilheiroCents || 0);
+      const costMil =
+        costDb > 0 ? costDb : costMilheiroFallback(String(s.program || ""), milhasCostRates);
+      const grossProfit = saleGrossProfitCents({
+        points,
+        milheiroCents: Number(s.milheiroCents || 0),
+        costMilheiroCents: costMil,
+      });
+      const profitNet = grossProfit - taxOnProfitCents(grossProfit, milhasTaxPercent);
+
       accumulateSalesChannel(
         monthChannel,
         gross,
         Math.max(0, Number(s.passengers || 0)),
-        s.cliente?.origem
+        s.cliente?.origem,
+        profitNet
       );
     }
 
@@ -1682,6 +1763,9 @@ export async function GET(req: NextRequest) {
           soldTotalCents: selectedMonthConsolidatedSoldCents,
           profitSalesAfterTaxWithoutFeeCents:
             selectedMonthSalesProfitAfterTaxWithoutFeeCents,
+          profitVendaBalcaoCents: monthChannel.profitVendaBalcaoCents,
+          profitClienteFinalCents: monthChannel.profitClienteFinalCents,
+          profitOutrosOrigemCents: monthChannel.profitOutrosOrigemCents,
           profitBalcaoAfterTaxCents: balcaoMonthAgg.netProfitCents,
           profitTotalAfterTaxCents: selectedMonthConsolidatedProfitAfterTaxCents,
           salesByChannel: monthChannel,

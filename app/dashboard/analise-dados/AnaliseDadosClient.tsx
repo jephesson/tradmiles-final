@@ -105,6 +105,9 @@ type SalesChannelSplit = {
   passengersVendaBalcao?: number;
   passengersClienteFinal?: number;
   passengersOutros?: number;
+  profitVendaBalcaoCents?: number;
+  profitClienteFinalCents?: number;
+  profitOutrosOrigemCents?: number;
 };
 
 const LBL = {
@@ -115,21 +118,6 @@ const LBL = {
   outros: "Outras origens",
   total: "Total",
 } as const;
-
-function splitMilhasProfit(totalProfit: number, channel: SalesChannelSplit | null | undefined) {
-  const venda = Number(channel?.vendaBalcaoCents || 0);
-  const final = Number(channel?.clienteFinalCents || 0);
-  const outros = Number(channel?.outrosOrigemCents || 0);
-  const base = venda + final + outros;
-  if (!base || !totalProfit) {
-    return { venda: 0, final: 0, outros: 0 };
-  }
-  return {
-    venda: Math.round((totalProfit * venda) / base),
-    final: Math.round((totalProfit * final) / base),
-    outros: Math.round((totalProfit * outros) / base),
-  };
-}
 
 function buildChannelBreakdownRows(args: {
   channel: SalesChannelSplit | null | undefined;
@@ -1973,10 +1961,29 @@ export default function AnaliseDadosClient() {
     [consolidated, data]
   );
 
-  const monthProfitSplit = useMemo(
-    () => splitMilhasProfit(Number(consolidated?.profitSalesAfterTaxWithoutFeeCents || 0), monthChannel),
-    [consolidated, monthChannel]
-  );
+  const monthProfitSplit = useMemo(() => {
+    const fromConsolidated = {
+      venda: Number((consolidated as any)?.profitVendaBalcaoCents),
+      final: Number((consolidated as any)?.profitClienteFinalCents),
+      outros: Number((consolidated as any)?.profitOutrosOrigemCents),
+    };
+    if (
+      Number.isFinite(fromConsolidated.venda) ||
+      Number.isFinite(fromConsolidated.final) ||
+      Number.isFinite(fromConsolidated.outros)
+    ) {
+      return {
+        venda: Number.isFinite(fromConsolidated.venda) ? fromConsolidated.venda : 0,
+        final: Number.isFinite(fromConsolidated.final) ? fromConsolidated.final : 0,
+        outros: Number.isFinite(fromConsolidated.outros) ? fromConsolidated.outros : 0,
+      };
+    }
+    return {
+      venda: Number(monthChannel?.profitVendaBalcaoCents || 0),
+      final: Number(monthChannel?.profitClienteFinalCents || 0),
+      outros: Number(monthChannel?.profitOutrosOrigemCents || 0),
+    };
+  }, [consolidated, monthChannel]);
 
   const purchaseMonthsNonZero = useMemo(
     () => purchaseMonths.filter((row) => Number(row.total || 0) > 0),
@@ -2191,6 +2198,9 @@ export default function AnaliseDadosClient() {
                 const profitCompra = Number(consolidated?.profitBalcaoAfterTaxCents || 0);
                 const loss = Number(currentMonthPerformance?.lossCents || currentVsPrevious?.currentLossCents || 0);
                 const soldTotal = milhasSold + soldCompra;
+                const profitMilhasChannels =
+                  monthProfitSplit.venda + monthProfitSplit.final + monthProfitSplit.outros;
+                const profitTotalChannels = profitMilhasChannels + profitCompra + loss;
 
                 return (
                   <>
@@ -2211,12 +2221,17 @@ export default function AnaliseDadosClient() {
                       </tr>
                     ) : null}
                     <tr className="border-b border-slate-100">
-                      <td className="px-3 py-2.5">Lucro líquido</td>
+                      <td className="px-3 py-2.5">
+                        Lucro líquido
+                        <div className="mt-0.5 text-[10px] font-normal normal-case tracking-normal text-slate-500">
+                          Milhas: (milheiro venda − custo) × pts/1000 − imposto
+                        </div>
+                      </td>
                       <td className="px-3 py-2.5 text-right tabular-nums">{fmtMoneyBR(monthProfitSplit.venda)}</td>
                       <td className="px-3 py-2.5 text-right tabular-nums">{fmtMoneyBR(monthProfitSplit.final)}</td>
                       <td className="px-3 py-2.5 text-right tabular-nums">{fmtMoneyBR(profitCompra)}</td>
                       <td className="px-3 py-2.5 text-right font-semibold tabular-nums text-emerald-800">
-                        {fmtMoneyBR(consolidated?.profitTotalAfterTaxCents || 0)}
+                        {fmtMoneyBR(profitTotalChannels)}
                       </td>
                     </tr>
                     <tr className="border-b border-slate-100">
@@ -2230,10 +2245,8 @@ export default function AnaliseDadosClient() {
                       <td className="px-3 py-2.5 text-right tabular-nums">
                         {soldCompra ? fmtPctRaw((profitCompra / soldCompra) * 100) : "—"}
                       </td>
-                      <td className="px-3 py-2.5 text-right tabular-nums">
-                        {currentMonthPerformance?.salesOverProfitPercent != null
-                          ? fmtPctRaw(currentMonthPerformance.salesOverProfitPercent)
-                          : "—"}
+                      <td className="px-3 py-2.5 text-right font-semibold tabular-nums">
+                        {soldTotal ? fmtPctRaw((profitTotalChannels / soldTotal) * 100) : "—"}
                       </td>
                     </tr>
                     <tr className="border-b border-slate-100">
