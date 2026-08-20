@@ -2192,8 +2192,8 @@ export default function NovaVendaClient({
                             : "bg-white"
                         )}
                       >
-                        Média: <b className="tabular-nums">{fmtInt(sug)}</b>
-                        <span className="font-normal text-slate-500">/por pax</span>
+                        <b className="tabular-nums">{fmtInt(sug)}</b>
+                        <span className="font-medium text-slate-600">/Por pax</span>
                         {below ? (
                           <span className="ml-1 font-semibold">· abaixo</span>
                         ) : null}
@@ -2478,7 +2478,7 @@ export default function NovaVendaClient({
                   <tr>
                     <th className="px-4 py-3 w-[320px]">Cedente</th>
                     <th className="px-4 py-3 w-[200px]">Responsável</th>
-                    <th className="px-4 py-3 text-right w-[150px]">Média/por pax</th>
+                    <th className="px-4 py-3 text-right w-[160px]">Média</th>
                     <th className="px-4 py-3 text-right w-[120px]">Pts</th>
                     <th className="px-4 py-3 text-right w-[260px]">PAX disp. (após)</th>
                     <th className="px-4 py-3 text-right w-[120px]">Sobra</th>
@@ -2568,19 +2568,21 @@ export default function NovaVendaClient({
                           {sugPts > 0 ? (
                             <div
                               className={cn(
-                                "tabular-nums font-semibold",
+                                "leading-tight",
                                 belowAvg ? "text-amber-800" : "text-slate-900"
                               )}
                               title={`pts ÷ (PAX livres − 1) = ${fmtInt(s.pts)} ÷ ${Math.max(1, (s.availablePassengersYear || 0) - 1)}`}
                             >
-                              {fmtInt(sugPts)}
+                              <span className="tabular-nums text-sm font-bold">
+                                {fmtInt(sugPts)}
+                              </span>
                               <span
                                 className={cn(
-                                  "ml-0.5 text-[11px] font-medium",
+                                  "text-[11px] font-semibold",
                                   belowAvg ? "text-amber-700" : "text-slate-500"
                                 )}
                               >
-                                /por pax
+                                /Por pax
                               </span>
                               {belowAvg ? (
                                 <div className="mt-0.5 text-[11px] font-medium text-amber-700">
