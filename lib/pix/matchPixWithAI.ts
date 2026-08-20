@@ -103,8 +103,8 @@ export async function classifyPixWithAI(args: {
       return null;
     }
 
-    const saleIds = Array.isArray(data.suggestedSaleIds)
-      ? data.suggestedSaleIds.map(String)
+    const saleIds: string[] = Array.isArray(data.suggestedSaleIds)
+      ? data.suggestedSaleIds.map((id: unknown) => String(id))
       : [];
     const suggestedSales = saleIds
       .map((id) => pendingSales.find((s) => s.id === id))
