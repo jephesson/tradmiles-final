@@ -1858,231 +1858,288 @@ export default function NovaVendaClient({
       <StepSection
         step={1}
         title="Dados da venda"
-        hint="Programa, trecho (ida ou ida + volta), pontos e quantidade de passageiros."
+        hint="Defina programa, trecho, pontos e passageiros para buscar cedentes."
+        action={
+          <div className="rounded-2xl border border-slate-900/10 bg-slate-900 px-4 py-2.5 text-right text-white shadow-sm">
+            <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-300">
+              Total da emissão
+            </div>
+            <div className="mt-0.5 text-xl font-bold tabular-nums tracking-tight">
+              {fmtInt(pointsTotal)}
+              <span className="ml-1 text-sm font-semibold text-slate-300">pts</span>
+            </div>
+          </div>
+        }
       >
-        <div className="grid gap-5 md:grid-cols-3">
-          <div className="space-y-1.5">
-            <label className={FIELD_LABEL}>CIA / programa</label>
-            <div className="relative">
-              <Plane
-                className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"
-                strokeWidth={2}
-                aria-hidden
-              />
-              <select
-                className={cn(CONTROL_SELECT, "pl-10")}
-                value={program}
-                onChange={(e) => {
-                  const next = e.target.value as Program;
-                  setProgram(next);
-                  setBiometriaModalOpen(false);
-                  setPagamentoLinkReady(null);
-                  setSearchLinkReady(null);
-                  setLatamEmissionUnlocked(next !== "LATAM" && next !== "SMILES");
-                }}
-              >
-                <option value="LATAM">LATAM</option>
-                <option value="SMILES">SMILES</option>
-                <option value="LIVELO">LIVELO</option>
-                <option value="ESFERA">ESFERA</option>
-              </select>
+        <div className="space-y-6">
+          {/* Programa + trecho */}
+          <div className="grid gap-4 lg:grid-cols-[minmax(0,220px)_1fr]">
+            <div className="space-y-1.5">
+              <label className={FIELD_LABEL}>CIA / programa</label>
+              <div className="relative">
+                <Plane
+                  className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"
+                  strokeWidth={2}
+                  aria-hidden
+                />
+                <select
+                  className={cn(CONTROL_SELECT, "pl-10")}
+                  value={program}
+                  onChange={(e) => {
+                    const next = e.target.value as Program;
+                    setProgram(next);
+                    setBiometriaModalOpen(false);
+                    setPagamentoLinkReady(null);
+                    setSearchLinkReady(null);
+                    setLatamEmissionUnlocked(next !== "LATAM" && next !== "SMILES");
+                  }}
+                >
+                  <option value="LATAM">LATAM</option>
+                  <option value="SMILES">SMILES</option>
+                  <option value="LIVELO">LIVELO</option>
+                  <option value="ESFERA">ESFERA</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <span className={FIELD_LABEL}>Trecho</span>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setTripKind("IDA")}
+                  className={cn(
+                    "rounded-xl border px-4 py-3 text-sm font-semibold transition",
+                    tripKind === "IDA"
+                      ? "border-slate-900 bg-slate-900 text-white shadow-sm"
+                      : "border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50"
+                  )}
+                >
+                  Só ida
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setTripKind("IDA_VOLTA")}
+                  className={cn(
+                    "rounded-xl border px-4 py-3 text-sm font-semibold transition",
+                    tripKind === "IDA_VOLTA"
+                      ? "border-slate-900 bg-slate-900 text-white shadow-sm"
+                      : "border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50"
+                  )}
+                >
+                  Ida + volta
+                </button>
+              </div>
             </div>
           </div>
 
-          <div className="md:col-span-2 space-y-3">
-            <span className={FIELD_LABEL}>Trecho</span>
-            <div className="flex flex-wrap items-center gap-2">
-              <button
-                type="button"
-                onClick={() => setTripKind("IDA")}
-                className={cn(
-                  "rounded-xl border px-3 py-2 text-xs font-semibold transition",
-                  tripKind === "IDA"
-                    ? "border-slate-900 bg-slate-900 text-white shadow-sm"
-                    : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
-                )}
-              >
-                Só ida
-              </button>
-              <button
-                type="button"
-                onClick={() => setTripKind("IDA_VOLTA")}
-                className={cn(
-                  "rounded-xl border px-3 py-2 text-xs font-semibold transition",
-                  tripKind === "IDA_VOLTA"
-                    ? "border-slate-900 bg-slate-900 text-white shadow-sm"
-                    : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
-                )}
-              >
-                Ida + volta
-              </button>
-              <span className="ml-auto inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-medium text-slate-600 shadow-sm">
-                Total
-                <span className="tabular-nums font-bold text-slate-900">{fmtInt(pointsTotal)}</span>
-                pts
-              </span>
+          {/* Pontos */}
+          <div className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <div className="text-sm font-semibold text-slate-900">Pontos</div>
+                <p className="mt-0.5 text-xs text-slate-500">
+                  Um modo para ida e volta — total do trecho ou por passageiro.
+                </p>
+              </div>
+              <div className="inline-flex rounded-xl border border-slate-200 bg-slate-50 p-1">
+                <button
+                  type="button"
+                  onClick={() => setPointsMode("TOTAL")}
+                  className={cn(
+                    "rounded-lg px-3.5 py-1.5 text-xs font-semibold transition",
+                    pointsMode === "TOTAL"
+                      ? "bg-white text-slate-900 shadow-sm"
+                      : "text-slate-500 hover:text-slate-800"
+                  )}
+                >
+                  Total
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPointsMode("POR_PAX")}
+                  className={cn(
+                    "rounded-lg px-3.5 py-1.5 text-xs font-semibold transition",
+                    pointsMode === "POR_PAX"
+                      ? "bg-white text-slate-900 shadow-sm"
+                      : "text-slate-500 hover:text-slate-800"
+                  )}
+                >
+                  Por passageiro
+                </button>
+              </div>
             </div>
 
-            <div className="flex flex-wrap items-center gap-3 rounded-xl border border-slate-200/80 bg-white/90 px-3 py-2.5 text-[11px] font-medium text-slate-600 shadow-sm">
-              <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
-                Pontos informados como
-              </span>
-              <label className="inline-flex cursor-pointer items-center gap-2">
+            <div
+              className={cn(
+                "mt-4 grid gap-3",
+                tripKind === "IDA_VOLTA" ? "sm:grid-cols-2" : "sm:grid-cols-1 sm:max-w-md"
+              )}
+            >
+              <div className="rounded-xl border border-slate-100 bg-slate-50/80 p-3.5">
+                <div className="mb-2 flex items-center justify-between gap-2">
+                  <label className="text-xs font-semibold text-slate-700">Ida</label>
+                  {pointsMode === "POR_PAX" && idaInput > 0 ? (
+                    <span className="text-[11px] text-slate-500">
+                      Total <b className="tabular-nums text-slate-800">{fmtInt(idaTotalPoints)}</b>
+                    </span>
+                  ) : null}
+                </div>
                 <input
-                  type="radio"
-                  name="pointsMode"
-                  checked={pointsMode === "TOTAL"}
-                  onChange={() => setPointsMode("TOTAL")}
-                  className="border-slate-300 text-slate-900"
-                />
-                Total
-              </label>
-              <label className="inline-flex cursor-pointer items-center gap-2">
-                <input
-                  type="radio"
-                  name="pointsMode"
-                  checked={pointsMode === "POR_PAX"}
-                  onChange={() => setPointsMode("POR_PAX")}
-                  className="border-slate-300 text-slate-900"
-                />
-                Por passageiro
-              </label>
-              <span className="text-slate-400">· vale para ida e volta</span>
-            </div>
-
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div className="rounded-2xl border border-slate-200/80 bg-white/90 p-4 shadow-sm">
-                <div className={cn(FIELD_LABEL, "mb-2 normal-case tracking-normal")}>Pontos (ida)</div>
-                <input
-                  className={CONTROL_INPUT_MONO}
+                  className={cn(CONTROL_INPUT_MONO, "bg-white text-base")}
                   value={idaStr}
                   onChange={(e) => onChangePoints(setIdaStr, e.target.value)}
                   placeholder={
-                    pointsMode === "POR_PAX"
-                      ? "Ex.: 100.000 (por pax)"
-                      : "Ex.: 200.000 (total)"
+                    pointsMode === "POR_PAX" ? "Ex.: 5.620 por pax" : "Ex.: 11.240 total"
                   }
+                  inputMode="numeric"
                 />
-                {pointsMode === "POR_PAX" && idaInput > 0 ? (
-                  <div className="mt-3 text-[11px] text-slate-500">
-                    Ida total:{" "}
-                    <b className="tabular-nums text-slate-900">{fmtInt(idaTotalPoints)}</b>
-                  </div>
-                ) : null}
               </div>
 
-              <div
-                className={cn(
-                  "rounded-2xl border border-slate-200/80 bg-white/90 p-4 shadow-sm transition",
-                  tripKind !== "IDA_VOLTA" && "opacity-55"
-                )}
-              >
-                <div className={cn(FIELD_LABEL, "mb-2 normal-case tracking-normal")}>Pontos (volta)</div>
-                <input
-                  disabled={tripKind !== "IDA_VOLTA"}
-                  className={cn(CONTROL_INPUT_MONO, "disabled:cursor-not-allowed disabled:bg-slate-100")}
-                  value={voltaStr}
-                  onChange={(e) => onChangePoints(setVoltaStr, e.target.value)}
-                  placeholder={
-                    pointsMode === "POR_PAX"
-                      ? "Ex.: 100.000 (por pax)"
-                      : "Ex.: 200.000 (total)"
-                  }
-                />
-                {tripKind === "IDA_VOLTA" && pointsMode === "POR_PAX" && voltaInput > 0 ? (
-                  <div className="mt-3 text-[11px] text-slate-500">
-                    Volta total:{" "}
-                    <b className="tabular-nums text-slate-900">{fmtInt(voltaTotalPoints)}</b>
+              {tripKind === "IDA_VOLTA" ? (
+                <div className="rounded-xl border border-slate-100 bg-slate-50/80 p-3.5">
+                  <div className="mb-2 flex items-center justify-between gap-2">
+                    <label className="text-xs font-semibold text-slate-700">Volta</label>
+                    {pointsMode === "POR_PAX" && voltaInput > 0 ? (
+                      <span className="text-[11px] text-slate-500">
+                        Total <b className="tabular-nums text-slate-800">{fmtInt(voltaTotalPoints)}</b>
+                      </span>
+                    ) : null}
                   </div>
-                ) : null}
-              </div>
-            </div>
-          </div>
-
-          <div className="space-y-1.5 md:col-span-2">
-            <label className={FIELD_LABEL}>Passageiros</label>
-            <div className="grid gap-3 sm:grid-cols-3">
-              <div className="space-y-1">
-                <div className="text-[11px] font-medium text-slate-600">Adultos (12+)</div>
-                <div className="relative">
-                  <Users
-                    className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"
-                    strokeWidth={2}
-                    aria-hidden
-                  />
                   <input
-                    type="number"
-                    min={1}
-                    max={9}
-                    className={cn(CONTROL_INPUT_MONO, "pl-10")}
-                    value={adultPassengers}
-                    onChange={(e) =>
-                      setAdultPassengers(Math.max(1, Math.min(9, clampInt(e.target.value))))
+                    className={cn(CONTROL_INPUT_MONO, "bg-white text-base")}
+                    value={voltaStr}
+                    onChange={(e) => onChangePoints(setVoltaStr, e.target.value)}
+                    placeholder={
+                      pointsMode === "POR_PAX" ? "Ex.: 7.519 por pax" : "Ex.: 15.038 total"
                     }
+                    inputMode="numeric"
                   />
                 </div>
+              ) : null}
+            </div>
+          </div>
+
+          {/* Passageiros */}
+          <div className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
+            <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+              <div>
+                <div className="text-sm font-semibold text-slate-900">Passageiros</div>
+                <p className="mt-0.5 text-xs text-slate-500">
+                  Adultos e crianças consomem CPF/vaga do cedente. Bebê não conta.
+                </p>
               </div>
-              <div className="space-y-1">
-                <div className="text-[11px] font-medium text-slate-600">Crianças (2–11)</div>
-                <input
-                  type="number"
-                  min={0}
-                  max={9}
-                  className={CONTROL_INPUT_MONO}
-                  value={childPassengers}
-                  onChange={(e) =>
-                    setChildPassengers(Math.max(0, Math.min(9, clampInt(e.target.value))))
-                  }
-                />
-              </div>
-              <div className="space-y-1">
-                <div className="text-[11px] font-medium text-slate-600">
-                  Bebês (&lt;2){" "}
-                  <span className="font-normal text-slate-400">· sem CPF</span>
-                </div>
-                <input
-                  type="number"
-                  min={0}
-                  max={9}
-                  className={CONTROL_INPUT_MONO}
-                  value={infantPassengers}
-                  onChange={(e) =>
-                    setInfantPassengers(Math.max(0, Math.min(9, clampInt(e.target.value))))
-                  }
-                />
+              <div className="text-xs text-slate-500">
+                Vagas:{" "}
+                <b className="tabular-nums text-slate-900">{fmtInt(passengers)}</b>
+                {infantPassengers > 0 ? (
+                  <span className="text-slate-400">
+                    {" "}
+                    · bebê no link (<span className="font-mono">inf={infantPassengers}</span>)
+                  </span>
+                ) : null}
               </div>
             </div>
-            <p className="text-[11px] text-slate-500">
-              CPF/vaga do cedente:{" "}
-              <b className="tabular-nums text-slate-800">{fmtInt(passengers)}</b>
-              {infantPassengers > 0 ? (
-                <>
-                  {" "}
-                  · bebê só entra no link LATAM (
-                  <span className="font-mono">inf={infantPassengers}</span>)
-                </>
-              ) : null}
-            </p>
+
+            <div className="mt-4 grid gap-3 sm:grid-cols-3">
+              {(
+                [
+                  {
+                    key: "adult",
+                    label: "Adultos",
+                    sub: "12 anos ou mais",
+                    value: adultPassengers,
+                    min: 1,
+                    set: (n: number) => setAdultPassengers(Math.max(1, Math.min(9, n))),
+                    icon: true,
+                  },
+                  {
+                    key: "child",
+                    label: "Crianças",
+                    sub: "2 a 11 anos",
+                    value: childPassengers,
+                    min: 0,
+                    set: (n: number) => setChildPassengers(Math.max(0, Math.min(9, n))),
+                    icon: false,
+                  },
+                  {
+                    key: "infant",
+                    label: "Bebês",
+                    sub: "Menos de 2 · sem CPF",
+                    value: infantPassengers,
+                    min: 0,
+                    set: (n: number) => setInfantPassengers(Math.max(0, Math.min(9, n))),
+                    icon: false,
+                  },
+                ] as const
+              ).map((row) => (
+                <div
+                  key={row.key}
+                  className="rounded-xl border border-slate-100 bg-slate-50/80 p-3.5"
+                >
+                  <div className="text-xs font-semibold text-slate-800">{row.label}</div>
+                  <div className="mt-0.5 text-[11px] text-slate-500">{row.sub}</div>
+                  <div className="mt-3 flex items-center gap-2">
+                    <button
+                      type="button"
+                      aria-label={`Diminuir ${row.label}`}
+                      disabled={row.value <= row.min}
+                      onClick={() => row.set(row.value - 1)}
+                      className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-white text-lg font-semibold text-slate-700 transition hover:bg-slate-50 disabled:opacity-40"
+                    >
+                      −
+                    </button>
+                    <div className="relative min-w-0 flex-1">
+                      {row.icon ? (
+                        <Users
+                          className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"
+                          strokeWidth={2}
+                          aria-hidden
+                        />
+                      ) : null}
+                      <input
+                        type="number"
+                        min={row.min}
+                        max={9}
+                        className={cn(
+                          CONTROL_INPUT_MONO,
+                          "bg-white text-center",
+                          row.icon && "pl-10"
+                        )}
+                        value={row.value}
+                        onChange={(e) => row.set(clampInt(e.target.value))}
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      aria-label={`Aumentar ${row.label}`}
+                      disabled={row.value >= 9}
+                      onClick={() => row.set(row.value + 1)}
+                      className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-white text-lg font-semibold text-slate-700 transition hover:bg-slate-50 disabled:opacity-40"
+                    >
+                      +
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
-        </div>
 
-        <p className="mt-5 text-xs leading-relaxed text-slate-500">
-          Sugestões consideram <span className="font-medium text-slate-700">pontos</span>,{" "}
-          <span className="font-medium text-slate-700">limite de passageiros</span> (adultos +
-          crianças; bebê não conta — LATAM: janela 365 dias / Smiles: anual) e{" "}
-          <span className="font-medium text-slate-700">bloqueio</span> (BlockedAccount OPEN).
-        </p>
-
-        <div className="mt-5 flex justify-end border-t border-slate-100 pt-4">
-          <button
-            type="button"
-            disabled={!canGoToCedentes}
-            onClick={() => setFlowStep(2)}
-            className={cn(BTN_PRIMARY, "min-w-[200px]")}
-          >
-            Continuar
-            <ChevronRight className="h-4 w-4" strokeWidth={2} aria-hidden />
-          </button>
+          <div className="flex flex-col gap-3 border-t border-slate-100 pt-4 sm:flex-row sm:items-center sm:justify-between">
+            <p className="max-w-xl text-xs leading-relaxed text-slate-500">
+              As sugestões usam pontos, limite de passageiros e contas bloqueadas / impedir
+              bloqueio.
+            </p>
+            <button
+              type="button"
+              disabled={!canGoToCedentes}
+              onClick={() => setFlowStep(2)}
+              className={cn(BTN_PRIMARY, "min-w-[200px] shrink-0")}
+            >
+              Continuar
+              <ChevronRight className="h-4 w-4" strokeWidth={2} aria-hidden />
+            </button>
+          </div>
         </div>
       </StepSection>
       ) : null}
