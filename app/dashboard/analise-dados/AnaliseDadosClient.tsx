@@ -143,20 +143,21 @@ function buildChannelBreakdownRows(args: {
   const outros = Number(args.channel?.outrosOrigemCents || 0);
   const compra = Number(args.compraBalcaoCents || 0);
   const fee = Number(args.feeCents || 0);
-  const total = venda + final + outros + fee + compra;
+  const pctBase = venda + final + outros + compra;
+  const total = pctBase + fee;
 
   const rows: BreakdownRow[] = [
     {
       label: LBL.vendaBalcao,
       value: fmtMoneyBR(venda),
       detail: `${fmtInt(args.channel?.salesCountVendaBalcao || 0)} vendas • ${fmtInt(args.channel?.passengersVendaBalcao || 0)} pax`,
-      pct: sharePct(venda, total),
+      pct: sharePct(venda, pctBase),
     },
     {
       label: LBL.clienteFinal,
       value: fmtMoneyBR(final),
       detail: `${fmtInt(args.channel?.salesCountClienteFinal || 0)} vendas • ${fmtInt(args.channel?.passengersClienteFinal || 0)} pax`,
-      pct: sharePct(final, total),
+      pct: sharePct(final, pctBase),
     },
   ];
 
@@ -165,7 +166,7 @@ function buildChannelBreakdownRows(args: {
       label: LBL.outros,
       value: fmtMoneyBR(outros),
       detail: `${fmtInt(args.channel?.salesCountOutros || 0)} vendas • ${fmtInt(args.channel?.passengersOutros || 0)} pax`,
-      pct: sharePct(outros, total),
+      pct: sharePct(outros, pctBase),
     });
   }
 
@@ -173,20 +174,21 @@ function buildChannelBreakdownRows(args: {
     {
       label: LBL.taxa,
       value: fmtMoneyBR(fee),
-      pct: sharePct(fee, total),
+      detail: "Fora do percentual",
+      pct: null,
     },
     {
       label: LBL.compraBalcao,
       value: fmtMoneyBR(compra),
       detail: args.compraDetail,
-      pct: sharePct(compra, total),
+      pct: sharePct(compra, pctBase),
     },
     {
       label: LBL.total,
       value: fmtMoneyBR(total),
       detail: args.extraTotalDetail,
       emphasis: true,
-      pct: total > 0 ? 100 : null,
+      pct: null,
     }
   );
 
@@ -2167,7 +2169,7 @@ export default function AnaliseDadosClient() {
       {/* HOJE */}
       <BreakdownPanel
         title={`Resumo de hoje · ${today?.date ? dayKeyToDisplay(today.date) : "—"}`}
-        subtitle="Venda no Balcão = clientes do balcão. Cliente Final = estoque próprio. Compra balcão = pontos comprados no balcão para revenda."
+        subtitle="Percentual sobre Venda no Balcão, Cliente Final e compra balcão — taxa de embarque à parte."
         rows={todayBreakdownRows}
       />
 
@@ -2197,7 +2199,7 @@ export default function AnaliseDadosClient() {
       {/* MÊS FOCO */}
       <BreakdownPanel
         title={`Vendas do mês · ${monthDisplay}`}
-        subtitle="Participação de cada canal no total do mês (com taxa de embarque separada)."
+        subtitle="Percentual dos canais de venda/compra; taxa de embarque não entra na base."
         rows={monthBreakdownRows}
       />
 
