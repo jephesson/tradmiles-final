@@ -1407,11 +1407,19 @@ export default function NovaVendaClient({
     window.location.href = "/dashboard/vendas";
   }
 
+  const eligibleSuggestions = useMemo(
+    () =>
+      suggestions.filter(
+        (s) => s.eligible !== false && s.priorityLabel !== "INELIGIVEL"
+      ),
+    [suggestions]
+  );
+
   const filteredSuggestions = useMemo(() => {
     const q = normStr(cedenteQ);
-    if (!q) return suggestions;
+    if (!q) return eligibleSuggestions;
 
-    return suggestions.filter((s) => {
+    return eligibleSuggestions.filter((s) => {
       const hay = [
         s.cedente.nomeCompleto,
         s.cedente.identificador,
@@ -1423,7 +1431,7 @@ export default function NovaVendaClient({
         .join(" | ");
       return hay.includes(q);
     });
-  }, [suggestions, cedenteQ]);
+  }, [eligibleSuggestions, cedenteQ]);
 
   const visibleSuggestions = useMemo(
     () => filteredSuggestions.slice(0, 10),
@@ -1434,13 +1442,13 @@ export default function NovaVendaClient({
     if (loadingSug) return "Calculando...";
     if (sel) return "Selecionado";
     const q = normStr(cedenteQ);
-    if (!suggestions.length) return "0 resultados";
+    if (!eligibleSuggestions.length) return "0 resultados";
     if (q)
       return `${Math.min(10, filteredSuggestions.length)} de ${
         filteredSuggestions.length
       } (busca)`;
-    return `${Math.min(10, suggestions.length)} de ${suggestions.length}`;
-  }, [loadingSug, sel, cedenteQ, suggestions.length, filteredSuggestions.length]);
+    return `${Math.min(10, eligibleSuggestions.length)} de ${eligibleSuggestions.length}`;
+  }, [loadingSug, sel, cedenteQ, eligibleSuggestions.length, filteredSuggestions.length]);
 
   const selfLabel = useMemo(
     () => (me?.name ? `Meu cartão (${me.name})` : "Meu cartão"),
@@ -2184,7 +2192,8 @@ export default function NovaVendaClient({
                             : "bg-white"
                         )}
                       >
-                        Média/CPF: <b className="tabular-nums">{fmtInt(sug)}</b>
+                        Média: <b className="tabular-nums">{fmtInt(sug)}</b>
+                        <span className="font-normal text-slate-500">/por pax</span>
                         {below ? (
                           <span className="ml-1 font-semibold">· abaixo</span>
                         ) : null}
@@ -2469,7 +2478,7 @@ export default function NovaVendaClient({
                   <tr>
                     <th className="px-4 py-3 w-[320px]">Cedente</th>
                     <th className="px-4 py-3 w-[200px]">Responsável</th>
-                    <th className="px-4 py-3 text-right w-[130px]">Média/CPF</th>
+                    <th className="px-4 py-3 text-right w-[150px]">Média/por pax</th>
                     <th className="px-4 py-3 text-right w-[120px]">Pts</th>
                     <th className="px-4 py-3 text-right w-[260px]">PAX disp. (após)</th>
                     <th className="px-4 py-3 text-right w-[120px]">Sobra</th>
@@ -2531,7 +2540,15 @@ export default function NovaVendaClient({
                               >
                                 <MessageCircle className="h-3.5 w-3.5" strokeWidth={2.25} />
                               </a>
-                            ) : null}
+                            ) : (
+                              <span
+                                className="mt-0.5 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-slate-100 text-slate-400 ring-1 ring-slate-200/90"
+                                title="Sem WhatsApp cadastrado"
+                                aria-hidden
+                              >
+                                <MessageCircle className="h-3.5 w-3.5" strokeWidth={2.25} />
+                              </span>
+                            )}
                             <div className="min-w-0">
                               <div className="font-medium">{s.cedente.nomeCompleto}</div>
                               <div className="text-xs text-slate-500">{s.cedente.identificador}</div>
@@ -2557,6 +2574,14 @@ export default function NovaVendaClient({
                               title={`pts ÷ (PAX livres − 1) = ${fmtInt(s.pts)} ÷ ${Math.max(1, (s.availablePassengersYear || 0) - 1)}`}
                             >
                               {fmtInt(sugPts)}
+                              <span
+                                className={cn(
+                                  "ml-0.5 text-[11px] font-medium",
+                                  belowAvg ? "text-amber-700" : "text-slate-500"
+                                )}
+                              >
+                                /por pax
+                              </span>
                               {belowAvg ? (
                                 <div className="mt-0.5 text-[11px] font-medium text-amber-700">
                                   abaixo
