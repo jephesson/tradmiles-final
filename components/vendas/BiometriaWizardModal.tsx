@@ -319,14 +319,93 @@ export default function BiometriaWizardModal({
     email: string | null;
     phone: string | null;
   }>({ email: null, phone: null });
+  const [latamAiPassengers, setLatamAiPassengers] = useState<
+    ReturnType<typeof parsePassengerText> | null
+  >(null);
+  const [latamParseSource, setLatamParseSource] = useState<"regex" | "openai">(
+    "regex"
+  );
+  const [latamAiParsing, setLatamAiParsing] = useState(false);
 
-  const latamParsedPassengers = useMemo(
+  const expectedPassengerCount = Math.max(
+    0,
+    searchAdt + searchChd + searchInf
+  );
+
+  const latamRegexPassengers = useMemo(
     () =>
       useLatamExtension
         ? parsePassengerText(latamPassengerText, latamTitularContact)
         : [],
     [useLatamExtension, latamPassengerText, latamTitularContact]
   );
+
+  const latamParsedPassengers =
+    latamAiPassengers && latamAiPassengers.length > latamRegexPassengers.length
+      ? latamAiPassengers
+      : latamRegexPassengers;
+
+  // Regex primeiro; se faltar gente vs PAX da busca, tenta OpenAI (não quebra se falhar).
+  useEffect(() => {
+    if (!useLatamExtension || !latamPassengerText.trim()) {
+      setLatamAiPassengers(null);
+      setLatamParseSource("regex");
+      setLatamAiParsing(false);
+      return;
+    }
+    if (
+      expectedPassengerCount <= 0 ||
+      latamRegexPassengers.length >= expectedPassengerCount
+    ) {
+      setLatamAiPassengers(null);
+      setLatamParseSource("regex");
+      setLatamAiParsing(false);
+      return;
+    }
+
+    let cancelled = false;
+    setLatamAiParsing(true);
+    const t = window.setTimeout(async () => {
+      try {
+        const res = await fetch("/api/latam-extension/parse-passengers", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            text: latamPassengerText,
+            expectedCount: expectedPassengerCount,
+            titular: latamTitularContact,
+          }),
+        });
+        const json = await res.json().catch(() => null);
+        if (cancelled) return;
+        if (res.ok && json?.ok && Array.isArray(json.passengers)) {
+          setLatamAiPassengers(json.passengers);
+          setLatamParseSource(json.source === "openai" ? "openai" : "regex");
+        } else {
+          setLatamAiPassengers(null);
+          setLatamParseSource("regex");
+        }
+      } catch {
+        if (!cancelled) {
+          setLatamAiPassengers(null);
+          setLatamParseSource("regex");
+        }
+      } finally {
+        if (!cancelled) setLatamAiParsing(false);
+      }
+    }, 700);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(t);
+    };
+  }, [
+    useLatamExtension,
+    latamPassengerText,
+    expectedPassengerCount,
+    latamRegexPassengers.length,
+    latamTitularContact,
+  ]);
 
   const cpf = creds?.cpf || "";
   const email = creds?.programEmail || creds?.email || "";
@@ -711,6 +790,8 @@ export default function BiometriaWizardModal({
         body: JSON.stringify({
           useExtension: on,
           passengerText: latamPassengerText,
+          passengers: latamParsedPassengers,
+          expectedCount: expectedPassengerCount,
           paymentCardId: latamPaymentCardId || null,
           saleHint: extractedOrderId || searchLink || null,
         }),
@@ -727,7 +808,9 @@ export default function BiometriaWizardModal({
         on
           ? badCpf
             ? `Extensão pronta · ${n} passageiro(s), mas ${badCpf} CPF incorreto — confira antes de emitir.`
-            : `Extensão pronta · ${n} passageiro(s). Abra a LATAM com a extensão.`
+            : `Extensão pronta · ${n} passageiro(s)${
+                latamParseSource === "openai" ? " (IA)" : ""
+              }. Abra a LATAM com a extensão.`
           : "Extensão desligada nesta venda."
       );
     } catch (e) {
@@ -1466,6 +1549,26 @@ export default function BiometriaWizardModal({
                       ) : latamPassengerText.trim() ? (
                         <p className="mt-1 text-[11px] text-amber-700">
                           Não deu para organizar — confira o formato.
+                          {latamAiParsing
+                            ? " Tentando leitura inteligente…"
+                            : expectedPassengerCount >
+                                latamRegexPassengers.length
+                              ? ` (achou ${latamRegexPassengers.length} de ${expectedPassengerCount})`
+                              : ""}
+                        </p>
+                      ) : null}
+                      {latamAiParsing ? (
+                        <p className="mt-1 flex items-center gap-1.5 text-[11px] text-slate-500">
+                          <Loader2 className="h-3 w-3 animate-spin" aria-hidden />
+                          Completando leitura dos passageiros…
+                        </p>
+                      ) : null}
+                      {latamParseSource === "openai" &&
+                      latamParsedPassengers.length > 0 ? (
+                        <p className="mt-1 text-[11px] text-sky-700">
+                          Lista ajustada automaticamente ({latamParsedPassengers.length}{" "}
+                          passageiro
+                          {latamParsedPassengers.length === 1 ? "" : "s"}).
                         </p>
                       ) : null}
                     </div>

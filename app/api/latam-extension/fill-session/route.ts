@@ -2,10 +2,10 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/require-session";
 import {
-  parsePassengerText,
   type ParsedPassenger,
   type TitularContact,
 } from "@/lib/latam/parsePassengerText";
+import { parsePassengerTextWithFallback } from "@/lib/latam/interpretPassengersWithAI";
 import {
   getFillSession,
   setFillSession,
@@ -231,8 +231,14 @@ export async function PUT(req: Request) {
   let passengers: ParsedPassenger[] | null = Array.isArray(body?.passengers)
     ? body.passengers
     : null;
+  const expectedCount = Math.max(0, Math.trunc(Number(body?.expectedCount) || 0));
   if (!passengers && typeof body?.passengerText === "string") {
-    passengers = parsePassengerText(body.passengerText, titular);
+    const parsed = await parsePassengerTextWithFallback(
+      body.passengerText,
+      titular,
+      { expectedCount }
+    );
+    passengers = parsed.passengers;
   }
   if (!passengers) {
     passengers = (await getFillSession(session.userId))?.passengers || [];

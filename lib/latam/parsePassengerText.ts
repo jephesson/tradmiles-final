@@ -46,6 +46,10 @@ const LABEL_KEYS = [
   "whatsapp",
   "passageira",
   "passageiro",
+  // Antes de "pax" solto — senão "Pax do bebê: NOME" vira nome "do bebê NOME"
+  "pax\\s+do\\s+beb[eê]",
+  "pax\\s+bebe",
+  "beb[eê]",
   "identidade",
   "cpf\\/?cnpj",
   "contato",
@@ -73,7 +77,8 @@ const LABEL_KEYS = [
 ].join("|");
 
 const LABELED_LINE_RE = new RegExp(
-  `^\\s*\\b(${LABEL_KEYS})\\b\\s*(?:\\([^)]*\\))?\\s*[:\\-–.=]?\\s*(.+)\\s*$`,
+  // Sem \\b após o rótulo: \\b ASCII falha em “bebê” (ê) e faz “Pax” casar sozinho.
+  `^\\s*\\b(${LABEL_KEYS})(?=\\s*(?:\\([^)]*\\))?\\s*[:\\-–.=]|\\s*$|\\s)\\s*(?:\\([^)]*\\))?\\s*[:\\-–.=]?\\s*(.+)\\s*$`,
   "i"
 );
 
@@ -364,9 +369,10 @@ function extractNameFromLine(line: string): string {
   s = s.replace(DATE_RE, " ");
   s = s.replace(DATE_COMPACT_RE, " ");
   s = s.replace(
-    /\b(nome\s*completo|passageira|passageiro|pax|contato|data\s+(?:de\s+)?nasc(?:imento)?|nascido\s*em|nasc(?:imento)?|dt\.?\s*nasc|dn|cpf\/?cnpj|cpf|c\.?p\.?f\.?|cnpj|rg|idt|identidade|documento|doc|e-?mail|email|mail|tel(?:efone)?|cel(?:ular)?|whats?app?|zap|wpp|fone|sexo|genero)\b[:\s.=]*/gi,
+    /\b(nome\s*completo|passageira|passageiro|pax(?:\s+do\s+beb[eê])?|pax\s+bebe|beb[eê]|contato|data\s+(?:de\s+)?nasc(?:imento)?|nascido\s*em|nasc(?:imento)?|dt\.?\s*nasc|dn|cpf\/?cnpj|cpf|c\.?p\.?f\.?|cnpj|rg|idt|identidade|documento|doc|e-?mail|email|mail|tel(?:efone)?|cel(?:ular)?|whats?app?|zap|wpp|fone|sexo|genero)\b[:\s.=]*/gi,
     " "
   );
+  s = s.replace(/^(?:do\s+)?beb[eê]\s+/i, " ");
   s = s.replace(/\b\d{3}\.?\d{3}\.?\d{3}[\-.]?\d{2}\b/g, " ");
   s = s.replace(/\b\d{8,13}\b/g, " ");
   return sanitizeLatamName(s);
@@ -458,6 +464,10 @@ function preprocessPassengerText(raw: string): string {
   // Cabeçalho "Passageiro 2" → novo bloco
   t = t.replace(/\bpassageiro\s*\d+\b/gi, "\n\n");
 
+  // Normaliza “Pax do bebê:” antes do rótulo curto “Pax:” engolir o resto
+  t = t.replace(/\bpax\s+do\s+beb[eê]\s*[:\-–.=]\s*/gi, "Pax bebe: ");
+  t = t.replace(/^\s*beb[eê]\s*[:\-–.=]\s*/gim, "Pax bebe: ");
+
   // Unifica variações de data de nascimento num rótulo só (evita split em "Data"+"Nascimento")
   t = t.replace(
     /\bdata\s+(?:de\s+)?nasc(?:imento)?\b/gi,
@@ -487,13 +497,19 @@ function preprocessPassengerText(raw: string): string {
     "$1\n"
   );
 
-  // Split por rótulo no meio da linha (com espaço antes)
+  // Split por rótulo no meio da linha (só espaço/tab — NÃO comer \n\n entre pax)
   t = t.replace(
     new RegExp(
-      `\\s+(?=\\b(?:${LABEL_KEYS})\\b\\s*(?:\\([^)]*\\))?\\s*:)`,
+      `[^\\S\\n]+(?=\\b(?:${LABEL_KEYS})\\b\\s*(?:\\([^)]*\\))?\\s*:)`,
       "gi"
     ),
     "\n"
+  );
+
+  // Cada "Pax:" / "Passageiro:" / "Pax do bebê:" em linha própria inicia bloco
+  t = t.replace(
+    /\n(?=(?:pax(?:\s+do\s+beb[eê])?|passageir[oa]|nome(?:\s+completo)?)\s*(?:\([^)]*\))?\s*[:\-–.=])/gi,
+    "\n\n"
   );
 
   // Datas numéricas com espaços: "01 / 04 / 1991" → "01/04/1991"
@@ -573,6 +589,14 @@ function parseLabeledBlock(block: string): ParsedPassenger | null {
       firstName = sanitizeLatamName(val);
       if (key === "passageira" && !gender) gender = "F";
       if (key === "passageiro" && !gender) gender = "M";
+      continue;
+    }
+    // "Pax do bebê: NOME" / "Bebê: NOME" / preprocess → "Pax bebe: NOME"
+    if (key === "pax do bebe" || key === "pax bebe" || key === "bebe") {
+      const cleaned = val
+        .replace(/^(?:do\s+)?beb[eê]\s*[:\-–.]?\s*/i, "")
+        .trim();
+      firstName = sanitizeLatamName(cleaned || val);
       continue;
     }
     // "Contato:" só agrupa e-mail/telefone — não é passageiro
@@ -916,7 +940,7 @@ function lineLooksLikeName(trimmed: string): boolean {
   if (!trimmed || EMAIL_RE.test(trimmed)) return false;
   // Linha rotulada (Data Nascimento:, Documento:, Sexo:, etc.) nunca é nome de pax
   if (
-    /^\s*(nome|sobrenome|documento|doc|cpf|cnpj|rg|idt|identidade|data\s+(?:de\s+)?nasc|nasc(?:imento)?|dn|e-?mail|email|tel|cel|fone|zap|whats|passageira|passageiro|pax|contato|sexo|genero|gênero)\b/i.test(
+    /^\s*(nome|sobrenome|documento|doc|cpf|cnpj|rg|idt|identidade|data\s+(?:de\s+)?nasc|nasc(?:imento)?|dn|e-?mail|email|tel|cel|fone|zap|whats|passageira|passageiro|pax(?:\s+do\s+beb[eê])?|beb[eê]|contato|sexo|genero|gênero)\b/i.test(
       trimmed
     )
   ) {
@@ -1051,7 +1075,7 @@ function splitIntoBlocks(text: string): string[] {
 
   let blocks = merged.length ? merged : raw;
 
-  // Vários "Nome:" no mesmo bloco
+  // Vários "Nome:" / "Pax:" / "Pax do bebê:" no mesmo bloco
   const byNomeLabel: string[] = [];
   for (const block of blocks) {
     const lines = block.split("\n");
@@ -1060,11 +1084,11 @@ function splitIntoBlocks(text: string): string[] {
       const trimmed = line.trim();
       if (!trimmed) continue;
       // \b evita casar "Nascimento" / "Sobrenome"
-      const startsNome =
-        /^\s*\bnome\b(?:\s+completo)?\s*(?:\([^)]*\))?\s*[:\-–]/i.test(
+      const startsPax =
+        /^\s*\b(?:nome(?:\s+completo)?|pax(?:\s+do\s+beb[eê])?|passageir[oa]|beb[eê])\b(?:\s+\d+)?\s*(?:\([^)]*\))?\s*[:\-–.]/i.test(
           trimmed
-        );
-      if (startsNome && cur.length) {
+        ) && !/^\s*\bnome\b\s*$/i.test(trimmed);
+      if (startsPax && cur.length) {
         byNomeLabel.push(cur.join("\n"));
         cur = [trimmed];
       } else {
@@ -1156,7 +1180,7 @@ function isBogusPassengerName(name: string) {
     .trim();
   return (
     !n ||
-    /^(data|nascimento|nasc|dn|passageira|passageiro|pax|contato|nome|sobrenome|documento|doc|cpf|rg|sexo|genero|feminino|masculino|fem|masc)$/.test(
+    /^(data|nascimento|nasc|dn|passageira|passageiro|pax|contato|nome|sobrenome|documento|doc|cpf|rg|sexo|genero|feminino|masculino|fem|masc|do|bebe|bebê)$/.test(
       n
     )
   );
