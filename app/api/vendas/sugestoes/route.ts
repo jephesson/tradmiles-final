@@ -71,6 +71,7 @@ export async function GET(req: Request) {
       pontosSmiles: true,
       pontosLivelo: true,
       pontosEsfera: true,
+      impedirBloqueioPax: true,
       biometriaHorario: {
         select: {
           turnoManha: true,
@@ -114,6 +115,9 @@ export async function GET(req: Request) {
 
       const alertPassengerOverflow = !hasPax;
       const eligible = hasPts;
+      // Média sugerida: deixa 1 CPF de folga → pts / (paxLivre - 1)
+      const suggestedPtsPerPax =
+        availablePax <= 0 ? 0 : Math.floor(pts / Math.max(1, availablePax - 1));
 
       const pri = priorityBucket(leftoverPoints);
 
@@ -132,6 +136,7 @@ export async function GET(req: Request) {
               }
             : null,
           owner: c.owner,
+          impedirBloqueioPax: Boolean(c.impedirBloqueioPax),
         },
         program,
         pointsNeeded,
@@ -142,6 +147,7 @@ export async function GET(req: Request) {
         availablePassengersYear: availablePax,
         leftoverPoints,
         leftoverPax,
+        suggestedPtsPerPax,
         eligible,
         priorityBucket: hasPts ? pri.bucket : 99,
         priorityLabel: hasPts ? pri.label : ("INELIGIVEL" as const),
@@ -150,7 +156,9 @@ export async function GET(req: Request) {
           ...(hasPts ? [] : ["PONTOS_INSUFICIENTES"]),
         ],
       };
-    });
+    })
+    // Impedir bloqueio: não oferece opção se a venda estouraria o limite de PAX
+    .filter((r) => !(r.cedente.impedirBloqueioPax && r.alerts.includes("PASSAGEIROS_ESTOURADOS_COM_PONTOS")));
 
   // sort: elegíveis por bucket e sobrar menos; depois ineligíveis
   rows.sort((a, b) => {

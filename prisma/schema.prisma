@@ -631,6 +631,9 @@ model Cedente {
   // ✅ WALLET
   walletBalances WalletBalance[]
 
+  /// Contas que não podem ultrapassar o limite de passageiros (não aparecem se a venda estourar).
+  impedirBloqueioPax Boolean @default(false)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -640,6 +643,7 @@ model Cedente {
   @@index([referredByCedenteId])
   @@index([createdAt])
   @@index([emailRedirecionado])
+  @@index([impedirBloqueioPax])
   @@map("cedentes")
 }
 

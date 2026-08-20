@@ -12,8 +12,11 @@ import {
   calcCommissionCents,
   calcPointsValueCents,
   clampInt,
+  endOfYearExclusive,
   formatSaleNumber,
+  passengerLimit,
   pointsField,
+  startOfYear,
 } from "../_helpers/sales";
 import {
   resolveEmployeeBonusAboveMetaBps,
@@ -418,10 +421,32 @@ export async function POST(req: Request) {
           pontosSmiles: true,
           pontosLivelo: true,
           pontosEsfera: true,
+          impedirBloqueioPax: true,
         },
       });
       if (!ced) throw new Error("Cedente não encontrado.");
       if (ced.status !== "APPROVED") throw new Error("Cedente não aprovado.");
+
+      if (ced.impedirBloqueioPax) {
+        const yearStart = startOfYear();
+        const yearEnd = endOfYearExclusive();
+        const paxLimit = passengerLimit(program);
+        const usage = await tx.emissionEvent.aggregate({
+          where: {
+            cedenteId,
+            program,
+            issuedAt: { gte: yearStart, lt: yearEnd },
+          },
+          _sum: { passengersCount: true },
+        });
+        const used = clampInt(usage._sum.passengersCount);
+        const availablePax = Math.max(0, paxLimit - used);
+        if (availablePax < passengers) {
+          throw new Error(
+            "Esta conta está em Impedir bloqueio e não pode ultrapassar o limite de passageiros."
+          );
+        }
+      }
 
       const field = pointsField(program) as CedentePointsField;
       const availablePts = clampInt(ced[field]);

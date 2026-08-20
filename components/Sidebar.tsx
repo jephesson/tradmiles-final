@@ -668,6 +668,9 @@ export default function Sidebar() {
             </NavLink>
 
             <NavLink href="/dashboard/bloqueios">Contas bloqueadas</NavLink>
+            <NavLink href="/dashboard/cedentes/impedir-bloqueio">
+              Impedir bloqueio
+            </NavLink>
           </SubAccordion>
 
           <SubAccordion

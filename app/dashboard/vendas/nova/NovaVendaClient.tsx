@@ -57,6 +57,7 @@ type Suggestion = {
       turnoNoite: boolean;
     } | null;
     owner: Owner;
+    impedirBloqueioPax?: boolean;
   };
   program: Program;
   pointsNeeded: number;
@@ -66,6 +67,8 @@ type Suggestion = {
   usedPassengersYear: number;
   availablePassengersYear: number;
   leftoverPoints: number;
+  /** Média sugerida pts/CPF = pts / max(1, paxLivre - 1). Não altera ranking. */
+  suggestedPtsPerPax?: number;
   eligible: boolean;
   priorityLabel: "MAX" | "OK" | "MEIO" | "BAIXA" | "INELIGIVEL";
   alerts: string[];
@@ -278,6 +281,34 @@ type EmissionsPanelResp = {
 const PASSENGER_ALERT_MESSAGE =
   "Alerta: esta venda excede o PAX disponível e pode gerar bloqueio nas próximas 12h.";
 
+/** Deixa 1 CPF de folga: pts ÷ (pax livres − 1). */
+function suggestedPtsPerPaxFrom(pts: number, availablePax: number) {
+  const free = Math.max(0, Math.trunc(availablePax || 0));
+  if (free <= 0) return 0;
+  return Math.floor(Math.max(0, pts) / Math.max(1, free - 1));
+}
+
+function salePtsPerPax(pointsNeeded: number, passengersNeeded: number) {
+  return Math.floor(
+    Math.max(0, pointsNeeded) / Math.max(1, Math.trunc(passengersNeeded || 1))
+  );
+}
+
+function isBelowSuggestedAvg(s: {
+  pts: number;
+  pointsNeeded: number;
+  passengersNeeded: number;
+  availablePassengersYear: number;
+  suggestedPtsPerPax?: number;
+}) {
+  const suggested =
+    s.suggestedPtsPerPax != null
+      ? s.suggestedPtsPerPax
+      : suggestedPtsPerPaxFrom(s.pts, s.availablePassengersYear);
+  if (suggested <= 0) return false;
+  return salePtsPerPax(s.pointsNeeded, s.passengersNeeded) < suggested;
+}
+
 const FIELD_LABEL =
   "text-[11px] font-semibold uppercase tracking-wide text-slate-500";
 const CONTROL_INPUT =
@@ -356,12 +387,12 @@ function applyLatamWindow(s: Suggestion, usedRaw: number): Suggestion {
   const available = Math.max(0, paxLimit - used);
 
   const paxNeed = Math.max(0, Math.trunc(Number(s.passengersNeeded || 0)));
-  const paxAfter = available - paxNeed;
   const paxOk = available >= paxNeed;
   const hasPts = Number(s.pts || 0) >= Number(s.pointsNeeded || 0);
-      const alertPassengerOverflow = !paxOk;
-      const eligible = hasPts;
-      const pri = priorityBucket(Number(s.leftoverPoints || 0));
+  const alertPassengerOverflow = !paxOk;
+  const eligible = hasPts;
+  const pri = priorityBucket(Number(s.leftoverPoints || 0));
+  const suggestedPtsPerPax = suggestedPtsPerPaxFrom(Number(s.pts || 0), available);
 
   let alerts = Array.isArray(s.alerts) ? [...s.alerts] : [];
   alerts = alerts.filter((a) => a !== "PASSAGEIROS_ESTOURADOS_COM_PONTOS");
@@ -370,13 +401,14 @@ function applyLatamWindow(s: Suggestion, usedRaw: number): Suggestion {
   }
 
   return {
-        ...s,
-        usedPassengersYear: used,
-        availablePassengersYear: available,
-        eligible,
-        priorityLabel: hasPts ? pri.label : "INELIGIVEL",
-        alerts,
-      };
+    ...s,
+    usedPassengersYear: used,
+    availablePassengersYear: available,
+    suggestedPtsPerPax,
+    eligible,
+    priorityLabel: hasPts ? pri.label : "INELIGIVEL",
+    alerts,
+  };
 }
 
 export default function NovaVendaClient({
@@ -928,6 +960,14 @@ export default function NovaVendaClient({
               if (used == null) return s;
               return applyLatamWindow(s, used);
             });
+            // Após janela 365d: tira contas “impedir bloqueio” que estourariam PAX
+            nextList = nextList.filter(
+              (s) =>
+                !(
+                  s.cedente.impedirBloqueioPax &&
+                  s.alerts.includes("PASSAGEIROS_ESTOURADOS_COM_PONTOS")
+                )
+            );
           } catch (e: any) {
             if (e?.name !== "AbortError") {
               setLatamPaxError(
@@ -2065,6 +2105,7 @@ export default function NovaVendaClient({
               </h2>
               <p className="mt-1 text-xs leading-relaxed text-slate-500">
                 Prioridade: sobrar &lt; 2k (MAX) • 3–10k (BAIXA) • acima de 10k, menor sobra primeiro.
+                Sugestão pts/CPF = pontos ÷ (PAX livres − 1) — só aviso, não muda o ranking.
               </p>
               {program === "LATAM" ? (
                 <div className="mt-2 flex items-center gap-2 text-[11px] text-slate-500">
@@ -2104,6 +2145,30 @@ export default function NovaVendaClient({
                   <span className="rounded-full border bg-white px-2 py-1">
                     PTS: <b className="tabular-nums">{fmtInt(sel.pts)}</b>
                   </span>
+
+                  {(() => {
+                    const sug =
+                      sel.suggestedPtsPerPax ??
+                      suggestedPtsPerPaxFrom(sel.pts, sel.availablePassengersYear);
+                    const below = isBelowSuggestedAvg(sel);
+                    if (sug <= 0) return null;
+                    return (
+                      <span
+                        className={cn(
+                          "rounded-full border px-2 py-1",
+                          below
+                            ? "border-amber-300 bg-amber-50 text-amber-900"
+                            : "bg-white"
+                        )}
+                      >
+                        Sugestão pts/CPF:{" "}
+                        <b className="tabular-nums">{fmtInt(sug)}</b>
+                        {below ? (
+                          <span className="ml-1 font-semibold">· abaixo</span>
+                        ) : null}
+                      </span>
+                    );
+                  })()}
 
                   {/* ✅ PAX disponível AJUSTADO (APÓS esta venda) */}
                   <span className="rounded-full border bg-white px-2 py-1">
@@ -2161,6 +2226,17 @@ export default function NovaVendaClient({
                 {sel.alerts.includes("PASSAGEIROS_ESTOURADOS_COM_PONTOS") ? (
                   <div className="mt-2 text-[11px] text-rose-600">
                     {PASSENGER_ALERT_MESSAGE}
+                  </div>
+                ) : null}
+                {isBelowSuggestedAvg(sel) ? (
+                  <div className="mt-2 text-[11px] text-amber-800">
+                    Esta venda está abaixo da média sugerida (
+                    {fmtInt(
+                      sel.suggestedPtsPerPax ??
+                        suggestedPtsPerPaxFrom(sel.pts, sel.availablePassengersYear)
+                    )}{" "}
+                    pts/CPF com 1 vaga de folga). Ranking não muda — só um aviso de uso
+                    do CPF.
                   </div>
                 ) : null}
 
@@ -2388,7 +2464,7 @@ export default function NovaVendaClient({
                     <th className="px-4 py-3 w-[360px]">Cedente</th>
                     <th className="px-4 py-3 w-[220px]">Responsável</th>
                     <th className="px-4 py-3 text-right w-[110px]">Score</th>
-                    <th className="px-4 py-3 text-right w-[140px]">Pts</th>
+                    <th className="px-4 py-3 text-right w-[160px]">Pts · sugestão</th>
                     <th className="px-4 py-3 w-[110px]">Biometria</th>
                     <th className="px-4 py-3 text-right w-[260px]">PAX disp. (após)</th>
                     <th className="px-4 py-3 text-right w-[140px]">Sobra</th>
@@ -2426,6 +2502,10 @@ export default function NovaVendaClient({
                       waContact,
                       BIOMETRIA_DISPONIVEL_WA_MSG
                     );
+                    const sugPts =
+                      s.suggestedPtsPerPax ??
+                      suggestedPtsPerPaxFrom(s.pts, s.availablePassengersYear);
+                    const belowAvg = isBelowSuggestedAvg(s);
 
                     return (
                       <tr
@@ -2438,6 +2518,11 @@ export default function NovaVendaClient({
                           {s.alerts.includes("PASSAGEIROS_ESTOURADOS_COM_PONTOS") ? (
                             <div className="mt-1 text-[11px] text-rose-600">
                               {PASSENGER_ALERT_MESSAGE}
+                            </div>
+                          ) : null}
+                          {belowAvg ? (
+                            <div className="mt-1 text-[11px] font-medium text-amber-800">
+                              Abaixo da sugestão ({fmtInt(sugPts)} pts/CPF)
                             </div>
                           ) : null}
                         </td>
@@ -2455,7 +2540,21 @@ export default function NovaVendaClient({
                             {fmtScore(s.cedente.scoreMedia)}
                           </span>
                         </td>
-                        <td className="px-4 py-3 text-right tabular-nums">{fmtInt(s.pts)}</td>
+                        <td className="px-4 py-3 text-right">
+                          <div className="tabular-nums font-medium">{fmtInt(s.pts)}</div>
+                          {sugPts > 0 ? (
+                            <div
+                              className={cn(
+                                "mt-0.5 text-[11px] tabular-nums",
+                                belowAvg ? "font-semibold text-amber-800" : "text-slate-500"
+                              )}
+                              title={`pts ÷ (PAX livres − 1) = ${fmtInt(s.pts)} ÷ ${Math.max(1, (s.availablePassengersYear || 0) - 1)}`}
+                            >
+                              sug. {fmtInt(sugPts)}/CPF
+                              {belowAvg ? " · ↓" : ""}
+                            </div>
+                          ) : null}
+                        </td>
                         <td className="px-4 py-3 text-left">
                           <div className="flex flex-wrap items-center gap-1.5">
                             {waHref ? (
