@@ -242,6 +242,55 @@ function emptyBalcaoAgg(): BalcaoAgg {
   };
 }
 
+type SalesChannelSplit = {
+  vendaBalcaoCents: number;
+  clienteFinalCents: number;
+  outrosOrigemCents: number;
+  salesCountVendaBalcao: number;
+  salesCountClienteFinal: number;
+  salesCountOutros: number;
+  passengersVendaBalcao: number;
+  passengersClienteFinal: number;
+  passengersOutros: number;
+};
+
+function emptySalesChannelSplit(): SalesChannelSplit {
+  return {
+    vendaBalcaoCents: 0,
+    clienteFinalCents: 0,
+    outrosOrigemCents: 0,
+    salesCountVendaBalcao: 0,
+    salesCountClienteFinal: 0,
+    salesCountOutros: 0,
+    passengersVendaBalcao: 0,
+    passengersClienteFinal: 0,
+    passengersOutros: 0,
+  };
+}
+
+function accumulateSalesChannel(
+  split: SalesChannelSplit,
+  gross: number,
+  pax: number,
+  origem?: string | null
+) {
+  if (origem === "BALCAO_MILHAS") {
+    split.vendaBalcaoCents += gross;
+    split.salesCountVendaBalcao += 1;
+    split.passengersVendaBalcao += pax;
+    return;
+  }
+  if (origem === "PARTICULAR") {
+    split.clienteFinalCents += gross;
+    split.salesCountClienteFinal += 1;
+    split.passengersClienteFinal += pax;
+    return;
+  }
+  split.outrosOrigemCents += gross;
+  split.salesCountOutros += 1;
+  split.passengersOutros += pax;
+}
+
 function toBalcaoSummaryOut(v: BalcaoAgg) {
   return {
     operationsCount: v.operationsCount,
@@ -342,6 +391,7 @@ export async function GET(req: NextRequest) {
 
         sellerId: true,
         seller: { select: { id: true, name: true, login: true } },
+        cliente: { select: { origem: true } },
       },
     });
 
@@ -349,6 +399,7 @@ export async function GET(req: NextRequest) {
     let feeToday = 0;
     let totalToday = 0;
     let paxToday = 0;
+    const todayChannel = emptySalesChannelSplit();
 
     const byEmpToday = seedEmpMap(teamUsers);
 
@@ -361,6 +412,7 @@ export async function GET(req: NextRequest) {
       feeToday += fee;
       totalToday += gross + fee;
       paxToday += pax;
+      accumulateSalesChannel(todayChannel, gross, pax, s.cliente?.origem);
 
       const u = s.seller;
 
@@ -512,7 +564,7 @@ export async function GET(req: NextRequest) {
 
         sellerId: true,
         seller: { select: { id: true, name: true, login: true } },
-        cliente: { select: { id: true, nome: true, identificador: true } },
+        cliente: { select: { id: true, nome: true, identificador: true, origem: true } },
       },
       orderBy: { date: "asc" },
     });
@@ -652,6 +704,7 @@ export async function GET(req: NextRequest) {
     let feeMonth = 0;
     let totalMonth = 0;
     let paxMonth = 0;
+    const monthChannel = emptySalesChannelSplit();
 
     for (const s of monthSales) {
       const gross = pointsValueCents(Number(s.points || 0), Number(s.milheiroCents || 0));
@@ -660,6 +713,12 @@ export async function GET(req: NextRequest) {
       feeMonth += fee;
       totalMonth += gross + fee;
       paxMonth += Math.max(0, Number(s.passengers || 0));
+      accumulateSalesChannel(
+        monthChannel,
+        gross,
+        Math.max(0, Number(s.passengers || 0)),
+        s.cliente?.origem
+      );
     }
 
     // =========================
@@ -1582,6 +1641,7 @@ export async function GET(req: NextRequest) {
           totalCents: totalToday,
           salesCount: todaySales.length,
           passengers: paxToday,
+          salesByChannel: todayChannel,
         },
 
         balcao: {
@@ -1615,12 +1675,16 @@ export async function GET(req: NextRequest) {
           month,
           label: monthLabelPT(month),
           soldSalesCents: grossMonth,
+          soldVendaBalcaoCents: monthChannel.vendaBalcaoCents,
+          soldClienteFinalCents: monthChannel.clienteFinalCents,
+          soldOutrosOrigemCents: monthChannel.outrosOrigemCents,
           soldBalcaoCents: balcaoMonthAgg.customerChargeCents,
           soldTotalCents: selectedMonthConsolidatedSoldCents,
           profitSalesAfterTaxWithoutFeeCents:
             selectedMonthSalesProfitAfterTaxWithoutFeeCents,
           profitBalcaoAfterTaxCents: balcaoMonthAgg.netProfitCents,
           profitTotalAfterTaxCents: selectedMonthConsolidatedProfitAfterTaxCents,
+          salesByChannel: monthChannel,
         },
 
         // ✅ HOJE POR FUNCIONÁRIO (com aliases)
@@ -1663,6 +1727,7 @@ export async function GET(req: NextRequest) {
           totalCents: totalMonth,
           salesCount: monthSales.length,
           passengers: paxMonth,
+          salesByChannel: monthChannel,
           bestDayOfWeek: best,
         },
 

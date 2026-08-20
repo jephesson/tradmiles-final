@@ -31,7 +31,7 @@ function dateBR(iso: string) {
 
 function origemLabel(o: ClienteOrigem, desc?: string | null) {
   if (o === "BALCAO_MILHAS") return "Balcão de milhas";
-  if (o === "PARTICULAR") return "Particular";
+  if (o === "PARTICULAR") return "Cliente Final";
   if (o === "SITE") return "Site";
   return desc ? `Outros — ${desc}` : "Outros";
 }

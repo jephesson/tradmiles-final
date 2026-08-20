@@ -216,7 +216,7 @@ export default function NovoClienteClient() {
               onChange={(e) => setOrigem(e.target.value as ClienteOrigem)}
             >
               <option value="BALCAO_MILHAS">Balcão de milhas</option>
-              <option value="PARTICULAR">Particular</option>
+              <option value="PARTICULAR">Cliente Final</option>
               <option value="SITE">Site</option>
               <option value="OUTROS">Outros</option>
             </select>

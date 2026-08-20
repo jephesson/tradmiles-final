@@ -95,6 +95,104 @@ function sharePct(part: number, total: number) {
   return (part / total) * 100;
 }
 
+type SalesChannelSplit = {
+  vendaBalcaoCents?: number;
+  clienteFinalCents?: number;
+  outrosOrigemCents?: number;
+  salesCountVendaBalcao?: number;
+  salesCountClienteFinal?: number;
+  salesCountOutros?: number;
+  passengersVendaBalcao?: number;
+  passengersClienteFinal?: number;
+  passengersOutros?: number;
+};
+
+const LBL = {
+  vendaBalcao: "Venda no Balcão",
+  clienteFinal: "Cliente Final",
+  compraBalcao: "Particular (compra balcão)",
+  taxa: "Taxa de embarque",
+  outros: "Outras origens",
+  total: "Total",
+} as const;
+
+function splitMilhasProfit(totalProfit: number, channel: SalesChannelSplit | null | undefined) {
+  const venda = Number(channel?.vendaBalcaoCents || 0);
+  const final = Number(channel?.clienteFinalCents || 0);
+  const outros = Number(channel?.outrosOrigemCents || 0);
+  const base = venda + final + outros;
+  if (!base || !totalProfit) {
+    return { venda: 0, final: 0, outros: 0 };
+  }
+  return {
+    venda: Math.round((totalProfit * venda) / base),
+    final: Math.round((totalProfit * final) / base),
+    outros: Math.round((totalProfit * outros) / base),
+  };
+}
+
+function buildChannelBreakdownRows(args: {
+  channel: SalesChannelSplit | null | undefined;
+  feeCents: number;
+  compraBalcaoCents: number;
+  compraDetail: string;
+  extraTotalDetail?: string;
+}): BreakdownRow[] {
+  const venda = Number(args.channel?.vendaBalcaoCents || 0);
+  const final = Number(args.channel?.clienteFinalCents || 0);
+  const outros = Number(args.channel?.outrosOrigemCents || 0);
+  const compra = Number(args.compraBalcaoCents || 0);
+  const fee = Number(args.feeCents || 0);
+  const total = venda + final + outros + fee + compra;
+
+  const rows: BreakdownRow[] = [
+    {
+      label: LBL.vendaBalcao,
+      value: fmtMoneyBR(venda),
+      detail: `${fmtInt(args.channel?.salesCountVendaBalcao || 0)} vendas • ${fmtInt(args.channel?.passengersVendaBalcao || 0)} pax`,
+      pct: sharePct(venda, total),
+    },
+    {
+      label: LBL.clienteFinal,
+      value: fmtMoneyBR(final),
+      detail: `${fmtInt(args.channel?.salesCountClienteFinal || 0)} vendas • ${fmtInt(args.channel?.passengersClienteFinal || 0)} pax`,
+      pct: sharePct(final, total),
+    },
+  ];
+
+  if (outros > 0) {
+    rows.push({
+      label: LBL.outros,
+      value: fmtMoneyBR(outros),
+      detail: `${fmtInt(args.channel?.salesCountOutros || 0)} vendas • ${fmtInt(args.channel?.passengersOutros || 0)} pax`,
+      pct: sharePct(outros, total),
+    });
+  }
+
+  rows.push(
+    {
+      label: LBL.taxa,
+      value: fmtMoneyBR(fee),
+      pct: sharePct(fee, total),
+    },
+    {
+      label: LBL.compraBalcao,
+      value: fmtMoneyBR(compra),
+      detail: args.compraDetail,
+      pct: sharePct(compra, total),
+    },
+    {
+      label: LBL.total,
+      value: fmtMoneyBR(total),
+      detail: args.extraTotalDetail,
+      emphasis: true,
+      pct: total > 0 ? 100 : null,
+    }
+  );
+
+  return rows;
+}
+
 /** Alinhado ao analytics (UTC por chave YYYY-MM-DD). */
 const DOW_PT_SHORT = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
 
@@ -1256,7 +1354,7 @@ export default function AnaliseDadosClient() {
       const prev = idx > 0 ? filteredSalesDailyHistory[idx - 1] : null;
       const subParts = [
         `Milhas: ${fmtMoneyBR(row.salesCents)}`,
-        `Balcão: ${fmtMoneyBR(row.balcaoCents)}`,
+        `${LBL.compraBalcao}: ${fmtMoneyBR(row.balcaoCents)}`,
       ];
       if (prev && prev.grossCents > 0) {
         subParts.push(`vs ant: ${fmtPct((row.grossCents - prev.grossCents) / prev.grossCents)}`);
@@ -1857,70 +1955,41 @@ export default function AnaliseDadosClient() {
 
   const monthDisplay = monthKeyToDisplay(monthLabel);
 
-  const todayBreakdownRows = useMemo((): BreakdownRow[] => {
-    const particular = Number(today?.grossCents || 0);
-    const fee = Number(today?.feeCents || 0);
-    const balcao = Number(balcaoToday?.customerChargeCents || 0);
-    const total = particular + fee + balcao;
-    return [
-      {
-        label: "Particular (milhas)",
-        value: fmtMoneyBR(particular),
-        detail: `${fmtInt(today?.salesCount || 0)} vendas • ${fmtInt(today?.passengers || 0)} pax`,
-        pct: sharePct(particular, total),
-      },
-      {
-        label: "Taxa de embarque",
-        value: fmtMoneyBR(fee),
-        pct: sharePct(fee, total),
-      },
-      {
-        label: "Balcão",
-        value: fmtMoneyBR(balcao),
-        detail: `${fmtInt(balcaoToday?.operationsCount || 0)} ops • lucro ${fmtMoneyBR(balcaoToday?.netProfitCents || 0)}`,
-        pct: sharePct(balcao, total),
-      },
-      {
-        label: "Total",
-        value: fmtMoneyBR(total),
-        emphasis: true,
-        pct: total > 0 ? 100 : null,
-      },
-    ];
-  }, [today, balcaoToday]);
+  const todayBreakdownRows = useMemo(
+    (): BreakdownRow[] =>
+      buildChannelBreakdownRows({
+        channel: (today as any)?.salesByChannel,
+        feeCents: Number(today?.feeCents || 0),
+        compraBalcaoCents: Number(balcaoToday?.customerChargeCents || 0),
+        compraDetail: `${fmtInt(balcaoToday?.operationsCount || 0)} ops • lucro ${fmtMoneyBR(balcaoToday?.netProfitCents || 0)}`,
+      }),
+    [today, balcaoToday]
+  );
 
   const monthBreakdownRows = useMemo((): BreakdownRow[] => {
-    const particular = Number(consolidated?.soldSalesCents || kpis?.gross || 0);
-    const fee = Number(data?.summary?.feeCents || 0);
-    const balcao = Number(consolidated?.soldBalcaoCents || 0);
-    const total = particular + fee + balcao;
-    return [
-      {
-        label: "Particular (milhas)",
-        value: fmtMoneyBR(particular),
-        detail: `${fmtInt(kpis?.count || 0)} vendas • ${fmtInt(kpis?.pax || 0)} pax • LATAM ${fmtMoneyBR(kpis?.latam || 0)} / Smiles ${fmtMoneyBR(kpis?.smiles || 0)}`,
-        pct: sharePct(particular, total),
-      },
-      {
-        label: "Taxa de embarque",
-        value: fmtMoneyBR(fee),
-        pct: sharePct(fee, total),
-      },
-      {
-        label: "Balcão",
-        value: fmtMoneyBR(balcao),
-        detail: `${fmtInt(balcaoMonth?.operationsCount || 0)} ops • ${fmtInt(balcaoMonth?.points || 0)} pts • lucro ${fmtMoneyBR(balcaoMonth?.netProfitCents || 0)}`,
-        pct: sharePct(balcao, total),
-      },
-      {
-        label: "Total",
-        value: fmtMoneyBR(total),
-        detail: `Clubes: LATAM ${fmtInt(kpis?.clubsLatam || 0)} | Smiles ${fmtInt(kpis?.clubsSmiles || 0)}`,
-        emphasis: true,
-        pct: total > 0 ? 100 : null,
-      },
-    ];
+    const channel =
+      (consolidated as any)?.salesByChannel || (data?.summary as any)?.salesByChannel || null;
+    return buildChannelBreakdownRows({
+      channel,
+      feeCents: Number(data?.summary?.feeCents || 0),
+      compraBalcaoCents: Number(consolidated?.soldBalcaoCents || 0),
+      compraDetail: `${fmtInt(balcaoMonth?.operationsCount || 0)} ops • ${fmtInt(balcaoMonth?.points || 0)} pts • lucro ${fmtMoneyBR(balcaoMonth?.netProfitCents || 0)}`,
+      extraTotalDetail: `LATAM ${fmtMoneyBR(kpis?.latam || 0)} / Smiles ${fmtMoneyBR(kpis?.smiles || 0)} • Clubes: LATAM ${fmtInt(kpis?.clubsLatam || 0)} | Smiles ${fmtInt(kpis?.clubsSmiles || 0)}`,
+    });
   }, [consolidated, kpis, data, balcaoMonth]);
+
+  const monthChannel = useMemo(
+    () =>
+      ((consolidated as any)?.salesByChannel ||
+        (data?.summary as any)?.salesByChannel ||
+        null) as SalesChannelSplit | null,
+    [consolidated, data]
+  );
+
+  const monthProfitSplit = useMemo(
+    () => splitMilhasProfit(Number(consolidated?.profitSalesAfterTaxWithoutFeeCents || 0), monthChannel),
+    [consolidated, monthChannel]
+  );
 
   const purchaseBreakdownRows = useMemo((): BreakdownRow[] => {
     const latam = Number(selectedPurchaseMonth?.latam || 0);
@@ -2098,7 +2167,7 @@ export default function AnaliseDadosClient() {
       {/* HOJE */}
       <BreakdownPanel
         title={`Resumo de hoje · ${today?.date ? dayKeyToDisplay(today.date) : "—"}`}
-        subtitle="Particular = vendas de milhas fora do balcão. Taxa de embarque separada do total."
+        subtitle="Venda no Balcão = clientes do balcão. Cliente Final = estoque próprio. Compra balcão = pontos comprados no balcão para revenda."
         rows={todayBreakdownRows}
       />
 
@@ -2128,7 +2197,7 @@ export default function AnaliseDadosClient() {
       {/* MÊS FOCO */}
       <BreakdownPanel
         title={`Vendas do mês · ${monthDisplay}`}
-        subtitle="Particular, taxa de embarque e balcão com participação percentual."
+        subtitle="Participação de cada canal no total do mês (com taxa de embarque separada)."
         rows={monthBreakdownRows}
       />
 
@@ -2167,88 +2236,99 @@ export default function AnaliseDadosClient() {
           </div>
         </div>
         <div className="overflow-x-auto rounded-xl border border-slate-100">
-          <table className="w-full min-w-[720px] text-sm">
+          <table className="w-full min-w-[880px] text-sm">
             <thead className="border-b border-slate-200 bg-slate-50/90">
               <tr className="text-left text-[11px] font-semibold uppercase tracking-wide text-slate-500">
                 <th className="px-3 py-2.5">Indicador</th>
-                <th className="px-3 py-2.5 text-right">Particular</th>
-                <th className="px-3 py-2.5 text-right">Balcão</th>
+                <th className="px-3 py-2.5 text-right">{LBL.vendaBalcao}</th>
+                <th className="px-3 py-2.5 text-right">{LBL.clienteFinal}</th>
+                <th className="px-3 py-2.5 text-right">{LBL.compraBalcao}</th>
                 <th className="px-3 py-2.5 text-right">Total</th>
               </tr>
             </thead>
             <tbody className="text-slate-800">
-              <tr className="border-b border-slate-100">
-                <td className="px-3 py-2.5">Vendido (sem taxa)</td>
-                <td className="px-3 py-2.5 text-right tabular-nums">{fmtMoneyBR(consolidated?.soldSalesCents || 0)}</td>
-                <td className="px-3 py-2.5 text-right tabular-nums">{fmtMoneyBR(consolidated?.soldBalcaoCents || 0)}</td>
-                <td className="px-3 py-2.5 text-right font-semibold tabular-nums">
-                  {fmtMoneyBR((consolidated?.soldSalesCents || 0) + (consolidated?.soldBalcaoCents || 0))}
-                </td>
-              </tr>
-              <tr className="border-b border-slate-100">
-                <td className="px-3 py-2.5">Taxa de embarque</td>
-                <td className="px-3 py-2.5 text-right tabular-nums">{fmtMoneyBR(data?.summary?.feeCents || 0)}</td>
-                <td className="px-3 py-2.5 text-right tabular-nums">—</td>
-                <td className="px-3 py-2.5 text-right tabular-nums">{fmtMoneyBR(data?.summary?.feeCents || 0)}</td>
-              </tr>
-              <tr className="border-b border-slate-100 bg-slate-50/70 font-semibold">
-                <td className="px-3 py-2.5">Vendido (com taxa)</td>
-                <td className="px-3 py-2.5 text-right tabular-nums">
-                  {fmtMoneyBR((consolidated?.soldSalesCents || 0) + (data?.summary?.feeCents || 0))}
-                </td>
-                <td className="px-3 py-2.5 text-right tabular-nums">{fmtMoneyBR(consolidated?.soldBalcaoCents || 0)}</td>
-                <td className="px-3 py-2.5 text-right tabular-nums">
-                  {fmtMoneyBR(
-                    (consolidated?.soldSalesCents || 0) +
-                      (data?.summary?.feeCents || 0) +
-                      (consolidated?.soldBalcaoCents || 0)
-                  )}
-                </td>
-              </tr>
-              <tr className="border-b border-slate-100">
-                <td className="px-3 py-2.5">Lucro líquido</td>
-                <td className="px-3 py-2.5 text-right tabular-nums">
-                  {fmtMoneyBR(consolidated?.profitSalesAfterTaxWithoutFeeCents || 0)}
-                </td>
-                <td className="px-3 py-2.5 text-right tabular-nums">
-                  {fmtMoneyBR(consolidated?.profitBalcaoAfterTaxCents || 0)}
-                </td>
-                <td className="px-3 py-2.5 text-right font-semibold tabular-nums text-emerald-800">
-                  {fmtMoneyBR(consolidated?.profitTotalAfterTaxCents || 0)}
-                </td>
-              </tr>
-              <tr className="border-b border-slate-100">
-                <td className="px-3 py-2.5">Margem sobre vendido</td>
-                <td className="px-3 py-2.5 text-right tabular-nums">
-                  {consolidated?.soldSalesCents
-                    ? fmtPctRaw(
-                        ((consolidated?.profitSalesAfterTaxWithoutFeeCents || 0) / consolidated.soldSalesCents) * 100
-                      )
-                    : "—"}
-                </td>
-                <td className="px-3 py-2.5 text-right tabular-nums">
-                  {consolidated?.soldBalcaoCents
-                    ? fmtPctRaw(
-                        ((consolidated?.profitBalcaoAfterTaxCents || 0) / consolidated.soldBalcaoCents) * 100
-                      )
-                    : "—"}
-                </td>
-                <td className="px-3 py-2.5 text-right tabular-nums">
-                  {currentMonthPerformance?.salesOverProfitPercent != null
-                    ? fmtPctRaw(currentMonthPerformance.salesOverProfitPercent)
-                    : "—"}
-                </td>
-              </tr>
-              <tr className="border-b border-slate-100">
-                <td className="px-3 py-2.5">Prejuízo debitado (milhas)</td>
-                <td className="px-3 py-2.5 text-right tabular-nums text-rose-700">
-                  {fmtMoneyBR(currentMonthPerformance?.lossCents || currentVsPrevious?.currentLossCents || 0)}
-                </td>
-                <td className="px-3 py-2.5 text-right tabular-nums">—</td>
-                <td className="px-3 py-2.5 text-right tabular-nums text-rose-700">
-                  {fmtMoneyBR(currentMonthPerformance?.lossCents || currentVsPrevious?.currentLossCents || 0)}
-                </td>
-              </tr>
+              {(() => {
+                const soldVenda = Number(consolidated?.soldVendaBalcaoCents || monthChannel?.vendaBalcaoCents || 0);
+                const soldFinal = Number(consolidated?.soldClienteFinalCents || monthChannel?.clienteFinalCents || 0);
+                const soldOutros = Number(consolidated?.soldOutrosOrigemCents || monthChannel?.outrosOrigemCents || 0);
+                const soldCompra = Number(consolidated?.soldBalcaoCents || 0);
+                const fee = Number(data?.summary?.feeCents || 0);
+                const milhasSold = soldVenda + soldFinal + soldOutros;
+                const profitCompra = Number(consolidated?.profitBalcaoAfterTaxCents || 0);
+                const loss = Number(currentMonthPerformance?.lossCents || currentVsPrevious?.currentLossCents || 0);
+
+                return (
+                  <>
+                    <tr className="border-b border-slate-100">
+                      <td className="px-3 py-2.5">Vendido (sem taxa)</td>
+                      <td className="px-3 py-2.5 text-right tabular-nums">{fmtMoneyBR(soldVenda)}</td>
+                      <td className="px-3 py-2.5 text-right tabular-nums">{fmtMoneyBR(soldFinal)}</td>
+                      <td className="px-3 py-2.5 text-right tabular-nums">{fmtMoneyBR(soldCompra)}</td>
+                      <td className="px-3 py-2.5 text-right font-semibold tabular-nums">
+                        {fmtMoneyBR(milhasSold + soldCompra)}
+                      </td>
+                    </tr>
+                    {soldOutros > 0 ? (
+                      <tr className="border-b border-slate-100 text-xs text-slate-600">
+                        <td className="px-3 py-2.5 pl-6">{LBL.outros} (incluído no total de milhas)</td>
+                        <td className="px-3 py-2.5 text-right tabular-nums" colSpan={3}>
+                          {fmtMoneyBR(soldOutros)}
+                        </td>
+                        <td className="px-3 py-2.5 text-right tabular-nums">{fmtMoneyBR(soldOutros)}</td>
+                      </tr>
+                    ) : null}
+                    <tr className="border-b border-slate-100">
+                      <td className="px-3 py-2.5">{LBL.taxa}</td>
+                      <td className="px-3 py-2.5 text-right tabular-nums" colSpan={3}>
+                        {fmtMoneyBR(fee)}
+                      </td>
+                      <td className="px-3 py-2.5 text-right tabular-nums">{fmtMoneyBR(fee)}</td>
+                    </tr>
+                    <tr className="border-b border-slate-100 bg-slate-50/70 font-semibold">
+                      <td className="px-3 py-2.5">Vendido (com taxa)</td>
+                      <td className="px-3 py-2.5 text-right tabular-nums">{fmtMoneyBR(soldVenda)}</td>
+                      <td className="px-3 py-2.5 text-right tabular-nums">{fmtMoneyBR(soldFinal)}</td>
+                      <td className="px-3 py-2.5 text-right tabular-nums">{fmtMoneyBR(soldCompra)}</td>
+                      <td className="px-3 py-2.5 text-right tabular-nums">
+                        {fmtMoneyBR(milhasSold + fee + soldCompra)}
+                      </td>
+                    </tr>
+                    <tr className="border-b border-slate-100">
+                      <td className="px-3 py-2.5">Lucro líquido</td>
+                      <td className="px-3 py-2.5 text-right tabular-nums">{fmtMoneyBR(monthProfitSplit.venda)}</td>
+                      <td className="px-3 py-2.5 text-right tabular-nums">{fmtMoneyBR(monthProfitSplit.final)}</td>
+                      <td className="px-3 py-2.5 text-right tabular-nums">{fmtMoneyBR(profitCompra)}</td>
+                      <td className="px-3 py-2.5 text-right font-semibold tabular-nums text-emerald-800">
+                        {fmtMoneyBR(consolidated?.profitTotalAfterTaxCents || 0)}
+                      </td>
+                    </tr>
+                    <tr className="border-b border-slate-100">
+                      <td className="px-3 py-2.5">Margem sobre vendido</td>
+                      <td className="px-3 py-2.5 text-right tabular-nums">
+                        {soldVenda ? fmtPctRaw((monthProfitSplit.venda / soldVenda) * 100) : "—"}
+                      </td>
+                      <td className="px-3 py-2.5 text-right tabular-nums">
+                        {soldFinal ? fmtPctRaw((monthProfitSplit.final / soldFinal) * 100) : "—"}
+                      </td>
+                      <td className="px-3 py-2.5 text-right tabular-nums">
+                        {soldCompra ? fmtPctRaw((profitCompra / soldCompra) * 100) : "—"}
+                      </td>
+                      <td className="px-3 py-2.5 text-right tabular-nums">
+                        {currentMonthPerformance?.salesOverProfitPercent != null
+                          ? fmtPctRaw(currentMonthPerformance.salesOverProfitPercent)
+                          : "—"}
+                      </td>
+                    </tr>
+                    <tr className="border-b border-slate-100">
+                      <td className="px-3 py-2.5">Prejuízo debitado (milhas)</td>
+                      <td className="px-3 py-2.5 text-right tabular-nums text-rose-700" colSpan={3}>
+                        {fmtMoneyBR(loss)}
+                      </td>
+                      <td className="px-3 py-2.5 text-right tabular-nums text-rose-700">{fmtMoneyBR(loss)}</td>
+                    </tr>
+                  </>
+                );
+              })()}
               <tr className="bg-indigo-50/60 font-semibold text-indigo-950">
                 <td className="px-3 py-2.5">
                   Comparação · {monthKeyToDisplay(currentVsPrevious?.previousMonth)} → {monthDisplay}
@@ -2273,34 +2353,34 @@ export default function AnaliseDadosClient() {
         </div>
         {balcaoMonth ? (
           <div className="mt-3 text-xs text-slate-500">
-            Balcão: lucro bruto {fmtMoneyBR(balcaoMonth.profitCents || 0)} • imposto{" "}
+            {LBL.compraBalcao}: lucro bruto {fmtMoneyBR(balcaoMonth.profitCents || 0)} • imposto{" "}
             {fmtMoneyBR(balcaoMonth.taxCents || 0)}
           </div>
         ) : null}
       </div>
 
       <SimpleLineChart
-        title="Timeline de lucro mensal total (milhas + balcão)"
+        title="Timeline de lucro mensal (todos os canais)"
         data={profitTimeline.map((m) => ({
           x: m.x,
           y: m.y,
           sub:
             m.profitPercent == null
-              ? `Milhas: ${fmtMoneyBR(m.profitSalesCents)} • Balcão: ${fmtMoneyBR(
+              ? `${LBL.vendaBalcao} + ${LBL.clienteFinal}: ${fmtMoneyBR(m.profitSalesCents)} • ${LBL.compraBalcao}: ${fmtMoneyBR(
                   m.profitBalcaoCents
                 )} • prejuízo (milhas): ${fmtMoneyBR(m.lossCents)}`
-              : `Margem total: ${fmtPctRaw(m.profitPercent)} • Milhas: ${fmtMoneyBR(
+              : `Margem total: ${fmtPctRaw(m.profitPercent)} • ${LBL.vendaBalcao} + ${LBL.clienteFinal}: ${fmtMoneyBR(
                   m.profitSalesCents
-                )} • Balcão: ${fmtMoneyBR(m.profitBalcaoCents)} • prejuízo (milhas): ${fmtMoneyBR(m.lossCents)}`,
+                )} • ${LBL.compraBalcao}: ${fmtMoneyBR(m.profitBalcaoCents)} • prejuízo (milhas): ${fmtMoneyBR(m.lossCents)}`,
         }))}
         accent="text-emerald-700"
         valueLabel="Lucro do mês"
-        footer="Linha mensal de lucro total (milhas + balcão), após impostos e já abatendo prejuízos do mês nas milhas."
+        footer="Lucro total consolidado por mês, após impostos e com prejuízo debitado nas milhas."
       />
 
       {/* Gráfico evolução */}
       <SimpleLineChart
-        title={chartMode === "DAY" ? "Evolução diária (milhas + balcão)" : "Evolução mês a mês (milhas + balcão)"}
+        title={chartMode === "DAY" ? "Evolução diária (todos os canais)" : "Evolução mês a mês (todos os canais)"}
         data={chartWithDelta}
         extraLine={extraLine}
         trendLine={trendLine}
@@ -2367,13 +2447,13 @@ export default function AnaliseDadosClient() {
                 chartTrend
                   ? ` • Tendência: média dos primeiros ${chartTrend.segmentSize} vs últimos ${chartTrend.segmentSize} dias`
                   : ""
-              }${maWindow ? ` • Linha cinza = média móvel ${maWindow}d` : ""} • Linha pontilhada = tendência • Valores consolidados de milhas + balcão`
-            : `Média mensal no período (milhas + balcão): ${fmtMoneyBR(avgMonthlyTotalCents)}`
+              }${maWindow ? ` • Linha cinza = média móvel ${maWindow}d` : ""} • Linha pontilhada = tendência • Venda no Balcão + Cliente Final + compra balcão`
+            : `Média mensal no período (todos os canais): ${fmtMoneyBR(avgMonthlyTotalCents)}`
         }
       />
 
       <SimpleLineChart
-        title="Venda por dia (milhas + balcão)"
+        title="Venda por dia (todos os canais)"
         data={salesDailyHistoryChart}
         trendLine={salesDailyHistoryTrendLine}
         summary={
@@ -2452,7 +2532,7 @@ export default function AnaliseDadosClient() {
           salesDailyHistoryRange === "ALL"
             ? "todo o histórico compilado"
             : `últimos ${salesDailyRangeLabel(salesDailyHistoryRange).toLowerCase()}`
-        } • Linha pontilhada = tendência • Valores consolidados de milhas + balcão.`}
+        } • Linha pontilhada = tendência • Venda no Balcão + Cliente Final + compra balcão.`}
       />
 
       <div className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm shadow-slate-200/40">
@@ -2460,7 +2540,7 @@ export default function AnaliseDadosClient() {
           Comparativo mensal (dezenas) e dia da semana
         </div>
         <p className="mt-1.5 text-xs leading-relaxed text-slate-600">
-          Soma diária <strong>milhas + balcão</strong> agrupada em <strong>dias 1–10</strong>, <strong>11–20</strong> e{" "}
+          Soma diária <strong>Venda no Balcão + Cliente Final + compra balcão</strong> agrupada em <strong>dias 1–10</strong>, <strong>11–20</strong> e{" "}
           <strong>21 ao fim do mês</strong>. A partir de <strong>janeiro do ano corrente</strong> mostramos as dezenas e o
           melhor dia da semana; nos meses anteriores, apenas o total consolidado na série diária.
         </p>
@@ -2536,7 +2616,7 @@ export default function AnaliseDadosClient() {
               {monthlyDecileWeekday.detailDayStart
                 ? dayLabelLongPT(monthlyDecileWeekday.detailDayStart)
                 : "—"}{" "}
-              na série diária (milhas + balcão). O maior total indica o dia da semana que mais concentrou vendas no
+              na série diária consolidada. O maior total indica o dia da semana que mais concentrou vendas no
               período.
             </div>
             <div className="mt-3 text-2xl font-bold tabular-nums text-indigo-950">
@@ -2693,12 +2773,12 @@ export default function AnaliseDadosClient() {
         }
       />
 
-      {/* Emissões de balcão (mês foco) */}
+      {/* Particular (compra balcão) */}
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
         <div className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm shadow-slate-200/40">
           <div className="mb-4 flex items-center justify-between border-b border-slate-100 pb-3">
             <div className="text-sm font-semibold tracking-tight text-slate-900">
-              Emissões de balcão por cia · {monthDisplay}
+              {LBL.compraBalcao} por cia · {monthDisplay}
             </div>
           </div>
           <div className="overflow-x-auto rounded-xl border border-slate-100">
@@ -2725,7 +2805,7 @@ export default function AnaliseDadosClient() {
                 {!balcaoByAirline.length ? (
                   <tr>
                     <td className="py-4 text-sm text-neutral-500" colSpan={5}>
-                      Sem emissões de balcão no mês foco.
+                      Sem operações de {LBL.compraBalcao.toLowerCase()} no mês foco.
                     </td>
                   </tr>
                 ) : null}
@@ -2737,7 +2817,7 @@ export default function AnaliseDadosClient() {
         <div className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm shadow-slate-200/40">
           <div className="mb-4 flex items-center justify-between border-b border-slate-100 pb-3">
             <div className="text-sm font-semibold tracking-tight text-slate-900">
-              Emissões de balcão por funcionário · {monthDisplay}
+              {LBL.compraBalcao} por funcionário · {monthDisplay}
             </div>
           </div>
           <div className="overflow-x-auto rounded-xl border border-slate-100">
@@ -2767,7 +2847,7 @@ export default function AnaliseDadosClient() {
                 {!balcaoByEmployee.length ? (
                   <tr>
                     <td className="py-4 text-sm text-neutral-500" colSpan={5}>
-                      Sem emissões de balcão no mês foco.
+                      Sem operações de {LBL.compraBalcao.toLowerCase()} no mês foco.
                     </td>
                   </tr>
                 ) : null}
