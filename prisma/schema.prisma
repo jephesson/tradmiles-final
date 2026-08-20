@@ -1579,6 +1579,16 @@ model Sale {
   paymentStatus SalePaymentStatus @default(PENDING)
   paidAt        DateTime?
 
+  /** Cancelamento de localizador: multa CPF (não entra no lucro da venda). */
+  canceledAt              DateTime?
+  cancelKeepPassengers    Boolean  @default(true)
+  cancelFineCents         Int      @default(0)
+  cancelFinePerPaxCents   Int      @default(0)
+  cancelFinePaxCount      Int      @default(0)
+  cancelRefundCents       Int      @default(0)
+  cancelFineDividaId      String?
+  cancelRefundDebtId      String?
+
   cedenteId String
   cedente   Cedente @relation(fields: [cedenteId], references: [id], onDelete: Restrict)
 

@@ -2,9 +2,24 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { FilterX, MessageSquareText, Plus, RefreshCw, Search, ShoppingBag, CircleCheck, Ban } from "lucide-react";
+import {
+  FilterX,
+  MessageSquareText,
+  Plus,
+  RefreshCw,
+  Search,
+  ShoppingBag,
+  CircleCheck,
+  Ban,
+  Undo2,
+} from "lucide-react";
 import { cn } from "@/lib/cn";
 import { buildClientChargeMessageFromSale } from "@/lib/vendas/buildClientChargeMessage";
+import {
+  cancelFinePaxCount,
+  computeCancelFineTotalCents,
+  defaultCancelFinePerPaxCents,
+} from "@/lib/vendas/cancelFine";
 
 const ACTION_BTN =
   "inline-flex h-8 w-full items-center justify-center gap-1.5 rounded-lg px-2 text-[12px] font-semibold tracking-tight transition disabled:pointer-events-none disabled:opacity-50";
@@ -16,6 +31,8 @@ const ACTION_BTN_UNPAY =
   "border border-amber-200 bg-amber-50 text-amber-950 shadow-sm shadow-amber-100/60 hover:border-amber-300 hover:bg-amber-100";
 const ACTION_BTN_CANCEL =
   "border border-rose-200/90 bg-white text-rose-700 shadow-sm hover:border-rose-300 hover:bg-rose-50";
+const ACTION_BTN_REVERT =
+  "border border-violet-200/90 bg-violet-50 text-violet-900 shadow-sm hover:border-violet-300 hover:bg-violet-100";
 const ACTION_STACK = "flex w-[108px] flex-col gap-1";
 function fmtMoneyBR(cents: number) {
   return ((cents || 0) / 100).toLocaleString("pt-BR", {
@@ -354,11 +371,30 @@ export default function VendasClient() {
   const [chargeMsg, setChargeMsg] = useState("");
   const [chargeMsgTitle, setChargeMsgTitle] = useState("");
 
+  // Cancelar localizador + multa CPF
+  const [cancelTarget, setCancelTarget] = useState<SaleRow | null>(null);
+  const [cancelChargeFine, setCancelChargeFine] = useState(true);
+  const [cancelFinePerPaxStr, setCancelFinePerPaxStr] = useState("");
+  const [cancelSubmitting, setCancelSubmitting] = useState(false);
+
   function openChargeMessage(r: SaleRow) {
     const msg = buildClientChargeMessageFromSale(r);
     setChargeMsg(msg);
     setChargeMsgTitle(`${r.cliente.nome} · ${r.locator || r.numero}`);
     setChargeMsgOpen(true);
+  }
+
+  function openCancelModal(r: SaleRow) {
+    if (r.paymentStatus === "CANCELED") return;
+    const def = defaultCancelFinePerPaxCents(r.program);
+    setCancelTarget(r);
+    setCancelChargeFine(def > 0);
+    setCancelFinePerPaxStr(def > 0 ? moneyInputBR(def) : "");
+  }
+
+  function closeCancelModal() {
+    if (cancelSubmitting) return;
+    setCancelTarget(null);
   }
 
   async function copyChargeMessage() {
@@ -809,29 +845,65 @@ export default function VendasClient() {
   }
 
   /**
-   * ✅ Cancelar venda:
-   * - sempre estorna pontos
-   * - pergunta se mantém passageiros "queimados" (padrão) ou reseta (erro de cadastro)
+   * Cancelar localizador:
+   * - estorna pontos, CPF permanece queimado
+   * - opcional: multa por passageiro (sem bebê)
+   * - pago → reembolso = total − multa; pendente → dívida a receber só da multa
    */
-  async function cancelSale(r: SaleRow) {
-    if (updatingId) return;
+  async function confirmCancelSale() {
+    const r = cancelTarget;
+    if (!r || cancelSubmitting || updatingId) return;
     if (r.paymentStatus === "CANCELED") return;
 
-    const ok1 = confirm(
-      `Cancelar a venda ${r.numero}?\n\n• Os pontos serão estornados para o cedente.\n• O recebível (se existir) será cancelado.`
-    );
-    if (!ok1) return;
+    const pax = cancelFinePaxCount(r.passengers);
+    const finePerPaxCents = cancelChargeFine ? moneyToCentsBR(cancelFinePerPaxStr) : 0;
+    const fineCents = cancelChargeFine
+      ? computeCancelFineTotalCents({ perPaxCents: finePerPaxCents, passengers: pax })
+      : 0;
 
-    // ✅ padrão: manter passageiros usados (CPF queimado)
-    const keepPassengers = confirm(
-      "Manter o uso dos passageiros?\n\n✅ OK = MANTER (padrão). A cota NÃO volta (CPF queimado).\n❌ Cancelar = RESETAR. Use só se foi erro de cadastro e quer devolver a cota."
-    );
+    if (cancelChargeFine && fineCents <= 0) {
+      alert("Informe o valor da multa por passageiro.");
+      return;
+    }
 
+    const wasPaid = r.paymentStatus === "PAID";
+    const refundCents = wasPaid ? Math.max(0, (r.totalCents || 0) - fineCents) : 0;
+
+    const lines = [
+      `Confirmar cancelamento de ${r.numero}?`,
+      "",
+      "• Pontos voltam ao cedente.",
+      "• CPF permanece usado (não regenera).",
+    ];
+    if (cancelChargeFine) {
+      lines.push(
+        `• Multa CPF: ${fmtMoneyBR(finePerPaxCents)} × ${fmtInt(pax)} = ${fmtMoneyBR(fineCents)} (não entra no lucro da venda).`
+      );
+      if (wasPaid) {
+        lines.push(`• Reembolso: ${fmtMoneyBR(refundCents)} (total − multa).`);
+      } else {
+        lines.push("• Cria item pendente só da multa (sem vínculo com compra).");
+      }
+    } else if (wasPaid) {
+      lines.push(`• Reembolso integral: ${fmtMoneyBR(r.totalCents)}.`);
+    }
+
+    if (!confirm(lines.join("\n"))) return;
+
+    setCancelSubmitting(true);
     setUpdatingId(r.id);
     try {
-      await api<{ ok: true }>("/api/vendas/cancelar", {
+      const out = await api<{
+        ok: true;
+        fineCents?: number;
+        refundCents?: number;
+      }>("/api/vendas/cancelar", {
         method: "POST",
-        body: JSON.stringify({ saleId: r.id, keepPassengers }),
+        body: JSON.stringify({
+          saleId: r.id,
+          chargeFine: cancelChargeFine,
+          finePerPaxCents: cancelChargeFine ? finePerPaxCents : 0,
+        }),
       });
 
       setRows((prev) =>
@@ -852,8 +924,50 @@ export default function VendasClient() {
             : x
         )
       );
+
+      setCancelTarget(null);
+      if (detailsId === r.id) setDetailsId(null);
+
+      const fine = Math.max(0, out.fineCents || 0);
+      const refund = Math.max(0, out.refundCents || 0);
+      if (fine > 0 && wasPaid) {
+        alert(
+          `Cancelada.\nMulta CPF: ${fmtMoneyBR(fine)}\nReembolso a pagar: ${fmtMoneyBR(refund)}`
+        );
+      } else if (fine > 0) {
+        alert(`Cancelada.\nMulta CPF pendente: ${fmtMoneyBR(fine)}`);
+      } else if (wasPaid && refund > 0) {
+        alert(`Cancelada.\nReembolso a pagar: ${fmtMoneyBR(refund)}`);
+      }
     } catch (error: unknown) {
       alert(errorMessage(error, "Falha ao cancelar venda."));
+    } finally {
+      setCancelSubmitting(false);
+      setUpdatingId(null);
+    }
+  }
+
+  /** Erro de cadastro: exclui, devolve pontos e regenera CPF. */
+  async function revertSale(r: SaleRow) {
+    if (updatingId) return;
+
+    const ok1 = confirm(
+      `Reverter ${r.numero} (erro de cadastro)?\n\n• Exclui a venda da lista.\n• Devolve os pontos ao cedente.\n• Regenera o CPF/PAX.\n• Remove multa/reembolso do cancelamento, se houver.`
+    );
+    if (!ok1) return;
+
+    setUpdatingId(r.id);
+    try {
+      await api<{ ok: true }>("/api/vendas/reverter", {
+        method: "POST",
+        body: JSON.stringify({ saleId: r.id }),
+      });
+
+      setRows((prev) => prev.filter((x) => x.id !== r.id));
+      if (detailsId === r.id) setDetailsId(null);
+      if (cancelTarget?.id === r.id) setCancelTarget(null);
+    } catch (error: unknown) {
+      alert(errorMessage(error, "Falha ao reverter venda."));
     } finally {
       setUpdatingId(null);
     }
@@ -1177,16 +1291,38 @@ export default function VendasClient() {
 
                             <button
                               type="button"
-                              onClick={() => cancelSale(r)}
+                              onClick={() => openCancelModal(r)}
                               disabled={isBusy}
                               className={cn(ACTION_BTN, ACTION_BTN_CANCEL)}
-                              title="Cancelar venda (estorna pontos e opcionalmente reseta passageiros)"
+                              title="Cancelar localizador (estorna pontos; CPF permanece usado)"
                             >
                               <Ban className="h-3.5 w-3.5 shrink-0 opacity-90" strokeWidth={2} aria-hidden />
                               Cancelar
                             </button>
+
+                            <button
+                              type="button"
+                              onClick={() => revertSale(r)}
+                              disabled={isBusy}
+                              className={cn(ACTION_BTN, ACTION_BTN_REVERT)}
+                              title="Reverter erro de cadastro (exclui, devolve pontos e regenera CPF)"
+                            >
+                              <Undo2 className="h-3.5 w-3.5 shrink-0 opacity-90" strokeWidth={2} aria-hidden />
+                              Reverter
+                            </button>
                           </>
-                        ) : null}
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => revertSale(r)}
+                            disabled={isBusy}
+                            className={cn(ACTION_BTN, ACTION_BTN_REVERT)}
+                            title="Exclui a venda cancelada e regenera CPF"
+                          >
+                            <Undo2 className="h-3.5 w-3.5 shrink-0 opacity-90" strokeWidth={2} aria-hidden />
+                            Reverter
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -1748,16 +1884,32 @@ export default function VendasClient() {
                     </button>
 
                     <button
-                      onClick={() => cancelSale(details)}
+                      onClick={() => openCancelModal(details)}
                       disabled={updatingId === details.id}
                       className={cn(ACTION_BTN, ACTION_BTN_CANCEL, "h-10 px-4 text-sm")}
                     >
                       <Ban className="h-4 w-4 shrink-0 opacity-90" strokeWidth={2} aria-hidden />
                       Cancelar venda
                     </button>
+
+                    <button
+                      onClick={() => revertSale(details)}
+                      disabled={updatingId === details.id}
+                      className={cn(ACTION_BTN, ACTION_BTN_REVERT, "h-10 px-4 text-sm")}
+                    >
+                      <Undo2 className="h-4 w-4 shrink-0 opacity-90" strokeWidth={2} aria-hidden />
+                      Reverter (erro)
+                    </button>
                   </>
                 ) : (
-                  <div className="text-base text-slate-500">Venda cancelada.</div>
+                  <button
+                    onClick={() => revertSale(details)}
+                    disabled={updatingId === details.id}
+                    className={cn(ACTION_BTN, ACTION_BTN_REVERT, "h-10 px-4 text-sm")}
+                  >
+                    <Undo2 className="h-4 w-4 shrink-0 opacity-90" strokeWidth={2} aria-hidden />
+                    Reverter / excluir
+                  </button>
                 )}
               </div>
 
@@ -1821,6 +1973,141 @@ export default function VendasClient() {
                 Copiar mensagem
               </button>
             </div>
+          </div>
+        </div>
+      ) : null}
+
+      {cancelTarget ? (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/45 p-4 backdrop-blur-[2px]"
+          onMouseDown={closeCancelModal}
+        >
+          <div
+            className="w-full max-w-lg rounded-2xl border border-slate-200/90 bg-white p-5 shadow-2xl shadow-slate-900/20 sm:p-6"
+            onMouseDown={(e) => e.stopPropagation()}
+          >
+            {(() => {
+              const r = cancelTarget;
+              const pax = cancelFinePaxCount(r.passengers);
+              const perPax = cancelChargeFine ? moneyToCentsBR(cancelFinePerPaxStr) : 0;
+              const fineTotal = cancelChargeFine
+                ? computeCancelFineTotalCents({ perPaxCents: perPax, passengers: pax })
+                : 0;
+              const wasPaid = r.paymentStatus === "PAID";
+              const refund = wasPaid ? Math.max(0, (r.totalCents || 0) - fineTotal) : 0;
+
+              return (
+                <>
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <div className="text-lg font-bold tracking-tight text-slate-900">
+                        Cancelar localizador
+                      </div>
+                      <div className="mt-1 text-xs text-slate-500">
+                        {r.numero}
+                        {r.locator ? ` · ${r.locator}` : ""} · {r.cliente.nome}
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={closeCancelModal}
+                      disabled={cancelSubmitting}
+                      className="rounded-xl border border-slate-200 bg-white px-2.5 py-1 text-sm text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+                    >
+                      ✕
+                    </button>
+                  </div>
+
+                  <div className="mt-4 space-y-3 text-sm text-slate-700">
+                    <p>
+                      Pontos voltam ao cedente. O CPF <b>não</b> regenera (permanece usado).
+                      Bebê não entra na multa — só os {fmtInt(pax)}{" "}
+                      {pax === 1 ? "passageiro" : "passageiros"} da venda.
+                    </p>
+
+                    <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-slate-200 bg-slate-50/80 px-3 py-3">
+                      <input
+                        type="checkbox"
+                        className="mt-1"
+                        checked={cancelChargeFine}
+                        onChange={(e) => setCancelChargeFine(e.target.checked)}
+                        disabled={cancelSubmitting}
+                      />
+                      <span>
+                        <span className="font-semibold text-slate-900">
+                          Gerar cobrança do CPF por passageiro
+                        </span>
+                        <span className="mt-0.5 block text-xs text-slate-500">
+                          Multa avulsa — não entra no lucro da venda e não vincula a compra.
+                        </span>
+                      </span>
+                    </label>
+
+                    {cancelChargeFine ? (
+                      <div className="rounded-xl border border-slate-200 bg-white p-3">
+                        <label className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                          Valor por passageiro
+                        </label>
+                        <div className="mt-1.5 flex items-center gap-2">
+                          <span className="text-sm text-slate-500">R$</span>
+                          <input
+                            className="h-10 w-full rounded-xl border border-slate-200 px-3 text-sm tabular-nums outline-none focus:border-slate-400"
+                            value={cancelFinePerPaxStr}
+                            onChange={(e) => setCancelFinePerPaxStr(e.target.value)}
+                            placeholder="0,00"
+                            disabled={cancelSubmitting}
+                          />
+                        </div>
+                        <div className="mt-2 text-xs text-slate-600">
+                          Total multa:{" "}
+                          <b className="tabular-nums text-slate-900">{fmtMoneyBR(fineTotal)}</b>
+                          {" · "}
+                          {fmtInt(pax)} × {fmtMoneyBR(perPax)}
+                        </div>
+                      </div>
+                    ) : null}
+
+                    <div className="rounded-xl border border-slate-200 bg-slate-50/90 px-3 py-2.5 text-xs leading-relaxed text-slate-600">
+                      {wasPaid ? (
+                        <>
+                          Venda <b>paga</b>: reembolso = total − multa →{" "}
+                          <b className="tabular-nums text-slate-900">{fmtMoneyBR(refund)}</b>
+                          {fineTotal > 0
+                            ? " (multa retida como lançamento quitado)."
+                            : " (reembolso integral)."}
+                        </>
+                      ) : (
+                        <>
+                          Venda <b>pendente</b>: cancela o recebível da venda
+                          {fineTotal > 0
+                            ? " e cria item pendente só da multa."
+                            : "."}
+                        </>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="mt-5 flex flex-wrap justify-end gap-2">
+                    <button
+                      type="button"
+                      onClick={closeCancelModal}
+                      disabled={cancelSubmitting}
+                      className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-800 hover:bg-slate-50 disabled:opacity-50"
+                    >
+                      Voltar
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void confirmCancelSale()}
+                      disabled={cancelSubmitting}
+                      className="rounded-xl bg-rose-700 px-4 py-2.5 text-sm font-semibold text-white hover:bg-rose-800 disabled:opacity-50"
+                    >
+                      {cancelSubmitting ? "Cancelando…" : "Confirmar cancelamento"}
+                    </button>
+                  </div>
+                </>
+              );
+            })()}
           </div>
         </div>
       ) : null}
