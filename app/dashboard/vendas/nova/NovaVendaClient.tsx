@@ -112,24 +112,6 @@ function clampInt(v: any) {
 function fmtInt(n: number) {
   return (n || 0).toLocaleString("pt-BR");
 }
-function normalizeScore(v: unknown) {
-  const n = Number(v);
-  if (!Number.isFinite(n)) return 0;
-  return Math.max(0, Math.min(10, Math.round(n * 100) / 100));
-}
-function fmtScore(v: unknown) {
-  return normalizeScore(v).toLocaleString("pt-BR", {
-    minimumFractionDigits: 1,
-    maximumFractionDigits: 1,
-  });
-}
-function scoreBadgeClass(v: unknown) {
-  const s = normalizeScore(v);
-  if (s >= 8) return "border-emerald-200 bg-emerald-50 text-emerald-700";
-  if (s >= 6) return "border-amber-200 bg-amber-50 text-amber-700";
-  if (s >= 4) return "border-orange-200 bg-orange-50 text-orange-700";
-  return "border-rose-200 bg-rose-50 text-rose-700";
-}
 function fmtMoneyBR(cents: number) {
   return ((cents || 0) / 100).toLocaleString("pt-BR", {
     style: "currency",
@@ -197,22 +179,6 @@ function normStr(v?: string) {
 }
 function onlyDigits(v: any) {
   return String(v ?? "").replace(/\D+/g, "");
-}
-function biometriaTurnosShort(
-  horarios:
-    | {
-        turnoManha: boolean;
-        turnoTarde: boolean;
-        turnoNoite: boolean;
-      }
-    | null
-) {
-  if (!horarios) return "—";
-  const out: string[] = [];
-  if (horarios.turnoManha) out.push("M");
-  if (horarios.turnoTarde) out.push("T");
-  if (horarios.turnoNoite) out.push("N");
-  return out.length ? out.join("/") : "—";
 }
 function withTs(url: string) {
   const ts = Date.now();
@@ -2218,8 +2184,7 @@ export default function NovaVendaClient({
                             : "bg-white"
                         )}
                       >
-                        Sugestão pts/CPF:{" "}
-                        <b className="tabular-nums">{fmtInt(sug)}</b>
+                        Média/CPF: <b className="tabular-nums">{fmtInt(sug)}</b>
                         {below ? (
                           <span className="ml-1 font-semibold">· abaixo</span>
                         ) : null}
@@ -2253,22 +2218,6 @@ export default function NovaVendaClient({
                     Sobra:{" "}
                     <b className="tabular-nums">{fmtInt(sel.leftoverPoints)}</b>
                   </span>
-
-                  <span
-                    className={cn(
-                      "rounded-full border px-2 py-1",
-                      scoreBadgeClass(sel.cedente.scoreMedia)
-                    )}
-                  >
-                    Score: <b>{fmtScore(sel.cedente.scoreMedia)}</b>/10
-                  </span>
-
-                  {program === "LATAM" ? (
-                    <span className="rounded-full border bg-white px-2 py-1">
-                      Biometria:{" "}
-                      <b>{biometriaTurnosShort(sel.cedente.biometriaHorario)}</b>
-                    </span>
-                  ) : null}
 
                   <span
                     className={cn(
@@ -2518,21 +2467,20 @@ export default function NovaVendaClient({
               <table className="w-full text-sm">
                 <thead className={TABLE_HEAD}>
                   <tr>
-                    <th className="px-4 py-3 w-[360px]">Cedente</th>
-                    <th className="px-4 py-3 w-[220px]">Responsável</th>
-                    <th className="px-4 py-3 text-right w-[110px]">Score</th>
-                    <th className="px-4 py-3 text-right w-[160px]">Pts · sugestão</th>
-                    <th className="px-4 py-3 w-[110px]">Biometria</th>
+                    <th className="px-4 py-3 w-[320px]">Cedente</th>
+                    <th className="px-4 py-3 w-[200px]">Responsável</th>
+                    <th className="px-4 py-3 text-right w-[130px]">Média/CPF</th>
+                    <th className="px-4 py-3 text-right w-[120px]">Pts</th>
                     <th className="px-4 py-3 text-right w-[260px]">PAX disp. (após)</th>
-                    <th className="px-4 py-3 text-right w-[140px]">Sobra</th>
-                    <th className="px-4 py-3 w-[140px]">Prior.</th>
+                    <th className="px-4 py-3 text-right w-[120px]">Sobra</th>
+                    <th className="px-4 py-3 w-[120px]">Prior.</th>
                     <th className="px-4 py-3 w-[120px]" />
                   </tr>
                 </thead>
                 <tbody>
                   {!loadingSug && suggestions.length === 0 ? (
                     <tr>
-                      <td colSpan={9} className="px-4 py-12 text-center text-sm text-slate-500">
+                      <td colSpan={8} className="px-4 py-12 text-center text-sm text-slate-500">
                         Informe pontos e passageiros para ver sugestões.
                       </td>
                     </tr>
@@ -2542,7 +2490,7 @@ export default function NovaVendaClient({
                   suggestions.length > 0 &&
                   visibleSuggestions.length === 0 ? (
                     <tr>
-                      <td colSpan={9} className="px-4 py-12 text-center text-sm text-slate-500">
+                      <td colSpan={8} className="px-4 py-12 text-center text-sm text-slate-500">
                         Nenhum cedente encontrado para essa busca.
                       </td>
                     </tr>
@@ -2570,71 +2518,57 @@ export default function NovaVendaClient({
                         className="border-b border-slate-100 transition hover:bg-slate-50/80 last:border-b-0"
                       >
                         <td className="px-4 py-3">
-                          <div className="font-medium">{s.cedente.nomeCompleto}</div>
-                          <div className="text-xs text-slate-500">{s.cedente.identificador}</div>
-                          {s.alerts.includes("PASSAGEIROS_ESTOURADOS_COM_PONTOS") ? (
-                            <div className="mt-1 text-[11px] text-rose-600">
-                              {PASSENGER_ALERT_MESSAGE}
-                            </div>
-                          ) : null}
-                          {belowAvg ? (
-                            <div className="mt-1 text-[11px] font-medium text-amber-800">
-                              Abaixo da sugestão ({fmtInt(sugPts)} pts/CPF)
-                            </div>
-                          ) : null}
-                        </td>
-                        <td className="px-4 py-3">
-                          <div className="font-medium">{s.cedente.owner.name}</div>
-                          <div className="text-xs text-slate-500">@{s.cedente.owner.login}</div>
-                        </td>
-                        <td className="px-4 py-3 text-right">
-                          <span
-                            className={cn(
-                              "inline-flex rounded-full border px-2 py-1 text-xs",
-                              scoreBadgeClass(s.cedente.scoreMedia)
-                            )}
-                          >
-                            {fmtScore(s.cedente.scoreMedia)}
-                          </span>
-                        </td>
-                        <td className="px-4 py-3 text-right">
-                          <div className="tabular-nums font-medium">{fmtInt(s.pts)}</div>
-                          {sugPts > 0 ? (
-                            <div
-                              className={cn(
-                                "mt-0.5 text-[11px] tabular-nums",
-                                belowAvg ? "font-semibold text-amber-800" : "text-slate-500"
-                              )}
-                              title={`pts ÷ (PAX livres − 1) = ${fmtInt(s.pts)} ÷ ${Math.max(1, (s.availablePassengersYear || 0) - 1)}`}
-                            >
-                              sug. {fmtInt(sugPts)}/CPF
-                              {belowAvg ? " · ↓" : ""}
-                            </div>
-                          ) : null}
-                        </td>
-                        <td className="px-4 py-3 text-left">
-                          <div className="flex flex-wrap items-center gap-1.5">
+                          <div className="flex items-start gap-2">
                             {waHref ? (
                               <a
                                 href={waHref}
                                 target="_blank"
                                 rel="noreferrer"
                                 onClick={(e) => e.stopPropagation()}
-                                className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200/90 transition hover:bg-emerald-100"
+                                className="mt-0.5 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200/90 transition hover:bg-emerald-100"
                                 title="WhatsApp: perguntar disponibilidade para biometria"
                                 aria-label={`WhatsApp — ${s.cedente.nomeCompleto}`}
                               >
                                 <MessageCircle className="h-3.5 w-3.5" strokeWidth={2.25} />
                               </a>
                             ) : null}
-                            {program === "LATAM" ? (
-                              <span className="inline-flex rounded-full border px-2 py-1 text-xs">
-                                {biometriaTurnosShort(s.cedente.biometriaHorario)}
-                              </span>
-                            ) : !waHref ? (
-                              <span className="text-slate-400">—</span>
-                            ) : null}
+                            <div className="min-w-0">
+                              <div className="font-medium">{s.cedente.nomeCompleto}</div>
+                              <div className="text-xs text-slate-500">{s.cedente.identificador}</div>
+                              {s.alerts.includes("PASSAGEIROS_ESTOURADOS_COM_PONTOS") ? (
+                                <div className="mt-1 text-[11px] text-rose-600">
+                                  {PASSENGER_ALERT_MESSAGE}
+                                </div>
+                              ) : null}
+                            </div>
                           </div>
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="font-medium">{s.cedente.owner.name}</div>
+                          <div className="text-xs text-slate-500">@{s.cedente.owner.login}</div>
+                        </td>
+                        <td className="px-4 py-3 text-right">
+                          {sugPts > 0 ? (
+                            <div
+                              className={cn(
+                                "tabular-nums font-semibold",
+                                belowAvg ? "text-amber-800" : "text-slate-900"
+                              )}
+                              title={`pts ÷ (PAX livres − 1) = ${fmtInt(s.pts)} ÷ ${Math.max(1, (s.availablePassengersYear || 0) - 1)}`}
+                            >
+                              {fmtInt(sugPts)}
+                              {belowAvg ? (
+                                <div className="mt-0.5 text-[11px] font-medium text-amber-700">
+                                  abaixo
+                                </div>
+                              ) : null}
+                            </div>
+                          ) : (
+                            <span className="text-slate-400">—</span>
+                          )}
+                        </td>
+                        <td className="px-4 py-3 text-right tabular-nums font-medium">
+                          {fmtInt(s.pts)}
                         </td>
                         <td className="px-4 py-3 text-right tabular-nums">
                           <span
@@ -2649,8 +2583,10 @@ export default function NovaVendaClient({
                           </span>
                           <span className="text-xs text-slate-500">
                             {" "}
-                            (agora {fmtInt(s.availablePassengersYear)} • usados {fmtInt(s.usedPassengersYear)}/{fmtInt(s.paxLimit)}
-                            {program === "LATAM" ? " • 365d" : ""} • consome {fmtInt(s.passengersNeeded)})
+                            (agora {fmtInt(s.availablePassengersYear)} • usados{" "}
+                            {fmtInt(s.usedPassengersYear)}/{fmtInt(s.paxLimit)}
+                            {program === "LATAM" ? " • 365d" : ""} • consome{" "}
+                            {fmtInt(s.passengersNeeded)})
                           </span>
                         </td>
                         <td className="px-4 py-3 text-right tabular-nums">{fmtInt(s.leftoverPoints)}</td>
@@ -2678,7 +2614,7 @@ export default function NovaVendaClient({
 
                   {loadingSug ? (
                     <tr>
-                      <td colSpan={9} className="px-4 py-12 text-center text-sm text-slate-500">
+                      <td colSpan={8} className="px-4 py-12 text-center text-sm text-slate-500">
                         <span className="inline-flex items-center justify-center gap-2">
                           <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
                           Carregando sugestões…
