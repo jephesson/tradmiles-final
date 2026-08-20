@@ -1,4 +1,4 @@
-import { namesLikelyMatch, normalizeName, sharedNameTokens } from "./normalizeName";
+import { employeeNameMatch, namesLikelyMatch, normalizeName, sharedNameTokens } from "./normalizeName";
 import type { ParsedPixEmail, PixClassification, PixMatchResult, PixMatchSale } from "./types";
 
 const COMPANY_CNPJ = "63817773000185";
@@ -154,8 +154,20 @@ export function classifyAndMatchPix(args: {
   }
 
   const closeSales = pendingSales.filter((s) => amountClose(s.totalCents, parsed.amountCents));
-  const employeeHit = employees.find((e) => namesLikelyMatch(payer, e.name));
+  const employeeHit = employees.find((e) => employeeNameMatch(payer, e.name));
   const tinyPix = parsed.amountCents < 100;
+
+  if (tinyPix && !employeeHit && !closeSales.length) {
+    return {
+      classification: "UNKNOWN",
+      classificationLabel: "Valor simbólico — confira manualmente",
+      suggestedSales: [],
+      matchKind: "none",
+      matchedTotalCents: 0,
+      amountDiffCents: parsed.amountCents,
+      employeeName: null,
+    };
+  }
 
   if (employeeHit && (tinyPix || !closeSales.length)) {
     return {

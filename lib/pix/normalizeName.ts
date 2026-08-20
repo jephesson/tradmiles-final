@@ -24,6 +24,19 @@ export function sharedNameTokens(a: string, b: string) {
   return ta.filter((t) => setB.has(t));
 }
 
+/** Funcionário: exige primeiro nome igual ou 2+ tokens incluindo o primeiro. */
+export function employeeNameMatch(a: string, b: string) {
+  const ta = nameTokens(a);
+  const tb = nameTokens(b);
+  if (!ta.length || !tb.length) return false;
+  if (ta[0] === tb[0]) return true;
+
+  const common = sharedNameTokens(a, b);
+  if (common.length >= 2 && common.includes(ta[0]!)) return true;
+  if (common.length >= 2 && common.includes(tb[0]!)) return true;
+  return false;
+}
+
 /** Heurística: 2 tokens em comum, 1 token forte (≥4 letras) ou primeiro+último. */
 export function namesLikelyMatch(a: string, b: string) {
   const ta = nameTokens(a);

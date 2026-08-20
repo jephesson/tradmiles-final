@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { classifyAndMatchPix } from "./matchPixToPendingSales";
+import { classifyPixWithAI, shouldUseAiMatch } from "./matchPixWithAI";
 import { interpretPixEmailWithAI } from "./interpretPixEmailWithAI";
 import { parsePixEmailText } from "./parsePixEmail";
 import { normalizeName } from "./normalizeName";
@@ -125,7 +126,13 @@ export async function analyzePixEmailContent(args: {
     loadLearnedAliases(team),
   ]);
 
-  const match = classifyAndMatchPix({ parsed, pendingSales, employees, learnedAliases });
+  let match = classifyAndMatchPix({ parsed, pendingSales, employees, learnedAliases });
+
+  if (useAi && shouldUseAiMatch(match, parsed)) {
+    const aiMatch = await classifyPixWithAI({ parsed, pendingSales, employees });
+    if (aiMatch) match = aiMatch;
+  }
+
   return { parsed, match };
 }
 
