@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 import Link from "next/link";
 import {
   BellRing,
+  Banknote,
   ExternalLink,
   History,
   Loader2,
@@ -16,6 +17,8 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { getSession } from "@/lib/auth";
+import PixAlertModal from "@/components/PixAlertModal";
+import type { PixMatchResult, ParsedPixEmail } from "@/lib/pix/types";
 import {
   ALERT_ACTION_LABEL,
   ALERT_CIA_LABEL,
@@ -48,7 +51,14 @@ type AlertRow = {
   cedente: CedenteRef | null;
   filterId: string;
   filterName: string;
+  kind: "email" | "pix";
+  pixParsed?: ParsedPixEmail | null;
+  pixMatch?: PixMatchResult;
 };
+
+function fmtPixMoney(cents: number) {
+  return ((cents || 0) / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+}
 
 type Detail = {
   id: string;
@@ -87,6 +97,7 @@ export default function EmailAlertasNav() {
   const [panelPos, setPanelPos] = useState<{ top: number; left: number } | null>(
     null
   );
+  const [pixMessageId, setPixMessageId] = useState<string | null>(null);
   const btnRef = useRef<HTMLButtonElement | null>(null);
   const panelRef = useRef<HTMLDivElement | null>(null);
 
@@ -113,54 +124,132 @@ export default function EmailAlertasNav() {
 
     if (!alertFilters.length) {
       setRows([]);
+      // Mesmo sem filtros de alerta, busca Pix bancário.
+      setLoading(true);
+      try {
+        const pixRes = await fetch("/api/emails/pix-alerts?days=3&limit=15", {
+          cache: "no-store",
+        }).then((r) => r.json());
+        if (pixRes?.ok && Array.isArray(pixRes.rows)) {
+          setRows(
+            pixRes.rows.map(
+              (pr: {
+                id: string;
+                subject: string;
+                snippet: string;
+                date: string | null;
+                parsed: ParsedPixEmail | null;
+                match: PixMatchResult;
+              }) => ({
+                id: pr.id,
+                subject: pr.subject,
+                snippet: pr.snippet,
+                date: pr.date,
+                program: null,
+                cedente: null,
+                filterId: "__pix__",
+                filterName:
+                  pr.match.classification === "UNKNOWN"
+                    ? "Pix desconhecido"
+                    : "Pix recebido",
+                kind: "pix" as const,
+                pixParsed: pr.parsed,
+                pixMatch: pr.match,
+              })
+            )
+          );
+        }
+      } catch {
+        /* ignore */
+      } finally {
+        setLoading(false);
+      }
       return;
     }
 
     setLoading(true);
     try {
-      const settled = await Promise.all(
-        alertFilters.map(async (filter: EmailSavedFilter) => {
-          const otpQ = resolveOtpFilterGmailQuery(filter);
-          const params = new URLSearchParams({
-            program: filter.program === "ALL" ? "ALL" : filter.program,
-            searchIn: otpQ ? "subject" : filter.searchIn,
-            q: otpQ || filter.query,
-            days: "3",
-            limit: "12",
-            scope: "all",
-          });
-          const res = await fetch(`/api/emails?${params}`, { cache: "no-store" });
-          const json = await res.json().catch(() => null);
-          if (!res.ok || !json?.ok || !Array.isArray(json.rows)) return [] as AlertRow[];
-          return (
-            json.rows as Array<{
-              id: string;
-              subject: string;
-              snippet: string;
-              date: string | null;
-              program: string | null;
-              cedente: CedenteRef | null;
-            }>
-          ).map((row) => ({
-            id: row.id,
-            subject: row.subject,
-            snippet: row.snippet,
-            date: row.date,
-            program: row.program,
-            cedente: row.cedente,
-            filterId: filter.id,
-            filterName: filter.name,
-          }));
-        })
-      );
+      const [emailSettled, pixRes] = await Promise.all([
+        Promise.all(
+          alertFilters.map(async (filter: EmailSavedFilter) => {
+            const otpQ = resolveOtpFilterGmailQuery(filter);
+            const params = new URLSearchParams({
+              program: filter.program === "ALL" ? "ALL" : filter.program,
+              searchIn: otpQ ? "subject" : filter.searchIn,
+              q: otpQ || filter.query,
+              days: "3",
+              limit: "12",
+              scope: "all",
+            });
+            const res = await fetch(`/api/emails?${params}`, { cache: "no-store" });
+            const json = await res.json().catch(() => null);
+            if (!res.ok || !json?.ok || !Array.isArray(json.rows)) return [] as AlertRow[];
+            return (
+              json.rows as Array<{
+                id: string;
+                subject: string;
+                snippet: string;
+                date: string | null;
+                program: string | null;
+                cedente: CedenteRef | null;
+              }>
+            ).map((row) => ({
+              id: row.id,
+              subject: row.subject,
+              snippet: row.snippet,
+              date: row.date,
+              program: row.program,
+              cedente: row.cedente,
+              filterId: filter.id,
+              filterName: filter.name,
+              kind: "email" as const,
+            }));
+          })
+        ),
+        fetch("/api/emails/pix-alerts?days=3&limit=15", { cache: "no-store" })
+          .then((r) => r.json())
+          .catch(() => null),
+      ]);
 
       const byId = new Map<string, AlertRow>();
-      for (const list of settled) {
+      for (const list of emailSettled) {
         for (const row of list) {
           const prev = byId.get(row.id);
           if (!prev || (row.date && (!prev.date || row.date > prev.date))) {
             byId.set(row.id, row);
           }
+        }
+      }
+
+      if (pixRes?.ok && Array.isArray(pixRes.rows)) {
+        for (const pr of pixRes.rows as Array<{
+          id: string;
+          subject: string;
+          snippet: string;
+          date: string | null;
+          parsed: ParsedPixEmail | null;
+          match: PixMatchResult;
+        }>) {
+          byId.set(pr.id, {
+            id: pr.id,
+            subject: pr.subject,
+            snippet: pr.snippet,
+            date: pr.date,
+            program: null,
+            cedente: null,
+            filterId: "__pix__",
+            filterName:
+              pr.match.classification === "UNKNOWN"
+                ? "Pix desconhecido"
+                : pr.match.classification === "EMPLOYEE"
+                  ? "Pix funcionário"
+                  : pr.match.classification === "COMPANY_INTERNAL"
+                    ? "Pix interno"
+                    : "Pix recebido",
+            kind: "pix",
+            pixParsed: pr.parsed,
+            pixMatch: pr.match,
+          });
         }
       }
 
@@ -417,11 +506,12 @@ export default function EmailAlertasNav() {
                   <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
                   Procurando…
                 </div>
-              ) : !alertFilterCount ? (
+              ) : !alertFilterCount && listRows.length === 0 ? (
                 <div className="space-y-3 px-4 py-5 text-sm text-slate-600">
                   <p>
                     Crie um chip na caixa de e-mail (conteúdo/assunto) e marque{" "}
-                    <b>Usar como alerta</b>.
+                    <b>Usar como alerta</b>. Pix do banco (Inter, Nubank) aparece aqui
+                    automaticamente.
                   </p>
                   <Link
                     href="/dashboard/configuracoes"
@@ -442,17 +532,20 @@ export default function EmailAlertasNav() {
                 <ul className="divide-y divide-slate-100">
                   {listRows.map((row) => {
                     const isHistory = tab === "history";
-                    const actionCfg = getAlertActionConfig(row.filterId);
+                    const isPix = row.kind === "pix";
+                    const actionCfg = isPix ? null : getAlertActionConfig(row.filterId);
                     const showAction =
-                      !isHistory && canUserUseAlertAction(actionCfg, userId);
+                      !isHistory &&
+                      !isPix &&
+                      canUserUseAlertAction(actionCfg, userId);
                     const actionHref = buildAlertActionHref(actionCfg, {
                       cedenteId: row.cedente?.id,
                       emailId: row.id,
                     });
                     const ActionIcon =
-                      actionCfg.action === "COMPRA"
+                      actionCfg?.action === "COMPRA"
                         ? ShoppingCart
-                        : actionCfg.action === "VISUALIZAR_PONTOS"
+                        : actionCfg?.action === "VISUALIZAR_PONTOS"
                           ? Coins
                           : ShoppingBag;
 
@@ -471,14 +564,42 @@ export default function EmailAlertasNav() {
                               </span>
                             ) : null}
                           </div>
-                          <div className="mt-0.5 truncate text-sm font-semibold text-slate-900">
-                            {row.cedente?.nomeCompleto || "Cedente não identificado"}
-                          </div>
-                          {row.cedente?.identificador ? (
-                            <div className="truncate text-[11px] text-slate-500">
-                              {row.cedente.identificador}
-                            </div>
-                          ) : null}
+                          {isPix ? (
+                            <>
+                              <div className="mt-0.5 text-sm font-bold text-slate-900">
+                                {row.pixParsed
+                                  ? fmtPixMoney(row.pixParsed.amountCents)
+                                  : "Pix bancário"}
+                              </div>
+                              {row.pixParsed?.payerName ? (
+                                <div className="truncate text-xs text-slate-600">
+                                  De: {row.pixParsed.payerName}
+                                </div>
+                              ) : null}
+                              {row.pixMatch?.suggestedSales.length ? (
+                                <div className="mt-1 text-xs text-emerald-700">
+                                  {row.pixMatch.suggestedSales.length === 1
+                                    ? `Provável: ${row.pixMatch.suggestedSales[0]!.clienteNome}${
+                                        row.pixMatch.suggestedSales[0]!.locator
+                                          ? ` (${row.pixMatch.suggestedSales[0]!.locator})`
+                                          : ""
+                                      }`
+                                    : `${row.pixMatch.suggestedSales.length} vendas prováveis (Pix agrupado)`}
+                                </div>
+                              ) : null}
+                            </>
+                          ) : (
+                            <>
+                              <div className="mt-0.5 truncate text-sm font-semibold text-slate-900">
+                                {row.cedente?.nomeCompleto || "Cedente não identificado"}
+                              </div>
+                              {row.cedente?.identificador ? (
+                                <div className="truncate text-[11px] text-slate-500">
+                                  {row.cedente.identificador}
+                                </div>
+                              ) : null}
+                            </>
+                          )}
                           <div className="mt-1 line-clamp-2 text-xs text-slate-600">
                             {row.subject}
                           </div>
@@ -486,7 +607,7 @@ export default function EmailAlertasNav() {
                             {fmtRelative(row.date)}
                             {row.program ? ` · ${row.program}` : ""}
                           </div>
-                          {showAction ? (
+                          {showAction && actionCfg ? (
                             <div className="mt-1.5 inline-flex items-center gap-1 rounded-md border border-sky-200 bg-sky-50 px-1.5 py-0.5 text-[10px] font-semibold text-sky-800">
                               <ActionIcon className="h-3 w-3" aria-hidden />
                               {ALERT_ACTION_LABEL[actionCfg.action]} ·{" "}
@@ -507,15 +628,29 @@ export default function EmailAlertasNav() {
                         ) : null}
                       </div>
                       <div className="mt-2 flex flex-wrap gap-2">
-                        <button
-                          type="button"
-                          onClick={() => void openMessage(row.id)}
-                          className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 text-[11px] font-semibold text-slate-700 hover:bg-slate-50"
-                        >
-                          <MailOpen className="h-3.5 w-3.5" aria-hidden />
-                          Abrir mensagem
-                        </button>
-                        {showAction ? (
+                        {isPix ? (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setOpen(false);
+                              setPixMessageId(row.id);
+                            }}
+                            className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-emerald-600 px-2.5 text-[11px] font-semibold text-white hover:bg-emerald-700"
+                          >
+                            <Banknote className="h-3.5 w-3.5" aria-hidden />
+                            Conferir Pix
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => void openMessage(row.id)}
+                            className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 text-[11px] font-semibold text-slate-700 hover:bg-slate-50"
+                          >
+                            <MailOpen className="h-3.5 w-3.5" aria-hidden />
+                            Abrir mensagem
+                          </button>
+                        )}
+                        {showAction && actionCfg ? (
                           <Link
                             href={actionHref}
                             onClick={() => handleActionClick(row.id)}
@@ -627,6 +762,12 @@ export default function EmailAlertasNav() {
 
       {panel}
       {detailModal}
+      <PixAlertModal
+        messageId={pixMessageId}
+        onClose={() => setPixMessageId(null)}
+        onConfirmed={() => void refresh()}
+        onDismiss={(id) => dismiss(id)}
+      />
     </div>
   );
 }
