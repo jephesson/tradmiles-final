@@ -2122,8 +2122,8 @@ export default function NovaVendaClient({
       <section
         className={cn(SECTION, "overflow-hidden p-0 shadow-md shadow-slate-200/40")}
       >
-        <div className="flex flex-col gap-4 border-b border-slate-200/80 bg-white/60 px-5 py-4 sm:flex-row sm:items-start sm:justify-between sm:px-6 sm:py-5">
-          <div className="flex min-w-0 items-start gap-3">
+        <div className="flex flex-col gap-4 border-b border-slate-200/80 bg-white/60 px-5 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6 sm:py-5">
+          <div className="flex min-w-0 items-center gap-3">
             <span
               className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-slate-900 text-sm font-bold text-white shadow-md shadow-slate-900/15"
               aria-hidden
@@ -2134,28 +2134,46 @@ export default function NovaVendaClient({
               <h2 className="text-base font-semibold tracking-tight text-slate-900">
                 Cedentes sugeridos
               </h2>
-              <p className="mt-1 text-xs leading-relaxed text-slate-500">
-                Prioridade: sobrar &lt; 2k (MAX) • 3–10k (BAIXA) • acima de 10k, menor sobra primeiro.
-                Sugestão pts/CPF = pontos ÷ (PAX livres − 1) — só aviso, não muda o ranking.
-              </p>
-              {program === "LATAM" ? (
-                <div className="mt-2 flex items-center gap-2 text-[11px] text-slate-500">
+              {program === "LATAM" && (latamPaxLoading || latamPaxError) ? (
+                <div className="mt-1 flex items-center gap-2 text-[11px] text-slate-500">
                   {latamPaxLoading ? (
                     <>
                       <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
-                      Ajustando PAX (janela 365 dias)…
+                      Ajustando PAX…
                     </>
-                  ) : latamPaxError ? (
-                    <span className="text-rose-600">{latamPaxError}</span>
                   ) : (
-                    "PAX: janela 365 dias (painel)."
+                    <span className="text-rose-600">{latamPaxError}</span>
                   )}
                 </div>
               ) : null}
             </div>
           </div>
-          <div className="shrink-0 rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-medium text-slate-600 shadow-sm">
-            {countLabel}
+
+          <div className="flex flex-wrap items-center gap-2 sm:justify-end">
+            <div className="inline-flex items-stretch overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+              <div className="px-4 py-2.5">
+                <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+                  Pontos gastos
+                </div>
+                <div className="mt-0.5 text-lg font-bold tabular-nums tracking-tight text-slate-900">
+                  {fmtInt(pointsTotal)}
+                  <span className="ml-1 text-xs font-semibold text-slate-500">pts</span>
+                </div>
+              </div>
+              <div className="w-px bg-slate-200" aria-hidden />
+              <div className="px-4 py-2.5">
+                <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+                  Passageiros
+                </div>
+                <div className="mt-0.5 text-lg font-bold tabular-nums tracking-tight text-slate-900">
+                  {fmtInt(passengers)}
+                  <span className="ml-1 text-xs font-semibold text-slate-500">PAX</span>
+                </div>
+              </div>
+            </div>
+            <div className="shrink-0 rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-medium text-slate-600 shadow-sm">
+              {countLabel}
+            </div>
           </div>
         </div>
 
