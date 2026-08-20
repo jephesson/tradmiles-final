@@ -9,6 +9,7 @@ import {
   Copy,
   ExternalLink,
   Loader2,
+  MessageCircle,
   Plane,
   Plus,
   Search,
@@ -180,6 +181,9 @@ function buildWhatsAppUrlFromContact(
   const sep = base.includes("?") ? "&" : "?";
   return `${base}${sep}text=${encodeURIComponent(message)}`;
 }
+
+/** Mensagem padrão ao perguntar disponibilidade de biometria na lista de cedentes. */
+const BIOMETRIA_DISPONIVEL_WA_MSG = "Olá, tudo bem? Ta disponível para biometria?";
 
 function normStr(v?: string) {
   return (v || "")
@@ -1720,17 +1724,17 @@ export default function NovaVendaClient({
     }
   }
 
-  // ✅ carrega WhatsApp (LATAM / Smiles no wizard)
+  // ✅ carrega WhatsApp ao entrar na lista de cedentes (LATAM / Smiles)
   useEffect(() => {
+    if (flowStep !== 2) return;
     if (program !== "LATAM" && program !== "SMILES") return;
-    if (!sel?.cedente?.id) return;
     if (Object.keys(waMap).length > 0) return;
 
     const ac = new AbortController();
     loadCedentesWhatsapp(ac.signal);
     return () => ac.abort();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [program, sel?.cedente?.id]);
+  }, [flowStep, program]);
 
   const canGoToCedentes = pointsTotal > 0 && passengers > 0;
 
@@ -2417,6 +2421,11 @@ export default function NovaVendaClient({
                       (s.availablePassengersYear || 0) -
                       (s.passengersNeeded || 0);
                     const paxAfterClamped = Math.max(0, paxAfter);
+                    const waContact = waMap[s.cedente.id] || null;
+                    const waHref = buildWhatsAppUrlFromContact(
+                      waContact,
+                      BIOMETRIA_DISPONIVEL_WA_MSG
+                    );
 
                     return (
                       <tr
@@ -2448,13 +2457,28 @@ export default function NovaVendaClient({
                         </td>
                         <td className="px-4 py-3 text-right tabular-nums">{fmtInt(s.pts)}</td>
                         <td className="px-4 py-3 text-left">
-                          {program === "LATAM" ? (
-                            <span className="inline-flex rounded-full border px-2 py-1 text-xs">
-                              {biometriaTurnosShort(s.cedente.biometriaHorario)}
-                            </span>
-                          ) : (
-                            <span className="text-slate-400">—</span>
-                          )}
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            {waHref ? (
+                              <a
+                                href={waHref}
+                                target="_blank"
+                                rel="noreferrer"
+                                onClick={(e) => e.stopPropagation()}
+                                className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200/90 transition hover:bg-emerald-100"
+                                title="WhatsApp: perguntar disponibilidade para biometria"
+                                aria-label={`WhatsApp — ${s.cedente.nomeCompleto}`}
+                              >
+                                <MessageCircle className="h-3.5 w-3.5" strokeWidth={2.25} />
+                              </a>
+                            ) : null}
+                            {program === "LATAM" ? (
+                              <span className="inline-flex rounded-full border px-2 py-1 text-xs">
+                                {biometriaTurnosShort(s.cedente.biometriaHorario)}
+                              </span>
+                            ) : !waHref ? (
+                              <span className="text-slate-400">—</span>
+                            ) : null}
+                          </div>
                         </td>
                         <td className="px-4 py-3 text-right tabular-nums">
                           <span
