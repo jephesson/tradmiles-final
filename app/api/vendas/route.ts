@@ -645,20 +645,20 @@ export async function POST(req: Request) {
         },
       });
 
-      const soldPoints = clampInt(soldAgg._sum.points);
       const salesTotalCents = clampInt(soldAgg._sum.totalCents);
       let salesPointsValueCents = clampInt(soldAgg._sum.pointsValueCents);
       if (salesPointsValueCents <= 0 && salesTotalCents > 0) {
         salesPointsValueCents = salesTotalCents;
       }
 
-      const pointsTotal = clampInt(purchase.pontosCiaTotal);
-      const remainingPoints = Math.max(pointsTotal - soldPoints, 0);
+      // Base = estoque TOTAL da conta no programa (após debitar esta venda),
+      // não a sobra só da compra vinculada.
+      const accountPointsAfter = Math.max(0, availablePts - points);
       const purchaseTotalCents = clampInt(purchase.totalCents);
       const profitCents = salesPointsValueCents - purchaseTotalCents;
       const alreadyFinalized = Boolean(purchase.finalizedAt);
       const shouldSuggest =
-        !alreadyFinalized && remainingPoints < finalizeSuggestBelowPoints;
+        !alreadyFinalized && accountPointsAfter < finalizeSuggestBelowPoints;
 
       return {
         sale,
@@ -666,7 +666,7 @@ export async function POST(req: Request) {
           ? {
               purchaseId: purchaseIdReal,
               purchaseNumero: purchase.numero,
-              remainingPoints,
+              remainingPoints: accountPointsAfter,
               profitCents,
               threshold: finalizeSuggestBelowPoints,
             }

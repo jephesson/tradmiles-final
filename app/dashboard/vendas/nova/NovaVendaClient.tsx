@@ -3845,13 +3845,15 @@ export default function NovaVendaClient({
               Finalizar esta compra?
             </div>
             <p className="mt-2 text-sm text-slate-600">
-              A compra <span className="font-semibold text-slate-900">{finalizeSuggest.purchaseNumero}</span>{" "}
-              ficou com menos de {fmtInt(finalizeSuggest.threshold)} pontos. Quer finalizar agora?
+              O estoque total da conta ficou com menos de{" "}
+              {fmtInt(finalizeSuggest.threshold)} pontos. Quer finalizar a compra{" "}
+              <span className="font-semibold text-slate-900">{finalizeSuggest.purchaseNumero}</span>{" "}
+              agora?
             </p>
 
             <div className="mt-4 space-y-2 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm">
               <div className="flex items-center justify-between gap-3">
-                <span className="text-slate-600">Pontos sobrando</span>
+                <span className="text-slate-600">Estoque da conta (após a venda)</span>
                 <span className="font-semibold tabular-nums text-slate-900">
                   {fmtInt(finalizeSuggest.remainingPoints)} pts
                 </span>

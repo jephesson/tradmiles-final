@@ -373,14 +373,14 @@ export default function ConfiguracoesPageClient() {
       <div className="rounded-2xl border border-slate-200/90 bg-white p-5 shadow-sm sm:p-6">
         <h2 className="text-base font-semibold text-slate-900">Finalizar compra após venda</h2>
         <p className="mt-1 text-sm text-slate-600">
-          Depois da mensagem de cobrança, se a compra usada na venda ficar com menos pontos que o limiar,
-          o sistema sugere finalizar na hora.
+          Depois da mensagem de cobrança, se o estoque total de pontos da conta (no programa)
+          ficar abaixo do limiar, o sistema sugere finalizar a compra usada na venda.
         </p>
 
         <div className="mt-6">
           <label className="block">
             <span className="text-sm font-medium text-slate-700">
-              Sugerir finalizar se sobrar menos que (pontos)
+              Sugerir finalizar se o estoque da conta ficar abaixo de (pontos)
             </span>
             <input
               type="text"
@@ -392,7 +392,8 @@ export default function ConfiguracoesPageClient() {
               placeholder="5.000"
             />
             <span className="mt-1 block text-xs text-slate-500">
-              Padrão: 5.000 pontos. Ex.: com 5.000, sugere quando restarem 4.999 ou menos.
+              Usa o estoque total da conta no programa (LATAM/Smiles/etc.), não a sobra só da compra.
+              Padrão: 5.000. Ex.: sugere quando a conta ficar com 4.999 pts ou menos.
             </span>
           </label>
         </div>
