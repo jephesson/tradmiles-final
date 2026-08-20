@@ -110,7 +110,7 @@ type SalesChannelSplit = {
 const LBL = {
   vendaBalcao: "Venda no Balcão",
   clienteFinal: "Cliente Final",
-  compraBalcao: "Particular (compra balcão)",
+  compraBalcao: "Cliente final (via balcão)",
   taxa: "Taxa de embarque",
   outros: "Outras origens",
   total: "Total",
@@ -135,7 +135,6 @@ function buildChannelBreakdownRows(args: {
   channel: SalesChannelSplit | null | undefined;
   feeCents: number;
   compraBalcaoCents: number;
-  compraDetail: string;
   extraTotalDetail?: string;
 }): BreakdownRow[] {
   const venda = Number(args.channel?.vendaBalcaoCents || 0);
@@ -180,7 +179,6 @@ function buildChannelBreakdownRows(args: {
     {
       label: LBL.compraBalcao,
       value: fmtMoneyBR(compra),
-      detail: args.compraDetail,
       pct: sharePct(compra, pctBase),
     },
     {
@@ -1963,7 +1961,6 @@ export default function AnaliseDadosClient() {
         channel: (today as any)?.salesByChannel,
         feeCents: Number(today?.feeCents || 0),
         compraBalcaoCents: Number(balcaoToday?.customerChargeCents || 0),
-        compraDetail: `${fmtInt(balcaoToday?.operationsCount || 0)} ops • lucro ${fmtMoneyBR(balcaoToday?.netProfitCents || 0)}`,
       }),
     [today, balcaoToday]
   );
@@ -1975,7 +1972,6 @@ export default function AnaliseDadosClient() {
       channel,
       feeCents: Number(data?.summary?.feeCents || 0),
       compraBalcaoCents: Number(consolidated?.soldBalcaoCents || 0),
-      compraDetail: `${fmtInt(balcaoMonth?.operationsCount || 0)} ops • ${fmtInt(balcaoMonth?.points || 0)} pts • lucro ${fmtMoneyBR(balcaoMonth?.netProfitCents || 0)}`,
       extraTotalDetail: `LATAM ${fmtMoneyBR(kpis?.latam || 0)} / Smiles ${fmtMoneyBR(kpis?.smiles || 0)} • Clubes: LATAM ${fmtInt(kpis?.clubsLatam || 0)} | Smiles ${fmtInt(kpis?.clubsSmiles || 0)}`,
     });
   }, [consolidated, kpis, data, balcaoMonth]);
@@ -2169,7 +2165,7 @@ export default function AnaliseDadosClient() {
       {/* HOJE */}
       <BreakdownPanel
         title={`Resumo de hoje · ${today?.date ? dayKeyToDisplay(today.date) : "—"}`}
-        subtitle="Percentual sobre Venda no Balcão, Cliente Final e compra balcão — taxa de embarque à parte."
+        subtitle="Percentual sobre Venda no Balcão, Cliente Final e Cliente final (via balcão) — taxa de embarque à parte."
         rows={todayBreakdownRows}
       />
 
