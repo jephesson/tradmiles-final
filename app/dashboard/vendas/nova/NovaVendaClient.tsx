@@ -454,15 +454,14 @@ export default function NovaVendaClient({
   // ✅ Ida / Ida+Volta
   const [tripKind, setTripKind] = useState<TripKind>("IDA");
 
-  // ✅ pontos por trecho (cada um pode ser TOTAL ou POR_PAX)
-  const [idaMode, setIdaMode] = useState<PointsMode>("TOTAL");
+  // ✅ pontos por trecho (modo Total / Por passageiro vale para ida e volta)
+  const [pointsMode, setPointsMode] = useState<PointsMode>("TOTAL");
   const [idaStr, setIdaStr] = useState("");
   const idaInput = useMemo(
     () => clampInt((idaStr || "").replace(/\D+/g, "")),
     [idaStr]
   );
 
-  const [voltaMode, setVoltaMode] = useState<PointsMode>("TOTAL");
   const [voltaStr, setVoltaStr] = useState("");
   const voltaInput = useMemo(
     () => clampInt((voltaStr || "").replace(/\D+/g, "")),
@@ -479,15 +478,15 @@ export default function NovaVendaClient({
   const idaTotalPoints = useMemo(() => {
     const p = Math.max(0, idaInput);
     const pax = Math.max(1, passengers);
-    return idaMode === "POR_PAX" ? p * pax : p;
-  }, [idaMode, idaInput, passengers]);
+    return pointsMode === "POR_PAX" ? p * pax : p;
+  }, [pointsMode, idaInput, passengers]);
 
   const voltaTotalPoints = useMemo(() => {
     if (tripKind !== "IDA_VOLTA") return 0;
     const p = Math.max(0, voltaInput);
     const pax = Math.max(1, passengers);
-    return voltaMode === "POR_PAX" ? p * pax : p;
-  }, [tripKind, voltaMode, voltaInput, passengers]);
+    return pointsMode === "POR_PAX" ? p * pax : p;
+  }, [tripKind, pointsMode, voltaInput, passengers]);
 
   // ✅ pontos totais (ida + volta)
   const pointsTotal = useMemo(
@@ -1563,7 +1562,7 @@ export default function NovaVendaClient({
     if (data.miles != null && data.miles > 0) {
       const prevPoints = pointsTotal;
       if (prevPoints !== data.miles) {
-        setIdaMode("TOTAL");
+        setPointsMode("TOTAL");
         setIdaStr(data.miles.toLocaleString("pt-BR"));
         setVoltaStr("");
         filled.push("milhas");
@@ -1880,6 +1879,33 @@ export default function NovaVendaClient({
               </span>
             </div>
 
+            <div className="flex flex-wrap items-center gap-3 rounded-xl border border-slate-200/80 bg-white/90 px-3 py-2.5 text-[11px] font-medium text-slate-600 shadow-sm">
+              <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                Pontos informados como
+              </span>
+              <label className="inline-flex cursor-pointer items-center gap-2">
+                <input
+                  type="radio"
+                  name="pointsMode"
+                  checked={pointsMode === "TOTAL"}
+                  onChange={() => setPointsMode("TOTAL")}
+                  className="border-slate-300 text-slate-900"
+                />
+                Total
+              </label>
+              <label className="inline-flex cursor-pointer items-center gap-2">
+                <input
+                  type="radio"
+                  name="pointsMode"
+                  checked={pointsMode === "POR_PAX"}
+                  onChange={() => setPointsMode("POR_PAX")}
+                  className="border-slate-300 text-slate-900"
+                />
+                Por passageiro
+              </label>
+              <span className="text-slate-400">· vale para ida e volta</span>
+            </div>
+
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="rounded-2xl border border-slate-200/80 bg-white/90 p-4 shadow-sm">
                 <div className={cn(FIELD_LABEL, "mb-2 normal-case tracking-normal")}>Pontos (ida)</div>
@@ -1888,39 +1914,17 @@ export default function NovaVendaClient({
                   value={idaStr}
                   onChange={(e) => onChangePoints(setIdaStr, e.target.value)}
                   placeholder={
-                    idaMode === "POR_PAX"
+                    pointsMode === "POR_PAX"
                       ? "Ex.: 100.000 (por pax)"
                       : "Ex.: 200.000 (total)"
                   }
                 />
-                <div className="mt-3 flex flex-wrap items-center gap-3 text-[11px] font-medium text-slate-600">
-                  <label className="inline-flex cursor-pointer items-center gap-2">
-                    <input
-                      type="radio"
-                      name="idaMode"
-                      checked={idaMode === "TOTAL"}
-                      onChange={() => setIdaMode("TOTAL")}
-                      className="border-slate-300 text-slate-900"
-                    />
-                    Total
-                  </label>
-                  <label className="inline-flex cursor-pointer items-center gap-2">
-                    <input
-                      type="radio"
-                      name="idaMode"
-                      checked={idaMode === "POR_PAX"}
-                      onChange={() => setIdaMode("POR_PAX")}
-                      className="border-slate-300 text-slate-900"
-                    />
-                    Por passageiro
-                  </label>
-                  {idaMode === "POR_PAX" && idaInput > 0 ? (
-                    <span className="text-slate-500">
-                      Ida total:{" "}
-                      <b className="tabular-nums text-slate-900">{fmtInt(idaTotalPoints)}</b>
-                    </span>
-                  ) : null}
-                </div>
+                {pointsMode === "POR_PAX" && idaInput > 0 ? (
+                  <div className="mt-3 text-[11px] text-slate-500">
+                    Ida total:{" "}
+                    <b className="tabular-nums text-slate-900">{fmtInt(idaTotalPoints)}</b>
+                  </div>
+                ) : null}
               </div>
 
               <div
@@ -1936,41 +1940,17 @@ export default function NovaVendaClient({
                   value={voltaStr}
                   onChange={(e) => onChangePoints(setVoltaStr, e.target.value)}
                   placeholder={
-                    voltaMode === "POR_PAX"
+                    pointsMode === "POR_PAX"
                       ? "Ex.: 100.000 (por pax)"
                       : "Ex.: 200.000 (total)"
                   }
                 />
-                <div className="mt-3 flex flex-wrap items-center gap-3 text-[11px] font-medium text-slate-600">
-                  <label className="inline-flex cursor-pointer items-center gap-2">
-                    <input
-                      disabled={tripKind !== "IDA_VOLTA"}
-                      type="radio"
-                      name="voltaMode"
-                      checked={voltaMode === "TOTAL"}
-                      onChange={() => setVoltaMode("TOTAL")}
-                      className="border-slate-300 text-slate-900"
-                    />
-                    Total
-                  </label>
-                  <label className="inline-flex cursor-pointer items-center gap-2">
-                    <input
-                      disabled={tripKind !== "IDA_VOLTA"}
-                      type="radio"
-                      name="voltaMode"
-                      checked={voltaMode === "POR_PAX"}
-                      onChange={() => setVoltaMode("POR_PAX")}
-                      className="border-slate-300 text-slate-900"
-                    />
-                    Por passageiro
-                  </label>
-                  {tripKind === "IDA_VOLTA" && voltaMode === "POR_PAX" && voltaInput > 0 ? (
-                    <span className="text-slate-500">
-                      Volta total:{" "}
-                      <b className="tabular-nums text-slate-900">{fmtInt(voltaTotalPoints)}</b>
-                    </span>
-                  ) : null}
-                </div>
+                {tripKind === "IDA_VOLTA" && pointsMode === "POR_PAX" && voltaInput > 0 ? (
+                  <div className="mt-3 text-[11px] text-slate-500">
+                    Volta total:{" "}
+                    <b className="tabular-nums text-slate-900">{fmtInt(voltaTotalPoints)}</b>
+                  </div>
+                ) : null}
               </div>
             </div>
           </div>
@@ -3150,7 +3130,7 @@ export default function NovaVendaClient({
                 <span className="text-slate-600">Pontos (ida)</span>
                 <b>{fmtInt(idaTotalPoints)}</b>
               </div>
-              {idaMode === "POR_PAX" ? (
+              {pointsMode === "POR_PAX" ? (
                 <div className="flex justify-between text-xs text-slate-500">
                   <span>Ida por passageiro</span>
                   <b className="tabular-nums">{fmtInt(idaInput)}</b>
@@ -3163,7 +3143,7 @@ export default function NovaVendaClient({
                     <span className="text-slate-600">Pontos (volta)</span>
                     <b>{fmtInt(voltaTotalPoints)}</b>
                   </div>
-                  {voltaMode === "POR_PAX" ? (
+                  {pointsMode === "POR_PAX" ? (
                     <div className="flex justify-between text-xs text-slate-500">
                       <span>Volta por passageiro</span>
                       <b className="tabular-nums">{fmtInt(voltaInput)}</b>
