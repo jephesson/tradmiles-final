@@ -55,8 +55,13 @@ export default function PixAlertModal({ messageId, onClose, onConfirmed, onDismi
         if (!res.ok || !json?.ok) throw new Error(json?.error || "Falha ao analisar Pix.");
         const data = json as PixAlertRow;
         setRow(data);
-        const first = data.match.suggestedSales[0];
-        setSelected(first ? new Set([first.saleId]) : new Set());
+        // Grupo que bate com o Pix: pré-seleciona todas; senão só a mais provável
+        if (data.match.matchKind === "grouped" && data.match.suggestedSales.length) {
+          setSelected(new Set(data.match.suggestedSales.map((s) => s.saleId)));
+        } else {
+          const first = data.match.suggestedSales[0];
+          setSelected(first ? new Set([first.saleId]) : new Set());
+        }
       } catch (e) {
         setErr(e instanceof Error ? e.message : "Erro ao analisar.");
         setRow(null);
@@ -163,9 +168,11 @@ export default function PixAlertModal({ messageId, onClose, onConfirmed, onDismi
               {row.match.suggestedSales.length > 0 ? (
                 <div>
                   <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
-                    {row.match.matchKind === "probable" || row.match.matchKind === "close_amount"
-                      ? "Mais provável — marque se for essa venda"
-                      : "Vendas sugeridas — marque as pagas"}
+                    {row.match.matchKind === "grouped"
+                      ? "Vendas do mesmo cliente — soma bate com o Pix"
+                      : row.match.matchKind === "probable" || row.match.matchKind === "close_amount"
+                        ? "Mais provável — marque se for essa venda"
+                        : "Vendas sugeridas — marque as pagas"}
                   </div>
                   <div className="space-y-2">
                     {row.match.suggestedSales.map((s, idx) => {

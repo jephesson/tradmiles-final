@@ -1,5 +1,39 @@
 const STOP = new Set(["da", "de", "do", "das", "dos", "e"]);
 
+/** Tokens genéricos de empresa/milhas — não contam como match de nome de pessoa. */
+const BUSINESS_STOP = new Set([
+  "ltda",
+  "ltd",
+  "me",
+  "epp",
+  "sa",
+  "eireli",
+  "comercio",
+  "comercial",
+  "turismo",
+  "viagens",
+  "viagem",
+  "milhas",
+  "milha",
+  "plus",
+  "flash",
+  "passagens",
+  "aereas",
+  "aereo",
+  "agencia",
+  "travel",
+  "tour",
+  "tours",
+  "group",
+  "grupo",
+  "holdings",
+  "holding",
+  "brazil",
+  "brasil",
+  "company",
+  "companhia",
+]);
+
 export function normalizeName(s: string) {
   return String(s || "")
     .normalize("NFD")
@@ -13,7 +47,7 @@ export function normalizeName(s: string) {
 export function nameTokens(s: string) {
   return normalizeName(s)
     .split(/\s+/)
-    .filter((t) => t.length > 1 && !STOP.has(t));
+    .filter((t) => t.length > 1 && !STOP.has(t) && !BUSINESS_STOP.has(t));
 }
 
 export function sharedNameTokens(a: string, b: string) {

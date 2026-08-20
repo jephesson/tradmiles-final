@@ -29,19 +29,84 @@ function amountClose(a: number, b: number) {
   return Math.abs(a - b) <= AMOUNT_CLOSE_CENTS;
 }
 
+function groupByCliente(sales: PendingSaleLite[]) {
+  const map = new Map<string, PendingSaleLite[]>();
+  for (const s of sales) {
+    const arr = map.get(s.clienteId) || [];
+    arr.push(s);
+    map.set(s.clienteId, arr);
+  }
+  return map;
+}
+
+/**
+ * Soma (ou subconjunto) das vendas pendentes do mesmo cliente ≈ valor do Pix.
+ * Prioriza: soma total do cliente → depois subconjunto.
+ */
+function findClienteGroupedMatch(
+  sales: PendingSaleLite[],
+  target: number,
+  preferClienteIds?: Set<string>
+): PendingSaleLite[] | null {
+  const byCliente = groupByCliente(sales);
+  type Cand = { sales: PendingSaleLite[]; diff: number; fullGroup: boolean; preferred: boolean };
+  const cands: Cand[] = [];
+
+  for (const [clienteId, list] of byCliente) {
+    if (list.length < 1) continue;
+    const preferred = preferClienteIds?.has(clienteId) ?? false;
+    const fullSum = list.reduce((a, s) => a + s.totalCents, 0);
+    const fullDiff = Math.abs(fullSum - target);
+
+    if (list.length >= 2 && fullDiff <= AMOUNT_CLOSE_CENTS) {
+      cands.push({ sales: list, diff: fullDiff, fullGroup: true, preferred });
+      continue;
+    }
+
+    if (list.length >= 2) {
+      const subset = subsetSumClose(list, target, Math.min(12, list.length));
+      if (subset && subset.length >= 2) {
+        const sum = subset.reduce((a, s) => a + s.totalCents, 0);
+        cands.push({
+          sales: subset,
+          diff: Math.abs(sum - target),
+          fullGroup: false,
+          preferred,
+        });
+      }
+    }
+  }
+
+  if (!cands.length) return null;
+
+  cands.sort((a, b) => {
+    if (a.preferred !== b.preferred) return a.preferred ? -1 : 1;
+    if (a.fullGroup !== b.fullGroup) return a.fullGroup ? -1 : 1;
+    if (a.diff !== b.diff) return a.diff - b.diff;
+    return b.sales.length - a.sales.length;
+  });
+
+  return cands[0]!.sales;
+}
+
 function subsetSumClose(
   items: PendingSaleLite[],
   target: number,
   maxItems = 10
 ): PendingSaleLite[] | null {
-  if (items.length > maxItems) items = items.slice(0, maxItems);
+  if (items.length > maxItems) {
+    // Preferir as mais recentes / maiores para caber no limite
+    items = [...items]
+      .sort((a, b) => b.date.getTime() - a.date.getTime() || b.totalCents - a.totalCents)
+      .slice(0, maxItems);
+  }
   const n = items.length;
   let best: PendingSaleLite[] | null = null;
   let bestDiff = Number.POSITIVE_INFINITY;
 
   function backtrack(idx: number, sum: number, picked: PendingSaleLite[]) {
     const diff = Math.abs(sum - target);
-    if (picked.length && diff < bestDiff && diff <= AMOUNT_CLOSE_CENTS) {
+    if (picked.length >= 2 && diff < bestDiff && diff <= AMOUNT_CLOSE_CENTS) {
       bestDiff = diff;
       best = [...picked];
     }
@@ -54,7 +119,7 @@ function subsetSumClose(
   return best;
 }
 
-function mapSale(s: PendingSaleLite, pixAmount: number, reason: string): PixMatchSale {
+function mapSale(s: PendingSaleLite, pixAmount: number, reason: string, groupMatched = false): PixMatchSale {
   return {
     saleId: s.id,
     numero: s.numero,
@@ -64,7 +129,8 @@ function mapSale(s: PendingSaleLite, pixAmount: number, reason: string): PixMatc
     clienteNome: s.clienteNome,
     date: s.date.toISOString(),
     program: s.program,
-    amountDiffCents: pixAmount - s.totalCents,
+    // Em grupo que bate, não mostrar "vs Pix" por venda isolada
+    amountDiffCents: groupMatched ? 0 : pixAmount - s.totalCents,
     reason,
   };
 }
@@ -96,21 +162,51 @@ function rankProbable(pendingSales: PendingSaleLite[], parsed: ParsedPixEmail, l
     .slice(0, 4);
 }
 
-function reasonFor(sale: PendingSaleLite, parsed: ParsedPixEmail, learned: boolean) {
+function reasonFor(sale: PendingSaleLite, parsed: ParsedPixEmail, learned: boolean, grouped = false) {
   const diff = parsed.amountCents - sale.totalCents;
   const parts: string[] = [];
+  if (grouped) parts.push("agrupada com outras do mesmo cliente");
   if (learned) parts.push("pagador já vinculado a este cliente");
   if (namesLikelyMatch(parsed.payerName || "", sale.clienteNome)) parts.push("nome parecido");
   else if (sharedNameTokens(parsed.payerName || "", sale.clienteNome).length) {
     parts.push("parte do nome em comum");
   }
-  if (diff === 0) parts.push("valor igual");
-  else if (Math.abs(diff) <= AMOUNT_CLOSE_CENTS) {
-    parts.push(`diferença de ${fmtMoney(Math.abs(diff))}`);
+  if (!grouped) {
+    if (diff === 0) parts.push("valor igual");
+    else if (Math.abs(diff) <= AMOUNT_CLOSE_CENTS) {
+      parts.push(`diferença de ${fmtMoney(Math.abs(diff))}`);
+    } else {
+      parts.push(`valor pendente ${fmtMoney(sale.totalCents)}`);
+    }
   } else {
     parts.push(`valor pendente ${fmtMoney(sale.totalCents)}`);
   }
   return parts.join(" · ");
+}
+
+function groupedResult(
+  grouped: PendingSaleLite[],
+  parsed: ParsedPixEmail,
+  learnedClienteIds: Set<string>
+): PixMatchResult {
+  const total = grouped.reduce((a, s) => a + s.totalCents, 0);
+  const clienteNome = grouped[0]?.clienteNome || "cliente";
+  return {
+    classification: "CLIENT_PAYMENT",
+    classificationLabel: `Pix agrupado · ${clienteNome} (${grouped.length} vendas)`,
+    suggestedSales: grouped.map((s) =>
+      mapSale(
+        s,
+        parsed.amountCents,
+        reasonFor(s, parsed, learnedClienteIds.has(s.clienteId), true),
+        true
+      )
+    ),
+    matchKind: "grouped",
+    matchedTotalCents: total,
+    amountDiffCents: parsed.amountCents - total,
+    employeeName: null,
+  };
 }
 
 export function classifyAndMatchPix(args: {
@@ -190,10 +286,15 @@ export function classifyAndMatchPix(args: {
 
   const byLearned = pendingSales.filter((s) => learnedClienteIds.has(s.clienteId));
   const byName = pendingSales.filter((s) => namesLikelyMatch(payer, s.clienteNome));
-  const pool = byLearned.length ? byLearned : byName.length ? byName : pendingSales;
+  const preferClienteIds = new Set([
+    ...learnedClienteIds,
+    ...byName.map((s) => s.clienteId),
+  ]);
 
-  const exact = pool.find((s) => s.totalCents === parsed.amountCents)
-    || pendingSales.find((s) => s.totalCents === parsed.amountCents);
+  // 1) Venda única com valor exato
+  const exact = (byLearned.length ? byLearned : byName.length ? byName : pendingSales).find(
+    (s) => s.totalCents === parsed.amountCents
+  ) || pendingSales.find((s) => s.totalCents === parsed.amountCents);
   if (exact) {
     const learned = learnedClienteIds.has(exact.clienteId);
     return {
@@ -209,8 +310,16 @@ export function classifyAndMatchPix(args: {
     };
   }
 
-  const close = pool.find((s) => amountClose(s.totalCents, parsed.amountCents))
-    || pendingSales.find((s) => amountClose(s.totalCents, parsed.amountCents));
+  // 2) Agrupamento por cliente (soma das pendências = Pix) — antes de nome fraco / venda isolada
+  const clienteGroup = findClienteGroupedMatch(pendingSales, parsed.amountCents, preferClienteIds);
+  if (clienteGroup?.length) {
+    return groupedResult(clienteGroup, parsed, learnedClienteIds);
+  }
+
+  // 3) Venda única com valor próximo
+  const close = (byLearned.length ? byLearned : byName.length ? byName : pendingSales).find((s) =>
+    amountClose(s.totalCents, parsed.amountCents)
+  ) || pendingSales.find((s) => amountClose(s.totalCents, parsed.amountCents));
   if (close) {
     const diff = parsed.amountCents - close.totalCents;
     const learned = learnedClienteIds.has(close.clienteId);
@@ -225,18 +334,13 @@ export function classifyAndMatchPix(args: {
     };
   }
 
-  const grouped = subsetSumClose(pool, parsed.amountCents);
-  if (grouped?.length) {
-    const total = grouped.reduce((a, s) => a + s.totalCents, 0);
-    return {
-      classification: "CLIENT_PAYMENT",
-      classificationLabel: `Pix agrupado (${grouped.length} vendas)`,
-      suggestedSales: grouped.map((s) => mapSale(s, parsed.amountCents, reasonFor(s, parsed, learnedClienteIds.has(s.clienteId)))),
-      matchKind: "grouped",
-      matchedTotalCents: total,
-      amountDiffCents: parsed.amountCents - total,
-      employeeName: null,
-    };
+  // 4) Subconjunto em pool aprendido / nome
+  for (const pool of [byLearned, byName]) {
+    if (pool.length < 2) continue;
+    const grouped = subsetSumClose(pool, parsed.amountCents);
+    if (grouped?.length) {
+      return groupedResult(grouped, parsed, learnedClienteIds);
+    }
   }
 
   if (byLearned.length) {

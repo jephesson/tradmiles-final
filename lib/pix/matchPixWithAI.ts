@@ -16,8 +16,9 @@ Regras:
 - EMPLOYEE: pagador é claramente um funcionário da lista (primeiro nome bate, não só sobrenome).
 - COMPANY_INTERNAL: pix da própria empresa ou saída.
 - UNKNOWN: teste simbólico (ex. R$ 0,01), pagador sem relação clara, ou dúvida.
-- suggestedSaleIds: ids das vendas mais prováveis (0 a 3), em ordem de probabilidade.
-- Não confunda sobrenomes iguais (ex. Floriano) com match de funcionário se o primeiro nome for diferente.`;
+- suggestedSaleIds: ids das vendas mais prováveis. Se várias vendas do MESMO cliente somam o valor do Pix, retorne TODAS elas.
+- Não confunda sobrenomes iguais (ex. Floriano) com match de funcionário se o primeiro nome for diferente.
+- Ignore palavras genéricas (Milhas, Ltda, Plus, Flash) ao comparar nomes.`;
 
 function fmtMoney(cents: number) {
   return ((cents || 0) / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -57,12 +58,18 @@ export async function classifyPixWithAI(args: {
   const model = process.env.OPENAI_PIX_MODEL || process.env.OPENAI_DOCUMENT_MODEL || "gpt-4o-mini";
   const baseUrl = (process.env.OPENAI_BASE_URL || "https://api.openai.com/v1").replace(/\/$/, "");
 
-  const salesPayload = pendingSales.slice(0, 20).map((s) => ({
-    id: s.id,
-    cliente: s.clienteNome,
-    valor: fmtMoney(s.totalCents),
-    numero: s.numero,
-  }));
+  // Inclui mais vendas e ordena por cliente para a IA enxergar agrupamentos
+  const salesPayload = [...pendingSales]
+    .sort((a, b) => a.clienteNome.localeCompare(b.clienteNome) || b.totalCents - a.totalCents)
+    .slice(0, 40)
+    .map((s) => ({
+      id: s.id,
+      clienteId: s.clienteId,
+      cliente: s.clienteNome,
+      valor: fmtMoney(s.totalCents),
+      valorCentavos: s.totalCents,
+      numero: s.numero,
+    }));
 
   const userContent = JSON.stringify({
     pagador: parsed.payerName,
@@ -111,15 +118,31 @@ export async function classifyPixWithAI(args: {
       .filter(Boolean)
       .map((s) => mapSale(s!, parsed.amountCents, "sugestão IA"));
 
-    const top = suggestedSales[0];
+    const matchedTotalCents = suggestedSales.reduce((a, s) => a + s.totalCents, 0);
+    const sameCliente =
+      suggestedSales.length >= 2 &&
+      suggestedSales.every((s) => s.clienteId === suggestedSales[0]!.clienteId);
+    const groupHits =
+      sameCliente && Math.abs(matchedTotalCents - parsed.amountCents) <= 200;
 
     return {
       classification,
-      classificationLabel: String(data.label || "Classificado pela IA"),
-      suggestedSales,
-      matchKind: top ? "probable" : "none",
-      matchedTotalCents: top?.totalCents ?? 0,
-      amountDiffCents: top ? parsed.amountCents - top.totalCents : parsed.amountCents,
+      classificationLabel: String(
+        data.label ||
+          (groupHits
+            ? `Pix agrupado · ${suggestedSales[0]!.clienteNome} (${suggestedSales.length} vendas)`
+            : "Classificado pela IA")
+      ),
+      suggestedSales: groupHits
+        ? suggestedSales.map((s) => ({ ...s, amountDiffCents: 0, reason: "agrupada · sugestão IA" }))
+        : suggestedSales,
+      matchKind: groupHits ? "grouped" : suggestedSales[0] ? "probable" : "none",
+      matchedTotalCents: groupHits ? matchedTotalCents : suggestedSales[0]?.totalCents ?? 0,
+      amountDiffCents: groupHits
+        ? parsed.amountCents - matchedTotalCents
+        : suggestedSales[0]
+          ? parsed.amountCents - suggestedSales[0].totalCents
+          : parsed.amountCents,
       employeeName: data.employeeName ? String(data.employeeName) : null,
     };
   } catch {
