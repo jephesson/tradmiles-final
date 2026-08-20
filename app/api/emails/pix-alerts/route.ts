@@ -65,7 +65,7 @@ export async function GET(req: Request) {
     const listed = await listMessages({ q: query, maxResults: limit });
     const ids = (listed.messages || []).map((m) => m.id).filter(Boolean) as string[];
 
-    const [pendingSales, employees] = await Promise.all([
+    const [pendingSales, employees, learnedAliases] = await Promise.all([
       prisma.sale.findMany({
         where: { paymentStatus: "PENDING", cedente: { owner: { team: session.team } } },
         select: {
@@ -75,6 +75,7 @@ export async function GET(req: Request) {
           totalCents: true,
           date: true,
           program: true,
+          clienteId: true,
           cliente: { select: { nome: true } },
         },
         orderBy: { date: "desc" },
@@ -84,6 +85,12 @@ export async function GET(req: Request) {
         where: { team: session.team, isActive: true },
         select: { id: true, name: true },
       }),
+      prisma.pixPayerAlias
+        .findMany({
+          where: { team: session.team },
+          select: { payerNameNorm: true, clienteId: true },
+        })
+        .catch(() => [] as Array<{ payerNameNorm: string; clienteId: string }>),
     ]);
 
     const salesLite = pendingSales.map((r) => ({
@@ -91,6 +98,7 @@ export async function GET(req: Request) {
       numero: r.numero,
       locator: r.locator,
       totalCents: r.totalCents,
+      clienteId: r.clienteId,
       clienteNome: r.cliente.nome,
       date: r.date,
       program: String(r.program),
@@ -116,7 +124,7 @@ export async function GET(req: Request) {
 
         const parsed = parsePixEmailText(subject, snippet);
         const match = parsed
-          ? classifyAndMatchPix({ parsed, pendingSales: salesLite, employees })
+          ? classifyAndMatchPix({ parsed, pendingSales: salesLite, employees, learnedAliases })
           : emptyMatch;
 
         return buildPixAlertRow({

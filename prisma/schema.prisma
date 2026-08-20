@@ -1399,6 +1399,7 @@ model Cliente {
 
   sales                      Sale[]
   affiliateCommissions       AffiliateCommission[]
+  pixPayerAliases            PixPayerAlias[]
   balcaoOperationsAsSupplier BalcaoOperacao[]      @relation("BalcaoSupplierCliente")
   balcaoOperationsAsFinal    BalcaoOperacao[]      @relation("BalcaoFinalCliente")
 
@@ -2243,4 +2244,27 @@ model Despesa {
   @@index([team, status])
   @@index([recurringId])
   @@map("despesas")
+}
+
+/**
+ * Vincula nome do pagador Pix (terceiro) ao cliente da venda.
+ * Quando o usuário confirma um alerta, o sistema “aprende” o apelido.
+ */
+model PixPayerAlias {
+  id String @id @default(cuid())
+
+  team          String
+  payerNameNorm String
+  payerNameRaw  String?
+
+  clienteId String
+  cliente   Cliente @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([team, payerNameNorm], map: "uniq_pix_payer_alias_team_name")
+  @@index([team])
+  @@index([clienteId])
+  @@map("pix_payer_aliases")
 }

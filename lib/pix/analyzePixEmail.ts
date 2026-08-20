@@ -2,9 +2,10 @@ import { prisma } from "@/lib/prisma";
 import { classifyAndMatchPix } from "./matchPixToPendingSales";
 import { interpretPixEmailWithAI } from "./interpretPixEmailWithAI";
 import { parsePixEmailText } from "./parsePixEmail";
+import { normalizeName } from "./normalizeName";
 import type { PixAlertRow, PixMatchResult, ParsedPixEmail } from "./types";
 
-async function loadPendingSales(team: string) {
+export async function loadPendingSales(team: string) {
   const rows = await prisma.sale.findMany({
     where: {
       paymentStatus: "PENDING",
@@ -17,6 +18,7 @@ async function loadPendingSales(team: string) {
       totalCents: true,
       date: true,
       program: true,
+      clienteId: true,
       cliente: { select: { nome: true } },
     },
     orderBy: { date: "desc" },
@@ -28,18 +30,62 @@ async function loadPendingSales(team: string) {
     numero: r.numero,
     locator: r.locator,
     totalCents: r.totalCents,
+    clienteId: r.clienteId,
     clienteNome: r.cliente.nome,
     date: r.date,
     program: String(r.program),
   }));
 }
 
-async function loadEmployees(team: string) {
-  const rows = await prisma.user.findMany({
+export async function loadEmployees(team: string) {
+  return prisma.user.findMany({
     where: { team, isActive: true },
     select: { id: true, name: true },
   });
-  return rows;
+}
+
+export async function loadLearnedAliases(team: string) {
+  try {
+    const rows = await prisma.pixPayerAlias.findMany({
+      where: { team },
+      select: { payerNameNorm: true, clienteId: true },
+    });
+    return rows;
+  } catch {
+    return [];
+  }
+}
+
+export async function rememberPayerAlias(args: {
+  team: string;
+  payerName: string;
+  clienteId: string;
+}) {
+  const payerNameNorm = normalizeName(args.payerName);
+  if (!payerNameNorm || payerNameNorm.length < 3) return;
+
+  try {
+    const existing = await prisma.pixPayerAlias.findFirst({
+      where: { team: args.team, payerNameNorm },
+    });
+    if (existing) {
+      await prisma.pixPayerAlias.update({
+        where: { id: existing.id },
+        data: { clienteId: args.clienteId, payerNameRaw: args.payerName },
+      });
+      return;
+    }
+    await prisma.pixPayerAlias.create({
+      data: {
+        team: args.team,
+        payerNameNorm,
+        payerNameRaw: args.payerName,
+        clienteId: args.clienteId,
+      },
+    });
+  } catch {
+    /* tabela pode ainda não existir neste deploy */
+  }
 }
 
 export async function analyzePixEmailContent(args: {
@@ -53,6 +99,10 @@ export async function analyzePixEmailContent(args: {
   let parsed = parsePixEmailText(subject, body);
   if (!parsed && useAi) {
     parsed = await interpretPixEmailWithAI(subject, body);
+  }
+  if (parsed?.payerName && parsed.source === "regex" && useAi && /r\$/i.test(parsed.payerName)) {
+    const ai = await interpretPixEmailWithAI(subject, body);
+    if (ai?.payerName) parsed = { ...parsed, payerName: ai.payerName, source: "openai" };
   }
 
   const emptyMatch: PixMatchResult = {
@@ -69,12 +119,13 @@ export async function analyzePixEmailContent(args: {
     return { parsed: null, match: emptyMatch };
   }
 
-  const [pendingSales, employees] = await Promise.all([
+  const [pendingSales, employees, learnedAliases] = await Promise.all([
     loadPendingSales(team),
     loadEmployees(team),
+    loadLearnedAliases(team),
   ]);
 
-  const match = classifyAndMatchPix({ parsed, pendingSales, employees });
+  const match = classifyAndMatchPix({ parsed, pendingSales, employees, learnedAliases });
   return { parsed, match };
 }
 

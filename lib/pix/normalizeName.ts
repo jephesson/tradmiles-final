@@ -16,15 +16,23 @@ export function nameTokens(s: string) {
     .filter((t) => t.length > 1 && !STOP.has(t));
 }
 
-/** Heurística: 2 tokens em comum ou primeiro+último nome. */
+export function sharedNameTokens(a: string, b: string) {
+  const ta = nameTokens(a);
+  const tb = nameTokens(b);
+  if (!ta.length || !tb.length) return [] as string[];
+  const setB = new Set(tb);
+  return ta.filter((t) => setB.has(t));
+}
+
+/** Heurística: 2 tokens em comum, 1 token forte (≥4 letras) ou primeiro+último. */
 export function namesLikelyMatch(a: string, b: string) {
   const ta = nameTokens(a);
   const tb = nameTokens(b);
   if (!ta.length || !tb.length) return false;
 
-  const setB = new Set(tb);
-  const common = ta.filter((t) => setB.has(t));
+  const common = sharedNameTokens(a, b);
   if (common.length >= 2) return true;
+  if (common.some((t) => t.length >= 4)) return true;
 
   const firstA = ta[0];
   const lastA = ta[ta.length - 1];

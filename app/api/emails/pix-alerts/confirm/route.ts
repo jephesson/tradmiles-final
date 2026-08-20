@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { prisma } from "@/lib/prisma";
+import { rememberPayerAlias } from "@/lib/pix/analyzePixEmail";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -40,6 +41,7 @@ export async function POST(req: Request) {
     ? body.saleIds.map((x: unknown) => String(x || "").trim()).filter(Boolean)
     : [];
   const gmailMessageId = String(body.gmailMessageId || "").trim() || null;
+  const payerName = String(body.payerName || "").trim();
 
   if (!saleIds.length) return bad("Informe ao menos uma venda (saleIds).");
 
@@ -54,7 +56,7 @@ export async function POST(req: Request) {
           paymentStatus: "PENDING",
           cedente: { owner: { team: session.team } },
         },
-        select: { id: true, totalCents: true, receivableId: true, numero: true },
+        select: { id: true, totalCents: true, receivableId: true, numero: true, clienteId: true },
       });
 
       if (!sales.length) throw new Error("Nenhuma venda pendente encontrada para marcar como paga.");
@@ -89,6 +91,14 @@ export async function POST(req: Request) {
 
       return sales;
     });
+
+    if (payerName && updated[0]?.clienteId) {
+      await rememberPayerAlias({
+        team: session.team,
+        payerName,
+        clienteId: updated[0].clienteId,
+      });
+    }
 
     return NextResponse.json({
       ok: true,

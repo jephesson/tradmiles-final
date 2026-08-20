@@ -19,16 +19,19 @@ export type PixMatchSale = {
   numero: string;
   locator: string | null;
   totalCents: number;
+  clienteId: string;
   clienteNome: string;
   date: string;
   program: string;
+  amountDiffCents: number;
+  reason: string;
 };
 
 export type PixMatchResult = {
   classification: PixClassification;
   classificationLabel: string;
   suggestedSales: PixMatchSale[];
-  matchKind: "exact" | "grouped" | "name_only" | "amount_only" | "none";
+  matchKind: "exact" | "close_amount" | "grouped" | "learned" | "name_only" | "amount_only" | "probable" | "none";
   matchedTotalCents: number;
   amountDiffCents: number;
   employeeName: string | null;

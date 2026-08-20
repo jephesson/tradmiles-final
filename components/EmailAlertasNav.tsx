@@ -60,6 +60,16 @@ function fmtPixMoney(cents: number) {
   return ((cents || 0) / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
 
+function pixFilterName(match: PixMatchResult) {
+  if (match.classification === "UNKNOWN") return "Pix desconhecido";
+  if (match.classification === "EMPLOYEE") return "Pix funcionário";
+  if (match.classification === "COMPANY_INTERNAL") return "Pix interno";
+  if (match.matchKind === "close_amount" || match.matchKind === "probable") return "Pix — mais provável";
+  if (match.matchKind === "learned") return "Pix conhecido";
+  if (match.amountDiffCents) return "Pix — conferir valor";
+  return "Pix recebido";
+}
+
 type Detail = {
   id: string;
   subject: string;
@@ -148,10 +158,7 @@ export default function EmailAlertasNav() {
                 program: null,
                 cedente: null,
                 filterId: "__pix__",
-                filterName:
-                  pr.match.classification === "UNKNOWN"
-                    ? "Pix desconhecido"
-                    : "Pix recebido",
+                filterName: pixFilterName(pr.match),
                 kind: "pix" as const,
                 pixParsed: pr.parsed,
                 pixMatch: pr.match,
@@ -238,14 +245,7 @@ export default function EmailAlertasNav() {
             program: null,
             cedente: null,
             filterId: "__pix__",
-            filterName:
-              pr.match.classification === "UNKNOWN"
-                ? "Pix desconhecido"
-                : pr.match.classification === "EMPLOYEE"
-                  ? "Pix funcionário"
-                  : pr.match.classification === "COMPANY_INTERNAL"
-                    ? "Pix interno"
-                    : "Pix recebido",
+            filterName: pixFilterName(pr.match),
             kind: "pix",
             pixParsed: pr.parsed,
             pixMatch: pr.match,

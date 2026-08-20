@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { Loader2, X, CheckCircle2, AlertTriangle, Banknote } from "lucide-react";
 import { cn } from "@/lib/cn";
 import type { PixAlertRow } from "@/lib/pix/types";
@@ -29,6 +30,11 @@ export default function PixAlertModal({ messageId, onClose, onConfirmed, onDismi
   const [row, setRow] = useState<PixAlertRow | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [err, setErr] = useState("");
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   useEffect(() => {
     if (!messageId) {
@@ -49,7 +55,8 @@ export default function PixAlertModal({ messageId, onClose, onConfirmed, onDismi
         if (!res.ok || !json?.ok) throw new Error(json?.error || "Falha ao analisar Pix.");
         const data = json as PixAlertRow;
         setRow(data);
-        setSelected(new Set(data.match.suggestedSales.map((s) => s.saleId)));
+        const first = data.match.suggestedSales[0];
+        setSelected(first ? new Set([first.saleId]) : new Set());
       } catch (e) {
         setErr(e instanceof Error ? e.message : "Erro ao analisar.");
         setRow(null);
@@ -59,7 +66,7 @@ export default function PixAlertModal({ messageId, onClose, onConfirmed, onDismi
     })();
   }, [messageId]);
 
-  if (!messageId) return null;
+  if (!messageId || !mounted) return null;
 
   async function confirmPaid() {
     if (!row || !selected.size) return;
@@ -72,6 +79,7 @@ export default function PixAlertModal({ messageId, onClose, onConfirmed, onDismi
         body: JSON.stringify({
           saleIds: Array.from(selected),
           gmailMessageId: row.id,
+          payerName: row.parsed?.payerName || "",
         }),
       });
       const json = await res.json();
@@ -91,15 +99,17 @@ export default function PixAlertModal({ messageId, onClose, onConfirmed, onDismi
       ? "bg-amber-50 text-amber-800 border-amber-200"
       : row?.match.classification === "EMPLOYEE" || row?.match.classification === "COMPANY_INTERNAL"
         ? "bg-slate-100 text-slate-700 border-slate-200"
-        : "bg-emerald-50 text-emerald-800 border-emerald-200";
+        : row?.match.amountDiffCents
+          ? "bg-amber-50 text-amber-800 border-amber-200"
+          : "bg-emerald-50 text-emerald-800 border-emerald-200";
 
-  return (
-    <div className="fixed inset-0 z-[90] flex items-center justify-center bg-slate-900/40 p-4">
-      <div className="max-h-[90vh] w-full max-w-lg overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl">
-        <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
+  const modal = (
+    <div className="fixed inset-0 z-[120] flex items-center justify-center bg-slate-900/55 p-4 backdrop-blur-[2px]">
+      <div className="flex max-h-[90vh] w-full max-w-xl flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl">
+        <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
           <div className="flex items-center gap-2">
             <Banknote className="h-5 w-5 text-emerald-600" />
-            <div className="text-sm font-semibold text-slate-900">Pix recebido</div>
+            <div className="text-base font-semibold text-slate-900">Pix recebido</div>
           </div>
           <button
             type="button"
@@ -111,7 +121,7 @@ export default function PixAlertModal({ messageId, onClose, onConfirmed, onDismi
           </button>
         </div>
 
-        <div className="max-h-[calc(90vh-8rem)] overflow-y-auto px-4 py-4">
+        <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
           {loading ? (
             <div className="flex items-center gap-2 py-8 text-sm text-slate-500">
               <Loader2 className="h-4 w-4 animate-spin" />
@@ -121,8 +131,8 @@ export default function PixAlertModal({ messageId, onClose, onConfirmed, onDismi
             <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{err}</div>
           ) : row ? (
             <div className="space-y-4">
-              <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
-                <div className="text-lg font-bold text-slate-900">
+              <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                <div className="text-2xl font-bold text-slate-900">
                   {row.parsed ? fmtMoney(row.parsed.amountCents) : "—"}
                 </div>
                 {row.parsed?.payerName && (
@@ -138,13 +148,23 @@ export default function PixAlertModal({ messageId, onClose, onConfirmed, onDismi
                 )}
               </div>
 
+              {row.match.amountDiffCents !== 0 && row.match.suggestedSales.length > 0 && (
+                <div className="flex items-start gap-1.5 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                  <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                  Valor do Pix e da venda não são iguais (diferença de{" "}
+                  {fmtMoney(Math.abs(row.match.amountDiffCents))}). Confira antes de marcar como pago.
+                </div>
+              )}
+
               {row.match.suggestedSales.length > 0 ? (
                 <div>
                   <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
-                    Vendas prováveis — marque as pagas
+                    {row.match.matchKind === "probable" || row.match.matchKind === "close_amount"
+                      ? "Mais provável — marque se for essa venda"
+                      : "Vendas sugeridas — marque as pagas"}
                   </div>
                   <div className="space-y-2">
-                    {row.match.suggestedSales.map((s) => {
+                    {row.match.suggestedSales.map((s, idx) => {
                       const checked = selected.has(s.saleId);
                       return (
                         <label
@@ -168,12 +188,20 @@ export default function PixAlertModal({ messageId, onClose, onConfirmed, onDismi
                             }}
                           />
                           <div className="min-w-0 flex-1">
-                            <div className="font-medium text-slate-900">{s.clienteNome}</div>
+                            <div className="font-medium text-slate-900">
+                              {idx === 0 ? "★ " : ""}
+                              {s.clienteNome}
+                            </div>
                             <div className="text-xs text-slate-600">
                               {s.numero} · {fmtMoney(s.totalCents)}
                               {s.locator ? ` · Loc. ${s.locator}` : ""}
+                              {s.amountDiffCents
+                                ? ` · ${s.amountDiffCents > 0 ? "+" : ""}${fmtMoney(s.amountDiffCents)} vs Pix`
+                                : ""}
                             </div>
-                            <div className="text-[11px] text-slate-500">{s.program}</div>
+                            {s.reason ? (
+                              <div className="mt-0.5 text-[11px] text-slate-500">{s.reason}</div>
+                            ) : null}
                           </div>
                         </label>
                       );
@@ -183,12 +211,6 @@ export default function PixAlertModal({ messageId, onClose, onConfirmed, onDismi
                     <div className="mt-2 flex items-start gap-1.5 text-xs text-emerald-800">
                       <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0" />
                       Soma das vendas selecionadas bate com o Pix recebido.
-                    </div>
-                  )}
-                  {row.match.amountDiffCents !== 0 && row.match.matchKind === "name_only" && (
-                    <div className="mt-2 flex items-start gap-1.5 text-xs text-amber-800">
-                      <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-                      Valor do Pix difere do total pendente — confira antes de marcar.
                     </div>
                   )}
                 </div>
@@ -201,7 +223,7 @@ export default function PixAlertModal({ messageId, onClose, onConfirmed, onDismi
           ) : null}
         </div>
 
-        <div className="flex flex-wrap gap-2 border-t border-slate-100 px-4 py-3">
+        <div className="flex flex-wrap gap-2 border-t border-slate-100 px-5 py-3">
           {row?.match.suggestedSales.length ? (
             <button
               type="button"
@@ -226,4 +248,6 @@ export default function PixAlertModal({ messageId, onClose, onConfirmed, onDismi
       </div>
     </div>
   );
+
+  return createPortal(modal, document.body);
 }

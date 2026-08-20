@@ -19,6 +19,14 @@ function detectBank(text: string): ParsedPixEmail["bank"] {
   return "OTHER";
 }
 
+function cleanPayerName(raw: string) {
+  return String(raw || "")
+    .replace(/^r\$\s*[\d.]+,\d{2}\s*(de\s+)?/i, "")
+    .replace(/,?\s*na conta.*$/i, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 /** Parser regex — Inter e padrões comuns de Pix recebido. */
 export function parsePixEmailText(subject: string, body: string): ParsedPixEmail | null {
   const text = `${subject}\n${body}`.replace(/\s+/g, " ");
@@ -55,15 +63,17 @@ export function parsePixEmailText(subject: string, body: string): ParsedPixEmail
   let payerName: string | null = null;
   const payerPatterns = [
     /recebemos o valor de\s*r\$\s*[\d.,]+\s+de\s+(.+?),\s*na conta/i,
-    /recebemos o valor de\s*r\$\s*[\d.,]+\s+de\s+(.+?)\./i,
+    /recebemos o valor de\s*r\$\s*[\d.,]+\s+de\s+(.+?)(?:\.|$)/i,
+    /valor de\s*r\$\s*[\d.,]+\s+de\s+(.+?)(?:,\s*na conta|\.|$)/i,
+    /r\$\s*[\d.]+,\d{2}\s+de\s+(.+?)(?:,\s*na conta|\.|$)/i,
     /de\s+(.+?),\s*na conta\s+\d/i,
     /pix recebido de\s+(.+?)(?:\.|,|$)/i,
   ];
   for (const re of payerPatterns) {
     const m = text.match(re);
     if (m?.[1]) {
-      payerName = m[1].trim().replace(/\s+/g, " ");
-      if (payerName.length >= 3) break;
+      payerName = cleanPayerName(m[1]);
+      if (payerName && payerName.length >= 3) break;
       payerName = null;
     }
   }
