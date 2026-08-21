@@ -22,6 +22,7 @@ import { cn } from "@/lib/cn";
 import { fetchUpcomingSmilesFlightsForCedente } from "@/lib/cedentes/fetchUpcomingSmilesFlights";
 import { appendSmilesFlightsToExclusaoConfirm } from "@/lib/cedentes/upcomingSmilesFlightsShared";
 import { buildWhatsAppLink, normalizeBRPhoneToE164 } from "@/lib/whatsapp";
+import { VerificationCodeFetch } from "@/components/cedentes/VerificationCodeFetch";
 
 type PromoStatus = "PENDING" | "ELIGIBLE" | "DENIED" | "USED";
 
@@ -1118,6 +1119,14 @@ export default function LatamListaPromoPage() {
                   >
                     <Copy size={13} /> {copiedField === "senhaEmail" ? "Copiado" : "Copiar"}
                   </button>
+                </div>
+
+                <div className="md:col-span-2">
+                  <VerificationCodeFetch
+                    cedenteId={credentials.cedenteId}
+                    program="LATAM"
+                    email={credentials.email}
+                  />
                 </div>
               </div>
             )}
