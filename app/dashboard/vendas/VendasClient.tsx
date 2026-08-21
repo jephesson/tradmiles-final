@@ -12,6 +12,7 @@ import {
   CircleCheck,
   Ban,
   Undo2,
+  Receipt,
 } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { buildClientChargeMessageFromSale } from "@/lib/vendas/buildClientChargeMessage";
@@ -34,6 +35,8 @@ const ACTION_BTN_CANCEL =
 const ACTION_BTN_REVERT =
   "border border-violet-200/90 bg-violet-50 text-violet-900 shadow-sm hover:border-violet-300 hover:bg-violet-100";
 const ACTION_STACK = "flex w-[108px] flex-col gap-1";
+const CONTROL_PLAIN =
+  "h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-800 shadow-sm outline-none transition focus:border-slate-400";
 function fmtMoneyBR(cents: number) {
   return ((cents || 0) / 100).toLocaleString("pt-BR", {
     style: "currency",
@@ -377,6 +380,25 @@ export default function VendasClient() {
   const [cancelFinePerPaxStr, setCancelFinePerPaxStr] = useState("");
   const [cancelSubmitting, setCancelSubmitting] = useState(false);
 
+  // Lançamento avulso (multa / diferença / reembolso) — só cliente
+  type LancamentoKind = "MULTA" | "DIFERENCA" | "REEMBOLSO";
+  type LancamentoCliente = {
+    id: string;
+    nome: string;
+    identificador: string;
+    cpfCnpj?: string | null;
+    telefone?: string | null;
+  };
+  const [lancOpen, setLancOpen] = useState(false);
+  const [lancKind, setLancKind] = useState<LancamentoKind>("MULTA");
+  const [lancClienteQ, setLancClienteQ] = useState("");
+  const [lancClienteHits, setLancClienteHits] = useState<LancamentoCliente[]>([]);
+  const [lancCliente, setLancCliente] = useState<LancamentoCliente | null>(null);
+  const [lancValorStr, setLancValorStr] = useState("");
+  const [lancNote, setLancNote] = useState("");
+  const [lancSubmitting, setLancSubmitting] = useState(false);
+  const [lancSearching, setLancSearching] = useState(false);
+
   function openChargeMessage(r: SaleRow) {
     const msg = buildClientChargeMessageFromSale(r);
     setChargeMsg(msg);
@@ -395,6 +417,30 @@ export default function VendasClient() {
   function closeCancelModal() {
     if (cancelSubmitting) return;
     setCancelTarget(null);
+  }
+
+  function openLancamentoModal() {
+    setLancKind("MULTA");
+    setLancValorStr("");
+    setLancNote("");
+    setLancClienteHits([]);
+    if (selectedClient) {
+      setLancCliente({
+        id: selectedClient.id,
+        nome: selectedClient.nome,
+        identificador: selectedClient.identificador,
+      });
+      setLancClienteQ(`${selectedClient.nome} (${selectedClient.identificador})`);
+    } else {
+      setLancCliente(null);
+      setLancClienteQ("");
+    }
+    setLancOpen(true);
+  }
+
+  function closeLancamentoModal() {
+    if (lancSubmitting) return;
+    setLancOpen(false);
   }
 
   async function copyChargeMessage() {
@@ -758,6 +804,117 @@ export default function VendasClient() {
     return clients.find((c) => c.id === clientId) || null;
   }, [clients, clientId]);
 
+  useEffect(() => {
+    if (!lancOpen) return;
+    const q = lancClienteQ.trim();
+    if (lancCliente && q === `${lancCliente.nome} (${lancCliente.identificador})`) {
+      setLancClienteHits([]);
+      return;
+    }
+    if (q.length < 2) {
+      setLancClienteHits([]);
+      return;
+    }
+    let cancelled = false;
+    setLancSearching(true);
+    const t = window.setTimeout(async () => {
+      try {
+        const out = await api<{
+          ok: true;
+          data?: { clientes?: LancamentoCliente[] };
+        }>(`/api/clientes?q=${encodeURIComponent(q)}&limit=20`);
+        if (cancelled) return;
+        const list = out.data?.clientes || [];
+        setLancClienteHits(
+          list.map((c) => ({
+            id: c.id,
+            nome: c.nome,
+            identificador: c.identificador,
+            cpfCnpj: c.cpfCnpj ?? null,
+            telefone: c.telefone ?? null,
+          }))
+        );
+      } catch {
+        if (!cancelled) setLancClienteHits([]);
+      } finally {
+        if (!cancelled) setLancSearching(false);
+      }
+    }, 280);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(t);
+    };
+  }, [lancOpen, lancClienteQ, lancCliente]);
+
+  async function submitLancamento() {
+    if (lancSubmitting) return;
+    if (!lancCliente) {
+      alert("Selecione o cliente.");
+      return;
+    }
+    const cents = moneyToCentsBR(lancValorStr);
+    if (cents <= 0) {
+      alert("Informe um valor maior que zero.");
+      return;
+    }
+
+    const kindLabel =
+      lancKind === "MULTA"
+        ? "Multa"
+        : lancKind === "DIFERENCA"
+          ? "Diferença tarifária"
+          : "Reembolso";
+    const title = `${kindLabel} · ${lancCliente.nome}`;
+    const note = lancNote.trim();
+    const sourceLabel = `${lancKind}-${lancCliente.identificador}`;
+
+    setLancSubmitting(true);
+    try {
+      if (lancKind === "REEMBOLSO") {
+        await api<{ ok: true }>("/api/dividas", {
+          method: "POST",
+          body: JSON.stringify({
+            title,
+            description:
+              note ||
+              `Reembolso ao cliente ${lancCliente.nome} (${lancCliente.identificador}). Sem vínculo com venda/compra.`,
+            creditorName: lancCliente.nome,
+            total: (cents / 100).toFixed(2).replace(".", ","),
+            dueDate: null,
+          }),
+        });
+      } else {
+        await api<{ ok: true }>("/api/dividas-a-receber", {
+          method: "POST",
+          body: JSON.stringify({
+            debtorName: lancCliente.nome,
+            debtorDoc: lancCliente.cpfCnpj || null,
+            debtorPhone: lancCliente.telefone || null,
+            title,
+            description:
+              note ||
+              `${kindLabel} do cliente ${lancCliente.nome} (${lancCliente.identificador}). Sem vínculo com venda/compra.`,
+            category: "SERVICO",
+            method: "PIX",
+            totalCents: cents,
+            sourceLabel,
+          }),
+        });
+      }
+
+      setLancOpen(false);
+      alert(
+        lancKind === "REEMBOLSO"
+          ? `Reembolso de ${fmtMoneyBR(cents)} lançado em Dívidas (a pagar).`
+          : `${kindLabel} de ${fmtMoneyBR(cents)} lançada em Dívidas a receber.`
+      );
+    } catch (error: unknown) {
+      alert(errorMessage(error, "Falha ao lançar."));
+    } finally {
+      setLancSubmitting(false);
+    }
+  }
+
   const filtered = useMemo(() => {
     const s = (q || "").trim().toLowerCase();
 
@@ -1036,6 +1193,15 @@ export default function VendasClient() {
           >
             <RefreshCw className={cn("h-4 w-4 text-slate-500", loading && "animate-spin")} strokeWidth={2} aria-hidden />
             {loading ? "Atualizando..." : "Atualizar"}
+          </button>
+          <button
+            type="button"
+            onClick={openLancamentoModal}
+            className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-slate-200/90 bg-white px-4 text-sm font-medium text-slate-800 shadow-sm transition hover:border-slate-300 hover:bg-slate-50"
+            title="Lançar multa, diferença tarifária ou reembolso para um cliente"
+          >
+            <Receipt className="h-4 w-4 shrink-0 text-slate-500" strokeWidth={2} aria-hidden />
+            Lançar
           </button>
           <Link
             href="/dashboard/vendas/nova"
@@ -2108,6 +2274,169 @@ export default function VendasClient() {
                 </>
               );
             })()}
+          </div>
+        </div>
+      ) : null}
+
+      {lancOpen ? (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/45 p-4 backdrop-blur-[2px]"
+          onMouseDown={closeLancamentoModal}
+        >
+          <div
+            className="w-full max-w-lg rounded-2xl border border-slate-200/90 bg-white p-5 shadow-2xl shadow-slate-900/20 sm:p-6"
+            onMouseDown={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <div className="text-lg font-bold tracking-tight text-slate-900">
+                  Lançar para cliente
+                </div>
+                <div className="mt-1 text-xs text-slate-500">
+                  Multa, diferença tarifária ou reembolso — só vinculado ao cliente.
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={closeLancamentoModal}
+                disabled={lancSubmitting}
+                className="rounded-xl border border-slate-200 bg-white px-2.5 py-1 text-sm text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="mt-4 space-y-3">
+              <div>
+                <div className={FIELD_LABEL}>Tipo</div>
+                <div className="mt-1.5 flex flex-wrap gap-2">
+                  {(
+                    [
+                      ["MULTA", "Multa"],
+                      ["DIFERENCA", "Diferença tarifária"],
+                      ["REEMBOLSO", "Reembolso"],
+                    ] as const
+                  ).map(([id, label]) => (
+                    <button
+                      key={id}
+                      type="button"
+                      onClick={() => setLancKind(id)}
+                      disabled={lancSubmitting}
+                      className={cn(
+                        "rounded-full border px-3 py-1.5 text-xs font-semibold transition",
+                        lancKind === id
+                          ? "border-slate-900 bg-slate-900 text-white"
+                          : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+                      )}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="relative">
+                <div className={FIELD_LABEL}>Cliente</div>
+                <input
+                  className={cn(CONTROL_PLAIN, "mt-1.5")}
+                  value={lancClienteQ}
+                  onChange={(e) => {
+                    setLancClienteQ(e.target.value);
+                    setLancCliente(null);
+                  }}
+                  placeholder="Buscar nome, ID ou CPF…"
+                  disabled={lancSubmitting}
+                />
+                {lancSearching ? (
+                  <div className="mt-1 text-[11px] text-slate-500">Buscando…</div>
+                ) : null}
+                {lancCliente ? (
+                  <div className="mt-1.5 rounded-xl border border-emerald-200 bg-emerald-50/80 px-3 py-2 text-xs text-emerald-900">
+                    Selecionado: <b>{lancCliente.nome}</b> ({lancCliente.identificador})
+                  </div>
+                ) : null}
+                {!lancCliente && lancClienteHits.length > 0 ? (
+                  <div className="absolute z-10 mt-1 max-h-48 w-full overflow-auto rounded-xl border border-slate-200 bg-white shadow-lg">
+                    {lancClienteHits.map((c) => (
+                      <button
+                        key={c.id}
+                        type="button"
+                        className="flex w-full flex-col gap-0.5 px-3 py-2 text-left text-sm hover:bg-slate-50"
+                        onClick={() => {
+                          setLancCliente(c);
+                          setLancClienteQ(`${c.nome} (${c.identificador})`);
+                          setLancClienteHits([]);
+                        }}
+                      >
+                        <span className="font-medium text-slate-900">{c.nome}</span>
+                        <span className="text-[11px] text-slate-500">
+                          {c.identificador}
+                          {c.cpfCnpj ? ` · ${c.cpfCnpj}` : ""}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+
+              <div>
+                <div className={FIELD_LABEL}>Valor</div>
+                <div className="mt-1.5 flex items-center gap-2">
+                  <span className="text-sm text-slate-500">R$</span>
+                  <input
+                    className={CONTROL_PLAIN}
+                    value={lancValorStr}
+                    onChange={(e) => setLancValorStr(e.target.value)}
+                    placeholder="0,00"
+                    disabled={lancSubmitting}
+                  />
+                </div>
+              </div>
+
+              <div>
+                <div className={FIELD_LABEL}>Observação (opcional)</div>
+                <textarea
+                  className="mt-1.5 min-h-[72px] w-full resize-y rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-slate-400"
+                  value={lancNote}
+                  onChange={(e) => setLancNote(e.target.value)}
+                  placeholder="Ex.: taxa de alteração de voo, LOC ABC123…"
+                  disabled={lancSubmitting}
+                />
+              </div>
+
+              <div className="rounded-xl border border-slate-200 bg-slate-50/90 px-3 py-2.5 text-xs leading-relaxed text-slate-600">
+                {lancKind === "REEMBOLSO" ? (
+                  <>
+                    Vai para <b>Dívidas a pagar</b> (você deve ao cliente). Sem vínculo com venda ou
+                    compra.
+                  </>
+                ) : (
+                  <>
+                    Vai para <b>Dívidas a receber</b> (cliente te deve). Sem vínculo com venda ou
+                    compra — não entra no lucro da venda.
+                  </>
+                )}
+              </div>
+            </div>
+
+            <div className="mt-5 flex flex-wrap justify-end gap-2">
+              <button
+                type="button"
+                onClick={closeLancamentoModal}
+                disabled={lancSubmitting}
+                className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-800 hover:bg-slate-50 disabled:opacity-50"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={() => void submitLancamento()}
+                disabled={lancSubmitting}
+                className="rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-50"
+              >
+                {lancSubmitting ? "Salvando…" : "Lançar"}
+              </button>
+            </div>
           </div>
         </div>
       ) : null}
