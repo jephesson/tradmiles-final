@@ -2,6 +2,8 @@
 
   import { useEffect, useMemo, useState } from "react";
   import { useRouter, useSearchParams } from "next/navigation";
+  import { Copy, KeyRound, X } from "lucide-react";
+  import { VerificationCodeFetch } from "@/components/cedentes/VerificationCodeFetch";
 
   type ProgramKey = "latam" | "smiles" | "livelo" | "esfera";
 
@@ -50,6 +52,24 @@
     return v.toLocaleString("pt-BR");
   }
 
+  function programApiKey(p: ProgramKey): "LATAM" | "SMILES" | "LIVELO" | "ESFERA" {
+    if (p === "smiles") return "SMILES";
+    if (p === "livelo") return "LIVELO";
+    if (p === "esfera") return "ESFERA";
+    return "LATAM";
+  }
+
+  type CredentialsState = {
+    cedenteId: string;
+    nomeCompleto: string;
+    identificador: string;
+    cpf: string;
+    email: string | null;
+    senhaEmail: string | null;
+    senhaPrograma: string | null;
+    senhaLivelo: string | null;
+  };
+
   export default function PainelEmissoesClient({
     initialProgram,
   }: {
@@ -73,6 +93,103 @@
     // painel
     const [panel, setPanel] = useState<PanelApiResp | null>(null);
     const [panelLoading, setPanelLoading] = useState(false);
+
+    const [credentials, setCredentials] = useState<CredentialsState | null>(null);
+    const [credentialsLoading, setCredentialsLoading] = useState(false);
+    const [credentialsError, setCredentialsError] = useState("");
+    const [copiedField, setCopiedField] = useState("");
+
+    function closeCredentials() {
+      setCredentials(null);
+      setCredentialsError("");
+      setCopiedField("");
+    }
+
+    async function copyValue(field: string, value: string | null | undefined) {
+      const text = String(value || "").trim();
+      if (!text) return;
+      try {
+        await navigator.clipboard.writeText(text);
+        setCopiedField(field);
+        window.setTimeout(() => {
+          setCopiedField((curr) => (curr === field ? "" : curr));
+        }, 1400);
+      } catch {
+        // noop
+      }
+    }
+
+    async function openCredentials(row: {
+      cedenteId: string;
+      nomeCompleto: string;
+      identificador: string;
+      cpf: string;
+    }) {
+      const apiProgram = programApiKey(program);
+      setCredentials({
+        cedenteId: row.cedenteId,
+        nomeCompleto: row.nomeCompleto,
+        identificador: row.identificador,
+        cpf: row.cpf,
+        email: null,
+        senhaEmail: null,
+        senhaPrograma: null,
+        senhaLivelo: null,
+      });
+      setCredentialsError("");
+      setCredentialsLoading(true);
+
+      try {
+        const fetches: Promise<Response>[] = [
+          fetch(
+            `/api/cedentes/credentials?cedenteId=${encodeURIComponent(
+              row.cedenteId
+            )}&program=${apiProgram}`,
+            { cache: "no-store", credentials: "include" }
+          ),
+        ];
+        if (apiProgram === "LATAM") {
+          fetches.push(
+            fetch(
+              `/api/cedentes/credentials?cedenteId=${encodeURIComponent(
+                row.cedenteId
+              )}&program=LIVELO`,
+              { cache: "no-store", credentials: "include" }
+            )
+          );
+        }
+
+        const responses = await Promise.all(fetches);
+        const jsons = await Promise.all(
+          responses.map((r) => r.json().catch(() => null))
+        );
+        const mainRes = responses[0];
+        const mainJson = jsons[0];
+        if (!mainRes.ok || !mainJson?.ok) {
+          throw new Error(mainJson?.error || "Falha ao carregar credenciais.");
+        }
+
+        const liveloJson = jsons[1];
+        setCredentials({
+          cedenteId: row.cedenteId,
+          nomeCompleto: row.nomeCompleto,
+          identificador: row.identificador,
+          cpf: String(mainJson.data?.cpf || row.cpf || ""),
+          email: mainJson.data?.email ?? liveloJson?.data?.email ?? null,
+          senhaEmail:
+            mainJson.data?.senhaEmail ?? liveloJson?.data?.senhaEmail ?? null,
+          senhaPrograma: mainJson.data?.senhaPrograma ?? null,
+          senhaLivelo:
+            apiProgram === "LATAM" ? liveloJson?.data?.senhaPrograma ?? null : null,
+        });
+      } catch (e: unknown) {
+        setCredentialsError(
+          e instanceof Error ? e.message : "Falha ao carregar credenciais."
+        );
+      } finally {
+        setCredentialsLoading(false);
+      }
+    }
 
     function syncUrl(next: { programa?: string }) {
       const params = new URLSearchParams(sp?.toString());
@@ -395,8 +512,26 @@
                           <div className="min-w-[360px]">
                             <div className="flex items-start justify-between gap-3">
                               <div className="min-w-0">
-                                <div className="truncate font-medium">
-                                  {r.nomeCompleto}
+                                <div className="flex items-center gap-1.5">
+                                  <div className="truncate font-medium">
+                                    {r.nomeCompleto}
+                                  </div>
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      openCredentials({
+                                        cedenteId: r.cedenteId,
+                                        nomeCompleto: r.nomeCompleto,
+                                        identificador: r.identificador,
+                                        cpf: r.cpf,
+                                      })
+                                    }
+                                    className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-zinc-200 bg-white text-zinc-600 shadow-sm hover:bg-zinc-50 hover:text-zinc-900"
+                                    title="Credenciais e código de verificação"
+                                    aria-label={`Credenciais de ${r.nomeCompleto}`}
+                                  >
+                                    <KeyRound size={14} />
+                                  </button>
                                 </div>
                                 <div className="truncate text-xs text-zinc-500">
                                   {r.identificador}
@@ -451,6 +586,119 @@
             <b>{panel?.renewMonthKey || "—"}</b>) em vermelho claro.
           </div>
         </div>
+
+        {credentials ? (
+          <div className="fixed inset-0 z-50">
+            <button
+              type="button"
+              className="absolute inset-0 bg-zinc-900/50 backdrop-blur-sm"
+              aria-label="Fechar credenciais"
+              onClick={closeCredentials}
+            />
+            <div className="absolute left-1/2 top-1/2 w-[min(94vw,700px)] -translate-x-1/2 -translate-y-1/2 rounded-2xl border bg-white p-5 shadow-2xl">
+              <div className="mb-4 flex items-start justify-between gap-3">
+                <div>
+                  <div className="text-lg font-semibold">Credenciais</div>
+                  <div className="text-sm text-zinc-500">
+                    {credentials.nomeCompleto} • {credentials.identificador}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={closeCredentials}
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-md border text-zinc-600 hover:bg-zinc-100"
+                  title="Fechar"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+
+              {credentialsError ? (
+                <div className="mb-3 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
+                  {credentialsError}
+                </div>
+              ) : null}
+
+              {credentialsLoading ? (
+                <div className="rounded-xl border bg-zinc-50 px-4 py-8 text-center text-sm text-zinc-500">
+                  Carregando credenciais…
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                  <CredField
+                    label="CPF (login)"
+                    value={credentials.cpf}
+                    copied={copiedField === "cpf"}
+                    onCopy={() => copyValue("cpf", credentials.cpf)}
+                  />
+                  <CredField
+                    label={`Senha ${PROGRAMS.find((p) => p.key === program)?.label || program.toUpperCase()}`}
+                    value={credentials.senhaPrograma}
+                    copied={copiedField === "senhaPrograma"}
+                    onCopy={() => copyValue("senhaPrograma", credentials.senhaPrograma)}
+                  />
+                  {program === "latam" ? (
+                    <CredField
+                      label="Senha LIVELO"
+                      value={credentials.senhaLivelo}
+                      copied={copiedField === "senhaLivelo"}
+                      onCopy={() => copyValue("senhaLivelo", credentials.senhaLivelo)}
+                    />
+                  ) : null}
+                  <CredField
+                    label="E-mail"
+                    value={credentials.email}
+                    copied={copiedField === "email"}
+                    onCopy={() => copyValue("email", credentials.email)}
+                  />
+                  <div className={program === "latam" ? "md:col-span-2" : undefined}>
+                    <CredField
+                      label="Senha do e-mail"
+                      value={credentials.senhaEmail}
+                      copied={copiedField === "senhaEmail"}
+                      onCopy={() => copyValue("senhaEmail", credentials.senhaEmail)}
+                    />
+                  </div>
+                  {program === "latam" || program === "smiles" ? (
+                    <div className="md:col-span-2">
+                      <VerificationCodeFetch
+                        cedenteId={credentials.cedenteId}
+                        program={program === "smiles" ? "SMILES" : "LATAM"}
+                        email={credentials.email}
+                      />
+                    </div>
+                  ) : null}
+                </div>
+              )}
+            </div>
+          </div>
+        ) : null}
+      </div>
+    );
+  }
+
+  function CredField({
+    label,
+    value,
+    copied,
+    onCopy,
+  }: {
+    label: string;
+    value: string | null | undefined;
+    copied: boolean;
+    onCopy: () => void;
+  }) {
+    return (
+      <div className="rounded-xl border bg-zinc-50 p-3">
+        <div className="text-xs uppercase tracking-wide text-zinc-500">{label}</div>
+        <div className="mt-1 break-all font-medium">{value || "-"}</div>
+        <button
+          type="button"
+          onClick={onCopy}
+          className="mt-2 inline-flex items-center gap-1 text-xs text-zinc-600 hover:text-zinc-900"
+        >
+          <Copy size={13} /> {copied ? "Copiado" : "Copiar"}
+        </button>
       </div>
     );
   }
