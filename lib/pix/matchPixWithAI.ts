@@ -40,6 +40,7 @@ function mapSale(s: PendingSaleLite, pixAmount: number, reason: string): PixMatc
 }
 
 export function shouldUseAiMatch(match: PixMatchResult, parsed: ParsedPixEmail) {
+  if (match.matchKind === "already_paid") return false;
   if (match.classification === "UNKNOWN") return true;
   if (match.classification === "EMPLOYEE" && parsed.amountCents < 500) return true;
   if (match.matchKind === "probable" && !match.suggestedSales.length) return true;

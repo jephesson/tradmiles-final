@@ -100,13 +100,15 @@ export default function PixAlertModal({ messageId, onClose, onConfirmed, onDismi
   }
 
   const classificationTone =
-    row?.match.classification === "UNKNOWN"
-      ? "bg-amber-50 text-amber-800 border-amber-200"
-      : row?.match.classification === "EMPLOYEE" || row?.match.classification === "COMPANY_INTERNAL"
-        ? "bg-slate-100 text-slate-700 border-slate-200"
-        : row?.match.amountDiffCents
-          ? "bg-amber-50 text-amber-800 border-amber-200"
-          : "bg-emerald-50 text-emerald-800 border-emerald-200";
+    row?.match.matchKind === "already_paid"
+      ? "bg-emerald-50 text-emerald-800 border-emerald-200"
+      : row?.match.classification === "UNKNOWN"
+        ? "bg-amber-50 text-amber-800 border-amber-200"
+        : row?.match.classification === "EMPLOYEE" || row?.match.classification === "COMPANY_INTERNAL"
+          ? "bg-slate-100 text-slate-700 border-slate-200"
+          : row?.match.amountDiffCents
+            ? "bg-amber-50 text-amber-800 border-amber-200"
+            : "bg-emerald-50 text-emerald-800 border-emerald-200";
 
   const modal = (
     <div className="fixed inset-0 z-[120] flex items-center justify-center bg-slate-900/55 p-4 backdrop-blur-[2px]">
@@ -165,7 +167,25 @@ export default function PixAlertModal({ messageId, onClose, onConfirmed, onDismi
                 </div>
               )}
 
-              {row.match.suggestedSales.length > 0 ? (
+              {row.match.matchKind === "already_paid" ? (
+                <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
+                  {row.match.alreadyPaidSale ? (
+                    <>
+                      Este Pix já foi baixado em{" "}
+                      <b>{row.match.alreadyPaidSale.numero}</b> ·{" "}
+                      {row.match.alreadyPaidSale.clienteNome} (
+                      {fmtMoney(row.match.alreadyPaidSale.totalCents)}).
+                      Não sugerimos outra venda pendente.
+                    </>
+                  ) : (
+                    <>
+                      Não há venda pendente com este valor para o pagador. Pode ser
+                      que já tenha sido marcada como paga — não sugerimos outro
+                      pendente.
+                    </>
+                  )}
+                </div>
+              ) : row.match.suggestedSales.length > 0 ? (
                 <div>
                   <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
                     {row.match.matchKind === "grouped"

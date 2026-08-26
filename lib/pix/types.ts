@@ -31,10 +31,20 @@ export type PixMatchResult = {
   classification: PixClassification;
   classificationLabel: string;
   suggestedSales: PixMatchSale[];
-  matchKind: "exact" | "close_amount" | "grouped" | "learned" | "name_only" | "amount_only" | "probable" | "none";
+  matchKind:
+    | "exact"
+    | "close_amount"
+    | "grouped"
+    | "learned"
+    | "name_only"
+    | "amount_only"
+    | "probable"
+    | "already_paid"
+    | "none";
   matchedTotalCents: number;
   amountDiffCents: number;
   employeeName: string | null;
+  alreadyPaidSale?: PixMatchSale | null;
 };
 
 export type PixAlertRow = {

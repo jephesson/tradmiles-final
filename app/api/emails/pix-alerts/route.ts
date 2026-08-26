@@ -17,7 +17,7 @@ import {
   messageDate,
 } from "@/lib/gmail/parse";
 import { BANK_PIX_GMAIL_QUERY, isBankPixSender, parsePixEmailText } from "@/lib/pix/parsePixEmail";
-import { analyzePixEmailContent, buildPixAlertRow } from "@/lib/pix/analyzePixEmail";
+import { analyzePixEmailContent, buildPixAlertRow, loadPaidSales } from "@/lib/pix/analyzePixEmail";
 import { classifyAndMatchPix } from "@/lib/pix/matchPixToPendingSales";
 import { prisma } from "@/lib/prisma";
 import { METADATA_HEADERS } from "@/lib/gmail/config";
@@ -54,7 +54,7 @@ export async function GET(req: Request) {
     const listed = await listMessages({ q: query, maxResults: limit });
     const ids = (listed.messages || []).map((m) => m.id).filter(Boolean) as string[];
 
-    const [pendingSales, employees, learnedAliases] = await Promise.all([
+    const [pendingSales, paidSales, employees, learnedAliases] = await Promise.all([
       prisma.sale.findMany({
         where: { paymentStatus: "PENDING", cedente: { owner: { team: session.team } } },
         select: {
@@ -70,6 +70,7 @@ export async function GET(req: Request) {
         orderBy: { date: "desc" },
         take: 120,
       }),
+      loadPaidSales(session.team),
       prisma.user.findMany({
         where: { team: session.team, isActive: true },
         select: { id: true, name: true },
@@ -112,7 +113,13 @@ export async function GET(req: Request) {
 
         if (!isBankPixSender(fromAddress, fromName, subject)) return null;
 
-        const match = classifyAndMatchPix({ parsed, pendingSales: salesLite, employees, learnedAliases });
+        const match = classifyAndMatchPix({
+          parsed,
+          pendingSales: salesLite,
+          employees,
+          learnedAliases,
+          paidSales,
+        });
 
         return buildPixAlertRow({
           id: message!.id,

@@ -65,6 +65,7 @@ function pixFilterName(match: PixMatchResult) {
   if (match.classification === "EMPLOYEE") return "Pix funcionário";
   if (match.classification === "COMPANY_INTERNAL") return "Pix interno";
   if (match.matchKind === "close_amount" || match.matchKind === "probable") return "Pix — mais provável";
+  if (match.matchKind === "already_paid") return "Pix — já pago";
   if (match.matchKind === "learned") return "Pix conhecido";
   if (match.amountDiffCents) return "Pix — conferir valor";
   return "Pix recebido";
@@ -580,7 +581,13 @@ export default function EmailAlertasNav() {
                                   De: {row.pixParsed.payerName}
                                 </div>
                               ) : null}
-                              {row.pixMatch?.suggestedSales.length ? (
+                              {row.pixMatch?.matchKind === "already_paid" ? (
+                                <div className="mt-1 text-xs text-emerald-700">
+                                  {row.pixMatch.alreadyPaidSale
+                                    ? `Já pago: ${row.pixMatch.alreadyPaidSale.numero} · ${row.pixMatch.alreadyPaidSale.clienteNome}`
+                                    : "Já pago — não há pendência com este valor"}
+                                </div>
+                              ) : row.pixMatch?.suggestedSales.length ? (
                                 <div className="mt-1 text-xs text-emerald-700">
                                   {row.pixMatch.suggestedSales.length === 1
                                     ? `Provável: ${row.pixMatch.suggestedSales[0]!.clienteNome}${

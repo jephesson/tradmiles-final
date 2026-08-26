@@ -38,6 +38,54 @@ export async function loadPendingSales(team: string) {
   }));
 }
 
+function mapSaleLite(r: {
+  id: string;
+  numero: string;
+  locator: string | null;
+  totalCents: number;
+  clienteId: string;
+  cliente: { nome: string };
+  date: Date;
+  program: unknown;
+}) {
+  return {
+    id: r.id,
+    numero: r.numero,
+    locator: r.locator,
+    totalCents: r.totalCents,
+    clienteId: r.clienteId,
+    clienteNome: r.cliente.nome,
+    date: r.date,
+    program: String(r.program),
+  };
+}
+
+export async function loadPaidSales(team: string) {
+  const since = new Date();
+  since.setDate(since.getDate() - 21);
+  const rows = await prisma.sale.findMany({
+    where: {
+      paymentStatus: "PAID",
+      cedente: { owner: { team } },
+      OR: [{ paidAt: { gte: since } }, { date: { gte: since } }],
+    },
+    select: {
+      id: true,
+      numero: true,
+      locator: true,
+      totalCents: true,
+      date: true,
+      program: true,
+      clienteId: true,
+      cliente: { select: { nome: true } },
+    },
+    orderBy: [{ paidAt: "desc" }, { date: "desc" }],
+    take: 200,
+  });
+
+  return rows.map(mapSaleLite);
+}
+
 export async function loadEmployees(team: string) {
   return prisma.user.findMany({
     where: { team, isActive: true },
@@ -124,15 +172,22 @@ export async function analyzePixEmailContent(args: {
     return { parsed: null, match: emptyMatch };
   }
 
-  const [pendingSales, employees, learnedAliases] = await Promise.all([
+  const [pendingSales, paidSales, employees, learnedAliases] = await Promise.all([
     loadPendingSales(team),
+    loadPaidSales(team),
     loadEmployees(team),
     loadLearnedAliases(team),
   ]);
 
-  let match = classifyAndMatchPix({ parsed, pendingSales, employees, learnedAliases });
+  let match = classifyAndMatchPix({
+    parsed,
+    pendingSales,
+    employees,
+    learnedAliases,
+    paidSales,
+  });
 
-  if (useAi && shouldUseAiMatch(match, parsed)) {
+  if (useAi && match.matchKind !== "already_paid" && shouldUseAiMatch(match, parsed)) {
     const aiMatch = await classifyPixWithAI({ parsed, pendingSales, employees });
     if (aiMatch) match = aiMatch;
   }

@@ -209,13 +209,48 @@ function groupedResult(
   };
 }
 
+function alreadyPaidResult(sale: PendingSaleLite, parsed: ParsedPixEmail): PixMatchResult {
+  const saleView = mapSale(sale, parsed.amountCents, "já marcada como paga");
+  return {
+    classification: "CLIENT_PAYMENT",
+    classificationLabel: `Já está pago — ${sale.numero} · ${sale.clienteNome}`,
+    suggestedSales: [],
+    matchKind: "already_paid",
+    matchedTotalCents: sale.totalCents,
+    amountDiffCents: parsed.amountCents - sale.totalCents,
+    employeeName: null,
+    alreadyPaidSale: saleView,
+  };
+}
+
+function findPaidMatch(
+  paidSales: PendingSaleLite[],
+  parsed: ParsedPixEmail,
+  learnedClienteIds: Set<string>
+): PendingSaleLite | null {
+  const payer = parsed.payerName || "";
+  if (!paidSales.length || parsed.amountCents <= 0) return null;
+
+  const related = paidSales.filter(
+    (s) => learnedClienteIds.has(s.clienteId) || namesLikelyMatch(payer, s.clienteNome)
+  );
+  if (!related.length) return null;
+
+  return (
+    related.find((s) => s.totalCents === parsed.amountCents) ||
+    related.find((s) => amountClose(s.totalCents, parsed.amountCents)) ||
+    null
+  );
+}
+
 export function classifyAndMatchPix(args: {
   parsed: ParsedPixEmail;
   pendingSales: PendingSaleLite[];
   employees: EmployeeLite[];
   learnedAliases?: LearnedAlias[];
+  paidSales?: PendingSaleLite[];
 }): PixMatchResult {
-  const { parsed, pendingSales, employees, learnedAliases = [] } = args;
+  const { parsed, pendingSales, employees, learnedAliases = [], paidSales = [] } = args;
   const payer = parsed.payerName || "";
   const payerNorm = normalizeName(payer);
   const learnedClienteIds = new Set(
@@ -291,10 +326,9 @@ export function classifyAndMatchPix(args: {
     ...byName.map((s) => s.clienteId),
   ]);
 
-  // 1) Venda única com valor exato
-  const exact = (byLearned.length ? byLearned : byName.length ? byName : pendingSales).find(
-    (s) => s.totalCents === parsed.amountCents
-  ) || pendingSales.find((s) => s.totalCents === parsed.amountCents);
+  // 1) Venda única com valor exato (pagador conhecido / nome — não outro cliente com o mesmo valor)
+  const exactPool = byLearned.length ? byLearned : byName;
+  const exact = exactPool.find((s) => s.totalCents === parsed.amountCents);
   if (exact) {
     const learned = learnedClienteIds.has(exact.clienteId);
     return {
@@ -316,10 +350,9 @@ export function classifyAndMatchPix(args: {
     return groupedResult(clienteGroup, parsed, learnedClienteIds);
   }
 
-  // 3) Venda única com valor próximo
-  const close = (byLearned.length ? byLearned : byName.length ? byName : pendingSales).find((s) =>
-    amountClose(s.totalCents, parsed.amountCents)
-  ) || pendingSales.find((s) => amountClose(s.totalCents, parsed.amountCents));
+  // 3) Venda única com valor próximo (só no pagador conhecido / nome — não pega outro pendente solto)
+  const closePool = byLearned.length ? byLearned : byName;
+  const close = closePool.find((s) => amountClose(s.totalCents, parsed.amountCents));
   if (close) {
     const diff = parsed.amountCents - close.totalCents;
     const learned = learnedClienteIds.has(close.clienteId);
@@ -334,6 +367,12 @@ export function classifyAndMatchPix(args: {
     };
   }
 
+  // 3b) Sem pendente que bata: se já marcaram como pago, avisa e NÃO procura outro
+  const paidHit = findPaidMatch(paidSales, parsed, learnedClienteIds);
+  if (paidHit) {
+    return alreadyPaidResult(paidHit, parsed);
+  }
+
   // 4) Subconjunto em pool aprendido / nome
   for (const pool of [byLearned, byName]) {
     if (pool.length < 2) continue;
@@ -343,15 +382,33 @@ export function classifyAndMatchPix(args: {
     }
   }
 
-  if (byLearned.length) {
+  // Pagador conhecido, mas nenhuma pendência fecha o valor — não empurra outro cliente
+  if (learnedClienteIds.size) {
+    const closeLearned = byLearned.filter((s) => amountClose(s.totalCents, parsed.amountCents));
+    if (closeLearned.length) {
+      return {
+        classification: "CLIENT_PAYMENT",
+        classificationLabel: "Pagador conhecido — confira o valor",
+        suggestedSales: closeLearned
+          .slice(0, 5)
+          .map((s) => mapSale(s, parsed.amountCents, reasonFor(s, parsed, true))),
+        matchKind: "learned",
+        matchedTotalCents: closeLearned.reduce((a, s) => a + s.totalCents, 0),
+        amountDiffCents:
+          parsed.amountCents - closeLearned.reduce((a, s) => a + s.totalCents, 0),
+        employeeName: null,
+      };
+    }
     return {
       classification: "CLIENT_PAYMENT",
-      classificationLabel: "Pagador conhecido — confira o valor",
-      suggestedSales: byLearned.slice(0, 5).map((s) => mapSale(s, parsed.amountCents, reasonFor(s, parsed, true))),
-      matchKind: "learned",
-      matchedTotalCents: byLearned.reduce((a, s) => a + s.totalCents, 0),
-      amountDiffCents: parsed.amountCents - byLearned.reduce((a, s) => a + s.totalCents, 0),
+      classificationLabel:
+        "Pagador conhecido — nenhuma pendência com este valor (confira se já foi baixado)",
+      suggestedSales: [],
+      matchKind: "already_paid",
+      matchedTotalCents: 0,
+      amountDiffCents: parsed.amountCents,
       employeeName: null,
+      alreadyPaidSale: null,
     };
   }
 
