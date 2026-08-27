@@ -143,6 +143,44 @@ export function purchaseCodeFromLatamPdfUrl(input: string): string | null {
   return null;
 }
 
+const LATAM_DOC_PDF_BASE = "https://www.latamairlines.com/documents-pdf/";
+
+/**
+ * GCS assinado → URL curta permanente da LATAM.
+ * Ex.: storage.googleapis.com/xp-acl-documents-prod/LA…-cuv.pdf?X-Goog-…
+ *   → https://www.latamairlines.com/documents-pdf/LA…-cuv.pdf
+ */
+export function toShortLatamDocumentPdfUrl(input: string): string | null {
+  const s = String(input || "").trim();
+  if (!s) return null;
+
+  const already = s.match(
+    /(?:www\.)?latamairlines\.com\/documents-pdf\/([^/?#]+\.pdf)/i
+  );
+  if (already?.[1]) return `${LATAM_DOC_PDF_BASE}${already[1]}`;
+
+  const fileFromText = s.match(
+    /(LA[A-Z0-9]+-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}-cuv\.pdf)/i
+  );
+  if (fileFromText?.[1]) return `${LATAM_DOC_PDF_BASE}${fileFromText[1]}`;
+
+  try {
+    const u = new URL(s);
+    const host = u.hostname.toLowerCase();
+    const file = decodeURIComponent(u.pathname.split("/").filter(Boolean).pop() || "");
+    const looksLatamPdf = /^LA[A-Z0-9].*\.pdf$/i.test(file);
+    const fromLatamHost =
+      host.includes("googleapis.com") ||
+      host.includes("latamairlines.com") ||
+      /xp-acl-documents/i.test(u.pathname);
+    if (looksLatamPdf && fromLatamHost) return `${LATAM_DOC_PDF_BASE}${file}`;
+  } catch {
+    // não é URL
+  }
+
+  return null;
+}
+
 /** Aceita link GCS, latamairlines, PDF ou só o Order ID — o LA… é o que importa. */
 export function isProcessableLatamReceiptInput(input: string): boolean {
   const s = String(input || "").trim();

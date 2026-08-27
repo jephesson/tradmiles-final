@@ -34,6 +34,7 @@ import { EmailNaoSincronizadoAviso } from "@/components/cedentes/EmailNaoSincron
 import {
   isProcessableLatamReceiptInput,
   purchaseCodeFromLatamPdfUrl,
+  toShortLatamDocumentPdfUrl,
 } from "@/lib/latam/parseReceiptPdf";
 import { buildClientChargeMessage } from "@/lib/vendas/buildClientChargeMessage";
 
@@ -1352,6 +1353,7 @@ export default function NovaVendaClient({
         totalCents,
         feeCardLabel: feeCardLabel || "—",
         locator,
+        pdfUrl: toShortLatamDocumentPdfUrl(latamPdfUrl),
       });
 
       setFinalizeSuggest(created.finalizeSuggest ?? null);
@@ -1613,6 +1615,12 @@ export default function NovaVendaClient({
     if (!url) {
       setLatamPdfError("Cole o link do comprovante ou o Order ID (LA…).");
       return;
+    }
+
+    const shortPdf = toShortLatamDocumentPdfUrl(url);
+    if (shortPdf && shortPdf !== url) {
+      lastLatamPdfExtractUrl.current = shortPdf;
+      setLatamPdfUrl(shortPdf);
     }
 
     // Feedback imediato: Order ID já vem na URL.

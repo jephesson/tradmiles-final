@@ -43,6 +43,8 @@ export type ClientChargeMessageInput = {
   totalCents: number;
   feeCardLabel?: string | null;
   locator?: string | null;
+  /** Link do PDF da passagem (já no formato curto, se houver). */
+  pdfUrl?: string | null;
 };
 
 export function buildClientChargeMessage(args: ClientChargeMessageInput): string {
@@ -112,6 +114,13 @@ export function buildClientChargeMessage(args: ClientChargeMessageInput): string
   lines.push("");
   lines.push("Qualquer dúvida, fale conosco. Boa viagem! ✈️");
 
+  const pdf = String(args.pdfUrl || "").trim();
+  if (pdf) {
+    lines.push("");
+    lines.push("📄 PDF da passagem:");
+    lines.push(pdf);
+  }
+
   return lines.join("\n");
 }
 
@@ -127,6 +136,7 @@ export function buildClientChargeMessageFromSale(sale: {
   totalCents: number;
   feeCardLabel?: string | null;
   locator?: string | null;
+  pdfUrl?: string | null;
   cliente?: { nome?: string | null } | null;
   seller?: { name?: string | null } | null;
 }): string {
@@ -150,5 +160,6 @@ export function buildClientChargeMessageFromSale(sale: {
     totalCents: Math.max(0, Math.floor(Number(sale.totalCents) || 0)),
     feeCardLabel: sale.feeCardLabel || "—",
     locator: sale.locator || null,
+    pdfUrl: sale.pdfUrl || null,
   });
 }
