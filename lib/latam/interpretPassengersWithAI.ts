@@ -3,6 +3,7 @@ import {
   generateValidCpf,
   isValidCpf,
   parsePassengerText,
+  passengerParseNeedsAi,
 } from "@/lib/latam/parsePassengerText";
 
 const SYSTEM = `Você extrai passageiros de textos de reserva / WhatsApp / documentos BR.
@@ -22,7 +23,8 @@ Responda SOMENTE JSON válido:
 }
 Regras:
 - fullName = nome completo como na passagem (sem rótulos tipo "Pax", "bebê", "do bebê").
-- birthDate em DD/MM/YYYY ou YYYY-MM-DD.
+- birthDate é OBRIGATÓRIO quando aparecer no texto (DD/MM/YYYY ou YYYY-MM-DD).
+- Linhas de Passaporte / Passport / RG / Idt NÃO são passageiros — ignore o número e associe ao nome anterior.
 - cpf só dígitos ou formatado BR; null se não houver.
 - Inclua bebês (isInfant=true). Não invente passageiros.
 - Ignore linhas de contato soltas (e-mail/telefone do grupo) se não forem de um pax.`;
@@ -178,8 +180,19 @@ export async function interpretPassengersWithAI(
   }
 }
 
+function parseCompletenessScore(
+  passengers: ParsedPassenger[],
+  expected: number
+): number {
+  const withDob = passengers.filter((p) => p.birthDate && p.firstName).length;
+  const missingDob = passengers.filter((p) => p.firstName && !p.birthDate).length;
+  let score = withDob * 10 - missingDob * 8;
+  if (expected > 0) score -= Math.abs(withDob - expected) * 6;
+  return score;
+}
+
 /**
- * Regex primeiro; se vier menos que o esperado, tenta OpenAI.
+ * Regex primeiro; se ficar incompleto (faltou data, gente a mais/a menos), tenta OpenAI.
  * Se a IA falhar, mantém o resultado do regex (não quebra o fluxo).
  */
 export async function parsePassengerTextWithFallback(
@@ -193,20 +206,27 @@ export async function parsePassengerTextWithFallback(
   const regex = parsePassengerText(raw, titular);
   const expected = Math.max(0, Math.trunc(Number(opts?.expectedCount) || 0));
 
-  if (!raw.trim() || expected <= 0 || regex.length >= expected) {
+  if (!raw.trim() || !passengerParseNeedsAi(regex, expected, raw)) {
     return { passengers: regex, source: "regex" };
   }
 
   try {
     const ai = await interpretPassengersWithAI(raw, { expectedCount: expected });
-    if (ai && ai.length > regex.length) {
-      // Reaplica contato compartilhado via parsePassengerText pipeline: titular
-      const withContact = ai.map((p) => ({
-        ...p,
-        email: p.email || titular?.email || null,
-        phone: p.phone || titular?.phone || null,
-      }));
-      return { passengers: withContact, source: "openai" };
+    if (ai?.length) {
+      const withContact = ai
+        .filter((p) => p.firstName && p.birthDate)
+        .map((p) => ({
+          ...p,
+          email: p.email || titular?.email || null,
+          phone: p.phone || titular?.phone || null,
+        }));
+      if (
+        withContact.length &&
+        parseCompletenessScore(withContact, expected) >=
+          parseCompletenessScore(regex, expected)
+      ) {
+        return { passengers: withContact, source: "openai" };
+      }
     }
   } catch {
     // ignora — fica no regex

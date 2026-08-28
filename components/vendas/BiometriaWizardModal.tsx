@@ -19,6 +19,7 @@ import { EmailNaoSincronizadoAviso } from "@/components/cedentes/EmailNaoSincron
 import {
   isValidCpf,
   parsePassengerText,
+  passengerParseNeedsAi,
 } from "@/lib/latam/parsePassengerText";
 import { OTP_LOOKBACK_MS } from "@/lib/gmail/otp";
 import { OtpCountdown } from "@/components/cedentes/OtpCountdown";
@@ -340,12 +341,10 @@ export default function BiometriaWizardModal({
     [useLatamExtension, latamPassengerText, latamTitularContact]
   );
 
-  const latamParsedPassengers =
-    latamAiPassengers && latamAiPassengers.length > latamRegexPassengers.length
-      ? latamAiPassengers
-      : latamRegexPassengers;
+  const latamParsedPassengers = latamAiPassengers ?? latamRegexPassengers;
+  const latamMissingBirth = latamParsedPassengers.filter((p) => !p.birthDate);
 
-  // Regex primeiro; se faltar gente vs PAX da busca, tenta OpenAI (não quebra se falhar).
+  // Regex primeiro; se ficar incompleto, tenta OpenAI (não quebra se falhar).
   useEffect(() => {
     if (!useLatamExtension || !latamPassengerText.trim()) {
       setLatamAiPassengers(null);
@@ -354,8 +353,11 @@ export default function BiometriaWizardModal({
       return;
     }
     if (
-      expectedPassengerCount <= 0 ||
-      latamRegexPassengers.length >= expectedPassengerCount
+      !passengerParseNeedsAi(
+        latamRegexPassengers,
+        expectedPassengerCount,
+        latamPassengerText
+      )
     ) {
       setLatamAiPassengers(null);
       setLatamParseSource("regex");
@@ -783,6 +785,13 @@ export default function BiometriaWizardModal({
     const on = typeof nextUse === "boolean" ? nextUse : useLatamExtension;
     setLatamExtSyncing(true);
     setLatamExtMsg(null);
+    if (on && latamParsedPassengers.some((p) => !p.birthDate)) {
+      setLatamExtMsg(
+        "Data de nascimento é obrigatória em todos os passageiros."
+      );
+      setLatamExtSyncing(false);
+      return;
+    }
     try {
       const res = await fetch("/api/latam-extension/fill-session", {
         method: "PUT",
@@ -1483,11 +1492,14 @@ export default function BiometriaWizardModal({
                               (!p.cpf || isValidCpf(p.cpf));
                             const cpfBad = Boolean(p.cpf && !cpfOk);
                             const cpfGen = Boolean(p.cpfGenerated);
+                            const missingBirth = !p.birthDate;
                             return (
                             <li
                               key={`${p.cpf || p.firstName}-${i}`}
                               className={
-                                cpfBad
+                                missingBirth
+                                  ? "rounded-md border border-red-200 bg-red-50 px-2 py-1.5"
+                                  : cpfBad
                                   ? "rounded-md border border-amber-200 bg-amber-50 px-2 py-1.5"
                                   : cpfGen
                                     ? "rounded-md border border-sky-200 bg-sky-50 px-2 py-1.5"
@@ -1506,9 +1518,13 @@ export default function BiometriaWizardModal({
                                   : ""}
                               </div>
                               <div className="mt-0.5 text-slate-500">
-                                {p.birthDateBR
-                                  ? `Nasc ${p.birthDateBR}`
-                                  : "Nasc —"}
+                                {p.birthDateBR ? (
+                                  `Nasc ${p.birthDateBR}`
+                                ) : (
+                                  <span className="font-semibold text-red-700">
+                                    Nasc obrigatório
+                                  </span>
+                                )}
                                 {" · "}
                                 {p.cpf ? (
                                   cpfBad ? (
@@ -1542,6 +1558,12 @@ export default function BiometriaWizardModal({
                                   texto). Cliente altera no check-in.
                                 </div>
                               ) : null}
+                              {missingBirth ? (
+                                <div className="mt-1 text-[10px] font-semibold text-red-700">
+                                  Data de nascimento é obrigatória — complete no
+                                  texto.
+                                </div>
+                              ) : null}
                             </li>
                             );
                           })}
@@ -1555,6 +1577,13 @@ export default function BiometriaWizardModal({
                                 latamRegexPassengers.length
                               ? ` (achou ${latamRegexPassengers.length} de ${expectedPassengerCount})`
                               : ""}
+                        </p>
+                      ) : null}
+                      {latamMissingBirth.length > 0 ? (
+                        <p className="mt-1 text-[11px] font-medium text-red-700">
+                          {latamMissingBirth.length} passageiro
+                          {latamMissingBirth.length === 1 ? "" : "s"} sem data de
+                          nascimento. Não dá para emitir sem isso.
                         </p>
                       ) : null}
                       {latamAiParsing ? (
@@ -1648,7 +1677,9 @@ export default function BiometriaWizardModal({
 
                     <button
                       type="button"
-                      disabled={latamExtSyncing}
+                      disabled={
+                        latamExtSyncing || latamMissingBirth.length > 0
+                      }
                       onClick={() => void syncLatamExtensionSession(true)}
                       className="inline-flex h-9 items-center gap-2 rounded-lg bg-slate-900 px-3 text-xs font-semibold text-white disabled:opacity-60"
                     >

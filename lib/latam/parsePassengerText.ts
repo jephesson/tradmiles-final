@@ -40,6 +40,8 @@ const LABEL_KEYS = [
   "último\\s*nome",
   "sobrenome",
   "nascimento",
+  "passaporte",
+  "passport",
   "documento",
   "telefone",
   "celular",
@@ -51,6 +53,7 @@ const LABEL_KEYS = [
   "pax\\s+bebe",
   "beb[eê]",
   "identidade",
+  "rne",
   "cpf\\/?cnpj",
   "contato",
   "e-?mail",
@@ -369,11 +372,12 @@ function extractNameFromLine(line: string): string {
   s = s.replace(DATE_RE, " ");
   s = s.replace(DATE_COMPACT_RE, " ");
   s = s.replace(
-    /\b(nome\s*completo|passageira|passageiro|pax(?:\s+do\s+beb[eê])?|pax\s+bebe|beb[eê]|contato|data\s+(?:de\s+)?nasc(?:imento)?|nascido\s*em|nasc(?:imento)?|dt\.?\s*nasc|dn|cpf\/?cnpj|cpf|c\.?p\.?f\.?|cnpj|rg|idt|identidade|documento|doc|e-?mail|email|mail|tel(?:efone)?|cel(?:ular)?|whats?app?|zap|wpp|fone|sexo|genero)\b[:\s.=]*/gi,
+    /\b(nome\s*completo|passageira|passageiro|pax(?:\s+do\s+beb[eê])?|pax\s+bebe|beb[eê]|contato|data\s+(?:de\s+)?nasc(?:imento)?|nascido\s*em|nasc(?:imento)?|dt\.?\s*nasc|dn|cpf\/?cnpj|cpf|c\.?p\.?f\.?|cnpj|rg|idt|identidade|passaporte|passport|rne|documento|doc|e-?mail|email|mail|tel(?:efone)?|cel(?:ular)?|whats?app?|zap|wpp|fone|sexo|genero)\b[:\s.=]*/gi,
     " "
   );
   s = s.replace(/^(?:do\s+)?beb[eê]\s+/i, " ");
   s = s.replace(/\b\d{3}\.?\d{3}\.?\d{3}[\-.]?\d{2}\b/g, " ");
+  s = s.replace(/\b[A-Z]{1,3}\d{5,9}\b/gi, " ");
   s = s.replace(/\b\d{8,13}\b/g, " ");
   return sanitizeLatamName(s);
 }
@@ -611,12 +615,15 @@ function parseLabeledBlock(block: string): ParsedPassenger | null {
       lastName = sanitizeLatamName(val);
       continue;
     }
-    // Idt/RG/CIE: adulto emite com CPF na LATAM — ignora (não vira documento).
+    // Idt/RG/CIE/passaporte: adulto emite com CPF na LATAM — ignora (não vira nome).
     if (
       key === "idt" ||
       key === "identidade" ||
       key === "rg" ||
-      key === "cie"
+      key === "cie" ||
+      key === "passaporte" ||
+      key === "passport" ||
+      key === "rne"
     ) {
       continue;
     }
@@ -739,7 +746,10 @@ function parseFreeformBlock(block: string): ParsedPassenger | null {
         key === "idt" ||
         key === "identidade" ||
         key === "rg" ||
-        key === "cie"
+        key === "cie" ||
+        key === "passaporte" ||
+        key === "passport" ||
+        key === "rne"
       ) {
         continue;
       }
@@ -795,8 +805,9 @@ function parseFreeformBlock(block: string): ParsedPassenger | null {
       continue;
     }
 
-    // Linha de identidade sem rótulo capturado — não vira telefone
-    if (/^\s*(idt|identidade|rg|cie)\b/i.test(line)) continue;
+    // Linha de identidade/passaporte sem rótulo capturado — não vira telefone nem nome
+    if (/^\s*(idt|identidade|rg|cie|passaporte|passport|rne)\b/i.test(line))
+      continue;
 
     const emailM = line.match(EMAIL_RE);
     if (emailM && !email) {
@@ -907,7 +918,7 @@ function extractFloatingContacts(text: string): {
   // Remove linhas de Idt/RG para não virarem "telefone"
   const cleaned = String(text || "")
     .split(/\n+/)
-    .filter((ln) => !/^\s*(idt|identidade|rg|cie)\b/i.test(ln))
+    .filter((ln) => !/^\s*(idt|identidade|rg|cie|passaporte|passport|rne)\b/i.test(ln))
     .join("\n");
 
   const emails = Array.from(
@@ -940,7 +951,7 @@ function lineLooksLikeName(trimmed: string): boolean {
   if (!trimmed || EMAIL_RE.test(trimmed)) return false;
   // Linha rotulada (Data Nascimento:, Documento:, Sexo:, etc.) nunca é nome de pax
   if (
-    /^\s*(nome|sobrenome|documento|doc|cpf|cnpj|rg|idt|identidade|data\s+(?:de\s+)?nasc|nasc(?:imento)?|dn|e-?mail|email|tel|cel|fone|zap|whats|passageira|passageiro|pax(?:\s+do\s+beb[eê])?|beb[eê]|contato|sexo|genero|gênero)\b/i.test(
+    /^\s*(nome|sobrenome|documento|doc|cpf|cnpj|rg|idt|identidade|passaporte|passport|rne|data\s+(?:de\s+)?nasc|nasc(?:imento)?|dn|e-?mail|email|tel|cel|fone|zap|whats|passageira|passageiro|pax(?:\s+do\s+beb[eê])?|beb[eê]|contato|sexo|genero|gênero)\b/i.test(
       trimmed
     )
   ) {
@@ -1180,10 +1191,37 @@ function isBogusPassengerName(name: string) {
     .trim();
   return (
     !n ||
-    /^(data|nascimento|nasc|dn|passageira|passageiro|pax|contato|nome|sobrenome|documento|doc|cpf|rg|sexo|genero|feminino|masculino|fem|masc|do|bebe|bebê)$/.test(
+    /^(data|nascimento|nasc|dn|passageira|passageiro|pax|contato|nome|sobrenome|documento|doc|cpf|rg|passaporte|passport|rne|sexo|genero|feminino|masculino|fem|masc|do|bebe|bebê)$/.test(
       n
-    )
+    ) ||
+    /^passaporte\b/.test(n)
   );
+}
+
+function isGhostPassenger(p: ParsedPassenger) {
+  const full = `${p.firstName || ""} ${p.lastName || ""}`.trim();
+  if (isBogusPassengerName(full) || /^passaporte\b/i.test(full)) return true;
+  if (isBogusPassengerName(p.firstName) && (!p.lastName || p.lastName.length <= 3)) {
+    return true;
+  }
+  return false;
+}
+
+/** Resultado incompleto: falta nascimento, nome lixo, ou quantidade diferente do PAX. */
+export function passengerParseNeedsAi(
+  passengers: ParsedPassenger[],
+  expectedCount = 0,
+  rawText = ""
+): boolean {
+  const expected = Math.max(0, Math.trunc(Number(expectedCount) || 0));
+  const real = passengers.filter((p) => !isGhostPassenger(p));
+  if (passengers.some(isGhostPassenger)) return true;
+  if (real.some((p) => !p.birthDate || !p.firstName)) return true;
+  if (!real.length && (expected > 0 || String(rawText || "").trim().length > 40)) {
+    return true;
+  }
+  if (expected > 0 && real.length !== expected) return true;
+  return false;
 }
 
 export function parsePassengerText(
@@ -1199,12 +1237,14 @@ export function parsePassengerText(
       Boolean(p && (p.firstName || extractCpfDigits(p.cpf)))
     )
     .filter((p) => {
+      if (isGhostPassenger(p)) return false;
       if (isBogusPassengerName(p.firstName) && isBogusPassengerName(p.lastName)) {
         return false;
       }
       if (isBogusPassengerName(p.firstName) && !p.cpf && !p.birthDate) {
         return false;
       }
+      if (!p.birthDate) return false;
       if (p.firstName) return true;
       if (p.cpf && p.cpfValid) return true;
       return false;

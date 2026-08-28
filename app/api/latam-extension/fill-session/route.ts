@@ -243,6 +243,7 @@ export async function PUT(req: Request) {
   if (!passengers) {
     passengers = (await getFillSession(session.userId))?.passengers || [];
   }
+  passengers = passengers.filter((p) => Boolean(p?.birthDate && p?.firstName));
   // Garante fallback do titular em quem ainda estiver sem contato
   passengers = passengers.map((p) => ({
     ...p,
