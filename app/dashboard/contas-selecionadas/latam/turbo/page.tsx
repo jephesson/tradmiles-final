@@ -9,7 +9,6 @@ import {
   Loader2,
   Search,
   XCircle,
-  Zap,
 } from "lucide-react";
 import { cn } from "@/lib/cn";
 
@@ -239,7 +238,7 @@ function GroupSummaryCard({
       onClick={() =>
         document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" })
       }
-      className="rounded-2xl border border-slate-200/90 bg-white p-4 text-left shadow-sm shadow-slate-200/40 transition hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-md"
+      className="relative z-0 h-full rounded-2xl border border-slate-200 bg-white p-4 text-left shadow-sm transition hover:border-slate-300"
     >
       <div className="flex items-start justify-between gap-3">
         <div>
@@ -530,10 +529,6 @@ export default function LatamTurboPage() {
   }, [onlyRelevant, monthKey]);
 
   const displayMonth = data?.monthKey || monthKey || "—";
-  const totalPlanned = data?.usedPoints || 0;
-  const remaining = data?.remainingPoints || 0;
-  const limit = data?.limitPoints || 100_000;
-  const plannedPct = limit > 0 ? Math.min(100, Math.round((totalPlanned / limit) * 100)) : 0;
 
   const groupStats = useMemo(() => {
     if (!data) return null;
@@ -652,22 +647,17 @@ export default function LatamTurboPage() {
 
   return (
     <div className="p-6">
-      <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+      <div className="mb-4 flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
         <div>
-          <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-teal-700">
-            <Zap className="h-3.5 w-3.5" aria-hidden />
-            Análise & estratégia
-          </div>
-          <h1 className="mt-1 text-2xl font-bold tracking-tight text-slate-900">
+          <h1 className="text-xl font-bold tracking-tight text-slate-900">
             LATAM Turbo
           </h1>
-          <p className="mt-1 max-w-2xl text-sm text-slate-500">
-            Acompanhe as contas do mês, marque transferências e veja o que ainda está
-            aguardando em cada grupo.
+          <p className="mt-0.5 text-sm text-slate-500">
+            Contagens do mês e marcação de transferência por grupo.
           </p>
         </div>
 
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+        <div className="flex flex-wrap items-center gap-2">
           <div className="inline-flex items-center rounded-2xl border border-slate-200 bg-white shadow-sm">
             <button
               type="button"
@@ -726,60 +716,15 @@ export default function LatamTurboPage() {
         </div>
       ) : null}
 
-      <div className="mb-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <div className="rounded-2xl border border-slate-200/90 bg-white p-4 shadow-sm shadow-slate-200/40">
-          <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-            Limite do mês
-          </div>
-          <div className="mt-1 text-2xl font-bold tabular-nums text-slate-900">
-            {fmtInt(limit)}
-          </div>
-        </div>
-        <div className="rounded-2xl border border-slate-200/90 bg-white p-4 shadow-sm shadow-slate-200/40">
-          <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-            Planejado
-          </div>
-          <div className="mt-1 text-2xl font-bold tabular-nums text-slate-900">
-            {fmtInt(totalPlanned)}
-          </div>
-          <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-slate-100">
-            <div
-              className="h-full rounded-full bg-teal-500"
-              style={{ width: `${plannedPct}%` }}
-            />
-          </div>
-          <div className="mt-1 text-[11px] text-slate-500">{plannedPct}% do limite</div>
-        </div>
-        <div className="rounded-2xl border border-slate-200/90 bg-white p-4 shadow-sm shadow-slate-200/40">
-          <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-            Restante
-          </div>
-          <div className="mt-1 text-2xl font-bold tabular-nums text-slate-900">
-            {fmtInt(remaining)}
-          </div>
-        </div>
-        <div className="rounded-2xl border border-slate-200/90 bg-white p-4 shadow-sm shadow-slate-200/40">
-          <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-            Contas no mês
-          </div>
-          <div className="mt-1 text-2xl font-bold tabular-nums text-slate-900">
-            {fmtInt(monthTotals.total)}
-          </div>
-          <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs">
-            <span className="font-semibold text-amber-700">
-              {fmtInt(monthTotals.pending)} aguardando
-            </span>
-            <span className="font-semibold text-emerald-700">
-              {fmtInt(monthTotals.transferred)} verdes
-            </span>
-            <span className="font-semibold text-rose-700">
-              {fmtInt(monthTotals.skipped)} vermelhos
-            </span>
-          </div>
-        </div>
-      </div>
-
-      <div className="mb-6 grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+      <div className="relative z-0 mb-5 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6">
+        <GroupSummaryCard
+          id="turbo-ativos"
+          title="No mês"
+          hint="Ativos + inativos + cancelamentos"
+          counts={monthTotals}
+          showStatus
+          accent="bg-teal-500"
+        />
         <GroupSummaryCard
           id="turbo-ativos"
           title="Ativos"
