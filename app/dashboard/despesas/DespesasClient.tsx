@@ -1,7 +1,9 @@
 "use client";
 
 import { ReactNode, useEffect, useMemo, useState } from "react";
+import { Plus, RefreshCw } from "lucide-react";
 import { currentMonthISORecife, previousMonthISO } from "@/lib/bonus/monthlyBonus";
+import { cn } from "@/lib/cn";
 
 type DespesaStatus = "PENDING" | "PAID" | "CANCELED";
 type DespesaCategoria =
@@ -263,63 +265,74 @@ export default function DespesasClient() {
   }
 
   return (
-    <div className="mx-auto max-w-6xl space-y-6 p-4 md:p-6">
-      <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-900">Despesas operacionais</h1>
-          <p className="mt-1 text-sm text-slate-600">
-            Controle despesas mensais da empresa. Marque como recorrente para repetir automaticamente todo mês.
-          </p>
-        </div>
-
-        <div className="flex flex-wrap items-center gap-2">
-          <button
-            type="button"
-            className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm hover:bg-slate-50"
-            onClick={() => setMonth(previousMonthISO(month))}
-          >
-            ← Anterior
-          </button>
-          <div className="min-w-[180px] rounded-lg border border-slate-200 bg-white px-3 py-2 text-center text-sm font-semibold capitalize text-slate-800">
-            {fmtMonthLabel(month)}
+    <div className="space-y-5">
+      <div className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm shadow-slate-200/40">
+        <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+          <div>
+            <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Financeiro</div>
+            <h1 className="mt-0.5 text-2xl font-bold tracking-tight text-slate-900">Despesas operacionais</h1>
+            <p className="mt-1 text-sm text-slate-500">
+              Controle despesas mensais da empresa. Marque como recorrente para repetir automaticamente todo mês.
+            </p>
           </div>
-          <button
-            type="button"
-            className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm hover:bg-slate-50"
-            onClick={() => setMonth(nextMonthISO(month))}
-          >
-            Próximo →
-          </button>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              className="h-10 rounded-xl border border-slate-200 bg-white px-3 text-sm font-medium shadow-sm hover:bg-slate-50"
+              onClick={() => setMonth(previousMonthISO(month))}
+            >
+              ← Anterior
+            </button>
+            <div className="min-w-[180px] rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-center text-sm font-semibold capitalize text-slate-800">
+              {fmtMonthLabel(month)}
+            </div>
+            <button
+              type="button"
+              className="h-10 rounded-xl border border-slate-200 bg-white px-3 text-sm font-medium shadow-sm hover:bg-slate-50"
+              onClick={() => setMonth(nextMonthISO(month))}
+            >
+              Próximo →
+            </button>
+            <button
+              type="button"
+              className="inline-flex h-10 items-center gap-2 rounded-xl border border-slate-200 px-3 text-sm font-medium hover:bg-slate-50"
+              onClick={() => load()}
+            >
+              <RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} />
+              Atualizar
+            </button>
+          </div>
         </div>
       </div>
 
       <div className="grid gap-3 sm:grid-cols-3">
-        <div className="rounded-xl border border-slate-200 bg-white p-4">
-          <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Total do mês</div>
-          <div className="mt-1 text-2xl font-bold text-slate-900">{fmtMoney(summary.totalCents)}</div>
+        <div className="rounded-2xl border border-slate-200/80 bg-gradient-to-br from-slate-50/60 to-white p-4 shadow-sm">
+          <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Total do mês</div>
+          <div className="mt-1 text-2xl font-bold tabular-nums text-slate-900">{fmtMoney(summary.totalCents)}</div>
           <div className="mt-1 text-xs text-slate-500">{summary.count} despesa(s)</div>
         </div>
-        <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4">
-          <div className="text-xs font-semibold uppercase tracking-wide text-emerald-700">Pago</div>
-          <div className="mt-1 text-2xl font-bold text-emerald-800">{fmtMoney(summary.paidCents)}</div>
+        <div className="rounded-2xl border border-emerald-100 bg-gradient-to-br from-emerald-50/80 to-white p-4 shadow-sm">
+          <div className="text-[11px] font-semibold uppercase tracking-wide text-emerald-700">Pago</div>
+          <div className="mt-1 text-2xl font-bold tabular-nums text-emerald-800">{fmtMoney(summary.paidCents)}</div>
           <div className="mt-1 text-xs text-emerald-700">{summary.paidCount} paga(s)</div>
         </div>
-        <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
-          <div className="text-xs font-semibold uppercase tracking-wide text-amber-700">Pendente</div>
-          <div className="mt-1 text-2xl font-bold text-amber-800">{fmtMoney(summary.pendingCents)}</div>
+        <div className="rounded-2xl border border-amber-100 bg-gradient-to-br from-amber-50/80 to-white p-4 shadow-sm">
+          <div className="text-[11px] font-semibold uppercase tracking-wide text-amber-700">Pendente</div>
+          <div className="mt-1 text-2xl font-bold tabular-nums text-amber-800">{fmtMoney(summary.pendingCents)}</div>
         </div>
       </div>
 
-      <div className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-white p-4 md:flex-row md:items-center md:justify-between">
+      <div className="flex flex-col gap-3 rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm md:flex-row md:items-center md:justify-between">
         <div className="flex flex-wrap gap-2">
           <input
-            className="rounded-lg border border-slate-200 px-3 py-2 text-sm"
+            className="h-10 rounded-xl border border-slate-200 px-3 text-sm shadow-sm outline-none focus:ring-2 focus:ring-slate-900/10"
             placeholder="Buscar..."
             value={q}
             onChange={(e) => setQ(e.target.value)}
           />
           <select
-            className="rounded-lg border border-slate-200 px-3 py-2 text-sm"
+            className="h-10 rounded-xl border border-slate-200 px-3 text-sm shadow-sm outline-none"
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value as "" | DespesaStatus)}
           >
@@ -331,15 +344,16 @@ export default function DespesasClient() {
         </div>
         <button
           type="button"
-          className="rounded-lg bg-orange-600 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-700"
+          className="inline-flex h-10 items-center gap-2 rounded-xl bg-slate-900 px-4 text-sm font-semibold text-white shadow-sm hover:bg-slate-800"
           onClick={() => setOpenCreate((v) => !v)}
         >
-          {openCreate ? "Fechar formulário" : "+ Nova despesa"}
+          <Plus className="h-4 w-4" />
+          {openCreate ? "Fechar formulário" : "Nova despesa"}
         </button>
       </div>
 
       {openCreate && (
-        <div className="rounded-xl border border-orange-200 bg-orange-50/40 p-4">
+        <div className="rounded-2xl border border-slate-200/80 bg-amber-50/40 p-4 shadow-sm">
           <h2 className="text-sm font-semibold text-slate-900">Nova despesa — {fmtMonthLabel(month)}</h2>
           <div className="mt-3 grid gap-3 md:grid-cols-2">
             <label className="block text-sm">
@@ -406,7 +420,7 @@ export default function DespesasClient() {
           <div className="mt-4 flex gap-2">
             <button
               type="button"
-              className="rounded-lg bg-orange-600 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-700"
+              className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800"
               onClick={() => createDespesa().catch((e) => alert(e.message))}
             >
               Salvar
@@ -417,7 +431,7 @@ export default function DespesasClient() {
 
       {err && <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{err}</div>}
 
-      <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+      <div className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm">
         <div className="border-b border-slate-100 px-4 py-3 text-sm font-semibold text-slate-800">
           Despesas de {fmtMonthLabel(month)}
           {loading && <span className="ml-2 text-xs font-normal text-slate-500">carregando...</span>}
@@ -498,7 +512,7 @@ export default function DespesasClient() {
         </div>
       </div>
 
-      <div className="rounded-xl border border-slate-200 bg-white">
+      <div className="rounded-2xl border border-slate-200/80 bg-white shadow-sm">
         <button
           type="button"
           className="flex w-full items-center justify-between px-4 py-3 text-left text-sm font-semibold text-slate-800"

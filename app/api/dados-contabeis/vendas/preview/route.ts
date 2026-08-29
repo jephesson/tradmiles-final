@@ -7,6 +7,8 @@ import {
   buildBalcaoComputedValues,
   recifeDateISO,
 } from "@/lib/balcao-commission";
+import { sumManualPrejuizoCents } from "@/lib/prejuizo-manual";
+import { sumDespesasMonthCents } from "@/lib/despesas";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -207,6 +209,7 @@ async function computeLossTotalCentsLikePrejuizo(team: string, scopeMonth: strin
     _sum: { smilesLocatorLossCents: true },
   });
   const manualLossTotalCents = safeInt(manualLossAgg?._sum?.smilesLocatorLossCents, 0);
+  const extraManualLossCents = await sumManualPrejuizoCents(team, start, end);
 
   // purchases fechadas no mês (já filtrado por mês, diferente do /prejuizo que busca tudo e filtra depois)
   const purchasesBase = await prisma.purchase.findMany({
@@ -226,7 +229,7 @@ async function computeLossTotalCentsLikePrejuizo(team: string, scopeMonth: strin
     },
   });
 
-  if (purchasesBase.length === 0) return -manualLossTotalCents;
+  if (purchasesBase.length === 0) return -manualLossTotalCents - extraManualLossCents;
 
   const ids = purchasesBase.map((p) => p.id);
   const numeros = purchasesBase.map((p) => String(p.numero || "").trim()).filter(Boolean);
@@ -359,7 +362,7 @@ async function computeLossTotalCentsLikePrejuizo(team: string, scopeMonth: strin
     if (profitLiquido < 0) lossTotalCents += profitLiquido;
   }
 
-  return lossTotalCents - manualLossTotalCents;
+  return lossTotalCents - manualLossTotalCents - extraManualLossCents;
 }
 
 export async function GET(req: Request) {
@@ -471,9 +474,26 @@ export async function GET(req: Request) {
     const lossTotalCents = applyLoss
       ? await computeLossTotalCentsLikePrejuizo(team, scopeMonth)
       : 0; // negativo
+    const expensesTotalCents = applyLoss ? await sumDespesasMonthCents(team, scopeMonth) : 0;
+
+    const expenseRows = applyLoss
+      ? await prisma.despesa.findMany({
+          where: { team, referenceMonth: scopeMonth, status: { not: "CANCELED" } },
+          orderBy: [{ dueDate: "asc" }, { title: "asc" }],
+          select: {
+            id: true,
+            title: true,
+            description: true,
+            amountCents: true,
+            category: true,
+            status: true,
+            dueDate: true,
+          },
+        })
+      : [];
 
     // ✅ lucro tributável (não deixar negativo)
-    const profitAfterLossCents = Math.max(0, profitTotalCents + lossTotalCents);
+    const profitAfterLossCents = Math.max(0, profitTotalCents + lossTotalCents - expensesTotalCents);
 
     // =========================
     // RAW: UMA LINHA POR VENDA
@@ -635,9 +655,11 @@ export async function GET(req: Request) {
         salesProfitTotalCents,
         balcaoNetProfitCents,
         lossTotalCents, // ✅ igual /prejuizo
+        expensesTotalCents,
         profitAfterLossCents,
         totalDeductionCents: mode === "raw" ? totalDeductionRawCents : totalDeductionModelCents,
       },
+      expenses: expenseRows,
       rows: mode === "raw" ? rowsRaw : rowsModel,
     });
   } catch (e: any) {

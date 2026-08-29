@@ -7,6 +7,8 @@ import {
   buildBalcaoComputedValues,
   recifeDateISO,
 } from "@/lib/balcao-commission";
+import { sumManualPrejuizoCents } from "@/lib/prejuizo-manual";
+import { sumDespesasMonthCents } from "@/lib/despesas";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -194,6 +196,7 @@ function addResumoSheet(
     balcaoNetProfitCents: number;
     profitTotalCents: number;
     lossTotalCents: number;
+    expensesTotalCents: number;
     profitAfterLossCents: number;
   }
 ) {
@@ -224,12 +227,13 @@ function addResumoSheet(
   ws.addRow({ campo: "Lucro líquido balcão", valor: args.balcaoNetProfitCents / 100 });
   ws.addRow({ campo: "Lucro total período", valor: args.profitTotalCents / 100 });
   ws.addRow({ campo: "Prejuízo do mês", valor: args.lossTotalCents / 100 });
+  ws.addRow({ campo: "Despesas do mês", valor: args.expensesTotalCents / 100 });
   ws.addRow({ campo: "Lucro tributável", valor: args.profitAfterLossCents / 100 });
 
   for (let r = 2; r < moneyRowsStart; r++) {
     ws.getCell(`B${r}`).alignment = { horizontal: "left", vertical: "middle" };
   }
-  for (let r = moneyRowsStart; r < moneyRowsStart + 8; r++) {
+  for (let r = moneyRowsStart; r < moneyRowsStart + 9; r++) {
     ws.getCell(`B${r}`).numFmt = '"R$"#,##0.00;[Red]-"R$"#,##0.00';
     ws.getCell(`B${r}`).alignment = { horizontal: "right", vertical: "middle" };
   }
@@ -294,6 +298,8 @@ async function computeLossTotalCentsLikePrejuizo(team: string, scopeMonth: strin
   });
   const manualLossTotalCents = safeInt(manualLossAgg?._sum?.smilesLocatorLossCents, 0);
 
+  const extraManualLossCents = await sumManualPrejuizoCents(team, start, end);
+
   const purchasesBase = await prisma.purchase.findMany({
     where: {
       status: "CLOSED",
@@ -311,7 +317,7 @@ async function computeLossTotalCentsLikePrejuizo(team: string, scopeMonth: strin
     },
   });
 
-  if (purchasesBase.length === 0) return -manualLossTotalCents;
+  if (purchasesBase.length === 0) return -manualLossTotalCents - extraManualLossCents;
 
   const ids = purchasesBase.map((p) => p.id);
   const numeros = purchasesBase.map((p) => String(p.numero || "").trim()).filter(Boolean);
@@ -442,7 +448,7 @@ async function computeLossTotalCentsLikePrejuizo(team: string, scopeMonth: strin
     if (profitLiquido < 0) lossTotalCents += profitLiquido;
   }
 
-  return lossTotalCents - manualLossTotalCents; // negativo
+  return lossTotalCents - manualLossTotalCents - extraManualLossCents; // negativo
 }
 
 export async function GET(req: Request) {
@@ -505,9 +511,10 @@ export async function GET(req: Request) {
     // ✅ prejuízo do mês — IGUAL preview (/prejuizo-like) e só quando é mês inteiro
     const applyLoss = !date;
     const lossTotalCents = applyLoss ? await computeLossTotalCentsLikePrejuizo(team, scopeMonth) : 0;
+    const expensesTotalCents = applyLoss ? await sumDespesasMonthCents(team, scopeMonth) : 0;
 
     // ✅ lucro tributável (não deixar negativo)
-    const profitAfterLossCents = Math.max(0, profitTotalCents + lossTotalCents);
+    const profitAfterLossCents = Math.max(0, profitTotalCents + lossTotalCents - expensesTotalCents);
 
     // vendas do período (para montar XLSX)
     const sales = await prisma.sale.findMany({
@@ -674,6 +681,7 @@ export async function GET(req: Request) {
         balcaoNetProfitCents,
         profitTotalCents,
         lossTotalCents,
+        expensesTotalCents,
         profitAfterLossCents,
       });
 
@@ -807,6 +815,7 @@ export async function GET(req: Request) {
       balcaoNetProfitCents,
       profitTotalCents,
       lossTotalCents,
+      expensesTotalCents,
       profitAfterLossCents,
     });
 

@@ -56,6 +56,17 @@ export function fmtMonthPTBR(month: string) {
   }).format(d);
 }
 
+export async function sumDespesasMonthCents(team: string, month: string) {
+  if (!isValidMonthKey(month)) return 0;
+  await syncRecurringDespesas(team, month);
+  const agg = await prisma.despesa.aggregate({
+    where: { team, referenceMonth: month, status: { not: "CANCELED" } },
+    _sum: { amountCents: true },
+  });
+  const n = Number(agg._sum.amountCents || 0);
+  return Number.isFinite(n) ? Math.trunc(n) : 0;
+}
+
 export async function syncRecurringDespesas(team: string, month: string) {
   if (!isValidMonthKey(month)) return;
 

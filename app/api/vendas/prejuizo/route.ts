@@ -137,13 +137,6 @@ export async function GET(req: NextRequest) {
       },
     });
 
-    if (purchasesBase.length === 0) {
-      return NextResponse.json(
-        { ok: true, purchases: [], months: [], totals: { allCount: 0, allProfitCents: 0, listCount: 0, listProfitCents: 0 } },
-        { headers: noCacheHeaders() }
-      );
-    }
-
     const ids = purchasesBase.map((p) => p.id);
     const numeros = purchasesBase.map((p) => String(p.numero || "").trim()).filter(Boolean);
 
@@ -157,7 +150,10 @@ export async function GET(req: NextRequest) {
     const numerosLower = Array.from(new Set(numeros.map((n) => n.toLowerCase())));
     const numerosAll = Array.from(new Set([...numeros, ...numerosUpper, ...numerosLower]));
 
-    const sales = await prisma.sale.findMany({
+    const sales =
+      ids.length === 0 && numerosAll.length === 0
+        ? []
+        : await prisma.sale.findMany({
       where: {
         paymentStatus: { not: "CANCELED" }, // ✅ aqui que “cancelada” não entra
         OR: [{ purchaseId: { in: ids } }, { purchaseId: { in: numerosAll } }],
@@ -360,6 +356,8 @@ export async function GET(req: NextRequest) {
 
     const manualNeg = manualLossSales.map((s: any) => ({
       id: `smiles-loss-${s.id}`,
+      kind: "smiles" as const,
+      description: s.locator ? `Localizador derrubado ${s.locator}` : "Localizador Smiles derrubado",
       numero: s.locator ? `DERRUBADO ${s.locator}` : `DERRUBADO ${s.id.slice(0, 8)}`,
       status: "CLOSED" as const,
       ciaAerea: "SMILES" as const,
@@ -381,9 +379,63 @@ export async function GET(req: NextRequest) {
       sales: [],
       createdAt: s.createdAt.toISOString(),
       updatedAt: s.updatedAt.toISOString(),
+      canCancel: false,
     }));
 
-    const allNeg = [...purchaseNeg, ...manualNeg];
+    const extraManualRows = await prisma.prejuizoManual.findMany({
+      where: {
+        team: session.team,
+        canceledAt: null,
+        ...(q
+          ? {
+              description: { contains: q, mode: "insensitive" },
+            }
+          : {}),
+      },
+      orderBy: [{ occurredAt: "desc" }, { createdAt: "desc" }],
+      take: 5000,
+      include: {
+        createdBy: { select: { id: true, name: true, login: true } },
+      },
+    });
+
+    const extraNeg = extraManualRows.map((s) => ({
+      id: `manual-${s.id}`,
+      kind: "manual" as const,
+      description: s.description,
+      numero: "LANÇAMENTO MANUAL",
+      status: "CLOSED" as const,
+      ciaAerea: null,
+      pontosCiaTotal: 0,
+      finalSalesCents: 0,
+      finalSalesPointsValueCents: 0,
+      finalSalesTaxesCents: 0,
+      finalProfitBrutoCents: -safeInt(s.amountCents, 0),
+      finalBonusCents: 0,
+      finalProfitCents: -safeInt(s.amountCents, 0),
+      finalSoldPoints: 0,
+      finalPax: 0,
+      finalAvgMilheiroCents: null,
+      finalRemainingPoints: null,
+      finalizedAt: s.occurredAt.toISOString(),
+      finalizedBy: s.createdBy,
+      cedente: null,
+      _count: { sales: 0 },
+      sales: [],
+      createdAt: s.createdAt.toISOString(),
+      updatedAt: s.updatedAt.toISOString(),
+      canCancel: true,
+      manualId: s.id,
+    }));
+
+    const purchaseNegTagged = purchaseNeg.map((r) => ({
+      ...r,
+      kind: "purchase" as const,
+      description: null as string | null,
+      canCancel: false,
+    }));
+
+    const allNeg = [...purchaseNegTagged, ...manualNeg, ...extraNeg];
 
     // meses (do ALL prejuízo)
     const monthMap = new Map<string, MonthAgg>();

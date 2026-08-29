@@ -261,6 +261,7 @@ model User {
 
   despesasCreated           Despesa[]           @relation("DespesaCreatedBy")
   despesasRecorrentesCreated DespesaRecorrente[] @relation("DespesaRecorrenteCreatedBy")
+  prejuizosManuaisCreated    PrejuizoManual[]    @relation("PrejuizoManualCreatedBy")
 
   @@index([team])
   @@index([role])
@@ -2258,6 +2259,28 @@ model Despesa {
   @@index([team, status])
   @@index([recurringId])
   @@map("despesas")
+}
+
+model PrejuizoManual {
+  id String @id @default(cuid())
+
+  team String
+
+  description String
+  amountCents Int
+  occurredAt  DateTime
+
+  canceledAt DateTime?
+
+  createdById String?
+  createdBy   User? @relation("PrejuizoManualCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([team, occurredAt])
+  @@index([team, canceledAt])
+  @@map("prejuizos_manuais")
 }
 
 /**
