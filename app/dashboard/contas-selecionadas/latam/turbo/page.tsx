@@ -205,14 +205,14 @@ function StatusStat({
         ? "bg-rose-500"
         : "bg-amber-400";
   return (
-    <div className="min-w-0">
-      <div className="flex items-center gap-1.5 text-[10px] font-medium uppercase tracking-wide text-slate-500">
-        <span className={cn("h-1.5 w-1.5 rounded-full", dot)} />
-        {label}
-      </div>
-      <div className={cn("mt-0.5 text-lg font-bold tabular-nums", cls)}>
+    <div className="flex items-center justify-between gap-3">
+      <span className="flex min-w-0 items-center gap-1.5 text-xs text-slate-600">
+        <span className={cn("h-2 w-2 shrink-0 rounded-full", dot)} />
+        <span className="truncate">{label}</span>
+      </span>
+      <span className={cn("shrink-0 text-sm font-bold tabular-nums", cls)}>
         {fmtInt(value)}
-      </div>
+      </span>
     </div>
   );
 }
@@ -253,7 +253,7 @@ function GroupSummaryCard({
         <span className={cn("mt-1 h-2.5 w-2.5 rounded-full", accent)} />
       </div>
       {showStatus ? (
-        <div className="mt-4 grid grid-cols-3 gap-2 border-t border-slate-100 pt-3">
+        <div className="mt-3 space-y-1.5 border-t border-slate-100 pt-3">
           <StatusStat label="Aguardando" value={counts.pending} tone="amber" />
           <StatusStat label="Transferidos" value={counts.transferred} tone="emerald" />
           <StatusStat label="Negados" value={counts.skipped} tone="rose" />
@@ -716,7 +716,7 @@ export default function LatamTurboPage() {
         </div>
       ) : null}
 
-      <div className="relative z-0 mb-5 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6">
+      <div className="relative z-0 mb-5 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
         <GroupSummaryCard
           id="turbo-ativos"
           title="No mês"
