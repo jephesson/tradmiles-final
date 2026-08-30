@@ -62,6 +62,7 @@ export default function CotacaoPassagensClient() {
   const [returnDays, setReturnDays] = useState("7");
   const [job, setJob] = useState<Job | null>(null);
   const [loading, setLoading] = useState(false);
+  const [extOn, setExtOn] = useState(false);
   const [miles, setMiles] = useState("");
   const [milheiro, setMilheiro] = useState("");
   const [boarding, setBoarding] = useState("0,00");
@@ -82,8 +83,14 @@ export default function CotacaoPassagensClient() {
   useEffect(() => {
     if (typeof document === "undefined") return;
     document.body.dataset.tmCotacaoJob = job?.status === "RUNNING" && job.id ? job.id : "";
+    const onBridge = (e: Event) => {
+      const connected = Boolean((e as CustomEvent<{ connected?: boolean }>).detail?.connected);
+      setExtOn(connected);
+    };
+    window.addEventListener("tm-cotacao-bridge", onBridge);
     return () => {
       delete document.body.dataset.tmCotacaoJob;
+      window.removeEventListener("tm-cotacao-bridge", onBridge);
     };
   }, [job?.id, job?.status]);
 
@@ -177,18 +184,28 @@ export default function CotacaoPassagensClient() {
               Cotação de passagens
             </h1>
             <p className="mt-1 max-w-2xl text-sm text-slate-500">
-              Monte o trecho aqui. A extensão abre o 123milhas na sua sessão e devolve o menor Pix, a cia e os
-              aeroportos. Depois você cote na cia e fecha o milheiro (~5% abaixo do 123).
+              Monte o trecho aqui. A extensão abre a busca pública do 123milhas (sem login) e devolve o menor Pix e
+              a cia. Depois você cote na cia e fecha o milheiro (~5% abaixo do 123).
             </p>
           </div>
-          <a
-            href={ZIP_HREF}
-            download
-            className="inline-flex h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-800 hover:bg-slate-50"
-          >
-            <Download className="h-4 w-4" />
-            Baixar extensão
-          </a>
+          <div className="flex flex-col items-stretch gap-2 sm:items-end">
+            <div
+              className={cn(
+                "inline-flex h-8 items-center justify-center rounded-full px-3 text-[11px] font-semibold",
+                extOn ? "bg-emerald-50 text-emerald-800" : "bg-amber-50 text-amber-900"
+              )}
+            >
+              {extOn ? "Extensão conectada" : "Extensão não detectada — baixe de novo (v1.1.0)"}
+            </div>
+            <a
+              href={ZIP_HREF}
+              download
+              className="inline-flex h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-800 hover:bg-slate-50"
+            >
+              <Download className="h-4 w-4" />
+              Baixar extensão
+            </a>
+          </div>
         </div>
       </div>
 
@@ -273,7 +290,7 @@ export default function CotacaoPassagensClient() {
             ) : null}
           </div>
           <p className="mt-3 text-xs leading-relaxed text-slate-500">
-            Instale a extensão, fique logado no 123milhas neste Chrome e deixe esta página aberta. Ela puxa uma
+            Instale a extensão v1.1.0 e deixe esta página aberta. Não precisa estar logado no 123milhas. Ela puxa uma
             pesquisa por vez.
             {job ? ` ${progress.done}/${progress.total} concluídas.` : ""}
           </p>

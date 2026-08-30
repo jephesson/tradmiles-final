@@ -1,51 +1,85 @@
-let busy = false;
-let activeTabId = null;
-let activeSearchId = null;
+const TRADE_URLS = [
+  "https://www.trademiles.com.br/dashboard/cotacao-passagens*",
+  "https://trademiles.com.br/dashboard/cotacao-passagens*",
+  "http://localhost:3000/dashboard/cotacao-passagens*",
+];
 
-chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg?.type === "TM_COTACAO_OPEN") {
-    openSearch(msg.search).then(() => sendResponse({ ok: true })).catch((e) => {
-      sendResponse({ ok: false, error: String(e?.message || e) });
-    });
+    openSearch(msg.search)
+      .then(() => sendResponse({ ok: true }))
+      .catch((e) => sendResponse({ ok: false, error: String(e?.message || e) }));
     return true;
   }
   if (msg?.type === "TM_COTACAO_RESULT") {
-    finishSearch(msg).then(() => sendResponse({ ok: true })).catch(() => sendResponse({ ok: false }));
+    finishSearch({
+      searchId: msg.searchId,
+      ok: msg.ok,
+      priceCents: msg.priceCents,
+      airline: msg.airline,
+      rawPrice: msg.rawPrice,
+      error: msg.error,
+      fromTabId: sender?.tab?.id,
+    })
+      .then(() => sendResponse({ ok: true }))
+      .catch(() => sendResponse({ ok: false }));
     return true;
+  }
+  if (msg?.type === "TM_COTACAO_PING") {
+    sendResponse({ ok: true, version: "1.1.0" });
+    return false;
+  }
+});
+
+chrome.alarms.onAlarm.addListener(async (alarm) => {
+  if (!String(alarm?.name || "").startsWith("tm-cotacao-")) return;
+  const searchId = alarm.name.slice("tm-cotacao-".length);
+  const { tmActiveSearchId } = await chrome.storage.local.get("tmActiveSearchId");
+  if (tmActiveSearchId && tmActiveSearchId === searchId) {
+    await finishSearch({
+      searchId,
+      ok: false,
+      error: "Tempo esgotado no 123milhas.",
+    });
   }
 });
 
 async function openSearch(search) {
-  if (!search?.id || !search?.url) return;
-  if (busy) return;
-  busy = true;
-  activeSearchId = search.id;
-  const tab = await chrome.tabs.create({ url: search.url, active: true });
-  activeTabId = tab.id;
-  setTimeout(async () => {
-    if (busy && activeSearchId === search.id) {
-      await finishSearch({
-        searchId: search.id,
-        ok: false,
-        error: "Tempo esgotado no 123milhas.",
-      });
-    }
-  }, 55000);
+  if (!search?.id || !search?.url) throw new Error("Pesquisa inválida.");
+  const { tmBusy } = await chrome.storage.local.get("tmBusy");
+  if (tmBusy) return;
+
+  const url = withSearchId(search.url, search.id);
+  await chrome.storage.local.set({
+    tmBusy: true,
+    tmActiveSearchId: search.id,
+    tmActiveTabId: null,
+  });
+  const tab = await chrome.tabs.create({ url, active: true });
+  await chrome.storage.local.set({ tmActiveTabId: tab.id || null });
+  chrome.alarms.create(`tm-cotacao-${search.id}`, { delayInMinutes: 1 });
+}
+
+function withSearchId(url, searchId) {
+  try {
+    const u = new URL(url);
+    u.searchParams.set("tmSearch", searchId);
+    u.hash = `tmSearch=${encodeURIComponent(searchId)}`;
+    return u.toString();
+  } catch {
+    return url;
+  }
 }
 
 async function finishSearch(payload) {
-  const searchId = payload.searchId || activeSearchId;
+  const stored = await chrome.storage.local.get(["tmActiveSearchId", "tmActiveTabId"]);
+  const searchId = payload.searchId || stored.tmActiveSearchId;
   if (!searchId) {
-    busy = false;
+    await chrome.storage.local.set({ tmBusy: false, tmActiveSearchId: null, tmActiveTabId: null });
     return;
   }
-  const tabs = await chrome.tabs.query({
-    url: [
-      "https://www.trademiles.com.br/dashboard/cotacao-passagens*",
-      "https://trademiles.com.br/dashboard/cotacao-passagens*",
-      "http://localhost:3000/dashboard/cotacao-passagens*",
-    ],
-  });
+
+  const tabs = await chrome.tabs.query({ url: TRADE_URLS });
   for (const tab of tabs) {
     if (!tab.id) continue;
     try {
@@ -59,17 +93,28 @@ async function finishSearch(payload) {
         error: payload.error || "",
       });
     } catch {
-      /* tab sem bridge */
+      /* aba sem bridge — o match amplo do dashboard cobre o SPA */
     }
   }
-  if (activeTabId) {
+
+  const closeId = payload.fromTabId || stored.tmActiveTabId;
+  if (closeId) {
     try {
-      await chrome.tabs.remove(activeTabId);
+      await chrome.tabs.remove(closeId);
     } catch {
       /* ignore */
     }
   }
-  busy = false;
-  activeTabId = null;
-  activeSearchId = null;
+
+  try {
+    await chrome.alarms.clear(`tm-cotacao-${searchId}`);
+  } catch {
+    /* ignore */
+  }
+
+  await chrome.storage.local.set({
+    tmBusy: false,
+    tmActiveSearchId: null,
+    tmActiveTabId: null,
+  });
 }
