@@ -152,3 +152,18 @@ export function buildSmilesSearchUrl(origin: string, dest: string, dateISO: stri
   q.set("novo-resultado-voos", "true");
   return `https://www.smiles.com.br/mfe/emissao-passagem/?${q.toString()}`;
 }
+
+/** Busca Azul em pontos (cc=PTS), mesma estrutura da seleção de voo. */
+export function buildAzulSearchUrl(origin: string, dest: string, dateISO: string, adults = 1) {
+  const o = toIata(origin);
+  const d = toIata(dest);
+  if (!/^[A-Z]{3}$/.test(o) || !/^[A-Z]{3}$/.test(d) || !isISODate(dateISO)) return "";
+  const [y, m, day] = dateISO.split("-");
+  const std = `${m}/${day}/${y}`;
+  const adt = Math.max(1, Math.trunc(adults || 1));
+  return (
+    `https://www.voeazul.com.br/br/pt/home/selecao-voo?` +
+    `c[0].ds=${encodeURIComponent(o)}&c[0].std=${encodeURIComponent(std)}&c[0].as=${encodeURIComponent(d)}` +
+    `&p[0].t=ADT&p[0].c=${adt}&p[0].cp=false&f.dl=3&f.dr=3&cc=PTS`
+  );
+}

@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Download, Plane, RefreshCw, Square } from "lucide-react";
 import { cn } from "@/lib/cn";
 import {
+  buildAzulSearchUrl,
   buildLatamSearchUrl,
   buildSmilesSearchUrl,
   saleTotalCents,
@@ -397,6 +398,7 @@ export default function CotacaoPassagensClient() {
 function BestCard({ title, row, running }: { title: string; row: SearchRow | null; running?: boolean }) {
   const latam = row ? buildLatamSearchUrl(row.originIata, row.destIata, row.date) : "";
   const smiles = row ? buildSmilesSearchUrl(row.originIata, row.destIata, row.date) : "";
+  const azul = row ? buildAzulSearchUrl(row.originIata, row.destIata, row.date) : "";
   return (
     <div className="rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm">
       <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">{title}</div>
@@ -429,6 +431,16 @@ function BestCard({ title, row, running }: { title: string; row: SearchRow | nul
                 className="inline-flex h-9 items-center rounded-xl border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-800"
               >
                 Cote agora na Smiles
+              </a>
+            ) : null}
+            {azul ? (
+              <a
+                href={azul}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex h-9 items-center rounded-xl border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-800"
+              >
+                Cote agora na Azul
               </a>
             ) : null}
           </div>
