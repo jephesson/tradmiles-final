@@ -5,6 +5,7 @@ import {
   AlertTriangle,
   Banknote,
   Calculator,
+  Eye,
   FileDown,
   Info,
   RefreshCw,
@@ -89,6 +90,8 @@ type DayResponse = {
   totals: DayTotals;
   overdue?: OverdueAlert;
   monthlyBonusMonth?: string | null;
+  viewer?: { isAdmin: boolean; meId: string; asUserId: string | null };
+  teamUsers?: UserLite[];
 };
 
 type DetailSaleLine = {
@@ -481,6 +484,9 @@ export default function ComissoesFuncionariosClient() {
   );
   const [reportUserId, setReportUserId] = useState<string>("");
   const [downloadingPdfKey, setDownloadingPdfKey] = useState<string | null>(null);
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [asUserId, setAsUserId] = useState("");
+  const [teamUsers, setTeamUsers] = useState<UserLite[]>([]);
 
   const today = useMemo(() => todayISORecife(), []);
   const isFutureOrToday = useMemo(() => date >= today, [date, today]);
@@ -494,13 +500,19 @@ export default function ComissoesFuncionariosClient() {
     return "Dia fechado: recalcular é seguro";
   }, [date, today]);
 
+  const canManage = isAdmin && !asUserId;
+
   async function loadDay(d = date) {
     setLoading(true);
     try {
+      const qs = new URLSearchParams({ date: d });
+      if (asUserId) qs.set("asUserId", asUserId);
       const data = await apiGet<DayResponse>(
-        `/api/payouts/funcionarios/day?date=${encodeURIComponent(d)}`
+        `/api/payouts/funcionarios/day?${qs.toString()}`
       );
       setDay(data);
+      if (data.viewer) setIsAdmin(Boolean(data.viewer.isAdmin));
+      if (Array.isArray(data.teamUsers) && data.teamUsers.length) setTeamUsers(data.teamUsers);
       const drafts: Record<string, string> = {};
       for (const r of data.rows || []) {
         drafts[r.userId] = centsToInput(r.discountCents || 0);
@@ -740,7 +752,7 @@ export default function ComissoesFuncionariosClient() {
     let cancelled = false;
 
     (async () => {
-      if (isToday) {
+      if (isToday && isAdmin && !asUserId) {
         await computeDaySilent(date);
       }
       if (!cancelled) {
@@ -752,10 +764,10 @@ export default function ComissoesFuncionariosClient() {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [date, isToday]);
+  }, [date, isToday, asUserId, isAdmin]);
 
   useEffect(() => {
-    if (!isToday) return;
+    if (!isToday || !isAdmin || asUserId) return;
 
     const t = setInterval(async () => {
       await computeDaySilent(date);
@@ -764,7 +776,7 @@ export default function ComissoesFuncionariosClient() {
 
     return () => clearInterval(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isToday, date]);
+  }, [isToday, date, asUserId, isAdmin]);
 
   const dayExtra = useMemo(() => {
     const rows = day?.rows || [];
@@ -833,9 +845,9 @@ export default function ComissoesFuncionariosClient() {
     payoutExpectedCents !== detailTotalCents;
 
   const reportUsers = useMemo(() => {
-    const rows = day?.rows || [];
-    return rows.map((r) => r.user);
-  }, [day]);
+    if (isAdmin && teamUsers.length) return teamUsers;
+    return (day?.rows || []).map((r) => r.user);
+  }, [day, isAdmin, teamUsers]);
 
   useEffect(() => {
     if (!reportUsers.length) {
@@ -861,6 +873,27 @@ export default function ComissoesFuncionariosClient() {
         </div>
 
         <div className="flex flex-wrap items-end gap-2.5">
+          {isAdmin ? (
+            <div className="flex flex-col gap-1">
+              <label className={cn(FIELD_LABEL, "inline-flex items-center gap-1")}>
+                <Eye className="h-3 w-3" />
+                Ver como
+              </label>
+              <select
+                value={asUserId}
+                onChange={(e) => setAsUserId(e.target.value)}
+                className={CONTROL_SELECT}
+              >
+                <option value="">Todos (visão admin)</option>
+                {teamUsers.map((u) => (
+                  <option key={u.id} value={u.id}>
+                    {firstName(u.name, u.login)} ({u.login})
+                  </option>
+                ))}
+              </select>
+            </div>
+          ) : null}
+
           <div className="flex flex-col gap-1">
             <label className={FIELD_LABEL}>Dia</label>
             <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className={CONTROL_INPUT} />
@@ -876,6 +909,8 @@ export default function ComissoesFuncionariosClient() {
             {loading ? "Carregando..." : "Atualizar"}
           </button>
 
+          {canManage ? (
+            <>
           <button
             type="button"
             onClick={() => computeDay(date, { force: false })}
@@ -912,8 +947,17 @@ export default function ComissoesFuncionariosClient() {
             <Banknote className="h-4 w-4 shrink-0 opacity-90" strokeWidth={2} aria-hidden />
             {payingKey === "__all__" ? "Pagando..." : "Pagar todos"}
           </button>
+            </>
+          ) : null}
         </div>
       </div>
+
+      {isAdmin && asUserId ? (
+        <div className="rounded-2xl border border-sky-200 bg-sky-50/80 px-4 py-3 text-sm text-sky-950">
+          Você está vendo exatamente o que esse funcionário vê: só a linha dele, sem botões de pagar ou
+          recalcular.
+        </div>
+      ) : null}
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-9">
         <KPI label="Bruto (C1+C2+C3)" value={fmtMoneyBR(day?.totals.gross || 0)} />
@@ -1079,7 +1123,7 @@ export default function ComissoesFuncionariosClient() {
                     </td>
 
                     <td className="px-4 py-3">
-                      {isPaid ? (
+                      {isPaid || !canManage ? (
                         <span className="tabular-nums text-rose-800">
                           {fmtMoneyBR(r.discountCents || 0)}
                         </span>
@@ -1117,6 +1161,7 @@ export default function ComissoesFuncionariosClient() {
                     </td>
 
                     <td className="px-4 py-3 text-right">
+                      {canManage ? (
                       <button
                         type="button"
                         onClick={() => payRow(date, r.userId)}
@@ -1134,6 +1179,9 @@ export default function ComissoesFuncionariosClient() {
                       >
                         {paying ? "Pagando..." : "Pagar"}
                       </button>
+                      ) : (
+                        <span className="text-xs text-slate-400">—</span>
+                      )}
                     </td>
                   </tr>
                 );

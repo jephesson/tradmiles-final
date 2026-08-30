@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import {
   BarChart3,
   ChevronLeft,
+  Eye,
   Info,
   RefreshCw,
   TrendingUp,
@@ -57,6 +58,8 @@ type SummaryResp = {
     netNoFee: number;
     netWithFee: number;
   };
+  viewer?: { isAdmin: boolean; meId: string; asUserId: string | null };
+  teamUsers?: { id: string; name: string; login: string; role: string }[];
 };
 
 type HistoryPoint = {
@@ -378,13 +381,20 @@ export default function LucrosFuncionariosMesClient() {
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyErr, setHistoryErr] = useState("");
   const [history, setHistory] = useState<HistoryResp | null>(null);
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [asUserId, setAsUserId] = useState("");
+  const [teamUsers, setTeamUsers] = useState<SummaryResp["teamUsers"]>([]);
 
   async function load(m = month) {
     setLoading(true);
     setErr("");
     try {
-      const out = await apiGet<SummaryResp>(`/api/payouts/funcionarios/month-summary?month=${encodeURIComponent(m)}`);
+      const qs = new URLSearchParams({ month: m });
+      if (asUserId) qs.set("asUserId", asUserId);
+      const out = await apiGet<SummaryResp>(`/api/payouts/funcionarios/month-summary?${qs.toString()}`);
       setData(out);
+      if (out.viewer) setIsAdmin(Boolean(out.viewer.isAdmin));
+      if (Array.isArray(out.teamUsers) && out.teamUsers.length) setTeamUsers(out.teamUsers);
     } catch (e: unknown) {
       setData(null);
       setErr(e instanceof Error && e.message ? e.message : "Erro ao carregar.");
@@ -397,7 +407,8 @@ export default function LucrosFuncionariosMesClient() {
     setHistoryLoading(true);
     setHistoryErr("");
     try {
-      const out = await apiGet<HistoryResp>("/api/payouts/funcionarios/history");
+      const qs = asUserId ? `?asUserId=${encodeURIComponent(asUserId)}` : "";
+      const out = await apiGet<HistoryResp>(`/api/payouts/funcionarios/history${qs}`);
       setHistory(out);
     } catch (e: unknown) {
       setHistory(null);
@@ -411,7 +422,7 @@ export default function LucrosFuncionariosMesClient() {
     load(month);
     loadHistory();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [month]);
+  }, [month, asUserId]);
 
   const rows = useMemo(() => {
     return (data?.rows || []).slice().sort((a, b) => b.netNoFeeCents - a.netNoFeeCents);
@@ -482,6 +493,27 @@ export default function LucrosFuncionariosMesClient() {
         </div>
 
         <div className="flex flex-wrap items-end gap-2.5">
+          {isAdmin ? (
+            <div className="flex flex-col gap-1">
+              <label className={cn(FIELD_LABEL, "inline-flex items-center gap-1")}>
+                <Eye className="h-3 w-3" />
+                Ver como
+              </label>
+              <select
+                value={asUserId}
+                onChange={(e) => setAsUserId(e.target.value)}
+                className={CONTROL_INPUT}
+              >
+                <option value="">Todos (visão admin)</option>
+                {(teamUsers || []).map((u) => (
+                  <option key={u.id} value={u.id}>
+                    {firstName(u.name, u.login)} ({u.login})
+                  </option>
+                ))}
+              </select>
+            </div>
+          ) : null}
+
           <div className="flex flex-col gap-1">
             <label className={FIELD_LABEL}>Mês</label>
             <input
@@ -512,6 +544,12 @@ export default function LucrosFuncionariosMesClient() {
           </button>
         </div>
       </div>
+
+      {isAdmin && asUserId ? (
+        <div className="rounded-2xl border border-sky-200 bg-sky-50/80 px-4 py-3 text-sm text-sky-950">
+          Visão do funcionário: só os números dele, como ele vê ao entrar.
+        </div>
+      ) : null}
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-7">
         <KPI label="Líquido total (sem taxa)" value={fmtMoneyBR(data?.totals.netNoFee || 0)} emphasis="net" />

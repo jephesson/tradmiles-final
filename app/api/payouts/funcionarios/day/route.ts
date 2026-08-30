@@ -10,6 +10,7 @@ import {
 } from "@/lib/balcao-commission";
 import { isFirstDayOfMonth, previousMonthISO } from "@/lib/bonus/monthlyBonus";
 import { applyEmployeeDebtDiscountsForDate } from "@/lib/payouts/applyEmployeeDebtDiscounts";
+import { isAdminRole, resolveScopedUserId } from "@/lib/payouts/resolveViewAs";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -154,6 +155,22 @@ export async function GET(req: Request) {
 
     const url = new URL(req.url);
     const date = String(url.searchParams.get("date") || "").trim();
+    const isAdmin = isAdminRole(session.role);
+    let scopeUserId = resolveScopedUserId(session, url.searchParams.get("asUserId"));
+
+    if (scopeUserId) {
+      const scoped = await prisma.user.findFirst({
+        where: {
+          id: scopeUserId,
+          team: session.team,
+          role: { in: ["admin", "staff"] },
+        },
+        select: { id: true },
+      });
+      if (!scoped) {
+        return NextResponse.json({ ok: false, error: "Funcionário inválido." }, { status: 400 });
+      }
+    }
 
     if (!date || !isISODate(date)) {
       return NextResponse.json(
@@ -187,10 +204,22 @@ export async function GET(req: Request) {
 
     // 1) todos usuários do time
     const users = await prisma.user.findMany({
-      where: { team: session.team, role: { in: ["admin", "staff"] } },
+      where: {
+        team: session.team,
+        role: { in: ["admin", "staff"] },
+        ...(scopeUserId ? { id: scopeUserId } : {}),
+      },
       select: { id: true, name: true, login: true },
       orderBy: [{ name: "asc" }],
     });
+
+    const teamUsers = isAdmin
+      ? await prisma.user.findMany({
+          where: { team: session.team, role: { in: ["admin", "staff"] } },
+          select: { id: true, name: true, login: true },
+          orderBy: [{ name: "asc" }],
+        })
+      : users;
 
     // 2) lê payouts do dia (com joins)
     const payouts = await prisma.employeePayout.findMany({
@@ -359,6 +388,7 @@ export async function GET(req: Request) {
         team: session.team,
         paidAt: null,
         date: { lt: todayRecife },
+        ...(scopeUserId ? { userId: scopeUserId } : isAdmin ? {} : { userId: session.id }),
       },
       select: {
         id: true,
@@ -426,6 +456,12 @@ export async function GET(req: Request) {
       monthlyBonusMonth: isFirstDayOfMonth(date)
         ? previousMonthISO(date.slice(0, 7))
         : null,
+      viewer: {
+        isAdmin,
+        meId: session.id,
+        asUserId: scopeUserId,
+      },
+      teamUsers,
     });
   } catch (e: unknown) {
     const message = e instanceof Error && e.message ? e.message : String(e);

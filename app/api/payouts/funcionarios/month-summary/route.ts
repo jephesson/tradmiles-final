@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/auth-server";
+import { isAdminRole, resolveScopedUserId } from "@/lib/payouts/resolveViewAs";
 import {
   buildTaxRule,
   buildBalcaoComputedValues,
@@ -52,11 +53,10 @@ export async function GET(req: Request) {
     if (!team || !meId) {
       return NextResponse.json({ ok: false, error: "Não autenticado" }, { status: 401 });
     }
-    if (role !== "admin") {
-      return NextResponse.json({ ok: false, error: "Sem permissão." }, { status: 403 });
-    }
 
     const { searchParams } = new URL(req.url);
+    const isAdmin = isAdminRole(role);
+    let scopeUserId = resolveScopedUserId({ id: meId, role }, searchParams.get("asUserId"));
     const monthParam = String(searchParams.get("month") || "").trim();
     const month = isMonthISO(monthParam) ? monthParam : monthISORecife();
 
@@ -210,7 +210,23 @@ export async function GET(req: Request) {
       a.balcaoCommission += opCommission;
     }
 
-    const rows = users.map((u) => {
+    const teamUsers = users.map((u) => ({
+      id: u.id,
+      name: u.name,
+      login: u.login,
+      role: u.role,
+    }));
+
+    if (scopeUserId) {
+      const exists = users.some((u) => u.id === scopeUserId);
+      if (!exists) {
+        return NextResponse.json({ ok: false, error: "Funcionário inválido." }, { status: 400 });
+      }
+    }
+
+    const visibleUsers = scopeUserId ? users.filter((u) => u.id === scopeUserId) : users;
+
+    const rows = visibleUsers.map((u) => {
       const a =
         byUser[u.id] ||
         ({
@@ -299,6 +315,8 @@ export async function GET(req: Request) {
       endDate,
       rows,
       totals,
+      viewer: { isAdmin, meId, asUserId: scopeUserId },
+      teamUsers: isAdmin ? teamUsers : [],
     });
   } catch (e: unknown) {
     const msg = e instanceof Error && e.message ? e.message : String(e);

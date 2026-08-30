@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/auth-server";
+import { isAdminRole } from "@/lib/payouts/resolveViewAs";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -22,6 +23,9 @@ export async function POST(req: Request) {
 
     if (!team || !meId) {
       return NextResponse.json({ ok: false, error: "Não autenticado" }, { status: 401 });
+    }
+    if (!isAdminRole(sess.role)) {
+      return NextResponse.json({ ok: false, error: "Sem permissão." }, { status: 403 });
     }
 
     const body = await req.json().catch(() => ({}));

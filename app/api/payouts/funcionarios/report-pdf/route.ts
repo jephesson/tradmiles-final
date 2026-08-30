@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/auth-server";
+import { isAdminRole } from "@/lib/payouts/resolveViewAs";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -786,6 +787,10 @@ export async function GET(req: NextRequest) {
 
     if (!userId) {
       return NextResponse.json({ ok: false, error: "userId obrigatorio." }, { status: 400 });
+    }
+
+    if (!isAdminRole(session.role) && userId !== session.id) {
+      return NextResponse.json({ ok: false, error: "Sem permissão." }, { status: 403 });
     }
 
     if (!isMonthISO(month)) {

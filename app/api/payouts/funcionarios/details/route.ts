@@ -2,6 +2,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/auth-server";
+import { isAdminRole } from "@/lib/payouts/resolveViewAs";
 import {
   dayBounds,
   milheiroNoFeeFromPv,
@@ -198,6 +199,10 @@ export async function GET(req: NextRequest) {
   if (!isISODate(date)) return bad("date inválido. Use YYYY-MM-DD");
   if (!userId) return bad("userId é obrigatório");
   if (month && !isISOMonth(month)) return bad("month inválido. Use YYYY-MM");
+
+  if (!isAdminRole(session.role) && userId !== session.id) {
+    return bad("Sem permissão.", 403);
+  }
 
   const scopeMonth = !!month;
   const monthKey = scopeMonth ? month.slice(0, 7) : monthFromISODate(date);

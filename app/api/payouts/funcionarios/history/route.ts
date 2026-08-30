@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/auth-server";
+import { resolveScopedUserId } from "@/lib/payouts/resolveViewAs";
 import {
   buildTaxRule,
   buildBalcaoComputedValues,
@@ -19,7 +20,7 @@ function isMonthISO(v: string) {
   return /^\d{4}-\d{2}$/.test((v || "").trim());
 }
 
-export async function GET() {
+export async function GET(req: Request) {
   try {
     const sess = await requireSession();
     const team = String((sess as { team?: unknown })?.team || "");
@@ -29,9 +30,9 @@ export async function GET() {
     if (!team || !meId) {
       return NextResponse.json({ ok: false, error: "Não autenticado" }, { status: 401 });
     }
-    if (role !== "admin") {
-      return NextResponse.json({ ok: false, error: "Sem permissão." }, { status: 403 });
-    }
+
+    const url = new URL(req.url);
+    const scopeUserId = resolveScopedUserId({ id: meId, role }, url.searchParams.get("asUserId"));
 
     const [users, payouts, settings] = await Promise.all([
       prisma.user.findMany({
@@ -126,6 +127,7 @@ export async function GET() {
     const months = Array.from(monthsSet).sort((a, b) => a.localeCompare(b));
 
     const series = users
+      .filter((u) => !scopeUserId || u.id === scopeUserId)
       .map((u) => ({
         user: { id: u.id, name: u.name, login: u.login, role: u.role },
         points: months.map((month) => {
