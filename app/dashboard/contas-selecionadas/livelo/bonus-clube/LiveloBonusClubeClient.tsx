@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { Copy, KeyRound } from "lucide-react";
+import { Check, Copy, KeyRound, X } from "lucide-react";
 
 import { cn } from "@/lib/cn";
 import { liveloCycleBadgeClass } from "@/lib/livelo-clube";
@@ -28,8 +28,6 @@ type Item = {
     identificador: string;
     nomeCompleto: string;
     cpf: string;
-    emailCriado: string | null;
-    senhaEmail: string | null;
     senhaLivelo: string | null;
     owner: {
       id: string;
@@ -71,57 +69,34 @@ function onlyDigits(v: string) {
   return v.replace(/\D+/g, "");
 }
 
-function CredRows({
-  cpf,
-  email,
-  senhaLivelo,
-  senhaEmail,
+function CredField({
+  label,
+  value,
+  copied,
+  onCopy,
 }: {
-  cpf: string;
-  email: string | null | undefined;
-  senhaLivelo: string | null | undefined;
-  senhaEmail: string | null | undefined;
+  label: string;
+  value: string;
+  copied: boolean;
+  onCopy: () => void;
 }) {
-  const rows: Array<{ label: string; value: string }> = [
-    { label: "CPF (login)", value: cpf || "-" },
-    { label: "E-mail", value: (email || "").trim() || "-" },
-    { label: "Senha Livelo", value: (senhaLivelo || "").trim() || "-" },
-    { label: "Senha do e-mail", value: (senhaEmail || "").trim() || "-" },
-  ];
-
-  async function copyField(value: string) {
-    const text = String(value || "").trim();
-    if (!text || text === "-") return;
-    try {
-      await navigator.clipboard.writeText(text);
-    } catch {
-      /* ignore */
-    }
-  }
-
+  const text = String(value || "").trim();
+  const empty = !text;
   return (
-    <div className="space-y-2.5">
-      {rows.map((r) => (
-        <div key={r.label}>
-          <div className="mb-0.5 flex items-center justify-between gap-2 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
-            <span>{r.label}</span>
-            {r.value !== "-" ? (
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  void copyField(r.value);
-                }}
-                className="inline-flex items-center gap-0.5 rounded text-slate-300 hover:text-white"
-                title="Copiar"
-              >
-                <Copy className="h-3 w-3" strokeWidth={2} />
-              </button>
-            ) : null}
-          </div>
-          <div className="break-all font-mono text-[12px] leading-snug text-white">{r.value}</div>
-        </div>
-      ))}
+    <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-4">
+      <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">{label}</div>
+      <div className="mt-1.5 break-all text-lg font-semibold tabular-nums text-slate-900">
+        {empty ? "—" : text}
+      </div>
+      <button
+        type="button"
+        disabled={empty}
+        onClick={onCopy}
+        className="mt-3 inline-flex h-9 items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+      >
+        {copied ? <Check className="h-3.5 w-3.5 text-emerald-600" /> : <Copy className="h-3.5 w-3.5" />}
+        {copied ? "Copiado" : "Copiar"}
+      </button>
     </div>
   );
 }
@@ -135,16 +110,41 @@ export default function LiveloBonusClubeClient() {
   const [renewSavingId, setRenewSavingId] = useState<string | null>(null);
   const [q, setQ] = useState("");
   const [credOpenRowId, setCredOpenRowId] = useState<string | null>(null);
+  const [copiedField, setCopiedField] = useState("");
+
+  const credRow = useMemo(
+    () => items.find((r) => r.id === credOpenRowId) || null,
+    [items, credOpenRowId]
+  );
 
   useEffect(() => {
     if (!credOpenRowId) return;
-    const close = () => setCredOpenRowId(null);
-    const t = window.setTimeout(() => document.addEventListener("click", close), 0);
-    return () => {
-      window.clearTimeout(t);
-      document.removeEventListener("click", close);
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setCredOpenRowId(null);
+        setCopiedField("");
+      }
     };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
   }, [credOpenRowId]);
+
+  async function copyValue(field: string, value: string | null | undefined) {
+    const text = String(value || "").trim();
+    if (!text) return;
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedField(field);
+      window.setTimeout(() => setCopiedField((cur) => (cur === field ? "" : cur)), 1600);
+    } catch {
+      /* ignore */
+    }
+  }
+
+  function closeCredentials() {
+    setCredOpenRowId(null);
+    setCopiedField("");
+  }
 
   async function load() {
     setLoading(true);
@@ -369,8 +369,8 @@ export default function LiveloBonusClubeClient() {
                         <div className="relative shrink-0 pt-0.5">
                           <button
                             type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
+                            onClick={() => {
+                              setCopiedField("");
                               setCredOpenRowId((cur) => (cur === r.id ? null : r.id));
                             }}
                             className={cn(
@@ -388,24 +388,6 @@ export default function LiveloBonusClubeClient() {
                             </span>
                           </button>
 
-                          {credOpenRowId === r.id ? (
-                            <div
-                              role="dialog"
-                              aria-label="Credenciais do cedente"
-                              className="absolute right-0 top-full z-50 mt-1 w-[min(92vw,290px)] rounded-xl border border-slate-700 bg-slate-900 p-3 shadow-xl ring-1 ring-black/20"
-                              onClick={(e) => e.stopPropagation()}
-                            >
-                              <div className="mb-2 border-b border-slate-700 pb-2 text-[11px] font-semibold text-slate-200">
-                                Credenciais — Livelo
-                              </div>
-                              <CredRows
-                                cpf={r.cedente.cpf}
-                                email={r.cedente.emailCriado}
-                                senhaLivelo={r.cedente.senhaLivelo}
-                                senhaEmail={r.cedente.senhaEmail}
-                              />
-                            </div>
-                          ) : null}
                         </div>
                       </div>
                     </td>
@@ -503,6 +485,53 @@ export default function LiveloBonusClubeClient() {
           </table>
         </div>
       </div>
+
+      {credRow ? (
+        <div className="fixed inset-0 z-50">
+          <button
+            type="button"
+            className="absolute inset-0 bg-slate-900/50 backdrop-blur-sm"
+            aria-label="Fechar credenciais"
+            onClick={closeCredentials}
+          />
+          <div
+            role="dialog"
+            aria-label="Credenciais Livelo"
+            className="absolute left-1/2 top-1/2 w-[min(94vw,480px)] -translate-x-1/2 -translate-y-1/2 rounded-2xl border border-slate-200 bg-white p-5 shadow-2xl"
+          >
+            <div className="mb-4 flex items-start justify-between gap-3">
+              <div>
+                <div className="text-lg font-semibold text-slate-900">Credenciais Livelo</div>
+                <div className="text-sm text-slate-500">
+                  {credRow.cedente.nomeCompleto} • {credRow.cedente.identificador}
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={closeCredentials}
+                className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-50"
+                title="Fechar"
+              >
+                <X size={16} />
+              </button>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <CredField
+                label="CPF (login)"
+                value={credRow.cedente.cpf}
+                copied={copiedField === "cpf"}
+                onCopy={() => copyValue("cpf", credRow.cedente.cpf)}
+              />
+              <CredField
+                label="Senha Livelo"
+                value={credRow.cedente.senhaLivelo || ""}
+                copied={copiedField === "senhaLivelo"}
+                onCopy={() => copyValue("senhaLivelo", credRow.cedente.senhaLivelo)}
+              />
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

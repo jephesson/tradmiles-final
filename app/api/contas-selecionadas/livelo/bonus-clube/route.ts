@@ -73,8 +73,6 @@ export async function GET(req: NextRequest) {
             identificador: true,
             nomeCompleto: true,
             cpf: true,
-            emailCriado: true,
-            senhaEmail: true,
             senhaLivelo: true,
             owner: {
               select: {
@@ -193,8 +191,6 @@ export async function PATCH(req: NextRequest) {
             identificador: true,
             nomeCompleto: true,
             cpf: true,
-            emailCriado: true,
-            senhaEmail: true,
             senhaLivelo: true,
             owner: {
               select: {
