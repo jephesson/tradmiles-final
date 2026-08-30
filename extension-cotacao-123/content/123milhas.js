@@ -35,6 +35,129 @@ function airlineFromText(text) {
   return "";
 }
 
+function parseClock(v) {
+  const m = /^(\d{1,2}):(\d{2})$/.exec(String(v || "").trim());
+  if (!m) return "";
+  const h = Number(m[1]);
+  const min = Number(m[2]);
+  if (h > 23 || min > 59) return "";
+  return `${String(h).padStart(2, "0")}:${String(min).padStart(2, "0")}`;
+}
+
+function clockToMin(hhmm) {
+  const c = parseClock(hhmm);
+  if (!c) return null;
+  const [h, m] = c.split(":").map(Number);
+  return h * 60 + m;
+}
+
+function parseDurationMin(text) {
+  const t = String(text || "");
+  const hm = t.match(/(\d+)\s*h(?:oras?)?\s*(?:e\s*)?(\d+)\s*min/i);
+  if (hm) return Number(hm[1]) * 60 + Number(hm[2]);
+  const hOnly = t.match(/(\d+)\s*h(?:oras?)?(?!\s*\d)/i);
+  const mOnly = t.match(/(\d+)\s*min/i);
+  if (hOnly && mOnly) return Number(hOnly[1]) * 60 + Number(mOnly[1]);
+  if (hOnly) return Number(hOnly[1]) * 60;
+  if (mOnly) return Number(mOnly[1]);
+  return 0;
+}
+
+function parseStops(text) {
+  const t = String(text || "");
+  if (/direto|sem\s+parada|sem\s+escala|non[-\s]?stop/i.test(t)) return 0;
+  const n = t.match(/(\d+)\s*paradas?/i) || t.match(/(\d+)\s*escalas?/i);
+  if (n) return Number(n[1]);
+  if (/parada|escala/i.test(t)) return 1;
+  return null;
+}
+
+function hasActiveFilters(f) {
+  return Boolean(f && (f.maxDurationMin > 0 || f.depFrom || f.depTo || f.directOnly));
+}
+
+function depInWindow(depMin, from, to) {
+  if (depMin == null) return false;
+  const a = clockToMin(from);
+  const b = clockToMin(to);
+  if (a == null && b == null) return true;
+  if (a != null && b == null) return depMin >= a;
+  if (a == null && b != null) return depMin <= b;
+  if (a <= b) return depMin >= a && depMin <= b;
+  return depMin >= a || depMin <= b;
+}
+
+function matchesFilter(card, f) {
+  if (!hasActiveFilters(f)) return true;
+  if (f.maxDurationMin > 0) {
+    if (!card.durationMin || card.durationMin > f.maxDurationMin) return false;
+  }
+  if (f.depFrom || f.depTo) {
+    const dep = clockToMin(card.depTime);
+    if (!depInWindow(dep, f.depFrom, f.depTo)) return false;
+  }
+  if (f.directOnly && card.stops !== 0) return false;
+  return true;
+}
+
+function outermostCards() {
+  const all = [...document.querySelectorAll("[class*='renewed-flight-card'], [class*='FlightCard']")];
+  const scoped = all.length
+    ? all
+    : [...document.querySelectorAll("[class*='flight-card']")];
+  return scoped.filter((el) => !scoped.some((o) => o !== el && o.contains(el)));
+}
+
+function pixFromCard(el) {
+  const labels = el.querySelectorAll(
+    "span.renewed-flight-card__total--container__text, [class*='total--container__text']"
+  );
+  for (const lab of labels) {
+    if (!/total\s+no\s+pix/i.test(lab.textContent || "")) continue;
+    const value =
+      lab.parentElement?.querySelector(
+        "span.renewed-flight-card__total--container__value, [class*='total--container__value']"
+      ) || lab.nextElementSibling;
+    const cents = moneyToCents(value?.textContent || lab.parentElement?.innerText || "");
+    if (cents > 0) return { cents, raw: (value?.textContent || "").trim() };
+  }
+  const text = el.innerText || "";
+  if (!/total\s+no\s+pix|\bno\s+pix\b/i.test(text) || looksInstallment(text)) {
+    return { cents: 0, raw: "" };
+  }
+  const cents = moneyToCents(text);
+  return { cents, raw: text.slice(0, 180) };
+}
+
+function parseCard(el) {
+  const text = el.innerText || "";
+  const pix = pixFromCard(el);
+  const times = [...text.matchAll(/\b(\d{1,2}:\d{2})\b/g)]
+    .map((m) => parseClock(m[1]))
+    .filter(Boolean);
+  const numEl = el.querySelector("span.flight-time__flight-number, [class*='flight-number']");
+  return {
+    cents: pix.cents,
+    raw: pix.raw,
+    depTime: times[0] || "",
+    arrTime: times[1] || "",
+    durationMin: parseDurationMin(text),
+    stops: parseStops(text),
+    airline: airlineFromText(numEl?.textContent || text),
+  };
+}
+
+function pickBestCard(filters) {
+  let best = null;
+  for (const el of outermostCards()) {
+    const card = parseCard(el);
+    if (!card.cents) continue;
+    if (!matchesFilter(card, filters)) continue;
+    if (!best || card.cents < best.cents) best = card;
+  }
+  return best;
+}
+
 function dismissCookies() {
   document.querySelector("#ensAcceptAll")?.click();
   document.querySelector("#onetrust-accept-btn-handler")?.click();
@@ -125,7 +248,29 @@ function sendResult(payload) {
   });
 }
 
-async function scrape() {
+async function loadFilters() {
+  const h = new URLSearchParams((location.hash || "").replace(/^#/, ""));
+  const fromHash = {
+    maxDurationMin: Number(h.get("maxDur") || 0) || 0,
+    depFrom: parseClock(h.get("depFrom") || ""),
+    depTo: parseClock(h.get("depTo") || ""),
+    directOnly: h.get("direct") === "1",
+  };
+  try {
+    const st = await chrome.storage.local.get(["tmFilters"]);
+    const f = st.tmFilters || {};
+    return {
+      maxDurationMin: fromHash.maxDurationMin || Number(f.maxDurationMin) || 0,
+      depFrom: fromHash.depFrom || parseClock(f.depFrom || ""),
+      depTo: fromHash.depTo || parseClock(f.depTo || ""),
+      directOnly: fromHash.directOnly || Boolean(f.directOnly),
+    };
+  } catch {
+    return fromHash;
+  }
+}
+
+async function scrape(filters) {
   dismissCookies();
   await sleep(600);
   dismissCookies();
@@ -140,22 +285,37 @@ async function scrape() {
     if (kind === "RESULTS") {
       sawResults = true;
       clickMenorPreco();
-      selectFirstFlight();
-      const price = extractPrice();
-      if (price.cents > 0) {
-        await sleep(500);
-        const again = extractPrice();
-        if (again.cents > 0) return again;
+      if (!hasActiveFilters(filters)) selectFirstFlight();
+      const best = pickBestCard(filters);
+      if (best?.cents > 0) {
+        await sleep(400);
+        return pickBestCard(filters) || best;
+      }
+      if (!hasActiveFilters(filters)) {
+        const price = extractPrice();
+        if (price.cents > 0) {
+          await sleep(500);
+          const again = extractPrice();
+          if (again.cents > 0) {
+            return { ...again, airline: extractAirline() };
+          }
+        }
       }
     }
     await sleep(800);
   }
-  const last = extractPrice();
-  if (last.cents > 0) return last;
+  const last = pickBestCard(filters);
+  if (last?.cents > 0) return last;
+  if (!hasActiveFilters(filters)) {
+    const price = extractPrice();
+    if (price.cents > 0) return { ...price, airline: extractAirline() };
+  }
   return {
     cents: 0,
     error: sawResults
-      ? "Resultados carregaram, mas não achei o Pix."
+      ? hasActiveFilters(filters)
+        ? "Nenhum voo bate com os filtros (horário, duração ou direto)."
+        : "Resultados carregaram, mas não achei o Pix."
       : "Não achei o preço no 123milhas.",
   };
 }
@@ -168,12 +328,17 @@ async function run() {
     return;
   }
 
-  const price = await scrape();
+  const filters = await loadFilters();
+  const price = await scrape(filters);
   sendResult({
     ok: price.cents > 0,
     priceCents: price.cents || 0,
-    airline: price.cents > 0 ? extractAirline() : "",
+    airline: price.airline || (price.cents > 0 ? extractAirline() : ""),
     rawPrice: price.raw || "",
+    depTime: price.depTime || "",
+    arrTime: price.arrTime || "",
+    durationMin: price.durationMin || 0,
+    stops: price.stops,
     error: price.cents > 0 ? "" : price.error || "Não achei o preço no 123milhas.",
   });
 }

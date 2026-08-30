@@ -9,7 +9,7 @@ if (!window.__tmCotacaoBridge) {
     try {
       if (connected) document.documentElement.dataset.tmCotacaoExt = "1";
       window.dispatchEvent(
-        new CustomEvent("tm-cotacao-bridge", { detail: { connected, version: "1.2.1" } })
+        new CustomEvent("tm-cotacao-bridge", { detail: { connected, version: "1.3.0" } })
       );
     } catch {
       /* ignore */
@@ -38,6 +38,10 @@ if (!window.__tmCotacaoBridge) {
             priceCents: msg.priceCents,
             airline: msg.airline,
             rawPrice: msg.rawPrice,
+            depTime: msg.depTime || "",
+            arrTime: msg.arrTime || "",
+            durationMin: msg.durationMin || 0,
+            stops: msg.stops,
             error: msg.error,
           }),
         });

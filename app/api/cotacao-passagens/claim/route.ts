@@ -17,7 +17,13 @@ export async function POST() {
     const job = await tx.cotacaoPassagemJob.findFirst({
       where: { ownerId: session.id, team: session.team, status: "RUNNING" },
       orderBy: { createdAt: "desc" },
-      select: { id: true },
+      select: {
+        id: true,
+        filterMaxDurationMin: true,
+        filterDepFrom: true,
+        filterDepTo: true,
+        filterDirectOnly: true,
+      },
     });
     if (!job) return null;
 
@@ -33,10 +39,17 @@ export async function POST() {
     });
     if (!row) return null;
 
-    return tx.cotacaoPassagemSearch.update({
+    const updated = await tx.cotacaoPassagemSearch.update({
       where: { id: row.id },
       data: { status: "RUNNING", startedAt: new Date() },
     });
+    return {
+      ...updated,
+      filterMaxDurationMin: job.filterMaxDurationMin,
+      filterDepFrom: job.filterDepFrom,
+      filterDepTo: job.filterDepTo,
+      filterDirectOnly: job.filterDirectOnly,
+    };
   });
 
   return NextResponse.json({ ok: true, search: next });

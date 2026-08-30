@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/auth-server";
+import { parseClock } from "@/lib/cotacao-passagens";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -26,6 +27,11 @@ export async function POST(req: Request, ctx: Ctx) {
   }
 
   const ok = Boolean(body.ok) && Number(body.priceCents) > 0;
+  const depTime = parseClock(String(body.depTime || "")) || null;
+  const arrTime = parseClock(String(body.arrTime || "")) || null;
+  const durationMin = Math.trunc(Number(body.durationMin) || 0);
+  const stopsN = Math.trunc(Number(body.stops));
+  const stops = Number.isFinite(stopsN) ? Math.max(0, stopsN) : null;
   const updated = await prisma.cotacaoPassagemSearch.update({
     where: { id: search.id },
     data: {
@@ -34,6 +40,10 @@ export async function POST(req: Request, ctx: Ctx) {
       airline: String(body.airline || "").slice(0, 40),
       rawPrice: String(body.rawPrice || "").slice(0, 200) || null,
       error: ok ? null : String(body.error || "Não achei o preço no 123milhas.").slice(0, 400),
+      depTime: ok ? depTime : null,
+      arrTime: ok ? arrTime : null,
+      durationMin: ok && durationMin > 0 ? durationMin : null,
+      stops: ok ? stops : null,
       finishedAt: new Date(),
     },
   });

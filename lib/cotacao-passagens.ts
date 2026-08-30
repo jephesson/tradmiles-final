@@ -153,6 +153,50 @@ export function buildSmilesSearchUrl(origin: string, dest: string, dateISO: stri
   return `https://www.smiles.com.br/mfe/emissao-passagem/?${q.toString()}`;
 }
 
+export function parseClock(v: string) {
+  const m = /^(\d{1,2}):(\d{2})$/.exec(String(v || "").trim());
+  if (!m) return "";
+  const h = Number(m[1]);
+  const min = Number(m[2]);
+  if (h > 23 || min > 59) return "";
+  return `${String(h).padStart(2, "0")}:${String(min).padStart(2, "0")}`;
+}
+
+/** Horas (aceita "2,5") → minutos. Vazio/inválido = sem filtro. */
+export function hoursToDurationMin(raw: unknown) {
+  const n = Number(String(raw ?? "").replace(",", "."));
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return Math.min(24 * 60, Math.round(n * 60));
+}
+
+export function fmtDurationMin(min: number | null | undefined) {
+  const n = Math.trunc(Number(min) || 0);
+  if (n <= 0) return "";
+  const h = Math.floor(n / 60);
+  const m = n % 60;
+  if (h && m) return `${h}h ${String(m).padStart(2, "0")}min`;
+  if (h) return `${h}h`;
+  return `${m}min`;
+}
+
+export function fmtFlightSchedule(row: {
+  depTime?: string | null;
+  arrTime?: string | null;
+  durationMin?: number | null;
+  stops?: number | null;
+}) {
+  const bits: string[] = [];
+  if (row.depTime && row.arrTime) bits.push(`${row.depTime} → ${row.arrTime}`);
+  else if (row.depTime) bits.push(`sai ${row.depTime}`);
+  const dur = fmtDurationMin(row.durationMin);
+  if (dur) bits.push(dur);
+  if (row.stops === 0) bits.push("direto");
+  else if (typeof row.stops === "number" && row.stops > 0) {
+    bits.push(`${row.stops} ${row.stops === 1 ? "parada" : "paradas"}`);
+  }
+  return bits.join(" · ");
+}
+
 /** Busca Azul em pontos (cc=PTS), mesma estrutura da seleção de voo. */
 export function buildAzulSearchUrl(origin: string, dest: string, dateISO: string, adults = 1) {
   const o = toIata(origin);

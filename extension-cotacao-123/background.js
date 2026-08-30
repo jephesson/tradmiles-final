@@ -12,7 +12,7 @@ const TRADE_TABS = [
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg?.type === "TM_COTACAO_PING") {
-    sendResponse({ ok: true, version: "1.2.1" });
+    sendResponse({ ok: true, version: "1.3.0" });
     return false;
   }
   if (msg?.type === "TM_COTACAO_START") {
@@ -26,6 +26,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       priceCents: msg.priceCents,
       airline: msg.airline,
       rawPrice: msg.rawPrice,
+      depTime: msg.depTime,
+      arrTime: msg.arrTime,
+      durationMin: msg.durationMin,
+      stops: msg.stops,
       error: msg.error,
     })
       .then(() => sendResponse({ ok: true }))
@@ -109,9 +113,49 @@ async function startNext() {
     tmOrigin: claimed.origin,
     tmStartedAt: Date.now(),
     tmLast: `Abrindo ${search.originIata || ""}→${search.destIata || ""}`,
+    tmFilters: filtersFromSearch(search),
   });
   chrome.alarms.create("tm-cotacao-timeout", { delayInMinutes: 1 });
-  await openSearchWindow(search.url);
+  await openSearchWindow(urlWithFilters(search.url, filtersFromSearch(search)));
+}
+
+function filtersFromSearch(search) {
+  return {
+    maxDurationMin: Number(search.filterMaxDurationMin) || 0,
+    depFrom: search.filterDepFrom || "",
+    depTo: search.filterDepTo || "",
+    directOnly: Boolean(search.filterDirectOnly),
+  };
+}
+
+function urlWithFilters(url, filters) {
+  try {
+    const u = new URL(url);
+    const p = new URLSearchParams();
+    if (filters.maxDurationMin) p.set("maxDur", String(filters.maxDurationMin));
+    if (filters.depFrom) p.set("depFrom", filters.depFrom);
+    if (filters.depTo) p.set("depTo", filters.depTo);
+    if (filters.directOnly) p.set("direct", "1");
+    const qs = p.toString();
+    if (qs) u.hash = qs;
+    return u.toString();
+  } catch {
+    return url;
+  }
+}
+
+function resultBody(payload) {
+  return {
+    ok: Boolean(payload.ok),
+    priceCents: payload.priceCents || 0,
+    airline: payload.airline || "",
+    rawPrice: payload.rawPrice || "",
+    depTime: payload.depTime || "",
+    arrTime: payload.arrTime || "",
+    durationMin: payload.durationMin || 0,
+    stops: payload.stops,
+    error: payload.error || "",
+  };
 }
 
 async function openSearchWindow(url) {
@@ -200,11 +244,7 @@ async function saveViaTabs(searchId, payload) {
       await chrome.tabs.sendMessage(tab.id, {
         type: "TM_COTACAO_SAVE",
         searchId,
-        ok: Boolean(payload.ok),
-        priceCents: payload.priceCents || 0,
-        airline: payload.airline || "",
-        rawPrice: payload.rawPrice || "",
-        error: payload.error || "",
+        ...resultBody(payload),
       });
     } catch {
       /* aba sem bridge */
@@ -226,13 +266,7 @@ async function onResult(payload) {
     /* ignore */
   }
 
-  const body = JSON.stringify({
-    ok: Boolean(payload.ok),
-    priceCents: payload.priceCents || 0,
-    airline: payload.airline || "",
-    rawPrice: payload.rawPrice || "",
-    error: payload.error || "",
-  });
+  const body = JSON.stringify(resultBody(payload));
   const saved = await appFetch(`/api/cotacao-passagens/search/${encodeURIComponent(searchId)}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },

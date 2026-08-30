@@ -6,7 +6,9 @@ import {
   buildDateList,
   COTACAO_MAX_SEARCHES,
   extractIataList,
+  hoursToDurationMin,
   isISODate,
+  parseClock,
 } from "@/lib/cotacao-passagens";
 
 export const runtime = "nodejs";
@@ -132,6 +134,10 @@ export async function POST(req: Request) {
       returnFrom: isISODate(returnFrom) ? returnFrom : null,
       returnTo: isISODate(returnTo) ? returnTo : null,
       returnDays: includeReturn ? Math.max(1, Math.trunc(returnDays || 1)) : null,
+      filterMaxDurationMin: hoursToDurationMin(body.filterMaxHours),
+      filterDepFrom: parseClock(String(body.filterDepFrom || "")) || null,
+      filterDepTo: parseClock(String(body.filterDepTo || "")) || null,
+      filterDirectOnly: Boolean(body.filterDirectOnly),
       searches: { create: searches },
     },
     include: jobInclude,

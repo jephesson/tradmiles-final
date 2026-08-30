@@ -8,6 +8,8 @@ import {
   buildAzulSearchUrl,
   buildLatamSearchUrl,
   buildSmilesSearchUrl,
+  fmtDurationMin,
+  fmtFlightSchedule,
   saleTotalCents,
   suggestedMilheiroCents,
 } from "@/lib/cotacao-passagens";
@@ -23,6 +25,10 @@ type SearchRow = {
   priceCents: number;
   airline: string;
   error: string | null;
+  depTime?: string | null;
+  arrTime?: string | null;
+  durationMin?: number | null;
+  stops?: number | null;
 };
 
 type Job = {
@@ -35,6 +41,10 @@ type Job = {
   quoteMilheiroCents: number;
   quoteBoardingFeeCents: number;
   quoteCia?: Record<string, { miles?: number; feeCents?: number; milheiroCents?: number }> | null;
+  filterMaxDurationMin?: number | null;
+  filterDepFrom?: string | null;
+  filterDepTo?: string | null;
+  filterDirectOnly?: boolean;
   searches: SearchRow[];
 };
 
@@ -96,6 +106,10 @@ export default function CotacaoPassagensClient() {
   const [returnFrom, setReturnFrom] = useState("");
   const [returnTo, setReturnTo] = useState("");
   const [returnDays, setReturnDays] = useState("7");
+  const [filterMaxHours, setFilterMaxHours] = useState("");
+  const [filterDepFrom, setFilterDepFrom] = useState("");
+  const [filterDepTo, setFilterDepTo] = useState("");
+  const [filterDirectOnly, setFilterDirectOnly] = useState(false);
   const [job, setJob] = useState<Job | null>(null);
   const [loading, setLoading] = useState(false);
   const [extOn, setExtOn] = useState(false);
@@ -247,6 +261,10 @@ export default function CotacaoPassagensClient() {
           returnFrom: returnFrom || null,
           returnTo: returnExact ? returnFrom : returnTo || null,
           returnDays: Number(returnDays || 1),
+          filterMaxHours: filterMaxHours || null,
+          filterDepFrom: filterDepFrom || null,
+          filterDepTo: filterDepTo || null,
+          filterDirectOnly,
         }),
       });
       const j = await r.json();
@@ -331,7 +349,7 @@ export default function CotacaoPassagensClient() {
         </div>
         <ol className="mt-5 grid gap-2 sm:grid-cols-3">
           {[
-            { n: "1", t: "Pesquise no 123", d: "Origem, destino e datas" },
+            { n: "1", t: "Pesquise no 123", d: "Trecho, datas e filtros de voo" },
             { n: "2", t: "Cote nas cias", d: "Abra LATAM, Smiles e Azul" },
             { n: "3", t: "Veja quem ganha", d: "Total, milheiro e desconto" },
           ].map((s) => (
@@ -410,6 +428,39 @@ export default function CotacaoPassagensClient() {
                 ) : null}
               </>
             ) : null}
+            <div className="md:col-span-2 mt-1 border-t border-slate-100 pt-3 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+              Filtros do voo (opcional)
+            </div>
+            <div>
+              <label className={FIELD}>Duração máxima (horas)</label>
+              <input
+                value={filterMaxHours}
+                onChange={(e) => setFilterMaxHours(e.target.value)}
+                className={INPUT}
+                placeholder="ex.: 3 ou 2,5"
+              />
+            </div>
+            <div>
+              <label className={FIELD}>Sai a partir de</label>
+              <input
+                type="time"
+                value={filterDepFrom}
+                onChange={(e) => setFilterDepFrom(e.target.value)}
+                className={INPUT}
+              />
+            </div>
+            <div>
+              <label className={FIELD}>Sai até</label>
+              <input type="time" value={filterDepTo} onChange={(e) => setFilterDepTo(e.target.value)} className={INPUT} />
+            </div>
+            <label className="flex items-center gap-2 text-sm md:col-span-2">
+              <input
+                type="checkbox"
+                checked={filterDirectOnly}
+                onChange={(e) => setFilterDirectOnly(e.target.checked)}
+              />
+              Somente voos diretos
+            </label>
           </div>
           <div className="mt-4 flex flex-wrap gap-2">
             <button
@@ -433,7 +484,8 @@ export default function CotacaoPassagensClient() {
             ) : null}
           </div>
           <p className="mt-3 text-xs leading-relaxed text-slate-500">
-            A extensão pesquisa uma data por vez, sem login no 123milhas. Deixe o Chrome aberto.
+            A extensão pesquisa uma data por vez, sem login no 123milhas. Deixe o Chrome aberto. Com filtro, ela
+            pega o Pix mais barato que ainda cabe no horário/duração.
             {job ? ` ${progress.done}/${progress.total} concluídas.` : ""}
           </p>
         </div>
@@ -444,6 +496,24 @@ export default function CotacaoPassagensClient() {
           </div>
           <BestCard title="Ida mais barata" row={bestIda} running={job?.status === "RUNNING"} />
           <BestCard title="Volta mais barata" row={bestVolta} running={job?.status === "RUNNING"} />
+          {job && (job.filterMaxDurationMin || job.filterDepFrom || job.filterDepTo || job.filterDirectOnly) ? (
+            <p className="text-xs text-slate-500">
+              Filtro desta cotação:{" "}
+              {[
+                job.filterMaxDurationMin ? `até ${fmtDurationMin(job.filterMaxDurationMin)}` : "",
+                job.filterDepFrom && job.filterDepTo
+                  ? `sai ${job.filterDepFrom}–${job.filterDepTo}`
+                  : job.filterDepFrom
+                    ? `sai a partir de ${job.filterDepFrom}`
+                    : job.filterDepTo
+                      ? `sai até ${job.filterDepTo}`
+                      : "",
+                job.filterDirectOnly ? "somente direto" : "",
+              ]
+                .filter(Boolean)
+                .join(" · ")}
+            </p>
+          ) : null}
           {price123 > 0 ? (
             <div className="rounded-2xl border border-slate-900 bg-slate-900 p-4 text-white shadow-sm">
               <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-300">{price123Label}</div>
@@ -654,6 +724,7 @@ export default function CotacaoPassagensClient() {
                 <th className="p-3">Trecho</th>
                 <th className="p-3">Data</th>
                 <th className="p-3">Cia</th>
+                <th className="p-3">Horário</th>
                 <th className="p-3">123milhas</th>
                 <th className="p-3">Status</th>
               </tr>
@@ -666,8 +737,9 @@ export default function CotacaoPassagensClient() {
                   </td>
                   <td className="p-3">{s.date.split("-").reverse().join("/")}</td>
                   <td className="p-3">{s.airline || "—"}</td>
+                  <td className="p-3 text-xs text-slate-600">{fmtFlightSchedule(s) || "—"}</td>
                   <td className="p-3 tabular-nums">{s.priceCents ? fmtMoney(s.priceCents) : "—"}</td>
-                  <td className="p-3 text-xs">{s.status}</td>
+                  <td className="p-3 text-xs">{s.status === "ERRO" && s.error ? s.error : s.status}</td>
                 </tr>
               ))}
             </tbody>
@@ -693,6 +765,9 @@ function BestCard({ title, row, running }: { title: string; row: SearchRow | nul
           <div className="text-sm text-slate-600">
             {row.date.split("-").reverse().join("/")} · {row.airline || "Cia não identificada"}
           </div>
+          {fmtFlightSchedule(row) ? (
+            <div className="mt-1 text-sm font-medium text-slate-800">{fmtFlightSchedule(row)}</div>
+          ) : null}
           <div className="mt-2 text-xl font-bold tabular-nums text-slate-900">{fmtMoney(row.priceCents)}</div>
           <div className="mt-1 text-xs text-slate-500">Pix no 123milhas</div>
           <div className="mt-3 flex flex-wrap gap-2">

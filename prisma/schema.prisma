@@ -2397,6 +2397,11 @@ model CotacaoPassagemJob {
   quoteBoardingFeeCents Int @default(0)
   quoteCia              Json?
 
+  filterMaxDurationMin Int?
+  filterDepFrom        String?
+  filterDepTo          String?
+  filterDirectOnly     Boolean @default(false)
+
   searches CotacaoPassagemSearch[]
 
   createdAt DateTime @default(now())
@@ -2423,6 +2428,11 @@ model CotacaoPassagemSearch {
   airline    String              @default("")
   rawPrice   String?
   error      String?
+
+  depTime     String?
+  arrTime     String?
+  durationMin Int?
+  stops       Int?
 
   startedAt  DateTime?
   finishedAt DateTime?
