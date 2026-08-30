@@ -399,6 +399,9 @@ export default function Sidebar() {
   const [openCheckLocalizador, setOpenCheckLocalizador] = useState(
     isCheckLocalizadorRoute
   );
+  const [openCotacaoPassagens, setOpenCotacaoPassagens] = useState(
+    isCotacaoPassagensRoute
+  );
 
   const [openLucros, setOpenLucros] = useState(isLucrosRoute);
 
@@ -499,6 +502,10 @@ export default function Sidebar() {
   useEffect(
     () => setOpenCheckLocalizador(isCheckLocalizadorRoute),
     [isCheckLocalizadorRoute]
+  );
+  useEffect(
+    () => setOpenCotacaoPassagens(isCotacaoPassagensRoute),
+    [isCotacaoPassagensRoute]
   );
 
   useEffect(() => setOpenLucros(isLucrosRoute), [isLucrosRoute]);
@@ -864,8 +871,6 @@ export default function Sidebar() {
             </NavLink>
           </SubAccordion>
 
-          <NavLink href="/dashboard/cotacao-passagens">Cotação de passagens</NavLink>
-
           <SubAccordion
             title="Check Localizador"
             open={openCheckLocalizador}
@@ -877,6 +882,17 @@ export default function Sidebar() {
             </NavLink>
             <NavLink href="/dashboard/check-localizador/smiles/email-confirmacao">
               Email de confirmação
+            </NavLink>
+          </SubAccordion>
+
+          <SubAccordion
+            title="Cotação de passagens"
+            href="/dashboard/cotacao-passagens"
+            open={openCotacaoPassagens}
+            onToggle={() => setOpenCotacaoPassagens((v) => !v)}
+          >
+            <NavLink href="/dashboard/cotacao-passagens" exact>
+              Pesquisar
             </NavLink>
           </SubAccordion>
         </Accordion>
