@@ -90,3 +90,65 @@ export function airlineSite(airline: string) {
   if (a.includes("LATAM")) return "https://www.latamairlines.com";
   return "";
 }
+
+function toIata(raw: string) {
+  return String(raw || "")
+    .replace(/[^a-zA-Z]/g, "")
+    .toUpperCase()
+    .slice(0, 3);
+}
+
+const SMILES_CITY_ANY = new Set(["RIO", "SAO", "BHZ"]);
+
+function smilesMidnightMs(iso: string) {
+  const [y, m, d] = iso.split("-").map(Number);
+  if (!y || !m || !d) return 0;
+  return Date.UTC(y, m - 1, d, 3, 0, 0);
+}
+
+/** Mesmo link de ofertas em milhas da aba Vendas. */
+export function buildLatamSearchUrl(origin: string, dest: string, dateISO: string, adults = 1) {
+  const o = toIata(origin);
+  const d = toIata(dest);
+  if (!/^[A-Z]{3}$/.test(o) || !/^[A-Z]{3}$/.test(d) || !isISODate(dateISO)) return "";
+  const q = new URLSearchParams();
+  q.set("origin", o);
+  q.set("destination", d);
+  q.set("outbound", `${dateISO}T12:00:00.000Z`);
+  q.set("adt", String(Math.max(1, Math.trunc(adults || 1))));
+  q.set("chd", "0");
+  q.set("inf", "0");
+  q.set("trip", "OW");
+  q.set("cabin", "Economy");
+  q.set("redemption", "true");
+  q.set("sort", "RECOMMENDED");
+  return `https://www.latamairlines.com/br/pt/oferta-voos?${q.toString()}`;
+}
+
+export function buildSmilesSearchUrl(origin: string, dest: string, dateISO: string, adults = 1) {
+  const o = toIata(origin);
+  const d = toIata(dest);
+  const ms = smilesMidnightMs(dateISO);
+  if (!/^[A-Z]{3}$/.test(o) || !/^[A-Z]{3}$/.test(d) || !ms) return "";
+  const q = new URLSearchParams();
+  q.set("adults", String(Math.max(1, Math.trunc(adults || 1))));
+  q.set("cabin", "ECONOMIC");
+  q.set("children", "0");
+  q.set("departureDate", String(ms));
+  q.set("infants", "0");
+  q.set("isElegible", "false");
+  q.set("isFlexibleDateChecked", "false");
+  q.set("searchType", "g3");
+  q.set("segments", "1");
+  q.set("tripType", "1");
+  q.set("originAirport", o);
+  q.set("originCity", "");
+  q.set("originCountry", "");
+  q.set("originAirportIsAny", SMILES_CITY_ANY.has(o) ? "true" : "false");
+  q.set("destinationAirport", d);
+  q.set("destinCity", "");
+  q.set("destinCountry", "");
+  q.set("destinAirportIsAny", SMILES_CITY_ANY.has(d) ? "true" : "false");
+  q.set("novo-resultado-voos", "true");
+  return `https://www.smiles.com.br/mfe/emissao-passagem/?${q.toString()}`;
+}

@@ -3,7 +3,12 @@
 import { useEffect, useMemo, useState } from "react";
 import { Download, Plane, RefreshCw, Square } from "lucide-react";
 import { cn } from "@/lib/cn";
-import { airlineSite, saleTotalCents, suggestedMilheiroCents } from "@/lib/cotacao-passagens";
+import {
+  buildLatamSearchUrl,
+  buildSmilesSearchUrl,
+  saleTotalCents,
+  suggestedMilheiroCents,
+} from "@/lib/cotacao-passagens";
 
 type SearchRow = {
   id: string;
@@ -83,14 +88,20 @@ export default function CotacaoPassagensClient() {
   useEffect(() => {
     if (typeof document === "undefined") return;
     document.body.dataset.tmCotacaoJob = job?.status === "RUNNING" && job.id ? job.id : "";
+    const sync = () => {
+      if (document.documentElement.dataset.tmCotacaoExt) setExtOn(true);
+    };
     const onBridge = (e: Event) => {
       const connected = Boolean((e as CustomEvent<{ connected?: boolean }>).detail?.connected);
-      setExtOn(connected);
+      if (connected) setExtOn(true);
     };
+    sync();
+    const t = window.setInterval(sync, 1500);
     window.addEventListener("tm-cotacao-bridge", onBridge);
     return () => {
       delete document.body.dataset.tmCotacaoJob;
       window.removeEventListener("tm-cotacao-bridge", onBridge);
+      window.clearInterval(t);
     };
   }, [job?.id, job?.status]);
 
@@ -120,6 +131,7 @@ export default function CotacaoPassagensClient() {
     const done = rows.filter((s) => !["PENDING", "RUNNING"].includes(s.status)).length;
     return { done, total: rows.length };
   }, [job]);
+  const extOk = extOn || progress.done > 0;
 
   async function start() {
     setLoading(true);
@@ -184,18 +196,18 @@ export default function CotacaoPassagensClient() {
               Cotação de passagens
             </h1>
             <p className="mt-1 max-w-2xl text-sm text-slate-500">
-              Monte o trecho e inicie. A extensão pesquisa o 123milhas em uma janela minimizada (sem login) e vai
-              preenchendo sozinha. Pode sair desta página; deixe o Chrome aberto.
+              Monte o trecho e inicie. A extensão pesquisa o 123milhas atrás da sua tela (sem login) e preenche
+              sozinha. Pode sair desta página; deixe o Chrome aberto.
             </p>
           </div>
           <div className="flex flex-col items-stretch gap-2 sm:items-end">
             <div
               className={cn(
                 "inline-flex h-8 items-center justify-center rounded-full px-3 text-[11px] font-semibold",
-                extOn ? "bg-emerald-50 text-emerald-800" : "bg-amber-50 text-amber-900"
+                extOk ? "bg-emerald-50 text-emerald-800" : "bg-slate-100 text-slate-600"
               )}
             >
-              {extOn ? "Extensão conectada" : "Extensão não detectada — baixe de novo (v1.2.1)"}
+              {extOk ? "Extensão conectada" : "Instale a extensão para cotar"}
             </div>
             <a
               href={ZIP_HREF}
@@ -290,8 +302,7 @@ export default function CotacaoPassagensClient() {
             ) : null}
           </div>
           <p className="mt-3 text-xs leading-relaxed text-slate-500">
-            Instale a extensão v1.2.1. O 123milhas precisa renderizar (uma janela abre atrás da sua). Não precisa
-            login lá. Pode sair desta página; deixe o Chrome aberto.
+            A extensão pesquisa uma data por vez, sem login no 123milhas. Deixe o Chrome aberto.
             {job ? ` ${progress.done}/${progress.total} concluídas.` : ""}
           </p>
         </div>
@@ -384,7 +395,8 @@ export default function CotacaoPassagensClient() {
 }
 
 function BestCard({ title, row, running }: { title: string; row: SearchRow | null; running?: boolean }) {
-  const site = row ? airlineSite(row.airline) : "";
+  const latam = row ? buildLatamSearchUrl(row.originIata, row.destIata, row.date) : "";
+  const smiles = row ? buildSmilesSearchUrl(row.originIata, row.destIata, row.date) : "";
   return (
     <div className="rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm">
       <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">{title}</div>
@@ -398,18 +410,28 @@ function BestCard({ title, row, running }: { title: string; row: SearchRow | nul
           </div>
           <div className="mt-2 text-xl font-bold tabular-nums text-slate-900">{fmtMoney(row.priceCents)}</div>
           <div className="mt-1 text-xs text-slate-500">Valor no 123milhas (Pix)</div>
-          {site ? (
-            <a
-              href={site}
-              target="_blank"
-              rel="noreferrer"
-              className="mt-3 inline-flex h-9 items-center rounded-xl bg-slate-900 px-3 text-xs font-semibold text-white"
-            >
-              Cote agora na {row.airline}
-            </a>
-          ) : (
-            <div className="mt-3 text-sm font-medium text-amber-800">Cote este trecho na cia aérea.</div>
-          )}
+          <div className="mt-3 flex flex-wrap gap-2">
+            {latam ? (
+              <a
+                href={latam}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex h-9 items-center rounded-xl bg-slate-900 px-3 text-xs font-semibold text-white"
+              >
+                Cote agora na LATAM
+              </a>
+            ) : null}
+            {smiles ? (
+              <a
+                href={smiles}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex h-9 items-center rounded-xl border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-800"
+              >
+                Cote agora na Smiles
+              </a>
+            ) : null}
+          </div>
         </>
       ) : (
         <div className="mt-2 text-sm text-slate-500">

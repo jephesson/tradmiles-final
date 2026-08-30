@@ -7,6 +7,7 @@ if (!window.__tmCotacaoBridge) {
 
   function notify(connected) {
     try {
+      if (connected) document.documentElement.dataset.tmCotacaoExt = "1";
       window.dispatchEvent(
         new CustomEvent("tm-cotacao-bridge", { detail: { connected, version: "1.2.1" } })
       );
@@ -14,6 +15,8 @@ if (!window.__tmCotacaoBridge) {
       /* ignore */
     }
   }
+
+  notify(true);
 
   function kick() {
     if (!onCotacaoPage()) return;
