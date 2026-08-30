@@ -12,7 +12,7 @@ const TRADE_TABS = [
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg?.type === "TM_COTACAO_PING") {
-    sendResponse({ ok: true, version: "1.3.0" });
+    sendResponse({ ok: true, version: "1.3.1" });
     return false;
   }
   if (msg?.type === "TM_COTACAO_START") {
@@ -116,7 +116,7 @@ async function startNext() {
     tmFilters: filtersFromSearch(search),
   });
   chrome.alarms.create("tm-cotacao-timeout", { delayInMinutes: 1 });
-  await openSearchWindow(urlWithFilters(search.url, filtersFromSearch(search)));
+  await openSearchWindow(search.url);
 }
 
 function filtersFromSearch(search) {
@@ -128,19 +128,41 @@ function filtersFromSearch(search) {
   };
 }
 
-function urlWithFilters(url, filters) {
+function sleep(ms) {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+async function rememberUserWindow() {
   try {
-    const u = new URL(url);
-    const p = new URLSearchParams();
-    if (filters.maxDurationMin) p.set("maxDur", String(filters.maxDurationMin));
-    if (filters.depFrom) p.set("depFrom", filters.depFrom);
-    if (filters.depTo) p.set("depTo", filters.depTo);
-    if (filters.directOnly) p.set("direct", "1");
-    const qs = p.toString();
-    if (qs) u.hash = qs;
-    return u.toString();
+    const w = await chrome.windows.getLastFocused();
+    if (w?.id) {
+      const { tmWindowId } = await chrome.storage.local.get(["tmWindowId"]);
+      if (!tmWindowId || w.id !== tmWindowId) {
+        await chrome.storage.local.set({ tmUserWindowId: w.id });
+        return w.id;
+      }
+    }
   } catch {
-    return url;
+    /* ignore */
+  }
+  const { tmUserWindowId } = await chrome.storage.local.get(["tmUserWindowId"]);
+  return tmUserWindowId || null;
+}
+
+async function yankFocusToUser(workerId) {
+  const { tmUserWindowId } = await chrome.storage.local.get(["tmUserWindowId"]);
+  const userId = tmUserWindowId;
+  if (!userId || userId === workerId) return;
+  for (const delay of [0, 150, 450]) {
+    if (delay) await sleep(delay);
+    try {
+      const cur = await chrome.windows.getLastFocused();
+      if (!cur || cur.id === workerId || delay === 0) {
+        await chrome.windows.update(userId, { focused: true });
+      }
+    } catch {
+      /* janela do usuário já fechou */
+    }
   }
 }
 
@@ -159,23 +181,19 @@ function resultBody(payload) {
 }
 
 async function openSearchWindow(url) {
-  let prevId = null;
-  try {
-    prevId = (await chrome.windows.getLastFocused())?.id || null;
-  } catch {
-    /* ignore */
-  }
-
+  const userWinId = await rememberUserWindow();
   const { tmTabId, tmWindowId } = await chrome.storage.local.get(["tmTabId", "tmWindowId"]);
   if (tmTabId) {
     try {
       await chrome.tabs.update(tmTabId, { url, active: true, autoDiscardable: false });
       if (tmWindowId) {
-        await chrome.windows.update(tmWindowId, { focused: true, state: "normal" });
+        try {
+          await chrome.windows.update(tmWindowId, { state: "normal" });
+        } catch {
+          /* ignore */
+        }
       }
-      if (prevId && prevId !== tmWindowId) {
-        await chrome.windows.update(prevId, { focused: true });
-      }
+      await yankFocusToUser(tmWindowId);
       return;
     } catch {
       await chrome.storage.local.set({ tmTabId: null, tmWindowId: null });
@@ -184,7 +202,7 @@ async function openSearchWindow(url) {
 
   const win = await chrome.windows.create({
     url,
-    focused: true,
+    focused: false,
     state: "normal",
     type: "normal",
     width: 1280,
@@ -198,14 +216,12 @@ async function openSearchWindow(url) {
       /* ignore */
     }
   }
-  await chrome.storage.local.set({ tmWindowId: win?.id || null, tmTabId: tabId });
-  if (prevId && win?.id && prevId !== win.id) {
-    try {
-      await chrome.windows.update(prevId, { focused: true });
-    } catch {
-      /* ignore */
-    }
-  }
+  await chrome.storage.local.set({
+    tmWindowId: win?.id || null,
+    tmTabId: tabId,
+    tmUserWindowId: userWinId || null,
+  });
+  await yankFocusToUser(win?.id);
 }
 
 async function closeWorkerWindow() {
@@ -223,7 +239,7 @@ async function closeWorkerWindow() {
       /* ignore */
     }
   }
-  await chrome.storage.local.set({ tmWindowId: null, tmTabId: null });
+  await chrome.storage.local.set({ tmWindowId: null, tmTabId: null, tmUserWindowId: null });
 }
 
 async function onTimeout() {

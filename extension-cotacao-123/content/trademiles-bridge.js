@@ -9,7 +9,7 @@ if (!window.__tmCotacaoBridge) {
     try {
       if (connected) document.documentElement.dataset.tmCotacaoExt = "1";
       window.dispatchEvent(
-        new CustomEvent("tm-cotacao-bridge", { detail: { connected, version: "1.3.0" } })
+        new CustomEvent("tm-cotacao-bridge", { detail: { connected, version: "1.3.1" } })
       );
     } catch {
       /* ignore */
