@@ -150,6 +150,19 @@ export async function GET(req: Request) {
     });
     const receivablesOpenCents = safeInt(receivablesAgg._sum.balanceCents);
 
+    const employeeDebtAgg = await prisma.dividaAReceber.aggregate({
+      where: {
+        team: session.team,
+        kind: "FUNCIONARIO",
+        status: { in: ["OPEN", "PARTIAL"] },
+      },
+      _sum: { totalCents: true, receivedCents: true },
+    });
+    const employeeDebtsOpenCents = Math.max(
+      0,
+      safeInt(employeeDebtAgg._sum.totalCents) - safeInt(employeeDebtAgg._sum.receivedCents)
+    );
+
     // ✅ A PAGAR (funcionários) = netPay pendente + comissão pendente do balcão
     const empPendingAgg = await prisma.employeePayout.aggregate({
       where: { team: session.team, paidAt: null },
@@ -290,7 +303,8 @@ export async function GET(req: Request) {
     const cashProjectedCents =
       latestCashCents +
       creditCardsTotalCents +
-      receivablesOpenCents -
+      receivablesOpenCents +
+      employeeDebtsOpenCents -
       employeePayoutsPendingCents -
       taxesPendingCents;
 
@@ -325,6 +339,7 @@ export async function GET(req: Request) {
           pendingCedenteCommissionsCents,
 
           receivablesOpenCents,
+          employeeDebtsOpenCents,
 
           // ✅ novos
           employeePayoutsPendingCents,

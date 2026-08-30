@@ -193,6 +193,7 @@ export default function CaixaImediatoClient() {
   const [receivablesOpenCents, setReceivablesOpenCents] = useState<number>(0);
   const [employeePayoutsPendingCents, setEmployeePayoutsPendingCents] = useState<number>(0);
   const [taxesPendingCents, setTaxesPendingCents] = useState<number>(0);
+  const [employeeDebtsOpenCents, setEmployeeDebtsOpenCents] = useState<number>(0);
 
   // ✅ total “em aberto” das dívidas a receber (OPEN+PARTIAL) — vem do totalsOpen.balanceCents
   const [dividasAReceberOpenCents, setDividasAReceberOpenCents] = useState<number>(0);
@@ -285,6 +286,7 @@ export default function CaixaImediatoClient() {
       setReceivablesOpenCents(Number(jResumo.data.receivablesOpenCents || 0));
       setEmployeePayoutsPendingCents(Number(jResumo.data.employeePayoutsPendingCents || 0));
       setTaxesPendingCents(Number(jResumo.data.taxesPendingCents || 0));
+      setEmployeeDebtsOpenCents(Number(jResumo.data.employeeDebtsOpenCents || 0));
 
       // ✅ DÍVIDAS A RECEBER (TOTAL REAL em aberto): usa o agregado do backend (OPEN+PARTIAL)
       const darOpen = Number(jDAR?.totalsOpen?.balanceCents ?? 0);
@@ -420,14 +422,15 @@ export default function CaixaImediatoClient() {
 
     // ✅ a receber: DÍVIDAS A RECEBER (TOTAL REAL em aberto do backend)
     const receivableDARcents = Number(dividasAReceberOpenCents || 0);
+    const receivableEmployeeDebtCents = Number(employeeDebtsOpenCents || 0);
 
-    // ✅ ENTRADAS (bruto)
     const totalGrossCents =
       milesValueEligibleCents +
       pendingPurchasesValueCents +
       cashCents +
       receivableSalesCents +
-      receivableDARcents;
+      receivableDARcents +
+      receivableEmployeeDebtCents;
 
     // ✅ SAÍDAS (imediato)
     const outCents =
@@ -447,7 +450,8 @@ export default function CaixaImediatoClient() {
     const cashProjectedInterCents =
       cashCents +
       receivableSalesCents +
-      receivableDARcents -
+      receivableDARcents +
+      receivableEmployeeDebtCents -
       (employeePayoutsPendingCents || 0) -
       (taxesPendingCents || 0);
 
@@ -468,6 +472,7 @@ export default function CaixaImediatoClient() {
       cashCents,
       receivableSalesCents,
       receivableDARcents,
+      receivableEmployeeDebtCents,
 
       totalGrossCents,
       outCents,
@@ -480,6 +485,7 @@ export default function CaixaImediatoClient() {
     cashInput,
     receivablesOpenCents,
     dividasAReceberOpenCents,
+    employeeDebtsOpenCents,
     debtsOpenCents,
     blockedTotals.valueBlockedCents,
     pendingCedenteCommissionsCents,
@@ -636,6 +642,12 @@ export default function CaixaImediatoClient() {
                   value={`+${fmtMoneyBR(calc.receivableDARcents)}`}
                   tone="plus"
                   hint="totalsOpen.balanceCents (OPEN+PARTIAL) do GET /api/dividas-a-receber"
+                />
+                <Line
+                  label="Dívida do funcionário"
+                  value={`+${fmtMoneyBR(calc.receivableEmployeeDebtCents)}`}
+                  tone="plus"
+                  hint="saldo em aberto (OPEN + PARTIAL)"
                 />
               </div>
             </div>

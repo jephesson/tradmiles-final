@@ -710,6 +710,8 @@ export default function CedentesResumoClient() {
   // ✅ a pagar funcionários (pendente)
   const [employeePayoutsPendingCents, setEmployeePayoutsPendingCents] = useState<number>(0);
 
+  const [employeeDebtsOpenCents, setEmployeeDebtsOpenCents] = useState<number>(0);
+
   // ✅ impostos pendentes (mês não pago)
   const [taxesPendingCents, setTaxesPendingCents] = useState<number>(0);
 
@@ -776,6 +778,7 @@ export default function CedentesResumoClient() {
       setReceivablesOpenCents(Number(j.data.receivablesOpenCents || 0));
 
       setEmployeePayoutsPendingCents(Number(j.data.employeePayoutsPendingCents || 0));
+      setEmployeeDebtsOpenCents(Number(j.data.employeeDebtsOpenCents || 0));
       setTaxesPendingCents(Number(j.data.taxesPendingCents || 0));
 
       /**
@@ -983,13 +986,15 @@ export default function CedentesResumoClient() {
     const cashAndCardsCents = creditCardsTotalCents;
     const receivableSalesCents = Number(receivablesOpenCents || 0);
     const receivableDARcents = Number(dividasAReceberOpenCents || 0);
+    const receivableEmployeeDebtCents = Number(employeeDebtsOpenCents || 0);
 
     const totalGrossCents =
       milesValueEligibleCents +
       pendingPurchasesValueCents +
       cashAndCardsCents +
       receivableSalesCents +
-      receivableDARcents;
+      receivableDARcents +
+      receivableEmployeeDebtCents;
 
     const outCents =
       (debtsOpenCents || 0) +
@@ -1003,7 +1008,8 @@ export default function CedentesResumoClient() {
     const cashProjectedInterCents =
       cashAndCardsCents +
       receivableSalesCents +
-      receivableDARcents -
+      receivableDARcents +
+      receivableEmployeeDebtCents -
       (employeePayoutsPendingCents || 0) -
       (taxesPendingCents || 0);
 
@@ -1022,6 +1028,7 @@ export default function CedentesResumoClient() {
       cashAndCardsCents,
       receivableSalesCents,
       receivableDARcents,
+      receivableEmployeeDebtCents,
       totalGrossCents,
       outCents,
       totalImmediateCents,
@@ -1038,6 +1045,7 @@ export default function CedentesResumoClient() {
     creditCardsTotalCents,
     receivablesOpenCents,
     dividasAReceberOpenCents,
+    employeeDebtsOpenCents,
     debtsOpenCents,
     blockedTotals.valueBlockedCents,
     pendingCedenteCommissionsCents,
@@ -1072,6 +1080,7 @@ export default function CedentesResumoClient() {
 
     const receivableSalesCents = Number(receivablesOpenCents || 0);
     const receivableDARcents = Number(dividasAReceberOpenCents || 0);
+    const receivableEmployeeDebtCents = Number(employeeDebtsOpenCents || 0);
 
     const totalGrossCents =
       vLatamCents +
@@ -1081,7 +1090,8 @@ export default function CedentesResumoClient() {
       pendingPurchasesValueCents +
       cashAndCardsCents +
       receivableSalesCents +
-      receivableDARcents;
+      receivableDARcents +
+      receivableEmployeeDebtCents;
 
     const totalNetCents = totalGrossCents - (debtsOpenCents || 0);
 
@@ -1094,7 +1104,8 @@ export default function CedentesResumoClient() {
     const cashProjectedCents =
       cashAndCardsCents +
       receivableSalesCents +
-      receivableDARcents -
+      receivableDARcents +
+      receivableEmployeeDebtCents -
       (employeePayoutsPendingCents || 0) -
       (taxesPendingCents || 0);
 
@@ -1117,6 +1128,7 @@ export default function CedentesResumoClient() {
 
       receivableSalesCents,
       receivableDARcents,
+      receivableEmployeeDebtCents,
 
       totalGrossCents,
       totalNetCents,
@@ -1136,6 +1148,7 @@ export default function CedentesResumoClient() {
     pendingCedenteCommissionsCents,
     receivablesOpenCents,
     dividasAReceberOpenCents,
+    employeeDebtsOpenCents,
     employeePayoutsPendingCents,
     taxesPendingCents,
   ]);
@@ -1556,6 +1569,12 @@ export default function CedentesResumoClient() {
                   value={`+${fmtMoneyBR(caixaImediatoCalc.receivableDARcents)}`}
                   tone="plus"
                   hint="OPEN + PARTIAL"
+                />
+                <Line
+                  label="Dívida do funcionário"
+                  value={`+${fmtMoneyBR(caixaImediatoCalc.receivableEmployeeDebtCents)}`}
+                  tone="plus"
+                  hint="saldo em aberto"
                 />
               </div>
             </div>
