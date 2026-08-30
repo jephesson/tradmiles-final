@@ -1,17 +1,7 @@
-if (window.__tmCotacao123) {
-  /* already running */
-} else {
-  window.__tmCotacao123 = true;
-  run();
-}
+run();
 
-function searchIdFromLocation() {
-  try {
-    const u = new URL(location.href);
-    return u.searchParams.get("tmSearch") || (u.hash.match(/tmSearch=([^&]+)/) || [])[1] || "";
-  } catch {
-    return "";
-  }
+function sleep(ms) {
+  return new Promise((r) => setTimeout(r, ms));
 }
 
 function moneyToCents(s) {
@@ -39,42 +29,32 @@ function airlineFromText(text) {
   return "";
 }
 
-function clickIf(selector) {
-  const el = document.querySelector(selector);
-  if (el) {
-    el.click();
-    return true;
-  }
-  return false;
-}
-
-function clickByText(re) {
-  const nodes = document.querySelectorAll("button, a, span, div");
-  for (const el of nodes) {
+function dismissCookies() {
+  document.querySelector("#ensAcceptAll")?.click();
+  document.querySelector("#onetrust-accept-btn-handler")?.click();
+  for (const el of document.querySelectorAll("button, a")) {
     const t = (el.textContent || "").trim();
-    if (t.length > 40) continue;
-    if (re.test(t)) {
-      el.click();
-      return true;
-    }
+    if (/^(aceitar(\s+todos)?|concordar)$/i.test(t)) el.click();
   }
-  return false;
-}
-
-function dismissNoise() {
-  clickIf("#ensAcceptAll");
-  clickIf("#onetrust-accept-btn-handler");
-  clickByText(/^(aceitar(\s+todos)?|concordar|aplicar|continuar sem (login|cadastro)|agora não|fechar)$/i);
 }
 
 function clickMenorPreco() {
-  const nodes = document.querySelectorAll("button, span, div, label");
-  for (const el of nodes) {
+  for (const el of document.querySelectorAll("button, span, div, label")) {
     if (/^MENOR\s+PREÇO$/i.test((el.textContent || "").trim())) {
       el.click();
       return;
     }
   }
+}
+
+function selectFirstFlight() {
+  const radio = document.querySelector("input[type='radio']");
+  if (radio) {
+    radio.click();
+    return;
+  }
+  const card = document.querySelector("[class*='flight-card'], [class*='renewed-flight-card']");
+  if (card) card.click();
 }
 
 function extractPrice() {
@@ -91,23 +71,17 @@ function extractPrice() {
     if (cents > 0) return { cents, raw: (value?.textContent || "").trim() };
   }
 
-  const labels = Array.from(document.querySelectorAll("span, div, p")).filter((el) =>
-    /total\s+no\s+pix/i.test(el.textContent || "")
-  );
-  for (const el of labels) {
+  for (const el of document.querySelectorAll("span, div, p")) {
+    if (!/total\s+no\s+pix/i.test(el.textContent || "")) continue;
     const row = el.closest("div, section, article, li") || el.parentElement;
-    const txt = row?.innerText || "";
-    if (looksInstallment(txt) && !/total\s+no\s+pix/i.test(txt)) continue;
-    const cents = moneyToCents(txt);
-    if (cents > 0) return { cents, raw: txt.slice(0, 180) };
+    const cents = moneyToCents(row?.innerText || "");
+    if (cents > 0) return { cents, raw: (row?.innerText || "").slice(0, 180) };
   }
 
   let best = 0;
   let raw = "";
-  const pix = Array.from(document.querySelectorAll("span, div")).filter((el) =>
-    /\bno\s+pix\b/i.test(el.textContent || "")
-  );
-  for (const el of pix.slice(0, 40)) {
+  for (const el of document.querySelectorAll("span, div")) {
+    if (!/\bno\s+pix\b/i.test(el.textContent || "")) continue;
     const txt = el.parentElement?.innerText || el.innerText || "";
     if (looksInstallment(txt)) continue;
     const cents = moneyToCents(txt);
@@ -132,60 +106,64 @@ function isSearchPage() {
   return /\/v2\/busca|\/busca/.test(location.pathname || "") || /[?&]de=/.test(location.search || "");
 }
 
-function noResults() {
-  const t = (document.body?.innerText || "").slice(0, 4000);
-  return /não\s+encontramos\s+voos|nenhum\s+voo\s+encontrado|sem\s+resultados/i.test(t);
+function pageKind() {
+  const t = (document.body?.innerText || "").slice(0, 6000);
+  if (/não\s+encontramos\s+voos|nenhum\s+voo|sem\s+resultados/i.test(t)) return "NO_RESULTS";
+  if (/MENOR\s+PREÇO|RECOMENDADO|MENOR\s+DURAÇÃO|NOVA\s+BUSCA/i.test(t)) return "RESULTS";
+  return "WAIT";
 }
 
-function sleep(ms) {
-  return new Promise((r) => setTimeout(r, ms));
-}
-
-async function waitForSearchPage(ms) {
-  const t0 = Date.now();
-  while (Date.now() - t0 < ms) {
-    if (isSearchPage()) return true;
-    await sleep(400);
-  }
-  return isSearchPage();
+function sendResult(payload) {
+  chrome.runtime.sendMessage({ type: "TM_COTACAO_RESULT", ...payload }, () => {
+    void chrome.runtime.lastError;
+  });
 }
 
 async function scrape() {
-  dismissNoise();
-  await sleep(800);
-  dismissNoise();
-  clickMenorPreco();
+  dismissCookies();
+  await sleep(600);
+  dismissCookies();
 
   const t0 = Date.now();
-  let last = { cents: 0, raw: "" };
-  while (Date.now() - t0 < 42000) {
-    dismissNoise();
-    last = extractPrice();
-    if (last.cents > 0) {
-      await sleep(700);
-      const again = extractPrice();
-      if (again.cents > 0) return again;
+  let sawResults = false;
+  while (Date.now() - t0 < 45000) {
+    const kind = pageKind();
+    if (kind === "NO_RESULTS" && Date.now() - t0 > 8000) {
+      return { cents: 0, error: "123milhas sem voos neste trecho/data." };
     }
-    if (noResults() && Date.now() - t0 > 8000) {
-      return { cents: 0, raw: "", error: "123milhas sem voos neste trecho/data." };
+    if (kind === "RESULTS") {
+      sawResults = true;
+      clickMenorPreco();
+      selectFirstFlight();
+      const price = extractPrice();
+      if (price.cents > 0) {
+        await sleep(500);
+        const again = extractPrice();
+        if (again.cents > 0) return again;
+      }
     }
-    await sleep(900);
+    await sleep(800);
   }
-  return last.cents > 0 ? last : { cents: 0, raw: "", error: "Não achei o preço no 123milhas." };
+  const last = extractPrice();
+  if (last.cents > 0) return last;
+  return {
+    cents: 0,
+    error: sawResults
+      ? "Resultados carregaram, mas não achei o Pix."
+      : "Não achei o preço no 123milhas.",
+  };
 }
 
 async function run() {
-  const okPage = await waitForSearchPage(12000);
-  if (!okPage) return;
+  const t0 = Date.now();
+  while (!isSearchPage() && Date.now() - t0 < 10000) await sleep(400);
+  if (!isSearchPage()) return;
 
   const price = await scrape();
-  const airline = price.cents > 0 ? extractAirline() : "";
-  chrome.runtime.sendMessage({
-    type: "TM_COTACAO_RESULT",
-    searchId: searchIdFromLocation(),
+  sendResult({
     ok: price.cents > 0,
-    priceCents: price.cents,
-    airline,
+    priceCents: price.cents || 0,
+    airline: price.cents > 0 ? extractAirline() : "",
     rawPrice: price.raw || "",
     error: price.cents > 0 ? "" : price.error || "Não achei o preço no 123milhas.",
   });

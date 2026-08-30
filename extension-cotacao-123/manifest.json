@@ -1,9 +1,9 @@
 {
   "manifest_version": 3,
   "name": "TradeMiles Cotação 123milhas",
-  "version": "1.1.0",
-  "description": "Pesquisa trechos no 123milhas (sem login) e devolve o menor Pix para a cotação no TradeMiles.",
-  "permissions": ["tabs", "storage", "alarms"],
+  "version": "1.2.0",
+  "description": "Pesquisa o 123milhas em segundo plano (sem login) e devolve o menor Pix ao TradeMiles.",
+  "permissions": ["tabs", "windows", "storage", "alarms", "cookies"],
   "host_permissions": [
     "https://123milhas.com/*",
     "https://www.123milhas.com/*",

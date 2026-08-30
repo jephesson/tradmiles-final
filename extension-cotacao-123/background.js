@@ -1,120 +1,209 @@
-const TRADE_URLS = [
-  "https://www.trademiles.com.br/dashboard/cotacao-passagens*",
-  "https://trademiles.com.br/dashboard/cotacao-passagens*",
-  "http://localhost:3000/dashboard/cotacao-passagens*",
+const APP_ORIGINS = [
+  "https://www.trademiles.com.br",
+  "https://trademiles.com.br",
+  "http://localhost:3000",
 ];
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
-  if (msg?.type === "TM_COTACAO_OPEN") {
-    openSearch(msg.search)
-      .then(() => sendResponse({ ok: true }))
-      .catch((e) => sendResponse({ ok: false, error: String(e?.message || e) }));
+  if (msg?.type === "TM_COTACAO_PING") {
+    sendResponse({ ok: true, version: "1.2.0" });
+    return false;
+  }
+  if (msg?.type === "TM_COTACAO_START") {
+    startNext().then(() => sendResponse({ ok: true })).catch(() => sendResponse({ ok: false }));
     return true;
   }
   if (msg?.type === "TM_COTACAO_RESULT") {
-    finishSearch({
+    onResult({
       searchId: msg.searchId,
       ok: msg.ok,
       priceCents: msg.priceCents,
       airline: msg.airline,
       rawPrice: msg.rawPrice,
       error: msg.error,
-      fromTabId: sender?.tab?.id,
     })
       .then(() => sendResponse({ ok: true }))
       .catch(() => sendResponse({ ok: false }));
     return true;
   }
-  if (msg?.type === "TM_COTACAO_PING") {
-    sendResponse({ ok: true, version: "1.1.0" });
-    return false;
-  }
 });
 
-chrome.alarms.onAlarm.addListener(async (alarm) => {
-  if (!String(alarm?.name || "").startsWith("tm-cotacao-")) return;
-  const searchId = alarm.name.slice("tm-cotacao-".length);
-  const { tmActiveSearchId } = await chrome.storage.local.get("tmActiveSearchId");
-  if (tmActiveSearchId && tmActiveSearchId === searchId) {
-    await finishSearch({
-      searchId,
-      ok: false,
-      error: "Tempo esgotado no 123milhas.",
-    });
-  }
+chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm?.name === "tm-cotacao-pump") startNext();
+  if (alarm?.name === "tm-cotacao-timeout") onTimeout();
 });
 
-async function openSearch(search) {
-  if (!search?.id || !search?.url) throw new Error("Pesquisa inválida.");
-  const { tmBusy } = await chrome.storage.local.get("tmBusy");
-  if (tmBusy) return;
+chrome.alarms.create("tm-cotacao-pump", { periodInMinutes: 1 });
 
-  const url = withSearchId(search.url, search.id);
-  await chrome.storage.local.set({
-    tmBusy: true,
-    tmActiveSearchId: search.id,
-    tmActiveTabId: null,
+chrome.runtime.onInstalled.addListener(() => {
+  chrome.storage.local.set({
+    tmBusy: false,
+    tmActiveSearchId: null,
+    tmTabId: null,
+    tmWindowId: null,
   });
-  const tab = await chrome.tabs.create({ url, active: true });
-  await chrome.storage.local.set({ tmActiveTabId: tab.id || null });
-  chrome.alarms.create(`tm-cotacao-${search.id}`, { delayInMinutes: 1 });
-}
+});
 
-function withSearchId(url, searchId) {
+async function cookieHeader(origin) {
   try {
-    const u = new URL(url);
-    u.searchParams.set("tmSearch", searchId);
-    u.hash = `tmSearch=${encodeURIComponent(searchId)}`;
-    return u.toString();
+    const cookies = await chrome.cookies.getAll({ url: origin });
+    return cookies.map((c) => `${c.name}=${c.value}`).join("; ");
   } catch {
-    return url;
+    return "";
   }
 }
 
-async function finishSearch(payload) {
-  const stored = await chrome.storage.local.get(["tmActiveSearchId", "tmActiveTabId"]);
-  const searchId = payload.searchId || stored.tmActiveSearchId;
-  if (!searchId) {
-    await chrome.storage.local.set({ tmBusy: false, tmActiveSearchId: null, tmActiveTabId: null });
+async function appFetch(path, init) {
+  let last = "TradeMiles offline.";
+  for (const origin of APP_ORIGINS) {
+    try {
+      const cookie = await cookieHeader(origin);
+      const res = await fetch(`${origin}${path}`, {
+        credentials: "include",
+        cache: "no-store",
+        ...init,
+        headers: {
+          Accept: "application/json",
+          ...(cookie ? { Cookie: cookie } : {}),
+          ...(init?.headers || {}),
+        },
+      });
+      const json = await res.json().catch(() => null);
+      if (res.status === 401) {
+        last = "Faça login no TradeMiles neste Chrome.";
+        continue;
+      }
+      if (!res.ok) {
+        last = json?.error || `HTTP ${res.status}`;
+        continue;
+      }
+      return { origin, json };
+    } catch (e) {
+      last = e instanceof Error ? e.message : "Falha de rede.";
+    }
+  }
+  return { origin: "", json: null, error: last };
+}
+
+async function startNext() {
+  const st = await chrome.storage.local.get(["tmBusy", "tmStartedAt"]);
+  if (st.tmBusy && st.tmStartedAt && Date.now() - st.tmStartedAt < 70000) return;
+  if (st.tmBusy) await chrome.storage.local.set({ tmBusy: false });
+
+  const claimed = await appFetch("/api/cotacao-passagens/claim", { method: "POST" });
+  const search = claimed.json?.search;
+  if (!search?.id || !search?.url) {
+    await closeWorkerWindow();
+    await chrome.storage.local.set({ tmBusy: false, tmActiveSearchId: null });
     return;
   }
 
-  const tabs = await chrome.tabs.query({ url: TRADE_URLS });
-  for (const tab of tabs) {
-    if (!tab.id) continue;
+  await chrome.storage.local.set({
+    tmBusy: true,
+    tmActiveSearchId: search.id,
+    tmOrigin: claimed.origin,
+    tmStartedAt: Date.now(),
+  });
+  chrome.alarms.create("tm-cotacao-timeout", { delayInMinutes: 1 });
+  await openHiddenSearch(search.url);
+}
+
+async function openHiddenSearch(url) {
+  const { tmTabId, tmWindowId } = await chrome.storage.local.get(["tmTabId", "tmWindowId"]);
+  if (tmTabId) {
     try {
-      await chrome.tabs.sendMessage(tab.id, {
-        type: "TM_COTACAO_SAVE",
-        searchId,
-        ok: Boolean(payload.ok),
-        priceCents: payload.priceCents || 0,
-        airline: payload.airline || "",
-        rawPrice: payload.rawPrice || "",
-        error: payload.error || "",
-      });
+      await chrome.tabs.update(tmTabId, { url, active: false });
+      if (tmWindowId) {
+        try {
+          await chrome.windows.update(tmWindowId, { focused: false, state: "minimized" });
+        } catch {
+          /* ignore */
+        }
+      }
+      return;
     } catch {
-      /* aba sem bridge — o match amplo do dashboard cobre o SPA */
+      await chrome.storage.local.set({ tmTabId: null, tmWindowId: null });
     }
   }
 
-  const closeId = payload.fromTabId || stored.tmActiveTabId;
-  if (closeId) {
+  let win;
+  try {
+    win = await chrome.windows.create({
+      url,
+      focused: false,
+      state: "minimized",
+      type: "normal",
+    });
+  } catch {
+    win = await chrome.windows.create({
+      url,
+      focused: false,
+      type: "popup",
+      width: 1100,
+      height: 800,
+      left: 0,
+      top: 0,
+    });
+  }
+  const tabId = win?.tabs?.[0]?.id || null;
+  await chrome.storage.local.set({ tmWindowId: win?.id || null, tmTabId: tabId });
+}
+
+async function closeWorkerWindow() {
+  const { tmWindowId, tmTabId } = await chrome.storage.local.get(["tmWindowId", "tmTabId"]);
+  if (tmWindowId) {
     try {
-      await chrome.tabs.remove(closeId);
+      await chrome.windows.remove(tmWindowId);
+    } catch {
+      /* ignore */
+    }
+  } else if (tmTabId) {
+    try {
+      await chrome.tabs.remove(tmTabId);
     } catch {
       /* ignore */
     }
   }
+  await chrome.storage.local.set({ tmWindowId: null, tmTabId: null });
+}
+
+async function onTimeout() {
+  const { tmBusy, tmActiveSearchId } = await chrome.storage.local.get(["tmBusy", "tmActiveSearchId"]);
+  if (!tmBusy || !tmActiveSearchId) return;
+  await onResult({
+    searchId: tmActiveSearchId,
+    ok: false,
+    error: "Tempo esgotado no 123milhas.",
+  });
+}
+
+async function onResult(payload) {
+  const stored = await chrome.storage.local.get(["tmActiveSearchId", "tmOrigin"]);
+  const searchId = payload.searchId || stored.tmActiveSearchId;
+  if (!searchId) {
+    await chrome.storage.local.set({ tmBusy: false });
+    return;
+  }
 
   try {
-    await chrome.alarms.clear(`tm-cotacao-${searchId}`);
+    await chrome.alarms.clear("tm-cotacao-timeout");
   } catch {
     /* ignore */
   }
 
-  await chrome.storage.local.set({
-    tmBusy: false,
-    tmActiveSearchId: null,
-    tmActiveTabId: null,
+  const body = JSON.stringify({
+    ok: Boolean(payload.ok),
+    priceCents: payload.priceCents || 0,
+    airline: payload.airline || "",
+    rawPrice: payload.rawPrice || "",
+    error: payload.error || "",
   });
+  await appFetch(`/api/cotacao-passagens/search/${encodeURIComponent(searchId)}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body,
+  });
+
+  await chrome.storage.local.set({ tmBusy: false, tmActiveSearchId: null });
+  await startNext();
 }

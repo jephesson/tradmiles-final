@@ -184,8 +184,8 @@ export default function CotacaoPassagensClient() {
               Cotação de passagens
             </h1>
             <p className="mt-1 max-w-2xl text-sm text-slate-500">
-              Monte o trecho aqui. A extensão abre a busca pública do 123milhas (sem login) e devolve o menor Pix e
-              a cia. Depois você cote na cia e fecha o milheiro (~5% abaixo do 123).
+              Monte o trecho e inicie. A extensão pesquisa o 123milhas em uma janela minimizada (sem login) e vai
+              preenchendo sozinha. Pode sair desta página; deixe o Chrome aberto.
             </p>
           </div>
           <div className="flex flex-col items-stretch gap-2 sm:items-end">
@@ -195,7 +195,7 @@ export default function CotacaoPassagensClient() {
                 extOn ? "bg-emerald-50 text-emerald-800" : "bg-amber-50 text-amber-900"
               )}
             >
-              {extOn ? "Extensão conectada" : "Extensão não detectada — baixe de novo (v1.1.0)"}
+              {extOn ? "Extensão conectada" : "Extensão não detectada — baixe de novo (v1.2.0)"}
             </div>
             <a
               href={ZIP_HREF}
@@ -290,8 +290,8 @@ export default function CotacaoPassagensClient() {
             ) : null}
           </div>
           <p className="mt-3 text-xs leading-relaxed text-slate-500">
-            Instale a extensão v1.1.0 e deixe esta página aberta. Não precisa estar logado no 123milhas. Ela puxa uma
-            pesquisa por vez.
+            Instale a extensão v1.2.0. Não precisa estar logado no 123milhas nem ficar nesta página: ela pesquisa em
+            segundo plano, uma data por vez.
             {job ? ` ${progress.done}/${progress.total} concluídas.` : ""}
           </p>
         </div>
