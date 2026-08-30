@@ -9,9 +9,9 @@ export const dynamic = "force-dynamic";
 
 type RouteCtx = { params: Promise<{ id: string }> };
 
-async function loadOwn(session: { id: string; role: "admin" | "staff" }, team: string, id: string) {
+async function loadOwn(session: { id: string; role: "admin" | "staff"; team: string }, id: string) {
   const row = await prisma.dividaAReceber.findFirst({
-    where: { id, team },
+    where: { id, team: session.team },
   });
   if (!row) return null;
   if (row.kind === "FUNCIONARIO" && !canManageFuncionarioDebt(session)) {
@@ -25,7 +25,7 @@ export async function PATCH(req: Request, ctx: RouteCtx) {
   const { id } = await ctx.params;
   const body = await req.json().catch(() => ({}));
 
-  const existing = await loadOwn(session, session.team, String(id || ""));
+  const existing = await loadOwn(session, String(id || ""));
   if (!existing) {
     return NextResponse.json({ ok: false, error: "Não encontrado." }, { status: 404 });
   }
@@ -54,7 +54,7 @@ export async function DELETE(_req: Request, ctx: RouteCtx) {
   const session = await requireSession();
   const { id } = await ctx.params;
 
-  const existing = await loadOwn(session, session.team, String(id || ""));
+  const existing = await loadOwn(session, String(id || ""));
   if (!existing) {
     return NextResponse.json({ ok: false, error: "Não encontrado." }, { status: 404 });
   }
