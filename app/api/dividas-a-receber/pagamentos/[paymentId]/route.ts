@@ -27,10 +27,13 @@ export async function DELETE(_req: NextRequest, { params }: Ctx) {
   // garante que a dívida é do team do usuário
   const parent = await prisma.dividaAReceber.findFirst({
     where: { id: payment.dividaId, team: session.team },
-    select: { id: true, totalCents: true, status: true },
+    select: { id: true, totalCents: true, status: true, kind: true, employeeUserId: true },
   });
   if (!parent)
     return NextResponse.json({ ok: false, error: "Sem acesso." }, { status: 403 });
+  if (parent.kind === "FUNCIONARIO" && parent.employeeUserId !== session.id) {
+    return NextResponse.json({ ok: false, error: "Sem acesso." }, { status: 403 });
+  }
 
   const result = await prisma.$transaction(async (tx) => {
     await tx.dividaAReceberPagamento.delete({ where: { id: paymentIdStr } });

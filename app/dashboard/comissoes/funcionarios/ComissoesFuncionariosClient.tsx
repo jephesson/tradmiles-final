@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
+  Banknote,
   Calculator,
   FileDown,
   Info,
@@ -40,6 +41,7 @@ type PayoutRow = {
   tax7Cents: number; // 8% (nome legado)
   feeCents: number; // reembolso taxa
   netPayCents: number;
+  discountCents?: number;
   balcaoCommissionCents?: number;
   monthlyBonusGrossCents?: number;
   monthlyBonusTaxCents?: number;
@@ -182,6 +184,21 @@ function fmtMoneyBR(cents: number) {
 }
 function fmtInt(n: number) {
   return new Intl.NumberFormat("pt-BR").format(n || 0);
+}
+
+function centsToInput(cents: number) {
+  return ((cents || 0) / 100).toLocaleString("pt-BR", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+}
+
+function toCentsFromInput(s: string) {
+  const cleaned = (s || "").trim();
+  if (!cleaned) return 0;
+  const normalized = cleaned.replace(/\./g, "").replace(",", ".");
+  const n = Number(normalized);
+  return Number.isFinite(n) ? Math.max(0, Math.round(n * 100)) : 0;
 }
 
 function firstName(full?: string, fallback?: string) {
@@ -421,11 +438,11 @@ function lucroSemTaxaEmbarqueCents(r: PayoutRow) {
 }
 
 function liquidoComBalcaoCents(r: PayoutRow) {
-  return (
+  const brutoLiquido =
     (r.netPayCents || 0) +
     (r.balcaoCommissionCents || 0) +
-    (r.monthlyBonusNetCents || 0)
-  );
+    (r.monthlyBonusNetCents || 0);
+  return Math.max(0, brutoLiquido - (r.discountCents || 0));
 }
 
 function c123FromBreakdown(b: Breakdown | null | undefined) {
@@ -447,6 +464,7 @@ export default function ComissoesFuncionariosClient() {
   const [computing, setComputing] = useState(false);
 
   const [payingKey, setPayingKey] = useState<string | null>(null);
+  const [discountDrafts, setDiscountDrafts] = useState<Record<string, string>>({});
 
   const [toast, setToast] = useState<{ title: string; desc?: string } | null>(null);
 
@@ -483,6 +501,11 @@ export default function ComissoesFuncionariosClient() {
         `/api/payouts/funcionarios/day?date=${encodeURIComponent(d)}`
       );
       setDay(data);
+      const drafts: Record<string, string> = {};
+      for (const r of data.rows || []) {
+        drafts[r.userId] = centsToInput(r.discountCents || 0);
+      }
+      setDiscountDrafts(drafts);
     } catch (e: unknown) {
       setDay({
         ok: true,
@@ -550,6 +573,83 @@ export default function ComissoesFuncionariosClient() {
       setToast({ title: "Falha ao pagar", desc: getErrorMessage(e, "Falha ao pagar.") });
     } finally {
       setPayingKey(null);
+    }
+  }
+
+  async function payAllPending(d: string) {
+    const pending = (day?.rows || []).filter((r) => {
+      const isMissing = String(r.id || "").startsWith("missing:");
+      const isPaid = !!r.paidById;
+      return !isMissing && !isPaid;
+    });
+
+    if (d >= todayISORecife()) {
+      setToast({
+        title: "Dia ainda aberto",
+        desc: "Só paga dia fechado (anterior a hoje).",
+      });
+      return;
+    }
+
+    if (!pending.length) {
+      setToast({ title: "Nada para pagar", desc: "Não há pendências neste dia." });
+      return;
+    }
+
+    if (
+      !confirm(
+        `Pagar ${pending.length} funcionário(s) do dia ${fmtDateBR(d)}?`
+      )
+    ) {
+      return;
+    }
+
+    setPayingKey("__all__");
+    try {
+      const out = await apiPost<{ ok: true; paidCount?: number }>(`/api/payouts/funcionarios/pay`, {
+        date: d,
+        payAll: true,
+      });
+      await loadDay(d);
+      setToast({
+        title: "Pagamentos marcados!",
+        desc: `${out.paidCount ?? pending.length} funcionário(s) pagos em ${d}.`,
+      });
+    } catch (e: unknown) {
+      setToast({ title: "Falha ao pagar todos", desc: getErrorMessage(e, "Falha ao pagar.") });
+    } finally {
+      setPayingKey(null);
+    }
+  }
+
+  async function saveDiscount(d: string, userId: string, isMissing: boolean, isPaid: boolean) {
+    if (isMissing) {
+      setToast({
+        title: "Compute o dia antes",
+        desc: "Só é possível lançar desconto depois de existir o payout do funcionário.",
+      });
+      return;
+    }
+    if (isPaid) return;
+
+    const discountCents = toCentsFromInput(discountDrafts[userId] || "0");
+    const current = day?.rows?.find((r) => r.userId === userId);
+    const maxCents = current
+      ? (current.netPayCents || 0) +
+        (current.balcaoCommissionCents || 0) +
+        (current.monthlyBonusNetCents || 0)
+      : discountCents;
+    const capped = Math.min(discountCents, Math.max(0, maxCents));
+
+    try {
+      await apiPost<{ ok: true }>(`/api/payouts/funcionarios/discount`, {
+        date: d,
+        userId,
+        discountCents: capped,
+      });
+      await loadDay(d);
+    } catch (e: unknown) {
+      setToast({ title: "Falha ao salvar desconto", desc: getErrorMessage(e, "Falha ao salvar.") });
     }
   }
 
@@ -671,12 +771,13 @@ export default function ComissoesFuncionariosClient() {
     const lucroSemTaxa = rows.reduce((acc, r) => acc + lucroSemTaxaEmbarqueCents(r), 0);
     const balcaoCommission = rows.reduce((acc, r) => acc + (r.balcaoCommissionCents || 0), 0);
     const liquidoTotal = rows.reduce((acc, r) => acc + liquidoComBalcaoCents(r), 0);
+    const descontos = rows.reduce((acc, r) => acc + (r.discountCents || 0), 0);
     const pago = rows.reduce(
       (acc, r) => acc + (r.paidById || r.paidAt ? liquidoComBalcaoCents(r) : 0),
       0
     );
     const pendente = liquidoTotal - pago;
-    return { lucroSemTaxa, balcaoCommission, liquidoTotal, pago, pendente };
+    return { lucroSemTaxa, balcaoCommission, liquidoTotal, pago, pendente, descontos };
   }, [day]);
 
   const dayTaxPercent = useMemo(() => {
@@ -796,10 +897,25 @@ export default function ComissoesFuncionariosClient() {
             <RotateCcw className="h-4 w-4 shrink-0 opacity-90" strokeWidth={2} aria-hidden />
             {computing ? "Recalculando..." : "Recalcular"}
           </button>
+
+          <button
+            type="button"
+            onClick={() => payAllPending(date)}
+            disabled={!isClosedDay || payingKey === "__all__" || loading}
+            className="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-emerald-700 px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-800 disabled:pointer-events-none disabled:opacity-50"
+            title={
+              isClosedDay
+                ? "Marcar todos os pendentes deste dia como pagos"
+                : "Só paga dia fechado (anterior a hoje)"
+            }
+          >
+            <Banknote className="h-4 w-4 shrink-0 opacity-90" strokeWidth={2} aria-hidden />
+            {payingKey === "__all__" ? "Pagando..." : "Pagar todos"}
+          </button>
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-8">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-9">
         <KPI label="Bruto (C1+C2+C3)" value={fmtMoneyBR(day?.totals.gross || 0)} />
         <KPI
           label={`Imposto${dayTaxPercent ? ` (${dayTaxPercent}%)` : ""}`}
@@ -807,6 +923,7 @@ export default function ComissoesFuncionariosClient() {
         />
         <KPI label="Taxas (reembolso)" value={fmtMoneyBR(day?.totals.fee || 0)} />
         <KPI label="Comissão balcão (60%)" value={fmtMoneyBR(dayExtra.balcaoCommission)} />
+        <KPI label="Descontos" value={fmtMoneyBR(dayExtra.descontos)} />
         <KPI label="Líquido total (a pagar)" value={fmtMoneyBR(dayExtra.liquidoTotal)} emphasis="net" />
         <KPI label="Lucro (sem taxa embarque)" value={fmtMoneyBR(dayExtra.lucroSemTaxa)} emphasis="profit" />
         <KPI label="Pago" value={fmtMoneyBR(dayExtra.pago)} />
@@ -892,6 +1009,7 @@ export default function ComissoesFuncionariosClient() {
                 ) : null}
 
                 <th className={`px-4 py-3 ${lucroCellCls}`}>Lucro s/ taxa</th>
+                <th className="px-4 py-3">Descontos</th>
                 <th className={`px-4 py-3 ${liquidoCellCls}`}>Líquido (a pagar)</th>
 
                 <th className="px-4 py-3">Status</th>
@@ -960,6 +1078,26 @@ export default function ComissoesFuncionariosClient() {
                       {fmtMoneyBR(lucroSemTaxa)}
                     </td>
 
+                    <td className="px-4 py-3">
+                      {isPaid ? (
+                        <span className="tabular-nums text-rose-800">
+                          {fmtMoneyBR(r.discountCents || 0)}
+                        </span>
+                      ) : (
+                        <input
+                          className="h-9 w-[7.5rem] rounded-lg border border-slate-200 bg-white px-2 text-right text-sm tabular-nums text-slate-900 shadow-sm outline-none focus:border-slate-300 focus:ring-2 focus:ring-slate-900/10 disabled:bg-slate-50"
+                          value={discountDrafts[r.userId] ?? centsToInput(r.discountCents || 0)}
+                          onChange={(e) =>
+                            setDiscountDrafts((prev) => ({ ...prev, [r.userId]: e.target.value }))
+                          }
+                          onBlur={() => saveDiscount(date, r.userId, isMissing, isPaid)}
+                          disabled={isMissing}
+                          inputMode="decimal"
+                          title={isMissing ? "Compute o dia para lançar desconto" : "Abate do líquido a pagar"}
+                        />
+                      )}
+                    </td>
+
                     <td className={cn("px-4 py-3 font-bold tabular-nums", liquidoCellCls)}>
                       {fmtMoneyBR(liquidoComBalcaoCents(r))}
                     </td>
@@ -982,7 +1120,7 @@ export default function ComissoesFuncionariosClient() {
                       <button
                         type="button"
                         onClick={() => payRow(date, r.userId)}
-                        disabled={!canPay || paying}
+                        disabled={!canPay || paying || payingKey === "__all__"}
                         className="h-9 rounded-xl bg-slate-900 px-3 text-xs font-semibold text-white shadow-sm transition hover:bg-slate-800 disabled:pointer-events-none disabled:opacity-50"
                         title={
                           canPay
@@ -1003,7 +1141,7 @@ export default function ComissoesFuncionariosClient() {
 
               {!day?.rows?.length && (
                 <tr>
-                  <td className="px-4 py-0" colSpan={showMonthlyBonus ? 15 : 12}>
+                  <td className="px-4 py-0" colSpan={showMonthlyBonus ? 16 : 13}>
                     <div className="flex flex-col items-center justify-center gap-2 py-14 text-center">
                       <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-100 text-slate-400 ring-1 ring-slate-200/80">
                         <Users className="h-6 w-6" strokeWidth={1.75} aria-hidden />
@@ -1076,8 +1214,8 @@ export default function ComissoesFuncionariosClient() {
         <span className="font-semibold text-slate-700">Nota:</span> Bruto = C1+C2+C3. Clique em{" "}
         <span className="font-medium text-slate-800">C1, C2, C3 ou taxa embarque</span> para ver as vendas
         que compõem cada valor. <b>Comissão balcão</b> = 60% do lucro líquido do balcão (já com imposto do
-        balcão). <b>Lucro s/ taxa</b> = bruto − imposto + comissão balcão. <b>Líquido</b> = netPay + comissão
-        balcão (netPay já inclui reembolso da taxa de vendas).
+        balcão). <b>Lucro s/ taxa</b> = bruto − imposto + comissão balcão. <b>Descontos</b> abatem o líquido.{" "}
+        <b>Líquido</b> = netPay + comissão balcão − descontos (netPay já inclui reembolso da taxa de vendas).
       </div>
 
       {/* ===== Modal origem do valor clicado ===== */}

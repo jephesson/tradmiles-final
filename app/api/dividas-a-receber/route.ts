@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/auth-server";
+import { todayISORecife } from "@/lib/payouts/autoCompute";
+import { applyEmployeeDebtDiscountsRange } from "@/lib/payouts/applyEmployeeDebtDiscounts";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -63,8 +65,18 @@ export function computeStatus(
   return "PARTIAL";
 }
 
-function buildWhere(sessionTeam: string, statusRaw: string, q: string) {
-  const where: any = { team: sessionTeam };
+function buildWhere(
+  sessionTeam: string,
+  statusRaw: string,
+  q: string,
+  kind: "GERAL" | "FUNCIONARIO",
+  employeeUserId?: string
+) {
+  const where: Record<string, unknown> = { team: sessionTeam, kind };
+
+  if (kind === "FUNCIONARIO") {
+    where.employeeUserId = employeeUserId || "__none__";
+  }
 
   const status = (statusRaw || "").toUpperCase();
   if (status && STATUS.includes(status as ReceberStatus)) {
@@ -99,7 +111,35 @@ export async function GET(req: Request) {
   const q = (url.searchParams.get("q") || "").trim();
   const take = Math.min(Math.max(safeInt(url.searchParams.get("take"), 100), 1), 300);
 
-  const where = buildWhere(session.team, status, q);
+  const kindRaw = String(url.searchParams.get("kind") || "GERAL").toUpperCase();
+  const kind = kindRaw === "FUNCIONARIO" ? ("FUNCIONARIO" as const) : ("GERAL" as const);
+
+  if (kind === "FUNCIONARIO") {
+    const ownDebts = await prisma.dividaAReceber.findMany({
+      where: {
+        team: session.team,
+        kind: "FUNCIONARIO",
+        employeeUserId: session.id,
+        status: { in: ["OPEN", "PARTIAL"] },
+      },
+      select: { startsOn: true, createdAt: true },
+    });
+    const starts = ownDebts
+      .map((d) => d.startsOn || d.createdAt.toISOString().slice(0, 10))
+      .filter((s) => /^\d{4}-\d{2}-\d{2}$/.test(s))
+      .sort();
+    if (starts[0]) {
+      await applyEmployeeDebtDiscountsRange(session.team, starts[0], todayISORecife());
+    }
+  }
+
+  const where = buildWhere(
+    session.team,
+    status,
+    q,
+    kind,
+    kind === "FUNCIONARIO" ? session.id : undefined
+  );
 
   // ✅ lista (paginada)
   const rows = await prisma.dividaAReceber.findMany({
@@ -109,6 +149,7 @@ export async function GET(req: Request) {
     include: {
       payments: { orderBy: { receivedAt: "desc" } },
       owner: { select: { id: true, name: true, login: true } },
+      dayCharges: { orderBy: { date: "desc" }, take: 40 },
     },
   });
 
@@ -146,7 +187,18 @@ export async function POST(req: Request) {
   const session = await requireSession();
   const body = await req.json().catch(() => ({}));
 
-  const debtorName = normalizeText(body.debtorName, 120);
+  const kindRaw = String(body.kind || "GERAL").toUpperCase();
+  const kind = kindRaw === "FUNCIONARIO" ? ("FUNCIONARIO" as const) : ("GERAL" as const);
+
+  const me = await prisma.user.findUnique({
+    where: { id: session.id },
+    select: { name: true, login: true },
+  });
+
+  const debtorName =
+    kind === "FUNCIONARIO"
+      ? normalizeText(me?.name || me?.login || body.debtorName, 120)
+      : normalizeText(body.debtorName, 120);
   const title = normalizeText(body.title, 160);
   const totalCents = safeInt(body.totalCents, 0);
 
@@ -177,6 +229,21 @@ export async function POST(req: Request) {
     ? (methodRaw as ReceberMetodo)
     : "PIX";
 
+  const startsOnRaw = String(body.startsOn || "").slice(0, 10);
+  const startsOn = /^\d{4}-\d{2}-\d{2}$/.test(startsOnRaw) ? startsOnRaw : todayISORecife();
+  const percent = Number(String(body.dailyProfitPercent ?? "").replace(",", "."));
+  const dailyProfitBps =
+    kind === "FUNCIONARIO"
+      ? Math.min(10000, Math.max(0, Math.round((Number.isFinite(percent) ? percent : 0) * 100)))
+      : 0;
+
+  if (kind === "FUNCIONARIO" && dailyProfitBps <= 0) {
+    return NextResponse.json(
+      { ok: false, error: "Informe o percentual do lucro diário." },
+      { status: 400 }
+    );
+  }
+
   const dueDate = parseDate(body.dueDate);
 
   const created = await prisma.dividaAReceber.create({
@@ -201,8 +268,17 @@ export async function POST(req: Request) {
       status: "OPEN",
 
       sourceLabel: normalizeText(body.sourceLabel, 120) || null,
+
+      kind,
+      employeeUserId: kind === "FUNCIONARIO" ? session.id : null,
+      dailyProfitBps,
+      startsOn: kind === "FUNCIONARIO" ? startsOn : null,
     },
   });
+
+  if (kind === "FUNCIONARIO") {
+    await applyEmployeeDebtDiscountsRange(session.team, startsOn, todayISORecife());
+  }
 
   return NextResponse.json({ ok: true, row: created });
 }

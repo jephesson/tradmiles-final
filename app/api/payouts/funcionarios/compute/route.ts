@@ -15,6 +15,7 @@ import {
 import {
   resolveC3RateioBreakdown,
 } from "@/lib/payouts/purchaseRateio";
+import { applyEmployeeDebtDiscountsForDate } from "@/lib/payouts/applyEmployeeDebtDiscounts";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -248,8 +249,17 @@ export async function POST(req: Request) {
 
     const { start, end } = dayBounds(date);
 
-    // ✅ força: apaga tudo que NÃO foi pago e reconstrói
+    // ✅ força: apaga tudo que NÃO foi pago e reconstrói (preserva descontos)
+    const preservedDiscounts = new Map<string, number>();
     if (force) {
+      const unpaid = await prisma.employeePayout.findMany({
+        where: { team, date, paidById: null },
+        select: { userId: true, discountCents: true, manualDiscountCents: true },
+      });
+      for (const p of unpaid) {
+        const manual = safeInt(p.manualDiscountCents, 0) || safeInt(p.discountCents, 0);
+        if (manual > 0) preservedDiscounts.set(p.userId, manual);
+      }
       await prisma.employeePayout.deleteMany({ where: { team, date, paidById: null } });
     }
 
@@ -684,6 +694,8 @@ export async function POST(req: Request) {
           tax7Cents: tax, // legado
           feeCents: fee,
           netPayCents: net,
+          discountCents: preservedDiscounts.get(userId) ?? 0,
+          manualDiscountCents: preservedDiscounts.get(userId) ?? 0,
           breakdown: {
             commission1Cents: c1,
             commission2Cents: c2,
@@ -709,6 +721,8 @@ export async function POST(req: Request) {
         },
       });
     }
+
+    await applyEmployeeDebtDiscountsForDate(team, date);
 
     return NextResponse.json({
       ok: true,

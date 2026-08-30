@@ -215,6 +215,7 @@ model User {
   // Um convite por usuário
   employeeInvite  EmployeeInvite?
   dividaARecebers DividaAReceber[]
+  dividasAReceberEmployee DividaAReceber[] @relation("DividaAReceberEmployee")
 
   // ✅ WALLET (quem atualizou)
   walletBalancesUpdated WalletBalance[] @relation("WalletBalanceUpdatedBy")
@@ -1699,6 +1700,10 @@ model EmployeePayout {
   tax7Cents        Int @default(0)
   feeCents         Int @default(0)
   netPayCents      Int @default(0)
+  /// Abatimento manual no líquido a pagar (não altera C1/C2/C3).
+  discountCents    Int @default(0)
+  /// Parte digitada na tela de comissões (sem o desconto automático da dívida).
+  manualDiscountCents Int @default(0)
 
   breakdown Json?
 
@@ -1890,6 +1895,11 @@ enum ReceberMetodo {
   OUTRO
 }
 
+enum DividaReceberKind {
+  GERAL
+  FUNCIONARIO
+}
+
 model DividaAReceber {
   id String @id @default(cuid())
 
@@ -1917,7 +1927,19 @@ model DividaAReceber {
 
   sourceLabel String?
 
+  kind DividaReceberKind @default(GERAL)
+
+  /// Funcionário cuja comissão sofre o desconto diário (sigilo: só ele lista).
+  employeeUserId String?
+  employeeUser   User?   @relation("DividaAReceberEmployee", fields: [employeeUserId], references: [id], onDelete: SetNull)
+
+  /// Percentual do lucro diário sem taxa de embarque, em basis points (1500 = 15%).
+  dailyProfitBps Int @default(0)
+  /// YYYY-MM-DD — a partir deste dia o desconto automático começa.
+  startsOn String?
+
   payments DividaAReceberPagamento[]
+  dayCharges EmployeeDebtDayCharge[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1926,7 +1948,31 @@ model DividaAReceber {
   @@index([team, dueDate])
   @@index([ownerId])
   @@index([createdAt])
+  @@index([team, kind, employeeUserId])
   @@map("dividas_a_receber")
+}
+
+model EmployeeDebtDayCharge {
+  id String @id @default(cuid())
+
+  team     String
+  dividaId String
+  divida   DividaAReceber @relation(fields: [dividaId], references: [id], onDelete: Cascade)
+
+  userId String
+  date   String
+
+  amountCents    Int
+  lucroBaseCents Int @default(0)
+
+  paymentId String? @unique
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([dividaId, date])
+  @@index([team, date, userId])
+  @@map("employee_debt_day_charges")
 }
 
 model DividaAReceberPagamento {

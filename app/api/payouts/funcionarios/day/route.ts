@@ -9,6 +9,7 @@ import {
   recifeDateISO,
 } from "@/lib/balcao-commission";
 import { isFirstDayOfMonth, previousMonthISO } from "@/lib/bonus/monthlyBonus";
+import { applyEmployeeDebtDiscountsForDate } from "@/lib/payouts/applyEmployeeDebtDiscounts";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -182,6 +183,8 @@ export async function GET(req: Request) {
     // No DAY read-only a gente não usa start/end.
     dayBoundsUTC(date);
 
+    await applyEmployeeDebtDiscountsForDate(session.team, date);
+
     // 1) todos usuários do time
     const users = await prisma.user.findMany({
       where: { team: session.team, role: { in: ["admin", "staff"] } },
@@ -282,6 +285,7 @@ export async function GET(req: Request) {
           tax7Cents: safeInt(p.tax7Cents, 0),
           feeCents: safeInt(p.feeCents, 0),
           netPayCents: safeInt(p.netPayCents, 0),
+          discountCents: safeInt(p.discountCents, 0),
           balcaoCommissionCents,
           monthlyBonusGrossCents: bonus.grossBonusCents,
           monthlyBonusTaxCents: bonus.taxCents,
@@ -307,6 +311,7 @@ export async function GET(req: Request) {
         tax7Cents: 0,
         feeCents: 0,
         netPayCents: 0,
+        discountCents: 0,
         balcaoCommissionCents,
         monthlyBonusGrossCents: bonus.grossBonusCents,
         monthlyBonusTaxCents: bonus.taxCents,

@@ -60,6 +60,10 @@ export async function GET(_req: NextRequest, { params }: Ctx) {
     );
   }
 
+  if (row.kind === "FUNCIONARIO" && row.employeeUserId !== session.id) {
+    return NextResponse.json({ ok: false, error: "Não encontrado." }, { status: 404 });
+  }
+
   return NextResponse.json({ ok: true, row });
 }
 
@@ -71,7 +75,7 @@ export async function POST(req: NextRequest, { params }: Ctx) {
 
   const parent = await prisma.dividaAReceber.findFirst({
     where: { id: String(id || ""), team: session.team },
-    select: { id: true, totalCents: true, status: true },
+    select: { id: true, totalCents: true, status: true, kind: true, employeeUserId: true },
   });
 
   if (!parent) {
@@ -79,6 +83,10 @@ export async function POST(req: NextRequest, { params }: Ctx) {
       { ok: false, error: "Não encontrado." },
       { status: 404 }
     );
+  }
+
+  if (parent.kind === "FUNCIONARIO" && parent.employeeUserId !== session.id) {
+    return NextResponse.json({ ok: false, error: "Não encontrado." }, { status: 404 });
   }
 
   if (parent.status === "CANCELED") {
