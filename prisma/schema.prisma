@@ -2391,6 +2391,7 @@ model CotacaoPassagemJob {
   quoteMiles            Int @default(0)
   quoteMilheiroCents    Int @default(0)
   quoteBoardingFeeCents Int @default(0)
+  quoteCia              Json?
 
   searches CotacaoPassagemSearch[]
 

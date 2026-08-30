@@ -30,7 +30,7 @@ export async function PATCH(req: Request, ctx: Ctx) {
     return NextResponse.json({ ok: true, job: updated });
   }
 
-  const data: Record<string, number> = {};
+  const data: Record<string, unknown> = {};
   if (body.quoteMiles !== undefined) data.quoteMiles = Math.max(0, Math.trunc(Number(body.quoteMiles) || 0));
   if (body.quoteMilheiroCents !== undefined) {
     data.quoteMilheiroCents = Math.max(0, Math.trunc(Number(body.quoteMilheiroCents) || 0));
@@ -38,6 +38,7 @@ export async function PATCH(req: Request, ctx: Ctx) {
   if (body.quoteBoardingFeeCents !== undefined) {
     data.quoteBoardingFeeCents = Math.max(0, Math.trunc(Number(body.quoteBoardingFeeCents) || 0));
   }
+  if (body.quoteCia !== undefined) data.quoteCia = body.quoteCia;
 
   const updated = await prisma.cotacaoPassagemJob.update({
     where: { id: job.id },
