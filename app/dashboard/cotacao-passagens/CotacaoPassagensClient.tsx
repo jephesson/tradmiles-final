@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { CheckCircle2, Download, ExternalLink, Plane, RefreshCw, Square } from "lucide-react";
 import { cn } from "@/lib/cn";
 import {
@@ -104,6 +105,11 @@ export default function CotacaoPassagensClient() {
     azul: emptyCia(),
   });
   const [hydratedJobId, setHydratedJobId] = useState("");
+  const [minMilheiro, setMinMilheiro] = useState<Record<CiaKey, number>>({
+    latam: 0,
+    smiles: 0,
+    azul: 0,
+  });
 
   async function load(id?: string) {
     const qs = id ? `?id=${encodeURIComponent(id)}` : "";
@@ -142,6 +148,20 @@ export default function CotacaoPassagensClient() {
   }, [job?.id, job?.status]);
 
   useEffect(() => {
+    void (async () => {
+      const r = await fetch("/api/settings/cotacao-min-milheiro", { cache: "no-store", credentials: "include" });
+      const j = await r.json().catch(() => null);
+      if (j?.ok && j.data) {
+        setMinMilheiro({
+          latam: Number(j.data.latam) || 0,
+          smiles: Number(j.data.smiles) || 0,
+          azul: Number(j.data.azul) || 0,
+        });
+      }
+    })();
+  }, []);
+
+  useEffect(() => {
     if (!job?.id || job.id === hydratedJobId) return;
     const src = job.quoteCia || {};
     setCiaQuotes({
@@ -170,18 +190,39 @@ export default function CotacaoPassagensClient() {
       const q = ciaQuotes[key];
       const milesN = toMiles(q.miles);
       const feeCents = toCents(q.fee);
-      const suggested = suggestedMilheiroCents(price123, milesN, feeCents);
+      const minCents = minMilheiro[key] || 0;
+      const from123 = suggestedMilheiroCents(price123, milesN, feeCents);
+      const suggested = Math.max(from123, minCents);
       const milheiroCents = q.milheiroManual ? toCents(q.milheiro) : suggested;
       const total = milesN > 0 ? saleTotalCents(milesN, milheiroCents, feeCents) : 0;
       const discount = price123 > 0 && total > 0 ? price123 - total : 0;
       const discountPct = price123 > 0 && total > 0 ? Math.round((discount / price123) * 1000) / 10 : 0;
-      return { key, label, milesN, feeCents, suggested, milheiroCents, total, discount, discountPct, q };
+      const belowMin = minCents > 0 && milheiroCents > 0 && milheiroCents < minCents;
+      const meetsMin = minCents <= 0 || milheiroCents >= minCents;
+      const usedFloor = minCents > 0 && suggested === minCents && from123 > 0 && from123 < minCents;
+      return {
+        key,
+        label,
+        milesN,
+        feeCents,
+        minCents,
+        suggested,
+        milheiroCents,
+        total,
+        discount,
+        discountPct,
+        belowMin,
+        meetsMin,
+        usedFloor,
+        q,
+      };
     });
-  }, [ciaQuotes, price123]);
+  }, [ciaQuotes, price123, minMilheiro]);
 
   const filledCias = ciaRows.filter((r) => r.milesN > 0 && r.total > 0);
-  const bestCia = filledCias.length
-    ? filledCias.reduce((a, b) => (a.total <= b.total ? a : b))
+  const viableCias = filledCias.filter((r) => r.meetsMin);
+  const bestCia = viableCias.length
+    ? viableCias.reduce((a, b) => (a.total <= b.total ? a : b))
     : null;
   const progress = useMemo(() => {
     const rows = job?.searches || [];
@@ -417,8 +458,11 @@ export default function CotacaoPassagensClient() {
         <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Passo 3</div>
         <div className="text-sm font-semibold">Anote o que cada cia pediu e compare</div>
         <p className="mt-1 max-w-3xl text-sm text-slate-500">
-          Abra a busca, copie milhas e taxa. O milheiro já vem ~5% abaixo do 123; se quiser cobrar outro valor, é só
-          editar.
+          O milheiro sugerido fica ~5% abaixo do 123, mas nunca abaixo do{" "}
+          <Link href="/dashboard/configuracoes" className="font-semibold text-slate-800 underline">
+            mínimo cadastrado em Configurações
+          </Link>
+          . Se você baixar na mão, a cia entra em prejuízo e não entra no veredito.
         </p>
 
         {bestCia && price123 ? (
@@ -426,17 +470,23 @@ export default function CotacaoPassagensClient() {
             <div>
               <div className="flex items-center gap-2 text-sm font-semibold text-emerald-950">
                 <CheckCircle2 className="h-4 w-4" />
-                Melhor: emitir na {bestCia.label}
+                Melhor sem prejuízo: emitir na {bestCia.label}
               </div>
               <p className="mt-0.5 text-sm text-emerald-800">
-                Cobre {fmtMoney(bestCia.total)} no cliente. Em relação ao 123, o desconto é{" "}
-                <b>{fmtMoney(bestCia.discount)}</b> ({bestCia.discountPct}%).
+                Cobre {fmtMoney(bestCia.total)} no cliente. vs 123 o desconto é{" "}
+                <b>{fmtMoney(bestCia.discount)}</b> ({bestCia.discountPct}%). Milheiro {fmtMoney(bestCia.milheiroCents)}
+                {bestCia.minCents ? ` (mínimo ${fmtMoney(bestCia.minCents)})` : ""}.
               </p>
             </div>
             <div className="text-right">
               <div className="text-[11px] font-semibold uppercase text-emerald-700">Milheiro</div>
               <div className="text-xl font-bold tabular-nums text-emerald-950">{fmtMoney(bestCia.milheiroCents)}</div>
             </div>
+          </div>
+        ) : filledCias.length && !bestCia ? (
+          <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+            Tem cotação preenchida, mas todas ficaram abaixo do milheiro mínimo. Ajuste a cobrança ou o piso em
+            Configurações para não vender no prejuízo.
           </div>
         ) : (
           <div className="mt-4 rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-500">
@@ -464,7 +514,11 @@ export default function CotacaoPassagensClient() {
                 key={r.key}
                 className={cn(
                   "flex flex-col rounded-2xl border p-4",
-                  win ? "border-emerald-300 bg-emerald-50/40 ring-1 ring-emerald-200" : "border-slate-200 bg-white"
+                  win
+                    ? "border-emerald-300 bg-emerald-50/40 ring-1 ring-emerald-200"
+                    : r.belowMin
+                      ? "border-amber-300 bg-amber-50/40"
+                      : "border-slate-200 bg-white"
                 )}
               >
                 <div className="flex items-center justify-between gap-2">
@@ -515,7 +569,9 @@ export default function CotacaoPassagensClient() {
                       placeholder="18,00"
                     />
                     <p className="mt-1 text-[11px] text-slate-500">
-                      Sugestão automática: {r.suggested ? fmtMoney(r.suggested) : "preencha as milhas"}
+                      Mínimo da cia: {r.minCents ? fmtMoney(r.minCents) : "não cadastrado"}
+                      {r.usedFloor ? " · sugestão subiu até o piso" : ""}
+                      {r.suggested ? ` · sugerido ${fmtMoney(r.suggested)}` : ""}
                       {r.q.milheiroManual ? (
                         <button
                           type="button"
@@ -526,6 +582,11 @@ export default function CotacaoPassagensClient() {
                         </button>
                       ) : null}
                     </p>
+                    {r.belowMin ? (
+                      <p className="mt-1 text-[11px] font-semibold text-amber-800">
+                        Abaixo do mínimo — prejuízo. Esta cia não entra no veredito.
+                      </p>
+                    ) : null}
                   </div>
                 </div>
                 <div className="mt-4 flex-1 rounded-xl bg-white/80 p-3 ring-1 ring-slate-100">

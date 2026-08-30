@@ -1,0 +1,4 @@
+-- AlterTable
+ALTER TABLE "settings" ADD COLUMN IF NOT EXISTS "cotacaoMinMilheiroLatamCents" INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE "settings" ADD COLUMN IF NOT EXISTS "cotacaoMinMilheiroSmilesCents" INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE "settings" ADD COLUMN IF NOT EXISTS "cotacaoMinMilheiroAzulCents" INTEGER NOT NULL DEFAULT 0;

@@ -7,6 +7,7 @@ import { cn } from "@/lib/cn";
 import { bpsToPercentNumber } from "@/lib/payouts/employeeCommissionRates";
 import BonusSettingsSection from "./BonusSettingsSection";
 import AlertasSettingsSection from "./AlertasSettingsSection";
+import CotacaoMinMilheiroSection from "./CotacaoMinMilheiroSection";
 
 type ApiOk = {
   ok: true;
@@ -427,6 +428,8 @@ export default function ConfiguracoesPageClient() {
           </button>
         </div>
       </div>
+
+      <CotacaoMinMilheiroSection unlocked={unlocked} />
 
       <BonusSettingsSection unlocked={unlocked} disabled={loading || saving} />
 

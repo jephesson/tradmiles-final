@@ -941,6 +941,10 @@ model Settings {
   cedenteReferralBonusCents Int @default(2000)
   /// Após venda: sugerir finalizar compra se sobrar menos que este total de pontos.
   finalizeSuggestBelowPoints Int @default(5000)
+  /// Milheiro mínimo de cobrança na cotação (centavos) — não vender abaixo.
+  cotacaoMinMilheiroLatamCents  Int @default(0)
+  cotacaoMinMilheiroSmilesCents Int @default(0)
+  cotacaoMinMilheiroAzulCents   Int @default(0)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
