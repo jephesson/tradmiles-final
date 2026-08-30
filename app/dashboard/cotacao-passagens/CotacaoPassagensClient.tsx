@@ -195,7 +195,7 @@ export default function CotacaoPassagensClient() {
                 extOn ? "bg-emerald-50 text-emerald-800" : "bg-amber-50 text-amber-900"
               )}
             >
-              {extOn ? "Extensão conectada" : "Extensão não detectada — baixe de novo (v1.2.0)"}
+              {extOn ? "Extensão conectada" : "Extensão não detectada — baixe de novo (v1.2.1)"}
             </div>
             <a
               href={ZIP_HREF}
@@ -290,8 +290,8 @@ export default function CotacaoPassagensClient() {
             ) : null}
           </div>
           <p className="mt-3 text-xs leading-relaxed text-slate-500">
-            Instale a extensão v1.2.0. Não precisa estar logado no 123milhas nem ficar nesta página: ela pesquisa em
-            segundo plano, uma data por vez.
+            Instale a extensão v1.2.1. O 123milhas precisa renderizar (uma janela abre atrás da sua). Não precisa
+            login lá. Pode sair desta página; deixe o Chrome aberto.
             {job ? ` ${progress.done}/${progress.total} concluídas.` : ""}
           </p>
         </div>

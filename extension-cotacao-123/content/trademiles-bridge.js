@@ -8,7 +8,7 @@ if (!window.__tmCotacaoBridge) {
   function notify(connected) {
     try {
       window.dispatchEvent(
-        new CustomEvent("tm-cotacao-bridge", { detail: { connected, version: "1.2.0" } })
+        new CustomEvent("tm-cotacao-bridge", { detail: { connected, version: "1.2.1" } })
       );
     } catch {
       /* ignore */
@@ -21,6 +21,30 @@ if (!window.__tmCotacaoBridge) {
       void chrome.runtime.lastError;
     });
   }
+
+  chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+    if (msg?.type !== "TM_COTACAO_SAVE") return;
+    (async () => {
+      try {
+        await fetch(`/api/cotacao-passagens/search/${encodeURIComponent(msg.searchId)}`, {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            ok: msg.ok,
+            priceCents: msg.priceCents,
+            airline: msg.airline,
+            rawPrice: msg.rawPrice,
+            error: msg.error,
+          }),
+        });
+      } catch {
+        /* ignore */
+      }
+      sendResponse({ ok: true });
+    })();
+    return true;
+  });
 
   chrome.runtime.sendMessage({ type: "TM_COTACAO_PING" }, (res) => {
     notify(Boolean(res?.ok));

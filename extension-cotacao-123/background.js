@@ -4,9 +4,15 @@ const APP_ORIGINS = [
   "http://localhost:3000",
 ];
 
+const TRADE_TABS = [
+  "https://www.trademiles.com.br/dashboard/*",
+  "https://trademiles.com.br/dashboard/*",
+  "http://localhost:3000/dashboard/*",
+];
+
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg?.type === "TM_COTACAO_PING") {
-    sendResponse({ ok: true, version: "1.2.0" });
+    sendResponse({ ok: true, version: "1.2.1" });
     return false;
   }
   if (msg?.type === "TM_COTACAO_START") {
@@ -44,27 +50,26 @@ chrome.runtime.onInstalled.addListener(() => {
   });
 });
 
-async function cookieHeader(origin) {
-  try {
-    const cookies = await chrome.cookies.getAll({ url: origin });
-    return cookies.map((c) => `${c.name}=${c.value}`).join("; ");
-  } catch {
-    return "";
-  }
-}
+chrome.tabs.onUpdated.addListener((tabId, info) => {
+  if (info.status !== "complete") return;
+  chrome.storage.local.get(["tmTabId", "tmBusy"]).then((st) => {
+    if (!st.tmBusy || st.tmTabId !== tabId) return;
+    chrome.scripting
+      .executeScript({ target: { tabId }, files: ["content/123milhas.js"] })
+      .catch(() => {});
+  });
+});
 
 async function appFetch(path, init) {
   let last = "TradeMiles offline.";
   for (const origin of APP_ORIGINS) {
     try {
-      const cookie = await cookieHeader(origin);
       const res = await fetch(`${origin}${path}`, {
         credentials: "include",
         cache: "no-store",
         ...init,
         headers: {
           Accept: "application/json",
-          ...(cookie ? { Cookie: cookie } : {}),
           ...(init?.headers || {}),
         },
       });
@@ -87,7 +92,7 @@ async function appFetch(path, init) {
 
 async function startNext() {
   const st = await chrome.storage.local.get(["tmBusy", "tmStartedAt"]);
-  if (st.tmBusy && st.tmStartedAt && Date.now() - st.tmStartedAt < 70000) return;
+  if (st.tmBusy && st.tmStartedAt && Date.now() - st.tmStartedAt < 55000) return;
   if (st.tmBusy) await chrome.storage.local.set({ tmBusy: false });
 
   const claimed = await appFetch("/api/cotacao-passagens/claim", { method: "POST" });
@@ -103,22 +108,29 @@ async function startNext() {
     tmActiveSearchId: search.id,
     tmOrigin: claimed.origin,
     tmStartedAt: Date.now(),
+    tmLast: `Abrindo ${search.originIata || ""}→${search.destIata || ""}`,
   });
   chrome.alarms.create("tm-cotacao-timeout", { delayInMinutes: 1 });
-  await openHiddenSearch(search.url);
+  await openSearchWindow(search.url);
 }
 
-async function openHiddenSearch(url) {
+async function openSearchWindow(url) {
+  let prevId = null;
+  try {
+    prevId = (await chrome.windows.getLastFocused())?.id || null;
+  } catch {
+    /* ignore */
+  }
+
   const { tmTabId, tmWindowId } = await chrome.storage.local.get(["tmTabId", "tmWindowId"]);
   if (tmTabId) {
     try {
-      await chrome.tabs.update(tmTabId, { url, active: false });
+      await chrome.tabs.update(tmTabId, { url, active: true, autoDiscardable: false });
       if (tmWindowId) {
-        try {
-          await chrome.windows.update(tmWindowId, { focused: false, state: "minimized" });
-        } catch {
-          /* ignore */
-        }
+        await chrome.windows.update(tmWindowId, { focused: true, state: "normal" });
+      }
+      if (prevId && prevId !== tmWindowId) {
+        await chrome.windows.update(prevId, { focused: true });
       }
       return;
     } catch {
@@ -126,27 +138,30 @@ async function openHiddenSearch(url) {
     }
   }
 
-  let win;
-  try {
-    win = await chrome.windows.create({
-      url,
-      focused: false,
-      state: "minimized",
-      type: "normal",
-    });
-  } catch {
-    win = await chrome.windows.create({
-      url,
-      focused: false,
-      type: "popup",
-      width: 1100,
-      height: 800,
-      left: 0,
-      top: 0,
-    });
-  }
+  const win = await chrome.windows.create({
+    url,
+    focused: true,
+    state: "normal",
+    type: "normal",
+    width: 1280,
+    height: 900,
+  });
   const tabId = win?.tabs?.[0]?.id || null;
+  if (tabId) {
+    try {
+      await chrome.tabs.update(tabId, { autoDiscardable: false });
+    } catch {
+      /* ignore */
+    }
+  }
   await chrome.storage.local.set({ tmWindowId: win?.id || null, tmTabId: tabId });
+  if (prevId && win?.id && prevId !== win.id) {
+    try {
+      await chrome.windows.update(prevId, { focused: true });
+    } catch {
+      /* ignore */
+    }
+  }
 }
 
 async function closeWorkerWindow() {
@@ -177,8 +192,28 @@ async function onTimeout() {
   });
 }
 
+async function saveViaTabs(searchId, payload) {
+  const tabs = await chrome.tabs.query({ url: TRADE_TABS });
+  for (const tab of tabs) {
+    if (!tab.id) continue;
+    try {
+      await chrome.tabs.sendMessage(tab.id, {
+        type: "TM_COTACAO_SAVE",
+        searchId,
+        ok: Boolean(payload.ok),
+        priceCents: payload.priceCents || 0,
+        airline: payload.airline || "",
+        rawPrice: payload.rawPrice || "",
+        error: payload.error || "",
+      });
+    } catch {
+      /* aba sem bridge */
+    }
+  }
+}
+
 async function onResult(payload) {
-  const stored = await chrome.storage.local.get(["tmActiveSearchId", "tmOrigin"]);
+  const stored = await chrome.storage.local.get(["tmActiveSearchId"]);
   const searchId = payload.searchId || stored.tmActiveSearchId;
   if (!searchId) {
     await chrome.storage.local.set({ tmBusy: false });
@@ -198,12 +233,19 @@ async function onResult(payload) {
     rawPrice: payload.rawPrice || "",
     error: payload.error || "",
   });
-  await appFetch(`/api/cotacao-passagens/search/${encodeURIComponent(searchId)}`, {
+  const saved = await appFetch(`/api/cotacao-passagens/search/${encodeURIComponent(searchId)}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body,
   });
+  if (!saved.json?.ok) {
+    await saveViaTabs(searchId, payload);
+  }
 
-  await chrome.storage.local.set({ tmBusy: false, tmActiveSearchId: null });
+  await chrome.storage.local.set({
+    tmBusy: false,
+    tmActiveSearchId: null,
+    tmLast: payload.ok ? `Pix ${payload.priceCents}` : payload.error || "sem preço",
+  });
   await startNext();
 }

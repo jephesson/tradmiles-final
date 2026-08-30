@@ -8,7 +8,12 @@ export const dynamic = "force-dynamic";
 type Ctx = { params: Promise<{ id: string }> };
 
 export async function POST(req: Request, ctx: Ctx) {
-  const session = await requireSession();
+  let session;
+  try {
+    session = await requireSession();
+  } catch {
+    return NextResponse.json({ ok: false, error: "Não autenticado." }, { status: 401 });
+  }
   const { id } = await ctx.params;
   const body = await req.json().catch(() => ({}));
 

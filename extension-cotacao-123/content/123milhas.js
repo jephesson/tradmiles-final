@@ -1,4 +1,10 @@
-run();
+const runKey = `tm123:${location.href}`;
+if (sessionStorage.getItem(runKey)) {
+  /* already scraping this URL */
+} else {
+  sessionStorage.setItem(runKey, "1");
+  run();
+}
 
 function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
@@ -157,7 +163,10 @@ async function scrape() {
 async function run() {
   const t0 = Date.now();
   while (!isSearchPage() && Date.now() - t0 < 10000) await sleep(400);
-  if (!isSearchPage()) return;
+  if (!isSearchPage()) {
+    sendResult({ ok: false, error: "Não abriu a busca do 123milhas." });
+    return;
+  }
 
   const price = await scrape();
   sendResult({

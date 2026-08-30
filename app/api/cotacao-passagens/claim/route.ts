@@ -6,7 +6,12 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function POST() {
-  const session = await requireSession();
+  let session;
+  try {
+    session = await requireSession();
+  } catch {
+    return NextResponse.json({ ok: false, error: "Não autenticado." }, { status: 401 });
+  }
 
   const next = await prisma.$transaction(async (tx) => {
     const job = await tx.cotacaoPassagemJob.findFirst({
@@ -16,7 +21,7 @@ export async function POST() {
     });
     if (!job) return null;
 
-    const stale = new Date(Date.now() - 90_000);
+    const stale = new Date(Date.now() - 45_000);
     await tx.cotacaoPassagemSearch.updateMany({
       where: { jobId: job.id, status: "RUNNING", startedAt: { lt: stale } },
       data: { status: "PENDING", startedAt: null },
