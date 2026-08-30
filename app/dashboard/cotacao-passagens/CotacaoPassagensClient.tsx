@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Download, Plane, RefreshCw, Square } from "lucide-react";
+import { CheckCircle2, Download, ExternalLink, Plane, RefreshCw, Square } from "lucide-react";
 import { cn } from "@/lib/cn";
 import {
   buildAzulSearchUrl,
@@ -76,6 +76,9 @@ function toCents(s: string) {
 }
 function fromCents(cents: number) {
   return ((cents || 0) / 100).toFixed(2).replace(".", ",");
+}
+function fmtMiles(n: number) {
+  return (n || 0).toLocaleString("pt-BR");
 }
 function todayISO() {
   return new Intl.DateTimeFormat("en-CA", { timeZone: "America/Recife" }).format(new Date());
@@ -252,7 +255,7 @@ export default function CotacaoPassagensClient() {
   }
 
   return (
-    <div className="mx-auto max-w-6xl space-y-5 p-4 pb-12">
+    <div className="mx-auto max-w-6xl space-y-6 p-4 pb-12">
       <div className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
           <div>
@@ -262,8 +265,8 @@ export default function CotacaoPassagensClient() {
               Cotação de passagens
             </h1>
             <p className="mt-1 max-w-2xl text-sm text-slate-500">
-              Monte o trecho e inicie. A extensão pesquisa o 123milhas atrás da sua tela (sem login) e preenche
-              sozinha. Pode sair desta página; deixe o Chrome aberto.
+              Compare o Pix do 123milhas com a emissão em milhas. A extensão pesquisa sozinha; você só anota o que
+              cada cia mostrou.
             </p>
           </div>
           <div className="flex flex-col items-stretch gap-2 sm:items-end">
@@ -285,11 +288,32 @@ export default function CotacaoPassagensClient() {
             </a>
           </div>
         </div>
+        <ol className="mt-5 grid gap-2 sm:grid-cols-3">
+          {[
+            { n: "1", t: "Pesquise no 123", d: "Origem, destino e datas" },
+            { n: "2", t: "Cote nas cias", d: "Abra LATAM, Smiles e Azul" },
+            { n: "3", t: "Veja quem ganha", d: "Total, milheiro e desconto" },
+          ].map((s) => (
+            <li
+              key={s.n}
+              className="flex items-start gap-3 rounded-xl border border-slate-100 bg-slate-50/80 px-3 py-2.5"
+            >
+              <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-slate-900 text-[11px] font-bold text-white">
+                {s.n}
+              </span>
+              <span>
+                <span className="block text-sm font-semibold text-slate-900">{s.t}</span>
+                <span className="text-xs text-slate-500">{s.d}</span>
+              </span>
+            </li>
+          ))}
+        </ol>
       </div>
 
       <div className="grid gap-4 lg:grid-cols-[1.15fr_0.85fr]">
         <div className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm">
-          <div className="mb-4 text-sm font-semibold">Pesquisa</div>
+          <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400">Passo 1</div>
+          <div className="mb-4 text-sm font-semibold">Onde e quando pesquisar</div>
           <div className="grid gap-3 md:grid-cols-2">
             <div className="md:col-span-2">
               <label className={FIELD}>Aeroportos de origem (IATA)</label>
@@ -374,171 +398,195 @@ export default function CotacaoPassagensClient() {
         </div>
 
         <div className="space-y-4">
+          <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 lg:pt-1">
+            Passo 2 · Menor Pix no 123
+          </div>
           <BestCard title="Ida mais barata" row={bestIda} running={job?.status === "RUNNING"} />
           <BestCard title="Volta mais barata" row={bestVolta} running={job?.status === "RUNNING"} />
-          {comboCents > 0 ? (
-            <div className="rounded-2xl border border-emerald-200 bg-emerald-50/70 p-4 text-sm text-emerald-950">
-              Ida + volta no 123milhas: <b>{fmtMoney(comboCents)}</b>
+          {price123 > 0 ? (
+            <div className="rounded-2xl border border-slate-900 bg-slate-900 p-4 text-white shadow-sm">
+              <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-300">{price123Label}</div>
+              <div className="mt-1 text-3xl font-bold tabular-nums">{fmtMoney(price123)}</div>
+              <p className="mt-1 text-xs text-slate-300">Este é o preço de referência. A emissão em milhas precisa ficar abaixo disso.</p>
             </div>
           ) : null}
         </div>
       </div>
 
       <div className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm">
-        <div className="text-sm font-semibold">Comparar milhas com o 123milhas</div>
-        <p className="mt-1 text-sm text-slate-500">
-          Preencha milhas e taxa de cada cia. O milheiro sugerido fica ~5% abaixo do Pix do 123, já descontando a
-          taxa. Você pode editar o milheiro de cobrança à mão.
+        <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Passo 3</div>
+        <div className="text-sm font-semibold">Anote o que cada cia pediu e compare</div>
+        <p className="mt-1 max-w-3xl text-sm text-slate-500">
+          Abra a busca, copie milhas e taxa. O milheiro já vem ~5% abaixo do 123; se quiser cobrar outro valor, é só
+          editar.
         </p>
+
+        {bestCia && price123 ? (
+          <div className="mt-4 flex flex-col gap-1 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <div className="flex items-center gap-2 text-sm font-semibold text-emerald-950">
+                <CheckCircle2 className="h-4 w-4" />
+                Melhor: emitir na {bestCia.label}
+              </div>
+              <p className="mt-0.5 text-sm text-emerald-800">
+                Cobre {fmtMoney(bestCia.total)} no cliente. Em relação ao 123, o desconto é{" "}
+                <b>{fmtMoney(bestCia.discount)}</b> ({bestCia.discountPct}%).
+              </p>
+            </div>
+            <div className="text-right">
+              <div className="text-[11px] font-semibold uppercase text-emerald-700">Milheiro</div>
+              <div className="text-xl font-bold tabular-nums text-emerald-950">{fmtMoney(bestCia.milheiroCents)}</div>
+            </div>
+          </div>
+        ) : (
+          <div className="mt-4 rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-500">
+            {price123
+              ? "Preencha milhas e taxa em pelo menos uma cia para aparecer o veredito."
+              : "Espere o Pix do 123 (passo 2) para o milheiro sugerido aparecer."}
+          </div>
+        )}
+
         <div className="mt-4 grid gap-4 lg:grid-cols-3">
-          {ciaRows.map((r) => (
-            <div key={r.key} className="rounded-2xl border border-slate-200 p-4">
-              <div className="text-sm font-semibold">{r.label}</div>
-              <div className="mt-3 grid gap-2">
-                <div>
-                  <label className={FIELD}>Milhas</label>
-                  <input
-                    value={r.q.miles}
-                    onChange={(e) => patchCia(r.key, { miles: e.target.value, milheiroManual: false })}
-                    className={INPUT}
-                    placeholder="20000"
-                  />
+          {ciaRows.map((r) => {
+            const win = bestCia?.key === r.key && r.total > 0;
+            const barMax = Math.max(price123, ...ciaRows.map((x) => x.total), 1);
+            const quoteRow = bestIda;
+            const href =
+              r.key === "latam" && quoteRow
+                ? buildLatamSearchUrl(quoteRow.originIata, quoteRow.destIata, quoteRow.date)
+                : r.key === "smiles" && quoteRow
+                  ? buildSmilesSearchUrl(quoteRow.originIata, quoteRow.destIata, quoteRow.date)
+                  : r.key === "azul" && quoteRow
+                    ? buildAzulSearchUrl(quoteRow.originIata, quoteRow.destIata, quoteRow.date)
+                    : "";
+            return (
+              <div
+                key={r.key}
+                className={cn(
+                  "flex flex-col rounded-2xl border p-4",
+                  win ? "border-emerald-300 bg-emerald-50/40 ring-1 ring-emerald-200" : "border-slate-200 bg-white"
+                )}
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <div className="text-sm font-semibold">{r.label}</div>
+                  {win ? (
+                    <span className="rounded-full bg-emerald-600 px-2 py-0.5 text-[10px] font-bold uppercase text-white">
+                      Melhor
+                    </span>
+                  ) : null}
                 </div>
-                <div>
-                  <label className={FIELD}>Taxa de embarque (R$)</label>
-                  <input
-                    value={r.q.fee}
-                    onChange={(e) => patchCia(r.key, { fee: e.target.value, milheiroManual: false })}
-                    className={INPUT}
-                    placeholder="0,00"
-                  />
-                </div>
-                <div>
-                  <label className={FIELD}>Milheiro de cobrança (R$)</label>
-                  <input
-                    value={r.q.milheiroManual ? r.q.milheiro : r.suggested ? fromCents(r.suggested) : ""}
-                    onChange={(e) => patchCia(r.key, { milheiro: e.target.value, milheiroManual: true })}
-                    className={INPUT}
-                    placeholder="18,00"
-                  />
-                  <p className="mt-1 text-[11px] text-slate-500">
-                    Sugerido (−5%): {r.suggested ? fmtMoney(r.suggested) : "—"}
-                    {r.q.milheiroManual ? (
-                      <button
-                        type="button"
-                        className="ml-2 font-semibold text-slate-800 underline"
-                        onClick={() => patchCia(r.key, { milheiroManual: false, milheiro: "" })}
-                      >
-                        usar sugestão
-                      </button>
-                    ) : null}
-                  </p>
-                </div>
-              </div>
-              <div className="mt-3 space-y-1 text-sm">
-                <div className="flex justify-between gap-2">
-                  <span className="text-slate-500">Seu total</span>
-                  <span className="font-semibold tabular-nums">{r.total ? fmtMoney(r.total) : "—"}</span>
-                </div>
-                <div className="flex justify-between gap-2">
-                  <span className="text-slate-500">Desconto vs 123</span>
-                  <span
-                    className={cn(
-                      "font-semibold tabular-nums",
-                      r.discount > 0 ? "text-emerald-700" : r.discount < 0 ? "text-rose-700" : "text-slate-700"
-                    )}
+                {href ? (
+                  <a
+                    href={href}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-slate-700 hover:underline"
                   >
-                    {r.total && price123 ? `${fmtMoney(r.discount)} (${r.discountPct}%)` : "—"}
-                  </span>
+                    Abrir busca da ida <ExternalLink className="h-3 w-3" />
+                  </a>
+                ) : (
+                  <p className="mt-2 text-xs text-slate-400">A busca aparece depois do Pix da ida.</p>
+                )}
+                <div className="mt-3 grid gap-2">
+                  <div>
+                    <label className={FIELD}>Milhas que a cia pediu</label>
+                    <input
+                      value={r.q.miles}
+                      onChange={(e) => patchCia(r.key, { miles: e.target.value, milheiroManual: false })}
+                      className={INPUT}
+                      placeholder="ex: 24000"
+                    />
+                  </div>
+                  <div>
+                    <label className={FIELD}>Taxa de embarque (R$)</label>
+                    <input
+                      value={r.q.fee}
+                      onChange={(e) => patchCia(r.key, { fee: e.target.value, milheiroManual: false })}
+                      className={INPUT}
+                      placeholder="0,00"
+                    />
+                  </div>
+                  <div>
+                    <label className={FIELD}>Milheiro que você cobra (R$)</label>
+                    <input
+                      value={r.q.milheiroManual ? r.q.milheiro : r.suggested ? fromCents(r.suggested) : ""}
+                      onChange={(e) => patchCia(r.key, { milheiro: e.target.value, milheiroManual: true })}
+                      className={INPUT}
+                      placeholder="18,00"
+                    />
+                    <p className="mt-1 text-[11px] text-slate-500">
+                      Sugestão automática: {r.suggested ? fmtMoney(r.suggested) : "preencha as milhas"}
+                      {r.q.milheiroManual ? (
+                        <button
+                          type="button"
+                          className="ml-2 font-semibold text-slate-800 underline"
+                          onClick={() => patchCia(r.key, { milheiroManual: false, milheiro: "" })}
+                        >
+                          voltar à sugestão
+                        </button>
+                      ) : null}
+                    </p>
+                  </div>
                 </div>
-              </div>
-            </div>
-          ))}
-        </div>
-
-        <div className="mt-4 overflow-hidden rounded-2xl border border-slate-200">
-          <table className="w-full text-sm">
-            <thead className="bg-slate-50 text-left text-[11px] font-semibold uppercase text-slate-500">
-              <tr>
-                <th className="p-3">Comparativo</th>
-                <th className="p-3">123milhas</th>
-                {ciaRows.map((r) => (
-                  <th key={r.key} className="p-3">
-                    {r.label}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              <tr className="border-t border-slate-100">
-                <td className="p-3 text-slate-500">Total a cobrar</td>
-                <td className="p-3 font-semibold tabular-nums">{price123 ? fmtMoney(price123) : "—"}</td>
-                {ciaRows.map((r) => (
-                  <td
-                    key={r.key}
-                    className={cn(
-                      "p-3 tabular-nums",
-                      bestCia?.key === r.key && r.total ? "font-bold text-emerald-800" : "font-semibold"
-                    )}
-                  >
+                <div className="mt-4 flex-1 rounded-xl bg-white/80 p-3 ring-1 ring-slate-100">
+                  <div className="text-[11px] font-semibold uppercase text-slate-400">Cliente paga</div>
+                  <div className="text-2xl font-bold tabular-nums text-slate-900">
                     {r.total ? fmtMoney(r.total) : "—"}
-                  </td>
-                ))}
-              </tr>
-              <tr className="border-t border-slate-100">
-                <td className="p-3 text-slate-500">Desconto vs 123</td>
-                <td className="p-3 text-slate-400">base</td>
-                {ciaRows.map((r) => (
-                  <td key={r.key} className="p-3 tabular-nums">
-                    {r.total && price123 ? fmtMoney(r.discount) : "—"}
-                  </td>
-                ))}
-              </tr>
-              <tr className="border-t border-slate-100">
-                <td className="p-3 text-slate-500">Milheiro de cobrança</td>
-                <td className="p-3 text-slate-400">—</td>
-                {ciaRows.map((r) => (
-                  <td key={r.key} className="p-3 tabular-nums">
-                    {r.milesN && r.milheiroCents ? fmtMoney(r.milheiroCents) : "—"}
-                  </td>
-                ))}
-              </tr>
-            </tbody>
-          </table>
+                  </div>
+                  {r.milesN ? (
+                    <p className="mt-0.5 text-[11px] text-slate-500">
+                      {fmtMiles(r.milesN)} milhas × {fmtMoney(r.milheiroCents)} + taxa {fmtMoney(r.feeCents)}
+                    </p>
+                  ) : (
+                    <p className="mt-0.5 text-[11px] text-slate-400">Ainda sem milhas nesta cia.</p>
+                  )}
+                  <div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-100">
+                    <div
+                      className={cn("h-full rounded-full", win ? "bg-emerald-500" : "bg-slate-400")}
+                      style={{ width: `${r.total ? Math.max(8, Math.round((r.total / barMax) * 100)) : 0}%` }}
+                    />
+                  </div>
+                  <div
+                    className={cn(
+                      "mt-2 text-sm font-semibold tabular-nums",
+                      r.discount > 0 ? "text-emerald-700" : r.discount < 0 ? "text-rose-700" : "text-slate-500"
+                    )}
+                  >
+                    {r.total && price123
+                      ? r.discount >= 0
+                        ? `Economia de ${fmtMoney(r.discount)} (${r.discountPct}%) vs 123`
+                        : `${fmtMoney(Math.abs(r.discount))} mais caro que o 123`
+                      : "—"}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
         </div>
 
-        <div className="mt-4 grid gap-3 md:grid-cols-3 text-sm">
-          <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
-            <div className="text-xs font-semibold uppercase text-slate-500">{price123Label}</div>
-            <div className="mt-1 text-lg font-bold tabular-nums">{fmtMoney(price123)}</div>
-          </div>
-          <div className="rounded-xl border border-emerald-200 bg-emerald-50/70 p-3">
-            <div className="text-xs font-semibold uppercase text-emerald-800">Melhor emissão</div>
-            <div className="mt-1 text-lg font-bold tabular-nums">
-              {bestCia ? `${bestCia.label} · ${fmtMoney(bestCia.total)}` : "Preencha as milhas"}
-            </div>
-          </div>
-          <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
-            <div className="text-xs font-semibold uppercase text-slate-500">Desconto total vs 123</div>
-            <div className="mt-1 text-lg font-bold tabular-nums">
-              {bestCia && price123
-                ? `${fmtMoney(bestCia.discount)} (${bestCia.discountPct}%)`
-                : "—"}
-            </div>
-          </div>
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+          <p className="text-xs text-slate-500">
+            Referência 123: <b className="text-slate-800">{price123 ? fmtMoney(price123) : "ainda sem Pix"}</b>
+          </p>
+          <button
+            type="button"
+            onClick={saveQuote}
+            disabled={!job}
+            className="h-10 rounded-xl bg-slate-900 px-4 text-sm font-semibold text-white disabled:opacity-50"
+          >
+            Salvar números
+          </button>
         </div>
-        <button
-          type="button"
-          onClick={saveQuote}
-          disabled={!job}
-          className="mt-4 h-10 rounded-xl border border-slate-200 px-4 text-sm font-semibold disabled:opacity-50"
-        >
-          Salvar números
-        </button>
       </div>
 
       {job?.searches?.length ? (
-        <div className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm">
+        <details className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm">
+          <summary className="cursor-pointer list-none p-4 text-sm font-semibold text-slate-800 marker:content-none">
+            Detalhe das pesquisas no 123milhas
+            <span className="ml-2 text-xs font-normal text-slate-500">
+              {progress.done}/{progress.total} datas
+            </span>
+          </summary>
           <table className="w-full text-sm">
             <thead className="bg-slate-50 text-left text-[11px] font-semibold uppercase text-slate-500">
               <tr>
@@ -563,7 +611,7 @@ export default function CotacaoPassagensClient() {
               ))}
             </tbody>
           </table>
-        </div>
+        </details>
       ) : null}
     </div>
   );
@@ -585,16 +633,16 @@ function BestCard({ title, row, running }: { title: string; row: SearchRow | nul
             {row.date.split("-").reverse().join("/")} · {row.airline || "Cia não identificada"}
           </div>
           <div className="mt-2 text-xl font-bold tabular-nums text-slate-900">{fmtMoney(row.priceCents)}</div>
-          <div className="mt-1 text-xs text-slate-500">Valor no 123milhas (Pix)</div>
+          <div className="mt-1 text-xs text-slate-500">Pix no 123milhas</div>
           <div className="mt-3 flex flex-wrap gap-2">
             {latam ? (
               <a
                 href={latam}
                 target="_blank"
                 rel="noreferrer"
-                className="inline-flex h-9 items-center rounded-xl bg-slate-900 px-3 text-xs font-semibold text-white"
+                className="inline-flex h-8 items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 text-[11px] font-semibold text-slate-800"
               >
-                Cote agora na LATAM
+                LATAM <ExternalLink className="h-3 w-3" />
               </a>
             ) : null}
             {smiles ? (
@@ -602,9 +650,9 @@ function BestCard({ title, row, running }: { title: string; row: SearchRow | nul
                 href={smiles}
                 target="_blank"
                 rel="noreferrer"
-                className="inline-flex h-9 items-center rounded-xl border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-800"
+                className="inline-flex h-8 items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 text-[11px] font-semibold text-slate-800"
               >
-                Cote agora na Smiles
+                Smiles <ExternalLink className="h-3 w-3" />
               </a>
             ) : null}
             {azul ? (
@@ -612,9 +660,9 @@ function BestCard({ title, row, running }: { title: string; row: SearchRow | nul
                 href={azul}
                 target="_blank"
                 rel="noreferrer"
-                className="inline-flex h-9 items-center rounded-xl border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-800"
+                className="inline-flex h-8 items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 text-[11px] font-semibold text-slate-800"
               >
-                Cote agora na Azul
+                Azul <ExternalLink className="h-3 w-3" />
               </a>
             ) : null}
           </div>
