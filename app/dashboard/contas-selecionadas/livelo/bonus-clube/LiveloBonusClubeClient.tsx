@@ -1,8 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
-import { Check, Copy, KeyRound, X } from "lucide-react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { Check, Copy, Gift, KeyRound, PauseCircle, RefreshCw, Search, Users, X } from "lucide-react";
 
 import { cn } from "@/lib/cn";
 import { liveloCycleBadgeClass } from "@/lib/livelo-clube";
@@ -69,6 +69,58 @@ function onlyDigits(v: string) {
   return v.replace(/\D+/g, "");
 }
 
+const INPUT =
+  "h-10 rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-900 shadow-sm outline-none transition focus:ring-2 focus:ring-slate-900/10";
+const TH =
+  "px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-500";
+
+function SummaryCard({
+  title,
+  value,
+  hint,
+  icon,
+  tone,
+}: {
+  title: string;
+  value: string;
+  hint?: string;
+  icon: ReactNode;
+  tone: "slate" | "emerald" | "amber" | "violet";
+}) {
+  const tones = {
+    slate: "from-slate-500 to-slate-700",
+    emerald: "from-emerald-500 to-teal-600",
+    amber: "from-amber-500 to-orange-600",
+    violet: "from-violet-500 to-indigo-600",
+  } as const;
+  return (
+    <div className="relative overflow-hidden rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm shadow-slate-200/40">
+      <div
+        className={cn(
+          "pointer-events-none absolute -right-3 -top-3 h-20 w-20 rounded-full bg-gradient-to-br opacity-[0.12] blur-2xl",
+          tones[tone]
+        )}
+        aria-hidden
+      />
+      <div className="flex items-start gap-3">
+        <div
+          className={cn(
+            "flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br text-white shadow-sm",
+            tones[tone]
+          )}
+        >
+          {icon}
+        </div>
+        <div className="min-w-0">
+          <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">{title}</div>
+          <div className="mt-1 text-xl font-bold tabular-nums tracking-tight text-slate-900">{value}</div>
+          {hint ? <div className="mt-0.5 text-xs text-slate-500">{hint}</div> : null}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function CredField({
   label,
   value,
@@ -109,6 +161,7 @@ export default function LiveloBonusClubeClient() {
   const [savingId, setSavingId] = useState<string | null>(null);
   const [renewSavingId, setRenewSavingId] = useState<string | null>(null);
   const [q, setQ] = useState("");
+  const [statusFilter, setStatusFilter] = useState<"" | Status>("");
   const [credOpenRowId, setCredOpenRowId] = useState<string | null>(null);
   const [copiedField, setCopiedField] = useState("");
 
@@ -184,21 +237,21 @@ export default function LiveloBonusClubeClient() {
 
   const filtered = useMemo(() => {
     const qq = q.trim().toLowerCase();
-    if (!qq) return items;
     return items.filter((r) => {
+      if (statusFilter && r.status !== statusFilter) return false;
+      if (!qq) return true;
       const hay =
         `${r.cedente.nomeCompleto} ${r.cedente.identificador} ${r.cedente.cpf} ${r.cedente.owner.name} ${r.cedente.owner.login}`.toLowerCase();
       return hay.includes(qq);
     });
-  }, [items, q]);
+  }, [items, q, statusFilter]);
 
   const totals = useMemo(() => {
     const totalClubes = filtered.length;
-    const totalBonusMes = filtered.reduce(
-      (acc, r) => acc + Number(r.monthlyBonusPoints || 0),
-      0
-    );
-    return { totalClubes, totalBonusMes };
+    const totalBonusMes = filtered.reduce((acc, r) => acc + Number(r.monthlyBonusPoints || 0), 0);
+    const ativos = filtered.filter((r) => r.status === "ACTIVE").length;
+    const faltaRenovar = filtered.filter((r) => r.status !== "CANCELED" && !r.renewedThisCycle).length;
+    return { totalClubes, totalBonusMes, ativos, faltaRenovar };
   }, [filtered]);
 
   function setDraftField(id: string, key: keyof Draft, value: string) {
@@ -272,134 +325,175 @@ export default function LiveloBonusClubeClient() {
   }
 
   return (
-    <div className="p-6 space-y-6">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-semibold">Bônus clube Livelo</h1>
-          <p className="text-sm text-slate-500">
-            Clubes Livelo cadastrados com ciclo mensal, bônus de pontos e controle de renovação.
-            Ao liberar uma compra com clube Livelo, o bônus é sincronizado automaticamente.
-          </p>
-        </div>
-
-        <div className="flex items-center gap-2">
-          <button
-            onClick={load}
-            className="border rounded-lg px-4 py-2 text-sm hover:bg-slate-50"
-            type="button"
-            disabled={loading}
-          >
-            {loading ? "Atualizando..." : "Atualizar"}
-          </button>
-
-          <Link
-            href="/dashboard/clubes/cadastrar"
-            className="border rounded-lg px-4 py-2 text-sm hover:bg-slate-50"
-          >
-            Cadastrar clube
-          </Link>
+    <div className="space-y-5">
+      <div className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm shadow-slate-200/40">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+          <div>
+            <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+              Análise & Estratégia
+            </div>
+            <h1 className="mt-0.5 text-2xl font-bold tracking-tight text-slate-900">Bônus clube Livelo</h1>
+            <p className="mt-1 max-w-2xl text-sm text-slate-500">
+              Ciclo mensal, bônus de pontos e renovação. Ao liberar uma compra com clube Livelo, o bônus entra
+              sozinho.
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => void load()}
+              disabled={loading}
+              className="inline-flex h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-800 shadow-sm hover:bg-slate-50 disabled:opacity-50"
+            >
+              <RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} />
+              {loading ? "Atualizando..." : "Atualizar"}
+            </button>
+            <Link
+              href="/dashboard/clubes/cadastrar"
+              className="inline-flex h-10 items-center rounded-xl bg-slate-900 px-4 text-sm font-semibold text-white shadow-sm hover:bg-slate-800"
+            >
+              Cadastrar clube
+            </Link>
+          </div>
         </div>
       </div>
 
       {error ? (
-        <div className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
-          {error}
-        </div>
+        <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">{error}</div>
       ) : null}
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-        <div className="rounded-2xl border bg-white p-4 shadow-sm">
-          <div className="text-xs text-neutral-500">Clubes Livelo listados</div>
-          <div className="mt-1 text-xl font-semibold">{fmtInt(totals.totalClubes)}</div>
-        </div>
-        <div className="rounded-2xl border bg-white p-4 shadow-sm">
-          <div className="text-xs text-neutral-500">Bônus mensal total</div>
-          <div className="mt-1 text-xl font-semibold">{fmtInt(totals.totalBonusMes)} pts</div>
-        </div>
-        <div className="rounded-2xl border bg-white p-4 shadow-sm">
-          <div className="text-xs text-neutral-500">Filtro</div>
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <SummaryCard
+          title="Clubes listados"
+          value={fmtInt(totals.totalClubes)}
+          hint={statusFilter || q ? "com o filtro atual" : "todos os clubes"}
+          tone="slate"
+          icon={<Users className="h-5 w-5" />}
+        />
+        <SummaryCard
+          title="Bônus mensal"
+          value={`${fmtInt(totals.totalBonusMes)} pts`}
+          hint="soma do que está na lista"
+          tone="violet"
+          icon={<Gift className="h-5 w-5" />}
+        />
+        <SummaryCard
+          title="Ativos"
+          value={fmtInt(totals.ativos)}
+          hint="assinatura em dia"
+          tone="emerald"
+          icon={<Check className="h-5 w-5" />}
+        />
+        <SummaryCard
+          title="Falta renovar"
+          value={fmtInt(totals.faltaRenovar)}
+          hint="neste ciclo, sem cancelados"
+          tone="amber"
+          icon={<PauseCircle className="h-5 w-5" />}
+        />
+      </div>
+
+      <div className="flex flex-col gap-3 rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm shadow-slate-200/40 md:flex-row md:items-center md:justify-between">
+        <div className="relative min-w-0 flex-1">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
           <input
             value={q}
             onChange={(e) => setQ(e.target.value)}
-            placeholder="Nome, ID, CPF, responsável..."
-            className="mt-2 w-full rounded-md border px-3 py-2 text-sm"
+            placeholder="Nome, ID, CPF ou responsável"
+            className={cn(INPUT, "w-full pl-9")}
           />
+        </div>
+        <div className="flex flex-wrap gap-1.5">
+          {(
+            [
+              { id: "", label: "Todos" },
+              { id: "ACTIVE", label: "Ativos" },
+              { id: "PAUSED", label: "Pausados" },
+              { id: "CANCELED", label: "Cancelados" },
+            ] as const
+          ).map((opt) => (
+            <button
+              key={opt.id || "all"}
+              type="button"
+              onClick={() => setStatusFilter(opt.id)}
+              className={cn(
+                "h-9 rounded-full px-3 text-xs font-semibold transition",
+                statusFilter === opt.id
+                  ? "bg-slate-900 text-white"
+                  : "border border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+              )}
+            >
+              {opt.label}
+            </button>
+          ))}
         </div>
       </div>
 
-      <div className="rounded-2xl border bg-white overflow-hidden">
+      <div className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm shadow-slate-200/40">
         <div className="overflow-x-auto">
-          <table className="min-w-[1280px] w-full text-sm">
-            <thead className="bg-neutral-50 text-neutral-600">
+          <table className="min-w-[1180px] w-full text-sm">
+            <thead className="bg-slate-50/90">
               <tr>
-                <th className="text-left px-4 py-2">Cedente</th>
-                <th className="text-left px-4 py-2">Clube</th>
-                <th className="text-left px-4 py-2">Ciclo</th>
-                <th className="text-left px-4 py-2">Renovação (dia)</th>
-                <th className="text-left px-4 py-2">Bônus/mês (pts)</th>
-                <th className="text-left px-4 py-2">Renovado</th>
-                <th className="text-left px-4 py-2">Status</th>
-                <th className="text-left px-4 py-2">Assinado em</th>
-                <th className="text-left px-4 py-2">Atualizado em</th>
-                <th className="text-right px-4 py-2">Ação</th>
+                <th className={TH}>Cedente</th>
+                <th className={TH}>Clube</th>
+                <th className={TH}>Ciclo</th>
+                <th className={TH}>Renovação</th>
+                <th className={TH}>Bônus/mês</th>
+                <th className={TH}>Renovado</th>
+                <th className={TH}>Status</th>
+                <th className={TH}>Assinado</th>
+                <th className={TH}>Atualizado</th>
+                <th className={cn(TH, "text-right")}>Ação</th>
               </tr>
             </thead>
-
-            <tbody className="divide-y">
+            <tbody className="divide-y divide-slate-100">
               {filtered.map((r) => {
                 const d = drafts[r.id] || {
                   renewalDay: String(r.renewalDay ?? 1),
                   monthlyBonusPoints: String(r.monthlyBonusPoints ?? 0),
                 };
+                const dirty =
+                  Number(onlyDigits(d.renewalDay)) !== Number(r.renewalDay) ||
+                  Number(onlyDigits(d.monthlyBonusPoints)) !== Number(r.monthlyBonusPoints);
 
                 return (
-                  <tr key={r.id} className="hover:bg-neutral-50">
-                    <td className="px-4 py-2">
-                      <div className="flex items-start gap-2">
+                  <tr key={r.id} className="align-top hover:bg-slate-50/70">
+                    <td className="px-4 py-3.5">
+                      <div className="flex items-start gap-2.5">
                         <div className="min-w-0 flex-1">
-                          <div className="font-medium">{r.cedente.nomeCompleto}</div>
-                          <div className="text-xs text-neutral-500">
-                            {r.cedente.identificador} • CPF {r.cedente.cpf}
+                          <div className="font-semibold text-slate-900">{r.cedente.nomeCompleto}</div>
+                          <div className="mt-0.5 text-xs text-slate-500">
+                            {r.cedente.identificador} · CPF {r.cedente.cpf}
                           </div>
-                          <div className="text-xs text-neutral-500">
-                            Resp: {r.cedente.owner.name} @{r.cedente.owner.login}
+                          <div className="text-xs text-slate-400">
+                            {r.cedente.owner.name} · @{r.cedente.owner.login}
                           </div>
                         </div>
-
-                        <div className="relative shrink-0 pt-0.5">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setCopiedField("");
-                              setCredOpenRowId((cur) => (cur === r.id ? null : r.id));
-                            }}
-                            className={cn(
-                              "group relative rounded-lg border p-1.5 shadow-sm outline-none transition-colors",
-                              credOpenRowId === r.id
-                                ? "border-sky-400 bg-sky-50 text-sky-800"
-                                : "border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50 hover:text-slate-900"
-                            )}
-                            title="Credenciais Livelo"
-                            aria-expanded={credOpenRowId === r.id}
-                          >
-                            <KeyRound className="h-4 w-4" strokeWidth={2} aria-hidden />
-                            <span className="pointer-events-none absolute -top-7 left-1/2 z-10 -translate-x-1/2 whitespace-nowrap rounded-md bg-slate-900 px-2 py-1 text-[10px] font-medium text-white opacity-0 shadow-md transition-opacity group-hover:opacity-100">
-                              Credenciais
-                            </span>
-                          </button>
-
-                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setCopiedField("");
+                            setCredOpenRowId((cur) => (cur === r.id ? null : r.id));
+                          }}
+                          className={cn(
+                            "inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border transition",
+                            credOpenRowId === r.id
+                              ? "border-slate-900 bg-slate-900 text-white"
+                              : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+                          )}
+                          title="Credenciais Livelo"
+                          aria-expanded={credOpenRowId === r.id}
+                        >
+                          <KeyRound className="h-4 w-4" strokeWidth={2} aria-hidden />
+                          <span className="sr-only">Credenciais</span>
+                        </button>
                       </div>
                     </td>
-
-                    <td className="px-4 py-2">
-                      Clube {fmtInt(r.tierK)}k
-                    </td>
-
-                    <td className="px-4 py-2">
+                    <td className="px-4 py-3.5 font-medium text-slate-800">Clube {fmtInt(r.tierK)}k</td>
+                    <td className="px-4 py-3.5">
                       <span
                         className={cn(
-                          "inline-flex rounded-full border px-2 py-0.5 text-xs font-medium",
+                          "inline-flex rounded-full border px-2.5 py-0.5 text-xs font-semibold",
                           liveloCycleBadgeClass(r.cycleMonth || 1)
                         )}
                         title={r.cycleLabel || `Mês ${r.cycleMonth || 1} de ${r.cycleTotal || 12}`}
@@ -407,65 +501,63 @@ export default function LiveloBonusClubeClient() {
                         {r.cycleLabel || `Mês ${r.cycleMonth || 1} de ${r.cycleTotal || 12}`}
                       </span>
                     </td>
-
-                    <td className="px-4 py-2">
+                    <td className="px-4 py-3.5">
                       <input
                         value={d.renewalDay}
                         onChange={(e) =>
                           setDraftField(r.id, "renewalDay", onlyDigits(e.target.value).slice(0, 2))
                         }
-                        className="w-24 rounded-md border px-2 py-1"
+                        className={cn(INPUT, "w-[72px]")}
                         inputMode="numeric"
+                        aria-label="Dia de renovação"
                       />
                     </td>
-
-                    <td className="px-4 py-2">
+                    <td className="px-4 py-3.5">
                       <input
                         value={d.monthlyBonusPoints}
                         onChange={(e) =>
-                          setDraftField(
-                            r.id,
-                            "monthlyBonusPoints",
-                            onlyDigits(e.target.value).slice(0, 7)
-                          )
+                          setDraftField(r.id, "monthlyBonusPoints", onlyDigits(e.target.value).slice(0, 7))
                         }
-                        className="w-40 rounded-md border px-2 py-1"
+                        className={cn(INPUT, "w-[120px] tabular-nums")}
                         inputMode="numeric"
+                        aria-label="Bônus mensal em pontos"
                       />
                     </td>
-
-                    <td className="px-4 py-2">
-                      <label className="inline-flex items-center gap-2 text-xs">
+                    <td className="px-4 py-3.5">
+                      <label className="inline-flex cursor-pointer items-center gap-2 text-sm text-slate-700">
                         <input
                           type="checkbox"
                           checked={Boolean(r.renewedThisCycle)}
                           disabled={renewSavingId === r.id || r.status === "CANCELED"}
                           onChange={(e) => void toggleRenewed(r.id, e.target.checked)}
-                          className="h-4 w-4 rounded border-slate-300"
+                          className="h-4 w-4 rounded border-slate-300 text-slate-900 focus:ring-slate-900/20"
                         />
-                        {r.renewedThisCycle ? "Sim" : "Não"}
+                        {renewSavingId === r.id ? "..." : r.renewedThisCycle ? "Sim" : "Não"}
                       </label>
                     </td>
-
-                    <td className="px-4 py-2">
+                    <td className="px-4 py-3.5">
                       <span
-                        className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs ${statusClass(
-                          r.status
-                        )}`}
+                        className={cn(
+                          "inline-flex items-center rounded-full border px-2.5 py-0.5 text-[11px] font-semibold",
+                          statusClass(r.status)
+                        )}
                       >
                         {statusLabel(r.status)}
                       </span>
                     </td>
-
-                    <td className="px-4 py-2">{fmtDateBR(r.subscribedAt)}</td>
-                    <td className="px-4 py-2">{fmtDateBR(r.updatedAt)}</td>
-
-                    <td className="px-4 py-2 text-right">
+                    <td className="px-4 py-3.5 tabular-nums text-slate-600">{fmtDateBR(r.subscribedAt)}</td>
+                    <td className="px-4 py-3.5 tabular-nums text-slate-600">{fmtDateBR(r.updatedAt)}</td>
+                    <td className="px-4 py-3.5 text-right">
                       <button
                         type="button"
                         onClick={() => saveRow(r.id)}
                         disabled={savingId === r.id}
-                        className="rounded-md border border-black bg-black px-3 py-1.5 text-xs font-medium text-white disabled:opacity-60"
+                        className={cn(
+                          "h-9 rounded-xl px-3 text-xs font-semibold disabled:opacity-60",
+                          dirty
+                            ? "bg-slate-900 text-white hover:bg-slate-800"
+                            : "border border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+                        )}
                       >
                         {savingId === r.id ? "Salvando..." : "Salvar"}
                       </button>
@@ -474,13 +566,13 @@ export default function LiveloBonusClubeClient() {
                 );
               })}
 
-              {!filtered.length && (
+              {!filtered.length ? (
                 <tr>
-                  <td className="px-4 py-8 text-center text-neutral-500" colSpan={10}>
-                    Nenhum clube Livelo encontrado.
+                  <td className="px-4 py-12 text-center text-sm text-slate-500" colSpan={10}>
+                    {loading ? "Carregando clubes Livelo…" : "Nenhum clube Livelo encontrado."}
                   </td>
                 </tr>
-              )}
+              ) : null}
             </tbody>
           </table>
         </div>
