@@ -4,6 +4,8 @@ import { requireSession } from "@/lib/auth-server";
 import { todayISORecife } from "@/lib/payouts/autoCompute";
 import { applyEmployeeDebtDiscountsRange } from "@/lib/payouts/applyEmployeeDebtDiscounts";
 
+const TEAM_ROLES = ["admin", "staff"] as const;
+
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
@@ -70,12 +72,12 @@ function buildWhere(
   statusRaw: string,
   q: string,
   kind: "GERAL" | "FUNCIONARIO",
-  employeeUserId?: string
+  employeeUserId?: string | null
 ) {
   const where: Record<string, unknown> = { team: sessionTeam, kind };
 
-  if (kind === "FUNCIONARIO") {
-    where.employeeUserId = employeeUserId || "__none__";
+  if (kind === "FUNCIONARIO" && employeeUserId) {
+    where.employeeUserId = employeeUserId;
   }
 
   const status = (statusRaw || "").toUpperCase();
@@ -114,17 +116,25 @@ export async function GET(req: Request) {
   const kindRaw = String(url.searchParams.get("kind") || "GERAL").toUpperCase();
   const kind = kindRaw === "FUNCIONARIO" ? ("FUNCIONARIO" as const) : ("GERAL" as const);
 
+  const dbUser = await prisma.user.findUnique({
+    where: { id: session.id },
+    select: { role: true },
+  });
+  const isAdmin = String(dbUser?.role || session.role).trim().toLowerCase() === "admin";
+
   if (kind === "FUNCIONARIO") {
-    const ownDebts = await prisma.dividaAReceber.findMany({
-      where: {
-        team: session.team,
-        kind: "FUNCIONARIO",
-        employeeUserId: session.id,
-        status: { in: ["OPEN", "PARTIAL"] },
-      },
+    const catchUpWhere: Record<string, unknown> = {
+      team: session.team,
+      kind: "FUNCIONARIO",
+      status: { in: ["OPEN", "PARTIAL"] },
+    };
+    if (!isAdmin) catchUpWhere.employeeUserId = session.id;
+
+    const catchUpDebts = await prisma.dividaAReceber.findMany({
+      where: catchUpWhere,
       select: { startsOn: true, createdAt: true },
     });
-    const starts = ownDebts
+    const starts = catchUpDebts
       .map((d) => d.startsOn || d.createdAt.toISOString().slice(0, 10))
       .filter((s) => /^\d{4}-\d{2}-\d{2}$/.test(s))
       .sort();
@@ -138,20 +148,33 @@ export async function GET(req: Request) {
     status,
     q,
     kind,
-    kind === "FUNCIONARIO" ? session.id : undefined
+    kind === "FUNCIONARIO" && !isAdmin ? session.id : null
   );
 
-  // ✅ lista (paginada)
-  const rows = await prisma.dividaAReceber.findMany({
-    where,
-    orderBy: [{ status: "asc" }, { dueDate: "asc" }, { createdAt: "desc" }],
-    take,
-    include: {
-      payments: { orderBy: { receivedAt: "desc" } },
-      owner: { select: { id: true, name: true, login: true } },
-      dayCharges: { orderBy: { date: "desc" }, take: 40 },
-    },
-  });
+  const [rows, employees] = await Promise.all([
+    prisma.dividaAReceber.findMany({
+      where,
+      orderBy: [{ status: "asc" }, { dueDate: "asc" }, { createdAt: "desc" }],
+      take,
+      include: {
+        payments: { orderBy: { receivedAt: "desc" } },
+        owner: { select: { id: true, name: true, login: true } },
+        employeeUser: { select: { id: true, name: true, login: true } },
+        dayCharges: { orderBy: { date: "desc" }, take: 40 },
+      },
+    }),
+    kind === "FUNCIONARIO"
+      ? prisma.user.findMany({
+          where: {
+            team: session.team,
+            role: { in: [...TEAM_ROLES] },
+            ...(isAdmin ? {} : { id: session.id }),
+          },
+          select: { id: true, name: true, login: true },
+          orderBy: { name: "asc" },
+        })
+      : Promise.resolve([] as { id: string; name: string; login: string }[]),
+  ]);
 
   // ✅ totais ALL (independente de take)
   const aggAll = await prisma.dividaAReceber.aggregate({
@@ -180,7 +203,14 @@ export async function GET(req: Request) {
     aggOpen._sum.receivedCents ?? 0
   );
 
-  return NextResponse.json({ ok: true, rows, totalsAll, totalsOpen });
+  return NextResponse.json({
+    ok: true,
+    rows,
+    totalsAll,
+    totalsOpen,
+    employees,
+    viewer: { id: session.id, role: isAdmin ? "admin" : "staff" },
+  });
 }
 
 export async function POST(req: Request) {
@@ -190,15 +220,49 @@ export async function POST(req: Request) {
   const kindRaw = String(body.kind || "GERAL").toUpperCase();
   const kind = kindRaw === "FUNCIONARIO" ? ("FUNCIONARIO" as const) : ("GERAL" as const);
 
-  const me = await prisma.user.findUnique({
+  const dbUser = await prisma.user.findUnique({
     where: { id: session.id },
-    select: { name: true, login: true },
+    select: { role: true },
   });
+  const isAdmin = String(dbUser?.role || session.role).trim().toLowerCase() === "admin";
 
-  const debtorName =
-    kind === "FUNCIONARIO"
-      ? normalizeText(me?.name || me?.login || body.debtorName, 120)
-      : normalizeText(body.debtorName, 120);
+  let employeeUserId: string | null = null;
+  let debtorName = normalizeText(body.debtorName, 120);
+
+  if (kind === "FUNCIONARIO") {
+    if (!isAdmin) {
+      return NextResponse.json(
+        { ok: false, error: "Somente o administrador controla a dívida do funcionário." },
+        { status: 403 }
+      );
+    }
+    const requestedId = String(body.employeeUserId || "").trim();
+
+    if (!requestedId) {
+      return NextResponse.json(
+        { ok: false, error: "Selecione o funcionário." },
+        { status: 400 }
+      );
+    }
+
+    const target = await prisma.user.findFirst({
+      where: {
+        id: requestedId,
+        team: session.team,
+        role: { in: [...TEAM_ROLES] },
+      },
+      select: { id: true, name: true, login: true },
+    });
+    if (!target) {
+      return NextResponse.json(
+        { ok: false, error: "Selecione um funcionário válido." },
+        { status: 400 }
+      );
+    }
+    employeeUserId = target.id;
+    debtorName = normalizeText(target.name || target.login, 120);
+  }
+
   const title = normalizeText(body.title, 160);
   const totalCents = safeInt(body.totalCents, 0);
 
@@ -270,7 +334,7 @@ export async function POST(req: Request) {
       sourceLabel: normalizeText(body.sourceLabel, 120) || null,
 
       kind,
-      employeeUserId: kind === "FUNCIONARIO" ? session.id : null,
+      employeeUserId,
       dailyProfitBps,
       startsOn: kind === "FUNCIONARIO" ? startsOn : null,
     },

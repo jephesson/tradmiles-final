@@ -10,6 +10,7 @@ type ReceberMetodo = "PIX" | "CARTAO" | "BOLETO" | "DINHEIRO" | "TRANSFERENCIA" 
 type Kind = "GERAL" | "FUNCIONARIO";
 
 type OwnerLite = { id: string; name: string; login: string };
+type EmployeeLite = { id: string; name: string; login: string };
 type Payment = {
   id: string;
   amountCents: number;
@@ -42,6 +43,8 @@ type Row = {
   payments: Payment[];
   dayCharges?: DayCharge[];
   owner?: OwnerLite;
+  employeeUser?: EmployeeLite | null;
+  employeeUserId?: string | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -78,6 +81,9 @@ function todayISO() {
 function bpsToPercent(bps: number) {
   return ((bps || 0) / 100).toLocaleString("pt-BR", { maximumFractionDigits: 2 });
 }
+function isAutoCommissionPayment(p: Payment) {
+  return (p.note || "").includes("Desconto automático");
+}
 
 function Pill({ children, kind }: { children: ReactNode; kind: "open" | "partial" | "paid" | "canceled" }) {
   const cls =
@@ -110,6 +116,9 @@ export default function DividasAReceberClient() {
   const [description, setDescription] = useState("");
   const [percentInput, setPercentInput] = useState("10");
   const [startsOn, setStartsOn] = useState(todayISO);
+  const [employeeUserId, setEmployeeUserId] = useState("");
+  const [employees, setEmployees] = useState<EmployeeLite[]>([]);
+  const [isAdmin, setIsAdmin] = useState(false);
 
   const [payingForId, setPayingForId] = useState<string | null>(null);
   const [payAmount, setPayAmount] = useState("0,00");
@@ -141,6 +150,8 @@ export default function DividasAReceberClient() {
       const j = await r.json();
       if (!j?.ok) throw new Error(j?.error || "Falha ao carregar.");
       setRows(j.rows || []);
+      if (Array.isArray(j.employees) && j.employees.length) setEmployees(j.employees);
+      if (j.viewer?.role) setIsAdmin(String(j.viewer.role).toLowerCase() === "admin");
     } finally {
       setLoading(false);
     }
@@ -151,7 +162,24 @@ export default function DividasAReceberClient() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab]);
 
+  useEffect(() => {
+    fetch("/api/auth/me", { cache: "no-store", credentials: "include" })
+      .then((r) => r.json())
+      .then((j) => {
+        const role = String(j?.data?.session?.role || "").toLowerCase();
+        setIsAdmin(role === "admin");
+        if (j?.data?.session?.id) {
+          setEmployeeUserId((cur) => cur || (role === "admin" ? "" : j.data.session.id));
+        }
+      })
+      .catch(() => {});
+  }, []);
+
   async function create() {
+    if (isEmployee && !employeeUserId) {
+      alert("Selecione o funcionário que vai ter o desconto nas comissões.");
+      return;
+    }
     const payload: Record<string, unknown> = {
       title,
       totalCents: toCentsFromInput(totalInput),
@@ -163,6 +191,7 @@ export default function DividasAReceberClient() {
       payload.startsOn = startsOn;
       payload.category = "EMPRESTIMO";
       payload.method = "OUTRO";
+      payload.employeeUserId = employeeUserId;
     } else {
       payload.debtorName = debtorName;
       payload.dueDate = dueDate ? new Date(dueDate).toISOString() : null;
@@ -261,18 +290,25 @@ export default function DividasAReceberClient() {
             <h1 className="mt-0.5 text-2xl font-bold tracking-tight text-slate-900">Dívidas a receber</h1>
             <p className="mt-1 max-w-2xl text-sm text-slate-500">
               {isEmployee
-                ? "Somente você vê esta aba. O percentual incide sobre o lucro diário sem taxa de embarque e entra em Descontos nas comissões."
+                ? isAdmin
+                  ? "Só você controla: cria, cancela e lança abatimentos extras. O funcionário só visualiza o saldo dele."
+                  : "Somente visualização. O saldo cai com o desconto automático nas comissões e com abatimentos lançados pelo administrador."
                 : "Empréstimos, cartão a receber, parcelamentos etc. (não mistura com vendas)."}
             </p>
           </div>
+          {(!isEmployee || isAdmin) ? (
           <button
             type="button"
-            onClick={() => setOpenCreate(true)}
+            onClick={() => {
+              setEmployeeUserId(isAdmin ? "" : employeeUserId);
+              setOpenCreate(true);
+            }}
             className="inline-flex h-10 items-center gap-2 rounded-xl bg-slate-900 px-4 text-sm font-semibold text-white shadow-sm hover:bg-slate-800"
           >
             <Plus className="h-4 w-4" />
             {isEmployee ? "Nova dívida de funcionário" : "Nova dívida a receber"}
           </button>
+          ) : null}
         </div>
 
         <div className="mt-4 inline-flex rounded-full border border-slate-200 bg-slate-50 p-0.5">
@@ -349,9 +385,9 @@ export default function DividasAReceberClient() {
         <div className="flex gap-3 rounded-2xl border border-violet-200/90 bg-violet-50/70 p-4 text-sm text-violet-950">
           <Lock className="mt-0.5 h-4 w-4 shrink-0" />
           <div>
-            Esta lista é pessoal. Colegas e outros logins não veem suas dívidas de funcionário. Cada dia, o percentual
-            informado do lucro sem taxa de embarque (depois do imposto, sem reembolso de embarque) entra em{" "}
-            <b>Descontos</b> nas comissões e reduz o saldo aqui.
+            Esta lista é pessoal para o funcionário: cada login vê só a própria dívida. O percentual do lucro sem taxa
+            de embarque entra em <b>Descontos</b> nas comissões. O administrador pode lançar valores extras para
+            abater o saldo; o funcionário não altera nada.
           </div>
         </div>
       ) : null}
@@ -363,6 +399,7 @@ export default function DividasAReceberClient() {
               <tr>
                 <th className="p-3">Status</th>
                 <th className="p-3">{isEmployee ? "Título" : "Devedor"}</th>
+                {isEmployee && isAdmin ? <th className="p-3">Funcionário</th> : null}
                 {!isEmployee ? <th className="p-3">Título</th> : null}
                 {isEmployee ? <th className="p-3">% lucro</th> : <th className="p-3">Venc.</th>}
                 {isEmployee ? <th className="p-3">A partir de</th> : null}
@@ -375,7 +412,7 @@ export default function DividasAReceberClient() {
             <tbody>
               {rows.length === 0 ? (
                 <tr>
-                  <td className="px-4 py-12 text-center text-slate-500" colSpan={isEmployee ? 8 : 8}>
+                  <td className="px-4 py-12 text-center text-slate-500" colSpan={isEmployee ? (isAdmin ? 9 : 8) : 8}>
                     <Wallet className="mx-auto mb-2 h-8 w-8 text-slate-300" />
                     Nenhum registro.
                   </td>
@@ -414,6 +451,12 @@ export default function DividasAReceberClient() {
                               : ""}
                         </div>
                       </td>
+                      {isEmployee && isAdmin ? (
+                        <td className="p-3">
+                          <div className="font-medium">{r.employeeUser?.name || r.debtorName}</div>
+                          <div className="text-xs text-slate-500">{r.employeeUser?.login || ""}</div>
+                        </td>
+                      ) : null}
                       {!isEmployee ? (
                         <td className="p-3">
                           <div className="font-medium">{r.title}</div>
@@ -440,22 +483,22 @@ export default function DividasAReceberClient() {
                           >
                             Detalhes
                           </button>
-                          {!isEmployee ? (
+                          {(!isEmployee || isAdmin) && r.status !== "PAID" && r.status !== "CANCELED" ? (
                             <button
                               type="button"
                               onClick={() => {
                                 setPayingForId(r.id);
                                 setPayAmount("0,00");
-                                setPayMethod("PIX");
+                                setPayMethod(isEmployee ? "PIX" : "PIX");
                                 setPayDate("");
-                                setPayNote("");
+                                setPayNote(isEmployee ? "Abatimento extra" : "");
                               }}
                               className="rounded-lg border border-slate-200 px-3 py-1 text-xs font-medium hover:bg-white"
                             >
-                              + Recebimento
+                              {isEmployee ? "+ Abater" : "+ Recebimento"}
                             </button>
                           ) : null}
-                          {r.status !== "CANCELED" ? (
+                          {(!isEmployee || isAdmin) && r.status !== "CANCELED" ? (
                             <button
                               type="button"
                               onClick={() => patch(r.id, { status: "CANCELED" })}
@@ -463,7 +506,8 @@ export default function DividasAReceberClient() {
                             >
                               Cancelar
                             </button>
-                          ) : (
+                          ) : null}
+                          {(!isEmployee || isAdmin) && r.status === "CANCELED" ? (
                             <button
                               type="button"
                               onClick={() => patch(r.id, { status: "OPEN" })}
@@ -471,7 +515,8 @@ export default function DividasAReceberClient() {
                             >
                               Reativar
                             </button>
-                          )}
+                          ) : null}
+                          {!isEmployee || isAdmin ? (
                           <button
                             type="button"
                             onClick={() => remove(r.id)}
@@ -479,6 +524,7 @@ export default function DividasAReceberClient() {
                           >
                             Excluir
                           </button>
+                          ) : null}
                         </div>
                       </td>
                     </tr>
@@ -504,6 +550,25 @@ export default function DividasAReceberClient() {
             <div className="grid grid-cols-1 gap-3 p-5 md:grid-cols-2">
               {isEmployee ? (
                 <>
+                  <div className="md:col-span-2">
+                    <label className="text-[11px] font-semibold uppercase text-slate-500">Funcionário</label>
+                    <select
+                      value={employeeUserId}
+                      onChange={(e) => setEmployeeUserId(e.target.value)}
+                      disabled={!isAdmin && employees.length <= 1}
+                      className="mt-1 h-10 w-full rounded-xl border border-slate-200 px-3 text-sm"
+                    >
+                      <option value="">Selecione quem terá o desconto...</option>
+                      {employees.map((u) => (
+                        <option key={u.id} value={u.id}>
+                          {u.name} ({u.login})
+                        </option>
+                      ))}
+                    </select>
+                    <p className="mt-1 text-xs text-slate-500">
+                      A dívida e o desconto nas comissões ficam nesse login. Ele vê o saldo ao entrar.
+                    </p>
+                  </div>
                   <div className="md:col-span-2">
                     <label className="text-[11px] font-semibold uppercase text-slate-500">Título</label>
                     <input
@@ -682,6 +747,7 @@ export default function DividasAReceberClient() {
                 {detailRow.description || "Sem descrição."}
               </div>
               {isEmployee ? (
+                <>
                 <div className="rounded-2xl border p-4 md:col-span-2">
                   <div className="mb-2 text-sm font-semibold">Descontos diários nas comissões</div>
                   {detailRow.dayCharges?.length ? (
@@ -707,6 +773,33 @@ export default function DividasAReceberClient() {
                     <div className="text-sm text-slate-500">Ainda não houve desconto automático.</div>
                   )}
                 </div>
+                <div className="rounded-2xl border p-4 md:col-span-2">
+                  <div className="mb-2 text-sm font-semibold">Abatimentos extras</div>
+                  {detailRow.payments?.filter((p) => !isAutoCommissionPayment(p)).length ? (
+                    detailRow.payments
+                      .filter((p) => !isAutoCommissionPayment(p))
+                      .map((p) => (
+                        <div key={p.id} className="flex items-center justify-between border-t py-2 text-sm">
+                          <span>
+                            {fmtMoneyBR(p.amountCents)} • {fmtDateBR(p.receivedAt)} • {p.method}
+                            {p.note ? ` • ${p.note}` : ""}
+                          </span>
+                          {isAdmin ? (
+                            <button
+                              type="button"
+                              className="text-xs text-rose-700"
+                              onClick={() => deletePayment(p.id)}
+                            >
+                              remover
+                            </button>
+                          ) : null}
+                        </div>
+                      ))
+                  ) : (
+                    <div className="text-sm text-slate-500">Nenhum valor extra lançado.</div>
+                  )}
+                </div>
+                </>
               ) : (
                 <div className="rounded-2xl border p-4 md:col-span-2">
                   <div className="mb-2 text-sm font-semibold">Recebimentos</div>
@@ -739,7 +832,7 @@ export default function DividasAReceberClient() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
           <div className="w-full max-w-lg rounded-2xl bg-white shadow-2xl">
             <div className="flex items-center justify-between border-b px-5 py-4">
-              <div className="font-semibold">Lançar recebimento</div>
+              <div className="font-semibold">{isEmployee ? "Abater valor extra" : "Lançar recebimento"}</div>
               <button type="button" onClick={() => setPayingForId(null)} className="text-sm text-slate-500">
                 fechar
               </button>
@@ -793,7 +886,7 @@ export default function DividasAReceberClient() {
                 onClick={addPayment}
                 className="h-10 rounded-xl bg-slate-900 px-4 text-sm font-semibold text-white"
               >
-                Lançar
+                {isEmployee ? "Abater" : "Lançar"}
               </button>
             </div>
           </div>

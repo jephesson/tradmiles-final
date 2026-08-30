@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/auth-server";
+import { canManageFuncionarioDebt, canSeeFuncionarioDebt } from "@/lib/dividas-funcionario-access";
 import { computeStatus } from "../../route";
 import { ReceberMetodo } from "@prisma/client";
 
@@ -60,7 +61,7 @@ export async function GET(_req: NextRequest, { params }: Ctx) {
     );
   }
 
-  if (row.kind === "FUNCIONARIO" && row.employeeUserId !== session.id) {
+  if (row.kind === "FUNCIONARIO" && !canSeeFuncionarioDebt(session, row.employeeUserId)) {
     return NextResponse.json({ ok: false, error: "Não encontrado." }, { status: 404 });
   }
 
@@ -75,7 +76,14 @@ export async function POST(req: NextRequest, { params }: Ctx) {
 
   const parent = await prisma.dividaAReceber.findFirst({
     where: { id: String(id || ""), team: session.team },
-    select: { id: true, totalCents: true, status: true, kind: true, employeeUserId: true },
+    select: {
+      id: true,
+      totalCents: true,
+      receivedCents: true,
+      status: true,
+      kind: true,
+      employeeUserId: true,
+    },
   });
 
   if (!parent) {
@@ -85,7 +93,7 @@ export async function POST(req: NextRequest, { params }: Ctx) {
     );
   }
 
-  if (parent.kind === "FUNCIONARIO" && parent.employeeUserId !== session.id) {
+  if (parent.kind === "FUNCIONARIO" && !canManageFuncionarioDebt(session)) {
     return NextResponse.json({ ok: false, error: "Não encontrado." }, { status: 404 });
   }
 
@@ -99,7 +107,7 @@ export async function POST(req: NextRequest, { params }: Ctx) {
     );
   }
 
-  const amountCents = safeInt(body.amountCents, 0);
+  let amountCents = safeInt(body.amountCents, 0);
   if (amountCents <= 0) {
     return NextResponse.json(
       { ok: false, error: "Valor precisa ser maior que 0." },
@@ -107,9 +115,19 @@ export async function POST(req: NextRequest, { params }: Ctx) {
     );
   }
 
+  const balance = Math.max(0, parent.totalCents - parent.receivedCents);
+  if (balance <= 0) {
+    return NextResponse.json(
+      { ok: false, error: "Essa dívida já está quitada." },
+      { status: 400 }
+    );
+  }
+  if (amountCents > balance) amountCents = balance;
+
   const methodFinal = parseMethod(body.method);
   const receivedAt = parseDate(body.receivedAt) || new Date();
-  const note = normalizeText(body.note, 1000) || null;
+  let note = normalizeText(body.note, 1000);
+  if (parent.kind === "FUNCIONARIO" && !note) note = "Abatimento extra";
 
   const result = await prisma.$transaction(async (tx) => {
     const payment = await tx.dividaAReceberPagamento.create({
@@ -118,7 +136,7 @@ export async function POST(req: NextRequest, { params }: Ctx) {
         amountCents,
         method: methodFinal,
         receivedAt,
-        note,
+        note: note || null,
       },
     });
 

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/auth-server";
+import { canManageFuncionarioDebt } from "@/lib/dividas-funcionario-access";
 import { computeStatus } from "../../route";
 
 export const runtime = "nodejs";
@@ -31,8 +32,21 @@ export async function DELETE(_req: NextRequest, { params }: Ctx) {
   });
   if (!parent)
     return NextResponse.json({ ok: false, error: "Sem acesso." }, { status: 403 });
-  if (parent.kind === "FUNCIONARIO" && parent.employeeUserId !== session.id) {
+  if (parent.kind === "FUNCIONARIO" && !canManageFuncionarioDebt(session)) {
     return NextResponse.json({ ok: false, error: "Sem acesso." }, { status: 403 });
+  }
+
+  if (parent.kind === "FUNCIONARIO") {
+    const auto = await prisma.employeeDebtDayCharge.findFirst({
+      where: { paymentId: paymentIdStr },
+      select: { id: true },
+    });
+    if (auto) {
+      return NextResponse.json(
+        { ok: false, error: "O desconto automático da comissão não pode ser removido por aqui." },
+        { status: 400 }
+      );
+    }
   }
 
   const result = await prisma.$transaction(async (tx) => {
