@@ -1,0 +1,37 @@
+{
+  "manifest_version": 3,
+  "name": "TradeMiles Cotação 123milhas",
+  "version": "1.0.0",
+  "description": "Pesquisa trechos no 123milhas e devolve o menor Pix para a cotação no TradeMiles.",
+  "permissions": ["tabs", "storage"],
+  "host_permissions": [
+    "https://123milhas.com/*",
+    "https://www.123milhas.com/*",
+    "https://www.trademiles.com.br/*",
+    "https://trademiles.com.br/*",
+    "http://localhost:3000/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://www.trademiles.com.br/dashboard/cotacao-passagens*",
+        "https://trademiles.com.br/dashboard/cotacao-passagens*",
+        "http://localhost:3000/dashboard/cotacao-passagens*"
+      ],
+      "js": ["content/trademiles-bridge.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://123milhas.com/*", "https://www.123milhas.com/*"],
+      "js": ["content/123milhas.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_title": "TradeMiles Cotação",
+    "default_popup": "popup.html"
+  }
+}

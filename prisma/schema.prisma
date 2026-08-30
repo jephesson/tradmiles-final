@@ -263,6 +263,7 @@ model User {
   despesasCreated           Despesa[]           @relation("DespesaCreatedBy")
   despesasRecorrentesCreated DespesaRecorrente[] @relation("DespesaRecorrenteCreatedBy")
   prejuizosManuaisCreated    PrejuizoManual[]    @relation("PrejuizoManualCreatedBy")
+  cotacaoPassagemJobs        CotacaoPassagemJob[]
 
   @@index([team])
   @@index([role])
@@ -2350,4 +2351,81 @@ model PixPayerAlias {
   @@index([team])
   @@index([clienteId])
   @@map("pix_payer_aliases")
+}
+
+enum CotacaoJobStatus {
+  RUNNING
+  DONE
+  STOPPED
+}
+
+enum CotacaoSearchStatus {
+  PENDING
+  RUNNING
+  OK
+  ERRO
+  CANCELADO
+}
+
+model CotacaoPassagemJob {
+  id      String @id @default(cuid())
+  ownerId String
+  owner   User   @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  team    String
+
+  status CotacaoJobStatus @default(RUNNING)
+
+  origins      String
+  destinations String
+  adults       Int    @default(1)
+
+  outboundFrom String
+  outboundTo   String?
+  outboundDays Int     @default(1)
+
+  includeReturn Boolean @default(true)
+  returnFrom    String?
+  returnTo      String?
+  returnDays    Int?
+
+  quoteMiles            Int @default(0)
+  quoteMilheiroCents    Int @default(0)
+  quoteBoardingFeeCents Int @default(0)
+
+  searches CotacaoPassagemSearch[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([team, ownerId, createdAt])
+  @@index([status])
+  @@map("cotacao_passagem_jobs")
+}
+
+model CotacaoPassagemSearch {
+  id    String              @id @default(cuid())
+  jobId String
+  job   CotacaoPassagemJob  @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  direction  String
+  originIata String
+  destIata   String
+  date       String
+  url        String
+
+  status     CotacaoSearchStatus @default(PENDING)
+  priceCents Int                 @default(0)
+  airline    String              @default("")
+  rawPrice   String?
+  error      String?
+
+  startedAt  DateTime?
+  finishedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([jobId, direction, originIata, destIata, date])
+  @@index([jobId, status])
+  @@map("cotacao_passagem_searches")
 }

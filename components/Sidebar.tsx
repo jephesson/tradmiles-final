@@ -194,12 +194,15 @@ export default function Sidebar() {
   const isClubesRoute = pathname.startsWith("/dashboard/clubes");
 
   // ✅ Gestão de pontos engloba Visualizar, Compras, Vendas e Clubes
+  const isCotacaoPassagensRoute = pathname.startsWith("/dashboard/cotacao-passagens");
+
   const isGestaoPontosRoute =
     isPontosVisualizarRoute ||
     isComprasRoute ||
     isVendasRoute ||
     isClubesRoute ||
-    isCheckLocalizadorRoute;
+    isCheckLocalizadorRoute ||
+    isCotacaoPassagensRoute;
 
   // ✅ Lucros/Comissões
   const isLucrosRoute =
@@ -860,6 +863,8 @@ export default function Sidebar() {
               Compras finalizadas
             </NavLink>
           </SubAccordion>
+
+          <NavLink href="/dashboard/cotacao-passagens">Cotação de passagens</NavLink>
 
           <SubAccordion
             title="Check Localizador"
