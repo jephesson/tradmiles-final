@@ -6,6 +6,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Clock3,
+  FileDown,
   Loader2,
   Search,
   XCircle,
@@ -277,6 +278,7 @@ function Section({
   showClub = true,
   showCancelBadge = false,
   showCanceledDoneBadge = false,
+  pendingPdf = false,
 }: {
   id: string;
   title: string;
@@ -287,6 +289,7 @@ function Section({
   showClub?: boolean;
   showCancelBadge?: boolean;
   showCanceledDoneBadge?: boolean;
+  pendingPdf?: boolean;
 }) {
   const sortedRows = useMemo(() => {
     const copy = [...rows];
@@ -294,6 +297,34 @@ function Section({
     return copy;
   }, [rows]);
   const counts = useMemo(() => countStatuses(sortedRows), [sortedRows]);
+  const [pdfBusy, setPdfBusy] = useState(false);
+
+  async function downloadPendingPdf() {
+    setPdfBusy(true);
+    try {
+      const res = await fetch(
+        `/api/latam/turbo/cancelam-pdf?monthKey=${encodeURIComponent(monthKey)}`,
+        { credentials: "include" }
+      );
+      if (!res.ok) {
+        const json = (await res.json().catch(() => null)) as { error?: string } | null;
+        throw new Error(json?.error || "Falha ao gerar o PDF.");
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `turbo-cancelam-aguardando-${monthKey}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (e: unknown) {
+      alert(e instanceof Error ? e.message : "Falha ao gerar o PDF.");
+    } finally {
+      setPdfBusy(false);
+    }
+  }
 
   return (
     <section
@@ -318,6 +349,22 @@ function Section({
           <span className="rounded-full bg-rose-50 px-2.5 py-1 font-semibold tabular-nums text-rose-800">
             {fmtInt(counts.skipped)} negados
           </span>
+          {pendingPdf ? (
+            <button
+              type="button"
+              onClick={() => void downloadPendingPdf()}
+              disabled={pdfBusy || counts.pending === 0}
+              className="inline-flex h-8 items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 font-semibold text-slate-800 hover:bg-slate-50 disabled:opacity-50"
+              title="PDF só dos aguardando, separados por funcionário"
+            >
+              {pdfBusy ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <FileDown className="h-3.5 w-3.5" />
+              )}
+              {pdfBusy ? "Gerando..." : "PDF aguardando"}
+            </button>
+          ) : null}
         </div>
       </div>
 
@@ -794,6 +841,7 @@ export default function LatamTurboPage() {
           monthKey={displayMonth}
           onChange={applyChange}
           showCancelBadge={true}
+          pendingPdf
         />
 
         <div className="grid gap-2">
