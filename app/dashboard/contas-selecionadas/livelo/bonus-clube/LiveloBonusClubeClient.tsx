@@ -162,6 +162,7 @@ export default function LiveloBonusClubeClient() {
   const [renewSavingId, setRenewSavingId] = useState<string | null>(null);
   const [q, setQ] = useState("");
   const [statusFilter, setStatusFilter] = useState<"" | Status>("");
+  const [clubFilter, setClubFilter] = useState<number | "">("");
   const [credOpenRowId, setCredOpenRowId] = useState<string | null>(null);
   const [copiedField, setCopiedField] = useState("");
 
@@ -235,16 +236,26 @@ export default function LiveloBonusClubeClient() {
     load();
   }, []);
 
+  const clubTiers = useMemo(() => {
+    const set = new Set<number>();
+    for (const r of items) {
+      const k = Number(r.tierK);
+      if (Number.isFinite(k) && k > 0) set.add(k);
+    }
+    return Array.from(set).sort((a, b) => a - b);
+  }, [items]);
+
   const filtered = useMemo(() => {
     const qq = q.trim().toLowerCase();
     return items.filter((r) => {
       if (statusFilter && r.status !== statusFilter) return false;
+      if (clubFilter !== "" && Number(r.tierK) !== clubFilter) return false;
       if (!qq) return true;
       const hay =
         `${r.cedente.nomeCompleto} ${r.cedente.identificador} ${r.cedente.cpf} ${r.cedente.owner.name} ${r.cedente.owner.login}`.toLowerCase();
       return hay.includes(qq);
     });
-  }, [items, q, statusFilter]);
+  }, [items, q, statusFilter, clubFilter]);
 
   const totals = useMemo(() => {
     const totalClubes = filtered.length;
@@ -366,7 +377,7 @@ export default function LiveloBonusClubeClient() {
         <SummaryCard
           title="Clubes listados"
           value={fmtInt(totals.totalClubes)}
-          hint={statusFilter || q ? "com o filtro atual" : "todos os clubes"}
+          hint={statusFilter || clubFilter !== "" || q ? "com o filtro atual" : "todos os clubes"}
           tone="slate"
           icon={<Users className="h-5 w-5" />}
         />
@@ -393,8 +404,8 @@ export default function LiveloBonusClubeClient() {
         />
       </div>
 
-      <div className="flex flex-col gap-3 rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm shadow-slate-200/40 md:flex-row md:items-center md:justify-between">
-        <div className="relative min-w-0 flex-1">
+      <div className="space-y-3 rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm shadow-slate-200/40">
+        <div className="relative min-w-0">
           <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
           <input
             value={q}
@@ -403,29 +414,66 @@ export default function LiveloBonusClubeClient() {
             className={cn(INPUT, "w-full pl-9")}
           />
         </div>
-        <div className="flex flex-wrap gap-1.5">
-          {(
-            [
-              { id: "", label: "Todos" },
-              { id: "ACTIVE", label: "Ativos" },
-              { id: "PAUSED", label: "Pausados" },
-              { id: "CANCELED", label: "Cancelados" },
-            ] as const
-          ).map((opt) => (
-            <button
-              key={opt.id || "all"}
-              type="button"
-              onClick={() => setStatusFilter(opt.id)}
-              className={cn(
-                "h-9 rounded-full px-3 text-xs font-semibold transition",
-                statusFilter === opt.id
-                  ? "bg-slate-900 text-white"
-                  : "border border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
-              )}
-            >
-              {opt.label}
-            </button>
-          ))}
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+          <div>
+            <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-400">Status</div>
+            <div className="flex flex-wrap gap-1.5">
+              {(
+                [
+                  { id: "", label: "Todos" },
+                  { id: "ACTIVE", label: "Ativos" },
+                  { id: "PAUSED", label: "Pausados" },
+                  { id: "CANCELED", label: "Cancelados" },
+                ] as const
+              ).map((opt) => (
+                <button
+                  key={opt.id || "all"}
+                  type="button"
+                  onClick={() => setStatusFilter(opt.id)}
+                  className={cn(
+                    "h-9 rounded-full px-3 text-xs font-semibold transition",
+                    statusFilter === opt.id
+                      ? "bg-slate-900 text-white"
+                      : "border border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+                  )}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div>
+            <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-400">Tipo de clube</div>
+            <div className="flex flex-wrap gap-1.5">
+              <button
+                type="button"
+                onClick={() => setClubFilter("")}
+                className={cn(
+                  "h-9 rounded-full px-3 text-xs font-semibold transition",
+                  clubFilter === ""
+                    ? "bg-slate-900 text-white"
+                    : "border border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+                )}
+              >
+                Todos
+              </button>
+              {clubTiers.map((k) => (
+                <button
+                  key={k}
+                  type="button"
+                  onClick={() => setClubFilter(k)}
+                  className={cn(
+                    "h-9 rounded-full px-3 text-xs font-semibold transition",
+                    clubFilter === k
+                      ? "bg-slate-900 text-white"
+                      : "border border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+                  )}
+                >
+                  Clube {fmtInt(k)}k
+                </button>
+              ))}
+            </div>
+          </div>
         </div>
       </div>
 
