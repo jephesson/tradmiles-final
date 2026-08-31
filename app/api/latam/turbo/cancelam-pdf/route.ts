@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { LoyaltyProgram } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { getSessionServer } from "@/lib/auth-server";
-import { buildSimpleTextPdf } from "@/lib/pdf/simpleTextPdf";
+import { buildTurboCancelamPdf } from "@/lib/latam/buildTurboCancelamPdf";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -271,43 +271,22 @@ export async function GET(req: NextRequest) {
     );
   }
 
-  const totalPax = pending.reduce((acc, r) => acc + r.cpfFree, 0);
-  const totalRenew = pending.filter((r) => r.renewsThisMonth).length;
-
-  const lines: string[] = [
-    "TradeMiles — Turbo LATAM",
-    `Cancelam no mes — somente aguardando`,
-    `Mes: ${monthLabel(monthKey)}`,
-    "",
-    `TOTAL contas aguardando: ${pending.length}`,
-    `TOTAL passageiros disponiveis: ${totalPax}`,
-    `TOTAL renovam neste mes: ${totalRenew}`,
-    `Funcionarios: ${orderedGroups.length}`,
-    "",
-  ];
-
-  for (const g of orderedGroups) {
-    const pax = g.rows.reduce((acc, r) => acc + r.cpfFree, 0);
-    const renew = g.rows.filter((r) => r.renewsThisMonth).length;
-    lines.push("================================================");
-    lines.push(`FUNCIONARIO: ${g.name} (@${g.login})`);
-    lines.push(
-      `Contas: ${g.rows.length}  |  Passageiros disponiveis: ${pax}  |  Renovam neste mes: ${renew}`
-    );
-    lines.push("------------------------------------------------");
-    for (const r of g.rows) {
-      lines.push(`${r.identificador}  |  ${r.nomeCompleto}`);
-      lines.push(
-        `CPF ${r.cpf}  |  Clube ${clubLabel(r.clubStatus)}  |  Cancela em ${dateBR(r.cancelAt)}`
-      );
-      lines.push(
-        `Passageiros disponiveis: ${r.cpfFree}  |  Renova neste mes: ${r.renewsThisMonth ? "sim" : "nao"}`
-      );
-      lines.push("");
-    }
-  }
-
-  const pdf = buildSimpleTextPdf(lines);
+  const pdf = buildTurboCancelamPdf({
+    monthLabel: monthLabel(monthKey),
+    groups: orderedGroups.map((g) => ({
+      name: g.name,
+      login: g.login,
+      rows: g.rows.map((r) => ({
+        identificador: r.identificador,
+        nomeCompleto: r.nomeCompleto,
+        cpf: r.cpf,
+        clubStatus: clubLabel(r.clubStatus),
+        cancelAtLabel: dateBR(r.cancelAt),
+        cpfFree: r.cpfFree,
+        renewsThisMonth: r.renewsThisMonth,
+      })),
+    })),
+  });
   const fileName = `turbo-cancelam-aguardando-${monthKey}.pdf`;
 
   return new NextResponse(new Uint8Array(pdf), {
