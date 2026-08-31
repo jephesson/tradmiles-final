@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { LoyaltyProgram } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { getSessionServer } from "@/lib/auth-server";
 import { buildSimpleTextPdf } from "@/lib/pdf/simpleTextPdf";
@@ -65,17 +66,34 @@ function clampInt(n: number, min: number, max: number) {
   return Math.min(max, Math.max(min, n));
 }
 
+function safeInt(v: unknown, fb = 0) {
+  const n = Number(v);
+  return Number.isFinite(n) ? Math.trunc(n) : fb;
+}
+
 function isBetweenUTC(d: Date, start: Date, end: Date) {
   const t = startUTC(d).getTime();
   return t >= startUTC(start).getTime() && t <= startUTC(end).getTime();
 }
 
-function computeCancelAt(subscribedAt: Date, renewalDay: number, lastRenewedAt: Date | null) {
+function boundsLast365UTC() {
+  const now = new Date();
+  const end = new Date(
+    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 23, 59, 59, 999)
+  );
+  const start = new Date(end);
+  start.setUTCDate(start.getUTCDate() - 364);
+  start.setUTCHours(0, 0, 0, 0);
+  return { start, end };
+}
+
+function computeAutoDates(subscribedAt: Date, renewalDay: number, lastRenewedAt: Date | null) {
   const day = clampInt(Number(renewalDay) || 1, 1, 31);
   const base = lastRenewedAt ?? subscribedAt;
   const nextRenewalAt = nextMonthOnDayUTC(base, day);
   const inactiveAt = addDaysUTC(nextRenewalAt, 1);
-  return addDaysUTC(inactiveAt, LATAM_CANCEL_AFTER_INACTIVE_DAYS);
+  const cancelAt = addDaysUTC(inactiveAt, LATAM_CANCEL_AFTER_INACTIVE_DAYS);
+  return { nextRenewalAt, cancelAt };
 }
 
 function dateBR(d: Date) {
@@ -108,6 +126,8 @@ type PendingRow = {
   cpf: string;
   clubStatus: string;
   cancelAt: Date;
+  cpfFree: number;
+  renewsThisMonth: boolean;
 };
 
 export async function GET(req: NextRequest) {
@@ -170,16 +190,42 @@ export async function GET(req: NextRequest) {
   });
   const markByCedente = new Map(marks.map((m) => [m.cedenteId, m.status]));
 
+  const accounts = await prisma.latamTurboAccount.findMany({
+    where: { team: session.team, cedenteId: { in: cedenteIds } },
+    select: { cedenteId: true, cpfLimit: true, cpfUsed: true },
+  });
+  const accByCedente = new Map(accounts.map((a) => [a.cedenteId, a]));
+
+  const { start: yStart, end: yEnd } = boundsLast365UTC();
+  const usedAgg = await prisma.emissionEvent.groupBy({
+    by: ["cedenteId"],
+    where: {
+      program: LoyaltyProgram.LATAM,
+      issuedAt: { gte: yStart, lte: yEnd },
+      cedenteId: { in: cedenteIds },
+    },
+    _sum: { passengersCount: true },
+  });
+  const usedCalcByCedente = new Map(
+    usedAgg.map((x) => [x.cedenteId, Number(x._sum.passengersCount || 0)])
+  );
+
   const pending: PendingRow[] = [];
   for (const ced of cedentes) {
     const club = latestClub.get(ced.id);
     if (!club || club.status === "CANCELED") continue;
 
-    const cancelAt = computeCancelAt(club.subscribedAt, club.renewalDay, club.lastRenewedAt);
-    if (!isBetweenUTC(cancelAt, monthStart, monthEnd)) continue;
+    const auto = computeAutoDates(club.subscribedAt, club.renewalDay, club.lastRenewedAt);
+    if (!isBetweenUTC(auto.cancelAt, monthStart, monthEnd)) continue;
 
     const turboStatus = markByCedente.get(ced.id) || "PENDING";
     if (turboStatus !== "PENDING") continue;
+
+    const acc = accByCedente.get(ced.id);
+    const cpfLimit = clampInt(safeInt(acc?.cpfLimit, 25), 0, 999);
+    const usedCalc = clampInt(safeInt(usedCalcByCedente.get(ced.id) ?? 0, 0), 0, 999);
+    const usedManual = clampInt(safeInt(acc?.cpfUsed, 0), 0, 999);
+    const cpfFree = Math.max(0, cpfLimit - Math.max(usedCalc, usedManual));
 
     pending.push({
       ownerId: ced.owner.id,
@@ -189,7 +235,9 @@ export async function GET(req: NextRequest) {
       nomeCompleto: ced.nomeCompleto,
       cpf: ced.cpf,
       clubStatus: club.status,
-      cancelAt,
+      cancelAt: auto.cancelAt,
+      cpfFree,
+      renewsThisMonth: isBetweenUTC(auto.nextRenewalAt, monthStart, monthEnd),
     });
   }
 
@@ -223,23 +271,37 @@ export async function GET(req: NextRequest) {
     );
   }
 
+  const totalPax = pending.reduce((acc, r) => acc + r.cpfFree, 0);
+  const totalRenew = pending.filter((r) => r.renewsThisMonth).length;
+
   const lines: string[] = [
     "TradeMiles — Turbo LATAM",
     `Cancelam no mes — somente aguardando`,
     `Mes: ${monthLabel(monthKey)}`,
-    `Total: ${pending.length} conta(s) em ${orderedGroups.length} funcionario(s)`,
+    "",
+    `TOTAL contas aguardando: ${pending.length}`,
+    `TOTAL passageiros disponiveis: ${totalPax}`,
+    `TOTAL renovam neste mes: ${totalRenew}`,
+    `Funcionarios: ${orderedGroups.length}`,
     "",
   ];
 
   for (const g of orderedGroups) {
+    const pax = g.rows.reduce((acc, r) => acc + r.cpfFree, 0);
+    const renew = g.rows.filter((r) => r.renewsThisMonth).length;
     lines.push("================================================");
     lines.push(`FUNCIONARIO: ${g.name} (@${g.login})`);
-    lines.push(`${g.rows.length} conta(s) aguardando`);
+    lines.push(
+      `Contas: ${g.rows.length}  |  Passageiros disponiveis: ${pax}  |  Renovam neste mes: ${renew}`
+    );
     lines.push("------------------------------------------------");
     for (const r of g.rows) {
       lines.push(`${r.identificador}  |  ${r.nomeCompleto}`);
       lines.push(
         `CPF ${r.cpf}  |  Clube ${clubLabel(r.clubStatus)}  |  Cancela em ${dateBR(r.cancelAt)}`
+      );
+      lines.push(
+        `Passageiros disponiveis: ${r.cpfFree}  |  Renova neste mes: ${r.renewsThisMonth ? "sim" : "nao"}`
       );
       lines.push("");
     }
