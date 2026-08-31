@@ -310,7 +310,7 @@ export async function GET(req: NextRequest) {
   const pdf = buildSimpleTextPdf(lines);
   const fileName = `turbo-cancelam-aguardando-${monthKey}.pdf`;
 
-  return new NextResponse(pdf, {
+  return new NextResponse(new Uint8Array(pdf), {
     status: 200,
     headers: {
       "Content-Type": "application/pdf",
