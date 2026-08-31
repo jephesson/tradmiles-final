@@ -169,7 +169,7 @@ export type TurboCancelamPdfRow = {
   clubStatus: string;
   cancelAtLabel: string;
   cpfFree: number;
-  renewsThisMonth: boolean;
+  renewCount: number;
 };
 
 export type TurboCancelamPdfGroup = {
@@ -226,7 +226,7 @@ function drawRow(c: PdfCanvas, x: number, y: number, row: TurboCancelamPdfRow, a
     row.clubStatus,
     row.cancelAtLabel,
     String(row.cpfFree),
-    row.renewsThisMonth ? "sim" : "nao",
+    String(row.renewCount),
   ];
   let cx = x + 4;
   COLS.forEach((col, i) => {
@@ -237,8 +237,8 @@ function drawRow(c: PdfCanvas, x: number, y: number, row: TurboCancelamPdfRow, a
       y: y + 12,
       width: col.w - 8,
       size: 7.5,
-      font: i === 0 ? "F2" : "F1",
-      color: renew ? (row.renewsThisMonth ? C.green : C.muted) : C.body,
+      font: i === 0 || renew ? "F2" : "F1",
+      color: renew ? (row.renewCount > 0 ? C.rose : C.muted) : C.body,
     });
     cx += col.w;
   });
@@ -246,6 +246,7 @@ function drawRow(c: PdfCanvas, x: number, y: number, row: TurboCancelamPdfRow, a
 
 export function buildTurboCancelamPdf(input: {
   monthLabel: string;
+  renewMonthKey: string;
   groups: TurboCancelamPdfGroup[];
 }) {
   const groups = input.groups;
@@ -255,7 +256,7 @@ export function buildTurboCancelamPdf(input: {
     0
   );
   const totalRenew = groups.reduce(
-    (a, g) => a + g.rows.filter((r) => r.renewsThisMonth).length,
+    (a, g) => a + g.rows.reduce((b, r) => b + r.renewCount, 0),
     0
   );
 
@@ -309,10 +310,10 @@ export function buildTurboCancelamPdf(input: {
     color: C.white,
   });
   canvas.text({
-    text: `Cancelam no mes  ·  somente aguardando  ·  ${input.monthLabel}`,
+    text: `Cancelam no mes  ·  somente aguardando  ·  ${input.monthLabel}  ·  renovacao mes-12 ${input.renewMonthKey}`,
     x: MARGIN,
     y: 68,
-    size: 10,
+    size: 9,
     color: [0.82, 0.88, 0.98],
   });
   y = 98;
@@ -321,7 +322,7 @@ export function buildTurboCancelamPdf(input: {
   const cards = [
     { label: "Contas aguardando", value: String(totalContas), fill: C.amberBg, accent: C.amber },
     { label: "Passageiros disponiveis", value: String(totalPax), fill: C.tealBg, accent: C.teal },
-    { label: "Renovam neste mes", value: String(totalRenew), fill: C.violetBg, accent: C.violet },
+    { label: "Renovam neste mes (pax)", value: String(totalRenew), fill: C.violetBg, accent: C.violet },
   ];
   cards.forEach((card, i) => {
     const x = MARGIN + i * (cardW + 8);
@@ -358,7 +359,7 @@ export function buildTurboCancelamPdf(input: {
   groups.forEach((g, gi) => {
     const tone = EMPLOYEE_TONES[gi % EMPLOYEE_TONES.length];
     const pax = g.rows.reduce((a, r) => a + r.cpfFree, 0);
-    const renew = g.rows.filter((r) => r.renewsThisMonth).length;
+    const renew = g.rows.reduce((a, r) => a + r.renewCount, 0);
 
     ensure(BANNER_H + HEAD_H + ROW_H + 12);
 

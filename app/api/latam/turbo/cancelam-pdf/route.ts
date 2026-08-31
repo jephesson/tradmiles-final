@@ -76,6 +76,18 @@ function isBetweenUTC(d: Date, start: Date, end: Date) {
   return t >= startUTC(start).getTime() && t <= startUTC(end).getTime();
 }
 
+function addMonthsUTC(d: Date, months: number) {
+  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + months, 1, 0, 0, 0, 0));
+}
+
+function endOfMonthUTC(d: Date) {
+  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0, 23, 59, 59, 999));
+}
+
+function monthKeyFromDate(d: Date) {
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
+}
+
 function boundsLast365UTC() {
   const now = new Date();
   const end = new Date(
@@ -127,7 +139,7 @@ type PendingRow = {
   clubStatus: string;
   cancelAt: Date;
   cpfFree: number;
-  renewsThisMonth: boolean;
+  renewCount: number;
 };
 
 export async function GET(req: NextRequest) {
@@ -210,6 +222,22 @@ export async function GET(req: NextRequest) {
     usedAgg.map((x) => [x.cedenteId, Number(x._sum.passengersCount || 0)])
   );
 
+  const renewMonthStart = addMonthsUTC(monthStart, -12);
+  const renewMonthEnd = endOfMonthUTC(renewMonthStart);
+  const renewMonthKey = monthKeyFromDate(renewMonthStart);
+  const renewAgg = await prisma.emissionEvent.groupBy({
+    by: ["cedenteId"],
+    where: {
+      program: LoyaltyProgram.LATAM,
+      issuedAt: { gte: renewMonthStart, lte: renewMonthEnd },
+      cedenteId: { in: cedenteIds },
+    },
+    _sum: { passengersCount: true },
+  });
+  const renewByCedente = new Map(
+    renewAgg.map((x) => [x.cedenteId, Number(x._sum.passengersCount || 0)])
+  );
+
   const pending: PendingRow[] = [];
   for (const ced of cedentes) {
     const club = latestClub.get(ced.id);
@@ -237,7 +265,7 @@ export async function GET(req: NextRequest) {
       clubStatus: club.status,
       cancelAt: auto.cancelAt,
       cpfFree,
-      renewsThisMonth: isBetweenUTC(auto.nextRenewalAt, monthStart, monthEnd),
+      renewCount: Math.max(0, Math.trunc(renewByCedente.get(ced.id) || 0)),
     });
   }
 
@@ -273,6 +301,7 @@ export async function GET(req: NextRequest) {
 
   const pdf = buildTurboCancelamPdf({
     monthLabel: monthLabel(monthKey),
+    renewMonthKey,
     groups: orderedGroups.map((g) => ({
       name: g.name,
       login: g.login,
@@ -283,7 +312,7 @@ export async function GET(req: NextRequest) {
         clubStatus: clubLabel(r.clubStatus),
         cancelAtLabel: dateBR(r.cancelAt),
         cpfFree: r.cpfFree,
-        renewsThisMonth: r.renewsThisMonth,
+        renewCount: r.renewCount,
       })),
     })),
   });
