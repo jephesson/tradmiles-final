@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { Banknote, RefreshCw, Search, Trophy, Users } from "lucide-react";
+import { cn } from "@/lib/cn";
 
 type Status = "PENDING" | "PAID" | "CANCELED" | "";
 
@@ -32,15 +34,6 @@ type CommissionItem = {
   paidBy?: { id: string; name: string; login: string } | null;
 };
 
-type ListResp = {
-  total: number;
-  take: number;
-  skip: number;
-  items: CommissionItem[];
-  topWindowDays?: number;
-  topRecebedores?: TopRecebedor[];
-};
-
 type TopRecebedor = {
   cedenteId: string | null;
   totalCents: number;
@@ -53,29 +46,55 @@ type TopRecebedor = {
   } | null;
 };
 
+type ListResp = {
+  total: number;
+  take: number;
+  skip: number;
+  items: CommissionItem[];
+  topWindowDays?: number;
+  topRecebedores?: TopRecebedor[];
+};
+
+const INPUT =
+  "h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-900 shadow-sm outline-none transition focus:ring-2 focus:ring-slate-900/10";
+const TH =
+  "px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-500";
+
 function fmtMoneyBR(cents: number) {
   const v = (cents || 0) / 100;
   return v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
 
 function fmtDateTimeBR(iso?: string | null) {
-  if (!iso) return "-";
+  if (!iso) return "—";
   const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "-";
+  if (Number.isNaN(d.getTime())) return "—";
   return d.toLocaleString("pt-BR");
 }
 
 function statusBadge(status: CommissionItem["status"]) {
-  const base =
-    "inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium border";
-  if (status === "PENDING")
-    return <span className={`${base} border-amber-200 bg-amber-50 text-amber-700`}>Pendente</span>;
-  if (status === "PAID")
-    return <span className={`${base} border-emerald-200 bg-emerald-50 text-emerald-700`}>Paga</span>;
-  return <span className={`${base} border-neutral-200 bg-neutral-50 text-neutral-700`}>Cancelada</span>;
+  if (status === "PENDING") {
+    return (
+      <span className="inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-2.5 py-0.5 text-[11px] font-semibold text-amber-800">
+        Pendente
+      </span>
+    );
+  }
+  if (status === "PAID") {
+    return (
+      <span className="inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-0.5 text-[11px] font-semibold text-emerald-800">
+        Paga
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-2.5 py-0.5 text-[11px] font-semibold text-slate-600">
+      Cancelada
+    </span>
+  );
 }
 
-function clampInt(v: any, min: number, max: number) {
+function clampInt(v: unknown, min: number, max: number) {
   const n = Number(v);
   if (!Number.isFinite(n)) return min;
   return Math.max(min, Math.min(max, Math.trunc(n)));
@@ -83,16 +102,15 @@ function clampInt(v: any, min: number, max: number) {
 
 export default function CedenteCommissionsClient() {
   const [loading, setLoading] = useState(false);
-  const [err, setErr] = useState<string>("");
+  const [err, setErr] = useState("");
 
-  // filtros
   const [status, setStatus] = useState<Status>("PENDING");
-  const [from, setFrom] = useState<string>(""); // YYYY-MM-DD
-  const [to, setTo] = useState<string>(""); // YYYY-MM-DD
-  const [q, setQ] = useState<string>(""); // filtro local (nome/cpf/ID/numero)
-  const [take, setTake] = useState<number>(50);
-  const [skip, setSkip] = useState<number>(0);
-  const [topWindowDays, setTopWindowDays] = useState<number>(30);
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
+  const [q, setQ] = useState("");
+  const [take, setTake] = useState(50);
+  const [skip, setSkip] = useState(0);
+  const [topWindowDays, setTopWindowDays] = useState(30);
 
   const [data, setData] = useState<ListResp>({
     total: 0,
@@ -125,15 +143,15 @@ export default function CedenteCommissionsClient() {
       }
 
       setData(json);
-    } catch (e: any) {
-      setErr(e?.message || "Erro inesperado.");
+    } catch (e: unknown) {
+      setErr(e instanceof Error ? e.message : "Erro inesperado.");
     } finally {
       setLoading(false);
     }
   }
 
   useEffect(() => {
-    load();
+    void load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [status, from, to, take, skip, topWindowDays]);
 
@@ -144,14 +162,7 @@ export default function CedenteCommissionsClient() {
     return data.items.filter((it) => {
       const ced = it.cedente;
       const p = it.purchase;
-      const hay = [
-        it.id,
-        ced?.nomeCompleto,
-        ced?.cpf,
-        ced?.identificador,
-        p?.numero,
-        it.note,
-      ]
+      const hay = [it.id, ced?.nomeCompleto, ced?.cpf, ced?.identificador, p?.numero, it.note]
         .filter(Boolean)
         .join(" ")
         .toLowerCase();
@@ -178,13 +189,11 @@ export default function CedenteCommissionsClient() {
 
   async function payCommission(id: string) {
     const note = window.prompt("Observação (opcional):", "") ?? "";
-    const okConfirm = window.confirm("Confirmar: marcar esta comissão como PAGA?");
-    if (!okConfirm) return;
+    if (!window.confirm("Confirmar: marcar esta comissão como PAGA?")) return;
 
     try {
       setLoading(true);
       setErr("");
-
       const res = await fetch(`/api/cedente-commissions/${id}/pay`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -195,10 +204,9 @@ export default function CedenteCommissionsClient() {
         setErr(json?.message || "Falha ao pagar comissão.");
         return;
       }
-
       await load();
-    } catch (e: any) {
-      setErr(e?.message || "Erro inesperado ao pagar.");
+    } catch (e: unknown) {
+      setErr(e instanceof Error ? e.message : "Erro inesperado ao pagar.");
     } finally {
       setLoading(false);
     }
@@ -206,13 +214,11 @@ export default function CedenteCommissionsClient() {
 
   async function cancelCommission(id: string) {
     const note = window.prompt("Motivo/observação (opcional):", "") ?? "";
-    const okConfirm = window.confirm("Confirmar: cancelar esta comissão?");
-    if (!okConfirm) return;
+    if (!window.confirm("Confirmar: cancelar esta comissão?")) return;
 
     try {
       setLoading(true);
       setErr("");
-
       const res = await fetch(`/api/cedente-commissions/${id}/cancel`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -223,10 +229,9 @@ export default function CedenteCommissionsClient() {
         setErr(json?.message || "Falha ao cancelar comissão.");
         return;
       }
-
       await load();
-    } catch (e: any) {
-      setErr(e?.message || "Erro inesperado ao cancelar.");
+    } catch (e: unknown) {
+      setErr(e instanceof Error ? e.message : "Erro inesperado ao cancelar.");
     } finally {
       setLoading(false);
     }
@@ -237,32 +242,149 @@ export default function CedenteCommissionsClient() {
   }
 
   return (
-    <div className="space-y-4">
-      {/* Filtros */}
-      <div className="rounded-2xl border bg-white p-4 shadow-sm">
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-12 md:items-end">
-          <div className="md:col-span-3">
-            <label className="text-xs font-medium text-neutral-600">Status</label>
-            <select
-              className="mt-1 w-full rounded-xl border px-3 py-2 text-sm"
-              value={status}
-              onChange={(e) => {
-                setStatus(e.target.value as Status);
+    <div className="space-y-5">
+      <div className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm shadow-slate-200/40">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+          <div>
+            <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+              Lucros & Comissões
+            </div>
+            <h1 className="mt-0.5 text-2xl font-bold tracking-tight text-slate-900">
+              Comissões · Cedentes
+            </h1>
+            <p className="mt-1 max-w-2xl text-sm text-slate-500">
+              Filtre, confira e marque como paga ou cancelada.
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              className="inline-flex h-10 items-center rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-800 shadow-sm hover:bg-slate-50 disabled:opacity-50"
+              onClick={() => {
+                setStatus("PENDING");
+                setFrom("");
+                setTo("");
+                setQ("");
+                setTake(50);
+                setSkip(0);
+              }}
+              disabled={loading}
+            >
+              Limpar filtros
+            </button>
+            <button
+              type="button"
+              className="inline-flex h-10 items-center gap-2 rounded-xl bg-slate-900 px-4 text-sm font-semibold text-white shadow-sm hover:bg-slate-800 disabled:opacity-50"
+              onClick={() => void load()}
+              disabled={loading}
+            >
+              <RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} />
+              {loading ? "Atualizando..." : "Atualizar"}
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {err ? (
+        <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">{err}</div>
+      ) : null}
+
+      <div className="grid gap-3 sm:grid-cols-3">
+        <div className="rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm shadow-slate-200/40">
+          <div className="flex items-start gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-slate-500 to-slate-700 text-white">
+              <Users className="h-5 w-5" />
+            </div>
+            <div>
+              <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                No filtro
+              </div>
+              <div className="mt-1 text-xl font-bold tabular-nums text-slate-900">{data.total}</div>
+              <div className="text-xs text-slate-500">comissões no backend</div>
+            </div>
+          </div>
+        </div>
+        <div className="rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm shadow-slate-200/40">
+          <div className="flex items-start gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-amber-500 to-orange-600 text-white">
+              <Banknote className="h-5 w-5" />
+            </div>
+            <div>
+              <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                Soma desta lista
+              </div>
+              <div className="mt-1 text-xl font-bold tabular-nums text-slate-900">{fmtMoneyBR(pageSum)}</div>
+              <div className="text-xs text-slate-500">página / busca local</div>
+            </div>
+          </div>
+        </div>
+        <div className="rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm shadow-slate-200/40">
+          <div className="flex items-start gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-violet-500 to-indigo-600 text-white">
+              <Trophy className="h-5 w-5" />
+            </div>
+            <div>
+              <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                Nesta página
+              </div>
+              <div className="mt-1 text-xl font-bold tabular-nums text-slate-900">
+                {filteredItems.length}
+              </div>
+              <div className="text-xs text-slate-500">linhas visíveis</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="space-y-3 rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm shadow-slate-200/40">
+        <div className="flex flex-wrap gap-1.5">
+          {(
+            [
+              { id: "PENDING" as Status, label: "Pendentes" },
+              { id: "PAID" as Status, label: "Pagas" },
+              { id: "CANCELED" as Status, label: "Canceladas" },
+              { id: "" as Status, label: "Todas" },
+            ]
+          ).map((opt) => (
+            <button
+              key={opt.id || "all"}
+              type="button"
+              onClick={() => {
+                setStatus(opt.id);
                 resetPaging();
               }}
+              className={cn(
+                "h-9 rounded-full px-3 text-xs font-semibold transition",
+                status === opt.id
+                  ? "bg-slate-900 text-white"
+                  : "border border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+              )}
             >
-              <option value="PENDING">Pendente</option>
-              <option value="PAID">Paga</option>
-              <option value="CANCELED">Cancelada</option>
-              <option value="">Todos</option>
-            </select>
-          </div>
+              {opt.label}
+            </button>
+          ))}
+        </div>
 
-          <div className="md:col-span-3">
-            <label className="text-xs font-medium text-neutral-600">De</label>
+        <div className="grid gap-3 md:grid-cols-12 md:items-end">
+          <div className="md:col-span-5">
+            <label className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+              Buscar
+            </label>
+            <div className="relative mt-1">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+              <input
+                className={cn(INPUT, "pl-9")}
+                placeholder="Nome, CPF, ID ou nº da compra"
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+              />
+            </div>
+          </div>
+          <div className="md:col-span-2">
+            <label className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">De</label>
             <input
               type="date"
-              className="mt-1 w-full rounded-xl border px-3 py-2 text-sm"
+              className={cn(INPUT, "mt-1")}
               value={from}
               onChange={(e) => {
                 setFrom(e.target.value);
@@ -270,12 +392,11 @@ export default function CedenteCommissionsClient() {
               }}
             />
           </div>
-
-          <div className="md:col-span-3">
-            <label className="text-xs font-medium text-neutral-600">Até</label>
+          <div className="md:col-span-2">
+            <label className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Até</label>
             <input
               type="date"
-              className="mt-1 w-full rounded-xl border px-3 py-2 text-sm"
+              className={cn(INPUT, "mt-1")}
               value={to}
               onChange={(e) => {
                 setTo(e.target.value);
@@ -283,21 +404,12 @@ export default function CedenteCommissionsClient() {
               }}
             />
           </div>
-
           <div className="md:col-span-3">
-            <label className="text-xs font-medium text-neutral-600">Buscar (local)</label>
-            <input
-              className="mt-1 w-full rounded-xl border px-3 py-2 text-sm"
-              placeholder="Nome, CPF, ID, Nº compra..."
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-            />
-          </div>
-
-          <div className="md:col-span-2">
-            <label className="text-xs font-medium text-neutral-600">Por página</label>
+            <label className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+              Por página
+            </label>
             <select
-              className="mt-1 w-full rounded-xl border px-3 py-2 text-sm"
+              className={cn(INPUT, "mt-1")}
               value={take}
               onChange={(e) => {
                 setTake(Number(e.target.value));
@@ -310,139 +422,92 @@ export default function CedenteCommissionsClient() {
               <option value={200}>200</option>
             </select>
           </div>
-
-          <div className="md:col-span-10 flex gap-2">
-            <button
-              className="rounded-xl border bg-white px-3 py-2 text-sm hover:bg-neutral-50"
-              onClick={() => {
-                setStatus("PENDING");
-                setFrom("");
-                setTo("");
-                setQ("");
-                setTake(50);
-                setSkip(0);
-              }}
-              disabled={loading}
-            >
-              Limpar
-            </button>
-
-            <button
-              className="rounded-xl bg-black px-3 py-2 text-sm text-white hover:opacity-90"
-              onClick={() => load()}
-              disabled={loading}
-            >
-              {loading ? "Atualizando..." : "Atualizar"}
-            </button>
-          </div>
         </div>
-
-        <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-sm">
-          <div className="text-neutral-600">
-            Total no filtro (backend): <span className="font-medium text-neutral-900">{data.total}</span>
-          </div>
-          <div className="text-neutral-600">
-            Soma desta lista (página/filtrada): <span className="font-medium text-neutral-900">{fmtMoneyBR(pageSum)}</span>
-          </div>
-        </div>
-
-        {err ? (
-          <div className="mt-3 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-            {err}
-          </div>
-        ) : null}
       </div>
 
-      {/* Tabela */}
-      <div className="overflow-hidden rounded-2xl border bg-white shadow-sm">
+      <div className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm shadow-slate-200/40">
         <div className="overflow-x-auto">
-          <table className="min-w-[1050px] w-full text-sm">
-            <thead className="bg-neutral-50 text-neutral-600">
-              <tr className="text-left">
-                <th className="px-4 py-3">Status</th>
-                <th className="px-4 py-3">Cedente</th>
-                <th className="px-4 py-3">Compra</th>
-                <th className="px-4 py-3">Valor</th>
-                <th className="px-4 py-3">Gerada em</th>
-                <th className="px-4 py-3">Paga em</th>
-                <th className="px-4 py-3">Obs.</th>
-                <th className="px-4 py-3 text-right">Ações</th>
+          <table className="min-w-[1080px] w-full text-sm">
+            <thead className="bg-slate-50/90">
+              <tr>
+                <th className={TH}>Status</th>
+                <th className={TH}>Cedente</th>
+                <th className={TH}>Compra</th>
+                <th className={TH}>Valor</th>
+                <th className={TH}>Gerada em</th>
+                <th className={TH}>Paga em</th>
+                <th className={TH}>Obs.</th>
+                <th className={cn(TH, "text-right")}>Ações</th>
               </tr>
             </thead>
-            <tbody className="divide-y">
+            <tbody className="divide-y divide-slate-100">
               {loading && data.items.length === 0 ? (
                 <tr>
-                  <td className="px-4 py-6 text-neutral-500" colSpan={8}>
-                    Carregando...
+                  <td className="px-4 py-12 text-center text-slate-500" colSpan={8}>
+                    Carregando comissões…
                   </td>
                 </tr>
               ) : null}
 
               {!loading && filteredItems.length === 0 ? (
                 <tr>
-                  <td className="px-4 py-6 text-neutral-500" colSpan={8}>
+                  <td className="px-4 py-12 text-center text-slate-500" colSpan={8}>
                     Nenhuma comissão encontrada.
                   </td>
                 </tr>
               ) : null}
 
               {filteredItems.map((it) => (
-                <tr key={it.id} className="hover:bg-neutral-50">
-                  <td className="px-4 py-3">{statusBadge(it.status)}</td>
-
-                  <td className="px-4 py-3">
-                    <div className="font-medium text-neutral-900">
-                      {it.cedente?.nomeCompleto || "—"}
-                    </div>
-                    <div className="text-xs text-neutral-500">
-                      {it.cedente?.identificador ? `ID: ${it.cedente.identificador} · ` : ""}
-                      {it.cedente?.cpf ? `CPF: ${it.cedente.cpf}` : ""}
+                <tr key={it.id} className="align-top hover:bg-slate-50/70">
+                  <td className="px-4 py-3.5">{statusBadge(it.status)}</td>
+                  <td className="px-4 py-3.5">
+                    <div className="font-semibold text-slate-900">{it.cedente?.nomeCompleto || "—"}</div>
+                    <div className="mt-0.5 text-xs text-slate-500">
+                      {it.cedente?.identificador ? `${it.cedente.identificador} · ` : ""}
+                      {it.cedente?.cpf || ""}
                     </div>
                   </td>
-
-                  <td className="px-4 py-3">
-                    <div className="font-medium text-neutral-900">
-                      {it.purchase?.numero || "—"}
-                    </div>
-                    <div className="text-xs text-neutral-500">
-                      {it.purchase?.status ? `Status: ${it.purchase.status}` : ""}
-                    </div>
+                  <td className="px-4 py-3.5">
+                    <div className="font-medium text-slate-900">{it.purchase?.numero || "—"}</div>
+                    {it.purchase?.status ? (
+                      <div className="text-xs text-slate-400">{it.purchase.status}</div>
+                    ) : null}
                   </td>
-
-                  <td className="px-4 py-3 font-medium text-neutral-900">
+                  <td className="px-4 py-3.5 font-semibold tabular-nums text-slate-900">
                     {fmtMoneyBR(it.amountCents)}
                   </td>
-
-                  <td className="px-4 py-3 text-neutral-700">
+                  <td className="px-4 py-3.5 tabular-nums text-slate-600">
                     {fmtDateTimeBR(it.generatedAt)}
                   </td>
-
-                  <td className="px-4 py-3 text-neutral-700">
-                    {fmtDateTimeBR(it.paidAt)}
-                  </td>
-
-                  <td className="px-4 py-3">
-                    <div className="max-w-[280px] truncate text-neutral-700" title={it.note || ""}>
+                  <td className="px-4 py-3.5 tabular-nums text-slate-600">{fmtDateTimeBR(it.paidAt)}</td>
+                  <td className="px-4 py-3.5">
+                    <div className="max-w-[240px] truncate text-slate-600" title={it.note || ""}>
                       {it.note || "—"}
                     </div>
                   </td>
-
-                  <td className="px-4 py-3 text-right">
-                    <div className="flex items-center justify-end gap-2">
+                  <td className="px-4 py-3.5 text-right">
+                    <div className="flex items-center justify-end gap-1.5">
                       <button
-                        className="rounded-xl border px-3 py-1.5 text-sm hover:bg-neutral-50 disabled:opacity-40"
-                        onClick={() => payCommission(it.id)}
+                        type="button"
+                        className="h-8 rounded-xl bg-emerald-600 px-3 text-xs font-semibold text-white hover:bg-emerald-700 disabled:opacity-40"
+                        onClick={() => void payCommission(it.id)}
                         disabled={loading || it.status !== "PENDING"}
-                        title={it.status !== "PENDING" ? "Somente PENDING pode ser paga" : "Marcar como PAGA"}
+                        title={
+                          it.status !== "PENDING" ? "Somente pendente pode ser paga" : "Marcar como paga"
+                        }
                       >
                         Pagar
                       </button>
-
                       <button
-                        className="rounded-xl border px-3 py-1.5 text-sm hover:bg-neutral-50 disabled:opacity-40"
-                        onClick={() => cancelCommission(it.id)}
+                        type="button"
+                        className="h-8 rounded-xl border border-rose-200 bg-rose-50 px-3 text-xs font-semibold text-rose-800 hover:bg-rose-100 disabled:opacity-40"
+                        onClick={() => void cancelCommission(it.id)}
                         disabled={loading || it.status !== "PENDING"}
-                        title={it.status !== "PENDING" ? "Somente PENDING pode ser cancelada" : "Cancelar"}
+                        title={
+                          it.status !== "PENDING"
+                            ? "Somente pendente pode ser cancelada"
+                            : "Cancelar"
+                        }
                       >
                         Cancelar
                       </button>
@@ -454,23 +519,23 @@ export default function CedenteCommissionsClient() {
           </table>
         </div>
 
-        {/* Paginação */}
-        <div className="flex items-center justify-between gap-3 border-t bg-white px-4 py-3 text-sm">
-          <div className="text-neutral-600">
-            Página <span className="font-medium text-neutral-900">{currentPage}</span> de{" "}
-            <span className="font-medium text-neutral-900">{totalPages}</span>
+        <div className="flex items-center justify-between gap-3 border-t border-slate-100 px-4 py-3 text-sm">
+          <div className="text-slate-500">
+            Página <span className="font-semibold text-slate-900">{currentPage}</span> de{" "}
+            <span className="font-semibold text-slate-900">{totalPages}</span>
           </div>
-
           <div className="flex items-center gap-2">
             <button
-              className="rounded-xl border px-3 py-1.5 hover:bg-neutral-50 disabled:opacity-40"
+              type="button"
+              className="h-9 rounded-xl border border-slate-200 px-3 text-sm font-medium hover:bg-slate-50 disabled:opacity-40"
               disabled={loading || skip <= 0}
               onClick={() => setSkip(Math.max(0, skip - take))}
             >
               Anterior
             </button>
             <button
-              className="rounded-xl border px-3 py-1.5 hover:bg-neutral-50 disabled:opacity-40"
+              type="button"
+              className="h-9 rounded-xl border border-slate-200 px-3 text-sm font-medium hover:bg-slate-50 disabled:opacity-40"
               disabled={loading || skip + take >= (data.total || 0)}
               onClick={() => setSkip(skip + take)}
             >
@@ -480,29 +545,24 @@ export default function CedenteCommissionsClient() {
         </div>
       </div>
 
-      <div className="rounded-2xl border bg-white p-4 shadow-sm">
+      <div className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm shadow-slate-200/40">
         <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
           <div>
-            <h2 className="text-lg font-semibold text-neutral-900">
-              Quem mais recebeu dinheiro
-            </h2>
-            <p className="text-sm text-neutral-500">
-              Lista de comissoes pagas por cedente no periodo selecionado.
-            </p>
+            <h2 className="text-lg font-semibold text-slate-900">Quem mais recebeu dinheiro</h2>
+            <p className="text-sm text-slate-500">Comissões pagas por cedente no período.</p>
           </div>
-
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap gap-1.5">
             {[30, 60, 90, 180, 365].map((days) => (
               <button
                 key={days}
                 type="button"
                 onClick={() => setTopWindowDays(days)}
-                className={[
-                  "rounded-full border px-3 py-1.5 text-sm transition",
+                className={cn(
+                  "h-9 rounded-full px-3 text-xs font-semibold transition",
                   topWindowDays === days
-                    ? "border-black bg-black text-white"
-                    : "border-neutral-300 bg-white text-neutral-700 hover:bg-neutral-50",
-                ].join(" ")}
+                    ? "bg-slate-900 text-white"
+                    : "border border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+                )}
               >
                 {days === 365 ? "1 ano" : `${days} dias`}
               </button>
@@ -512,36 +572,37 @@ export default function CedenteCommissionsClient() {
 
         <div className="mt-4 overflow-x-auto">
           <table className="min-w-full text-sm">
-            <thead className="border-b bg-neutral-50 text-neutral-600">
-              <tr className="text-left">
-                <th className="px-4 py-3">Cedente</th>
-                <th className="px-4 py-3">ID</th>
-                <th className="px-4 py-3">CPF</th>
-                <th className="px-4 py-3">Qtd. pagas</th>
-                <th className="px-4 py-3">Total recebido</th>
+            <thead className="bg-slate-50/90">
+              <tr>
+                <th className={TH}>#</th>
+                <th className={TH}>Cedente</th>
+                <th className={TH}>ID</th>
+                <th className={TH}>CPF</th>
+                <th className={TH}>Qtd. pagas</th>
+                <th className={TH}>Total recebido</th>
               </tr>
             </thead>
-            <tbody className="divide-y">
+            <tbody className="divide-y divide-slate-100">
               {topRecebedores.length === 0 ? (
                 <tr>
-                  <td className="px-4 py-6 text-neutral-500" colSpan={5}>
-                    Nenhuma comissao paga neste periodo.
+                  <td className="px-4 py-10 text-center text-slate-500" colSpan={6}>
+                    Nenhuma comissão paga neste período.
                   </td>
                 </tr>
               ) : (
-                topRecebedores.map((item) => (
-                  <tr key={item.cedenteId || `sem-cedente-${item.totalCents}`} className="hover:bg-neutral-50">
-                    <td className="px-4 py-3 font-medium text-neutral-900">
+                topRecebedores.map((item, idx) => (
+                  <tr
+                    key={item.cedenteId || `sem-cedente-${item.totalCents}`}
+                    className="hover:bg-slate-50/70"
+                  >
+                    <td className="px-4 py-3 text-xs font-semibold text-slate-400">{idx + 1}</td>
+                    <td className="px-4 py-3 font-semibold text-slate-900">
                       {item.cedente?.nomeCompleto || "—"}
                     </td>
-                    <td className="px-4 py-3 text-neutral-700">
-                      {item.cedente?.identificador || "—"}
-                    </td>
-                    <td className="px-4 py-3 text-neutral-700">
-                      {item.cedente?.cpf || "—"}
-                    </td>
-                    <td className="px-4 py-3 text-neutral-700">{item.count}</td>
-                    <td className="px-4 py-3 font-medium text-neutral-900">
+                    <td className="px-4 py-3 text-slate-600">{item.cedente?.identificador || "—"}</td>
+                    <td className="px-4 py-3 tabular-nums text-slate-600">{item.cedente?.cpf || "—"}</td>
+                    <td className="px-4 py-3 tabular-nums text-slate-600">{item.count}</td>
+                    <td className="px-4 py-3 font-semibold tabular-nums text-slate-900">
                       {fmtMoneyBR(item.totalCents)}
                     </td>
                   </tr>
