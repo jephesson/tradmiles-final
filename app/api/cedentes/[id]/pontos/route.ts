@@ -24,6 +24,43 @@ function safeInt(v: unknown, fb = 0) {
   return Number.isFinite(n) ? Math.trunc(n) : fb;
 }
 
+export async function GET(
+  req: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  const { id } = await params;
+
+  const session = await getSessionServer();
+  if (!session) return bad("Não autenticado", 401);
+
+  const program = String(req.nextUrl.searchParams.get("program") || "").toUpperCase();
+  const field = PROGRAM_FIELD[program];
+  if (!field) return bad("Programa inválido");
+
+  try {
+    const ced = await prisma.cedente.findFirst({
+      where: { id, owner: { team: session.team } },
+      select: {
+        id: true,
+        pontosLatam: true,
+        pontosSmiles: true,
+        pontosLivelo: true,
+        pontosEsfera: true,
+      },
+    });
+    if (!ced) return bad("Cedente não encontrado", 404);
+
+    return NextResponse.json({
+      ok: true,
+      id: ced.id,
+      program,
+      points: ced[field],
+    });
+  } catch {
+    return bad("Falha ao processar no banco.", 500);
+  }
+}
+
 export async function PATCH(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }

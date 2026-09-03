@@ -222,11 +222,19 @@ async function copyText(value: string) {
   }
 }
 
+function fmtPts(n: number) {
+  return (n || 0).toLocaleString("pt-BR");
+}
+
 type Props = {
   open: boolean;
   program: Program;
   cedenteId: string;
   cedenteNome: string;
+  /** Saldo cadastrado no momento da sugestão. */
+  accountPoints?: number;
+  /** Pontos desta emissão (ida + volta). */
+  salePoints?: number;
   creds: Creds;
   loadingCreds: boolean;
   credsError: string;
@@ -256,7 +264,9 @@ export default function BiometriaWizardModal({
   program,
   cedenteId,
   cedenteNome,
-  creds,
+  accountPoints = 0,
+  salePoints = 0,
+  creds;
   loadingCreds,
   credsError,
   whatsapp,
@@ -327,6 +337,7 @@ export default function BiometriaWizardModal({
     "regex"
   );
   const [latamAiParsing, setLatamAiParsing] = useState(false);
+  const [liveAccountPoints, setLiveAccountPoints] = useState<number | null>(null);
 
   const expectedPassengerCount = Math.max(
     0,
@@ -858,6 +869,38 @@ export default function BiometriaWizardModal({
     latamPaymentCards,
   ]);
 
+  useEffect(() => {
+    if (!open || !cedenteId) {
+      setLiveAccountPoints(null);
+      return;
+    }
+
+    let cancelled = false;
+
+    async function loadPoints() {
+      try {
+        const res = await fetch(
+          `/api/cedentes/${encodeURIComponent(cedenteId)}/pontos?program=${encodeURIComponent(
+            program
+          )}`,
+          { cache: "no-store" }
+        );
+        const j = await res.json().catch(() => null);
+        if (cancelled || !j?.ok || typeof j.points !== "number") return;
+        setLiveAccountPoints(Math.max(0, Math.trunc(j.points)));
+      } catch {
+        // mantém o saldo da sugestão
+      }
+    }
+
+    void loadPoints();
+    const t = window.setInterval(() => void loadPoints(), 8000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(t);
+    };
+  }, [open, cedenteId, program]);
+
   if (!open) return null;
 
   const stepsForProgram: Step[] =
@@ -866,6 +909,10 @@ export default function BiometriaWizardModal({
       : ["creds", "code"];
 
   const stepIndex = stepsForProgram.indexOf(step);
+  const ptsNaConta =
+    liveAccountPoints != null ? liveAccountPoints : Math.max(0, Math.trunc(accountPoints));
+  const ptsEmissao = Math.max(0, Math.trunc(salePoints));
+  const ptsSobra = ptsNaConta - ptsEmissao;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/45 p-4 backdrop-blur-[2px]">
@@ -900,6 +947,50 @@ export default function BiometriaWizardModal({
               )}
             />
           ))}
+        </div>
+
+        <div className="mt-3 grid grid-cols-3 gap-2">
+          <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+            <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+              Na conta
+            </div>
+            <div className="mt-0.5 text-sm font-bold tabular-nums text-slate-900">
+              {fmtPts(ptsNaConta)}
+            </div>
+          </div>
+          <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+            <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+              Esta emissão
+            </div>
+            <div className="mt-0.5 text-sm font-bold tabular-nums text-slate-900">
+              {fmtPts(ptsEmissao)}
+            </div>
+          </div>
+          <div
+            className={cn(
+              "rounded-xl border px-3 py-2",
+              ptsSobra < 0
+                ? "border-rose-200 bg-rose-50"
+                : "border-emerald-200 bg-emerald-50"
+            )}
+          >
+            <div
+              className={cn(
+                "text-[10px] font-semibold uppercase tracking-wide",
+                ptsSobra < 0 ? "text-rose-700" : "text-emerald-800"
+              )}
+            >
+              Vai sobrar
+            </div>
+            <div
+              className={cn(
+                "mt-0.5 text-sm font-bold tabular-nums",
+                ptsSobra < 0 ? "text-rose-800" : "text-emerald-900"
+              )}
+            >
+              {fmtPts(ptsSobra)}
+            </div>
+          </div>
         </div>
 
         {step === "creds" ? (
