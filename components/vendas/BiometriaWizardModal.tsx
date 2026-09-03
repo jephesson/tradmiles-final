@@ -266,7 +266,7 @@ export default function BiometriaWizardModal({
   cedenteNome,
   accountPoints = 0,
   salePoints = 0,
-  creds;
+  creds,
   loadingCreds,
   credsError,
   whatsapp,
