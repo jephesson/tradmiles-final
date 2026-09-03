@@ -8,16 +8,24 @@ import {
   Clock3,
   FileDown,
   Loader2,
+  MessageCircle,
   Search,
   XCircle,
 } from "lucide-react";
 import { cn } from "@/lib/cn";
+import { buildWhatsAppLink, normalizeBRPhoneToE164 } from "@/lib/whatsapp";
 
 type TurboStatus = "PENDING" | "TRANSFERRED" | "SKIPPED";
 type ClubStatus = "ACTIVE" | "PAUSED" | "CANCELED";
 
 type Row = {
-  cedente: { id: string; identificador: string; nomeCompleto: string; cpf: string };
+  cedente: {
+    id: string;
+    identificador: string;
+    nomeCompleto: string;
+    cpf: string;
+    telefone?: string | null;
+  };
 
   club: null | {
     id: string;
@@ -86,6 +94,12 @@ function dateBR(iso: string | null | undefined) {
   if (!iso) return "—";
   const d = new Date(iso);
   return d.toLocaleDateString("pt-BR");
+}
+
+function whatsappHref(telefone?: string | null) {
+  const e164 = normalizeBRPhoneToE164(telefone);
+  if (!e164) return null;
+  return buildWhatsAppLink(e164);
 }
 
 function monthLabel(key: string) {
@@ -392,6 +406,7 @@ function Section({
             {sortedRows.map((r) => {
               const status: TurboStatus = r.turbo?.status || "PENDING";
               const points = r.turbo?.points || 0;
+              const waHref = whatsappHref(r.cedente.telefone);
 
               return (
                 <tr
@@ -477,7 +492,26 @@ function Section({
                   </td>
 
                   <td className="px-3 py-3 pr-4">
-                    <div className="flex gap-1.5">
+                    <div className="flex items-center gap-1.5">
+                      {waHref ? (
+                        <a
+                          href={waHref}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+                          title="Abrir WhatsApp do cedente"
+                        >
+                          <MessageCircle size={16} aria-hidden />
+                          <span className="sr-only">WhatsApp</span>
+                        </a>
+                      ) : (
+                        <span
+                          className="inline-flex h-9 w-9 shrink-0 cursor-not-allowed items-center justify-center rounded-xl border border-slate-200 bg-slate-50 text-slate-300"
+                          title="Telefone não cadastrado"
+                        >
+                          <MessageCircle size={16} aria-hidden />
+                        </span>
+                      )}
                       <button
                         type="button"
                         className={cn(

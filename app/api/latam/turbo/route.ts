@@ -124,7 +124,13 @@ type TurboStatus = "PENDING" | "TRANSFERRED" | "SKIPPED";
 type ClubStatus = "ACTIVE" | "PAUSED" | "CANCELED";
 
 type Row = {
-  cedente: { id: string; identificador: string; nomeCompleto: string; cpf: string };
+  cedente: {
+    id: string;
+    identificador: string;
+    nomeCompleto: string;
+    cpf: string;
+    telefone: string | null;
+  };
 
   club: null | {
     id: string;
@@ -201,7 +207,7 @@ export async function GET(req: NextRequest) {
           }
         : {}),
     },
-    select: { id: true, identificador: true, nomeCompleto: true, cpf: true },
+    select: { id: true, identificador: true, nomeCompleto: true, cpf: true, telefone: true },
     orderBy: [{ nomeCompleto: "asc" }, { identificador: "asc" }],
   });
 
