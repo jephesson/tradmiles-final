@@ -549,7 +549,7 @@ export default function BiometriaWizardModal({
     initialInfants,
   ]);
 
-  const fetchOtp = useCallback(async () => {
+  const fetchOtp = useCallback(async (opts?: { force?: boolean }) => {
     if (!cedenteId) return;
     setOtpLoading(true);
     setOtpError(null);
@@ -559,6 +559,7 @@ export default function BiometriaWizardModal({
         program,
       });
       if (codeWatchAfter) params.set("after", codeWatchAfter);
+      if (opts?.force) params.set("force", "1");
 
       const res = await fetch(`/api/emails/verification-code?${params}`, {
         cache: "no-store",
@@ -618,6 +619,8 @@ export default function BiometriaWizardModal({
   useEffect(() => {
     if (!open || step !== "code" || manualMode || !codeWatchAfter) return;
     void fetchOtp();
+    const t = window.setInterval(() => void fetchOtp(), 60_000);
+    return () => window.clearInterval(t);
   }, [open, step, manualMode, codeWatchAfter, fetchOtp]);
 
   function resolveFeeCardPreset(): string | null {
@@ -1160,7 +1163,7 @@ export default function BiometriaWizardModal({
                   <div className="mt-3 flex flex-wrap gap-2">
                     <button
                       type="button"
-                      onClick={() => void fetchOtp()}
+                      onClick={() => void fetchOtp({ force: true })}
                       disabled={otpLoading}
                       className="inline-flex items-center gap-1.5 rounded-lg bg-slate-900 px-3 py-2 text-xs font-semibold text-white hover:bg-slate-800 disabled:opacity-60"
                     >
@@ -1230,7 +1233,7 @@ export default function BiometriaWizardModal({
                         type="button"
                         onClick={() => {
                           setManualMode(false);
-                          void fetchOtp();
+                          void fetchOtp({ force: true });
                         }}
                         className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[11px] font-medium hover:bg-slate-50"
                       >

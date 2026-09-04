@@ -956,7 +956,7 @@ model Settings {
  * =========================
  * GMAIL (caixa conectada via OAuth)
  * =========================
- * Guarda só o refresh token + mailbox. Os e-mails continuam no Gmail.
+ * Guarda o refresh token + mailbox. A cópia dos e-mails fica em GmailInboxMessage.
  */
 model GmailConnection {
   id  String @id @default(cuid())
@@ -974,6 +974,52 @@ model GmailConnection {
   updatedAt DateTime @updatedAt
 
   @@map("gmail_connections")
+}
+
+/**
+ * Cursor da sincronização da caixa (historyId do Gmail).
+ * Os e-mails em si ficam em GmailInboxMessage.
+ */
+model GmailInboxSync {
+  id           String    @id @default("default")
+  mailbox      String    @default("")
+  historyId    String?
+  lastSyncedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("gmail_inbox_sync")
+}
+
+/**
+ * Cópia local da caixa da empresa. O Gmail só é consultado para puxar o que
+ * chegou de novo; filtros (código, Pix, cedente) leem daqui.
+ */
+model GmailInboxMessage {
+  id           String   @id
+  threadId     String
+  mailbox      String
+  internalDate DateTime
+  fromName     String   @default("")
+  fromAddress  String   @default("")
+  recipients   String   @default("")
+  subject      String   @default("")
+  snippet      String   @default("")
+  bodyText     String   @default("")
+  bodyHtml     String   @default("")
+  unread       Boolean  @default(false)
+  program      String?
+  cedenteId    String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([internalDate])
+  @@index([cedenteId])
+  @@index([program, internalDate])
+  @@index([fromAddress])
+  @@map("gmail_inbox_messages")
 }
 
 /**

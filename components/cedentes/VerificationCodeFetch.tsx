@@ -8,7 +8,8 @@ import { OtpCountdown } from "@/components/cedentes/OtpCountdown";
 
 type Program = "LATAM" | "SMILES";
 
-const POLL_MS = 8_000;
+const POLL_MS = 60_000;
+const QUOTA_POLL_MS = 60_000;
 
 function programLabel(p: Program) {
   if (p === "LATAM") return "LATAM";
@@ -53,11 +54,12 @@ export function VerificationCodeFetch({
   const [subject, setSubject] = useState<string | null>(null);
   const [date, setDate] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [quotaHold, setQuotaHold] = useState(false);
   const [synced, setSynced] = useState(true);
   const [reason, setReason] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
-  const fetchCode = useCallback(async () => {
+  const fetchCode = useCallback(async (opts?: { force?: boolean }) => {
     if (!cedenteId || !hasEmail) return;
     setLoading(true);
     setError(null);
@@ -68,13 +70,16 @@ export function VerificationCodeFetch({
         program,
         after: new Date(Date.now() - OTP_LOOKBACK_MS).toISOString(),
       });
+      if (opts?.force) params.set("force", "1");
       const res = await fetch(`/api/emails/verification-code?${params}`, {
         cache: "no-store",
       });
       const json = await res.json();
       if (!res.ok || !json?.ok) {
+        if (res.status === 429 || json?.quota) setQuotaHold(true);
         throw new Error(json?.error || "Falha ao buscar código.");
       }
+      setQuotaHold(false);
 
       setSynced(Boolean(json.synced));
       setReason(json.reason || null);
@@ -105,9 +110,12 @@ export function VerificationCodeFetch({
   useEffect(() => {
     if (!hasEmail) return;
     void fetchCode();
-    const id = window.setInterval(() => void fetchCode(), POLL_MS);
+    const id = window.setInterval(
+      () => void fetchCode(),
+      quotaHold ? QUOTA_POLL_MS : POLL_MS
+    );
     return () => window.clearInterval(id);
-  }, [fetchCode, hasEmail]);
+  }, [fetchCode, hasEmail, quotaHold]);
 
   async function onCopy() {
     if (!code) return;
@@ -133,14 +141,14 @@ export function VerificationCodeFetch({
             Código de verificação
           </div>
           <p className="mt-1 text-xs text-slate-600">
-            Busca na caixa da empresa ({programLabel(program)}), inclusive
-            ENC/Fwd do Outlook — últimos {lookbackMin} min. Contador de 5 min
-            desde a chegada.
+            Olha a caixa da empresa no máximo 1 vez por minuto ({programLabel(program)}),
+            inclusive ENC/Fwd — últimos {lookbackMin} min. Contador de 5 min desde a
+            chegada.
           </p>
         </div>
         <button
           type="button"
-          onClick={() => void fetchCode()}
+          onClick={() => void fetchCode({ force: true })}
           disabled={loading || !hasEmail}
           className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
           title="Atualizar"

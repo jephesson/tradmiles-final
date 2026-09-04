@@ -31,7 +31,6 @@ import {
   loadSavedEmailFilters,
   pullAlertDismissalsFromServer,
   pullAlertPrefsFromServer,
-  type EmailSavedFilter,
 } from "@/lib/email-filters-storage";
 import { resolveOtpFilterGmailQuery } from "@/lib/gmail/otp";
 
@@ -109,6 +108,7 @@ export default function EmailAlertasNav() {
     null
   );
   const [pixMessageId, setPixMessageId] = useState<string | null>(null);
+  const lastRefreshAt = useRef(0);
   const btnRef = useRef<HTMLButtonElement | null>(null);
   const panelRef = useRef<HTMLDivElement | null>(null);
 
@@ -127,7 +127,12 @@ export default function EmailAlertasNav() {
   const hasAlerts = count > 0;
   const listRows = tab === "active" ? visibleRows : historyRows;
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (opts?: { force?: boolean }) => {
+    const now = Date.now();
+    if (!opts?.force && lastRefreshAt.current && now - lastRefreshAt.current < 60_000) {
+      return;
+    }
+    lastRefreshAt.current = now;
     const filters = loadSavedEmailFilters();
     const alertIds = new Set(loadAlertEmailFilterIds());
     const alertFilters = filters.filter((f) => alertIds.has(f.id) && f.query.trim());
@@ -177,47 +182,53 @@ export default function EmailAlertasNav() {
 
     setLoading(true);
     try {
-      const [emailSettled, pixRes] = await Promise.all([
-        Promise.all(
-          alertFilters.map(async (filter: EmailSavedFilter) => {
-            const otpQ = resolveOtpFilterGmailQuery(filter);
-            const params = new URLSearchParams({
-              program: filter.program === "ALL" ? "ALL" : filter.program,
-              searchIn: otpQ ? "subject" : filter.searchIn,
-              q: otpQ || filter.query,
-              days: "3",
-              limit: "12",
-              scope: "all",
-            });
-            const res = await fetch(`/api/emails?${params}`, { cache: "no-store" });
-            const json = await res.json().catch(() => null);
-            if (!res.ok || !json?.ok || !Array.isArray(json.rows)) return [] as AlertRow[];
-            return (
-              json.rows as Array<{
-                id: string;
-                subject: string;
-                snippet: string;
-                date: string | null;
-                program: string | null;
-                cedente: CedenteRef | null;
-              }>
-            ).map((row) => ({
-              id: row.id,
-              subject: row.subject,
-              snippet: row.snippet,
-              date: row.date,
-              program: row.program,
-              cedente: row.cedente,
-              filterId: filter.id,
-              filterName: filter.name,
-              kind: "email" as const,
-            }));
-          })
-        ),
-        fetch("/api/emails/pix-alerts?days=3&limit=15", { cache: "no-store" })
-          .then((r) => r.json())
-          .catch(() => null),
-      ]);
+      const pixPromise = fetch("/api/emails/pix-alerts?days=3&limit=15", {
+        cache: "no-store",
+      })
+        .then((r) => r.json())
+        .catch(() => null);
+
+      const emailSettled: AlertRow[][] = [];
+      for (const filter of alertFilters) {
+        const otpQ = resolveOtpFilterGmailQuery(filter);
+        const params = new URLSearchParams({
+          program: filter.program === "ALL" ? "ALL" : filter.program,
+          searchIn: otpQ ? "subject" : filter.searchIn,
+          q: otpQ || filter.query,
+          days: "3",
+          limit: "12",
+          scope: "all",
+        });
+        const res = await fetch(`/api/emails?${params}`, { cache: "no-store" });
+        const json = await res.json().catch(() => null);
+        if (!res.ok || !json?.ok || !Array.isArray(json.rows)) {
+          emailSettled.push([]);
+          continue;
+        }
+        emailSettled.push(
+          (
+            json.rows as Array<{
+              id: string;
+              subject: string;
+              snippet: string;
+              date: string | null;
+              program: string | null;
+              cedente: CedenteRef | null;
+            }>
+          ).map((row) => ({
+            id: row.id,
+            subject: row.subject,
+            snippet: row.snippet,
+            date: row.date,
+            program: row.program,
+            cedente: row.cedente,
+            filterId: filter.id,
+            filterName: filter.name,
+            kind: "email" as const,
+          }))
+        );
+      }
+      const pixRes = await pixPromise;
 
       const byId = new Map<string, AlertRow>();
       for (const list of emailSettled) {

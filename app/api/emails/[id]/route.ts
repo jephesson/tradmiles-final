@@ -74,6 +74,59 @@ export async function GET(
   if (!cfg.ready) return bad("Integração de e-mail não configurada.", 503);
 
   try {
+    const stored = await prisma.gmailInboxMessage.findUnique({
+      where: { id: messageId },
+    });
+
+    if (stored) {
+      const cedentes = await loadCedentes();
+      const cedente =
+        (stored.cedenteId && cedentes.find((c) => c.id === stored.cedenteId)) || null;
+      const hay = `${stored.subject}\n${stored.bodyText}`;
+      const verificationCode = pickBestVerificationCode(hay);
+      const bodyHtml = stored.bodyHtml
+        ? stored.bodyHtml
+        : textToHtml(stored.bodyText);
+
+      if (cedente?.id) {
+        void markEmailRedirecionado(cedente.id, {
+          byUserId: null,
+          onlyIfPending: true,
+        }).catch(() => null);
+      }
+
+      return NextResponse.json({
+        ok: true,
+        message: {
+          id: stored.id,
+          threadId: stored.threadId,
+          program:
+            stored.program ||
+            programFromHints(
+              stored.fromAddress,
+              stored.fromName,
+              `${stored.subject} ${stored.bodyText}`
+            ),
+          fromName: stored.fromName,
+          fromAddress: stored.fromAddress,
+          to: stored.recipients,
+          subject: stored.subject,
+          date: stored.internalDate.toISOString(),
+          text: stored.bodyText,
+          document: wrapEmailDocument(bodyHtml),
+          verificationCode,
+          cedente: cedente
+            ? {
+                id: cedente.id,
+                identificador: cedente.identificador,
+                nomeCompleto: cedente.nomeCompleto,
+                email: cedente.email,
+              }
+            : null,
+        },
+      });
+    }
+
     const message = await getMessageFull(messageId);
     const { html, text } = extractBody(message.payload);
 

@@ -2,32 +2,14 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/require-session";
 import {
-  METADATA_HEADERS,
-  buildSenderQuery,
-} from "@/lib/gmail/config";
-import {
   GmailApiError,
   GmailNotConfiguredError,
-  getMessageFull,
-  getMessageMetadata,
-  listMessages,
-  mapWithConcurrency,
   resolveGmailConfig,
 } from "@/lib/gmail/client";
-import {
-  extractBody,
-  headerValue,
-  matchCedenteByBody,
-  matchCedenteByHeaders,
-  matchCedenteByNomeInText,
-  messageDate,
-} from "@/lib/gmail/parse";
-import {
-  pickBestVerificationCode,
-  verificationForwardSubjectQuery,
-  verificationSubjectQuery,
-} from "@/lib/gmail/otp";
+import { matchCedenteByNomeInText } from "@/lib/gmail/parse";
+import { pickBestVerificationCode } from "@/lib/gmail/otp";
 import { markEmailRedirecionado } from "@/lib/cedentes/emailRedirecionado";
+import { ensureGmailInboxSyncedSafe } from "@/lib/gmail/sync";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -56,6 +38,7 @@ export async function GET(req: Request) {
   const cedenteId = (url.searchParams.get("cedenteId") || "").trim();
   const program = parseProgram(url.searchParams.get("program"));
   const afterIso = (url.searchParams.get("after") || "").trim();
+  const force = url.searchParams.get("force") === "1";
 
   if (!cedenteId) return bad("cedenteId obrigatório.");
   if (!program) return bad("program inválido. Use LATAM ou SMILES.");
@@ -102,123 +85,65 @@ export async function GET(req: Request) {
     });
   }
 
-  const subjectQ = verificationSubjectQuery(program);
-  const cedenteAddr = `(to:${email} OR deliveredto:${email} OR cc:${email} OR from:${email})`;
   const lite = {
     id: cedente.id,
     identificador: cedente.identificador,
     nomeCompleto: cedente.nomeCompleto,
     email,
   };
-  // Encaminhamento automático: From = cia, To/Delivered-To = e-mail do cedente.
-  const qFromProgram = [
-    buildSenderQuery([program]),
-    "newer_than:2d",
-    subjectQ,
-    cedenteAddr,
-  ]
-    .filter(Boolean)
-    .join(" ");
-  // Encaminhamento manual (Outlook/Gmail ENC/Fwd): From = cedente.
-  const qFromCedente = [
-    `from:${email}`,
-    "newer_than:2d",
-    verificationForwardSubjectQuery(program),
-  ]
-    .filter(Boolean)
-    .join(" ");
-  // Caixa da empresa: To vira vias — busca códigos recentes da cia e casa por
-  // header, corpo ou nome (LATAM: "Olá JOSÉ" / Smiles: nome no assunto).
-  const qInboxProgram = [
-    buildSenderQuery([program]),
-    "newer_than:1d",
-    subjectQ,
-  ]
-    .filter(Boolean)
-    .join(" ");
 
   try {
-    const [listProgram, listForward, listInbox] = await Promise.all([
-      listMessages({ q: qFromProgram, maxResults: 12 }),
-      listMessages({ q: qFromCedente, maxResults: 12 }),
-      listMessages({ q: qInboxProgram, maxResults: 20 }),
-    ]);
-    const idSet = new Set<string>();
-    for (const m of listProgram.messages || []) idSet.add(m.id);
-    for (const m of listForward.messages || []) idSet.add(m.id);
-    for (const m of listInbox.messages || []) idSet.add(m.id);
-    const ids = Array.from(idSet);
+    await ensureGmailInboxSyncedSafe({ force });
 
-    const metas = await mapWithConcurrency(ids, 6, (id) =>
-      getMessageMetadata(id, METADATA_HEADERS)
-    );
+    const retentionMs = 72 * 60 * 60 * 1000;
+    const sinceMs = afterFloor
+      ? Math.max(afterFloor, Date.now() - retentionMs)
+      : Date.now() - retentionMs;
+    const since = new Date(sinceMs);
 
-    const byEmail = new Map([[email, lite]]);
-
-    const dated = metas
-      .map((message) => {
-        const date = messageDate(message);
-        const subject = headerValue(message, "Subject") || "";
-        const byHeader = matchCedenteByHeaders(message, byEmail, cfg.mailbox);
-        const byName = matchCedenteByNomeInText(subject, [lite]);
-        return {
-          message,
-          date,
-          subject,
-          matched: Boolean(byHeader || byName),
-          needsBodyCheck: !byHeader && !byName,
-        };
-      })
-      .filter((row) => {
-        if (!row.date) return false;
-        if (afterFloor && row.date.getTime() < afterFloor) return false;
-        return true;
-      })
-      .sort((a, b) => (b.date?.getTime() || 0) - (a.date?.getTime() || 0));
-
-    // Por data (não priorizar só os já casados — o mais recente pode casar no corpo).
-    const top = dated.slice(0, 12);
-
-    const codes = await mapWithConcurrency(top, 3, async (row) => {
-      const full = await getMessageFull(row.message.id);
-      const { html, text } = extractBody(full.payload);
-      const body = `${text || ""}\n${html || ""}`;
-      const hay = `${row.subject}\n${body}`;
-      let matched = row.matched;
-      if (!matched) {
-        matched = Boolean(
-          matchCedenteByBody(body, byEmail, cfg.mailbox) ||
-            matchCedenteByNomeInText(hay, [lite])
-        );
-      }
-      if (!matched) {
-        return {
-          messageId: row.message.id,
-          subject: row.subject || "(sem assunto)",
-          date: row.date ? row.date.toISOString() : null,
-          code: null as string | null,
-        };
-      }
-      // Assunto LATAM às vezes traz o código: "…para fazer login é 123456"
-      const code = pickBestVerificationCode(hay);
-      return {
-        messageId: row.message.id,
-        subject: row.subject || "(sem assunto)",
-        date: row.date ? row.date.toISOString() : null,
-        code,
-      };
+    const rows = await prisma.gmailInboxMessage.findMany({
+      where: {
+        internalDate: { gte: since },
+        OR: [
+          { program },
+          { cedenteId },
+          { fromAddress: email },
+          { recipients: { contains: email, mode: "insensitive" } },
+          { subject: { contains: email, mode: "insensitive" } },
+          { bodyText: { contains: email, mode: "insensitive" } },
+        ],
+      },
+      orderBy: { internalDate: "desc" },
+      take: 40,
     });
 
-    const withCode = codes
+    const withCode = rows
+      .map((row) => {
+        const hay = `${row.subject}\n${row.snippet}\n${row.bodyText}`;
+        const matched =
+          row.cedenteId === cedenteId ||
+          `${row.recipients} ${row.fromAddress} ${hay}`.toLowerCase().includes(email) ||
+          Boolean(matchCedenteByNomeInText(hay, [lite]));
+        if (!matched) {
+          return {
+            messageId: row.id,
+            subject: row.subject || "(sem assunto)",
+            date: row.internalDate.toISOString(),
+            code: null as string | null,
+          };
+        }
+        return {
+          messageId: row.id,
+          subject: row.subject || "(sem assunto)",
+          date: row.internalDate.toISOString(),
+          code: pickBestVerificationCode(hay),
+        };
+      })
       .filter((c) => Boolean(c.code))
-      .sort((a, b) => {
-        const ta = a.date ? new Date(a.date).getTime() : 0;
-        const tb = b.date ? new Date(b.date).getTime() : 0;
-        return tb - ta;
-      });
+      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+
     const latest = withCode[0] || null;
 
-    // Se o código chegou na caixa da empresa, o redirecionamento já funciona.
     if (latest?.code) {
       await markEmailRedirecionado(cedenteId, {
         byUserId: null,
@@ -234,7 +159,7 @@ export async function GET(req: Request) {
       cedenteEmail: email,
       after: afterIso || null,
       afterFloor: afterFloor ? new Date(afterFloor).toISOString() : null,
-      query: `${qFromProgram} | ${qFromCedente} | ${qInboxProgram}`,
+      query: "neon-inbox",
       codes: withCode,
       latest,
     });
@@ -249,7 +174,12 @@ export async function GET(req: Request) {
         latest: null,
       });
     }
-    if (err instanceof GmailApiError) return bad(err.message, err.status);
+    if (err instanceof GmailApiError) {
+      return NextResponse.json(
+        { ok: false, error: err.message, quota: err.quota },
+        { status: err.status }
+      );
+    }
     return bad(err instanceof Error ? err.message : "Falha ao buscar o código.", 500);
   }
 }

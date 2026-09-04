@@ -4,6 +4,10 @@
     {
       "path": "/api/cron/clubes",
       "schedule": "5 9 * * *"
+    },
+    {
+      "path": "/api/cron/gmail-sync",
+      "schedule": "* * * * *"
     }
   ]
 }

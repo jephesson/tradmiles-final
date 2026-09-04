@@ -18,12 +18,24 @@ export class GmailNotConfiguredError extends Error {
 
 export class GmailApiError extends Error {
   status: number;
+  quota: boolean;
 
-  constructor(message: string, status: number) {
+  constructor(message: string, status: number, quota = false) {
     super(message);
     this.name = "GmailApiError";
     this.status = status;
+    this.quota = quota;
   }
+}
+
+export const GMAIL_QUOTA_USER_MESSAGE =
+  "A caixa da empresa atingiu o limite de consultas do Gmail neste minuto. Espere cerca de 1 minuto e clique em Atualizar.";
+
+function isQuotaMessage(detail: string, httpStatus: number) {
+  return (
+    httpStatus === 429 ||
+    /quota exceeded|rateLimitExceeded|userRateLimitExceeded/i.test(detail)
+  );
 }
 
 export type GmailConfig = {
@@ -130,6 +142,65 @@ export function clearAccessTokenCache() {
   cachedToken = null;
 }
 
+/** Uma caixa só: serializa e cacheia para o time inteiro não estourar o limite por minuto. */
+const MAX_GMAIL_INFLIGHT = 2;
+let gmailInflight = 0;
+const gmailWaiters: Array<() => void> = [];
+let quotaBlockedUntil = 0;
+
+type CacheEntry<T> = { expires: number; value: T };
+const listCache = new Map<string, CacheEntry<GmailListResponse>>();
+const msgCache = new Map<string, CacheEntry<GmailMessage>>();
+const inflightCalls = new Map<string, Promise<unknown>>();
+
+const LIST_TTL_MS = 60_000;
+const MSG_TTL_MS = 60_000;
+const QUOTA_COOLDOWN_MS = 60_000;
+
+function acquireGmailSlot(): Promise<void> {
+  if (gmailInflight < MAX_GMAIL_INFLIGHT) {
+    gmailInflight += 1;
+    return Promise.resolve();
+  }
+  return new Promise((resolve) => {
+    gmailWaiters.push(() => {
+      gmailInflight += 1;
+      resolve();
+    });
+  });
+}
+
+function releaseGmailSlot() {
+  gmailInflight = Math.max(0, gmailInflight - 1);
+  const next = gmailWaiters.shift();
+  if (next) next();
+}
+
+function cacheGet<T>(map: Map<string, CacheEntry<T>>, key: string, allowStale: boolean): T | undefined {
+  const hit = map.get(key);
+  if (!hit) return undefined;
+  if (hit.expires > Date.now() || allowStale) return hit.value;
+  return undefined;
+}
+
+function cacheSet<T>(map: Map<string, CacheEntry<T>>, key: string, value: T, ttl: number) {
+  map.set(key, { value, expires: Date.now() + ttl });
+  if (map.size > 400) {
+    const now = Date.now();
+    for (const [k, v] of map) {
+      if (v.expires < now) map.delete(k);
+    }
+  }
+}
+
+function coalesce<T>(key: string, fn: () => Promise<T>): Promise<T> {
+  const existing = inflightCalls.get(key);
+  if (existing) return existing as Promise<T>;
+  const p = fn().finally(() => inflightCalls.delete(key));
+  inflightCalls.set(key, p);
+  return p;
+}
+
 async function callGmail(path: string, params: Record<string, string | string[] | undefined>, token: string) {
   const url = new URL(`${API_BASE}${path}`);
 
@@ -155,24 +226,39 @@ export async function gmailFetch<T>(
   path: string,
   params: Record<string, string | string[] | undefined> = {}
 ): Promise<T> {
-  let token = await fetchAccessToken();
-  let res = await callGmail(path, params, token);
-
-  if (res.status === 401) {
-    clearAccessTokenCache();
-    token = await fetchAccessToken(true);
-    res = await callGmail(path, params, token);
+  if (Date.now() < quotaBlockedUntil) {
+    throw new GmailApiError(GMAIL_QUOTA_USER_MESSAGE, 429, true);
   }
 
-  if (!res.ok) {
-    const body = (await res.json().catch(() => null)) as
-      | { error?: { message?: string } }
-      | null;
-    const detail = body?.error?.message || `HTTP ${res.status}`;
-    throw new GmailApiError(`Gmail API: ${detail}`, res.status === 429 ? 429 : 502);
-  }
+  await acquireGmailSlot();
+  try {
+    let token = await fetchAccessToken();
+    let res = await callGmail(path, params, token);
 
-  return (await res.json()) as T;
+    if (res.status === 401) {
+      clearAccessTokenCache();
+      token = await fetchAccessToken(true);
+      res = await callGmail(path, params, token);
+    }
+
+    if (!res.ok) {
+      const body = (await res.json().catch(() => null)) as
+        | { error?: { message?: string } }
+        | null;
+      const detail = body?.error?.message || `HTTP ${res.status}`;
+      const quota = isQuotaMessage(detail, res.status);
+      if (quota) quotaBlockedUntil = Date.now() + QUOTA_COOLDOWN_MS;
+      throw new GmailApiError(
+        quota ? GMAIL_QUOTA_USER_MESSAGE : `Gmail API: ${detail}`,
+        quota ? 429 : res.status === 429 ? 429 : 502,
+        quota
+      );
+    }
+
+    return (await res.json()) as T;
+  } finally {
+    releaseGmailSlot();
+  }
 }
 
 export type GmailListResponse = {
@@ -205,29 +291,79 @@ export function listMessages(params: {
   maxResults: number;
   pageToken?: string;
 }) {
-  return gmailFetch<GmailListResponse>("/messages", {
-    q: params.q,
-    maxResults: String(params.maxResults),
-    pageToken: params.pageToken,
-    includeSpamTrash: "false",
+  const key = `list|${params.q}|${params.maxResults}|${params.pageToken || ""}`;
+  return coalesce(key, async () => {
+    const blocked = Date.now() < quotaBlockedUntil;
+    const cached = cacheGet(listCache, key, blocked);
+    if (cached) return cached;
+    const value = await gmailFetch<GmailListResponse>("/messages", {
+      q: params.q,
+      maxResults: String(params.maxResults),
+      pageToken: params.pageToken,
+      includeSpamTrash: "false",
+    });
+    cacheSet(listCache, key, value, LIST_TTL_MS);
+    return value;
   });
 }
 
 export function getMessageMetadata(id: string, headers: string[]) {
-  return gmailFetch<GmailMessage>(`/messages/${encodeURIComponent(id)}`, {
-    format: "metadata",
-    metadataHeaders: headers,
+  const key = `meta|${id}|${headers.join(",")}`;
+  return coalesce(key, async () => {
+    const blocked = Date.now() < quotaBlockedUntil;
+    const cached = cacheGet(msgCache, key, blocked);
+    if (cached) return cached;
+    const value = await gmailFetch<GmailMessage>(`/messages/${encodeURIComponent(id)}`, {
+      format: "metadata",
+      metadataHeaders: headers,
+    });
+    cacheSet(msgCache, key, value, MSG_TTL_MS);
+    return value;
   });
 }
 
 export function getMessageFull(id: string) {
-  return gmailFetch<GmailMessage>(`/messages/${encodeURIComponent(id)}`, {
-    format: "full",
+  const key = `full|${id}`;
+  return coalesce(key, async () => {
+    const blocked = Date.now() < quotaBlockedUntil;
+    const cached = cacheGet(msgCache, key, blocked);
+    if (cached) return cached;
+    const value = await gmailFetch<GmailMessage>(`/messages/${encodeURIComponent(id)}`, {
+      format: "full",
+    });
+    cacheSet(msgCache, key, value, MSG_TTL_MS);
+    return value;
   });
 }
 
 export function getGmailProfile() {
-  return gmailFetch<{ emailAddress?: string; messagesTotal?: number }>("/profile");
+  return gmailFetch<{
+    emailAddress?: string;
+    messagesTotal?: number;
+    historyId?: string;
+  }>("/profile");
+}
+
+export type GmailHistoryResponse = {
+  history?: Array<{
+    id?: string;
+    messagesAdded?: Array<{ message?: { id?: string; threadId?: string } }>;
+    messagesDeleted?: Array<{ message?: { id?: string } }>;
+  }>;
+  nextPageToken?: string;
+  historyId?: string;
+};
+
+export function listHistory(params: {
+  startHistoryId: string;
+  pageToken?: string;
+}) {
+  return gmailFetch<GmailHistoryResponse>("/history", {
+    startHistoryId: params.startHistoryId,
+    historyTypes: ["messageAdded", "messageDeleted"],
+    maxResults: "100",
+    pageToken: params.pageToken,
+  });
 }
 
 /**

@@ -3,29 +3,16 @@ import { requireSession } from "@/lib/require-session";
 import {
   GmailApiError,
   GmailNotConfiguredError,
-  getMessageFull,
-  getMessageMetadata,
-  listMessages,
-  mapWithConcurrency,
   resolveGmailConfig,
 } from "@/lib/gmail/client";
-import {
-  displayName,
-  extractBody,
-  firstAddress,
-  headerValue,
-  messageDate,
-} from "@/lib/gmail/parse";
-import { BANK_PIX_GMAIL_QUERY, isBankPixSender, parsePixEmailText } from "@/lib/pix/parsePixEmail";
+import { isBankPixSender, parsePixEmailText } from "@/lib/pix/parsePixEmail";
 import { analyzePixEmailContent, buildPixAlertRow, loadPaidSales } from "@/lib/pix/analyzePixEmail";
 import { classifyAndMatchPix } from "@/lib/pix/matchPixToPendingSales";
 import { prisma } from "@/lib/prisma";
-import { METADATA_HEADERS } from "@/lib/gmail/config";
+import { ensureGmailInboxSyncedSafe } from "@/lib/gmail/sync";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-
-const FETCH_CONCURRENCY = 6;
 
 function bad(error: string, status = 400) {
   return NextResponse.json({ ok: false, error }, { status });
@@ -48,11 +35,15 @@ export async function GET(req: Request) {
   const days = Math.min(Math.max(Number(url.searchParams.get("days") || 3), 1), 14);
   const limit = Math.min(Math.max(Number(url.searchParams.get("limit") || 15), 1), 30);
 
-  const query = `${BANK_PIX_GMAIL_QUERY} newer_than:${days}d`;
-
   try {
-    const listed = await listMessages({ q: query, maxResults: limit });
-    const ids = (listed.messages || []).map((m) => m.id).filter(Boolean) as string[];
+    await ensureGmailInboxSyncedSafe();
+
+    const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+    const stored = await prisma.gmailInboxMessage.findMany({
+      where: { internalDate: { gte: since } },
+      orderBy: { internalDate: "desc" },
+      take: 80,
+    });
 
     const [pendingSales, paidSales, employees, learnedAliases] = await Promise.all([
       prisma.sale.findMany({
@@ -94,24 +85,13 @@ export async function GET(req: Request) {
       program: String(r.program),
     }));
 
-    const metas = await mapWithConcurrency(ids, FETCH_CONCURRENCY, (id) =>
-      getMessageMetadata(id, METADATA_HEADERS)
-    );
-
-    const rows = metas
-      .filter(Boolean)
-      .map((message) => {
-        const from = headerValue(message!, "From");
-        const fromAddress = firstAddress(from);
-        const fromName = displayName(from);
-        const subject = headerValue(message!, "Subject") || "(sem assunto)";
-        const snippet = message!.snippet || "";
-        const date = messageDate(message!);
-
-        const parsed = parsePixEmailText(subject, snippet);
+    const rows = stored
+      .filter((row) =>
+        isBankPixSender(row.fromAddress, row.fromName, row.subject)
+      )
+      .map((row) => {
+        const parsed = parsePixEmailText(row.subject, `${row.snippet}\n${row.bodyText}`);
         if (!parsed) return null;
-
-        if (!isBankPixSender(fromAddress, fromName, subject)) return null;
 
         const match = classifyAndMatchPix({
           parsed,
@@ -122,10 +102,10 @@ export async function GET(req: Request) {
         });
 
         return buildPixAlertRow({
-          id: message!.id,
-          subject,
-          snippet,
-          date: date ? date.toISOString() : null,
+          id: row.id,
+          subject: row.subject,
+          snippet: row.snippet,
+          date: row.internalDate.toISOString(),
           parsed,
           match,
         });
@@ -135,14 +115,20 @@ export async function GET(req: Request) {
         const ta = a!.date ? new Date(a!.date).getTime() : 0;
         const tb = b!.date ? new Date(b!.date).getTime() : 0;
         return tb - ta;
-      });
+      })
+      .slice(0, limit);
 
     return NextResponse.json({ ok: true, configured: true, rows });
   } catch (err) {
     if (err instanceof GmailNotConfiguredError) {
       return NextResponse.json({ ok: true, configured: false, rows: [] });
     }
-    if (err instanceof GmailApiError) return bad(err.message, err.status);
+    if (err instanceof GmailApiError) {
+      return NextResponse.json(
+        { ok: false, error: err.message, quota: err.quota },
+        { status: err.status }
+      );
+    }
     return bad(err instanceof Error ? err.message : "Falha ao listar Pix.", 500);
   }
 }
@@ -163,35 +149,42 @@ export async function POST(req: Request) {
   if (!cfg.ready) return bad("Gmail não configurado.", 503);
 
   try {
-    const message = await getMessageFull(messageId);
-    const { html, text } = extractBody(message.payload);
-    const subject = headerValue(message, "Subject") || "";
-    const fullText = text || html.replace(/<[^>]+>/g, " ");
-
-    const result = await analyzePixEmailContent({
-      team: session.team,
-      subject,
-      body: fullText,
-      useAi: true,
+    const stored = await prisma.gmailInboxMessage.findUnique({
+      where: { id: messageId },
     });
+    if (stored) {
+      const result = await analyzePixEmailContent({
+        team: session.team,
+        subject: stored.subject,
+        body: stored.bodyText || stored.snippet,
+        useAi: true,
+      });
 
-    if (!result.parsed) {
-      return bad("Este e-mail não é um Pix recebido elegível para alerta.", 404);
+      if (!result.parsed) {
+        return bad("Este e-mail não é um Pix recebido elegível para alerta.", 404);
+      }
+
+      return NextResponse.json({
+        ok: true,
+        ...buildPixAlertRow({
+          id: stored.id,
+          subject: stored.subject,
+          snippet: stored.snippet,
+          date: stored.internalDate.toISOString(),
+          parsed: result.parsed,
+          match: result.match,
+        }),
+      });
     }
 
-    return NextResponse.json({
-      ok: true,
-      ...buildPixAlertRow({
-        id: message.id,
-        subject,
-        snippet: message.snippet || "",
-        date: messageDate(message)?.toISOString() || null,
-        parsed: result.parsed,
-        match: result.match,
-      }),
-    });
+    return bad("E-mail não encontrado na caixa local.", 404);
   } catch (err) {
-    if (err instanceof GmailApiError) return bad(err.message, err.status);
+    if (err instanceof GmailApiError) {
+      return NextResponse.json(
+        { ok: false, error: err.message, quota: err.quota },
+        { status: err.status }
+      );
+    }
     return bad(err instanceof Error ? err.message : "Falha ao analisar Pix.", 500);
   }
 }
