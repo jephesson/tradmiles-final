@@ -258,9 +258,14 @@ export default function CompraVendaClient() {
     [form.boardingFee]
   );
 
-  const previewSupplierPayCents = useMemo(
+  const previewMilesCostCents = useMemo(
     () => Math.round((pointsValue * buyRateCents) / 1000),
     [pointsValue, buyRateCents]
+  );
+
+  const previewSupplierPayCents = useMemo(
+    () => previewMilesCostCents + boardingFeeCents,
+    [previewMilesCostCents, boardingFeeCents]
   );
 
   const previewCustomerChargeCents = useMemo(
@@ -269,8 +274,8 @@ export default function CompraVendaClient() {
   );
 
   const previewProfitCents = useMemo(
-    () => previewCustomerChargeCents - previewSupplierPayCents - boardingFeeCents,
-    [previewCustomerChargeCents, previewSupplierPayCents, boardingFeeCents]
+    () => previewCustomerChargeCents - previewSupplierPayCents,
+    [previewCustomerChargeCents, previewSupplierPayCents]
   );
   const previewTaxPercent = useMemo(
     () => resolveTaxPercentForDate(todayISORecife(), taxRule),
@@ -853,7 +858,7 @@ export default function CompraVendaClient() {
 
         <div className="grid grid-cols-1 gap-3 md:grid-cols-6">
           <div className="rounded border border-zinc-200 bg-zinc-50 p-3">
-            <div className="text-xs text-zinc-500">Valor a pagar ao fornecedor</div>
+            <div className="text-xs text-zinc-500">Valor a pagar ao fornecedor (milhas + taxa)</div>
             <div className="font-semibold">{formatMoney(previewSupplierPayCents)}</div>
           </div>
           <div className="rounded border border-zinc-200 bg-zinc-50 p-3">

@@ -4,6 +4,7 @@ import { NextResponse } from "next/server";
 import {
   buildTaxRule,
   buildBalcaoComputedValues,
+  balcaoPagarFornecedorCents,
   recifeDateISO,
 } from "@/lib/balcao-commission";
 import { requireSession } from "@/lib/auth-server";
@@ -687,7 +688,10 @@ export async function GET() {
       addToPeriods(dayKey, (agg) => {
         agg.balcaoOps += 1;
         agg.balcaoPoints += Math.max(0, safeInt(op.points, 0));
-        agg.balcaoSupplierPayCents += Math.max(0, safeInt(op.supplierPayCents, 0));
+        agg.balcaoSupplierPayCents += balcaoPagarFornecedorCents(
+          op.supplierPayCents,
+          op.boardingFeeCents
+        );
         agg.balcaoCustomerChargeCents += Math.max(0, safeInt(op.customerChargeCents, 0));
         agg.balcaoBoardingFeeCents += Math.max(0, safeInt(op.boardingFeeCents, 0));
         agg.balcaoProfitCents += computed.profitCents;
@@ -1480,7 +1484,9 @@ export async function GET() {
           pontos: safeInt(op.points, 0),
           taxaCompra: cents(safeInt(op.buyRateCents, 0)),
           taxaVenda: cents(safeInt(op.sellRateCents, 0)),
-          pagoFornecedor: cents(safeInt(op.supplierPayCents, 0)),
+          pagoFornecedor: cents(
+            balcaoPagarFornecedorCents(op.supplierPayCents, op.boardingFeeCents)
+          ),
           taxaEmbarque: cents(safeInt(op.boardingFeeCents, 0)),
           cobradoCliente: cents(safeInt(op.customerChargeCents, 0)),
           lucroBruto: cents(computed.profitCents),

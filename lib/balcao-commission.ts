@@ -55,6 +55,14 @@ export function balcaoProfitSemTaxaCents(args: {
   );
 }
 
+/** Fornecedor paga a taxa de embarque: o valor a transferir é custo das milhas + taxa. */
+export function balcaoPagarFornecedorCents(
+  supplierPayMilesCents: number,
+  boardingFeeCents: number
+) {
+  return Math.max(0, Number(supplierPayMilesCents || 0)) + Math.max(0, Number(boardingFeeCents || 0));
+}
+
 export function taxFromProfitCents(profitCents: number, percent: number) {
   return Math.round(Math.max(0, Number(profitCents || 0)) * (percent / 100));
 }

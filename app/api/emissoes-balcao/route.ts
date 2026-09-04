@@ -9,6 +9,7 @@ import {
   BalcaoTaxRule,
   buildTaxRule,
   buildBalcaoComputedValues,
+  balcaoPagarFornecedorCents,
   recifeDateISO,
 } from "@/lib/balcao-commission";
 
@@ -124,7 +125,10 @@ function toRow(item: {
     buyRateCents: item.buyRateCents,
     sellRateCents: item.sellRateCents,
     boardingFeeCents: item.boardingFeeCents,
-    supplierPayCents: item.supplierPayCents,
+    supplierPayCents: balcaoPagarFornecedorCents(
+      item.supplierPayCents,
+      item.boardingFeeCents
+    ),
     customerChargeCents: item.customerChargeCents,
     profitCents: computed.profitCents,
     taxPercent: computed.taxPercent,
