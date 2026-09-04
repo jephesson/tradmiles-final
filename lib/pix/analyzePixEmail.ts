@@ -187,7 +187,7 @@ export async function analyzePixEmailContent(args: {
     paidSales,
   });
 
-  if (useAi && match.matchKind !== "already_paid" && shouldUseAiMatch(match, parsed)) {
+  if (useAi && shouldUseAiMatch(match, parsed)) {
     const aiMatch = await classifyPixWithAI({ parsed, pendingSales, employees });
     if (aiMatch) match = aiMatch;
   }

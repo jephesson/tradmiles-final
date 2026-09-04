@@ -241,7 +241,9 @@ export default function PixAlertModal({ messageId, onClose, onConfirmed, onDismi
                   {row.match.matchKind === "grouped" && (
                     <div className="mt-2 flex items-start gap-1.5 text-xs text-emerald-800">
                       <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-                      Soma das vendas selecionadas bate com o Pix recebido.
+                      {row.match.amountDiffCents
+                        ? `Soma das pendências ${fmtMoney(row.match.matchedTotalCents)} · Pix ${fmtMoney(row.parsed?.amountCents || 0)} (diferença ${fmtMoney(Math.abs(row.match.amountDiffCents))}). Confira e marque as pagas.`
+                        : "Soma das vendas selecionadas bate com o Pix recebido."}
                     </div>
                   )}
                 </div>

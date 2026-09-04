@@ -1,4 +1,5 @@
 import type { PendingSaleLite } from "./matchPixToPendingSales";
+import { groupAmountTolerance } from "./matchPixToPendingSales";
 import type { ParsedPixEmail, PixMatchResult, PixMatchSale } from "./types";
 
 type EmployeeLite = { id: string; name: string };
@@ -16,7 +17,8 @@ Regras:
 - EMPLOYEE: pagador é claramente um funcionário da lista (primeiro nome bate, não só sobrenome).
 - COMPANY_INTERNAL: pix da própria empresa ou saída.
 - UNKNOWN: teste simbólico (ex. R$ 0,01), pagador sem relação clara, ou dúvida.
-- suggestedSaleIds: ids das vendas mais prováveis. Se várias vendas do MESMO cliente somam o valor do Pix, retorne TODAS elas.
+- suggestedSaleIds: ids das vendas mais prováveis. Se várias vendas do MESMO cliente somam o valor do Pix (ou ficam bem perto, até ~1%), retorne TODAS elas — é um Pix único cobrindo o lote.
+- Se o pagador for um cliente conhecido e a SOMA das pendências dele estiver perto do Pix, escolha esse lote inteiro.
 - Não confunda sobrenomes iguais (ex. Floriano) com match de funcionário se o primeiro nome for diferente.
 - Ignore palavras genéricas (Milhas, Ltda, Plus, Flash) ao comparar nomes.`;
 
@@ -40,10 +42,16 @@ function mapSale(s: PendingSaleLite, pixAmount: number, reason: string): PixMatc
 }
 
 export function shouldUseAiMatch(match: PixMatchResult, parsed: ParsedPixEmail) {
-  if (match.matchKind === "already_paid") return false;
+  if (match.matchKind === "already_paid" && match.alreadyPaidSale) return false;
+  if (match.matchKind === "exact") return false;
+  if (match.matchKind === "grouped") return false;
   if (match.classification === "UNKNOWN") return true;
   if (match.classification === "EMPLOYEE" && parsed.amountCents < 500) return true;
-  if (match.matchKind === "probable" && !match.suggestedSales.length) return true;
+  if (match.matchKind === "probable") return true;
+  if (match.matchKind === "name_only") return true;
+  if (match.matchKind === "close_amount") return true;
+  if (match.classification === "CLIENT_PAYMENT" && !match.suggestedSales.length) return true;
+  if (match.matchKind === "already_paid" && !match.alreadyPaidSale) return true;
   return false;
 }
 
@@ -62,7 +70,7 @@ export async function classifyPixWithAI(args: {
   // Inclui mais vendas e ordena por cliente para a IA enxergar agrupamentos
   const salesPayload = [...pendingSales]
     .sort((a, b) => a.clienteNome.localeCompare(b.clienteNome) || b.totalCents - a.totalCents)
-    .slice(0, 40)
+    .slice(0, 80)
     .map((s) => ({
       id: s.id,
       clienteId: s.clienteId,
@@ -72,11 +80,32 @@ export async function classifyPixWithAI(args: {
       numero: s.numero,
     }));
 
+  const byCliente = new Map<string, { cliente: string; ids: string[]; total: number }>();
+  for (const s of pendingSales) {
+    const cur = byCliente.get(s.clienteId) || { cliente: s.clienteNome, ids: [], total: 0 };
+    cur.ids.push(s.id);
+    cur.total += s.totalCents;
+    byCliente.set(s.clienteId, cur);
+  }
+  const somasPorCliente = [...byCliente.values()]
+    .filter((x) => x.ids.length >= 2)
+    .sort((a, b) => Math.abs(a.total - parsed.amountCents) - Math.abs(b.total - parsed.amountCents))
+    .slice(0, 15)
+    .map((x) => ({
+      cliente: x.cliente,
+      qtdVendas: x.ids.length,
+      total: fmtMoney(x.total),
+      totalCentavos: x.total,
+      diferencaVsPix: fmtMoney(parsed.amountCents - x.total),
+      ids: x.ids,
+    }));
+
   const userContent = JSON.stringify({
     pagador: parsed.payerName,
     valor: fmtMoney(parsed.amountCents),
     valorCentavos: parsed.amountCents,
     direcao: parsed.direction,
+    somasPorCliente,
     vendasPendentes: salesPayload,
     funcionarios: employees.map((e) => e.name),
   });
@@ -123,8 +152,9 @@ export async function classifyPixWithAI(args: {
     const sameCliente =
       suggestedSales.length >= 2 &&
       suggestedSales.every((s) => s.clienteId === suggestedSales[0]!.clienteId);
+    const groupTol = groupAmountTolerance(parsed.amountCents, true);
     const groupHits =
-      sameCliente && Math.abs(matchedTotalCents - parsed.amountCents) <= 200;
+      sameCliente && Math.abs(matchedTotalCents - parsed.amountCents) <= groupTol;
 
     return {
       classification,

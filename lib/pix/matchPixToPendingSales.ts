@@ -7,6 +7,13 @@ const COMPANY_NAMES = ["vias aereas", "vias aéreas", "vias aereo", "trade miles
 /** Aceita diferença de até R$ 2,00 (centavos, IOF, arredondamento). */
 export const AMOUNT_CLOSE_CENTS = 200;
 
+/** Pagador conhecido / nome: até 0,8% do Pix ou R$ 30 (taxa, desconto, arredondamento). */
+export function groupAmountTolerance(targetCents: number, preferred: boolean) {
+  if (!preferred) return AMOUNT_CLOSE_CENTS;
+  const pct = Math.round(Math.abs(targetCents) * 0.008);
+  return Math.max(AMOUNT_CLOSE_CENTS, Math.min(3000, pct));
+}
+
 type EmployeeLite = { id: string; name: string };
 export type PendingSaleLite = {
   id: string;
@@ -25,8 +32,8 @@ function fmtMoney(cents: number) {
   return ((cents || 0) / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
 
-function amountClose(a: number, b: number) {
-  return Math.abs(a - b) <= AMOUNT_CLOSE_CENTS;
+function amountClose(a: number, b: number, tol = AMOUNT_CLOSE_CENTS) {
+  return Math.abs(a - b) <= tol;
 }
 
 function groupByCliente(sales: PendingSaleLite[]) {
@@ -55,16 +62,17 @@ function findClienteGroupedMatch(
   for (const [clienteId, list] of byCliente) {
     if (list.length < 1) continue;
     const preferred = preferClienteIds?.has(clienteId) ?? false;
+    const tol = groupAmountTolerance(target, preferred);
     const fullSum = list.reduce((a, s) => a + s.totalCents, 0);
     const fullDiff = Math.abs(fullSum - target);
 
-    if (list.length >= 2 && fullDiff <= AMOUNT_CLOSE_CENTS) {
+    if (list.length >= 2 && fullDiff <= tol) {
       cands.push({ sales: list, diff: fullDiff, fullGroup: true, preferred });
       continue;
     }
 
     if (list.length >= 2) {
-      const subset = subsetSumClose(list, target, Math.min(12, list.length));
+      const subset = subsetSumClose(list, target, Math.min(12, list.length), tol);
       if (subset && subset.length >= 2) {
         const sum = subset.reduce((a, s) => a + s.totalCents, 0);
         cands.push({
@@ -92,10 +100,10 @@ function findClienteGroupedMatch(
 function subsetSumClose(
   items: PendingSaleLite[],
   target: number,
-  maxItems = 10
+  maxItems = 10,
+  tol = AMOUNT_CLOSE_CENTS
 ): PendingSaleLite[] | null {
   if (items.length > maxItems) {
-    // Preferir as mais recentes / maiores para caber no limite
     items = [...items]
       .sort((a, b) => b.date.getTime() - a.date.getTime() || b.totalCents - a.totalCents)
       .slice(0, maxItems);
@@ -106,11 +114,11 @@ function subsetSumClose(
 
   function backtrack(idx: number, sum: number, picked: PendingSaleLite[]) {
     const diff = Math.abs(sum - target);
-    if (picked.length >= 2 && diff < bestDiff && diff <= AMOUNT_CLOSE_CENTS) {
+    if (picked.length >= 2 && diff < bestDiff && diff <= tol) {
       bestDiff = diff;
       best = [...picked];
     }
-    if (idx >= n || sum > target + AMOUNT_CLOSE_CENTS) return;
+    if (idx >= n || sum > target + tol) return;
     backtrack(idx + 1, sum + items[idx]!.totalCents, [...picked, items[idx]!]);
     backtrack(idx + 1, sum, picked);
   }
@@ -191,9 +199,14 @@ function groupedResult(
 ): PixMatchResult {
   const total = grouped.reduce((a, s) => a + s.totalCents, 0);
   const clienteNome = grouped[0]?.clienteNome || "cliente";
+  const diff = parsed.amountCents - total;
+  const diffLabel =
+    diff === 0
+      ? "soma igual ao Pix"
+      : `soma ${fmtMoney(total)} · diferença de ${fmtMoney(Math.abs(diff))}`;
   return {
     classification: "CLIENT_PAYMENT",
-    classificationLabel: `Pix agrupado · ${clienteNome} (${grouped.length} vendas)`,
+    classificationLabel: `Pix agrupado · ${clienteNome} (${grouped.length} vendas, ${diffLabel})`,
     suggestedSales: grouped.map((s) =>
       mapSale(
         s,
@@ -376,29 +389,36 @@ export function classifyAndMatchPix(args: {
   // 4) Subconjunto em pool aprendido / nome
   for (const pool of [byLearned, byName]) {
     if (pool.length < 2) continue;
-    const grouped = subsetSumClose(pool, parsed.amountCents);
+    const preferred = pool === byLearned || pool === byName;
+    const grouped = subsetSumClose(
+      pool,
+      parsed.amountCents,
+      Math.min(12, pool.length),
+      groupAmountTolerance(parsed.amountCents, preferred)
+    );
     if (grouped?.length) {
       return groupedResult(grouped, parsed, learnedClienteIds);
     }
   }
 
-  // Pagador conhecido, mas nenhuma pendência fecha o valor — não empurra outro cliente
+  // Pagador conhecido com pendências: mostra as vendas e deixa a IA decidir o recorte.
+  // Não tratar como "já pago" — isso impedia sugerir o lote do mesmo cliente.
+  if (learnedClienteIds.size && byLearned.length) {
+    const sum = byLearned.reduce((a, s) => a + s.totalCents, 0);
+    return {
+      classification: "CLIENT_PAYMENT",
+      classificationLabel: "Pagador conhecido — confira quais vendas este Pix cobre",
+      suggestedSales: byLearned
+        .slice(0, 12)
+        .map((s) => mapSale(s, parsed.amountCents, reasonFor(s, parsed, true))),
+      matchKind: "name_only",
+      matchedTotalCents: sum,
+      amountDiffCents: parsed.amountCents - sum,
+      employeeName: null,
+    };
+  }
+
   if (learnedClienteIds.size) {
-    const closeLearned = byLearned.filter((s) => amountClose(s.totalCents, parsed.amountCents));
-    if (closeLearned.length) {
-      return {
-        classification: "CLIENT_PAYMENT",
-        classificationLabel: "Pagador conhecido — confira o valor",
-        suggestedSales: closeLearned
-          .slice(0, 5)
-          .map((s) => mapSale(s, parsed.amountCents, reasonFor(s, parsed, true))),
-        matchKind: "learned",
-        matchedTotalCents: closeLearned.reduce((a, s) => a + s.totalCents, 0),
-        amountDiffCents:
-          parsed.amountCents - closeLearned.reduce((a, s) => a + s.totalCents, 0),
-        employeeName: null,
-      };
-    }
     return {
       classification: "CLIENT_PAYMENT",
       classificationLabel:
