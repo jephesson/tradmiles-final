@@ -22,6 +22,7 @@ import {
   liveloCycleBadgeClass,
 } from "@/lib/livelo-clube";
 import { parseLatamClubEmail } from "@/lib/latam/parseClubEmail";
+import { defaultClubRenewalDay } from "@/lib/purchases/purchaseDefaults";
 
 type LoyaltyProgram = "LATAM" | "SMILES" | "LIVELO" | "ESFERA";
 
@@ -809,8 +810,7 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
           const priceCents =
             clubExtract.monthlyFeeCents ?? clubExtract.totalCents ?? 0;
           const startDateISO = clubExtract.acquisitionDateISO || isoToday();
-          const renewalDay =
-            clubExtract.renewalDay || Number(startDateISO.slice(8, 10)) || 1;
+          const renewalDay = defaultClubRenewalDay("LATAM");
           const bonusPoints = 0;
 
           const meta: ClubMeta = {
@@ -1141,13 +1141,14 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
   function addClub() {
     if (!draft) return;
 
-    const liveloDefaults = liveloMetaDefaults();
+    const program = (draft.ciaProgram || "LIVELO") as LoyaltyProgram;
+    const liveloDefaults = program === "LIVELO" ? liveloMetaDefaults() : {};
 
     const meta: ClubMeta = {
-      program: "LIVELO",
+      program,
       tierK: 10,
       priceCents: 0,
-      renewalDay: new Date().getDate(),
+      renewalDay: defaultClubRenewalDay(program),
       startDateISO: isoToday(),
       bonusPoints: 0,
       ...liveloDefaults,
@@ -1831,7 +1832,9 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
                               Math.round((it.pointsFinal || 0) / 1000) || 10
                             ) || 10,
                           priceCents: it.amountCents || 0,
-                          renewalDay: new Date().getDate(),
+                          renewalDay: defaultClubRenewalDay(
+                            (it.programTo || "LIVELO") as LoyaltyProgram
+                          ),
                           startDateISO: isoToday(),
                           bonusPoints: Math.max(0, bonusFromItem),
                         };
@@ -1852,6 +1855,7 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
                               const next: ClubMeta = {
                                 ...meta,
                                 program,
+                                renewalDay: defaultClubRenewalDay(program),
                                 ...liveloPatch,
                               };
                               updateItem(realIdx, {

@@ -4,6 +4,10 @@ import { ok, badRequest, serverError } from "@/lib/api";
 import { nextNumeroCompra } from "@/lib/compraNumero";
 import { recomputeCompra } from "@/lib/compras";
 import { resolveVendorCommissionBps } from "@/lib/purchases/vendorCommission";
+import {
+  DEFAULT_CEDENTE_PAY_CENTS,
+  DEFAULT_TARGET_MARKUP_CENTS,
+} from "@/lib/purchases/purchaseDefaults";
 import { Prisma, LoyaltyProgram } from "@prisma/client";
 
 export const dynamic = "force-dynamic";
@@ -247,10 +251,12 @@ export async function POST(req: Request) {
 
     const ciaPointsTotal = asInt(body.ciaPointsTotal ?? body.pontosCiaTotal ?? 0);
 
-    const cedentePayCents = asInt(body.cedentePayCents ?? 0);
+    const cedentePayCents = asInt(body.cedentePayCents ?? DEFAULT_CEDENTE_PAY_CENTS);
     const defaultVendorBps = await resolveVendorCommissionBps();
     const vendorCommissionBps = asInt(body.vendorCommissionBps ?? defaultVendorBps);
-    const metaMarkupCents = asInt(body.metaMarkupCents ?? body.targetMarkupCents ?? 150);
+    const metaMarkupCents = asInt(
+      body.metaMarkupCents ?? body.targetMarkupCents ?? DEFAULT_TARGET_MARKUP_CENTS
+    );
 
     const observacao =
       body.observacao != null

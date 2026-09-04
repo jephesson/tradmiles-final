@@ -2,6 +2,7 @@
 
 import { useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { defaultClubRenewalDay } from "@/lib/purchases/purchaseDefaults";
 
 type Program = "LATAM" | "SMILES" | "LIVELO" | "ESFERA";
 type Status = "ACTIVE" | "PAUSED" | "CANCELED";
@@ -210,7 +211,7 @@ export default function ClubesClient({
       program: "LATAM" as Program,
       tierK: 10,
       subscribedAt: isoToInputDate(new Date().toISOString()), // ✅ hoje (mas pode retroativo)
-      renewalDay: 1,
+      renewalDay: defaultClubRenewalDay("LATAM"),
       lastRenewedAt: "",
       renewedThisCycle: false,
       status: "ACTIVE" as Status,
@@ -590,12 +591,14 @@ export default function ClubesClient({
             <select
               className="mt-1 w-full rounded-xl border px-3 py-2 text-sm disabled:opacity-60"
               value={form.program}
-              onChange={(e) =>
+              onChange={(e) => {
+                const program = e.target.value as Program;
                 setForm((f) => ({
                   ...f,
-                  program: e.target.value as Program,
-                }))
-              }
+                  program,
+                  renewalDay: defaultClubRenewalDay(program),
+                }));
+              }}
               disabled={loading}
             >
               <option value="LATAM">LATAM</option>
