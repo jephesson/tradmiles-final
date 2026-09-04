@@ -2,7 +2,7 @@
 
   import { useEffect, useMemo, useState } from "react";
   import { useRouter, useSearchParams } from "next/navigation";
-  import { Copy, KeyRound, X } from "lucide-react";
+  import { Copy, FileDown, KeyRound, Loader2, X } from "lucide-react";
   import { VerificationCodeFetch } from "@/components/cedentes/VerificationCodeFetch";
 
   type ProgramKey = "latam" | "smiles" | "livelo" | "esfera";
@@ -98,6 +98,7 @@
     const [credentialsLoading, setCredentialsLoading] = useState(false);
     const [credentialsError, setCredentialsError] = useState("");
     const [copiedField, setCopiedField] = useState("");
+    const [pdfBusy, setPdfBusy] = useState(false);
 
     function closeCredentials() {
       setCredentials(null);
@@ -255,6 +256,37 @@
       }
     }
 
+    async function downloadRenewPdf() {
+      if (program !== "latam") {
+        alert("A renovação de pax no mês vale para LATAM.");
+        return;
+      }
+      setPdfBusy(true);
+      try {
+        const res = await fetch(
+          `/api/emissions/renew-pdf?programa=${encodeURIComponent(program)}`,
+          { cache: "no-store", credentials: "include" }
+        );
+        if (!res.ok) {
+          const json = (await res.json().catch(() => null)) as { error?: string } | null;
+          throw new Error(json?.error || "Falha ao gerar o PDF.");
+        }
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `renovacao-pax-${panel?.currentMonthKey || "mes"}.pdf`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+      } catch (e: unknown) {
+        alert(e instanceof Error ? e.message : "Falha ao gerar o PDF.");
+      } finally {
+        setPdfBusy(false);
+      }
+    }
+
     // carrega cedentes 1x
     useEffect(() => {
       loadCedentesApproved();
@@ -360,12 +392,30 @@
               </p>
             </div>
 
-            <button
-              onClick={loadPanel}
-              className="h-9 rounded-xl border border-zinc-200 bg-white px-3 text-sm text-zinc-700 shadow-sm hover:bg-zinc-50"
-            >
-              {panelLoading ? "Atualizando…" : "Atualizar"}
-            </button>
+            <div className="flex items-center gap-2">
+              {program === "latam" ? (
+                <button
+                  type="button"
+                  onClick={() => void downloadRenewPdf()}
+                  disabled={pdfBusy || panelLoading || !panel}
+                  className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-zinc-200 bg-white px-3 text-sm font-medium text-zinc-800 shadow-sm hover:bg-zinc-50 disabled:opacity-50"
+                  title="PDF das contas que renovam pax neste mês e o total que fica disponível"
+                >
+                  {pdfBusy ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <FileDown className="h-4 w-4" />
+                  )}
+                  {pdfBusy ? "Gerando…" : "PDF renovação"}
+                </button>
+              ) : null}
+              <button
+                onClick={loadPanel}
+                className="h-9 rounded-xl border border-zinc-200 bg-white px-3 text-sm text-zinc-700 shadow-sm hover:bg-zinc-50"
+              >
+                {panelLoading ? "Atualizando…" : "Atualizar"}
+              </button>
+            </div>
           </div>
 
           {/* Program Tabs */}
