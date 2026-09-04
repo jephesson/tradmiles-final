@@ -5,7 +5,9 @@ import { getSessionServer } from "@/lib/auth-server";
 import {
   processReferralOnApprove,
   processReferralOnReject,
+  syncPendingReferral,
 } from "@/lib/cedente-referrals";
+import { deriveProgramCreacaoFlags } from "@/lib/cedentes/programCreacaoPendente";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -44,7 +46,70 @@ export async function POST(req: NextRequest, ctx: Ctx) {
     const pontosLivelo = asInt(p?.pontosLivelo);
     const pontosEsfera = asInt(p?.pontosEsfera);
 
-    // ✅ sem any
+    const current = await prisma.cedente.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        status: true,
+        senhaLatamPass: true,
+        senhaSmiles: true,
+        senhaLivelo: true,
+        latamCreacaoPendente: true,
+        smilesCreacaoPendente: true,
+        liveloCreacaoPendente: true,
+      },
+    });
+    if (!current) {
+      return NextResponse.json({ ok: false, error: "Cedente não encontrado." }, { status: 404 });
+    }
+    if (current.status !== "PENDING") {
+      return NextResponse.json({ ok: false, error: "Este cadastro já foi revisado." }, { status: 400 });
+    }
+
+    if (session.role === "admin" && action === "APPROVE") {
+      if ("referredByCedenteId" in body) {
+        const referrerId =
+          body.referredByCedenteId === null || body.referredByCedenteId === ""
+            ? null
+            : String(body.referredByCedenteId);
+        await syncPendingReferral({ referredCedenteId: id, referrerCedenteId: referrerId });
+      }
+
+      if (body.ownerId) {
+        const ownerId = String(body.ownerId || "").trim();
+        const owner = await prisma.user.findFirst({
+          where: { id: ownerId, isActive: true, team: session.team },
+          select: { id: true },
+        });
+        if (!owner) {
+          return NextResponse.json(
+            { ok: false, error: "Funcionário responsável inválido ou inativo." },
+            { status: 400 }
+          );
+        }
+        await prisma.cedente.update({ where: { id }, data: { ownerId } });
+      }
+
+      if (
+        "latamCreacaoPendente" in body ||
+        "smilesCreacaoPendente" in body ||
+        "liveloCreacaoPendente" in body
+      ) {
+        const flags = deriveProgramCreacaoFlags({
+          senhaLatamPass: current.senhaLatamPass,
+          senhaSmiles: current.senhaSmiles,
+          senhaLivelo: current.senhaLivelo,
+          latamCreacaoPendente:
+            "latamCreacaoPendente" in body ? Boolean(body.latamCreacaoPendente) : current.latamCreacaoPendente,
+          smilesCreacaoPendente:
+            "smilesCreacaoPendente" in body ? Boolean(body.smilesCreacaoPendente) : current.smilesCreacaoPendente,
+          liveloCreacaoPendente:
+            "liveloCreacaoPendente" in body ? Boolean(body.liveloCreacaoPendente) : current.liveloCreacaoPendente,
+        });
+        await prisma.cedente.update({ where: { id }, data: flags });
+      }
+    }
+
     const status = action === "APPROVE" ? "APPROVED" : "REJECTED";
 
     const updated = await prisma.cedente.update({

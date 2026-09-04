@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Loader2 } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { isProgramCreacaoPendente } from "@/lib/cedentes/programCreacaoPendente";
 
@@ -95,7 +94,6 @@ export default function CedentesPendentesPage() {
 
   const [draft, setDraft] = useState<Record<string, PointsDraft>>({});
   const [adminDraft, setAdminDraft] = useState<Record<string, AdminDraft>>({});
-  const [savingAdminId, setSavingAdminId] = useState<string | null>(null);
 
   const totalPendentes = useMemo(() => items.length, [items]);
 
@@ -182,6 +180,14 @@ export default function CedentesPendentesPage() {
         pontosLivelo: Number(points.pontosLivelo || 0),
         pontosEsfera: Number(points.pontosEsfera || 0),
       };
+      const ad = adminDraft[id];
+      if (isAdmin && ad) {
+        payload.ownerId = ad.ownerId || undefined;
+        payload.referredByCedenteId = ad.referredByCedenteId || null;
+        payload.latamCreacaoPendente = ad.latamCreacaoPendente;
+        payload.smilesCreacaoPendente = ad.smilesCreacaoPendente;
+        payload.liveloCreacaoPendente = ad.liveloCreacaoPendente;
+      }
     }
 
     const res = await fetch(`/api/cedentes/${id}/review`, {
@@ -194,33 +200,6 @@ export default function CedentesPendentesPage() {
     if (!json?.ok) return alert(json?.error || "Erro ao revisar");
 
     await load();
-  }
-
-  async function saveAdminAdjustments(id: string) {
-    const ad = adminDraft[id];
-    if (!ad) return;
-
-    setSavingAdminId(id);
-    try {
-      const res = await fetch(`/api/cedentes/${id}/pendente-admin`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          ownerId: ad.ownerId || undefined,
-          referredByCedenteId: ad.referredByCedenteId || null,
-          latamCreacaoPendente: ad.latamCreacaoPendente,
-          smilesCreacaoPendente: ad.smilesCreacaoPendente,
-          liveloCreacaoPendente: ad.liveloCreacaoPendente,
-        }),
-      });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok || !json.ok) throw new Error(json.error || "Erro ao salvar.");
-      await load();
-    } catch (e: unknown) {
-      alert(e instanceof Error ? e.message : "Erro ao salvar.");
-    } finally {
-      setSavingAdminId(null);
-    }
   }
 
   function setDraftField(id: string, key: keyof PointsDraft, value: number | "") {
@@ -338,7 +317,13 @@ export default function CedentesPendentesPage() {
 
               {isAdmin && ad ? (
                 <div className="mt-4 rounded-2xl border border-indigo-200 bg-indigo-50/40 p-4">
-                  <div className="mb-3 font-semibold text-indigo-950">Ajustes admin (somente pendente)</div>
+                  <div className="mb-3 font-semibold text-indigo-950">
+                    Responsável e quem indicou
+                  </div>
+                  <p className="mb-3 text-xs text-slate-600">
+                    A indicação do link já vem preenchida. Se precisar mudar, ajuste aqui — entra junto no
+                    Aprovar.
+                  </p>
                   <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                     <label className="block">
                       <span className="mb-1 block text-sm font-medium">Funcionário responsável</span>
@@ -396,19 +381,6 @@ export default function CedentesPendentesPage() {
                   <p className="mt-2 text-xs text-slate-600">
                     Sem senha do programa, fica pendente automaticamente. Com senha, você pode marcar manualmente.
                   </p>
-
-                  <button
-                    type="button"
-                    onClick={() => void saveAdminAdjustments(c.id)}
-                    disabled={savingAdminId === c.id}
-                    className={cn(
-                      "mt-3 inline-flex items-center gap-2 rounded-xl bg-indigo-700 px-3 py-2 text-sm font-medium text-white hover:bg-indigo-800",
-                      savingAdminId === c.id && "opacity-60"
-                    )}
-                  >
-                    {savingAdminId === c.id ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-                    Salvar ajustes
-                  </button>
                 </div>
               ) : null}
 

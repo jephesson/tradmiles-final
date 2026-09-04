@@ -2,6 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { PixTipo } from "@prisma/client";
 import { deriveProgramCreacaoFlags } from "@/lib/cedentes/programCreacaoPendente";
+import { getSessionServer } from "@/lib/auth-server";
+import { adminSetCedenteReferrer } from "@/lib/cedente-referrals";
+import {
+  expectedSettingsSecurityAnswerNormalized,
+  normalizeSettingsSecurityInput,
+} from "@/lib/settingsGate";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -88,6 +94,9 @@ const SELECT = {
   ownerId: true,
   owner: { select: { id: true, name: true, login: true } },
 
+  referredByCedenteId: true,
+  referredByCedente: { select: { id: true, identificador: true, nomeCompleto: true } },
+
   reviewedById: true,
   inviteId: true,
 
@@ -132,6 +141,8 @@ export async function PUT(req: NextRequest, ctx: Ctx) {
         banco: true,
         pixTipo: true,
         chavePix: true,
+        ownerId: true,
+        referredByCedenteId: true,
       },
     });
     if (!current) return bad("Cedente não encontrado.", 404);
@@ -220,6 +231,51 @@ export async function PUT(req: NextRequest, ctx: Ctx) {
     if ("pontosSmiles" in body) data.pontosSmiles = intNonNeg(body.pontosSmiles);
     if ("pontosLivelo" in body) data.pontosLivelo = intNonNeg(body.pontosLivelo);
     if ("pontosEsfera" in body) data.pontosEsfera = intNonNeg(body.pontosEsfera);
+
+    const wantsOwner = "ownerId" in body;
+    const wantsReferrer = "referredByCedenteId" in body;
+    const nextOwnerId = wantsOwner ? String(body.ownerId || "").trim() : current.ownerId;
+    const nextReferrerId = wantsReferrer
+      ? body.referredByCedenteId === null || body.referredByCedenteId === ""
+        ? null
+        : String(body.referredByCedenteId)
+      : current.referredByCedenteId;
+    const ownerChanging = wantsOwner && nextOwnerId !== current.ownerId;
+    const referrerChanging = wantsReferrer && nextReferrerId !== (current.referredByCedenteId || null);
+
+    if (ownerChanging || referrerChanging) {
+      const session = await getSessionServer();
+      if (!session?.id) return bad("Não autenticado.", 401);
+      if (session.role !== "admin") {
+        return bad("Somente admin pode trocar responsável ou quem indicou.", 403);
+      }
+      const given = normalizeSettingsSecurityInput(String(body?.securityAnswer ?? ""));
+      if (!given || given !== expectedSettingsSecurityAnswerNormalized()) {
+        return bad("Palavra-chave das configurações incorreta.", 403);
+      }
+
+      if (ownerChanging) {
+        if (!nextOwnerId) return bad("Responsável inválido.", 400);
+        const owner = await prisma.user.findFirst({
+          where: {
+            id: nextOwnerId,
+            isActive: true,
+            team: session.team,
+            role: { in: ["admin", "staff"] },
+          },
+          select: { id: true },
+        });
+        if (!owner) return bad("Funcionário não encontrado ou inativo neste time.", 400);
+        data.ownerId = nextOwnerId;
+      }
+
+      if (referrerChanging) {
+        await adminSetCedenteReferrer({
+          referredCedenteId: id,
+          referrerCedenteId: nextReferrerId,
+        });
+      }
+    }
 
     // obrigatórios (mantém current se não veio no body)
     const bancoFinal = "banco" in data ? data.banco : current.banco;

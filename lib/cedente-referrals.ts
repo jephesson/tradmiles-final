@@ -109,6 +109,78 @@ export async function processReferralOnReject(referredCedenteId: string) {
   });
 }
 
+export async function adminSetCedenteReferrer(args: {
+  referredCedenteId: string;
+  referrerCedenteId: string | null;
+}) {
+  const referred = await prisma.cedente.findUnique({
+    where: { id: args.referredCedenteId },
+    select: { id: true, cpf: true },
+  });
+  if (!referred) throw new Error("Cedente não encontrado.");
+
+  if (!args.referrerCedenteId) {
+    const existing = await prisma.cedenteReferral.findUnique({
+      where: { referredCedenteId: args.referredCedenteId },
+      select: { id: true, status: true },
+    });
+    await prisma.$transaction(async (tx) => {
+      await tx.cedente.update({
+        where: { id: args.referredCedenteId },
+        data: { referredByCedenteId: null },
+      });
+      if (existing?.status === "PENDING") {
+        await tx.cedenteReferral.delete({ where: { id: existing.id } });
+      }
+    });
+    return;
+  }
+
+  const referrer = await prisma.cedente.findFirst({
+    where: { id: args.referrerCedenteId, status: "APPROVED" },
+    select: { id: true, identificador: true, cpf: true },
+  });
+
+  if (!referrer) throw new Error("Cedente indicador inválido ou não aprovado.");
+  if (referrer.id === referred.id || referrer.cpf === referred.cpf) {
+    throw new Error("O cedente não pode indicar a si mesmo.");
+  }
+
+  const existing = await prisma.cedenteReferral.findUnique({
+    where: { referredCedenteId: args.referredCedenteId },
+    select: { id: true, status: true },
+  });
+
+  await prisma.$transaction(async (tx) => {
+    await tx.cedente.update({
+      where: { id: args.referredCedenteId },
+      data: { referredByCedenteId: referrer.id },
+    });
+
+    if (!existing) {
+      await tx.cedenteReferral.create({
+        data: {
+          referrerCedenteId: referrer.id,
+          referredCedenteId: args.referredCedenteId,
+          referrerCode: referrer.identificador.toUpperCase(),
+          status: "PENDING",
+        },
+      });
+      return;
+    }
+
+    if (existing.status === "PENDING") {
+      await tx.cedenteReferral.update({
+        where: { id: existing.id },
+        data: {
+          referrerCedenteId: referrer.id,
+          referrerCode: referrer.identificador.toUpperCase(),
+        },
+      });
+    }
+  });
+}
+
 export async function syncPendingReferral(args: {
   referredCedenteId: string;
   referrerCedenteId: string | null;

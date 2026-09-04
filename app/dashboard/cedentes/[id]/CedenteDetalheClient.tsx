@@ -4,6 +4,8 @@ import { useEffect, useMemo, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 
 type Owner = { id: string; name: string; login: string };
+type Referrer = { id: string; identificador: string; nomeCompleto: string };
+type Funcionario = { id: string; name: string; login: string; isActive?: boolean; role?: string };
 
 type Cedente = {
   id: string;
@@ -31,7 +33,10 @@ type Cedente = {
   pontosLivelo: number;
   pontosEsfera: number;
 
+  ownerId?: string;
   owner?: Owner | null;
+  referredByCedenteId?: string | null;
+  referredByCedente?: Referrer | null;
 
   status?: string | null;
   createdAt?: string | null;
@@ -193,6 +198,12 @@ export default function CedenteDetalheClient() {
   const [data, setData] = useState<Cedente | null>(null);
   const [form, setForm] = useState<Cedente | null>(null);
   const [loading, setLoading] = useState(true);
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [funcionarios, setFuncionarios] = useState<Funcionario[]>([]);
+  const [referrers, setReferrers] = useState<Referrer[]>([]);
+  const [ownerId, setOwnerId] = useState("");
+  const [referredByCedenteId, setReferredByCedenteId] = useState("");
+  const [securityAnswer, setSecurityAnswer] = useState("");
 
   // ✅ inicializa com ?edit=1 e só atualiza se o param mudar
   const [editing, setEditing] = useState(editParam === "1");
@@ -212,6 +223,9 @@ export default function CedenteDetalheClient() {
 
       setData(json.data);
       setForm(json.data);
+      setOwnerId(String(json.data?.ownerId || json.data?.owner?.id || ""));
+      setReferredByCedenteId(String(json.data?.referredByCedenteId || ""));
+      setSecurityAnswer("");
     } catch (e: any) {
       alert(e?.message || "Erro ao carregar.");
       setData(null);
@@ -226,6 +240,36 @@ export default function CedenteDetalheClient() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
+  useEffect(() => {
+    fetch("/api/auth/me", { cache: "no-store", credentials: "include" })
+      .then((r) => r.json())
+      .then((j) => {
+        setIsAdmin(String(j?.data?.session?.role || "").toLowerCase() === "admin");
+      })
+      .catch(() => setIsAdmin(false));
+  }, []);
+
+  useEffect(() => {
+    if (!isAdmin) return;
+    Promise.all([
+      fetch("/api/funcionarios", { cache: "no-store", credentials: "include" }).then((r) => r.json()),
+      fetch("/api/cedentes/referrers-options", { cache: "no-store", credentials: "include" }).then((r) =>
+        r.json()
+      ),
+    ])
+      .then(([funcJson, refJson]) => {
+        if (funcJson?.ok && Array.isArray(funcJson.data)) {
+          setFuncionarios(
+            funcJson.data.filter((f: Funcionario) => f.isActive !== false)
+          );
+        }
+        if (refJson?.ok && Array.isArray(refJson.data)) {
+          setReferrers(refJson.data);
+        }
+      })
+      .catch(() => {});
+  }, [isAdmin]);
+
   function patch<K extends keyof Cedente>(key: K, value: Cedente[K]) {
     setForm((prev) => (prev ? { ...prev, [key]: value } : prev));
   }
@@ -233,11 +277,30 @@ export default function CedenteDetalheClient() {
   async function salvar() {
     if (!form) return;
 
+    const originalOwnerId = String(data?.ownerId || data?.owner?.id || "");
+    const originalReferrerId = String(data?.referredByCedenteId || "");
+    const ownerChanging = isAdmin && ownerId !== originalOwnerId;
+    const referrerChanging = isAdmin && referredByCedenteId !== originalReferrerId;
+
+    if ((ownerChanging || referrerChanging) && !securityAnswer.trim()) {
+      alert("Digite a palavra-chave das configurações para trocar responsável ou quem indicou.");
+      return;
+    }
+
     try {
+      const payload: Record<string, unknown> = { ...form };
+      if (isAdmin) {
+        payload.ownerId = ownerId;
+        payload.referredByCedenteId = referredByCedenteId || null;
+        if (ownerChanging || referrerChanging) {
+          payload.securityAnswer = securityAnswer.trim();
+        }
+      }
+
       const res = await fetch(`/api/cedentes/${id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(form),
+        body: JSON.stringify(payload),
       });
 
       const json = await safeJson(res);
@@ -259,6 +322,18 @@ export default function CedenteDetalheClient() {
     return `${form.owner.name} (@${form.owner.login})`;
   }, [form?.owner]);
 
+  const referrerLabel = useMemo(() => {
+    const r = form?.referredByCedente;
+    if (!r) return "—";
+    return `${r.nomeCompleto} (${r.identificador})`;
+  }, [form?.referredByCedente]);
+
+  const sensitiveDirty = useMemo(() => {
+    const originalOwnerId = String(data?.ownerId || data?.owner?.id || "");
+    const originalReferrerId = String(data?.referredByCedenteId || "");
+    return ownerId !== originalOwnerId || referredByCedenteId !== originalReferrerId;
+  }, [data, ownerId, referredByCedenteId]);
+
   if (loading) return <div className="p-6 text-sm">Carregando…</div>;
   if (!form) return <div className="p-6 text-sm">Cedente não encontrado.</div>;
 
@@ -271,6 +346,7 @@ export default function CedenteDetalheClient() {
             {form.identificador} • CPF: {form.cpf}
           </p>
           <p className="text-xs text-slate-500">Responsável: {ownerLabel}</p>
+          <p className="text-xs text-slate-500">Quem indicou: {referrerLabel}</p>
         </div>
 
         <div className="flex gap-2">
@@ -286,6 +362,9 @@ export default function CedenteDetalheClient() {
               <button
                 onClick={() => {
                   setForm(data);
+                  setOwnerId(String(data?.ownerId || data?.owner?.id || ""));
+                  setReferredByCedenteId(String(data?.referredByCedenteId || ""));
+                  setSecurityAnswer("");
                   setEditing(false);
                 }}
                 className="rounded-xl border px-4 py-2 text-sm"
@@ -309,6 +388,60 @@ export default function CedenteDetalheClient() {
           </button>
         </div>
       </div>
+
+      {isAdmin ? (
+        <section className="rounded-xl border p-4 grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div>
+            <label className="text-xs text-slate-500">Responsável</label>
+            <select
+              className="w-full rounded border px-3 py-2 text-sm disabled:bg-slate-50"
+              disabled={!editing}
+              value={ownerId}
+              onChange={(e) => setOwnerId(e.target.value)}
+            >
+              <option value="">Selecione o funcionário…</option>
+              {funcionarios.map((f) => (
+                <option key={f.id} value={f.id}>
+                  {f.name} (@{f.login})
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="text-xs text-slate-500">Quem indicou</label>
+            <select
+              className="w-full rounded border px-3 py-2 text-sm disabled:bg-slate-50"
+              disabled={!editing}
+              value={referredByCedenteId}
+              onChange={(e) => setReferredByCedenteId(e.target.value)}
+            >
+              <option value="">Ninguém</option>
+              {referrers
+                .filter((r) => r.id !== form.id)
+                .map((r) => (
+                  <option key={r.id} value={r.id}>
+                    {r.nomeCompleto} ({r.identificador})
+                  </option>
+                ))}
+            </select>
+          </div>
+          {editing && sensitiveDirty ? (
+            <div className="md:col-span-2">
+              <label className="text-xs text-slate-500">
+                Palavra-chave das configurações (cidade favorita)
+              </label>
+              <input
+                type="password"
+                autoComplete="off"
+                value={securityAnswer}
+                onChange={(e) => setSecurityAnswer(e.target.value)}
+                className="w-full rounded border px-3 py-2 text-sm"
+                placeholder="Obrigatória para confirmar a troca"
+              />
+            </div>
+          ) : null}
+        </section>
+      ) : null}
 
       {/* DADOS PRINCIPAIS */}
       <section className="rounded-xl border p-4 grid grid-cols-1 md:grid-cols-2 gap-3">
