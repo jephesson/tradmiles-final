@@ -126,6 +126,10 @@ export default function DividasAReceberClient() {
   const [payDate, setPayDate] = useState("");
   const [payNote, setPayNote] = useState("");
 
+  const [addingForId, setAddingForId] = useState<string | null>(null);
+  const [addAmount, setAddAmount] = useState("0,00");
+  const [addNote, setAddNote] = useState("");
+
   const isEmployee = tab === "FUNCIONARIO";
 
   const totals = useMemo(() => {
@@ -244,6 +248,29 @@ export default function DividasAReceberClient() {
       alert(j?.error || "Erro ao excluir.");
       return;
     }
+    load();
+  }
+
+  async function addToDebt() {
+    if (!addingForId) return;
+    const addCents = toCentsFromInput(addAmount);
+    if (addCents <= 0) {
+      alert("Informe um valor maior que zero.");
+      return;
+    }
+    const r = await fetch(`/api/dividas-a-receber/${addingForId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ addCents, note: addNote || null }),
+    });
+    const j = await r.json();
+    if (!j?.ok) {
+      alert(j?.error || "Erro ao incluir valor.");
+      return;
+    }
+    setAddingForId(null);
+    setAddAmount("0,00");
+    setAddNote("");
     load();
   }
 
@@ -483,6 +510,19 @@ export default function DividasAReceberClient() {
                           >
                             Detalhes
                           </button>
+                          {(!isEmployee || isAdmin) && r.status !== "CANCELED" ? (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setAddingForId(r.id);
+                                setAddAmount("0,00");
+                                setAddNote("");
+                              }}
+                              className="rounded-lg border border-slate-200 px-3 py-1 text-xs font-medium hover:bg-white"
+                            >
+                              + Valor
+                            </button>
+                          ) : null}
                           {(!isEmployee || isAdmin) && r.status !== "PAID" && r.status !== "CANCELED" ? (
                             <button
                               type="button"
@@ -823,6 +863,53 @@ export default function DividasAReceberClient() {
                   )}
                 </div>
               )}
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {addingForId ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-lg rounded-2xl bg-white shadow-2xl">
+            <div className="flex items-center justify-between border-b px-5 py-4">
+              <div className="font-semibold">Incluir valor na dívida</div>
+              <button type="button" onClick={() => setAddingForId(null)} className="text-sm text-slate-500">
+                fechar
+              </button>
+            </div>
+            <div className="grid gap-3 p-5">
+              <p className="text-sm text-slate-600">
+                Soma no total. O saldo em aberto aumenta; os descontos já lançados nas comissões continuam iguais.
+              </p>
+              <div>
+                <label className="text-[11px] font-semibold uppercase text-slate-500">Valor a incluir (R$)</label>
+                <input
+                  value={addAmount}
+                  onChange={(e) => setAddAmount(e.target.value)}
+                  className="mt-1 h-10 w-full rounded-xl border px-3 text-sm"
+                />
+              </div>
+              <div>
+                <label className="text-[11px] font-semibold uppercase text-slate-500">Observação (opcional)</label>
+                <input
+                  value={addNote}
+                  onChange={(e) => setAddNote(e.target.value)}
+                  className="mt-1 h-10 w-full rounded-xl border px-3 text-sm"
+                  placeholder="Ex.: novo empréstimo, complemento..."
+                />
+              </div>
+            </div>
+            <div className="flex justify-end gap-2 border-t px-5 py-4">
+              <button type="button" onClick={() => setAddingForId(null)} className="h-10 rounded-xl border px-4 text-sm">
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={addToDebt}
+                className="h-10 rounded-xl bg-slate-900 px-4 text-sm font-semibold text-white"
+              >
+                Incluir
+              </button>
             </div>
           </div>
         </div>

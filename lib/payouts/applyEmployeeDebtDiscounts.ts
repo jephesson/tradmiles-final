@@ -155,7 +155,27 @@ export async function applyEmployeeDebtDiscountsForDate(team: string, date: stri
     const bonus = bonusByUser.get(userId) || 0;
     const lucroBase = Math.max(0, gross - tax + balcao);
     const liquidoBruto = safeInt(payout.netPayCents, 0) + balcao + bonus;
-    const manual = Math.max(0, safeInt(payout.manualDiscountCents, 0));
+    const chargeSum = userDebts.reduce(
+      (sum, debt) => sum + Math.max(0, safeInt(chargeByDivida.get(debt.id)?.amountCents, 0)),
+      0
+    );
+    let manual = Math.max(0, safeInt(payout.manualDiscountCents, 0));
+    const discountNow = Math.max(0, safeInt(payout.discountCents, 0));
+    const doubledAuto =
+      chargeSum > 0 &&
+      ((manual === chargeSum && discountNow === manual + chargeSum) ||
+        (manual === 0 && discountNow === chargeSum * 2));
+
+    if (doubledAuto) {
+      manual = 0;
+      await prisma.employeePayout.update({
+        where: { id: payout.id },
+        data: { manualDiscountCents: 0, discountCents: chargeSum },
+      });
+      payout.manualDiscountCents = 0;
+      payout.discountCents = chargeSum;
+    }
+
     let remainingPay = Math.max(0, liquidoBruto - manual);
 
     if (payout.paidById) continue;

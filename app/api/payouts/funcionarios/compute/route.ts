@@ -250,6 +250,7 @@ export async function POST(req: Request) {
     const { start, end } = dayBounds(date);
 
     // ✅ força: apaga tudo que NÃO foi pago e reconstrói (preserva descontos)
+    // Preserva só o desconto digitado. O automático da dívida é relançado depois.
     const preservedDiscounts = new Map<string, number>();
     if (force) {
       const unpaid = await prisma.employeePayout.findMany({
@@ -257,7 +258,7 @@ export async function POST(req: Request) {
         select: { userId: true, discountCents: true, manualDiscountCents: true },
       });
       for (const p of unpaid) {
-        const manual = safeInt(p.manualDiscountCents, 0) || safeInt(p.discountCents, 0);
+        const manual = Math.max(0, safeInt(p.manualDiscountCents, 0));
         if (manual > 0) preservedDiscounts.set(p.userId, manual);
       }
       await prisma.employeePayout.deleteMany({ where: { team, date, paidById: null } });
