@@ -1273,6 +1273,22 @@ export default function AnaliseDadosClient() {
     const j = data as any;
     return ((j?.todayByEmployee || j?.byEmployeeToday || []) as any[]).slice();
   }, [data]);
+  const todayEmployeeTotalCents = useMemo(
+    () =>
+      byEmployeeToday.reduce(
+        (acc: number, r: any) => acc + Number(r.grossCents || r.totalSemTaxaCents || r.totalCents || 0),
+        0
+      ),
+    [byEmployeeToday]
+  );
+  const todayEmployeeSalesCount = useMemo(
+    () => byEmployeeToday.reduce((acc: number, r: any) => acc + Number(r.salesCount || r.sales || 0), 0),
+    [byEmployeeToday]
+  );
+  const todayEmployeePax = useMemo(
+    () => byEmployeeToday.reduce((acc: number, r: any) => acc + Number(r.passengers || r.pax || 0), 0),
+    [byEmployeeToday]
+  );
   const balcaoToday = (data as any)?.balcao?.today || null;
   const balcaoMonth = (data as any)?.balcao?.month || null;
   const balcaoDays = useMemo(() => (((data as any)?.balcao?.days || []) as any[]), [data]);
@@ -2142,7 +2158,7 @@ export default function AnaliseDadosClient() {
               Por funcionário · {today?.date ? dayKeyToDisplay(today.date) : "hoje"}
             </div>
             <div className="mt-1 text-xs text-slate-500">
-              Quanto cada um vendeu hoje (sem taxa de embarque).
+              Milhas (sem taxa de embarque) + compra e venda no balcão.
             </div>
           </div>
           <div className="overflow-x-auto rounded-xl border border-slate-100">
@@ -2160,8 +2176,7 @@ export default function AnaliseDadosClient() {
                   const gross = Number(r.grossCents || r.totalSemTaxaCents || r.totalCents || 0);
                   const sales = Number(r.salesCount || r.sales || 0);
                   const pax = Number(r.passengers || r.pax || 0);
-                  const todayGross = Number(today?.grossCents || 0);
-                  const pct = sharePct(gross, todayGross);
+                  const pct = sharePct(gross, todayEmployeeTotalCents);
                   return (
                     <tr key={r.id} className="border-b border-slate-100 text-slate-800 transition hover:bg-slate-50/70">
                       <td className="px-3 py-2.5">
@@ -2182,13 +2197,13 @@ export default function AnaliseDadosClient() {
                   <tr className="bg-slate-50/90 font-semibold text-slate-900">
                     <td className="px-3 py-2.5">Total</td>
                     <td className="px-3 py-2.5 text-right tabular-nums">
-                      {fmtMoneyBR(Number(today?.grossCents || 0))}
+                      {fmtMoneyBR(todayEmployeeTotalCents)}
                     </td>
                     <td className="px-3 py-2.5 text-xs font-normal text-slate-600">
-                      {fmtInt(Number(today?.salesCount || 0))} vendas • {fmtInt(Number(today?.passengers || 0))} pax
+                      {fmtInt(todayEmployeeSalesCount)} vendas • {fmtInt(todayEmployeePax)} pax
                     </td>
                     <td className="px-3 py-2.5 text-right tabular-nums">
-                      {Number(today?.grossCents || 0) > 0 ? "100,0%" : "—"}
+                      {todayEmployeeTotalCents > 0 ? "100,0%" : "—"}
                     </td>
                   </tr>
                 ) : (
@@ -2765,7 +2780,11 @@ export default function AnaliseDadosClient() {
         title={`Distribuição de vendas por funcionário · ${monthDisplay}`}
         data={byEmployeeMonthPie}
         totalLabel={
-          byEmployeeMonthPie.length ? `Total do mês: ${fmtMoneyBR(kpis?.gross || 0)}` : undefined
+          byEmployeeMonthPie.length
+            ? `Total do mês: ${fmtMoneyBR(
+                byEmployeeMonth.reduce((acc, r) => acc + Number(r.grossCents || 0), 0)
+              )}`
+            : undefined
         }
       />
 

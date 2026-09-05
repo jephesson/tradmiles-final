@@ -79,6 +79,7 @@ export async function fetchMonthlyBonusMetrics(team: string, month: string) {
           createdAt: { gte: balcaoStart, lt: balcaoEnd },
         },
         select: {
+          employeeId: true,
           customerChargeCents: true,
           supplierPayCents: true,
           boardingFeeCents: true,
@@ -138,6 +139,17 @@ export async function fetchMonthlyBonusMetrics(team: string, month: string) {
     if (uid && safeInt(p.finalProfitCents, 0) > 0) {
       ensure(uid).finalizedAccounts += 1;
     }
+  }
+
+  for (const op of balcaoOps) {
+    const uid = String(op.employeeId || "").trim();
+    if (!uid) continue;
+    const a = ensure(uid);
+    a.salesVolume += Math.max(
+      0,
+      safeInt(op.customerChargeCents, 0) - Math.max(0, safeInt(op.boardingFeeCents, 0))
+    );
+    a.salesCount += 1;
   }
 
   let revenueCents = 0;

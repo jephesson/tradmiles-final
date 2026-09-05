@@ -229,6 +229,54 @@ function ensureUnassigned(map: Map<string, EmpRow>) {
   return key;
 }
 
+function balcaoVolumeSemTaxaCents(customerChargeCents: number, boardingFeeCents: number) {
+  return Math.max(0, Number(customerChargeCents || 0) - Math.max(0, Number(boardingFeeCents || 0)));
+}
+
+function addBalcaoVolumeToEmp(
+  map: Map<string, EmpRow>,
+  teamUsersById: Map<string, { id: string; name: string; login: string }>,
+  employee: { id: string; name: string; login: string } | null,
+  employeeId: string | null,
+  volumeCents: number
+) {
+  const vol = Math.max(0, Number(volumeCents || 0));
+  const id = String(employee?.id || employeeId || "").trim();
+  if (!id) {
+    const key = ensureUnassigned(map);
+    const cur = map.get(key)!;
+    cur.grossCents += vol;
+    cur.salesCount += 1;
+    map.set(key, cur);
+    return;
+  }
+
+  const base = teamUsersById.get(id);
+  const cur =
+    map.get(id) ||
+    ({
+      id,
+      name: employee?.name || base?.name || "Vendedor",
+      login: employee?.login || base?.login || "—",
+      grossCents: 0,
+      salesCount: 0,
+      passengers: 0,
+    } as EmpRow);
+  cur.grossCents += vol;
+  cur.salesCount += 1;
+  map.set(id, cur);
+}
+
+function empRowsOut(rows: EmpRow[]) {
+  return rows.map((r) => ({
+    ...r,
+    sales: r.salesCount,
+    pax: r.passengers,
+    totalCents: r.grossCents,
+    totalSemTaxaCents: r.grossCents,
+  }));
+}
+
 function emptyBalcaoAgg(): BalcaoAgg {
   return {
     operationsCount: 0,
@@ -509,14 +557,7 @@ export async function GET(req: NextRequest) {
     }
 
     const todayByEmployee = Array.from(byEmpToday.values()).sort((a, b) => b.grossCents - a.grossCents);
-
-    const todayByEmployeeOut = todayByEmployee.map((r) => ({
-      ...r,
-      sales: r.salesCount,
-      pax: r.passengers,
-      totalCents: r.grossCents,
-      totalSemTaxaCents: r.grossCents,
-    }));
+    let todayByEmployeeOut = empRowsOut(todayByEmployee);
 
     // =========================
     // ✅ MÊS CORRENTE: vendas sem taxa vs lucro após imposto (sem taxa)
@@ -873,7 +914,7 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    const byEmployee = Array.from(byEmp.values()).sort((a, b) => b.grossCents - a.grossCents);
+    let byEmployee = Array.from(byEmp.values()).sort((a, b) => b.grossCents - a.grossCents);
 
     // =========================
     // 5) EVOLUÇÃO MÊS A MÊS + MÉDIA (histórico)
@@ -1273,6 +1314,24 @@ export async function GET(req: NextRequest) {
         balcaoByDay.set(dk, dayAgg);
       }
     }
+
+    for (const op of balcaoOps) {
+      const volumeCents = balcaoVolumeSemTaxaCents(
+        Number(op.customerChargeCents || 0),
+        Number(op.boardingFeeCents || 0)
+      );
+      if (inRange(op.createdAt, tStart, tEnd)) {
+        addBalcaoVolumeToEmp(byEmpToday, teamUsersById, op.employee, op.employeeId, volumeCents);
+      }
+      if (inRange(op.createdAt, mStart, mEnd)) {
+        addBalcaoVolumeToEmp(byEmp, teamUsersById, op.employee, op.employeeId, volumeCents);
+      }
+    }
+
+    todayByEmployeeOut = empRowsOut(
+      Array.from(byEmpToday.values()).sort((a, b) => b.grossCents - a.grossCents)
+    );
+    byEmployee = Array.from(byEmp.values()).sort((a, b) => b.grossCents - a.grossCents);
 
     const balcaoByAirlineRows = Array.from(balcaoByAirline.entries())
       .map(([airline, agg]) => ({

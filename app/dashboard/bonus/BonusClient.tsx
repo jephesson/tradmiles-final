@@ -446,7 +446,8 @@ export default function BonusClient() {
 
           <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-xs leading-relaxed text-slate-600">
             <b>Regras:</b> 0,1% do faturamento + 0,1% do lucro líquido (se meta de
-            lucro batida). Distribuição: 30% melhor C2, 30% maior volume, 20% quem
+            lucro batida). Faturamento e volume incluem as vendas de milhas e a compra
+            e venda no balcão. Distribuição: 30% melhor C2, 30% maior volume, 20% quem
             finalizou mais contas (só conta quando o lucro da conta é maior que zero),
             20% dividido igualmente. Imposto debitado sobre o bônus bruto. Pagamento
             no dia 1 do mês seguinte, junto às comissões.
