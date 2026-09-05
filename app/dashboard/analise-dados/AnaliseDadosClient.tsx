@@ -1269,6 +1269,10 @@ export default function AnaliseDadosClient() {
   }, [data, focusYM]);
 
   const today = (data as any)?.today || null;
+  const byEmployeeToday = useMemo(() => {
+    const j = data as any;
+    return ((j?.todayByEmployee || j?.byEmployeeToday || []) as any[]).slice();
+  }, [data]);
   const balcaoToday = (data as any)?.balcao?.today || null;
   const balcaoMonth = (data as any)?.balcao?.month || null;
   const balcaoDays = useMemo(() => (((data as any)?.balcao?.days || []) as any[]), [data]);
@@ -2125,11 +2129,80 @@ export default function AnaliseDadosClient() {
       </div>
 
       {/* HOJE */}
-      <BreakdownPanel
-        title={`Resumo de hoje · ${today?.date ? dayKeyToDisplay(today.date) : "—"}`}
-        subtitle="Percentual sobre os três canais de venda (sem taxa de embarque)."
-        rows={todayBreakdownRows}
-      />
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
+        <BreakdownPanel
+          title={`Resumo de hoje · ${today?.date ? dayKeyToDisplay(today.date) : "—"}`}
+          subtitle="Percentual sobre os três canais de venda (sem taxa de embarque)."
+          rows={todayBreakdownRows}
+        />
+
+        <div className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm shadow-slate-200/40">
+          <div className="mb-4 border-b border-slate-100 pb-3">
+            <div className="text-sm font-semibold tracking-tight text-slate-900">
+              Por funcionário · {today?.date ? dayKeyToDisplay(today.date) : "hoje"}
+            </div>
+            <div className="mt-1 text-xs text-slate-500">
+              Quanto cada um vendeu hoje (sem taxa de embarque).
+            </div>
+          </div>
+          <div className="overflow-x-auto rounded-xl border border-slate-100">
+            <table className="w-full min-w-[480px] text-sm">
+              <thead className="border-b border-slate-200 bg-slate-50/90">
+                <tr className="text-left text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                  <th className="px-3 py-2.5">Funcionário</th>
+                  <th className="px-3 py-2.5 text-right">Valor</th>
+                  <th className="px-3 py-2.5">Detalhe</th>
+                  <th className="px-3 py-2.5 text-right">%</th>
+                </tr>
+              </thead>
+              <tbody>
+                {byEmployeeToday.map((r: any) => {
+                  const gross = Number(r.grossCents || r.totalSemTaxaCents || r.totalCents || 0);
+                  const sales = Number(r.salesCount || r.sales || 0);
+                  const pax = Number(r.passengers || r.pax || 0);
+                  const todayGross = Number(today?.grossCents || 0);
+                  const pct = sharePct(gross, todayGross);
+                  return (
+                    <tr key={r.id} className="border-b border-slate-100 text-slate-800 transition hover:bg-slate-50/70">
+                      <td className="px-3 py-2.5">
+                        <div className="font-medium">{r.name || "—"}</div>
+                        {r.login ? <div className="text-xs text-slate-500">{r.login}</div> : null}
+                      </td>
+                      <td className="px-3 py-2.5 text-right tabular-nums">{fmtMoneyBR(gross)}</td>
+                      <td className="px-3 py-2.5 text-xs text-slate-600">
+                        {fmtInt(sales)} vendas • {fmtInt(pax)} pax
+                      </td>
+                      <td className="px-3 py-2.5 text-right tabular-nums text-slate-600">
+                        {pct != null ? fmtPctRaw(pct) : "—"}
+                      </td>
+                    </tr>
+                  );
+                })}
+                {byEmployeeToday.length ? (
+                  <tr className="bg-slate-50/90 font-semibold text-slate-900">
+                    <td className="px-3 py-2.5">Total</td>
+                    <td className="px-3 py-2.5 text-right tabular-nums">
+                      {fmtMoneyBR(Number(today?.grossCents || 0))}
+                    </td>
+                    <td className="px-3 py-2.5 text-xs font-normal text-slate-600">
+                      {fmtInt(Number(today?.salesCount || 0))} vendas • {fmtInt(Number(today?.passengers || 0))} pax
+                    </td>
+                    <td className="px-3 py-2.5 text-right tabular-nums">
+                      {Number(today?.grossCents || 0) > 0 ? "100,0%" : "—"}
+                    </td>
+                  </tr>
+                ) : (
+                  <tr>
+                    <td className="px-3 py-4 text-sm text-slate-500" colSpan={4}>
+                      Sem vendas hoje.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
 
       <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
         <Card
