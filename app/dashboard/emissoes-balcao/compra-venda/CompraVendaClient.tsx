@@ -1,6 +1,6 @@
 "use client";
 
-import { Dispatch, FormEvent, SetStateAction, useCallback, useEffect, useMemo, useState } from "react";
+import { Dispatch, FormEvent, SetStateAction, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   affiliateCommissionCents as calcAffiliateCommissionCents,
   affiliateNetProfitAfterCommissionCents,
@@ -69,6 +69,7 @@ type Row = {
       login: string | null;
     };
   } | null;
+  canEditToday?: boolean;
 };
 
 type Resumo = {
@@ -175,20 +176,31 @@ function formatDateTime(iso: string) {
   return d.toLocaleString("pt-BR");
 }
 
-function todayISORecife() {
+function recifeDateISO(date = new Date()) {
   const parts = new Intl.DateTimeFormat("en-CA", {
     timeZone: "America/Recife",
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
   })
-    .formatToParts(new Date())
+    .formatToParts(date)
     .reduce<Record<string, string>>((acc, p) => {
       acc[p.type] = p.value;
       return acc;
     }, {});
 
   return `${parts.year}-${parts.month}-${parts.day}`;
+}
+
+function todayISORecife() {
+  return recifeDateISO(new Date());
+}
+
+function canEditRowToday(row: Pick<Row, "createdAt" | "canEditToday">) {
+  if (typeof row.canEditToday === "boolean") return row.canEditToday;
+  const created = new Date(row.createdAt);
+  if (Number.isNaN(created.getTime())) return false;
+  return recifeDateISO(created) === todayISORecife();
 }
 
 function resolveTaxPercentForDate(dateISO: string, rule: TaxRule) {
@@ -219,6 +231,8 @@ export default function CompraVendaClient() {
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const formRef = useRef<HTMLFormElement | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const [q, setQ] = useState("");
@@ -578,9 +592,10 @@ export default function CompraVendaClient() {
     setSaving(true);
     try {
       const res = await fetch("/api/emissoes-balcao", {
-        method: "POST",
+        method: editingId ? "PATCH" : "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          ...(editingId ? { id: editingId } : {}),
           supplierClienteId: form.supplierClienteId,
           finalClienteId: form.finalClienteId,
           employeeId: form.employeeId,
@@ -600,9 +615,12 @@ export default function CompraVendaClient() {
       };
 
       if (!res.ok || !data?.ok) {
-        throw new Error(data?.error || "Erro ao registrar operação.");
+        throw new Error(
+          data?.error || (editingId ? "Erro ao corrigir operação." : "Erro ao registrar operação.")
+        );
       }
 
+      setEditingId(null);
       setForm((prev) => ({
         ...prev,
         points: "",
@@ -612,10 +630,48 @@ export default function CompraVendaClient() {
 
       await loadRows(q);
     } catch (e: unknown) {
-      alert(getErrorMessage(e, "Falha ao salvar operação."));
+      alert(getErrorMessage(e, editingId ? "Falha ao corrigir operação." : "Falha ao salvar operação."));
     } finally {
       setSaving(false);
     }
+  }
+
+  function startEdit(row: Row) {
+    if (!canEditRowToday(row)) {
+      alert("Só é possível corrigir a operação até o fim do dia em que ela foi lançada.");
+      return;
+    }
+
+    setEditingId(row.id);
+    setSelectedSupplier(row.supplierCliente);
+    setSelectedFinalClient(row.finalCliente);
+    setSupplierQ("");
+    setFinalClientQ("");
+    setForm({
+      supplierClienteId: row.supplierCliente.id,
+      finalClienteId: row.finalCliente.id,
+      employeeId: row.employee?.id || "",
+      airline: row.airline,
+      points: String(row.points || ""),
+      buyRate: formatRate(row.buyRateCents),
+      sellRate: formatRate(row.sellRateCents),
+      boardingFee: formatRate(row.boardingFeeCents),
+      locator: row.locator || "",
+      note: row.note || "",
+    });
+    window.setTimeout(() => {
+      formRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 0);
+  }
+
+  function cancelEdit() {
+    setEditingId(null);
+    setForm((prev) => ({
+      ...prev,
+      points: "",
+      locator: "",
+      note: "",
+    }));
   }
 
   const suppliers = supplierOptions;
@@ -689,7 +745,20 @@ export default function CompraVendaClient() {
         </div>
       </div>
 
-      <form onSubmit={onSubmit} className="rounded border border-zinc-200 bg-white p-4 space-y-4">
+      <form ref={formRef} onSubmit={onSubmit} className="rounded border border-zinc-200 bg-white p-4 space-y-4">
+        {editingId ? (
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+            <span>Corrigindo uma operação de hoje. As alterações valem até o fim do dia.</span>
+            <button
+              type="button"
+              onClick={cancelEdit}
+              className="h-8 rounded border border-amber-300 bg-white px-3 text-xs font-medium text-amber-900"
+              disabled={saving}
+            >
+              Cancelar correção
+            </button>
+          </div>
+        ) : null}
         <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
           <div className="space-y-2 text-sm">
             <span className="block text-zinc-700">Fornecedor</span>
@@ -904,13 +973,27 @@ export default function CompraVendaClient() {
           Regra de imposto: {taxRule.effectiveISO ? `${taxRule.configuredPercent}% desde ${taxRule.effectiveISO}` : `${taxRule.defaultPercent}% (padrão)`}.
         </div>
 
-        <div className="flex justify-end">
+        <div className="flex justify-end gap-2">
+          {editingId ? (
+            <button
+              type="button"
+              onClick={cancelEdit}
+              disabled={saving}
+              className="h-10 rounded border border-zinc-300 bg-white px-4 text-sm text-zinc-800 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              Cancelar
+            </button>
+          ) : null}
           <button
             type="submit"
             disabled={saving || loading}
             className="h-10 rounded bg-zinc-900 px-4 text-sm text-white disabled:cursor-not-allowed disabled:opacity-50"
           >
-            {saving ? "Salvando..." : "Registrar operação"}
+            {saving
+              ? "Salvando..."
+              : editingId
+                ? "Salvar correção"
+                : "Registrar operação"}
           </button>
         </div>
       </form>
@@ -936,24 +1019,30 @@ export default function CompraVendaClient() {
               <th className="p-3">Comissão vendedor</th>
               <th className="p-3">Localizador</th>
               <th className="p-3">Funcionário</th>
+              <th className="p-3">Ação</th>
             </tr>
           </thead>
           <tbody>
             {loading ? (
               <tr>
-                <td className="p-4 text-zinc-600" colSpan={17}>
+                <td className="p-4 text-zinc-600" colSpan={18}>
                   Carregando...
                 </td>
               </tr>
             ) : rows.length === 0 ? (
               <tr>
-                <td className="p-4 text-zinc-600" colSpan={17}>
+                <td className="p-4 text-zinc-600" colSpan={18}>
                   Nenhuma operação registrada.
                 </td>
               </tr>
             ) : (
               rows.map((row) => (
-                <tr key={row.id} className="border-t border-zinc-100 align-top">
+                <tr
+                  key={row.id}
+                  className={`border-t border-zinc-100 align-top ${
+                    editingId === row.id ? "bg-amber-50/70" : ""
+                  }`}
+                >
                   <td className="p-3 whitespace-nowrap">{formatDateTime(row.createdAt)}</td>
 
                   <td className="p-3">
@@ -1009,6 +1098,22 @@ export default function CompraVendaClient() {
                       </>
                     ) : (
                       <span className="text-zinc-500">—</span>
+                    )}
+                  </td>
+                  <td className="p-3 whitespace-nowrap">
+                    {canEditRowToday(row) ? (
+                      <button
+                        type="button"
+                        onClick={() => startEdit(row)}
+                        disabled={saving}
+                        className="h-8 rounded border border-zinc-300 bg-white px-3 text-xs font-medium text-zinc-800 hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {editingId === row.id ? "Editando" : "Corrigir"}
+                      </button>
+                    ) : (
+                      <span className="text-xs text-zinc-400" title="Correção só no mesmo dia">
+                        Encerrado
+                      </span>
                     )}
                   </td>
                 </tr>
