@@ -244,3 +244,39 @@ export async function POST(req: NextRequest) {
     );
   }
 }
+
+export async function PATCH(req: NextRequest) {
+  try {
+    const session = await getSessionServer();
+    const team = String(session?.team || "");
+    if (!team) {
+      return NextResponse.json({ ok: false, error: "Não autenticado." }, { status: 401 });
+    }
+
+    const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
+    const isActive = body.isActive === true ? true : body.isActive === false ? false : null;
+    if (isActive == null) {
+      return NextResponse.json({ ok: false, error: "Informe se vai ativar ou inativar." }, { status: 400 });
+    }
+
+    const result = isActive
+      ? await prisma.affiliate.updateMany({
+          where: { team, isActive: false, status: AFFILIATE_STATUS.APPROVED },
+          data: { isActive: true },
+        })
+      : await prisma.affiliate.updateMany({
+          where: { team, isActive: true },
+          data: { isActive: false },
+        });
+
+    return NextResponse.json({
+      ok: true,
+      data: { updated: result.count, isActive },
+    });
+  } catch (error: unknown) {
+    return NextResponse.json(
+      { ok: false, error: getErrorMessage(error, "Erro ao alterar afiliados.") },
+      { status: 500 }
+    );
+  }
+}

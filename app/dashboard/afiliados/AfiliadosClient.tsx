@@ -175,6 +175,7 @@ export default function AfiliadosClient() {
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
   const [portalUrl, setPortalUrl] = useState("/afiliado/login");
   const [copiedLink, setCopiedLink] = useState("");
+  const [bulkBusy, setBulkBusy] = useState(false);
 
   const editing = useMemo(
     () => rows.find((row) => row.id === editingId) || null,
@@ -333,6 +334,39 @@ export default function AfiliadosClient() {
     }
   }
 
+  const activeCount = rows.filter((row) => row.isActive).length;
+  const inactiveApprovedCount = rows.filter(
+    (row) => !row.isActive && row.status !== "PENDING" && row.status !== "REJECTED"
+  ).length;
+
+  async function bulkSetActive(isActive: boolean) {
+    const count = isActive ? inactiveApprovedCount : activeCount;
+    if (!count) return;
+    const ok = window.confirm(
+      isActive
+        ? `Ativar ${count} afiliado(s) inativo(s)?`
+        : `Inativar ${count} afiliado(s) ativo(s)? Novas vendas deixam de gerar comissão.`
+    );
+    if (!ok) return;
+
+    setBulkBusy(true);
+    setError("");
+    try {
+      const r = await fetch("/api/afiliados", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ isActive }),
+      });
+      const j = await r.json();
+      if (!j?.ok) throw new Error(j?.error || "Erro ao alterar afiliados.");
+      await load(q);
+    } catch (e: unknown) {
+      setError(errorMessage(e, "Erro ao alterar afiliados."));
+    } finally {
+      setBulkBusy(false);
+    }
+  }
+
   const passwordRequired = !editing || !editing.hasAccess;
   const canSave =
     form.name.trim().length > 1 &&
@@ -359,6 +393,24 @@ export default function AfiliadosClient() {
             className="rounded-xl border px-4 py-2 text-sm hover:bg-slate-50 disabled:opacity-60"
           >
             {loading ? "Atualizando..." : "Atualizar"}
+          </button>
+          <button
+            type="button"
+            onClick={() => void bulkSetActive(false)}
+            disabled={loading || bulkBusy || activeCount === 0}
+            className="rounded-xl border border-slate-300 px-4 py-2 text-sm text-slate-800 hover:bg-slate-50 disabled:opacity-60"
+            title="Inativa todos os afiliados ativos. Novas vendas não geram comissão."
+          >
+            {bulkBusy ? "Alterando..." : `Inativar todos (${activeCount})`}
+          </button>
+          <button
+            type="button"
+            onClick={() => void bulkSetActive(true)}
+            disabled={loading || bulkBusy || inactiveApprovedCount === 0}
+            className="rounded-xl border border-slate-300 px-4 py-2 text-sm text-slate-800 hover:bg-slate-50 disabled:opacity-60"
+            title="Reativa os afiliados aprovados que estão inativos."
+          >
+            {bulkBusy ? "Alterando..." : `Ativar todos (${inactiveApprovedCount})`}
           </button>
           <button
             type="button"
