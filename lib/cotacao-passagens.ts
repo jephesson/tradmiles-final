@@ -310,11 +310,19 @@ export function buildLatamSearchUrl(origin: string, dest: string, dateISO: strin
   return `https://www.latamairlines.com/br/pt/oferta-voos?${q.toString()}`;
 }
 
-export function buildSmilesSearchUrl(origin: string, dest: string, dateISO: string, adults = 1) {
+export function buildSmilesSearchUrl(
+  origin: string,
+  dest: string,
+  dateISO: string,
+  adults = 1,
+  returnISO?: string | null
+) {
   const o = toIata(origin);
   const d = toIata(dest);
   const ms = smilesMidnightMs(dateISO);
   if (!/^[A-Z]{3}$/.test(o) || !/^[A-Z]{3}$/.test(d) || !ms) return "";
+  const returnMs = returnISO && isISODate(returnISO) && returnISO >= dateISO ? smilesMidnightMs(returnISO) : 0;
+  const roundTrip = returnMs > 0;
   const q = new URLSearchParams();
   q.set("adults", String(Math.max(1, Math.trunc(adults || 1))));
   q.set("cabin", "ECONOMIC");
@@ -324,8 +332,15 @@ export function buildSmilesSearchUrl(origin: string, dest: string, dateISO: stri
   q.set("isElegible", "false");
   q.set("isFlexibleDateChecked", "false");
   q.set("searchType", "g3");
-  q.set("segments", "1");
-  q.set("tripType", "1");
+  if (roundTrip) {
+    q.set("segments", "2");
+    q.set("tripType", "2");
+    q.set("returnDate", String(returnMs));
+  } else {
+    q.set("segments", "1");
+    q.set("tripType", "1");
+    q.set("returnDate", "");
+  }
   q.set("originAirport", o);
   q.set("originCity", "");
   q.set("originCountry", "");

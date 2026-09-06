@@ -287,6 +287,8 @@ export default function CotacaoPassagensClient() {
   const comboCents = job?.includeReturn ? (bestIda?.priceCents || 0) + (bestVolta?.priceCents || 0) : 0;
   const cashPrice = comboCents > 0 ? comboCents : bestIda?.priceCents || 0;
   const cashLabel = comboCents > 0 ? "À vista (ida + volta)" : bestIda ? "À vista · Google Flights" : "À vista";
+  const smilesReturnDate =
+    job?.includeReturn && bestIda?.date && bestVolta?.date && bestVolta.date >= bestIda.date ? bestVolta.date : null;
 
   const ciaRows = useMemo(() => {
     return CIA_META.map(({ key, label }) => {
@@ -682,9 +684,20 @@ export default function CotacaoPassagensClient() {
               {job.includeReturn ? " · ida e volta" : " · só ida"}
             </p>
           ) : null}
-          <BestCard title="Ida mais barata" row={bestIda} running={job?.status === "RUNNING"} />
+          <BestCard
+            title="Ida mais barata"
+            row={bestIda}
+            running={job?.status === "RUNNING"}
+            error={(job?.searches || []).find((s) => s.direction === "IDA" && s.status === "ERRO")?.error}
+            smilesReturnDate={smilesReturnDate}
+          />
           {job?.includeReturn ? (
-            <BestCard title="Volta mais barata" row={bestVolta} running={job?.status === "RUNNING"} />
+            <BestCard
+              title="Volta mais barata"
+              row={bestVolta}
+              running={job?.status === "RUNNING"}
+              error={(job?.searches || []).find((s) => s.direction === "VOLTA" && s.status === "ERRO")?.error}
+            />
           ) : null}
           {job && (job.filterMaxDurationMin || job.filterDepFrom || job.filterDepTo || job.filterDirectOnly) ? (
             <p className="text-xs text-slate-500">
@@ -766,7 +779,13 @@ export default function CotacaoPassagensClient() {
               r.key === "latam" && quoteRow
                 ? buildLatamSearchUrl(quoteRow.originIata, quoteRow.destIata, quoteRow.date)
                 : r.key === "smiles" && quoteRow
-                  ? buildSmilesSearchUrl(quoteRow.originIata, quoteRow.destIata, quoteRow.date)
+                  ? buildSmilesSearchUrl(
+                      quoteRow.originIata,
+                      quoteRow.destIata,
+                      quoteRow.date,
+                      1,
+                      smilesReturnDate
+                    )
                   : r.key === "azul" && quoteRow
                     ? buildAzulSearchUrl(quoteRow.originIata, quoteRow.destIata, quoteRow.date)
                     : "";
@@ -947,9 +966,23 @@ export default function CotacaoPassagensClient() {
   );
 }
 
-function BestCard({ title, row, running }: { title: string; row: SearchRow | null; running?: boolean }) {
+function BestCard({
+  title,
+  row,
+  running,
+  error,
+  smilesReturnDate,
+}: {
+  title: string;
+  row: SearchRow | null;
+  running?: boolean;
+  error?: string | null;
+  smilesReturnDate?: string | null;
+}) {
   const latam = row ? buildLatamSearchUrl(row.originIata, row.destIata, row.date) : "";
-  const smiles = row ? buildSmilesSearchUrl(row.originIata, row.destIata, row.date) : "";
+  const smiles = row
+    ? buildSmilesSearchUrl(row.originIata, row.destIata, row.date, 1, smilesReturnDate)
+    : "";
   const azul = row ? buildAzulSearchUrl(row.originIata, row.destIata, row.date) : "";
   return (
     <div className="rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm">
@@ -1017,7 +1050,11 @@ function BestCard({ title, row, running }: { title: string; row: SearchRow | nul
         </>
       ) : (
         <div className="mt-2 text-sm text-slate-500">
-          {running ? "Consultando o Google Flights…" : "Ainda sem resultado."}
+          {running
+            ? "Consultando o Google Flights…"
+            : error
+              ? error
+              : "Ainda sem resultado."}
         </div>
       )}
     </div>
