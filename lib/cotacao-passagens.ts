@@ -178,7 +178,7 @@ export function buildDecolarCashSearchUrl(origin: string, dest: string, dateISO:
   const adt = Math.max(1, Math.trunc(adults || 1));
   return (
     `https://www.decolar.com/shop/flights/results/oneway/` +
-    `${encodeURIComponent(o)}/${encodeURIComponent(d)}/${dateISO}/${adt}/0/0?from=SB&di=1&reSearch=true`
+    `${encodeURIComponent(o)}/${encodeURIComponent(d)}/${dateISO}/${adt}/0/0?from=SB&di=1`
   );
 }
 

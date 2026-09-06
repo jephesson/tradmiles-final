@@ -13,7 +13,7 @@ const TRADE_TABS = [
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg?.type === "TM_COTACAO_PING") {
     chrome.storage.local.get(["tmCaptureOn"]).then((st) => {
-      sendResponse({ ok: true, version: "1.8.7", captureOn: Boolean(st.tmCaptureOn) });
+      sendResponse({ ok: true, version: "1.8.8", captureOn: Boolean(st.tmCaptureOn) });
     });
     return true;
   }
@@ -119,7 +119,7 @@ chrome.tabs.onUpdated.addListener((tabId, info, tab) => {
   if (isCotacaoUrl(url) && (info.url || info.status === "complete")) {
     requestStart();
   }
-  if (info.status !== "complete") return;
+  if (info.status !== "loading" && info.status !== "complete") return;
   chrome.storage.local.get(["tmTabId", "tmBusy"]).then((st) => {
     if (!st.tmBusy) return;
     const file = scriptForUrl(tab?.url || "");
@@ -226,10 +226,6 @@ function filtersFromSearch(search) {
   };
 }
 
-function sleep(ms) {
-  return new Promise((r) => setTimeout(r, ms));
-}
-
 async function rememberUserWindow() {
   try {
     const w = await chrome.windows.getLastFocused();
@@ -251,16 +247,10 @@ async function yankFocusToUser(workerId) {
   const { tmUserWindowId } = await chrome.storage.local.get(["tmUserWindowId"]);
   const userId = tmUserWindowId;
   if (!userId || userId === workerId) return;
-  for (const delay of [0, 150, 450]) {
-    if (delay) await sleep(delay);
-    try {
-      const cur = await chrome.windows.getLastFocused();
-      if (!cur || cur.id === workerId || delay === 0) {
-        await chrome.windows.update(userId, { focused: true });
-      }
-    } catch {
-      /* janela do usuário já fechou */
-    }
+  try {
+    await chrome.windows.update(userId, { focused: true });
+  } catch {
+    /* janela do usuário já fechou */
   }
 }
 
