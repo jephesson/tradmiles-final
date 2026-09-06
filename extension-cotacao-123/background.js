@@ -13,7 +13,7 @@ const TRADE_TABS = [
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg?.type === "TM_COTACAO_PING") {
     chrome.storage.local.get(["tmCaptureOn"]).then((st) => {
-      sendResponse({ ok: true, version: "1.8.10", captureOn: Boolean(st.tmCaptureOn) });
+      sendResponse({ ok: true, version: "1.8.11", captureOn: Boolean(st.tmCaptureOn) });
     });
     return true;
   }
@@ -213,7 +213,7 @@ async function beginSearch(search) {
     tmLast: `Abrindo ${search.airline || ""} ${search.originIata || ""}→${search.destIata || ""}`,
     tmFilters: filtersFromSearch(search),
   });
-  chrome.alarms.create("tm-cotacao-timeout", { delayInMinutes: 2 });
+  chrome.alarms.create("tm-cotacao-timeout", { delayInMinutes: 1 });
   await openSearchWindow(search.url);
 }
 
@@ -413,7 +413,8 @@ async function saveViaTabs(searchId, payload) {
 }
 
 async function onResult(payload) {
-  const stored = await chrome.storage.local.get(["tmActiveSearchId"]);
+  const stored = await chrome.storage.local.get(["tmActiveSearchId", "tmBusy"]);
+  if (!stored.tmBusy) return;
   const searchId = payload.searchId || stored.tmActiveSearchId;
   if (!searchId) {
     await chrome.storage.local.set({ tmBusy: false });
