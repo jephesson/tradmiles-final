@@ -26,7 +26,7 @@ if (!window.__tmCotacaoBridge) {
       }
       window.dispatchEvent(
         new CustomEvent("tm-cotacao-bridge", {
-          detail: { connected, version: "1.8.9", captureOn: Boolean(extra?.captureOn) },
+          detail: { connected, version: "1.8.10", captureOn: Boolean(extra?.captureOn) },
         })
       );
     } catch {
@@ -58,10 +58,14 @@ if (!window.__tmCotacaoBridge) {
   }
 
   function kick() {
-    if (dead || !onCotacaoPage()) return;
-    const jobId = document.body?.dataset?.tmCotacaoJob || "";
-    if (jobId) chrome.storage.local.set({ tmJobId: jobId });
-    send("TM_COTACAO_START");
+    if (dead || !onCotacaoPage() || !runtimeAlive()) return;
+    try {
+      const jobId = document.body?.dataset?.tmCotacaoJob || "";
+      if (jobId) chrome.storage.local.set({ tmJobId: jobId });
+      send("TM_COTACAO_START");
+    } catch {
+      dead = true;
+    }
   }
 
   try {

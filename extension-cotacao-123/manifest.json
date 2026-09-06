@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "TradeMiles Cotação",
-  "version": "1.8.9",
+  "version": "1.8.10",
   "description": "Decolar à vista; nas milhas você seleciona o voo e a IA lê milhas e taxa.",
   "permissions": ["tabs", "windows", "storage", "alarms", "scripting"],
   "host_permissions": [

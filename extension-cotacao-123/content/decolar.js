@@ -1,29 +1,49 @@
 if (!globalThis.__tmDecolarScript) {
-  globalThis.__tmDecolarScript = true;
-  globalThis.__tmDecolarBoot = boot;
-  boot();
-} else {
-  globalThis.__tmDecolarBoot?.();
+globalThis.__tmDecolarScript = true;
+
+function pageKey(kind) {
+  return `tmdecolar:${kind}:${location.pathname}${location.search}`;
 }
 
 function boot() {
-  if (sessionStorage.getItem("tmdecolar:sent")) return;
+  if (sessionStorage.getItem(pageKey("sent"))) return;
   waitAndRun(run);
+}
+
+globalThis.__tmDecolarBoot = boot;
+boot();
+
+function alive() {
+  try {
+    return Boolean(chrome?.runtime?.id);
+  } catch {
+    return false;
+  }
 }
 
 function waitAndRun(fn) {
   const t0 = Date.now();
   const tick = () => {
-    if (sessionStorage.getItem("tmdecolar:sent") || sessionStorage.getItem("tmdecolar:run")) return;
-    chrome.runtime.sendMessage({ type: "TM_COTACAO_SHOULD_SCRAPE" }, (res) => {
-      if (res?.ok) {
-        if (sessionStorage.getItem("tmdecolar:run")) return;
-        sessionStorage.setItem("tmdecolar:run", "1");
-        fn();
-        return;
-      }
-      if (Date.now() - t0 < 20000) setTimeout(tick, 80);
-    });
+    if (sessionStorage.getItem(pageKey("sent")) || sessionStorage.getItem(pageKey("run"))) return;
+    if (!alive()) return;
+    try {
+      chrome.runtime.sendMessage({ type: "TM_COTACAO_SHOULD_SCRAPE" }, (res) => {
+        try {
+          if (!alive()) return;
+          if (res?.ok) {
+            if (sessionStorage.getItem(pageKey("run"))) return;
+            sessionStorage.setItem(pageKey("run"), "1");
+            fn();
+            return;
+          }
+          if (Date.now() - t0 < 25000) setTimeout(tick, 120);
+        } catch {
+          /* ignore */
+        }
+      });
+    } catch {
+      /* extensão recarregada */
+    }
   };
   tick();
 }
@@ -136,11 +156,16 @@ function pickFirstFlight() {
 }
 
 function sendResult(payload) {
-  if (sessionStorage.getItem("tmdecolar:sent")) return;
-  sessionStorage.setItem("tmdecolar:sent", "1");
-  chrome.runtime.sendMessage({ type: "TM_COTACAO_RESULT", ...payload }, () => {
-    void chrome.runtime.lastError;
-  });
+  if (sessionStorage.getItem(pageKey("sent"))) return;
+  sessionStorage.setItem(pageKey("sent"), "1");
+  if (!alive()) return;
+  try {
+    chrome.runtime.sendMessage({ type: "TM_COTACAO_RESULT", ...payload }, () => {
+      void chrome.runtime.lastError;
+    });
+  } catch {
+    /* ignore */
+  }
 }
 
 function finish(price) {
@@ -156,14 +181,8 @@ function finish(price) {
 
 function run() {
   document.querySelector("#onetrust-accept-btn-handler")?.click();
-  const first = pickFirstFlight();
-  if (first) {
-    finish(first);
-    return;
-  }
-  const t0 = Date.now();
   const poll = setInterval(() => {
-    if (sessionStorage.getItem("tmdecolar:sent")) {
+    if (sessionStorage.getItem(pageKey("sent"))) {
       clearInterval(poll);
       return;
     }
@@ -171,11 +190,17 @@ function run() {
     if (next) {
       clearInterval(poll);
       finish(next);
-      return;
     }
-    if (Date.now() - t0 > 12000) {
-      clearInterval(poll);
-      finish({ cents: 0, error: "Não achei o primeiro voo no Decolar." });
-    }
-  }, 120);
+  }, 200);
+  setTimeout(() => {
+    if (sessionStorage.getItem(pageKey("sent"))) return;
+    clearInterval(poll);
+    const last = pickFirstFlight();
+    if (last) finish(last);
+    else finish({ cents: 0, error: "Não achei o primeiro voo no Decolar." });
+  }, 35000);
+}
+
+} else {
+  globalThis.__tmDecolarBoot?.();
 }
