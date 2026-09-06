@@ -13,6 +13,8 @@ if (!globalThis.__tmCaptureMiles) {
   let bar = null;
   let statusEl = null;
   let previewEl = null;
+  let open = false;
+  let captureOn = false;
 
   function fmtMoney(cents) {
     return ((cents || 0) / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -32,50 +34,97 @@ if (!globalThis.__tmCaptureMiles) {
   }
 
   function refreshPreview() {
-    if (!previewEl) return;
+    if (!previewEl || !open) return;
     const t = selectedText();
     if (!t) {
-      previewEl.textContent = "Selecione na página o voo (milhas e taxa).";
+      previewEl.textContent = "Selecione milhas e taxa.";
       return;
     }
-    previewEl.textContent = t.length > 140 ? `${t.slice(0, 140)}…` : t;
+    previewEl.textContent = t.length > 90 ? `${t.slice(0, 90)}…` : t;
+  }
+
+  function render() {
+    if (!bar) return;
+    const panel = bar.querySelector("[data-tm-panel]");
+    const pill = bar.querySelector("[data-tm-pill]");
+    if (panel) panel.style.display = open ? "block" : "none";
+    if (pill) pill.style.display = open ? "none" : "flex";
+    refreshPreview();
   }
 
   function mount() {
     if (bar || !CIA) return;
     bar = document.createElement("div");
     bar.style.cssText =
-      "position:fixed;z-index:2147483647;right:16px;bottom:16px;width:300px;padding:12px 14px;border-radius:14px;background:#0f172a;color:#fff;font:13px/1.4 system-ui,sans-serif;box-shadow:0 10px 30px rgba(0,0,0,.28)";
-    bar.innerHTML = `<div style="font-weight:700;margin-bottom:4px">TradeMiles · ${CIA.toUpperCase()}</div>
-      <div data-tm-preview style="opacity:.9;font-size:12px;min-height:40px;max-height:72px;overflow:hidden"></div>
-      <button type="button" data-tm-send style="margin-top:10px;width:100%;height:36px;border:0;border-radius:10px;background:#22c55e;color:#052e16;font:700 13px system-ui;cursor:pointer">Ler seleção e enviar</button>
-      <div data-tm-status style="margin-top:8px;font-size:11px;opacity:.85"></div>`;
+      "position:fixed;z-index:2147483647;right:12px;bottom:12px;font:12px/1.35 system-ui,sans-serif;color:#e2e8f0";
+    bar.innerHTML = `
+      <button type="button" data-tm-pill style="display:flex;align-items:center;gap:6px;height:32px;padding:0 10px;border:0;border-radius:999px;background:rgba(15,23,42,.78);color:#e2e8f0;cursor:pointer;backdrop-filter:blur(8px);box-shadow:0 4px 16px rgba(0,0,0,.2)">
+        <span style="width:6px;height:6px;border-radius:99px;background:#34d399"></span>
+        TM
+      </button>
+      <div data-tm-panel style="display:none;width:240px;padding:10px 12px;border-radius:12px;background:rgba(15,23,42,.92);backdrop-filter:blur(10px);box-shadow:0 8px 24px rgba(0,0,0,.28)">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
+          <span style="font-weight:650;font-size:11px;letter-spacing:.02em">${CIA.toUpperCase()}</span>
+          <button type="button" data-tm-min style="border:0;background:transparent;color:#94a3b8;cursor:pointer;font-size:14px;line-height:1">–</button>
+        </div>
+        <div data-tm-preview style="margin-top:6px;opacity:.85;font-size:11px;min-height:28px;max-height:52px;overflow:hidden"></div>
+        <button type="button" data-tm-send style="margin-top:8px;width:100%;height:30px;border:0;border-radius:8px;background:#334155;color:#f8fafc;font:650 11px system-ui;cursor:pointer">Ler seleção</button>
+        <div data-tm-status style="margin-top:6px;font-size:10px;opacity:.8"></div>
+      </div>`;
     document.documentElement.appendChild(bar);
     previewEl = bar.querySelector("[data-tm-preview]");
     statusEl = bar.querySelector("[data-tm-status]");
+    bar.querySelector("[data-tm-pill]").addEventListener("click", () => {
+      open = true;
+      render();
+    });
+    bar.querySelector("[data-tm-min]").addEventListener("click", () => {
+      open = false;
+      render();
+    });
     bar.querySelector("[data-tm-send]").addEventListener("click", sendCapture);
+    render();
+  }
+
+  function unmount() {
+    bar?.remove();
+    bar = null;
+    previewEl = null;
+    statusEl = null;
+    open = false;
+  }
+
+  function applyCapture(on) {
+    captureOn = Boolean(on);
+    if (!CIA) return;
+    if (!captureOn) {
+      unmount();
+      return;
+    }
+    mount();
   }
 
   function sendCapture() {
     const snippet = selectedText();
     if (!snippet) {
-      statusEl.textContent = "Selecione o trecho do voo (milhas + taxa) e clique de novo.";
+      statusEl.textContent = "Selecione o trecho e tente de novo.";
       return;
     }
-    statusEl.textContent = "A IA está lendo o recorte…";
+    statusEl.textContent = "Lendo…";
     chrome.runtime.sendMessage({ type: "TM_COTACAO_INTERPRET_MILES", cia: CIA, snippet }, (res) => {
       void chrome.runtime.lastError;
       if (!res?.ok) {
-        statusEl.textContent = res?.error || "Abra a cotação no TradeMiles e tente de novo.";
+        statusEl.textContent = res?.error || "Abra a cotação no TradeMiles.";
         return;
       }
-      statusEl.textContent = `Enviado: ${fmtMiles(res.miles)} milhas · taxa ${fmtMoney(res.feeCents || 0)}`;
+      statusEl.textContent = `${fmtMiles(res.miles)} · ${fmtMoney(res.feeCents || 0)}`;
     });
   }
 
   document.addEventListener(
     "click",
     (e) => {
+      if (!captureOn) return;
       let el = e.target;
       if (!el || el === bar || bar?.contains(el)) return;
       for (let i = 0; i < 12 && el; i++) {
@@ -90,10 +139,13 @@ if (!globalThis.__tmCaptureMiles) {
     },
     true
   );
-  document.addEventListener("mouseup", () => setTimeout(refreshPreview, 50));
-  document.addEventListener("keyup", refreshPreview);
+  document.addEventListener("mouseup", () => {
+    if (captureOn) setTimeout(refreshPreview, 50);
+  });
 
-  mount();
-  setInterval(refreshPreview, 1000);
-  refreshPreview();
+  chrome.storage.local.get(["tmCaptureOn"], (st) => applyCapture(Boolean(st.tmCaptureOn)));
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area !== "local" || !changes.tmCaptureOn) return;
+    applyCapture(Boolean(changes.tmCaptureOn.newValue));
+  });
 }

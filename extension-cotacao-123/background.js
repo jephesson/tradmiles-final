@@ -12,8 +12,15 @@ const TRADE_TABS = [
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg?.type === "TM_COTACAO_PING") {
-    sendResponse({ ok: true, version: "1.8.6" });
-    return false;
+    chrome.storage.local.get(["tmCaptureOn"]).then((st) => {
+      sendResponse({ ok: true, version: "1.8.7", captureOn: Boolean(st.tmCaptureOn) });
+    });
+    return true;
+  }
+  if (msg?.type === "TM_COTACAO_SET_CAPTURE") {
+    const on = Boolean(msg.on);
+    chrome.storage.local.set({ tmCaptureOn: on }).then(() => sendResponse({ ok: true, captureOn: on }));
+    return true;
   }
   if (msg?.type === "TM_COTACAO_OPEN") {
     beginSearch(msg.search)

@@ -145,6 +145,7 @@ export default function CotacaoPassagensClient() {
   const [loading, setLoading] = useState(false);
   const [startError, setStartError] = useState("");
   const [extOn, setExtOn] = useState(false);
+  const [captureOn, setCaptureOn] = useState(false);
   const [extReload, setExtReload] = useState(false);
   const [ciaQuotes, setCiaQuotes] = useState<Record<CiaKey, CiaDraft>>({
     latam: emptyCia(),
@@ -181,10 +182,13 @@ export default function CotacaoPassagensClient() {
     const sync = () => {
       if (document.documentElement.dataset.tmCotacaoExt) setExtOn(true);
       if (document.documentElement.dataset.tmCotacaoExtReload) setExtReload(true);
+      if (document.documentElement.dataset.tmCaptureOn === "1") setCaptureOn(true);
+      if (document.documentElement.dataset.tmCaptureOn === "0") setCaptureOn(false);
     };
     const onBridge = (e: Event) => {
-      const d = (e as CustomEvent<{ connected?: boolean; reload?: boolean }>).detail || {};
+      const d = (e as CustomEvent<{ connected?: boolean; reload?: boolean; captureOn?: boolean }>).detail || {};
       setExtOn(Boolean(d.connected));
+      if (d.captureOn != null) setCaptureOn(Boolean(d.captureOn));
       if (d.reload) setExtReload(true);
     };
     sync();
@@ -421,8 +425,8 @@ export default function CotacaoPassagensClient() {
               Cotação de passagens
             </h1>
             <p className="mt-1 max-w-2xl text-sm text-slate-500">
-              A extensão pesquisa só o Decolar. Depois você abre LATAM, Smiles ou Azul, seleciona o trecho do voo e a
-              IA lê milhas e taxa.
+              A extensão pesquisa só o Decolar. Nas milhas, ligue a captura aqui, abra a cia, selecione o voo e leia
+              milhas e taxa.
             </p>
           </div>
           <div className="flex flex-col items-stretch gap-2 sm:items-end">
@@ -434,6 +438,20 @@ export default function CotacaoPassagensClient() {
             >
               {extOk ? "Extensão conectada" : "Instale a extensão para cotar"}
             </div>
+            <label className="inline-flex h-10 cursor-pointer items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-800">
+              <input
+                type="checkbox"
+                className="h-4 w-4 accent-slate-900"
+                checked={captureOn}
+                disabled={!extOk}
+                onChange={(e) => {
+                  const on = e.target.checked;
+                  setCaptureOn(on);
+                  window.dispatchEvent(new CustomEvent("tm-cotacao-capture", { detail: { on } }));
+                }}
+              />
+              Captura nas cias
+            </label>
             <a
               href={ZIP_HREF}
               download
@@ -947,7 +965,7 @@ function BestCard({ title, row, running }: { title: string; row: SearchRow | nul
             ) : null}
           </div>
           <p className="mt-2 text-[11px] leading-snug text-slate-500">
-            Abra a cia, selecione o trecho do voo (milhas e taxa) e clique em Ler seleção e enviar.
+            Abra a cia com a captura ligada. Selecione o trecho e toque no TM no canto.
           </p>
         </>
       ) : (

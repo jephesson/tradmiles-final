@@ -16,14 +16,17 @@ if (!window.__tmCotacaoBridge) {
     }
   }
 
-  function notify(connected) {
+  function notify(connected, extra) {
     if (dead || !runtimeAlive()) return;
     try {
       if (connected) document.documentElement.dataset.tmCotacaoExt = "1";
       else delete document.documentElement.dataset.tmCotacaoExt;
+      if (extra && extra.captureOn != null) {
+        document.documentElement.dataset.tmCaptureOn = extra.captureOn ? "1" : "0";
+      }
       window.dispatchEvent(
         new CustomEvent("tm-cotacao-bridge", {
-          detail: { connected, version: "1.8.6" },
+          detail: { connected, version: "1.8.7", captureOn: Boolean(extra?.captureOn) },
         })
       );
     } catch {
@@ -170,8 +173,12 @@ if (!window.__tmCotacaoBridge) {
     /* ignore */
   }
 
-  send("TM_COTACAO_PING", (res) => notify(Boolean(res?.ok)));
+  send("TM_COTACAO_PING", (res) => notify(Boolean(res?.ok), res));
   window.addEventListener("tm-cotacao-kick", kick);
+  window.addEventListener("tm-cotacao-capture", (e) => {
+    const on = Boolean(e.detail?.on);
+    send({ type: "TM_COTACAO_SET_CAPTURE", on }, (res) => notify(true, res));
+  });
   window.addEventListener("tm-cotacao-open", (e) => {
     const search = e.detail;
     if (!search?.url) return;
