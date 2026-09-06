@@ -15,14 +15,17 @@ if (!window.__tmCotacaoBridge) {
     }
   }
 
+  let dead = false;
+
   function notify(connected, extra) {
     try {
       if (connected) document.documentElement.dataset.tmCotacaoExt = "1";
       else delete document.documentElement.dataset.tmCotacaoExt;
       if (extra?.reload) document.documentElement.dataset.tmCotacaoExtReload = "1";
+      if (dead) return;
       window.dispatchEvent(
         new CustomEvent("tm-cotacao-bridge", {
-          detail: { connected, version: "1.5.1", reload: Boolean(extra?.reload) },
+          detail: { connected, version: "1.5.2", reload: Boolean(extra?.reload) },
         })
       );
     } catch {
@@ -31,11 +34,18 @@ if (!window.__tmCotacaoBridge) {
   }
 
   function die() {
+    if (dead) return;
+    dead = true;
     if (pump) {
       clearInterval(pump);
       pump = 0;
     }
-    notify(false, { reload: true });
+    try {
+      delete document.documentElement.dataset.tmCotacaoExt;
+      document.documentElement.dataset.tmCotacaoExtReload = "1";
+    } catch {
+      /* ignore */
+    }
   }
 
   function send(type, cb) {

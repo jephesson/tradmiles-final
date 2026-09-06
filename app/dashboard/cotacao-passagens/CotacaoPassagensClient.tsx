@@ -163,7 +163,11 @@ export default function CotacaoPassagensClient() {
   }
 
   useEffect(() => {
-    void load();
+    void (async () => {
+      const r = await fetch("/api/cotacao-passagens", { cache: "no-store" });
+      const j = await r.json().catch(() => null);
+      if (j?.ok && j.job?.status === "RUNNING") setJob(j.job);
+    })();
   }, []);
 
   useEffect(() => {
@@ -228,7 +232,7 @@ export default function CotacaoPassagensClient() {
     return ok.sort((a, b) => a.priceCents - b.priceCents)[0] || null;
   }, [job]);
 
-  const comboCents = (bestIda?.priceCents || 0) + (bestVolta?.priceCents || 0);
+  const comboCents = job?.includeReturn ? (bestIda?.priceCents || 0) + (bestVolta?.priceCents || 0) : 0;
   const cashPrice = comboCents > 0 ? comboCents : bestIda?.priceCents || 0;
   const cashLabel = comboCents > 0 ? "À vista (ida + volta)" : `À vista${bestIda?.airline ? ` · ${bestIda.airline}` : ""}`;
 
@@ -575,8 +579,16 @@ export default function CotacaoPassagensClient() {
           <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 lg:pt-1">
             Passo 2 · Menor tarifa à vista
           </div>
+          {job ? (
+            <p className="text-xs text-slate-500">
+              Desta cotação: {job.origins} → {job.destinations}
+              {job.includeReturn ? " · ida e volta" : " · só ida"}
+            </p>
+          ) : null}
           <BestCard title="Ida mais barata" row={bestIda} running={job?.status === "RUNNING"} />
-          <BestCard title="Volta mais barata" row={bestVolta} running={job?.status === "RUNNING"} />
+          {job?.includeReturn ? (
+            <BestCard title="Volta mais barata" row={bestVolta} running={job?.status === "RUNNING"} />
+          ) : null}
           {job && (job.filterMaxDurationMin || job.filterDepFrom || job.filterDepTo || job.filterDirectOnly) ? (
             <p className="text-xs text-slate-500">
               Filtro desta cotação:{" "}
