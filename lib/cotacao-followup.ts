@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { ciaKeyFromMilesAirline, isScoutAirline } from "@/lib/cotacao-passagens";
+import { mergeQuoteLeg, type QuoteCiaCell } from "@/lib/cotacao-quote-cia";
 
 export async function enqueueCotacaoFollowups(jobId: string) {
   const job = await prisma.cotacaoPassagemJob.findUnique({
@@ -32,7 +33,12 @@ export async function enqueueCotacaoFollowups(jobId: string) {
   });
 }
 
-export async function mergeMilesIntoQuoteCia(jobId: string, airline: string, miles: number) {
+export async function mergeMilesIntoQuoteCia(
+  jobId: string,
+  airline: string,
+  miles: number,
+  direction: "IDA" | "VOLTA" = "IDA"
+) {
   const key = ciaKeyFromMilesAirline(airline);
   if (!key || miles <= 0) return;
   const job = await prisma.cotacaoPassagemJob.findUnique({
@@ -42,7 +48,7 @@ export async function mergeMilesIntoQuoteCia(jobId: string, airline: string, mil
   if (!job) return;
   const current = (job.quoteCia && typeof job.quoteCia === "object" ? job.quoteCia : {}) as Record<
     string,
-    { miles?: number; feeCents?: number; milheiroCents?: number }
+    QuoteCiaCell
   >;
   const prev = current[key] || {};
   await prisma.cotacaoPassagemJob.update({
@@ -50,7 +56,7 @@ export async function mergeMilesIntoQuoteCia(jobId: string, airline: string, mil
     data: {
       quoteCia: {
         ...current,
-        [key]: { miles, feeCents: prev.feeCents || 0, milheiroCents: prev.milheiroCents || 0 },
+        [key]: mergeQuoteLeg(prev, direction, { miles }),
       },
     },
   });

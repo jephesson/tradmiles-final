@@ -19,6 +19,7 @@ import {
   suggestedMilheiroCents,
 } from "@/lib/cotacao-passagens";
 import { CotacaoShareActions, CotacaoShareCard, type ShareLeg } from "./CotacaoShareCard";
+import { quoteLeg, type QuoteCiaCell } from "@/lib/cotacao-quote-cia";
 
 type SearchRow = {
   id: string;
@@ -48,10 +49,7 @@ type Job = {
   quoteMiles: number;
   quoteMilheiroCents: number;
   quoteBoardingFeeCents: number;
-  quoteCia?: Record<
-    string,
-    { miles?: number; feeCents?: number; milheiroCents?: number; depTime?: string; arrTime?: string }
-  > | null;
+  quoteCia?: Record<string, QuoteCiaCell> | null;
   filterMaxDurationMin?: number | null;
   filterDepFrom?: string | null;
   filterDepTo?: string | null;
@@ -60,7 +58,14 @@ type Job = {
 };
 
 type CiaKey = "latam" | "smiles" | "azul";
-type CiaDraft = { miles: string; fee: string; milheiro: string; milheiroManual: boolean };
+type CiaDraft = {
+  idaMiles: string;
+  idaFee: string;
+  voltaMiles: string;
+  voltaFee: string;
+  milheiro: string;
+  milheiroManual: boolean;
+};
 
 const CIA_META: { key: CiaKey; label: string }[] = [
   { key: "latam", label: "LATAM" },
@@ -69,19 +74,23 @@ const CIA_META: { key: CiaKey; label: string }[] = [
 ];
 
 function emptyCia(): CiaDraft {
-  return { miles: "", fee: "0,00", milheiro: "", milheiroManual: false };
+  return { idaMiles: "", idaFee: "0,00", voltaMiles: "", voltaFee: "0,00", milheiro: "", milheiroManual: false };
 }
-function fromSaved(row?: { miles?: number; feeCents?: number; milheiroCents?: number } | null): CiaDraft {
+function fromSaved(row?: QuoteCiaCell | null): CiaDraft {
   if (!row) return emptyCia();
+  const ida = quoteLeg(row, "IDA");
+  const volta = quoteLeg(row, "VOLTA");
   return {
-    miles: row.miles ? String(row.miles) : "",
-    fee: row.feeCents ? fromCents(row.feeCents) : "0,00",
+    idaMiles: ida.miles ? String(ida.miles) : "",
+    idaFee: ida.feeCents ? fromCents(ida.feeCents) : "0,00",
+    voltaMiles: volta.miles ? String(volta.miles) : "",
+    voltaFee: volta.feeCents ? fromCents(volta.feeCents) : "0,00",
     milheiro: row.milheiroCents ? fromCents(row.milheiroCents) : "",
     milheiroManual: Boolean(row.milheiroCents),
   };
 }
 
-const ZIP_HREF = "/downloads/trademiles-cotacao-gol-extension.zip";
+const ZIP_HREF = "/downloads/trademiles-cotacao-gol-extension.zip?v=1.8.12";
 const FIELD = "text-[11px] font-semibold uppercase tracking-wide text-slate-500";
 const INPUT =
   "mt-1 h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm shadow-sm outline-none focus:ring-2 focus:ring-slate-900/10";
@@ -178,8 +187,8 @@ function milesShareLeg(
   quote?: { depTime?: string; arrTime?: string } | null
 ): ShareLeg | null {
   const fromSearch = toShareLeg(pickMilesSearch(searches, key, direction));
-  const quoteDep = direction === "IDA" ? parseClock(quote?.depTime || "") : "";
-  const quoteArr = direction === "IDA" ? parseClock(quote?.arrTime || "") : "";
+  const quoteDep = parseClock(quote?.depTime || "");
+  const quoteArr = parseClock(quote?.arrTime || "");
   const dep = fromSearch?.depTime || quoteDep || "";
   const arr = fromSearch?.arrTime || quoteArr || "";
   const base = fromSearch || cashLeg;
@@ -311,9 +320,18 @@ export default function CotacaoPassagensClient() {
       let changed = false;
       for (const key of ["latam", "smiles", "azul"] as CiaKey[]) {
         const row = src[key];
-        if (!row?.miles) continue;
-        if (toMiles(next[key].miles) === row.miles && toCents(next[key].fee) === (row.feeCents || 0)) continue;
-        next[key] = fromSaved(row);
+        if (!row) continue;
+        const saved = fromSaved(row);
+        const cur = next[key];
+        if (
+          cur.idaMiles === saved.idaMiles &&
+          cur.idaFee === saved.idaFee &&
+          cur.voltaMiles === saved.voltaMiles &&
+          cur.voltaFee === saved.voltaFee
+        ) {
+          continue;
+        }
+        next[key] = { ...saved, milheiro: cur.milheiroManual ? cur.milheiro : saved.milheiro, milheiroManual: cur.milheiroManual };
         changed = true;
       }
       return changed ? next : prev;
@@ -329,8 +347,13 @@ export default function CotacaoPassagensClient() {
         if (s.status !== "OK" || !s.miles) continue;
         const key = ciaKeyFromMilesAirline(s.airline);
         if (!key) continue;
-        if (toMiles(next[key].miles) === s.miles) continue;
-        next[key] = { ...next[key], miles: String(s.miles), milheiroManual: false };
+        if (s.direction === "VOLTA") {
+          if (toMiles(next[key].voltaMiles) === s.miles) continue;
+          next[key] = { ...next[key], voltaMiles: String(s.miles), milheiroManual: false };
+        } else {
+          if (toMiles(next[key].idaMiles) === s.miles) continue;
+          next[key] = { ...next[key], idaMiles: String(s.miles), milheiroManual: false };
+        }
         changed = true;
       }
       return changed ? next : prev;
@@ -359,41 +382,59 @@ export default function CotacaoPassagensClient() {
     (s) => isScoutAirline(s.airline) && s.status === "ERRO" && s.error
   )?.error || "";
 
+  const rt = Boolean(job?.includeReturn);
   const ciaRows = useMemo(() => {
     return CIA_META.map(({ key, label }) => {
       const q = ciaQuotes[key];
-      const milesN = toMiles(q.miles);
-      const feeCents = toCents(q.fee);
+      const idaMiles = toMiles(q.idaMiles);
+      const voltaMiles = rt ? toMiles(q.voltaMiles) : 0;
+      const idaFee = toCents(q.idaFee);
+      const voltaFee = rt ? toCents(q.voltaFee) : 0;
+      const milesN = idaMiles + voltaMiles;
+      const feeCents = idaFee + voltaFee;
+      const ready = rt ? idaMiles > 0 && voltaMiles > 0 : idaMiles > 0;
       const minCents = minMilheiro[key] || 0;
-      const fromCash = suggestedMilheiroCents(cashPrice, milesN, feeCents);
-      const suggested = Math.max(fromCash, minCents);
-      const milheiroCents = q.milheiroManual ? toCents(q.milheiro) : suggested;
-      const total = milesN > 0 ? saleTotalCents(milesN, milheiroCents, feeCents) : 0;
+      const fromCash = ready ? suggestedMilheiroCents(cashPrice, milesN, feeCents) : 0;
+      const suggested = ready ? Math.max(fromCash, minCents) : 0;
+      const milheiroCents = ready ? (q.milheiroManual ? toCents(q.milheiro) : suggested) : 0;
+      const total = ready && milheiroCents > 0 ? saleTotalCents(milesN, milheiroCents, feeCents) : 0;
+      const idaTotal = ready && milheiroCents > 0 ? saleTotalCents(idaMiles, milheiroCents, idaFee) : 0;
+      const voltaTotal = ready && milheiroCents > 0 ? saleTotalCents(voltaMiles, milheiroCents, voltaFee) : 0;
       const discount = cashPrice > 0 && total > 0 ? cashPrice - total : 0;
       const discountPct = cashPrice > 0 && total > 0 ? Math.round((discount / cashPrice) * 1000) / 10 : 0;
       const belowMin = minCents > 0 && milheiroCents > 0 && milheiroCents < minCents;
       const meetsMin = minCents <= 0 || milheiroCents >= minCents;
       const usedFloor = minCents > 0 && suggested === minCents && fromCash > 0 && fromCash < minCents;
+      const saved = job?.quoteCia?.[key];
       return {
         key,
         label,
+        idaMiles,
+        voltaMiles,
+        idaFee,
+        voltaFee,
         milesN,
         feeCents,
+        ready,
         minCents,
         suggested,
         milheiroCents,
         total,
+        idaTotal,
+        voltaTotal,
         discount,
         discountPct,
         belowMin,
         meetsMin,
         usedFloor,
+        idaTimes: quoteLeg(saved, "IDA"),
+        voltaTimes: quoteLeg(saved, "VOLTA"),
         q,
       };
     });
-  }, [ciaQuotes, cashPrice, minMilheiro]);
+  }, [ciaQuotes, cashPrice, minMilheiro, rt, job?.quoteCia]);
 
-  const filledCias = ciaRows.filter((r) => r.milesN > 0 && r.total > 0);
+  const filledCias = ciaRows.filter((r) => r.ready && r.total > 0);
   const viableCias = filledCias.filter((r) => r.meetsMin);
   const bestCia = viableCias.length
     ? viableCias.reduce((a, b) => (a.total <= b.total ? a : b))
@@ -403,9 +444,15 @@ export default function CotacaoPassagensClient() {
     bestCia?.key ||
     filledCias[0]?.key ||
     null;
+  const bestIdaCia = ciaRows
+    .filter((r) => r.idaMiles > 0)
+    .reduce<(typeof ciaRows)[number] | null>((a, b) => (!a || b.idaMiles < a.idaMiles ? b : a), null);
+  const bestVoltaCia = ciaRows
+    .filter((r) => r.voltaMiles > 0)
+    .reduce<(typeof ciaRows)[number] | null>((a, b) => (!a || b.voltaMiles < a.voltaMiles ? b : a), null);
   const activeCia = ciaRows.find((r) => r.key === activeCiaKey) || null;
   const shareModel = useMemo(() => {
-    if (!activeCia || !cashPrice) return null;
+    if (!activeCia || !cashPrice || !activeCia.ready) return null;
     const searches = job?.searches || [];
     return {
       tripKind: job?.includeReturn ? "Ida e volta" : "Só ida",
@@ -423,7 +470,7 @@ export default function CotacaoPassagensClient() {
         "IDA",
         activeCia.label,
         toShareLeg(bestIda),
-        job?.quoteCia?.[activeCia.key]
+        quoteLeg(job?.quoteCia?.[activeCia.key], "IDA")
       ),
       milesVolta: job?.includeReturn
         ? milesShareLeg(
@@ -432,7 +479,7 @@ export default function CotacaoPassagensClient() {
             "VOLTA",
             activeCia.label,
             toShareLeg(bestVolta),
-            null
+            quoteLeg(job?.quoteCia?.[activeCia.key], "VOLTA")
           )
         : null,
     };
@@ -519,11 +566,19 @@ export default function CotacaoPassagensClient() {
       ciaRows.map((r) => [
         r.key,
         {
-          miles: r.milesN,
-          feeCents: r.feeCents,
           milheiroCents: r.milheiroCents,
-          depTime: job.quoteCia?.[r.key]?.depTime,
-          arrTime: job.quoteCia?.[r.key]?.arrTime,
+          ida: {
+            miles: r.idaMiles,
+            feeCents: r.idaFee,
+            depTime: quoteLeg(job.quoteCia?.[r.key], "IDA").depTime,
+            arrTime: quoteLeg(job.quoteCia?.[r.key], "IDA").arrTime,
+          },
+          volta: {
+            miles: r.voltaMiles,
+            feeCents: r.voltaFee,
+            depTime: quoteLeg(job.quoteCia?.[r.key], "VOLTA").depTime,
+            arrTime: quoteLeg(job.quoteCia?.[r.key], "VOLTA").arrTime,
+          },
         },
       ])
     );
@@ -770,7 +825,9 @@ export default function CotacaoPassagensClient() {
             </div>
           ) : cashPrice > 0 ? (
             <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-4 text-sm text-slate-500">
-              Preencha milhas e taxa em uma cia para montar a proposta.
+              {rt
+                ? "Leia a ida e a volta na cia. O milheiro e a proposta só fecham com os dois trechos."
+                : "Preencha milhas e taxa em uma cia para montar a proposta."}
             </div>
           ) : null}
         </div>
@@ -781,9 +838,12 @@ export default function CotacaoPassagensClient() {
           <div>
             <div className="text-sm font-semibold">Números das cias</div>
             <p className="text-xs text-slate-500">
+              {rt
+                ? "Ida e volta: separe os trechos. O milheiro só calcula depois da ida e da volta. "
+                : ""}
               {cashPrice
                 ? `À vista de referência: ${fmtMoney(cashPrice)}. O milheiro fica ~5% abaixo, sem passar do mínimo em `
-                : "Digite as milhas reais (o exemplo cinza não conta). O total do cliente aparece na hora. Mínimo em "}
+                : "Digite as milhas reais. Mínimo em "}
               <Link href="/dashboard/configuracoes" className="font-semibold text-slate-800 underline">
                 Configurações
               </Link>
@@ -800,12 +860,13 @@ export default function CotacaoPassagensClient() {
           </button>
         </div>
         <div className="mt-3 overflow-x-auto">
-          <table className="w-full min-w-[640px] text-sm">
+          <table className="w-full min-w-[780px] text-sm">
             <thead className="text-left text-[11px] font-semibold uppercase text-slate-400">
               <tr>
                 <th className="pb-2 pr-2">Cia</th>
-                <th className="pb-2 pr-2">Milhas</th>
-                <th className="pb-2 pr-2">Taxa</th>
+                <th className="pb-2 pr-2">Ida</th>
+                {rt ? <th className="pb-2 pr-2">Volta</th> : null}
+                <th className="pb-2 pr-2">Total</th>
                 <th className="pb-2 pr-2">Milheiro</th>
                 <th className="pb-2 pr-2">Cliente paga</th>
                 <th className="pb-2">vs à vista</th>
@@ -817,40 +878,96 @@ export default function CotacaoPassagensClient() {
                   <td className="py-3 pr-2 font-semibold">
                     {r.label}
                     {bestCia?.key === r.key ? (
-                      <div className="text-[10px] font-bold uppercase text-emerald-700">melhor</div>
+                      <div className="text-[10px] font-bold uppercase text-emerald-700">melhor combo</div>
                     ) : null}
                   </td>
                   <td className="py-3 pr-2">
                     <input
-                      value={r.q.miles}
-                      onChange={(e) => patchCia(r.key, { miles: e.target.value, milheiroManual: false })}
+                      value={r.q.idaMiles}
+                      onChange={(e) => patchCia(r.key, { idaMiles: e.target.value, milheiroManual: false })}
                       className="h-9 w-24 rounded-lg border border-slate-200 px-2"
                       placeholder="milhas"
                       inputMode="numeric"
                     />
-                  </td>
-                  <td className="py-3 pr-2">
                     <input
-                      value={r.q.fee}
-                      onChange={(e) => patchCia(r.key, { fee: e.target.value, milheiroManual: false })}
-                      className="h-9 w-20 rounded-lg border border-slate-200 px-2"
+                      value={r.q.idaFee}
+                      onChange={(e) => patchCia(r.key, { idaFee: e.target.value, milheiroManual: false })}
+                      className="mt-1 h-8 w-24 rounded-lg border border-slate-200 px-2 text-xs"
+                      placeholder="taxa"
                     />
+                    <div className="mt-1 text-[10px] text-slate-500">
+                      {r.idaTimes.depTime && r.idaTimes.arrTime
+                        ? `${r.idaTimes.depTime} → ${r.idaTimes.arrTime}`
+                        : r.idaMiles
+                          ? "sem horário"
+                          : "leia a ida"}
+                      {bestIdaCia?.key === r.key && r.idaMiles ? (
+                        <span className="ml-1 font-bold uppercase text-emerald-700">melhor ida</span>
+                      ) : null}
+                    </div>
+                    {r.ready && r.idaTotal ? (
+                      <div className="text-[10px] text-slate-600">{fmtMoney(r.idaTotal)}</div>
+                    ) : null}
+                  </td>
+                  {rt ? (
+                    <td className="py-3 pr-2">
+                      <input
+                        value={r.q.voltaMiles}
+                        onChange={(e) => patchCia(r.key, { voltaMiles: e.target.value, milheiroManual: false })}
+                        className="h-9 w-24 rounded-lg border border-slate-200 px-2"
+                        placeholder="milhas"
+                        inputMode="numeric"
+                      />
+                      <input
+                        value={r.q.voltaFee}
+                        onChange={(e) => patchCia(r.key, { voltaFee: e.target.value, milheiroManual: false })}
+                        className="mt-1 h-8 w-24 rounded-lg border border-slate-200 px-2 text-xs"
+                        placeholder="taxa"
+                      />
+                      <div className="mt-1 text-[10px] text-slate-500">
+                        {r.voltaTimes.depTime && r.voltaTimes.arrTime
+                          ? `${r.voltaTimes.depTime} → ${r.voltaTimes.arrTime}`
+                          : r.voltaMiles
+                            ? "sem horário"
+                            : "leia a volta"}
+                        {bestVoltaCia?.key === r.key && r.voltaMiles ? (
+                          <span className="ml-1 font-bold uppercase text-emerald-700">melhor volta</span>
+                        ) : null}
+                      </div>
+                      {r.ready && r.voltaTotal ? (
+                        <div className="text-[10px] text-slate-600">{fmtMoney(r.voltaTotal)}</div>
+                      ) : null}
+                    </td>
+                  ) : null}
+                  <td className="py-3 pr-2 text-xs tabular-nums text-slate-700">
+                    {r.milesN ? (
+                      <>
+                        <div className="font-semibold">{fmtMiles(r.milesN)} milhas</div>
+                        <div>taxa {fmtMoney(r.feeCents)}</div>
+                        {rt && !r.ready ? (
+                          <div className="mt-1 font-semibold text-amber-800">falta {r.idaMiles ? "a volta" : "a ida"}</div>
+                        ) : null}
+                      </>
+                    ) : (
+                      "—"
+                    )}
                   </td>
                   <td className="py-3 pr-2">
                     <input
                       value={
                         r.q.milheiroManual
                           ? r.q.milheiro
-                          : r.milesN > 0 && r.suggested
+                          : r.ready && r.suggested
                             ? fromCents(r.suggested)
                             : ""
                       }
                       onChange={(e) => patchCia(r.key, { milheiro: e.target.value, milheiroManual: true })}
-                      className="h-9 w-20 rounded-lg border border-slate-200 px-2"
-                      placeholder={r.minCents ? fromCents(r.minCents) : "0,00"}
+                      className="h-9 w-20 rounded-lg border border-slate-200 px-2 disabled:bg-slate-50"
+                      placeholder={r.ready ? (r.minCents ? fromCents(r.minCents) : "0,00") : "—"}
+                      disabled={!r.ready}
                     />
                     <div className="mt-1 text-[10px] text-slate-400">
-                      mín {r.minCents ? fmtMoney(r.minCents) : "—"}
+                      {r.ready ? `mín ${r.minCents ? fmtMoney(r.minCents) : "—"}` : rt ? "depois dos dois" : "mín —"}
                       {r.q.milheiroManual ? (
                         <button
                           type="button"
@@ -864,7 +981,7 @@ export default function CotacaoPassagensClient() {
                     {r.belowMin ? <div className="text-[10px] font-semibold text-amber-800">abaixo do mínimo</div> : null}
                   </td>
                   <td className="py-3 pr-2 font-semibold tabular-nums">
-                    {r.milesN > 0 && r.milheiroCents > 0 ? fmtMoney(r.total) : "—"}
+                    {r.ready && r.milheiroCents > 0 ? fmtMoney(r.total) : "—"}
                   </td>
                   <td
                     className={cn(
@@ -872,11 +989,11 @@ export default function CotacaoPassagensClient() {
                       r.discount > 0 ? "text-emerald-700" : r.discount < 0 ? "text-rose-700" : "text-slate-400"
                     )}
                   >
-                    {r.milesN > 0 && r.milheiroCents > 0 && cashPrice
+                    {r.ready && r.milheiroCents > 0 && cashPrice
                       ? r.discount >= 0
                         ? `− ${fmtMoney(r.discount)} (${r.discountPct}%)`
                         : `+ ${fmtMoney(Math.abs(r.discount))}`
-                      : r.milesN > 0 && r.milheiroCents > 0
+                      : r.ready && r.milheiroCents > 0
                         ? "sem à vista"
                         : "—"}
                   </td>

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/auth-server";
 import { ciaKeyFromMilesAirline, durationMinFromClocks, parseClock } from "@/lib/cotacao-passagens";
+import { inferQuoteDirection, mergeQuoteLeg, quoteTotals, type QuoteCiaCell } from "@/lib/cotacao-quote-cia";
 import { interpretMilesSnippet } from "@/lib/cotacao-interpret-miles";
 
 export const runtime = "nodejs";
@@ -50,41 +51,55 @@ export async function POST(req: Request) {
   const durationMin = durationMinFromClocks(depTime, arrTime);
   const current = (job.quoteCia && typeof job.quoteCia === "object" ? job.quoteCia : {}) as Record<
     string,
-    { miles?: number; feeCents?: number; milheiroCents?: number; depTime?: string; arrTime?: string }
+    QuoteCiaCell
   >;
   const prev = current[cia] || {};
+  const direction = inferQuoteDirection({
+    includeReturn: job.includeReturn,
+    origins: job.origins,
+    destinations: job.destinations,
+    pageOrigin: String(body.origin || ""),
+    pageDest: String(body.dest || ""),
+    explicit: String(body.direction || ""),
+    cell: prev,
+  });
+  const nextCell = mergeQuoteLeg(prev, direction, {
+    miles: parsed.miles,
+    feeCents: parsed.feeCents,
+    depTime: depTime || undefined,
+    arrTime: arrTime || undefined,
+  });
   await prisma.cotacaoPassagemJob.update({
     where: { id: job.id },
     data: {
       quoteCia: {
         ...current,
-        [cia]: {
-          miles: parsed.miles,
-          feeCents: parsed.feeCents,
-          milheiroCents: prev.milheiroCents || 0,
-          depTime: depTime || prev.depTime,
-          arrTime: arrTime || prev.arrTime,
-        },
+        [cia]: nextCell,
       },
     },
   });
 
   const searches = await prisma.cotacaoPassagemSearch.findMany({ where: { jobId: job.id } });
   const milesRow = searches.find(
-    (s) => s.direction === "IDA" && ciaKeyFromMilesAirline(s.airline) === cia
+    (s) => s.direction === direction && ciaKeyFromMilesAirline(s.airline) === cia
   );
   if (milesRow && depTime && arrTime) {
     await prisma.cotacaoPassagemSearch.update({
       where: { id: milesRow.id },
-      data: { depTime, arrTime, durationMin: durationMin || milesRow.durationMin },
+      data: { depTime, arrTime, durationMin: durationMin || milesRow.durationMin, miles: parsed.miles },
     });
   }
 
+  const totals = quoteTotals(nextCell, job.includeReturn);
+  const needOther = job.includeReturn && !totals.ready;
   return NextResponse.json({
     ok: true,
+    direction,
     miles: parsed.miles,
     feeCents: parsed.feeCents,
     depTime: parsed.depTime,
     arrTime: parsed.arrTime,
+    needOtherLeg: needOther,
+    otherLeg: direction === "IDA" ? "VOLTA" : "IDA",
   });
 }

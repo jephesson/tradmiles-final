@@ -13,7 +13,7 @@ const TRADE_TABS = [
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg?.type === "TM_COTACAO_PING") {
     chrome.storage.local.get(["tmCaptureOn"]).then((st) => {
-      sendResponse({ ok: true, version: "1.8.11", captureOn: Boolean(st.tmCaptureOn) });
+      sendResponse({ ok: true, version: "1.8.12", captureOn: Boolean(st.tmCaptureOn) });
     });
     return true;
   }
@@ -358,6 +358,9 @@ async function interpretMiles(msg) {
         jobId: tmJobId || "",
         cia,
         snippet,
+        direction: String(msg?.direction || ""),
+        origin: String(msg?.origin || ""),
+        dest: String(msg?.dest || ""),
       });
       if (res?.ok) return res;
       if (res?.error) return { ok: false, error: res.error };

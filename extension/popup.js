@@ -1,6 +1,8 @@
 const el = document.getElementById("status");
 const hint = document.getElementById("hint");
 const btn = document.getElementById("fillBtn");
+const ver = document.getElementById("ver");
+if (ver) ver.textContent = "v" + (chrome.runtime.getManifest().version || "");
 
 chrome.runtime.sendMessage({ type: "TM_GET_FILL_PAYLOAD" }).then((res) => {
   if (!res?.ok) {

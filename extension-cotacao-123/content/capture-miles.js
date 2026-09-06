@@ -13,8 +13,10 @@ if (!globalThis.__tmCaptureMiles) {
   let bar = null;
   let statusEl = null;
   let previewEl = null;
+  let dirEl = null;
   let open = false;
   let captureOn = false;
+  let direction = "IDA";
 
   function fmtMoney(cents) {
     return ((cents || 0) / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -22,6 +24,21 @@ if (!globalThis.__tmCaptureMiles) {
 
   function fmtMiles(n) {
     return (n || 0).toLocaleString("pt-BR");
+  }
+
+  function iata(v) {
+    return String(v || "")
+      .replace(/[^a-zA-Z]/g, "")
+      .toUpperCase()
+      .slice(0, 3);
+  }
+
+  function pageAirports() {
+    const q = new URLSearchParams(location.search);
+    return {
+      origin: iata(q.get("origin") || q.get("originAirport") || q.get("c[0].ds") || ""),
+      dest: iata(q.get("destination") || q.get("destinationAirport") || q.get("c[0].as") || ""),
+    };
   }
 
   function selectedText() {
@@ -43,12 +60,22 @@ if (!globalThis.__tmCaptureMiles) {
     previewEl.textContent = t.length > 90 ? `${t.slice(0, 90)}…` : t;
   }
 
+  function paintDir() {
+    if (!dirEl) return;
+    dirEl.querySelectorAll("[data-tm-dir]").forEach((btn) => {
+      const on = btn.getAttribute("data-tm-dir") === direction;
+      btn.style.background = on ? "#e2e8f0" : "transparent";
+      btn.style.color = on ? "#0f172a" : "#94a3b8";
+    });
+  }
+
   function render() {
     if (!bar) return;
     const panel = bar.querySelector("[data-tm-panel]");
     const pill = bar.querySelector("[data-tm-pill]");
     if (panel) panel.style.display = open ? "block" : "none";
     if (pill) pill.style.display = open ? "none" : "flex";
+    paintDir();
     refreshPreview();
   }
 
@@ -67,6 +94,10 @@ if (!globalThis.__tmCaptureMiles) {
           <span style="font-weight:650;font-size:11px;letter-spacing:.02em">${CIA.toUpperCase()}</span>
           <button type="button" data-tm-min style="border:0;background:transparent;color:#94a3b8;cursor:pointer;font-size:14px;line-height:1">–</button>
         </div>
+        <div data-tm-dirs style="display:flex;gap:4px;margin-top:8px">
+          <button type="button" data-tm-dir="IDA" style="flex:1;height:26px;border:0;border-radius:7px;font:650 10px system-ui;cursor:pointer">Ida</button>
+          <button type="button" data-tm-dir="VOLTA" style="flex:1;height:26px;border:0;border-radius:7px;font:650 10px system-ui;cursor:pointer">Volta</button>
+        </div>
         <div data-tm-preview style="margin-top:6px;opacity:.85;font-size:11px;min-height:28px;max-height:52px;overflow:hidden"></div>
         <button type="button" data-tm-send style="margin-top:8px;width:100%;height:30px;border:0;border-radius:8px;background:#334155;color:#f8fafc;font:650 11px system-ui;cursor:pointer">Ler seleção</button>
         <div data-tm-status style="margin-top:6px;font-size:10px;opacity:.8"></div>
@@ -74,6 +105,7 @@ if (!globalThis.__tmCaptureMiles) {
     document.documentElement.appendChild(bar);
     previewEl = bar.querySelector("[data-tm-preview]");
     statusEl = bar.querySelector("[data-tm-status]");
+    dirEl = bar.querySelector("[data-tm-dirs]");
     bar.querySelector("[data-tm-pill]").addEventListener("click", () => {
       open = true;
       render();
@@ -83,6 +115,12 @@ if (!globalThis.__tmCaptureMiles) {
       render();
     });
     bar.querySelector("[data-tm-send]").addEventListener("click", sendCapture);
+    dirEl.querySelectorAll("[data-tm-dir]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        direction = btn.getAttribute("data-tm-dir") || "IDA";
+        paintDir();
+      });
+    });
     render();
   }
 
@@ -91,6 +129,7 @@ if (!globalThis.__tmCaptureMiles) {
     bar = null;
     previewEl = null;
     statusEl = null;
+    dirEl = null;
     open = false;
   }
 
@@ -110,15 +149,34 @@ if (!globalThis.__tmCaptureMiles) {
       statusEl.textContent = "Selecione o trecho e tente de novo.";
       return;
     }
-    statusEl.textContent = "Lendo…";
-    chrome.runtime.sendMessage({ type: "TM_COTACAO_INTERPRET_MILES", cia: CIA, snippet }, (res) => {
-      void chrome.runtime.lastError;
-      if (!res?.ok) {
-        statusEl.textContent = res?.error || "Abra a cotação no TradeMiles.";
-        return;
+    const { origin, dest } = pageAirports();
+    statusEl.textContent = `Lendo ${direction === "VOLTA" ? "volta" : "ida"}…`;
+    chrome.runtime.sendMessage(
+      {
+        type: "TM_COTACAO_INTERPRET_MILES",
+        cia: CIA,
+        snippet,
+        direction,
+        origin,
+        dest,
+      },
+      (res) => {
+        void chrome.runtime.lastError;
+        if (!res?.ok) {
+          statusEl.textContent = res?.error || "Abra a cotação no TradeMiles.";
+          return;
+        }
+        const dir = res.direction === "VOLTA" ? "volta" : "ida";
+        direction = res.direction === "VOLTA" ? "VOLTA" : "IDA";
+        paintDir();
+        if (res.needOtherLeg) {
+          const other = res.otherLeg === "VOLTA" ? "volta" : "ida";
+          statusEl.textContent = `${dir} ${fmtMiles(res.miles)} · ${fmtMoney(res.feeCents || 0)}. Falta a ${other}.`;
+        } else {
+          statusEl.textContent = `${dir} ${fmtMiles(res.miles)} · ${fmtMoney(res.feeCents || 0)}`;
+        }
       }
-      statusEl.textContent = `${fmtMiles(res.miles)} · ${fmtMoney(res.feeCents || 0)}`;
-    });
+    );
   }
 
   document.addEventListener(

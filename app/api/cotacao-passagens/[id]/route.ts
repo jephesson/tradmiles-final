@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/auth-server";
+import { inferQuoteDirection, mergeQuoteLeg, quoteLeg, type QuoteCiaCell } from "@/lib/cotacao-quote-cia";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -40,13 +41,10 @@ export async function PATCH(req: Request, ctx: Ctx) {
   }
   const currentCia = (job.quoteCia && typeof job.quoteCia === "object" ? job.quoteCia : {}) as Record<
     string,
-    { miles?: number; feeCents?: number; milheiroCents?: number; depTime?: string; arrTime?: string }
+    QuoteCiaCell
   >;
   if (body.quoteCia !== undefined && body.quoteCia && typeof body.quoteCia === "object") {
-    const incoming = body.quoteCia as Record<
-      string,
-      { miles?: number; feeCents?: number; milheiroCents?: number; depTime?: string; arrTime?: string }
-    >;
+    const incoming = body.quoteCia as Record<string, QuoteCiaCell>;
     data.quoteCia = Object.fromEntries(
       Object.keys({ ...currentCia, ...incoming }).map((key) => {
         const next = incoming[key] || {};
@@ -54,11 +52,9 @@ export async function PATCH(req: Request, ctx: Ctx) {
         return [
           key,
           {
-            miles: next.miles ?? prev.miles ?? 0,
-            feeCents: next.feeCents ?? prev.feeCents ?? 0,
             milheiroCents: next.milheiroCents ?? prev.milheiroCents ?? 0,
-            depTime: next.depTime || prev.depTime,
-            arrTime: next.arrTime || prev.arrTime,
+            ida: { ...quoteLeg(prev, "IDA"), ...quoteLeg(next, "IDA") },
+            volta: { ...quoteLeg(prev, "VOLTA"), ...quoteLeg(next, "VOLTA") },
           },
         ];
       })
@@ -68,16 +64,19 @@ export async function PATCH(req: Request, ctx: Ctx) {
   if (cia === "latam" || cia === "smiles" || cia === "azul") {
     const miles = Math.max(0, Math.trunc(Number(body.miles) || 0));
     const feeCents = Math.max(0, Math.trunc(Number(body.feeCents) || 0));
-    const prev = currentCia[cia] || {};
+    const prev = ((data.quoteCia as Record<string, QuoteCiaCell>) || currentCia)[cia] || {};
+    const direction = inferQuoteDirection({
+      includeReturn: job.includeReturn,
+      origins: job.origins,
+      destinations: job.destinations,
+      pageOrigin: String(body.origin || ""),
+      pageDest: String(body.dest || ""),
+      explicit: String(body.direction || ""),
+      cell: prev,
+    });
     data.quoteCia = {
       ...((data.quoteCia as object) || currentCia),
-      [cia]: {
-        miles,
-        feeCents,
-        milheiroCents: prev.milheiroCents || 0,
-        depTime: prev.depTime,
-        arrTime: prev.arrTime,
-      },
+      [cia]: mergeQuoteLeg(prev, direction, { miles, feeCents }),
     };
   }
 

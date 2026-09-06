@@ -58,7 +58,12 @@ export async function POST(req: Request, ctx: Ctx) {
   });
 
   if (ok && miles > 0) {
-    await mergeMilesIntoQuoteCia(search.jobId, updated.airline, miles);
+    await mergeMilesIntoQuoteCia(
+      search.jobId,
+      updated.airline,
+      miles,
+      search.direction === "VOLTA" ? "VOLTA" : "IDA"
+    );
   }
 
   if (search.job.status === "RUNNING") {

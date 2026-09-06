@@ -26,7 +26,7 @@ if (!window.__tmCotacaoBridge) {
       }
       window.dispatchEvent(
         new CustomEvent("tm-cotacao-bridge", {
-          detail: { connected, version: "1.8.11", captureOn: Boolean(extra?.captureOn) },
+          detail: { connected, version: "1.8.12", captureOn: Boolean(extra?.captureOn) },
         })
       );
     } catch {
@@ -82,6 +82,9 @@ if (!window.__tmCotacaoBridge) {
                 jobId,
                 cia: msg.cia,
                 snippet: msg.snippet,
+                direction: msg.direction || "",
+                origin: msg.origin || "",
+                dest: msg.dest || "",
               }),
             });
             const json = await r.json().catch(() => null);
@@ -89,6 +92,9 @@ if (!window.__tmCotacaoBridge) {
               ok: Boolean(json?.ok),
               miles: json?.miles || 0,
               feeCents: json?.feeCents || 0,
+              direction: json?.direction || "",
+              needOtherLeg: Boolean(json?.needOtherLeg),
+              otherLeg: json?.otherLeg || "",
               error: json?.error || "",
             });
           } catch {
