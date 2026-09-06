@@ -39,6 +39,24 @@ export async function PATCH(req: Request, ctx: Ctx) {
     data.quoteBoardingFeeCents = Math.max(0, Math.trunc(Number(body.quoteBoardingFeeCents) || 0));
   }
   if (body.quoteCia !== undefined) data.quoteCia = body.quoteCia;
+  const cia = String(body.cia || "").toLowerCase();
+  if (cia === "latam" || cia === "smiles" || cia === "azul") {
+    const miles = Math.max(0, Math.trunc(Number(body.miles) || 0));
+    const feeCents = Math.max(0, Math.trunc(Number(body.feeCents) || 0));
+    const current = (job.quoteCia && typeof job.quoteCia === "object" ? job.quoteCia : {}) as Record<
+      string,
+      { miles?: number; feeCents?: number; milheiroCents?: number }
+    >;
+    const prev = current[cia] || {};
+    data.quoteCia = {
+      ...current,
+      [cia]: {
+        miles,
+        feeCents,
+        milheiroCents: prev.milheiroCents || 0,
+      },
+    };
+  }
 
   const updated = await prisma.cotacaoPassagemJob.update({
     where: { id: job.id },

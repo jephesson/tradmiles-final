@@ -12,7 +12,7 @@ const TRADE_TABS = [
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg?.type === "TM_COTACAO_PING") {
-    sendResponse({ ok: true, version: "1.8.3" });
+    sendResponse({ ok: true, version: "1.8.6" });
     return false;
   }
   if (msg?.type === "TM_COTACAO_OPEN") {
@@ -51,6 +51,18 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     })
       .then(() => sendResponse({ ok: true }))
       .catch(() => sendResponse({ ok: false }));
+    return true;
+  }
+  if (msg?.type === "TM_COTACAO_CAPTURE_MILES") {
+    captureMiles(msg)
+      .then((res) => sendResponse(res))
+      .catch(() => sendResponse({ ok: false, error: "Não deu para enviar." }));
+    return true;
+  }
+  if (msg?.type === "TM_COTACAO_INTERPRET_MILES") {
+    interpretMiles(msg)
+      .then((res) => sendResponse(res))
+      .catch(() => sendResponse({ ok: false, error: "Não deu para interpretar." }));
     return true;
   }
 });
@@ -115,10 +127,6 @@ chrome.tabs.onUpdated.addListener((tabId, info, tab) => {
 
 function scriptForUrl(url) {
   if (/decolar\.com/i.test(url)) return "content/decolar.js";
-  if (/smiles\.com\.br/i.test(url)) return "content/smiles.js";
-  if (/voegol\.com\.br/i.test(url)) return "content/voegol.js";
-  if (/latamairlines\.com/i.test(url)) return "content/latam.js";
-  if (/voeazul\.com\.br/i.test(url)) return "content/azul.js";
   return "";
 }
 
@@ -335,6 +343,60 @@ async function onTimeout() {
     ok: false,
     error: "Tempo esgotado na busca à vista.",
   });
+}
+
+async function interpretMiles(msg) {
+  const cia = String(msg?.cia || "").toLowerCase();
+  const snippet = String(msg?.snippet || "");
+  if (!["latam", "smiles", "azul"].includes(cia) || snippet.trim().length < 8) {
+    return { ok: false, error: "Selecione o trecho do voo na página." };
+  }
+  const { tmJobId } = await chrome.storage.local.get(["tmJobId"]);
+  const tabs = await chrome.tabs.query({ url: TRADE_TABS });
+  for (const tab of tabs) {
+    if (!tab.id) continue;
+    try {
+      const res = await chrome.tabs.sendMessage(tab.id, {
+        type: "TM_COTACAO_INTERPRET",
+        jobId: tmJobId || "",
+        cia,
+        snippet,
+      });
+      if (res?.ok) return res;
+      if (res?.error) return { ok: false, error: res.error };
+    } catch {
+      /* aba sem bridge */
+    }
+  }
+  return { ok: false, error: "Abra a cotação no TradeMiles e tente de novo." };
+}
+
+async function captureMiles(msg) {
+  const cia = String(msg?.cia || "").toLowerCase();
+  const miles = Math.max(0, Math.trunc(Number(msg?.miles) || 0));
+  const feeCents = Math.max(0, Math.trunc(Number(msg?.feeCents) || 0));
+  if (!["latam", "smiles", "azul"].includes(cia) || miles < 500) {
+    return { ok: false, error: "Não achei milhas válidas." };
+  }
+  const { tmJobId } = await chrome.storage.local.get(["tmJobId"]);
+  const tabs = await chrome.tabs.query({ url: TRADE_TABS });
+  for (const tab of tabs) {
+    if (!tab.id) continue;
+    try {
+      const res = await chrome.tabs.sendMessage(tab.id, {
+        type: "TM_COTACAO_CAPTURE",
+        jobId: tmJobId || "",
+        cia,
+        miles,
+        feeCents,
+      });
+      if (res?.ok) return { ok: true };
+      if (res?.error) return { ok: false, error: res.error };
+    } catch {
+      /* aba sem bridge */
+    }
+  }
+  return { ok: false, error: "Abra a cotação no TradeMiles e tente de novo." };
 }
 
 async function saveViaTabs(searchId, payload) {

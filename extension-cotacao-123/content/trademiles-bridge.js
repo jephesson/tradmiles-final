@@ -23,7 +23,7 @@ if (!window.__tmCotacaoBridge) {
       else delete document.documentElement.dataset.tmCotacaoExt;
       window.dispatchEvent(
         new CustomEvent("tm-cotacao-bridge", {
-          detail: { connected, version: "1.8.3" },
+          detail: { connected, version: "1.8.6" },
         })
       );
     } catch {
@@ -56,11 +56,71 @@ if (!window.__tmCotacaoBridge) {
 
   function kick() {
     if (dead || !onCotacaoPage()) return;
+    const jobId = document.body?.dataset?.tmCotacaoJob || "";
+    if (jobId) chrome.storage.local.set({ tmJobId: jobId });
     send("TM_COTACAO_START");
   }
 
   try {
     chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+      if (msg?.type === "TM_COTACAO_INTERPRET") {
+        (async () => {
+          try {
+            let jobId = String(msg.jobId || document.body?.dataset?.tmCotacaoJob || "").trim();
+            const r = await fetch("/api/cotacao-passagens/interpret-miles", {
+              method: "POST",
+              credentials: "include",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                jobId,
+                cia: msg.cia,
+                snippet: msg.snippet,
+              }),
+            });
+            const json = await r.json().catch(() => null);
+            sendResponse({
+              ok: Boolean(json?.ok),
+              miles: json?.miles || 0,
+              feeCents: json?.feeCents || 0,
+              error: json?.error || "",
+            });
+          } catch {
+            sendResponse({ ok: false, error: "Falha ao interpretar no TradeMiles." });
+          }
+        })();
+        return true;
+      }
+      if (msg?.type === "TM_COTACAO_CAPTURE") {
+        (async () => {
+          try {
+            let jobId = String(msg.jobId || document.body?.dataset?.tmCotacaoJob || "").trim();
+            if (!jobId) {
+              const listed = await fetch("/api/cotacao-passagens", { cache: "no-store", credentials: "include" });
+              const json = await listed.json().catch(() => null);
+              jobId = json?.job?.id || "";
+            }
+            if (!jobId) {
+              sendResponse({ ok: false, error: "Nenhuma cotação aberta no TradeMiles." });
+              return;
+            }
+            const r = await fetch(`/api/cotacao-passagens/${encodeURIComponent(jobId)}`, {
+              method: "PATCH",
+              credentials: "include",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                cia: msg.cia,
+                miles: msg.miles,
+                feeCents: msg.feeCents,
+              }),
+            });
+            const json = await r.json().catch(() => null);
+            sendResponse({ ok: Boolean(json?.ok), error: json?.error || "" });
+          } catch {
+            sendResponse({ ok: false, error: "Falha ao gravar no TradeMiles." });
+          }
+        })();
+        return true;
+      }
       if (msg?.type === "TM_COTACAO_CLAIM") {
         (async () => {
           try {

@@ -1,10 +1,7 @@
 if (!globalThis.__tmLatamScript) {
 globalThis.__tmLatamScript = true;
 
-const runKey = `tmlatam:${location.href}`;
-if (!sessionStorage.getItem(runKey)) {
-  waitAndRun(runKey, run);
-}
+/* captura manual em content/capture-miles.js */
 
 function waitAndRun(key, fn) {
   const t0 = Date.now();

@@ -151,7 +151,6 @@ export default function CotacaoPassagensClient() {
     smiles: emptyCia(),
     azul: emptyCia(),
   });
-  const [hydratedJobId, setHydratedJobId] = useState("");
   const [minMilheiro, setMinMilheiro] = useState<Record<CiaKey, number>>({
     latam: 0,
     smiles: 0,
@@ -172,13 +171,13 @@ export default function CotacaoPassagensClient() {
     void (async () => {
       const r = await fetch("/api/cotacao-passagens", { cache: "no-store" });
       const j = await r.json().catch(() => null);
-      if (j?.ok && j.job?.status === "RUNNING") setJob(j.job);
+      if (j?.ok && j.job) setJob(j.job);
     })();
   }, []);
 
   useEffect(() => {
     if (typeof document === "undefined") return;
-    document.body.dataset.tmCotacaoJob = job?.status === "RUNNING" && job.id ? job.id : "";
+    document.body.dataset.tmCotacaoJob = job?.id || "";
     const sync = () => {
       if (document.documentElement.dataset.tmCotacaoExt) setExtOn(true);
       if (document.documentElement.dataset.tmCotacaoExtReload) setExtReload(true);
@@ -199,8 +198,8 @@ export default function CotacaoPassagensClient() {
   }, [job?.id, job?.status]);
 
   useEffect(() => {
-    if (!job || job.status !== "RUNNING") return;
-    const t = setInterval(() => load(job.id), 2500);
+    if (!job?.id) return;
+    const t = setInterval(() => load(job.id), job.status === "RUNNING" ? 2000 : 4000);
     return () => clearInterval(t);
   }, [job?.id, job?.status]);
 
@@ -219,15 +218,21 @@ export default function CotacaoPassagensClient() {
   }, []);
 
   useEffect(() => {
-    if (!job?.id || job.id === hydratedJobId) return;
-    const src = job.quoteCia || {};
-    setCiaQuotes({
-      latam: fromSaved(src.latam),
-      smiles: fromSaved(src.smiles),
-      azul: fromSaved(src.azul),
+    const src = job?.quoteCia;
+    if (!src || !job?.id) return;
+    setCiaQuotes((prev) => {
+      const next = { ...prev };
+      let changed = false;
+      for (const key of ["latam", "smiles", "azul"] as CiaKey[]) {
+        const row = src[key];
+        if (!row?.miles) continue;
+        if (toMiles(next[key].miles) === row.miles && toCents(next[key].fee) === (row.feeCents || 0)) continue;
+        next[key] = fromSaved(row);
+        changed = true;
+      }
+      return changed ? next : prev;
     });
-    setHydratedJobId(job.id);
-  }, [job?.id, hydratedJobId, job?.quoteCia]);
+  }, [job?.id, job?.quoteCia]);
 
   useEffect(() => {
     if (!job?.searches?.length) return;
@@ -416,8 +421,8 @@ export default function CotacaoPassagensClient() {
               Cotação de passagens
             </h1>
             <p className="mt-1 max-w-2xl text-sm text-slate-500">
-              O Decolar pesquisa o dinheiro (data exata ou intervalo). Na data mais barata, a extensão abre LATAM,
-              Smiles e Azul em milhas e compara com essa tarifa à vista.
+              A extensão pesquisa só o Decolar. Depois você abre LATAM, Smiles ou Azul, seleciona o trecho do voo e a
+              IA lê milhas e taxa.
             </p>
           </div>
           <div className="flex flex-col items-stretch gap-2 sm:items-end">
@@ -441,9 +446,9 @@ export default function CotacaoPassagensClient() {
         </div>
         <ol className="mt-5 grid gap-2 sm:grid-cols-3">
           {[
-            { n: "1", t: "À vista no Decolar", d: "Uma busca por data, bem mais rápido" },
-            { n: "2", t: "Milhas nas 3", d: "LATAM, Smiles e Azul só na data mais barata" },
-            { n: "3", t: "Compare", d: "Milhas vs o dinheiro do Decolar" },
+            { n: "1", t: "À vista no Decolar", d: "Primeiro preço da lista, até 10s" },
+            { n: "2", t: "Abra as milhas", d: "LATAM, Smiles e Azul nos botões da tarifa" },
+            { n: "3", t: "Selecione o voo", d: "A IA lê milhas e taxa de embarque" },
           ].map((s) => (
             <li
               key={s.n}
@@ -603,13 +608,11 @@ export default function CotacaoPassagensClient() {
           ) : null}
           {job?.status === "RUNNING" ? (
             <div className="mt-3 rounded-xl border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-950">
-              Pesquisando {progress.done}/{progress.total}. Abre o Decolar e depois as milhas atrás desta — se não
-              abrir, recarregue a aba e inicie de novo.
+              Pesquisando {progress.done}/{progress.total} no Decolar. Se a aba não abrir, recarregue e inicie de novo.
             </div>
           ) : null}
           <p className="mt-3 text-xs leading-relaxed text-slate-500">
-            Primeiro o Decolar (dinheiro). No intervalo, fica a data mais barata; na data exata, só aquele dia. Depois
-            as 3 milhas nessa data. O veredito compara com o valor do Decolar.
+            Só Decolar. No intervalo fica a data mais barata; na data exata, só aquele dia.
             {job ? ` ${progress.done}/${progress.total} concluídas.` : ""}
           </p>
         </div>
@@ -660,7 +663,7 @@ export default function CotacaoPassagensClient() {
         <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Passo 3</div>
         <div className="text-sm font-semibold">Milhas das 3 cias vs o Decolar</div>
         <p className="mt-1 max-w-3xl text-sm text-slate-500">
-          A extensão preenche as milhas da data escolhida. O milheiro sugerido fica ~5% abaixo da tarifa à vista mais
+          Preencha na mão ou selecione o voo na cia: a IA envia milhas e taxa. O milheiro sugerido fica ~5% abaixo da tarifa à vista mais
           barata, mas nunca abaixo do{" "}
           <Link href="/dashboard/configuracoes" className="font-semibold text-slate-800 underline">
             mínimo cadastrado em Configurações
@@ -943,6 +946,9 @@ function BestCard({ title, row, running }: { title: string; row: SearchRow | nul
               </a>
             ) : null}
           </div>
+          <p className="mt-2 text-[11px] leading-snug text-slate-500">
+            Abra a cia, selecione o trecho do voo (milhas e taxa) e clique em Ler seleção e enviar.
+          </p>
         </>
       ) : (
         <div className="mt-2 text-sm text-slate-500">
