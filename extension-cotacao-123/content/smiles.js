@@ -1,3 +1,6 @@
+if (!globalThis.__tmSmilesScript) {
+globalThis.__tmSmilesScript = true;
+
 const runKey = `tmsmiles:${location.href}`;
 if (!sessionStorage.getItem(runKey)) {
   waitAndRun(runKey, run);
@@ -239,4 +242,5 @@ async function run() {
     stops: price.stops,
     error: price.miles > 0 ? "" : price.error || "Não achei as milhas na Smiles.",
   });
+}
 }

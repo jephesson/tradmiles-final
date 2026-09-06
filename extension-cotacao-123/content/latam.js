@@ -1,3 +1,6 @@
+if (!globalThis.__tmLatamScript) {
+globalThis.__tmLatamScript = true;
+
 const runKey = `tmlatam:${location.href}`;
 if (!sessionStorage.getItem(runKey)) {
   waitAndRun(runKey, run);
@@ -195,4 +198,5 @@ async function run() {
     rawPrice: price.raw || "",
     error: ok ? "" : price.error || (redemption ? "Não achei as milhas na LATAM." : "Não achei o preço na LATAM."),
   });
+}
 }

@@ -1,3 +1,6 @@
+if (!globalThis.__tmAzulScript) {
+globalThis.__tmAzulScript = true;
+
 const runKey = `tmazul:${location.href}`;
 if (!sessionStorage.getItem(runKey)) {
   waitAndRun(runKey, run);
@@ -170,4 +173,5 @@ async function run() {
     rawPrice: price.raw || "",
     error: ok ? "" : price.error || (pts ? "Não achei as milhas na Azul." : "Não achei o preço na Azul."),
   });
+}
 }

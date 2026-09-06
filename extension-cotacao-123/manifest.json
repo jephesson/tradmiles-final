@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "TradeMiles Cotação",
-  "version": "1.8.2",
+  "version": "1.8.3",
   "description": "Pesquisa o dinheiro no Decolar e depois as milhas na LATAM, Smiles e Azul.",
   "permissions": ["tabs", "windows", "storage", "alarms", "scripting"],
   "host_permissions": [

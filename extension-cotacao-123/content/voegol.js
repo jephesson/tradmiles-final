@@ -1,3 +1,6 @@
+if (!globalThis.__tmGolScript) {
+globalThis.__tmGolScript = true;
+
 const runKey = `tmgol:${location.href}`;
 if (!sessionStorage.getItem(runKey)) {
   waitAndRun(runKey, run);
@@ -188,4 +191,5 @@ async function run() {
     rawPrice: price.raw || "",
     error: price.cents > 0 ? "" : price.error || "Não achei o preço na GOL.",
   });
+}
 }

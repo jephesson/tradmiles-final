@@ -1,3 +1,6 @@
+if (!globalThis.__tmDecolarScript) {
+globalThis.__tmDecolarScript = true;
+
 const runKey = `tmdecolar:${location.href}`;
 if (!sessionStorage.getItem(runKey)) {
   waitAndRun(runKey, run);
@@ -23,16 +26,18 @@ function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
+const MIN_FARE_CENTS = 5000;
+
 function moneyToCents(s) {
-  const m = String(s || "").match(/(?:R\$|BRL)\s*[\d.]+,\d{2}|(?:R\$|BRL)\s*\d+\.\d{2}|(?:R\$|BRL)\s*[\d.,]+/i);
+  const t = String(s || "").replace(/\u00a0/g, " ");
+  const m = t.match(/(?:R\$|BRL)\s*(\d{1,3}(?:\.\d{3})+(?:,\d{2})?|\d+,\d{2}|\d{2,6})/i);
   if (!m) return 0;
-  let v = m[0].replace(/R\$|BRL/i, "").trim();
+  let v = m[1];
   if (v.includes(",")) v = v.replace(/\./g, "").replace(",", ".");
-  else if (/^\d+\.\d{2}$/.test(v)) {
-    /* ok */
-  } else v = v.replace(/\./g, "");
+  else v = v.replace(/\./g, "");
   const n = Number(v);
-  return Number.isFinite(n) && n > 0 ? Math.round(n * 100) : 0;
+  if (!Number.isFinite(n) || n < MIN_FARE_CENTS / 100) return 0;
+  return Math.round(n * 100);
 }
 
 function parseClock(v) {
@@ -110,50 +115,30 @@ function matchesFilter(card, f) {
   return true;
 }
 
-function priceNodes() {
-  return [...document.querySelectorAll(".amount.price-amount, .price-amount, span, em, p")].filter((el) => {
-    const t = (el.textContent || "").replace(/\s+/g, " ").trim();
-    if (t.length > 80) return false;
-    return moneyToCents(t) > 0 || /^\d{2,5}$/.test(t);
-  });
-}
-
-function amountToCents(el) {
-  const t = (el.textContent || "").replace(/\s+/g, " ").trim();
-  const via = moneyToCents(t);
-  if (via) return via;
-  if (/^\d{2,5}$/.test(t)) return Number(t) * 100;
-  return 0;
-}
-
-function flightCards() {
-  const cards = [];
-  for (const p of priceNodes()) {
-    if (!amountToCents(p) && !moneyToCents(p.textContent || "")) continue;
-    let el = p;
-    for (let i = 0; i < 16 && el; i++) {
-      const t = el.innerText || "";
-      const times = [...t.matchAll(/\b(\d{1,2}:\d{2})\b/g)].map((m) => parseClock(m[1])).filter(Boolean);
-      if (times.length >= 2 && t.length < 2800) {
-        cards.push(el);
-        break;
-      }
-      el = el.parentElement;
-    }
+function cardPriceCents(text) {
+  const t = String(text || "").replace(/\u00a0/g, " ");
+  const finalBlock = t.match(/pre[cç]o\s+final[\s\S]{0,160}?(?:R\$|BRL)\s*[\d.]+(?:,\d{2})?/i);
+  if (finalBlock) {
+    const c = moneyToCents(finalBlock[0]);
+    if (c >= MIN_FARE_CENTS) return c;
   }
-  const unique = [...new Set(cards)];
-  return unique.filter((el) => !unique.some((o) => o !== el && o.contains(el)));
+  let best = 0;
+  const re = /(?:R\$|BRL)\s*\d{1,3}(?:\.\d{3})+(?:,\d{2})?|(?:R\$|BRL)\s*\d+,\d{2}|(?:R\$|BRL)\s*\d{2,6}/gi;
+  for (const m of t.matchAll(re)) {
+    const c = moneyToCents(m[0]);
+    if (c > best) best = c;
+  }
+  return best;
 }
 
 function parseCard(el) {
   const text = el.innerText || "";
-  const amount = el.querySelector?.(".amount.price-amount, .price-amount");
-  const cents = (amount && amountToCents(amount)) || moneyToCents(text);
   const times = [...text.matchAll(/\b(\d{1,2}:\d{2})\b/g)].map((m) => parseClock(m[1])).filter(Boolean);
-  const rawMatch = text.match(/(?:R\$|BRL)\s*[\d.,]+/i);
+  const cents = cardPriceCents(text);
+  const rawMatch = text.match(/pre[cç]o\s+final[\s\S]{0,80}?(?:R\$|BRL)\s*[\d.]+(?:,\d{2})?/i) || text.match(/(?:R\$|BRL)\s*[\d.]+(?:,\d{2})?/i);
   return {
     cents,
-    raw: rawMatch ? rawMatch[0] : text.slice(0, 180),
+    raw: rawMatch ? rawMatch[0].replace(/\s+/g, " ").trim().slice(0, 80) : "",
     depTime: times[0] || "",
     arrTime: times[1] || "",
     durationMin: parseDurationMin(text),
@@ -162,15 +147,48 @@ function parseCard(el) {
   };
 }
 
-function pickBestCard(filters) {
-  let best = null;
-  for (const el of flightCards()) {
-    const card = parseCard(el);
-    if (!card.cents) continue;
-    if (!matchesFilter(card, filters)) continue;
-    if (!best || card.cents < best.cents) best = card;
+function buyButtons() {
+  return [...document.querySelectorAll("button, a")].filter((el) => {
+    const t = (el.textContent || "").replace(/\s+/g, " ").trim();
+    return /^comprar$/i.test(t);
+  });
+}
+
+function cardFromBuy(btn) {
+  let el = btn;
+  for (let i = 0; i < 18 && el; i++) {
+    const t = el.innerText || "";
+    const times = [...t.matchAll(/\b(\d{1,2}:\d{2})\b/g)].map((m) => parseClock(m[1])).filter(Boolean);
+    if (times.length >= 2 && t.length < 4500 && cardPriceCents(t) >= MIN_FARE_CENTS) return el;
+    el = el.parentElement;
   }
-  return best;
+  return null;
+}
+
+function pickFirstCard(filters) {
+  const seen = new Set();
+  for (const btn of buyButtons()) {
+    const el = cardFromBuy(btn);
+    if (!el || seen.has(el)) continue;
+    seen.add(el);
+    const card = parseCard(el);
+    if (card.cents < MIN_FARE_CENTS) continue;
+    if (!matchesFilter(card, filters)) continue;
+    return card;
+  }
+  return null;
+}
+
+function clickMaisBaratos() {
+  for (const el of document.querySelectorAll("button, [role='tab'], a, div, span")) {
+    const t = (el.textContent || "").replace(/\s+/g, " ").trim();
+    if (t.length > 48) continue;
+    if (/mais\s+baratos/i.test(t)) {
+      el.click();
+      return true;
+    }
+  }
+  return false;
 }
 
 function dismissCookies() {
@@ -186,12 +204,12 @@ function isDecolarSearch() {
 }
 
 function pageKind() {
-  const t = (document.body?.innerText || "").slice(0, 9000);
-  if (/acesso\s+negado|are\s+you\s+human|captcha/i.test(t)) return "BLOCKED";
+  if (/acesso\s+negado|are\s+you\s+human|captcha/i.test(document.body?.innerText || "")) return "BLOCKED";
+  const t = (document.body?.innerText || "").slice(0, 16000);
   if (/n[aã]o\s+h[aá]\s+voo|sem\s+resultados|no\s+encontramos\s+vuelos|nenhum\s+voo\s+dispon/i.test(t)) {
     return "NO_RESULTS";
   }
-  if (/\d{1,2}:\d{2}/.test(t) && /(R\$|BRL|pre[cç]o por adulto)/i.test(t)) return "RESULTS";
+  if (buyButtons().length && pickFirstCard({})) return "RESULTS";
   return "WAIT";
 }
 
@@ -219,22 +237,28 @@ async function loadFilters() {
 async function scrape(filters) {
   dismissCookies();
   const t0 = Date.now();
+  let clickedSort = false;
   let sawResults = false;
-  while (Date.now() - t0 < 40000) {
+  while (Date.now() - t0 < 18000) {
     const kind = pageKind();
     if (kind === "BLOCKED") return { cents: 0, error: "O Decolar bloqueou a página (captcha ou acesso)." };
-    if (kind === "NO_RESULTS" && Date.now() - t0 > 12000) {
+    if (kind === "NO_RESULTS" && Date.now() - t0 > 8000) {
       return { cents: 0, error: "Decolar sem voos neste trecho/data." };
     }
     if (kind === "RESULTS") {
       sawResults = true;
-      const best = pickBestCard(filters);
-      if (best?.cents > 0) return best;
+      if (!clickedSort) {
+        clickedSort = true;
+        clickMaisBaratos();
+        await sleep(400);
+      }
+      const first = pickFirstCard(filters);
+      if (first?.cents >= MIN_FARE_CENTS) return first;
     }
-    await sleep(400);
+    await sleep(200);
   }
-  const last = pickBestCard(filters);
-  if (last?.cents > 0) return last;
+  const last = pickFirstCard(filters);
+  if (last?.cents >= MIN_FARE_CENTS) return last;
   return {
     cents: 0,
     error: sawResults
@@ -266,4 +290,5 @@ async function run() {
     stops: price.stops,
     error: price.cents > 0 ? "" : price.error || "Não achei o preço no Decolar.",
   });
+}
 }
