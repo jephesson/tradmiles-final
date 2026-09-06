@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { Download, ExternalLink, Plane, RefreshCw, Square } from "lucide-react";
+import { Download, Eraser, ExternalLink, Plane, RefreshCw, Square } from "lucide-react";
 import { cn } from "@/lib/cn";
 import {
   buildAzulSearchUrl,
@@ -92,6 +92,7 @@ function fromSaved(row?: QuoteCiaCell | null): CiaDraft {
 }
 
 const ZIP_HREF = "/downloads/trademiles-cotacao-gol-extension.zip?v=1.8.12";
+let leaveClearTimer: ReturnType<typeof setTimeout> | null = null;
 const FIELD = "text-[11px] font-semibold uppercase tracking-wide text-slate-500";
 const INPUT =
   "mt-1 h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm shadow-sm outline-none focus:ring-2 focus:ring-slate-900/10";
@@ -236,6 +237,8 @@ export default function CotacaoPassagensClient() {
     smiles: 0,
     azul: 0,
   });
+  const jobIdRef = useRef<string>("");
+  jobIdRef.current = job?.id || "";
 
   async function load(id?: string) {
     const qs = id ? `?id=${encodeURIComponent(id)}` : "";
@@ -312,6 +315,33 @@ export default function CotacaoPassagensClient() {
         });
       }
     })();
+  }, []);
+
+  useEffect(() => {
+    const sendClear = (id: string) => {
+      if (!id) return;
+      void fetch(`/api/cotacao-passagens/${encodeURIComponent(id)}`, {
+        method: "PATCH",
+        keepalive: true,
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ clearQuote: true }),
+      });
+    };
+    if (leaveClearTimer) {
+      window.clearTimeout(leaveClearTimer);
+      leaveClearTimer = null;
+    }
+    const onHide = () => sendClear(jobIdRef.current);
+    window.addEventListener("pagehide", onHide);
+    return () => {
+      window.removeEventListener("pagehide", onHide);
+      const id = jobIdRef.current;
+      leaveClearTimer = window.setTimeout(() => {
+        leaveClearTimer = null;
+        sendClear(id);
+      }, 400);
+    };
   }, []);
 
   useEffect(() => {
@@ -399,12 +429,13 @@ export default function CotacaoPassagensClient() {
       const fromCash = ready ? suggestedMilheiroCents(cashPrice, milesN, feeCents) : 0;
       const suggested = ready ? Math.max(fromCash, minCents) : 0;
       const milheiroCents = ready ? (q.milheiroManual ? toCents(q.milheiro) : suggested) : 0;
+      const chargedOrTyped = q.milheiroManual ? toCents(q.milheiro) : milheiroCents;
       const total = ready && milheiroCents > 0 ? saleTotalCents(milesN, milheiroCents, feeCents) : 0;
       const idaTotal = ready && milheiroCents > 0 ? saleTotalCents(idaMiles, milheiroCents, idaFee) : 0;
       const voltaTotal = ready && milheiroCents > 0 ? saleTotalCents(voltaMiles, milheiroCents, voltaFee) : 0;
       const discount = cashPrice > 0 && total > 0 ? cashPrice - total : 0;
       const discountPct = cashPrice > 0 && total > 0 ? Math.round((discount / cashPrice) * 1000) / 10 : 0;
-      const belowMin = minCents > 0 && milheiroCents > 0 && milheiroCents < minCents;
+      const belowMin = minCents > 0 && chargedOrTyped > 0 && chargedOrTyped < minCents;
       const meetsMin = minCents <= 0 || milheiroCents >= minCents;
       const usedFloor = minCents > 0 && suggested === minCents && fromCash > 0 && fromCash < minCents;
       const saved = job?.quoteCia?.[key];
@@ -460,6 +491,16 @@ export default function CotacaoPassagensClient() {
       const cb = rankLegCost(b.voltaMiles, b.voltaFee, b.minCents);
       return !a || cb < ca ? b : a;
     }, null);
+  const milheiroOverrides = useMemo(() => {
+    const o: Record<string, number> = {};
+    for (const key of ["latam", "smiles", "azul"] as CiaKey[]) {
+      const q = ciaQuotes[key];
+      if (!q.milheiroManual) continue;
+      const cents = toCents(q.milheiro);
+      if (cents > 0) o[key] = cents;
+    }
+    return o;
+  }, [ciaQuotes]);
   const mix = useMemo(() => {
     if (!bestIdaCia?.idaMiles) return null;
     if (rt && !bestVoltaCia?.voltaMiles) return null;
@@ -480,10 +521,11 @@ export default function CotacaoPassagensClient() {
             feeCents: bestVoltaCia.voltaFee,
             minMilheiroCents: bestVoltaCia.minCents,
           }
-        : null
+        : null,
+      milheiroOverrides
     );
     return { priced, ida: bestIdaCia, volta: rt ? bestVoltaCia : null };
-  }, [bestIdaCia, bestVoltaCia, cashPrice, rt]);
+  }, [bestIdaCia, bestVoltaCia, cashPrice, rt, milheiroOverrides]);
   const activeCia = ciaRows.find((r) => r.key === activeCiaKey) || null;
   const shareModel = useMemo(() => {
     if (!cashPrice) return null;
@@ -662,6 +704,22 @@ export default function CotacaoPassagensClient() {
       body: JSON.stringify({ stop: true }),
     });
     load(job.id);
+  }
+
+  async function clearQuoteData() {
+    setCiaQuotes({ latam: emptyCia(), smiles: emptyCia(), azul: emptyCia() });
+    setMixAdvice("");
+    setShareCia(null);
+    const id = job?.id;
+    if (!id) return;
+    const r = await fetch(`/api/cotacao-passagens/${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ clearQuote: true }),
+    });
+    const j = await r.json().catch(() => null);
+    if (j?.ok && j.job) setJob(j.job);
   }
 
   async function saveQuote() {
@@ -954,14 +1012,25 @@ export default function CotacaoPassagensClient() {
               .
             </p>
           </div>
-          <button
-            type="button"
-            onClick={saveQuote}
-            disabled={!job}
-            className="h-9 rounded-xl bg-slate-900 px-3 text-xs font-semibold text-white disabled:opacity-50"
-          >
-            Salvar
-          </button>
+          <div className="flex shrink-0 items-center gap-2">
+            <button
+              type="button"
+              onClick={() => void clearQuoteData()}
+              disabled={!job}
+              className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-700 disabled:opacity-50"
+            >
+              <Eraser className="h-3.5 w-3.5" />
+              Limpar dados
+            </button>
+            <button
+              type="button"
+              onClick={saveQuote}
+              disabled={!job}
+              className="h-9 rounded-xl bg-slate-900 px-3 text-xs font-semibold text-white disabled:opacity-50"
+            >
+              Salvar
+            </button>
+          </div>
         </div>
         {mix ? (
           <div className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-3 text-sm text-emerald-950">
@@ -969,9 +1038,9 @@ export default function CotacaoPassagensClient() {
               Combo {mix.priced.ciaLabel}: {fmtMoney(mix.priced.total)}
             </div>
             <p className="mt-0.5 text-xs text-emerald-900/80">
-              Ida {mix.ida.label} {fmtMiles(mix.ida.idaMiles)} milhas (mín {fmtMoney(mix.ida.minCents)})
+              Ida {mix.ida.label} {fmtMiles(mix.ida.idaMiles)} milhas · milheiro {fmtMoney(mix.priced.idaRate)}
               {mix.volta
-                ? ` · volta ${mix.volta.label} ${fmtMiles(mix.volta.voltaMiles)} milhas (mín ${fmtMoney(mix.volta.minCents)})`
+                ? ` · volta ${mix.volta.label} ${fmtMiles(mix.volta.voltaMiles)} milhas · milheiro ${fmtMoney(mix.priced.voltaRate)}`
                 : ""}
               {cashPrice
                 ? ` · ${mix.priced.total <= cashPrice ? `${Math.round(((cashPrice - mix.priced.total) / cashPrice) * 1000) / 10}% abaixo` : "acima"} do à vista`
@@ -1079,17 +1148,23 @@ export default function CotacaoPassagensClient() {
                       value={
                         r.q.milheiroManual
                           ? r.q.milheiro
-                          : r.ready && r.suggested
-                            ? fromCents(r.suggested)
-                            : ""
+                          : mix?.ida.key === r.key
+                            ? fromCents(mix.priced.idaRate)
+                            : mix?.volta?.key === r.key
+                              ? fromCents(mix.priced.voltaRate)
+                              : r.ready && r.suggested
+                                ? fromCents(r.suggested)
+                                : r.milesN && r.minCents
+                                  ? fromCents(r.minCents)
+                                  : ""
                       }
                       onChange={(e) => patchCia(r.key, { milheiro: e.target.value, milheiroManual: true })}
                       className="h-9 w-20 rounded-lg border border-slate-200 px-2 disabled:bg-slate-50"
-                      placeholder={r.ready ? (r.minCents ? fromCents(r.minCents) : "0,00") : "—"}
-                      disabled={!r.ready}
+                      placeholder={r.minCents ? fromCents(r.minCents) : "0,00"}
+                      disabled={!r.milesN}
                     />
                     <div className="mt-1 text-[10px] text-slate-400">
-                      {r.ready ? `mín ${r.minCents ? fmtMoney(r.minCents) : "—"}` : rt ? "depois dos dois" : "mín —"}
+                      {r.milesN ? `mín ${r.minCents ? fmtMoney(r.minCents) : "—"}` : "—"}
                       {r.q.milheiroManual ? (
                         <button
                           type="button"
@@ -1103,7 +1178,14 @@ export default function CotacaoPassagensClient() {
                     {r.belowMin ? <div className="text-[10px] font-semibold text-amber-800">abaixo do mínimo</div> : null}
                   </td>
                   <td className="py-3 pr-2 font-semibold tabular-nums">
-                    {r.ready && r.milheiroCents > 0 ? fmtMoney(r.total) : "—"}
+                    {(() => {
+                      const mixPay =
+                        (mix?.ida.key === r.key ? mix.priced.idaTotal : 0) +
+                        (mix?.volta?.key === r.key ? mix.priced.voltaTotal : 0);
+                      if (r.ready && r.milheiroCents > 0) return fmtMoney(r.total);
+                      if (mixPay > 0) return fmtMoney(mixPay);
+                      return "—";
+                    })()}
                   </td>
                   <td
                     className={cn(

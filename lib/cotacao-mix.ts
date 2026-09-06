@@ -34,7 +34,12 @@ export function rankLegCost(miles: number, feeCents: number, minMilheiroCents: n
   return saleTotalCents(miles, rate, feeCents) * 100000 + miles;
 }
 
-export function priceMixedQuote(cashCents: number, ida: MixLegIn, volta: MixLegIn | null): MixedQuote {
+export function priceMixedQuote(
+  cashCents: number,
+  ida: MixLegIn,
+  volta: MixLegIn | null,
+  overrides?: Record<string, number>
+): MixedQuote {
   const legs = volta ? [ida, volta] : [ida];
   const miles = legs.reduce((s, l) => s + l.miles, 0);
   const feeCents = legs.reduce((s, l) => s + l.feeCents, 0);
@@ -49,8 +54,13 @@ export function priceMixedQuote(cashCents: number, ida: MixLegIn, volta: MixLegI
   if (targetCents > 0 && floorTotal < targetCents && miles > 0) {
     bump = Math.max(0, Math.round(((targetCents - floorTotal) / miles) * 1000));
   }
-  const idaRate = Math.max(0, ida.minMilheiroCents) + bump;
-  const voltaRate = volta ? Math.max(0, volta.minMilheiroCents) + bump : 0;
+  const overrideRate = (leg: MixLegIn) => {
+    const raw = overrides?.[leg.key];
+    if (raw == null || !Number.isFinite(raw) || raw <= 0) return null;
+    return Math.max(leg.minMilheiroCents, Math.round(raw));
+  };
+  const idaRate = overrideRate(ida) ?? Math.max(0, ida.minMilheiroCents) + bump;
+  const voltaRate = volta ? overrideRate(volta) ?? Math.max(0, volta.minMilheiroCents) + bump : 0;
   const idaTotal = saleTotalCents(ida.miles, idaRate, ida.feeCents);
   const voltaTotal = volta ? saleTotalCents(volta.miles, voltaRate, volta.feeCents) : 0;
   const ciaLabel = !volta || sameKey ? ida.label : `${ida.label} + ${volta.label}`;

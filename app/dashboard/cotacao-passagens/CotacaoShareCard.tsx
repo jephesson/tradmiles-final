@@ -20,10 +20,6 @@ function fmtMoney(cents: number) {
   return ((cents || 0) / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
 
-function fmtMiles(n: number) {
-  return (n || 0).toLocaleString("pt-BR");
-}
-
 function stopsLabel(stops: number | null) {
   if (stops === 0) return "Direto";
   if (typeof stops === "number" && stops > 0) {
@@ -87,13 +83,18 @@ function savingsCopy(cash: number, miles: number) {
   if (cash <= 0 || miles <= 0) return null;
   const pct = Math.round((delta / cash) * 1000) / 10;
   if (delta > 0) {
-    return { tone: "save" as const, title: `Economia de ${fmtMoney(delta)}`, sub: `${pct}% abaixo do Google Flights` };
+    return {
+      tone: "save" as const,
+      title: `${pct}% abaixo do Google Flights`,
+      sub: `Economia de ${fmtMoney(delta)}`,
+    };
   }
   if (delta < 0) {
+    const up = Math.round((Math.abs(delta) / cash) * 1000) / 10;
     return {
       tone: "more" as const,
-      title: `${fmtMoney(Math.abs(delta))} acima do à vista`,
-      sub: "Vale conferir se o horário compensa",
+      title: `${up}% acima do à vista`,
+      sub: `${fmtMoney(Math.abs(delta))} a mais · vale conferir o horário`,
     };
   }
   return { tone: "even" as const, title: "Mesmo valor do à vista", sub: "A vantagem fica no itinerário" };
@@ -220,17 +221,14 @@ export function CotacaoShareCard({
           <div className="mt-4 text-[26px] font-bold tabular-nums text-emerald-950">
             {fmtMoney(model.milesTotalCents)}
           </div>
-          <div className="text-[12px] text-emerald-900/80">
-            {fmtMiles(model.miles)} milhas · {model.milheiroLabel || `milheiro ${fmtMoney(model.milheiroCents)}`}
-            {model.feeCents ? ` · taxa ${fmtMoney(model.feeCents)}` : ""}
-          </div>
+          <div className="text-[12px] text-emerald-900/80">com a Vias Aéreas</div>
         </div>
       </div>
 
       {save ? (
         <div className={cn("px-8 py-5", save.tone === "save" ? "bg-emerald-600 text-white" : "bg-slate-900 text-white")}>
-          <div className="text-[22px] font-bold tracking-tight">{save.title}</div>
-          <div className="mt-1 flex flex-wrap gap-2 text-[13px] text-white/90">
+          <div className="text-[28px] font-bold tracking-tight">{save.title}</div>
+          <div className="mt-1 flex flex-wrap gap-2 text-[14px] text-white/90">
             <span>{save.sub}</span>
             {time ? <span>· {time}</span> : null}
             {stops ? <span>· {stops}</span> : null}

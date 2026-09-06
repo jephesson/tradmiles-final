@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/auth-server";
 import { inferQuoteDirection, mergeQuoteLeg, quoteLeg, type QuoteCiaCell } from "@/lib/cotacao-quote-cia";
+import { ciaKeyFromMilesAirline } from "@/lib/cotacao-passagens";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -32,6 +33,25 @@ export async function PATCH(req: Request, ctx: Ctx) {
   }
 
   const data: Record<string, unknown> = {};
+  if (body.clearQuote) {
+    const milesRows = await prisma.cotacaoPassagemSearch.findMany({
+      where: { jobId: job.id },
+      select: { id: true, airline: true },
+    });
+    const milesIds = milesRows.filter((s) => ciaKeyFromMilesAirline(s.airline)).map((s) => s.id);
+    if (milesIds.length) {
+      await prisma.cotacaoPassagemSearch.updateMany({
+        where: { id: { in: milesIds } },
+        data: { miles: 0, depTime: null, arrTime: null },
+      });
+    }
+    const updated = await prisma.cotacaoPassagemJob.update({
+      where: { id: job.id },
+      data: { quoteCia: {}, quoteMiles: 0, quoteMilheiroCents: 0, quoteBoardingFeeCents: 0 },
+      include: { searches: { orderBy: [{ direction: "asc" }, { date: "asc" }] } },
+    });
+    return NextResponse.json({ ok: true, job: updated });
+  }
   if (body.quoteMiles !== undefined) data.quoteMiles = Math.max(0, Math.trunc(Number(body.quoteMiles) || 0));
   if (body.quoteMilheiroCents !== undefined) {
     data.quoteMilheiroCents = Math.max(0, Math.trunc(Number(body.quoteMilheiroCents) || 0));
