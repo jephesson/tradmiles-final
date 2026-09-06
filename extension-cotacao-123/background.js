@@ -12,7 +12,7 @@ const TRADE_TABS = [
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg?.type === "TM_COTACAO_PING") {
-    sendResponse({ ok: true, version: "1.5.0" });
+    sendResponse({ ok: true, version: "1.5.1" });
     return false;
   }
   if (msg?.type === "TM_COTACAO_SHOULD_SCRAPE") {

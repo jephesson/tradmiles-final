@@ -139,6 +139,7 @@ export default function CotacaoPassagensClient() {
   const [job, setJob] = useState<Job | null>(null);
   const [loading, setLoading] = useState(false);
   const [extOn, setExtOn] = useState(false);
+  const [extReload, setExtReload] = useState(false);
   const [ciaQuotes, setCiaQuotes] = useState<Record<CiaKey, CiaDraft>>({
     latam: emptyCia(),
     smiles: emptyCia(),
@@ -162,14 +163,20 @@ export default function CotacaoPassagensClient() {
   }
 
   useEffect(() => {
+    void load();
+  }, []);
+
+  useEffect(() => {
     if (typeof document === "undefined") return;
     document.body.dataset.tmCotacaoJob = job?.status === "RUNNING" && job.id ? job.id : "";
     const sync = () => {
       if (document.documentElement.dataset.tmCotacaoExt) setExtOn(true);
+      if (document.documentElement.dataset.tmCotacaoExtReload) setExtReload(true);
     };
     const onBridge = (e: Event) => {
-      const connected = Boolean((e as CustomEvent<{ connected?: boolean }>).detail?.connected);
-      if (connected) setExtOn(true);
+      const d = (e as CustomEvent<{ connected?: boolean; reload?: boolean }>).detail || {};
+      setExtOn(Boolean(d.connected));
+      if (d.reload) setExtReload(true);
     };
     sync();
     const t = window.setInterval(sync, 1500);
@@ -319,6 +326,7 @@ export default function CotacaoPassagensClient() {
         return;
       }
       setJob(j.job);
+      window.dispatchEvent(new Event("tm-cotacao-kick"));
     } finally {
       setLoading(false);
     }
@@ -544,6 +552,18 @@ export default function CotacaoPassagensClient() {
               </button>
             ) : null}
           </div>
+          {extReload ? (
+            <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
+              A extensão foi atualizada com esta aba aberta e perdeu o contato. Recarregue a página (⌘R) e clique de
+              novo em Iniciar cotação.
+            </div>
+          ) : null}
+          {job?.status === "RUNNING" ? (
+            <div className="mt-3 rounded-xl border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-950">
+              Pesquisando {progress.done}/{progress.total}. Deve abrir uma janela da GOL, LATAM ou Azul atrás desta —
+              se não abrir, recarregue a aba e inicie de novo.
+            </div>
+          ) : null}
           <p className="mt-3 text-xs leading-relaxed text-slate-500">
             A extensão pesquisa GOL, LATAM e Azul, uma busca por vez. Na LATAM ela ordena pelo mais barato; na Azul
             clica em “Ver mais voos” até listar tudo. Deixe o Chrome aberto.
