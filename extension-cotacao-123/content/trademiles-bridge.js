@@ -23,7 +23,7 @@ if (!window.__tmCotacaoBridge) {
       else delete document.documentElement.dataset.tmCotacaoExt;
       window.dispatchEvent(
         new CustomEvent("tm-cotacao-bridge", {
-          detail: { connected, version: "1.8.0" },
+          detail: { connected, version: "1.8.1" },
         })
       );
     } catch {

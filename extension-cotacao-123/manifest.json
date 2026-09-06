@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "TradeMiles Cotação",
-  "version": "1.8.0",
+  "version": "1.8.1",
   "description": "Pesquisa à vista (cias ou Decolar no intervalo) e milhas na LATAM, Smiles e Azul.",
   "permissions": ["tabs", "windows", "storage", "alarms", "scripting"],
   "host_permissions": [

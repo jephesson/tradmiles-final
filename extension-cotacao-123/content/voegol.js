@@ -35,126 +35,88 @@ function moneyToCents(s) {
   return Number.isFinite(n) && n > 0 ? Math.round(n * 100) : 0;
 }
 
-function parseClock(v) {
-  const m = /^(\d{1,2}):(\d{2})$/.exec(String(v || "").trim());
-  if (!m) return "";
-  const h = Number(m[1]);
-  const min = Number(m[2]);
-  if (h > 23 || min > 59) return "";
-  return `${String(h).padStart(2, "0")}:${String(min).padStart(2, "0")}`;
-}
-
-function clockToMin(hhmm) {
-  const c = parseClock(hhmm);
-  if (!c) return null;
-  const [h, m] = c.split(":").map(Number);
-  return h * 60 + m;
-}
-
-function parseDurationMin(text) {
-  const t = String(text || "");
-  const compact = t.match(/(\d+)\s*h\s*(\d{2})\b/i);
-  if (compact) return Number(compact[1]) * 60 + Number(compact[2]);
-  const hm = t.match(/(\d+)\s*h(?:oras?)?\s*(?:e\s*)?(\d+)\s*min/i);
-  if (hm) return Number(hm[1]) * 60 + Number(hm[2]);
-  const hOnly = t.match(/(\d+)\s*h(?:oras?)?(?!\s*\d)/i);
-  const mOnly = t.match(/(\d+)\s*min/i);
-  if (hOnly && mOnly) return Number(hOnly[1]) * 60 + Number(mOnly[1]);
-  if (hOnly) return Number(hOnly[1]) * 60;
-  if (mOnly) return Number(mOnly[1]);
-  return 0;
-}
-
-function parseStops(text) {
-  const t = String(text || "");
-  if (/direto|sem\s+parada|sem\s+escala|non[-\s]?stop/i.test(t)) return 0;
-  const n = t.match(/(\d+)\s*paradas?/i) || t.match(/(\d+)\s*escalas?/i);
-  if (n) return Number(n[1]);
-  if (/parada|escala/i.test(t)) return 1;
+function searchDay() {
+  const q = location.search || "";
+  const br = q.match(/[?&]ida=(\d{1,2})-(\d{1,2})-(\d{4})/i);
+  if (br) return { d: Number(br[1]), m: Number(br[2]) };
   return null;
 }
 
-function hasActiveFilters(f) {
-  return Boolean(f && (f.maxDurationMin > 0 || f.depFrom || f.depTo || f.directOnly));
-}
-
-function depInWindow(depMin, from, to) {
-  if (depMin == null) return false;
-  const a = clockToMin(from);
-  const b = clockToMin(to);
-  if (a == null && b == null) return true;
-  if (a != null && b == null) return depMin >= a;
-  if (a == null && b != null) return depMin <= b;
-  if (a <= b) return depMin >= a && depMin <= b;
-  return depMin >= a || depMin <= b;
-}
-
-function matchesFilter(card, f) {
-  if (!hasActiveFilters(f)) return true;
-  if (f.maxDurationMin > 0) {
-    if (!card.durationMin || card.durationMin > f.maxDurationMin) return false;
-  }
-  if (f.depFrom || f.depTo) {
-    const dep = clockToMin(card.depTime);
-    if (!depInWindow(dep, f.depFrom, f.depTo)) return false;
-  }
-  if (f.directOnly && card.stops !== 0) return false;
-  return true;
-}
-
-function priceNodes() {
-  return [...document.querySelectorAll("div, span, p, button, strong, li")].filter((el) => {
-    const t = (el.textContent || "").replace(/\s+/g, " ").trim();
-    if (t.length > 90) return false;
-    return /a\s+partir\s+de\s+R\$/i.test(t) && moneyToCents(t) > 0;
-  });
-}
-
-function flightCards() {
-  const cards = [];
-  for (const p of priceNodes()) {
-    let el = p;
-    for (let i = 0; i < 14 && el; i++) {
-      const t = el.innerText || "";
-      const times = [...t.matchAll(/\b(\d{1,2}:\d{2})\b/g)].map((m) => parseClock(m[1])).filter(Boolean);
-      if (times.length >= 2 && t.length < 2200) {
-        cards.push(el);
-        break;
-      }
-      el = el.parentElement;
-    }
-  }
-  const unique = [...new Set(cards)];
-  return unique.filter((el) => !unique.some((o) => o !== el && o.contains(el)));
-}
-
-function parseCard(el) {
-  const text = el.innerText || "";
-  const cents = moneyToCents(text);
-  const times = [...text.matchAll(/\b(\d{1,2}:\d{2})\b/g)]
-    .map((m) => parseClock(m[1]))
-    .filter(Boolean);
-  const rawMatch = text.match(/a\s+partir\s+de\s+R\$\s*[\d.,]+/i);
-  return {
-    cents,
-    raw: rawMatch ? rawMatch[0] : text.slice(0, 180),
-    depTime: times[0] || "",
-    arrTime: times[1] || "",
-    durationMin: parseDurationMin(text),
-    stops: parseStops(text),
-    airline: "GOL",
+function monthNum(raw) {
+  const t = String(raw || "").toLowerCase();
+  const map = {
+    jan: 1,
+    fev: 2,
+    mar: 3,
+    abr: 4,
+    mai: 5,
+    jun: 6,
+    jul: 7,
+    ago: 8,
+    set: 9,
+    out: 10,
+    nov: 11,
+    dez: 12,
   };
+  for (const [k, v] of Object.entries(map)) {
+    if (t.includes(k)) return v;
+  }
+  return 0;
 }
 
-function pickBestCard(filters) {
-  let best = null;
-  for (const el of flightCards()) {
-    const card = parseCard(el);
-    if (!card.cents) continue;
-    if (!matchesFilter(card, filters)) continue;
-    if (!best || card.cents < best.cents) best = card;
+function isSelected(el) {
+  const aria = `${el.getAttribute("aria-selected") || ""} ${el.getAttribute("aria-pressed") || ""}`;
+  if (/^true$/i.test(aria.trim())) return true;
+  const cls = `${el.className || ""} ${el.parentElement?.className || ""}`;
+  if (/selected|active|atual|current/i.test(cls)) return true;
+  const st = window.getComputedStyle(el);
+  if (/rgb\(255,\s*(1[0-2]\d|9\d)/.test(st.borderColor) || /rgb\(255,\s*(1[0-2]\d|9\d)/.test(st.outlineColor)) {
+    return true;
   }
-  return best;
+  return false;
+}
+
+function barItems() {
+  const out = [];
+  for (const el of document.querySelectorAll("button, [role='button'], [role='tab'], li, div")) {
+    const t = (el.innerText || el.textContent || "").replace(/\s+/g, " ").trim();
+    if (t.length > 70 || t.length < 10) continue;
+    if (!/a\s+partir\s+de/i.test(t)) continue;
+    const cents = moneyToCents(t);
+    if (cents < 5000) continue;
+    const dm = t.match(/(\d{1,2})\s*([a-zç]{3})/i);
+    out.push({
+      el,
+      t,
+      cents,
+      d: dm ? Number(dm[1]) : 0,
+      m: dm ? monthNum(dm[2]) : 0,
+      selected: isSelected(el),
+      raw: (t.match(/a\s+partir\s+de\s+R\$\s*[\d.,]+/i) || [t])[0],
+    });
+  }
+  const unique = [];
+  const seen = new Set();
+  for (const row of out) {
+    const k = `${row.d}|${row.m}|${row.cents}`;
+    if (seen.has(k)) continue;
+    seen.add(k);
+    unique.push(row);
+  }
+  return unique;
+}
+
+function pickFromBar() {
+  const rows = barItems();
+  if (!rows.length) return null;
+  const day = searchDay();
+  const selected = rows.find((r) => r.selected);
+  if (selected) return selected;
+  if (day) {
+    const hit = rows.find((r) => r.d === day.d && (!r.m || r.m === day.m));
+    if (hit) return hit;
+  }
+  return rows.sort((a, b) => a.cents - b.cents)[0];
 }
 
 function dismissCookies() {
@@ -174,15 +136,12 @@ function isGolSearch() {
 }
 
 function pageKind() {
-  const t = (document.body?.innerText || "").slice(0, 10000);
+  const t = (document.body?.innerText || "").slice(0, 8000);
   if (/acesso\s+negado|are\s+you\s+human|captcha|verifique\s+que\s+voc[eê]\s+n[aã]o\s+[eé]\s+um\s+rob[oô]/i.test(t)) {
     return "BLOCKED";
   }
-  if (/nenhum\s+voo\s+dispon|n[aã]o\s+encontramos\s+voo|sem\s+voo\s+dispon/i.test(t)) {
-    return "NO_RESULTS";
-  }
-  if (/a\s+partir\s+de\s+R\$/i.test(t) && /\d{1,2}:\d{2}/.test(t)) return "RESULTS";
-  if (/selecione\s+seu\s+voo/i.test(t) && /\d{1,2}:\d{2}/.test(t) && /R\$/.test(t)) return "RESULTS";
+  if (/nenhum\s+voo\s+dispon|n[aã]o\s+encontramos\s+voo|sem\s+voo\s+dispon/i.test(t)) return "NO_RESULTS";
+  if (/a\s+partir\s+de\s+R\$/i.test(t)) return "RESULTS";
   return "WAIT";
 }
 
@@ -192,70 +151,41 @@ function sendResult(payload) {
   });
 }
 
-async function loadFilters() {
-  try {
-    const st = await chrome.storage.local.get(["tmFilters"]);
-    const f = st.tmFilters || {};
-    return {
-      maxDurationMin: Number(f.maxDurationMin) || 0,
-      depFrom: parseClock(f.depFrom || ""),
-      depTo: parseClock(f.depTo || ""),
-      directOnly: Boolean(f.directOnly),
-    };
-  } catch {
-    return { maxDurationMin: 0, depFrom: "", depTo: "", directOnly: false };
-  }
-}
-
-async function scrape(filters) {
+async function scrape() {
   dismissCookies();
-
   const t0 = Date.now();
-  let sawResults = false;
-  while (Date.now() - t0 < 22000) {
+  let saw = false;
+  while (Date.now() - t0 < 18000) {
     const kind = pageKind();
     if (kind === "BLOCKED") return { cents: 0, error: "A GOL bloqueou a página (captcha ou acesso)." };
-    if (kind === "NO_RESULTS" && Date.now() - t0 > 8000) {
+    if (kind === "NO_RESULTS" && Date.now() - t0 > 7000) {
       return { cents: 0, error: "GOL sem voos neste trecho/data." };
     }
     if (kind === "RESULTS") {
-      sawResults = true;
-      const best = pickBestCard(filters);
+      saw = true;
+      const best = pickFromBar();
       if (best?.cents > 0) return best;
     }
-    await sleep(300);
+    await sleep(250);
   }
-  const last = pickBestCard(filters);
+  const last = pickFromBar();
   if (last?.cents > 0) return last;
-  return {
-    cents: 0,
-    error: sawResults
-      ? hasActiveFilters(filters)
-        ? "Nenhum voo bate com os filtros (horário, duração ou direto)."
-        : "Resultados carregaram, mas não achei o preço na GOL."
-      : "Não achei o preço na GOL.",
-  };
+  return { cents: 0, error: saw ? "A barrinha da GOL apareceu, mas não achei o preço." : "Não achei o preço na GOL." };
 }
 
 async function run() {
   const t0 = Date.now();
   while (!isGolSearch() && Date.now() - t0 < 8000) await sleep(250);
   if (!isGolSearch()) {
-    sendResult({ ok: false, error: "Não abriu a busca da GOL." });
+    sendResult({ ok: false, airline: "GOL", error: "Não abriu a busca da GOL." });
     return;
   }
-
-  const filters = await loadFilters();
-  const price = await scrape(filters);
+  const price = await scrape();
   sendResult({
     ok: price.cents > 0,
     priceCents: price.cents || 0,
     airline: "GOL",
     rawPrice: price.raw || "",
-    depTime: price.depTime || "",
-    arrTime: price.arrTime || "",
-    durationMin: price.durationMin || 0,
-    stops: price.stops,
     error: price.cents > 0 ? "" : price.error || "Não achei o preço na GOL.",
   });
 }
