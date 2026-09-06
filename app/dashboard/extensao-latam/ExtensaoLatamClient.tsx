@@ -4,8 +4,8 @@ import { Download, Puzzle } from "lucide-react";
 import Link from "next/link";
 
 const ZIP_HREF = "/downloads/trademiles-latam-extension.zip";
-const EXTENSION_VERSION = "0.2.54";
-const EXTENSION_UPDATED_AT = "01/08/2026";
+const EXTENSION_VERSION = "0.2.55";
+const EXTENSION_UPDATED_AT = "06/09/2026";
 
 export default function ExtensaoLatamClient() {
   return (
@@ -36,7 +36,7 @@ export default function ExtensaoLatamClient() {
             — acordeão, CPF, data, sexo e contato.
           </li>
           <li>
-            Formulário <b>v1</b> (pagamentos/passageiros) ainda sem testes efetivos.
+            Criança e bebê: o <b>Nº de documento</b> recebe o mesmo CPF (LATAM exige os dois).
           </li>
           <li>Cartão de crédito no pagamento: funcionando sem erros.</li>
         </ul>

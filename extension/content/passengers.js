@@ -1726,7 +1726,7 @@ async function fillCpfForPax(i, pax) {
   const el = findCpfInputForPax(i);
   if (!el) {
     console.warn("[TradeMiles] CPF não achado pax", i);
-    return 0;
+    return await fillChildTravelDocumentWithCpf(pax);
   }
   console.info("[TradeMiles] CPF pax", i, "→", el.name || el.id || el.getAttribute("data-testid"));
   try {
@@ -1747,7 +1747,64 @@ async function fillCpfForPax(i, pax) {
   await sleep(200);
   const ok = String(el.value || "").replace(/\D/g, "") === cpf;
   if (!ok) console.warn("[TradeMiles] CPF não grudou pax", i, el.value);
-  return ok ? 1 : 0;
+  const extra = await fillChildTravelDocumentWithCpf(pax);
+  return (ok ? 1 : 0) + extra;
+}
+
+/** Criança/bebê: LATAM pede "Nº de documento" além do CPF — repete o CPF. Só CHD/INF. */
+function findChildTravelDocumentInputs() {
+  const out = [];
+  for (const el of document.querySelectorAll("input[type='text'], input:not([type])")) {
+    const id = `${el.id || ""} ${el.getAttribute("data-testid") || ""}`;
+    if (!/documentInfo-documentNumber-(CHD|INF)_/i.test(id)) continue;
+    if (/ADT_/i.test(id)) continue;
+    try {
+      if (!isVisible(el)) continue;
+    } catch {
+      /* segue */
+    }
+    out.push(el);
+  }
+  return out;
+}
+
+async function fillOneDocField(el, cpf) {
+  const cur = String(el.value || "").replace(/\D/g, "");
+  if (cur === cpf) return true;
+  try {
+    el.scrollIntoView({ block: "center", behavior: "smooth" });
+  } catch {
+    el.scrollIntoView?.({ block: "center" });
+  }
+  await sleep(120);
+  if (setNativeValue(el, cpf, { soft: true })) {
+    await sleep(80);
+    if (String(el.value || "").replace(/\D/g, "") === cpf) return true;
+  }
+  await typeChars(el, cpf, { clear: true, delay: 30 });
+  await sleep(80);
+  return String(el.value || "").replace(/\D/g, "") === cpf;
+}
+
+async function fillChildTravelDocumentWithCpf(pax) {
+  const cpf = cpfDigitsOnly(pax.cpf);
+  if (!cpf) return 0;
+  const els = findChildTravelDocumentInputs();
+  if (!els.length) return 0;
+  let n = 0;
+  for (const el of els) {
+    const ok = await fillOneDocField(el, cpf);
+    if (ok) {
+      n++;
+      console.info(
+        "[TradeMiles] Nº documento criança/bebê →",
+        el.id || el.getAttribute("data-testid")
+      );
+    } else {
+      console.warn("[TradeMiles] Nº documento criança/bebê não grudou", el.id, el.value);
+    }
+  }
+  return n;
 }
 
 function passengerRoot(idx) {
@@ -3464,6 +3521,7 @@ async function fillOnePassengerConfirmForm(pax, idx, opts = {}) {
     dobOk = true;
     n++;
   }
+  n += await fillChildTravelDocumentWithCpf(pax);
 
   if (opts.email || opts.phone) {
     n += await fillContactFields(opts.email, opts.phone, {
@@ -3556,6 +3614,7 @@ async function fillOnePassengerAccordion(i, pax) {
     n += await fillBirthDate(passengerRoot(i), pax, i, { expand: false });
     await sleep(350);
   }
+  n += await fillChildTravelDocumentWithCpf(pax);
 
   const gender = resolvePaxGender(pax);
   if (gender) {

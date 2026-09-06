@@ -324,6 +324,9 @@ export default function CotacaoPassagensClient() {
   const comboCents = job?.includeReturn ? (bestIda?.priceCents || 0) + (bestVolta?.priceCents || 0) : 0;
   const cashPrice = comboCents > 0 ? comboCents : bestIda?.priceCents || 0;
   const cashLabel = comboCents > 0 ? "À vista (ida + volta)" : bestIda ? "À vista · Google Flights" : "À vista";
+  const googleError = (job?.searches || []).find(
+    (s) => isScoutAirline(s.airline) && s.status === "ERRO" && s.error
+  )?.error || "";
   const smilesReturnDate =
     job?.includeReturn && bestIda?.date && bestVolta?.date && bestVolta.date >= bestIda.date ? bestVolta.date : null;
 
@@ -693,77 +696,71 @@ export default function CotacaoPassagensClient() {
         ) : null}
       </div>
 
-      {job && cashPrice > 0 ? (
+      {job ? (
         <div className="space-y-3">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-            <div>
-              <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Para o cliente</div>
-              <div className="text-sm font-semibold text-slate-900">Google Flights vs emissão em milhas</div>
+          <div>
+            <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">À vista · Google Flights</div>
+            <div className="text-sm font-semibold text-slate-900">
+              {job.origins} → {job.destinations}
+              {job.includeReturn ? " · ida e volta" : " · só ida"}
             </div>
-            <div className="flex flex-wrap items-center gap-2">
-              {filledCias.length > 1
-                ? filledCias.map((r) => (
-                    <button
-                      key={r.key}
-                      type="button"
-                      onClick={() => setShareCia(r.key)}
-                      className={cn(
-                        "h-8 rounded-full px-3 text-xs font-semibold",
-                        activeCiaKey === r.key ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-600"
-                      )}
-                    >
-                      {r.label}
-                    </button>
-                  ))
-                : null}
+          </div>
+          {cashPrice > 0 ? (
+            <>
+              <CashFlightCard title={job.includeReturn ? "Ida" : "Menor tarifa"} row={bestIda} />
+              {job.includeReturn ? <CashFlightCard title="Volta" row={bestVolta} /> : null}
+              <div className="rounded-2xl bg-slate-900 px-4 py-3 text-white">
+                <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-300">{cashLabel}</div>
+                <div className="text-2xl font-bold tabular-nums">{fmtMoney(cashPrice)}</div>
+              </div>
+            </>
+          ) : (
+            <div className="rounded-2xl border border-slate-200 bg-white px-4 py-5 text-sm text-slate-500">
+              {job.status === "RUNNING"
+                ? "Consultando o Google Flights…"
+                : googleError || "Ainda sem tarifa à vista nesta busca."}
             </div>
+          )}
+          <div className="flex flex-wrap items-center gap-2 text-xs">
+            {quoteRow?.url ? (
+              <a
+                href={quoteRow.url}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-1 font-semibold text-slate-700 hover:underline"
+              >
+                Google Flights <ExternalLink className="h-3 w-3" />
+              </a>
+            ) : null}
+            {CIA_META.map(({ key, label }) => {
+              const href = ciaHref(key);
+              if (!href) return null;
+              return (
+                <a
+                  key={key}
+                  href={href}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex h-8 items-center rounded-lg border border-slate-200 px-2.5 font-semibold text-slate-800"
+                >
+                  {label}
+                </a>
+              );
+            })}
           </div>
           {shareModel ? (
             <div className="space-y-3">
+              <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Para o cliente</div>
               <div className="overflow-hidden rounded-[28px] border border-slate-200 shadow-sm">
                 <CotacaoShareCard model={shareModel} fluid />
               </div>
               <CotacaoShareActions model={shareModel} />
             </div>
-          ) : (
-            <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-8 text-center text-sm text-slate-500">
+          ) : cashPrice > 0 ? (
+            <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-4 text-sm text-slate-500">
               Preencha milhas e taxa em uma cia para montar a proposta.
             </div>
-          )}
-          {quoteRow ? (
-            <div className="flex flex-wrap items-center gap-2 text-xs">
-              {quoteRow.url ? (
-                <a
-                  href={quoteRow.url}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="inline-flex items-center gap-1 font-semibold text-slate-700 hover:underline"
-                >
-                  Google Flights <ExternalLink className="h-3 w-3" />
-                </a>
-              ) : null}
-              {CIA_META.map(({ key, label }) => {
-                const href = ciaHref(key);
-                if (!href) return null;
-                return (
-                  <a
-                    key={key}
-                    href={href}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="inline-flex h-8 items-center rounded-lg border border-slate-200 px-2.5 font-semibold text-slate-800"
-                  >
-                    {label}
-                  </a>
-                );
-              })}
-              <span className="text-slate-400">Abra a cia com a captura ligada e selecione o voo.</span>
-            </div>
           ) : null}
-        </div>
-      ) : job ? (
-        <div className="rounded-2xl border border-slate-200 bg-white px-4 py-6 text-sm text-slate-500">
-          {job.status === "RUNNING" ? "Consultando o Google Flights…" : "Ainda sem tarifa à vista nesta busca."}
         </div>
       ) : null}
 
@@ -916,6 +913,32 @@ export default function CotacaoPassagensClient() {
           </table>
         </details>
       ) : null}
+    </div>
+  );
+}
+
+function CashFlightCard({ title, row }: { title: string; row: SearchRow | null }) {
+  if (!row) {
+    return (
+      <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-500">
+        {title}: ainda sem voo.
+      </div>
+    );
+  }
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3">
+      <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">{title}</div>
+      <div className="mt-0.5 text-lg font-bold text-slate-900">
+        {row.originIata} → {row.destIata}
+      </div>
+      <div className="text-sm text-slate-600">
+        {dateBr(row.date)}
+        {row.rawPrice ? ` · ${row.rawPrice}` : ""}
+      </div>
+      {fmtFlightSchedule(row) ? (
+        <div className="mt-1 text-sm font-medium text-slate-800">{fmtFlightSchedule(row)}</div>
+      ) : null}
+      <div className="mt-1 text-xl font-bold tabular-nums">{fmtMoney(row.priceCents)}</div>
     </div>
   );
 }

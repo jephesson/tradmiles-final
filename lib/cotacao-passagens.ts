@@ -199,8 +199,8 @@ export function buildGoogleFlightsSearchUrl(origin: string, dest: string, dateIS
 }
 
 export function googleFlightsScoutSearches(origin: string, dest: string, dateISO: string, _adults = 1) {
-  const o = azulCashLocation(origin);
-  const d = azulCashLocation(dest);
+  const o = toIata(origin);
+  const d = toIata(dest);
   const url = buildGoogleFlightsSearchUrl(o, d, dateISO);
   if (!url) return [];
   return [{ airline: "Google", url, originIata: o, destIata: d }];

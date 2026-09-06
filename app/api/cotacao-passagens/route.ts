@@ -10,7 +10,6 @@ import {
   isISODate,
   parseClock,
 } from "@/lib/cotacao-passagens";
-import { fillPendingGoogleFlights } from "@/lib/cotacao-fill-google";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -172,13 +171,7 @@ export async function POST(req: Request) {
     include: jobInclude,
   });
 
-  await fillPendingGoogleFlights(job.id, Math.min(searches.length, 8));
-  const filled = await prisma.cotacaoPassagemJob.findFirst({
-    where: { id: job.id },
-    include: jobInclude,
-  });
-
-  return NextResponse.json({ ok: true, job: filled || job });
+  return NextResponse.json({ ok: true, job });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Falha ao criar cotação.";
     const status = msg === "UNAUTHENTICATED" ? 401 : 500;

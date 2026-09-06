@@ -27,7 +27,7 @@ type SerpLeg = {
   duration?: number;
 };
 type SerpOffer = {
-  price?: number;
+  price?: unknown;
   type?: string;
   flights?: SerpLeg[];
   total_duration?: number;
@@ -53,11 +53,25 @@ function googleFlightsPageUrl(origin: string, dest: string, dateISO: string) {
   return `https://www.google.com/travel/flights?hl=pt-BR&gl=br&curr=BRL&q=${q}`;
 }
 
+function offerPrice(raw: unknown) {
+  if (typeof raw === "number" && Number.isFinite(raw) && raw > 0) return raw;
+  if (typeof raw === "string") {
+    const n = Number(raw.replace(/[^\d,.-]/g, "").replace(/\./g, "").replace(",", "."));
+    if (Number.isFinite(n) && n > 0) return n;
+  }
+  if (raw && typeof raw === "object" && "value" in (raw as object)) {
+    return offerPrice((raw as { value?: unknown }).value);
+  }
+  return 0;
+}
+
 function pickCheapest(offers: SerpOffer[]): SerpOffer | null {
-  const priced = offers.filter((o) => typeof o.price === "number" && Number(o.price) > 0);
+  const priced = offers
+    .map((o) => ({ o, price: offerPrice(o.price) }))
+    .filter((x) => x.price > 0);
   if (!priced.length) return null;
-  priced.sort((a, b) => Number(a.price) - Number(b.price));
-  return priced[0];
+  priced.sort((a, b) => a.price - b.price);
+  return priced[0].o;
 }
 
 export function parseGoogleFlightsResult(
@@ -74,7 +88,7 @@ export function parseGoogleFlightsResult(
 ): SerpApiCheapestFlight | { error: string } {
   if (data?.error) return { error: String(data.error).slice(0, 400) };
   const offer = pickCheapest([...(data.best_flights || []), ...(data.other_flights || [])]);
-  const price = offer?.price ?? data.price_insights?.lowest_price;
+  const price = offerPrice(offer?.price) || offerPrice(data.price_insights?.lowest_price);
   if (!price || Number(price) <= 0) {
     return { error: "Google Flights não devolveu tarifa para este trecho/data." };
   }
