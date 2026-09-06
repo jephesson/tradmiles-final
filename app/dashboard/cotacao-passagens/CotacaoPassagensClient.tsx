@@ -92,7 +92,7 @@ function fromSaved(row?: QuoteCiaCell | null): CiaDraft {
 }
 
 const ZIP_HREF = "/downloads/trademiles-cotacao-gol-extension.zip?v=1.8.12";
-let leaveClearTimer: ReturnType<typeof setTimeout> | null = null;
+let leaveClearTimer: number | null = null;
 const FIELD = "text-[11px] font-semibold uppercase tracking-wide text-slate-500";
 const INPUT =
   "mt-1 h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm shadow-sm outline-none focus:ring-2 focus:ring-slate-900/10";
