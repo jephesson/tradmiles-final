@@ -28,6 +28,7 @@ type SearchRow = {
   priceCents: number;
   miles?: number;
   airline: string;
+  rawPrice?: string | null;
   error: string | null;
   depTime?: string | null;
   arrTime?: string | null;
