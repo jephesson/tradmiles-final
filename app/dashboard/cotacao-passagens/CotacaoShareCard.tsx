@@ -170,15 +170,27 @@ export function CotacaoShareCard({
       )}
       style={{ fontFamily: "ui-sans-serif, system-ui, sans-serif" }}
     >
-      <div className="bg-[#9f1239] px-8 py-5 text-white">
-        <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-white/75">Vias Aéreas</div>
-        <div className="mt-1 text-[28px] font-bold tracking-tight">{route}</div>
-        <div className="mt-0.5 text-[14px] text-white/85">
-          {date}
-          {date ? " · " : ""}
-          {model.tripKind}
+      <div className="bg-white px-8 py-4">
+        <div className="flex items-center justify-between gap-6">
+          <img
+            src="/vias-aereas-logo.png"
+            alt="Vias Aéreas"
+            width={220}
+            height={90}
+            className="h-[72px] w-auto object-contain object-left"
+            crossOrigin="anonymous"
+          />
+          <div className="text-right">
+            <div className="text-[22px] font-bold tracking-tight text-slate-900">{route}</div>
+            <div className="text-[13px] text-slate-500">
+              {date}
+              {date ? " · " : ""}
+              {model.tripKind}
+            </div>
+          </div>
         </div>
       </div>
+      <div className="h-1.5 bg-[#9f1239]" />
 
       <div className="grid grid-cols-2 gap-0 border-b border-slate-100">
         <div className="border-r border-slate-100 bg-slate-50 px-7 py-6">
@@ -197,11 +209,11 @@ export function CotacaoShareCard({
           <div className="mt-3 space-y-3">
             <LegBlock
               label={hasVolta ? "Ida" : undefined}
-              leg={model.milesIda || model.cashIda}
+              leg={model.milesIda}
               empty="Selecione o voo na cia"
             />
             {hasVolta ? (
-              <LegBlock label="Volta" leg={model.milesVolta || model.cashVolta} empty="Selecione a volta na cia" />
+              <LegBlock label="Volta" leg={model.milesVolta} empty="Selecione a volta na cia" />
             ) : null}
           </div>
           <div className="mt-4 text-[26px] font-bold tabular-nums text-emerald-950">
@@ -233,7 +245,23 @@ export function CotacaoShareCard({
   );
 }
 
+async function waitForImages(node: HTMLElement) {
+  const imgs = Array.from(node.querySelectorAll("img"));
+  await Promise.all(
+    imgs.map(
+      (img) =>
+        img.complete
+          ? Promise.resolve()
+          : new Promise<void>((resolve) => {
+              img.onload = () => resolve();
+              img.onerror = () => resolve();
+            })
+    )
+  );
+}
+
 async function nodeToPngBlob(node: HTMLElement) {
+  await waitForImages(node);
   const { toBlob } = await import("html-to-image");
   const blob = await toBlob(node, {
     pixelRatio: 2,

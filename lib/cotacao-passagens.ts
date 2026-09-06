@@ -336,14 +336,17 @@ export function buildSmilesSearchUrl(
   q.set("searchType", "g3");
   q.set("isElegible", "false");
   q.set("isFlexibleDateChecked", "false");
-  q.set("novo-resultado-voos", "true");
+  q.set("originCity", "");
+  q.set("destinCity", "");
+  q.set("originCountry", "");
+  q.set("destinCountry", "");
   if (roundTrip) {
-    q.set("tripType", "2");
+    // No MFE da Smiles: ROUND_TRIP=1, ONE_WAY=2, MULTI_CITY=3.
+    q.set("tripType", "1");
     q.set("segments", "2");
     q.set("returnDate", String(returnMs));
   } else {
-    // A Smiles trata a presença de returnDate (mesmo vazio) como ida e volta e troca para tripType=2.
-    q.set("tripType", "1");
+    q.set("tripType", "2");
     q.set("segments", "1");
   }
   return `https://www.smiles.com.br/mfe/emissao-passagem/?${q.toString()}`;

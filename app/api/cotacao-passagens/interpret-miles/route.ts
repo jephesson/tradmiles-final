@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/auth-server";
+import { ciaKeyFromMilesAirline, durationMinFromClocks, parseClock } from "@/lib/cotacao-passagens";
 import { interpretMilesSnippet } from "@/lib/cotacao-interpret-miles";
 
 export const runtime = "nodejs";
@@ -44,9 +45,12 @@ export async function POST(req: Request) {
     );
   }
 
+  const depTime = parseClock(parsed.depTime) || null;
+  const arrTime = parseClock(parsed.arrTime) || null;
+  const durationMin = durationMinFromClocks(depTime, arrTime);
   const current = (job.quoteCia && typeof job.quoteCia === "object" ? job.quoteCia : {}) as Record<
     string,
-    { miles?: number; feeCents?: number; milheiroCents?: number }
+    { miles?: number; feeCents?: number; milheiroCents?: number; depTime?: string; arrTime?: string }
   >;
   const prev = current[cia] || {};
   await prisma.cotacaoPassagemJob.update({
@@ -58,10 +62,23 @@ export async function POST(req: Request) {
           miles: parsed.miles,
           feeCents: parsed.feeCents,
           milheiroCents: prev.milheiroCents || 0,
+          depTime: depTime || prev.depTime,
+          arrTime: arrTime || prev.arrTime,
         },
       },
     },
   });
+
+  const searches = await prisma.cotacaoPassagemSearch.findMany({ where: { jobId: job.id } });
+  const milesRow = searches.find(
+    (s) => s.direction === "IDA" && ciaKeyFromMilesAirline(s.airline) === cia
+  );
+  if (milesRow && depTime && arrTime) {
+    await prisma.cotacaoPassagemSearch.update({
+      where: { id: milesRow.id },
+      data: { depTime, arrTime, durationMin: durationMin || milesRow.durationMin },
+    });
+  }
 
   return NextResponse.json({
     ok: true,

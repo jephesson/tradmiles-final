@@ -38,22 +38,45 @@ export async function PATCH(req: Request, ctx: Ctx) {
   if (body.quoteBoardingFeeCents !== undefined) {
     data.quoteBoardingFeeCents = Math.max(0, Math.trunc(Number(body.quoteBoardingFeeCents) || 0));
   }
-  if (body.quoteCia !== undefined) data.quoteCia = body.quoteCia;
+  const currentCia = (job.quoteCia && typeof job.quoteCia === "object" ? job.quoteCia : {}) as Record<
+    string,
+    { miles?: number; feeCents?: number; milheiroCents?: number; depTime?: string; arrTime?: string }
+  >;
+  if (body.quoteCia !== undefined && body.quoteCia && typeof body.quoteCia === "object") {
+    const incoming = body.quoteCia as Record<
+      string,
+      { miles?: number; feeCents?: number; milheiroCents?: number; depTime?: string; arrTime?: string }
+    >;
+    data.quoteCia = Object.fromEntries(
+      Object.keys({ ...currentCia, ...incoming }).map((key) => {
+        const next = incoming[key] || {};
+        const prev = currentCia[key] || {};
+        return [
+          key,
+          {
+            miles: next.miles ?? prev.miles ?? 0,
+            feeCents: next.feeCents ?? prev.feeCents ?? 0,
+            milheiroCents: next.milheiroCents ?? prev.milheiroCents ?? 0,
+            depTime: next.depTime || prev.depTime,
+            arrTime: next.arrTime || prev.arrTime,
+          },
+        ];
+      })
+    );
+  }
   const cia = String(body.cia || "").toLowerCase();
   if (cia === "latam" || cia === "smiles" || cia === "azul") {
     const miles = Math.max(0, Math.trunc(Number(body.miles) || 0));
     const feeCents = Math.max(0, Math.trunc(Number(body.feeCents) || 0));
-    const current = (job.quoteCia && typeof job.quoteCia === "object" ? job.quoteCia : {}) as Record<
-      string,
-      { miles?: number; feeCents?: number; milheiroCents?: number }
-    >;
-    const prev = current[cia] || {};
+    const prev = currentCia[cia] || {};
     data.quoteCia = {
-      ...current,
+      ...((data.quoteCia as object) || currentCia),
       [cia]: {
         miles,
         feeCents,
         milheiroCents: prev.milheiroCents || 0,
+        depTime: prev.depTime,
+        arrTime: prev.arrTime,
       },
     };
   }

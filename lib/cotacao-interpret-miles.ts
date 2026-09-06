@@ -12,7 +12,25 @@ Regras:
 - feeCents = taxa de embarque / impostos / encargos em centavos (R$ 45,90 → 4590). Se não houver taxa, 0.
 - Não use o preço em reais da passagem como milhas.
 - Não some milhas de vários voos. Pegue o do trecho destacado.
-- depTime/arrTime no formato HH:MM ou null.`;
+- depTime/arrTime no formato HH:MM (24h) do voo destacado, ou null se não aparecer horário.`;
+
+function padClock(v: unknown) {
+  const m = /^(\d{1,2}):(\d{2})$/.exec(String(v || "").trim());
+  if (!m) return "";
+  const h = Number(m[1]);
+  const min = Number(m[2]);
+  if (h > 23 || min > 59) return "";
+  return `${String(h).padStart(2, "0")}:${m[2]}`;
+}
+
+function clocksFromText(text: string) {
+  const found: string[] = [];
+  for (const m of String(text || "").matchAll(/\b([01]?\d|2[0-3]):([0-5]\d)\b/g)) {
+    const clock = padClock(m[0]);
+    if (clock) found.push(clock);
+  }
+  return found;
+}
 
 export type InterpretedMiles = {
   miles: number;
@@ -56,8 +74,10 @@ export async function interpretMilesSnippet(snippet: string, cia: string): Promi
     const data = JSON.parse(String(raw));
     const miles = Math.max(0, Math.trunc(Number(String(data.miles || "").replace(/\D/g, "")) || 0));
     const feeCents = Math.max(0, Math.trunc(Number(data.feeCents) || 0));
-    const depTime = /^\d{1,2}:\d{2}$/.test(String(data.depTime || "")) ? String(data.depTime) : "";
-    const arrTime = /^\d{1,2}:\d{2}$/.test(String(data.arrTime || "")) ? String(data.arrTime) : "";
+    const fromAi = clocksFromText(`${data.depTime || ""} ${data.arrTime || ""}`);
+    const fromSnippet = clocksFromText(text);
+    const depTime = padClock(data.depTime) || fromAi[0] || fromSnippet[0] || "";
+    const arrTime = padClock(data.arrTime) || fromAi[1] || fromSnippet[1] || "";
     if (miles < 500) return null;
     return { miles, feeCents, depTime, arrTime };
   } catch {

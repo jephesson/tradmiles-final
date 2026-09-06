@@ -12,6 +12,8 @@ import {
   fmtFlightSchedule,
   isMilesAirline,
   isScoutAirline,
+  durationMinFromClocks,
+  parseClock,
   resolvedDurationMin,
   saleTotalCents,
   suggestedMilheiroCents,
@@ -46,7 +48,10 @@ type Job = {
   quoteMiles: number;
   quoteMilheiroCents: number;
   quoteBoardingFeeCents: number;
-  quoteCia?: Record<string, { miles?: number; feeCents?: number; milheiroCents?: number }> | null;
+  quoteCia?: Record<
+    string,
+    { miles?: number; feeCents?: number; milheiroCents?: number; depTime?: string; arrTime?: string }
+  > | null;
   filterMaxDurationMin?: number | null;
   filterDepFrom?: string | null;
   filterDepTo?: string | null;
@@ -162,6 +167,32 @@ function pickMilesSearch(searches: SearchRow[], key: CiaKey, direction: string) 
         (s.depTime || s.arrTime || s.durationMin)
     ) || null
   );
+}
+
+function milesShareLeg(
+  searches: SearchRow[],
+  key: CiaKey,
+  direction: "IDA" | "VOLTA",
+  ciaLabel: string,
+  cashLeg: ShareLeg | null,
+  quote?: { depTime?: string; arrTime?: string } | null
+): ShareLeg | null {
+  const fromSearch = toShareLeg(pickMilesSearch(searches, key, direction));
+  const quoteDep = direction === "IDA" ? parseClock(quote?.depTime || "") : "";
+  const quoteArr = direction === "IDA" ? parseClock(quote?.arrTime || "") : "";
+  const dep = fromSearch?.depTime || quoteDep || "";
+  const arr = fromSearch?.arrTime || quoteArr || "";
+  const base = fromSearch || cashLeg;
+  if (!base) return null;
+  const durationMin = durationMinFromClocks(dep, arr) || fromSearch?.durationMin || null;
+  return {
+    ...base,
+    airline: ciaLabel,
+    depTime: dep || null,
+    arrTime: arr || null,
+    durationMin,
+    stops: fromSearch?.stops ?? null,
+  };
 }
 
 export default function CotacaoPassagensClient() {
@@ -327,8 +358,6 @@ export default function CotacaoPassagensClient() {
   const googleError = (job?.searches || []).find(
     (s) => isScoutAirline(s.airline) && s.status === "ERRO" && s.error
   )?.error || "";
-  const smilesReturnDate =
-    job?.includeReturn && bestIda?.date && bestVolta?.date && bestVolta.date >= bestIda.date ? bestVolta.date : null;
 
   const ciaRows = useMemo(() => {
     return CIA_META.map(({ key, label }) => {
@@ -388,9 +417,23 @@ export default function CotacaoPassagensClient() {
       miles: activeCia.milesN,
       feeCents: activeCia.feeCents,
       milheiroCents: activeCia.milheiroCents,
-      milesIda: toShareLeg(pickMilesSearch(searches, activeCia.key, "IDA")) || toShareLeg(bestIda),
+      milesIda: milesShareLeg(
+        searches,
+        activeCia.key,
+        "IDA",
+        activeCia.label,
+        toShareLeg(bestIda),
+        job?.quoteCia?.[activeCia.key]
+      ),
       milesVolta: job?.includeReturn
-        ? toShareLeg(pickMilesSearch(searches, activeCia.key, "VOLTA")) || toShareLeg(bestVolta)
+        ? milesShareLeg(
+            searches,
+            activeCia.key,
+            "VOLTA",
+            activeCia.label,
+            toShareLeg(bestVolta),
+            null
+          )
         : null,
     };
   }, [activeCia, cashPrice, job, bestIda, bestVolta]);
@@ -475,7 +518,13 @@ export default function CotacaoPassagensClient() {
     const quoteCia = Object.fromEntries(
       ciaRows.map((r) => [
         r.key,
-        { miles: r.milesN, feeCents: r.feeCents, milheiroCents: r.milheiroCents },
+        {
+          miles: r.milesN,
+          feeCents: r.feeCents,
+          milheiroCents: r.milheiroCents,
+          depTime: job.quoteCia?.[r.key]?.depTime,
+          arrTime: job.quoteCia?.[r.key]?.arrTime,
+        },
       ])
     );
     const pick = bestCia || filledCias[0];
@@ -494,16 +543,6 @@ export default function CotacaoPassagensClient() {
   function patchCia(key: CiaKey, patch: Partial<CiaDraft>) {
     setCiaQuotes((prev) => ({ ...prev, [key]: { ...prev[key], ...patch } }));
   }
-
-  const quoteRow = bestIda;
-  const ciaHref = (key: CiaKey) => {
-    if (!quoteRow) return "";
-    if (key === "latam") return buildLatamSearchUrl(quoteRow.originIata, quoteRow.destIata, quoteRow.date);
-    if (key === "smiles") {
-      return buildSmilesSearchUrl(quoteRow.originIata, quoteRow.destIata, quoteRow.date, 1, smilesReturnDate);
-    }
-    return buildAzulSearchUrl(quoteRow.originIata, quoteRow.destIata, quoteRow.date);
-  };
 
   return (
     <div className="mx-auto max-w-5xl space-y-5 pb-10">
@@ -721,33 +760,6 @@ export default function CotacaoPassagensClient() {
                 : googleError || "Ainda sem tarifa à vista nesta busca."}
             </div>
           )}
-          <div className="flex flex-wrap items-center gap-2 text-xs">
-            {quoteRow?.url ? (
-              <a
-                href={quoteRow.url}
-                target="_blank"
-                rel="noreferrer"
-                className="inline-flex items-center gap-1 font-semibold text-slate-700 hover:underline"
-              >
-                Google Flights <ExternalLink className="h-3 w-3" />
-              </a>
-            ) : null}
-            {CIA_META.map(({ key, label }) => {
-              const href = ciaHref(key);
-              if (!href) return null;
-              return (
-                <a
-                  key={key}
-                  href={href}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="inline-flex h-8 items-center rounded-lg border border-slate-200 px-2.5 font-semibold text-slate-800"
-                >
-                  {label}
-                </a>
-              );
-            })}
-          </div>
           {shareModel ? (
             <div className="space-y-3">
               <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Para o cliente</div>
@@ -917,6 +929,12 @@ export default function CotacaoPassagensClient() {
   );
 }
 
+function milesHref(key: CiaKey, origin: string, dest: string, date: string) {
+  if (key === "latam") return buildLatamSearchUrl(origin, dest, date);
+  if (key === "smiles") return buildSmilesSearchUrl(origin, dest, date, 1);
+  return buildAzulSearchUrl(origin, dest, date);
+}
+
 function CashFlightCard({ title, row }: { title: string; row: SearchRow | null }) {
   if (!row) {
     return (
@@ -939,6 +957,38 @@ function CashFlightCard({ title, row }: { title: string; row: SearchRow | null }
         <div className="mt-1 text-sm font-medium text-slate-800">{fmtFlightSchedule(row)}</div>
       ) : null}
       <div className="mt-1 text-xl font-bold tabular-nums">{fmtMoney(row.priceCents)}</div>
+      <div className="mt-3 border-t border-slate-100 pt-3">
+        <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+          Buscar milhas deste trecho
+        </div>
+        <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+          {row.url ? (
+            <a
+              href={row.url}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex h-8 items-center gap-1 rounded-lg border border-slate-200 px-2.5 text-xs font-semibold text-slate-700"
+            >
+              Google <ExternalLink className="h-3 w-3" />
+            </a>
+          ) : null}
+          {CIA_META.map(({ key, label }) => {
+            const href = milesHref(key, row.originIata, row.destIata, row.date);
+            if (!href) return null;
+            return (
+              <a
+                key={key}
+                href={href}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex h-8 items-center rounded-lg border border-slate-200 px-2.5 text-xs font-semibold text-slate-800"
+              >
+                {label}
+              </a>
+            );
+          })}
+        </div>
+      </div>
     </div>
   );
 }
