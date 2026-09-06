@@ -77,6 +77,7 @@ export type CotacaoShareModel = {
   miles: number;
   feeCents: number;
   milheiroCents: number;
+  milheiroLabel?: string;
   milesIda: ShareLeg | null;
   milesVolta: ShareLeg | null;
 };
@@ -220,7 +221,7 @@ export function CotacaoShareCard({
             {fmtMoney(model.milesTotalCents)}
           </div>
           <div className="text-[12px] text-emerald-900/80">
-            {fmtMiles(model.miles)} milhas · milheiro {fmtMoney(model.milheiroCents)}
+            {fmtMiles(model.miles)} milhas · {model.milheiroLabel || `milheiro ${fmtMoney(model.milheiroCents)}`}
             {model.feeCents ? ` · taxa ${fmtMoney(model.feeCents)}` : ""}
           </div>
         </div>

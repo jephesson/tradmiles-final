@@ -20,6 +20,7 @@ import {
 } from "@/lib/cotacao-passagens";
 import { CotacaoShareActions, CotacaoShareCard, type ShareLeg } from "./CotacaoShareCard";
 import { quoteLeg, type QuoteCiaCell } from "@/lib/cotacao-quote-cia";
+import { priceMixedQuote, rankLegCost } from "@/lib/cotacao-mix";
 
 type SearchRow = {
   id: string;
@@ -229,6 +230,7 @@ export default function CotacaoPassagensClient() {
     azul: emptyCia(),
   });
   const [shareCia, setShareCia] = useState<CiaKey | null>(null);
+  const [mixAdvice, setMixAdvice] = useState("");
   const [minMilheiro, setMinMilheiro] = useState<Record<CiaKey, number>>({
     latam: 0,
     smiles: 0,
@@ -446,14 +448,85 @@ export default function CotacaoPassagensClient() {
     null;
   const bestIdaCia = ciaRows
     .filter((r) => r.idaMiles > 0)
-    .reduce<(typeof ciaRows)[number] | null>((a, b) => (!a || b.idaMiles < a.idaMiles ? b : a), null);
+    .reduce<(typeof ciaRows)[number] | null>((a, b) => {
+      const ca = rankLegCost(a?.idaMiles || 0, a?.idaFee || 0, a?.minCents || 0);
+      const cb = rankLegCost(b.idaMiles, b.idaFee, b.minCents);
+      return !a || cb < ca ? b : a;
+    }, null);
   const bestVoltaCia = ciaRows
     .filter((r) => r.voltaMiles > 0)
-    .reduce<(typeof ciaRows)[number] | null>((a, b) => (!a || b.voltaMiles < a.voltaMiles ? b : a), null);
+    .reduce<(typeof ciaRows)[number] | null>((a, b) => {
+      const ca = rankLegCost(a?.voltaMiles || 0, a?.voltaFee || 0, a?.minCents || 0);
+      const cb = rankLegCost(b.voltaMiles, b.voltaFee, b.minCents);
+      return !a || cb < ca ? b : a;
+    }, null);
+  const mix = useMemo(() => {
+    if (!bestIdaCia?.idaMiles) return null;
+    if (rt && !bestVoltaCia?.voltaMiles) return null;
+    const priced = priceMixedQuote(
+      cashPrice,
+      {
+        key: bestIdaCia.key,
+        label: bestIdaCia.label,
+        miles: bestIdaCia.idaMiles,
+        feeCents: bestIdaCia.idaFee,
+        minMilheiroCents: bestIdaCia.minCents,
+      },
+      rt && bestVoltaCia
+        ? {
+            key: bestVoltaCia.key,
+            label: bestVoltaCia.label,
+            miles: bestVoltaCia.voltaMiles,
+            feeCents: bestVoltaCia.voltaFee,
+            minMilheiroCents: bestVoltaCia.minCents,
+          }
+        : null
+    );
+    return { priced, ida: bestIdaCia, volta: rt ? bestVoltaCia : null };
+  }, [bestIdaCia, bestVoltaCia, cashPrice, rt]);
   const activeCia = ciaRows.find((r) => r.key === activeCiaKey) || null;
   const shareModel = useMemo(() => {
-    if (!activeCia || !cashPrice || !activeCia.ready) return null;
+    if (!cashPrice) return null;
     const searches = job?.searches || [];
+    if (mix) {
+      const idaKey = mix.ida.key;
+      const voltaKey = mix.volta?.key || mix.ida.key;
+      const milheiroLabel =
+        mix.volta && mix.priced.idaRate !== mix.priced.voltaRate
+          ? `milheiro ${mix.ida.label} ${fmtMoney(mix.priced.idaRate)} · ${mix.volta.label} ${fmtMoney(mix.priced.voltaRate)}`
+          : `milheiro ${fmtMoney(mix.priced.idaRate)}`;
+      return {
+        tripKind: job?.includeReturn ? "Ida e volta" : "Só ida",
+        cashTotalCents: cashPrice,
+        cashIda: toShareLeg(bestIda),
+        cashVolta: job?.includeReturn ? toShareLeg(bestVolta) : null,
+        ciaLabel: mix.priced.ciaLabel,
+        milesTotalCents: mix.priced.total,
+        miles: mix.priced.miles,
+        feeCents: mix.priced.feeCents,
+        milheiroCents: mix.priced.idaRate,
+        milheiroLabel,
+        milesIda: milesShareLeg(
+          searches,
+          idaKey,
+          "IDA",
+          mix.ida.label,
+          toShareLeg(bestIda),
+          quoteLeg(job?.quoteCia?.[idaKey], "IDA")
+        ),
+        milesVolta: job?.includeReturn
+          ? milesShareLeg(
+              searches,
+              voltaKey,
+              "VOLTA",
+              mix.volta?.label || mix.ida.label,
+              toShareLeg(bestVolta),
+              quoteLeg(job?.quoteCia?.[voltaKey], "VOLTA")
+            )
+          : null,
+      };
+    }
+    if (!activeCia?.ready) return null;
     return {
       tripKind: job?.includeReturn ? "Ida e volta" : "Só ida",
       cashTotalCents: cashPrice,
@@ -483,7 +556,37 @@ export default function CotacaoPassagensClient() {
           )
         : null,
     };
-  }, [activeCia, cashPrice, job, bestIda, bestVolta]);
+  }, [activeCia, cashPrice, job, bestIda, bestVolta, mix]);
+  useEffect(() => {
+    if (!mix?.priced.missesTarget || !mix.volta) {
+      setMixAdvice("");
+      return;
+    }
+    let stop = false;
+    void (async () => {
+      const r = await fetch("/api/cotacao-passagens/mix-advice", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          cashCents: cashPrice,
+          targetCents: mix.priced.targetCents,
+          floorTotalCents: mix.priced.floorTotal,
+          idaLabel: mix.ida.label,
+          idaMiles: mix.ida.idaMiles,
+          idaMinMilheiroCents: mix.ida.minCents,
+          voltaLabel: mix.volta.label,
+          voltaMiles: mix.volta.voltaMiles,
+          voltaMinMilheiroCents: mix.volta.minCents,
+        }),
+      });
+      const j = await r.json().catch(() => null);
+      if (!stop) setMixAdvice(String(j?.note || ""));
+    })();
+    return () => {
+      stop = true;
+    };
+  }, [mix, cashPrice]);
   const progress = useMemo(() => {
     const rows = job?.searches || [];
     const done = rows.filter((s) => !["PENDING", "RUNNING"].includes(s.status)).length;
@@ -826,7 +929,7 @@ export default function CotacaoPassagensClient() {
           ) : cashPrice > 0 ? (
             <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-4 text-sm text-slate-500">
               {rt
-                ? "Leia a ida e a volta na cia. O milheiro e a proposta só fecham com os dois trechos."
+                ? "Leia a ida e a volta. O combo junta a melhor ida com a melhor volta, mesmo de cias diferentes."
                 : "Preencha milhas e taxa em uma cia para montar a proposta."}
             </div>
           ) : null}
@@ -839,7 +942,7 @@ export default function CotacaoPassagensClient() {
             <div className="text-sm font-semibold">Números das cias</div>
             <p className="text-xs text-slate-500">
               {rt
-                ? "Ida e volta: separe os trechos. O milheiro só calcula depois da ida e da volta. "
+                ? "Ida e volta: o combo junta a melhor ida com a melhor volta. Cada trecho respeita o milheiro mínimo da cia. "
                 : ""}
               {cashPrice
                 ? `À vista de referência: ${fmtMoney(cashPrice)}. O milheiro fica ~5% abaixo, sem passar do mínimo em `
@@ -859,6 +962,24 @@ export default function CotacaoPassagensClient() {
             Salvar
           </button>
         </div>
+        {mix ? (
+          <div className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-3 text-sm text-emerald-950">
+            <div className="font-semibold">
+              Combo {mix.priced.ciaLabel}: {fmtMoney(mix.priced.total)}
+            </div>
+            <p className="mt-0.5 text-xs text-emerald-900/80">
+              Ida {mix.ida.label} {fmtMiles(mix.ida.idaMiles)} milhas (mín {fmtMoney(mix.ida.minCents)})
+              {mix.volta
+                ? ` · volta ${mix.volta.label} ${fmtMiles(mix.volta.voltaMiles)} milhas (mín ${fmtMoney(mix.volta.minCents)})`
+                : ""}
+              {cashPrice
+                ? ` · ${mix.priced.total <= cashPrice ? `${Math.round(((cashPrice - mix.priced.total) / cashPrice) * 1000) / 10}% abaixo` : "acima"} do à vista`
+                : ""}
+              {mix.priced.usedFloor ? " · no piso das cias" : ""}
+            </p>
+            {mixAdvice ? <p className="mt-1 text-xs text-amber-950">{mixAdvice}</p> : null}
+          </div>
+        ) : null}
         <div className="mt-3 overflow-x-auto">
           <table className="w-full min-w-[780px] text-sm">
             <thead className="text-left text-[11px] font-semibold uppercase text-slate-400">
