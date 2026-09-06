@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "TradeMiles Cotação",
-  "version": "1.8.1",
-  "description": "Pesquisa à vista (cias ou Decolar no intervalo) e milhas na LATAM, Smiles e Azul.",
+  "version": "1.8.2",
+  "description": "Pesquisa o dinheiro no Decolar e depois as milhas na LATAM, Smiles e Azul.",
   "permissions": ["tabs", "windows", "storage", "alarms", "scripting"],
   "host_permissions": [
     "https://b2c.voegol.com.br/*",

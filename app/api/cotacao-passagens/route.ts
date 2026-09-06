@@ -2,13 +2,11 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/auth-server";
 import {
-  cashAirlineSearches,
   decolarScoutSearches,
   buildDateList,
   COTACAO_MAX_SEARCHES,
   extractIataList,
   hoursToDurationMin,
-  isCotacaoDateRange,
   isISODate,
   parseClock,
 } from "@/lib/cotacao-passagens";
@@ -86,16 +84,12 @@ export async function POST(req: Request) {
   };
   const searches: Item[] = [];
   const seen = new Set<string>();
-  const rangeJob =
-    isCotacaoDateRange(outboundFrom, outboundTo) ||
-    (includeReturn && isCotacaoDateRange(isISODate(returnFrom) ? returnFrom : "", returnTo));
 
   for (const o of origins) {
     for (const d of destinations) {
       if (o === d) continue;
       for (const date of outboundDates) {
-        const cias = rangeJob ? decolarScoutSearches(o, d, date, adults) : cashAirlineSearches(o, d, date, adults);
-        for (const cia of cias) {
+        for (const cia of decolarScoutSearches(o, d, date, adults)) {
           const oo = cia.originIata || o;
           const dd = cia.destIata || d;
           const key = `IDA|${cia.airline}|${oo}|${dd}|${date}`;
@@ -112,8 +106,7 @@ export async function POST(req: Request) {
         }
       }
       for (const date of returnDates) {
-        const cias = rangeJob ? decolarScoutSearches(d, o, date, adults) : cashAirlineSearches(d, o, date, adults);
-        for (const cia of cias) {
+        for (const cia of decolarScoutSearches(d, o, date, adults)) {
           const oo = cia.originIata || d;
           const dd = cia.destIata || o;
           const key = `VOLTA|${cia.airline}|${oo}|${dd}|${date}`;
@@ -137,7 +130,7 @@ export async function POST(req: Request) {
   }
   if (searches.length > COTACAO_MAX_SEARCHES) {
     return NextResponse.json(
-      { ok: false, error: `Máximo de ${COTACAO_MAX_SEARCHES} pesquisas por vez (GOL+LATAM+Azul). Reduza aeroportos ou dias.` },
+      { ok: false, error: `Máximo de ${COTACAO_MAX_SEARCHES} pesquisas por vez. Reduza aeroportos ou dias.` },
       { status: 400 }
     );
   }

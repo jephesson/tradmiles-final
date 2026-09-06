@@ -11,7 +11,6 @@ import {
   ciaKeyFromMilesAirline,
   fmtDurationMin,
   fmtFlightSchedule,
-  isCashAirline,
   isMilesAirline,
   isScoutAirline,
   saleTotalCents,
@@ -247,16 +246,18 @@ export default function CotacaoPassagensClient() {
   }, [job?.searches]);
 
   const bestIda = useMemo(() => {
-    const ok = (job?.searches || []).filter((s) => s.direction === "IDA" && s.status === "OK" && s.priceCents > 0 && !isMilesAirline(s.airline));
-    const cash = ok.filter((s) => isCashAirline(s.airline));
-    const pool = cash.length ? cash : ok.filter((s) => isScoutAirline(s.airline) || isCashAirline(s.airline));
-    return (pool.length ? pool : ok).sort((a, b) => a.priceCents - b.priceCents)[0] || null;
+    const ok = (job?.searches || []).filter(
+      (s) => s.direction === "IDA" && s.status === "OK" && s.priceCents > 0 && !isMilesAirline(s.airline)
+    );
+    const decolar = ok.filter((s) => isScoutAirline(s.airline));
+    return (decolar.length ? decolar : ok).sort((a, b) => a.priceCents - b.priceCents)[0] || null;
   }, [job]);
   const bestVolta = useMemo(() => {
-    const ok = (job?.searches || []).filter((s) => s.direction === "VOLTA" && s.status === "OK" && s.priceCents > 0 && !isMilesAirline(s.airline));
-    const cash = ok.filter((s) => isCashAirline(s.airline));
-    const pool = cash.length ? cash : ok.filter((s) => isScoutAirline(s.airline) || isCashAirline(s.airline));
-    return (pool.length ? pool : ok).sort((a, b) => a.priceCents - b.priceCents)[0] || null;
+    const ok = (job?.searches || []).filter(
+      (s) => s.direction === "VOLTA" && s.status === "OK" && s.priceCents > 0 && !isMilesAirline(s.airline)
+    );
+    const decolar = ok.filter((s) => isScoutAirline(s.airline));
+    return (decolar.length ? decolar : ok).sort((a, b) => a.priceCents - b.priceCents)[0] || null;
   }, [job]);
 
   const comboCents = job?.includeReturn ? (bestIda?.priceCents || 0) + (bestVolta?.priceCents || 0) : 0;
@@ -414,9 +415,8 @@ export default function CotacaoPassagensClient() {
               Cotação de passagens
             </h1>
             <p className="mt-1 max-w-2xl text-sm text-slate-500">
-              Compare a menor tarifa à vista com a emissão em milhas nas 3 cias. Data exata pesquisa GOL, LATAM e Azul
-              em dinheiro e depois as milhas. Intervalo: o Decolar acha a data mais barata, confirma na cia e só nessa
-              data puxa LATAM, Smiles e Azul em milhas.
+              O Decolar pesquisa o dinheiro (data exata ou intervalo). Na data mais barata, a extensão abre LATAM,
+              Smiles e Azul em milhas e compara com essa tarifa à vista.
             </p>
           </div>
           <div className="flex flex-col items-stretch gap-2 sm:items-end">
@@ -440,9 +440,9 @@ export default function CotacaoPassagensClient() {
         </div>
         <ol className="mt-5 grid gap-2 sm:grid-cols-3">
           {[
-            { n: "1", t: "À vista", d: "Data exata nas cias · intervalo no Decolar" },
-            { n: "2", t: "Milhas nas 3", d: "LATAM, Smiles e Azul na data escolhida" },
-            { n: "3", t: "Compare", d: "Milhas vs cia mais barata em dinheiro" },
+            { n: "1", t: "À vista no Decolar", d: "Uma busca por data, bem mais rápido" },
+            { n: "2", t: "Milhas nas 3", d: "LATAM, Smiles e Azul só na data mais barata" },
+            { n: "3", t: "Compare", d: "Milhas vs o dinheiro do Decolar" },
           ].map((s) => (
             <li
               key={s.n}
@@ -602,13 +602,13 @@ export default function CotacaoPassagensClient() {
           ) : null}
           {job?.status === "RUNNING" ? (
             <div className="mt-3 rounded-xl border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-950">
-              Pesquisando {progress.done}/{progress.total}. Abre uma janela atrás desta (cias, Decolar ou milhas) — se
-              não abrir, recarregue a aba e inicie de novo.
+              Pesquisando {progress.done}/{progress.total}. Abre o Decolar e depois as milhas atrás desta — se não
+              abrir, recarregue a aba e inicie de novo.
             </div>
           ) : null}
           <p className="mt-3 text-xs leading-relaxed text-slate-500">
-            Data exata: dinheiro nas 3 cias e, na mesma data, milhas nas 3. Intervalo: Decolar em cada dia, confirma a
-            cia mais barata e puxa milhas só nessa data. O veredito compara as milhas com a cia mais barata à vista.
+            Primeiro o Decolar (dinheiro). No intervalo, fica a data mais barata; na data exata, só aquele dia. Depois
+            as 3 milhas nessa data. O veredito compara com o valor do Decolar.
             {job ? ` ${progress.done}/${progress.total} concluídas.` : ""}
           </p>
         </div>
@@ -657,7 +657,7 @@ export default function CotacaoPassagensClient() {
 
       <div className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm">
         <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Passo 3</div>
-        <div className="text-sm font-semibold">Milhas das 3 cias vs o dinheiro mais barato</div>
+        <div className="text-sm font-semibold">Milhas das 3 cias vs o Decolar</div>
         <p className="mt-1 max-w-3xl text-sm text-slate-500">
           A extensão preenche as milhas da data escolhida. O milheiro sugerido fica ~5% abaixo da tarifa à vista mais
           barata, mas nunca abaixo do{" "}
@@ -901,14 +901,14 @@ function BestCard({ title, row, running }: { title: string; row: SearchRow | nul
             {row.originIata} → {row.destIata}
           </div>
           <div className="text-sm text-slate-600">
-            {row.date.split("-").reverse().join("/")} · {row.airline || "Cia não identificada"}
+            {row.date.split("-").reverse().join("/")} · {row.rawPrice || row.airline || "Cia não identificada"}
           </div>
           {fmtFlightSchedule(row) ? (
             <div className="mt-1 text-sm font-medium text-slate-800">{fmtFlightSchedule(row)}</div>
           ) : null}
           <div className="mt-2 text-xl font-bold tabular-nums text-slate-900">{fmtMoney(row.priceCents)}</div>
           <div className="mt-1 text-xs text-slate-500">
-            Tarifa à vista{row.airline ? ` · ${row.airline}` : ""}
+            Tarifa à vista no Decolar{row.rawPrice ? ` · ${row.rawPrice}` : ""}
           </div>
           <div className="mt-3 flex flex-wrap gap-2">
             {latam ? (

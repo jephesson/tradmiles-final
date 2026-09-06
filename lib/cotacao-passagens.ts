@@ -183,8 +183,8 @@ export function buildDecolarCashSearchUrl(origin: string, dest: string, dateISO:
 }
 
 export function decolarScoutSearches(origin: string, dest: string, dateISO: string, adults = 1) {
-  const o = toIata(origin);
-  const d = toIata(dest);
+  const o = azulCashLocation(origin);
+  const d = azulCashLocation(dest);
   const url = buildDecolarCashSearchUrl(o, d, dateISO, adults);
   if (!url) return [];
   return [{ airline: "Decolar", url, originIata: o, destIata: d }];
