@@ -12,8 +12,14 @@ const TRADE_TABS = [
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg?.type === "TM_COTACAO_PING") {
-    sendResponse({ ok: true, version: "1.3.1" });
+    sendResponse({ ok: true, version: "1.5.0" });
     return false;
+  }
+  if (msg?.type === "TM_COTACAO_SHOULD_SCRAPE") {
+    chrome.storage.local.get(["tmBusy", "tmTabId"]).then((st) => {
+      sendResponse({ ok: Boolean(st.tmBusy && sender.tab?.id && st.tmTabId === sender.tab.id) });
+    });
+    return true;
   }
   if (msg?.type === "TM_COTACAO_START") {
     startNext().then(() => sendResponse({ ok: true })).catch(() => sendResponse({ ok: false }));
@@ -54,15 +60,24 @@ chrome.runtime.onInstalled.addListener(() => {
   });
 });
 
-chrome.tabs.onUpdated.addListener((tabId, info) => {
+chrome.tabs.onUpdated.addListener((tabId, info, tab) => {
   if (info.status !== "complete") return;
   chrome.storage.local.get(["tmTabId", "tmBusy"]).then((st) => {
     if (!st.tmBusy || st.tmTabId !== tabId) return;
+    const file = scriptForUrl(tab?.url || "");
+    if (!file) return;
     chrome.scripting
-      .executeScript({ target: { tabId }, files: ["content/123milhas.js"] })
+      .executeScript({ target: { tabId }, files: [file] })
       .catch(() => {});
   });
 });
+
+function scriptForUrl(url) {
+  if (/voegol\.com\.br/i.test(url)) return "content/voegol.js";
+  if (/latamairlines\.com/i.test(url)) return "content/latam.js";
+  if (/voeazul\.com\.br/i.test(url)) return "content/azul.js";
+  return "";
+}
 
 async function appFetch(path, init) {
   let last = "TradeMiles offline.";
@@ -96,7 +111,7 @@ async function appFetch(path, init) {
 
 async function startNext() {
   const st = await chrome.storage.local.get(["tmBusy", "tmStartedAt"]);
-  if (st.tmBusy && st.tmStartedAt && Date.now() - st.tmStartedAt < 55000) return;
+  if (st.tmBusy && st.tmStartedAt && Date.now() - st.tmStartedAt < 160000) return;
   if (st.tmBusy) await chrome.storage.local.set({ tmBusy: false });
 
   const claimed = await appFetch("/api/cotacao-passagens/claim", { method: "POST" });
@@ -112,10 +127,10 @@ async function startNext() {
     tmActiveSearchId: search.id,
     tmOrigin: claimed.origin,
     tmStartedAt: Date.now(),
-    tmLast: `Abrindo ${search.originIata || ""}→${search.destIata || ""}`,
+    tmLast: `Abrindo ${search.airline || ""} ${search.originIata || ""}→${search.destIata || ""}`,
     tmFilters: filtersFromSearch(search),
   });
-  chrome.alarms.create("tm-cotacao-timeout", { delayInMinutes: 1 });
+  chrome.alarms.create("tm-cotacao-timeout", { delayInMinutes: 3 });
   await openSearchWindow(search.url);
 }
 
@@ -248,7 +263,7 @@ async function onTimeout() {
   await onResult({
     searchId: tmActiveSearchId,
     ok: false,
-    error: "Tempo esgotado no 123milhas.",
+    error: "Tempo esgotado na busca à vista.",
   });
 }
 
@@ -295,7 +310,7 @@ async function onResult(payload) {
   await chrome.storage.local.set({
     tmBusy: false,
     tmActiveSearchId: null,
-    tmLast: payload.ok ? `Pix ${payload.priceCents}` : payload.error || "sem preço",
+    tmLast: payload.ok ? `${payload.airline || "cia"} ${payload.priceCents}` : payload.error || "sem preço",
   });
   await startNext();
 }

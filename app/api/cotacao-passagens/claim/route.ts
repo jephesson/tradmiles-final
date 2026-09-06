@@ -27,7 +27,7 @@ export async function POST() {
     });
     if (!job) return null;
 
-    const stale = new Date(Date.now() - 45_000);
+    const stale = new Date(Date.now() - 150_000);
     await tx.cotacaoPassagemSearch.updateMany({
       where: { jobId: job.id, status: "RUNNING", startedAt: { lt: stale } },
       data: { status: "PENDING", startedAt: null },

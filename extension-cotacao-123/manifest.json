@@ -1,12 +1,17 @@
 {
   "manifest_version": 3,
-  "name": "TradeMiles Cotação 123milhas",
-  "version": "1.3.1",
-  "description": "Pesquisa o 123milhas em segundo plano (sem login) e devolve o menor Pix ao TradeMiles.",
+  "name": "TradeMiles Cotação à vista",
+  "version": "1.5.0",
+  "description": "Pesquisa tarifa à vista na GOL, LATAM e Azul e devolve o menor preço ao TradeMiles.",
   "permissions": ["tabs", "windows", "storage", "alarms", "scripting"],
   "host_permissions": [
-    "https://123milhas.com/*",
-    "https://www.123milhas.com/*",
+    "https://b2c.voegol.com.br/*",
+    "https://www.voegol.com.br/*",
+    "https://voegol.com.br/*",
+    "https://www.latamairlines.com/*",
+    "https://latamairlines.com/*",
+    "https://www.voeazul.com.br/*",
+    "https://voeazul.com.br/*",
     "https://www.trademiles.com.br/*",
     "https://trademiles.com.br/*",
     "http://localhost:3000/*"
@@ -25,8 +30,22 @@
       "run_at": "document_idle"
     },
     {
-      "matches": ["https://123milhas.com/*", "https://www.123milhas.com/*"],
-      "js": ["content/123milhas.js"],
+      "matches": [
+        "https://b2c.voegol.com.br/*",
+        "https://www.voegol.com.br/*",
+        "https://voegol.com.br/*"
+      ],
+      "js": ["content/voegol.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://www.latamairlines.com/*", "https://latamairlines.com/*"],
+      "js": ["content/latam.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://www.voeazul.com.br/*", "https://voeazul.com.br/*"],
+      "js": ["content/azul.js"],
       "run_at": "document_idle"
     }
   ],

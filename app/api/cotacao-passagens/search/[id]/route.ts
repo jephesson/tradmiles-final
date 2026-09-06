@@ -37,9 +37,9 @@ export async function POST(req: Request, ctx: Ctx) {
     data: {
       status: ok ? "OK" : "ERRO",
       priceCents: ok ? Math.trunc(Number(body.priceCents) || 0) : 0,
-      airline: String(body.airline || "").slice(0, 40),
+      airline: String(body.airline || search.airline || "").slice(0, 40),
       rawPrice: String(body.rawPrice || "").slice(0, 200) || null,
-      error: ok ? null : String(body.error || "Não achei o preço no 123milhas.").slice(0, 400),
+      error: ok ? null : String(body.error || "Não achei o preço à vista.").slice(0, 400),
       depTime: ok ? depTime : null,
       arrTime: ok ? arrTime : null,
       durationMin: ok && durationMin > 0 ? durationMin : null,

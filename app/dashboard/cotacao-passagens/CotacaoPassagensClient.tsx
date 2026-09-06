@@ -70,7 +70,7 @@ function fromSaved(row?: { miles?: number; feeCents?: number; milheiroCents?: nu
   };
 }
 
-const ZIP_HREF = "/downloads/trademiles-cotacao-123-extension.zip";
+const ZIP_HREF = "/downloads/trademiles-cotacao-gol-extension.zip";
 const FIELD = "text-[11px] font-semibold uppercase tracking-wide text-slate-500";
 const INPUT =
   "mt-1 h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm shadow-sm outline-none focus:ring-2 focus:ring-slate-900/10";
@@ -196,8 +196,8 @@ export default function CotacaoPassagensClient() {
   }, [job]);
 
   const comboCents = (bestIda?.priceCents || 0) + (bestVolta?.priceCents || 0);
-  const price123 = comboCents > 0 ? comboCents : bestIda?.priceCents || 0;
-  const price123Label = comboCents > 0 ? "123milhas (ida + volta)" : "123milhas";
+  const cashPrice = comboCents > 0 ? comboCents : bestIda?.priceCents || 0;
+  const cashLabel = comboCents > 0 ? "À vista (ida + volta)" : `À vista${bestIda?.airline ? ` · ${bestIda.airline}` : ""}`;
 
   const ciaRows = useMemo(() => {
     return CIA_META.map(({ key, label }) => {
@@ -205,15 +205,15 @@ export default function CotacaoPassagensClient() {
       const milesN = toMiles(q.miles);
       const feeCents = toCents(q.fee);
       const minCents = minMilheiro[key] || 0;
-      const from123 = suggestedMilheiroCents(price123, milesN, feeCents);
-      const suggested = Math.max(from123, minCents);
+      const fromCash = suggestedMilheiroCents(cashPrice, milesN, feeCents);
+      const suggested = Math.max(fromCash, minCents);
       const milheiroCents = q.milheiroManual ? toCents(q.milheiro) : suggested;
       const total = milesN > 0 ? saleTotalCents(milesN, milheiroCents, feeCents) : 0;
-      const discount = price123 > 0 && total > 0 ? price123 - total : 0;
-      const discountPct = price123 > 0 && total > 0 ? Math.round((discount / price123) * 1000) / 10 : 0;
+      const discount = cashPrice > 0 && total > 0 ? cashPrice - total : 0;
+      const discountPct = cashPrice > 0 && total > 0 ? Math.round((discount / cashPrice) * 1000) / 10 : 0;
       const belowMin = minCents > 0 && milheiroCents > 0 && milheiroCents < minCents;
       const meetsMin = minCents <= 0 || milheiroCents >= minCents;
-      const usedFloor = minCents > 0 && suggested === minCents && from123 > 0 && from123 < minCents;
+      const usedFloor = minCents > 0 && suggested === minCents && fromCash > 0 && fromCash < minCents;
       return {
         key,
         label,
@@ -231,7 +231,7 @@ export default function CotacaoPassagensClient() {
         q,
       };
     });
-  }, [ciaQuotes, price123, minMilheiro]);
+  }, [ciaQuotes, cashPrice, minMilheiro]);
 
   const filledCias = ciaRows.filter((r) => r.milesN > 0 && r.total > 0);
   const viableCias = filledCias.filter((r) => r.meetsMin);
@@ -324,8 +324,8 @@ export default function CotacaoPassagensClient() {
               Cotação de passagens
             </h1>
             <p className="mt-1 max-w-2xl text-sm text-slate-500">
-              Compare o Pix do 123milhas com a emissão em milhas. A extensão pesquisa sozinha; você só anota o que
-              cada cia mostrou.
+              Compare a menor tarifa à vista (GOL, LATAM e Azul) com a emissão em milhas. A extensão pesquisa sozinha;
+              você só anota o que cada programa pediu.
             </p>
           </div>
           <div className="flex flex-col items-stretch gap-2 sm:items-end">
@@ -349,7 +349,7 @@ export default function CotacaoPassagensClient() {
         </div>
         <ol className="mt-5 grid gap-2 sm:grid-cols-3">
           {[
-            { n: "1", t: "Pesquise no 123", d: "Trecho, datas e filtros de voo" },
+            { n: "1", t: "Pesquise à vista", d: "GOL, LATAM e Azul no mesmo trecho" },
             { n: "2", t: "Cote nas cias", d: "Abra LATAM, Smiles e Azul" },
             { n: "3", t: "Veja quem ganha", d: "Total, milheiro e desconto" },
           ].map((s) => (
@@ -484,15 +484,15 @@ export default function CotacaoPassagensClient() {
             ) : null}
           </div>
           <p className="mt-3 text-xs leading-relaxed text-slate-500">
-            A extensão pesquisa uma data por vez, sem login no 123milhas. Deixe o Chrome aberto. Com filtro, ela
-            pega o Pix mais barato que ainda cabe no horário/duração.
+            A extensão pesquisa GOL, LATAM e Azul, uma busca por vez. Na LATAM ela ordena pelo mais barato; na Azul
+            clica em “Ver mais voos” até listar tudo. Deixe o Chrome aberto.
             {job ? ` ${progress.done}/${progress.total} concluídas.` : ""}
           </p>
         </div>
 
         <div className="space-y-4">
           <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 lg:pt-1">
-            Passo 2 · Menor Pix no 123
+            Passo 2 · Menor tarifa à vista
           </div>
           <BestCard title="Ida mais barata" row={bestIda} running={job?.status === "RUNNING"} />
           <BestCard title="Volta mais barata" row={bestVolta} running={job?.status === "RUNNING"} />
@@ -514,10 +514,10 @@ export default function CotacaoPassagensClient() {
                 .join(" · ")}
             </p>
           ) : null}
-          {price123 > 0 ? (
+          {cashPrice > 0 ? (
             <div className="rounded-2xl border border-slate-900 bg-slate-900 p-4 text-white shadow-sm">
-              <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-300">{price123Label}</div>
-              <div className="mt-1 text-3xl font-bold tabular-nums">{fmtMoney(price123)}</div>
+              <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-300">{cashLabel}</div>
+              <div className="mt-1 text-3xl font-bold tabular-nums">{fmtMoney(cashPrice)}</div>
               <p className="mt-1 text-xs text-slate-300">Este é o preço de referência. A emissão em milhas precisa ficar abaixo disso.</p>
             </div>
           ) : null}
@@ -528,14 +528,14 @@ export default function CotacaoPassagensClient() {
         <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Passo 3</div>
         <div className="text-sm font-semibold">Anote o que cada cia pediu e compare</div>
         <p className="mt-1 max-w-3xl text-sm text-slate-500">
-          O milheiro sugerido fica ~5% abaixo do 123, mas nunca abaixo do{" "}
+          O milheiro sugerido fica ~5% abaixo da tarifa à vista, mas nunca abaixo do{" "}
           <Link href="/dashboard/configuracoes" className="font-semibold text-slate-800 underline">
             mínimo cadastrado em Configurações
           </Link>
           . Se você baixar na mão, a cia entra em prejuízo e não entra no veredito.
         </p>
 
-        {bestCia && price123 ? (
+        {bestCia && cashPrice ? (
           <div className="mt-4 flex flex-col gap-1 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <div className="flex items-center gap-2 text-sm font-semibold text-emerald-950">
@@ -543,7 +543,7 @@ export default function CotacaoPassagensClient() {
                 Melhor sem prejuízo: emitir na {bestCia.label}
               </div>
               <p className="mt-0.5 text-sm text-emerald-800">
-                Cobre {fmtMoney(bestCia.total)} no cliente. vs 123 o desconto é{" "}
+                Cobre {fmtMoney(bestCia.total)} no cliente. vs à vista o desconto é{" "}
                 <b>{fmtMoney(bestCia.discount)}</b> ({bestCia.discountPct}%). Milheiro {fmtMoney(bestCia.milheiroCents)}
                 {bestCia.minCents ? ` (mínimo ${fmtMoney(bestCia.minCents)})` : ""}.
               </p>
@@ -560,16 +560,16 @@ export default function CotacaoPassagensClient() {
           </div>
         ) : (
           <div className="mt-4 rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-500">
-            {price123
+            {cashPrice
               ? "Preencha milhas e taxa em pelo menos uma cia para aparecer o veredito."
-              : "Espere o Pix do 123 (passo 2) para o milheiro sugerido aparecer."}
+              : "Espere o preço à vista (passo 2) para o milheiro sugerido aparecer."}
           </div>
         )}
 
         <div className="mt-4 grid gap-4 lg:grid-cols-3">
           {ciaRows.map((r) => {
             const win = bestCia?.key === r.key && r.total > 0;
-            const barMax = Math.max(price123, ...ciaRows.map((x) => x.total), 1);
+            const barMax = Math.max(cashPrice, ...ciaRows.map((x) => x.total), 1);
             const quoteRow = bestIda;
             const href =
               r.key === "latam" && quoteRow
@@ -609,7 +609,7 @@ export default function CotacaoPassagensClient() {
                     Abrir busca da ida <ExternalLink className="h-3 w-3" />
                   </a>
                 ) : (
-                  <p className="mt-2 text-xs text-slate-400">A busca aparece depois do Pix da ida.</p>
+                  <p className="mt-2 text-xs text-slate-400">A busca aparece depois do preço da ida.</p>
                 )}
                 <div className="mt-3 grid gap-2">
                   <div>
@@ -683,10 +683,10 @@ export default function CotacaoPassagensClient() {
                       r.discount > 0 ? "text-emerald-700" : r.discount < 0 ? "text-rose-700" : "text-slate-500"
                     )}
                   >
-                    {r.total && price123
+                    {r.total && cashPrice
                       ? r.discount >= 0
-                        ? `Economia de ${fmtMoney(r.discount)} (${r.discountPct}%) vs 123`
-                        : `${fmtMoney(Math.abs(r.discount))} mais caro que o 123`
+                        ? `Economia de ${fmtMoney(r.discount)} (${r.discountPct}%) vs à vista`
+                        : `${fmtMoney(Math.abs(r.discount))} mais caro que à vista`
                       : "—"}
                   </div>
                 </div>
@@ -697,7 +697,7 @@ export default function CotacaoPassagensClient() {
 
         <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
           <p className="text-xs text-slate-500">
-            Referência 123: <b className="text-slate-800">{price123 ? fmtMoney(price123) : "ainda sem Pix"}</b>
+            Referência à vista: <b className="text-slate-800">{cashPrice ? fmtMoney(cashPrice) : "ainda sem preço"}</b>
           </p>
           <button
             type="button"
@@ -713,7 +713,7 @@ export default function CotacaoPassagensClient() {
       {job?.searches?.length ? (
         <details className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm">
           <summary className="cursor-pointer list-none p-4 text-sm font-semibold text-slate-800 marker:content-none">
-            Detalhe das pesquisas no 123milhas
+            Detalhe das pesquisas à vista
             <span className="ml-2 text-xs font-normal text-slate-500">
               {progress.done}/{progress.total} datas
             </span>
@@ -725,7 +725,7 @@ export default function CotacaoPassagensClient() {
                 <th className="p-3">Data</th>
                 <th className="p-3">Cia</th>
                 <th className="p-3">Horário</th>
-                <th className="p-3">123milhas</th>
+                <th className="p-3">Preço</th>
                 <th className="p-3">Status</th>
               </tr>
             </thead>
@@ -769,7 +769,9 @@ function BestCard({ title, row, running }: { title: string; row: SearchRow | nul
             <div className="mt-1 text-sm font-medium text-slate-800">{fmtFlightSchedule(row)}</div>
           ) : null}
           <div className="mt-2 text-xl font-bold tabular-nums text-slate-900">{fmtMoney(row.priceCents)}</div>
-          <div className="mt-1 text-xs text-slate-500">Pix no 123milhas</div>
+          <div className="mt-1 text-xs text-slate-500">
+            Tarifa à vista{row.airline ? ` · ${row.airline}` : ""}
+          </div>
           <div className="mt-3 flex flex-wrap gap-2">
             {latam ? (
               <a

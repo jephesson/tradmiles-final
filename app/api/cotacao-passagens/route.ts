@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/auth-server";
 import {
-  build123SearchUrl,
+  cashAirlineSearches,
   buildDateList,
   COTACAO_MAX_SEARCHES,
   extractIataList,
@@ -15,7 +15,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const jobInclude = {
-  searches: { orderBy: [{ direction: "asc" as const }, { date: "asc" as const }, { originIata: "asc" as const }] },
+  searches: { orderBy: [{ direction: "asc" as const }, { date: "asc" as const }, { originIata: "asc" as const }, { airline: "asc" as const }] },
 };
 
 export async function GET(req: Request) {
@@ -70,6 +70,7 @@ export async function POST(req: Request) {
     destIata: string;
     date: string;
     url: string;
+    airline: string;
   };
   const searches: Item[] = [];
   const seen = new Set<string>();
@@ -78,28 +79,34 @@ export async function POST(req: Request) {
     for (const d of destinations) {
       if (o === d) continue;
       for (const date of outboundDates) {
-        const key = `IDA|${o}|${d}|${date}`;
-        if (seen.has(key)) continue;
-        seen.add(key);
-        searches.push({
-          direction: "IDA",
-          originIata: o,
-          destIata: d,
-          date,
-          url: build123SearchUrl(o, d, date, adults),
-        });
+        for (const cia of cashAirlineSearches(o, d, date, adults)) {
+          const key = `IDA|${cia.airline}|${o}|${d}|${date}`;
+          if (seen.has(key)) continue;
+          seen.add(key);
+          searches.push({
+            direction: "IDA",
+            originIata: o,
+            destIata: d,
+            date,
+            url: cia.url,
+            airline: cia.airline,
+          });
+        }
       }
       for (const date of returnDates) {
-        const key = `VOLTA|${d}|${o}|${date}`;
-        if (seen.has(key)) continue;
-        seen.add(key);
-        searches.push({
-          direction: "VOLTA",
-          originIata: d,
-          destIata: o,
-          date,
-          url: build123SearchUrl(d, o, date, adults),
-        });
+        for (const cia of cashAirlineSearches(d, o, date, adults)) {
+          const key = `VOLTA|${cia.airline}|${d}|${o}|${date}`;
+          if (seen.has(key)) continue;
+          seen.add(key);
+          searches.push({
+            direction: "VOLTA",
+            originIata: d,
+            destIata: o,
+            date,
+            url: cia.url,
+            airline: cia.airline,
+          });
+        }
       }
     }
   }
@@ -109,7 +116,7 @@ export async function POST(req: Request) {
   }
   if (searches.length > COTACAO_MAX_SEARCHES) {
     return NextResponse.json(
-      { ok: false, error: `Máximo de ${COTACAO_MAX_SEARCHES} pesquisas por vez. Reduza aeroportos ou dias.` },
+      { ok: false, error: `Máximo de ${COTACAO_MAX_SEARCHES} pesquisas por vez (GOL+LATAM+Azul). Reduza aeroportos ou dias.` },
       { status: 400 }
     );
   }

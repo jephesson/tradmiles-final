@@ -1,6 +1,6 @@
 export const COTACAO_MAX_DIAS = 30;
-export const COTACAO_MAX_SEARCHES = 80;
-export const SUGGEST_BELOW_BPS = 500; // 5% abaixo do 123milhas
+export const COTACAO_MAX_SEARCHES = 240;
+export const SUGGEST_BELOW_BPS = 500; // 5% abaixo da tarifa à vista da cia
 
 export function extractIataList(raw: string): string[] {
   const parts = String(raw || "")
@@ -50,19 +50,88 @@ export function buildDateList(fromISO: string, toISO: string, days: number): str
   return Array.from({ length: total }, (_, i) => addDaysISO(fromISO, i));
 }
 
-export function dateTo123Param(iso: string) {
+export function dateToBrParam(iso: string) {
   const [y, m, d] = iso.split("-");
   return `${d}-${m}-${y}`;
 }
 
-export function build123SearchUrl(origin: string, dest: string, dateISO: string, adults = 1) {
-  const ida = dateTo123Param(dateISO);
-  const sid = Date.now();
+/** Busca à vista na GOL (somente ida). */
+export function buildGolCashSearchUrl(origin: string, dest: string, dateISO: string, adults = 1) {
+  const o = toIata(origin);
+  const d = toIata(dest);
+  if (!/^[A-Z]{3}$/.test(o) || !/^[A-Z]{3}$/.test(d) || !isISODate(dateISO)) return "";
+  const adt = Math.max(1, Math.trunc(adults || 1));
+  const q = new URLSearchParams({
+    pv: "br",
+    tipo: "DF",
+    lang: "pt-BR",
+    de: o,
+    para: d,
+    ida: dateToBrParam(dateISO),
+    ADT: String(adt),
+    ADL: "0",
+    CHD: "0",
+    INF: "0",
+    voebiz: "0",
+  });
+  return `https://b2c.voegol.com.br/compra/busca-parceiros?${q.toString()}`;
+}
+
+/** Busca à vista na LATAM (somente ida). A extensão ordena por mais barato. */
+export function buildLatamCashSearchUrl(origin: string, dest: string, dateISO: string, adults = 1) {
+  const o = toIata(origin);
+  const d = toIata(dest);
+  if (!/^[A-Z]{3}$/.test(o) || !/^[A-Z]{3}$/.test(d) || !isISODate(dateISO)) return "";
+  const q = new URLSearchParams();
+  q.set("origin", o);
+  q.set("destination", d);
+  q.set("outbound", `${dateISO}T00:00:00.000Z`);
+  q.set("adt", String(Math.max(1, Math.trunc(adults || 1))));
+  q.set("chd", "0");
+  q.set("inf", "0");
+  q.set("trip", "OW");
+  q.set("cabin", "Economy");
+  q.set("redemption", "false");
+  q.set("sort", "RECOMMENDED");
+  return `https://www.latamairlines.com/br/pt/oferta-voos?${q.toString()}`;
+}
+
+const AZUL_CITY_FROM_AIRPORT: Record<string, string> = {
+  GRU: "SAO",
+  CGH: "SAO",
+  VCP: "SAO",
+  GIG: "RIO",
+  SDU: "RIO",
+  CNF: "BHZ",
+  PLU: "BHZ",
+};
+
+function azulCashLocation(code: string) {
+  const i = toIata(code);
+  return AZUL_CITY_FROM_AIRPORT[i] || i;
+}
+
+/** Busca à vista na Azul (cc=BRL). Destinos de cidade (RIO/SAO/BHZ) quando o aeroporto é da região. */
+export function buildAzulCashSearchUrl(origin: string, dest: string, dateISO: string, adults = 1) {
+  const o = azulCashLocation(origin);
+  const d = azulCashLocation(dest);
+  if (!/^[A-Z]{3}$/.test(o) || !/^[A-Z]{3}$/.test(d) || !isISODate(dateISO)) return "";
+  const [y, m, day] = dateISO.split("-");
+  const std = `${m}/${day}/${y}`;
+  const adt = Math.max(1, Math.trunc(adults || 1));
   return (
-    `https://123milhas.com/v2/busca?de=${encodeURIComponent(origin)}` +
-    `&para=${encodeURIComponent(dest)}&adultos=${adults}&criancas=0&bebes=0` +
-    `&ida=${ida}&classe=3&is_loyalty=0&search_id=${sid}`
+    `https://www.voeazul.com.br/br/pt/home/selecao-voo?` +
+    `c[0].ds=${encodeURIComponent(o)}&c[0].std=${encodeURIComponent(std)}&c[0].as=${encodeURIComponent(d)}` +
+    `&p[0].t=ADT&p[0].c=${adt}&p[0].cp=false&f.dl=3&f.dr=3&cc=BRL`
   );
+}
+
+export function cashAirlineSearches(origin: string, dest: string, dateISO: string, adults = 1) {
+  return [
+    { airline: "GOL", url: buildGolCashSearchUrl(origin, dest, dateISO, adults) },
+    { airline: "LATAM", url: buildLatamCashSearchUrl(origin, dest, dateISO, adults) },
+    { airline: "AZUL", url: buildAzulCashSearchUrl(origin, dest, dateISO, adults) },
+  ].filter((x) => x.url);
 }
 
 export function saleTotalCents(miles: number, milheiroCents: number, boardingFeeCents: number) {
@@ -73,12 +142,12 @@ export function saleTotalCents(miles: number, milheiroCents: number, boardingFee
 }
 
 export function suggestedMilheiroCents(
-  price123Cents: number,
+  cashCents: number,
   miles: number,
   boardingFeeCents: number
 ) {
-  if (miles <= 0 || price123Cents <= 0) return 0;
-  const target = Math.round((price123Cents * (10000 - SUGGEST_BELOW_BPS)) / 10000) - Math.max(0, boardingFeeCents);
+  if (miles <= 0 || cashCents <= 0) return 0;
+  const target = Math.round((cashCents * (10000 - SUGGEST_BELOW_BPS)) / 10000) - Math.max(0, boardingFeeCents);
   if (target <= 0) return 0;
   return Math.max(0, Math.round((target / miles) * 1000));
 }
