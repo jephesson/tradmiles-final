@@ -45,37 +45,51 @@ function carrierFromText(text) {
   const t = String(text || "").toUpperCase();
   if (/\bGOL\b|\bG3\b|VOEGOL/.test(t)) return "GOL";
   if (/\bAZUL\b/.test(t)) return "AZUL";
-  if (/\bLATAM\b|\bLA\b|\bJJ\b/.test(t)) return "LATAM";
+  if (/\bLATAM\b/.test(t)) return "LATAM";
   return "";
 }
 
-function firstBuyButton() {
-  const buttons = document.getElementsByTagName("button");
-  const limit = Math.min(buttons.length, 60);
+function isComprar(el) {
+  const t = (el.textContent || "").replace(/\s+/g, " ").trim();
+  return t.length <= 24 && /comprar/i.test(t);
+}
+
+function firstBuy() {
+  const nodes = document.querySelectorAll("a, button, [role='button']");
+  const limit = Math.min(nodes.length, 250);
   for (let i = 0; i < limit; i++) {
-    const t = (buttons[i].textContent || "").replace(/\s+/g, " ").trim();
-    if (/^comprar$/i.test(t)) return buttons[i];
+    if (isComprar(nodes[i])) return nodes[i];
   }
   return null;
 }
 
 function cardFromBuy(btn) {
   let el = btn;
-  for (let i = 0; i < 10 && el; i++) {
+  let found = null;
+  for (let i = 0; i < 14 && el; i++) {
     const t = el.textContent || "";
-    if (t.length > 80 && t.length < 3500 && /pre[cç]o\s+final/i.test(t)) return el;
+    if (t.length > 60 && t.length < 12000 && /pre[cç]o\s+final/i.test(t)) found = el;
     el = el.parentElement;
   }
-  return btn.parentElement;
+  return found || btn.parentElement;
+}
+
+function pack(card, cents) {
+  const carrier = carrierFromText((card.textContent || "").slice(0, 2500));
+  return {
+    cents,
+    carrier,
+    raw: carrier ? `${carrier} · R$ ${(cents / 100).toLocaleString("pt-BR")}` : `R$ ${(cents / 100).toLocaleString("pt-BR")}`,
+  };
 }
 
 function finalPriceInCard(card) {
-  const amounts = card.querySelectorAll("span.amount.price-amount, .amount.price-amount");
+  const amounts = card.querySelectorAll("span.amount.price-amount, .amount.price-amount, span.price-amount");
   for (let i = amounts.length - 1; i >= 0; i--) {
     const el = amounts[i];
     let node = el;
-    for (let u = 0; u < 4 && node && node !== card; u++) {
-      const t = (node.textContent || "").slice(0, 180);
+    for (let u = 0; u < 5 && node && node !== card; u++) {
+      const t = (node.textContent || "").slice(0, 220);
       if (/pre[cç]o\s+final/i.test(t)) {
         const cents = digitsToCents(el.textContent || "");
         if (cents) return cents;
@@ -87,24 +101,38 @@ function finalPriceInCard(card) {
     const last = digitsToCents(amounts[amounts.length - 1].textContent || "");
     if (last) return last;
   }
-  const m = (card.textContent || "").match(/pre[cç]o\s+final[^0-9]{0,40}(\d{1,3}(?:\.\d{3})+|\d{2,6})/i);
+  const m = (card.textContent || "").match(/pre[cç]o\s+final[^0-9]{0,48}(\d{1,3}(?:\.\d{3})+|\d{2,6})/i);
   return m ? digitsToCents(m[1]) : 0;
 }
 
+function pickByPrecoFinal() {
+  const amounts = document.getElementsByClassName("price-amount");
+  const limit = Math.min(amounts.length, 40);
+  for (let i = 0; i < limit; i++) {
+    const el = amounts[i];
+    let node = el;
+    for (let u = 0; u < 6 && node; u++) {
+      const t = (node.textContent || "").slice(0, 280);
+      if (/pre[cç]o\s+final/i.test(t)) {
+        const cents = digitsToCents(el.textContent || "");
+        if (cents) return pack(node, cents);
+      }
+      node = node.parentElement;
+    }
+  }
+  return null;
+}
+
 function pickFirstFlight() {
-  const buy = firstBuyButton();
-  if (!buy) return null;
-  const card = cardFromBuy(buy);
-  if (!card) return null;
-  const cents = finalPriceInCard(card);
-  if (cents < MIN_FARE_CENTS) return null;
-  const text = (card.textContent || "").slice(0, 2000);
-  const carrier = carrierFromText(text);
-  return {
-    cents,
-    carrier,
-    raw: carrier ? `${carrier} · R$ ${(cents / 100).toLocaleString("pt-BR")}` : `R$ ${(cents / 100).toLocaleString("pt-BR")}`,
-  };
+  const buy = firstBuy();
+  if (buy) {
+    const card = cardFromBuy(buy);
+    if (card) {
+      const cents = finalPriceInCard(card);
+      if (cents >= MIN_FARE_CENTS) return pack(card, cents);
+    }
+  }
+  return pickByPrecoFinal();
 }
 
 function sendResult(payload) {
@@ -145,9 +173,9 @@ function run() {
       finish(next);
       return;
     }
-    if (Date.now() - t0 > 8000) {
+    if (Date.now() - t0 > 12000) {
       clearInterval(poll);
       finish({ cents: 0, error: "Não achei o primeiro voo no Decolar." });
     }
-  }, 100);
+  }, 120);
 }

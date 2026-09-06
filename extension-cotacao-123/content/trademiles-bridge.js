@@ -26,7 +26,7 @@ if (!window.__tmCotacaoBridge) {
       }
       window.dispatchEvent(
         new CustomEvent("tm-cotacao-bridge", {
-          detail: { connected, version: "1.8.8", captureOn: Boolean(extra?.captureOn) },
+          detail: { connected, version: "1.8.9", captureOn: Boolean(extra?.captureOn) },
         })
       );
     } catch {

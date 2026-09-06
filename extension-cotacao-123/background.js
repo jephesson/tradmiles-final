@@ -13,7 +13,7 @@ const TRADE_TABS = [
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg?.type === "TM_COTACAO_PING") {
     chrome.storage.local.get(["tmCaptureOn"]).then((st) => {
-      sendResponse({ ok: true, version: "1.8.8", captureOn: Boolean(st.tmCaptureOn) });
+      sendResponse({ ok: true, version: "1.8.9", captureOn: Boolean(st.tmCaptureOn) });
     });
     return true;
   }
