@@ -12,8 +12,14 @@ const TRADE_TABS = [
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg?.type === "TM_COTACAO_PING") {
-    sendResponse({ ok: true, version: "1.6.0" });
+    sendResponse({ ok: true, version: "1.6.1" });
     return false;
+  }
+  if (msg?.type === "TM_COTACAO_OPEN") {
+    beginSearch(msg.search)
+      .then(() => sendResponse({ ok: true }))
+      .catch(() => sendResponse({ ok: false }));
+    return true;
   }
   if (msg?.type === "TM_COTACAO_SHOULD_SCRAPE") {
     chrome.storage.local.get(["tmBusy", "tmTabId"]).then((st) => {
@@ -137,23 +143,48 @@ async function appFetch(path, init) {
   return { origin: "", json: null, error: last };
 }
 
+async function claimFromTradeTabs() {
+  const tabs = await chrome.tabs.query({ url: TRADE_TABS });
+  for (const tab of tabs) {
+    if (!tab.id || !isCotacaoUrl(tab.url || "")) continue;
+    try {
+      await chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        files: ["content/trademiles-bridge.js"],
+      });
+    } catch {
+      /* ignore */
+    }
+    try {
+      const res = await chrome.tabs.sendMessage(tab.id, { type: "TM_COTACAO_CLAIM" });
+      if (res?.search?.id && res?.search?.url) return res.search;
+    } catch {
+      /* aba sem bridge */
+    }
+  }
+  return null;
+}
+
 async function startNext() {
   const st = await chrome.storage.local.get(["tmBusy", "tmStartedAt"]);
   if (st.tmBusy && st.tmStartedAt && Date.now() - st.tmStartedAt < 160000) return;
   if (st.tmBusy) await chrome.storage.local.set({ tmBusy: false });
 
-  const claimed = await appFetch("/api/cotacao-passagens/claim", { method: "POST" });
-  const search = claimed.json?.search;
+  const fromTab = await claimFromTradeTabs();
+  const search = fromTab || (await appFetch("/api/cotacao-passagens/claim", { method: "POST" })).json?.search;
   if (!search?.id || !search?.url) {
     await closeWorkerWindow();
     await chrome.storage.local.set({ tmBusy: false, tmActiveSearchId: null });
     return;
   }
+  await beginSearch(search);
+}
 
+async function beginSearch(search) {
+  if (!search?.id || !search?.url) return;
   await chrome.storage.local.set({
     tmBusy: true,
     tmActiveSearchId: search.id,
-    tmOrigin: claimed.origin,
     tmStartedAt: Date.now(),
     tmLast: `Abrindo ${search.airline || ""} ${search.originIata || ""}→${search.destIata || ""}`,
     tmFilters: filtersFromSearch(search),
@@ -326,14 +357,13 @@ async function onResult(payload) {
   }
 
   const body = JSON.stringify(resultBody(payload));
+  await saveViaTabs(searchId, payload);
   const saved = await appFetch(`/api/cotacao-passagens/search/${encodeURIComponent(searchId)}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body,
   });
-  if (!saved.json?.ok) {
-    await saveViaTabs(searchId, payload);
-  }
+  void saved;
 
   await chrome.storage.local.set({
     tmBusy: false,

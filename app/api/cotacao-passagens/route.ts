@@ -38,7 +38,8 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
-  const session = await requireSession();
+  try {
+    const session = await requireSession();
   const body = await req.json().catch(() => ({}));
 
   const origins = extractIataList(String(body.origins || ""));
@@ -160,4 +161,12 @@ export async function POST(req: Request) {
   });
 
   return NextResponse.json({ ok: true, job });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "Falha ao criar cotação.";
+    const status = msg === "UNAUTHENTICATED" ? 401 : 500;
+    return NextResponse.json(
+      { ok: false, error: status === 401 ? "Não autenticado." : msg },
+      { status }
+    );
+  }
 }

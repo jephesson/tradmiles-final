@@ -23,7 +23,7 @@ if (!window.__tmCotacaoBridge) {
       else delete document.documentElement.dataset.tmCotacaoExt;
       window.dispatchEvent(
         new CustomEvent("tm-cotacao-bridge", {
-          detail: { connected, version: "1.6.0" },
+          detail: { connected, version: "1.6.1" },
         })
       );
     } catch {
@@ -35,10 +35,11 @@ if (!window.__tmCotacaoBridge) {
     }
   }
 
-  function send(type, cb) {
+  function send(msg, cb) {
     if (dead || !runtimeAlive()) return;
+    const payload = typeof msg === "string" ? { type: msg } : msg;
     try {
-      chrome.runtime.sendMessage({ type }, (res) => {
+      chrome.runtime.sendMessage(payload, (res) => {
         try {
           if (!chrome.runtime?.id) return;
           const err = chrome.runtime.lastError?.message || "";
@@ -60,6 +61,23 @@ if (!window.__tmCotacaoBridge) {
 
   try {
     chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+      if (msg?.type === "TM_COTACAO_CLAIM") {
+        (async () => {
+          try {
+            const r = await fetch("/api/cotacao-passagens/claim", {
+              method: "POST",
+              credentials: "include",
+              cache: "no-store",
+              headers: { Accept: "application/json" },
+            });
+            const json = await r.json().catch(() => null);
+            sendResponse({ ok: Boolean(json?.search?.url), search: json?.search || null });
+          } catch {
+            sendResponse({ ok: false, search: null });
+          }
+        })();
+        return true;
+      }
       if (msg?.type !== "TM_COTACAO_SAVE") return;
       (async () => {
         try {
@@ -92,6 +110,11 @@ if (!window.__tmCotacaoBridge) {
 
   send("TM_COTACAO_PING", (res) => notify(Boolean(res?.ok)));
   window.addEventListener("tm-cotacao-kick", kick);
+  window.addEventListener("tm-cotacao-open", (e) => {
+    const search = e.detail;
+    if (!search?.url) return;
+    send({ type: "TM_COTACAO_OPEN", search });
+  });
   pump = window.setInterval(kick, 2500);
   kick();
 }

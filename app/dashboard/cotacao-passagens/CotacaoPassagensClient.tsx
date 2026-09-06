@@ -138,6 +138,7 @@ export default function CotacaoPassagensClient() {
   const [filterDirectOnly, setFilterDirectOnly] = useState(false);
   const [job, setJob] = useState<Job | null>(null);
   const [loading, setLoading] = useState(false);
+  const [startError, setStartError] = useState("");
   const [extOn, setExtOn] = useState(false);
   const [extReload, setExtReload] = useState(false);
   const [ciaQuotes, setCiaQuotes] = useState<Record<CiaKey, CiaDraft>>({
@@ -303,10 +304,12 @@ export default function CotacaoPassagensClient() {
         return;
       }
     }
+    setStartError("");
     setLoading(true);
     try {
       const r = await fetch("/api/cotacao-passagens", {
         method: "POST",
+        credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           origins,
@@ -324,14 +327,16 @@ export default function CotacaoPassagensClient() {
           filterDirectOnly,
         }),
       });
-      const j = await r.json();
-      if (!j?.ok) {
-        alert(j?.error || "Falha ao criar cotação.");
+      const j = await r.json().catch(() => null);
+      if (!r.ok || !j?.ok) {
+        setStartError(j?.error || `Não consegui criar a cotação (HTTP ${r.status}).`);
         return;
       }
       setJob(j.job);
       window.dispatchEvent(new Event("tm-cotacao-kick"));
       location.hash = `go-${Date.now()}`;
+    } catch (e) {
+      setStartError(e instanceof Error ? e.message : "Falha ao criar cotação.");
     } finally {
       setLoading(false);
     }
@@ -557,6 +562,11 @@ export default function CotacaoPassagensClient() {
               </button>
             ) : null}
           </div>
+          {startError ? (
+            <div className="mt-3 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-950">
+              {startError}
+            </div>
+          ) : null}
           {extReload ? (
             <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
               A extensão foi atualizada com esta aba aberta e perdeu o contato. Recarregue a página (⌘R) e clique de
