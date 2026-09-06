@@ -327,29 +327,25 @@ export function buildSmilesSearchUrl(
   q.set("adults", String(Math.max(1, Math.trunc(adults || 1))));
   q.set("cabin", "ECONOMIC");
   q.set("children", "0");
-  q.set("departureDate", String(ms));
   q.set("infants", "0");
+  q.set("departureDate", String(ms));
+  q.set("originAirport", o);
+  q.set("destinationAirport", d);
+  q.set("originAirportIsAny", SMILES_CITY_ANY.has(o) ? "true" : "false");
+  q.set("destinAirportIsAny", SMILES_CITY_ANY.has(d) ? "true" : "false");
+  q.set("searchType", "g3");
   q.set("isElegible", "false");
   q.set("isFlexibleDateChecked", "false");
-  q.set("searchType", "g3");
+  q.set("novo-resultado-voos", "true");
   if (roundTrip) {
-    q.set("segments", "2");
     q.set("tripType", "2");
+    q.set("segments", "2");
     q.set("returnDate", String(returnMs));
   } else {
-    q.set("segments", "1");
+    // A Smiles trata a presença de returnDate (mesmo vazio) como ida e volta e troca para tripType=2.
     q.set("tripType", "1");
-    q.set("returnDate", "");
+    q.set("segments", "1");
   }
-  q.set("originAirport", o);
-  q.set("originCity", "");
-  q.set("originCountry", "");
-  q.set("originAirportIsAny", SMILES_CITY_ANY.has(o) ? "true" : "false");
-  q.set("destinationAirport", d);
-  q.set("destinCity", "");
-  q.set("destinCountry", "");
-  q.set("destinAirportIsAny", SMILES_CITY_ANY.has(d) ? "true" : "false");
-  q.set("novo-resultado-voos", "true");
   return `https://www.smiles.com.br/mfe/emissao-passagem/?${q.toString()}`;
 }
 
