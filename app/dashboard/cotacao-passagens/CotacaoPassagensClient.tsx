@@ -75,6 +75,34 @@ const FIELD = "text-[11px] font-semibold uppercase tracking-wide text-slate-500"
 const INPUT =
   "mt-1 h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm shadow-sm outline-none focus:ring-2 focus:ring-slate-900/10";
 
+function Segmented<T extends string>({
+  value,
+  onChange,
+  options,
+}: {
+  value: T;
+  onChange: (v: T) => void;
+  options: { id: T; label: string }[];
+}) {
+  return (
+    <div className="flex rounded-xl bg-slate-100 p-1">
+      {options.map((o) => (
+        <button
+          key={o.id}
+          type="button"
+          onClick={() => onChange(o.id)}
+          className={cn(
+            "h-9 flex-1 rounded-lg px-3 text-sm font-semibold transition",
+            value === o.id ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-800"
+          )}
+        >
+          {o.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 function fmtMoney(cents: number) {
   return ((cents || 0) / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
@@ -100,12 +128,10 @@ export default function CotacaoPassagensClient() {
   const [destinations, setDestinations] = useState("");
   const [outboundFrom, setOutboundFrom] = useState(todayISO);
   const [outboundTo, setOutboundTo] = useState("");
-  const [outboundDays, setOutboundDays] = useState("7");
-  const [includeReturn, setIncludeReturn] = useState(true);
-  const [returnExact, setReturnExact] = useState(false);
+  const [tripKind, setTripKind] = useState<"ow" | "rt">("rt");
+  const [dateKind, setDateKind] = useState<"exact" | "range">("exact");
   const [returnFrom, setReturnFrom] = useState("");
   const [returnTo, setReturnTo] = useState("");
-  const [returnDays, setReturnDays] = useState("7");
   const [filterMaxHours, setFilterMaxHours] = useState("");
   const [filterDepFrom, setFilterDepFrom] = useState("");
   const [filterDepTo, setFilterDepTo] = useState("");
@@ -246,6 +272,26 @@ export default function CotacaoPassagensClient() {
   const extOk = extOn || progress.done > 0;
 
   async function start() {
+    const includeReturn = tripKind === "rt";
+    const exact = dateKind === "exact";
+    if (!outboundFrom) {
+      alert("Informe a data de ida.");
+      return;
+    }
+    if (!exact && (!outboundTo || outboundTo < outboundFrom)) {
+      alert("No intervalo de ida, preencha de/até (a data final precisa ser igual ou depois da inicial).");
+      return;
+    }
+    if (includeReturn) {
+      if (!returnFrom) {
+        alert("Informe a data de volta.");
+        return;
+      }
+      if (!exact && (!returnTo || returnTo < returnFrom)) {
+        alert("No intervalo de volta, preencha de/até (a data final precisa ser igual ou depois da inicial).");
+        return;
+      }
+    }
     setLoading(true);
     try {
       const r = await fetch("/api/cotacao-passagens", {
@@ -255,12 +301,12 @@ export default function CotacaoPassagensClient() {
           origins,
           destinations,
           outboundFrom,
-          outboundTo: outboundTo || null,
-          outboundDays: Number(outboundDays || 1),
+          outboundTo: exact ? outboundFrom : outboundTo,
+          outboundDays: 1,
           includeReturn,
-          returnFrom: returnFrom || null,
-          returnTo: returnExact ? returnFrom : returnTo || null,
-          returnDays: Number(returnDays || 1),
+          returnFrom: includeReturn ? returnFrom : null,
+          returnTo: includeReturn ? (exact ? returnFrom : returnTo) : null,
+          returnDays: 1,
           filterMaxHours: filterMaxHours || null,
           filterDepFrom: filterDepFrom || null,
           filterDepTo: filterDepTo || null,
@@ -387,47 +433,62 @@ export default function CotacaoPassagensClient() {
                 placeholder="SSA, REC, FOR"
               />
             </div>
-            <div>
-              <label className={FIELD}>Ida a partir de</label>
-              <input type="date" value={outboundFrom} onChange={(e) => setOutboundFrom(e.target.value)} className={INPUT} />
+            <div className="md:col-span-2 space-y-3">
+              <Segmented
+                value={tripKind}
+                onChange={setTripKind}
+                options={[
+                  { id: "ow", label: "Só ida" },
+                  { id: "rt", label: "Ida e volta" },
+                ]}
+              />
+              <Segmented
+                value={dateKind}
+                onChange={setDateKind}
+                options={[
+                  { id: "exact", label: "Data exata" },
+                  { id: "range", label: "Intervalo" },
+                ]}
+              />
             </div>
-            <div>
-              <label className={FIELD}>Ida até (opcional)</label>
-              <input type="date" value={outboundTo} onChange={(e) => setOutboundTo(e.target.value)} className={INPUT} />
-            </div>
-            <div className="md:col-span-2">
-              <label className={FIELD}>Ou quantos dias de ida</label>
-              <input value={outboundDays} onChange={(e) => setOutboundDays(e.target.value)} className={INPUT} />
-              <p className="mt-1 text-xs text-slate-500">Se não preencher a data final, usa essa quantidade (máx. 30).</p>
-            </div>
-            <label className="md:col-span-2 flex items-center gap-2 text-sm">
-              <input type="checkbox" checked={includeReturn} onChange={(e) => setIncludeReturn(e.target.checked)} />
-              Pesquisar volta (trecho inverso)
-            </label>
-            {includeReturn ? (
+            {dateKind === "exact" ? (
               <>
-                <label className="md:col-span-2 flex items-center gap-2 text-sm">
-                  <input type="checkbox" checked={returnExact} onChange={(e) => setReturnExact(e.target.checked)} />
-                  Data exata de volta
-                </label>
-                <div>
-                  <label className={FIELD}>{returnExact ? "Dia da volta" : "Volta a partir de"}</label>
-                  <input type="date" value={returnFrom} onChange={(e) => setReturnFrom(e.target.value)} className={INPUT} />
+                <div className={tripKind === "ow" ? "md:col-span-2" : ""}>
+                  <label className={FIELD}>Dia da ida</label>
+                  <input type="date" value={outboundFrom} onChange={(e) => setOutboundFrom(e.target.value)} className={INPUT} />
                 </div>
-                {!returnExact ? (
+                {tripKind === "rt" ? (
+                  <div>
+                    <label className={FIELD}>Dia da volta</label>
+                    <input type="date" value={returnFrom} onChange={(e) => setReturnFrom(e.target.value)} className={INPUT} />
+                  </div>
+                ) : null}
+              </>
+            ) : (
+              <>
+                <div>
+                  <label className={FIELD}>Ida de</label>
+                  <input type="date" value={outboundFrom} onChange={(e) => setOutboundFrom(e.target.value)} className={INPUT} />
+                </div>
+                <div>
+                  <label className={FIELD}>Ida até</label>
+                  <input type="date" value={outboundTo} onChange={(e) => setOutboundTo(e.target.value)} className={INPUT} />
+                </div>
+                {tripKind === "rt" ? (
                   <>
                     <div>
-                      <label className={FIELD}>Volta até (opcional)</label>
-                      <input type="date" value={returnTo} onChange={(e) => setReturnTo(e.target.value)} className={INPUT} />
+                      <label className={FIELD}>Volta de</label>
+                      <input type="date" value={returnFrom} onChange={(e) => setReturnFrom(e.target.value)} className={INPUT} />
                     </div>
-                    <div className="md:col-span-2">
-                      <label className={FIELD}>Ou quantos dias de volta</label>
-                      <input value={returnDays} onChange={(e) => setReturnDays(e.target.value)} className={INPUT} />
+                    <div>
+                      <label className={FIELD}>Volta até</label>
+                      <input type="date" value={returnTo} onChange={(e) => setReturnTo(e.target.value)} className={INPUT} />
                     </div>
                   </>
                 ) : null}
+                <p className="md:col-span-2 text-xs text-slate-500">O intervalo pesquisa um dia de cada vez (máx. 30).</p>
               </>
-            ) : null}
+            )}
             <div className="md:col-span-2 mt-1 border-t border-slate-100 pt-3 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
               Filtros do voo (opcional)
             </div>

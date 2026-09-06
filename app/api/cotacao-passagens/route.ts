@@ -56,7 +56,16 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: "Informe origem e destino (IATA)." }, { status: 400 });
   }
   if (!isISODate(outboundFrom)) {
-    return NextResponse.json({ ok: false, error: "Informe o período de ida." }, { status: 400 });
+    return NextResponse.json({ ok: false, error: "Informe a data de ida." }, { status: 400 });
+  }
+  if (isISODate(outboundTo) && outboundTo < outboundFrom) {
+    return NextResponse.json({ ok: false, error: "A data final da ida precisa ser igual ou depois da inicial." }, { status: 400 });
+  }
+  if (includeReturn && !isISODate(returnFrom)) {
+    return NextResponse.json({ ok: false, error: "Informe a data de volta." }, { status: 400 });
+  }
+  if (includeReturn && isISODate(returnTo) && returnTo < returnFrom) {
+    return NextResponse.json({ ok: false, error: "A data final da volta precisa ser igual ou depois da inicial." }, { status: 400 });
   }
 
   const outboundDates = buildDateList(outboundFrom, outboundTo, outboundDays);
