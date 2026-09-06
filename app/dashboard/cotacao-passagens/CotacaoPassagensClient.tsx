@@ -558,7 +558,8 @@ export default function CotacaoPassagensClient() {
     };
   }, [activeCia, cashPrice, job, bestIda, bestVolta, mix]);
   useEffect(() => {
-    if (!mix?.priced.missesTarget || !mix.volta) {
+    const volta = mix?.volta;
+    if (!mix?.priced.missesTarget || !volta) {
       setMixAdvice("");
       return;
     }
@@ -575,9 +576,9 @@ export default function CotacaoPassagensClient() {
           idaLabel: mix.ida.label,
           idaMiles: mix.ida.idaMiles,
           idaMinMilheiroCents: mix.ida.minCents,
-          voltaLabel: mix.volta.label,
-          voltaMiles: mix.volta.voltaMiles,
-          voltaMinMilheiroCents: mix.volta.minCents,
+          voltaLabel: volta.label,
+          voltaMiles: volta.voltaMiles,
+          voltaMinMilheiroCents: volta.minCents,
         }),
       });
       const j = await r.json().catch(() => null);
