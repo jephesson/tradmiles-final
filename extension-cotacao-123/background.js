@@ -12,7 +12,7 @@ const TRADE_TABS = [
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg?.type === "TM_COTACAO_PING") {
-    sendResponse({ ok: true, version: "1.5.2" });
+    sendResponse({ ok: true, version: "1.6.0" });
     return false;
   }
   if (msg?.type === "TM_COTACAO_SHOULD_SCRAPE") {
@@ -45,11 +45,26 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 });
 
 chrome.alarms.onAlarm.addListener((alarm) => {
-  if (alarm?.name === "tm-cotacao-pump") startNext();
+  if (alarm?.name === "tm-cotacao-pump") requestStart();
   if (alarm?.name === "tm-cotacao-timeout") onTimeout();
 });
 
 chrome.alarms.create("tm-cotacao-pump", { periodInMinutes: 1 });
+
+function isCotacaoUrl(url) {
+  return /\/dashboard\/cotacao-passagens/i.test(String(url || ""));
+}
+
+let startQueued = false;
+function requestStart() {
+  if (startQueued) return;
+  startQueued = true;
+  startNext()
+    .catch(() => {})
+    .finally(() => {
+      startQueued = false;
+    });
+}
 
 chrome.runtime.onInstalled.addListener(() => {
   chrome.storage.local.set({
@@ -58,9 +73,22 @@ chrome.runtime.onInstalled.addListener(() => {
     tmTabId: null,
     tmWindowId: null,
   });
+  chrome.tabs.query({ url: TRADE_TABS }).then((tabs) => {
+    for (const tab of tabs) {
+      if (!tab.id) continue;
+      chrome.scripting
+        .executeScript({ target: { tabId: tab.id }, files: ["content/trademiles-bridge.js"] })
+        .catch(() => {});
+    }
+  });
+  requestStart();
 });
 
 chrome.tabs.onUpdated.addListener((tabId, info, tab) => {
+  const url = info.url || tab?.url || "";
+  if (isCotacaoUrl(url) && (info.url || info.status === "complete")) {
+    requestStart();
+  }
   if (info.status !== "complete") return;
   chrome.storage.local.get(["tmTabId", "tmBusy"]).then((st) => {
     if (!st.tmBusy || st.tmTabId !== tabId) return;

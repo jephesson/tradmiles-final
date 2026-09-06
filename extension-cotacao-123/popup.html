@@ -6,10 +6,16 @@
     <style>
       body { font: 13px/1.45 system-ui, sans-serif; margin: 12px; width: 290px; color: #0f172a; }
       b { display: block; margin-bottom: 6px; }
+      button {
+        margin-top: 10px; width: 100%; height: 36px; border: 0; border-radius: 10px;
+        background: #0f172a; color: #fff; font: 600 13px system-ui; cursor: pointer;
+      }
     </style>
   </head>
   <body>
-    <b>Cotação à vista v1.5.2</b>
-    Pesquisa GOL, LATAM e Azul (dinheiro). Na LATAM ordena pelo mais barato; na Azul clica em “Ver mais voos”. Deixe o Chrome aberto.
+    <b>Cotação à vista v1.6.0</b>
+    Pesquisa GOL, LATAM e Azul. Se a janela não abrir sozinha, clique abaixo.
+    <button type="button" id="go">Começar pesquisas agora</button>
+    <script src="popup.js"></script>
   </body>
 </html>

@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "TradeMiles Cotação à vista",
-  "version": "1.5.2",
+  "version": "1.6.0",
   "description": "Pesquisa tarifa à vista na GOL, LATAM e Azul e devolve o menor preço ao TradeMiles.",
   "permissions": ["tabs", "windows", "storage", "alarms", "scripting"],
   "host_permissions": [

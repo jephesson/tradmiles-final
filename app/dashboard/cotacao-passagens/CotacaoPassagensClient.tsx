@@ -331,6 +331,7 @@ export default function CotacaoPassagensClient() {
       }
       setJob(j.job);
       window.dispatchEvent(new Event("tm-cotacao-kick"));
+      location.hash = `go-${Date.now()}`;
     } finally {
       setLoading(false);
     }
