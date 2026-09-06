@@ -2486,7 +2486,7 @@ model CotacaoPassagemSearch {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  @@unique([jobId, direction, originIata, destIata, date])
+  @@unique([jobId, direction, originIata, destIata, date, airline])
   @@index([jobId, status])
   @@map("cotacao_passagem_searches")
 }
