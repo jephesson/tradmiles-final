@@ -8,18 +8,22 @@ function readBasis(breakdown: unknown): EmployeePayoutBasis | null {
   return null;
 }
 
-export function todayISORecife() {
+export function recifeDateISOFrom(date: Date) {
   const parts = new Intl.DateTimeFormat("en-CA", {
     timeZone: "America/Recife",
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
-  }).formatToParts(new Date());
+  }).formatToParts(date);
 
   const map: Record<string, string> = {};
   for (const part of parts) map[part.type] = part.value;
 
   return `${map.year}-${map.month}-${map.day}`;
+}
+
+export function todayISORecife() {
+  return recifeDateISOFrom(new Date());
 }
 
 async function basisForDate(team: string, date: string, fallback: EmployeePayoutBasis) {
@@ -91,4 +95,35 @@ export async function triggerEmployeePayoutAutoCompute(
       error: error instanceof Error ? error.message : "Falha ao recalcular comissões.",
     };
   }
+}
+
+export async function triggerEmployeePayoutAutoComputeDates(
+  req: Request,
+  args: {
+    team: string;
+    dates: Array<Date | string | null | undefined>;
+    fallbackBasis: EmployeePayoutBasis;
+  }
+) {
+  const today = todayISORecife();
+  const uniq: string[] = [];
+  for (const raw of args.dates) {
+    let date = "";
+    if (raw instanceof Date && Number.isFinite(raw.getTime())) date = recifeDateISOFrom(raw);
+    else if (typeof raw === "string" && /^\d{4}-\d{2}-\d{2}$/.test(raw.trim())) date = raw.trim();
+    if (!date || date > today || uniq.includes(date)) continue;
+    uniq.push(date);
+  }
+
+  const results = [];
+  for (const date of uniq) {
+    results.push(
+      await triggerEmployeePayoutAutoCompute(req, {
+        team: args.team,
+        date,
+        fallbackBasis: args.fallbackBasis,
+      })
+    );
+  }
+  return results;
 }

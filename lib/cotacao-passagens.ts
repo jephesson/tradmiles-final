@@ -365,6 +365,27 @@ export function hoursToDurationMin(raw: unknown) {
   return Math.min(24 * 60, Math.round(n * 60));
 }
 
+export function durationMinFromClocks(dep?: string | null, arr?: string | null) {
+  const a = parseClock(dep || "");
+  const b = parseClock(arr || "");
+  if (!a || !b) return null;
+  const [dh, dm] = a.split(":").map(Number);
+  const [ah, am] = b.split(":").map(Number);
+  let min = ah * 60 + am - (dh * 60 + dm);
+  if (min < 0) min += 24 * 60;
+  return min > 0 ? min : null;
+}
+
+export function resolvedDurationMin(row: {
+  durationMin?: number | null;
+  depTime?: string | null;
+  arrTime?: string | null;
+}) {
+  const n = Math.trunc(Number(row.durationMin) || 0);
+  if (n > 0) return n;
+  return durationMinFromClocks(row.depTime, row.arrTime);
+}
+
 export function fmtDurationMin(min: number | null | undefined) {
   const n = Math.trunc(Number(min) || 0);
   if (n <= 0) return "";
@@ -384,7 +405,7 @@ export function fmtFlightSchedule(row: {
   const bits: string[] = [];
   if (row.depTime && row.arrTime) bits.push(`${row.depTime} → ${row.arrTime}`);
   else if (row.depTime) bits.push(`sai ${row.depTime}`);
-  const dur = fmtDurationMin(row.durationMin);
+  const dur = fmtDurationMin(resolvedDurationMin(row));
   if (dur) bits.push(dur);
   if (row.stops === 0) bits.push("direto");
   else if (typeof row.stops === "number" && row.stops > 0) {

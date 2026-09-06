@@ -6,6 +6,7 @@ import {
   cancelFinePaxCount,
   computeCancelFineTotalCents,
 } from "@/lib/vendas/cancelFine";
+import { triggerEmployeePayoutAutoComputeDates } from "@/lib/payouts/autoCompute";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -75,6 +76,7 @@ export async function POST(req: Request) {
             telefone: true,
           },
         },
+        purchase: { select: { finalizedAt: true } },
       },
     });
 
@@ -259,6 +261,12 @@ export async function POST(req: Request) {
       },
     });
 
+    const payoutAutoCompute = await triggerEmployeePayoutAutoComputeDates(req, {
+      team: session.team,
+      dates: [venda.createdAt, venda.date, venda.purchase?.finalizedAt],
+      fallbackBasis: "SALE_DATE",
+    });
+
     return ok({
       ok: true,
       fineCents,
@@ -266,6 +274,7 @@ export async function POST(req: Request) {
       cancelFineDividaId,
       cancelRefundDebtId,
       wasPaid,
+      payoutAutoCompute,
     });
   } catch (e: any) {
     if (e?.message === "UNAUTHENTICATED") {

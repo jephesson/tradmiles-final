@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { prisma } from "@/lib/prisma";
+import { triggerEmployeePayoutAutoComputeDates } from "@/lib/payouts/autoCompute";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -57,7 +58,14 @@ export async function PATCH(req: Request) {
     const out = await prisma.$transaction(async (tx) => {
       const sale = await tx.sale.findUnique({
         where: { id: saleId },
-        select: { id: true, totalCents: true, receivableId: true },
+        select: {
+          id: true,
+          totalCents: true,
+          receivableId: true,
+          createdAt: true,
+          date: true,
+          purchase: { select: { finalizedAt: true } },
+        },
       });
       if (!sale) throw new Error("Venda não encontrada.");
 
@@ -105,10 +113,19 @@ export async function PATCH(req: Request) {
         }
       }
 
-      return { saleId, status };
+      return { saleId, status, createdAt: sale.createdAt, date: sale.date, finalizedAt: sale.purchase?.finalizedAt ?? null };
     });
 
-    return NextResponse.json({ ok: true, ...out });
+    let payoutAutoCompute = null;
+    if (out.status === "CANCELED" || out.status === "PAID" || out.status === "PENDING") {
+      payoutAutoCompute = await triggerEmployeePayoutAutoComputeDates(req, {
+        team: session.team,
+        dates: [out.createdAt, out.date, out.finalizedAt],
+        fallbackBasis: "SALE_DATE",
+      });
+    }
+
+    return NextResponse.json({ ok: true, saleId: out.saleId, status: out.status, payoutAutoCompute });
   } catch (e: any) {
     return NextResponse.json({ ok: false, error: e?.message || "Erro ao atualizar status" }, { status: 400 });
   }

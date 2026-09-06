@@ -752,7 +752,7 @@ export default function ComissoesFuncionariosClient() {
     let cancelled = false;
 
     (async () => {
-      if (isToday && isAdmin && !asUserId) {
+      if (isAdmin && !asUserId) {
         await computeDaySilent(date);
       }
       if (!cancelled) {
@@ -764,7 +764,7 @@ export default function ComissoesFuncionariosClient() {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [date, isToday, asUserId, isAdmin]);
+  }, [date, asUserId, isAdmin]);
 
   useEffect(() => {
     if (!isToday || !isAdmin || asUserId) return;
