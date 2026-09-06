@@ -122,6 +122,9 @@ function toCents(s: string) {
 function fromCents(cents: number) {
   return ((cents || 0) / 100).toFixed(2).replace(".", ",");
 }
+function fmtIataField(raw: string) {
+  return String(raw || "").toUpperCase();
+}
 function fmtMiles(n: number) {
   return (n || 0).toLocaleString("pt-BR");
 }
@@ -551,14 +554,23 @@ export default function CotacaoPassagensClient() {
         <div className="grid gap-3 md:grid-cols-2">
           <div>
             <label className={FIELD}>Origem</label>
-            <input value={origins} onChange={(e) => setOrigins(e.target.value)} className={INPUT} placeholder="GRU, CGH, VCP" />
+            <input
+              value={origins}
+              onChange={(e) => setOrigins(fmtIataField(e.target.value))}
+              className={cn(INPUT, "uppercase")}
+              autoCapitalize="characters"
+              spellCheck={false}
+              placeholder="GRU, CGH, VCP"
+            />
           </div>
           <div>
             <label className={FIELD}>Destino</label>
             <input
               value={destinations}
-              onChange={(e) => setDestinations(e.target.value)}
-              className={INPUT}
+              onChange={(e) => setDestinations(fmtIataField(e.target.value))}
+              className={cn(INPUT, "uppercase")}
+              autoCapitalize="characters"
+              spellCheck={false}
               placeholder="SSA, REC"
             />
           </div>
@@ -760,9 +772,11 @@ export default function CotacaoPassagensClient() {
           <div>
             <div className="text-sm font-semibold">Números das cias</div>
             <p className="text-xs text-slate-500">
-              Milheiro sugerido ~5% abaixo do à vista, sem ficar abaixo do{" "}
+              {cashPrice
+                ? `À vista de referência: ${fmtMoney(cashPrice)}. O milheiro fica ~5% abaixo, sem passar do mínimo em `
+                : "Digite as milhas reais (o exemplo cinza não conta). O total do cliente aparece na hora. Mínimo em "}
               <Link href="/dashboard/configuracoes" className="font-semibold text-slate-800 underline">
-                mínimo
+                Configurações
               </Link>
               .
             </p>
@@ -802,7 +816,8 @@ export default function CotacaoPassagensClient() {
                       value={r.q.miles}
                       onChange={(e) => patchCia(r.key, { miles: e.target.value, milheiroManual: false })}
                       className="h-9 w-24 rounded-lg border border-slate-200 px-2"
-                      placeholder="24000"
+                      placeholder="milhas"
+                      inputMode="numeric"
                     />
                   </td>
                   <td className="py-3 pr-2">
@@ -814,9 +829,16 @@ export default function CotacaoPassagensClient() {
                   </td>
                   <td className="py-3 pr-2">
                     <input
-                      value={r.q.milheiroManual ? r.q.milheiro : r.suggested ? fromCents(r.suggested) : ""}
+                      value={
+                        r.q.milheiroManual
+                          ? r.q.milheiro
+                          : r.milesN > 0 && r.suggested
+                            ? fromCents(r.suggested)
+                            : ""
+                      }
                       onChange={(e) => patchCia(r.key, { milheiro: e.target.value, milheiroManual: true })}
                       className="h-9 w-20 rounded-lg border border-slate-200 px-2"
+                      placeholder={r.minCents ? fromCents(r.minCents) : "0,00"}
                     />
                     <div className="mt-1 text-[10px] text-slate-400">
                       mín {r.minCents ? fmtMoney(r.minCents) : "—"}
@@ -832,18 +854,22 @@ export default function CotacaoPassagensClient() {
                     </div>
                     {r.belowMin ? <div className="text-[10px] font-semibold text-amber-800">abaixo do mínimo</div> : null}
                   </td>
-                  <td className="py-3 pr-2 font-semibold tabular-nums">{r.total ? fmtMoney(r.total) : "—"}</td>
+                  <td className="py-3 pr-2 font-semibold tabular-nums">
+                    {r.milesN > 0 && r.milheiroCents > 0 ? fmtMoney(r.total) : "—"}
+                  </td>
                   <td
                     className={cn(
                       "py-3 text-xs font-semibold tabular-nums",
                       r.discount > 0 ? "text-emerald-700" : r.discount < 0 ? "text-rose-700" : "text-slate-400"
                     )}
                   >
-                    {r.total && cashPrice
+                    {r.milesN > 0 && r.milheiroCents > 0 && cashPrice
                       ? r.discount >= 0
                         ? `− ${fmtMoney(r.discount)} (${r.discountPct}%)`
                         : `+ ${fmtMoney(Math.abs(r.discount))}`
-                      : "—"}
+                      : r.milesN > 0 && r.milheiroCents > 0
+                        ? "sem à vista"
+                        : "—"}
                   </td>
                 </tr>
               ))}
