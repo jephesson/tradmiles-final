@@ -12,13 +12,13 @@ export async function enqueueCotacaoFollowups(jobId: string) {
     where: {
       jobId,
       status: { in: ["PENDING", "RUNNING"] },
-      NOT: { airline: { equals: "Decolar", mode: "insensitive" } },
+      NOT: { airline: { equals: "Google", mode: "insensitive" } },
     },
-    data: { status: "CANCELADO", error: "Cotação só no Decolar.", finishedAt: new Date() },
+    data: { status: "CANCELADO", error: "À vista via Google Flights (SerpAPI).", finishedAt: new Date() },
   });
 
   const pending = await prisma.cotacaoPassagemSearch.findFirst({
-    where: { jobId, status: { in: ["PENDING", "RUNNING"] }, airline: { equals: "Decolar", mode: "insensitive" } },
+    where: { jobId, status: { in: ["PENDING", "RUNNING"] }, airline: { equals: "Google", mode: "insensitive" } },
     select: { id: true },
   });
   if (pending) return;

@@ -143,7 +143,7 @@ export function isCotacaoDateRange(from: string, to: string) {
 }
 
 export function isScoutAirline(airline: string) {
-  return /^decolar$/i.test(String(airline || "").trim());
+  return /^(google|decolar)$/i.test(String(airline || "").trim());
 }
 
 export function isMilesAirline(airline: string) {
@@ -188,6 +188,22 @@ export function decolarScoutSearches(origin: string, dest: string, dateISO: stri
   const url = buildDecolarCashSearchUrl(o, d, dateISO, adults);
   if (!url) return [];
   return [{ airline: "Decolar", url, originIata: o, destIata: d }];
+}
+
+export function buildGoogleFlightsSearchUrl(origin: string, dest: string, dateISO: string) {
+  const o = toIata(origin);
+  const d = toIata(dest);
+  if (!/^[A-Z]{3}$/.test(o) || !/^[A-Z]{3}$/.test(d) || !isISODate(dateISO)) return "";
+  const q = encodeURIComponent(`Voos de ${o} para ${d} em ${dateISO}`);
+  return `https://www.google.com/travel/flights?hl=pt-BR&gl=br&curr=BRL&q=${q}`;
+}
+
+export function googleFlightsScoutSearches(origin: string, dest: string, dateISO: string, _adults = 1) {
+  const o = azulCashLocation(origin);
+  const d = azulCashLocation(dest);
+  const url = buildGoogleFlightsSearchUrl(o, d, dateISO);
+  if (!url) return [];
+  return [{ airline: "Google", url, originIata: o, destIata: d }];
 }
 
 export function cashSearchForCarrier(carrier: string, origin: string, dest: string, dateISO: string, adults = 1) {

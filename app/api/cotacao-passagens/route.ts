@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/auth-server";
 import {
-  decolarScoutSearches,
+  googleFlightsScoutSearches,
   buildDateList,
   COTACAO_MAX_SEARCHES,
   extractIataList,
@@ -10,9 +10,11 @@ import {
   isISODate,
   parseClock,
 } from "@/lib/cotacao-passagens";
+import { fillPendingGoogleFlights } from "@/lib/cotacao-fill-google";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+export const maxDuration = 60;
 
 const jobInclude = {
   searches: { orderBy: [{ direction: "asc" as const }, { date: "asc" as const }, { originIata: "asc" as const }, { airline: "asc" as const }] },
@@ -40,6 +42,12 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   try {
     const session = await requireSession();
+  if (!String(process.env.SERPAPI_API_KEY || "").trim()) {
+    return NextResponse.json(
+      { ok: false, error: "Configure SERPAPI_API_KEY no ambiente (Vercel / .env.local)." },
+      { status: 400 }
+    );
+  }
   const body = await req.json().catch(() => ({}));
 
   const origins = extractIataList(String(body.origins || ""));
@@ -89,7 +97,7 @@ export async function POST(req: Request) {
     for (const d of destinations) {
       if (o === d) continue;
       for (const date of outboundDates) {
-        for (const cia of decolarScoutSearches(o, d, date, adults)) {
+        for (const cia of googleFlightsScoutSearches(o, d, date, adults)) {
           const oo = cia.originIata || o;
           const dd = cia.destIata || d;
           const key = `IDA|${cia.airline}|${oo}|${dd}|${date}`;
@@ -106,7 +114,7 @@ export async function POST(req: Request) {
         }
       }
       for (const date of returnDates) {
-        for (const cia of decolarScoutSearches(d, o, date, adults)) {
+        for (const cia of googleFlightsScoutSearches(d, o, date, adults)) {
           const oo = cia.originIata || d;
           const dd = cia.destIata || o;
           const key = `VOLTA|${cia.airline}|${oo}|${dd}|${date}`;
@@ -164,7 +172,13 @@ export async function POST(req: Request) {
     include: jobInclude,
   });
 
-  return NextResponse.json({ ok: true, job });
+  await fillPendingGoogleFlights(job.id, Math.min(searches.length, 8));
+  const filled = await prisma.cotacaoPassagemJob.findFirst({
+    where: { id: job.id },
+    include: jobInclude,
+  });
+
+  return NextResponse.json({ ok: true, job: filled || job });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Falha ao criar cotação.";
     const status = msg === "UNAUTHENTICATED" ? 401 : 500;

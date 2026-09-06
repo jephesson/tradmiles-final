@@ -14,57 +14,30 @@ export async function POST() {
     return NextResponse.json({ ok: false, error: "Não autenticado." }, { status: 401 });
   }
 
-  const next = await prisma.$transaction(async (tx) => {
-    const job = await tx.cotacaoPassagemJob.findFirst({
-      where: { ownerId: session.id, team: session.team, status: "RUNNING" },
-      orderBy: { createdAt: "desc" },
-      select: {
-        id: true,
-        filterMaxDurationMin: true,
-        filterDepFrom: true,
-        filterDepTo: true,
-        filterDirectOnly: true,
-      },
-    });
-    if (!job) return null;
+  const job = await prisma.cotacaoPassagemJob.findFirst({
+    where: { ownerId: session.id, team: session.team, status: "RUNNING" },
+    orderBy: { createdAt: "desc" },
+    select: { id: true },
+  });
+  if (!job) return NextResponse.json({ ok: true, search: null });
 
-    const stale = new Date(Date.now() - 150_000);
-    await tx.cotacaoPassagemSearch.updateMany({
-      where: { jobId: job.id, status: "RUNNING", startedAt: { lt: stale } },
-      data: { status: "PENDING", startedAt: null },
-    });
-    await tx.cotacaoPassagemSearch.updateMany({
-      where: {
-        jobId: job.id,
-        status: { in: ["PENDING", "RUNNING"] },
-        NOT: { airline: { equals: "Decolar", mode: "insensitive" } },
-      },
-      data: { status: "CANCELADO", error: "Cotação só no Decolar.", finishedAt: new Date() },
-    });
-
-    const row = await tx.cotacaoPassagemSearch.findFirst({
-      where: { jobId: job.id, status: "PENDING", airline: { equals: "Decolar", mode: "insensitive" } },
-      orderBy: [{ createdAt: "asc" }, { direction: "asc" }, { date: "asc" }],
-    });
-    if (!row) return { doneJobId: job.id };
-
-    const updated = await tx.cotacaoPassagemSearch.update({
-      where: { id: row.id },
-      data: { status: "RUNNING", startedAt: new Date() },
-    });
-    return {
-      ...updated,
-      filterMaxDurationMin: job.filterMaxDurationMin,
-      filterDepFrom: job.filterDepFrom,
-      filterDepTo: job.filterDepTo,
-      filterDirectOnly: job.filterDirectOnly,
-    };
+  await prisma.cotacaoPassagemSearch.updateMany({
+    where: {
+      jobId: job.id,
+      status: { in: ["PENDING", "RUNNING"] },
+      NOT: { airline: { equals: "Google", mode: "insensitive" } },
+    },
+    data: { status: "CANCELADO", error: "À vista via Google Flights (SerpAPI).", finishedAt: new Date() },
   });
 
-  if (next && "doneJobId" in next && next.doneJobId) {
-    await enqueueCotacaoFollowups(next.doneJobId);
+  const googlePending = await prisma.cotacaoPassagemSearch.findFirst({
+    where: { jobId: job.id, status: { in: ["PENDING", "RUNNING"] }, airline: { equals: "Google", mode: "insensitive" } },
+    select: { id: true },
+  });
+  if (googlePending) {
     return NextResponse.json({ ok: true, search: null });
   }
 
-  return NextResponse.json({ ok: true, search: next });
+  await enqueueCotacaoFollowups(job.id);
+  return NextResponse.json({ ok: true, search: null });
 }

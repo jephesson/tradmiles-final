@@ -208,6 +208,20 @@ export default function CotacaoPassagensClient() {
   }, [job?.id, job?.status]);
 
   useEffect(() => {
+    if (!job?.id || job.status !== "RUNNING") return;
+    let stop = false;
+    const tick = async () => {
+      if (stop) return;
+      await fetch("/api/cotacao-passagens/fill", { method: "POST", credentials: "include" }).catch(() => null);
+      if (!stop) window.setTimeout(tick, 800);
+    };
+    void tick();
+    return () => {
+      stop = true;
+    };
+  }, [job?.id, job?.status]);
+
+  useEffect(() => {
     void (async () => {
       const r = await fetch("/api/settings/cotacao-min-milheiro", { cache: "no-store", credentials: "include" });
       const j = await r.json().catch(() => null);
@@ -272,7 +286,7 @@ export default function CotacaoPassagensClient() {
 
   const comboCents = job?.includeReturn ? (bestIda?.priceCents || 0) + (bestVolta?.priceCents || 0) : 0;
   const cashPrice = comboCents > 0 ? comboCents : bestIda?.priceCents || 0;
-  const cashLabel = comboCents > 0 ? "À vista (ida + volta)" : `À vista${bestIda?.airline ? ` · ${bestIda.airline}` : ""}`;
+  const cashLabel = comboCents > 0 ? "À vista (ida + volta)" : bestIda ? "À vista · Google Flights" : "À vista";
 
   const ciaRows = useMemo(() => {
     return CIA_META.map(({ key, label }) => {
@@ -425,8 +439,8 @@ export default function CotacaoPassagensClient() {
               Cotação de passagens
             </h1>
             <p className="mt-1 max-w-2xl text-sm text-slate-500">
-              A extensão pesquisa só o Decolar. Nas milhas, ligue a captura aqui, abra a cia, selecione o voo e leia
-              milhas e taxa.
+              O à vista vem do Google Flights (SerpAPI). A extensão só entra nas milhas: ligue a captura, abra a cia,
+              selecione o voo e leia milhas e taxa.
             </p>
           </div>
           <div className="flex flex-col items-stretch gap-2 sm:items-end">
@@ -436,22 +450,45 @@ export default function CotacaoPassagensClient() {
                 extOk ? "bg-emerald-50 text-emerald-800" : "bg-slate-100 text-slate-600"
               )}
             >
-              {extOk ? "Extensão conectada" : "Instale a extensão para cotar"}
+              {extOk ? "Extensão conectada" : "Instale a extensão para milhas"}
             </div>
-            <label className="inline-flex h-10 cursor-pointer items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-800">
-              <input
-                type="checkbox"
-                className="h-4 w-4 accent-slate-900"
-                checked={captureOn}
-                disabled={!extOk}
-                onChange={(e) => {
-                  const on = e.target.checked;
-                  setCaptureOn(on);
-                  window.dispatchEvent(new CustomEvent("tm-cotacao-capture", { detail: { on } }));
-                }}
-              />
-              Captura nas cias
-            </label>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={captureOn}
+              disabled={!extOk}
+              onClick={() => {
+                const on = !captureOn;
+                setCaptureOn(on);
+                window.dispatchEvent(new CustomEvent("tm-cotacao-capture", { detail: { on } }));
+              }}
+              className={cn(
+                "inline-flex h-12 items-center gap-3 rounded-2xl border px-3 text-left transition disabled:cursor-not-allowed disabled:opacity-50",
+                captureOn ? "border-emerald-200 bg-emerald-50" : "border-rose-200 bg-rose-50"
+              )}
+            >
+              <span
+                className={cn(
+                  "relative h-7 w-12 shrink-0 rounded-full transition-colors",
+                  captureOn ? "bg-emerald-500" : "bg-rose-500"
+                )}
+              >
+                <span
+                  className={cn(
+                    "absolute top-0.5 h-6 w-6 rounded-full bg-white shadow-sm transition-transform",
+                    captureOn ? "translate-x-5" : "translate-x-0.5"
+                  )}
+                />
+              </span>
+              <span>
+                <span className={cn("block text-sm font-semibold", captureOn ? "text-emerald-950" : "text-rose-950")}>
+                  Captura nas cias {captureOn ? "ligada" : "desligada"}
+                </span>
+                <span className={cn("block text-[11px]", captureOn ? "text-emerald-800" : "text-rose-800")}>
+                  {captureOn ? "Verde: selecione o voo e toque no TM" : "Vermelha: a extensão não lê a página"}
+                </span>
+              </span>
+            </button>
             <a
               href={ZIP_HREF}
               download
@@ -464,7 +501,7 @@ export default function CotacaoPassagensClient() {
         </div>
         <ol className="mt-5 grid gap-2 sm:grid-cols-3">
           {[
-            { n: "1", t: "À vista no Decolar", d: "Primeiro preço da lista, até 10s" },
+            { n: "1", t: "À vista no Google Flights", d: "Menor tarifa em BRL via SerpAPI" },
             { n: "2", t: "Abra as milhas", d: "LATAM, Smiles e Azul nos botões da tarifa" },
             { n: "3", t: "Selecione o voo", d: "A IA lê milhas e taxa de embarque" },
           ].map((s) => (
@@ -626,11 +663,11 @@ export default function CotacaoPassagensClient() {
           ) : null}
           {job?.status === "RUNNING" ? (
             <div className="mt-3 rounded-xl border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-950">
-              Pesquisando {progress.done}/{progress.total} no Decolar. Se a aba não abrir, recarregue e inicie de novo.
+              Pesquisando {progress.done}/{progress.total} no Google Flights. Não precisa abrir aba de cia para o à vista.
             </div>
           ) : null}
           <p className="mt-3 text-xs leading-relaxed text-slate-500">
-            Só Decolar. No intervalo fica a data mais barata; na data exata, só aquele dia.
+            À vista no Google Flights. No intervalo fica a data mais barata; na data exata, só aquele dia.
             {job ? ` ${progress.done}/${progress.total} concluídas.` : ""}
           </p>
         </div>
@@ -679,7 +716,7 @@ export default function CotacaoPassagensClient() {
 
       <div className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm">
         <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Passo 3</div>
-        <div className="text-sm font-semibold">Milhas das 3 cias vs o Decolar</div>
+        <div className="text-sm font-semibold">Milhas das 3 cias vs o à vista</div>
         <p className="mt-1 max-w-3xl text-sm text-slate-500">
           Preencha na mão ou selecione o voo na cia: a IA envia milhas e taxa. O milheiro sugerido fica ~5% abaixo da tarifa à vista mais
           barata, mas nunca abaixo do{" "}
@@ -890,7 +927,7 @@ export default function CotacaoPassagensClient() {
                     {s.direction === "VOLTA" ? "Volta" : "Ida"} {s.originIata} → {s.destIata}
                   </td>
                   <td className="p-3">{s.date.split("-").reverse().join("/")}</td>
-                  <td className="p-3">{s.airline || "—"}</td>
+                  <td className="p-3">{s.airline === "Google" ? "Google Flights" : s.airline || "—"}</td>
                   <td className="p-3 text-xs text-slate-600">{fmtFlightSchedule(s) || "—"}</td>
                   <td className="p-3 tabular-nums">
                     {s.miles
@@ -929,8 +966,18 @@ function BestCard({ title, row, running }: { title: string; row: SearchRow | nul
             <div className="mt-1 text-sm font-medium text-slate-800">{fmtFlightSchedule(row)}</div>
           ) : null}
           <div className="mt-2 text-xl font-bold tabular-nums text-slate-900">{fmtMoney(row.priceCents)}</div>
+          {row.url ? (
+            <a
+              href={row.url}
+              target="_blank"
+              rel="noreferrer"
+              className="mt-1 inline-flex items-center gap-1 text-xs font-semibold text-slate-700 hover:underline"
+            >
+              Abrir no Google Flights <ExternalLink className="h-3 w-3" />
+            </a>
+          ) : null}
           <div className="mt-1 text-xs text-slate-500">
-            Tarifa à vista no Decolar{row.rawPrice ? ` · ${row.rawPrice}` : ""}
+            Tarifa à vista no Google Flights{row.rawPrice ? ` · ${row.rawPrice}` : ""}
           </div>
           <div className="mt-3 flex flex-wrap gap-2">
             {latam ? (
@@ -970,7 +1017,7 @@ function BestCard({ title, row, running }: { title: string; row: SearchRow | nul
         </>
       ) : (
         <div className="mt-2 text-sm text-slate-500">
-          {running ? "Aguardando o primeiro resultado da extensão…" : "Ainda sem resultado."}
+          {running ? "Consultando o Google Flights…" : "Ainda sem resultado."}
         </div>
       )}
     </div>
