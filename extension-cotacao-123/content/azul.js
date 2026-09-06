@@ -130,11 +130,24 @@ async function expandAllFlights() {
   }
 }
 
+function parseMiles(s) {
+  const t = String(s || "").replace(/\s+/g, " ");
+  const m = t.match(/(\d{1,3}(?:\.\d{3})+|\d{3,7})\s*(pontos|pts|milhas)/i);
+  if (!m) return 0;
+  const n = Number(m[1].replace(/\./g, ""));
+  return Number.isFinite(n) && n >= 500 ? n : 0;
+}
+
+function isPts() {
+  return /[?&]cc=PTS/i.test(location.search || "");
+}
+
 function priceNodes() {
   return [...document.querySelectorAll("div, span, p, button, strong, li")].filter((el) => {
     const t = (el.textContent || "").replace(/\s+/g, " ").trim();
     if (t.length > 90) return false;
-    return /a\s+partir\s+de\s+R\$/i.test(t) && moneyToCents(t) > 0;
+    if (isPts()) return parseMiles(t) > 0 || /a\s+partir\s+de/i.test(t) && parseMiles(t) > 0;
+    return (/a\s+partir\s+de\s+R\$/i.test(t) || /R\$/.test(t)) && moneyToCents(t) > 0;
   });
 }
 
@@ -162,9 +175,12 @@ function parseCard(el) {
   const times = [...text.matchAll(/\b(\d{1,2}:\d{2})\b/g)]
     .map((m) => parseClock(m[1]))
     .filter(Boolean);
-  const rawMatch = text.match(/a\s+partir\s+de\s+R\$\s*[\d.,]+/i);
+  const rawMatch = isPts()
+    ? text.match(/(\d{1,3}(?:\.\d{3})+|\d{3,7})\s*(pontos|pts|milhas)/i)
+    : text.match(/a\s+partir\s+de\s+R\$\s*[\d.,]+/i) || text.match(/R\$\s*[\d.,]+/);
   return {
     cents,
+    miles: parseMiles(text),
     raw: rawMatch ? rawMatch[0] : text.slice(0, 180),
     depTime: times[0] || "",
     arrTime: times[1] || "",
@@ -176,11 +192,18 @@ function parseCard(el) {
 
 function pickBestCard(filters) {
   let best = null;
+  const pts = isPts();
   for (const el of flightCards()) {
     const card = parseCard(el);
-    if (!card.cents) continue;
-    if (!matchesFilter(card, filters)) continue;
-    if (!best || card.cents < best.cents) best = card;
+    if (pts) {
+      if (!card.miles) continue;
+      if (!matchesFilter(card, filters)) continue;
+      if (!best || card.miles < best.miles) best = card;
+    } else {
+      if (!card.cents) continue;
+      if (!matchesFilter(card, filters)) continue;
+      if (!best || card.cents < best.cents) best = card;
+    }
   }
   return best;
 }
@@ -200,10 +223,11 @@ function isAzulSearch() {
 function pageKind() {
   const t = (document.body?.innerText || "").slice(0, 9000);
   if (/acesso\s+negado|are\s+you\s+human|captcha/i.test(t)) return "BLOCKED";
-  if (/n[aã]o\s+(foi\s+)?poss[ií]vel|n[aã]o\s+encontramos\s+voo|nenhum\s+voo|sem\s+voo\s+dispon/i.test(t)) {
+  if (/n[aã]o\s+encontramos\s+voo|nenhum\s+voo\s+dispon|sem\s+voo\s+dispon/i.test(t)) {
     return "NO_RESULTS";
   }
   if (flightCards().length > 0) return "RESULTS";
+  if (isPts() && /(pontos|pts|milhas)/i.test(t) && /\d{1,2}:\d{2}/.test(t)) return "RESULTS";
   if (/a\s+partir\s+de\s+R\$/i.test(t) && /\d{1,2}:\d{2}/.test(t)) return "RESULTS";
   return "WAIT";
 }
@@ -250,15 +274,16 @@ async function scrape(filters) {
         expanded = true;
       }
       const best = pickBestCard(filters);
-      if (best?.cents > 0 && !moreFlightsButton()) return best;
-      if (best?.cents > 0 && Date.now() - t0 > 25000) return best;
+      if ((best?.cents > 0 || best?.miles > 0) && !moreFlightsButton()) return best;
+      if ((best?.cents > 0 || best?.miles > 0) && Date.now() - t0 > 25000) return best;
     }
     await sleep(800);
   }
   const last = pickBestCard(filters);
-  if (last?.cents > 0) return last;
+  if (last?.cents > 0 || last?.miles > 0) return last;
   return {
     cents: 0,
+    miles: 0,
     error: sawResults
       ? hasActiveFilters(filters)
         ? "Nenhum voo bate com os filtros (horário, duração ou direto)."
@@ -276,16 +301,19 @@ async function run() {
   }
 
   const filters = await loadFilters();
+  const pts = isPts();
   const price = await scrape(filters);
+  const ok = pts ? price.miles > 0 : price.cents > 0;
   sendResult({
-    ok: price.cents > 0,
+    ok,
     priceCents: price.cents || 0,
-    airline: "AZUL",
+    miles: price.miles || 0,
+    airline: pts ? "Azul milhas" : "AZUL",
     rawPrice: price.raw || "",
     depTime: price.depTime || "",
     arrTime: price.arrTime || "",
     durationMin: price.durationMin || 0,
     stops: price.stops,
-    error: price.cents > 0 ? "" : price.error || "Não achei o preço na Azul.",
+    error: ok ? "" : price.error || (pts ? "Não achei as milhas na Azul." : "Não achei o preço na Azul."),
   });
 }

@@ -35,7 +35,7 @@ export async function POST() {
 
     const row = await tx.cotacaoPassagemSearch.findFirst({
       where: { jobId: job.id, status: "PENDING" },
-      orderBy: [{ direction: "asc" }, { date: "asc" }],
+      orderBy: [{ createdAt: "asc" }, { direction: "asc" }, { date: "asc" }],
     });
     if (!row) return null;
 

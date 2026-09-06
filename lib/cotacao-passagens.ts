@@ -1,5 +1,5 @@
 export const COTACAO_MAX_DIAS = 30;
-export const COTACAO_MAX_SEARCHES = 240;
+export const COTACAO_MAX_SEARCHES = 80;
 export const SUGGEST_BELOW_BPS = 500; // 5% abaixo da tarifa à vista da cia
 
 export function extractIataList(raw: string): string[] {
@@ -61,13 +61,14 @@ export function buildGolCashSearchUrl(origin: string, dest: string, dateISO: str
   const d = toIata(dest);
   if (!/^[A-Z]{3}$/.test(o) || !/^[A-Z]{3}$/.test(d) || !isISODate(dateISO)) return "";
   const adt = Math.max(1, Math.trunc(adults || 1));
+  const [y, m, day] = dateISO.split("-");
   const q = new URLSearchParams({
     pv: "br",
-    tipo: "DF",
+    tipo: "OW",
     lang: "pt-BR",
     de: o,
     para: d,
-    ida: dateToBrParam(dateISO),
+    ida: `${Number(day)}-${Number(m)}-${y}`,
     ADT: String(adt),
     ADL: "0",
     CHD: "0",
@@ -106,9 +107,20 @@ const AZUL_CITY_FROM_AIRPORT: Record<string, string> = {
   PLU: "BHZ",
 };
 
+const GOL_CITY_AIRPORT: Record<string, string> = {
+  SAO: "GRU",
+  RIO: "GIG",
+  BHZ: "CNF",
+};
+
 function azulCashLocation(code: string) {
   const i = toIata(code);
   return AZUL_CITY_FROM_AIRPORT[i] || i;
+}
+
+function golCashAirport(code: string) {
+  const i = toIata(code);
+  return GOL_CITY_AIRPORT[i] || i;
 }
 
 /** Busca à vista na Azul (cc=BRL). Destinos de cidade (RIO/SAO/BHZ) quando o aeroporto é da região. */
@@ -126,12 +138,100 @@ export function buildAzulCashSearchUrl(origin: string, dest: string, dateISO: st
   );
 }
 
-export function cashAirlineSearches(origin: string, dest: string, dateISO: string, adults = 1) {
+export function isCotacaoDateRange(from: string, to: string) {
+  return isISODate(from) && isISODate(to) && to > from;
+}
+
+export function isScoutAirline(airline: string) {
+  return /^decolar$/i.test(String(airline || "").trim());
+}
+
+export function isMilesAirline(airline: string) {
+  const a = String(airline || "").toUpperCase();
+  return a.includes("MILHAS") || a === "SMILES";
+}
+
+export function isCashAirline(airline: string) {
+  return /^(GOL|LATAM|AZUL)$/i.test(String(airline || "").trim());
+}
+
+export function normalizeCarrier(text: string) {
+  const t = String(text || "").toUpperCase();
+  if (/\bGOL\b|\bG3\b|VOEGOL/.test(t)) return "GOL";
+  if (/\bAZUL\b/.test(t)) return "AZUL";
+  if (/\bLATAM\b|\bLA\b|\bJJ\b/.test(t)) return "LATAM";
+  return "";
+}
+
+export function ciaKeyFromMilesAirline(airline: string): "latam" | "smiles" | "azul" | "" {
+  const a = String(airline || "").toUpperCase();
+  if (a.includes("LATAM")) return "latam";
+  if (a.includes("SMILES")) return "smiles";
+  if (a.includes("AZUL")) return "azul";
+  return "";
+}
+
+export function buildDecolarCashSearchUrl(origin: string, dest: string, dateISO: string, adults = 1) {
+  const o = toIata(origin);
+  const d = toIata(dest);
+  if (!/^[A-Z]{3}$/.test(o) || !/^[A-Z]{3}$/.test(d) || !isISODate(dateISO)) return "";
+  const adt = Math.max(1, Math.trunc(adults || 1));
+  return (
+    `https://www.decolar.com/shop/flights/results/oneway/` +
+    `${encodeURIComponent(o)}/${encodeURIComponent(d)}/${dateISO}/${adt}/0/0?from=SB&di=1&reSearch=true`
+  );
+}
+
+export function decolarScoutSearches(origin: string, dest: string, dateISO: string, adults = 1) {
+  const o = toIata(origin);
+  const d = toIata(dest);
+  const url = buildDecolarCashSearchUrl(o, d, dateISO, adults);
+  if (!url) return [];
+  return [{ airline: "Decolar", url, originIata: o, destIata: d }];
+}
+
+export function cashSearchForCarrier(carrier: string, origin: string, dest: string, dateISO: string, adults = 1) {
+  const all = cashAirlineSearches(origin, dest, dateISO, adults);
+  const cia = normalizeCarrier(carrier) || carrier.toUpperCase();
+  const hit = all.filter((x) => x.airline === cia);
+  return hit.length ? hit : all;
+}
+
+export function milesAirlineSearches(origin: string, dest: string, dateISO: string, adults = 1) {
+  const o = toIata(origin);
+  const d = toIata(dest);
+  if (!o || !d || o === d) return [];
   return [
-    { airline: "GOL", url: buildGolCashSearchUrl(origin, dest, dateISO, adults) },
-    { airline: "LATAM", url: buildLatamCashSearchUrl(origin, dest, dateISO, adults) },
-    { airline: "AZUL", url: buildAzulCashSearchUrl(origin, dest, dateISO, adults) },
+    { airline: "LATAM milhas", url: buildLatamSearchUrl(o, d, dateISO, adults), originIata: o, destIata: d },
+    { airline: "Smiles", url: buildSmilesSearchUrl(o, d, dateISO, adults), originIata: o, destIata: d },
+    { airline: "Azul milhas", url: buildAzulSearchUrl(o, d, dateISO, adults), originIata: o, destIata: d },
   ].filter((x) => x.url);
+}
+
+export function cashAirlineSearches(origin: string, dest: string, dateISO: string, adults = 1) {
+  const out: { airline: string; url: string; originIata: string; destIata: string }[] = [];
+  const go = golCashAirport(origin);
+  const gd = golCashAirport(dest);
+  if (go && gd && go !== gd) {
+    const gol = buildGolCashSearchUrl(go, gd, dateISO, adults);
+    if (gol) out.push({ airline: "GOL", url: gol, originIata: go, destIata: gd });
+  }
+  const lo = toIata(origin);
+  const ld = toIata(dest);
+  if (lo && ld && lo !== ld) {
+    const latam = buildLatamCashSearchUrl(lo, ld, dateISO, adults);
+    if (latam) out.push({ airline: "LATAM", url: latam, originIata: lo, destIata: ld });
+  }
+  const azul = buildAzulCashSearchUrl(origin, dest, dateISO, adults);
+  if (azul) {
+    out.push({
+      airline: "AZUL",
+      url: azul,
+      originIata: azulCashLocation(origin),
+      destIata: azulCashLocation(dest),
+    });
+  }
+  return out.filter((x) => x.url);
 }
 
 export function saleTotalCents(miles: number, milheiroCents: number, boardingFeeCents: number) {

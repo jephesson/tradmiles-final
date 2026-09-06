@@ -1,0 +1,1 @@
+ALTER TABLE "cotacao_passagem_searches" ADD COLUMN IF NOT EXISTS "miles" INTEGER NOT NULL DEFAULT 0;

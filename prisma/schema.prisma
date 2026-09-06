@@ -2471,6 +2471,7 @@ model CotacaoPassagemSearch {
 
   status     CotacaoSearchStatus @default(PENDING)
   priceCents Int                 @default(0)
+  miles      Int                 @default(0)
   airline    String              @default("")
   rawPrice   String?
   error      String?

@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "TradeMiles Cotação à vista",
-  "version": "1.6.1",
-  "description": "Pesquisa tarifa à vista na GOL, LATAM e Azul e devolve o menor preço ao TradeMiles.",
+  "name": "TradeMiles Cotação",
+  "version": "1.8.0",
+  "description": "Pesquisa à vista (cias ou Decolar no intervalo) e milhas na LATAM, Smiles e Azul.",
   "permissions": ["tabs", "windows", "storage", "alarms", "scripting"],
   "host_permissions": [
     "https://b2c.voegol.com.br/*",
@@ -12,6 +12,10 @@
     "https://latamairlines.com/*",
     "https://www.voeazul.com.br/*",
     "https://voeazul.com.br/*",
+    "https://www.decolar.com/*",
+    "https://decolar.com/*",
+    "https://www.smiles.com.br/*",
+    "https://smiles.com.br/*",
     "https://www.trademiles.com.br/*",
     "https://trademiles.com.br/*",
     "http://localhost:3000/*"
@@ -46,6 +50,16 @@
     {
       "matches": ["https://www.voeazul.com.br/*", "https://voeazul.com.br/*"],
       "js": ["content/azul.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://www.decolar.com/*", "https://decolar.com/*"],
+      "js": ["content/decolar.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://www.smiles.com.br/*", "https://smiles.com.br/*"],
+      "js": ["content/smiles.js"],
       "run_at": "document_idle"
     }
   ],

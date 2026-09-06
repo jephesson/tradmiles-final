@@ -12,7 +12,7 @@ const TRADE_TABS = [
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg?.type === "TM_COTACAO_PING") {
-    sendResponse({ ok: true, version: "1.6.1" });
+    sendResponse({ ok: true, version: "1.8.0" });
     return false;
   }
   if (msg?.type === "TM_COTACAO_OPEN") {
@@ -23,7 +23,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
   if (msg?.type === "TM_COTACAO_SHOULD_SCRAPE") {
     chrome.storage.local.get(["tmBusy", "tmTabId"]).then((st) => {
-      sendResponse({ ok: Boolean(st.tmBusy && sender.tab?.id && st.tmTabId === sender.tab.id) });
+      const tabId = sender.tab?.id;
+      const ok = Boolean(st.tmBusy && tabId && (!st.tmTabId || st.tmTabId === tabId));
+      if (ok && !st.tmTabId && tabId) chrome.storage.local.set({ tmTabId: tabId });
+      sendResponse({ ok });
     });
     return true;
   }
@@ -36,7 +39,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       searchId: msg.searchId,
       ok: msg.ok,
       priceCents: msg.priceCents,
+      miles: msg.miles,
       airline: msg.airline,
+      carrier: msg.carrier,
       rawPrice: msg.rawPrice,
       depTime: msg.depTime,
       arrTime: msg.arrTime,
@@ -97,9 +102,11 @@ chrome.tabs.onUpdated.addListener((tabId, info, tab) => {
   }
   if (info.status !== "complete") return;
   chrome.storage.local.get(["tmTabId", "tmBusy"]).then((st) => {
-    if (!st.tmBusy || st.tmTabId !== tabId) return;
+    if (!st.tmBusy) return;
     const file = scriptForUrl(tab?.url || "");
     if (!file) return;
+    if (st.tmTabId && st.tmTabId !== tabId) return;
+    if (!st.tmTabId) chrome.storage.local.set({ tmTabId: tabId });
     chrome.scripting
       .executeScript({ target: { tabId }, files: [file] })
       .catch(() => {});
@@ -107,6 +114,8 @@ chrome.tabs.onUpdated.addListener((tabId, info, tab) => {
 });
 
 function scriptForUrl(url) {
+  if (/decolar\.com/i.test(url)) return "content/decolar.js";
+  if (/smiles\.com\.br/i.test(url)) return "content/smiles.js";
   if (/voegol\.com\.br/i.test(url)) return "content/voegol.js";
   if (/latamairlines\.com/i.test(url)) return "content/latam.js";
   if (/voeazul\.com\.br/i.test(url)) return "content/azul.js";
@@ -189,7 +198,7 @@ async function beginSearch(search) {
     tmLast: `Abrindo ${search.airline || ""} ${search.originIata || ""}→${search.destIata || ""}`,
     tmFilters: filtersFromSearch(search),
   });
-  chrome.alarms.create("tm-cotacao-timeout", { delayInMinutes: 3 });
+  chrome.alarms.create("tm-cotacao-timeout", { delayInMinutes: 2 });
   await openSearchWindow(search.url);
 }
 
@@ -244,7 +253,9 @@ function resultBody(payload) {
   return {
     ok: Boolean(payload.ok),
     priceCents: payload.priceCents || 0,
+    miles: payload.miles || 0,
     airline: payload.airline || "",
+    carrier: payload.carrier || "",
     rawPrice: payload.rawPrice || "",
     depTime: payload.depTime || "",
     arrTime: payload.arrTime || "",

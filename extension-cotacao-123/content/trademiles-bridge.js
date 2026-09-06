@@ -23,7 +23,7 @@ if (!window.__tmCotacaoBridge) {
       else delete document.documentElement.dataset.tmCotacaoExt;
       window.dispatchEvent(
         new CustomEvent("tm-cotacao-bridge", {
-          detail: { connected, version: "1.6.1" },
+          detail: { connected, version: "1.8.0" },
         })
       );
     } catch {
@@ -88,7 +88,9 @@ if (!window.__tmCotacaoBridge) {
             body: JSON.stringify({
               ok: msg.ok,
               priceCents: msg.priceCents,
+              miles: msg.miles,
               airline: msg.airline,
+              carrier: msg.carrier,
               rawPrice: msg.rawPrice,
               depTime: msg.depTime || "",
               arrTime: msg.arrTime || "",

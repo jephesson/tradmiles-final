@@ -3,10 +3,12 @@ import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/auth-server";
 import {
   cashAirlineSearches,
+  decolarScoutSearches,
   buildDateList,
   COTACAO_MAX_SEARCHES,
   extractIataList,
   hoursToDurationMin,
+  isCotacaoDateRange,
   isISODate,
   parseClock,
 } from "@/lib/cotacao-passagens";
@@ -84,19 +86,25 @@ export async function POST(req: Request) {
   };
   const searches: Item[] = [];
   const seen = new Set<string>();
+  const rangeJob =
+    isCotacaoDateRange(outboundFrom, outboundTo) ||
+    (includeReturn && isCotacaoDateRange(isISODate(returnFrom) ? returnFrom : "", returnTo));
 
   for (const o of origins) {
     for (const d of destinations) {
       if (o === d) continue;
       for (const date of outboundDates) {
-        for (const cia of cashAirlineSearches(o, d, date, adults)) {
-          const key = `IDA|${cia.airline}|${o}|${d}|${date}`;
+        const cias = rangeJob ? decolarScoutSearches(o, d, date, adults) : cashAirlineSearches(o, d, date, adults);
+        for (const cia of cias) {
+          const oo = cia.originIata || o;
+          const dd = cia.destIata || d;
+          const key = `IDA|${cia.airline}|${oo}|${dd}|${date}`;
           if (seen.has(key)) continue;
           seen.add(key);
           searches.push({
             direction: "IDA",
-            originIata: o,
-            destIata: d,
+            originIata: oo,
+            destIata: dd,
             date,
             url: cia.url,
             airline: cia.airline,
@@ -104,14 +112,17 @@ export async function POST(req: Request) {
         }
       }
       for (const date of returnDates) {
-        for (const cia of cashAirlineSearches(d, o, date, adults)) {
-          const key = `VOLTA|${cia.airline}|${d}|${o}|${date}`;
+        const cias = rangeJob ? decolarScoutSearches(d, o, date, adults) : cashAirlineSearches(d, o, date, adults);
+        for (const cia of cias) {
+          const oo = cia.originIata || d;
+          const dd = cia.destIata || o;
+          const key = `VOLTA|${cia.airline}|${oo}|${dd}|${date}`;
           if (seen.has(key)) continue;
           seen.add(key);
           searches.push({
             direction: "VOLTA",
-            originIata: d,
-            destIata: o,
+            originIata: oo,
+            destIata: dd,
             date,
             url: cia.url,
             airline: cia.airline,

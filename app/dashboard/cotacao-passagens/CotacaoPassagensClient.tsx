@@ -8,8 +8,12 @@ import {
   buildAzulSearchUrl,
   buildLatamSearchUrl,
   buildSmilesSearchUrl,
+  ciaKeyFromMilesAirline,
   fmtDurationMin,
   fmtFlightSchedule,
+  isCashAirline,
+  isMilesAirline,
+  isScoutAirline,
   saleTotalCents,
   suggestedMilheiroCents,
 } from "@/lib/cotacao-passagens";
@@ -23,6 +27,7 @@ type SearchRow = {
   url: string;
   status: string;
   priceCents: number;
+  miles?: number;
   airline: string;
   error: string | null;
   depTime?: string | null;
@@ -224,13 +229,34 @@ export default function CotacaoPassagensClient() {
     setHydratedJobId(job.id);
   }, [job?.id, hydratedJobId, job?.quoteCia]);
 
+  useEffect(() => {
+    if (!job?.searches?.length) return;
+    setCiaQuotes((prev) => {
+      let changed = false;
+      const next = { ...prev };
+      for (const s of job.searches) {
+        if (s.status !== "OK" || !s.miles) continue;
+        const key = ciaKeyFromMilesAirline(s.airline);
+        if (!key) continue;
+        if (toMiles(next[key].miles) === s.miles) continue;
+        next[key] = { ...next[key], miles: String(s.miles), milheiroManual: false };
+        changed = true;
+      }
+      return changed ? next : prev;
+    });
+  }, [job?.searches]);
+
   const bestIda = useMemo(() => {
-    const ok = (job?.searches || []).filter((s) => s.direction === "IDA" && s.status === "OK" && s.priceCents > 0);
-    return ok.sort((a, b) => a.priceCents - b.priceCents)[0] || null;
+    const ok = (job?.searches || []).filter((s) => s.direction === "IDA" && s.status === "OK" && s.priceCents > 0 && !isMilesAirline(s.airline));
+    const cash = ok.filter((s) => isCashAirline(s.airline));
+    const pool = cash.length ? cash : ok.filter((s) => isScoutAirline(s.airline) || isCashAirline(s.airline));
+    return (pool.length ? pool : ok).sort((a, b) => a.priceCents - b.priceCents)[0] || null;
   }, [job]);
   const bestVolta = useMemo(() => {
-    const ok = (job?.searches || []).filter((s) => s.direction === "VOLTA" && s.status === "OK" && s.priceCents > 0);
-    return ok.sort((a, b) => a.priceCents - b.priceCents)[0] || null;
+    const ok = (job?.searches || []).filter((s) => s.direction === "VOLTA" && s.status === "OK" && s.priceCents > 0 && !isMilesAirline(s.airline));
+    const cash = ok.filter((s) => isCashAirline(s.airline));
+    const pool = cash.length ? cash : ok.filter((s) => isScoutAirline(s.airline) || isCashAirline(s.airline));
+    return (pool.length ? pool : ok).sort((a, b) => a.priceCents - b.priceCents)[0] || null;
   }, [job]);
 
   const comboCents = job?.includeReturn ? (bestIda?.priceCents || 0) + (bestVolta?.priceCents || 0) : 0;
@@ -388,8 +414,9 @@ export default function CotacaoPassagensClient() {
               Cotação de passagens
             </h1>
             <p className="mt-1 max-w-2xl text-sm text-slate-500">
-              Compare a menor tarifa à vista (GOL, LATAM e Azul) com a emissão em milhas. A extensão pesquisa sozinha;
-              você só anota o que cada programa pediu.
+              Compare a menor tarifa à vista com a emissão em milhas nas 3 cias. Data exata pesquisa GOL, LATAM e Azul
+              em dinheiro e depois as milhas. Intervalo: o Decolar acha a data mais barata, confirma na cia e só nessa
+              data puxa LATAM, Smiles e Azul em milhas.
             </p>
           </div>
           <div className="flex flex-col items-stretch gap-2 sm:items-end">
@@ -413,9 +440,9 @@ export default function CotacaoPassagensClient() {
         </div>
         <ol className="mt-5 grid gap-2 sm:grid-cols-3">
           {[
-            { n: "1", t: "Pesquise à vista", d: "GOL, LATAM e Azul no mesmo trecho" },
-            { n: "2", t: "Cote nas cias", d: "Abra LATAM, Smiles e Azul" },
-            { n: "3", t: "Veja quem ganha", d: "Total, milheiro e desconto" },
+            { n: "1", t: "À vista", d: "Data exata nas cias · intervalo no Decolar" },
+            { n: "2", t: "Milhas nas 3", d: "LATAM, Smiles e Azul na data escolhida" },
+            { n: "3", t: "Compare", d: "Milhas vs cia mais barata em dinheiro" },
           ].map((s) => (
             <li
               key={s.n}
@@ -448,7 +475,7 @@ export default function CotacaoPassagensClient() {
                 value={destinations}
                 onChange={(e) => setDestinations(e.target.value)}
                 className={INPUT}
-                placeholder="SSA, REC, FOR"
+                placeholder="SSA, REC, SAO"
               />
             </div>
             <div className="md:col-span-2 space-y-3">
@@ -575,13 +602,13 @@ export default function CotacaoPassagensClient() {
           ) : null}
           {job?.status === "RUNNING" ? (
             <div className="mt-3 rounded-xl border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-950">
-              Pesquisando {progress.done}/{progress.total}. Deve abrir uma janela da GOL, LATAM ou Azul atrás desta —
-              se não abrir, recarregue a aba e inicie de novo.
+              Pesquisando {progress.done}/{progress.total}. Abre uma janela atrás desta (cias, Decolar ou milhas) — se
+              não abrir, recarregue a aba e inicie de novo.
             </div>
           ) : null}
           <p className="mt-3 text-xs leading-relaxed text-slate-500">
-            A extensão pesquisa GOL, LATAM e Azul, uma busca por vez. Na LATAM ela ordena pelo mais barato; na Azul
-            clica em “Ver mais voos” até listar tudo. Deixe o Chrome aberto.
+            Data exata: dinheiro nas 3 cias e, na mesma data, milhas nas 3. Intervalo: Decolar em cada dia, confirma a
+            cia mais barata e puxa milhas só nessa data. O veredito compara as milhas com a cia mais barata à vista.
             {job ? ` ${progress.done}/${progress.total} concluídas.` : ""}
           </p>
         </div>
@@ -630,9 +657,10 @@ export default function CotacaoPassagensClient() {
 
       <div className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm">
         <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Passo 3</div>
-        <div className="text-sm font-semibold">Anote o que cada cia pediu e compare</div>
+        <div className="text-sm font-semibold">Milhas das 3 cias vs o dinheiro mais barato</div>
         <p className="mt-1 max-w-3xl text-sm text-slate-500">
-          O milheiro sugerido fica ~5% abaixo da tarifa à vista, mas nunca abaixo do{" "}
+          A extensão preenche as milhas da data escolhida. O milheiro sugerido fica ~5% abaixo da tarifa à vista mais
+          barata, mas nunca abaixo do{" "}
           <Link href="/dashboard/configuracoes" className="font-semibold text-slate-800 underline">
             mínimo cadastrado em Configurações
           </Link>
@@ -829,7 +857,7 @@ export default function CotacaoPassagensClient() {
                 <th className="p-3">Data</th>
                 <th className="p-3">Cia</th>
                 <th className="p-3">Horário</th>
-                <th className="p-3">Preço</th>
+                <th className="p-3">Preço / milhas</th>
                 <th className="p-3">Status</th>
               </tr>
             </thead>
@@ -842,7 +870,13 @@ export default function CotacaoPassagensClient() {
                   <td className="p-3">{s.date.split("-").reverse().join("/")}</td>
                   <td className="p-3">{s.airline || "—"}</td>
                   <td className="p-3 text-xs text-slate-600">{fmtFlightSchedule(s) || "—"}</td>
-                  <td className="p-3 tabular-nums">{s.priceCents ? fmtMoney(s.priceCents) : "—"}</td>
+                  <td className="p-3 tabular-nums">
+                    {s.miles
+                      ? `${fmtMiles(s.miles)} milhas`
+                      : s.priceCents
+                        ? fmtMoney(s.priceCents)
+                        : "—"}
+                  </td>
                   <td className="p-3 text-xs">{s.status === "ERRO" && s.error ? s.error : s.status}</td>
                 </tr>
               ))}

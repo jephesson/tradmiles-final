@@ -1,4 +1,4 @@
-const runKey = `tmgol:${location.href}`;
+const runKey = `tmsmiles:${location.href}`;
 if (!sessionStorage.getItem(runKey)) {
   waitAndRun(runKey, run);
 }
@@ -23,16 +23,12 @@ function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
-function moneyToCents(s) {
-  const m = String(s || "").match(/R\$\s*[\d.]+,\d{2}|R\$\s*\d+\.\d{2}|R\$\s*[\d.,]+/);
+function parseMiles(s) {
+  const t = String(s || "").replace(/\s+/g, " ");
+  const m = t.match(/(\d{1,3}(?:\.\d{3})+|\d{3,7})\s*(milhas|smiles)/i);
   if (!m) return 0;
-  let v = m[0].replace("R$", "").trim();
-  if (v.includes(",")) v = v.replace(/\./g, "").replace(",", ".");
-  else if (/^\d+\.\d{2}$/.test(v)) {
-    /* 712.80 */
-  } else v = v.replace(/\./g, "");
-  const n = Number(v);
-  return Number.isFinite(n) && n > 0 ? Math.round(n * 100) : 0;
+  const n = Number(m[1].replace(/\./g, ""));
+  return Number.isFinite(n) && n >= 500 ? n : 0;
 }
 
 function parseClock(v) {
@@ -53,10 +49,10 @@ function clockToMin(hhmm) {
 
 function parseDurationMin(text) {
   const t = String(text || "");
+  const hm = t.match(/(\d+)\s*h(?:oras?)?\s*(?:e\s*)?(\d+)\s*m(?:in)?/i);
+  if (hm) return Number(hm[1]) * 60 + Number(hm[2]);
   const compact = t.match(/(\d+)\s*h\s*(\d{2})\b/i);
   if (compact) return Number(compact[1]) * 60 + Number(compact[2]);
-  const hm = t.match(/(\d+)\s*h(?:oras?)?\s*(?:e\s*)?(\d+)\s*min/i);
-  if (hm) return Number(hm[1]) * 60 + Number(hm[2]);
   const hOnly = t.match(/(\d+)\s*h(?:oras?)?(?!\s*\d)/i);
   const mOnly = t.match(/(\d+)\s*min/i);
   if (hOnly && mOnly) return Number(hOnly[1]) * 60 + Number(mOnly[1]);
@@ -68,9 +64,9 @@ function parseDurationMin(text) {
 function parseStops(text) {
   const t = String(text || "");
   if (/direto|sem\s+parada|sem\s+escala|non[-\s]?stop/i.test(t)) return 0;
-  const n = t.match(/(\d+)\s*paradas?/i) || t.match(/(\d+)\s*escalas?/i);
+  const n = t.match(/(\d+)\s*(paradas?|escalas?|conex[oõ]es?)/i);
   if (n) return Number(n[1]);
-  if (/parada|escala/i.test(t)) return 1;
+  if (/parada|escala|conex/i.test(t)) return 1;
   return null;
 }
 
@@ -102,22 +98,22 @@ function matchesFilter(card, f) {
   return true;
 }
 
-function priceNodes() {
+function mileNodes() {
   return [...document.querySelectorAll("div, span, p, button, strong, li")].filter((el) => {
     const t = (el.textContent || "").replace(/\s+/g, " ").trim();
-    if (t.length > 90) return false;
-    return /a\s+partir\s+de\s+R\$/i.test(t) && moneyToCents(t) > 0;
+    if (t.length > 80) return false;
+    return parseMiles(t) > 0;
   });
 }
 
 function flightCards() {
   const cards = [];
-  for (const p of priceNodes()) {
+  for (const p of mileNodes()) {
     let el = p;
     for (let i = 0; i < 14 && el; i++) {
       const t = el.innerText || "";
       const times = [...t.matchAll(/\b(\d{1,2}:\d{2})\b/g)].map((m) => parseClock(m[1])).filter(Boolean);
-      if (times.length >= 2 && t.length < 2200) {
+      if (times.length >= 2 && t.length < 2500) {
         cards.push(el);
         break;
       }
@@ -130,19 +126,15 @@ function flightCards() {
 
 function parseCard(el) {
   const text = el.innerText || "";
-  const cents = moneyToCents(text);
-  const times = [...text.matchAll(/\b(\d{1,2}:\d{2})\b/g)]
-    .map((m) => parseClock(m[1]))
-    .filter(Boolean);
-  const rawMatch = text.match(/a\s+partir\s+de\s+R\$\s*[\d.,]+/i);
+  const times = [...text.matchAll(/\b(\d{1,2}:\d{2})\b/g)].map((m) => parseClock(m[1])).filter(Boolean);
+  const rawMatch = text.match(/(\d{1,3}(?:\.\d{3})+|\d{3,7})\s*(milhas|smiles)/i);
   return {
-    cents,
+    miles: parseMiles(text),
     raw: rawMatch ? rawMatch[0] : text.slice(0, 180),
     depTime: times[0] || "",
     arrTime: times[1] || "",
     durationMin: parseDurationMin(text),
     stops: parseStops(text),
-    airline: "GOL",
   };
 }
 
@@ -150,39 +142,30 @@ function pickBestCard(filters) {
   let best = null;
   for (const el of flightCards()) {
     const card = parseCard(el);
-    if (!card.cents) continue;
+    if (!card.miles) continue;
     if (!matchesFilter(card, filters)) continue;
-    if (!best || card.cents < best.cents) best = card;
+    if (!best || card.miles < best.miles) best = card;
   }
   return best;
 }
 
 function dismissCookies() {
   document.querySelector("#onetrust-accept-btn-handler")?.click();
-  document.querySelector("#ensAcceptAll")?.click();
   for (const el of document.querySelectorAll("button, a")) {
     const t = (el.textContent || "").trim();
-    if (/^(aceitar(\s+(todos|cookies))?|concordar|ok,\s*entendi)$/i.test(t)) el.click();
+    if (/^(aceitar(\s+(todos|cookies))?|concordar)$/i.test(t)) el.click();
   }
 }
 
-function isGolSearch() {
-  const host = location.hostname || "";
-  if (!/voegol\.com\.br$/i.test(host)) return false;
-  const path = location.pathname || "";
-  return /busca-parceiros|selecao-de-voo|compra\//i.test(path) || /[?&]de=/.test(location.search || "");
+function isSmilesSearch() {
+  return /smiles\.com\.br/i.test(location.hostname || "") && /emissao-passagem|resultado/i.test(location.href || "");
 }
 
 function pageKind() {
-  const t = (document.body?.innerText || "").slice(0, 10000);
-  if (/acesso\s+negado|are\s+you\s+human|captcha|verifique\s+que\s+voc[eê]\s+n[aã]o\s+[eé]\s+um\s+rob[oô]/i.test(t)) {
-    return "BLOCKED";
-  }
-  if (/nenhum\s+voo\s+dispon|n[aã]o\s+encontramos\s+voo|sem\s+voo\s+dispon/i.test(t)) {
-    return "NO_RESULTS";
-  }
-  if (/a\s+partir\s+de\s+R\$/i.test(t) && /\d{1,2}:\d{2}/.test(t)) return "RESULTS";
-  if (/selecione\s+seu\s+voo/i.test(t) && /\d{1,2}:\d{2}/.test(t) && /R\$/.test(t)) return "RESULTS";
+  const t = (document.body?.innerText || "").slice(0, 9000);
+  if (/acesso\s+negado|are\s+you\s+human|captcha/i.test(t)) return "BLOCKED";
+  if (/n[aã]o\s+encontramos|nenhum\s+voo|sem\s+voo\s+dispon/i.test(t)) return "NO_RESULTS";
+  if (/milhas/i.test(t) && /\d{1,2}:\d{2}/.test(t)) return "RESULTS";
   return "WAIT";
 }
 
@@ -209,53 +192,51 @@ async function loadFilters() {
 
 async function scrape(filters) {
   dismissCookies();
-
   const t0 = Date.now();
   let sawResults = false;
-  while (Date.now() - t0 < 22000) {
+  while (Date.now() - t0 < 45000) {
     const kind = pageKind();
-    if (kind === "BLOCKED") return { cents: 0, error: "A GOL bloqueou a página (captcha ou acesso)." };
-    if (kind === "NO_RESULTS" && Date.now() - t0 > 8000) {
-      return { cents: 0, error: "GOL sem voos neste trecho/data." };
+    if (kind === "BLOCKED") return { miles: 0, error: "A Smiles bloqueou a página (captcha ou acesso)." };
+    if (kind === "NO_RESULTS" && Date.now() - t0 > 12000) {
+      return { miles: 0, error: "Smiles sem voos neste trecho/data." };
     }
     if (kind === "RESULTS") {
       sawResults = true;
       const best = pickBestCard(filters);
-      if (best?.cents > 0) return best;
+      if (best?.miles > 0) return best;
     }
-    await sleep(300);
+    await sleep(400);
   }
   const last = pickBestCard(filters);
-  if (last?.cents > 0) return last;
+  if (last?.miles > 0) return last;
   return {
-    cents: 0,
+    miles: 0,
     error: sawResults
       ? hasActiveFilters(filters)
         ? "Nenhum voo bate com os filtros (horário, duração ou direto)."
-        : "Resultados carregaram, mas não achei o preço na GOL."
-      : "Não achei o preço na GOL.",
+        : "Resultados carregaram, mas não achei as milhas na Smiles."
+      : "Não achei as milhas na Smiles.",
   };
 }
 
 async function run() {
   const t0 = Date.now();
-  while (!isGolSearch() && Date.now() - t0 < 8000) await sleep(250);
-  if (!isGolSearch()) {
-    sendResult({ ok: false, error: "Não abriu a busca da GOL." });
+  while (!isSmilesSearch() && Date.now() - t0 < 10000) await sleep(300);
+  if (!isSmilesSearch()) {
+    sendResult({ ok: false, airline: "Smiles", error: "Não abriu a busca da Smiles." });
     return;
   }
-
   const filters = await loadFilters();
   const price = await scrape(filters);
   sendResult({
-    ok: price.cents > 0,
-    priceCents: price.cents || 0,
-    airline: "GOL",
+    ok: price.miles > 0,
+    miles: price.miles || 0,
+    airline: "Smiles",
     rawPrice: price.raw || "",
     depTime: price.depTime || "",
     arrTime: price.arrTime || "",
     durationMin: price.durationMin || 0,
     stops: price.stops,
-    error: price.cents > 0 ? "" : price.error || "Não achei o preço na GOL.",
+    error: price.miles > 0 ? "" : price.error || "Não achei as milhas na Smiles.",
   });
 }

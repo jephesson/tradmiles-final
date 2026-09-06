@@ -102,10 +102,23 @@ function matchesFilter(card, f) {
   return true;
 }
 
+function parseMiles(s) {
+  const t = String(s || "").replace(/\s+/g, " ");
+  const m = t.match(/(\d{1,3}(?:\.\d{3})+|\d{3,7})\s*(milhas|pts|pontos)/i);
+  if (!m) return 0;
+  const n = Number(m[1].replace(/\./g, ""));
+  return Number.isFinite(n) && n >= 500 ? n : 0;
+}
+
+function isRedemption() {
+  return /[?&]redemption=true/i.test(location.search || "");
+}
+
 function priceNodes() {
   return [...document.querySelectorAll("div, span, p, button, strong, li")].filter((el) => {
     const t = (el.textContent || "").replace(/\s+/g, " ").trim();
     if (t.length > 80) return false;
+    if (isRedemption()) return parseMiles(t) > 0;
     return /(?:R\$|BRL)\s*[\d.,]+/i.test(t) && moneyToCents(t) > 0;
   });
 }
@@ -134,9 +147,12 @@ function parseCard(el) {
   const times = [...text.matchAll(/\b(\d{1,2}:\d{2})\b/g)]
     .map((m) => parseClock(m[1]))
     .filter(Boolean);
-  const rawMatch = text.match(/(?:R\$|BRL)\s*[\d.,]+/i);
+  const rawMatch = isRedemption()
+    ? text.match(/(\d{1,3}(?:\.\d{3})+|\d{3,7})\s*(milhas|pts|pontos)/i)
+    : text.match(/(?:R\$|BRL)\s*[\d.,]+/i);
   return {
     cents,
+    miles: parseMiles(text),
     raw: rawMatch ? rawMatch[0] : text.slice(0, 180),
     depTime: times[0] || "",
     arrTime: times[1] || "",
@@ -148,11 +164,18 @@ function parseCard(el) {
 
 function pickBestCard(filters) {
   let best = null;
+  const redemption = isRedemption();
   for (const el of flightCards()) {
     const card = parseCard(el);
-    if (!card.cents) continue;
-    if (!matchesFilter(card, filters)) continue;
-    if (!best || card.cents < best.cents) best = card;
+    if (redemption) {
+      if (!card.miles) continue;
+      if (!matchesFilter(card, filters)) continue;
+      if (!best || card.miles < best.miles) best = card;
+    } else {
+      if (!card.cents) continue;
+      if (!matchesFilter(card, filters)) continue;
+      if (!best || card.cents < best.cents) best = card;
+    }
   }
   return best;
 }
@@ -195,6 +218,7 @@ function pageKind() {
   }
   if (flightCards().length > 0) return "RESULTS";
   if (/escolha\s+um\s+voo|organizar\s+por/i.test(t) && /\d{1,2}:\d{2}/.test(t)) return "RESULTS";
+  if (isRedemption() && /milhas/i.test(t) && /\d{1,2}:\d{2}/.test(t)) return "RESULTS";
   return "WAIT";
 }
 
@@ -236,7 +260,7 @@ async function scrape(filters) {
       sawResults = true;
       await clickMaisBaratos();
       const best = pickBestCard(filters);
-      if (best?.cents > 0) {
+      if (best?.cents > 0 || best?.miles > 0) {
         await sleep(400);
         return pickBestCard(filters) || best;
       }
@@ -244,9 +268,10 @@ async function scrape(filters) {
     await sleep(800);
   }
   const last = pickBestCard(filters);
-  if (last?.cents > 0) return last;
+  if (last?.cents > 0 || last?.miles > 0) return last;
   return {
     cents: 0,
+    miles: 0,
     error: sawResults
       ? hasActiveFilters(filters)
         ? "Nenhum voo bate com os filtros (horário, duração ou direto)."
@@ -264,16 +289,19 @@ async function run() {
   }
 
   const filters = await loadFilters();
+  const redemption = isRedemption();
   const price = await scrape(filters);
+  const ok = redemption ? price.miles > 0 : price.cents > 0;
   sendResult({
-    ok: price.cents > 0,
+    ok,
     priceCents: price.cents || 0,
-    airline: "LATAM",
+    miles: price.miles || 0,
+    airline: redemption ? "LATAM milhas" : "LATAM",
     rawPrice: price.raw || "",
     depTime: price.depTime || "",
     arrTime: price.arrTime || "",
     durationMin: price.durationMin || 0,
     stops: price.stops,
-    error: price.cents > 0 ? "" : price.error || "Não achei o preço na LATAM.",
+    error: ok ? "" : price.error || (redemption ? "Não achei as milhas na LATAM." : "Não achei o preço na LATAM."),
   });
 }

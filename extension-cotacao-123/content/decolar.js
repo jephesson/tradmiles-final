@@ -1,4 +1,4 @@
-const runKey = `tmgol:${location.href}`;
+const runKey = `tmdecolar:${location.href}`;
 if (!sessionStorage.getItem(runKey)) {
   waitAndRun(runKey, run);
 }
@@ -24,12 +24,12 @@ function sleep(ms) {
 }
 
 function moneyToCents(s) {
-  const m = String(s || "").match(/R\$\s*[\d.]+,\d{2}|R\$\s*\d+\.\d{2}|R\$\s*[\d.,]+/);
+  const m = String(s || "").match(/(?:R\$|BRL)\s*[\d.]+,\d{2}|(?:R\$|BRL)\s*\d+\.\d{2}|(?:R\$|BRL)\s*[\d.,]+/i);
   if (!m) return 0;
-  let v = m[0].replace("R$", "").trim();
+  let v = m[0].replace(/R\$|BRL/i, "").trim();
   if (v.includes(",")) v = v.replace(/\./g, "").replace(",", ".");
   else if (/^\d+\.\d{2}$/.test(v)) {
-    /* 712.80 */
+    /* ok */
   } else v = v.replace(/\./g, "");
   const n = Number(v);
   return Number.isFinite(n) && n > 0 ? Math.round(n * 100) : 0;
@@ -53,10 +53,10 @@ function clockToMin(hhmm) {
 
 function parseDurationMin(text) {
   const t = String(text || "");
+  const hm = t.match(/(\d+)\s*h(?:oras?)?\s*(?:e\s*)?(\d+)\s*m(?:in)?/i);
+  if (hm) return Number(hm[1]) * 60 + Number(hm[2]);
   const compact = t.match(/(\d+)\s*h\s*(\d{2})\b/i);
   if (compact) return Number(compact[1]) * 60 + Number(compact[2]);
-  const hm = t.match(/(\d+)\s*h(?:oras?)?\s*(?:e\s*)?(\d+)\s*min/i);
-  if (hm) return Number(hm[1]) * 60 + Number(hm[2]);
   const hOnly = t.match(/(\d+)\s*h(?:oras?)?(?!\s*\d)/i);
   const mOnly = t.match(/(\d+)\s*min/i);
   if (hOnly && mOnly) return Number(hOnly[1]) * 60 + Number(mOnly[1]);
@@ -68,10 +68,18 @@ function parseDurationMin(text) {
 function parseStops(text) {
   const t = String(text || "");
   if (/direto|sem\s+parada|sem\s+escala|non[-\s]?stop/i.test(t)) return 0;
-  const n = t.match(/(\d+)\s*paradas?/i) || t.match(/(\d+)\s*escalas?/i);
+  const n = t.match(/(\d+)\s*(paradas?|escalas?|conex[oõ]es?)/i);
   if (n) return Number(n[1]);
-  if (/parada|escala/i.test(t)) return 1;
+  if (/parada|escala|conex/i.test(t)) return 1;
   return null;
+}
+
+function carrierFromText(text) {
+  const t = String(text || "").toUpperCase();
+  if (/\bGOL\b|\bG3\b|VOEGOL/.test(t)) return "GOL";
+  if (/\bAZUL\b/.test(t)) return "AZUL";
+  if (/\bLATAM\b|\bLA\b|\bJJ\b/.test(t)) return "LATAM";
+  return "";
 }
 
 function hasActiveFilters(f) {
@@ -103,21 +111,30 @@ function matchesFilter(card, f) {
 }
 
 function priceNodes() {
-  return [...document.querySelectorAll("div, span, p, button, strong, li")].filter((el) => {
+  return [...document.querySelectorAll(".amount.price-amount, .price-amount, span, em, p")].filter((el) => {
     const t = (el.textContent || "").replace(/\s+/g, " ").trim();
-    if (t.length > 90) return false;
-    return /a\s+partir\s+de\s+R\$/i.test(t) && moneyToCents(t) > 0;
+    if (t.length > 80) return false;
+    return moneyToCents(t) > 0 || /^\d{2,5}$/.test(t);
   });
+}
+
+function amountToCents(el) {
+  const t = (el.textContent || "").replace(/\s+/g, " ").trim();
+  const via = moneyToCents(t);
+  if (via) return via;
+  if (/^\d{2,5}$/.test(t)) return Number(t) * 100;
+  return 0;
 }
 
 function flightCards() {
   const cards = [];
   for (const p of priceNodes()) {
+    if (!amountToCents(p) && !moneyToCents(p.textContent || "")) continue;
     let el = p;
-    for (let i = 0; i < 14 && el; i++) {
+    for (let i = 0; i < 16 && el; i++) {
       const t = el.innerText || "";
       const times = [...t.matchAll(/\b(\d{1,2}:\d{2})\b/g)].map((m) => parseClock(m[1])).filter(Boolean);
-      if (times.length >= 2 && t.length < 2200) {
+      if (times.length >= 2 && t.length < 2800) {
         cards.push(el);
         break;
       }
@@ -130,11 +147,10 @@ function flightCards() {
 
 function parseCard(el) {
   const text = el.innerText || "";
-  const cents = moneyToCents(text);
-  const times = [...text.matchAll(/\b(\d{1,2}:\d{2})\b/g)]
-    .map((m) => parseClock(m[1]))
-    .filter(Boolean);
-  const rawMatch = text.match(/a\s+partir\s+de\s+R\$\s*[\d.,]+/i);
+  const amount = el.querySelector?.(".amount.price-amount, .price-amount");
+  const cents = (amount && amountToCents(amount)) || moneyToCents(text);
+  const times = [...text.matchAll(/\b(\d{1,2}:\d{2})\b/g)].map((m) => parseClock(m[1])).filter(Boolean);
+  const rawMatch = text.match(/(?:R\$|BRL)\s*[\d.,]+/i);
   return {
     cents,
     raw: rawMatch ? rawMatch[0] : text.slice(0, 180),
@@ -142,7 +158,7 @@ function parseCard(el) {
     arrTime: times[1] || "",
     durationMin: parseDurationMin(text),
     stops: parseStops(text),
-    airline: "GOL",
+    carrier: carrierFromText(text),
   };
 }
 
@@ -159,30 +175,23 @@ function pickBestCard(filters) {
 
 function dismissCookies() {
   document.querySelector("#onetrust-accept-btn-handler")?.click();
-  document.querySelector("#ensAcceptAll")?.click();
   for (const el of document.querySelectorAll("button, a")) {
     const t = (el.textContent || "").trim();
-    if (/^(aceitar(\s+(todos|cookies))?|concordar|ok,\s*entendi)$/i.test(t)) el.click();
+    if (/^(aceitar(\s+(todos|cookies))?|concordar|aceptar)$/i.test(t)) el.click();
   }
 }
 
-function isGolSearch() {
-  const host = location.hostname || "";
-  if (!/voegol\.com\.br$/i.test(host)) return false;
-  const path = location.pathname || "";
-  return /busca-parceiros|selecao-de-voo|compra\//i.test(path) || /[?&]de=/.test(location.search || "");
+function isDecolarSearch() {
+  return /decolar\.com/i.test(location.hostname || "") && /\/flights\/results/i.test(location.pathname || "");
 }
 
 function pageKind() {
-  const t = (document.body?.innerText || "").slice(0, 10000);
-  if (/acesso\s+negado|are\s+you\s+human|captcha|verifique\s+que\s+voc[eê]\s+n[aã]o\s+[eé]\s+um\s+rob[oô]/i.test(t)) {
-    return "BLOCKED";
-  }
-  if (/nenhum\s+voo\s+dispon|n[aã]o\s+encontramos\s+voo|sem\s+voo\s+dispon/i.test(t)) {
+  const t = (document.body?.innerText || "").slice(0, 9000);
+  if (/acesso\s+negado|are\s+you\s+human|captcha/i.test(t)) return "BLOCKED";
+  if (/n[aã]o\s+h[aá]\s+voo|sem\s+resultados|no\s+encontramos\s+vuelos|nenhum\s+voo\s+dispon/i.test(t)) {
     return "NO_RESULTS";
   }
-  if (/a\s+partir\s+de\s+R\$/i.test(t) && /\d{1,2}:\d{2}/.test(t)) return "RESULTS";
-  if (/selecione\s+seu\s+voo/i.test(t) && /\d{1,2}:\d{2}/.test(t) && /R\$/.test(t)) return "RESULTS";
+  if (/\d{1,2}:\d{2}/.test(t) && /(R\$|BRL|pre[cç]o por adulto)/i.test(t)) return "RESULTS";
   return "WAIT";
 }
 
@@ -209,21 +218,20 @@ async function loadFilters() {
 
 async function scrape(filters) {
   dismissCookies();
-
   const t0 = Date.now();
   let sawResults = false;
-  while (Date.now() - t0 < 22000) {
+  while (Date.now() - t0 < 40000) {
     const kind = pageKind();
-    if (kind === "BLOCKED") return { cents: 0, error: "A GOL bloqueou a página (captcha ou acesso)." };
-    if (kind === "NO_RESULTS" && Date.now() - t0 > 8000) {
-      return { cents: 0, error: "GOL sem voos neste trecho/data." };
+    if (kind === "BLOCKED") return { cents: 0, error: "O Decolar bloqueou a página (captcha ou acesso)." };
+    if (kind === "NO_RESULTS" && Date.now() - t0 > 12000) {
+      return { cents: 0, error: "Decolar sem voos neste trecho/data." };
     }
     if (kind === "RESULTS") {
       sawResults = true;
       const best = pickBestCard(filters);
       if (best?.cents > 0) return best;
     }
-    await sleep(300);
+    await sleep(400);
   }
   const last = pickBestCard(filters);
   if (last?.cents > 0) return last;
@@ -232,30 +240,30 @@ async function scrape(filters) {
     error: sawResults
       ? hasActiveFilters(filters)
         ? "Nenhum voo bate com os filtros (horário, duração ou direto)."
-        : "Resultados carregaram, mas não achei o preço na GOL."
-      : "Não achei o preço na GOL.",
+        : "Resultados carregaram, mas não achei o preço no Decolar."
+      : "Não achei o preço no Decolar.",
   };
 }
 
 async function run() {
   const t0 = Date.now();
-  while (!isGolSearch() && Date.now() - t0 < 8000) await sleep(250);
-  if (!isGolSearch()) {
-    sendResult({ ok: false, error: "Não abriu a busca da GOL." });
+  while (!isDecolarSearch() && Date.now() - t0 < 10000) await sleep(300);
+  if (!isDecolarSearch()) {
+    sendResult({ ok: false, airline: "Decolar", error: "Não abriu a busca do Decolar." });
     return;
   }
-
   const filters = await loadFilters();
   const price = await scrape(filters);
   sendResult({
     ok: price.cents > 0,
     priceCents: price.cents || 0,
-    airline: "GOL",
+    airline: "Decolar",
+    carrier: price.carrier || "",
     rawPrice: price.raw || "",
     depTime: price.depTime || "",
     arrTime: price.arrTime || "",
     durationMin: price.durationMin || 0,
     stops: price.stops,
-    error: price.cents > 0 ? "" : price.error || "Não achei o preço na GOL.",
+    error: price.cents > 0 ? "" : price.error || "Não achei o preço no Decolar.",
   });
 }
