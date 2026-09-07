@@ -28,54 +28,91 @@ function stopsLabel(stops: number | null) {
   return "";
 }
 
-function LegBlock({
-  label,
-  leg,
-  empty,
-  onDark,
-}: {
-  label?: string;
-  leg: ShareLeg | null;
-  empty?: string;
-  onDark?: boolean;
-}) {
+function cityName(iata?: string | null) {
+  const code = String(iata || "")
+    .trim()
+    .toUpperCase()
+    .slice(0, 3);
+  const names: Record<string, string> = {
+    GRU: "São Paulo",
+    CGH: "São Paulo",
+    VCP: "Campinas",
+    GIG: "Rio de Janeiro",
+    SDU: "Rio de Janeiro",
+    CWB: "Curitiba",
+    POA: "Porto Alegre",
+    CNF: "Belo Horizonte",
+    PLU: "Belo Horizonte",
+    BSB: "Brasília",
+    SSA: "Salvador",
+    REC: "Recife",
+    FOR: "Fortaleza",
+    MAO: "Manaus",
+    BEL: "Belém",
+    NAT: "Natal",
+    MCZ: "Maceió",
+    AJU: "Aracaju",
+    SLZ: "São Luís",
+    THE: "Teresina",
+    JPA: "João Pessoa",
+    CGB: "Cuiabá",
+    CGR: "Campo Grande",
+    GYN: "Goiânia",
+    FLN: "Florianópolis",
+    NVT: "Navegantes",
+    IGU: "Foz do Iguaçu",
+    VIX: "Vitória",
+    BPS: "Porto Seguro",
+    FEN: "Fernando de Noronha",
+    PMW: "Palmas",
+    PVH: "Porto Velho",
+    RBR: "Rio Branco",
+    MCP: "Macapá",
+    BVB: "Boa Vista",
+  };
+  return names[code] || code;
+}
+
+function routeTitle(ida: ShareLeg | null, milesIda: ShareLeg | null) {
+  const origin = ida?.origin || milesIda?.origin || "";
+  const dest = ida?.dest || milesIda?.dest || "";
+  if (!origin || !dest) return "Trecho";
+  const a = cityName(origin);
+  const b = cityName(dest);
+  if (a.length > 3 && b.length > 3) return `${a.toUpperCase()} → ${b.toUpperCase()}`;
+  return `${origin} → ${dest}`;
+}
+
+function FlightRow({ label, leg, empty }: { label: string; leg: ShareLeg | null; empty: string }) {
   if (!leg) {
     return (
-      <p className={cn("text-[13px]", onDark ? "text-white/70" : "text-slate-500")}>{empty || "—"}</p>
+      <div>
+        <div className="text-[10px] font-bold uppercase tracking-wide text-slate-400">{label}</div>
+        <p className="mt-1 text-[13px] text-slate-500">{empty}</p>
+      </div>
     );
   }
-  const times = leg.depTime && leg.arrTime ? `${leg.depTime} → ${leg.arrTime}` : "";
-  const dur = fmtDurationMin(leg.durationMin);
-  const stops = stopsLabel(leg.stops);
+  const times = leg.depTime && leg.arrTime ? `${leg.depTime}  →  ${leg.arrTime}` : "";
+  const meta = [fmtDurationMin(leg.durationMin), stopsLabel(leg.stops)].filter(Boolean).join(" · ");
   return (
     <div>
-      {label ? (
-        <div
-          className={cn(
-            "text-[10px] font-semibold uppercase tracking-wide",
-            onDark ? "text-white/60" : "text-slate-400"
-          )}
-        >
-          {label}
-        </div>
-      ) : null}
-      <div className={cn("text-[15px] font-semibold", onDark ? "text-white" : "text-slate-900")}>
-        {leg.origin} → {leg.dest}
+      <div className="flex items-center justify-between gap-2">
+        <div className="text-[10px] font-bold uppercase tracking-wide text-[#9f1239]">{label}</div>
+        {leg.dateBr ? <div className="text-[11px] font-medium text-slate-500">{leg.dateBr}</div> : null}
       </div>
-      <div className={cn("text-[12px]", onDark ? "text-white/75" : "text-slate-500")}>
-        {leg.dateBr}
-        {leg.airline ? ` · ${leg.airline}` : ""}
+      <div className="mt-1 flex items-end justify-between gap-2">
+        <div>
+          <div className="text-[18px] font-bold tracking-tight text-slate-900">
+            {leg.origin}
+            <span className="mx-1.5 text-[13px] font-semibold text-slate-400">→</span>
+            {leg.dest}
+          </div>
+          {times ? <div className="mt-0.5 text-[15px] font-semibold tabular-nums text-slate-800">{times}</div> : null}
+          <div className="mt-0.5 text-[12px] text-slate-500">
+            {[leg.airline, meta].filter(Boolean).join(" · ")}
+          </div>
+        </div>
       </div>
-      {times ? (
-        <div className={cn("mt-0.5 text-[14px] font-medium", onDark ? "text-white" : "text-slate-800")}>
-          {times}
-        </div>
-      ) : null}
-      {dur || stops ? (
-        <div className={cn("text-[12px]", onDark ? "text-white/75" : "text-slate-600")}>
-          {[dur, stops].filter(Boolean).join(" · ")}
-        </div>
-      ) : null}
     </div>
   );
 }
@@ -103,7 +140,7 @@ function savingsCopy(cash: number, miles: number) {
     return {
       tone: "save" as const,
       reais: `Economia de ${fmtMoney(delta)}`,
-      pct: `${pct}% abaixo do Google Flights`,
+      pct: `${pct.toLocaleString("pt-BR")}% mais barato que no Google Flights`,
     };
   }
   if (delta < 0) {
@@ -172,106 +209,108 @@ export function CotacaoShareCard({
   const milesLegs = [model.milesIda, model.milesVolta];
   const time = timeCopy(sumDur(cashLegs), sumDur(milesLegs));
   const stops = stopsCopy(sumStops(cashLegs), sumStops(milesLegs));
-  const route = model.cashIda
-    ? `${model.cashIda.origin} → ${model.cashIda.dest}`
-    : model.milesIda
-      ? `${model.milesIda.origin} → ${model.milesIda.dest}`
-      : "Trecho";
-  const date = model.cashIda?.dateBr || model.milesIda?.dateBr || "";
+  const ida = model.milesIda || model.cashIda;
+  const volta = model.milesVolta || model.cashVolta;
   const hasVolta = Boolean(model.cashVolta || model.milesVolta);
+  const title = routeTitle(model.cashIda, model.milesIda);
+  const date = ida?.dateBr || "";
+  const direct = milesLegs.every((l) => !l || l.stops === 0) && milesLegs.some((l) => l);
 
   return (
     <div
       id={id}
       className={cn(
-        "overflow-hidden rounded-[28px] bg-white text-slate-900",
+        "overflow-hidden rounded-[28px] text-slate-900",
         fluid ? "w-full max-w-[720px]" : "w-[720px]"
       )}
-      style={{ fontFamily: "ui-sans-serif, system-ui, sans-serif" }}
+      style={{ fontFamily: "ui-sans-serif, system-ui, sans-serif", background: "#0f2744" }}
     >
-      <div className="bg-white px-6 py-3">
-        <div className="flex items-center justify-between gap-4">
-          <img
-            src="/vias-aereas-logo.png"
-            alt="Vias Aéreas"
-            width={220}
-            height={90}
-            className="h-[56px] w-auto object-contain object-left"
-            crossOrigin="anonymous"
-          />
-          <div className="text-right">
-            <div className="text-[20px] font-bold tracking-tight text-slate-900">{route}</div>
-            <div className="text-[12px] text-slate-500">
-              {date}
-              {date ? " · " : ""}
-              {model.tripKind}
+      <div className="px-7 pb-5 pt-4">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <div className="inline-flex rounded-xl bg-white px-2 py-1.5">
+              <img
+                src="/vias-aereas-logo.png"
+                alt="Vias Aéreas"
+                width={220}
+                height={90}
+                className="h-[44px] w-auto object-contain object-left"
+                crossOrigin="anonymous"
+              />
             </div>
+            <div className="mt-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-white/70">
+              Sua viagem mais longe
+            </div>
+          </div>
+          <div className="rounded-full bg-[#9f1239] px-3 py-1.5 text-right">
+            <div className="text-[10px] font-bold uppercase tracking-wide text-white">Passagens com milhas</div>
+            <div className="text-[9px] font-medium text-white/85">Mais destinos. Mais economia.</div>
+          </div>
+        </div>
+        <div className="mt-6">
+          <div className="text-[26px] font-bold leading-tight tracking-tight text-white">{title}</div>
+          <div className="mt-1 text-[13px] font-medium text-white/80">
+            {model.tripKind}
+            {date ? ` · ${date}` : ""}
+            {hasVolta && volta?.dateBr ? ` → ${volta.dateBr}` : ""}
           </div>
         </div>
       </div>
-      <div className="h-1.5 bg-[#9f1239]" />
 
-      <div className="grid grid-cols-5">
-        <div className="col-span-2 flex min-h-[300px] flex-col bg-slate-100 px-5 py-5">
-          <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
-            Em outros sites
+      <div className="grid grid-cols-5 gap-3 bg-[#e8eef4] px-4 py-4">
+        <div className="col-span-3 rounded-2xl bg-white px-5 py-4 shadow-sm">
+          <div className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Seu voo</div>
+          <div className="mt-3 space-y-4">
+            <FlightRow label="Ida" leg={ida} empty="Selecione a ida" />
+            {hasVolta ? (
+              <>
+                <div className="h-px bg-slate-100" />
+                <FlightRow label="Volta" leg={volta} empty="Selecione a volta" />
+              </>
+            ) : null}
           </div>
-          <div className="mt-0.5 text-[13px] font-semibold text-slate-500">Google Flights</div>
-          <div className="mt-3 flex-1 space-y-3">
-            <LegBlock label={hasVolta ? "Ida" : undefined} leg={model.cashIda} empty="Sem tarifa à vista" />
-            {hasVolta ? <LegBlock label="Volta" leg={model.cashVolta} empty="Sem volta à vista" /> : null}
-          </div>
-          <div className="mt-4 border-t border-slate-200 pt-3">
-            <div className="text-[22px] font-semibold tabular-nums text-slate-500">
-              {fmtMoney(model.cashTotalCents)}
-            </div>
-            <div className="text-[11px] text-slate-400">preço em dinheiro</div>
+          <div className="mt-4 flex flex-wrap gap-2 text-[11px] font-medium text-slate-600">
+            {direct ? <span className="rounded-full bg-slate-100 px-2.5 py-1">Voo direto</span> : null}
+            {time ? <span className="rounded-full bg-slate-100 px-2.5 py-1">{time}</span> : null}
+            {stops && !direct ? <span className="rounded-full bg-slate-100 px-2.5 py-1">{stops}</span> : null}
+            <span className="rounded-full bg-slate-100 px-2.5 py-1">{model.ciaLabel}</span>
           </div>
         </div>
 
         <div
           className={cn(
-            "col-span-3 flex min-h-[300px] flex-col px-6 py-5",
-            save?.tone === "more" ? "bg-slate-900 text-white" : "bg-emerald-600 text-white"
+            "col-span-2 flex flex-col rounded-2xl px-4 py-4 text-white shadow-sm",
+            save?.tone === "more" ? "bg-slate-900" : "bg-emerald-600"
           )}
         >
-          <div className="text-[10px] font-semibold uppercase tracking-wide text-white/70">Com a gente</div>
-          <div className="mt-0.5 text-[15px] font-bold">{model.ciaLabel}</div>
-          <div className="mt-3 flex-1 space-y-3">
-            <LegBlock
-              onDark
-              label={hasVolta ? "Ida" : undefined}
-              leg={model.milesIda}
-              empty="Selecione o voo na cia"
-            />
-            {hasVolta ? (
-              <LegBlock onDark label="Volta" leg={model.milesVolta} empty="Selecione a volta na cia" />
-            ) : null}
+          <div className="text-[10px] font-bold uppercase tracking-wide text-white/75">
+            Valor com a Vias Aéreas
           </div>
-          <div className="mt-4 border-t border-white/20 pt-3">
-            <div className="text-[40px] font-bold leading-none tracking-tight tabular-nums">
-              {fmtMoney(model.milesTotalCents)}
+          <div className="mt-2 text-[32px] font-bold leading-none tracking-tight tabular-nums">
+            {fmtMoney(model.milesTotalCents)}
+          </div>
+          <div className="mt-1 text-[12px] text-white/85">com a gente</div>
+          {save ? (
+            <div className="mt-3 rounded-xl bg-black/20 px-3 py-2.5">
+              <div className="text-[16px] font-bold leading-tight">{save.reais}</div>
+              <div className="mt-0.5 text-[11px] leading-snug text-white/90">{save.pct}</div>
             </div>
-            <div className="mt-1 text-[13px] text-white/85">com a Vias Aéreas</div>
-            {save ? (
-              <div className="mt-3 rounded-2xl bg-white/15 px-3 py-2.5">
-                <div className="text-[22px] font-bold leading-tight tracking-tight">{save.reais}</div>
-                <div className="mt-0.5 text-[13px] text-white/90">{save.pct}</div>
-              </div>
-            ) : null}
+          ) : null}
+          <div className="mt-auto border-t border-white/20 pt-3">
+            <div className="text-[9px] font-bold uppercase tracking-wide text-white/60">Em outros sites</div>
+            <div className="mt-0.5 flex items-baseline justify-between gap-2">
+              <span className="text-[12px] text-white/80">Google Flights</span>
+              <span className="text-[14px] font-semibold tabular-nums text-white/90">
+                {fmtMoney(model.cashTotalCents)}
+              </span>
+            </div>
           </div>
         </div>
       </div>
 
-      {time || stops ? (
-        <div className="bg-slate-50 px-6 py-2.5 text-[13px] text-slate-600">
-          {[time, stops].filter(Boolean).join(" · ")}
-        </div>
-      ) : null}
-
-      <div className="flex items-center justify-between px-6 py-3 text-[12px] text-slate-500">
-        <span>Proposta Vias Aéreas · valores sujeitos à disponibilidade</span>
-        <span>@viasaereastrip</span>
+      <div className="flex items-center justify-between px-7 py-3 text-[11px] text-white/70">
+        <span>Viaje mais. Viva o extraordinário.</span>
+        <span>@viasaereastrip · viasaereas.com.br</span>
       </div>
     </div>
   );
@@ -298,7 +337,7 @@ async function nodeToPngBlob(node: HTMLElement) {
   const blob = await toBlob(node, {
     pixelRatio: 2,
     cacheBust: true,
-    backgroundColor: "#ffffff",
+    backgroundColor: "#0f2744",
   });
   if (!blob) throw new Error("Não consegui gerar a imagem.");
   return blob;
