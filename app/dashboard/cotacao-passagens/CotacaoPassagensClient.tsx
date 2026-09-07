@@ -710,16 +710,15 @@ export default function CotacaoPassagensClient() {
     setCiaQuotes({ latam: emptyCia(), smiles: emptyCia(), azul: emptyCia() });
     setMixAdvice("");
     setShareCia(null);
-    const id = job?.id;
+    setJob(null);
+    const id = jobIdRef.current || job?.id;
     if (!id) return;
-    const r = await fetch(`/api/cotacao-passagens/${encodeURIComponent(id)}`, {
+    await fetch(`/api/cotacao-passagens/${encodeURIComponent(id)}`, {
       method: "PATCH",
       credentials: "include",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ clearQuote: true }),
-    });
-    const j = await r.json().catch(() => null);
-    if (j?.ok && j.job) setJob(j.job);
+    }).catch(() => null);
   }
 
   async function saveQuote() {
@@ -933,6 +932,16 @@ export default function CotacaoPassagensClient() {
             >
               <Square className="h-3.5 w-3.5" />
               Parar
+            </button>
+          ) : null}
+          {job ? (
+            <button
+              type="button"
+              onClick={() => void clearQuoteData()}
+              className="inline-flex h-10 items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700"
+            >
+              <Eraser className="h-4 w-4" />
+              Limpar dados
             </button>
           ) : null}
         </div>
