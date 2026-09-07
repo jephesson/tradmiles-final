@@ -2284,11 +2284,19 @@ export default function AnaliseDadosClient() {
                 const soldCompra = Number(consolidated?.soldBalcaoCents || 0);
                 const milhasSold = soldVenda + soldFinal + soldOutros;
                 const profitCompra = Number(consolidated?.profitBalcaoAfterTaxCents || 0);
-                const loss = Number(currentMonthPerformance?.lossCents || currentVsPrevious?.currentLossCents || 0);
+                const loss = Number(
+                  consolidated?.lossCents ??
+                    currentMonthPerformance?.lossCents ??
+                    currentVsPrevious?.currentLossCents ??
+                    0
+                );
                 const soldTotal = milhasSold + soldCompra;
                 const profitMilhasChannels =
                   monthProfitSplit.venda + monthProfitSplit.final + monthProfitSplit.outros;
-                const profitTotalChannels = profitMilhasChannels + profitCompra + loss;
+                const profitTotalFromApi = Number(consolidated?.profitTotalAfterTaxCents);
+                const profitTotalChannels = Number.isFinite(profitTotalFromApi)
+                  ? profitTotalFromApi
+                  : profitMilhasChannels + profitCompra + loss;
 
                 return (
                   <>

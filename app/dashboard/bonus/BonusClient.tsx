@@ -77,11 +77,13 @@ function GoalCard({
   current,
   goal,
   met,
+  hint,
 }: {
   title: string;
   current: number;
   goal: number;
   met: boolean;
+  hint?: string;
 }) {
   const p = pct(current, goal);
   return (
@@ -117,6 +119,7 @@ function GoalCard({
           {met ? "Batida" : "Em andamento"}
         </span>
       </div>
+      {hint ? <div className="mt-2 text-[11px] leading-snug text-slate-500">{hint}</div> : null}
     </div>
   );
 }
@@ -284,6 +287,7 @@ export default function BonusClient() {
               current={preview.profitCents}
               goal={preview.profitGoalCents}
               met={preview.profitGoalMet}
+              hint="Mesmo total da Análise de dados (vendas do mês + balcão, após imposto e prejuízo debitado nas milhas)."
             />
           </div>
 
@@ -446,11 +450,13 @@ export default function BonusClient() {
 
           <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-xs leading-relaxed text-slate-600">
             <b>Regras:</b> 0,1% do faturamento + 0,1% do lucro líquido (se meta de
-            lucro batida). Faturamento e volume incluem as vendas de milhas e a compra
-            e venda no balcão. Distribuição: 30% melhor C2, 30% maior volume, 20% quem
-            finalizou mais contas (só conta quando o lucro da conta é maior que zero),
-            20% dividido igualmente. Imposto debitado sobre o bônus bruto. Pagamento
-            no dia 1 do mês seguinte, junto às comissões.
+            lucro batida). O lucro líquido é o mesmo da Análise de dados: vendas do mês
+            após imposto + balcão − prejuízo debitado nas milhas (não é o lucro das
+            contas finalizadas no mês). Faturamento e volume incluem as vendas de milhas
+            e a compra e venda no balcão. Distribuição: 30% melhor C2, 30% maior volume,
+            20% quem finalizou mais contas (só conta quando o lucro da conta é maior que
+            zero), 20% dividido igualmente. Imposto debitado sobre o bônus bruto.
+            Pagamento no dia 1 do mês seguinte, junto às comissões.
           </div>
         </>
       ) : null}

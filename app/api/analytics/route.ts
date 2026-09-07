@@ -1368,8 +1368,15 @@ export async function GET(req: NextRequest) {
       (profitByMonth.get(month) || 0) + (lossByMonth.get(month) || 0);
     const selectedMonthConsolidatedSoldCents =
       grossMonth + balcaoMonthAgg.customerChargeCents;
+    const selectedMonthChannelProfitAfterTaxCents =
+      monthChannel.profitVendaBalcaoCents +
+      monthChannel.profitClienteFinalCents +
+      monthChannel.profitOutrosOrigemCents;
+    const selectedMonthLossCents = lossByMonth.get(month) || 0;
     const selectedMonthConsolidatedProfitAfterTaxCents =
-      selectedMonthSalesProfitAfterTaxWithoutFeeCents + balcaoMonthAgg.netProfitCents;
+      selectedMonthChannelProfitAfterTaxCents +
+      balcaoMonthAgg.netProfitCents +
+      selectedMonthLossCents;
 
     const currentMonthProfitAfterTaxWithoutFeeCents =
       currentMonthProfitAfterTaxWithoutFeeRawCents + currentMonthLossCents;
@@ -1827,6 +1834,7 @@ export async function GET(req: NextRequest) {
           profitOutrosOrigemCents: monthChannel.profitOutrosOrigemCents,
           profitBalcaoAfterTaxCents: balcaoMonthAgg.netProfitCents,
           profitTotalAfterTaxCents: selectedMonthConsolidatedProfitAfterTaxCents,
+          lossCents: selectedMonthLossCents,
           salesByChannel: monthChannel,
         },
 

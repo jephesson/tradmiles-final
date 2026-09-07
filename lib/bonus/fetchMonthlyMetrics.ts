@@ -1,15 +1,11 @@
 import { prisma } from "@/lib/prisma";
-import {
-  buildBalcaoComputedValues,
-  buildTaxRule,
-  recifeDateISO,
-} from "@/lib/balcao-commission";
 import { pvSemTaxaFromSaleFields } from "@/lib/payouts/purchaseFinalizeMetrics";
 import type { EmployeeBonusMetrics } from "@/lib/bonus/monthlyBonus";
 import {
   monthStartDate,
   nextMonthStartDate,
 } from "@/lib/bonus/monthlyBonus";
+import { fetchMonthConsolidatedLucroLiquido } from "@/lib/analytics/monthLucroLiquido";
 import {
   brazilMonthBounds,
   calendarMonthBoundsUTC,
@@ -33,7 +29,7 @@ export async function fetchMonthlyBonusMetrics(team: string, month: string) {
   const purchaseStart = balcaoStart;
   const purchaseEnd = balcaoEnd;
 
-  const [users, payouts, sales, finalizedPurchases, balcaoOps, settings] =
+  const [users, payouts, sales, finalizedPurchases, balcaoOps, settings, lucroMes] =
     await Promise.all([
       prisma.user.findMany({
         where: { team, isActive: true },
@@ -81,10 +77,7 @@ export async function fetchMonthlyBonusMetrics(team: string, month: string) {
         select: {
           employeeId: true,
           customerChargeCents: true,
-          supplierPayCents: true,
           boardingFeeCents: true,
-          createdAt: true,
-          affiliateCommission: { select: { amountCents: true } },
         },
       }),
       prisma.settings.upsert({
@@ -93,9 +86,8 @@ export async function fetchMonthlyBonusMetrics(team: string, month: string) {
         update: {},
         select: { taxPercent: true, taxEffectiveFrom: true },
       }),
+      fetchMonthConsolidatedLucroLiquido(team, month),
     ]);
-
-  const taxRule = buildTaxRule(settings);
 
   const byUser: Record<
     string,
@@ -166,21 +158,8 @@ export async function fetchMonthlyBonusMetrics(team: string, month: string) {
     revenueCents += safeInt(op.customerChargeCents, 0);
   }
 
-  let profitCents = 0;
-  for (const p of finalizedPurchases) {
-    profitCents += safeInt(p.finalProfitCents, 0);
-  }
-  for (const op of balcaoOps) {
-    const computed = buildBalcaoComputedValues({
-      customerChargeCents: op.customerChargeCents,
-      supplierPayCents: op.supplierPayCents,
-      boardingFeeCents: op.boardingFeeCents,
-      dateISO: recifeDateISO(op.createdAt),
-      taxRule,
-      affiliateCommissionCents: op.affiliateCommission?.amountCents || 0,
-    });
-    profitCents += safeInt(computed.netProfitCents, 0);
-  }
+  // Mesmo total da Análise de dados (vendas do mês + balcão − prejuízo milhas).
+  const profitCents = lucroMes.profitCents;
 
   const metrics: EmployeeBonusMetrics[] = users.map((u) => {
     const a = byUser[u.id] || {
