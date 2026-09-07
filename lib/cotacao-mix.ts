@@ -57,7 +57,7 @@ export function priceMixedQuote(
   const overrideRate = (leg: MixLegIn) => {
     const raw = overrides?.[leg.key];
     if (raw == null || !Number.isFinite(raw) || raw <= 0) return null;
-    return Math.max(leg.minMilheiroCents, Math.round(raw));
+    return Math.max(0, Math.round(raw));
   };
   const idaRate = overrideRate(ida) ?? Math.max(0, ida.minMilheiroCents) + bump;
   const voltaRate = volta ? overrideRate(volta) ?? Math.max(0, volta.minMilheiroCents) + bump : 0;
