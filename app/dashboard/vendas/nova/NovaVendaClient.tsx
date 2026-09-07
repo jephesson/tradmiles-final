@@ -169,7 +169,14 @@ function buildWhatsAppUrlFromContact(
 }
 
 /** Mensagem padrão ao perguntar disponibilidade de biometria na lista de cedentes. */
-const BIOMETRIA_DISPONIVEL_WA_MSG = "Olá, tudo bem? Ta disponível para biometria?";
+function biometriaDisponivelWaMsg(nomeCompleto?: string | null) {
+  const first = String(nomeCompleto || "")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)[0];
+  if (first) return `Olá, ${first}! Tudo bem? Ta disponível para biometria?`;
+  return "Olá, tudo bem? Ta disponível para biometria?";
+}
 
 function normStr(v?: string) {
   return (v || "")
@@ -2541,7 +2548,7 @@ export default function NovaVendaClient({
                     const waContact = waMap[s.cedente.id] || null;
                     const waHref = buildWhatsAppUrlFromContact(
                       waContact,
-                      BIOMETRIA_DISPONIVEL_WA_MSG
+                      biometriaDisponivelWaMsg(s.cedente.nomeCompleto)
                     );
                     const sugPts =
                       s.suggestedPtsPerPax ??
