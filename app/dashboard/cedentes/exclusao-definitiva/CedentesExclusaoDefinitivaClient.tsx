@@ -84,7 +84,7 @@ const EXCLUSION_REASONS: Array<{ code: ExclusionReasonCode; label: string; text:
     code: "DATA_DELETION_REQUEST",
     label: "Solicitou exclusão dos dados",
     text:
-      "Solicitação expressa de exclusão dos dados e encerramento do vínculo operacional, com encerramento da parceria e remoção das credenciais sob nossa custódia.",
+      "Solicitação expressa de exclusão dos dados e encerramento do vínculo operacional, com encerramento da parceria. As credenciais ficam só na lista de excluídos, para reacesso interno se necessário.",
   },
 ];
 
@@ -103,6 +103,24 @@ function maskCpf(cpf?: string | null) {
   const v = String(cpf || "").replace(/\D+/g, "");
   if (v.length !== 11) return cpf || "-";
   return `***.***.${v.slice(6, 9)}-${v.slice(9, 11)}`;
+}
+
+type StoredCredentials = {
+  cpf?: string | null;
+  telefone?: string | null;
+  emailCriado?: string | null;
+  senhaEmail?: string | null;
+  senhaSmiles?: string | null;
+  senhaLatamPass?: string | null;
+  senhaLivelo?: string | null;
+  senhaEsfera?: string | null;
+};
+
+function credentialsFromDetails(details: unknown): StoredCredentials | null {
+  if (!details || typeof details !== "object") return null;
+  const c = (details as { credentials?: StoredCredentials }).credentials;
+  if (!c || typeof c !== "object") return null;
+  return c;
 }
 
 function getErrorMessage(error: unknown, fallback: string) {
@@ -133,6 +151,10 @@ export default function CedentesExclusaoDefinitivaClient() {
     useState<ExclusionReasonCode>("LATAM_FACE_NO_RESPONSE");
 
   const [q, setQ] = useState("");
+  const [accessRow, setAccessRow] = useState<ExclusionRow | null>(null);
+  const [accessPreview, setAccessPreview] = useState<CedentePreview | null>(null);
+  const [accessLoading, setAccessLoading] = useState(false);
+  const [copiedField, setCopiedField] = useState("");
 
   async function loadAll() {
     setLoading(true);
@@ -369,7 +391,7 @@ export default function CedentesExclusaoDefinitivaClient() {
 
     if (
       !confirm(
-        `Confirma restaurar ${row.cedenteNomeCompleto} (${row.cedenteIdentificador})?\n\nO CPF original será recolocado no cadastro antigo. Vendas, compras, comissões e emissões continuam vinculadas ao mesmo histórico. Dados de acesso, pontos e registros operacionais apagados na exclusão não voltam automaticamente.`
+        `Confirma restaurar ${row.cedenteNomeCompleto} (${row.cedenteIdentificador})?\n\nO CPF original volta no cadastro. Vendas e credenciais permanecem. O cedente volta às listas operacionais.`
       )
     ) {
       return;
@@ -394,11 +416,68 @@ export default function CedentesExclusaoDefinitivaClient() {
 
       setPassword("");
       await loadAll();
-      alert("Cedente restaurado com CPF e histórico preservado.");
+      alert("Cedente restaurado. Credenciais e histórico permanecem.");
     } catch (error: unknown) {
       alert(getErrorMessage(error, "Falha ao restaurar cedente."));
     } finally {
       setRestoringId(null);
+    }
+  }
+
+  function copyValue(field: string, value?: string | null) {
+    const v = String(value || "").trim();
+    if (!v) return;
+    void navigator.clipboard.writeText(v).then(() => {
+      setCopiedField(field);
+      window.setTimeout(() => setCopiedField(""), 1600);
+    });
+  }
+
+  async function abrirAcesso(row: ExclusionRow) {
+    setAccessRow(row);
+    const stored = credentialsFromDetails(row.details);
+    if (stored) {
+      setAccessPreview({
+        id: row.cedenteId,
+        identificador: row.cedenteIdentificador,
+        nomeCompleto: row.cedenteNomeCompleto,
+        cpf: stored.cpf || row.cedenteCpf,
+        telefone: stored.telefone || null,
+        emailCriado: stored.emailCriado || null,
+        senhaEmail: stored.senhaEmail || null,
+        senhaSmiles: stored.senhaSmiles || null,
+        senhaLatamPass: stored.senhaLatamPass || null,
+        senhaLivelo: stored.senhaLivelo || null,
+        senhaEsfera: stored.senhaEsfera || null,
+        pontosLatam: 0,
+        pontosSmiles: 0,
+        pontosLivelo: 0,
+        pontosEsfera: 0,
+      });
+      return;
+    }
+
+    setAccessLoading(true);
+    try {
+      const res = await fetch(
+        `/api/cedentes/exclusao-definitiva?cedenteId=${encodeURIComponent(row.cedenteId)}`,
+        { cache: "no-store", credentials: "include" }
+      );
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok || json?.ok === false) {
+        throw new Error(json?.error || "Falha ao carregar credenciais.");
+      }
+      const p = (json?.preview || null) as CedentePreview | null;
+      setAccessPreview(
+        p
+          ? { ...p, cpf: p.cpf?.startsWith("EXCL-") ? row.cedenteCpf : p.cpf }
+          : null
+      );
+    } catch (error: unknown) {
+      setAccessPreview(null);
+      alert(getErrorMessage(error, "Falha ao carregar acesso do excluído."));
+    } finally {
+      setAccessLoading(false);
     }
   }
 
@@ -408,8 +487,8 @@ export default function CedentesExclusaoDefinitivaClient() {
         <h1 className="text-2xl font-semibold">Cedentes • Exclusão definitiva</h1>
         <p className="text-sm text-slate-600">
           Remove o cadastro das listas operacionais (Latam, Smiles, Livelo, Esfera e painel de
-          emissões), apaga credenciais e registra em Excluídos. O histórico de vendas anteriores é
-          preservado.
+          emissões) e registra em Excluídos. As credenciais ficam guardadas nessa lista, para
+          reacesso se precisar. O histórico de vendas anteriores é preservado.
         </p>
       </div>
 
@@ -613,6 +692,62 @@ export default function CedentesExclusaoDefinitivaClient() {
 
       <div className="rounded-2xl border bg-white overflow-x-auto">
         <div className="px-5 py-3 border-b font-medium">Excluídos</div>
+        {accessRow ? (
+          <div className="border-b bg-slate-50 px-5 py-4 space-y-3">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <div className="text-sm font-semibold">Acesso guardado</div>
+                <div className="text-xs text-slate-500">
+                  {accessRow.cedenteNomeCompleto} ({accessRow.cedenteIdentificador})
+                </div>
+              </div>
+              <button
+                type="button"
+                className="rounded-xl border bg-white px-3 py-1.5 text-xs hover:bg-slate-50"
+                onClick={() => {
+                  setAccessRow(null);
+                  setAccessPreview(null);
+                }}
+              >
+                Fechar
+              </button>
+            </div>
+            {accessLoading ? (
+              <div className="text-sm text-slate-500">Carregando credenciais...</div>
+            ) : !accessPreview ? (
+              <div className="text-sm text-slate-500">
+                Não há credenciais neste registro (exclusões antigas apagavam as senhas).
+              </div>
+            ) : (
+              <div className="grid gap-2 md:grid-cols-2 text-sm">
+                {[
+                  ["CPF", accessPreview.cpf, "cpf"],
+                  ["E-mail", accessPreview.emailCriado, "email"],
+                  ["Senha e-mail", accessPreview.senhaEmail, "senhaEmail"],
+                  ["Senha LATAM", accessPreview.senhaLatamPass, "senhaLatam"],
+                  ["Senha Smiles", accessPreview.senhaSmiles, "senhaSmiles"],
+                  ["Senha Livelo", accessPreview.senhaLivelo, "senhaLivelo"],
+                  ["Senha Esfera", accessPreview.senhaEsfera, "senhaEsfera"],
+                ].map(([label, value, field]) => (
+                  <div key={field} className="rounded-xl border bg-white px-3 py-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="text-xs text-slate-500">{label}</div>
+                      <button
+                        type="button"
+                        className="text-xs font-medium text-slate-700 underline disabled:no-underline disabled:text-slate-400"
+                        disabled={!String(value || "").trim()}
+                        onClick={() => copyValue(String(field), String(value || ""))}
+                      >
+                        {copiedField === field ? "Copiado" : "Copiar"}
+                      </button>
+                    </div>
+                    <div className="mt-0.5 break-all font-medium">{String(value || "").trim() || "—"}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        ) : null}
         <table className="w-full text-sm">
           <thead className="bg-slate-50 border-b text-slate-600">
             <tr>
@@ -658,17 +793,28 @@ export default function CedentesExclusaoDefinitivaClient() {
                           {r.restoredBy?.login ? ` por @${r.restoredBy.login}` : ""}
                         </div>
                       </div>
-                    ) : r.scope === "ACCOUNT" ? (
-                      <button
-                        type="button"
-                        onClick={() => restaurarCedente(r)}
-                        disabled={saving || loading || restoringId === r.id}
-                        className="rounded-xl border border-emerald-200 px-3 py-1.5 text-xs font-medium text-emerald-700 hover:bg-emerald-50 disabled:opacity-50"
-                      >
-                        {restoringId === r.id ? "Restaurando..." : "Restaurar"}
-                      </button>
                     ) : (
-                      <span className="text-xs text-slate-500">Histórico preservado</span>
+                      <div className="flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          onClick={() => void abrirAcesso(r)}
+                          className="rounded-xl border px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                        >
+                          Acessar
+                        </button>
+                        {r.scope === "ACCOUNT" ? (
+                          <button
+                            type="button"
+                            onClick={() => restaurarCedente(r)}
+                            disabled={saving || loading || restoringId === r.id}
+                            className="rounded-xl border border-emerald-200 px-3 py-1.5 text-xs font-medium text-emerald-700 hover:bg-emerald-50 disabled:opacity-50"
+                          >
+                            {restoringId === r.id ? "Restaurando..." : "Restaurar"}
+                          </button>
+                        ) : (
+                          <span className="self-center text-xs text-slate-500">Histórico preservado</span>
+                        )}
+                      </div>
                     )}
                   </td>
                 </tr>

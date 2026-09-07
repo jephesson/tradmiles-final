@@ -4,6 +4,7 @@ import {
   type ExclusionReasonCode,
 } from "@/lib/cedentes/exclusaoDefinitivaReasons";
 import { listUpcomingSmilesFlightsForCedente } from "@/lib/cedentes/upcomingSmilesFlights";
+import { isExcludedCpf } from "@/lib/cedentes/activeCedenteWhere";
 import { prisma } from "@/lib/prisma";
 import { NextResponse } from "next/server";
 import type { Prisma } from "@prisma/client";
@@ -140,11 +141,24 @@ export async function GET(req: Request) {
         );
       }
 
+      const exclusionCpf = isExcludedCpf(cedente.cpf)
+        ? (
+            await prisma.cedenteExclusion.findFirst({
+              where: { cedenteId, restoredAt: null },
+              orderBy: { createdAt: "desc" },
+              select: { cedenteCpf: true },
+            })
+          )?.cedenteCpf
+        : null;
+
       const upcomingSmilesFlights = await listUpcomingSmilesFlightsForCedente(cedenteId);
 
       return NextResponse.json({
         ok: true,
-        preview: cedente,
+        preview: {
+          ...cedente,
+          cpf: exclusionCpf || cedente.cpf,
+        },
         upcomingSmilesFlights,
         reasons: Object.entries(EXCLUSION_REASON_TEXT).map(([code, text]) => ({
           code,
@@ -234,6 +248,13 @@ export async function POST(req: Request) {
           identificador: true,
           nomeCompleto: true,
           cpf: true,
+          telefone: true,
+          emailCriado: true,
+          senhaEmail: true,
+          senhaSmiles: true,
+          senhaLatamPass: true,
+          senhaLivelo: true,
+          senhaEsfera: true,
           owner: { select: { team: true } },
         },
       });
@@ -263,9 +284,7 @@ export async function POST(req: Request) {
         const latamTurboAccountDeleted = (
           await tx.latamTurboAccount.deleteMany({ where: { cedenteId } })
         ).count;
-        const emissionsDeleted = (
-          await tx.emissionEvent.deleteMany({ where: { cedenteId } })
-        ).count;
+        const emissionsPreserved = await tx.emissionEvent.count({ where: { cedenteId } });
         const anotacoesDeleted = (await tx.anotacao.deleteMany({ where: { cedenteId } })).count;
         const latamPromoItemsDeleted = (
           await tx.latamPromoListItem.deleteMany({ where: { cedenteId } })
@@ -286,25 +305,23 @@ export async function POST(req: Request) {
           data: {
             status: "REJECTED",
             cpf: `EXCL-${cedenteId}`,
-            dataNascimento: null,
-            telefone: null,
-            emailCriado: null,
-            chavePix: "EXCLUIDO",
-            titularConfirmado: false,
             pontosLatam: 0,
             pontosSmiles: 0,
             pontosLivelo: 0,
             pontosEsfera: 0,
-            senhaEmail: null,
-            senhaSmiles: null,
-            senhaLatamPass: null,
-            senhaLivelo: null,
-            senhaEsfera: null,
-            emailRedirecionado: false,
-            emailRedirecionadoAt: null,
-            emailRedirecionadoById: null,
           },
         });
+
+        const credentials = {
+          cpf: ced.cpf,
+          telefone: ced.telefone,
+          emailCriado: ced.emailCriado,
+          senhaEmail: ced.senhaEmail,
+          senhaSmiles: ced.senhaSmiles,
+          senhaLatamPass: ced.senhaLatamPass,
+          senhaLivelo: ced.senhaLivelo,
+          senhaEsfera: ced.senhaEsfera,
+        };
 
         const details = {
           mode: effectiveMode,
@@ -312,6 +329,8 @@ export async function POST(req: Request) {
           reasonCode,
           reasonText: EXCLUSION_REASON_TEXT[reasonCode],
           historyPreserved: true,
+          credentialsKept: true,
+          credentials,
           salesPreserved,
           receivablesPreserved,
           purchasesPreserved,
@@ -322,7 +341,7 @@ export async function POST(req: Request) {
           walletDeleted,
           latamTurboMonthsDeleted,
           latamTurboAccountDeleted,
-          emissionsDeleted,
+          emissionsPreserved,
           anotacoesDeleted,
           latamPromoItemsDeleted,
           termReviewsDeleted,
@@ -374,9 +393,9 @@ export async function POST(req: Request) {
       const walletDeleted = (
         await tx.walletBalance.deleteMany({ where: { cedenteId, program } })
       ).count;
-      const emissionsDeleted = (
-        await tx.emissionEvent.deleteMany({ where: { cedenteId, program } })
-      ).count;
+      const emissionsPreserved = await tx.emissionEvent.count({
+        where: { cedenteId, program },
+      });
 
       let latamTurboMonthsDeleted = 0;
       let latamTurboAccountDeleted = 0;
@@ -412,6 +431,17 @@ export async function POST(req: Request) {
         reasonCode,
         reasonText: EXCLUSION_REASON_TEXT[reasonCode],
         historyPreserved: true,
+        credentialsKept: true,
+        credentials: {
+          cpf: ced.cpf,
+          telefone: ced.telefone,
+          emailCriado: ced.emailCriado,
+          senhaEmail: ced.senhaEmail,
+          senhaSmiles: ced.senhaSmiles,
+          senhaLatamPass: ced.senhaLatamPass,
+          senhaLivelo: ced.senhaLivelo,
+          senhaEsfera: ced.senhaEsfera,
+        },
         salesPreserved,
         receivablesPreserved,
         purchasesPreserved,
@@ -420,7 +450,7 @@ export async function POST(req: Request) {
         protocolsDeleted,
         clubsDeleted,
         walletDeleted,
-        emissionsDeleted,
+        emissionsPreserved,
         latamTurboMonthsDeleted,
         latamTurboAccountDeleted,
         ...(checkSmilesFlights
@@ -594,9 +624,6 @@ export async function PATCH(req: Request) {
         commissionsPreserved,
         emissionsPreserved,
         notRestored: [
-          "telefone",
-          "emailCriado",
-          "senhas",
           "pontos",
           "bloqueios",
           "protocolos",

@@ -9,7 +9,7 @@ export const EXCLUSION_REASON_TEXT: Record<ExclusionReasonCode, string> = {
   LATAM_FACE_IMPOSSIBLE:
     "Impossibilidade operacional de realização da biometria facial exigida pela LATAM, o que inviabiliza a continuidade das operações com segurança.",
   DATA_DELETION_REQUEST:
-    "Solicitação expressa de exclusão dos dados e encerramento do vínculo operacional, com encerramento da parceria e remoção das credenciais sob nossa custódia.",
+    "Solicitação expressa de exclusão dos dados e encerramento do vínculo operacional, com encerramento da parceria. As credenciais ficam guardadas só na lista de excluídos, para reacesso interno se necessário.",
 };
 
 export function isExclusionReasonCode(value: string): value is ExclusionReasonCode {
