@@ -32,30 +32,47 @@ function LegBlock({
   label,
   leg,
   empty,
+  onDark,
 }: {
   label?: string;
   leg: ShareLeg | null;
   empty?: string;
+  onDark?: boolean;
 }) {
   if (!leg) {
-    return <p className="text-[13px] text-slate-500">{empty || "—"}</p>;
+    return (
+      <p className={cn("text-[13px]", onDark ? "text-white/70" : "text-slate-500")}>{empty || "—"}</p>
+    );
   }
   const times = leg.depTime && leg.arrTime ? `${leg.depTime} → ${leg.arrTime}` : "";
   const dur = fmtDurationMin(leg.durationMin);
   const stops = stopsLabel(leg.stops);
   return (
     <div>
-      {label ? <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">{label}</div> : null}
-      <div className="text-[15px] font-semibold text-slate-900">
+      {label ? (
+        <div
+          className={cn(
+            "text-[10px] font-semibold uppercase tracking-wide",
+            onDark ? "text-white/60" : "text-slate-400"
+          )}
+        >
+          {label}
+        </div>
+      ) : null}
+      <div className={cn("text-[15px] font-semibold", onDark ? "text-white" : "text-slate-900")}>
         {leg.origin} → {leg.dest}
       </div>
-      <div className="text-[12px] text-slate-500">
+      <div className={cn("text-[12px]", onDark ? "text-white/75" : "text-slate-500")}>
         {leg.dateBr}
         {leg.airline ? ` · ${leg.airline}` : ""}
       </div>
-      {times ? <div className="mt-0.5 text-[14px] font-medium text-slate-800">{times}</div> : null}
+      {times ? (
+        <div className={cn("mt-0.5 text-[14px] font-medium", onDark ? "text-white" : "text-slate-800")}>
+          {times}
+        </div>
+      ) : null}
       {dur || stops ? (
-        <div className="text-[12px] text-slate-600">
+        <div className={cn("text-[12px]", onDark ? "text-white/75" : "text-slate-600")}>
           {[dur, stops].filter(Boolean).join(" · ")}
         </div>
       ) : null}
@@ -85,19 +102,19 @@ function savingsCopy(cash: number, miles: number) {
   if (delta > 0) {
     return {
       tone: "save" as const,
-      title: `${pct}% abaixo do Google Flights`,
-      sub: `Economia de ${fmtMoney(delta)}`,
+      reais: `Economia de ${fmtMoney(delta)}`,
+      pct: `${pct}% abaixo do Google Flights`,
     };
   }
   if (delta < 0) {
     const up = Math.round((Math.abs(delta) / cash) * 1000) / 10;
     return {
       tone: "more" as const,
-      title: `${up}% acima do à vista`,
-      sub: `${fmtMoney(Math.abs(delta))} a mais · vale conferir o horário`,
+      reais: `${fmtMoney(Math.abs(delta))} a mais`,
+      pct: `${up}% acima do à vista`,
     };
   }
-  return { tone: "even" as const, title: "Mesmo valor do à vista", sub: "A vantagem fica no itinerário" };
+  return { tone: "even" as const, reais: "Mesmo valor do à vista", pct: "A vantagem fica no itinerário" };
 }
 
 function timeCopy(cashMin: number | null, milesMin: number | null) {
@@ -172,19 +189,19 @@ export function CotacaoShareCard({
       )}
       style={{ fontFamily: "ui-sans-serif, system-ui, sans-serif" }}
     >
-      <div className="bg-white px-8 py-4">
-        <div className="flex items-center justify-between gap-6">
+      <div className="bg-white px-6 py-3">
+        <div className="flex items-center justify-between gap-4">
           <img
             src="/vias-aereas-logo.png"
             alt="Vias Aéreas"
             width={220}
             height={90}
-            className="h-[72px] w-auto object-contain object-left"
+            className="h-[56px] w-auto object-contain object-left"
             crossOrigin="anonymous"
           />
           <div className="text-right">
-            <div className="text-[22px] font-bold tracking-tight text-slate-900">{route}</div>
-            <div className="text-[13px] text-slate-500">
+            <div className="text-[20px] font-bold tracking-tight text-slate-900">{route}</div>
+            <div className="text-[12px] text-slate-500">
               {date}
               {date ? " · " : ""}
               {model.tripKind}
@@ -194,49 +211,65 @@ export function CotacaoShareCard({
       </div>
       <div className="h-1.5 bg-[#9f1239]" />
 
-      <div className="grid grid-cols-2 gap-0 border-b border-slate-100">
-        <div className="border-r border-slate-100 bg-slate-50 px-7 py-6">
-          <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">No mercado</div>
-          <div className="mt-0.5 text-[13px] font-semibold text-slate-700">Google Flights</div>
-          <div className="mt-3 space-y-3">
+      <div className="grid grid-cols-5">
+        <div className="col-span-2 flex min-h-[300px] flex-col bg-slate-100 px-5 py-5">
+          <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+            Em outros sites
+          </div>
+          <div className="mt-0.5 text-[13px] font-semibold text-slate-500">Google Flights</div>
+          <div className="mt-3 flex-1 space-y-3">
             <LegBlock label={hasVolta ? "Ida" : undefined} leg={model.cashIda} empty="Sem tarifa à vista" />
             {hasVolta ? <LegBlock label="Volta" leg={model.cashVolta} empty="Sem volta à vista" /> : null}
           </div>
-          <div className="mt-4 text-[26px] font-bold tabular-nums">{fmtMoney(model.cashTotalCents)}</div>
-          <div className="text-[12px] text-slate-500">preço em dinheiro</div>
+          <div className="mt-4 border-t border-slate-200 pt-3">
+            <div className="text-[22px] font-semibold tabular-nums text-slate-500">
+              {fmtMoney(model.cashTotalCents)}
+            </div>
+            <div className="text-[11px] text-slate-400">preço em dinheiro</div>
+          </div>
         </div>
-        <div className="bg-emerald-50/70 px-7 py-6">
-          <div className="text-[10px] font-semibold uppercase tracking-wide text-emerald-700/80">Com a gente</div>
-          <div className="mt-0.5 text-[13px] font-semibold text-emerald-950">{model.ciaLabel}</div>
-          <div className="mt-3 space-y-3">
+
+        <div
+          className={cn(
+            "col-span-3 flex min-h-[300px] flex-col px-6 py-5",
+            save?.tone === "more" ? "bg-slate-900 text-white" : "bg-emerald-600 text-white"
+          )}
+        >
+          <div className="text-[10px] font-semibold uppercase tracking-wide text-white/70">Com a gente</div>
+          <div className="mt-0.5 text-[15px] font-bold">{model.ciaLabel}</div>
+          <div className="mt-3 flex-1 space-y-3">
             <LegBlock
+              onDark
               label={hasVolta ? "Ida" : undefined}
               leg={model.milesIda}
               empty="Selecione o voo na cia"
             />
             {hasVolta ? (
-              <LegBlock label="Volta" leg={model.milesVolta} empty="Selecione a volta na cia" />
+              <LegBlock onDark label="Volta" leg={model.milesVolta} empty="Selecione a volta na cia" />
             ) : null}
           </div>
-          <div className="mt-4 text-[26px] font-bold tabular-nums text-emerald-950">
-            {fmtMoney(model.milesTotalCents)}
+          <div className="mt-4 border-t border-white/20 pt-3">
+            <div className="text-[40px] font-bold leading-none tracking-tight tabular-nums">
+              {fmtMoney(model.milesTotalCents)}
+            </div>
+            <div className="mt-1 text-[13px] text-white/85">com a Vias Aéreas</div>
+            {save ? (
+              <div className="mt-3 rounded-2xl bg-white/15 px-3 py-2.5">
+                <div className="text-[22px] font-bold leading-tight tracking-tight">{save.reais}</div>
+                <div className="mt-0.5 text-[13px] text-white/90">{save.pct}</div>
+              </div>
+            ) : null}
           </div>
-          <div className="text-[12px] text-emerald-900/80">com a Vias Aéreas</div>
         </div>
       </div>
 
-      {save ? (
-        <div className={cn("px-8 py-5", save.tone === "save" ? "bg-emerald-600 text-white" : "bg-slate-900 text-white")}>
-          <div className="text-[28px] font-bold tracking-tight">{save.title}</div>
-          <div className="mt-1 flex flex-wrap gap-2 text-[14px] text-white/90">
-            <span>{save.sub}</span>
-            {time ? <span>· {time}</span> : null}
-            {stops ? <span>· {stops}</span> : null}
-          </div>
+      {time || stops ? (
+        <div className="bg-slate-50 px-6 py-2.5 text-[13px] text-slate-600">
+          {[time, stops].filter(Boolean).join(" · ")}
         </div>
       ) : null}
 
-      <div className="flex items-center justify-between px-8 py-4 text-[12px] text-slate-500">
+      <div className="flex items-center justify-between px-6 py-3 text-[12px] text-slate-500">
         <span>Proposta Vias Aéreas · valores sujeitos à disponibilidade</span>
         <span>@viasaereastrip</span>
       </div>
