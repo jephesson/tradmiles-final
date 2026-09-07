@@ -795,29 +795,23 @@ export default function NovaVendaClient({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [biometriaModalOpen, program, sel?.cedente?.id]);
 
-  function clearSelection() {
+  function resetCedenteBoundState() {
     setSel(null);
     setCompras([]);
     setPurchaseNumero("");
-
-    setClienteId("");
-    setClienteQ("");
-    setClientes([]);
-    setSelectedCliente(null);
-    setClientesError("");
-    setClientDropdownOpen(false);
-
-    // ✅ também limpa credenciais
     setRevealCreds(false);
     setCreds(null);
     setCredsError("");
     setShowProgramPass(false);
     setShowEmailPass(false);
-
     setBiometriaModalOpen(false);
     setPagamentoLinkReady(null);
     setSearchLinkReady(null);
     setLatamEmissionUnlocked(false);
+  }
+
+  function changeCedente() {
+    resetCedenteBoundState();
     setFlowStep(2);
   }
 
@@ -960,7 +954,7 @@ export default function NovaVendaClient({
 
         if (sel?.cedente?.id) {
           const selected = nextList.find((x) => x.cedente.id === sel.cedente.id);
-          if (!selected) clearSelection();
+          if (!selected) setSel(null);
           else setSel(selected);
         }
       } catch (e: any) {
@@ -2468,7 +2462,12 @@ export default function NovaVendaClient({
                   Continuar para emissão
                   <ChevronRight className="h-4 w-4" strokeWidth={2} aria-hidden />
                 </button>
-                <button type="button" onClick={clearSelection} className={BTN_GHOST}>
+                <button
+                  type="button"
+                  onClick={changeCedente}
+                  title="Escolhe outro cedente sem apagar cliente, localizador e valores"
+                  className={BTN_GHOST}
+                >
                   Trocar cedente
                 </button>
               </div>
@@ -2730,7 +2729,12 @@ export default function NovaVendaClient({
               <ChevronLeft className="h-4 w-4" strokeWidth={2} aria-hidden />
               Voltar aos cedentes
             </button>
-            <button type="button" onClick={clearSelection} className={BTN_SECONDARY}>
+            <button
+              type="button"
+              onClick={changeCedente}
+              title="Escolhe outro cedente sem apagar cliente, localizador e valores"
+              className={BTN_SECONDARY}
+            >
               Trocar cedente
             </button>
           </div>
@@ -3427,6 +3431,7 @@ export default function NovaVendaClient({
 
       {(program === "LATAM" || program === "SMILES") && sel?.cedente?.id ? (
         <BiometriaWizardModal
+          key={sel.cedente.id}
           open={biometriaModalOpen}
           program={program}
           cedenteId={sel.cedente.id}
