@@ -958,6 +958,9 @@ export default function Sidebar() {
               <NavLink href="/dashboard/contas-selecionadas/latam/turbo">
                 Turbo Latam
               </NavLink>
+              <NavLink href="/dashboard/contas-selecionadas/latam/escolha-automatica">
+                Escolha automática
+              </NavLink>
             </SubAccordion>
 
             {/* ✅ Smiles agora é SubAccordion, igual Latam */}
