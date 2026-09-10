@@ -24,8 +24,6 @@ type FormState = {
   banco: string;
   pixTipo: PixTipo;
 
-  pontosLatam: number | "";
-  pontosLivelo: number | "";
 };
 
 function normalizeReferrerCodeInput(v: string) {
@@ -141,8 +139,8 @@ type CedenteSignupResp = {
   updateAllowed?: boolean;
 };
 
-const TERMO_VERSAO = "v4-2026-07";
-const ORIENTACOES_VERSAO = "v2-2026-07";
+const TERMO_VERSAO = "v5-2026-09";
+const ORIENTACOES_VERSAO = "v3-2026-09";
 
 const PROGRAMAS_FIDELIDADE = [
   { nome: "LATAM Pass", url: "https://latampass.latam.com/pt_br/" },
@@ -163,8 +161,8 @@ const PALAVRAS_CHAVE_IMPORTANTES = [
   "CPF",
   "gov.br",
   "OneDrive",
-  "R$ 20,00",
   "R$ 80,00",
+  "24h a 72h",
   "não solicita dinheiro",
 ] as const;
 
@@ -188,6 +186,8 @@ Para participar das operações da Vias Aéreas, o titular deverá criar ou disp
 Os cadastros deverão ser realizados com os dados verdadeiros do próprio titular.
 
 Antes de prosseguir, leia todas as informações com atenção. Após a autorização, a Vias Aéreas poderá utilizar recursos próprios para comprar pontos, aderir a clubes, participar de campanhas e realizar emissões vinculadas às contas cadastradas.
+
+Criar as contas Livelo e LATAM Pass não é garantia de uso. A conta só entra em operação se a Vias Aéreas autorizar, comprar pontos e iniciar o bloco.
 
 Por esse motivo, o cadastro somente deverá ser concluído por quem realmente deseja participar e possui disponibilidade para colaborar com códigos, documentos, biometrias e demais validações necessárias.
 
@@ -296,15 +296,9 @@ Selfie;
 Biometria facial;
 Confirmação de identidade;
 
-Pagamento de entrada da Livelo:
+Não há pagamento pela criação da conta Livelo, nem pela primeira biometria da Livelo.
 
-O titular receberá R$ 20,00 pela entrada da conta Livelo.
-
-O pagamento será realizado após a conclusão e aprovação do cadastro conforme as orientações da Vias Aéreas.
-
-Esse valor já inclui a primeira biometria facial solicitada pela Livelo, ainda que a validação seja realizada em momento posterior ao cadastro.
-
-A primeira biometria da Livelo não gera pagamento adicional além dos R$ 20,00 de entrada.
+A Livelo serve para as operações quando a Vias Aéreas decidir utilizá-la. Criar a conta não gera remuneração e não garante que ela será usada.
 
 5. CADASTRO NA LATAM PASS
 
@@ -334,7 +328,11 @@ Quando a conta estiver vinculada a uma operação previamente autorizada, o titu
 
 6. PAGAMENTO DO BLOCO OPERACIONAL LATAM
 
-Nas operações LATAM Pass, o titular receberá R$ 80,00 por bloco operacional.
+O único pagamento previsto nestas orientações é o da LATAM Pass: R$ 80,00 por bloco operacional.
+
+Esse pagamento ocorre somente depois da assinatura do clube e da compra de pontos pela Vias Aéreas. Em geral, o PIX é feito entre 24h a 72h após essa etapa.
+
+Criar a conta LATAM Pass, por si só, não gera pagamento e não é garantia de uso.
 
 O pagamento de R$ 80,00 abrange:
 
@@ -557,6 +555,8 @@ Auditorias e validações de segurança;
 
 O TITULAR declara estar ciente de que a conta poderá ser utilizada conforme as oportunidades comerciais identificadas pela Vias Aéreas.
 
+Criar as contas Livelo e LATAM Pass não é garantia de uso. A utilização depende de autorização, assinatura de clube, compra de pontos e início da operação pela Vias Aéreas.
+
 2. INVESTIMENTO E AUSÊNCIA DE COBRANÇA
 
 Todo o capital necessário para aquisição de pontos, adesão a clubes e realização das operações será de responsabilidade exclusiva da Vias Aéreas.
@@ -588,7 +588,9 @@ Uma operação poderá envolver investimento relevante por parte da Vias Aéreas
 
 3. PAGAMENTOS AO TITULAR
 
-Os valores pagos ao TITULAR correspondem à remuneração pela entrada da conta Livelo e pela disponibilidade necessária para conclusão das operações realizadas na LATAM Pass.
+O único pagamento operacional previsto neste Termo é o da LATAM Pass, no valor de R$ 80,00 por bloco, nas condições do item 5.
+
+Não há pagamento pela criação da conta Livelo, pela primeira biometria da Livelo ou pelo simples cadastro no site.
 
 O pagamento será realizado:
 
@@ -599,27 +601,19 @@ Nunca em conta pertencente a terceiros;
 
 Os pagamentos possuem caráter eventual e não representam salário, remuneração mensal, comissão fixa ou garantia de recorrência.
 
-4. PAGAMENTO DE ENTRADA DA LIVELO
+4. AUSÊNCIA DE PAGAMENTO NA LIVELO
 
-O TITULAR receberá R$ 20,00 pela entrada da conta Livelo.
+Não haverá pagamento de entrada, cadastro ou primeira biometria da conta Livelo.
 
-O pagamento será realizado após a conclusão e aprovação do cadastro, conforme os critérios operacionais da Vias Aéreas.
-
-O valor de R$ 20,00 inclui:
-
-Criação ou disponibilização da conta Livelo;
-Preparação inicial da conta;
-Disponibilidade inicial do TITULAR;
-Eventual alteração do número de telefone;
-Primeira biometria facial solicitada pela Livelo;
-
-A primeira biometria da Livelo estará incluída nesse valor, ainda que seja realizada em momento posterior ao cadastro inicial.
-
-A primeira biometria da Livelo não gerará pagamento adicional.
+A criação da conta Livelo não gera remuneração e não garante que a conta será utilizada em operações.
 
 5. PAGAMENTO DO BLOCO OPERACIONAL LATAM
 
-Nas operações realizadas por meio da LATAM Pass, o TITULAR receberá R$ 80,00 por bloco operacional.
+Nas operações realizadas por meio da LATAM Pass, o TITULAR receberá R$ 80,00 por bloco operacional, somente após a assinatura do clube e a compra de pontos pela Vias Aéreas.
+
+O pagamento, quando devido, costuma ser realizado entre 24h a 72h após essa etapa.
+
+Criar a conta LATAM Pass não gera pagamento e não é garantia de uso.
 
 Esse pagamento abrange:
 
@@ -929,9 +923,10 @@ Compreendeu o funcionamento das operações;
 Autoriza a utilização operacional das contas Livelo e LATAM Pass;
 Compreendeu que a Vias Aéreas utilizará recursos próprios nas operações;
 Compreendeu que não deverá realizar pagamentos ou investimentos;
-Está ciente do pagamento de R$ 20,00 pela entrada da conta Livelo;
-Está ciente de que a primeira biometria da Livelo está incluída nesse valor;
-Está ciente do pagamento de R$ 80,00 por bloco operacional LATAM;
+Está ciente de que não há pagamento pela criação da conta Livelo;
+Está ciente de que criar as contas não é garantia de uso;
+Está ciente do pagamento de R$ 80,00 por bloco operacional LATAM, após assinatura do clube e compra de pontos;
+Está ciente de que esse pagamento, quando devido, costuma ocorrer entre 24h a 72h após essa etapa;
 Compreendeu que o pagamento de R$ 80,00 abrange todas as emissões e biometrias do bloco;
 Está ciente de que um bloco poderá envolver, em média, oito biometrias;
 Compreendeu que a quantidade de biometrias poderá ser menor ou maior;
@@ -1072,8 +1067,6 @@ export default function ConviteClient({ code }: { code: string }) {
     chavePix: "",
     banco: "",
     pixTipo: "",
-    pontosLatam: "",
-    pontosLivelo: "",
   });
 
   const [loadingInvite, setLoadingInvite] = useState(true);
@@ -1106,8 +1099,6 @@ export default function ConviteClient({ code }: { code: string }) {
       chavePix: "",
       banco: "",
       pixTipo: "",
-      pontosLatam: "",
-      pontosLivelo: "",
     });
     setTermoAceito(false);
   }
@@ -1129,8 +1120,8 @@ export default function ConviteClient({ code }: { code: string }) {
       senhaEmailEnc: form.senhaEmail || null,
       senhaLatamPassEnc: form.senhaLatamPass || null,
       senhaLiveloEnc: form.senhaLivelo || null,
-      pontosLatam: Number(form.pontosLatam || 0),
-      pontosLivelo: Number(form.pontosLivelo || 0),
+      pontosLatam: 0,
+      pontosLivelo: 0,
       termoAceito: true,
       termoVersao: TERMO_VERSAO,
       titularConfirmado: true,
@@ -1278,19 +1269,57 @@ export default function ConviteClient({ code }: { code: string }) {
     : responsavel.name;
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900 flex justify-center p-4 pb-24 md:p-6 [&_input]:bg-white [&_input]:text-slate-900 [&_input::placeholder]:text-slate-400 [&_select]:bg-white [&_select]:text-slate-900">
-      <div className="w-full max-w-3xl">
-        <h1 className="mb-2 text-2xl font-bold text-center text-slate-900">Cadastro de cedente</h1>
+    <div className="min-h-screen bg-[#e8eef5] text-slate-900 [&_input]:bg-white [&_input]:text-slate-900 [&_input::placeholder]:text-slate-400 [&_select]:bg-white [&_select]:text-slate-900">
+      <header className="bg-[#0b2a4a] px-4 py-5 text-white">
+        <div className="mx-auto flex max-w-3xl flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-sky-200">
+              Vias Aéreas
+            </div>
+            <h1 className="mt-1 text-2xl font-bold tracking-tight">Cadastro de titular</h1>
+            <p className="mt-1 text-sm text-sky-100/80">
+              Crie as contas, leia as orientações e envie seus dados com segurança.
+            </p>
+          </div>
+          <div className="rounded-2xl bg-white/10 px-3 py-2 text-xs text-sky-50">
+            <div className="font-semibold">{responsavelLabel}</div>
+            <div className="text-sky-200">Quem enviou este convite</div>
+          </div>
+        </div>
+      </header>
 
-        <div className="mb-6 rounded-2xl border bg-white p-4">
-          <div className="text-sm font-semibold">Responsável</div>
-          <div className="text-sm text-slate-600">{responsavelLabel}</div>
-          <div className="text-xs text-slate-500 mt-1">(No caso: quem forneceu o link de indicação)</div>
+      <div className="mx-auto w-full max-w-3xl space-y-5 px-4 py-6 pb-24">
+        <div className="overflow-hidden rounded-3xl border border-slate-200/80 bg-white shadow-lg shadow-slate-300/40">
+          <img
+            src="/cadastro-vias-aereas.png"
+            alt="Como participar da Vias Aéreas: crie o e-mail, Livelo e LATAM Pass, e receba R$ 80 por bloco LATAM"
+            className="h-auto w-full"
+          />
         </div>
 
-        <div className="mb-6 rounded-2xl border bg-white p-4 space-y-3">
-          <div className="text-sm font-semibold">Orientações para cadastro nas plataformas</div>
-          <div className="text-xs text-slate-500">Versão: {ORIENTACOES_VERSAO}</div>
+        <div className="grid gap-3 sm:grid-cols-3">
+          <div className="rounded-2xl border border-sky-100 bg-white p-4 shadow-sm">
+            <div className="text-[11px] font-semibold uppercase tracking-wide text-sky-700">Pagamento</div>
+            <div className="mt-1 text-lg font-bold text-slate-900">R$ 80 na LATAM</div>
+            <p className="mt-1 text-xs text-slate-500">Somente após clube e compra de pontos.</p>
+          </div>
+          <div className="rounded-2xl border border-amber-100 bg-white p-4 shadow-sm">
+            <div className="text-[11px] font-semibold uppercase tracking-wide text-amber-700">Prazo</div>
+            <div className="mt-1 text-lg font-bold text-slate-900">24h a 72h</div>
+            <p className="mt-1 text-xs text-slate-500">PIX depois da operação autorizada.</p>
+          </div>
+          <div className="rounded-2xl border border-rose-100 bg-white p-4 shadow-sm">
+            <div className="text-[11px] font-semibold uppercase tracking-wide text-rose-700">Importante</div>
+            <div className="mt-1 text-lg font-bold text-slate-900">Sem garantia de uso</div>
+            <p className="mt-1 text-xs text-slate-500">Criar as contas não garante operação.</p>
+          </div>
+        </div>
+
+        <div className="space-y-3 rounded-3xl border border-slate-200/80 bg-white p-5 shadow-sm">
+          <div>
+            <div className="text-sm font-semibold text-slate-900">Orientações para cadastro</div>
+            <div className="text-xs text-slate-500">Versão {ORIENTACOES_VERSAO} · Livelo e LATAM Pass</div>
+          </div>
 
           <div className="grid gap-2 md:grid-cols-2">
             {PROGRAMAS_FIDELIDADE.map((programa) => (
@@ -1299,24 +1328,23 @@ export default function ConviteClient({ code }: { code: string }) {
                 href={programa.url}
                 target="_blank"
                 rel="noreferrer"
-                className="rounded-xl border px-3 py-2 text-sm font-medium text-sky-700 hover:bg-slate-50"
+                className="rounded-2xl border border-sky-200 bg-sky-50 px-3 py-2.5 text-sm font-semibold text-sky-800 hover:bg-sky-100"
               >
-                {programa.nome}
+                Abrir {programa.nome}
               </a>
             ))}
           </div>
 
-          <div className="rounded-xl border bg-slate-50 p-3 max-h-[360px] overflow-auto">
+          <div className="max-h-[360px] overflow-auto rounded-2xl border border-slate-100 bg-slate-50 p-4">
             <LegalTextBlock text={ORIENTACOES_TEXTO} blockId="orientacoes" />
           </div>
         </div>
 
-        {/* ✅ TERMO + ACEITE */}
-        <div className="mb-6 rounded-2xl border bg-white p-4 space-y-3">
-          <div className="text-sm font-semibold">Termo de ciência e autorização</div>
-          <div className="text-xs text-slate-500">Versão: {TERMO_VERSAO}</div>
+        <div className="space-y-3 rounded-3xl border border-slate-200/80 bg-white p-5 shadow-sm">
+          <div className="text-sm font-semibold text-slate-900">Termo de ciência e autorização</div>
+          <div className="text-xs text-slate-500">Versão {TERMO_VERSAO}</div>
 
-          <div className="rounded-xl border bg-slate-50 p-3 max-h-[320px] overflow-auto">
+          <div className="max-h-[320px] overflow-auto rounded-2xl border border-slate-100 bg-slate-50 p-4">
             <LegalTextBlock text={TERMO_TEXTO} blockId="termo" />
           </div>
 
@@ -1333,8 +1361,8 @@ export default function ConviteClient({ code }: { code: string }) {
           </label>
         </div>
 
-        <form onSubmit={onSubmit} className="space-y-6">
-          <section className="rounded-2xl border bg-white p-4">
+        <form onSubmit={onSubmit} className="space-y-5">
+          <section className="rounded-3xl border border-slate-200/80 bg-white p-5 shadow-sm">
             <h2 className="mb-3 font-semibold">Dados</h2>
 
             <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
@@ -1398,7 +1426,7 @@ export default function ConviteClient({ code }: { code: string }) {
             </div>
           </section>
 
-          <section className="rounded-2xl border bg-white p-4">
+          <section className="rounded-3xl border border-slate-200/80 bg-white p-5 shadow-sm">
             <h2 className="mb-3 font-semibold">Acessos e dados bancários</h2>
 
             <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
@@ -1479,14 +1507,6 @@ export default function ConviteClient({ code }: { code: string }) {
             </div>
           </section>
 
-          <section className="rounded-2xl border bg-white p-4">
-            <h2 className="mb-3 font-semibold">Pontos</h2>
-            <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-              <FieldNumber label="Latam" value={form.pontosLatam} onChange={(v) => setField("pontosLatam", v)} />
-              <FieldNumber label="Livelo" value={form.pontosLivelo} onChange={(v) => setField("pontosLivelo", v)} />
-            </div>
-          </section>
-
           {duplicateInfo ? (
             <section className="rounded-2xl border border-amber-300 bg-amber-50 p-4 space-y-4">
               <div>
@@ -1506,8 +1526,6 @@ export default function ConviteClient({ code }: { code: string }) {
                     <div><b>E-mail:</b> {formatFieldValue(duplicateInfo.existing.emailCriado)}</div>
                     <div><b>Banco:</b> {formatFieldValue(duplicateInfo.existing.banco)}</div>
                     <div><b>PIX:</b> {duplicateInfo.existing.pixTipo} • {formatFieldValue(duplicateInfo.existing.chavePix)}</div>
-                    <div><b>Latam:</b> {duplicateInfo.existing.pontosLatam}</div>
-                    <div><b>Livelo:</b> {duplicateInfo.existing.pontosLivelo}</div>
                   </div>
                 </div>
 
@@ -1519,8 +1537,6 @@ export default function ConviteClient({ code }: { code: string }) {
                     <FieldDiff label="E-mail" current={duplicateInfo.existing.emailCriado} next={form.emailCriado.trim() || null} />
                     <FieldDiff label="Banco" current={duplicateInfo.existing.banco} next={form.banco.trim()} />
                     <FieldDiff label="PIX" current={`${duplicateInfo.existing.pixTipo} • ${duplicateInfo.existing.chavePix}`} next={`${form.pixTipo || "—"} • ${form.chavePix.trim() || "—"}`} />
-                    <FieldDiff label="Latam" current={duplicateInfo.existing.pontosLatam} next={Number(form.pontosLatam || 0)} />
-                    <FieldDiff label="Livelo" current={duplicateInfo.existing.pontosLivelo} next={Number(form.pontosLivelo || 0)} />
                   </div>
                 </div>
               </div>
@@ -1555,39 +1571,16 @@ export default function ConviteClient({ code }: { code: string }) {
           <button
             type="submit"
             disabled={saving}
-            className="w-full rounded-xl bg-black px-4 py-2 text-white hover:bg-slate-900 disabled:opacity-60"
+            className="w-full rounded-2xl bg-[#0b2a4a] px-4 py-3 text-sm font-semibold text-white shadow-sm hover:bg-[#0e3a63] disabled:opacity-60"
           >
             {saving ? "Enviando..." : "Enviar cadastro"}
           </button>
 
-          <div className="rounded-2xl border bg-white p-4 text-xs text-slate-600">
-            <b>⚠️ Aviso:</b> por enquanto senhas estão sendo salvas em texto (como solicitado).
-          </div>
+          <p className="px-1 text-center text-xs text-slate-500">
+            Vias Aéreas LTDA · CNPJ 63.817.773/0001-85
+          </p>
         </form>
       </div>
-    </div>
-  );
-}
-
-function FieldNumber({
-  label,
-  value,
-  onChange,
-}: {
-  label: string;
-  value: number | "";
-  onChange: (v: number | "") => void;
-}) {
-  return (
-    <div>
-      <label className="mb-1 block text-sm">{label}</label>
-      <input
-        type="number"
-        min={0}
-        className="w-full rounded-xl border px-3 py-2"
-        value={value}
-        onChange={(e) => onChange(e.target.value === "" ? "" : Number(e.target.value))}
-      />
     </div>
   );
 }
