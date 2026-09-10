@@ -10,16 +10,53 @@ const TRADE_TABS = [
   "http://localhost:3000/dashboard/*",
 ];
 
+const CAPTURE_IDLE_MIN = 10;
+const CAPTURE_IDLE_ALARM = "tm-capture-idle";
+
+async function notifyCapture(on) {
+  const tabs = await chrome.tabs.query({ url: TRADE_TABS });
+  for (const tab of tabs) {
+    if (!tab.id) continue;
+    try {
+      await chrome.tabs.sendMessage(tab.id, { type: "TM_COTACAO_CAPTURE_STATE", captureOn: Boolean(on) });
+    } catch {
+      /* aba sem bridge */
+    }
+  }
+}
+
+async function bumpCaptureIdle() {
+  const { tmCaptureOn } = await chrome.storage.local.get(["tmCaptureOn"]);
+  if (!tmCaptureOn) return;
+  await chrome.alarms.create(CAPTURE_IDLE_ALARM, { delayInMinutes: CAPTURE_IDLE_MIN });
+}
+
+async function setCaptureOn(on) {
+  const next = Boolean(on);
+  await chrome.storage.local.set({ tmCaptureOn: next });
+  if (next) await bumpCaptureIdle();
+  else await chrome.alarms.clear(CAPTURE_IDLE_ALARM);
+  await notifyCapture(next);
+  return next;
+}
+
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg?.type === "TM_COTACAO_PING") {
     chrome.storage.local.get(["tmCaptureOn"]).then((st) => {
-      sendResponse({ ok: true, version: "1.8.12", captureOn: Boolean(st.tmCaptureOn) });
+      sendResponse({ ok: true, version: "1.8.14", captureOn: Boolean(st.tmCaptureOn) });
     });
     return true;
   }
   if (msg?.type === "TM_COTACAO_SET_CAPTURE") {
-    const on = Boolean(msg.on);
-    chrome.storage.local.set({ tmCaptureOn: on }).then(() => sendResponse({ ok: true, captureOn: on }));
+    setCaptureOn(msg.on)
+      .then((captureOn) => sendResponse({ ok: true, captureOn }))
+      .catch(() => sendResponse({ ok: false, captureOn: false }));
+    return true;
+  }
+  if (msg?.type === "TM_COTACAO_CAPTURE_ACTIVITY") {
+    bumpCaptureIdle()
+      .then(() => sendResponse({ ok: true }))
+      .catch(() => sendResponse({ ok: false }));
     return true;
   }
   if (msg?.type === "TM_COTACAO_OPEN") {
@@ -61,12 +98,14 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
   if (msg?.type === "TM_COTACAO_CAPTURE_MILES") {
+    bumpCaptureIdle();
     captureMiles(msg)
       .then((res) => sendResponse(res))
       .catch(() => sendResponse({ ok: false, error: "Não deu para enviar." }));
     return true;
   }
   if (msg?.type === "TM_COTACAO_INTERPRET_MILES") {
+    bumpCaptureIdle();
     interpretMiles(msg)
       .then((res) => sendResponse(res))
       .catch(() => sendResponse({ ok: false, error: "Não deu para interpretar." }));
@@ -77,6 +116,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm?.name === "tm-cotacao-pump") requestStart();
   if (alarm?.name === "tm-cotacao-timeout") onTimeout();
+  if (alarm?.name === CAPTURE_IDLE_ALARM) {
+    chrome.storage.local.get(["tmCaptureOn"]).then((st) => {
+      if (st.tmCaptureOn) void setCaptureOn(false);
+    });
+  }
 });
 
 chrome.alarms.create("tm-cotacao-pump", { periodInMinutes: 1 });
@@ -345,7 +389,9 @@ async function onTimeout() {
 async function interpretMiles(msg) {
   const cia = String(msg?.cia || "").toLowerCase();
   const snippet = String(msg?.snippet || "");
-  if (!["latam", "smiles", "azul"].includes(cia) || snippet.trim().length < 8) {
+  const mode = String(msg?.mode || "").toLowerCase() === "cash" ? "cash" : "miles";
+  const allowed = mode === "cash" ? ["latam", "azul", "gol"] : ["latam", "smiles", "azul"];
+  if (!allowed.includes(cia) || snippet.trim().length < 8) {
     return { ok: false, error: "Selecione o trecho do voo na página." };
   }
   const { tmJobId } = await chrome.storage.local.get(["tmJobId"]);
@@ -361,6 +407,8 @@ async function interpretMiles(msg) {
         direction: String(msg?.direction || ""),
         origin: String(msg?.origin || ""),
         dest: String(msg?.dest || ""),
+        mode,
+        pageUrl: String(msg?.pageUrl || ""),
       });
       if (res?.ok) return res;
       if (res?.error) return { ok: false, error: res.error };

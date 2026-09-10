@@ -155,6 +155,34 @@ export function isCashAirline(airline: string) {
   return /^(GOL|LATAM|AZUL)$/i.test(String(airline || "").trim());
 }
 
+export function cashSiteDisplayName(airline: string) {
+  const a = String(airline || "").trim().toUpperCase();
+  if (a === "AZUL") return "Azul";
+  if (a === "LATAM") return "LATAM";
+  if (a === "GOL") return "GOL";
+  return "Google Flights";
+}
+
+export function pickPreferredCashSearch<
+  T extends {
+    direction: string;
+    status: string;
+    priceCents: number;
+    airline: string;
+    updatedAt?: string | Date | null;
+  },
+>(searches: T[], direction: string): T | null {
+  const ok = searches.filter(
+    (s) => s.direction === direction && s.status === "OK" && s.priceCents > 0 && !isMilesAirline(s.airline)
+  );
+  const cia = ok
+    .filter((s) => isCashAirline(s.airline))
+    .sort((a, b) => new Date(b.updatedAt || 0).getTime() - new Date(a.updatedAt || 0).getTime());
+  if (cia[0]) return cia[0];
+  const scout = ok.filter((s) => isScoutAirline(s.airline)).sort((a, b) => a.priceCents - b.priceCents);
+  return scout[0] || null;
+}
+
 export function normalizeCarrier(text: string) {
   const t = String(text || "").toUpperCase();
   if (/\bGOL\b|\bG3\b|VOEGOL/.test(t)) return "GOL";

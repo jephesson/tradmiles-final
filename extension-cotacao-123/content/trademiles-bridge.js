@@ -26,7 +26,7 @@ if (!window.__tmCotacaoBridge) {
       }
       window.dispatchEvent(
         new CustomEvent("tm-cotacao-bridge", {
-          detail: { connected, version: "1.8.12", captureOn: Boolean(extra?.captureOn) },
+          detail: { connected, version: "1.8.14", captureOn: Boolean(extra?.captureOn) },
         })
       );
     } catch {
@@ -70,6 +70,11 @@ if (!window.__tmCotacaoBridge) {
 
   try {
     chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+      if (msg?.type === "TM_COTACAO_CAPTURE_STATE") {
+        notify(true, { captureOn: Boolean(msg.captureOn) });
+        sendResponse({ ok: true });
+        return;
+      }
       if (msg?.type === "TM_COTACAO_INTERPRET") {
         (async () => {
           try {
@@ -85,13 +90,19 @@ if (!window.__tmCotacaoBridge) {
                 direction: msg.direction || "",
                 origin: msg.origin || "",
                 dest: msg.dest || "",
+                mode: msg.mode || "miles",
+                pageUrl: msg.pageUrl || "",
               }),
             });
             const json = await r.json().catch(() => null);
             sendResponse({
               ok: Boolean(json?.ok),
+              mode: json?.mode || msg.mode || "miles",
               miles: json?.miles || 0,
               feeCents: json?.feeCents || 0,
+              priceCents: json?.priceCents || 0,
+              depTime: json?.depTime || "",
+              arrTime: json?.arrTime || "",
               direction: json?.direction || "",
               needOtherLeg: Boolean(json?.needOtherLeg),
               otherLeg: json?.otherLeg || "",
@@ -178,6 +189,15 @@ if (!window.__tmCotacaoBridge) {
         sendResponse({ ok: true });
       })();
       return true;
+    });
+  } catch {
+    /* ignore */
+  }
+
+  try {
+    chrome.storage.onChanged.addListener((changes, area) => {
+      if (area !== "local" || !changes.tmCaptureOn) return;
+      notify(true, { captureOn: Boolean(changes.tmCaptureOn.newValue) });
     });
   } catch {
     /* ignore */

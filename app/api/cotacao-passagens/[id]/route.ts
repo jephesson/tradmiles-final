@@ -38,6 +38,22 @@ export async function PATCH(req: Request, ctx: Ctx) {
     });
     return NextResponse.json({ ok: true, job: null });
   }
+  if (body.dropCashCia) {
+    const direction = String(body.direction || "").toUpperCase() === "VOLTA" ? "VOLTA" : "IDA";
+    await prisma.cotacaoPassagemSearch.updateMany({
+      where: { jobId: job.id, direction, airline: { in: ["LATAM", "AZUL", "GOL"] } },
+      data: {
+        status: "CANCELADO",
+        error: "À vista voltou para o Google Flights.",
+        finishedAt: new Date(),
+      },
+    });
+    const updated = await prisma.cotacaoPassagemJob.findFirst({
+      where: { id: job.id },
+      include: { searches: { orderBy: [{ direction: "asc" }, { date: "asc" }] } },
+    });
+    return NextResponse.json({ ok: true, job: updated });
+  }
   if (body.quoteMiles !== undefined) data.quoteMiles = Math.max(0, Math.trunc(Number(body.quoteMiles) || 0));
   if (body.quoteMilheiroCents !== undefined) {
     data.quoteMilheiroCents = Math.max(0, Math.trunc(Number(body.quoteMilheiroCents) || 0));

@@ -8,10 +8,14 @@ import {
   buildAzulSearchUrl,
   buildLatamSearchUrl,
   buildSmilesSearchUrl,
+  cashAirlineSearches,
+  cashSiteDisplayName,
   ciaKeyFromMilesAirline,
   fmtFlightSchedule,
+  isCashAirline,
   isMilesAirline,
   isScoutAirline,
+  pickPreferredCashSearch,
   durationMinFromClocks,
   parseClock,
   resolvedDurationMin,
@@ -39,6 +43,7 @@ type SearchRow = {
   arrTime?: string | null;
   durationMin?: number | null;
   stops?: number | null;
+  updatedAt?: string | Date | null;
 };
 
 type Job = {
@@ -46,6 +51,7 @@ type Job = {
   status: string;
   origins: string;
   destinations: string;
+  adults?: number;
   includeReturn: boolean;
   quoteMiles: number;
   quoteMilheiroCents: number;
@@ -91,7 +97,7 @@ function fromSaved(row?: QuoteCiaCell | null): CiaDraft {
   };
 }
 
-const ZIP_HREF = "/downloads/trademiles-cotacao-gol-extension.zip?v=1.8.12";
+const ZIP_HREF = "/downloads/trademiles-cotacao-gol-extension.zip?v=1.8.14";
 let leaveClearTimer: number | null = null;
 const FIELD = "text-[11px] font-semibold uppercase tracking-wide text-slate-500";
 const INPUT =
@@ -392,24 +398,26 @@ export default function CotacaoPassagensClient() {
     });
   }, [job?.searches]);
 
-  const bestIda = useMemo(() => {
-    const ok = (job?.searches || []).filter(
-      (s) => s.direction === "IDA" && s.status === "OK" && s.priceCents > 0 && !isMilesAirline(s.airline)
-    );
-    const decolar = ok.filter((s) => isScoutAirline(s.airline));
-    return (decolar.length ? decolar : ok).sort((a, b) => a.priceCents - b.priceCents)[0] || null;
-  }, [job]);
-  const bestVolta = useMemo(() => {
-    const ok = (job?.searches || []).filter(
-      (s) => s.direction === "VOLTA" && s.status === "OK" && s.priceCents > 0 && !isMilesAirline(s.airline)
-    );
-    const decolar = ok.filter((s) => isScoutAirline(s.airline));
-    return (decolar.length ? decolar : ok).sort((a, b) => a.priceCents - b.priceCents)[0] || null;
-  }, [job]);
+  const bestIda = useMemo(() => pickPreferredCashSearch(job?.searches || [], "IDA"), [job]);
+  const bestVolta = useMemo(() => pickPreferredCashSearch(job?.searches || [], "VOLTA"), [job]);
+  const scoutIda = useMemo(
+    () => (job?.searches || []).find((s) => s.direction === "IDA" && isScoutAirline(s.airline)) || null,
+    [job]
+  );
+  const scoutVolta = useMemo(
+    () => (job?.searches || []).find((s) => s.direction === "VOLTA" && isScoutAirline(s.airline)) || null,
+    [job]
+  );
 
   const comboCents = job?.includeReturn ? (bestIda?.priceCents || 0) + (bestVolta?.priceCents || 0) : 0;
   const cashPrice = comboCents > 0 ? comboCents : bestIda?.priceCents || 0;
-  const cashLabel = comboCents > 0 ? "À vista (ida + volta)" : bestIda ? "À vista · Google Flights" : "À vista";
+  const cashSiteLabel = (() => {
+    const names = [bestIda, job?.includeReturn ? bestVolta : null]
+      .filter(Boolean)
+      .map((row) => cashSiteDisplayName(row!.airline));
+    return [...new Set(names)].join(" + ") || "Google Flights";
+  })();
+  const cashLabel = comboCents > 0 ? `À vista (ida + volta) · ${cashSiteLabel}` : bestIda ? `À vista · ${cashSiteLabel}` : "À vista";
   const googleError = (job?.searches || []).find(
     (s) => isScoutAirline(s.airline) && s.status === "ERRO" && s.error
   )?.error || "";
@@ -540,6 +548,7 @@ export default function CotacaoPassagensClient() {
       return {
         tripKind: job?.includeReturn ? "Ida e volta" : "Só ida",
         cashTotalCents: cashPrice,
+        cashSiteLabel,
         cashIda: toShareLeg(bestIda),
         cashVolta: job?.includeReturn ? toShareLeg(bestVolta) : null,
         ciaLabel: mix.priced.ciaLabel,
@@ -572,6 +581,7 @@ export default function CotacaoPassagensClient() {
     return {
       tripKind: job?.includeReturn ? "Ida e volta" : "Só ida",
       cashTotalCents: cashPrice,
+      cashSiteLabel,
       cashIda: toShareLeg(bestIda),
       cashVolta: job?.includeReturn ? toShareLeg(bestVolta) : null,
       ciaLabel: activeCia.label,
@@ -598,7 +608,7 @@ export default function CotacaoPassagensClient() {
           )
         : null,
     };
-  }, [activeCia, cashPrice, job, bestIda, bestVolta, mix]);
+  }, [activeCia, cashPrice, cashSiteLabel, job, bestIda, bestVolta, mix]);
   useEffect(() => {
     const volta = mix?.volta;
     if (!mix?.priced.missesTarget || !volta) {
@@ -721,6 +731,19 @@ export default function CotacaoPassagensClient() {
     }).catch(() => null);
   }
 
+  async function dropCashCia(direction: "IDA" | "VOLTA") {
+    if (!job) return;
+    const r = await fetch(`/api/cotacao-passagens/${encodeURIComponent(job.id)}`, {
+      method: "PATCH",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ dropCashCia: true, direction }),
+    });
+    const j = await r.json().catch(() => null);
+    if (j?.job) setJob(j.job);
+    else load(job.id);
+  }
+
   async function saveQuote() {
     if (!job) return;
     const quoteCia = Object.fromEntries(
@@ -768,7 +791,9 @@ export default function CotacaoPassagensClient() {
             <Plane className="h-5 w-5 text-slate-400" />
             Cotação
           </h1>
-          <p className="mt-0.5 text-sm text-slate-500">Google Flights no à vista. Extensão só nas milhas.</p>
+          <p className="mt-0.5 text-sm text-slate-500">
+            Google Flights no à vista. Na cia, use milhas ou o preço em reais com a extensão.
+          </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <span
@@ -784,6 +809,7 @@ export default function CotacaoPassagensClient() {
             role="switch"
             aria-checked={captureOn}
             disabled={!extOk}
+            title="Desliga sozinha após 10 min sem usar"
             onClick={() => {
               const on = !captureOn;
               setCaptureOn(on);
@@ -964,7 +990,9 @@ export default function CotacaoPassagensClient() {
       {job ? (
         <div className="space-y-3">
           <div>
-            <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">À vista · Google Flights</div>
+            <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+              À vista · {cashSiteLabel}
+            </div>
             <div className="text-sm font-semibold text-slate-900">
               {job.origins} → {job.destinations}
               {job.includeReturn ? " · ida e volta" : " · só ida"}
@@ -972,8 +1000,22 @@ export default function CotacaoPassagensClient() {
           </div>
           {cashPrice > 0 ? (
             <>
-              <CashFlightCard title={job.includeReturn ? "Ida" : "Menor tarifa"} row={bestIda} />
-              {job.includeReturn ? <CashFlightCard title="Volta" row={bestVolta} /> : null}
+              <CashFlightCard
+                title={job.includeReturn ? "Ida" : "Menor tarifa"}
+                row={bestIda}
+                adults={job.adults || 1}
+                scoutUrl={scoutIda?.url || ""}
+                onUseGoogle={isCashAirline(bestIda?.airline || "") ? () => dropCashCia("IDA") : undefined}
+              />
+              {job.includeReturn ? (
+                <CashFlightCard
+                  title="Volta"
+                  row={bestVolta}
+                  adults={job.adults || 1}
+                  scoutUrl={scoutVolta?.url || ""}
+                  onUseGoogle={isCashAirline(bestVolta?.airline || "") ? () => dropCashCia("VOLTA") : undefined}
+                />
+              ) : null}
               <div className="rounded-2xl bg-slate-900 px-4 py-3 text-white">
                 <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-300">{cashLabel}</div>
                 <div className="text-2xl font-bold tabular-nums">{fmtMoney(cashPrice)}</div>
@@ -1265,7 +1307,19 @@ function milesHref(key: CiaKey, origin: string, dest: string, date: string) {
   return buildAzulSearchUrl(origin, dest, date);
 }
 
-function CashFlightCard({ title, row }: { title: string; row: SearchRow | null }) {
+function CashFlightCard({
+  title,
+  row,
+  adults = 1,
+  scoutUrl,
+  onUseGoogle,
+}: {
+  title: string;
+  row: SearchRow | null;
+  adults?: number;
+  scoutUrl?: string;
+  onUseGoogle?: () => void;
+}) {
   if (!row) {
     return (
       <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-500">
@@ -1273,6 +1327,9 @@ function CashFlightCard({ title, row }: { title: string; row: SearchRow | null }
       </div>
     );
   }
+  const googleHref = isScoutAirline(row.airline) ? row.url : scoutUrl || row.url;
+  const cashLinks = cashAirlineSearches(row.originIata, row.destIata, row.date, adults);
+  const usingCia = isCashAirline(row.airline);
   return (
     <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3">
       <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">{title}</div>
@@ -1286,15 +1343,45 @@ function CashFlightCard({ title, row }: { title: string; row: SearchRow | null }
       {fmtFlightSchedule(row) ? (
         <div className="mt-1 text-sm font-medium text-slate-800">{fmtFlightSchedule(row)}</div>
       ) : null}
-      <div className="mt-1 text-xl font-bold tabular-nums">{fmtMoney(row.priceCents)}</div>
+      <div className="mt-1 flex flex-wrap items-baseline gap-x-3 gap-y-1">
+        <div className="text-xl font-bold tabular-nums">{fmtMoney(row.priceCents)}</div>
+        <div className="text-xs font-semibold text-slate-500">{cashSiteDisplayName(row.airline)}</div>
+        {usingCia && onUseGoogle ? (
+          <button
+            type="button"
+            onClick={onUseGoogle}
+            className="text-xs font-semibold text-slate-500 underline-offset-2 hover:text-slate-800 hover:underline"
+          >
+            Usar Google Flights
+          </button>
+        ) : null}
+      </div>
+      <div className="mt-3 border-t border-slate-100 pt-3">
+        <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+          À vista na cia
+        </div>
+        <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+          {cashLinks.map((cia) => (
+            <a
+              key={cia.airline}
+              href={cia.url}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex h-8 items-center rounded-lg border border-slate-200 px-2.5 text-xs font-semibold text-slate-800"
+            >
+              {cashSiteDisplayName(cia.airline)}
+            </a>
+          ))}
+        </div>
+      </div>
       <div className="mt-3 border-t border-slate-100 pt-3">
         <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
           Buscar milhas deste trecho
         </div>
         <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-          {row.url ? (
+          {googleHref ? (
             <a
-              href={row.url}
+              href={googleHref}
               target="_blank"
               rel="noreferrer"
               className="inline-flex h-8 items-center gap-1 rounded-lg border border-slate-200 px-2.5 text-xs font-semibold text-slate-700"

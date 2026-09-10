@@ -83,6 +83,7 @@ function LegBlock({
 export type CotacaoShareModel = {
   tripKind: string;
   cashTotalCents: number;
+  cashSiteLabel?: string;
   cashIda: ShareLeg | null;
   cashVolta: ShareLeg | null;
   ciaLabel: string;
@@ -103,7 +104,7 @@ function savingsCopy(cash: number, miles: number) {
     return {
       tone: "save" as const,
       reais: `Economia de ${fmtMoney(delta)}`,
-      pct: `${pct}% abaixo do Google Flights`,
+      pct: `${pct}% abaixo do à vista`,
     };
   }
   if (delta < 0) {
@@ -216,7 +217,9 @@ export function CotacaoShareCard({
           <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
             Em outros sites
           </div>
-          <div className="mt-0.5 text-[13px] font-semibold text-slate-500">Google Flights</div>
+          <div className="mt-0.5 text-[13px] font-semibold text-slate-500">
+            {model.cashSiteLabel || "Google Flights"}
+          </div>
           <div className="mt-3 flex-1 space-y-3">
             <LegBlock label={hasVolta ? "Ida" : undefined} leg={model.cashIda} empty="Sem tarifa à vista" />
             {hasVolta ? <LegBlock label="Volta" leg={model.cashVolta} empty="Sem volta à vista" /> : null}
