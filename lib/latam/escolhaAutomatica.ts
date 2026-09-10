@@ -149,9 +149,9 @@ export function normalizeMinFree(raw?: string | number | null) {
 
 export async function fetchEscolhaAutomaticaList(args: {
   team: string;
-  monthKey?: string;
+  monthKey?: string | null;
   minFree?: number;
-  q?: string;
+  q?: string | null;
 }) {
   const monthKey = normalizeEscolhaMonthKey(args.monthKey);
   const minFree = normalizeMinFree(args.minFree);
