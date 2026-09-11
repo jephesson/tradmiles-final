@@ -356,6 +356,7 @@ export default function ComprasClient() {
 
   // modal state
   const [pointsModalId, setPointsModalId] = useState<string | null>(null);
+  const [metaModalId, setMetaModalId] = useState<string | null>(null);
 
   // paginação
   const [nextCursor, setNextCursor] = useState<string | null>(null);
@@ -742,9 +743,15 @@ export default function ComprasClient() {
                     <div className="font-semibold text-slate-900">
                       {m ? fmtMoneyBR(m) : <span className="text-slate-500">—</span>}
                     </div>
-                    <div className="text-[11px] text-slate-500">
-                      {meta > 0 ? `meta ${fmtMoneyBR(meta)}` : "custo / milheiro"}
-                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setMetaModalId(r.id)}
+                      disabled={isCanceled}
+                      className="mt-0.5 text-[11px] font-semibold text-indigo-700 hover:underline disabled:cursor-not-allowed disabled:text-slate-400 disabled:no-underline"
+                      title="Alterar meta do milheiro"
+                    >
+                      {meta > 0 ? `meta ${fmtMoneyBR(meta)}` : "definir meta"}
+                    </button>
                   </td>
 
                   <td className="px-3 py-3.5 text-right font-semibold tabular-nums text-slate-900">
@@ -804,7 +811,15 @@ export default function ComprasClient() {
         purchaseId={pointsModalId}
         onClose={() => setPointsModalId(null)}
         onSaved={() => {
-          // recarrega do zero para refletir totais/itens alterados
+          resetPagination();
+          void load({ silent: true, append: false });
+        }}
+      />
+      <MetaModal
+        open={!!metaModalId}
+        row={rows.find((r) => r.id === metaModalId) || null}
+        onClose={() => setMetaModalId(null)}
+        onSaved={() => {
           resetPagination();
           void load({ silent: true, append: false });
         }}
@@ -813,10 +828,112 @@ export default function ComprasClient() {
   );
 }
 
+function fromCentsInput(cents: number) {
+  if (!cents) return "";
+  return ((cents || 0) / 100).toFixed(2).replace(".", ",");
+}
+
 function toCentsFromInput(v: string) {
   const cleaned = String(v || "").trim().replace(",", ".");
   const n = Number(cleaned || 0);
   return Number.isFinite(n) ? Math.round(n * 100) : 0;
+}
+
+function MetaModal(props: {
+  open: boolean;
+  row: PurchaseRow | null;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const { open, row, onClose, onSaved } = props;
+  const [value, setValue] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!open || !row) return;
+    setErr(null);
+    setValue(fromCentsInput(row.metaMilheiroCents || row.custoMilheiroCents || 0));
+  }, [open, row]);
+
+  if (!open || !row) return null;
+
+  const custo =
+    row.custoMilheiroCents > 0
+      ? row.custoMilheiroCents
+      : milheiroCents(row.ciaPointsTotal || 0, row.totalCostCents || 0);
+
+  async function onSave() {
+    setErr(null);
+    const cents = toCentsFromInput(value);
+    if (cents < 100 || cents > 20000) {
+      setErr("Informe a meta entre R$ 1,00 e R$ 200,00.");
+      return;
+    }
+    setSaving(true);
+    try {
+      await api<{ ok: true; salesUpdated?: number }>(`/api/compras/${row.id}/meta`, {
+        method: "PATCH",
+        body: JSON.stringify({ metaMilheiroCents: cents }),
+      });
+      onSaved();
+      onClose();
+    } catch (e: any) {
+      setErr(e?.message || "Falha ao salvar a meta.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-3">
+      <div className="w-full max-w-md rounded-2xl bg-white shadow-xl">
+        <div className="border-b p-4">
+          <div className="text-sm text-slate-500">Alterar meta do milheiro</div>
+          <div className="text-lg font-semibold">
+            Compra <span className="font-mono">{row.numero}</span>
+          </div>
+          {row.cedente ? (
+            <div className="mt-1 text-sm text-slate-600">{row.cedente.nomeCompleto}</div>
+          ) : null}
+        </div>
+        <div className="space-y-3 p-4">
+          {err ? <div className="rounded-md border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">{err}</div> : null}
+          <p className="text-sm text-slate-600">
+            Custo atual: <b>{custo ? fmtMoneyBR(custo) : "—"}</b>. A meta entra no bônus C2 das vendas desta compra.
+          </p>
+          <div>
+            <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">Meta (R$ / milheiro)</label>
+            <input
+              value={value}
+              onChange={(e) => setValue(e.target.value)}
+              inputMode="decimal"
+              className="mt-1 h-11 w-full rounded-xl border border-slate-200 px-3 text-sm font-semibold tabular-nums outline-none focus:ring-2 focus:ring-slate-900/10"
+              placeholder="25,50"
+            />
+          </div>
+        </div>
+        <div className="flex justify-end gap-2 border-t p-4">
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={saving}
+            className="h-10 rounded-xl border border-slate-200 px-4 text-sm font-semibold text-slate-700 disabled:opacity-50"
+          >
+            Cancelar
+          </button>
+          <button
+            type="button"
+            onClick={() => void onSave()}
+            disabled={saving}
+            className="h-10 rounded-xl bg-slate-900 px-4 text-sm font-semibold text-white disabled:opacity-50"
+          >
+            {saving ? "Salvando…" : "Salvar meta"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function PointsBuyModal(props: {

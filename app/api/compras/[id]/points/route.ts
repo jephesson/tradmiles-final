@@ -77,8 +77,7 @@ async function recalcPurchaseTotals(tx: any, purchaseId: string) {
   // meta milheiro: se for 0 (default) ou menor que custo (quando antes era markup), recalcula como custo+markup
   const metaAtual = safeInt(p.metaMilheiroCents, 0);
   const metaCalc = custoMilheiroCents + metaMarkupCents;
-  const metaMilheiroCents =
-    metaAtual <= 0 ? metaCalc : custoMilheiroCents > 0 && metaAtual < custoMilheiroCents ? metaCalc : metaAtual;
+  const metaMilheiroCents = metaAtual > 0 ? metaAtual : metaCalc;
 
   await tx.purchase.update({
     where: { id: purchaseId },

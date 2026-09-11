@@ -54,8 +54,9 @@ export async function recomputeCompra(purchaseId: string) {
   const pontos = Math.max(0, pointsForMilheiro(compra));
   const custoMilheiroCents = pontos > 0 ? roundInt((totalCents * 1000) / pontos) : 0;
 
-  // ✅ meta = custoMilheiro + markup
-  const metaMilheiroCents = custoMilheiroCents + asInt((compra as any).metaMarkupCents, 0);
+  const markupCents = asInt((compra as any).metaMarkupCents, 0);
+  const metaAtual = asInt((compra as any).metaMilheiroCents, 0);
+  const metaMilheiroCents = metaAtual > 0 ? metaAtual : custoMilheiroCents + markupCents;
 
   const updated = await prisma.purchase.update({
     where: { id: compra.id },
