@@ -858,6 +858,9 @@ function MetaModal(props: {
 
   if (!open || !row) return null;
 
+  const purchaseId = row.id;
+  const numero = row.numero;
+  const cedenteNome = row.cedente?.nomeCompleto;
   const custo =
     row.custoMilheiroCents > 0
       ? row.custoMilheiroCents
@@ -872,7 +875,7 @@ function MetaModal(props: {
     }
     setSaving(true);
     try {
-      await api<{ ok: true; salesUpdated?: number }>(`/api/compras/${row.id}/meta`, {
+      await api<{ ok: true; salesUpdated?: number }>(`/api/compras/${purchaseId}/meta`, {
         method: "PATCH",
         body: JSON.stringify({ metaMilheiroCents: cents }),
       });
@@ -891,10 +894,10 @@ function MetaModal(props: {
         <div className="border-b p-4">
           <div className="text-sm text-slate-500">Alterar meta do milheiro</div>
           <div className="text-lg font-semibold">
-            Compra <span className="font-mono">{row.numero}</span>
+            Compra <span className="font-mono">{numero}</span>
           </div>
-          {row.cedente ? (
-            <div className="mt-1 text-sm text-slate-600">{row.cedente.nomeCompleto}</div>
+          {cedenteNome ? (
+            <div className="mt-1 text-sm text-slate-600">{cedenteNome}</div>
           ) : null}
         </div>
         <div className="space-y-3 p-4">
