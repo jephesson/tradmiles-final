@@ -250,7 +250,7 @@ export async function PUT(req: NextRequest, ctx: Ctx) {
         return bad("Somente admin pode trocar responsável ou quem indicou.", 403);
       }
       const given = normalizeSettingsSecurityInput(String(body?.securityAnswer ?? ""));
-      if (!given || given !== expectedSettingsSecurityAnswerNormalized()) {
+      if (!given || given !== (await expectedSettingsSecurityAnswerNormalized())) {
         return bad("Palavra-chave das configurações incorreta.", 403);
       }
 

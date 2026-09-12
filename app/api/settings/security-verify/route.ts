@@ -19,7 +19,7 @@ export async function POST(req: NextRequest) {
 
     const body = await req.json().catch(() => ({}));
     const given = normalizeSettingsSecurityInput(String(body?.answer ?? ""));
-    const expected = expectedSettingsSecurityAnswerNormalized();
+    const expected = await expectedSettingsSecurityAnswerNormalized();
 
     if (!given || given !== expected) {
       return NextResponse.json({ ok: false, error: "Resposta incorreta." }, { status: 400 });

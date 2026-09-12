@@ -945,6 +945,8 @@ model Settings {
   cotacaoMinMilheiroLatamCents  Int @default(0)
   cotacaoMinMilheiroSmilesCents Int @default(0)
   cotacaoMinMilheiroAzulCents   Int @default(0)
+  /// Palavra-chave da pergunta “cidade favorita” (configurações e troca de responsável).
+  securityCity String @default("Munique")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

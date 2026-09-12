@@ -431,9 +431,123 @@ export default function ConfiguracoesPageClient() {
 
       <CotacaoMinMilheiroSection unlocked={unlocked} />
 
+      <SecurityCitySection unlocked={unlocked} disabled={loading || saving} />
+
       <BonusSettingsSection unlocked={unlocked} disabled={loading || saving} />
 
       <AlertasSettingsSection unlocked={unlocked} />
+    </div>
+  );
+}
+
+function SecurityCitySection({ unlocked, disabled }: { unlocked: boolean; disabled: boolean }) {
+  const [city, setCity] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [ok, setOk] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!unlocked) return;
+    void (async () => {
+      setLoading(true);
+      setErr(null);
+      try {
+        const res = await fetch("/api/settings/security-city", { cache: "no-store", credentials: "include" });
+        const json = (await res.json().catch(() => ({}))) as { ok?: boolean; data?: { city?: string }; error?: string };
+        if (!res.ok || !json.ok) {
+          setErr(json.error || "Não foi possível carregar a palavra-chave.");
+          return;
+        }
+        setCity(String(json.data?.city || ""));
+        setConfirm("");
+      } catch {
+        setErr("Erro de rede.");
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, [unlocked]);
+
+  async function saveCity() {
+    setSaving(true);
+    setErr(null);
+    setOk(null);
+    try {
+      if (city.trim() !== confirm.trim()) {
+        setErr("A confirmação não confere com a nova palavra.");
+        return;
+      }
+      const res = await fetch("/api/settings/security-city", {
+        method: "POST",
+        cache: "no-store",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ city }),
+      });
+      const json = (await res.json().catch(() => ({}))) as { ok?: boolean; data?: { city?: string }; error?: string };
+      if (!res.ok || !json.ok) {
+        setErr(json.error || "Não foi possível salvar.");
+        return;
+      }
+      setCity(String(json.data?.city || city.trim()));
+      setConfirm("");
+      setOk("Palavra-chave atualizada. Use a nova resposta na próxima vez.");
+    } catch {
+      setErr("Erro de rede.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="rounded-2xl border border-slate-200/90 bg-white p-5 shadow-sm sm:p-6">
+      <h2 className="text-base font-semibold text-slate-900">Palavra-chave (cidade favorita)</h2>
+      <p className="mt-1 text-sm text-slate-600">
+        Resposta da pergunta “Qual a sua cidade favorita?”. Serve para abrir as configurações e para trocar
+        responsável ou quem indicou no cedente.
+      </p>
+      <div className="mt-6 space-y-4">
+        <label className="block">
+          <span className="text-sm font-medium text-slate-700">Nova palavra</span>
+          <input
+            type="text"
+            autoComplete="off"
+            className="mt-1.5 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-base text-slate-900 shadow-sm outline-none focus:border-slate-300 focus:ring-2 focus:ring-slate-900/10"
+            value={city}
+            onChange={(e) => setCity(e.target.value)}
+            disabled={disabled || loading || saving}
+            placeholder="Ex.: Munique"
+          />
+        </label>
+        <label className="block">
+          <span className="text-sm font-medium text-slate-700">Confirmar palavra</span>
+          <input
+            type="text"
+            autoComplete="off"
+            className="mt-1.5 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-base text-slate-900 shadow-sm outline-none focus:border-slate-300 focus:ring-2 focus:ring-slate-900/10"
+            value={confirm}
+            onChange={(e) => setConfirm(e.target.value)}
+            disabled={disabled || loading || saving}
+            placeholder="Digite de novo"
+          />
+        </label>
+        {err ? <p className="text-sm text-rose-700">{err}</p> : null}
+        {ok ? <p className="text-sm text-emerald-800">{ok}</p> : null}
+        <button
+          type="button"
+          onClick={() => void saveCity()}
+          disabled={disabled || loading || saving || !city.trim() || !confirm.trim()}
+          className={cn(
+            "inline-flex items-center justify-center gap-2 rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800",
+            (disabled || loading || saving || !city.trim() || !confirm.trim()) && "pointer-events-none opacity-60"
+          )}
+        >
+          {saving ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <Save className="h-4 w-4" aria-hidden />}
+          {saving ? "Salvando…" : "Salvar palavra-chave"}
+        </button>
+      </div>
     </div>
   );
 }
