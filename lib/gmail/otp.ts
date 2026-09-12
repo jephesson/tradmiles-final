@@ -90,35 +90,37 @@ function stripHtml(input: string) {
     .trim();
 }
 
+function hasOtpKeywordNear(code: string, lowerContext: string) {
+  const idx = lowerContext.indexOf(code.toLowerCase());
+  if (idx < 0) return false;
+  const window = lowerContext.slice(Math.max(0, idx - 48), idx + code.length + 48);
+  return /c[oó]digo|code|verifica|otp|token|senha|login|acesso/.test(window);
+}
+
 function scoreOtpCandidate(
   code: string,
   lowerContext: string,
   bonus = 0
 ): number {
+  if (code.length !== 6) return -1;
   const n = Number(code);
   if (!Number.isFinite(n)) return -1;
-  if (n >= 1900 && n <= 2100 && code.length === 4) return -1;
   if (/^0+$/.test(code) || /^1+$/.test(code)) return -1;
-
-  let score =
-    code.length === 6 ? 10 : code.length === 5 || code.length === 7 ? 6 : 3;
-  score += bonus;
-  const idx = lowerContext.indexOf(code.toLowerCase());
-  if (idx >= 0) {
-    const window = lowerContext.slice(
-      Math.max(0, idx - 48),
-      idx + code.length + 48
-    );
-    if (/c[oó]digo|code|verifica|otp|token|senha|login|acesso/.test(window)) {
-      score += 8;
-    }
+  // 202601…202612 e similares não são OTP
+  if (/^20\d{4}$/.test(code)) {
+    const mm = Number(code.slice(4, 6));
+    if (mm >= 1 && mm <= 12) return -1;
   }
+
+  let score = 1 + bonus;
+  if (hasOtpKeywordNear(code, lowerContext)) score += 8;
+  // Sem padrão explícito (alt / "seu código") nem palavra perto, ignora número solto.
+  if (bonus < 12 && score < 8) return -1;
   return score;
 }
 
 /**
- * Extrai candidatos a OTP (4–8 dígitos). Prefere 6 dígitos e códigos
- * próximos às palavras "código" / "code" / "login é".
+ * Extrai só OTP de 6 dígitos (LATAM e Smiles). Ignora CEP, hora, ID, etc.
  * LATAM às vezes põe o código em imagem (alt) ou com espaços (1 2 3 4 5 6).
  */
 export function extractVerificationCodes(raw: string): string[] {
@@ -128,7 +130,7 @@ export function extractVerificationCodes(raw: string): string[] {
   const scored = new Map<string, number>();
   const consider = (code: string, context: string, bonus = 0) => {
     const digits = String(code || "").replace(/\D/g, "");
-    if (digits.length < 4 || digits.length > 8) return;
+    if (digits.length !== 6) return;
     const score = scoreOtpCandidate(digits, context.toLowerCase(), bonus);
     if (score < 0) return;
     scored.set(digits, Math.max(scored.get(digits) || 0, score));
@@ -136,25 +138,23 @@ export function extractVerificationCodes(raw: string): string[] {
 
   // alt/title/aria-label em img/td (código em imagem da LATAM)
   const attrRe =
-    /<(?:img|td|span|div|strong|b)[^>]*\b(?:alt|title|aria-label)=["'](\d{4,8})["'][^>]*>/gi;
+    /<(?:img|td|span|div|strong|b)[^>]*\b(?:alt|title|aria-label)=["'](\d{6})["'][^>]*>/gi;
   let attrMatch: RegExpExecArray | null;
   while ((attrMatch = attrRe.exec(rawStr))) {
     consider(attrMatch[1], rawStr, 14);
   }
 
   const text = stripHtml(rawStr);
-  const lower = text.toLowerCase();
 
-  // Padrões explícitos LATAM/Smiles
   const explicit = [
-    /c[oó]digo\s+de\s+verifica[cç][aã]o[^0-9]{0,40}(\d{4,8})/gi,
-    /c[oó]digo\s+de\s+acesso[^0-9]{0,40}(\d{4,8})/gi,
-    /fazer\s+login\s+[eé]\s*(\d{4,8})/gi,
-    /verifica[cç][aã]o\s+para\s+fazer\s+login\s+[eé]\s*(\d{4,8})/gi,
-    /seu\s+c[oó]digo[^0-9]{0,40}(\d{4,8})/gi,
-    /(?:^|[^\d])(\d{4,8})(?:[^\d]|$)/g,
+    /c[oó]digo\s+de\s+verifica[cç][aã]o[^0-9]{0,40}(\d{6})/gi,
+    /c[oó]digo\s+de\s+acesso[^0-9]{0,40}(\d{6})/gi,
+    /fazer\s+login\s+[eé]\s*(\d{6})/gi,
+    /verifica[cç][aã]o\s+para\s+fazer\s+login\s+[eé]\s*(\d{6})/gi,
+    /seu\s+c[oó]digo[^0-9]{0,40}(\d{6})/gi,
+    /(?:código|codigo|code)[^0-9]{0,24}(\d{6})/gi,
   ];
-  for (const re of explicit.slice(0, 5)) {
+  for (const re of explicit) {
     let m: RegExpExecArray | null;
     while ((m = re.exec(text))) {
       consider(m[1], text, 16);
@@ -162,21 +162,14 @@ export function extractVerificationCodes(raw: string): string[] {
   }
 
   // Dígitos espaçados: "1 2 3 4 5 6" ou "12 34 56"
-  const spacedRe = /\b(?:\d(?:\s+|-)){3,7}\d\b/g;
+  const spacedRe = /\b(?:\d(?:\s+|-)){5}\d\b|\b\d{2}(?:\s+|-)\d{2}(?:\s+|-)\d{2}\b/g;
   let spaced: RegExpExecArray | null;
   while ((spaced = spacedRe.exec(text))) {
     consider(spaced[0], text, 12);
   }
 
-  // Fallback genérico
-  const re = /\b(\d{4,8})\b/g;
-  let match: RegExpExecArray | null;
-  while ((match = re.exec(text))) {
-    consider(match[1], lower, 0);
-  }
-
   return Array.from(scored.entries())
-    .sort((a, b) => b[1] - a[1] || b[0].length - a[0].length)
+    .sort((a, b) => b[1] - a[1])
     .map(([code]) => code);
 }
 
