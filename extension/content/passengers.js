@@ -1152,13 +1152,48 @@ function genderOpenTarget(el) {
   if (!el) return null;
   const root =
     el.closest?.(".MuiSelect-root, .MuiInputBase-root, .MuiFormControl-root") ||
+    el.closest?.('[class*="Select" i], [class*="Dropdown" i]') ||
     el.parentElement;
   return (
+    root?.querySelector?.('[aria-haspopup="listbox"]') ||
+    root?.querySelector?.('[role="combobox"]') ||
     root?.querySelector?.(".MuiSelect-select") ||
     root?.querySelector?.('[role="button"][aria-haspopup="listbox"]') ||
-    root?.querySelector?.('[aria-haspopup="listbox"]') ||
+    (el.getAttribute?.("aria-haspopup") === "listbox" ? el : null) ||
     el
   );
+}
+
+function genderMenuOpen() {
+  return Array.from(
+    document.querySelectorAll(
+      '[role="listbox"] [role="option"], [role="listbox"] li, li#Female, li#Male, li[id="Female"], li[id="Male"]'
+    )
+  ).some((o) => hasLayoutSize(o));
+}
+
+function findV2GenderTrigger(passengerIndex) {
+  const i = passengerIndex == null || passengerIndex < 0 ? 0 : passengerIndex;
+  const labelled = document.querySelector(`[aria-labelledby="passenger-${i}-gender-label"]`);
+  if (labelled && hasLayoutSize(labelled)) return labelled;
+  const byId =
+    document.getElementById(`passenger-${i}-gender`) ||
+    document.querySelector(`[name="passenger-${i}-gender"], [name="passenger-${i}_gender"]`);
+  if (byId) {
+    const open = genderOpenTarget(byId);
+    if (open) return open;
+  }
+  const label = document.getElementById(`passenger-${i}-gender-label`);
+  if (label) {
+    const group = label.closest("div, fieldset, label") || label.parentElement;
+    const open =
+      group?.querySelector?.(
+        '[aria-haspopup="listbox"], [role="combobox"], button, [role="button"]'
+      ) || null;
+    if (open && hasLayoutSize(open)) return open;
+    if (hasLayoutSize(label)) return label;
+  }
+  return null;
 }
 
 function genderFieldShows(el, gender) {
@@ -1199,22 +1234,29 @@ function genderFieldShows(el, gender) {
 
 function findGenderOption(gender) {
   const dataValue = gender === "F" ? "FEMALE" : "MALE";
+  const id = gender === "F" ? "Female" : "Male";
   const label = gender === "F" ? "Feminino" : "Masculino";
   const want = normalizeLabel(label);
 
+  const byId = document.getElementById(id);
+  if (byId && hasLayoutSize(byId)) {
+    return byId.closest('[role="option"], li') || byId;
+  }
+
   const byData = Array.from(
     document.querySelectorAll(
-      `li[role="option"][data-value="${dataValue}"], [role="option"][data-value="${dataValue}"], li.MuiMenuItem-root[data-value="${dataValue}"]`
+      `li[role="option"][data-value="${dataValue}"], [role="option"][data-value="${dataValue}"], li.MuiMenuItem-root[data-value="${dataValue}"], [role="option"][id="${id}"]`
     )
   ).find((o) => hasLayoutSize(o));
   if (byData) return byData;
 
   return Array.from(
     document.querySelectorAll(
-      'li.MuiMenuItem-root[role="option"], [role="listbox"] [role="option"], [role="option"], [role="menuitem"]'
+      'li.MuiMenuItem-root[role="option"], [role="listbox"] [role="option"], [role="listbox"] li, [role="option"], [role="menuitem"]'
     )
   ).find((o) => {
     if (!hasLayoutSize(o)) return false;
+    if (String(o.id || "") === id) return true;
     const t = normalizeLabel(textOf(o));
     return t === want || t.startsWith(want + " ");
   });
@@ -1314,9 +1356,10 @@ async function selectGender(root, gender, passengerIndex) {
   }
   if (passengerIndex != null && passengerIndex >= 0 && !el) {
     const i = passengerIndex;
-    // NÃO usar [data-testid*="gender"] solto — pega listitem male/female
     el =
+      findV2GenderTrigger(i) ||
       document.querySelector(`input[name="passenger-${i}_gender"]`) ||
+      document.querySelector(`input[name="passenger-${i}-gender"]`) ||
       document.querySelector(
         `input[data-testid="passenger-${i}_gender--select__trigger--text-field"]`
       ) ||
@@ -1339,6 +1382,7 @@ async function selectGender(root, gender, passengerIndex) {
       document.querySelector('input[name="passengerInfo.gender"]') ||
       document.querySelector('input[id*="passengerInfo-gender" i]');
   }
+  if (!el) el = findV2GenderTrigger(passengerIndex);
   if (!el) el = findFieldByWord(root || document.body, ["sexo"]);
   if (!el) {
     console.warn("[TradeMiles] Campo Sexo não encontrado");
@@ -1360,22 +1404,24 @@ async function selectGender(root, gender, passengerIndex) {
     const ok =
       setNativeValue(el, label) ||
       setNativeValue(el, gender === "F" ? "FEMALE" : "MALE") ||
-      setNativeValue(el, gender === "F" ? "F" : "M");
+      setNativeValue(el, gender === "F" ? "F" : "M") ||
+      setNativeValue(el, gender === "F" ? "Female" : "Male");
     return ok && genderFieldShows(el, gender);
   }
 
   const openEl = genderOpenTarget(el);
   safeScrollIntoView(openEl || el);
   await sleep(120);
-  if (openEl) {
-    await reactClickInPage(openEl);
-    openEl.click?.();
-  } else {
-    await reactClickInPage(el);
-    el.focus?.();
-    el.click?.();
+  if (!genderMenuOpen()) {
+    if (openEl) {
+      await reactClickInPage(openEl);
+      if (!genderMenuOpen()) openEl.click?.();
+    } else {
+      await reactClickInPage(el);
+      if (!genderMenuOpen()) el.click?.();
+    }
+    await sleep(400);
   }
-  await sleep(400);
 
   let hit = null;
   for (let attempt = 0; attempt < 8 && !hit; attempt++) {
@@ -1409,10 +1455,12 @@ async function selectGender(root, gender, passengerIndex) {
     if (!hit) hit = findGenderOption(gender);
     if (!hit) {
       if (attempt === 2 || attempt === 5) {
-        const again = genderOpenTarget(el);
-        if (again) {
-          await reactClickInPage(again);
-          again.click?.();
+        if (!genderMenuOpen()) {
+          const again = genderOpenTarget(el);
+          if (again) {
+            await reactClickInPage(again);
+            if (!genderMenuOpen()) again.click?.();
+          }
         }
       }
       await sleep(150);
@@ -1420,33 +1468,33 @@ async function selectGender(root, gender, passengerIndex) {
   }
 
   if (hit) {
+    const option =
+      hit.closest?.('[role="option"], li#Female, li#Male, li[id="Female"], li[id="Male"]') || hit;
     console.info(
       "[TradeMiles] Clique opção sexo:",
-      hit.getAttribute("data-value") || textOf(hit)
+      option.id || option.getAttribute("data-value") || textOf(option)
     );
-    const ok = await reactClickInPage(hit);
-    if (!ok) {
-      hit.dispatchEvent?.(
-        new MouseEvent("mousedown", { bubbles: true, cancelable: true, view: window })
-      );
-      hit.dispatchEvent?.(
-        new MouseEvent("mouseup", { bubbles: true, cancelable: true, view: window })
-      );
-      hit.click?.();
-    }
+    await reactClickInPage(option);
     await sleep(280);
   } else {
     console.warn("[TradeMiles] Opção de sexo não apareceu no menu");
   }
 
-  // Sem Escape — na LATAM isso já derrubou o acordeão
   if (!genderFieldShows(el, gender)) {
-    const code = gender === "F" ? "FEMALE" : "MALE";
+    const code = gender === "F" ? "Female" : "Male";
     await reactSetValueInPage(el, code);
-    setNativeValue(el, code, { soft: false });
+    await reactSetValueInPage(el, gender === "F" ? "FEMALE" : "MALE");
+    setNativeValue(el, gender === "F" ? "FEMALE" : "MALE", { soft: false });
     await sleep(120);
   }
-  return genderFieldShows(el, gender);
+  return genderFieldShows(el, gender) || optionAriaSelected(gender);
+}
+
+function optionAriaSelected(gender) {
+  const id = gender === "F" ? "Female" : "Male";
+  const node = document.getElementById(id);
+  if (!node) return false;
+  return String(node.getAttribute("aria-selected") || "") === "true";
 }
 
 /**

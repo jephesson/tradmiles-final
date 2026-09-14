@@ -6,8 +6,9 @@
   if (window.__tmPageHooks) return;
   window.__tmPageHooks = true;
 
-  function invokeReactClick(el) {
+  function invokeReactClick(el, boundEl) {
     if (!el) return false;
+    const bound = boundEl || el;
     const fiberKey = Object.keys(el).find(
       (k) =>
         k.startsWith("__reactFiber") || k.startsWith("__reactInternalInstance")
@@ -15,10 +16,23 @@
     if (!fiberKey) return false;
     let f = el[fiberKey];
     for (let i = 0; i < 16 && f; i++) {
+      const stateNode = f.stateNode;
+      if (
+        stateNode &&
+        stateNode.nodeType === 1 &&
+        stateNode !== bound &&
+        typeof bound.contains === "function" &&
+        !bound.contains(stateNode)
+      ) {
+        break;
+      }
       const props = f.memoizedProps || f.pendingProps;
+      const role = props?.role || (stateNode?.getAttribute && stateNode.getAttribute("role"));
+      if (role === "listbox" || role === "combobox") break;
       if (props) {
         const handler =
           (typeof props.onClick === "function" && props.onClick) ||
+          (typeof props.onPointerDown === "function" && props.onPointerDown) ||
           (typeof props.onMouseDown === "function" && props.onMouseDown) ||
           null;
         if (handler) {
@@ -46,6 +60,57 @@
       f = f.return;
     }
     return false;
+  }
+
+  function dispatchPointerClick(el) {
+    if (!el) return false;
+    let cx = 0;
+    let cy = 0;
+    try {
+      const r = el.getBoundingClientRect();
+      cx = r.left + Math.max(2, r.width / 2);
+      cy = r.top + Math.max(2, r.height / 2);
+    } catch {
+      /* ignore */
+    }
+    const base = {
+      bubbles: true,
+      cancelable: true,
+      view: window,
+      button: 0,
+      buttons: 1,
+      clientX: cx,
+      clientY: cy,
+      pointerId: 1,
+      pointerType: "mouse",
+      isPrimary: true,
+    };
+    const types = [
+      "pointerover",
+      "mouseover",
+      "pointerdown",
+      "mousedown",
+      "pointerup",
+      "mouseup",
+      "click",
+    ];
+    for (const type of types) {
+      try {
+        if (type.startsWith("pointer") && typeof PointerEvent === "function") {
+          el.dispatchEvent(new PointerEvent(type, base));
+        } else {
+          el.dispatchEvent(new MouseEvent(type, base));
+        }
+      } catch {
+        /* ignore */
+      }
+    }
+    try {
+      el.click();
+    } catch {
+      /* ignore */
+    }
+    return true;
   }
 
   function setReactInputValue(el, value) {
@@ -199,25 +264,8 @@
     } catch {
       /* ignore */
     }
-    const reacted = invokeReactClick(el);
-    try {
-      el.dispatchEvent(
-        new MouseEvent("mousedown", { bubbles: true, cancelable: true, view: window })
-      );
-      el.dispatchEvent(
-        new MouseEvent("mouseup", { bubbles: true, cancelable: true, view: window })
-      );
-      el.dispatchEvent(
-        new MouseEvent("click", { bubbles: true, cancelable: true, view: window })
-      );
-    } catch {
-      /* ignore */
-    }
-    try {
-      el.click();
-    } catch {
-      /* ignore */
-    }
+    const reacted = invokeReactClick(el, el);
+    dispatchPointerClick(el);
     return reacted || true;
   }
 
@@ -227,14 +275,17 @@
 
     if (data.type === "react-click") {
       const el = data.selector ? document.querySelector(data.selector) : null;
-      let ok = !!(el && invokeReactClick(el));
-      if (el) {
-        try {
-          el.click();
-          ok = true;
-        } catch {
-          /* ignore */
-        }
+      const option =
+        el?.closest?.(
+          '[role="option"], [role="listbox"] li, li#Female, li#Male, li[id="Female"], li[id="Male"]'
+        ) || null;
+      const target = option || el;
+      let ok = false;
+      if (target) {
+        ok = invokeReactClick(target, option || target);
+        dispatchPointerClick(target);
+        if (el && el !== target) dispatchPointerClick(el);
+        ok = true;
       }
       window.postMessage(
         {
