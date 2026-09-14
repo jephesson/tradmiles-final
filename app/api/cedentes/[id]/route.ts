@@ -8,6 +8,7 @@ import {
   expectedSettingsSecurityAnswerNormalized,
   normalizeSettingsSecurityInput,
 } from "@/lib/settingsGate";
+import { isValidCpf, onlyDigits } from "@/lib/cpf";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -147,12 +148,30 @@ export async function PUT(req: NextRequest, ctx: Ctx) {
     });
     if (!current) return bad("Cedente não encontrado.", 404);
 
-    // trava CPF
-    if ("cpf" in body && body.cpf && String(body.cpf).trim() !== String(current.cpf).trim()) {
-      return bad("CPF não pode ser editado.", 400);
-    }
-
     const data: any = {};
+
+    if ("cpf" in body) {
+      const nextCpf = onlyDigits(String(body.cpf || ""));
+      if (nextCpf.length !== 11) {
+        return bad("CPF deve ter 11 dígitos.", 400);
+      }
+      if (!isValidCpf(nextCpf)) {
+        return bad("CPF inválido — confira os dígitos.", 400);
+      }
+      if (nextCpf !== onlyDigits(String(current.cpf || ""))) {
+        const taken = await prisma.cedente.findFirst({
+          where: { cpf: nextCpf, NOT: { id } },
+          select: { identificador: true, nomeCompleto: true },
+        });
+        if (taken) {
+          return bad(
+            `Este CPF já está no cadastro ${taken.identificador} (${taken.nomeCompleto}).`,
+            409
+          );
+        }
+      }
+      data.cpf = nextCpf;
+    }
 
     // strings
     if ("identificador" in body) data.identificador = strOrNull(body.identificador);
@@ -310,6 +329,9 @@ export async function PUT(req: NextRequest, ctx: Ctx) {
 
     if (e?.code === "P2002") {
       const target = Array.isArray(e?.meta?.target) ? e.meta.target.join(", ") : String(e?.meta?.target || "");
+      if (String(target).toLowerCase().includes("cpf")) {
+        return bad("Este CPF já está em outro cadastro.", 409);
+      }
       return bad(`Conflito de duplicidade (campo único). ${target ? `Campo: ${target}` : ""}`.trim(), 409);
     }
 

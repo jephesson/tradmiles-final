@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
+import { cpfHint, onlyDigits } from "@/lib/cpf";
 
 type Owner = { id: string; name: string; login: string };
 type Referrer = { id: string; identificador: string; nomeCompleto: string };
@@ -66,6 +67,9 @@ function InputField({
   type = "text",
   disabled,
   editing,
+  error,
+  inputMode,
+  maxLength,
 }: {
   label: string;
   value: any;
@@ -73,6 +77,9 @@ function InputField({
   type?: string;
   disabled?: boolean;
   editing: boolean;
+  error?: string | null;
+  inputMode?: "none" | "text" | "decimal" | "numeric" | "tel" | "search" | "email" | "url";
+  maxLength?: number;
 }) {
   return (
     <div>
@@ -82,8 +89,13 @@ function InputField({
         value={value ?? ""}
         disabled={disabled ?? !editing}
         onChange={(e) => onChange(e.target.value)}
-        className="w-full rounded border px-3 py-2 text-sm disabled:bg-slate-50"
+        inputMode={inputMode}
+        maxLength={maxLength}
+        className={`w-full rounded border px-3 py-2 text-sm disabled:bg-slate-50 ${
+          error ? "border-rose-400 bg-rose-50/50" : ""
+        }`}
       />
+      {error ? <p className="mt-1 text-xs text-rose-700">{error}</p> : null}
     </div>
   );
 }
@@ -287,8 +299,14 @@ export default function CedenteDetalheClient() {
       return;
     }
 
+    const cpfError = cpfHint(form.cpf);
+    if (cpfError) {
+      alert(cpfError);
+      return;
+    }
+
     try {
-      const payload: Record<string, unknown> = { ...form };
+      const payload: Record<string, unknown> = { ...form, cpf: onlyDigits(form.cpf) };
       if (isAdmin) {
         payload.ownerId = ownerId;
         payload.referredByCedenteId = referredByCedenteId || null;
@@ -456,9 +474,12 @@ export default function CedenteDetalheClient() {
         <InputField
           label="CPF"
           value={form.cpf}
-          onChange={() => {}}
+          onChange={(v) => patch("cpf", onlyDigits(v).slice(0, 11))}
           editing={editing}
-          disabled={true}
+          disabled={!editing}
+          error={cpfHint(form.cpf)}
+          inputMode="numeric"
+          maxLength={11}
         />
 
         <InputField
