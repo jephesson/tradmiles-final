@@ -3,9 +3,9 @@
 import { Download, Puzzle } from "lucide-react";
 import Link from "next/link";
 
-const ZIP_HREF = "/downloads/trademiles-latam-extension.zip?v=0.2.57";
-const EXTENSION_VERSION = "0.2.57";
-const EXTENSION_UPDATED_AT = "06/09/2026";
+const ZIP_HREF = "/downloads/trademiles-latam-extension.zip?v=0.2.59";
+const EXTENSION_VERSION = "0.2.59";
+const EXTENSION_UPDATED_AT = "14/09/2026";
 
 export default function ExtensaoLatamClient() {
   return (

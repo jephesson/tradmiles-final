@@ -1174,16 +1174,32 @@ function genderMenuOpen() {
 
 function findV2GenderTrigger(passengerIndex) {
   const i = passengerIndex == null || passengerIndex < 0 ? 0 : passengerIndex;
-  const labelled = document.querySelector(`[aria-labelledby="passenger-${i}-gender-label"]`);
+  const valueEl =
+    document.getElementById(`passenger-${i}_gender-value`) ||
+    document.querySelector(`[data-testid="passenger-${i}_gender-value--text"]`);
+  if (valueEl) {
+    const wrap =
+      valueEl.closest?.(
+        'button, [role="combobox"], [aria-haspopup="listbox"], [class*="Select"]'
+      ) || valueEl.parentElement;
+    if (wrap && hasLayoutSize(wrap)) return wrap;
+    if (hasLayoutSize(valueEl)) return valueEl;
+  }
+  const labelled =
+    document.querySelector(`[aria-labelledby="passenger-${i}_gender-label"]`) ||
+    document.querySelector(`[aria-labelledby="passenger-${i}-gender-label"]`);
   if (labelled && hasLayoutSize(labelled)) return labelled;
   const byId =
+    document.getElementById(`passenger-${i}_gender`) ||
     document.getElementById(`passenger-${i}-gender`) ||
     document.querySelector(`[name="passenger-${i}-gender"], [name="passenger-${i}_gender"]`);
   if (byId) {
     const open = genderOpenTarget(byId);
     if (open) return open;
   }
-  const label = document.getElementById(`passenger-${i}-gender-label`);
+  const label =
+    document.getElementById(`passenger-${i}_gender-label`) ||
+    document.getElementById(`passenger-${i}-gender-label`);
   if (label) {
     const group = label.closest("div, fieldset, label") || label.parentElement;
     const open =
@@ -1194,6 +1210,21 @@ function findV2GenderTrigger(passengerIndex) {
     if (hasLayoutSize(label)) return label;
   }
   return null;
+}
+
+function v2GenderValueShows(gender, passengerIndex) {
+  const want = gender === "F" ? "feminino" : "masculino";
+  const indexes =
+    passengerIndex != null && passengerIndex >= 0 ? [passengerIndex] : [0, 1, 2, 3, 4, 5, 6, 7];
+  for (const i of indexes) {
+    const el =
+      document.getElementById(`passenger-${i}_gender-value`) ||
+      document.querySelector(`[data-testid="passenger-${i}_gender-value--text"]`);
+    if (!el) continue;
+    const t = normalizeLabel(textOf(el));
+    if (t === want || t.startsWith(want + " ") || t.includes(want)) return true;
+  }
+  return false;
 }
 
 function genderFieldShows(el, gender) {
@@ -1239,7 +1270,7 @@ function findGenderOption(gender) {
   const want = normalizeLabel(label);
 
   const byId = document.getElementById(id);
-  if (byId && hasLayoutSize(byId)) {
+  if (byId) {
     return byId.closest('[role="option"], li') || byId;
   }
 
@@ -1266,6 +1297,40 @@ function findGenderOption(gender) {
  * Clica via React fiber no mundo MAIN (page-hooks.js).
  * No content script isolado __reactFiber não existe — click DOM não gruda.
  */
+function pickV2GenderInPage(gender, passengerIndex) {
+  const id = `tm-g-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+  return new Promise((resolve) => {
+    const onMsg = (ev) => {
+      const data = ev.data;
+      if (
+        !data ||
+        data.source !== "trademiles-page" ||
+        data.type !== "pick-v2-gender-done" ||
+        data.id !== id
+      ) {
+        return;
+      }
+      window.removeEventListener("message", onMsg);
+      resolve(!!data.ok);
+    };
+    window.addEventListener("message", onMsg);
+    window.postMessage(
+      {
+        source: "trademiles",
+        type: "pick-v2-gender",
+        id,
+        gender,
+        passengerIndex: passengerIndex == null ? 0 : passengerIndex,
+      },
+      "*"
+    );
+    setTimeout(() => {
+      window.removeEventListener("message", onMsg);
+      resolve(false);
+    }, 4000);
+  });
+}
+
 function reactClickInPage(el) {
   if (!el) return Promise.resolve(false);
   const mark = `tm-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
@@ -1389,7 +1454,7 @@ async function selectGender(root, gender, passengerIndex) {
     return false;
   }
 
-  if (genderFieldShows(el, gender)) {
+  if (v2GenderValueShows(gender, passengerIndex) || genderFieldShows(el, gender)) {
     console.info("[TradeMiles] Sexo já OK:", el.value || genderMuiDisplayText(el));
     return true;
   }
@@ -1407,6 +1472,24 @@ async function selectGender(root, gender, passengerIndex) {
       setNativeValue(el, gender === "F" ? "F" : "M") ||
       setNativeValue(el, gender === "F" ? "Female" : "Male");
     return ok && genderFieldShows(el, gender);
+  }
+
+  const v2Value =
+    (passengerIndex != null && passengerIndex >= 0
+      ? document.getElementById(`passenger-${passengerIndex}_gender-value`) ||
+        document.querySelector(
+          `[data-testid="passenger-${passengerIndex}_gender-value--text"]`
+        )
+      : null) || document.getElementById("passenger-0_gender-value");
+  if (v2Value) {
+    const idx = passengerIndex == null ? 0 : passengerIndex;
+    const pageOk = await pickV2GenderInPage(gender, idx);
+    if (pageOk || v2GenderValueShows(gender, idx)) {
+      console.info("[TradeMiles] Sexo v2 OK");
+      return true;
+    }
+    console.info("[TradeMiles] Sexo v2 não grudou no span (sem fallback isolado)");
+    return v2GenderValueShows(gender, idx);
   }
 
   const openEl = genderOpenTarget(el);
@@ -1477,17 +1560,21 @@ async function selectGender(root, gender, passengerIndex) {
     await reactClickInPage(option);
     await sleep(280);
   } else {
-    console.warn("[TradeMiles] Opção de sexo não apareceu no menu");
+    console.info("[TradeMiles] Opção de sexo não apareceu no menu");
   }
 
-  if (!genderFieldShows(el, gender)) {
+  if (!genderFieldShows(el, gender) && !v2GenderValueShows(gender, passengerIndex)) {
     const code = gender === "F" ? "Female" : "Male";
     await reactSetValueInPage(el, code);
     await reactSetValueInPage(el, gender === "F" ? "FEMALE" : "MALE");
     setNativeValue(el, gender === "F" ? "FEMALE" : "MALE", { soft: false });
     await sleep(120);
   }
-  return genderFieldShows(el, gender) || optionAriaSelected(gender);
+  return (
+    v2GenderValueShows(gender, passengerIndex) ||
+    genderFieldShows(el, gender) ||
+    optionAriaSelected(gender)
+  );
 }
 
 function optionAriaSelected(gender) {
