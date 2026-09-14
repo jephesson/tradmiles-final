@@ -620,12 +620,14 @@ function SimpleLineChart({
 function MilheiroLineChart({
   title,
   data,
+  program = "BOTH",
   height = 210,
   footer,
   toolbar,
 }: {
   title: string;
   data: MilheiroPoint[];
+  program?: MilheiroProgramView;
   height?: number;
   footer?: ReactNode;
   toolbar?: ReactNode;
@@ -640,10 +642,17 @@ function MilheiroLineChart({
   const plotH = h - topPad - bottomPad;
   const baseY = topPad + plotH;
   const [hoveredIdx, setHoveredIdx] = useState<number | null>(null);
-
-  const ys = data.flatMap((d) => [d.latam, d.smiles]);
-  const ymin = Math.min(...ys, 0);
-  const ymax = Math.max(...ys, 1);
+  const showLatam = program !== "SMILES";
+  const showSmiles = program !== "LATAM";
+  const seriesYs = data.flatMap((d) => [
+    ...(showLatam ? [d.latam] : []),
+    ...(showSmiles ? [d.smiles] : []),
+  ]);
+  const rawMin = seriesYs.length ? Math.min(...seriesYs) : 0;
+  const rawMax = seriesYs.length ? Math.max(...seriesYs) : 1;
+  const pad = program === "BOTH" ? 0 : Math.max((rawMax - rawMin) * 0.12, rawMax * 0.02, 1);
+  const ymin = program === "BOTH" ? Math.min(rawMin, 0) : Math.max(0, rawMin - pad);
+  const ymax = Math.max(rawMax + pad, ymin + 1);
   const dx = data.length <= 1 ? 0 : plotW / (data.length - 1);
   const scaleY = (v: number) => {
     const t = (v - ymin) / (ymax - ymin || 1);
@@ -652,19 +661,28 @@ function MilheiroLineChart({
 
   const latamPoints = data.map((d, i) => `${leftPad + i * dx},${scaleY(d.latam)}`).join(" ");
   const smilesPoints = data.map((d, i) => `${leftPad + i * dx},${scaleY(d.smiles)}`).join(" ");
+  const trendSource =
+    program === "LATAM" ? data.map((d) => d.latam) : program === "SMILES" ? data.map((d) => d.smiles) : null;
+  const trendFit = trendSource ? linearTrendFit(trendSource) : null;
+  const trendPoints = trendFit
+    ? trendFit.predicted.map((y, i) => `${leftPad + i * dx},${scaleY(y)}`).join(" ")
+    : "";
   const yTicks = [ymax, (ymax + ymin) / 2, ymin];
   const hitW = data.length <= 1 ? plotW : Math.max(10, plotW / data.length);
   const hovered = hoveredIdx != null ? data[hoveredIdx] : null;
   const hoverX = hoveredIdx != null ? leftPad + hoveredIdx * dx : leftPad;
   const hoverAvg = hovered
     ? (() => {
-        const vals = [hovered.latam, hovered.smiles].filter((v) => v > 0);
+        const vals = [
+          ...(showLatam ? [hovered.latam] : []),
+          ...(showSmiles ? [hovered.smiles] : []),
+        ].filter((v) => v > 0);
         if (!vals.length) return 0;
         return Math.round(vals.reduce((acc, v) => acc + v, 0) / vals.length);
       })()
     : 0;
   const tipW = 220;
-  const tipH = 68;
+  const tipH = program === "BOTH" ? 68 : 52;
   const tipX = Math.max(leftPad, Math.min(hoverX - tipW / 2, leftPad + plotW - tipW));
   const tipY = topPad + 8;
 
@@ -675,14 +693,24 @@ function MilheiroLineChart({
         {toolbar ? <div>{toolbar}</div> : null}
       </div>
       <div className="mb-2 flex flex-wrap gap-2 text-[11px] text-neutral-600">
-        <span className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5">
-          <span className="h-2 w-2 rounded-full bg-sky-500" />
-          LATAM
-        </span>
-        <span className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5">
-          <span className="h-2 w-2 rounded-full bg-emerald-500" />
-          Smiles
-        </span>
+        {showLatam ? (
+          <span className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5">
+            <span className="h-2 w-2 rounded-full bg-sky-500" />
+            LATAM
+          </span>
+        ) : null}
+        {showSmiles ? (
+          <span className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5">
+            <span className="h-2 w-2 rounded-full bg-emerald-500" />
+            Smiles
+          </span>
+        ) : null}
+        {trendFit ? (
+          <span className="inline-flex items-center gap-1 rounded-full border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-indigo-800">
+            <span className="h-0 w-3 border-t border-dashed border-indigo-500" />
+            Tendência · R² = {fmtR2(trendFit.r2)}
+          </span>
+        ) : null}
       </div>
 
       <svg viewBox={`0 0 ${w} ${h}`} className="w-full" onMouseLeave={() => setHoveredIdx(null)}>
@@ -712,19 +740,32 @@ function MilheiroLineChart({
 
         <line x1={leftPad} x2={leftPad + plotW} y1={baseY} y2={baseY} stroke="#e5e7eb" strokeWidth="1" />
 
-        <polyline fill="none" stroke="#0ea5e9" strokeWidth="2.2" points={latamPoints} />
-        <polyline fill="none" stroke="#10b981" strokeWidth="2.2" points={smilesPoints} />
+        {showLatam ? <polyline fill="none" stroke="#0ea5e9" strokeWidth="2.2" points={latamPoints} /> : null}
+        {showSmiles ? <polyline fill="none" stroke="#10b981" strokeWidth="2.2" points={smilesPoints} /> : null}
+        {trendPoints ? (
+          <polyline
+            fill="none"
+            stroke="#6366f1"
+            strokeWidth="1.8"
+            strokeDasharray="5 4"
+            points={trendPoints}
+          />
+        ) : null}
 
-        {data.map((d, i) => (
-          <circle key={`${d.key}-latam`} cx={leftPad + i * dx} cy={scaleY(d.latam)} r="2.5" fill="#0ea5e9">
-            <title>{`${d.x} • LATAM: ${fmtMoneyBR(d.latam)}`}</title>
-          </circle>
-        ))}
-        {data.map((d, i) => (
-          <circle key={`${d.key}-smiles`} cx={leftPad + i * dx} cy={scaleY(d.smiles)} r="2.5" fill="#10b981">
-            <title>{`${d.x} • Smiles: ${fmtMoneyBR(d.smiles)}`}</title>
-          </circle>
-        ))}
+        {showLatam
+          ? data.map((d, i) => (
+              <circle key={`${d.key}-latam`} cx={leftPad + i * dx} cy={scaleY(d.latam)} r="2.5" fill="#0ea5e9">
+                <title>{`${d.x} • LATAM: ${fmtMoneyBR(d.latam)}`}</title>
+              </circle>
+            ))
+          : null}
+        {showSmiles
+          ? data.map((d, i) => (
+              <circle key={`${d.key}-smiles`} cx={leftPad + i * dx} cy={scaleY(d.smiles)} r="2.5" fill="#10b981">
+                <title>{`${d.x} • Smiles: ${fmtMoneyBR(d.smiles)}`}</title>
+              </circle>
+            ))
+          : null}
 
         {data.map((d, i) => {
           const x = leftPad + i * dx - hitW / 2;
@@ -748,12 +789,18 @@ function MilheiroLineChart({
             <text x={tipX + 10} y={tipY + 17} fontSize="10" fill="#334155">
               {hovered.x}
             </text>
-            <text x={tipX + 10} y={tipY + 34} fontSize="11" fill="#0c4a6e">
-              {`LATAM: ${fmtMoneyBR(hovered.latam)} • Smiles: ${fmtMoneyBR(hovered.smiles)}`}
+            <text x={tipX + 10} y={tipY + 34} fontSize="11" fill={program === "SMILES" ? "#0f766e" : "#0c4a6e"}>
+              {program === "LATAM"
+                ? `LATAM: ${fmtMoneyBR(hovered.latam)}`
+                : program === "SMILES"
+                  ? `Smiles: ${fmtMoneyBR(hovered.smiles)}`
+                  : `LATAM: ${fmtMoneyBR(hovered.latam)} • Smiles: ${fmtMoneyBR(hovered.smiles)}`}
             </text>
-            <text x={tipX + 10} y={tipY + 51} fontSize="11" fill="#0f766e">
-              {`Média milheiro: ${fmtMoneyBR(hoverAvg)}`}
-            </text>
+            {program === "BOTH" ? (
+              <text x={tipX + 10} y={tipY + 51} fontSize="11" fill="#0f766e">
+                {`Média milheiro: ${fmtMoneyBR(hoverAvg)}`}
+              </text>
+            ) : null}
           </>
         ) : null}
       </svg>
@@ -767,14 +814,22 @@ function MilheiroLineChart({
             {data.map((d) => (
               <div key={d.key} className="rounded-xl border bg-white px-2 py-1 text-[11px]">
                 <div className="text-neutral-600">{d.x}</div>
-                <div className="mt-0.5">
-                  <span className="font-medium text-sky-700">LATAM:</span> {fmtMoneyBR(d.latam)}
-                </div>
-                {d.subLatam ? <div className="text-[10px] text-neutral-500">{d.subLatam}</div> : null}
-                <div className="mt-0.5">
-                  <span className="font-medium text-emerald-700">Smiles:</span> {fmtMoneyBR(d.smiles)}
-                </div>
-                {d.subSmiles ? <div className="text-[10px] text-neutral-500">{d.subSmiles}</div> : null}
+                {showLatam ? (
+                  <>
+                    <div className="mt-0.5">
+                      <span className="font-medium text-sky-700">LATAM:</span> {fmtMoneyBR(d.latam)}
+                    </div>
+                    {d.subLatam ? <div className="text-[10px] text-neutral-500">{d.subLatam}</div> : null}
+                  </>
+                ) : null}
+                {showSmiles ? (
+                  <>
+                    <div className="mt-0.5">
+                      <span className="font-medium text-emerald-700">Smiles:</span> {fmtMoneyBR(d.smiles)}
+                    </div>
+                    {d.subSmiles ? <div className="text-[10px] text-neutral-500">{d.subSmiles}</div> : null}
+                  </>
+                ) : null}
               </div>
             ))}
           </div>
@@ -1177,6 +1232,42 @@ function buildTrendLine(points: ChartPoint[]): ChartPoint[] | undefined {
   return points.map((p, i) => ({ x: p.x, y: Math.round(intercept + slope * i) }));
 }
 
+function linearTrendFit(ys: number[]): { predicted: number[]; r2: number } | null {
+  const n = ys.length;
+  if (n < 2) return null;
+  let sumX = 0;
+  let sumY = 0;
+  let sumXY = 0;
+  let sumXX = 0;
+  for (let i = 0; i < n; i++) {
+    const y = ys[i] || 0;
+    sumX += i;
+    sumY += y;
+    sumXY += i * y;
+    sumXX += i * i;
+  }
+  const denom = n * sumXX - sumX * sumX;
+  const slope = denom === 0 ? 0 : (n * sumXY - sumX * sumY) / denom;
+  const intercept = (sumY - slope * sumX) / n;
+  const predicted = ys.map((_, i) => intercept + slope * i);
+  const avg = n ? sumY / n : 0;
+  let ssRes = 0;
+  let ssTot = 0;
+  for (let i = 0; i < n; i++) {
+    const y = ys[i] || 0;
+    ssRes += (y - predicted[i]) * (y - predicted[i]);
+    ssTot += (y - avg) * (y - avg);
+  }
+  const r2 = ssTot <= 0 ? 1 : Math.max(0, Math.min(1, 1 - ssRes / ssTot));
+  return { predicted, r2 };
+}
+
+function fmtR2(r2: number) {
+  return r2.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+type MilheiroProgramView = "LATAM" | "SMILES" | "BOTH";
+
 export default function AnaliseDadosClient() {
   const [monthsBack, setMonthsBack] = useState<number>(12);
   const [focusYM, setFocusYM] = useState<string>(""); // YYYY-MM
@@ -1193,6 +1284,7 @@ export default function AnaliseDadosClient() {
   const [daysPreset, setDaysPreset] = useState<DaysPreset>(30);
   const [daysBack, setDaysBack] = useState<number>(30);
   const [milheiroDaysBack, setMilheiroDaysBack] = useState<number>(30);
+  const [milheiroProgram, setMilheiroProgram] = useState<MilheiroProgramView>("LATAM");
   const [dateFrom, setDateFrom] = useState<string>(""); // YYYY-MM-DD
   const [dateTo, setDateTo] = useState<string>(""); // YYYY-MM-DD
 
@@ -2719,26 +2811,47 @@ export default function AnaliseDadosClient() {
       <MilheiroLineChart
         title="Milheiro vendido por dia (linha)"
         data={milheiroDailyWithDelta}
+        program={milheiroProgram}
         toolbar={
-          <div className="flex items-center gap-2 text-xs">
-            <span className="text-neutral-500">Período:</span>
-            <select
-              className="rounded-lg border bg-white px-2 py-1 text-xs"
-              value={milheiroDaysBack}
-              onChange={(e) => setMilheiroDaysBack(Number(e.target.value))}
-            >
-              <option value={7}>7 dias</option>
-              <option value={15}>15 dias</option>
-              <option value={30}>30 dias</option>
-              <option value={60}>60 dias</option>
-              <option value={90}>90 dias</option>
-              <option value={180}>180 dias</option>
-            </select>
+          <div className="flex flex-wrap items-center gap-3 text-xs">
+            <label className="flex items-center gap-2 text-neutral-500">
+              Programa:
+              <select
+                className="rounded-lg border bg-white px-2 py-1 text-xs"
+                value={milheiroProgram}
+                onChange={(e) => setMilheiroProgram(e.target.value as MilheiroProgramView)}
+              >
+                <option value="LATAM">LATAM</option>
+                <option value="SMILES">Smiles</option>
+                <option value="BOTH">LATAM e Smiles</option>
+              </select>
+            </label>
+            <label className="flex items-center gap-2 text-neutral-500">
+              Período:
+              <select
+                className="rounded-lg border bg-white px-2 py-1 text-xs"
+                value={milheiroDaysBack}
+                onChange={(e) => setMilheiroDaysBack(Number(e.target.value))}
+              >
+                <option value={7}>7 dias</option>
+                <option value={15}>15 dias</option>
+                <option value={30}>30 dias</option>
+                <option value={60}>60 dias</option>
+                <option value={90}>90 dias</option>
+                <option value={180}>180 dias</option>
+              </select>
+            </label>
           </div>
         }
-        footer={`Comparação diária entre LATAM e Smiles no período de ${
-          milheiroDailyWithDelta.length ? fmtInt(milheiroDailyWithDelta.length) : "0"
-        } dias.`}
+        footer={
+          milheiroProgram === "BOTH"
+            ? `Comparação diária entre LATAM e Smiles no período de ${
+                milheiroDailyWithDelta.length ? fmtInt(milheiroDailyWithDelta.length) : "0"
+              } dias. Escolha um programa para ver a tendência com R².`
+            : `Tendência linear do milheiro ${milheiroProgram === "LATAM" ? "LATAM" : "Smiles"} em ${
+                milheiroDailyWithDelta.length ? fmtInt(milheiroDailyWithDelta.length) : "0"
+              } dias (linha pontilhada). R² próximo de 1 indica que a reta explica bem a série.`
+        }
       />
 
       <MilheiroMonthlyBarChart
