@@ -1285,6 +1285,7 @@ export default function AnaliseDadosClient() {
   const [daysBack, setDaysBack] = useState<number>(30);
   const [milheiroDaysBack, setMilheiroDaysBack] = useState<number>(30);
   const [milheiroProgram, setMilheiroProgram] = useState<MilheiroProgramView>("LATAM");
+  const [milheiroHideZeros, setMilheiroHideZeros] = useState(true);
   const [dateFrom, setDateFrom] = useState<string>(""); // YYYY-MM-DD
   const [dateTo, setDateTo] = useState<string>(""); // YYYY-MM-DD
 
@@ -1779,6 +1780,28 @@ export default function AnaliseDadosClient() {
       };
     });
   }, [milheiroDailyPoints]);
+
+  const milheiroDailyChartPoints = useMemo<MilheiroPoint[]>(() => {
+    const rows = milheiroHideZeros
+      ? milheiroDailyWithDelta.filter((row) => {
+          if (milheiroProgram === "LATAM") return row.latam > 0;
+          if (milheiroProgram === "SMILES") return row.smiles > 0;
+          return row.latam > 0 || row.smiles > 0;
+        })
+      : milheiroDailyWithDelta;
+    if (!milheiroHideZeros) return rows;
+    return rows.map((row, i) => {
+      if (i === 0) return { ...row, subLatam: undefined, subSmiles: undefined };
+      const prev = rows[i - 1];
+      const latamPrev = prev?.latam || 0;
+      const smilesPrev = prev?.smiles || 0;
+      return {
+        ...row,
+        subLatam: latamPrev > 0 ? `vs ant: ${fmtPct((row.latam - latamPrev) / latamPrev)}` : undefined,
+        subSmiles: smilesPrev > 0 ? `vs ant: ${fmtPct((row.smiles - smilesPrev) / smilesPrev)}` : undefined,
+      };
+    });
+  }, [milheiroDailyWithDelta, milheiroHideZeros, milheiroProgram]);
 
   const milheiroMonthlyWithDelta = useMemo<MilheiroPoint[]>(() => {
     return milheiroMonthlyPoints.map((row, i) => {
@@ -2810,7 +2833,7 @@ export default function AnaliseDadosClient() {
 
       <MilheiroLineChart
         title="Milheiro vendido por dia (linha)"
-        data={milheiroDailyWithDelta}
+        data={milheiroDailyChartPoints}
         program={milheiroProgram}
         toolbar={
           <div className="flex flex-wrap items-center gap-3 text-xs">
@@ -2841,16 +2864,25 @@ export default function AnaliseDadosClient() {
                 <option value={180}>180 dias</option>
               </select>
             </label>
+            <label className="flex cursor-pointer items-center gap-1.5 text-neutral-500">
+              <input
+                type="checkbox"
+                className="h-3.5 w-3.5 rounded border-slate-300"
+                checked={milheiroHideZeros}
+                onChange={(e) => setMilheiroHideZeros(e.target.checked)}
+              />
+              Ocultar dias sem venda
+            </label>
           </div>
         }
         footer={
           milheiroProgram === "BOTH"
-            ? `Comparação diária entre LATAM e Smiles no período de ${
-                milheiroDailyWithDelta.length ? fmtInt(milheiroDailyWithDelta.length) : "0"
-              } dias. Escolha um programa para ver a tendência com R².`
-            : `Tendência linear do milheiro ${milheiroProgram === "LATAM" ? "LATAM" : "Smiles"} em ${
-                milheiroDailyWithDelta.length ? fmtInt(milheiroDailyWithDelta.length) : "0"
-              } dias (linha pontilhada). R² próximo de 1 indica que a reta explica bem a série.`
+            ? `Comparação diária entre LATAM e Smiles${
+                milheiroHideZeros ? ", só dias com venda" : ""
+              } (${fmtInt(milheiroDailyChartPoints.length)} de ${fmtInt(milheiroDailyWithDelta.length)} no período). Escolha um programa para ver a tendência com R².`
+            : `Tendência linear do milheiro ${milheiroProgram === "LATAM" ? "LATAM" : "Smiles"}${
+                milheiroHideZeros ? ", sem dias zerados (sem venda)" : ""
+              } (${fmtInt(milheiroDailyChartPoints.length)} de ${fmtInt(milheiroDailyWithDelta.length)} no período). R² próximo de 1 indica que a reta explica bem a série.`
         }
       />
 
