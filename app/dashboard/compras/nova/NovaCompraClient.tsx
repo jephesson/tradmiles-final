@@ -24,7 +24,7 @@ import {
 import { parseLatamClubEmail } from "@/lib/latam/parseClubEmail";
 import { defaultClubRenewalDay } from "@/lib/purchases/purchaseDefaults";
 
-type LoyaltyProgram = "LATAM" | "SMILES" | "LIVELO" | "ESFERA";
+type LoyaltyProgram = "LATAM" | "SMILES" | "LIVELO" | "ESFERA" | "IBERIA";
 
 type Cedente = {
   id: string;
@@ -35,6 +35,7 @@ type Cedente = {
   pontosSmiles: number;
   pontosLivelo: number;
   pontosEsfera: number;
+  pontosIberia: number;
   scoreMedia?: number;
 };
 
@@ -95,6 +96,7 @@ type PurchaseDraft = {
   expectedSmilesPoints: number | null;
   expectedLiveloPoints: number | null;
   expectedEsferaPoints: number | null;
+  expectedIberiaPoints: number | null;
 
   note: string | null;
 
@@ -267,6 +269,7 @@ function computeProgramDeltas(items: PurchaseItem[]) {
     SMILES: 0,
     LIVELO: 0,
     ESFERA: 0,
+    IBERIA: 0,
   };
 
   const arr = Array.isArray(items) ? items : [];
@@ -318,6 +321,7 @@ const PROGRAM_LABEL: Record<LoyaltyProgram, string> = {
   SMILES: "Smiles",
   LIVELO: "Livelo",
   ESFERA: "Esfera",
+  IBERIA: "Iberia",
 };
 
 const FIELD_LABEL =
@@ -472,6 +476,8 @@ function normalizeDraft(raw: any, cedenteSel?: Cedente | null): PurchaseDraft {
       raw?.expectedLiveloPoints ?? raw?.saldoPrevistoLivelo ?? null,
     expectedEsferaPoints:
       raw?.expectedEsferaPoints ?? raw?.saldoPrevistoEsfera ?? null,
+    expectedIberiaPoints:
+      raw?.expectedIberiaPoints ?? raw?.saldoPrevistoIberia ?? null,
 
     note: raw?.note ?? raw?.observacao ?? null,
 
@@ -488,6 +494,8 @@ function normalizeDraft(raw: any, cedenteSel?: Cedente | null): PurchaseDraft {
       d.expectedLiveloPoints = cedenteSel.pontosLivelo ?? 0;
     if (d.expectedEsferaPoints === null || d.expectedEsferaPoints === undefined)
       d.expectedEsferaPoints = cedenteSel.pontosEsfera ?? 0;
+    if (d.expectedIberiaPoints === null || d.expectedIberiaPoints === undefined)
+      d.expectedIberiaPoints = cedenteSel.pontosIberia ?? 0;
   }
 
   return d;
@@ -506,6 +514,7 @@ function remainingItemMeta(it: PurchaseItem) {
 function cedenteBalanceForProgram(cedente: Cedente, program: LoyaltyProgram) {
   if (program === "LATAM") return clampInt(cedente.pontosLatam);
   if (program === "SMILES") return clampInt(cedente.pontosSmiles);
+  if (program === "IBERIA") return clampInt(cedente.pontosIberia);
   return 0;
 }
 
@@ -559,6 +568,7 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
     SMILES: true,
     LIVELO: true,
     ESFERA: true,
+    IBERIA: true,
   });
 
   const [liveloClubSub, setLiveloClubSub] = useState<LiveloClubSub | null>(null);
@@ -728,7 +738,7 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
     const fromAlert = searchParams.get("fromAlert") === "1";
     const programRaw = (searchParams.get("program") || "").trim().toUpperCase();
     const program = (
-      ["LATAM", "SMILES", "LIVELO", "ESFERA"].includes(programRaw)
+      ["LATAM", "SMILES", "LIVELO", "ESFERA", "IBERIA"].includes(programRaw)
         ? programRaw
         : "LATAM"
     ) as LoyaltyProgram;
@@ -1458,6 +1468,7 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
       SMILES: (cedenteSel.pontosSmiles || 0) + deltas.SMILES,
       LIVELO: (cedenteSel.pontosLivelo || 0) + deltas.LIVELO,
       ESFERA: (cedenteSel.pontosEsfera || 0) + deltas.ESFERA,
+      IBERIA: (cedenteSel.pontosIberia || 0) + deltas.IBERIA,
       deltas,
     };
   }, [cedenteSel, draft]);
@@ -1471,6 +1482,7 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
     if (expectedAuto.SMILES) patch.expectedSmilesPoints = computedExpected.SMILES;
     if (expectedAuto.LIVELO) patch.expectedLiveloPoints = computedExpected.LIVELO;
     if (expectedAuto.ESFERA) patch.expectedEsferaPoints = computedExpected.ESFERA;
+    if (expectedAuto.IBERIA) patch.expectedIberiaPoints = computedExpected.IBERIA;
 
     const changed =
       (expectedAuto.LATAM &&
@@ -1480,7 +1492,9 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
       (expectedAuto.LIVELO &&
         draft.expectedLiveloPoints !== patch.expectedLiveloPoints) ||
       (expectedAuto.ESFERA &&
-        draft.expectedEsferaPoints !== patch.expectedEsferaPoints);
+        draft.expectedEsferaPoints !== patch.expectedEsferaPoints) ||
+      (expectedAuto.IBERIA &&
+        draft.expectedIberiaPoints !== patch.expectedIberiaPoints);
 
     if (changed) updateDraft(patch);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1661,7 +1675,8 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
                   Saldos atuais: LATAM {cedenteSel.pontosLatam.toLocaleString("pt-BR")} · Smiles{" "}
                   {cedenteSel.pontosSmiles.toLocaleString("pt-BR")} · Livelo{" "}
                   {cedenteSel.pontosLivelo.toLocaleString("pt-BR")} · Esfera{" "}
-                  {cedenteSel.pontosEsfera.toLocaleString("pt-BR")}
+                  {cedenteSel.pontosEsfera.toLocaleString("pt-BR")} · Iberia{" "}
+                  {cedenteSel.pontosIberia.toLocaleString("pt-BR")}
                 </p>
               </div>
             )}
@@ -1879,6 +1894,7 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
                             <option value="SMILES">Smiles</option>
                             <option value="LATAM">LATAM</option>
                             <option value="ESFERA">Esfera</option>
+                            <option value="IBERIA">Iberia</option>
                           </select>
                         </td>
 
@@ -2164,6 +2180,7 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
                 <option value="">Selecione…</option>
                 <option value="LATAM">LATAM</option>
                 <option value="SMILES">Smiles</option>
+                <option value="IBERIA">Iberia</option>
               </select>
               <p className="text-[11px] text-slate-500">
                 O milheiro usa o esperado da CIA escolhida.
@@ -2424,6 +2441,17 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
               disabled={!!isReleased}
               onToggleAuto={(v) => setExpectedAuto((s) => ({ ...s, ESFERA: v }))}
               onChange={(v) => updateDraft({ expectedEsferaPoints: v })}
+            />
+            <ExpectedBalance
+              label="Iberia"
+              program="IBERIA"
+              current={cedenteSel.pontosIberia}
+              delta={computedExpected?.deltas.IBERIA || 0}
+              value={draft.expectedIberiaPoints}
+              auto={expectedAuto.IBERIA}
+              disabled={!!isReleased}
+              onToggleAuto={(v) => setExpectedAuto((s) => ({ ...s, IBERIA: v }))}
+              onChange={(v) => updateDraft({ expectedIberiaPoints: v })}
             />
           </div>
 
@@ -2752,6 +2780,8 @@ function ItemCard(props: {
             <option value="SMILES">SMILES</option>
             <option value="LIVELO">LIVELO</option>
             <option value="ESFERA">ESFERA</option>
+            <option value="IBERIA">IBERIA</option>
+            <option value="IBERIA">IBERIA</option>
           </select>
         </div>
 
@@ -2771,6 +2801,7 @@ function ItemCard(props: {
             <option value="SMILES">SMILES</option>
             <option value="LIVELO">LIVELO</option>
             <option value="ESFERA">ESFERA</option>
+            <option value="IBERIA">IBERIA</option>
           </select>
         </div>
 

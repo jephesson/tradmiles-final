@@ -34,12 +34,13 @@ type CedenteOpt = {
   pontosSmiles: number;
   pontosLivelo: number;
   pontosEsfera: number;
+  pontosIberia?: number;
 };
 
 type BlockRow = {
   id: string;
   status: "OPEN" | "UNBLOCKED" | "CANCELED";
-  program: "LATAM" | "SMILES" | "LIVELO" | "ESFERA";
+  program: "LATAM" | "SMILES" | "LIVELO" | "ESFERA" | "IBERIA";
   createdAt: string;
   cedente: { id: string; nomeCompleto: string; cpf: string; identificador: string };
   pointsBlocked: number;
@@ -51,6 +52,7 @@ type RatesCents = {
   smilesRateCents: number;
   liveloRateCents: number;
   esferaRateCents: number;
+  iberiaRateCents?: number;
 };
 
 // ✅ resposta do GET /api/dividas-a-receber

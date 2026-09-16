@@ -48,6 +48,7 @@ enum LoyaltyProgram {
   SMILES
   LIVELO
   ESFERA
+  IBERIA
 }
 
 enum BlockStatus {
@@ -562,6 +563,7 @@ model Cedente {
   senhaLatamPass String?
   senhaLivelo    String?
   senhaEsfera    String?
+  senhaIberia    String?
 
   /// Conta do programa ainda não criada (automático sem senha ou marcação manual).
   latamCreacaoPendente   Boolean @default(false)
@@ -580,6 +582,7 @@ model Cedente {
   pontosSmiles Int @default(0)
   pontosLivelo Int @default(0)
   pontosEsfera Int @default(0)
+  pontosIberia Int @default(0)
 
   status     CedenteStatus @default(PENDING)
   reviewedAt DateTime?
@@ -927,6 +930,7 @@ model Settings {
   smilesRateCents Int @default(1800)
   liveloRateCents Int @default(2200)
   esferaRateCents Int @default(1700)
+  iberiaRateCents Int @default(2000)
 
   taxPercent       Int       @default(8)
   taxEffectiveFrom DateTime?
@@ -945,6 +949,7 @@ model Settings {
   cotacaoMinMilheiroLatamCents  Int @default(0)
   cotacaoMinMilheiroSmilesCents Int @default(0)
   cotacaoMinMilheiroAzulCents   Int @default(0)
+  cotacaoMinMilheiroIberiaCents Int @default(0)
   /// Palavra-chave da pergunta “cidade favorita” (configurações e troca de responsável).
   securityCity String @default("Munique")
 
@@ -1208,11 +1213,13 @@ model Purchase {
   saldoPrevistoSmiles Int?
   saldoPrevistoLivelo Int?
   saldoPrevistoEsfera Int?
+  saldoPrevistoIberia Int?
 
   saldoAplicadoLatam  Int?
   saldoAplicadoSmiles Int?
   saldoAplicadoLivelo Int?
   saldoAplicadoEsfera Int?
+  saldoAplicadoIberia Int?
 
   liberadoEm    DateTime?
   liberadoPorId String?

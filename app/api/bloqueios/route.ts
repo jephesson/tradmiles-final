@@ -14,6 +14,7 @@ function programPoints(ced: any, program: string) {
   if (program === "SMILES") return ced.pontosSmiles || 0;
   if (program === "LIVELO") return ced.pontosLivelo || 0;
   if (program === "ESFERA") return ced.pontosEsfera || 0;
+  if (program === "IBERIA") return ced.pontosIberia || 0;
   return 0;
 }
 
@@ -60,7 +61,7 @@ export async function GET(req: Request) {
     const cedenteIdQ = url.searchParams.get("cedenteId")?.trim();
     const programQ = url.searchParams.get("program")?.trim().toUpperCase();
 
-    if (cedenteIdQ && programQ && ["LATAM", "SMILES", "LIVELO", "ESFERA"].includes(programQ)) {
+    if (cedenteIdQ && programQ && ["LATAM", "SMILES", "LIVELO", "ESFERA", "IBERIA"].includes(programQ)) {
       const lastEmissionAt = await getLastEmissionAt(cedenteIdQ, programQ);
       return NextResponse.json({
         ok: true,
@@ -82,6 +83,7 @@ export async function GET(req: Request) {
         smilesRateCents: true,
         liveloRateCents: true,
         esferaRateCents: true,
+        iberiaRateCents: true,
       },
     });
 
@@ -98,6 +100,7 @@ export async function GET(req: Request) {
             pontosSmiles: true,
             pontosLivelo: true,
             pontosEsfera: true,
+            pontosIberia: true,
           },
         },
         observations: { orderBy: { createdAt: "desc" } },
@@ -116,6 +119,8 @@ export async function GET(req: Request) {
           ? settings.smilesRateCents
           : b.program === "LIVELO"
           ? settings.liveloRateCents
+          : b.program === "IBERIA"
+          ? settings.iberiaRateCents
           : settings.esferaRateCents;
 
       const valueCents = calcValueCents(pts, rateCents);
@@ -188,7 +193,7 @@ export async function POST(req: Request) {
     }
 
     if (!cedenteId) return NextResponse.json({ ok: false, error: "Selecione a conta (cedente)." }, { status: 400 });
-    if (!["LATAM", "SMILES", "LIVELO", "ESFERA"].includes(program))
+    if (!["LATAM", "SMILES", "LIVELO", "ESFERA", "IBERIA"].includes(program))
       return NextResponse.json({ ok: false, error: "Programa inválido." }, { status: 400 });
 
     const createdById = null;

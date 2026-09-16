@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useMemo, useState } from "react";
 
-type Program = "LATAM" | "SMILES" | "LIVELO" | "ESFERA";
+type Program = "LATAM" | "SMILES" | "LIVELO" | "ESFERA" | "IBERIA";
 type Status = "ACTIVE" | "PAUSED" | "CANCELED" | "NEVER";
 
 type CedenteLite = {
@@ -30,6 +30,7 @@ type MatrixRow = {
   SMILES: ClubCell | null;
   LIVELO: ClubCell | null;
   ESFERA: ClubCell | null;
+  IBERIA: ClubCell | null;
 };
 
 async function jfetch(url: string, init?: RequestInit) {
@@ -154,10 +155,10 @@ export default function ClubesListaClient({
     const total = rows.length;
 
     const withAny =
-      rows.filter((r) => r.LATAM || r.SMILES || r.LIVELO || r.ESFERA).length;
+      rows.filter((r) => r.LATAM || r.SMILES || r.LIVELO || r.ESFERA || r.IBERIA).length;
 
     const neverAll =
-      rows.filter((r) => !r.LATAM && !r.SMILES && !r.LIVELO && !r.ESFERA).length;
+      rows.filter((r) => !r.LATAM && !r.SMILES && !r.LIVELO && !r.ESFERA && !r.IBERIA).length;
 
     return { total, withAny, neverAll };
   }, [rows]);
@@ -169,7 +170,7 @@ export default function ClubesListaClient({
         <div>
           <h1 className="text-xl font-semibold tracking-tight">Clube • Lista</h1>
           <p className="text-sm text-neutral-500">
-            Matriz por cedente (LATAM/SMILES/LIVELO/ESFERA). Se não existir registro, aparece como <b>NUNCA</b>.
+            Matriz por cedente (LATAM/SMILES/LIVELO/ESFERA/IBERIA). Se não existir registro, aparece como <b>NUNCA</b>.
           </p>
           <p className="text-xs text-neutral-400 mt-1">
             Total: {counts.total} • Com algum clube: {counts.withAny} • Nunca assinado (todos): {counts.neverAll}
@@ -228,6 +229,7 @@ export default function ClubesListaClient({
             <option value="SMILES">SMILES</option>
             <option value="LIVELO">LIVELO</option>
             <option value="ESFERA">ESFERA</option>
+            <option value="IBERIA">IBERIA</option>
           </select>
 
           <select
@@ -274,6 +276,7 @@ export default function ClubesListaClient({
                 <th className="text-left px-4 py-2">SMILES</th>
                 <th className="text-left px-4 py-2">LIVELO</th>
                 <th className="text-left px-4 py-2">ESFERA</th>
+                <th className="text-left px-4 py-2">IBERIA</th>
                 <th className="text-right px-4 py-2">Ações</th>
               </tr>
             </thead>
@@ -302,6 +305,10 @@ export default function ClubesListaClient({
 
                   <td className="px-4 py-2">
                     <Cell cell={r.ESFERA} program="ESFERA" />
+                  </td>
+
+                  <td className="px-4 py-2">
+                    <Cell cell={r.IBERIA} program="IBERIA" />
                   </td>
 
                   <td className="px-4 py-2 text-right">

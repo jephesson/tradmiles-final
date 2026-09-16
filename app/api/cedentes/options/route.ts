@@ -26,6 +26,7 @@ export async function GET() {
         pontosSmiles: true,
         pontosLivelo: true,
         pontosEsfera: true,
+        pontosIberia: true,
       },
       orderBy: { nomeCompleto: "asc" },
       take: 5000,

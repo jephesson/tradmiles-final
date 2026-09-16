@@ -44,6 +44,7 @@ export async function GET() {
         pontosSmiles: true,
         pontosLivelo: true,
         pontosEsfera: true,
+        pontosIberia: true,
         createdAt: true,
         owner: {
           select: { id: true, name: true, login: true },
@@ -74,6 +75,7 @@ export async function GET() {
       pontosSmiles: r.pontosSmiles,
       pontosLivelo: r.pontosLivelo,
       pontosEsfera: r.pontosEsfera,
+      pontosIberia: r.pontosIberia,
       scoreMedia: scoreMedia(r.score),
       createdAt: r.createdAt.toISOString(),
       owner: r.owner,

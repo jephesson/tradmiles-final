@@ -45,12 +45,14 @@ function costMilheiroFallback(
     smilesRateCents: number;
     liveloRateCents: number;
     esferaRateCents: number;
+    iberiaRateCents: number;
   }
 ) {
   if (program === "LATAM") return rates.latamRateCents;
   if (program === "SMILES") return rates.smilesRateCents;
   if (program === "LIVELO") return rates.liveloRateCents;
   if (program === "ESFERA") return rates.esferaRateCents;
+  if (program === "IBERIA") return rates.iberiaRateCents;
   return rates.latamRateCents;
 }
 
@@ -99,6 +101,7 @@ export async function fetchMonthConsolidatedLucroLiquido(team: string, month: st
       smilesRateCents: true,
       liveloRateCents: true,
       esferaRateCents: true,
+      iberiaRateCents: true,
     },
   });
 
@@ -109,6 +112,7 @@ export async function fetchMonthConsolidatedLucroLiquido(team: string, month: st
     smilesRateCents: Number(settings.smilesRateCents ?? 1800),
     liveloRateCents: Number(settings.liveloRateCents ?? 2200),
     esferaRateCents: Number(settings.esferaRateCents ?? 1700),
+    iberiaRateCents: Number(settings.iberiaRateCents ?? 2000),
   };
 
   const [sales, balcaoOps, lossPurchases] = await Promise.all([

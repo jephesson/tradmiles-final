@@ -77,7 +77,7 @@ function normalizeEnumQ(q: string): LoyaltyProgram | null {
   // atalhos comuns (se tu digitar "GOL", ele vira SMILES)
   if (up === "GOL") return "SMILES";
 
-  if (up === "LATAM" || up === "SMILES" || up === "LIVELO" || up === "ESFERA") {
+  if (up === "LATAM" || up === "SMILES" || up === "LIVELO" || up === "ESFERA" || up === "IBERIA") {
     return up as LoyaltyProgram;
   }
   return null;

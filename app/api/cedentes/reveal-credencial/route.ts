@@ -23,13 +23,14 @@ function canReveal(roleRaw: any) {
 
 const FIELD_MAP: Record<
   string,
-  "senhaEmail" | "senhaLatamPass" | "senhaSmiles" | "senhaLivelo" | "senhaEsfera"
+  "senhaEmail" | "senhaLatamPass" | "senhaSmiles" | "senhaLivelo" | "senhaEsfera" | "senhaIberia"
 > = {
   EMAIL: "senhaEmail",
   LATAM: "senhaLatamPass",
   SMILES: "senhaSmiles",
   LIVELO: "senhaLivelo",
   ESFERA: "senhaEsfera",
+  IBERIA: "senhaIberia",
 };
 
 export async function POST(req: NextRequest) {
@@ -80,6 +81,7 @@ export async function POST(req: NextRequest) {
         senhaSmiles: true,
         senhaLivelo: true,
         senhaEsfera: true,
+        senhaIberia: true,
       },
     });
 

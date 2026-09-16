@@ -38,9 +38,9 @@ import {
 } from "@/lib/latam/parseReceiptPdf";
 import { buildClientChargeMessage } from "@/lib/vendas/buildClientChargeMessage";
 
-type Program = "LATAM" | "SMILES" | "LIVELO" | "ESFERA";
+type Program = "LATAM" | "SMILES" | "LIVELO" | "ESFERA" | "IBERIA";
 type PointsMode = "TOTAL" | "POR_PAX";
-type ProgramKey = "latam" | "smiles" | "livelo" | "esfera";
+type ProgramKey = "latam" | "smiles" | "livelo" | "esfera" | "iberia";
 type TripKind = "IDA" | "IDA_VOLTA";
 
 type Owner = { id: string; name: string; login: string };
@@ -344,6 +344,7 @@ function programToKey(p: Program): ProgramKey {
   if (p === "LATAM") return "latam";
   if (p === "SMILES") return "smiles";
   if (p === "LIVELO") return "livelo";
+  if (p === "IBERIA") return "iberia";
   return "esfera";
 }
 
@@ -1881,6 +1882,7 @@ export default function NovaVendaClient({
                   <option value="SMILES">SMILES</option>
                   <option value="LIVELO">LIVELO</option>
                   <option value="ESFERA">ESFERA</option>
+                  <option value="IBERIA">IBERIA</option>
                 </select>
               </div>
             </div>

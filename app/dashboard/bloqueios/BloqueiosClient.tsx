@@ -18,6 +18,7 @@ type CedenteOpt = {
   pontosSmiles: number;
   pontosLivelo: number;
   pontosEsfera: number;
+  pontosIberia: number;
 };
 
 type Observation = { id: string; text: string; createdAt: string };
@@ -25,7 +26,7 @@ type Observation = { id: string; text: string; createdAt: string };
 type BlockRow = {
   id: string;
   status: "OPEN" | "UNBLOCKED" | "CANCELED";
-  program: "LATAM" | "SMILES" | "LIVELO" | "ESFERA";
+  program: "LATAM" | "SMILES" | "LIVELO" | "ESFERA" | "IBERIA";
   note?: string | null;
   estimatedUnlockAt?: string | null;
   resolvedAt?: string | null;
@@ -211,12 +212,13 @@ export default function BloqueiosClient() {
   }, [cedentes, cedenteId]);
 
   const preview = useMemo(() => {
-    if (!selectedCedente) return { latam: 0, smiles: 0, livelo: 0, esfera: 0 };
+    if (!selectedCedente) return { latam: 0, smiles: 0, livelo: 0, esfera: 0, iberia: 0 };
     return {
       latam: selectedCedente.pontosLatam || 0,
       smiles: selectedCedente.pontosSmiles || 0,
       livelo: selectedCedente.pontosLivelo || 0,
       esfera: selectedCedente.pontosEsfera || 0,
+      iberia: selectedCedente.pontosIberia || 0,
     };
   }, [selectedCedente]);
 
@@ -442,6 +444,11 @@ export default function BloqueiosClient() {
                     <div className="text-[11px] text-slate-600">ESFERA</div>
                     <div className="font-semibold tabular-nums">{fmtInt(preview.esfera)}</div>
                   </div>
+
+                  <div className={cn("rounded-lg border bg-white p-2", program === "IBERIA" && "border-black")}>
+                    <div className="text-[11px] text-slate-600">IBERIA</div>
+                    <div className="font-semibold tabular-nums">{fmtInt(preview.iberia)}</div>
+                  </div>
                 </div>
 
                 <div className="mt-2 text-xs text-slate-600">
@@ -462,6 +469,7 @@ export default function BloqueiosClient() {
               <option value="SMILES">Smiles</option>
               <option value="LIVELO">Livelo</option>
               <option value="ESFERA">Esfera</option>
+              <option value="IBERIA">Iberia</option>
             </select>
           </label>
 

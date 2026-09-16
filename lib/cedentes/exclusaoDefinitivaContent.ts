@@ -1,4 +1,4 @@
-export type Program = "LATAM" | "SMILES" | "LIVELO" | "ESFERA";
+export type Program = "LATAM" | "SMILES" | "LIVELO" | "ESFERA" | "IBERIA";
 export type ScopeMode = "ACCOUNT" | "PROGRAM";
 
 export type CedenteCredentialPreview = {
@@ -11,10 +11,12 @@ export type CedenteCredentialPreview = {
   senhaLatamPass: string | null;
   senhaLivelo: string | null;
   senhaEsfera: string | null;
+  senhaIberia: string | null;
   pontosLatam: number;
   pontosSmiles: number;
   pontosLivelo: number;
   pontosEsfera: number;
+  pontosIberia: number;
 };
 
 function fmtPoints(v?: number | null) {
@@ -57,6 +59,12 @@ function programRows(
         password: preview.senhaEsfera || "Não cadastrada",
         points: preview.pontosEsfera,
       },
+      {
+        title: "Iberia",
+        login: preview.cpf || "Não informado",
+        password: preview.senhaIberia || "Não cadastrada",
+        points: preview.pontosIberia,
+      },
     ];
   }
 
@@ -65,27 +73,33 @@ function programRows(
       ? "LATAM Pass"
       : program === "SMILES"
         ? "Smiles"
-        : program === "LIVELO"
-          ? "Livelo"
-          : "Esfera";
+          : program === "LIVELO"
+            ? "Livelo"
+            : program === "IBERIA"
+              ? "Iberia"
+              : "Esfera";
 
   const password =
     program === "LATAM"
       ? preview.senhaLatamPass || "Não cadastrada"
       : program === "SMILES"
         ? preview.senhaSmiles || "Não cadastrada"
-        : program === "LIVELO"
-          ? preview.senhaLivelo || "Não cadastrada"
-          : preview.senhaEsfera || "Não cadastrada";
+          : program === "LIVELO"
+            ? preview.senhaLivelo || "Não cadastrada"
+            : program === "IBERIA"
+              ? preview.senhaIberia || "Não cadastrada"
+              : preview.senhaEsfera || "Não cadastrada";
 
   const points =
     program === "LATAM"
       ? preview.pontosLatam
       : program === "SMILES"
         ? preview.pontosSmiles
-        : program === "LIVELO"
-          ? preview.pontosLivelo
-          : preview.pontosEsfera;
+          : program === "LIVELO"
+            ? preview.pontosLivelo
+            : program === "IBERIA"
+              ? preview.pontosIberia
+              : preview.pontosEsfera;
 
   return [
     {

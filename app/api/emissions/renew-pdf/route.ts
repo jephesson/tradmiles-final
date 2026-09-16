@@ -16,11 +16,13 @@ function parseProgram(v: string | null): LoyaltyProgram | null {
   if (s === "SMILES") return LoyaltyProgram.SMILES;
   if (s === "LIVELO") return LoyaltyProgram.LIVELO;
   if (s === "ESFERA") return LoyaltyProgram.ESFERA;
+  if (s === "IBERIA") return LoyaltyProgram.IBERIA;
   const l = String(v || "").trim().toLowerCase();
   if (l === "latam") return LoyaltyProgram.LATAM;
   if (l === "smiles") return LoyaltyProgram.SMILES;
   if (l === "livelo") return LoyaltyProgram.LIVELO;
   if (l === "esfera") return LoyaltyProgram.ESFERA;
+  if (l === "iberia") return LoyaltyProgram.IBERIA;
   return null;
 }
 

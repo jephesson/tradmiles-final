@@ -17,7 +17,7 @@ type ClubMeta = {
   renewedThisCycle?: boolean;
 };
 
-const CLUB_PROGRAMS = new Set<ClubProgram>(["LATAM", "SMILES", "LIVELO", "ESFERA"]);
+const CLUB_PROGRAMS = new Set<ClubProgram>(["LATAM", "SMILES", "LIVELO", "ESFERA", "IBERIA"]);
 const LATAM_CANCEL_AFTER_INACTIVE_DAYS = 10;
 const SMILES_CANCEL_AFTER_INACTIVE_DAYS = 60;
 const LIVELO_INACTIVE_AFTER_SUBSCRIBE_DAYS = 30;
@@ -194,6 +194,12 @@ export async function POST(
           compra.cedente.pontosEsfera ??
           0
       ),
+      iberia: clampPts(
+        body?.saldosAplicados?.iberia ??
+          compra.saldoPrevistoIberia ??
+          compra.cedente.pontosIberia ??
+          0
+      ),
     };
 
     // 5) transação: aplica saldo no cedente + fecha compra + libera itens + gera comissão
@@ -217,6 +223,7 @@ export async function POST(
           pontosSmiles: applied.smiles,
           pontosLivelo: applied.livelo,
           pontosEsfera: applied.esfera,
+          pontosIberia: applied.iberia,
         },
       });
 
@@ -238,6 +245,7 @@ export async function POST(
           saldoAplicadoSmiles: applied.smiles,
           saldoAplicadoLivelo: applied.livelo,
           saldoAplicadoEsfera: applied.esfera,
+          saldoAplicadoIberia: applied.iberia,
         },
         include: { items: true, cedente: true, liberadoPor: true },
       });

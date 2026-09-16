@@ -33,7 +33,7 @@ async function getServerSession(): Promise<Sess | null> {
 }
 
 function isProgram(v: string): v is LoyaltyProgram {
-  return v === "LATAM" || v === "SMILES";
+  return v === "LATAM" || v === "SMILES" || v === "IBERIA";
 }
 
 export async function GET(req: Request) {

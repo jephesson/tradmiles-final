@@ -25,7 +25,7 @@ function bad(message: string, status = 400) {
 
 const OPEN_STATUSES = ["DRAFT", "SENT", "WAITING"] as const;
 const STATUSES = new Set(["DRAFT", "SENT", "WAITING", "RESOLVED", "DENIED"]);
-const PROGRAMS = new Set(["LATAM", "SMILES", "LIVELO", "ESFERA"]);
+const PROGRAMS = new Set(["LATAM", "SMILES", "LIVELO", "ESFERA", "IBERIA"]);
 
 export async function GET(req: NextRequest) {
   const session = await requireSession();

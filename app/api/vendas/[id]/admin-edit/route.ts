@@ -22,8 +22,8 @@ import {
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-type Program = "LATAM" | "SMILES" | "LIVELO" | "ESFERA";
-type CedentePointsField = "pontosLatam" | "pontosSmiles" | "pontosLivelo" | "pontosEsfera";
+type Program = "LATAM" | "SMILES" | "LIVELO" | "ESFERA" | "IBERIA";
+type CedentePointsField = "pontosLatam" | "pontosSmiles" | "pontosLivelo" | "pontosEsfera" | "pontosIberia";
 type Ctx = { params: Promise<{ id: string }> | { id: string } };
 
 const SALE_EDIT_TZ = "America/Sao_Paulo";
@@ -254,6 +254,7 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
               pontosSmiles: true,
               pontosLivelo: true,
               pontosEsfera: true,
+              pontosIberia: true,
             },
           },
         },

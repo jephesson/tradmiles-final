@@ -39,6 +39,11 @@ async function restorePoints(args: {
       where: { id: args.cedenteId },
       data: { pontosEsfera: { increment: inc } },
     });
+  } else if (args.program === LoyaltyProgram.IBERIA) {
+    await prisma.cedente.update({
+      where: { id: args.cedenteId },
+      data: { pontosIberia: { increment: inc } },
+    });
   }
 }
 

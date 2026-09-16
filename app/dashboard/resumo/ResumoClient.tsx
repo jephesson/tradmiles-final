@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { History, Landmark, PieChart, RefreshCw, Save, Wallet } from "lucide-react";
 import { cn } from "@/lib/cn";
 
-type Points = { latam: number; smiles: number; livelo: number; esfera: number };
+type Points = { latam: number; smiles: number; livelo: number; esfera: number; iberia: number };
 
 type Snapshot = {
   id: string;
@@ -31,12 +31,13 @@ type CedenteOpt = {
   pontosSmiles: number;
   pontosLivelo: number;
   pontosEsfera: number;
+  pontosIberia: number;
 };
 
 type BlockRow = {
   id: string;
   status: "OPEN" | "UNBLOCKED" | "CANCELED";
-  program: "LATAM" | "SMILES" | "LIVELO" | "ESFERA";
+  program: "LATAM" | "SMILES" | "LIVELO" | "ESFERA" | "IBERIA";
   createdAt: string;
   cedente: { id: string; nomeCompleto: string; cpf: string; identificador: string };
   pointsBlocked: number;
@@ -684,6 +685,7 @@ export default function CedentesResumoClient() {
     smiles: 0,
     livelo: 0,
     esfera: 0,
+    iberia: 0,
   });
 
   const [snapshots, setSnapshots] = useState<Snapshot[]>([]);
@@ -726,6 +728,7 @@ export default function CedentesResumoClient() {
   const [rateSmiles, setRateSmiles] = useState("18,00");
   const [rateLivelo, setRateLivelo] = useState("22,00");
   const [rateEsfera, setRateEsfera] = useState("17,00");
+  const [rateIberia, setRateIberia] = useState("20,00");
 
   const [didLoad, setDidLoad] = useState(false);
 
@@ -771,6 +774,7 @@ export default function CedentesResumoClient() {
         setRateSmiles(centsToRateInput(rates.smilesRateCents));
         setRateLivelo(centsToRateInput(rates.liveloRateCents));
         setRateEsfera(centsToRateInput(rates.esferaRateCents));
+        if (rates.iberiaRateCents != null) setRateIberia(centsToRateInput(rates.iberiaRateCents));
       }
 
       setDebtsOpenCents(Number(j.data.debtsOpenCents || 0));
@@ -845,6 +849,7 @@ export default function CedentesResumoClient() {
         smiles: rateSmiles,
         livelo: rateLivelo,
         esfera: rateEsfera,
+        iberia: rateIberia,
       }),
     });
     const j = await res.json();
@@ -858,7 +863,7 @@ export default function CedentesResumoClient() {
     }, 600);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rateLatam, rateSmiles, rateLivelo, rateEsfera, didLoad]);
+  }, [rateLatam, rateSmiles, rateLivelo, rateEsfera, rateIberia, didLoad]);
 
   const blockedTotals = useMemo(() => {
     const open = blockedRows.filter((r) => r.status === "OPEN");
@@ -870,14 +875,15 @@ export default function CedentesResumoClient() {
   const eligible = useMemo(() => {
     const cutoff = FIXED_CUTOFF_POINTS;
 
-    const pts: Points = { latam: 0, smiles: 0, livelo: 0, esfera: 0 };
-    const counts = { latam: 0, smiles: 0, livelo: 0, esfera: 0 };
+    const pts: Points = { latam: 0, smiles: 0, livelo: 0, esfera: 0, iberia: 0 };
+    const counts = { latam: 0, smiles: 0, livelo: 0, esfera: 0, iberia: 0 };
 
     for (const c of cedentes) {
       const pLatam = Number(c.pontosLatam || 0);
       const pSmiles = Number(c.pontosSmiles || 0);
       const pLivelo = Number(c.pontosLivelo || 0);
       const pEsfera = Number(c.pontosEsfera || 0);
+      const pIberia = Number(c.pontosIberia || 0);
 
       if (pLatam >= cutoff) {
         pts.latam += pLatam;
@@ -894,6 +900,10 @@ export default function CedentesResumoClient() {
       if (pEsfera >= cutoff) {
         pts.esfera += pEsfera;
         counts.esfera += 1;
+      }
+      if (pIberia >= cutoff) {
+        pts.iberia += pIberia;
+        counts.iberia += 1;
       }
     }
 
@@ -963,17 +973,20 @@ export default function CedentesResumoClient() {
     const milSmiles = Math.floor((eligible.pts.smiles || 0) / 1000);
     const milLivelo = Math.floor((eligible.pts.livelo || 0) / 1000);
     const milEsfera = Math.floor((eligible.pts.esfera || 0) / 1000);
+    const milIberia = Math.floor((eligible.pts.iberia || 0) / 1000);
 
     const rateLatamCents = Math.round((Number(String(rateLatam).replace(",", ".")) || 0) * 100);
     const rateSmilesCents = Math.round((Number(String(rateSmiles).replace(",", ".")) || 0) * 100);
     const rateLiveloCents = Math.round((Number(String(rateLivelo).replace(",", ".")) || 0) * 100);
     const rateEsferaCents = Math.round((Number(String(rateEsfera).replace(",", ".")) || 0) * 100);
+    const rateIberiaCents = Math.round((Number(String(rateIberia).replace(",", ".")) || 0) * 100);
 
     const milesValueEligibleCents =
       milLatam * rateLatamCents +
       milSmiles * rateSmilesCents +
       milLivelo * rateLiveloCents +
-      milEsfera * rateEsferaCents;
+      milEsfera * rateEsferaCents +
+      milIberia * rateIberiaCents;
 
     const pendingLatamMil = Math.floor((pendingPurchaseLatamPoints || 0) / 1000);
     const pendingSmilesMil = Math.floor((pendingPurchaseSmilesPoints || 0) / 1000);
@@ -1018,6 +1031,7 @@ export default function CedentesResumoClient() {
       milSmiles,
       milLivelo,
       milEsfera,
+      milIberia,
       milesValueEligibleCents,
       pendingLatamMil,
       pendingSmilesMil,
@@ -1040,6 +1054,7 @@ export default function CedentesResumoClient() {
     rateSmiles,
     rateLivelo,
     rateEsfera,
+    rateIberia,
     pendingPurchaseLatamPoints,
     pendingPurchaseSmilesPoints,
     creditCardsTotalCents,
@@ -1058,16 +1073,19 @@ export default function CedentesResumoClient() {
     const milSmiles = Math.floor((points.smiles || 0) / 1000);
     const milLivelo = Math.floor((points.livelo || 0) / 1000);
     const milEsfera = Math.floor((points.esfera || 0) / 1000);
+    const milIberia = Math.floor((points.iberia || 0) / 1000);
 
     const rLatam = Number(String(rateLatam).replace(",", ".")) || 0;
     const rSmiles = Number(String(rateSmiles).replace(",", ".")) || 0;
     const rLivelo = Number(String(rateLivelo).replace(",", ".")) || 0;
     const rEsfera = Number(String(rateEsfera).replace(",", ".")) || 0;
+    const rIberia = Number(String(rateIberia).replace(",", ".")) || 0;
 
     const vLatamCents = Math.round(milLatam * rLatam * 100);
     const vSmilesCents = Math.round(milSmiles * rSmiles * 100);
     const vLiveloCents = Math.round(milLivelo * rLivelo * 100);
     const vEsferaCents = Math.round(milEsfera * rEsfera * 100);
+    const vIberiaCents = Math.round(milIberia * rIberia * 100);
 
     const pendingLatamMil = Math.floor((pendingPurchaseLatamPoints || 0) / 1000);
     const pendingSmilesMil = Math.floor((pendingPurchaseSmilesPoints || 0) / 1000);
@@ -1087,6 +1105,7 @@ export default function CedentesResumoClient() {
       vSmilesCents +
       vLiveloCents +
       vEsferaCents +
+      vIberiaCents +
       pendingPurchasesValueCents +
       cashAndCardsCents +
       receivableSalesCents +
@@ -1114,10 +1133,12 @@ export default function CedentesResumoClient() {
       milSmiles,
       milLivelo,
       milEsfera,
+      milIberia,
       vLatamCents,
       vSmilesCents,
       vLiveloCents,
       vEsferaCents,
+      vIberiaCents,
       pendingLatamMil,
       pendingSmilesMil,
       pendingLatamValueCents,
@@ -1141,6 +1162,7 @@ export default function CedentesResumoClient() {
     rateSmiles,
     rateLivelo,
     rateEsfera,
+    rateIberia,
     pendingPurchaseLatamPoints,
     pendingPurchaseSmilesPoints,
     creditCardsTotalCents,
@@ -1298,6 +1320,7 @@ export default function CedentesResumoClient() {
                 { label: "Smiles", value: points.smiles, bar: "bg-rose-500" },
                 { label: "Livelo", value: points.livelo, bar: "bg-violet-500" },
                 { label: "Esfera", value: points.esfera, bar: "bg-amber-500" },
+                { label: "Iberia", value: points.iberia, bar: "bg-red-500" },
               ] as const
             ).map((row) => (
               <div
@@ -1436,7 +1459,8 @@ export default function CedentesResumoClient() {
 
           <p className="rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-600">
             Elegíveis no corte: LATAM {fmtInt(eligible.counts.latam)} • Smiles {fmtInt(eligible.counts.smiles)} •
-            Livelo {fmtInt(eligible.counts.livelo)} • Esfera {fmtInt(eligible.counts.esfera)}
+            Livelo {fmtInt(eligible.counts.livelo)} • Esfera {fmtInt(eligible.counts.esfera)} • Iberia{" "}
+            {fmtInt(eligible.counts.iberia)}
           </p>
         </div>
       </div>
@@ -1476,6 +1500,7 @@ export default function CedentesResumoClient() {
           <Input label="Smiles" value={rateSmiles} onChange={setRateSmiles} />
           <Input label="Livelo" value={rateLivelo} onChange={setRateLivelo} />
           <Input label="Esfera" value={rateEsfera} onChange={setRateEsfera} />
+          <Input label="Iberia" value={rateIberia} onChange={setRateIberia} />
         </div>
 
         <div className="grid gap-3 sm:grid-cols-2">
@@ -1485,6 +1510,7 @@ export default function CedentesResumoClient() {
               { label: "Smiles", mil: calc.milSmiles, val: calc.vSmilesCents, accent: "border-rose-100 bg-rose-50/30" },
               { label: "Livelo", mil: calc.milLivelo, val: calc.vLiveloCents, accent: "border-violet-100 bg-violet-50/30" },
               { label: "Esfera", mil: calc.milEsfera, val: calc.vEsferaCents, accent: "border-amber-100 bg-amber-50/30" },
+              { label: "Iberia", mil: calc.milIberia, val: calc.vIberiaCents, accent: "border-red-100 bg-red-50/30" },
             ] as const
           ).map((row) => (
             <div

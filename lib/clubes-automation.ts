@@ -1,7 +1,7 @@
 // lib/clubes-automation.ts
 import { prisma } from "@/lib/prisma";
 
-type Program = "LATAM" | "SMILES" | "LIVELO" | "ESFERA";
+type Program = "LATAM" | "SMILES" | "LIVELO" | "ESFERA" | "IBERIA";
 type Status = "ACTIVE" | "PAUSED" | "CANCELED";
 
 function startUTC(d: Date) {

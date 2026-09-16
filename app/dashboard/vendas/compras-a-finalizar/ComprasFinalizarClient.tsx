@@ -23,6 +23,7 @@ type ResumoRates = {
   smilesRateCents: number;
   liveloRateCents: number;
   esferaRateCents: number;
+  iberiaRateCents: number;
 };
 
 type Row = {
@@ -152,6 +153,7 @@ function resumoMilheiroCents(program: string | null, rates: ResumoRates | null):
   if (p === "SMILES") return rates.smilesRateCents > 0 ? rates.smilesRateCents : null;
   if (p === "LIVELO") return rates.liveloRateCents > 0 ? rates.liveloRateCents : null;
   if (p === "ESFERA") return rates.esferaRateCents > 0 ? rates.esferaRateCents : null;
+  if (p === "IBERIA") return rates.iberiaRateCents > 0 ? rates.iberiaRateCents : null;
   return null;
 }
 
@@ -388,6 +390,7 @@ export default function ComprasFinalizarClient() {
           smilesRateCents: n(rates.smilesRateCents, 0),
           liveloRateCents: n(rates.liveloRateCents, 0),
           esferaRateCents: n(rates.esferaRateCents, 0),
+          iberiaRateCents: n(rates.iberiaRateCents, 0),
         });
       }
     } catch (e: any) {

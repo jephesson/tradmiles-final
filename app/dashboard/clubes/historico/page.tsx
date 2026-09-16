@@ -5,7 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import { CalendarDays, Gift, History, RefreshCw, Users } from "lucide-react";
 import { cn } from "@/lib/cn";
 
-type Program = "LATAM" | "SMILES" | "LIVELO" | "ESFERA";
+type Program = "LATAM" | "SMILES" | "LIVELO" | "ESFERA" | "IBERIA";
 type Status = "ACTIVE" | "PAUSED" | "CANCELED";
 
 type Owner = { id: string; name: string; login: string };
@@ -49,6 +49,7 @@ const PROGRAMS: Array<{ value: "" | Program; label: string }> = [
   { value: "SMILES", label: "SMILES" },
   { value: "LIVELO", label: "LIVELO" },
   { value: "ESFERA", label: "ESFERA" },
+  { value: "IBERIA", label: "IBERIA" },
 ];
 
 const PROGRAM_PILL: Record<Program, string> = {
@@ -56,6 +57,7 @@ const PROGRAM_PILL: Record<Program, string> = {
   SMILES: "border-orange-200 bg-orange-50 text-orange-700",
   LIVELO: "border-violet-200 bg-violet-50 text-violet-700",
   ESFERA: "border-sky-200 bg-sky-50 text-sky-700",
+  IBERIA: "border-rose-200 bg-rose-50 text-rose-700",
 };
 
 const STATUS_PILL: Record<Status, string> = {
@@ -186,9 +188,10 @@ export default function ClubesHistoricoPage() {
       SMILES: 0,
       LIVELO: 0,
       ESFERA: 0,
+      IBERIA: 0,
     };
 
-    return (["LATAM", "SMILES", "LIVELO", "ESFERA"] as Program[])
+    return (["LATAM", "SMILES", "LIVELO", "ESFERA", "IBERIA"] as Program[])
       .map((p) => `${p}: ${fmtInt(byProgram[p] || 0)}`)
       .join(" • ");
   }, [totals]);

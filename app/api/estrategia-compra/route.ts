@@ -46,7 +46,7 @@ function str(v: any) {
   return s ? s : "";
 }
 function isProgram(v: any): v is LoyaltyProgram {
-  return v === "LATAM" || v === "SMILES" || v === "LIVELO" || v === "ESFERA";
+  return v === "LATAM" || v === "SMILES" || v === "LIVELO" || v === "ESFERA" || v === "IBERIA";
 }
 
 function monthNumberInTZ(date: Date, tz: string) {
@@ -165,6 +165,7 @@ function programLabel(p: LoyaltyProgram) {
   if (p === "LATAM") return "Latam";
   if (p === "SMILES") return "Smiles";
   if (p === "LIVELO") return "Livelo";
+  if (p === "IBERIA") return "Iberia";
   return "Esfera";
 }
 
@@ -173,10 +174,12 @@ function getPointsByProgram(c: {
   pontosSmiles: number;
   pontosLivelo: number;
   pontosEsfera: number;
+  pontosIberia: number;
 }, p: LoyaltyProgram) {
   if (p === "LATAM") return c.pontosLatam || 0;
   if (p === "SMILES") return c.pontosSmiles || 0;
   if (p === "LIVELO") return c.pontosLivelo || 0;
+  if (p === "IBERIA") return c.pontosIberia || 0;
   return c.pontosEsfera || 0;
 }
 
@@ -679,6 +682,7 @@ export async function POST(req: NextRequest) {
       pontosSmiles: true,
       pontosLivelo: true,
       pontosEsfera: true,
+      pontosIberia: true,
 
       blockedAccounts: {
         where: {

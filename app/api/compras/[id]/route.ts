@@ -37,6 +37,7 @@ function mapDbToUi(compra: any) {
     expectedSmilesPoints: compra.saldoPrevistoSmiles ?? null,
     expectedLiveloPoints: compra.saldoPrevistoLivelo ?? null,
     expectedEsferaPoints: compra.saldoPrevistoEsfera ?? null,
+    expectedIberiaPoints: compra.saldoPrevistoIberia ?? null,
 
     note: compra.observacao ?? null,
     items: Array.isArray(compra.items) ? compra.items : [],
@@ -94,6 +95,7 @@ function mapCedenteWithScore(cedente: any) {
     pontosSmiles: Number(cedente.pontosSmiles || 0),
     pontosLivelo: Number(cedente.pontosLivelo || 0),
     pontosEsfera: Number(cedente.pontosEsfera || 0),
+    pontosIberia: Number(cedente.pontosIberia || 0),
     scoreMedia: scoreMedia(cedente.score),
   };
 }
@@ -121,6 +123,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
             pontosSmiles: true,
             pontosLivelo: true,
             pontosEsfera: true,
+            pontosIberia: true,
             score: {
               select: {
                 rapidezBiometria: true,
@@ -199,6 +202,8 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
           body.expectedLiveloPoints === undefined ? undefined : body.expectedLiveloPoints,
         saldoPrevistoEsfera:
           body.expectedEsferaPoints === undefined ? undefined : body.expectedEsferaPoints,
+        saldoPrevistoIberia:
+          body.expectedIberiaPoints === undefined ? undefined : body.expectedIberiaPoints,
 
         // totais
         subtotalCents:
@@ -249,6 +254,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
             pontosSmiles: true,
             pontosLivelo: true,
             pontosEsfera: true,
+            pontosIberia: true,
             score: {
               select: {
                 rapidezBiometria: true,

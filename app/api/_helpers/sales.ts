@@ -5,7 +5,7 @@ import {
   commission1FromPvCents,
 } from "@/lib/payouts/employeeCommissionRates";
 
-export type Program = "LATAM" | "SMILES" | "LIVELO" | "ESFERA";
+export type Program = "LATAM" | "SMILES" | "LIVELO" | "ESFERA" | "IBERIA";
 
 export function clampInt(v: any) {
   const n = Number(v);
@@ -30,6 +30,7 @@ export function pointsField(program: Program) {
   if (program === "LATAM") return "pontosLatam";
   if (program === "SMILES") return "pontosSmiles";
   if (program === "LIVELO") return "pontosLivelo";
+  if (program === "IBERIA") return "pontosIberia";
   return "pontosEsfera";
 }
 

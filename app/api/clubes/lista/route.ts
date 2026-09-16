@@ -5,7 +5,7 @@ import { getSessionServer } from "@/lib/auth-server";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const PROGRAMS = ["LATAM", "SMILES", "LIVELO", "ESFERA"] as const;
+const PROGRAMS = ["LATAM", "SMILES", "LIVELO", "ESFERA", "IBERIA"] as const;
 type Program = (typeof PROGRAMS)[number];
 
 const STATUSES = ["ACTIVE", "PAUSED", "CANCELED", "NEVER"] as const;
@@ -35,6 +35,7 @@ type MatrixRow = {
   SMILES: ClubCell | null;
   LIVELO: ClubCell | null;
   ESFERA: ClubCell | null;
+  IBERIA: ClubCell | null;
 };
 
 function bad(message: string, status = 400) {
@@ -122,6 +123,7 @@ function applyFilters(rows: MatrixRow[], q?: string, program?: Program | "", sta
       SMILES: r.SMILES,
       LIVELO: r.LIVELO,
       ESFERA: r.ESFERA,
+      IBERIA: r.IBERIA,
     } as const;
 
     // quando escolhe um programa específico
@@ -136,7 +138,7 @@ function applyFilters(rows: MatrixRow[], q?: string, program?: Program | "", sta
     if (st) {
       if (st === "NEVER") {
         // "NEVER" = não tem nenhum clube em nenhum programa
-        return !r.LATAM && !r.SMILES && !r.LIVELO && !r.ESFERA;
+        return !r.LATAM && !r.SMILES && !r.LIVELO && !r.ESFERA && !r.IBERIA;
       }
       // status = qualquer programa com esse status
       return (
@@ -211,6 +213,7 @@ export async function GET(req: NextRequest) {
         SMILES: get("SMILES"),
         LIVELO: get("LIVELO"),
         ESFERA: get("ESFERA"),
+        IBERIA: get("IBERIA"),
       };
     });
 

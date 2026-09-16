@@ -18,7 +18,7 @@ import {
   VP_TABLE_WRAP,
 } from "./visualizarPontosUi";
 
-type Program = "LATAM" | "SMILES" | "LIVELO" | "ESFERA";
+type Program = "LATAM" | "SMILES" | "LIVELO" | "ESFERA" | "IBERIA";
 
 type Row = {
   id: string;
@@ -29,6 +29,7 @@ type Row = {
   pontosSmiles: number;
   pontosLivelo: number;
   pontosEsfera: number;
+  pontosIberia: number;
   scoreMedia?: number;
   createdAt: string;
   owner: { id: string; name: string; login: string };
@@ -37,7 +38,7 @@ type Row = {
   blockedPrograms?: Program[];
 };
 
-type SortKey = "nome" | "score" | "latam" | "smiles" | "livelo" | "esfera";
+type SortKey = "nome" | "score" | "latam" | "smiles" | "livelo" | "esfera" | "iberia";
 type SortDir = "asc" | "desc";
 
 function fmtInt(n: number) {
@@ -232,6 +233,10 @@ export default function CedentesVisualizarClient() {
             va = a.pontosEsfera;
             vb = b.pontosEsfera;
             break;
+          case "iberia":
+            va = a.pontosIberia;
+            vb = b.pontosIberia;
+            break;
         }
 
         if (va < vb) return sortDir === "asc" ? -1 : 1;
@@ -365,6 +370,7 @@ export default function CedentesVisualizarClient() {
               <ThRight onClick={() => toggleSort("smiles")}>SMILES{arrow("smiles")}</ThRight>
               <ThRight onClick={() => toggleSort("livelo")}>LIVELO{arrow("livelo")}</ThRight>
               <ThRight onClick={() => toggleSort("esfera")}>ESFERA{arrow("esfera")}</ThRight>
+              <ThRight onClick={() => toggleSort("iberia")}>IBERIA{arrow("iberia")}</ThRight>
 
               <th className={cn(VP_TABLE_HEAD_CELL, "text-right")}>Ações</th>
             </tr>
@@ -447,6 +453,10 @@ export default function CedentesVisualizarClient() {
 
                   <TdRight className={isBlocked(r, "ESFERA") ? "text-red-600 font-semibold" : ""}>
                     {fmtInt(r.pontosEsfera)}
+                  </TdRight>
+
+                  <TdRight className={isBlocked(r, "IBERIA") ? "text-red-600 font-semibold" : ""}>
+                    {fmtInt(r.pontosIberia)}
                   </TdRight>
 
                   <td className="px-4 py-3 text-right" onClick={(e) => e.stopPropagation()}>

@@ -819,6 +819,19 @@ export default function Sidebar() {
                 >
                   Esfera
                 </button>
+
+                <button
+                  type="button"
+                  onClick={() => goVisualizarPrograma("iberia")}
+                  className={cn(
+                    "px-3 py-1 text-xs rounded-full border",
+                    programa === "iberia"
+                      ? "bg-black text-white"
+                      : "hover:bg-slate-100"
+                  )}
+                >
+                  Iberia
+                </button>
               </div>
             </div>
           </SubAccordion>

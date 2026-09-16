@@ -16,6 +16,7 @@ function pointsForMilheiro(compra: Purchase) {
 
   if (cia === "LATAM") return asInt(c.saldoPrevistoLatam ?? c.expectedLatamPoints ?? c.pontosCiaTotal ?? 0);
   if (cia === "SMILES") return asInt(c.saldoPrevistoSmiles ?? c.expectedSmilesPoints ?? c.pontosCiaTotal ?? 0);
+  if (cia === "IBERIA") return asInt(c.saldoPrevistoIberia ?? c.expectedIberiaPoints ?? c.pontosCiaTotal ?? 0);
 
   return asInt(c.pontosCiaTotal ?? 0);
 }

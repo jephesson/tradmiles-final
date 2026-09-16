@@ -52,7 +52,7 @@ async function copyText(text: string) {
   await navigator.clipboard.writeText(text);
 }
 
-type RevealKind = "EMAIL" | "LATAM" | "SMILES" | "LIVELO" | "ESFERA";
+type RevealKind = "EMAIL" | "LATAM" | "SMILES" | "LIVELO" | "ESFERA" | "IBERIA";
 
 const KIND_LABEL: Record<RevealKind, string> = {
   EMAIL: "Email",
@@ -60,6 +60,7 @@ const KIND_LABEL: Record<RevealKind, string> = {
   SMILES: "Smiles",
   LIVELO: "Livelo",
   ESFERA: "Esfera",
+  IBERIA: "Iberia",
 };
 
 export default function HistoricoCadastroPage() {

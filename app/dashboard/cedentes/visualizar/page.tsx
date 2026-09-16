@@ -5,6 +5,7 @@ import CedentesVisualizarLatamClient from "./CedentesVisualizarLatamClient";
 import CedentesVisualizarSmilesClient from "./CedentesVisualizarSmilesClient";
 import CedentesVisualizarLiveloClient from "./cedentes-visualizar-livelo-client";
 import CedentesVisualizarEsferaClient from "./CedentesVisualizarEsferaClient";
+import CedentesVisualizarIberiaClient from "./CedentesVisualizarIberiaClient";
 
 type SearchParams = { [key: string]: string | string[] | undefined };
 
@@ -28,6 +29,7 @@ export default async function Page({
   if (p === "smiles") return <CedentesVisualizarSmilesClient />;
   if (p === "livelo") return <CedentesVisualizarLiveloClient />;
   if (p === "esfera") return <CedentesVisualizarEsferaClient />;
+  if (p === "iberia") return <CedentesVisualizarIberiaClient />;
 
   // default: lista geral (todos)
   return <CedentesVisualizarClient />;

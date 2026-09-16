@@ -19,6 +19,7 @@ type FormState = {
   senhaLatamPass: string;
   senhaLivelo: string;
   senhaEsfera: string;
+  senhaIberia: string;
 
   // ✅ PIX obrigatório (schema exige banco + pixTipo + chavePix)
   pixTipo: PixTipo;
@@ -29,6 +30,7 @@ type FormState = {
   pontosSmiles: number | "";
   pontosLivelo: number | "";
   pontosEsfera: number | "";
+  pontosIberia: number | "";
 };
 
 function onlyDigits(v: string) {
@@ -104,6 +106,7 @@ export default function CedentesNovoPage() {
     senhaLatamPass: "",
     senhaLivelo: "",
     senhaEsfera: "",
+    senhaIberia: "",
 
     pixTipo: "",
     chavePix: "",
@@ -113,6 +116,7 @@ export default function CedentesNovoPage() {
     pontosSmiles: "",
     pontosLivelo: "",
     pontosEsfera: "",
+    pontosIberia: "",
   });
 
   const [saving, setSaving] = useState(false);
@@ -168,11 +172,13 @@ export default function CedentesNovoPage() {
         senhaLatamPassEnc: form.senhaLatamPass || null,
         senhaLiveloEnc: form.senhaLivelo || null,
         senhaEsferaEnc: form.senhaEsfera || null,
+        senhaIberiaEnc: form.senhaIberia || null,
 
         pontosLatam: Number(form.pontosLatam || 0),
         pontosSmiles: Number(form.pontosSmiles || 0),
         pontosLivelo: Number(form.pontosLivelo || 0),
         pontosEsfera: Number(form.pontosEsfera || 0),
+        pontosIberia: Number(form.pontosIberia || 0),
       };
 
       const res = await fetch("/api/cedentes", {
@@ -198,6 +204,7 @@ export default function CedentesNovoPage() {
         senhaLatamPass: "",
         senhaLivelo: "",
         senhaEsfera: "",
+    senhaIberia: "",
 
         pixTipo: "",
         chavePix: "",
@@ -207,6 +214,7 @@ export default function CedentesNovoPage() {
         pontosSmiles: "",
         pontosLivelo: "",
         pontosEsfera: "",
+    pontosIberia: "",
       });
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Erro ao cadastrar.";
@@ -410,6 +418,15 @@ export default function CedentesNovoPage() {
               </div>
 
               <div>
+                <label className="mb-1 block text-sm">Senha Iberia</label>
+                <input
+                  className="w-full rounded-xl border px-3 py-2"
+                  value={form.senhaIberia}
+                  onChange={(e) => setField("senhaIberia", e.target.value)}
+                />
+              </div>
+
+              <div>
                 <label className="mb-1 block text-sm">Tipo de chave PIX</label>
                 <select
                   className="w-full rounded-xl border px-3 py-2 bg-white"
@@ -457,6 +474,7 @@ export default function CedentesNovoPage() {
               <FieldNumber label="Smiles" value={form.pontosSmiles} onChange={(v) => setField("pontosSmiles", v)} />
               <FieldNumber label="Livelo" value={form.pontosLivelo} onChange={(v) => setField("pontosLivelo", v)} />
               <FieldNumber label="Esfera" value={form.pontosEsfera} onChange={(v) => setField("pontosEsfera", v)} />
+              <FieldNumber label="Iberia" value={form.pontosIberia} onChange={(v) => setField("pontosIberia", v)} />
             </div>
           </section>
 

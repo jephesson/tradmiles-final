@@ -83,11 +83,13 @@ const SELECT = {
   senhaLatamPass: true,
   senhaLivelo: true,
   senhaEsfera: true,
+  senhaIberia: true,
 
   pontosLatam: true,
   pontosSmiles: true,
   pontosLivelo: true,
   pontosEsfera: true,
+  pontosIberia: true,
 
   status: true,
   reviewedAt: true,
@@ -207,6 +209,7 @@ export async function PUT(req: NextRequest, ctx: Ctx) {
     if ("senhaLatamPass" in body) data.senhaLatamPass = strOrNull(body.senhaLatamPass);
     if ("senhaLivelo" in body) data.senhaLivelo = strOrNull(body.senhaLivelo);
     if ("senhaEsfera" in body) data.senhaEsfera = strOrNull(body.senhaEsfera);
+    if ("senhaIberia" in body) data.senhaIberia = strOrNull(body.senhaIberia);
 
     if (
       "senhaSmiles" in body ||
@@ -250,6 +253,7 @@ export async function PUT(req: NextRequest, ctx: Ctx) {
     if ("pontosSmiles" in body) data.pontosSmiles = intNonNeg(body.pontosSmiles);
     if ("pontosLivelo" in body) data.pontosLivelo = intNonNeg(body.pontosLivelo);
     if ("pontosEsfera" in body) data.pontosEsfera = intNonNeg(body.pontosEsfera);
+    if ("pontosIberia" in body) data.pontosIberia = intNonNeg(body.pontosIberia);
 
     const wantsOwner = "ownerId" in body;
     const wantsReferrer = "referredByCedenteId" in body;

@@ -5,13 +5,14 @@ export const dynamic = "force-dynamic";
 // opcional (se usar pg/adapter): garante Node
 export const runtime = "nodejs";
 
-type Program = "LATAM" | "SMILES" | "LIVELO" | "ESFERA";
+type Program = "LATAM" | "SMILES" | "LIVELO" | "ESFERA" | "IBERIA";
 
 function pickSenhaPrograma(program: Program, c: any) {
   if (program === "LATAM") return c?.senhaLatamPass ?? null;
   if (program === "SMILES") return c?.senhaSmiles ?? null;
   if (program === "LIVELO") return c?.senhaLivelo ?? null;
   if (program === "ESFERA") return c?.senhaEsfera ?? null;
+  if (program === "IBERIA") return c?.senhaIberia ?? null;
   return null;
 }
 
@@ -42,7 +43,7 @@ export async function GET(req: NextRequest) {
         { status: 400 }
       );
     }
-    if (!["LATAM", "SMILES", "LIVELO", "ESFERA"].includes(program)) {
+    if (!["LATAM", "SMILES", "LIVELO", "ESFERA", "IBERIA"].includes(program)) {
       return NextResponse.json(
         { ok: false, error: "program inválido." },
         { status: 400 }
@@ -59,6 +60,7 @@ export async function GET(req: NextRequest) {
         senhaSmiles: true,
         senhaLivelo: true,
         senhaEsfera: true,
+        senhaIberia: true,
         emailRedirecionado: true,
       },
     });

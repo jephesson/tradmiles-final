@@ -28,7 +28,7 @@ type CedenteRow = {
   identificador: string;
   nomeCompleto: string;
   cpf: string;
-  pontosEsfera: number;
+  pontosIberia: number;
   scoreMedia?: number;
   owner: { id: string; name: string; login: string };
   blockedPrograms?: Program[];
@@ -65,8 +65,8 @@ function scorePillClass(v: unknown) {
   return "border-rose-200 bg-rose-50 text-rose-700";
 }
 
-function isEsferaBlocked(r: CedenteRow) {
-  return (r.blockedPrograms || []).includes("ESFERA");
+function isIberiaBlocked(r: CedenteRow) {
+  return (r.blockedPrograms || []).includes("IBERIA");
 }
 
 function getErrorMessage(error: unknown, fallback: string) {
@@ -74,7 +74,7 @@ function getErrorMessage(error: unknown, fallback: string) {
   return fallback;
 }
 
-export default function CedentesVisualizarEsferaClient() {
+export default function CedentesVisualizarIberiaClient() {
   const router = useRouter();
 
   const [rows, setRows] = useState<CedenteRow[]>([]);
@@ -92,11 +92,11 @@ export default function CedentesVisualizarEsferaClient() {
   async function load() {
     setLoading(true);
     try {
-      const r = await fetch("/api/cedentes/approved", { cache: "no-store" });
+      const r = await fetch("/api/cedentes/iberia", { cache: "no-store" });
       const j = await r.json();
       if (!j?.ok) throw new Error(j?.error || "Falha ao carregar cedentes");
 
-      const cedentes: CedenteRow[] = j.data || [];
+      const cedentes: CedenteRow[] = j.rows || j.data || [];
       setRows(cedentes);
       setEditingId(null);
       setDraftPoints("");
@@ -139,7 +139,7 @@ export default function CedentesVisualizarEsferaClient() {
     list.sort((a, b) => {
       let cmp = 0;
       if (sortField === "pontos") {
-        cmp = (a.pontosEsfera || 0) - (b.pontosEsfera || 0);
+        cmp = (a.pontosIberia || 0) - (b.pontosIberia || 0);
       } else if (sortField === "score") {
         cmp = normalizeScore(a.scoreMedia) - normalizeScore(b.scoreMedia);
       } else if (sortField === "nome") {
@@ -169,13 +169,13 @@ export default function CedentesVisualizarEsferaClient() {
       const res = await fetch(`/api/cedentes/${cedenteId}/pontos`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ program: "ESFERA", points: Math.trunc(n) }),
+        body: JSON.stringify({ program: "IBERIA", points: Math.trunc(n) }),
       });
       const json = await res.json().catch(() => null);
       if (!res.ok || !json?.ok) throw new Error(json?.error || "Falha ao salvar pontos");
 
       setRows((prev) =>
-        prev.map((r) => (r.id === cedenteId ? { ...r, pontosEsfera: json.points } : r))
+        prev.map((r) => (r.id === cedenteId ? { ...r, pontosIberia: json.points } : r))
       );
       setEditingId(null);
       setDraftPoints("");
@@ -195,9 +195,9 @@ export default function CedentesVisualizarEsferaClient() {
             Gestão de pontos
           </div>
           <div>
-            <h1 className="text-3xl font-bold tracking-tight text-slate-900">Cedentes • Esfera</h1>
+            <h1 className="text-3xl font-bold tracking-tight text-slate-900">Cedentes • Iberia</h1>
             <p className="mt-2 max-w-2xl text-sm leading-relaxed text-slate-600">
-              Pontos Esfera com score médio operacional (0 a 10).
+              Só aparece quem já tem senha Iberia gravada. Pontos com score médio operacional (0 a 10).
             </p>
           </div>
         </div>
@@ -253,7 +253,7 @@ export default function CedentesVisualizarEsferaClient() {
               value={sortField}
               onChange={(e) => setSortField(e.target.value as SortField)}
             >
-              <option value="pontos">Pontos Esfera</option>
+              <option value="pontos">Pontos Iberia</option>
               <option value="score">Score médio</option>
               <option value="nome">Nome</option>
               <option value="responsavel">Responsável</option>
@@ -282,7 +282,7 @@ export default function CedentesVisualizarEsferaClient() {
                 <Th>Nome</Th>
                 <Th>Responsável</Th>
                 <ThRight>Score</ThRight>
-                <ThRight>Pontos (Esfera)</ThRight>
+                <ThRight>Pontos (Iberia)</ThRight>
                 <th className={cn(VP_TABLE_HEAD_CELL, "text-right")}>Ações</th>
               </tr>
             </thead>
@@ -308,7 +308,7 @@ export default function CedentesVisualizarEsferaClient() {
               ) : null}
 
               {sortedRows.map((r) => {
-              const blocked = isEsferaBlocked(r);
+              const blocked = isIberiaBlocked(r);
               return (
                 <tr
                   key={r.id}
@@ -378,7 +378,7 @@ export default function CedentesVisualizarEsferaClient() {
                       </div>
                     ) : (
                       <span className={cn("font-medium", blocked ? "text-red-700" : "")}>
-                        {fmtInt(r.pontosEsfera)}
+                        {fmtInt(r.pontosIberia)}
                       </span>
                     )}
                   </td>
@@ -398,7 +398,7 @@ export default function CedentesVisualizarEsferaClient() {
                         className="rounded-lg border px-3 py-1 text-xs hover:bg-slate-50"
                         onClick={() => {
                           setEditingId(r.id);
-                          setDraftPoints(String(r.pontosEsfera || 0));
+                          setDraftPoints(String(r.pontosIberia || 0));
                         }}
                         disabled={savingId === r.id}
                       >

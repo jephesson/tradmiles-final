@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { clampInt, endOfYearExclusive, passengerLimit, pointsField, startOfYear } from "../../_helpers/sales";
 
-type Program = "LATAM" | "SMILES" | "LIVELO" | "ESFERA";
+type Program = "LATAM" | "SMILES" | "LIVELO" | "ESFERA" | "IBERIA";
 
 function scoreMedia(score?: {
   rapidezBiometria?: number;
@@ -32,7 +32,7 @@ export async function GET(req: Request) {
   const pointsNeeded = clampInt(searchParams.get("points"));
   const passengersNeeded = clampInt(searchParams.get("passengers"));
 
-  if (!["LATAM", "SMILES", "LIVELO", "ESFERA"].includes(program)) {
+  if (!["LATAM", "SMILES", "LIVELO", "ESFERA", "IBERIA"].includes(program)) {
     return NextResponse.json({ ok: false, error: "program inválido" }, { status: 400 });
   }
   if (pointsNeeded <= 0 || passengersNeeded <= 0) {
@@ -71,6 +71,7 @@ export async function GET(req: Request) {
       pontosSmiles: true,
       pontosLivelo: true,
       pontosEsfera: true,
+      pontosIberia: true,
       impedirBloqueioPax: true,
       biometriaHorario: {
         select: {
@@ -92,7 +93,7 @@ export async function GET(req: Request) {
     take: 3000,
   });
 
-  const field = pointsField(program) as "pontosLatam" | "pontosSmiles" | "pontosLivelo" | "pontosEsfera";
+  const field = pointsField(program) as "pontosLatam" | "pontosSmiles" | "pontosLivelo" | "pontosEsfera" | "pontosIberia";
 
   const rows = cedentes
     .filter((c) => !blockedSet.has(c.id))
@@ -102,6 +103,7 @@ export async function GET(req: Request) {
         pontosSmiles: c.pontosSmiles,
         pontosLivelo: c.pontosLivelo,
         pontosEsfera: c.pontosEsfera,
+        pontosIberia: c.pontosIberia,
       };
       const pts = clampInt(ptsByProgram[field]);
       const used = usedMap.get(c.id) || 0;

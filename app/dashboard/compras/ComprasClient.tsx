@@ -16,7 +16,7 @@ import {
 import { cn } from "@/lib/cn";
 
 type PurchaseStatus = "OPEN" | "DRAFT" | "READY" | "CLOSED" | "CANCELED";
-type LoyaltyProgram = "LATAM" | "SMILES" | "LIVELO" | "ESFERA";
+type LoyaltyProgram = "LATAM" | "SMILES" | "LIVELO" | "ESFERA" | "IBERIA";
 
 type PurchaseRowRaw = {
   id: string;

@@ -147,12 +147,14 @@ export async function POST(req: NextRequest) {
           senhaSmiles: asTrimOrNull(body?.senhaSmiles),
           senhaLatamPass: asTrimOrNull(body?.senhaLatamPass),
           senhaLivelo: asTrimOrNull(body?.senhaLivelo),
-          senhaEsfera: asTrimOrNull(body?.senhaEsfera),
+          senhaEsfera: asTrimOrNull(body?.senhaEsfera ?? body?.senhaEsferaEnc),
+          senhaIberia: asTrimOrNull(body?.senhaIberia ?? body?.senhaIberiaEnc),
 
           pontosLatam: asIntNonNeg(body?.pontosLatam),
           pontosSmiles: asIntNonNeg(body?.pontosSmiles),
           pontosLivelo: asIntNonNeg(body?.pontosLivelo),
           pontosEsfera: asIntNonNeg(body?.pontosEsfera),
+          pontosIberia: asIntNonNeg(body?.pontosIberia),
 
           status,
 

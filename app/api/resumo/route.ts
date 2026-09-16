@@ -59,6 +59,7 @@ export async function GET(req: Request) {
         pontosSmiles: true,
         pontosLivelo: true,
         pontosEsfera: true,
+        pontosIberia: true,
       },
     });
 
@@ -67,6 +68,7 @@ export async function GET(req: Request) {
       smiles: safeInt(agg._sum.pontosSmiles),
       livelo: safeInt(agg._sum.pontosLivelo),
       esfera: safeInt(agg._sum.pontosEsfera),
+      iberia: safeInt(agg._sum.pontosIberia),
     };
 
     // rates (milheiro) salvo (config única)
@@ -79,6 +81,7 @@ export async function GET(req: Request) {
         smilesRateCents: true,
         liveloRateCents: true,
         esferaRateCents: true,
+        iberiaRateCents: true,
         taxPercent: true,
         taxEffectiveFrom: true,
       },

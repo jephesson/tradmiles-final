@@ -26,8 +26,8 @@ import {
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-type Program = "LATAM" | "SMILES" | "LIVELO" | "ESFERA";
-type CedentePointsField = "pontosLatam" | "pontosSmiles" | "pontosLivelo" | "pontosEsfera";
+type Program = "LATAM" | "SMILES" | "LIVELO" | "ESFERA" | "IBERIA";
+type CedentePointsField = "pontosLatam" | "pontosSmiles" | "pontosLivelo" | "pontosEsfera" | "pontosIberia";
 
 type Sess = {
   id: string;
@@ -328,7 +328,7 @@ export async function POST(req: Request) {
 
   const date = parseDateISOToLocal(body.date);
 
-  if (!["LATAM", "SMILES", "LIVELO", "ESFERA"].includes(program)) {
+  if (!["LATAM", "SMILES", "LIVELO", "ESFERA", "IBERIA"].includes(program)) {
     return NextResponse.json({ ok: false, error: "Programa inválido" }, { status: 400 });
   }
   if (!cedenteKey || !clienteId) {
@@ -421,6 +421,7 @@ export async function POST(req: Request) {
           pontosSmiles: true,
           pontosLivelo: true,
           pontosEsfera: true,
+          pontosIberia: true,
           impedirBloqueioPax: true,
         },
       });

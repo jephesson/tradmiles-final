@@ -20,7 +20,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/cn";
 
-type Program = "LATAM" | "SMILES" | "LIVELO" | "ESFERA";
+type Program = "LATAM" | "SMILES" | "LIVELO" | "ESFERA" | "IBERIA";
 
 type Row = {
   id: string;
@@ -264,6 +264,7 @@ function ProgramBadge({ program }: { program: Program | null }) {
     SMILES: "bg-orange-50 text-orange-700 ring-orange-200",
     LIVELO: "bg-rose-50 text-rose-700 ring-rose-200",
     ESFERA: "bg-emerald-50 text-emerald-700 ring-emerald-200",
+    IBERIA: "bg-red-50 text-red-700 ring-red-200",
   };
   return (
     <span className={cn("inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-xs font-semibold ring-1", colors[program])}>

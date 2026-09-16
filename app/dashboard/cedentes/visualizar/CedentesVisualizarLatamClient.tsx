@@ -36,7 +36,7 @@ import {
   VP_TABLE_WRAP,
 } from "./visualizarPontosUi";
 
-type Program = "LATAM" | "SMILES" | "LIVELO" | "ESFERA";
+type Program = "LATAM" | "SMILES" | "LIVELO" | "ESFERA" | "IBERIA";
 type Owner = { id: string; name: string; login: string };
 
 type Row = {

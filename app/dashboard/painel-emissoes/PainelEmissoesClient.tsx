@@ -52,7 +52,7 @@
     return v.toLocaleString("pt-BR");
   }
 
-  function programApiKey(p: ProgramKey): "LATAM" | "SMILES" | "LIVELO" | "ESFERA" {
+  function programApiKey(p: ProgramKey): "LATAM" | "SMILES" | "LIVELO" | "ESFERA" | "IBERIA" {
     if (p === "smiles") return "SMILES";
     if (p === "livelo") return "LIVELO";
     if (p === "esfera") return "ESFERA";

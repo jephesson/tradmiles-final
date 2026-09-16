@@ -251,6 +251,9 @@ export async function POST(req: NextRequest, { params }: Ctx) {
         } else if (cia === "ESFERA") {
           await tx.cedente.update({ where: { id: cedenteId }, data: { pontosEsfera: { increment: deltaPoints } } });
           patchPurchase.saldoAplicadoEsfera = safeInt((compra as any).saldoAplicadoEsfera, 0) + deltaPoints;
+        } else if (cia === "IBERIA") {
+          await tx.cedente.update({ where: { id: cedenteId }, data: { pontosIberia: { increment: deltaPoints } } });
+          patchPurchase.saldoAplicadoIberia = safeInt((compra as any).saldoAplicadoIberia, 0) + deltaPoints;
         }
 
         await tx.purchase.update({ where: { id: purchaseId }, data: patchPurchase });

@@ -5,7 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Plus, RefreshCw, Search, TrendingDown } from "lucide-react";
 import { cn } from "@/lib/cn";
 
-type Program = "LATAM" | "SMILES" | "LIVELO" | "ESFERA";
+type Program = "LATAM" | "SMILES" | "LIVELO" | "ESFERA" | "IBERIA";
 type Kind = "purchase" | "smiles" | "manual";
 
 type Row = {

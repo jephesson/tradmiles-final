@@ -88,11 +88,13 @@ export async function GET(_req: NextRequest, { params }: Ctx) {
         senhaLatamPass: true,
         senhaLivelo: true,
         senhaEsfera: true,
+        senhaIberia: true,
 
         pontosLatam: true,
         pontosSmiles: true,
         pontosLivelo: true,
         pontosEsfera: true,
+        pontosIberia: true,
 
         status: true,
         reviewedAt: true,
@@ -212,6 +214,7 @@ export async function PUT(req: NextRequest, { params }: Ctx) {
           body?.senhaLatamPass !== undefined ? asTrimOrNull(body.senhaLatamPass) : undefined,
         senhaLivelo: body?.senhaLivelo !== undefined ? asTrimOrNull(body.senhaLivelo) : undefined,
         senhaEsfera: body?.senhaEsfera !== undefined ? asTrimOrNull(body.senhaEsfera) : undefined,
+        senhaIberia: body?.senhaIberia !== undefined ? asTrimOrNull(body.senhaIberia) : undefined,
 
         pontosLatam:
           body?.pontosLatam !== undefined
@@ -228,6 +231,10 @@ export async function PUT(req: NextRequest, { params }: Ctx) {
         pontosEsfera:
           body?.pontosEsfera !== undefined
             ? Math.max(0, Math.floor(numSafe(body.pontosEsfera)))
+            : undefined,
+        pontosIberia:
+          body?.pontosIberia !== undefined
+            ? Math.max(0, Math.floor(numSafe(body.pontosIberia)))
             : undefined,
 
         status: body?.status ? (String(body.status) as CedenteStatus) : undefined,

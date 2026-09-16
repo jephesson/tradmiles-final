@@ -5,7 +5,7 @@ import { getSessionServer } from "@/lib/auth-server";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const PROGRAMS = ["LATAM", "SMILES", "LIVELO", "ESFERA"] as const;
+const PROGRAMS = ["LATAM", "SMILES", "LIVELO", "ESFERA", "IBERIA"] as const;
 type Program = (typeof PROGRAMS)[number];
 
 function bad(message: string, status = 400) {
@@ -178,7 +178,7 @@ export async function GET(req: NextRequest) {
         total: 0,
         totalTierK: 0,
         totalMonthlyBonusPoints: 0,
-        byProgram: { LATAM: 0, SMILES: 0, LIVELO: 0, ESFERA: 0 },
+        byProgram: { LATAM: 0, SMILES: 0, LIVELO: 0, ESFERA: 0, IBERIA: 0 },
       }
     );
 

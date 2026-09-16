@@ -4,7 +4,7 @@ import { useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { defaultClubRenewalDay } from "@/lib/purchases/purchaseDefaults";
 
-type Program = "LATAM" | "SMILES" | "LIVELO" | "ESFERA";
+type Program = "LATAM" | "SMILES" | "LIVELO" | "ESFERA" | "IBERIA";
 type Status = "ACTIVE" | "PAUSED" | "CANCELED";
 
 type CedenteLite = {
@@ -605,6 +605,7 @@ export default function ClubesClient({
               <option value="SMILES">SMILES</option>
               <option value="LIVELO">LIVELO</option>
               <option value="ESFERA">ESFERA</option>
+              <option value="IBERIA">IBERIA</option>
             </select>
           </label>
 
@@ -737,6 +738,7 @@ export default function ClubesClient({
             <option value="SMILES">SMILES</option>
             <option value="LIVELO">LIVELO</option>
             <option value="ESFERA">ESFERA</option>
+            <option value="IBERIA">IBERIA</option>
           </select>
 
           <select

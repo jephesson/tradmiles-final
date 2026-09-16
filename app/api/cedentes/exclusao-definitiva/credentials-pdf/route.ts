@@ -21,7 +21,7 @@ type SessionCookie = {
   team: string;
 };
 
-const PROGRAMS: Program[] = ["LATAM", "SMILES", "LIVELO", "ESFERA"];
+const PROGRAMS: Program[] = ["LATAM", "SMILES", "LIVELO", "ESFERA", "IBERIA"];
 
 function b64urlDecode(input: string) {
   const pad = input.length % 4 === 0 ? "" : "=".repeat(4 - (input.length % 4));
@@ -102,10 +102,12 @@ export async function GET(req: NextRequest) {
         senhaLatamPass: true,
         senhaLivelo: true,
         senhaEsfera: true,
+        senhaIberia: true,
         pontosLatam: true,
         pontosSmiles: true,
         pontosLivelo: true,
         pontosEsfera: true,
+        pontosIberia: true,
       },
     });
 

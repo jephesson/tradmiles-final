@@ -17,10 +17,10 @@ type SessionCookie = {
   team: string;
 };
 
-type Program = "LATAM" | "SMILES" | "LIVELO" | "ESFERA";
+type Program = "LATAM" | "SMILES" | "LIVELO" | "ESFERA" | "IBERIA";
 type ScopeMode = "ACCOUNT" | "PROGRAM";
 
-const PROGRAMS: Program[] = ["LATAM", "SMILES", "LIVELO", "ESFERA"];
+const PROGRAMS: Program[] = ["LATAM", "SMILES", "LIVELO", "ESFERA", "IBERIA"];
 
 function sha256(s: string) {
   return crypto.createHash("sha256").update(s).digest("hex");
@@ -127,10 +127,12 @@ export async function GET(req: Request) {
           senhaLatamPass: true,
           senhaLivelo: true,
           senhaEsfera: true,
+          senhaIberia: true,
           pontosLatam: true,
           pontosSmiles: true,
           pontosLivelo: true,
           pontosEsfera: true,
+          pontosIberia: true,
         },
       });
 
@@ -255,6 +257,7 @@ export async function POST(req: Request) {
           senhaLatamPass: true,
           senhaLivelo: true,
           senhaEsfera: true,
+          senhaIberia: true,
           owner: { select: { team: true } },
         },
       });
@@ -421,6 +424,9 @@ export async function POST(req: Request) {
       } else if (program === "ESFERA") {
         cedentePatch.pontosEsfera = 0;
         cedentePatch.senhaEsfera = null;
+      } else if (program === "IBERIA") {
+        cedentePatch.pontosIberia = 0;
+        cedentePatch.senhaIberia = null;
       }
 
       await tx.cedente.update({ where: { id: cedenteId }, data: cedentePatch });

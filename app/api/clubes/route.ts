@@ -6,7 +6,7 @@ import { getSessionServer } from "@/lib/auth-server";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const PROGRAMS = ["LATAM", "SMILES", "LIVELO", "ESFERA"] as const;
+const PROGRAMS = ["LATAM", "SMILES", "LIVELO", "ESFERA", "IBERIA"] as const;
 const STATUSES = ["ACTIVE", "PAUSED", "CANCELED"] as const;
 
 type Program = (typeof PROGRAMS)[number];

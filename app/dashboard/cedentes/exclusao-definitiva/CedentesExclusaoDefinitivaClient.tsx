@@ -8,7 +8,7 @@ import {
 } from "@/lib/cedentes/upcomingSmilesFlightsShared";
 import { useEffect, useMemo, useState } from "react";
 
-type Program = "LATAM" | "SMILES" | "LIVELO" | "ESFERA";
+type Program = "LATAM" | "SMILES" | "LIVELO" | "ESFERA" | "IBERIA";
 type ScopeMode = "ACCOUNT" | "PROGRAM";
 type ExclusionReasonCode =
   | "LATAM_FACE_NO_RESPONSE"

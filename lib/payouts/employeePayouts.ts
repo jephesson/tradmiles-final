@@ -45,12 +45,14 @@ function costFromSettings(program: LoyaltyProgram, settings: Settings | null) {
     if (program === "LATAM") return 2000;
     if (program === "SMILES") return 1800;
     if (program === "LIVELO") return 2200;
+    if (program === "IBERIA") return 2000;
     return 1700;
   }
 
   if (program === "LATAM") return settings.latamRateCents ?? 2000;
   if (program === "SMILES") return settings.smilesRateCents ?? 1800;
   if (program === "LIVELO") return settings.liveloRateCents ?? 2200;
+  if (program === "IBERIA") return settings.iberiaRateCents ?? 2000;
   return settings.esferaRateCents ?? 1700;
 }
 

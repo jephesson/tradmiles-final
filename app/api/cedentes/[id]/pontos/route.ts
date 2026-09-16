@@ -7,12 +7,13 @@ export const dynamic = "force-dynamic";
 
 const PROGRAM_FIELD: Record<
   string,
-  "pontosLatam" | "pontosSmiles" | "pontosLivelo" | "pontosEsfera"
+  "pontosLatam" | "pontosSmiles" | "pontosLivelo" | "pontosEsfera" | "pontosIberia"
 > = {
   LATAM: "pontosLatam",
   SMILES: "pontosSmiles",
   LIVELO: "pontosLivelo",
   ESFERA: "pontosEsfera",
+  IBERIA: "pontosIberia",
 };
 
 function bad(message: string, status = 400) {
@@ -46,6 +47,7 @@ export async function GET(
         pontosSmiles: true,
         pontosLivelo: true,
         pontosEsfera: true,
+        pontosIberia: true,
       },
     });
     if (!ced) return bad("Cedente não encontrado", 404);
@@ -96,6 +98,7 @@ export async function PATCH(
         pontosSmiles: true,
         pontosLivelo: true,
         pontosEsfera: true,
+        pontosIberia: true,
       },
     });
 

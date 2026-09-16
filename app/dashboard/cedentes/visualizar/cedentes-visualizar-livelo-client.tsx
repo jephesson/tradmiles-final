@@ -33,7 +33,7 @@ import {
   VP_TABLE_WRAP,
 } from "./visualizarPontosUi";
 
-type Program = "LATAM" | "SMILES" | "LIVELO" | "ESFERA";
+type Program = "LATAM" | "SMILES" | "LIVELO" | "ESFERA" | "IBERIA";
 type ClubStatus = "ACTIVE" | "PAUSED" | "CANCELED" | "NEVER";
 type SortField =
   | "pontos"

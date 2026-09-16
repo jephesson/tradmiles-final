@@ -23,11 +23,13 @@ const ALLOWED_KEYS = new Set<string>([
   "senhaLatamPass",
   "senhaLivelo",
   "senhaEsfera",
+  "senhaIberia",
 
   "pontosLatam",
   "pontosSmiles",
   "pontosLivelo",
   "pontosEsfera",
+  "pontosIberia",
 
   "status",
   "reviewedAt",

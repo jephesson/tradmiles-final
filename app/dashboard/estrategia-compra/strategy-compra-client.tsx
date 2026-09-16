@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 
-type Program = "LATAM" | "SMILES" | "LIVELO" | "ESFERA";
+type Program = "LATAM" | "SMILES" | "LIVELO" | "ESFERA" | "IBERIA";
 type Mode =
   | "AVAILABILITY"
   | "CLUB"

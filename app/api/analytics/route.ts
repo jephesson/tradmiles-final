@@ -12,7 +12,7 @@ import {
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-type Program = "LATAM" | "SMILES" | "LIVELO" | "ESFERA";
+type Program = "LATAM" | "SMILES" | "LIVELO" | "ESFERA" | "IBERIA";
 type ProgramOrAll = Program | "ALL";
 type TopMode = "MONTH" | "TOTAL";
 type ChartMode = "MONTH" | "DAY";
@@ -330,12 +330,14 @@ function costMilheiroFallback(
     smilesRateCents: number;
     liveloRateCents: number;
     esferaRateCents: number;
+    iberiaRateCents: number;
   }
 ) {
   if (program === "LATAM") return rates.latamRateCents;
   if (program === "SMILES") return rates.smilesRateCents;
   if (program === "LIVELO") return rates.liveloRateCents;
   if (program === "ESFERA") return rates.esferaRateCents;
+  if (program === "IBERIA") return rates.iberiaRateCents;
   return rates.latamRateCents;
 }
 
@@ -805,6 +807,7 @@ export async function GET(req: NextRequest) {
         smilesRateCents: true,
         liveloRateCents: true,
         esferaRateCents: true,
+        iberiaRateCents: true,
       },
     });
     const milhasTaxPercent = Math.max(0, Number(milhasProfitSettings.taxPercent ?? 8));
@@ -813,6 +816,7 @@ export async function GET(req: NextRequest) {
       smilesRateCents: Number(milhasProfitSettings.smilesRateCents ?? 1800),
       liveloRateCents: Number(milhasProfitSettings.liveloRateCents ?? 2200),
       esferaRateCents: Number(milhasProfitSettings.esferaRateCents ?? 1700),
+      iberiaRateCents: Number(milhasProfitSettings.iberiaRateCents ?? 2000),
     };
 
     for (const s of monthSales) {
@@ -1069,6 +1073,7 @@ export async function GET(req: NextRequest) {
         smiles: number;
         livelo: number;
         esfera: number;
+        iberia: number;
         latamPoints: number;
         latamValueCents: number;
         smilesPoints: number;
@@ -1085,6 +1090,7 @@ export async function GET(req: NextRequest) {
         smiles: 0,
         livelo: 0,
         esfera: 0,
+        iberia: 0,
         latamPoints: 0,
         latamValueCents: 0,
         smilesPoints: 0,
@@ -1114,6 +1120,7 @@ export async function GET(req: NextRequest) {
         cur.smilesValueCents += gross;
       } else if (s.program === "LIVELO") cur.livelo += gross;
       else if (s.program === "ESFERA") cur.esfera += gross;
+      else if (s.program === "IBERIA") cur.iberia += gross;
     }
 
     const months = monthKeys.map((k) => {
@@ -1124,7 +1131,7 @@ export async function GET(req: NextRequest) {
         grossCents: cur.gross,
         salesCount: cur.sales,
         passengers: cur.pax,
-        byProgram: { LATAM: cur.latam, SMILES: cur.smiles, LIVELO: cur.livelo, ESFERA: cur.esfera },
+        byProgram: { LATAM: cur.latam, SMILES: cur.smiles, LIVELO: cur.livelo, ESFERA: cur.esfera, IBERIA: cur.iberia },
         milheiroByProgram: {
           LATAM: milheiroFrom(cur.latamPoints, cur.latamValueCents),
           SMILES: milheiroFrom(cur.smilesPoints, cur.smilesValueCents),

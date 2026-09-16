@@ -28,11 +28,13 @@ type Cedente = {
   senhaLatamPass: string | null;
   senhaLivelo: string | null;
   senhaEsfera: string | null;
+  senhaIberia: string | null;
 
   pontosLatam: number;
   pontosSmiles: number;
   pontosLivelo: number;
   pontosEsfera: number;
+  pontosIberia: number;
 
   ownerId?: string;
   owner?: Owner | null;
@@ -579,6 +581,12 @@ export default function CedenteDetalheClient() {
             onChange={(v) => patch("senhaEsfera", v)}
             editing={editing}
           />
+          <SecretField
+            label="Senha Iberia"
+            value={form.senhaIberia}
+            onChange={(v) => patch("senhaIberia", v)}
+            editing={editing}
+          />
         </div>
       </section>
 
@@ -606,6 +614,12 @@ export default function CedenteDetalheClient() {
           label="Esfera"
           value={form.pontosEsfera}
           onChange={(v) => patch("pontosEsfera", v)}
+          editing={editing}
+        />
+        <NumberInputField
+          label="Iberia"
+          value={form.pontosIberia}
+          onChange={(v) => patch("pontosIberia", v)}
           editing={editing}
         />
       </section>

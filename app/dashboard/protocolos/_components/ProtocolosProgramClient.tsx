@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 
-type Program = "LATAM" | "SMILES" | "LIVELO" | "ESFERA";
+type Program = "LATAM" | "SMILES" | "LIVELO" | "ESFERA" | "IBERIA";
 type ProtocolStatus = "DRAFT" | "SENT" | "WAITING" | "RESOLVED" | "DENIED";
 
 type CedenteMini = {
