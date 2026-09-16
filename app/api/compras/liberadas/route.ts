@@ -71,7 +71,7 @@ async function getServerSession(): Promise<Sess | null> {
 }
 
 function isProgram(v: any): v is Program {
-  return v === "LATAM" || v === "SMILES" || v === "LIVELO" || v === "ESFERA";
+  return v === "LATAM" || v === "SMILES" || v === "LIVELO" || v === "ESFERA" || v === "IBERIA";
 }
 
 type FinalizedMode = "OPEN" | "FINALIZED" | "ALL";

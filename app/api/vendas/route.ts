@@ -19,9 +19,18 @@ import {
   startOfYear,
 } from "../_helpers/sales";
 import {
+  DEFAULT_TARGET_MARKUP_CENTS,
+} from "@/lib/purchases/purchaseDefaults";
+import { DEFAULT_VENDOR_COMMISSION_BPS } from "@/lib/purchases/vendorCommission";
+import {
   resolveEmployeeBonusAboveMetaBps,
   resolveEmployeeC1Bps,
 } from "@/lib/payouts/employeeCommissionRates";
+import {
+  buildPurchaseFinalizeSnapshot,
+  toPrismaRateioBreakdown,
+  usesRateioSnapshot,
+} from "@/lib/payouts/purchaseRateio";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -334,7 +343,7 @@ export async function POST(req: Request) {
   if (!cedenteKey || !clienteId) {
     return NextResponse.json({ ok: false, error: "Cedente/Cliente obrigatório" }, { status: 400 });
   }
-  if (!purchaseKey) {
+  if (!purchaseKey && program !== "IBERIA") {
     return NextResponse.json({ ok: false, error: "Compra (ID) obrigatória" }, { status: 400 });
   }
   if (points <= 0 || passengers <= 0) {
@@ -417,6 +426,7 @@ export async function POST(req: Request) {
         select: {
           id: true,
           status: true,
+          ownerId: true,
           pontosLatam: true,
           pontosSmiles: true,
           pontosLivelo: true,
@@ -453,35 +463,96 @@ export async function POST(req: Request) {
       const availablePts = clampInt(ced[field]);
       if (availablePts < points) throw new Error("Pontos insuficientes.");
 
-      const purchase = isPurchaseNumero(purchaseKey)
-        ? await tx.purchase.findFirst({
-            where: { numero: purchaseKey.toUpperCase(), cedenteId },
-            select: {
-              id: true,
-              numero: true,
-              cedenteId: true,
-              status: true,
-              finalizedAt: true,
-              pontosCiaTotal: true,
-              totalCents: true,
-              metaMilheiroCents: true,
-              custoMilheiroCents: true,
+      const purchaseSelect = {
+        id: true,
+        numero: true,
+        cedenteId: true,
+        status: true,
+        finalizedAt: true,
+        pontosCiaTotal: true,
+        totalCents: true,
+        metaMilheiroCents: true,
+        custoMilheiroCents: true,
+      } as const;
+
+      let purchase =
+        program === "IBERIA"
+          ? null
+          : purchaseKey
+          ? isPurchaseNumero(purchaseKey)
+            ? await tx.purchase.findFirst({
+                where: { numero: purchaseKey.toUpperCase(), cedenteId },
+                select: purchaseSelect,
+              })
+            : await tx.purchase.findUnique({
+                where: { id: purchaseKey },
+                select: purchaseSelect,
+              })
+          : null;
+
+      if (!purchase && program === "IBERIA") {
+        const iberiaSettings = await tx.settings.upsert({
+          where: { key: "default" },
+          create: { key: "default" },
+          update: {},
+          select: { iberiaRateCents: true, vendorCommissionBps: true },
+        });
+        const acquisitionMilheiroCents = Math.max(
+          0,
+          clampInt(body.acquisitionMilheiroCents) ||
+            clampInt(iberiaSettings.iberiaRateCents)
+        );
+        if (acquisitionMilheiroCents <= 0) {
+          throw new Error("Informe o milheiro de aquisição Iberia (configurações).");
+        }
+
+        const totalCostCents = Math.round((points / 1000) * acquisitionMilheiroCents);
+        const metaMarkupCents = DEFAULT_TARGET_MARKUP_CENTS;
+        const metaMilheiroCreate = acquisitionMilheiroCents + metaMarkupCents;
+        const nPurchase = await nextCounter(tx, "purchase");
+        const purchaseNumero = `ID${String(nPurchase).padStart(5, "0")}`;
+        const now = new Date();
+        const remainingAfter = Math.max(0, availablePts - points);
+        const vendorBps = clampInt(iberiaSettings.vendorCommissionBps) || DEFAULT_VENDOR_COMMISSION_BPS;
+
+        purchase = await tx.purchase.create({
+          data: {
+            numero: purchaseNumero,
+            cedenteId,
+            status: "CLOSED",
+            ciaAerea: "IBERIA",
+            pontosCiaTotal: points,
+            remainingCostCents: totalCostCents,
+            vendorCommissionBps: vendorBps,
+            subtotalCents: totalCostCents,
+            comissaoCents: 0,
+            totalCents: totalCostCents,
+            custoMilheiroCents: acquisitionMilheiroCents,
+            metaMarkupCents,
+            metaMilheiroCents: metaMilheiroCreate,
+            saldoPrevistoIberia: remainingAfter,
+            saldoAplicadoIberia: remainingAfter,
+            observacao:
+              "Custo de aquisição Iberia gerado na venda (pontos negociados). Rateio por venda.",
+            liberadoEm: now,
+            liberadoPorId: seller.id,
+            items: {
+              create: [
+                {
+                  type: "POINTS_BUY",
+                  status: "RELEASED",
+                  programTo: "IBERIA",
+                  pointsBase: points,
+                  pointsFinal: points,
+                  amountCents: totalCostCents,
+                  title: "Aquisição Iberia (venda)",
+                },
+              ],
             },
-          })
-        : await tx.purchase.findUnique({
-            where: { id: purchaseKey },
-            select: {
-              id: true,
-              numero: true,
-              cedenteId: true,
-              status: true,
-              finalizedAt: true,
-              pontosCiaTotal: true,
-              totalCents: true,
-              metaMilheiroCents: true,
-              custoMilheiroCents: true,
-            },
-          });
+          },
+          select: purchaseSelect,
+        });
+      }
 
       if (!purchase) throw new Error("Compra não encontrada.");
       if (purchase.status !== "CLOSED") throw new Error("Compra não está LIBERADA.");
@@ -575,6 +646,7 @@ export async function POST(req: Request) {
         select: { id: true, numero: true },
       });
 
+      let affiliateAmountCents = 0;
       const affiliate = cliente.affiliate;
       if (
         cliente.affiliateId &&
@@ -592,6 +664,7 @@ export async function POST(req: Request) {
           profitCents: commissionBase.profitCents,
           commissionBps: clampInt(affiliate.commissionBps),
         });
+        affiliateAmountCents = amountCents;
 
         await tx.affiliateCommission.create({
           data: {
@@ -634,6 +707,51 @@ export async function POST(req: Request) {
         },
       });
 
+      if (program === "IBERIA") {
+        const ownerId = String(ced.ownerId || "").trim();
+        if (!ownerId) throw new Error("Cedente sem responsável para o rateio Iberia.");
+        const finalizedAt = new Date();
+        const snapshot = await buildPurchaseFinalizeSnapshot(tx, {
+          team: sessionTeam,
+          ownerId,
+          sales: [
+            {
+              points,
+              passengers,
+              totalCents,
+              pointsValueCents,
+              embarqueFeeCents,
+              milheiroCents: milheiroFinal,
+              bonusCents,
+              affiliateCommissionCents: affiliateAmountCents,
+            },
+          ],
+          purchaseTotalCents: clampInt(purchase.totalCents),
+          purchaseMetaMilheiroCents: metaMilheiroCents,
+          bonusAboveMetaBps: employeeBonusAboveMetaBps,
+          refDate: finalizedAt,
+        });
+        await tx.purchase.update({
+          where: { id: purchaseIdReal },
+          data: {
+            remainingCostCents: 0,
+            finalizedAt,
+            finalizedById: seller.id,
+            finalSalesCents: snapshot.finalSalesCents,
+            finalSalesPointsValueCents: snapshot.finalSalesPointsValueCents,
+            finalProfitBrutoCents: snapshot.finalProfitBrutoCents,
+            finalBonusCents: snapshot.finalBonusCents,
+            finalProfitCents: snapshot.finalProfitCents,
+            finalSoldPoints: snapshot.finalSoldPoints,
+            finalPax: snapshot.finalPax,
+            finalAvgMilheiroCents: snapshot.finalAvgMilheiroCents,
+            finalRateioBreakdown: usesRateioSnapshot(finalizedAt)
+              ? toPrismaRateioBreakdown(snapshot.finalRateioBreakdown)
+              : undefined,
+          },
+        });
+      }
+
       const soldAgg = await tx.sale.aggregate({
         where: {
           purchaseId: purchaseIdReal,
@@ -657,7 +775,7 @@ export async function POST(req: Request) {
       const accountPointsAfter = Math.max(0, availablePts - points);
       const purchaseTotalCents = clampInt(purchase.totalCents);
       const profitCents = salesPointsValueCents - purchaseTotalCents;
-      const alreadyFinalized = Boolean(purchase.finalizedAt);
+      const alreadyFinalized = Boolean(purchase.finalizedAt) || program === "IBERIA";
       const shouldSuggest =
         !alreadyFinalized && accountPointsAfter < finalizeSuggestBelowPoints;
 

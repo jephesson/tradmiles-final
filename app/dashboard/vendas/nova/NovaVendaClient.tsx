@@ -36,6 +36,7 @@ import {
   purchaseCodeFromLatamPdfUrl,
   toShortLatamDocumentPdfUrl,
 } from "@/lib/latam/parseReceiptPdf";
+import { DEFAULT_TARGET_MARKUP_CENTS } from "@/lib/purchases/purchaseDefaults";
 import { buildClientChargeMessage } from "@/lib/vendas/buildClientChargeMessage";
 
 type Program = "LATAM" | "SMILES" | "LIVELO" | "ESFERA" | "IBERIA";
@@ -558,6 +559,7 @@ export default function NovaVendaClient({
   const [compras, setCompras] = useState<CompraLiberada[]>([]);
   const [purchaseNumero, setPurchaseNumero] = useState(""); // guarda ID00018
   const [loadingCompras, setLoadingCompras] = useState(false);
+  const [acquisitionMilheiroStr, setAcquisitionMilheiroStr] = useState("");
 
   // funcionários (para cartão)
   const [users, setUsers] = useState<UserLite[]>([]);
@@ -628,9 +630,23 @@ export default function NovaVendaClient({
     () => compras.find((c) => c.numero === purchaseNumero) || null,
     [compras, purchaseNumero]
   );
+  const acquisitionMilheiroCents = useMemo(
+    () => moneyToCentsBR(acquisitionMilheiroStr),
+    [acquisitionMilheiroStr]
+  );
+  const iberiaInlineCost = program === "IBERIA";
 
-  const metaMilheiroCents = compraSel?.metaMilheiroCents || 0;
-  const compraMilheiroCents = compraSel?.custoMilheiroCents || 0;
+  const metaMilheiroCents = iberiaInlineCost
+    ? Math.max(0, acquisitionMilheiroCents) + DEFAULT_TARGET_MARKUP_CENTS
+    : compraSel?.metaMilheiroCents || 0;
+  const compraMilheiroCents = iberiaInlineCost
+    ? acquisitionMilheiroCents
+    : compraSel?.custoMilheiroCents || 0;
+  const acquisitionCostCents = useMemo(() => {
+    const denom = pointsTotal / 1000;
+    if (denom <= 0 || compraMilheiroCents <= 0) return 0;
+    return Math.round(denom * compraMilheiroCents);
+  }, [pointsTotal, compraMilheiroCents]);
   const bonusCents = useMemo(
     () =>
       bonusAboveMetaFromSale(
@@ -703,6 +719,12 @@ export default function NovaVendaClient({
       setPagamentoLinkReady(null);
       setSearchLinkReady(null);
       setLatamEmissionUnlocked(true);
+      if (program === "IBERIA") {
+        setRevealCreds(true);
+        setShowProgramPass(false);
+        setShowEmailPass(false);
+        loadCreds(s.cedente.id, program);
+      }
     }
     setFlowStep(3);
   }
@@ -1172,6 +1194,28 @@ export default function NovaVendaClient({
     return () => ac.abort();
   }, [sel?.cedente?.id, program]);
 
+  useEffect(() => {
+    if (program !== "IBERIA") return;
+    const ac = new AbortController();
+    (async () => {
+      try {
+        const out = await api<{
+          ok: true;
+          data?: { ratesCents?: { iberiaRateCents?: number } };
+        }>("/api/resumo", { signal: ac.signal } as any);
+        const cents = Number(out?.data?.ratesCents?.iberiaRateCents || 0);
+        if (cents > 0) {
+          setAcquisitionMilheiroStr((prev) =>
+            prev.trim() ? prev : centsToMoneyInputBR(cents)
+          );
+        }
+      } catch (e: any) {
+        if (e?.name === "AbortError") return;
+      }
+    })();
+    return () => ac.abort();
+  }, [program]);
+
   // ✅ helper: formata input de pontos e manda pro setter certo
   function onChangePoints(setter: (v: string) => void, v: string) {
     const digits = (v || "").replace(/\D+/g, "");
@@ -1185,8 +1229,12 @@ export default function NovaVendaClient({
     if ((program === "LATAM" || program === "SMILES") && !latamEmissionUnlocked)
       return false;
     if (!clienteId) return false;
-    if (!purchaseNumero) return false;
-    if (!compraSel) return false;
+    if (program === "IBERIA") {
+      if (acquisitionMilheiroCents <= 0) return false;
+    } else {
+      if (!purchaseNumero) return false;
+      if (!compraSel) return false;
+    }
     if (pointsTotal <= 0 || passengers <= 0) return false;
     if (milheiroCents <= 0) return false;
     if (!locator?.trim()) return false; // ✅ obrigatório
@@ -1214,6 +1262,7 @@ export default function NovaVendaClient({
     clienteId,
     purchaseNumero,
     compraSel,
+    acquisitionMilheiroCents,
     pointsTotal,
     passengers,
     milheiroCents,
@@ -1273,9 +1322,15 @@ export default function NovaVendaClient({
       );
     }
     if (!clienteId) return alert("Selecione um cliente.");
-    if (!purchaseNumero)
-      return alert("Selecione a compra LIBERADA (ID00018).");
-    if (!compraSel) return alert("Compra selecionada inválida.");
+    if (program === "IBERIA") {
+      if (acquisitionMilheiroCents <= 0) {
+        return alert("Informe o milheiro de aquisição Iberia.");
+      }
+    } else {
+      if (!purchaseNumero)
+        return alert("Selecione a compra LIBERADA (ID00018).");
+      if (!compraSel) return alert("Compra selecionada inválida.");
+    }
     if (pointsTotal <= 0 || passengers <= 0)
       return alert("Pontos/Passageiros inválidos.");
     if (milheiroCents <= 0) return alert("Milheiro inválido.");
@@ -1311,7 +1366,10 @@ export default function NovaVendaClient({
       passengers,
       cedenteId: sel.cedente.id,
       clienteId,
-      purchaseNumero,
+      purchaseNumero:
+        program === "IBERIA" ? null : compraSel?.numero || purchaseNumero || null,
+      acquisitionMilheiroCents:
+        program === "IBERIA" ? acquisitionMilheiroCents : undefined,
       date: dateISO,
       milheiroCents,
       embarqueFeeCents,
@@ -2357,11 +2415,16 @@ export default function NovaVendaClient({
                       />
 
                       <CopyField
-                        label="Senha do programa"
+                        label={program === "IBERIA" ? "Senha Iberia" : "Senha do programa"}
                         value={credProgramPass}
                         masked={!showProgramPass}
                         onToggleMask={() => setShowProgramPass((s) => !s)}
-                        onCopy={(v) => copyText("Senha do programa", v)}
+                        onCopy={(v) =>
+                          copyText(
+                            program === "IBERIA" ? "Senha Iberia" : "Senha do programa",
+                            v
+                          )
+                        }
                       />
 
                       <CopyField
@@ -2787,7 +2850,11 @@ export default function NovaVendaClient({
             <StepSection
               step={3}
               title="Cliente, compra liberada e dados da emissão"
-              hint="Amarre ao cliente, escolha a compra CLOSED do cedente e preencha milheiro, taxas e localizador."
+              hint={
+                program === "IBERIA"
+                  ? "Informe o milheiro de aquisição (configurações). O custo e o rateio do lucro são desta venda, com os pontos negociados."
+                  : "Amarre ao cliente, escolha a compra CLOSED do cedente e preencha milheiro, taxas e localizador."
+              }
             >
 
               <div className="grid gap-4 md:grid-cols-2">
@@ -2991,40 +3058,82 @@ export default function NovaVendaClient({
                       </div>
                       <div className="mt-1">
                         <b>Comissão prevista do afiliado:</b>{" "}
-                        {compraSel ? fmtMoneyBR(affiliateCommissionPreviewCents) : "Selecione a compra"}
+                        {compraSel || iberiaInlineCost
+                          ? fmtMoneyBR(affiliateCommissionPreviewCents)
+                          : "Selecione a compra"}
                       </div>
                     </div>
                   ) : null}
                 </div>
 
                 <div className="space-y-1.5">
-                  <label className={FIELD_LABEL}>Compra liberada</label>
-                  <select
-                    className={CONTROL_SELECT}
-                    value={purchaseNumero}
-                    onChange={(e) => setPurchaseNumero(e.target.value)}
-                    disabled={loadingCompras}
-                  >
-                    <option value="">
-                      {loadingCompras
-                        ? "Carregando compras liberadas..."
-                        : compras.length
-                        ? "Selecione..."
-                        : "Nenhuma compra liberada"}
-                    </option>
-                    {compras.map((c) => (
-                      <option key={c.id} value={c.numero}>
-                        {c.numero} • meta{" "}
-                        {((c.metaMilheiroCents || 0) / 100)
-                          .toFixed(2)
-                          .replace(".", ",")}
-                      </option>
-                    ))}
-                  </select>
-                  <div className="text-[11px] text-slate-500">
-                    Precisa estar LIBERADA e ser do mesmo cedente.
-                  </div>
-                  {compraSel ? (
+                  <label className={FIELD_LABEL}>
+                    {program === "IBERIA" ? "Custo de aquisição" : "Compra liberada"}
+                  </label>
+                  {program === "IBERIA" ? (
+                    <div className="space-y-2">
+                      <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-[12px] text-slate-700">
+                        <div className={FIELD_LABEL}>Milheiro de aquisição</div>
+                        <input
+                          className={cn(CONTROL_INPUT, "mt-1")}
+                          value={acquisitionMilheiroStr}
+                          onChange={(e) => setAcquisitionMilheiroStr(e.target.value)}
+                          inputMode="decimal"
+                          placeholder="20,00"
+                        />
+                        <div className="mt-1 text-[11px] text-slate-500">
+                          Pré-preenchido com o milheiro Iberia das configurações. O custo
+                          usa só os pontos desta venda, e o lucro entra no rateio do dia
+                          (não espera finalizar compra).
+                        </div>
+                        <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px]">
+                          <span>
+                            <b>Custo desta venda:</b>{" "}
+                            {acquisitionCostCents > 0 ? fmtMoneyBR(acquisitionCostCents) : "—"}
+                          </span>
+                          <span>
+                            <b>Lucro desta venda:</b>{" "}
+                            {acquisitionCostCents > 0
+                              ? fmtMoneyBR(pointsValueCents - acquisitionCostCents)
+                              : "—"}
+                          </span>
+                          <span>
+                            <b>Meta (bônus):</b>{" "}
+                            {metaMilheiroCents > 0 ? fmtMoneyBR(metaMilheiroCents) : "—"}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      <select
+                        className={CONTROL_SELECT}
+                        value={purchaseNumero}
+                        onChange={(e) => setPurchaseNumero(e.target.value)}
+                        disabled={loadingCompras}
+                      >
+                        <option value="">
+                          {loadingCompras
+                            ? "Carregando compras liberadas..."
+                            : compras.length
+                            ? "Selecione..."
+                            : "Nenhuma compra liberada"}
+                        </option>
+                        {compras.map((c) => (
+                          <option key={c.id} value={c.numero}>
+                            {c.numero} • meta{" "}
+                            {((c.metaMilheiroCents || 0) / 100)
+                              .toFixed(2)
+                              .replace(".", ",")}
+                          </option>
+                        ))}
+                      </select>
+                      <div className="text-[11px] text-slate-500">
+                        Precisa estar LIBERADA e ser do mesmo cedente.
+                      </div>
+                    </>
+                  )}
+                  {compraSel && program !== "IBERIA" ? (
                     <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-[11px] text-slate-700">
                       <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
                         <span>
@@ -3383,7 +3492,7 @@ export default function NovaVendaClient({
               </div>
               <div className="flex justify-between">
                 <span className="text-slate-600">Milheiro de compra</span>
-                <b>{compraSel ? fmtMoneyBR(compraMilheiroCents) : "—"}</b>
+                <b>{compraSel || iberiaInlineCost ? fmtMoneyBR(compraMilheiroCents) : "—"}</b>
               </div>
               <div className="flex justify-between">
                 <span className="text-slate-600">Meta (compra)</span>
@@ -3391,17 +3500,23 @@ export default function NovaVendaClient({
               </div>
               <div className="flex justify-between">
                 <span className="text-slate-600">Lucro base afiliado</span>
-                <b>{compraSel ? fmtMoneyBR(affiliateProfitPreview.profitCents) : "—"}</b>
+                <b>{compraSel || iberiaInlineCost ? fmtMoneyBR(affiliateProfitPreview.profitCents) : "—"}</b>
               </div>
               <div className="flex justify-between">
                 <span className="text-slate-600">Comissão afiliado</span>
                 <b className={selectedAffiliate ? "text-emerald-700" : ""}>
-                  {selectedAffiliate && compraSel ? fmtMoneyBR(affiliateCommissionPreviewCents) : "—"}
+                  {selectedAffiliate && (compraSel || iberiaInlineCost)
+                    ? fmtMoneyBR(affiliateCommissionPreviewCents)
+                    : "—"}
                 </b>
               </div>
               <div className="flex justify-between">
                 <span className="text-slate-600">Lucro real após afiliado</span>
-                <b>{selectedAffiliate && compraSel ? fmtMoneyBR(realProfitAfterAffiliateCents) : "—"}</b>
+                <b>
+                  {selectedAffiliate && (compraSel || iberiaInlineCost)
+                    ? fmtMoneyBR(realProfitAfterAffiliateCents)
+                    : "—"}
+                </b>
               </div>
               <div className="flex justify-between">
                 <span className="text-slate-600">Bônus (30%)</span>
