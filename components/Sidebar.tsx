@@ -179,6 +179,7 @@ export default function Sidebar() {
     pathname.startsWith("/dashboard/bloqueios");
 
   const isIndicacoesRoute = pathname.startsWith("/dashboard/indicacoes");
+  const isRedeRoute = pathname.startsWith("/dashboard/rede");
 
   const isPendenciasRoute =
     pathname.startsWith("/dashboard/cedentes/latam-pendente") ||
@@ -366,6 +367,7 @@ export default function Sidebar() {
   const [openCadastro, setOpenCadastro] = useState(isCadastroRoute);
 
   const [openIndicacoes, setOpenIndicacoes] = useState(isIndicacoesRoute);
+  const [openRede, setOpenRede] = useState(isRedeRoute);
 
   const [openPendencias, setOpenPendencias] = useState(isPendenciasRoute);
 
@@ -461,6 +463,7 @@ export default function Sidebar() {
   useEffect(() => setOpenCadastro(isCadastroRoute), [isCadastroRoute]);
 
   useEffect(() => setOpenIndicacoes(isIndicacoesRoute), [isIndicacoesRoute]);
+  useEffect(() => setOpenRede(isRedeRoute), [isRedeRoute]);
 
   useEffect(() => setOpenPendencias(isPendenciasRoute), [isPendenciasRoute]);
 
@@ -1054,6 +1057,17 @@ export default function Sidebar() {
         >
           <NavLink href="/dashboard/indicacoes/codigos">Código cedente</NavLink>
           <NavLink href="/dashboard/indicacoes/historico">Histórico cedente</NavLink>
+        </Accordion>
+
+        {/* ================= REDE ================= */}
+        <Accordion
+          title="Rede"
+          open={openRede}
+          onToggle={() => setOpenRede((v) => !v)}
+          active={isRedeRoute}
+          accent="violet"
+        >
+          <NavLink href="/dashboard/rede">Fluxograma</NavLink>
         </Accordion>
 
         {/* ================= GESTOR DE EMISSÕES ================= */}
