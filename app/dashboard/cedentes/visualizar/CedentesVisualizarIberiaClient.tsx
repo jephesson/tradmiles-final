@@ -1,10 +1,10 @@
 "use client";
 
-import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Eye, RefreshCw, Search } from "lucide-react";
+import { Copy, Eye, KeyRound, RefreshCw, Search, X } from "lucide-react";
 import { cn } from "@/lib/cn";
+import { EmailNaoSincronizadoAviso } from "@/components/cedentes/EmailNaoSincronizadoAviso";
 import {
   VP_BTN_SECONDARY,
   VP_CONTROL_INPUT,
@@ -12,6 +12,8 @@ import {
   VP_CONTROL_SELECT,
   VP_FIELD_LABEL,
   VP_FILTER_CARD,
+  VP_MODAL_BACKDROP,
+  VP_MODAL_PANEL,
   VP_PAGE_SHELL,
   VP_TABLE_HEAD,
   VP_TABLE_HEAD_CELL,
@@ -28,10 +30,23 @@ type CedenteRow = {
   identificador: string;
   nomeCompleto: string;
   cpf: string;
+  telefone?: string | null;
+  emailCriado?: string | null;
   pontosIberia: number;
   scoreMedia?: number;
   owner: { id: string; name: string; login: string };
   blockedPrograms?: Program[];
+};
+
+type CredentialsRow = {
+  id: string;
+  identificador: string;
+  nomeCompleto: string;
+  cpf: string;
+  emailCriado?: string | null;
+  senhaEmail?: string | null;
+  senhaIberia?: string | null;
+  emailRedirecionado?: boolean;
 };
 
 function fmtInt(n: number) {
@@ -88,6 +103,9 @@ export default function CedentesVisualizarIberiaClient() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draftPoints, setDraftPoints] = useState<string>("");
   const [savingId, setSavingId] = useState<string | null>(null);
+  const [openingCredentialsId, setOpeningCredentialsId] = useState<string | null>(null);
+  const [credentialsRow, setCredentialsRow] = useState<CredentialsRow | null>(null);
+  const [copiedField, setCopiedField] = useState("");
 
   async function load() {
     setLoading(true);
@@ -186,6 +204,52 @@ export default function CedentesVisualizarIberiaClient() {
     }
   }
 
+  async function copyValue(fieldId: string, value?: string | null) {
+    const text = String(value || "").trim();
+    if (!text) return;
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedField(fieldId);
+      window.setTimeout(() => {
+        setCopiedField((curr) => (curr === fieldId ? "" : curr));
+      }, 1400);
+    } catch {
+      // noop
+    }
+  }
+
+  async function openCredentials(r: CedenteRow) {
+    setOpeningCredentialsId(r.id);
+    try {
+      const res = await fetch(`/api/cedentes/${r.id}`, { cache: "no-store" });
+      const json = await res.json().catch(() => null);
+      if (!res.ok || !json?.ok || !json?.data) {
+        throw new Error(json?.error || "Falha ao carregar credenciais.");
+      }
+      const data = json.data as {
+        cpf?: string | null;
+        emailCriado?: string | null;
+        senhaEmail?: string | null;
+        senhaIberia?: string | null;
+        emailRedirecionado?: boolean;
+      };
+      setCredentialsRow({
+        id: r.id,
+        identificador: r.identificador,
+        nomeCompleto: r.nomeCompleto,
+        cpf: data.cpf || r.cpf || "",
+        emailCriado: data.emailCriado || r.emailCriado || null,
+        senhaEmail: data.senhaEmail || null,
+        senhaIberia: data.senhaIberia || null,
+        emailRedirecionado: Boolean(data.emailRedirecionado),
+      });
+    } catch (e: unknown) {
+      alert(getErrorMessage(e, "Erro ao carregar credenciais."));
+    } finally {
+      setOpeningCredentialsId(null);
+    }
+  }
+
   return (
     <div className={VP_PAGE_SHELL}>
       <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
@@ -207,9 +271,6 @@ export default function CedentesVisualizarIberiaClient() {
             <RefreshCw className={cn("h-4 w-4 text-slate-500", loading && "animate-spin")} aria-hidden />
             {loading ? "Atualizando…" : "Atualizar"}
           </button>
-          <Link href="/dashboard/cedentes/visualizar?programa=livelo" className={VP_BTN_SECONDARY}>
-            Ir para Livelo
-          </Link>
         </div>
       </div>
 
@@ -395,6 +456,17 @@ export default function CedentesVisualizarIberiaClient() {
 
                       <button
                         type="button"
+                        className="inline-flex items-center gap-1 rounded-lg border px-3 py-1 text-xs hover:bg-slate-50 disabled:opacity-60"
+                        onClick={() => openCredentials(r)}
+                        disabled={openingCredentialsId === r.id}
+                        title="Credenciais para transação"
+                      >
+                        <KeyRound className="h-3.5 w-3.5" />
+                        {openingCredentialsId === r.id ? "Abrindo…" : "Credenciais"}
+                      </button>
+
+                      <button
+                        type="button"
                         className="rounded-lg border px-3 py-1 text-xs hover:bg-slate-50"
                         onClick={() => {
                           setEditingId(r.id);
@@ -413,6 +485,98 @@ export default function CedentesVisualizarIberiaClient() {
         </table>
         </div>
       </div>
+
+      {credentialsRow ? (
+        <div className="fixed inset-0 z-50">
+          <button
+            type="button"
+            className={VP_MODAL_BACKDROP}
+            aria-label="Fechar credenciais"
+            onClick={() => setCredentialsRow(null)}
+          />
+          <div className={cn(VP_MODAL_PANEL, "max-h-[90vh] overflow-y-auto")}>
+            <div className="mb-4 flex items-start justify-between gap-3">
+              <div>
+                <div className="text-lg font-bold tracking-tight text-slate-900">
+                  Credenciais para transação
+                </div>
+                <div className="text-sm text-slate-500">
+                  {credentialsRow.nomeCompleto} • {credentialsRow.identificador}
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setCredentialsRow(null)}
+                className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-50"
+                title="Fechar"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            <EmailNaoSincronizadoAviso
+              className="mb-4"
+              cedenteId={credentialsRow.id}
+              emailRedirecionado={credentialsRow.emailRedirecionado}
+              onMarked={() =>
+                setCredentialsRow((prev) =>
+                  prev ? { ...prev, emailRedirecionado: true } : prev
+                )
+              }
+            />
+
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+              <div className="rounded-xl border border-slate-200/80 bg-slate-50/90 p-3">
+                <div className={VP_FIELD_LABEL}>CPF (login)</div>
+                <div className="mt-1 break-all font-medium">{credentialsRow.cpf || "-"}</div>
+                <button
+                  type="button"
+                  onClick={() => copyValue("cpf", credentialsRow.cpf)}
+                  className="mt-2 inline-flex items-center gap-1 text-xs text-slate-600 hover:text-slate-900"
+                >
+                  <Copy size={13} /> {copiedField === "cpf" ? "Copiado" : "Copiar"}
+                </button>
+              </div>
+
+              <div className="rounded-xl border border-slate-200/80 bg-slate-50/90 p-3">
+                <div className={VP_FIELD_LABEL}>Senha Iberia</div>
+                <div className="mt-1 break-all font-medium">{credentialsRow.senhaIberia || "-"}</div>
+                <button
+                  type="button"
+                  onClick={() => copyValue("senhaIberia", credentialsRow.senhaIberia)}
+                  className="mt-2 inline-flex items-center gap-1 text-xs text-slate-600 hover:text-slate-900"
+                >
+                  <Copy size={13} /> {copiedField === "senhaIberia" ? "Copiado" : "Copiar"}
+                </button>
+              </div>
+
+              <div className="rounded-xl border border-slate-200/80 bg-slate-50/90 p-3">
+                <div className={VP_FIELD_LABEL}>E-mail</div>
+                <div className="mt-1 break-all font-medium">{credentialsRow.emailCriado || "-"}</div>
+                <button
+                  type="button"
+                  onClick={() => copyValue("email", credentialsRow.emailCriado)}
+                  className="mt-2 inline-flex items-center gap-1 text-xs text-slate-600 hover:text-slate-900"
+                >
+                  <Copy size={13} /> {copiedField === "email" ? "Copiado" : "Copiar"}
+                </button>
+              </div>
+
+              <div className="rounded-xl border border-slate-200/80 bg-slate-50/90 p-3">
+                <div className={VP_FIELD_LABEL}>Senha do e-mail</div>
+                <div className="mt-1 break-all font-medium">{credentialsRow.senhaEmail || "-"}</div>
+                <button
+                  type="button"
+                  onClick={() => copyValue("senhaEmail", credentialsRow.senhaEmail)}
+                  className="mt-2 inline-flex items-center gap-1 text-xs text-slate-600 hover:text-slate-900"
+                >
+                  <Copy size={13} /> {copiedField === "senhaEmail" ? "Copiado" : "Copiar"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
