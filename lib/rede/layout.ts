@@ -14,10 +14,10 @@ export type LaidOutNode = RedeNode & {
   directCount: number;
 };
 
-export const NODE_W = 228;
-export const NODE_H = 76;
-export const GAP_X = 36;
-export const GAP_Y = 92;
+export const NODE_W = 236;
+export const NODE_H = 86;
+export const GAP_X = 52;
+export const GAP_Y = 118;
 
 export function childrenMap(nodes: RedeNode[]) {
   const byParent = new Map<string, RedeNode[]>();
@@ -113,4 +113,32 @@ export function ancestorsOf(id: string, byId: Map<string, RedeNode>) {
     if (cur && out.has(cur.id)) break;
   }
   return out;
+}
+
+export function rootOf(id: string, byId: Map<string, RedeNode>) {
+  let cur = byId.get(id);
+  const seen = new Set<string>();
+  while (cur?.parentId && byId.has(cur.parentId) && !seen.has(cur.id)) {
+    seen.add(cur.id);
+    cur = byId.get(cur.parentId);
+  }
+  return cur || null;
+}
+
+export function pathToRoot(id: string, byId: Map<string, RedeNode>) {
+  const path: RedeNode[] = [];
+  let cur = byId.get(id);
+  const seen = new Set<string>();
+  while (cur && !seen.has(cur.id)) {
+    path.push(cur);
+    seen.add(cur.id);
+    cur = cur.parentId ? byId.get(cur.parentId) : undefined;
+  }
+  return path.reverse();
+}
+
+export function treeNodes(rootId: string, byId: Map<string, RedeNode>, kids: Map<string, RedeNode[]>) {
+  return [...descendantsOf(rootId, kids)]
+    .map((id) => byId.get(id))
+    .filter((n): n is RedeNode => Boolean(n));
 }
