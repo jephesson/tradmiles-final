@@ -255,6 +255,8 @@ type SaleAuditSnapshot = {
   paymentStatus?: string;
   cedenteIdentificador?: string;
   cedenteNome?: string;
+  clienteIdentificador?: string;
+  clienteNome?: string;
   purchaseNumero?: string | null;
   receivable?: {
     totalCents?: number;
@@ -320,6 +322,13 @@ function auditChanges(log: SaleAuditLog) {
       changes.push(`Bônus: ${fmtMoneyBR(before.bonusCents || 0)} → ${fmtMoneyBR(after.bonusCents || 0)}`);
     }
     return changes.length ? changes : ["Correção de cedente registrada."];
+  }
+
+  if (log.action === "CLIENTE_REASSIGN") {
+    const bId = before.clienteIdentificador || before.clienteNome || "—";
+    const aId = after.clienteIdentificador || after.clienteNome || "—";
+    changes.push(`Cliente: ${bId} → ${aId}`);
+    return changes.length ? changes : ["Correção de cliente registrada."];
   }
 
   if (before.feeCardLabel !== after.feeCardLabel) {
@@ -484,6 +493,13 @@ export default function VendasClient() {
 
   const [reassignNote, setReassignNote] = useState("");
   const [savingReassign, setSavingReassign] = useState(false);
+
+  const [reassignClienteQ, setReassignClienteQ] = useState("");
+  const [reassignClienteHits, setReassignClienteHits] = useState<LancamentoCliente[]>([]);
+  const [reassignCliente, setReassignCliente] = useState<LancamentoCliente | null>(null);
+  const [reassignClienteSearching, setReassignClienteSearching] = useState(false);
+  const [reassignClienteNote, setReassignClienteNote] = useState("");
+  const [savingReassignCliente, setSavingReassignCliente] = useState(false);
 
   const cardOptions = useMemo<CardOption[]>(() => {
     const map = new Map<string, string>();
@@ -652,6 +668,42 @@ export default function VendasClient() {
     }
   }
 
+  async function saveReassignCliente() {
+    if (!details || savingReassignCliente) return;
+    if (!isAdmin) return;
+    if (details.paymentStatus === "CANCELED") return;
+    if (!reassignCliente?.id) {
+      alert("Selecione o cliente correto na lista.");
+      return;
+    }
+    if (reassignCliente.id === details.cliente.id) {
+      alert("Este já é o cliente da venda.");
+      return;
+    }
+
+    setSavingReassignCliente(true);
+    try {
+      const out = await api<{ ok: true; sale: SaleRow }>(`/api/vendas/${details.id}/reassign-cliente`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          newClienteId: reassignCliente.id,
+          note: reassignClienteNote.trim() || null,
+        }),
+      });
+
+      setRows((prev) => prev.map((x) => (x.id === out.sale.id ? out.sale : x)));
+      setReassignCliente(null);
+      setReassignClienteQ("");
+      setReassignClienteHits([]);
+      setReassignClienteNote("");
+      await loadAudit(details.id);
+    } catch (error: unknown) {
+      alert(errorMessage(error, "Falha ao corrigir cliente."));
+    } finally {
+      setSavingReassignCliente(false);
+    }
+  }
+
   useEffect(() => {
     if (!detailsId) return;
     setReassignCedenteId("");
@@ -660,7 +712,53 @@ export default function VendasClient() {
     setReassignCedenteFilter("");
     setReassignPurchases([]);
     setReassignNote("");
+    setReassignClienteQ("");
+    setReassignClienteHits([]);
+    setReassignCliente(null);
+    setReassignClienteNote("");
   }, [detailsId]);
+
+  useEffect(() => {
+    if (!detailsId || !isAdmin) return;
+    const q = reassignClienteQ.trim();
+    if (reassignCliente && q === `${reassignCliente.nome} (${reassignCliente.identificador})`) {
+      setReassignClienteHits([]);
+      return;
+    }
+    if (q.length < 2) {
+      setReassignClienteHits([]);
+      return;
+    }
+    let cancelled = false;
+    setReassignClienteSearching(true);
+    const t = window.setTimeout(async () => {
+      try {
+        const out = await api<{
+          ok: true;
+          data?: { clientes?: LancamentoCliente[] };
+        }>(`/api/clientes?q=${encodeURIComponent(q)}&limit=20`);
+        if (cancelled) return;
+        const list = (out.data?.clientes || []).filter((c) => c.id !== details?.cliente.id);
+        setReassignClienteHits(
+          list.map((c) => ({
+            id: c.id,
+            nome: c.nome,
+            identificador: c.identificador,
+            cpfCnpj: c.cpfCnpj ?? null,
+            telefone: c.telefone ?? null,
+          }))
+        );
+      } catch {
+        if (!cancelled) setReassignClienteHits([]);
+      } finally {
+        if (!cancelled) setReassignClienteSearching(false);
+      }
+    }, 280);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(t);
+    };
+  }, [detailsId, isAdmin, reassignClienteQ, reassignCliente, details?.cliente.id]);
 
   useEffect(() => {
     if (!detailsId || !isAdmin) return;
@@ -1799,6 +1897,94 @@ export default function VendasClient() {
                   )}
                 </div>
               </div>
+
+              {isAdmin && details.paymentStatus !== "CANCELED" ? (
+                <div className="rounded-2xl border border-sky-200/90 bg-sky-50/40 p-4 sm:p-5">
+                  <div className="text-lg font-semibold text-slate-900">Corrigir cliente</div>
+                  <p className="mt-2 text-sm leading-relaxed text-slate-700 sm:text-[15px]">
+                    Use se o cliente foi informado errado na emissão. A comissão de afiliado (se ainda não
+                    estiver paga) acompanha o novo cliente. Tudo fica no histórico.
+                  </p>
+
+                  <div className="relative mt-4">
+                    <label className="block text-sm font-medium text-slate-700">
+                      Buscar cliente correto
+                      <input
+                        value={reassignClienteQ}
+                        onChange={(e) => {
+                          setReassignClienteQ(e.target.value);
+                          setReassignCliente(null);
+                        }}
+                        className="mt-2 min-h-[44px] w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-base text-slate-900"
+                        placeholder="Nome, ID ou CPF…"
+                        autoComplete="off"
+                      />
+                    </label>
+                    {reassignClienteSearching ? (
+                      <div className="mt-1 text-sm text-slate-500">Buscando…</div>
+                    ) : null}
+                    {reassignCliente ? (
+                      <div className="mt-2 rounded-xl border border-emerald-200 bg-emerald-50/80 px-3 py-2 text-sm text-emerald-900">
+                        Selecionado: <b>{reassignCliente.nome}</b> ({reassignCliente.identificador})
+                      </div>
+                    ) : null}
+                    {!reassignCliente && reassignClienteHits.length > 0 ? (
+                      <div className="absolute z-10 mt-1 max-h-56 w-full overflow-auto rounded-xl border border-slate-200 bg-white shadow-lg">
+                        {reassignClienteHits.map((c) => (
+                          <button
+                            key={c.id}
+                            type="button"
+                            className="flex w-full flex-col gap-0.5 px-3 py-2.5 text-left text-sm hover:bg-slate-50"
+                            onClick={() => {
+                              setReassignCliente(c);
+                              setReassignClienteQ(`${c.nome} (${c.identificador})`);
+                              setReassignClienteHits([]);
+                            }}
+                          >
+                            <span className="font-medium text-slate-900">{c.nome}</span>
+                            <span className="text-xs text-slate-500">
+                              {c.identificador}
+                              {c.cpfCnpj ? ` · ${c.cpfCnpj}` : ""}
+                            </span>
+                          </button>
+                        ))}
+                      </div>
+                    ) : null}
+                  </div>
+
+                  <label className="mt-4 block text-sm font-medium text-slate-700">
+                    Motivo (opcional)
+                    <input
+                      value={reassignClienteNote}
+                      onChange={(e) => setReassignClienteNote(e.target.value)}
+                      className="mt-2 min-h-[44px] w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-base text-slate-900"
+                      placeholder="Ex.: Cliente informado errado na venda"
+                    />
+                  </label>
+
+                  <div className="mt-4 flex flex-wrap justify-end gap-2">
+                    <button
+                      type="button"
+                      className={cn(
+                        "min-h-[44px] rounded-xl bg-slate-900 px-5 py-2.5 text-base font-semibold text-white",
+                        savingReassignCliente ? "cursor-not-allowed opacity-60" : "hover:bg-slate-800"
+                      )}
+                      disabled={savingReassignCliente}
+                      onClick={() => {
+                        if (
+                          !confirm(
+                            "Confirmar correção de cliente? O título a receber e a comissão de afiliado (se pendente) serão atualizados."
+                          )
+                        )
+                          return;
+                        void saveReassignCliente();
+                      }}
+                    >
+                      {savingReassignCliente ? "Aplicando…" : "Aplicar correção"}
+                    </button>
+                  </div>
+                </div>
+              ) : null}
 
               {isAdmin && details.paymentStatus !== "CANCELED" ? (
                 <div className="rounded-2xl border border-amber-200/90 bg-amber-50/50 p-4 sm:p-5">
