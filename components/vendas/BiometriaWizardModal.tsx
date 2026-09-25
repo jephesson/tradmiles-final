@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   CheckCircle2,
   Copy,
@@ -8,6 +8,7 @@ import {
   Loader2,
   MessageCircle,
   RefreshCw,
+  Search,
   SkipForward,
   Upload,
 } from "lucide-react";
@@ -172,6 +173,16 @@ type Props = {
   initialChildren?: number;
   /** Bebê: entra no link LATAM, não consome CPF do cedente. */
   initialInfants?: number;
+  /** Outras contas elegíveis — troca sem apagar trecho, datas, passageiros e Order ID. */
+  cedenteOptions?: Array<{
+    id: string;
+    nomeCompleto: string;
+    identificador: string;
+    pts: number;
+    leftoverPoints: number;
+    ownerName: string;
+  }>;
+  onSwitchCedente?: (cedenteId: string) => void;
   onClose: () => void;
   onComplete: (result: {
     purchaseCode: string | null;
@@ -201,6 +212,8 @@ export default function BiometriaWizardModal({
   initialAdults = 1,
   initialChildren = 0,
   initialInfants = 0,
+  cedenteOptions = [],
+  onSwitchCedente,
   onClose,
   onComplete,
 }: Props) {
@@ -264,6 +277,10 @@ export default function BiometriaWizardModal({
   );
   const [latamAiParsing, setLatamAiParsing] = useState(false);
   const [liveAccountPoints, setLiveAccountPoints] = useState<number | null>(null);
+  const [pickingCedente, setPickingCedente] = useState(false);
+  const [cedentePickQ, setCedentePickQ] = useState("");
+  const openedOnce = useRef(false);
+  const lastCedenteId = useRef(cedenteId);
 
   const expectedPassengerCount = Math.max(
     0,
@@ -439,32 +456,60 @@ export default function BiometriaWizardModal({
   );
 
   useEffect(() => {
-    if (!open) return;
+    if (!open) {
+      openedOnce.current = false;
+      return;
+    }
+
+    const justOpened = !openedOnce.current;
+    openedOnce.current = true;
+
+    if (justOpened) {
+      setStep("creds");
+      setCodeWatchAfter(null);
+      setManualMode(false);
+      setOtpCode(null);
+      setOtpMeta(null);
+      setOtpError(null);
+      setOtpSynced(true);
+      setOtpReason(null);
+      setOrderLinkInput("");
+      setBioLinkInput("");
+      setSearchTrip(initialTripKind);
+      setSearchOrigin("");
+      setSearchDestination("");
+      setSearchOutbound("");
+      setSearchInbound("");
+      setSearchAdt(Math.max(1, Math.min(9, Math.floor(initialAdults) || 1)));
+      setSearchChd(Math.max(0, Math.min(9, Math.floor(initialChildren) || 0)));
+      setSearchInf(Math.max(0, Math.min(9, Math.floor(initialInfants) || 0)));
+      setUseLatamExtension(true);
+      setLatamPassengerText("");
+      setDocExtracting(false);
+      setDocExtractError("");
+      setDocExtractWarnings([]);
+      setLatamPaymentCardId("");
+      setLatamExtMsg(null);
+      setPickingCedente(false);
+      setCedentePickQ("");
+      lastCedenteId.current = cedenteId;
+      return;
+    }
+
+    if (lastCedenteId.current === cedenteId) return;
+    lastCedenteId.current = cedenteId;
     setStep("creds");
     setCodeWatchAfter(null);
     setManualMode(false);
+    setOtpLoading(false);
     setOtpCode(null);
     setOtpMeta(null);
     setOtpError(null);
     setOtpSynced(true);
     setOtpReason(null);
-    setOrderLinkInput("");
-    setBioLinkInput("");
-    setSearchTrip(initialTripKind);
-    setSearchOrigin("");
-    setSearchDestination("");
-    setSearchOutbound("");
-    setSearchInbound("");
-    setSearchAdt(Math.max(1, Math.min(9, Math.floor(initialAdults) || 1)));
-    setSearchChd(Math.max(0, Math.min(9, Math.floor(initialChildren) || 0)));
-    setSearchInf(Math.max(0, Math.min(9, Math.floor(initialInfants) || 0)));
-    setUseLatamExtension(true);
-    setLatamPassengerText("");
-    setDocExtracting(false);
-    setDocExtractError("");
-    setDocExtractWarnings([]);
-    setLatamPaymentCardId("");
-    setLatamExtMsg(null);
+    setLiveAccountPoints(null);
+    setPickingCedente(false);
+    setCedentePickQ("");
   }, [
     open,
     cedenteId,
@@ -830,6 +875,26 @@ export default function BiometriaWizardModal({
     };
   }, [open, cedenteId, program]);
 
+  const otherCedentes = useMemo(() => {
+    const q = cedentePickQ.trim().toLowerCase();
+    return cedenteOptions.filter((c) => {
+      if (c.id === cedenteId) return false;
+      if (!q) return true;
+      const hay = `${c.nomeCompleto} ${c.identificador} ${c.ownerName}`.toLowerCase();
+      return hay.includes(q);
+    });
+  }, [cedenteOptions, cedenteId, cedentePickQ]);
+
+  function applyCedenteSwitch(nextId: string) {
+    const opt = cedenteOptions.find((c) => c.id === nextId);
+    if (!opt || !onSwitchCedente || nextId === cedenteId) return;
+    const ok = window.confirm(
+      `Trocar para ${opt.nomeCompleto}?\n\nLogin e código de acesso recomeçam neste cedente. Trecho, datas, passageiros e Order ID continuam.`
+    );
+    if (!ok) return;
+    onSwitchCedente(nextId);
+  }
+
   if (!open) return null;
 
   const stepsForProgram: Step[] =
@@ -856,6 +921,18 @@ export default function BiometriaWizardModal({
               {cedenteNome ? ` • ${cedenteNome}` : ""}
               {whatsappPhoneLabel ? ` • ${whatsappPhoneLabel}` : ""}
             </div>
+            {onSwitchCedente ? (
+              <button
+                type="button"
+                className="mt-2 text-xs font-semibold text-sky-700 hover:underline"
+                onClick={() => {
+                  setPickingCedente((v) => !v);
+                  setCedentePickQ("");
+                }}
+              >
+                {pickingCedente ? "Cancelar troca" : "Trocar cedente"}
+              </button>
+            ) : null}
           </div>
           <button
             type="button"
@@ -921,6 +998,66 @@ export default function BiometriaWizardModal({
             </div>
           </div>
         </div>
+
+        {pickingCedente ? (
+          <div className="mt-4 rounded-2xl border border-sky-200 bg-sky-50/50 p-4">
+            <div className="text-sm font-semibold text-slate-900">Escolher outro cedente</div>
+            <p className="mt-1 text-xs leading-relaxed text-slate-600">
+              Trecho, datas, passageiros e Order ID ficam. Só o login e o código desta conta
+              recomeçam.
+            </p>
+            <label className="relative mt-3 block">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+              <input
+                className="w-full rounded-xl border border-slate-200 bg-white py-2 pl-9 pr-3 text-sm outline-none focus:border-sky-300 focus:ring-2 focus:ring-sky-900/10"
+                placeholder="Nome, ID ou responsável"
+                value={cedentePickQ}
+                onChange={(e) => setCedentePickQ(e.target.value)}
+                autoFocus
+              />
+            </label>
+            <div className="mt-2 max-h-56 overflow-y-auto rounded-xl border border-slate-200 bg-white">
+              {otherCedentes.length ? (
+                otherCedentes.map((c) => {
+                  const leftover = Math.max(0, Math.trunc(c.leftoverPoints));
+                  const short = leftover < ptsEmissao;
+                  return (
+                    <button
+                      key={c.id}
+                      type="button"
+                      className="flex w-full items-start justify-between gap-3 border-b border-slate-100 px-3 py-2.5 text-left last:border-0 hover:bg-slate-50"
+                      onClick={() => applyCedenteSwitch(c.id)}
+                    >
+                      <div className="min-w-0">
+                        <div className="truncate text-sm font-semibold text-slate-900">
+                          {c.nomeCompleto}
+                        </div>
+                        <div className="truncate text-[11px] text-slate-500">
+                          {c.identificador} · {c.ownerName}
+                        </div>
+                      </div>
+                      <div
+                        className={cn(
+                          "shrink-0 text-right text-[11px] font-medium tabular-nums",
+                          short ? "text-amber-700" : "text-slate-600"
+                        )}
+                      >
+                        {fmtPts(c.pts)} pts
+                        <div className="font-normal text-slate-400">
+                          sobra {fmtPts(leftover)}
+                        </div>
+                      </div>
+                    </button>
+                  );
+                })
+              ) : (
+                <div className="px-3 py-6 text-center text-sm text-slate-500">
+                  Nenhum outro cedente na lista desta busca.
+                </div>
+              )}
+            </div>
+          </div>
+        ) : null}
 
         {step === "creds" ? (
           <div className="mt-5 space-y-4">

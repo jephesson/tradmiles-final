@@ -3548,7 +3548,6 @@ export default function NovaVendaClient({
 
       {(program === "LATAM" || program === "SMILES") && sel?.cedente?.id ? (
         <BiometriaWizardModal
-          key={sel.cedente.id}
           open={biometriaModalOpen}
           program={program}
           cedenteId={sel.cedente.id}
@@ -3564,6 +3563,24 @@ export default function NovaVendaClient({
           initialAdults={adultPassengers}
           initialChildren={childPassengers}
           initialInfants={infantPassengers}
+          cedenteOptions={eligibleSuggestions.map((s) => ({
+            id: s.cedente.id,
+            nomeCompleto: s.cedente.nomeCompleto,
+            identificador: s.cedente.identificador,
+            pts: s.pts,
+            leftoverPoints: s.leftoverPoints,
+            ownerName: s.cedente.owner?.name || s.cedente.owner?.login || "—",
+          }))}
+          onSwitchCedente={(id) => {
+            const next = eligibleSuggestions.find((s) => s.cedente.id === id);
+            if (!next) return;
+            setSel(next);
+            setRevealCreds(false);
+            setCreds(null);
+            setCredsError("");
+            setShowProgramPass(false);
+            setShowEmailPass(false);
+          }}
           onClose={() => setBiometriaModalOpen(false)}
           onComplete={completeBiometriaWizard}
         />
