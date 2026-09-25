@@ -342,6 +342,7 @@ export default function Sidebar() {
   );
 
   const isExtensaoLatamRoute = pathname.startsWith("/dashboard/extensao-latam");
+  const isCartaoViasRoute = pathname.startsWith("/dashboard/cartao-vias-aereas");
 
   // ✅ NOVO: Emissões no balcão
   const isEmissoesBalcaoRoute = pathname.startsWith(
@@ -356,6 +357,7 @@ export default function Sidebar() {
     isAtualizacaoTermosRoute ||
     isHorarioBiometriaRoute ||
     isExtensaoLatamRoute ||
+    isCartaoViasRoute ||
     isImportacoesRoute ||
     isImportacoesEmissoesLatamRoute ||
     isProtocolosRoute ||
@@ -1212,6 +1214,8 @@ export default function Sidebar() {
           <NavLink href="/dashboard/horario-biometria">
             Horário biometria
           </NavLink>
+
+          <NavLink href="/dashboard/cartao-vias-aereas">Cartão Vias Aéreas</NavLink>
 
           <NavLink href="/dashboard/cedentes/importar">
             Importar cedentes
