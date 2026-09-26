@@ -61,7 +61,7 @@ async function recalcPurchaseTotals(tx: any, purchaseId: string) {
 
   const cedentePayCents = safeInt(p.cedentePayCents, 0);
   const vendorCommissionBps = safeInt(p.vendorCommissionBps, 0);
-  const metaMarkupCents = safeInt(p.metaMarkupCents, 0);
+  const metaMarkupCents = Math.max(0, safeInt(p.metaMarkupCents, 0));
 
   const remainingCostCents = safeInt(p.remainingCostCents, 0);
   const subtotalCents = itemsCost + cedentePayCents + remainingCostCents;
@@ -73,11 +73,7 @@ async function recalcPurchaseTotals(tx: any, purchaseId: string) {
   const denom = ptsBase > 0 ? ptsBase / 1000 : 0;
 
   const custoMilheiroCents = denom > 0 ? Math.round(totalCents / denom) : 0;
-
-  // meta milheiro: se for 0 (default) ou menor que custo (quando antes era markup), recalcula como custo+markup
-  const metaAtual = safeInt(p.metaMilheiroCents, 0);
-  const metaCalc = custoMilheiroCents + metaMarkupCents;
-  const metaMilheiroCents = metaAtual > 0 ? metaAtual : metaCalc;
+  const metaMilheiroCents = custoMilheiroCents + metaMarkupCents;
 
   await tx.purchase.update({
     where: { id: purchaseId },
@@ -87,6 +83,7 @@ async function recalcPurchaseTotals(tx: any, purchaseId: string) {
       comissaoCents,
       totalCents,
       custoMilheiroCents,
+      metaMarkupCents,
       metaMilheiroCents,
     },
   });

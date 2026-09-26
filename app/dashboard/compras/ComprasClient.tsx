@@ -14,6 +14,7 @@ import {
   XCircle,
 } from "lucide-react";
 import { cn } from "@/lib/cn";
+import { DEFAULT_TARGET_MARKUP_CENTS } from "@/lib/purchases/purchaseDefaults";
 
 type PurchaseStatus = "OPEN" | "DRAFT" | "READY" | "CLOSED" | "CANCELED";
 type LoyaltyProgram = "LATAM" | "SMILES" | "LIVELO" | "ESFERA" | "IBERIA";
@@ -853,7 +854,15 @@ function MetaModal(props: {
   useEffect(() => {
     if (!open || !row) return;
     setErr(null);
-    setValue(fromCentsInput(row.metaMilheiroCents || row.custoMilheiroCents || 0));
+    const custo =
+      row.custoMilheiroCents > 0
+        ? row.custoMilheiroCents
+        : milheiroCents(row.ciaPointsTotal || 0, row.totalCostCents || 0);
+    const stored = row.metaMilheiroCents || 0;
+    const minMeta = custo;
+    const initial =
+      stored >= minMeta && stored > 0 ? stored : minMeta > 0 ? minMeta + DEFAULT_TARGET_MARKUP_CENTS : stored;
+    setValue(fromCentsInput(initial));
   }, [open, row]);
 
   if (!open || !row) return null;
@@ -871,6 +880,12 @@ function MetaModal(props: {
     const cents = toCentsFromInput(value);
     if (cents < 100 || cents > 20000) {
       setErr("Informe a meta entre R$ 1,00 e R$ 200,00.");
+      return;
+    }
+    if (custo > 0 && cents < custo) {
+      setErr(
+        `A meta não pode ficar abaixo do milheiro de compra (${fmtMoneyBR(custo)}).`
+      );
       return;
     }
     setSaving(true);
@@ -903,7 +918,7 @@ function MetaModal(props: {
         <div className="space-y-3 p-4">
           {err ? <div className="rounded-md border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">{err}</div> : null}
           <p className="text-sm text-slate-600">
-            Custo atual: <b>{custo ? fmtMoneyBR(custo) : "—"}</b>. A meta entra no bônus C2 das vendas desta compra.
+            Custo atual: <b>{custo ? fmtMoneyBR(custo) : "—"}</b>. A meta entra no bônus C2 das vendas desta compra e não pode ficar abaixo do milheiro.
           </p>
           <div>
             <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">Meta (R$ / milheiro)</label>

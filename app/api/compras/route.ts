@@ -42,7 +42,13 @@ function toPurchaseRow(
     totalCostCents: asInt((p as any).totalCostCents ?? p.totalCost ?? p.totalCents ?? 0),
 
     custoMilheiroCents: asInt(p.custoMilheiroCents ?? 0),
-    metaMilheiroCents: asInt(p.metaMilheiroCents ?? 0),
+    metaMilheiroCents: (() => {
+      const custo = asInt(p.custoMilheiroCents ?? 0);
+      const markup = Math.max(0, asInt(p.metaMarkupCents ?? 0));
+      const stored = asInt(p.metaMilheiroCents ?? 0);
+      if (custo <= 0) return stored;
+      return Math.max(custo, stored > 0 ? stored : custo + markup);
+    })(),
     vendorCommissionBps: asInt(p.vendorCommissionBps ?? 100),
 
     cedente: p.cedente
@@ -251,11 +257,15 @@ export async function POST(req: Request) {
 
     const ciaPointsTotal = asInt(body.ciaPointsTotal ?? body.pontosCiaTotal ?? 0);
 
-    const cedentePayCents = asInt(body.cedentePayCents ?? DEFAULT_CEDENTE_PAY_CENTS);
+    const cedentePayCents = Math.max(
+      0,
+      asInt(body.cedentePayCents ?? DEFAULT_CEDENTE_PAY_CENTS)
+    );
     const defaultVendorBps = await resolveVendorCommissionBps();
     const vendorCommissionBps = asInt(body.vendorCommissionBps ?? defaultVendorBps);
-    const metaMarkupCents = asInt(
-      body.metaMarkupCents ?? body.targetMarkupCents ?? DEFAULT_TARGET_MARKUP_CENTS
+    const metaMarkupCents = Math.max(
+      0,
+      asInt(body.metaMarkupCents ?? body.targetMarkupCents ?? DEFAULT_TARGET_MARKUP_CENTS)
     );
 
     const observacao =

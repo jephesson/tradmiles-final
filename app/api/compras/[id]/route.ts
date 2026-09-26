@@ -174,7 +174,9 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
           body.ciaPointsTotal === undefined ? undefined : Number(body.ciaPointsTotal || 0),
 
         cedentePayCents:
-          body.cedentePayCents === undefined ? undefined : Number(body.cedentePayCents || 0),
+          body.cedentePayCents === undefined
+            ? undefined
+            : Math.max(0, Number(body.cedentePayCents || 0)),
 
         remainingCostCents:
           body.remainingCostCents === undefined
@@ -189,7 +191,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
         metaMarkupCents:
           body.targetMarkupCents === undefined
             ? undefined
-            : Number(body.targetMarkupCents || 0),
+            : Math.max(0, Number(body.targetMarkupCents || 0)),
 
         observacao: body.note === undefined ? undefined : body.note ? String(body.note) : null,
 

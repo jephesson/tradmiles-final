@@ -26,12 +26,6 @@ export async function PATCH(req: NextRequest, { params }: Ctx) {
     if (!purchaseId) {
       return NextResponse.json({ ok: false, error: "id é obrigatório." }, { status: 400 });
     }
-    if (metaMilheiroCents < 100 || metaMilheiroCents > 20000) {
-      return NextResponse.json(
-        { ok: false, error: "Informe a meta do milheiro entre R$ 1,00 e R$ 200,00." },
-        { status: 400 }
-      );
-    }
 
     const compra = await prisma.purchase.findFirst({
       where: { id: purchaseId, cedente: { owner: { team: session.team } } },
@@ -48,6 +42,23 @@ export async function PATCH(req: NextRequest, { params }: Ctx) {
     }
     if (compra.status === "CANCELED") {
       return NextResponse.json({ ok: false, error: "Compra cancelada não pode ter a meta alterada." }, { status: 400 });
+    }
+
+    const costCents = Math.max(0, compra.custoMilheiroCents || 0);
+    if (metaMilheiroCents < costCents) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: `A meta não pode ficar abaixo do milheiro de compra (${(costCents / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}).`,
+        },
+        { status: 400 }
+      );
+    }
+    if (metaMilheiroCents < 100 || metaMilheiroCents > 20000) {
+      return NextResponse.json(
+        { ok: false, error: "Informe a meta do milheiro entre R$ 1,00 e R$ 200,00." },
+        { status: 400 }
+      );
     }
 
     const commissionSettings = await prisma.settings.upsert({
@@ -74,7 +85,10 @@ export async function PATCH(req: NextRequest, { params }: Ctx) {
     await prisma.$transaction(async (tx) => {
       await tx.purchase.update({
         where: { id: compra.id },
-        data: { metaMilheiroCents },
+        data: {
+          metaMilheiroCents,
+          metaMarkupCents: Math.max(0, metaMilheiroCents - costCents),
+        },
       });
       for (const sale of sales) {
         await tx.sale.update({

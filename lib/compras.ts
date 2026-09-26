@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import type { PurchaseItem, Purchase } from "@prisma/client";
+import { clampNonNegCents, metaMilheiroFromCost } from "@/lib/purchases/purchaseDefaults";
 
 function roundInt(n: number) {
   return Math.round(n);
@@ -55,9 +56,8 @@ export async function recomputeCompra(purchaseId: string) {
   const pontos = Math.max(0, pointsForMilheiro(compra));
   const custoMilheiroCents = pontos > 0 ? roundInt((totalCents * 1000) / pontos) : 0;
 
-  const markupCents = asInt((compra as any).metaMarkupCents, 0);
-  const metaAtual = asInt((compra as any).metaMilheiroCents, 0);
-  const metaMilheiroCents = metaAtual > 0 ? metaAtual : custoMilheiroCents + markupCents;
+  const markupCents = clampNonNegCents((compra as any).metaMarkupCents, 0);
+  const metaMilheiroCents = metaMilheiroFromCost(custoMilheiroCents, markupCents);
 
   const updated = await prisma.purchase.update({
     where: { id: compra.id },
@@ -66,6 +66,7 @@ export async function recomputeCompra(purchaseId: string) {
       comissaoCents,
       totalCents,
       custoMilheiroCents,
+      metaMarkupCents: markupCents,
       metaMilheiroCents,
     },
   });

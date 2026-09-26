@@ -22,7 +22,11 @@ import {
   liveloCycleBadgeClass,
 } from "@/lib/livelo-clube";
 import { parseLatamClubEmail } from "@/lib/latam/parseClubEmail";
-import { defaultClubRenewalDay } from "@/lib/purchases/purchaseDefaults";
+import {
+  DEFAULT_CEDENTE_PAY_CENTS,
+  DEFAULT_TARGET_MARKUP_CENTS,
+  defaultClubRenewalDay,
+} from "@/lib/purchases/purchaseDefaults";
 
 type LoyaltyProgram = "LATAM" | "SMILES" | "LIVELO" | "ESFERA" | "IBERIA";
 
@@ -252,7 +256,8 @@ function computeTotals(d: PurchaseDraft) {
   const denom = pts / 1000;
 
   const costPerKilo = denom > 0 ? roundCents(total / denom) : 0;
-  const targetPerKilo = costPerKilo + (d.targetMarkupCents || 0);
+  const markup = Math.max(0, d.targetMarkupCents || 0);
+  const targetPerKilo = costPerKilo + markup;
 
   return {
     subtotalCostCents: subtotal,
@@ -447,12 +452,18 @@ function normalizeDraft(raw: any, cedenteSel?: Cedente | null): PurchaseDraft {
     ciaProgram: (raw?.ciaProgram ?? raw?.ciaAerea ?? null) as any,
     ciaPointsTotal: clampInt(raw?.ciaPointsTotal ?? raw?.pontosCiaTotal ?? 0),
 
-    cedentePayCents: clampInt(raw?.cedentePayCents ?? 0),
+    cedentePayCents: Math.max(
+      0,
+      clampInt(raw?.cedentePayCents ?? DEFAULT_CEDENTE_PAY_CENTS)
+    ),
     remainingCostCents,
     vendorCommissionBps: clampInt(raw?.vendorCommissionBps ?? 100),
-    targetMarkupCents: clampInt(
-      raw?.targetMarkupCents ?? raw?.metaMarkupCents ?? 0
-    ),
+    targetMarkupCents: (() => {
+      const rawMarkup = raw?.targetMarkupCents ?? raw?.metaMarkupCents;
+      if (rawMarkup == null || rawMarkup === "") return DEFAULT_TARGET_MARKUP_CENTS;
+      const n = clampInt(rawMarkup);
+      return n < 0 ? DEFAULT_TARGET_MARKUP_CENTS : n;
+    })(),
 
     subtotalCostCents: clampInt(
       raw?.subtotalCostCents ?? raw?.subtotalCents ?? 0
@@ -1725,31 +1736,53 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
                   <label className={FIELD_LABEL}>Taxa cedente (R$)</label>
                   <input
                     type="number"
+                    min={0}
+                    step="0.01"
                     value={draft.cedentePayCents / 100}
                     disabled={!!isReleased}
                     onChange={(e) =>
                       updateDraft({
-                        cedentePayCents: roundCents(Number(e.target.value || 0) * 100),
+                        cedentePayCents: Math.max(
+                          0,
+                          roundCents(Number(e.target.value || 0) * 100)
+                        ),
                       })
                     }
+                    onKeyDown={(e) => {
+                      if (e.key === "-" || e.key === "e" || e.key === "E") e.preventDefault();
+                    }}
                     className={CONTROL_INPUT_MONO}
                   />
+                  <p className="text-[11px] text-slate-500">
+                    Padrão R$ {(DEFAULT_CEDENTE_PAY_CENTS / 100).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}. Pode editar; não fica negativo.
+                  </p>
                 </div>
 
                 <div className="space-y-1.5">
                   <label className={FIELD_LABEL}>Markup meta (R$/milheiro)</label>
                   <input
                     type="number"
+                    min={0}
+                    step="0.01"
                     value={draft.targetMarkupCents / 100}
                     disabled={!!isReleased}
                     onChange={(e) =>
                       updateDraft({
-                        targetMarkupCents: roundCents(Number(e.target.value || 0) * 100),
+                        targetMarkupCents: Math.max(
+                          0,
+                          roundCents(Number(e.target.value || 0) * 100)
+                        ),
                       })
                     }
+                    onKeyDown={(e) => {
+                      if (e.key === "-" || e.key === "e" || e.key === "E") e.preventDefault();
+                    }}
                     className={CONTROL_INPUT_MONO}
-                    placeholder="Ex.: 1,50"
+                    placeholder="2,00"
                   />
+                  <p className="text-[11px] text-slate-500">
+                    Padrão R$ {(DEFAULT_TARGET_MARKUP_CENTS / 100).toLocaleString("pt-BR", { minimumFractionDigits: 2 })} a mais no milheiro. Pode editar; não fica negativo.
+                  </p>
                 </div>
               </div>
 
@@ -2500,9 +2533,23 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
                   {fmtMoneyBR(totals?.costPerKiloCents || 0)}
                 </div>
               </div>
-              <div className="rounded-xl border border-slate-100 bg-slate-50/80 px-3 py-2.5">
+              <div
+                className={cn(
+                  "rounded-xl border px-3 py-2.5",
+                  (totals?.targetPerKiloCents || 0) < (totals?.costPerKiloCents || 0)
+                    ? "border-rose-200 bg-rose-50/80"
+                    : "border-slate-100 bg-slate-50/80"
+                )}
+              >
                 <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Meta</div>
-                <div className="mt-0.5 text-base font-bold tabular-nums text-slate-900">
+                <div
+                  className={cn(
+                    "mt-0.5 text-base font-bold tabular-nums",
+                    (totals?.targetPerKiloCents || 0) < (totals?.costPerKiloCents || 0)
+                      ? "text-rose-800"
+                      : "text-slate-900"
+                  )}
+                >
                   {fmtMoneyBR(totals?.targetPerKiloCents || 0)}
                 </div>
               </div>
@@ -2516,6 +2563,7 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
 
             <p className="mt-2 text-[11px] text-slate-500">
               Milheiro e meta usam o saldo <span className="font-medium text-slate-700">esperado</span> da CIA (etapa 5).
+              A meta é o milheiro mais o markup (padrão R$ 2,00) e nunca fica abaixo do milheiro.
               {remanescentePreview.remaining > 0
                 ? ` Custo do remanescente${
                     remanescentePreview.activeNumero
@@ -2524,6 +2572,13 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
                   } — ${fmtMoneyBR(remanescentePreview.cost)} — já entrou no subtotal.`
                 : ""}
             </p>
+            {(totals?.targetPerKiloCents || 0) < (totals?.costPerKiloCents || 0) ? (
+              <p className="mt-2 flex items-start gap-1.5 text-[12px] font-medium text-rose-700">
+                <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" strokeWidth={2.2} />
+                A meta não pode ficar abaixo do milheiro de compra (
+                {fmtMoneyBR(totals?.costPerKiloCents || 0)}). Ajuste o markup para zero ou mais.
+              </p>
+            ) : null}
           </div>
 
           <div className="flex items-center gap-2 rounded-xl border border-slate-200/80 bg-white px-4 py-3 text-xs text-slate-500 shadow-sm">
