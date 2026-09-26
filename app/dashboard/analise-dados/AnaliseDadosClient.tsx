@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { BarChart3, Download, RefreshCw } from "lucide-react";
+import { BarChart3, Copy, Download, MessageSquareText, RefreshCw, X } from "lucide-react";
 import { cn } from "@/lib/cn";
+import { compactAnalyticsForAi } from "@/lib/analytics-feedback-compact";
 
 function fmtMoneyBR(cents: number) {
   const v = (cents || 0) / 100;
@@ -1294,6 +1295,13 @@ export default function AnaliseDadosClient() {
   const [salesDailyHistoryRange, setSalesDailyHistoryRange] =
     useState<SalesDailyHistoryRange>(30);
 
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
+  const [feedbackPrompt, setFeedbackPrompt] = useState("");
+  const [feedbackText, setFeedbackText] = useState("");
+  const [feedbackLoading, setFeedbackLoading] = useState(false);
+  const [feedbackError, setFeedbackError] = useState("");
+  const [feedbackCopied, setFeedbackCopied] = useState(false);
+
   useEffect(() => {
     if (daysPreset !== "CUSTOM") setDaysBack(daysPreset);
   }, [daysPreset]);
@@ -2130,6 +2138,54 @@ export default function AnaliseDadosClient() {
     return delta >= 0 ? "emerald" : "rose";
   };
 
+  async function generateFeedback() {
+    const prompt = feedbackPrompt.trim();
+    if (prompt.length < 8) {
+      setFeedbackError("Escreva o que você quer que a análise cubra.");
+      return;
+    }
+    if (!data) {
+      setFeedbackError("Carregue os dados da tela antes de pedir o feedback.");
+      return;
+    }
+
+    setFeedbackLoading(true);
+    setFeedbackError("");
+    setFeedbackCopied(false);
+    try {
+      const res = await fetch("/api/analytics/feedback", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          prompt,
+          analytics: compactAnalyticsForAi(data),
+        }),
+      });
+      const json = await res.json().catch(() => null);
+      if (!res.ok || !json?.ok) {
+        setFeedbackError(String(json?.error || "Não foi possível gerar o feedback."));
+        return;
+      }
+      setFeedbackText(String(json.text || "").trim());
+    } catch {
+      setFeedbackError("Falha de rede ao gerar o feedback.");
+    } finally {
+      setFeedbackLoading(false);
+    }
+  }
+
+  async function copyFeedback() {
+    const text = feedbackText.trim();
+    if (!text) return;
+    try {
+      await navigator.clipboard.writeText(text);
+      setFeedbackCopied(true);
+      window.setTimeout(() => setFeedbackCopied(false), 1800);
+    } catch {
+      setFeedbackCopied(false);
+    }
+  }
+
   const milheiroSub = (
     prevLabel: string,
     delta: number | undefined,
@@ -2249,6 +2305,20 @@ export default function AnaliseDadosClient() {
 
           <button
             type="button"
+            className="inline-flex items-center gap-2 rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-2.5 text-sm font-semibold text-indigo-900 shadow-sm transition hover:border-indigo-300 hover:bg-indigo-100/90 disabled:pointer-events-none disabled:opacity-55"
+            onClick={() => {
+              setFeedbackOpen(true);
+              setFeedbackError("");
+            }}
+            disabled={loading || !data}
+            title="Pedir um texto de análise com os dados desta tela"
+          >
+            <MessageSquareText className="h-4 w-4 shrink-0" aria-hidden="true" />
+            Feedback
+          </button>
+
+          <button
+            type="button"
             className="inline-flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2.5 text-sm font-semibold text-emerald-900 shadow-sm transition hover:border-emerald-300 hover:bg-emerald-100/90"
             onClick={downloadCompanyXlsx}
             title="Baixar Excel completo da análise da empresa"
@@ -2258,6 +2328,104 @@ export default function AnaliseDadosClient() {
           </button>
         </div>
       </div>
+
+      {feedbackOpen ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div
+            className="absolute inset-0 bg-black/50"
+            onClick={() => !feedbackLoading && setFeedbackOpen(false)}
+          />
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="feedback-title"
+            className="relative z-10 flex max-h-[min(90vh,820px)] w-full max-w-2xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl"
+          >
+            <div className="flex items-start justify-between gap-4 border-b border-slate-200 px-5 py-4">
+              <div className="min-w-0">
+                <h2 id="feedback-title" className="text-base font-bold text-slate-900">
+                  Feedback de desempenho
+                </h2>
+                <p className="mt-1 text-xs leading-relaxed text-slate-500">
+                  Escreva o que você quer analisar. A IA usa os números já carregados nesta página.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setFeedbackOpen(false)}
+                disabled={feedbackLoading}
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-slate-200 text-slate-600 transition hover:bg-slate-50 disabled:opacity-50"
+                aria-label="Fechar"
+              >
+                <X className="h-4 w-4" strokeWidth={2} />
+              </button>
+            </div>
+
+            <div className="min-h-0 flex-1 space-y-4 overflow-auto px-5 py-4">
+              <label className="block">
+                <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  O que analisar
+                </span>
+                <textarea
+                  value={feedbackPrompt}
+                  onChange={(e) => setFeedbackPrompt(e.target.value)}
+                  rows={5}
+                  maxLength={2000}
+                  disabled={feedbackLoading}
+                  placeholder="Ex.: Compare o ritmo de hoje com o mês, destaque quem vendeu pouco e monte um texto curto para eu mandar no grupo da equipe."
+                  className="w-full resize-y rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-800 shadow-sm outline-none ring-indigo-200 placeholder:text-slate-400 focus:border-indigo-300 focus:ring-2"
+                />
+              </label>
+
+              {feedbackError ? (
+                <div className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-800">
+                  {feedbackError}
+                </div>
+              ) : null}
+
+              {feedbackText ? (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                      Texto
+                    </span>
+                    <button
+                      type="button"
+                      onClick={copyFeedback}
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                    >
+                      <Copy className="h-3.5 w-3.5" aria-hidden />
+                      {feedbackCopied ? "Copiado" : "Copiar"}
+                    </button>
+                  </div>
+                  <div className="whitespace-pre-wrap rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm leading-relaxed text-slate-800">
+                    {feedbackText}
+                  </div>
+                </div>
+              ) : null}
+            </div>
+
+            <div className="flex items-center justify-end gap-2 border-t border-slate-200 px-5 py-3.5">
+              <button
+                type="button"
+                onClick={() => setFeedbackOpen(false)}
+                disabled={feedbackLoading}
+                className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+              >
+                Fechar
+              </button>
+              <button
+                type="button"
+                onClick={generateFeedback}
+                disabled={feedbackLoading || !data}
+                className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-3.5 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-indigo-700 disabled:pointer-events-none disabled:opacity-55"
+              >
+                {feedbackLoading ? "Gerando..." : feedbackText ? "Gerar de novo" : "Gerar texto"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {/* HOJE */}
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
