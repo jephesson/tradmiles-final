@@ -191,6 +191,7 @@ export default function Sidebar() {
   const isCheckLocalizadorRoute = pathname.startsWith(
     "/dashboard/check-localizador"
   );
+  const isLocalizadoresRoute = pathname.startsWith("/dashboard/localizadores");
 
   const isClubesRoute = pathname.startsWith("/dashboard/clubes");
 
@@ -370,6 +371,7 @@ export default function Sidebar() {
 
   const [openIndicacoes, setOpenIndicacoes] = useState(isIndicacoesRoute);
   const [openRede, setOpenRede] = useState(isRedeRoute);
+  const [openLocalizadores, setOpenLocalizadores] = useState(isLocalizadoresRoute);
 
   const [openPendencias, setOpenPendencias] = useState(isPendenciasRoute);
 
@@ -466,6 +468,7 @@ export default function Sidebar() {
 
   useEffect(() => setOpenIndicacoes(isIndicacoesRoute), [isIndicacoesRoute]);
   useEffect(() => setOpenRede(isRedeRoute), [isRedeRoute]);
+  useEffect(() => setOpenLocalizadores(isLocalizadoresRoute), [isLocalizadoresRoute]);
 
   useEffect(() => setOpenPendencias(isPendenciasRoute), [isPendenciasRoute]);
 
@@ -1123,6 +1126,16 @@ export default function Sidebar() {
               Latam
             </NavLink>
           </SubAccordion>
+        </Accordion>
+
+        <Accordion
+          title="Gerenciamento de localizadores"
+          open={openLocalizadores}
+          onToggle={() => setOpenLocalizadores((v) => !v)}
+          active={isLocalizadoresRoute}
+          accent="sky"
+        >
+          <NavLink href="/dashboard/localizadores">Localizadores</NavLink>
         </Accordion>
 
         {/* ================= OUTROS ================= */}
