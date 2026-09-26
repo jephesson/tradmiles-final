@@ -362,7 +362,8 @@ export default function Sidebar() {
     isImportacoesRoute ||
     isImportacoesEmissoesLatamRoute ||
     isProtocolosRoute ||
-    isCedentesOutrosRoute;
+    isCedentesOutrosRoute ||
+    isIndicacoesRoute;
 
   /* =========================
    * ACCORDIONS
@@ -734,19 +735,16 @@ export default function Sidebar() {
               Gerenciar afiliados
             </NavLink>
           </SubAccordion>
-        </Accordion>
 
-        {/* ================= PENDÊNCIAS ================= */}
-        <Accordion
-          title="Pendências"
-          open={openPendencias}
-          onToggle={() => setOpenPendencias((v) => !v)}
-          active={isPendenciasRoute}
-          accent="amber"
-        >
-          <NavLink href="/dashboard/cedentes/latam-pendente">Latam pendente</NavLink>
-          <NavLink href="/dashboard/cedentes/smiles-pendente">Smiles pendente</NavLink>
-          <NavLink href="/dashboard/cedentes/livelo-pendente">Livelo pendente</NavLink>
+          <SubAccordion
+            title="Pendências"
+            open={openPendencias}
+            onToggle={() => setOpenPendencias((v) => !v)}
+          >
+            <NavLink href="/dashboard/cedentes/latam-pendente">Latam pendente</NavLink>
+            <NavLink href="/dashboard/cedentes/smiles-pendente">Smiles pendente</NavLink>
+            <NavLink href="/dashboard/cedentes/livelo-pendente">Livelo pendente</NavLink>
+          </SubAccordion>
         </Accordion>
 
         {/* ================= GESTÃO DE PONTOS ================= */}
@@ -1052,18 +1050,6 @@ export default function Sidebar() {
           </SubAccordion>
         </Accordion>
 
-        {/* ================= INDICAÇÕES ================= */}
-        <Accordion
-          title="Indicações"
-          open={openIndicacoes}
-          onToggle={() => setOpenIndicacoes((v) => !v)}
-          active={isIndicacoesRoute}
-          accent="blue"
-        >
-          <NavLink href="/dashboard/indicacoes/codigos">Código cedente</NavLink>
-          <NavLink href="/dashboard/indicacoes/historico">Histórico cedente</NavLink>
-        </Accordion>
-
         {/* ================= REDE ================= */}
         <Accordion
           title="Rede"
@@ -1159,6 +1145,17 @@ export default function Sidebar() {
           active={isOutrosRoute}
           accent="slate"
         >
+          <SubAccordion
+            title="Indicações"
+            open={openIndicacoes}
+            onToggle={() => setOpenIndicacoes((v) => !v)}
+            variant="nav"
+            active={isIndicacoesRoute}
+          >
+            <NavLink href="/dashboard/indicacoes/codigos">Código cedente</NavLink>
+            <NavLink href="/dashboard/indicacoes/historico">Histórico cedente</NavLink>
+          </SubAccordion>
+
           <SubAccordion
             title="Importações"
             open={openImportacoes}
