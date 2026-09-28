@@ -23,6 +23,7 @@ import {
   passengerParseNeedsAi,
 } from "@/lib/latam/parsePassengerText";
 import { OTP_LOOKBACK_MS } from "@/lib/gmail/otp";
+import { buildSmilesSearchUrl } from "@/lib/cotacao-passagens";
 import { OtpCountdown } from "@/components/cedentes/OtpCountdown";
 import {
   buildLatamPagamentoLink,
@@ -171,7 +172,7 @@ type Props = {
   initialTripKind?: TripKind;
   initialAdults?: number;
   initialChildren?: number;
-  /** Bebê: entra no link LATAM, não consome CPF do cedente. */
+  /** Bebê: entra no link de pesquisa, não consome CPF do cedente. */
   initialInfants?: number;
   /** Outras contas elegíveis — troca sem apagar trecho, datas, passageiros e Order ID. */
   cedenteOptions?: Array<{
@@ -395,29 +396,39 @@ export default function BiometriaWizardModal({
     [whatsapp, bioSendMessage]
   );
 
-  const searchLink = useMemo(
-    () =>
-      buildLatamSearchLink({
-        origin: searchOrigin,
-        destination: searchDestination,
-        outbound: searchOutbound,
-        inbound: searchInbound,
-        trip: searchTrip === "IDA_VOLTA" ? "RT" : "OW",
-        adt: searchAdt,
-        chd: searchChd,
-        inf: searchInf,
-      }),
-    [
-      searchOrigin,
-      searchDestination,
-      searchOutbound,
-      searchInbound,
-      searchTrip,
-      searchAdt,
-      searchChd,
-      searchInf,
-    ]
-  );
+  const searchLink = useMemo(() => {
+    if (program === "SMILES") {
+      const url = buildSmilesSearchUrl(
+        searchOrigin,
+        searchDestination,
+        searchOutbound,
+        searchAdt,
+        searchTrip === "IDA_VOLTA" ? searchInbound : null,
+        { children: searchChd, infants: searchInf }
+      );
+      return url || null;
+    }
+    return buildLatamSearchLink({
+      origin: searchOrigin,
+      destination: searchDestination,
+      outbound: searchOutbound,
+      inbound: searchInbound,
+      trip: searchTrip === "IDA_VOLTA" ? "RT" : "OW",
+      adt: searchAdt,
+      chd: searchChd,
+      inf: searchInf,
+    });
+  }, [
+    program,
+    searchOrigin,
+    searchDestination,
+    searchOutbound,
+    searchInbound,
+    searchTrip,
+    searchAdt,
+    searchChd,
+    searchInf,
+  ]);
 
   const loginMessage = useMemo(() => {
     const site = siteUrl(program);
@@ -613,7 +624,7 @@ export default function BiometriaWizardModal({
         opts.purchaseCode && program === "LATAM"
           ? buildLatamPagamentoLink(opts.purchaseCode)
           : null,
-      searchLink: program === "LATAM" ? searchLink : null,
+      searchLink,
       departureDate: searchOutbound || null,
       returnDate:
         searchTrip === "IDA_VOLTA" && searchInbound ? searchInbound : null,
@@ -623,7 +634,11 @@ export default function BiometriaWizardModal({
   }
 
   function goAfterCode() {
-    if (program === "LATAM") setStep("search");
+    setStep("search");
+  }
+
+  function goAfterSearch() {
+    if (program === "LATAM") setStep("extension");
     else finish({ purchaseCode: null, skippedOrder: true });
   }
 
@@ -900,7 +915,7 @@ export default function BiometriaWizardModal({
   const stepsForProgram: Step[] =
     program === "LATAM"
       ? ["creds", "code", "search", "extension", "order"]
-      : ["creds", "code"];
+      : ["creds", "code", "search"];
 
   const stepIndex = stepsForProgram.indexOf(step);
   const ptsNaConta =
@@ -1351,9 +1366,10 @@ export default function BiometriaWizardModal({
                 3. Link de pesquisa (milhas)
               </div>
               <p className="mt-1 text-xs text-slate-500">
-                Preencha o trecho para abrir a busca LATAM já em milhas (
-                <span className="font-mono">redemption=true</span>). Adultos/crianças/bebês
-                vêm da venda — bebê entra no link, mas não conta CPF do cedente.
+                Preencha o trecho para abrir a busca{" "}
+                {program === "SMILES" ? "Smiles" : "LATAM"} já em milhas.
+                Adultos/crianças/bebês vêm da venda — bebê entra no link, mas não
+                conta CPF do cedente.
               </p>
 
               <div className="mt-3 flex flex-wrap gap-2">
@@ -1480,11 +1496,24 @@ export default function BiometriaWizardModal({
                 </div>
               </div>
               <p className="mt-2 text-[11px] text-slate-500">
-                No link: <span className="font-mono">adt={searchAdt}</span>
-                {" · "}
-                <span className="font-mono">chd={searchChd}</span>
-                {" · "}
-                <span className="font-mono">inf={searchInf}</span>
+                No link:{" "}
+                {program === "SMILES" ? (
+                  <>
+                    <span className="font-mono">adults={searchAdt}</span>
+                    {" · "}
+                    <span className="font-mono">children={searchChd}</span>
+                    {" · "}
+                    <span className="font-mono">infants={searchInf}</span>
+                  </>
+                ) : (
+                  <>
+                    <span className="font-mono">adt={searchAdt}</span>
+                    {" · "}
+                    <span className="font-mono">chd={searchChd}</span>
+                    {" · "}
+                    <span className="font-mono">inf={searchInf}</span>
+                  </>
+                )}
                 {" · "}
                 CPF do cedente:{" "}
                 <b className="tabular-nums text-slate-800">
@@ -1517,7 +1546,7 @@ export default function BiometriaWizardModal({
                       className="inline-flex items-center gap-1.5 rounded-lg border border-sky-200 bg-sky-50 px-2.5 py-1.5 text-[11px] font-medium text-sky-800 hover:bg-sky-100"
                     >
                       <ExternalLink className="h-3.5 w-3.5" aria-hidden />
-                      Abrir pesquisa LATAM
+                      Abrir pesquisa {program === "SMILES" ? "Smiles" : "LATAM"}
                     </button>
                   </div>
                 </div>
@@ -1539,7 +1568,7 @@ export default function BiometriaWizardModal({
               <div className="flex flex-wrap gap-2">
                 <button
                   type="button"
-                  onClick={() => setStep("extension")}
+                  onClick={goAfterSearch}
                   className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50"
                 >
                   <SkipForward className="h-4 w-4" aria-hidden />
@@ -1547,7 +1576,7 @@ export default function BiometriaWizardModal({
                 </button>
                 <button
                   type="button"
-                  onClick={() => setStep("extension")}
+                  onClick={goAfterSearch}
                   className="inline-flex h-11 items-center justify-center rounded-xl bg-slate-900 px-5 text-sm font-semibold text-white hover:bg-slate-800"
                 >
                   Seguir

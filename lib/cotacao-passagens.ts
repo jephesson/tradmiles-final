@@ -343,7 +343,8 @@ export function buildSmilesSearchUrl(
   dest: string,
   dateISO: string,
   adults = 1,
-  returnISO?: string | null
+  returnISO?: string | null,
+  pax?: { children?: number; infants?: number }
 ) {
   const o = toIata(origin);
   const d = toIata(dest);
@@ -354,8 +355,8 @@ export function buildSmilesSearchUrl(
   const q = new URLSearchParams();
   q.set("adults", String(Math.max(1, Math.trunc(adults || 1))));
   q.set("cabin", "ECONOMIC");
-  q.set("children", "0");
-  q.set("infants", "0");
+  q.set("children", String(Math.max(0, Math.trunc(pax?.children || 0))));
+  q.set("infants", String(Math.max(0, Math.trunc(pax?.infants || 0))));
   q.set("departureDate", String(ms));
   q.set("originAirport", o);
   q.set("destinationAirport", d);
@@ -368,10 +369,11 @@ export function buildSmilesSearchUrl(
   q.set("destinCity", "");
   q.set("originCountry", "");
   q.set("destinCountry", "");
+  q.set("novo-resultado-voos", "true");
   if (roundTrip) {
-    // No MFE da Smiles: ROUND_TRIP=1, ONE_WAY=2, MULTI_CITY=3.
+    // MFE Smiles: ROUND_TRIP=1, ONE_WAY=2. Trecho simples usa segments=1 + returnDate.
     q.set("tripType", "1");
-    q.set("segments", "2");
+    q.set("segments", "1");
     q.set("returnDate", String(returnMs));
   } else {
     q.set("tripType", "2");
