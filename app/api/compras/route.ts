@@ -7,6 +7,7 @@ import { resolveVendorCommissionBps } from "@/lib/purchases/vendorCommission";
 import {
   DEFAULT_CEDENTE_PAY_CENTS,
   DEFAULT_TARGET_MARKUP_CENTS,
+  DEFAULT_CAIXA_VIAS_AEREAS_CENTS,
 } from "@/lib/purchases/purchaseDefaults";
 import { Prisma, LoyaltyProgram } from "@prisma/client";
 
@@ -267,6 +268,10 @@ export async function POST(req: Request) {
       0,
       asInt(body.metaMarkupCents ?? body.targetMarkupCents ?? DEFAULT_TARGET_MARKUP_CENTS)
     );
+    const caixaViasAereasCents = Math.max(
+      0,
+      asInt(body.caixaViasAereasCents ?? DEFAULT_CAIXA_VIAS_AEREAS_CENTS)
+    );
 
     const observacao =
       body.observacao != null
@@ -288,6 +293,7 @@ export async function POST(req: Request) {
         cedentePayCents,
         vendorCommissionBps,
         metaMarkupCents,
+        caixaViasAereasCents,
 
         observacao,
       },

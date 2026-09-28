@@ -25,6 +25,7 @@ import { parseLatamClubEmail } from "@/lib/latam/parseClubEmail";
 import {
   DEFAULT_CEDENTE_PAY_CENTS,
   DEFAULT_TARGET_MARKUP_CENTS,
+  DEFAULT_CAIXA_VIAS_AEREAS_CENTS,
   defaultClubRenewalDay,
 } from "@/lib/purchases/purchaseDefaults";
 
@@ -88,6 +89,7 @@ type PurchaseDraft = {
   remainingCostCents: number;
   vendorCommissionBps: number;
   targetMarkupCents: number;
+  caixaViasAereasCents: number;
 
   subtotalCostCents: number;
   vendorCommissionCents: number;
@@ -250,7 +252,8 @@ function computeTotals(d: PurchaseDraft) {
   const vendor = roundCents(
     (subtotal * (d.vendorCommissionBps || 0)) / 10000
   );
-  const total = subtotal + vendor;
+  const caixa = Math.max(0, d.caixaViasAereasCents || 0);
+  const total = subtotal + vendor + caixa;
 
   const pts = Math.max(0, pointsForMilheiro(d));
   const denom = pts / 1000;
@@ -262,6 +265,7 @@ function computeTotals(d: PurchaseDraft) {
   return {
     subtotalCostCents: subtotal,
     vendorCommissionCents: vendor,
+    caixaViasAereasCents: caixa,
     totalCostCents: total,
     costPerKiloCents: costPerKilo,
     targetPerKiloCents: targetPerKilo,
@@ -463,6 +467,12 @@ function normalizeDraft(raw: any, cedenteSel?: Cedente | null): PurchaseDraft {
       if (rawMarkup == null || rawMarkup === "") return DEFAULT_TARGET_MARKUP_CENTS;
       const n = clampInt(rawMarkup);
       return n < 0 ? DEFAULT_TARGET_MARKUP_CENTS : n;
+    })(),
+    caixaViasAereasCents: (() => {
+      const rawCaixa = raw?.caixaViasAereasCents;
+      if (rawCaixa == null || rawCaixa === "") return DEFAULT_CAIXA_VIAS_AEREAS_CENTS;
+      const n = clampInt(rawCaixa);
+      return n < 0 ? DEFAULT_CAIXA_VIAS_AEREAS_CENTS : n;
     })(),
 
     subtotalCostCents: clampInt(
@@ -884,6 +894,7 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
             remainingCostCents: merged.remainingCostCents,
             vendorCommissionBps: merged.vendorCommissionBps,
             targetMarkupCents: merged.targetMarkupCents,
+            caixaViasAereasCents: merged.caixaViasAereasCents,
             note: merged.note,
             expectedLatamPoints: merged.expectedLatamPoints,
             expectedSmilesPoints: merged.expectedSmilesPoints,
@@ -999,6 +1010,7 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
           remainingCostCents: payload.remainingCostCents,
           vendorCommissionBps: payload.vendorCommissionBps,
           targetMarkupCents: payload.targetMarkupCents,
+          caixaViasAereasCents: payload.caixaViasAereasCents,
 
           note: payload.note,
 
@@ -1715,7 +1727,7 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
         <StepSection
           step={2}
           title="Configuração"
-          hint="Taxa do cedente e markup. Comissão vendedor vem das Configurações (etapa 5 define a CIA)."
+          hint="Taxa do cedente, markup e caixa Vias Aéreas. Comissão vendedor vem das Configurações (etapa 5 define a CIA)."
         >
           <div className="space-y-4 max-w-2xl">
               <div className="grid gap-3 md:grid-cols-3">
@@ -1731,7 +1743,7 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
                 </div>
               </div>
 
-              <div className="grid gap-4 sm:grid-cols-2">
+              <div className="grid gap-4 sm:grid-cols-3">
                 <div className="space-y-1.5">
                   <label className={FIELD_LABEL}>Taxa cedente (R$)</label>
                   <input
@@ -1782,6 +1794,33 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
                   />
                   <p className="text-[11px] text-slate-500">
                     Padrão R$ {(DEFAULT_TARGET_MARKUP_CENTS / 100).toLocaleString("pt-BR", { minimumFractionDigits: 2 })} a mais no milheiro. Pode editar; não fica negativo.
+                  </p>
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className={FIELD_LABEL}>Caixa Vias Aéreas (R$)</label>
+                  <input
+                    type="number"
+                    min={0}
+                    step="0.01"
+                    value={draft.caixaViasAereasCents / 100}
+                    disabled={!!isReleased}
+                    onChange={(e) =>
+                      updateDraft({
+                        caixaViasAereasCents: Math.max(
+                          0,
+                          roundCents(Number(e.target.value || 0) * 100)
+                        ),
+                      })
+                    }
+                    onKeyDown={(e) => {
+                      if (e.key === "-" || e.key === "e" || e.key === "E") e.preventDefault();
+                    }}
+                    className={CONTROL_INPUT_MONO}
+                    placeholder="100,00"
+                  />
+                  <p className="text-[11px] text-slate-500">
+                    Padrão R$ {(DEFAULT_CAIXA_VIAS_AEREAS_CENTS / 100).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}. Soma no custo total e no milheiro. Pode editar; não fica negativo.
                   </p>
                 </div>
               </div>
@@ -2508,7 +2547,7 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
               ) : null}
             </div>
 
-            <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-6">
+            <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-7">
               <div className="rounded-xl border border-slate-100 bg-slate-50/80 px-3 py-2.5">
                 <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Subtotal</div>
                 <div className="mt-0.5 text-base font-bold tabular-nums text-slate-900">
@@ -2519,6 +2558,12 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
                 <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Comissão</div>
                 <div className="mt-0.5 text-base font-bold tabular-nums text-slate-900">
                   {fmtMoneyBR(totals?.vendorCommissionCents || 0)}
+                </div>
+              </div>
+              <div className="rounded-xl border border-sky-100 bg-sky-50/80 px-3 py-2.5">
+                <div className="text-[10px] font-semibold uppercase tracking-wide text-sky-700">Caixa Vias</div>
+                <div className="mt-0.5 text-base font-bold tabular-nums text-sky-950">
+                  {fmtMoneyBR(draft.caixaViasAereasCents || 0)}
                 </div>
               </div>
               <div className="rounded-xl border border-slate-200 bg-slate-900 px-3 py-2.5 text-white">
@@ -2564,6 +2609,7 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
             <p className="mt-2 text-[11px] text-slate-500">
               Milheiro e meta usam o saldo <span className="font-medium text-slate-700">esperado</span> da CIA (etapa 5).
               A meta é o milheiro mais o markup (padrão R$ 2,00) e nunca fica abaixo do milheiro.
+              A caixa Vias Aéreas (padrão R$ 100,00) entra no custo total e no milheiro.
               {remanescentePreview.remaining > 0
                 ? ` Custo do remanescente${
                     remanescentePreview.activeNumero

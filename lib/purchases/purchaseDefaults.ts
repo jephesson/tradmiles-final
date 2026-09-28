@@ -4,6 +4,9 @@ export const DEFAULT_CEDENTE_PAY_CENTS = 8000;
 /** Markup da meta (R$ por milheiro) em nova compra. */
 export const DEFAULT_TARGET_MARKUP_CENTS = 200;
 
+/** Caixa Vias Aéreas (valor fixo na compra, entra no custo/milheiro). */
+export const DEFAULT_CAIXA_VIAS_AEREAS_CENTS = 10000;
+
 export function clampNonNegCents(v: unknown, fallback = 0) {
   const n = Number(v);
   if (!Number.isFinite(n)) return fallback;

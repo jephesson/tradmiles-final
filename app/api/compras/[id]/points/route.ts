@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/auth-server";
 import type { LoyaltyProgram, PurchaseItemStatus } from "@prisma/client";
+import { computePurchaseMoneyTotals } from "@/lib/compras";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -64,9 +65,13 @@ async function recalcPurchaseTotals(tx: any, purchaseId: string) {
   const metaMarkupCents = Math.max(0, safeInt(p.metaMarkupCents, 0));
 
   const remainingCostCents = safeInt(p.remainingCostCents, 0);
-  const subtotalCents = itemsCost + cedentePayCents + remainingCostCents;
-  const comissaoCents = Math.round((subtotalCents * vendorCommissionBps) / 10000);
-  const totalCents = subtotalCents + comissaoCents;
+  const { subtotalCents, comissaoCents, totalCents } = computePurchaseMoneyTotals({
+    itemsCostCents: itemsCost,
+    cedentePayCents,
+    remainingCostCents,
+    vendorCommissionBps,
+    caixaViasAereasCents: safeInt(p.caixaViasAereasCents, 0),
+  });
 
   // custo milheiro usando saldoAplicado/previsto quando existir, senão usa pontosCiaTotal
   const ptsBase = cia ? getAppliedOrPredictedPoints(p, cia, pontosCiaTotal) : pontosCiaTotal;

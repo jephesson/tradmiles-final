@@ -24,6 +24,7 @@ function mapDbToUi(compra: any) {
     remainingCostCents: Number(compra.remainingCostCents || 0),
     vendorCommissionBps: Number(compra.vendorCommissionBps || 0),
     targetMarkupCents: Number(compra.metaMarkupCents || 0),
+    caixaViasAereasCents: Number(compra.caixaViasAereasCents || 0),
 
     subtotalCostCents: Number(compra.subtotalCents || 0),
     vendorCommissionCents: Number(compra.comissaoCents || 0),
@@ -192,6 +193,11 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
           body.targetMarkupCents === undefined
             ? undefined
             : Math.max(0, Number(body.targetMarkupCents || 0)),
+
+        caixaViasAereasCents:
+          body.caixaViasAereasCents === undefined
+            ? undefined
+            : Math.max(0, Number(body.caixaViasAereasCents || 0)),
 
         observacao: body.note === undefined ? undefined : body.note ? String(body.note) : null,
 

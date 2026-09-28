@@ -2,6 +2,26 @@ import { prisma } from "@/lib/prisma";
 import type { PurchaseItem, Purchase } from "@prisma/client";
 import { clampNonNegCents, metaMilheiroFromCost } from "@/lib/purchases/purchaseDefaults";
 
+export function computePurchaseMoneyTotals(input: {
+  itemsCostCents: number;
+  cedentePayCents: number;
+  remainingCostCents: number;
+  vendorCommissionBps: number;
+  caixaViasAereasCents: number;
+}) {
+  const itemsCostCents = asInt(input.itemsCostCents, 0);
+  const cedentePayCents = asInt(input.cedentePayCents, 0);
+  const remainingCostCents = asInt(input.remainingCostCents, 0);
+  const vendorCommissionBps = asInt(input.vendorCommissionBps, 0);
+  const caixaViasAereasCents = clampNonNegCents(input.caixaViasAereasCents, 0);
+
+  const subtotalCents = itemsCostCents + cedentePayCents + remainingCostCents;
+  const comissaoCents = roundInt((subtotalCents * vendorCommissionBps) / 10000);
+  const totalCents = subtotalCents + comissaoCents + caixaViasAereasCents;
+
+  return { subtotalCents, comissaoCents, caixaViasAereasCents, totalCents };
+}
+
 function roundInt(n: number) {
   return Math.round(n);
 }
@@ -38,19 +58,15 @@ export async function recomputeCompra(purchaseId: string) {
     0
   );
 
-  // ✅ igual ao frontend: subtotal = itens + taxa do cedente
-  const subtotalCents =
-    itemsCostCents +
-    asInt((compra as any).cedentePayCents, 0) +
-    asInt((compra as any).remainingCostCents, 0);
+  const money = computePurchaseMoneyTotals({
+    itemsCostCents,
+    cedentePayCents: asInt((compra as any).cedentePayCents, 0),
+    remainingCostCents: asInt((compra as any).remainingCostCents, 0),
+    vendorCommissionBps: asInt((compra as any).vendorCommissionBps, 0),
+    caixaViasAereasCents: asInt((compra as any).caixaViasAereasCents, 0),
+  });
 
-  // ✅ igual ao frontend: comissão em cima do subtotal
-  const comissaoCents = roundInt(
-    (subtotalCents * asInt((compra as any).vendorCommissionBps, 0)) / 10000
-  );
-
-  // ✅ igual ao frontend: total = subtotal + comissão
-  const totalCents = subtotalCents + comissaoCents;
+  const { subtotalCents, comissaoCents, totalCents } = money;
 
   // ✅ milheiro usa "Esperado" da CIA (quando existir)
   const pontos = Math.max(0, pointsForMilheiro(compra));

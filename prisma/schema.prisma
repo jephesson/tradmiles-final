@@ -1208,6 +1208,7 @@ model Purchase {
   custoMilheiroCents Int @default(0)
   metaMarkupCents    Int @default(150)
   metaMilheiroCents  Int @default(0)
+  caixaViasAereasCents Int @default(0)
 
   saldoPrevistoLatam  Int?
   saldoPrevistoSmiles Int?

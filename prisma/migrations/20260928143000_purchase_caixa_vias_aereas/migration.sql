@@ -1,0 +1,1 @@
+ALTER TABLE "purchases" ADD COLUMN "caixaViasAereasCents" INTEGER NOT NULL DEFAULT 0;
