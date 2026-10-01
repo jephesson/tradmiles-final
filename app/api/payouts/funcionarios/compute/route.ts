@@ -17,6 +17,7 @@ import {
 } from "@/lib/payouts/purchaseRateio";
 import { applyEmployeeDebtDiscountsForDate } from "@/lib/payouts/applyEmployeeDebtDiscounts";
 import { ensureDueCardCashbacks } from "@/lib/card-cashback";
+import { ensureDueMonthlyBonus } from "@/lib/bonus/saveMonthlyBonus";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -225,6 +226,7 @@ export async function POST(req: Request) {
     }
 
     await ensureDueCardCashbacks(team, date);
+    await ensureDueMonthlyBonus(team, date);
 
     const settings = await prisma.settings.upsert({
       where: { key: "default" },

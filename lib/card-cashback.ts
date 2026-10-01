@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { monthLabelPT, nextMonthISO, previousMonthISO, taxByPercent } from "@/lib/bonus/monthlyBonus";
+import { ensureDueMonthlyBonus } from "@/lib/bonus/saveMonthlyBonus";
 
 export const CARD_CASHBACK_START_MONTH = "2026-09";
 export const CARD_CASHBACK_BPS = 150;
@@ -201,6 +202,7 @@ export async function day1BonusByUser(team: string, date: string) {
   const map = new Map<string, Day1Bonus>();
   if (!/^\d{4}-\d{2}-01$/.test(date)) return map;
 
+  await ensureDueMonthlyBonus(team, date);
   const spendMonth = previousMonthISO(date.slice(0, 7));
 
   const bonusRows = await prisma.bonusMonthResult.findMany({
