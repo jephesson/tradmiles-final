@@ -1026,6 +1026,7 @@ export default function Sidebar() {
           accent="orange"
         >
           <NavLink href="/dashboard/resumo">Resumo</NavLink>
+          <NavLink href="/dashboard/resumo/analise-caixa">Análise do caixa</NavLink>
 
           {/* ✅ NOVO: Prejuízo */}
           <NavLink href="/dashboard/prejuizo">Prejuízo</NavLink>

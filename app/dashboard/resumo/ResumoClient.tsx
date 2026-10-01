@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { History, Landmark, PieChart, RefreshCw, Save, Wallet } from "lucide-react";
+import Link from "next/link";
+import { History, Landmark, LineChart, PieChart, RefreshCw, Save, Wallet } from "lucide-react";
 import { cn } from "@/lib/cn";
 
 type Points = { latam: number; smiles: number; livelo: number; esfera: number; iberia: number };
@@ -1675,6 +1676,13 @@ export default function CedentesResumoClient() {
               </div>
             </div>
           </div>
+          <Link
+            href="/dashboard/resumo/analise-caixa"
+            className="inline-flex items-center gap-2 rounded-xl border border-sky-200 bg-sky-50 px-3.5 py-2.5 text-sm font-semibold text-sky-900 shadow-sm transition hover:border-sky-300 hover:bg-sky-100"
+          >
+            <LineChart className="h-4 w-4" strokeWidth={2.2} aria-hidden />
+            Analisar
+          </Link>
         </div>
 
         {snapshotRows.length === 0 ? (
