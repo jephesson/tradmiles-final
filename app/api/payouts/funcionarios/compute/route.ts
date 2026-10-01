@@ -16,6 +16,7 @@ import {
   resolveC3RateioBreakdown,
 } from "@/lib/payouts/purchaseRateio";
 import { applyEmployeeDebtDiscountsForDate } from "@/lib/payouts/applyEmployeeDebtDiscounts";
+import { ensureDueCardCashbacks } from "@/lib/card-cashback";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -222,6 +223,8 @@ export async function POST(req: Request) {
     if (date > today) {
       return NextResponse.json({ ok: false, error: "Não computa datas futuras." }, { status: 400 });
     }
+
+    await ensureDueCardCashbacks(team, date);
 
     const settings = await prisma.settings.upsert({
       where: { key: "default" },

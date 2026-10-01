@@ -164,6 +164,27 @@ export async function upsertCardCashbackMonth(opts: {
   };
 }
 
+export async function ensureDueCardCashbacks(team: string, asOfISO?: string) {
+  const asOfMonth =
+    asOfISO && /^\d{4}-\d{2}/.test(asOfISO) ? asOfISO.slice(0, 7) : monthKeySP(new Date());
+
+  const due: string[] = [];
+  let month = CARD_CASHBACK_START_MONTH;
+  while (month < asOfMonth) {
+    due.push(month);
+    month = nextMonthISO(month);
+    if (due.length > 36) break;
+  }
+
+  for (const spendMonth of due) {
+    try {
+      await upsertCardCashbackMonth({ team, month: spendMonth });
+    } catch {
+      // Sem Eduarda ou mês inválido: segue o próximo.
+    }
+  }
+}
+
 export async function listCardCashbacksForYear(team: string, year: number) {
   const user = await findCardCashbackUser(team);
   if (!user) return { user: null, rows: [] as Awaited<ReturnType<typeof prisma.cardCashbackMonth.findMany>> };
@@ -215,26 +236,14 @@ export async function day1BonusByUser(team: string, date: string) {
   }
 
   if (canGenerateCardCashbackMonth(spendMonth)) {
+    await ensureDueCardCashbacks(team, date);
     const user = await findCardCashbackUser(team);
     if (user) {
-      let row: { feeCents: number; cashbackCents: number; rateBps: number } | null =
-        await prisma.cardCashbackMonth.findUnique({
-          where: {
-            team_month_userId: { team, month: spendMonth, userId: user.id },
-          },
-        });
-      if (!row || row.rateBps !== CARD_CASHBACK_BPS) {
-        try {
-          const created = await upsertCardCashbackMonth({ team, month: spendMonth });
-          row = {
-            feeCents: created.feeCents,
-            cashbackCents: created.cashbackCents,
-            rateBps: created.rateBps,
-          };
-        } catch {
-          if (!row) row = null;
-        }
-      }
+      const row = await prisma.cardCashbackMonth.findUnique({
+        where: {
+          team_month_userId: { team, month: spendMonth, userId: user.id },
+        },
+      });
       const cash = Math.max(0, cashbackFromFeeCents(row?.feeCents || 0));
       const fee = Math.max(0, row?.feeCents || 0);
       if (cash > 0) {

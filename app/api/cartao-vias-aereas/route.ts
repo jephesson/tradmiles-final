@@ -9,6 +9,7 @@ import {
   cashbackFromFeeCents,
   cashbackRateLabel,
   commissionTaxPercent,
+  ensureDueCardCashbacks,
   isViasCardLabel,
   listCardCashbacksForYear,
   monthKeySP,
@@ -102,6 +103,7 @@ export async function GET(req: NextRequest) {
       })
       .filter((r) => r.salesCount > 0);
 
+    await ensureDueCardCashbacks(session.team);
     const cashbackStored = await listCardCashbacksForYear(session.team, year);
     const storedByMonth = new Map(cashbackStored.rows.map((r) => [r.month, r]));
     const taxPercent = await commissionTaxPercent();
@@ -157,6 +159,7 @@ export async function GET(req: NextRequest) {
         rateBps: CARD_CASHBACK_BPS,
         rateLabel: cashbackRateLabel(),
         taxPercent,
+        currentMonth: monthKeySP(new Date()),
         user: cashbackStored.user,
         months: cashbackMonths,
       },

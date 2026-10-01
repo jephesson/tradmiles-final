@@ -31,6 +31,7 @@ type Payload = {
     rateBps: number;
     rateLabel?: string;
     taxPercent?: number;
+    currentMonth?: string;
     user: Seller | null;
     months: CashbackMonth[];
   };
@@ -78,9 +79,6 @@ export default function CartaoViasAereasClient() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const [generatingMonth, setGeneratingMonth] = useState<string | null>(null);
-  const [generateError, setGenerateError] = useState<string | null>(null);
-
   const load = useCallback(async (y: number) => {
     setLoading(true);
     setError(null);
@@ -103,26 +101,6 @@ export default function CartaoViasAereasClient() {
   useEffect(() => {
     void load(year);
   }, [year, load]);
-
-  async function generateCashback(month: string) {
-    setGeneratingMonth(month);
-    setGenerateError(null);
-    try {
-      const res = await fetch("/api/cartao-vias-aereas", {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ month }),
-      });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok || !json?.ok) throw new Error(json?.error || "Falha ao gerar o cashback.");
-      await load(year);
-    } catch (e: unknown) {
-      setGenerateError(e instanceof Error ? e.message : "Falha ao gerar o cashback.");
-    } finally {
-      setGeneratingMonth(null);
-    }
-  }
 
   const years = useMemo(() => {
     const set = new Set<number>([year, yearNowSP(), ...(data?.years || [])]);
@@ -265,12 +243,11 @@ export default function CartaoViasAereasClient() {
               {data.cashback.rateLabel || "1,5%"} da taxa no cartão, a partir de {monthLong(data.cashback.startMonth)}
             </h2>
             <p className="mt-1 max-w-2xl text-sm text-slate-600">
-              Gera o cashback do mês da {data.cashback.user.name}. Ele entra na comissão dela no dia
-              1 do mês seguinte, na mesma coluna do bônus da meta, já com o imposto debitado
+              Quando vira o mês, o cashback da {data.cashback.user.name} gera sozinho e entra na
+              comissão dela no dia 1, na mesma coluna do bônus da meta, já com o imposto debitado
               {data.cashback.taxPercent != null ? ` (${data.cashback.taxPercent}%)` : ""}. Clique no
               valor na comissão para ver a descrição.
             </p>
-            {generateError ? <p className="mt-2 text-sm text-rose-700">{generateError}</p> : null}
           </div>
           {!data.cashback.months.length ? (
             <div className="px-5 py-8 text-sm text-slate-500">
@@ -290,7 +267,6 @@ export default function CartaoViasAereasClient() {
                     <th className="px-5 py-3 text-right">Líquido</th>
                     <th className="px-5 py-3">Paga em</th>
                     <th className="px-5 py-3">Status</th>
-                    <th className="px-5 py-3 text-right">Ação</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -316,24 +292,8 @@ export default function CartaoViasAereasClient() {
                       </td>
                       <td className="px-5 py-3 text-xs text-slate-500">
                         {m.generatedAt
-                          ? `Gerado em ${new Date(m.generatedAt).toLocaleString("pt-BR")}`
-                          : "Ainda não gerado"}
-                      </td>
-                      <td className="px-5 py-3 text-right">
-                        <button
-                          type="button"
-                          disabled={generatingMonth === m.month || m.feeCents <= 0}
-                          onClick={() => generateCashback(m.month)}
-                          className="inline-flex h-9 items-center justify-center rounded-xl bg-violet-700 px-3 text-xs font-semibold text-white shadow-sm transition hover:bg-violet-800 disabled:opacity-50"
-                        >
-                          {generatingMonth === m.month ? (
-                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                          ) : m.generatedAt ? (
-                            "Atualizar"
-                          ) : (
-                            "Gerar"
-                          )}
-                        </button>
+                          ? "Gerado automaticamente"
+                          : `Gera sozinho no dia 1 de ${monthLong(m.payMonth)}`}
                       </td>
                     </tr>
                   ))}

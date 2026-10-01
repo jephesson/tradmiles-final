@@ -13,6 +13,7 @@ import {
   fetchMonthlyBonusMetrics,
   fetchTodayBonusRevenue,
 } from "@/lib/bonus/fetchMonthlyMetrics";
+import { ensureDueCardCashbacks } from "@/lib/card-cashback";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -80,6 +81,7 @@ export async function GET() {
     const session = await requireSession();
     const todayISO = todayRecifeISO();
     const nowMin = nowMinutesRecife();
+    await ensureDueCardCashbacks(session.team, todayISO);
 
     const bonusMonth = currentMonthISORecife();
     const prevMonthKey = isFirstDayOfMonth(todayISO) ? previousMonthISO(bonusMonth) : null;
