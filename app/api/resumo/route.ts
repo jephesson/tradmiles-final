@@ -12,6 +12,7 @@ import {
   taxFromProfitCents,
 } from "@/lib/balcao-commission";
 import { taxPaidCentsFromPayment, taxPendingCents } from "@/lib/taxes";
+import { unpaidDay1BonusNetCents, day1BonusTaxByPayMonth } from "@/lib/card-cashback";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -218,8 +219,15 @@ export async function GET(req: Request) {
       return acc + computed.sellerCommissionCents;
     }, 0);
 
+    const employeePayoutsPendingBonusCents = await unpaidDay1BonusNetCents(
+      session.team,
+      recifeDateISO(new Date())
+    );
+
     const employeePayoutsPendingCents =
-      employeePayoutsPendingBaseCents + employeePayoutsPendingBalcaoCents;
+      employeePayoutsPendingBaseCents +
+      employeePayoutsPendingBalcaoCents +
+      employeePayoutsPendingBonusCents;
 
     // ✅ IMPOSTOS pendentes (igual /api/taxes/months):
     // venda de milhas (tax7) + emissões no balcão (imposto sobre lucro), respeitando snapshot de mês pago.
@@ -234,6 +242,10 @@ export async function GET(req: Request) {
 
     const payoutByMonth = new Map<string, number>();
     for (const row of payoutRows) payoutByMonth.set(row.month, safeInt(row.taxCents));
+    const bonusTaxByMonth = await day1BonusTaxByPayMonth(session.team);
+    for (const [month, tax] of bonusTaxByMonth) {
+      payoutByMonth.set(month, (payoutByMonth.get(month) || 0) + tax);
+    }
 
     const balcaoOpsTax = await prisma.balcaoOperacao.findMany({
       where: { team: session.team },

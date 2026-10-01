@@ -277,6 +277,107 @@ export async function day1BonusByUser(team: string, date: string) {
   return map;
 }
 
+export async function unpaidDay1BonusNetCents(team: string, todayISO: string) {
+  const payDates = new Set<string>();
+  const [bonusMonths, cashMonths] = await Promise.all([
+    prisma.bonusMonthResult.findMany({
+      where: { team },
+      select: { month: true },
+    }),
+    prisma.cardCashbackMonth.findMany({
+      where: { team },
+      select: { month: true },
+    }),
+  ]);
+  for (const r of bonusMonths) payDates.add(`${nextMonthISO(r.month)}-01`);
+  for (const r of cashMonths) payDates.add(`${nextMonthISO(r.month)}-01`);
+  if (/^\d{4}-\d{2}-01$/.test(todayISO)) payDates.add(todayISO);
+
+  const dates = [...payDates].filter((d) => /^\d{4}-\d{2}-01$/.test(d) && d <= todayISO);
+  if (!dates.length) return 0;
+
+  const paid = await prisma.employeePayout.findMany({
+    where: { team, date: { in: dates }, paidAt: { not: null } },
+    select: { userId: true, date: true },
+  });
+  const paidSet = new Set(paid.map((p) => `${p.userId}|${p.date}`));
+
+  let sum = 0;
+  for (const date of dates) {
+    const byUser = await day1BonusByUser(team, date);
+    for (const [userId, bonus] of byUser) {
+      if (paidSet.has(`${userId}|${date}`)) continue;
+      sum += Math.max(0, bonus.netBonusCents);
+    }
+  }
+  return sum;
+}
+
+export async function day1BonusTaxByPayMonth(team: string) {
+  const map = new Map<string, number>();
+  const [bonusRows, cashRows, taxPercent] = await Promise.all([
+    prisma.bonusMonthResult.findMany({
+      where: { team },
+      select: { month: true, taxCents: true },
+    }),
+    prisma.cardCashbackMonth.findMany({
+      where: { team },
+      select: { month: true, feeCents: true },
+    }),
+    commissionTaxPercent(),
+  ]);
+
+  for (const r of bonusRows) {
+    const pay = nextMonthISO(r.month);
+    map.set(pay, (map.get(pay) || 0) + Math.max(0, r.taxCents || 0));
+  }
+  for (const r of cashRows) {
+    const cash = cashbackFromFeeCents(r.feeCents || 0);
+    if (cash <= 0) continue;
+    const pay = nextMonthISO(r.month);
+    map.set(pay, (map.get(pay) || 0) + taxByPercent(cash, taxPercent));
+  }
+  return map;
+}
+
+export async function day1BonusNetByUserPayMonth(team: string) {
+  const map = new Map<string, Map<string, { netCents: number; taxCents: number }>>();
+  const [bonusRows, cashRows, taxPercent, cashUser] = await Promise.all([
+    prisma.bonusMonthResult.findMany({
+      where: { team },
+      select: { month: true, userId: true, netBonusCents: true, taxCents: true },
+    }),
+    prisma.cardCashbackMonth.findMany({
+      where: { team },
+      select: { month: true, userId: true, feeCents: true },
+    }),
+    commissionTaxPercent(),
+    findCardCashbackUser(team),
+  ]);
+
+  function add(userId: string, payMonth: string, netCents: number, taxCents: number) {
+    if (!userId || (netCents <= 0 && taxCents <= 0)) return;
+    const byUser = map.get(payMonth) || new Map();
+    const prev = byUser.get(userId) || { netCents: 0, taxCents: 0 };
+    prev.netCents += Math.max(0, netCents);
+    prev.taxCents += Math.max(0, taxCents);
+    byUser.set(userId, prev);
+    map.set(payMonth, byUser);
+  }
+
+  for (const r of bonusRows) {
+    add(r.userId, nextMonthISO(r.month), r.netBonusCents || 0, r.taxCents || 0);
+  }
+  for (const r of cashRows) {
+    const userId = r.userId || cashUser?.id;
+    if (!userId) continue;
+    const cash = cashbackFromFeeCents(r.feeCents || 0);
+    const tax = taxByPercent(cash, taxPercent);
+    add(userId, nextMonthISO(r.month), Math.max(0, cash - tax), tax);
+  }
+  return map;
+}
+
 function formatBRL(cents: number) {
   return (cents / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }

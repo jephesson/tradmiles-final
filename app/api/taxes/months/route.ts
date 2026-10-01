@@ -6,6 +6,7 @@ import {
   taxPaymentEntriesFromBreakdown,
   taxPendingCents,
 } from "@/lib/taxes";
+import { day1BonusTaxByPayMonth } from "@/lib/card-cashback";
 
 const TAX_TZ = "America/Recife";
 const DEFAULT_TAX_PERCENT = 8;
@@ -155,6 +156,12 @@ export async function GET(req: Request) {
         usersCount: toNumber(row.usersCount),
         daysCount: toNumber(row.daysCount),
       });
+    }
+    const bonusTaxByMonth = await day1BonusTaxByPayMonth(session.team);
+    for (const [month, tax] of bonusTaxByMonth) {
+      const current = payoutByMonth.get(month) || { payoutTaxCents: 0, usersCount: 0, daysCount: 0 };
+      current.payoutTaxCents += tax;
+      payoutByMonth.set(month, current);
     }
 
     const balcaoRows = await prisma.balcaoOperacao.findMany({

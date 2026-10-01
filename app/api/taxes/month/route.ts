@@ -6,6 +6,7 @@ import {
   taxPaymentEntriesFromBreakdown,
   taxPendingCents,
 } from "@/lib/taxes";
+import { day1BonusByUser } from "@/lib/card-cashback";
 
 const TAX_TZ = "America/Recife";
 const DEFAULT_TAX_PERCENT = 8;
@@ -157,10 +158,31 @@ async function computeMonth(team: string, month: string) {
       userId: g.userId,
       name: uById[g.userId]?.name || "-",
       login: uById[g.userId]?.login || "-",
-      taxCents: g._sum.tax7Cents ?? 0,
+      taxCents: toNumber(g._sum.tax7Cents),
       daysCount: g._count._all ?? 0,
-    }))
-    .sort((a, b) => (b.taxCents || 0) - (a.taxCents || 0));
+    }));
+
+  const bonusByUser = await day1BonusByUser(team, `${month}-01`);
+  for (const [userId, bonus] of bonusByUser) {
+    if (bonus.taxCents <= 0) continue;
+    const existing = payoutBreakdown.find((b) => b.userId === userId);
+    if (existing) {
+      existing.taxCents += bonus.taxCents;
+    } else {
+      const user = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { name: true, login: true },
+      });
+      payoutBreakdown.push({
+        userId,
+        name: user?.name || "-",
+        login: user?.login || "-",
+        taxCents: bonus.taxCents,
+        daysCount: 1,
+      });
+    }
+  }
+  payoutBreakdown.sort((a, b) => (b.taxCents || 0) - (a.taxCents || 0));
 
   const payoutTaxCents = payoutBreakdown.reduce((acc, b) => acc + (b.taxCents || 0), 0);
 

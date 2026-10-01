@@ -7,6 +7,7 @@ import {
   buildBalcaoComputedValues,
   recifeDateISO,
 } from "@/lib/balcao-commission";
+import { day1BonusNetByUserPayMonth } from "@/lib/card-cashback";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -122,6 +123,16 @@ export async function GET(req: Request) {
       const bucket = ensure(userId, month);
       bucket.balcaoCommission += opCommission;
       monthsSet.add(month);
+    }
+
+    const bonusByPayMonth = await day1BonusNetByUserPayMonth(team);
+    for (const [payMonth, byUser] of bonusByPayMonth) {
+      if (!isMonthISO(payMonth)) continue;
+      monthsSet.add(payMonth);
+      for (const [userId, extra] of byUser) {
+        const bucket = ensure(userId, payMonth);
+        bucket.payoutNetNoFee += extra.netCents;
+      }
     }
 
     const months = Array.from(monthsSet).sort((a, b) => a.localeCompare(b));

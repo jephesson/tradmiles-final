@@ -7,6 +7,7 @@ import {
   buildBalcaoComputedValues,
   recifeDateISO,
 } from "@/lib/balcao-commission";
+import { day1BonusByUser } from "@/lib/card-cashback";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -208,6 +209,17 @@ export async function GET(req: Request) {
       a.balcaoGross += opGross;
       a.balcaoTax += opTax;
       a.balcaoCommission += opCommission;
+    }
+
+    const bonusByUser = await day1BonusByUser(team, `${month}-01`);
+    const day1PayoutUsers = new Set(
+      payouts.filter((p) => p.date === `${month}-01`).map((p) => p.userId)
+    );
+    for (const [userId, bonus] of bonusByUser) {
+      const a = ensure(userId);
+      a.payoutNetNoFee += bonus.netBonusCents;
+      a.payoutTax += bonus.taxCents;
+      if (!day1PayoutUsers.has(userId) && bonus.netBonusCents > 0) a.days += 1;
     }
 
     const teamUsers = users.map((u) => ({
