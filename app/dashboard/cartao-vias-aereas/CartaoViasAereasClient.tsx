@@ -1,12 +1,22 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { CreditCard, Loader2 } from "lucide-react";
 import { cn } from "@/lib/cn";
 
 type Cell = { month: string; salesCount: number; feeCents: number };
 type Seller = { id: string; name: string; login: string };
 type Row = { seller: Seller; cells: Cell[]; salesCount: number; feeCents: number };
+type CashbackMonth = {
+  month: string;
+  payMonth: string;
+  payDate: string;
+  feeCents: number;
+  cashbackCents: number;
+  taxCents?: number;
+  netCents?: number;
+  generatedAt: string | null;
+};
 
 type Payload = {
   ok: true;
@@ -16,6 +26,14 @@ type Payload = {
   rows: Row[];
   monthTotals: Cell[];
   totals: { salesCount: number; feeCents: number };
+  cashback?: {
+    startMonth: string;
+    rateBps: number;
+    rateLabel?: string;
+    taxPercent?: number;
+    user: Seller | null;
+    months: CashbackMonth[];
+  };
 };
 
 function fmtMoneyBR(cents: number) {
@@ -36,6 +54,15 @@ function monthShort(yyyyMm: string) {
     .replace(/^\w/, (c) => c.toUpperCase());
 }
 
+function monthLong(yyyyMm: string) {
+  const date = new Date(`${yyyyMm}-01T12:00:00Z`);
+  return new Intl.DateTimeFormat("pt-BR", {
+    month: "long",
+    year: "numeric",
+    timeZone: "UTC",
+  }).format(date);
+}
+
 function yearNowSP() {
   return Number(
     new Intl.DateTimeFormat("en-CA", {
@@ -51,32 +78,51 @@ export default function CartaoViasAereasClient() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  const [generatingMonth, setGeneratingMonth] = useState<string | null>(null);
+  const [generateError, setGenerateError] = useState<string | null>(null);
+
+  const load = useCallback(async (y: number) => {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/cartao-vias-aereas?year=${y}`, {
+        cache: "no-store",
+        credentials: "include",
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok || !json?.ok) throw new Error(json?.error || "Falha ao carregar.");
+      setData(json as Payload);
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Falha ao carregar.");
+      setData(null);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      setLoading(true);
-      setError(null);
-      try {
-        const res = await fetch(`/api/cartao-vias-aereas?year=${year}`, {
-          cache: "no-store",
-          credentials: "include",
-        });
-        const json = await res.json().catch(() => ({}));
-        if (!res.ok || !json?.ok) throw new Error(json?.error || "Falha ao carregar.");
-        if (!cancelled) setData(json as Payload);
-      } catch (e: unknown) {
-        if (!cancelled) {
-          setError(e instanceof Error ? e.message : "Falha ao carregar.");
-          setData(null);
-        }
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [year]);
+    void load(year);
+  }, [year, load]);
+
+  async function generateCashback(month: string) {
+    setGeneratingMonth(month);
+    setGenerateError(null);
+    try {
+      const res = await fetch("/api/cartao-vias-aereas", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ month }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok || !json?.ok) throw new Error(json?.error || "Falha ao gerar o cashback.");
+      await load(year);
+    } catch (e: unknown) {
+      setGenerateError(e instanceof Error ? e.message : "Falha ao gerar o cashback.");
+    } finally {
+      setGeneratingMonth(null);
+    }
+  }
 
   const years = useMemo(() => {
     const set = new Set<number>([year, yearNowSP(), ...(data?.years || [])]);
@@ -94,7 +140,8 @@ export default function CartaoViasAereasClient() {
           <h1 className="mt-1 text-2xl font-bold tracking-tight text-slate-900">Cartão Vias Aéreas</h1>
           <p className="mt-1 max-w-2xl text-sm text-slate-600">
             Taxa de embarque que cada vendedor lançou no cartão da Vias Aéreas, mês a mês. Vendas
-            canceladas não entram.
+            canceladas não entram. Cashback de 1,5% só da Eduarda, pago no dia 1 do mês seguinte
+            (com imposto).
           </p>
         </div>
         <label className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
@@ -207,6 +254,95 @@ export default function CartaoViasAereasClient() {
           </div>
         )}
       </div>
+
+      {data?.cashback?.user ? (
+        <div className="overflow-hidden rounded-2xl border border-violet-200/80 bg-white shadow-sm">
+          <div className="border-b border-violet-100 bg-violet-50/70 px-5 py-4">
+            <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-violet-700">
+              Cashback Eduarda
+            </div>
+            <h2 className="mt-1 text-lg font-bold text-slate-900">
+              {data.cashback.rateLabel || "1,5%"} da taxa no cartão, a partir de {monthLong(data.cashback.startMonth)}
+            </h2>
+            <p className="mt-1 max-w-2xl text-sm text-slate-600">
+              Gera o cashback do mês da {data.cashback.user.name}. Ele entra na comissão dela no dia
+              1 do mês seguinte, na mesma coluna do bônus da meta, já com o imposto debitado
+              {data.cashback.taxPercent != null ? ` (${data.cashback.taxPercent}%)` : ""}. Clique no
+              valor na comissão para ver a descrição.
+            </p>
+            {generateError ? <p className="mt-2 text-sm text-rose-700">{generateError}</p> : null}
+          </div>
+          {!data.cashback.months.length ? (
+            <div className="px-5 py-8 text-sm text-slate-500">
+              Nenhum mês elegível em {year}. O cashback começa em {monthLong(data.cashback.startMonth)}.
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="min-w-full text-sm">
+                <thead>
+                  <tr className="border-b border-slate-200 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                    <th className="px-5 py-3">Mês da taxa</th>
+                    <th className="px-5 py-3 text-right">Taxa Eduarda</th>
+                    <th className="px-5 py-3 text-right">
+                      Cashback {data.cashback.rateLabel || "1,5%"}
+                    </th>
+                    <th className="px-5 py-3 text-right">Imposto</th>
+                    <th className="px-5 py-3 text-right">Líquido</th>
+                    <th className="px-5 py-3">Paga em</th>
+                    <th className="px-5 py-3">Status</th>
+                    <th className="px-5 py-3 text-right">Ação</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.cashback.months.map((m) => (
+                    <tr key={m.month} className="border-b border-slate-100 last:border-0">
+                      <td className="px-5 py-3 font-medium capitalize text-slate-900">
+                        {monthLong(m.month)}
+                      </td>
+                      <td className="px-5 py-3 text-right tabular-nums text-slate-800">
+                        {m.feeCents > 0 ? fmtMoneyBR(m.feeCents) : "—"}
+                      </td>
+                      <td className="px-5 py-3 text-right font-semibold tabular-nums text-violet-900">
+                        {m.cashbackCents > 0 ? fmtMoneyBR(m.cashbackCents) : "—"}
+                      </td>
+                      <td className="px-5 py-3 text-right tabular-nums text-slate-600">
+                        {(m.taxCents || 0) > 0 ? fmtMoneyBR(m.taxCents || 0) : "—"}
+                      </td>
+                      <td className="px-5 py-3 text-right font-semibold tabular-nums text-slate-900">
+                        {(m.netCents || 0) > 0 ? fmtMoneyBR(m.netCents || 0) : "—"}
+                      </td>
+                      <td className="px-5 py-3 text-slate-600">
+                        1º de {monthLong(m.payMonth)}
+                      </td>
+                      <td className="px-5 py-3 text-xs text-slate-500">
+                        {m.generatedAt
+                          ? `Gerado em ${new Date(m.generatedAt).toLocaleString("pt-BR")}`
+                          : "Ainda não gerado"}
+                      </td>
+                      <td className="px-5 py-3 text-right">
+                        <button
+                          type="button"
+                          disabled={generatingMonth === m.month || m.feeCents <= 0}
+                          onClick={() => generateCashback(m.month)}
+                          className="inline-flex h-9 items-center justify-center rounded-xl bg-violet-700 px-3 text-xs font-semibold text-white shadow-sm transition hover:bg-violet-800 disabled:opacity-50"
+                        >
+                          {generatingMonth === m.month ? (
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          ) : m.generatedAt ? (
+                            "Atualizar"
+                          ) : (
+                            "Gerar"
+                          )}
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      ) : null}
     </div>
   );
 }

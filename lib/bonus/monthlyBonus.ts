@@ -115,6 +115,16 @@ export function previousMonthISO(month: string) {
   return `${py}-${String(pm).padStart(2, "0")}`;
 }
 
+export function nextMonthISO(month: string) {
+  const [yRaw, mRaw] = month.split("-");
+  const y = Number(yRaw);
+  const m = Number(mRaw);
+  if (!y || !m) return month;
+  const nm = m === 12 ? 1 : m + 1;
+  const ny = m === 12 ? y + 1 : y;
+  return `${ny}-${String(nm).padStart(2, "0")}`;
+}
+
 export function isFirstDayOfMonth(dateISO: string) {
   return /^\d{4}-\d{2}-01$/.test(String(dateISO || "").trim());
 }

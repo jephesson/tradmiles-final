@@ -261,7 +261,7 @@ function SnapshotEvolutionChart({
   const lanes = [
     {
       key: "resumo" as const,
-      label: "Resumo",
+      label: "Patrimônio total",
       color: "#0ea5e9",
       dark: "#0369a1",
       fill: "#f0f9ff",
@@ -269,7 +269,7 @@ function SnapshotEvolutionChart({
     },
     {
       key: "caixaImediato" as const,
-      label: "Caixa imediato",
+      label: "Caixa com liquidez",
       color: "#10b981",
       dark: "#047857",
       fill: "#ecfdf5",
@@ -335,14 +335,14 @@ function SnapshotEvolutionChart({
   const dayTitle = (day: SnapshotDayPoint) => {
     const resumoRange =
       day.resumo.min == null || day.resumo.max == null
-        ? "Resumo: sem valor"
-        : `Resumo: ultimo ${fmtMoneyBR(day.resumo.latest || 0)} | min ${fmtMoneyBR(day.resumo.min)} | max ${fmtMoneyBR(
+        ? "Patrimônio total: sem valor"
+        : `Patrimônio total: ultimo ${fmtMoneyBR(day.resumo.latest || 0)} | min ${fmtMoneyBR(day.resumo.min)} | max ${fmtMoneyBR(
             day.resumo.max
           )}`;
     const caixaRange =
       day.caixaImediato.min == null || day.caixaImediato.max == null
-        ? "Caixa imediato: sem valor"
-        : `Caixa imediato: ultimo ${fmtMoneyBR(day.caixaImediato.latest || 0)} | min ${fmtMoneyBR(
+        ? "Caixa com liquidez: sem valor"
+        : `Caixa com liquidez: ultimo ${fmtMoneyBR(day.caixaImediato.latest || 0)} | min ${fmtMoneyBR(
             day.caixaImediato.min
           )} | max ${fmtMoneyBR(day.caixaImediato.max)}`;
 
@@ -360,11 +360,11 @@ function SnapshotEvolutionChart({
         </div>
         <div className="flex flex-wrap items-center gap-2 text-xs">
           <span className="inline-flex items-center gap-2 rounded-full border border-sky-100 bg-sky-50 px-3 py-1 text-sky-700">
-            <span className="h-2 w-2 rounded-full bg-sky-500" /> Resumo
+            <span className="h-2 w-2 rounded-full bg-sky-500" /> Patrimônio total
             <b>{latest.resumo.latest == null ? "—" : fmtMoneyBR(latest.resumo.latest)}</b>
           </span>
           <span className="inline-flex items-center gap-2 rounded-full border border-emerald-100 bg-emerald-50 px-3 py-1 text-emerald-700">
-            <span className="h-2 w-2 rounded-full bg-emerald-500" /> Caixa imediato
+            <span className="h-2 w-2 rounded-full bg-emerald-500" /> Caixa com liquidez
             <b>{latest.caixaImediato.latest == null ? "—" : fmtMoneyBR(latest.caixaImediato.latest)}</b>
           </span>
         </div>
@@ -558,7 +558,7 @@ function SnapshotEvolutionChart({
 
           <div className="mb-3 grid gap-2 md:grid-cols-2">
             <div className="border-l-4 border-sky-500 pl-3 text-xs">
-              <div className="font-medium text-sky-700">Resumo</div>
+              <div className="font-medium text-sky-700">Patrimônio total</div>
               <div className="text-slate-600">
                 último {selectedDay.resumo.latest == null ? "—" : fmtMoneyBR(selectedDay.resumo.latest)} • mín{" "}
                 {selectedDay.resumo.min == null ? "—" : fmtMoneyBR(selectedDay.resumo.min)} • máx{" "}
@@ -566,7 +566,7 @@ function SnapshotEvolutionChart({
               </div>
             </div>
             <div className="border-l-4 border-emerald-500 pl-3 text-xs">
-              <div className="font-medium text-emerald-700">Caixa imediato</div>
+              <div className="font-medium text-emerald-700">Caixa com liquidez</div>
               <div className="text-slate-600">
                 último {selectedDay.caixaImediato.latest == null ? "—" : fmtMoneyBR(selectedDay.caixaImediato.latest)} •
                 mín {selectedDay.caixaImediato.min == null ? "—" : fmtMoneyBR(selectedDay.caixaImediato.min)} • máx{" "}
@@ -580,8 +580,8 @@ function SnapshotEvolutionChart({
               <thead className="sticky top-0 bg-white">
                 <tr>
                   <th className="px-2 py-1.5 text-left">Hora</th>
-                  <th className="px-2 py-1.5 text-right">Resumo</th>
-                  <th className="px-2 py-1.5 text-right">Caixa imediato</th>
+                  <th className="px-2 py-1.5 text-right">Patrimônio total</th>
+                  <th className="px-2 py-1.5 text-right">Caixa com liquidez</th>
                 </tr>
               </thead>
               <tbody>

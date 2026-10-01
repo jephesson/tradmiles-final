@@ -224,6 +224,6 @@ export function compactCaixaForAi(input: {
     })),
     ultimos14Dias: last,
     nota:
-      "Resumo = caixa total (milhas + saldos − dívidas). Caixa imediato = liquidez de curto prazo. Não misture os dois. Pontos tirados na mão não entram nas médias.",
+      "Patrimônio total = milhas + saldos − dívidas. Caixa com liquidez = liquidez de curto prazo. Não misture os dois. Pontos tirados na mão não entram nas médias.",
   };
 }

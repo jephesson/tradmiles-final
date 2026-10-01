@@ -4,7 +4,8 @@ import {
   buildBalcaoComputedValues,
   recifeDateISO,
 } from "@/lib/balcao-commission";
-import { isFirstDayOfMonth, previousMonthISO } from "@/lib/bonus/monthlyBonus";
+import { isFirstDayOfMonth } from "@/lib/bonus/monthlyBonus";
+import { day1BonusByUser } from "@/lib/card-cashback";
 import { todayISORecife } from "@/lib/payouts/autoCompute";
 
 function safeInt(v: unknown, fb = 0) {
@@ -84,12 +85,10 @@ async function balcaoCommissionByUser(team: string, date: string) {
 async function monthlyBonusByUser(team: string, date: string) {
   const map = new Map<string, number>();
   if (!isFirstDayOfMonth(date)) return map;
-  const bonusMonth = previousMonthISO(date.slice(0, 7));
-  const rows = await prisma.bonusMonthResult.findMany({
-    where: { team, month: bonusMonth },
-    select: { userId: true, netBonusCents: true },
-  });
-  for (const r of rows) map.set(r.userId, safeInt(r.netBonusCents, 0));
+  const byUser = await day1BonusByUser(team, date);
+  for (const [userId, bonus] of byUser) {
+    map.set(userId, safeInt(bonus.netBonusCents, 0));
+  }
   return map;
 }
 

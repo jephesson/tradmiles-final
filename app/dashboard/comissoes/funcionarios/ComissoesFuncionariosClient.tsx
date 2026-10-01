@@ -23,6 +23,15 @@ const PAYOUT_BASIS: Basis = "SALE_DATE";
 type UserLite = { id: string; name: string; login: string };
 type PaidByLite = { id: string; name: string } | null;
 
+type MonthlyBonusPart = {
+  kind: "meta" | "card";
+  title: string;
+  detail: string;
+  grossCents: number;
+  taxCents: number;
+  netCents: number;
+};
+
 type Breakdown = {
   commission1Cents: number; // 1%
   commission2Cents?: number; // bônus
@@ -47,6 +56,7 @@ type PayoutRow = {
   monthlyBonusGrossCents?: number;
   monthlyBonusTaxCents?: number;
   monthlyBonusNetCents?: number;
+  monthlyBonusParts?: MonthlyBonusPart[];
 
   breakdown: Breakdown | null;
 
@@ -343,13 +353,14 @@ function KPI({
   );
 }
 
-type CommissionKind = "c1" | "c2" | "c3" | "fee";
+type CommissionKind = "c1" | "c2" | "c3" | "fee" | "bonus";
 
 const COMMISSION_KIND_LABEL: Record<CommissionKind, string> = {
   c1: "C1",
   c2: "C2",
   c3: "C3",
   fee: "Taxa embarque",
+  bonus: "Bônus extra",
 };
 
 const COMMISSION_KIND_SHORT: Record<CommissionKind, string> = {
@@ -357,9 +368,11 @@ const COMMISSION_KIND_SHORT: Record<CommissionKind, string> = {
   c2: "Bônus acima da meta",
   c3: "Rateio de compra finalizada",
   fee: "Reembolso do cartão",
+  bonus: "Meta do mês anterior e cashback do cartão",
 };
 
 function filterSalesByKind(sales: DetailSaleLine[], kind: CommissionKind) {
+  if (kind === "bonus") return [];
   if (kind === "c1") return sales.filter((s) => (s.c1Cents || 0) > 0);
   if (kind === "c2") return sales.filter((s) => (s.c2Cents || 0) > 0);
   if (kind === "fee") return sales.filter((s) => (s.feeCents || 0) > 0);
@@ -478,6 +491,7 @@ export default function ComissoesFuncionariosClient() {
   const [detailDate, setDetailDate] = useState<string>(() => todayISORecife());
   const [details, setDetails] = useState<DetailsResponse | null>(null);
   const [detailsLoading, setDetailsLoading] = useState(false);
+  const [detailBonusParts, setDetailBonusParts] = useState<MonthlyBonusPart[]>([]);
 
   const [reportMonth, setReportMonth] = useState<string>(() =>
     monthFromISODate(todayISORecife())
@@ -735,11 +749,23 @@ export default function ComissoesFuncionariosClient() {
     }
   }
 
-  async function openDetailModal(u: UserLite, kind: CommissionKind, d = date) {
+  async function openDetailModal(
+    u: UserLite,
+    kind: CommissionKind,
+    d = date,
+    row?: PayoutRow
+  ) {
     setDetailUser(u);
     setDetailKind(kind);
     setDetailDate(d);
     setDetailOpen(true);
+    if (kind === "bonus") {
+      setDetailBonusParts(row?.monthlyBonusParts || []);
+      setDetails(null);
+      setDetailsLoading(false);
+      return;
+    }
+    setDetailBonusParts([]);
     await loadDetails(d, u.id);
   }
 
@@ -802,7 +828,9 @@ export default function ComissoesFuncionariosClient() {
 
   const showMonthlyBonus = useMemo(() => {
     if (!day?.monthlyBonusMonth) return false;
-    return (day.rows || []).some((r) => (r.monthlyBonusGrossCents || 0) > 0);
+    return (day.rows || []).some(
+      (r) => (r.monthlyBonusGrossCents || 0) > 0 || (r.monthlyBonusNetCents || 0) > 0
+    );
   }, [day]);
 
   // ✅ classes de destaque (azul / verde)
@@ -829,8 +857,16 @@ export default function ComissoesFuncionariosClient() {
     () => detailsRateio.reduce((acc, r) => acc + (r.c3Cents || 0), 0),
     [detailsRateio]
   );
-  const detailTotalCents = detailKind === "c3" ? rateioTotal : salesSum.amount;
+  const detailTotalCents =
+    detailKind === "bonus"
+      ? detailBonusParts.reduce((acc, p) => acc + (p.netCents || 0), 0)
+      : detailKind === "c3"
+        ? rateioTotal
+        : salesSum.amount;
   const payoutExpectedCents = useMemo(() => {
+    if (detailKind === "bonus") {
+      return detailBonusParts.reduce((acc, p) => acc + (p.netCents || 0), 0);
+    }
     const b = details?.breakdown;
     if (!b) return null;
     if (detailKind === "c1") return b.commission1Cents ?? 0;
@@ -838,7 +874,7 @@ export default function ComissoesFuncionariosClient() {
     if (detailKind === "c3") return b.commission3RateioCents ?? 0;
     if (detailKind === "fee") return details?.payout?.feeCents ?? 0;
     return null;
-  }, [details, detailKind]);
+  }, [details, detailKind, detailBonusParts]);
   const detailMismatch =
     payoutExpectedCents != null &&
     !detailsLoading &&
@@ -989,8 +1025,9 @@ export default function ComissoesFuncionariosClient() {
       {showMonthlyBonus ? (
         <div className="flex gap-3 rounded-2xl border border-violet-200/90 bg-gradient-to-r from-violet-50 to-violet-50/40 p-4 shadow-sm">
           <div className="text-sm leading-relaxed text-violet-950">
-            <span className="font-semibold">Bônus mensal:</span> pagamento referente a{" "}
-            <b>{day?.monthlyBonusMonth}</b> incluído no líquido (imposto já debitado).
+            <span className="font-semibold">Bônus extra:</span> pagamento referente a{" "}
+            <b>{day?.monthlyBonusMonth}</b> (meta e/ou cashback do cartão) incluído no líquido.
+            Clique no valor para ver o que entra.
           </div>
         </div>
       ) : null}
@@ -1106,15 +1143,20 @@ export default function ComissoesFuncionariosClient() {
 
                     {showMonthlyBonus ? (
                       <>
-                        <td className="px-4 py-3 tabular-nums text-violet-800">
-                          {fmtMoneyBR(r.monthlyBonusGrossCents || 0)}
-                        </td>
-                        <td className="px-4 py-3 tabular-nums text-slate-800">
-                          {fmtMoneyBR(r.monthlyBonusTaxCents || 0)}
-                        </td>
-                        <td className="px-4 py-3 tabular-nums font-medium text-violet-900">
-                          {fmtMoneyBR(r.monthlyBonusNetCents || 0)}
-                        </td>
+                        <ClickableMoneyCell
+                          cents={r.monthlyBonusGrossCents || 0}
+                          className="text-violet-800"
+                          onClick={() => openDetailModal(r.user, "bonus", date, r)}
+                        />
+                        <ClickableMoneyCell
+                          cents={r.monthlyBonusTaxCents || 0}
+                          onClick={() => openDetailModal(r.user, "bonus", date, r)}
+                        />
+                        <ClickableMoneyCell
+                          cents={r.monthlyBonusNetCents || 0}
+                          className="font-medium text-violet-900"
+                          onClick={() => openDetailModal(r.user, "bonus", date, r)}
+                        />
                       </>
                     ) : null}
 
@@ -1260,8 +1302,8 @@ export default function ComissoesFuncionariosClient() {
 
       <div className="rounded-2xl border border-slate-200/70 bg-slate-50/80 px-4 py-3 text-xs leading-relaxed text-slate-600">
         <span className="font-semibold text-slate-700">Nota:</span> Bruto = C1+C2+C3. Clique em{" "}
-        <span className="font-medium text-slate-800">C1, C2, C3 ou taxa embarque</span> para ver as vendas
-        que compõem cada valor. <b>Comissão balcão</b> = 60% do lucro líquido do balcão (já com imposto do
+        <span className="font-medium text-slate-800">C1, C2, C3, taxa embarque ou bônus extra</span> para ver
+        de onde vem cada valor. <b>Comissão balcão</b> = 60% do lucro líquido do balcão (já com imposto do
         balcão). <b>Lucro s/ taxa</b> = bruto − imposto + comissão balcão. <b>Descontos</b> abatem o líquido.{" "}
         <b>Líquido</b> = netPay + comissão balcão − descontos (netPay já inclui reembolso da taxa de vendas).
       </div>
@@ -1317,6 +1359,38 @@ export default function ComissoesFuncionariosClient() {
               {detailsLoading ? (
                 <div className="flex items-center justify-center py-20 text-sm text-slate-500">
                   Carregando…
+                </div>
+              ) : detailKind === "bonus" ? (
+                <div className="space-y-3 p-5">
+                  {detailBonusParts.length ? (
+                    detailBonusParts.map((p, idx) => (
+                      <div
+                        key={`${p.kind}-${idx}`}
+                        className="rounded-2xl border border-violet-100 bg-violet-50/50 p-4"
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <div className="text-sm font-semibold text-slate-900">{p.title}</div>
+                            <p className="mt-1 text-sm leading-relaxed text-slate-600">{p.detail}</p>
+                          </div>
+                          <div className="text-right">
+                            <div className="text-base font-bold tabular-nums text-violet-950">
+                              {fmtMoneyBR(p.netCents)}
+                            </div>
+                            {p.taxCents > 0 ? (
+                              <div className="text-[11px] text-slate-500">
+                                bruto {fmtMoneyBR(p.grossCents)} · imposto {fmtMoneyBR(p.taxCents)}
+                              </div>
+                            ) : null}
+                          </div>
+                        </div>
+                      </div>
+                    ))
+                  ) : (
+                    <p className="py-10 text-center text-sm text-slate-500">
+                      Nenhum bônus extra neste dia.
+                    </p>
+                  )}
                 </div>
               ) : detailKind === "c3" ? (
                 <table className="w-full text-left text-sm">

@@ -1,38 +1,29 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSessionServer } from "@/lib/auth-server";
+import { nextMonthISO, taxByPercent } from "@/lib/bonus/monthlyBonus";
+import {
+  CARD_CASHBACK_BPS,
+  CARD_CASHBACK_START_MONTH,
+  canGenerateCardCashbackMonth,
+  cashbackFromFeeCents,
+  cashbackRateLabel,
+  commissionTaxPercent,
+  isViasCardLabel,
+  listCardCashbacksForYear,
+  monthKeySP,
+  upsertCardCashbackMonth,
+} from "@/lib/card-cashback";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const TZ = "America/Sao_Paulo";
 
-function monthKeySP(date: Date) {
-  const parts = new Intl.DateTimeFormat("en-CA", {
-    timeZone: TZ,
-    year: "numeric",
-    month: "2-digit",
-  })
-    .formatToParts(date)
-    .reduce((acc: Record<string, string>, p) => {
-      acc[p.type] = p.value;
-      return acc;
-    }, {});
-  return `${parts.year}-${parts.month}`;
-}
-
 function yearNowSP() {
   return Number(
     new Intl.DateTimeFormat("en-CA", { timeZone: TZ, year: "numeric" }).format(new Date())
   );
-}
-
-function isViasCard(label: string | null | undefined) {
-  const n = String(label || "")
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase();
-  return n.includes("vias aereas");
 }
 
 export async function GET(req: NextRequest) {
@@ -64,7 +55,7 @@ export async function GET(req: NextRequest) {
       },
     });
 
-    const vias = sales.filter((s) => isViasCard(s.feeCardLabel));
+    const vias = sales.filter((s) => isViasCardLabel(s.feeCardLabel));
 
     type Cell = { salesCount: number; feeCents: number };
     const byMonthSeller = new Map<string, Map<string, Cell>>();
@@ -111,6 +102,32 @@ export async function GET(req: NextRequest) {
       })
       .filter((r) => r.salesCount > 0);
 
+    const cashbackStored = await listCardCashbacksForYear(session.team, year);
+    const storedByMonth = new Map(cashbackStored.rows.map((r) => [r.month, r]));
+    const taxPercent = await commissionTaxPercent();
+    const cashbackMonths = months
+      .filter((month) => canGenerateCardCashbackMonth(month))
+      .map((month) => {
+        const stored = storedByMonth.get(month);
+        const liveFee = cashbackStored.user
+          ? rows.find((r) => r.seller.id === cashbackStored.user!.id)?.cells.find((c) => c.month === month)
+              ?.feeCents || 0
+          : 0;
+        const feeCents = liveFee || stored?.feeCents || 0;
+        const cashbackCents = cashbackFromFeeCents(feeCents);
+        const taxCents = taxByPercent(cashbackCents, taxPercent);
+        return {
+          month,
+          payMonth: nextMonthISO(month),
+          payDate: `${nextMonthISO(month)}-01`,
+          feeCents,
+          cashbackCents,
+          taxCents,
+          netCents: Math.max(0, cashbackCents - taxCents),
+          generatedAt: stored?.generatedAt ? stored.generatedAt.toISOString() : null,
+        };
+      });
+
     const monthTotals = months.map((month) => {
       const salesCount = rows.reduce(
         (acc, r) => acc + (r.cells.find((c) => c.month === month)?.salesCount || 0),
@@ -135,12 +152,66 @@ export async function GET(req: NextRequest) {
         salesCount: rows.reduce((acc, r) => acc + r.salesCount, 0),
         feeCents: rows.reduce((acc, r) => acc + r.feeCents, 0),
       },
+      cashback: {
+        startMonth: CARD_CASHBACK_START_MONTH,
+        rateBps: CARD_CASHBACK_BPS,
+        rateLabel: cashbackRateLabel(),
+        taxPercent,
+        user: cashbackStored.user,
+        months: cashbackMonths,
+      },
     });
   } catch (e: unknown) {
     return NextResponse.json(
       {
         ok: false,
         error: e instanceof Error && e.message ? e.message : "Falha ao carregar o cartão.",
+      },
+      { status: 400 }
+    );
+  }
+}
+
+export async function POST(req: NextRequest) {
+  const session = await getSessionServer();
+  if (!session?.id) {
+    return NextResponse.json({ ok: false, error: "Não autenticado." }, { status: 401 });
+  }
+  if (session.role !== "admin") {
+    return NextResponse.json({ ok: false, error: "Sem permissão." }, { status: 403 });
+  }
+
+  try {
+    const body = (await req.json().catch(() => ({}))) as { month?: string };
+    const month = String(body.month || "").slice(0, 7);
+    if (!/^\d{4}-\d{2}$/.test(month)) {
+      return NextResponse.json({ ok: false, error: "Mês inválido." }, { status: 400 });
+    }
+
+    const row = await upsertCardCashbackMonth({
+      team: session.team,
+      month,
+      generatedById: session.id,
+    });
+
+    return NextResponse.json({
+      ok: true,
+      cashback: {
+        month: row.month,
+        payMonth: row.payMonth,
+        payDate: row.payDate,
+        feeCents: row.feeCents,
+        cashbackCents: row.cashbackCents,
+        rateBps: row.rateBps,
+        generatedAt: row.generatedAt.toISOString(),
+        user: row.user,
+      },
+    });
+  } catch (e: unknown) {
+    return NextResponse.json(
+      {
+        ok: false,
+        error: e instanceof Error && e.message ? e.message : "Falha ao gerar o cashback.",
       },
       { status: 400 }
     );

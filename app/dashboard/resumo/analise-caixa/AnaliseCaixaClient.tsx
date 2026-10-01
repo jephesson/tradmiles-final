@@ -335,8 +335,8 @@ export default function AnaliseCaixaClient() {
         {(
           [
             ["split", "Curvas separadas"],
-            ["resumo", "Só total (resumo)"],
-            ["caixa", "Só caixa imediato"],
+            ["resumo", "Só patrimônio total"],
+            ["caixa", "Só caixa com liquidez"],
             ["both", "As duas juntas"],
           ] as const
         ).map(([id, label]) => (
@@ -372,12 +372,12 @@ export default function AnaliseCaixaClient() {
           ) : (
             <>
               {showResumo ? (
-                <ChartCard title="Total (resumo)" hint="Milhas + saldos − dívidas">
+                <ChartCard title="Patrimônio total" hint="Milhas + saldos − dívidas">
                   <LineChartSvg points={resumoLine} color="#0ea5e9" />
                 </ChartCard>
               ) : null}
               {showCaixa ? (
-                <ChartCard title="Caixa imediato" hint="Liquidez de curto prazo">
+                <ChartCard title="Caixa com liquidez" hint="Liquidez de curto prazo">
                   <LineChartSvg points={caixaLine} color="#10b981" />
                 </ChartCard>
               ) : null}
@@ -386,12 +386,12 @@ export default function AnaliseCaixaClient() {
 
           <div className="grid gap-4 lg:grid-cols-2">
             {showResumo ? (
-              <ChartCard title="Média mensal · total">
+              <ChartCard title="Média mensal · patrimônio total">
                 <LineChartSvg points={monthResumo} color="#0369a1" height={200} />
               </ChartCard>
             ) : null}
             {showCaixa ? (
-              <ChartCard title="Média mensal · caixa imediato">
+              <ChartCard title="Média mensal · caixa com liquidez">
                 <LineChartSvg points={monthCaixa} color="#047857" height={200} />
               </ChartCard>
             ) : null}

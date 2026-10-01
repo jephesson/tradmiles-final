@@ -9,6 +9,7 @@ import {
   recifeDateISO,
 } from "@/lib/balcao-commission";
 import { isFirstDayOfMonth, previousMonthISO } from "@/lib/bonus/monthlyBonus";
+import { day1BonusByUser } from "@/lib/card-cashback";
 import { applyEmployeeDebtDiscountsForDate } from "@/lib/payouts/applyEmployeeDebtDiscounts";
 import { isAdminRole, resolveScopedUserId } from "@/lib/payouts/resolveViewAs";
 
@@ -232,29 +233,7 @@ export async function GET(req: Request) {
 
     const byUserId = new Map(payouts.map((p) => [p.userId, p]));
 
-    const bonusByUserId = new Map<
-      string,
-      { grossBonusCents: number; taxCents: number; netBonusCents: number }
-    >();
-    if (isFirstDayOfMonth(date)) {
-      const bonusMonth = previousMonthISO(date.slice(0, 7));
-      const bonusRows = await prisma.bonusMonthResult.findMany({
-        where: { team: session.team, month: bonusMonth },
-        select: {
-          userId: true,
-          grossBonusCents: true,
-          taxCents: true,
-          netBonusCents: true,
-        },
-      });
-      for (const b of bonusRows) {
-        bonusByUserId.set(b.userId, {
-          grossBonusCents: safeInt(b.grossBonusCents, 0),
-          taxCents: safeInt(b.taxCents, 0),
-          netBonusCents: safeInt(b.netBonusCents, 0),
-        });
-      }
-    }
+    const bonusByUserId = await day1BonusByUser(session.team, date);
 
     const { start: balcaoStart, end: balcaoEnd } = dayBoundsRecife(date);
     const balcaoOps = await prisma.balcaoOperacao.findMany({
@@ -301,6 +280,7 @@ export async function GET(req: Request) {
         grossBonusCents: 0,
         taxCents: 0,
         netBonusCents: 0,
+        parts: [],
       };
 
       if (p) {
@@ -319,6 +299,7 @@ export async function GET(req: Request) {
           monthlyBonusGrossCents: bonus.grossBonusCents,
           monthlyBonusTaxCents: bonus.taxCents,
           monthlyBonusNetCents: bonus.netBonusCents,
+          monthlyBonusParts: bonus.parts,
 
           breakdown: (p.breakdown as unknown) ?? null,
 
@@ -345,6 +326,7 @@ export async function GET(req: Request) {
         monthlyBonusGrossCents: bonus.grossBonusCents,
         monthlyBonusTaxCents: bonus.taxCents,
         monthlyBonusNetCents: bonus.netBonusCents,
+        monthlyBonusParts: bonus.parts,
 
         breakdown: {
           commission1Cents: 0,

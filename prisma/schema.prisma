@@ -201,6 +201,8 @@ model User {
    */
   employeePayouts     EmployeePayout[] @relation("EmployeePayoutUser")
   employeePayoutsPaid EmployeePayout[] @relation("EmployeePayoutPaidBy")
+  cardCashbacks       CardCashbackMonth[] @relation("CardCashbackUser")
+  cardCashbacksGenerated CardCashbackMonth[] @relation("CardCashbackGeneratedBy")
 
   /**
    * =========================
@@ -907,6 +909,30 @@ model CashSnapshot {
   @@index([team, date])
   @@index([team, createdAt])
   @@map("cash_snapshots")
+}
+
+model CardCashbackMonth {
+  id     String @id @default(cuid())
+  team   String
+  month  String
+  userId String
+
+  feeCents      Int
+  rateBps       Int
+  cashbackCents Int
+
+  generatedAt   DateTime @default(now())
+  generatedById String?
+
+  user        User  @relation("CardCashbackUser", fields: [userId], references: [id], onDelete: Cascade)
+  generatedBy User? @relation("CardCashbackGeneratedBy", fields: [generatedById], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([team, month, userId], map: "uniq_card_cashback_team_month_user")
+  @@index([team, month])
+  @@map("card_cashback_months")
 }
 
 model CreditCardBalance {
