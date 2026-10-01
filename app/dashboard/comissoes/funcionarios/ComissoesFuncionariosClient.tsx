@@ -444,13 +444,22 @@ function Pill({ kind, text }: { kind: "ok" | "warn" | "muted"; text: string }) {
   );
 }
 
+function impostoTotalCents(r: PayoutRow) {
+  return (r.tax7Cents || 0) + (r.monthlyBonusTaxCents || 0);
+}
+
 /**
  * ✅ REGRA FINAL (sem duplicar):
- * - "Lucro s/ taxa" = bruto - imposto + comissão balcão
- * - "A pagar (líquido)" = netPay + comissão balcão (netPay já inclui reembolso taxa)
+ * - "Lucro s/ taxa" = bruto - imposto + comissão balcão + bônus líquido
+ * - "A pagar (líquido)" = netPay + comissão balcão + bônus líquido − descontos
  */
 function lucroSemTaxaEmbarqueCents(r: PayoutRow) {
-  return (r.grossProfitCents || 0) - (r.tax7Cents || 0) + (r.balcaoCommissionCents || 0);
+  return (
+    (r.grossProfitCents || 0) -
+    (r.tax7Cents || 0) +
+    (r.balcaoCommissionCents || 0) +
+    (r.monthlyBonusNetCents || 0)
+  );
 }
 
 function liquidoComBalcaoCents(r: PayoutRow) {
@@ -807,6 +816,7 @@ export default function ComissoesFuncionariosClient() {
   const dayExtra = useMemo(() => {
     const rows = day?.rows || [];
     const lucroSemTaxa = rows.reduce((acc, r) => acc + lucroSemTaxaEmbarqueCents(r), 0);
+    const imposto = rows.reduce((acc, r) => acc + impostoTotalCents(r), 0);
     const balcaoCommission = rows.reduce((acc, r) => acc + (r.balcaoCommissionCents || 0), 0);
     const liquidoTotal = rows.reduce((acc, r) => acc + liquidoComBalcaoCents(r), 0);
     const descontos = rows.reduce((acc, r) => acc + (r.discountCents || 0), 0);
@@ -815,7 +825,7 @@ export default function ComissoesFuncionariosClient() {
       0
     );
     const pendente = liquidoTotal - pago;
-    return { lucroSemTaxa, balcaoCommission, liquidoTotal, pago, pendente, descontos };
+    return { lucroSemTaxa, imposto, balcaoCommission, liquidoTotal, pago, pendente, descontos };
   }, [day]);
 
   const dayTaxPercent = useMemo(() => {
@@ -999,7 +1009,7 @@ export default function ComissoesFuncionariosClient() {
         <KPI label="Bruto (C1+C2+C3)" value={fmtMoneyBR(day?.totals.gross || 0)} />
         <KPI
           label={`Imposto${dayTaxPercent ? ` (${dayTaxPercent}%)` : ""}`}
-          value={fmtMoneyBR(day?.totals.tax || 0)}
+          value={fmtMoneyBR(dayExtra.imposto)}
         />
         <KPI label="Taxas (reembolso)" value={fmtMoneyBR(day?.totals.fee || 0)} />
         <KPI label="Comissão balcão (60%)" value={fmtMoneyBR(dayExtra.balcaoCommission)} />
@@ -1027,7 +1037,7 @@ export default function ComissoesFuncionariosClient() {
           <div className="text-sm leading-relaxed text-violet-950">
             <span className="font-semibold">Bônus extra:</span> pagamento referente a{" "}
             <b>{day?.monthlyBonusMonth}</b> (meta e/ou cashback do cartão) incluído no líquido.
-            Clique no valor para ver o que entra.
+            O imposto entra na coluna de imposto e o líquido no lucro s/ taxa. Clique no bônus bruto para ver o que entra.
           </div>
         </div>
       ) : null}
@@ -1081,13 +1091,7 @@ export default function ComissoesFuncionariosClient() {
                 <th className="px-4 py-3">Taxa embarque</th>
                 <th className="px-4 py-3">Comissão balcão</th>
 
-                {showMonthlyBonus ? (
-                  <>
-                    <th className="px-4 py-3">Bônus bruto</th>
-                    <th className="px-4 py-3">Imposto bônus</th>
-                    <th className="px-4 py-3">Bônus líquido</th>
-                  </>
-                ) : null}
+                {showMonthlyBonus ? <th className="px-4 py-3">Bônus bruto</th> : null}
 
                 <th className={`px-4 py-3 ${lucroCellCls}`}>Lucro s/ taxa</th>
                 <th className="px-4 py-3">Descontos</th>
@@ -1134,7 +1138,14 @@ export default function ComissoesFuncionariosClient() {
                       onClick={() => openDetailModal(r.user, "c3")}
                     />
 
-                    <td className="px-4 py-3 tabular-nums text-slate-800">{fmtMoneyBR(r.tax7Cents || 0)}</td>
+                    <ClickableMoneyCell
+                      cents={impostoTotalCents(r)}
+                      onClick={
+                        (r.monthlyBonusTaxCents || 0) > 0
+                          ? () => openDetailModal(r.user, "bonus", date, r)
+                          : undefined
+                      }
+                    />
                     <ClickableMoneyCell
                       cents={r.feeCents || 0}
                       onClick={() => openDetailModal(r.user, "fee")}
@@ -1142,22 +1153,11 @@ export default function ComissoesFuncionariosClient() {
                     <td className="px-4 py-3 tabular-nums text-slate-800">{fmtMoneyBR(r.balcaoCommissionCents || 0)}</td>
 
                     {showMonthlyBonus ? (
-                      <>
-                        <ClickableMoneyCell
-                          cents={r.monthlyBonusGrossCents || 0}
-                          className="text-violet-800"
-                          onClick={() => openDetailModal(r.user, "bonus", date, r)}
-                        />
-                        <ClickableMoneyCell
-                          cents={r.monthlyBonusTaxCents || 0}
-                          onClick={() => openDetailModal(r.user, "bonus", date, r)}
-                        />
-                        <ClickableMoneyCell
-                          cents={r.monthlyBonusNetCents || 0}
-                          className="font-medium text-violet-900"
-                          onClick={() => openDetailModal(r.user, "bonus", date, r)}
-                        />
-                      </>
+                      <ClickableMoneyCell
+                        cents={r.monthlyBonusGrossCents || 0}
+                        className="text-violet-800"
+                        onClick={() => openDetailModal(r.user, "bonus", date, r)}
+                      />
                     ) : null}
 
                     <td className={cn("px-4 py-3 font-semibold tabular-nums", lucroCellCls)}>
@@ -1231,7 +1231,7 @@ export default function ComissoesFuncionariosClient() {
 
               {!day?.rows?.length && (
                 <tr>
-                  <td className="px-4 py-0" colSpan={showMonthlyBonus ? 16 : 13}>
+                  <td className="px-4 py-0" colSpan={showMonthlyBonus ? 14 : 13}>
                     <div className="flex flex-col items-center justify-center gap-2 py-14 text-center">
                       <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-100 text-slate-400 ring-1 ring-slate-200/80">
                         <Users className="h-6 w-6" strokeWidth={1.75} aria-hidden />
@@ -1304,8 +1304,10 @@ export default function ComissoesFuncionariosClient() {
         <span className="font-semibold text-slate-700">Nota:</span> Bruto = C1+C2+C3. Clique em{" "}
         <span className="font-medium text-slate-800">C1, C2, C3, taxa embarque ou bônus extra</span> para ver
         de onde vem cada valor. <b>Comissão balcão</b> = 60% do lucro líquido do balcão (já com imposto do
-        balcão). <b>Lucro s/ taxa</b> = bruto − imposto + comissão balcão. <b>Descontos</b> abatem o líquido.{" "}
-        <b>Líquido</b> = netPay + comissão balcão − descontos (netPay já inclui reembolso da taxa de vendas).
+        balcão). <b>Imposto</b> inclui o imposto do bônus extra. <b>Lucro s/ taxa</b> = bruto − imposto +
+        comissão balcão + bônus líquido. <b>Descontos</b> abatem o líquido.{" "}
+        <b>Líquido</b> = netPay + comissão balcão + bônus líquido − descontos (netPay já inclui reembolso da
+        taxa de vendas).
       </div>
 
       {/* ===== Modal origem do valor clicado ===== */}
