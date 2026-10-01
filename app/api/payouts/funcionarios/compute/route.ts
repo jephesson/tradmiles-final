@@ -255,16 +255,22 @@ export async function POST(req: Request) {
     const { start, end } = dayBounds(date);
 
     // ✅ força: apaga tudo que NÃO foi pago e reconstrói (preserva descontos)
-    // Preserva só o desconto digitado. O automático da dívida é relançado depois.
-    const preservedDiscounts = new Map<string, number>();
+    const pastDate = date < today;
+    const preservedManual = new Map<string, number>();
+    const preservedDiscount = new Map<string, number>();
+    const preservedFrozen = new Set<string>();
     if (force) {
       const unpaid = await prisma.employeePayout.findMany({
         where: { team, date, paidById: null },
-        select: { userId: true, discountCents: true, manualDiscountCents: true },
+        select: { userId: true, discountCents: true, manualDiscountCents: true, breakdown: true },
       });
       for (const p of unpaid) {
         const manual = Math.max(0, safeInt(p.manualDiscountCents, 0));
-        if (manual > 0) preservedDiscounts.set(p.userId, manual);
+        const discount = Math.max(0, safeInt(p.discountCents, 0));
+        if (manual > 0) preservedManual.set(p.userId, manual);
+        if (discount > 0) preservedDiscount.set(p.userId, discount);
+        const breakdown = p.breakdown as { debtDiscountFrozen?: unknown } | null;
+        if (breakdown?.debtDiscountFrozen === true) preservedFrozen.add(p.userId);
       }
       await prisma.employeePayout.deleteMany({ where: { team, date, paidById: null } });
     }
@@ -283,7 +289,7 @@ export async function POST(req: Request) {
     // 1) preserva payouts já pagos
     const existingPayouts = await prisma.employeePayout.findMany({
       where: { team, date },
-      select: { userId: true, paidById: true },
+      select: { userId: true, paidById: true, breakdown: true },
     });
     const existingByUserId = new Map(existingPayouts.map((p) => [p.userId, p]));
 
@@ -706,6 +712,21 @@ export async function POST(req: Request) {
       const tax = taxByPercent(gross, taxPercent);
       const fee = safeInt(agg.feeCents, 0);
       const net = gross - tax + fee;
+      const existingBreakdown =
+        existing?.breakdown && typeof existing.breakdown === "object" && !Array.isArray(existing.breakdown)
+          ? (existing.breakdown as Record<string, unknown>)
+          : {};
+      const keepFrozen =
+        preservedFrozen.has(userId) || existingBreakdown.debtDiscountFrozen === true;
+      const breakdown = {
+        commission1Cents: c1,
+        commission2Cents: c2,
+        commission3RateioCents: c3,
+        salesCount: safeInt(agg.salesCount, 0),
+        taxPercent,
+        basis,
+        ...(keepFrozen ? { debtDiscountFrozen: true } : {}),
+      };
 
       await prisma.employeePayout.upsert({
         where: { team_date_userId: { team, date, userId } },
@@ -717,30 +738,18 @@ export async function POST(req: Request) {
           tax7Cents: tax, // legado
           feeCents: fee,
           netPayCents: net,
-          discountCents: preservedDiscounts.get(userId) ?? 0,
-          manualDiscountCents: preservedDiscounts.get(userId) ?? 0,
-          breakdown: {
-            commission1Cents: c1,
-            commission2Cents: c2,
-            commission3RateioCents: c3,
-            salesCount: safeInt(agg.salesCount, 0),
-            taxPercent,
-            basis,
-          },
+          discountCents: pastDate
+            ? preservedDiscount.get(userId) ?? preservedManual.get(userId) ?? 0
+            : preservedManual.get(userId) ?? 0,
+          manualDiscountCents: preservedManual.get(userId) ?? 0,
+          breakdown,
         },
         update: {
           grossProfitCents: gross,
           tax7Cents: tax,
           feeCents: fee,
           netPayCents: net,
-          breakdown: {
-            commission1Cents: c1,
-            commission2Cents: c2,
-            commission3RateioCents: c3,
-            salesCount: safeInt(agg.salesCount, 0),
-            taxPercent,
-            basis,
-          },
+          breakdown,
         },
       });
     }

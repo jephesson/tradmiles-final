@@ -24,7 +24,7 @@ function dayBoundsRecife(date: string) {
   return { start, end };
 }
 
-function addDaysISO(iso: string, days: number) {
+export function addDaysISO(iso: string, days: number) {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
   if (!m) return iso;
   const dt = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
@@ -32,6 +32,39 @@ function addDaysISO(iso: string, days: number) {
   return `${dt.getUTCFullYear()}-${String(dt.getUTCMonth() + 1).padStart(2, "0")}-${String(
     dt.getUTCDate()
   ).padStart(2, "0")}`;
+}
+
+function asBreakdown(v: unknown): Record<string, unknown> {
+  if (v && typeof v === "object" && !Array.isArray(v)) return { ...(v as Record<string, unknown>) };
+  return {};
+}
+
+function isDebtDiscountFrozen(breakdown: unknown) {
+  return asBreakdown(breakdown).debtDiscountFrozen === true;
+}
+
+async function dayIsFrozen(team: string, date: string) {
+  const rows = await prisma.employeePayout.findMany({
+    where: { team, date },
+    select: { breakdown: true },
+    take: 50,
+  });
+  return rows.some((row) => isDebtDiscountFrozen(row.breakdown));
+}
+
+async function markDayFrozen(team: string, date: string) {
+  const rows = await prisma.employeePayout.findMany({
+    where: { team, date },
+    select: { id: true, breakdown: true },
+  });
+  for (const row of rows) {
+    const breakdown = asBreakdown(row.breakdown);
+    if (breakdown.debtDiscountFrozen === true) continue;
+    await prisma.employeePayout.update({
+      where: { id: row.id },
+      data: { breakdown: { ...breakdown, debtDiscountFrozen: true } },
+    });
+  }
 }
 
 function computeReceberStatus(totalCents: number, receivedCents: number) {
@@ -95,6 +128,12 @@ async function monthlyBonusByUser(team: string, date: string) {
 export async function applyEmployeeDebtDiscountsForDate(team: string, date: string) {
   if (!isISODate(date)) return { ok: true, applied: 0 };
 
+  const today = todayISORecife();
+  const sealed = date < today;
+  if (sealed && (await dayIsFrozen(team, date))) {
+    return { ok: true, applied: 0, frozen: true };
+  }
+
   const debts = await prisma.dividaAReceber.findMany({
     where: {
       team,
@@ -114,7 +153,10 @@ export async function applyEmployeeDebtDiscountsForDate(team: string, date: stri
     },
   });
 
-  if (!debts.length) return { ok: true, applied: 0 };
+  if (!debts.length) {
+    if (sealed) await markDayFrozen(team, date);
+    return { ok: true, applied: 0, frozen: sealed };
+  }
 
   const userIds = Array.from(
     new Set(debts.map((d) => String(d.employeeUserId || "")).filter(Boolean))
@@ -199,6 +241,10 @@ export async function applyEmployeeDebtDiscountsForDate(team: string, date: stri
 
     for (const debt of userDebts) {
       const existing = chargeByDivida.get(debt.id);
+      if (sealed && existing) {
+        autoTotal += Math.max(0, safeInt(existing.amountCents, 0));
+        continue;
+      }
       const receivedWithoutToday = Math.max(
         0,
         safeInt(debt.receivedCents, 0) - (existing ? existing.amountCents : 0)
@@ -214,6 +260,7 @@ export async function applyEmployeeDebtDiscountsForDate(team: string, date: stri
 
       await prisma.$transaction(async (tx) => {
         if (amount <= 0) {
+          if (sealed) return;
           if (existing?.paymentId) {
             await tx.dividaAReceberPagamento.deleteMany({ where: { id: existing.paymentId } });
           }
@@ -276,13 +323,17 @@ export async function applyEmployeeDebtDiscountsForDate(team: string, date: stri
       applied += 1;
     }
 
-    await prisma.employeePayout.update({
-      where: { id: payout.id },
-      data: { discountCents: manual + autoTotal },
-    });
+    if (!sealed || !payout.paidById) {
+      await prisma.employeePayout.update({
+        where: { id: payout.id },
+        data: { discountCents: manual + autoTotal },
+      });
+    }
   }
 
-  return { ok: true, applied };
+  if (sealed) await markDayFrozen(team, date);
+
+  return { ok: true, applied, frozen: sealed };
 }
 
 export async function applyEmployeeDebtDiscountsRange(

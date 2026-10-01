@@ -10,7 +10,7 @@ import {
 } from "@/lib/balcao-commission";
 import { isFirstDayOfMonth, previousMonthISO } from "@/lib/bonus/monthlyBonus";
 import { day1BonusByUser } from "@/lib/card-cashback";
-import { applyEmployeeDebtDiscountsForDate } from "@/lib/payouts/applyEmployeeDebtDiscounts";
+import { applyEmployeeDebtDiscountsForDate, addDaysISO } from "@/lib/payouts/applyEmployeeDebtDiscounts";
 import { isAdminRole, resolveScopedUserId } from "@/lib/payouts/resolveViewAs";
 
 export const runtime = "nodejs";
@@ -201,7 +201,13 @@ export async function GET(req: Request) {
     // No DAY read-only a gente não usa start/end.
     dayBoundsUTC(date);
 
-    await applyEmployeeDebtDiscountsForDate(session.team, date);
+    const todayRecife = todayISORecife();
+    if (date === todayRecife) {
+      await applyEmployeeDebtDiscountsForDate(session.team, date);
+      await applyEmployeeDebtDiscountsForDate(session.team, addDaysISO(date, -1));
+    } else if (date < todayRecife) {
+      await applyEmployeeDebtDiscountsForDate(session.team, date);
+    }
 
     // 1) todos usuários do time
     const users = await prisma.user.findMany({
@@ -364,7 +370,6 @@ export async function GET(req: Request) {
     totals.pending = totals.net - totals.paid;
 
     // ✅ alerta de atraso: pendências há mais de 48h
-    const todayRecife = todayISORecife();
     const pendingRows = await prisma.employeePayout.findMany({
       where: {
         team: session.team,
