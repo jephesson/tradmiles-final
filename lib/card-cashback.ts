@@ -215,7 +215,7 @@ export async function day1BonusByUser(team: string, date: string) {
   }
 
   if (canGenerateCardCashbackMonth(spendMonth)) {
-    const { user } = await findCardCashbackUser(team);
+    const user = await findCardCashbackUser(team);
     if (user) {
       let row: { feeCents: number; cashbackCents: number; rateBps: number } | null =
         await prisma.cardCashbackMonth.findUnique({
