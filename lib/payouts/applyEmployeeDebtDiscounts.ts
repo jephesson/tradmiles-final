@@ -101,7 +101,6 @@ export async function applyEmployeeDebtDiscountsForDate(team: string, date: stri
       kind: "FUNCIONARIO",
       status: { in: ["OPEN", "PARTIAL"] },
       employeeUserId: { not: null },
-      dailyProfitBps: { gt: 0 },
       OR: [{ startsOn: null }, { startsOn: { lte: date } }],
     },
     orderBy: [{ createdAt: "asc" }],
@@ -145,8 +144,27 @@ export async function applyEmployeeDebtDiscountsForDate(team: string, date: stri
   }
 
   for (const [userId, userDebts] of debtsByUser) {
-    const payout = payoutByUser.get(userId);
-    if (!payout) continue;
+    let payout = payoutByUser.get(userId);
+    if (!payout) {
+      payout = await prisma.employeePayout.upsert({
+        where: { team_date_userId: { team, date, userId } },
+        create: {
+          team,
+          date,
+          userId,
+          grossProfitCents: 0,
+          tax7Cents: 0,
+          feeCents: 0,
+          netPayCents: 0,
+          discountCents: 0,
+          manualDiscountCents: 0,
+        },
+        update: {},
+      });
+      payoutByUser.set(userId, payout);
+    }
+
+    if (payout.paidById) continue;
 
     const gross = safeInt(payout.grossProfitCents, 0);
     const tax = safeInt(payout.tax7Cents, 0);
@@ -177,8 +195,6 @@ export async function applyEmployeeDebtDiscountsForDate(team: string, date: stri
 
     let remainingPay = Math.max(0, liquidoBruto - manual);
 
-    if (payout.paidById) continue;
-
     let autoTotal = 0;
 
     for (const debt of userDebts) {
@@ -188,7 +204,9 @@ export async function applyEmployeeDebtDiscountsForDate(team: string, date: stri
         safeInt(debt.receivedCents, 0) - (existing ? existing.amountCents : 0)
       );
       const balance = Math.max(0, safeInt(debt.totalCents, 0) - receivedWithoutToday);
-      const want = Math.round((lucroBase * safeInt(debt.dailyProfitBps, 0)) / 10000);
+      const bps = safeInt(debt.dailyProfitBps, 0);
+      const effectiveBps = bps > 0 ? bps : 10000;
+      const want = Math.round((lucroBase * effectiveBps) / 10000);
       const amount = Math.min(want, balance, remainingPay);
 
       remainingPay = Math.max(0, remainingPay - amount);

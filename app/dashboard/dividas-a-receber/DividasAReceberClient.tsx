@@ -42,6 +42,7 @@ type Row = {
   startsOn?: string | null;
   payments: Payment[];
   dayCharges?: DayCharge[];
+  _count?: { payments?: number; dayCharges?: number };
   owner?: OwnerLite;
   employeeUser?: EmployeeLite | null;
   employeeUserId?: string | null;
@@ -472,7 +473,7 @@ export default function DividasAReceberClient() {
                         <div className="font-medium text-slate-900">{isEmployee ? r.title : r.debtorName}</div>
                         <div className="text-xs text-slate-500">
                           {isEmployee
-                            ? `${r.dayCharges?.length || 0} desconto(s) automático(s)`
+                            ? `${r._count?.dayCharges ?? r.dayCharges?.length ?? 0} desconto(s) automático(s)`
                             : r.sourceLabel
                               ? `Origem: ${r.sourceLabel}`
                               : ""}

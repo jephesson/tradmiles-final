@@ -16,7 +16,7 @@ import {
   resolveC3RateioBreakdown,
 } from "@/lib/payouts/purchaseRateio";
 import { applyEmployeeDebtDiscountsForDate } from "@/lib/payouts/applyEmployeeDebtDiscounts";
-import { ensureDueCardCashbacks } from "@/lib/card-cashback";
+import { day1BonusByUser, ensureDueCardCashbacks } from "@/lib/card-cashback";
 import { ensureDueMonthlyBonus } from "@/lib/bonus/saveMonthlyBonus";
 
 export const runtime = "nodejs";
@@ -645,6 +645,23 @@ export async function POST(req: Request) {
       const employeeId = String(op.employeeId || "").trim();
       if (!employeeId) continue;
       ensure(employeeId);
+    }
+
+    const bonusByUser = await day1BonusByUser(team, date);
+    for (const userId of bonusByUser.keys()) ensure(userId);
+
+    const openDebtUsers = await prisma.dividaAReceber.findMany({
+      where: {
+        team,
+        kind: "FUNCIONARIO",
+        status: { in: ["OPEN", "PARTIAL"] },
+        employeeUserId: { not: null },
+      },
+      select: { employeeUserId: true },
+    });
+    for (const debt of openDebtUsers) {
+      const uid = String(debt.employeeUserId || "").trim();
+      if (uid) ensure(uid);
     }
 
     const computedUserIds = Object.keys(byUser);

@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/auth-server";
 import { todayISORecife } from "@/lib/payouts/autoCompute";
-import { applyEmployeeDebtDiscountsRange } from "@/lib/payouts/applyEmployeeDebtDiscounts";
+import { applyEmployeeDebtDiscountsForDate } from "@/lib/payouts/applyEmployeeDebtDiscounts";
 
 const TEAM_ROLES = ["admin", "staff"] as const;
 
@@ -122,27 +122,6 @@ export async function GET(req: Request) {
   });
   const isAdmin = String(dbUser?.role || session.role).trim().toLowerCase() === "admin";
 
-  if (kind === "FUNCIONARIO") {
-    const catchUpWhere: Record<string, unknown> = {
-      team: session.team,
-      kind: "FUNCIONARIO",
-      status: { in: ["OPEN", "PARTIAL"] },
-    };
-    if (!isAdmin) catchUpWhere.employeeUserId = session.id;
-
-    const catchUpDebts = await prisma.dividaAReceber.findMany({
-      where: catchUpWhere,
-      select: { startsOn: true, createdAt: true },
-    });
-    const starts = catchUpDebts
-      .map((d) => d.startsOn || d.createdAt.toISOString().slice(0, 10))
-      .filter((s) => /^\d{4}-\d{2}-\d{2}$/.test(s))
-      .sort();
-    if (starts[0]) {
-      await applyEmployeeDebtDiscountsRange(session.team, starts[0], todayISORecife());
-    }
-  }
-
   const where = buildWhere(
     session.team,
     status,
@@ -157,10 +136,11 @@ export async function GET(req: Request) {
       orderBy: [{ status: "asc" }, { dueDate: "asc" }, { createdAt: "desc" }],
       take,
       include: {
-        payments: { orderBy: { receivedAt: "desc" } },
+        payments: { orderBy: { receivedAt: "desc" }, take: 20 },
         owner: { select: { id: true, name: true, login: true } },
         employeeUser: { select: { id: true, name: true, login: true } },
-        dayCharges: { orderBy: { date: "desc" }, take: 40 },
+        dayCharges: { orderBy: { date: "desc" }, take: 12 },
+        _count: { select: { payments: true, dayCharges: true } },
       },
     }),
     kind === "FUNCIONARIO"
@@ -341,7 +321,7 @@ export async function POST(req: Request) {
   });
 
   if (kind === "FUNCIONARIO") {
-    await applyEmployeeDebtDiscountsRange(session.team, startsOn, todayISORecife());
+    await applyEmployeeDebtDiscountsForDate(session.team, todayISORecife());
   }
 
   return NextResponse.json({ ok: true, row: created });
