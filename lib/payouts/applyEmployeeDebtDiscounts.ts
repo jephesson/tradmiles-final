@@ -152,7 +152,7 @@ export async function applyEmployeeDebtDiscountsForDate(team: string, date: stri
     const tax = safeInt(payout.tax7Cents, 0);
     const balcao = balcaoByUser.get(userId) || 0;
     const bonus = bonusByUser.get(userId) || 0;
-    const lucroBase = Math.max(0, gross - tax + balcao);
+    const lucroBase = Math.max(0, gross - tax + balcao + bonus);
     const liquidoBruto = safeInt(payout.netPayCents, 0) + balcao + bonus;
     const chargeSum = userDebts.reduce(
       (sum, debt) => sum + Math.max(0, safeInt(chargeByDivida.get(debt.id)?.amountCents, 0)),

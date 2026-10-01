@@ -48,6 +48,7 @@ export async function GET(req: Request) {
           date: true,
           grossProfitCents: true,
           tax7Cents: true,
+          discountCents: true,
         },
       }),
       prisma.settings.upsert({
@@ -98,7 +99,7 @@ export async function GET(req: Request) {
       const month = String(p.date || "").slice(0, 7);
       if (!isMonthISO(month)) continue;
       const bucket = ensure(p.userId, month);
-      bucket.payoutNetNoFee += safeInt(p.grossProfitCents, 0) - safeInt(p.tax7Cents, 0);
+      bucket.payoutNetNoFee += safeInt(p.grossProfitCents, 0) - safeInt(p.tax7Cents, 0) - safeInt(p.discountCents, 0);
       monthsSet.add(month);
     }
 

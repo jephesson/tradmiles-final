@@ -82,6 +82,7 @@ export async function GET(req: Request) {
           tax7Cents: true,
           feeCents: true,
           netPayCents: true,
+          discountCents: true,
           breakdown: true,
         },
       }),
@@ -130,6 +131,7 @@ export async function GET(req: Request) {
 
         payoutNetNoFee: number;
         netWithFee: number;
+        discount: number;
 
         balcaoOps: number;
         balcaoGross: number;
@@ -150,6 +152,7 @@ export async function GET(req: Request) {
         fee: 0,
         payoutNetNoFee: 0,
         netWithFee: 0,
+        discount: 0,
         balcaoOps: 0,
         balcaoGross: 0,
         balcaoTax: 0,
@@ -185,6 +188,7 @@ export async function GET(req: Request) {
 
       a.payoutNetNoFee += netNoFee;
       a.netWithFee += netWithFee;
+      a.discount += safeInt(p.discountCents, 0);
     }
 
     for (const op of balcaoOps) {
@@ -252,6 +256,7 @@ export async function GET(req: Request) {
           fee: 0,
           payoutNetNoFee: 0,
           netWithFee: 0,
+          discount: 0,
           balcaoOps: 0,
           balcaoGross: 0,
           balcaoTax: 0,
@@ -277,7 +282,7 @@ export async function GET(req: Request) {
         balcaoGrossCents: a.balcaoGross,
         balcaoCommissionCents: a.balcaoCommission,
 
-        netNoFeeCents: a.payoutNetNoFee + a.balcaoCommission,
+        netNoFeeCents: Math.max(0, a.payoutNetNoFee + a.balcaoCommission - a.discount),
         netWithFeeCents: a.netWithFee,
       };
     });

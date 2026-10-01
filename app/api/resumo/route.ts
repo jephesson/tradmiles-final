@@ -170,9 +170,10 @@ export async function GET(req: Request) {
     // ✅ A PAGAR (funcionários) = netPay pendente + comissão pendente do balcão
     const empPendingAgg = await prisma.employeePayout.aggregate({
       where: { team: session.team, paidAt: null },
-      _sum: { netPayCents: true },
+      _sum: { netPayCents: true, discountCents: true },
     });
     const employeePayoutsPendingBaseCents = safeInt(empPendingAgg._sum.netPayCents);
+    const employeePayoutsPendingDiscountCents = safeInt(empPendingAgg._sum.discountCents);
 
     const taxRule: BalcaoTaxRule = buildTaxRule({
       taxPercent: Number(settings.taxPercent || 0),
@@ -224,10 +225,13 @@ export async function GET(req: Request) {
       recifeDateISO(new Date())
     );
 
-    const employeePayoutsPendingCents =
+    const employeePayoutsPendingCents = Math.max(
+      0,
       employeePayoutsPendingBaseCents +
-      employeePayoutsPendingBalcaoCents +
-      employeePayoutsPendingBonusCents;
+        employeePayoutsPendingBalcaoCents +
+        employeePayoutsPendingBonusCents -
+        employeePayoutsPendingDiscountCents
+    );
 
     // ✅ IMPOSTOS pendentes (igual /api/taxes/months):
     // venda de milhas (tax7) + emissões no balcão (imposto sobre lucro), respeitando snapshot de mês pago.
