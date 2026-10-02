@@ -1026,8 +1026,8 @@ export default function ComissoesFuncionariosClient() {
             <Info className="h-5 w-5" strokeWidth={2} aria-hidden />
           </div>
           <p className="text-sm leading-relaxed text-amber-950">
-            <span className="font-semibold">Observação:</span> você selecionou <b>hoje ou futuro</b>. As vendas do
-            dia ainda podem mudar.
+            <span className="font-semibold">Dia em aberto:</span> esta data ainda não fechou. Vendas e
+            comissões de hoje podem subir ou mudar até virar o dia.
           </p>
         </div>
       ) : null}

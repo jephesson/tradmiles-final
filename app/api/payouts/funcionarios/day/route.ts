@@ -369,12 +369,14 @@ export async function GET(req: Request) {
 
     totals.pending = totals.net - totals.paid;
 
-    // ✅ alerta de atraso: pendências há mais de 48h
+    // alerta de atraso: só comissão de dia válido, com valor a pagar, há mais de 48h
     const pendingRows = await prisma.employeePayout.findMany({
       where: {
         team: session.team,
         paidAt: null,
-        date: { lt: todayRecife },
+        paidById: null,
+        netPayCents: { gt: 0 },
+        date: { lt: todayRecife, gte: "2020-01-01" },
         ...(scopeUserId ? { userId: scopeUserId } : isAdmin ? {} : { userId: session.id }),
       },
       select: {
@@ -388,13 +390,17 @@ export async function GET(req: Request) {
 
     const overdueRows = pendingRows
       .map((r) => {
-        const hoursLate = hoursSinceRecifeDateStart(r.date);
+        const date = String(r.date || "").slice(0, 10);
+        const year = Number(date.slice(0, 4));
+        const hoursLate = hoursSinceRecifeDateStart(date);
         return {
           ...r,
+          date,
           hoursLate,
+          valid: /^\d{4}-\d{2}-\d{2}$/.test(date) && year >= 2020 && year <= 2100,
         };
       })
-      .filter((r) => r.hoursLate > 48);
+      .filter((r) => r.valid && r.hoursLate > 48 && safeInt(r.netPayCents, 0) > 0);
 
     const byDayMap = new Map<
       string,
