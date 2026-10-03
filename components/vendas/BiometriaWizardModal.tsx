@@ -81,6 +81,139 @@ function toIata(raw: string) {
     .slice(0, 3);
 }
 
+function recifeTodayYmd() {
+  const p = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Recife",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  })
+    .formatToParts(new Date())
+    .reduce<Record<string, string>>((acc, x) => {
+      acc[x.type] = x.value;
+      return acc;
+    }, {});
+  return `${p.year}-${p.month}-${p.day}`;
+}
+
+function addDaysYmd(ymd: string, days: number) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(ymd);
+  if (!m) return ymd;
+  const dt = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
+  dt.setUTCDate(dt.getUTCDate() + days);
+  return `${dt.getUTCFullYear()}-${String(dt.getUTCMonth() + 1).padStart(2, "0")}-${String(
+    dt.getUTCDate()
+  ).padStart(2, "0")}`;
+}
+
+function isRealYmd(y: number, month: number, day: number) {
+  if (month < 1 || month > 12 || day < 1 || day > 31) return false;
+  const dt = new Date(Date.UTC(y, month - 1, day));
+  return (
+    dt.getUTCFullYear() === y && dt.getUTCMonth() === month - 1 && dt.getUTCDate() === day
+  );
+}
+
+function isoToBrDate(iso: string) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
+  if (!m) return "";
+  return `${m[3]}/${m[2]}/${m[1]}`;
+}
+
+/** Passagem: deste dia até 12 meses. Dia/mês que já passou cai no ano seguinte. */
+function resolveTicketYmd(day: number, month: number, yearHint?: number) {
+  const today = recifeTodayYmd();
+  const max = addDaysYmd(today, 365);
+  const thisYear = Number(today.slice(0, 4));
+
+  const asIso = (y: number) => {
+    if (!isRealYmd(y, month, day)) return null;
+    return `${y}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+  };
+
+  if (yearHint && yearHint >= thisYear && yearHint <= thisYear + 1) {
+    const hinted = asIso(yearHint);
+    if (hinted && hinted >= today && hinted <= max) return hinted;
+  }
+
+  const cur = asIso(thisYear);
+  if (cur && cur >= today && cur <= max) return cur;
+  const next = asIso(thisYear + 1);
+  if (next && next >= today && next <= max) return next;
+  return cur || next;
+}
+
+function parseTicketDateInput(raw: string): string {
+  const digits = String(raw || "").replace(/\D/g, "").slice(0, 8);
+  if (digits.length < 4) return "";
+  const day = Number(digits.slice(0, 2));
+  const month = Number(digits.slice(2, 4));
+  const yearHint = digits.length >= 8 ? Number(digits.slice(4, 8)) : undefined;
+  if (digits.length >= 6 && digits.length < 8) return "";
+  return resolveTicketYmd(day, month, yearHint) || "";
+}
+
+function formatTicketDateTyping(raw: string) {
+  const digits = String(raw || "").replace(/\D/g, "").slice(0, 8);
+  if (digits.length <= 2) return digits;
+  if (digits.length <= 4) return `${digits.slice(0, 2)}/${digits.slice(2)}`;
+  return `${digits.slice(0, 2)}/${digits.slice(2, 4)}/${digits.slice(4)}`;
+}
+
+function TicketSearchDateInput({
+  value,
+  onChange,
+  disabled,
+}: {
+  value: string;
+  onChange: (iso: string) => void;
+  disabled?: boolean;
+}) {
+  const [text, setText] = useState(() => (value ? isoToBrDate(value) : ""));
+
+  useEffect(() => {
+    setText(value ? isoToBrDate(value) : "");
+  }, [value]);
+
+  return (
+    <input
+      type="text"
+      inputMode="numeric"
+      autoComplete="off"
+      disabled={disabled}
+      placeholder="dd/mm"
+      className="h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm tabular-nums outline-none focus:ring-2 focus:ring-slate-900/10 disabled:bg-slate-100 disabled:text-slate-400"
+      value={text}
+      onChange={(e) => {
+        const nextText = formatTicketDateTyping(e.target.value);
+        setText(nextText);
+        const digits = nextText.replace(/\D/g, "");
+        if (digits.length === 8) {
+          const iso = parseTicketDateInput(nextText);
+          if (iso) {
+            onChange(iso);
+            setText(isoToBrDate(iso));
+          }
+        } else if (digits.length === 4) {
+          const iso = parseTicketDateInput(nextText);
+          if (iso) onChange(iso);
+        } else if (!digits) {
+          onChange("");
+        }
+      }}
+      onBlur={() => {
+        const iso = parseTicketDateInput(text);
+        if (iso) {
+          onChange(iso);
+          setText(isoToBrDate(iso));
+          return;
+        }
+        setText(value ? isoToBrDate(value) : "");
+      }}
+    />
+  );
+}
+
 /** Link de ofertas LATAM em milhas (redemption=true). */
 function buildLatamSearchLink(params: {
   origin: string;
@@ -1428,23 +1561,25 @@ export default function BiometriaWizardModal({
                   <label className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
                     Data ida
                   </label>
-                  <input
-                    type="date"
-                    className="h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-slate-900/10"
+                  <TicketSearchDateInput
                     value={searchOutbound}
-                    onChange={(e) => setSearchOutbound(e.target.value)}
+                    onChange={(iso) => {
+                      setSearchOutbound(iso);
+                      if (iso && searchInbound && searchInbound < iso) setSearchInbound("");
+                    }}
                   />
+                  <p className="text-[11px] text-slate-500">
+                    Digite dia e mês; o ano entra sozinho. Dá para editar o ano (até 12 meses).
+                  </p>
                 </div>
                 <div className="space-y-1">
                   <label className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
                     Data volta
                   </label>
-                  <input
-                    type="date"
-                    disabled={searchTrip !== "IDA_VOLTA"}
-                    className="h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-slate-900/10 disabled:bg-slate-100 disabled:text-slate-400"
+                  <TicketSearchDateInput
                     value={searchInbound}
-                    onChange={(e) => setSearchInbound(e.target.value)}
+                    disabled={searchTrip !== "IDA_VOLTA"}
+                    onChange={setSearchInbound}
                   />
                 </div>
                 <div className="space-y-1">
