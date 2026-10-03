@@ -109,14 +109,13 @@ function firstName(full?: string, fallback?: string) {
 }
 
 function monthLabelBR(month: string) {
-  const date = new Date(`${month}-01T12:00:00Z`);
-  return new Intl.DateTimeFormat("pt-BR", {
-    month: "short",
-    year: "2-digit",
-    timeZone: "UTC",
-  })
-    .format(date)
-    .replace(".", "");
+  const m = /^(\d{4})-(\d{2})$/.exec(String(month || "").trim());
+  if (!m) return month;
+  const year = Number(m[1]);
+  const mo = Number(m[2]);
+  if (year < 2020 || year > 2100 || mo < 1 || mo > 12) return month;
+  const names = ["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"];
+  return `${names[mo - 1]}/${String(year).slice(-2)}`;
 }
 
 function monthTitleBR(month: string) {

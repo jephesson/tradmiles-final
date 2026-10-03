@@ -96,7 +96,10 @@ export async function GET(req: Request) {
     }
 
     for (const p of payouts) {
-      const month = String(p.date || "").slice(0, 7);
+      const day = String(p.date || "").slice(0, 10);
+      const year = Number(day.slice(0, 4));
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(day) || year < 2020 || year > 2100) continue;
+      const month = day.slice(0, 7);
       if (!isMonthISO(month)) continue;
       const bucket = ensure(p.userId, month);
       bucket.payoutNetNoFee += safeInt(p.grossProfitCents, 0) - safeInt(p.tax7Cents, 0) - safeInt(p.discountCents, 0);
