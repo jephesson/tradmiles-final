@@ -5,6 +5,8 @@ import Link from "next/link";
 import {
   Ban,
   CalendarDays,
+  Copy,
+  KeyRound,
   Loader2,
   Plane,
   Search,
@@ -12,6 +14,7 @@ import {
   UserRound,
 } from "lucide-react";
 import { cn } from "@/lib/cn";
+import { VerificationCodeFetch } from "@/components/cedentes/VerificationCodeFetch";
 import {
   cancelFinePaxCount,
   computeCancelFineTotalCents,
@@ -58,7 +61,45 @@ type TicketRow = {
   createdAt: string;
 };
 
-type StatusFilter = "ALL" | "ACTIVE" | "CANCELED";
+type ProgramKey = "LATAM" | "SMILES" | "LIVELO" | "ESFERA" | "IBERIA";
+
+function asProgramKey(raw: string | null | undefined): ProgramKey | null {
+  const u = String(raw || "").trim().toUpperCase();
+  if (u === "LATAM" || u === "SMILES" || u === "LIVELO" || u === "ESFERA" || u === "IBERIA") {
+    return u;
+  }
+  return null;
+}
+
+function CredCopyField({
+  label,
+  value,
+  copied,
+  onCopy,
+}: {
+  label: string;
+  value: string | null | undefined;
+  copied: boolean;
+  onCopy: () => void;
+}) {
+  const text = String(value || "").trim();
+  return (
+    <div className="rounded-xl border border-slate-100 bg-white px-3 py-2">
+      <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">{label}</div>
+      <div className="mt-0.5 break-all font-mono text-sm font-medium text-slate-900">{text || "—"}</div>
+      {text ? (
+        <button
+          type="button"
+          onClick={onCopy}
+          className="mt-1 inline-flex items-center gap-1 text-[11px] font-semibold text-slate-500 hover:text-slate-800"
+        >
+          <Copy className="h-3 w-3" />
+          {copied ? "Copiado" : "Copiar"}
+        </button>
+      ) : null}
+    </div>
+  );
+}
 
 function fmtMoneyBR(cents: number) {
   return ((cents || 0) / 100).toLocaleString("pt-BR", {
@@ -120,6 +161,16 @@ export default function LocalizadoresClient() {
   const [cancelChargeFine, setCancelChargeFine] = useState(true);
   const [cancelFinePerPaxStr, setCancelFinePerPaxStr] = useState("");
   const [cancelSubmitting, setCancelSubmitting] = useState(false);
+  const [creds, setCreds] = useState<{
+    cpf: string;
+    email: string | null;
+    senhaPrograma: string | null;
+    senhaEmail: string | null;
+    senhaLivelo: string | null;
+  } | null>(null);
+  const [credsLoading, setCredsLoading] = useState(false);
+  const [credsError, setCredsError] = useState<string | null>(null);
+  const [copiedField, setCopiedField] = useState("");
 
   useEffect(() => {
     let cancelled = false;
@@ -166,6 +217,81 @@ export default function LocalizadoresClient() {
       setSelectedId(rows[0]?.id || null);
     }
   }, [rows, selectedId]);
+
+  useEffect(() => {
+    const cedenteId = selected?.cedente?.id;
+    const program = asProgramKey(selected?.program);
+    if (!cedenteId || !program) {
+      setCreds(null);
+      setCredsError(null);
+      setCredsLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    setCredsLoading(true);
+    setCredsError(null);
+    setCopiedField("");
+
+    (async () => {
+      try {
+        const fetches: Promise<Response>[] = [
+          fetch(
+            `/api/cedentes/credentials?cedenteId=${encodeURIComponent(cedenteId)}&program=${program}`,
+            { cache: "no-store", credentials: "include" }
+          ),
+        ];
+        if (program === "LATAM") {
+          fetches.push(
+            fetch(
+              `/api/cedentes/credentials?cedenteId=${encodeURIComponent(cedenteId)}&program=LIVELO`,
+              { cache: "no-store", credentials: "include" }
+            )
+          );
+        }
+        const responses = await Promise.all(fetches);
+        const jsons = await Promise.all(responses.map((r) => r.json().catch(() => null)));
+        const mainRes = responses[0];
+        const mainJson = jsons[0];
+        if (!mainRes.ok || !mainJson?.ok) {
+          throw new Error(mainJson?.error || "Falha ao carregar credenciais.");
+        }
+        const liveloJson = jsons[1];
+        if (cancelled) return;
+        setCreds({
+          cpf: String(mainJson.data?.cpf || ""),
+          email: mainJson.data?.email ?? liveloJson?.data?.email ?? null,
+          senhaPrograma: mainJson.data?.senhaPrograma ?? null,
+          senhaEmail: mainJson.data?.senhaEmail ?? liveloJson?.data?.senhaEmail ?? null,
+          senhaLivelo: program === "LATAM" ? liveloJson?.data?.senhaPrograma ?? null : null,
+        });
+      } catch (e: unknown) {
+        if (cancelled) return;
+        setCreds(null);
+        setCredsError(e instanceof Error ? e.message : "Falha ao carregar credenciais.");
+      } finally {
+        if (!cancelled) setCredsLoading(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selected?.cedente?.id, selected?.program]);
+
+  async function copyValue(field: string, value: string | null | undefined) {
+    const text = String(value || "").trim();
+    if (!text) return;
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedField(field);
+      window.setTimeout(() => {
+        setCopiedField((curr) => (curr === field ? "" : curr));
+      }, 1400);
+    } catch {
+      /* ignore */
+    }
+  }
 
   function openCancel(r: TicketRow) {
     setCancelTarget(r);
@@ -487,6 +613,72 @@ export default function LocalizadoresClient() {
                   </div>
                 ) : null}
               </div>
+
+              {selected.cedente ? (
+                <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-4">
+                  <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+                    <KeyRound className="h-3.5 w-3.5" />
+                    Acesso da conta
+                  </div>
+                  {credsError ? (
+                    <div className="mt-3 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">
+                      {credsError}
+                    </div>
+                  ) : credsLoading && !creds ? (
+                    <div className="mt-3 flex items-center gap-2 text-sm text-slate-500">
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Carregando credenciais e código…
+                    </div>
+                  ) : creds ? (
+                    <div className="mt-3 space-y-2">
+                      <div className="grid grid-cols-1 gap-2">
+                        <CredCopyField
+                          label="CPF (login)"
+                          value={creds.cpf}
+                          copied={copiedField === "cpf"}
+                          onCopy={() => copyValue("cpf", creds.cpf)}
+                        />
+                        <CredCopyField
+                          label={`Senha ${selected.program}`}
+                          value={creds.senhaPrograma}
+                          copied={copiedField === "senhaPrograma"}
+                          onCopy={() => copyValue("senhaPrograma", creds.senhaPrograma)}
+                        />
+                        {asProgramKey(selected.program) === "LATAM" ? (
+                          <CredCopyField
+                            label="Senha LIVELO"
+                            value={creds.senhaLivelo}
+                            copied={copiedField === "senhaLivelo"}
+                            onCopy={() => copyValue("senhaLivelo", creds.senhaLivelo)}
+                          />
+                        ) : null}
+                        <CredCopyField
+                          label="E-mail"
+                          value={creds.email}
+                          copied={copiedField === "email"}
+                          onCopy={() => copyValue("email", creds.email)}
+                        />
+                        <CredCopyField
+                          label="Senha do e-mail"
+                          value={creds.senhaEmail}
+                          copied={copiedField === "senhaEmail"}
+                          onCopy={() => copyValue("senhaEmail", creds.senhaEmail)}
+                        />
+                      </div>
+                      {asProgramKey(selected.program) === "LATAM" ||
+                      asProgramKey(selected.program) === "SMILES" ? (
+                        <VerificationCodeFetch
+                          cedenteId={selected.cedente.id}
+                          program={asProgramKey(selected.program) === "SMILES" ? "SMILES" : "LATAM"}
+                          email={creds.email}
+                        />
+                      ) : null}
+                    </div>
+                  ) : (
+                    <div className="mt-3 text-sm text-slate-500">Sem credenciais neste cedente.</div>
+                  )}
+                </div>
+              ) : null}
 
               {selected.paymentStatus === "CANCELED" ? (
                 <div className="rounded-2xl border border-rose-100 bg-rose-50/70 px-4 py-3 text-sm text-rose-800">
