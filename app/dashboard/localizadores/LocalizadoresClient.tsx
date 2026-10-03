@@ -61,6 +61,7 @@ type TicketRow = {
   createdAt: string;
 };
 
+type StatusFilter = "ALL" | "ACTIVE" | "CANCELED";
 type ProgramKey = "LATAM" | "SMILES" | "LIVELO" | "ESFERA" | "IBERIA";
 
 function asProgramKey(raw: string | null | undefined): ProgramKey | null {
