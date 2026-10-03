@@ -116,12 +116,29 @@ export function parseGoogleFlightsResult(
   };
 }
 
-export async function searchGoogleFlightsCheapest(
+export function googleFlightsSearchConfigured() {
+  return Boolean(
+    String(process.env.SERPAPI_API_KEY || "").trim() ||
+      String(process.env.RAPIDAPI_KEY || "").trim()
+  );
+}
+
+const SERPAPI_QUOTA_MS = 30 * 60 * 1000;
+let serpapiBlockedUntil = 0;
+
+function serpapiLooksQuota(status: number, error: string) {
+  if (status === 429) return true;
+  return /ran out of searches|out of searches|quota|rate limit|limit reached|too many requests/i.test(
+    error
+  );
+}
+
+async function searchSerpApiOnly(
   origin: string,
   dest: string,
   dateISO: string,
   filters: SerpApiFlightFilters = {}
-): Promise<SerpApiCheapestFlight | { error: string }> {
+): Promise<SerpApiCheapestFlight | { error: string; status?: number }> {
   const apiKey = String(process.env.SERPAPI_API_KEY || "").trim();
   if (!apiKey) {
     return { error: "Configure SERPAPI_API_KEY no ambiente (Vercel / .env.local)." };
@@ -160,7 +177,40 @@ export async function searchGoogleFlightsCheapest(
       }
     | null;
   if (!res.ok || !data) {
-    return { error: `SerpAPI HTTP ${res.status}.` };
+    return { error: `SerpAPI HTTP ${res.status}.`, status: res.status };
   }
-  return parseGoogleFlightsResult(data, origin, dest, dateISO);
+  const parsed = parseGoogleFlightsResult(data, origin, dest, dateISO);
+  if ("error" in parsed) return { ...parsed, status: res.status };
+  return parsed;
+}
+
+export async function searchGoogleFlightsCheapest(
+  origin: string,
+  dest: string,
+  dateISO: string,
+  filters: SerpApiFlightFilters = {}
+): Promise<SerpApiCheapestFlight | { error: string }> {
+  const { searchRapidApiGoogleFlightsCheapest, rapidApiFlightsConfigured } = await import(
+    "@/lib/rapidapi-flights"
+  );
+  const hasSerp = Boolean(String(process.env.SERPAPI_API_KEY || "").trim());
+  const hasRapid = rapidApiFlightsConfigured();
+
+  const tryRapid = async () => searchRapidApiGoogleFlightsCheapest(origin, dest, dateISO, filters);
+
+  if (hasSerp && Date.now() >= serpapiBlockedUntil) {
+    const serp = await searchSerpApiOnly(origin, dest, dateISO, filters);
+    if (!("error" in serp)) return serp;
+    if (serpapiLooksQuota(serp.status || 0, serp.error)) {
+      serpapiBlockedUntil = Date.now() + SERPAPI_QUOTA_MS;
+      if (hasRapid) return tryRapid();
+    } else if (hasRapid) {
+      const rapid = await tryRapid();
+      if (!("error" in rapid)) return rapid;
+    }
+    return { error: serp.error };
+  }
+
+  if (hasRapid) return tryRapid();
+  return { error: "Configure SERPAPI_API_KEY ou RAPIDAPI_KEY no ambiente (Vercel / .env.local)." };
 }

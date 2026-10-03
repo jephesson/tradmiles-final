@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/auth-server";
+import { googleFlightsSearchConfigured } from "@/lib/serpapi-flights";
 import {
   googleFlightsScoutSearches,
   buildDateList,
@@ -41,9 +42,12 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   try {
     const session = await requireSession();
-  if (!String(process.env.SERPAPI_API_KEY || "").trim()) {
+  if (!googleFlightsSearchConfigured()) {
     return NextResponse.json(
-      { ok: false, error: "Configure SERPAPI_API_KEY no ambiente (Vercel / .env.local)." },
+      {
+        ok: false,
+        error: "Configure SERPAPI_API_KEY ou RAPIDAPI_KEY no ambiente (Vercel / .env.local).",
+      },
       { status: 400 }
     );
   }
