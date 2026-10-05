@@ -1,5 +1,27 @@
 import type { PixTipo } from "@prisma/client";
 
+export const PIX_TIPOS: PixTipo[] = ["CPF", "CNPJ", "EMAIL", "TELEFONE", "ALEATORIA"];
+
+export function parsePixCadastro(body: { pixTipo?: unknown; chavePix?: unknown }):
+  | { ok: true; skip: true }
+  | { ok: true; skip: false; pixTipo: PixTipo | null; chavePix: string | null }
+  | { ok: false; error: string } {
+  const hasTipo = typeof body?.pixTipo === "string";
+  const hasKey = typeof body?.chavePix === "string";
+  if (!hasTipo && !hasKey) return { ok: true, skip: true };
+
+  const rawKey = hasKey ? String(body.chavePix).trim() : "";
+  if (!rawKey) {
+    return { ok: true, skip: false, pixTipo: null, chavePix: null };
+  }
+
+  const pixTipo = String(body?.pixTipo || "CPF").toUpperCase() as PixTipo;
+  if (!PIX_TIPOS.includes(pixTipo)) return { ok: false, error: "Tipo de PIX inválido." };
+  const chavePix = normalizePixKey(pixTipo, rawKey);
+  if (!pixKeyLooksValid(pixTipo, chavePix)) return { ok: false, error: "Chave PIX inválida." };
+  return { ok: true, skip: false, pixTipo, chavePix };
+}
+
 export function normalizePixKey(tipo: PixTipo | string, raw: string) {
   const t = String(tipo || "").toUpperCase();
   const s = String(raw || "").trim();

@@ -2,11 +2,15 @@
 
 import { useEffect, useMemo, useState } from "react";
 
+type PixTipo = "CPF" | "CNPJ" | "EMAIL" | "TELEFONE" | "ALEATORIA";
+
 type FuncItem = {
   id: string;
   name: string;
   login: string;
   cpf: string | null;
+  pixTipo?: PixTipo | null;
+  chavePix?: string | null;
   team: string;
   role: string;
   isActive?: boolean;
@@ -28,6 +32,7 @@ export default function FuncionariosPage() {
   const [error, setError] = useState("");
   const [isAdmin, setIsAdmin] = useState(false);
   const [togglingId, setTogglingId] = useState<string | null>(null);
+  const [savingPixId, setSavingPixId] = useState<string | null>(null);
 
   async function load() {
     try {
@@ -74,6 +79,39 @@ export default function FuncionariosPage() {
       alert(e?.message || "Erro");
     } finally {
       setTogglingId(null);
+    }
+  }
+
+  function patchItem(id: string, patch: Partial<FuncItem>) {
+    setItems((prev) => prev.map((f) => (f.id === id ? { ...f, ...patch } : f)));
+  }
+
+  async function salvarPix(f: FuncItem) {
+    const chavePix = (f.chavePix || "").trim();
+    const pixTipo = f.pixTipo || "CPF";
+    if (!chavePix) {
+      alert("Informe a chave PIX.");
+      return;
+    }
+    setSavingPixId(f.id);
+    try {
+      const res = await fetch("/api/funcionarios/pix", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ userId: f.id, pixTipo, chavePix }),
+      });
+      const json = await res.json();
+      if (!json?.ok) throw new Error(json?.error || "Erro ao salvar PIX.");
+      patchItem(f.id, {
+        pixTipo: json.data.pixTipo,
+        chavePix: json.data.chavePix,
+      });
+      alert("PIX salvo.");
+    } catch (e: any) {
+      alert(e?.message || "Erro");
+    } finally {
+      setSavingPixId(null);
     }
   }
 
@@ -166,6 +204,37 @@ export default function FuncionariosPage() {
                         Copiar
                       </button>
                     </div>
+                  </div>
+                </div>
+
+                <div className="mt-3 space-y-1 border-t pt-3">
+                  <div className="text-xs font-semibold text-slate-600">Chave PIX</div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <select
+                      className="rounded-xl border px-2 py-2 text-xs bg-white"
+                      value={f.pixTipo || "CPF"}
+                      onChange={(e) => patchItem(f.id, { pixTipo: e.target.value as PixTipo })}
+                    >
+                      <option value="CPF">CPF</option>
+                      <option value="CNPJ">CNPJ</option>
+                      <option value="EMAIL">E-mail</option>
+                      <option value="TELEFONE">Telefone</option>
+                      <option value="ALEATORIA">Aleatória</option>
+                    </select>
+                    <input
+                      className="min-w-[220px] flex-1 rounded-xl border px-3 py-2 text-xs"
+                      placeholder="Chave PIX"
+                      value={f.chavePix || ""}
+                      onChange={(e) => patchItem(f.id, { chavePix: e.target.value })}
+                    />
+                    <button
+                      type="button"
+                      disabled={savingPixId === f.id || !(f.chavePix || "").trim()}
+                      onClick={() => void salvarPix(f)}
+                      className="rounded-xl bg-black px-3 py-2 text-xs text-white disabled:opacity-60"
+                    >
+                      {savingPixId === f.id ? "Salvando..." : "Salvar PIX"}
+                    </button>
                   </div>
                 </div>
               </div>

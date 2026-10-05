@@ -2,6 +2,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import crypto from "node:crypto";
 import { prisma } from "@/lib/prisma";
+import { parsePixCadastro } from "@/lib/inter/pix-key";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -50,6 +51,8 @@ export async function GET() {
         name: true,
         cpf: true,
         employeeId: true, // ✅
+        pixTipo: true,
+        chavePix: true,
         role: true,
         team: true,
         isActive: true,
@@ -65,6 +68,8 @@ export async function GET() {
       login: u.login,
       cpf: u.cpf,
       employeeId: u.employeeId ?? null,
+      pixTipo: u.pixTipo ?? null,
+      chavePix: u.chavePix ?? null,
       team: u.team,
       role: u.role,
       isActive: u.isActive,
@@ -123,6 +128,11 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    const pix = parsePixCadastro(body);
+    if (!pix.ok) {
+      return NextResponse.json({ ok: false, error: pix.error }, { status: 400, headers: noCacheHeaders() });
+    }
+
     const exists = await prisma.user.findUnique({ where: { login } });
     if (exists) {
       return NextResponse.json(
@@ -142,6 +152,7 @@ export async function POST(req: NextRequest) {
         team,
         role,
         passwordHash: sha256(password),
+        ...(pix.skip ? {} : { pixTipo: pix.pixTipo, chavePix: pix.chavePix }),
       },
       select: {
         id: true,
@@ -149,6 +160,8 @@ export async function POST(req: NextRequest) {
         login: true,
         cpf: true,
         employeeId: true,
+        pixTipo: true,
+        chavePix: true,
         team: true,
         role: true,
         createdAt: true,

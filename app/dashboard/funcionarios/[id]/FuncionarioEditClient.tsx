@@ -2,12 +2,16 @@
 
 import { useEffect, useMemo, useState } from "react";
 
+type PixTipo = "CPF" | "CNPJ" | "EMAIL" | "TELEFONE" | "ALEATORIA";
+
 type FuncItem = {
   id: string;
   name: string;
   employeeId: string | null;
   login: string;
   cpf: string | null;
+  pixTipo?: PixTipo | null;
+  chavePix?: string | null;
   team: string;
   role: string;
   isActive?: boolean;
@@ -50,6 +54,8 @@ export default function FuncionarioEditClient({ id }: { id: string }) {
   const [employeeId, setEmployeeId] = useState("");
   const [cpf, setCpf] = useState("");
   const [login, setLogin] = useState("");
+  const [pixTipo, setPixTipo] = useState<PixTipo>("CPF");
+  const [chavePix, setChavePix] = useState("");
 
   // troca de senha
   const [oldPassword, setOldPassword] = useState("");
@@ -85,6 +91,8 @@ export default function FuncionarioEditClient({ id }: { id: string }) {
       setEmployeeId(u.employeeId || "");
       setCpf(u.cpf || "");
       setLogin(u.login || "");
+      setPixTipo(u.pixTipo || "CPF");
+      setChavePix(u.chavePix || "");
     } catch (e: any) {
       setMsg(e?.message || "Erro");
     } finally {
@@ -113,6 +121,8 @@ export default function FuncionarioEditClient({ id }: { id: string }) {
         employeeId: slugifyId(employeeId),
         cpf: onlyDigits(cpf),
         login: login.trim().toLowerCase(),
+        pixTipo,
+        chavePix: chavePix.trim(),
       };
 
       if (!payload.name) throw new Error("Nome obrigatório.");
@@ -287,6 +297,34 @@ export default function FuncionarioEditClient({ id }: { id: string }) {
           <div>
             <label className="block text-sm mb-1">Login</label>
             <input className="w-full rounded-xl border px-3 py-2" value={login} onChange={(e) => setLogin(e.target.value)} />
+          </div>
+
+          <div>
+            <label className="block text-sm mb-1">Tipo de chave PIX</label>
+            <select
+              className="w-full rounded-xl border px-3 py-2 bg-white"
+              value={pixTipo}
+              onChange={(e) => setPixTipo(e.target.value as PixTipo)}
+            >
+              <option value="CPF">CPF</option>
+              <option value="CNPJ">CNPJ</option>
+              <option value="EMAIL">E-mail</option>
+              <option value="TELEFONE">Telefone</option>
+              <option value="ALEATORIA">Aleatória</option>
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-sm mb-1">Chave PIX</label>
+            <input
+              className="w-full rounded-xl border px-3 py-2"
+              value={chavePix}
+              onChange={(e) => setChavePix(e.target.value)}
+              placeholder="CPF / e-mail / telefone / aleatória"
+            />
+            <div className="text-[11px] text-slate-500 mt-1">
+              Usada no Enviar PIX da comissão do funcionário.
+            </div>
           </div>
 
           <div>
