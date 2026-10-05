@@ -5,7 +5,7 @@ import { todayISORecife } from "@/lib/payouts/employeePayouts";
 import { interConfigured, interPublicBaseUrl } from "@/lib/inter/config";
 import { createInterPixByKey, registerInterPixWebhook } from "@/lib/inter/pix";
 import { applyInterPixConsulta, refreshInterPixById } from "@/lib/inter/settle";
-import { normalizePixKey, pixKeyLooksValid } from "@/lib/inter/pix-key";
+import { cedentePixDestino, employeePixDestino } from "@/lib/inter/destino";
 
 let webhookTried = false;
 
@@ -30,31 +30,8 @@ export type InterPayResult = {
 };
 
 async function resolveEmployeePix(userId: string) {
-  const user = await prisma.user.findUnique({
-    where: { id: userId },
-    select: { pixTipo: true, chavePix: true, cpf: true },
-  });
-  if (user?.chavePix && user.pixTipo) {
-    const key = normalizePixKey(user.pixTipo, user.chavePix);
-    if (pixKeyLooksValid(user.pixTipo, key)) {
-      return { pixTipo: user.pixTipo, pixKey: key };
-    }
-  }
-
-  const cpf = String(user?.cpf || "").replace(/\D/g, "");
-  if (cpf.length === 11) {
-    const cedente = await prisma.cedente.findFirst({
-      where: { cpf },
-      select: { pixTipo: true, chavePix: true },
-    });
-    if (cedente?.chavePix) {
-      const key = normalizePixKey(cedente.pixTipo, cedente.chavePix);
-      if (pixKeyLooksValid(cedente.pixTipo, key)) {
-        return { pixTipo: cedente.pixTipo, pixKey: key };
-      }
-    }
-  }
-  return null;
+  const destino = await employeePixDestino(userId);
+  return { pixTipo: destino.pixTipo, pixKey: destino.pixKey };
 }
 
 async function sendPix(opts: {
@@ -206,25 +183,15 @@ export async function payCedenteCommissionViaInter(opts: {
   if (!interConfigured()) {
     return { via: "local", paid: true, awaitingApproval: false };
   }
-  const cedente = await prisma.cedente.findUnique({
-    where: { id: opts.cedenteId },
-    select: { pixTipo: true, chavePix: true, identificador: true, nomeCompleto: true },
-  });
-  if (!cedente?.chavePix) {
-    throw new Error("Cedente sem chave PIX cadastrada.");
-  }
-  const pixKey = normalizePixKey(cedente.pixTipo, cedente.chavePix);
-  if (!pixKeyLooksValid(cedente.pixTipo, pixKey)) {
-    throw new Error("Chave PIX do cedente inválida.");
-  }
+  const destino = await cedentePixDestino(opts.cedenteId);
   return sendPix({
     team: opts.team,
     kind: "CEDENTE_COMMISSION",
     cedenteCommissionId: opts.commissionId,
     amountCents: opts.amountCents,
-    pixTipo: cedente.pixTipo,
-    pixKey,
-    description: `Cedente ${cedente.identificador || cedente.nomeCompleto}`.slice(0, 140),
+    pixTipo: destino.pixTipo,
+    pixKey: destino.pixKey,
+    description: `Cedente ${destino.source}`.slice(0, 140),
     requestedById: opts.requestedById,
   });
 }

@@ -1,7 +1,34 @@
 import { interConfig } from "@/lib/inter/config";
 import { interHttp } from "@/lib/inter/http";
 import { interAccessToken } from "@/lib/inter/oauth";
-import { interTipoChave } from "@/lib/inter/pix-key";
+
+function formatInterError(status: number, json: unknown, text: string) {
+  const data = (json || {}) as {
+    message?: string;
+    title?: string;
+    titulo?: string;
+    detail?: string;
+    detalhe?: string;
+    error?: string;
+    violacoes?: { razao?: string; propriedade?: string }[];
+  };
+  const viol = (data.violacoes || [])
+    .map((v) => [v.propriedade, v.razao].filter(Boolean).join(": "))
+    .filter(Boolean)
+    .join("; ");
+  const raw = String(text || "").replace(/\s+/g, " ").trim();
+  return (
+    viol ||
+    data.detalhe ||
+    data.detail ||
+    data.message ||
+    data.titulo ||
+    data.title ||
+    data.error ||
+    (raw && raw.length < 280 ? raw : "") ||
+    `Inter HTTP ${status}`
+  ).slice(0, 400);
+}
 
 let lastPixAt = 0;
 let pixQueue: Promise<void> = Promise.resolve();
@@ -59,8 +86,6 @@ export async function createInterPixByKey(opts: {
     destinatario: {
       tipo: "CHAVE",
       chave: opts.pixKey,
-      tipoChave: interTipoChave(opts.pixTipo),
-      chavePix: opts.pixKey,
     },
   };
 
@@ -71,20 +96,9 @@ export async function createInterPixByKey(opts: {
       headers: await authHeaders({ "x-id-idempotente": opts.idempotencyKey }),
       body: JSON.stringify(body),
     });
-    const data = (res.json || {}) as InterPixCreateResult & {
-      message?: string;
-      title?: string;
-      detail?: string;
-      violacoes?: { razao?: string }[];
-    };
+    const data = (res.json || {}) as InterPixCreateResult;
     if (res.status >= 400 || !data.codigoSolicitacao) {
-      const viol = data.violacoes?.map((v) => v.razao).filter(Boolean).join("; ");
-      throw new Error(
-        (viol || data.detail || data.message || data.title || `Inter PIX HTTP ${res.status}`).slice(
-          0,
-          400
-        )
-      );
+      throw new Error(formatInterError(res.status, res.json, res.text));
     }
     return data;
   });
@@ -110,8 +124,7 @@ export async function getInterPix(codigoSolicitacao: string): Promise<InterPixCo
     headers: await authHeaders(),
   });
   if (res.status >= 400) {
-    const data = (res.json || {}) as { message?: string; title?: string; detail?: string };
-    throw new Error((data.detail || data.message || data.title || `Inter consulta HTTP ${res.status}`).slice(0, 400));
+    throw new Error(formatInterError(res.status, res.json, res.text));
   }
   return (res.json || {}) as InterPixConsulta;
 }
@@ -126,9 +139,6 @@ export async function registerInterPixWebhook(webhookBaseUrl: string) {
     body: JSON.stringify({ webhookUrl }),
   });
   if (res.status !== 204 && res.status !== 200) {
-    const data = (res.json || {}) as { message?: string; title?: string; detail?: string };
-    throw new Error(
-      (data.detail || data.message || data.title || `Inter webhook HTTP ${res.status}`).slice(0, 400)
-    );
+    throw new Error(formatInterError(res.status, res.json, res.text));
   }
 }

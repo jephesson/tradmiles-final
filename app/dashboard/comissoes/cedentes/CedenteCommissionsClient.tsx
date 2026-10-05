@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { Banknote, Plus, RefreshCw, Search, Trophy, Users, X } from "lucide-react";
+import PixDestinoConfirmModal, { type PixDestinoView } from "@/components/PixDestinoConfirmModal";
 import { cn } from "@/lib/cn";
 
 type Status = "PENDING" | "PAID" | "CANCELED" | "";
@@ -27,6 +28,9 @@ type CommissionItem = {
     nomeCompleto: string;
     cpf: string;
     identificador: string;
+    banco?: string | null;
+    pixTipo?: string | null;
+    chavePix?: string | null;
   } | null;
 
   purchase?: {
@@ -150,6 +154,11 @@ export default function CedenteCommissionsClient() {
   const [cedenteId, setCedenteId] = useState("");
   const [amount, setAmount] = useState("");
   const [addNote, setAddNote] = useState("");
+  const [pixModal, setPixModal] = useState<{
+    id: string;
+    amountCents: number;
+    destino: PixDestinoView;
+  } | null>(null);
 
   async function load() {
     try {
@@ -220,17 +229,31 @@ export default function CedenteCommissionsClient() {
   }, [data.skip, data.take, take]);
 
   async function payCommission(id: string, via: "local" | "inter") {
-    const note = window.prompt("Observação (opcional):", "") ?? "";
-    if (
-      !window.confirm(
-        via === "inter"
-          ? "Confirmar: enviar PIX pelo Banco Inter?"
-          : "Confirmar: marcar esta comissão como PAGA (sem enviar PIX)?"
-      )
-    ) {
+    if (via === "inter") {
+      try {
+        setLoading(true);
+        setErr("");
+        const res = await fetch(`/api/cedente-commissions/${id}/pix-destino`, { cache: "no-store" });
+        const json = await res.json().catch(() => ({}));
+        if (!res.ok || !json?.ok) {
+          setErr(json?.error || "Não deu para conferir o PIX.");
+          return;
+        }
+        setPixModal({ id, amountCents: json.amountCents, destino: json.destino });
+      } catch (e: unknown) {
+        setErr(e instanceof Error ? e.message : "Falha ao conferir PIX.");
+      } finally {
+        setLoading(false);
+      }
       return;
     }
 
+    const note = window.prompt("Observação (opcional):", "") ?? "";
+    if (!window.confirm("Confirmar: marcar esta comissão como PAGA (sem enviar PIX)?")) return;
+    await postPay(id, "local", note);
+  }
+
+  async function postPay(id: string, via: "local" | "inter", note = "") {
     try {
       setLoading(true);
       setErr("");
@@ -241,9 +264,10 @@ export default function CedenteCommissionsClient() {
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) {
-        setErr(json?.error || json?.message || "Falha ao pagar comissão.");
+        setErr(json?.error || json?.detail || json?.message || "Falha ao pagar comissão.");
         return;
       }
+      setPixModal(null);
       await load();
     } catch (e: unknown) {
       setErr(e instanceof Error ? e.message : "Erro inesperado ao pagar.");
@@ -569,6 +593,12 @@ export default function CedenteCommissionsClient() {
                       {it.cedente?.identificador ? `${it.cedente.identificador} · ` : ""}
                       {it.cedente?.cpf || ""}
                     </div>
+                    {it.cedente?.chavePix ? (
+                      <div className="mt-1 text-[11px] text-slate-500">
+                        PIX {it.cedente.pixTipo}: {it.cedente.chavePix}
+                        {it.cedente.banco ? ` · ${it.cedente.banco}` : ""}
+                      </div>
+                    ) : null}
                   </td>
                   <td className="px-4 py-3.5">
                     <div className="font-medium text-slate-900">{it.purchase?.numero || "—"}</div>
@@ -728,6 +758,17 @@ export default function CedenteCommissionsClient() {
           </table>
         </div>
       </div>
+
+      {pixModal ? (
+        <PixDestinoConfirmModal
+          title="Enviar PIX ao cedente"
+          amountCents={pixModal.amountCents}
+          destino={pixModal.destino}
+          busy={loading}
+          onCancel={() => setPixModal(null)}
+          onConfirm={() => void postPay(pixModal.id, "inter")}
+        />
+      ) : null}
 
       {addOpen ? (
         <div className="fixed inset-0 z-50 flex items-end justify-center bg-slate-900/40 p-4 sm:items-center">

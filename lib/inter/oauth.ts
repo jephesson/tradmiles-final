@@ -31,7 +31,10 @@ export async function interAccessToken() {
 
   if (!res.status || res.status >= 400 || !data.access_token) {
     throw new Error(
-      (data.error_description || data.error || `Inter OAuth HTTP ${res.status}`).slice(0, 400)
+      (data.error_description || data.error || res.text || `Inter OAuth HTTP ${res.status}`).slice(
+        0,
+        400
+      )
     );
   }
 

@@ -63,7 +63,10 @@ export async function interHttp(opts: {
         });
       }
     );
-    req.on("error", reject);
+    req.on("error", (e) => {
+      const msg = e instanceof Error ? e.message : String(e);
+      reject(new Error(`Falha TLS/Inter: ${msg}`));
+    });
     if (opts.body) req.write(opts.body);
     req.end();
   });

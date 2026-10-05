@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/prisma";
-import { ok, badRequest, notFound, serverError } from "@/lib/api";
+import { ok, badRequest, notFound } from "@/lib/api";
 import { getSessionServer } from "@/lib/auth-server";
 import { interConfigured } from "@/lib/inter/config";
 import { payCedenteCommissionViaInter } from "@/lib/inter/pay";
@@ -129,9 +129,6 @@ export async function POST(
     });
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);
-    if (msg.includes("CANCELED") || msg.includes("PIX") || msg.includes("chave")) {
-      return badRequest(msg);
-    }
-    return serverError("Falha ao pagar comissão.", { detail: msg });
+    return badRequest(msg || "Falha ao pagar comissão.");
   }
 }

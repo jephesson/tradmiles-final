@@ -14,6 +14,7 @@ import {
   X,
 } from "lucide-react";
 import { cn } from "@/lib/cn";
+import PixDestinoConfirmModal, { type PixDestinoView } from "@/components/PixDestinoConfirmModal";
 
 type Basis = "SALE_DATE" | "PURCHASE_FINALIZED";
 
@@ -516,6 +517,12 @@ export default function ComissoesFuncionariosClient() {
   const [isAdmin, setIsAdmin] = useState(false);
   const [asUserId, setAsUserId] = useState("");
   const [teamUsers, setTeamUsers] = useState<UserLite[]>([]);
+  const [pixModal, setPixModal] = useState<{
+    date: string;
+    userId: string;
+    amountCents: number;
+    destino: PixDestinoView;
+  } | null>(null);
 
   const today = useMemo(() => todayISORecife(), []);
   const isFutureOrToday = useMemo(() => date >= today, [date, today]);
@@ -598,6 +605,29 @@ export default function ComissoesFuncionariosClient() {
   }
 
   async function payRow(d: string, userId: string, via: "local" | "inter") {
+    if (via === "inter") {
+      setPayingKey(`${d}|${userId}`);
+      try {
+        const res = await fetch(
+          `/api/payouts/funcionarios/pix-destino?date=${encodeURIComponent(d)}&userId=${encodeURIComponent(userId)}`,
+          { cache: "no-store", credentials: "include" }
+        );
+        const json = await res.json().catch(() => ({}));
+        if (!res.ok || !json?.ok) {
+          throw new Error(json?.error || "Não deu para conferir o PIX.");
+        }
+        setPixModal({ date: d, userId, amountCents: json.amountCents, destino: json.destino });
+      } catch (e: unknown) {
+        setToast({ title: "Falha ao conferir PIX", desc: getErrorMessage(e, "Falha ao conferir PIX.") });
+      } finally {
+        setPayingKey(null);
+      }
+      return;
+    }
+    await sendPay(d, userId, "local");
+  }
+
+  async function sendPay(d: string, userId: string, via: "local" | "inter") {
     const key = `${d}|${userId}`;
     setPayingKey(key);
     try {
@@ -609,16 +639,16 @@ export default function ComissoesFuncionariosClient() {
       }>(`/api/payouts/funcionarios/pay`, { date: d, userId, via });
       await loadDay(d);
 
-      // se o modal estiver aberto no mesmo user, atualiza também
       if (detailOpen && detailUser?.id === userId) {
         await loadDetails(d, userId);
       }
 
+      setPixModal(null);
       setToast(
         via === "inter" && out.awaitingApproval
           ? {
               title: "PIX enviado",
-              desc: "Aguardando aprovação no Internet Banking do Inter (Aprovar).",
+              desc: "Aguardando aprovação no Internet Banking do Inter (Aprovar). Confira o nome do recebedor lá.",
             }
           : via === "inter"
             ? { title: "PIX pago", desc: `Comissão enviada pelo Inter em ${d}.` }
@@ -1617,6 +1647,17 @@ export default function ComissoesFuncionariosClient() {
           </div>
         </div>
       )}
+
+      {pixModal ? (
+        <PixDestinoConfirmModal
+          title="Enviar PIX ao funcionário"
+          amountCents={pixModal.amountCents}
+          destino={pixModal.destino}
+          busy={payingKey != null}
+          onCancel={() => setPixModal(null)}
+          onConfirm={() => void sendPay(pixModal.date, pixModal.userId, "inter")}
+        />
+      ) : null}
 
       {toast && (
         <div className="fixed bottom-4 right-4 z-50 w-[min(360px,calc(100vw-2rem))] rounded-2xl border border-slate-200/90 bg-white p-4 shadow-xl shadow-slate-900/10">
