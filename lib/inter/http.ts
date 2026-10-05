@@ -1,8 +1,9 @@
 import https from "node:https";
 import { URL } from "node:url";
-import { interConfig } from "@/lib/inter/config";
+import { interConfig, assertInterPem } from "@/lib/inter/config";
 
 function agent() {
+  assertInterPem();
   const cfg = interConfig();
   if (cfg.pfxBase64) {
     return new https.Agent({
@@ -65,6 +66,14 @@ export async function interHttp(opts: {
     );
     req.on("error", (e) => {
       const msg = e instanceof Error ? e.message : String(e);
+      if (/PEM routines|no start line|DECODER routines/i.test(msg)) {
+        reject(
+          new Error(
+            "Certificado do Inter inválido. Em INTER_CERT e INTER_KEY cole o arquivo .crt e .key inteiros, incluindo BEGIN/END."
+          )
+        );
+        return;
+      }
       reject(new Error(`Falha TLS/Inter: ${msg}`));
     });
     if (opts.body) req.write(opts.body);
