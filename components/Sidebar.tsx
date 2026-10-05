@@ -257,6 +257,7 @@ export default function Sidebar() {
   const isPrejuizoRoute = pathname.startsWith("/dashboard/prejuizo");
   const isDespesasRoute = pathname.startsWith("/dashboard/despesas");
   const isCaixaViasAereasRoute = pathname.startsWith("/dashboard/caixa-vias-aereas");
+  const isDividasCartoesRoute = pathname.startsWith("/dashboard/dividas-cartoes");
 
   const isDadosContabeisRoute = pathname.startsWith("/dashboard/dados-contabeis");
   const isContabilidadeRoute = isDadosContabeisRoute || isImpostosRoute;
@@ -270,7 +271,8 @@ export default function Sidebar() {
     isCaixaImediatoRoute ||
     isPrejuizoRoute ||
     isDadosContabeisRoute ||
-    isCaixaViasAereasRoute;
+    isCaixaViasAereasRoute ||
+    isDividasCartoesRoute;
 
   // ✅ IMPORTAÇÕES (fora do Gestor de emissões)
   const isImportacoesRoute = pathname.startsWith("/dashboard/importacoes");
@@ -1032,6 +1034,7 @@ export default function Sidebar() {
           <NavLink href="/dashboard/prejuizo">Prejuízo</NavLink>
 
           <NavLink href="/dashboard/dividas">Dívidas</NavLink>
+          <NavLink href="/dashboard/dividas-cartoes">Dívida cartões</NavLink>
 
           <NavLink href="/dashboard/despesas">Despesas</NavLink>
 

@@ -56,6 +56,13 @@ export async function applyInterPixConsulta(rowId: string, consulta: {
   if (mapped === "PAID") {
     if (row.employeePayoutId) await markEmployeePaid(row.employeePayoutId, row.requestedById);
     if (row.cedenteCommissionId) await markCedentePaid(row.cedenteCommissionId, row.requestedById);
+    const cardIds = row.cardDebtInstallmentIds || [];
+    if (cardIds.length) {
+      await prisma.cardDebtInstallment.updateMany({
+        where: { id: { in: cardIds }, status: "OPEN" },
+        data: { status: "PAID", paidAt: new Date(), paidVia: "inter" },
+      });
+    }
   }
 
   return updated;

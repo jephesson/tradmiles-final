@@ -1821,13 +1821,15 @@ model InterPixPayment {
   team String
 
   kind String
-  /// EMPLOYEE_PAYOUT | CEDENTE_COMMISSION
+  /// EMPLOYEE_PAYOUT | CEDENTE_COMMISSION | CARD_DEBT
 
   employeePayoutId String?
   employeePayout   EmployeePayout? @relation(fields: [employeePayoutId], references: [id], onDelete: SetNull)
 
   cedenteCommissionId String?
   cedenteCommission   CedenteCommission? @relation(fields: [cedenteCommissionId], references: [id], onDelete: SetNull)
+
+  cardDebtInstallmentIds String[] @default([])
 
   amountCents Int
   pixTipo     String
@@ -1854,6 +1856,68 @@ model InterPixPayment {
   @@index([employeePayoutId])
   @@index([cedenteCommissionId])
   @@map("inter_pix_payments")
+}
+
+/**
+ * Dívida de cartões (planilha Jocykleber): compras parceladas + PIX.
+ */
+model CardDebtCreditor {
+  id       String   @id @default(cuid())
+  team     String
+  name     String
+  pixTipo  PixTipo?
+  chavePix String?
+
+  purchases CardDebtPurchase[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([team, name])
+  @@index([team])
+  @@map("card_debt_creditors")
+}
+
+model CardDebtPurchase {
+  id         String @id @default(cuid())
+  team       String
+  creditorId String
+  creditor   CardDebtCreditor @relation(fields: [creditorId], references: [id], onDelete: Cascade)
+
+  title     String
+  importKey String? @unique
+  notes     String?
+
+  installments CardDebtInstallment[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([team, creditorId])
+  @@map("card_debt_purchases")
+}
+
+model CardDebtInstallment {
+  id         String @id @default(cuid())
+  purchaseId String
+  purchase   CardDebtPurchase @relation(fields: [purchaseId], references: [id], onDelete: Cascade)
+
+  n           Int
+  dueDate     DateTime @db.Date
+  amountCents Int
+  status      String   @default("OPEN")
+  /// OPEN | PAID
+  paidAt      DateTime?
+  paidVia     String?
+  /// import | local | inter
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([purchaseId, n])
+  @@index([dueDate, status])
+  @@index([status])
+  @@map("card_debt_installments")
 }
 
 /**

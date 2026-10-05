@@ -36,9 +36,10 @@ async function resolveEmployeePix(userId: string) {
 
 async function sendPix(opts: {
   team: string;
-  kind: "EMPLOYEE_PAYOUT" | "CEDENTE_COMMISSION";
+  kind: "EMPLOYEE_PAYOUT" | "CEDENTE_COMMISSION" | "CARD_DEBT";
   employeePayoutId?: string;
   cedenteCommissionId?: string;
+  cardDebtInstallmentIds?: string[];
   amountCents: number;
   pixTipo: PixTipo | string;
   pixKey: string;
@@ -49,14 +50,23 @@ async function sendPix(opts: {
     return { via: "local", paid: true, awaitingApproval: false };
   }
 
-  const open = await prisma.interPixPayment.findFirst({
-    where: {
-      status: { in: ["CREATED", "AWAITING_APPROVAL", "PROCESSING"] },
-      ...(opts.employeePayoutId ? { employeePayoutId: opts.employeePayoutId } : {}),
-      ...(opts.cedenteCommissionId ? { cedenteCommissionId: opts.cedenteCommissionId } : {}),
-    },
-    orderBy: { createdAt: "desc" },
-  });
+  const cardIds = (opts.cardDebtInstallmentIds || []).filter(Boolean);
+  const openWhere =
+    opts.employeePayoutId || opts.cedenteCommissionId || cardIds.length
+      ? {
+          status: { in: ["CREATED", "AWAITING_APPROVAL", "PROCESSING"] },
+          ...(opts.employeePayoutId ? { employeePayoutId: opts.employeePayoutId } : {}),
+          ...(opts.cedenteCommissionId ? { cedenteCommissionId: opts.cedenteCommissionId } : {}),
+          ...(cardIds.length ? { cardDebtInstallmentIds: { hasSome: cardIds } } : {}),
+        }
+      : null;
+
+  const open = openWhere
+    ? await prisma.interPixPayment.findFirst({
+        where: openWhere,
+        orderBy: { createdAt: "desc" },
+      })
+    : null;
   if (open?.codigoSolicitacao) {
     const refreshed = await refreshInterPixById(open.id);
     const status = refreshed?.status || open.status;
@@ -78,6 +88,7 @@ async function sendPix(opts: {
       kind: opts.kind,
       employeePayoutId: opts.employeePayoutId || null,
       cedenteCommissionId: opts.cedenteCommissionId || null,
+      cardDebtInstallmentIds: cardIds,
       amountCents: opts.amountCents,
       pixTipo: String(opts.pixTipo),
       pixKey: opts.pixKey,
@@ -192,6 +203,30 @@ export async function payCedenteCommissionViaInter(opts: {
     pixTipo: destino.pixTipo,
     pixKey: destino.pixKey,
     description: `Cedente ${destino.source}`.slice(0, 140),
+    requestedById: opts.requestedById,
+  });
+}
+
+export async function payCardDebtViaInter(opts: {
+  team: string;
+  installmentIds: string[];
+  amountCents: number;
+  pixTipo: PixTipo | string;
+  pixKey: string;
+  description: string;
+  requestedById: string;
+}): Promise<InterPayResult> {
+  if (!interConfigured()) {
+    return { via: "local", paid: true, awaitingApproval: false };
+  }
+  return sendPix({
+    team: opts.team,
+    kind: "CARD_DEBT",
+    cardDebtInstallmentIds: opts.installmentIds,
+    amountCents: opts.amountCents,
+    pixTipo: opts.pixTipo,
+    pixKey: opts.pixKey,
+    description: opts.description,
     requestedById: opts.requestedById,
   });
 }
