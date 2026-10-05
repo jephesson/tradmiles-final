@@ -225,7 +225,7 @@ export default function DividasCartoesClient() {
         <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Financeiro</div>
         <h1 className="text-2xl font-bold">Dívida cartões</h1>
         <p className="text-sm text-slate-600">
-          Parcelas do {creditorName} (planilha Jocykleber). Pague uma, o mês ou o restante total via PIX do Inter.
+          Parcelas do {creditorName} (planilha Jocykleber). Marque várias parcelas e pague tudo em <b>um PIX só</b>.
         </p>
       </div>
 
@@ -355,7 +355,11 @@ export default function DividasCartoesClient() {
           onClick={() => void startPix(selectedIds)}
           className="rounded-xl bg-emerald-700 px-3 py-2 text-sm text-white disabled:opacity-60"
         >
-          Enviar PIX seleção
+          {selectedIds.length > 1
+            ? `Pagar ${selectedIds.length} parcelas em 1 PIX (${money(selectedCents)})`
+            : selectedIds.length === 1
+              ? `Pagar 1 parcela no PIX (${money(selectedCents)})`
+              : "Pagar seleção em 1 PIX"}
         </button>
         {tab === "mes" ? (
           <>
@@ -429,7 +433,25 @@ export default function DividasCartoesClient() {
                       />
                     ) : null}
                   </td>
-                  <td className="p-3 font-medium">{r.title}</td>
+                  <td className="p-3 font-medium">
+                    <div>{r.title}</div>
+                    {r.status === "OPEN" ? (
+                      <button
+                        type="button"
+                        className="text-[11px] text-slate-500 underline"
+                        onClick={() => {
+                          const ids = visible.filter((x) => x.purchaseId === r.purchaseId && x.status === "OPEN").map((x) => x.id);
+                          setSelected((prev) => {
+                            const next = { ...prev };
+                            for (const id of ids) next[id] = true;
+                            return next;
+                          });
+                        }}
+                      >
+                        Juntar restantes desta compra
+                      </button>
+                    ) : null}
+                  </td>
                   <td className="p-3 tabular-nums">{r.n}</td>
                   <td className="p-3 tabular-nums">{dateBR(r.dueDate)}</td>
                   <td className="p-3 tabular-nums">{money(r.amountCents)}</td>
@@ -465,6 +487,27 @@ export default function DividasCartoesClient() {
           </table>
         </div>
       )}
+
+      {selectedIds.length > 0 ? (
+        <div className="sticky bottom-4 z-20 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 shadow-lg">
+          <div className="text-sm text-emerald-950">
+            <b>{selectedIds.length}</b> parcela(s) juntas · <b>{money(selectedCents)}</b>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button type="button" className="rounded-xl border px-3 py-2 text-sm" onClick={() => setSelected({})}>
+              Limpar
+            </button>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => void startPix(selectedIds)}
+              className="rounded-xl bg-emerald-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
+            >
+              Pagar em 1 PIX
+            </button>
+          </div>
+        </div>
+      ) : null}
 
       {confirm && destino ? (
         <PixDestinoConfirmModal
