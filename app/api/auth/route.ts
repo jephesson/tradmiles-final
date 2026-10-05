@@ -1,12 +1,13 @@
 import { NextResponse } from "next/server";
 import crypto from "node:crypto";
 import { prisma } from "@/lib/prisma";
+import { parseRole } from "@/lib/roles";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-type Role = "admin" | "staff";
+type Role = "admin" | "staff" | "socio";
 
 const TEAM = "@vias_aereas";
 const sha256 = (s: string) => crypto.createHash("sha256").update(s).digest("hex");
@@ -18,6 +19,7 @@ type SessionCookie = {
   login: string;
   role: Role;
   team: string;
+  pages?: string[];
 };
 
 type ApiLogin = { action: "login"; login: string; password: string };
@@ -198,7 +200,10 @@ export async function POST(req: Request): Promise<NextResponse> {
         return NextResponse.json({ ok: false, error: "Senha inválida" }, { status: 401, headers: noCacheHeaders() });
       }
 
-      const role: Role = norm(dbUser.role) === "admin" ? "admin" : "staff";
+      const role = parseRole(dbUser.role);
+      const pages = Array.isArray((dbUser as { allowedPages?: string[] }).allowedPages)
+        ? (dbUser as { allowedPages: string[] }).allowedPages
+        : [];
       const sessionForClient = {
         id: dbUser.id,
         name: dbUser.name?.trim() || dbUser.login,
@@ -206,6 +211,7 @@ export async function POST(req: Request): Promise<NextResponse> {
         email: dbUser.email,
         team: dbUser.team,
         role,
+        pages,
       };
 
       const res = NextResponse.json(
@@ -217,6 +223,7 @@ export async function POST(req: Request): Promise<NextResponse> {
         login: dbUser.login,
         role,
         team: dbUser.team,
+        pages,
       });
       return res;
     }

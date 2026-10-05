@@ -44,6 +44,7 @@ function slugifyId(v: string) {
 export async function GET() {
   try {
     const users = await prisma.user.findMany({
+      where: { role: { not: "socio" } },
       orderBy: { createdAt: "desc" },
       select: {
         id: true,

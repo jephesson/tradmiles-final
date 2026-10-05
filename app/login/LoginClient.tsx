@@ -36,7 +36,9 @@ export default function LoginClient() {
         return;
       }
 
-      router.replace(next);
+      const dest =
+        result.home !== "/dashboard" && next === "/dashboard" ? result.home : next;
+      router.replace(dest);
     } catch {
       setErr("Erro de rede. Tente novamente.");
     } finally {

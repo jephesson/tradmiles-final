@@ -2,13 +2,14 @@
 import "server-only";
 import { cookies } from "next/headers";
 
-type Role = "admin" | "staff";
+type Role = "admin" | "staff" | "socio";
 
 export type Session = {
   id: string;
   login: string;
   role: Role;
   team: string;
+  pages?: string[];
 };
 
 function b64urlDecode(input: string) {
@@ -34,6 +35,7 @@ export async function getSessionServer(): Promise<Session | null> {
       login: String(s.login),
       role: s.role as Role,
       team: String(s.team),
+      pages: Array.isArray(s.pages) ? s.pages.map(String) : [],
     };
   } catch {
     return null;

@@ -5,6 +5,7 @@ import { ChevronLeft, ChevronRight, CreditCard, Plus } from "lucide-react";
 import PixDestinoConfirmModal, { type PixDestinoView } from "@/components/PixDestinoConfirmModal";
 import { currentMonthISORecife, nextMonthISO, previousMonthISO } from "@/lib/bonus/monthlyBonus";
 import { cn } from "@/lib/cn";
+import { getSession } from "@/lib/auth";
 
 type PixTipo = "CPF" | "CNPJ" | "EMAIL" | "TELEFONE" | "ALEATORIA";
 
@@ -74,6 +75,7 @@ export default function DividasCartoesClient() {
   const [newDue, setNewDue] = useState("");
   const [showNew, setShowNew] = useState(false);
   const [showPix, setShowPix] = useState(false);
+  const [viewOnly, setViewOnly] = useState(false);
 
   const visible = tab === "mes" ? rows : openRows;
   const listed = useMemo(
@@ -112,7 +114,8 @@ export default function DividasCartoesClient() {
       setCreditorName(json.data.creditor?.name || "Jocykleber");
       if (json.data.creditor?.pixTipo) setPixTipo(json.data.creditor.pixTipo);
       if (json.data.creditor?.chavePix) setChavePix(json.data.creditor.chavePix);
-      if (!json.data.creditor?.chavePix) setShowPix(true);
+      if (!json.data.creditor?.chavePix && json.data?.viewOnly !== true) setShowPix(true);
+      if (json.data?.viewOnly) setViewOnly(true);
     } catch (e: any) {
       setError(e?.message || "Erro");
     } finally {
@@ -127,6 +130,7 @@ export default function DividasCartoesClient() {
   }
 
   useEffect(() => {
+    setViewOnly(getSession()?.role === "socio");
     void loadMonth(month).then(() => void loadOpen());
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [month]);
@@ -248,9 +252,12 @@ export default function DividasCartoesClient() {
             <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Financeiro</div>
             <h1 className="mt-0.5 text-2xl font-bold tracking-tight text-slate-900">Dívida cartões</h1>
             <p className="mt-1 max-w-2xl text-sm text-slate-500">
-              Parcelas do {creditorName}. Marque várias e pague em um PIX só.
+              {viewOnly
+                ? `Acompanhamento das parcelas do ${creditorName}.`
+                : `Parcelas do ${creditorName}. Marque várias e pague em um PIX só.`}
             </p>
           </div>
+          {viewOnly ? null : (
           <div className="flex flex-wrap gap-2">
             <button
               type="button"
@@ -269,9 +276,10 @@ export default function DividasCartoesClient() {
               Nova compra
             </button>
           </div>
+          )}
         </div>
 
-        {showPix ? (
+        {showPix && !viewOnly ? (
           <div className="mt-4 grid gap-2 rounded-xl border border-slate-200 bg-slate-50/80 p-3 sm:grid-cols-[160px_1fr_auto]">
             <select
               className="h-10 rounded-xl border border-slate-200 bg-white px-3 text-sm"
@@ -299,7 +307,7 @@ export default function DividasCartoesClient() {
               {pixSaving ? "Salvando..." : "Salvar"}
             </button>
           </div>
-        ) : chavePix ? (
+        ) : chavePix && !viewOnly ? (
           <div className="mt-3 text-xs text-slate-500">
             PIX cadastrado: {pixTipo} · {chavePix}
           </div>
@@ -373,7 +381,7 @@ export default function DividasCartoesClient() {
             Só em aberto
           </label>
         </div>
-        {tab === "mes" ? (
+        {!viewOnly && tab === "mes" ? (
           <button
             type="button"
             disabled={busy || !monthOpenIds.length}
@@ -382,7 +390,7 @@ export default function DividasCartoesClient() {
           >
             PIX do mês {totals ? money(totals.monthOpenCents) : ""}
           </button>
-        ) : (
+        ) : !viewOnly ? (
           <button
             type="button"
             disabled={busy || !openRows.length}
@@ -391,7 +399,7 @@ export default function DividasCartoesClient() {
           >
             PIX do restante {totals ? money(totals.allOpenCents) : ""}
           </button>
-        )}
+        ) : null}
       </div>
 
       {tab === "todas" && openByMonth.length ? (
@@ -422,6 +430,7 @@ export default function DividasCartoesClient() {
             {tab === "mes" ? `Parcelas de ${monthLabel(month)}` : "Parcelas em aberto"}
             {loading ? <span className="ml-2 text-xs font-normal text-slate-500">carregando...</span> : null}
           </div>
+          {viewOnly ? null : (
           <label className="inline-flex items-center gap-2 text-xs text-slate-500">
             <input
               type="checkbox"
@@ -434,6 +443,7 @@ export default function DividasCartoesClient() {
             />
             Selecionar todas
           </label>
+          )}
         </div>
 
         <div className="divide-y divide-slate-100">
@@ -448,14 +458,16 @@ export default function DividasCartoesClient() {
             return (
               <div key={g.purchaseId}>
                 <div className="flex flex-wrap items-center gap-3 bg-slate-50/80 px-4 py-2.5">
+                  {viewOnly ? null : (
                   <input type="checkbox" checked={groupSelected} disabled={!openItems.length} onChange={() => toggleGroup(g.purchaseId)} />
+                  )}
                   <div className="min-w-0 flex-1">
                     <div className="font-semibold text-slate-900">{g.title}</div>
                     <div className="text-xs text-slate-500">
                       {openItems.length ? `${openItems.length} em aberto · ${money(groupCents)}` : "Tudo pago neste recorte"}
                     </div>
                   </div>
-                  {openItems.length ? (
+                  {openItems.length && !viewOnly ? (
                     <button
                       type="button"
                       className="text-xs font-semibold text-emerald-700 hover:underline"
@@ -467,7 +479,7 @@ export default function DividasCartoesClient() {
                 </div>
                 {g.items.map((r) => (
                   <div key={r.id} className="flex flex-wrap items-center gap-3 px-4 py-2.5 pl-11 text-sm">
-                    {r.status === "OPEN" ? (
+                    {r.status === "OPEN" && !viewOnly ? (
                       <input
                         type="checkbox"
                         checked={!!selected[r.id]}
@@ -481,6 +493,8 @@ export default function DividasCartoesClient() {
                     <div className="flex-1 font-medium tabular-nums text-slate-900">{money(r.amountCents)}</div>
                     {r.status === "PAID" ? (
                       <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-700">Pago</span>
+                    ) : viewOnly ? (
+                      <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-800">Aberto</span>
                     ) : (
                       <div className="flex items-center gap-3">
                         <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-800">Aberto</span>
@@ -500,7 +514,7 @@ export default function DividasCartoesClient() {
         </div>
       </div>
 
-      {selectedIds.length > 0 ? (
+      {selectedIds.length > 0 && !viewOnly ? (
         <div className="sticky bottom-4 z-20 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-emerald-200 bg-white px-4 py-3 shadow-lg">
           <div className="text-sm text-slate-800">
             <b>{selectedIds.length}</b> parcela(s) · <b>{money(selectedCents)}</b>

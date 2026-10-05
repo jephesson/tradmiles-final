@@ -2,8 +2,9 @@
 export type Sess = {
   id: string;
   login: string;
-  role: "admin" | "staff";
+  role: "admin" | "staff" | "socio";
   team: string;
+  pages?: string[];
 };
 
 function b64urlDecode(input: string) {

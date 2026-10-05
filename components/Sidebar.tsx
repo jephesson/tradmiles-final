@@ -137,7 +137,10 @@ export default function Sidebar() {
   useEffect(() => {
     const fromStorage = getSession();
     setSessionState(fromStorage);
-    const roleOk = fromStorage?.role === "admin" || fromStorage?.role === "staff";
+    const roleOk =
+      fromStorage?.role === "admin" ||
+      fromStorage?.role === "staff" ||
+      fromStorage?.role === "socio";
     if (roleOk) return;
 
     let cancelled = false;
@@ -176,6 +179,7 @@ export default function Sidebar() {
     pathname.startsWith("/dashboard/afiliados") ||
     pathname.startsWith("/dashboard/clientes") ||
     pathname.startsWith("/dashboard/funcionarios") ||
+    pathname.startsWith("/dashboard/socios") ||
     pathname.startsWith("/dashboard/bloqueios");
 
   const isIndicacoesRoute = pathname.startsWith("/dashboard/indicacoes");
@@ -391,6 +395,7 @@ export default function Sidebar() {
   const [openFuncionarios, setOpenFuncionarios] = useState(
     pathname.startsWith("/dashboard/funcionarios")
   );
+  const [openSocios, setOpenSocios] = useState(pathname.startsWith("/dashboard/socios"));
   const [openClientes, setOpenClientes] = useState(
     pathname.startsWith("/dashboard/clientes")
   );
@@ -489,6 +494,10 @@ export default function Sidebar() {
 
   useEffect(() => {
     setOpenFuncionarios(pathname.startsWith("/dashboard/funcionarios"));
+  }, [pathname]);
+
+  useEffect(() => {
+    setOpenSocios(pathname.startsWith("/dashboard/socios"));
   }, [pathname]);
 
   useEffect(() => {
@@ -657,6 +666,22 @@ export default function Sidebar() {
 
       <div className="flex min-h-0 flex-1 flex-col">
         <nav className="min-h-0 flex-1 space-y-1 overflow-y-auto px-2 py-2 [scrollbar-width:thin] [scrollbar-color:rgba(148,163,184,0.45)_transparent]">
+        {session?.role === "socio" ? (
+          <Accordion
+            title="Financeiro"
+            open
+            onToggle={() => {}}
+            active
+            accent="orange"
+          >
+            {(session.pages || []).includes("dividas-cartoes") ? (
+              <NavLink href="/dashboard/dividas-cartoes">Dívida cartões</NavLink>
+            ) : (
+              <div className="px-3 py-2 text-xs text-slate-500">Nenhuma tela liberada.</div>
+            )}
+          </Accordion>
+        ) : (
+        <>
         {/* ================= CADASTRO ================= */}
         <Accordion
           title="Cadastro"
@@ -717,6 +742,16 @@ export default function Sidebar() {
               Dados de pagamento
             </NavLink>
           </SubAccordion>
+
+          {session?.role === "admin" ? (
+          <SubAccordion
+            title="Sócios"
+            open={openSocios}
+            onToggle={() => setOpenSocios((v) => !v)}
+          >
+            <NavLink href="/dashboard/socios">Sócios</NavLink>
+          </SubAccordion>
+          ) : null}
 
           <SubAccordion
             title="Clientes"
@@ -1243,6 +1278,8 @@ export default function Sidebar() {
 
           <NavLink href="/dashboard/wallet">Wallet</NavLink>
         </Accordion>
+        </>
+        )}
         </nav>
 
         <div className="shrink-0 border-t border-slate-200/50 bg-gradient-to-t from-white to-slate-50/30 px-2.5 py-3">

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSessionServer } from "@/lib/auth-server";
 import { prisma } from "@/lib/prisma";
+import { parseRole } from "@/lib/roles";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -16,10 +17,6 @@ function noCacheHeaders() {
   };
 }
 
-function normalizeRole(v: string) {
-  return v.trim().toLowerCase() === "admin" ? ("admin" as const) : ("staff" as const);
-}
-
 /** Sincroniza cache de UI (localStorage) com o cookie httpOnly após login antigo ou sessão incompleta. */
 export async function GET(): Promise<NextResponse> {
   try {
@@ -30,7 +27,16 @@ export async function GET(): Promise<NextResponse> {
 
     const user = await prisma.user.findUnique({
       where: { id: cookieS.id },
-      select: { id: true, name: true, login: true, email: true, team: true, role: true, isActive: true },
+      select: {
+        id: true,
+        name: true,
+        login: true,
+        email: true,
+        team: true,
+        role: true,
+        isActive: true,
+        allowedPages: true,
+      },
     });
     if (!user) {
       return NextResponse.json({ ok: false, error: "Usuário não encontrado" }, { status: 401, headers: noCacheHeaders() });
@@ -43,7 +49,7 @@ export async function GET(): Promise<NextResponse> {
       );
     }
 
-    const role = normalizeRole(user.role);
+    const role = parseRole(user.role);
     return NextResponse.json(
       {
         ok: true,
@@ -55,6 +61,7 @@ export async function GET(): Promise<NextResponse> {
             email: user.email,
             team: user.team,
             role,
+            pages: user.allowedPages || [],
           },
         },
       },

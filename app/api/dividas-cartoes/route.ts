@@ -39,6 +39,7 @@ export async function GET(req: Request) {
 
   try {
     const creditor = await ensureCardDebtSeed(sess.team);
+    const viewOnly = sess.role === "socio";
     const { start, end } = monthRange(month);
 
   const [monthRows, allOpen, allPaid, allTotal, monthBuckets] = await Promise.all([
@@ -85,9 +86,10 @@ export async function GET(req: Request) {
       creditor: {
         id: creditor.id,
         name: creditor.name,
-        pixTipo: creditor.pixTipo,
-        chavePix: creditor.chavePix,
+        pixTipo: viewOnly ? null : creditor.pixTipo,
+        chavePix: viewOnly ? null : creditor.chavePix,
       },
+      viewOnly,
       month,
       installments: monthRows.map((r) => ({
         id: r.id,
@@ -130,6 +132,9 @@ export async function POST(req: Request) {
     sess = await requireSession();
   } catch {
     return NextResponse.json({ ok: false, error: "Não autenticado" }, { status: 401 });
+  }
+  if (sess.role === "socio") {
+    return NextResponse.json({ ok: false, error: "Sócio só visualiza esta tela." }, { status: 403 });
   }
   const body = await req.json().catch(() => ({}));
   const title = String(body?.title || "").trim();

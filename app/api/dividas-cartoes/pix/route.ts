@@ -17,6 +17,9 @@ export async function GET() {
   } catch {
     return NextResponse.json({ ok: false, error: "Não autenticado" }, { status: 401 });
   }
+  if (sess.role === "socio") {
+    return NextResponse.json({ ok: false, error: "Sócio só visualiza esta tela." }, { status: 403 });
+  }
   const creditor = await ensureCardDebtSeed(sess.team);
   return NextResponse.json({
     ok: true,
@@ -38,6 +41,9 @@ export async function PUT(req: Request) {
     sess = await requireSession();
   } catch {
     return NextResponse.json({ ok: false, error: "Não autenticado" }, { status: 401 });
+  }
+  if (sess.role === "socio") {
+    return NextResponse.json({ ok: false, error: "Sócio só visualiza esta tela." }, { status: 403 });
   }
   const body = await req.json().catch(() => ({}));
   const pixTipo = String(body?.pixTipo || "").toUpperCase() as PixTipo;

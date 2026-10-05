@@ -1,59 +1,77 @@
 // middleware.ts
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
+import { isSocio, socioCanCallApi, socioCanVisit, socioHome } from "@/lib/roles";
 
 function buildNext(url: URL) {
-  // inclui path + search
   const next = url.pathname + (url.search || "");
   return next || "/";
 }
 
 function sanitizeNext(nextParam?: string | null) {
-  // só permite paths locais para evitar open-redirect
   if (!nextParam) return null;
   try {
-    // aceita apenas valores iniciando com '/'
     if (nextParam.startsWith("/")) return nextParam;
   } catch {}
   return null;
 }
 
+function readCookieSession(raw?: string) {
+  if (!raw) return null;
+  try {
+    const b64 = raw.replace(/-/g, "+").replace(/_/g, "/");
+    const pad = b64.length % 4 ? "=".repeat(4 - (b64.length % 4)) : "";
+    const json = JSON.parse(atob(b64 + pad)) as {
+      role?: string;
+      pages?: string[];
+    };
+    return json;
+  } catch {
+    return null;
+  }
+}
+
 export function middleware(req: NextRequest) {
   const url = req.nextUrl;
   const sessionCookie = req.cookies.get("tm.session")?.value;
-  const isLogin = url.pathname === "/login" || url.pathname.startsWith("/login/"); // se tiver subrotas
+  const isLogin = url.pathname === "/login" || url.pathname.startsWith("/login/");
+  const sess = readCookieSession(sessionCookie);
 
-  // 1) Protege /dashboard/*
   if (url.pathname.startsWith("/dashboard")) {
     if (!sessionCookie) {
       const loginUrl = new URL("/login", req.url);
-      loginUrl.searchParams.set("next", buildNext(url)); // mantém a página exata
+      loginUrl.searchParams.set("next", buildNext(url));
       return NextResponse.redirect(loginUrl);
     }
-    // logado -> segue
+    if (isSocio(sess?.role)) {
+      const pages = sess?.pages || [];
+      if (!socioCanVisit(url.pathname, pages)) {
+        return NextResponse.redirect(new URL(socioHome(pages), req.url));
+      }
+    }
     return NextResponse.next();
   }
 
-  // 2) Fluxo /login
-  if (isLogin) {
-    // não interfere com POST (ex.: submit do login)
-    if (req.method !== "GET") return NextResponse.next();
+  if (url.pathname.startsWith("/api/") && isSocio(sess?.role)) {
+    if (!socioCanCallApi(url.pathname, sess?.pages || [])) {
+      return NextResponse.json({ ok: false, error: "Sem permissão." }, { status: 403 });
+    }
+  }
 
-    // se já logado, manda para o "next" pedido (ou /dashboard)
+  if (isLogin) {
+    if (req.method !== "GET") return NextResponse.next();
     if (sessionCookie) {
       const wanted = sanitizeNext(url.searchParams.get("next"));
-      const target = new URL(wanted || "/dashboard", req.url);
+      const home = isSocio(sess?.role) ? socioHome(sess?.pages || []) : "/dashboard";
+      const target = new URL(wanted && !isSocio(sess?.role) ? wanted : wanted && socioCanVisit(wanted, sess?.pages) ? wanted : home, req.url);
       return NextResponse.redirect(target);
     }
-    // não logado -> mantém na tela de login
     return NextResponse.next();
   }
 
-  // 3) Demais rotas: segue normal
   return NextResponse.next();
 }
 
 export const config = {
-  // só aplica em /dashboard/* e /login (inclui subrotas de login)
-  matcher: ["/dashboard/:path*", "/login/:path*"],
+  matcher: ["/dashboard/:path*", "/login/:path*", "/api/:path*"],
 };

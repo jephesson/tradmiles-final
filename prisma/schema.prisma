@@ -140,6 +140,9 @@ model User {
   pixTipo  PixTipo?
   chavePix String?
 
+  /** Telas liberadas para role socio. Ex.: ["dividas-cartoes"] */
+  allowedPages String[] @default([])
+
   /** Suspensão temporária de login — não afeta cedentes, comissões etc. */
   isActive Boolean @default(true)
 

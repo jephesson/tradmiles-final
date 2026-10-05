@@ -21,6 +21,9 @@ export async function POST(req: Request) {
   } catch {
     return NextResponse.json({ ok: false, error: "Não autenticado" }, { status: 401 });
   }
+  if (sess.role === "socio") {
+    return NextResponse.json({ ok: false, error: "Sócio só visualiza esta tela." }, { status: 403 });
+  }
   const body = await req.json().catch(() => ({}));
   const via = String(body?.via || "local") === "inter" ? "inter" : "local";
   const ids = Array.isArray(body?.installmentIds)

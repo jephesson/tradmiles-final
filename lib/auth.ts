@@ -1,13 +1,16 @@
 // src/lib/auth.ts
 "use client";
 
+import { parseRole, socioHome } from "@/lib/roles";
+
 export type Session = {
   id: string;
   name: string;
   login: string;
   email?: string | null;
   team: string;
-  role: "admin" | "staff";
+  role: "admin" | "staff" | "socio";
+  pages?: string[];
 };
 
 const AUTH_SESSION_KEY = "auth_session";
@@ -84,15 +87,11 @@ export async function setPassword(login: string, newPassword: string): Promise<b
   return true;
 }
 
-function normalizeRole(v: unknown): "admin" | "staff" {
-  return String(v ?? "").toLowerCase() === "admin" ? "admin" : "staff";
-}
-
 /** Login no servidor (grava cookie) e guarda sessão no localStorage (UI) */
 export async function signIn(params: {
   login: string;
   password: string;
-}): Promise<{ ok: true } | { ok: false; error: string }> {
+}): Promise<{ ok: true; home: string } | { ok: false; error: string }> {
   const res = await fetch("/api/auth", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -114,14 +113,18 @@ export async function signIn(params: {
 
   const raw = json?.data?.session;
   if (raw?.id && raw?.login && raw?.team) {
+    const role = parseRole(raw.role);
+    const pages = Array.isArray(raw.pages) ? raw.pages.map(String) : [];
     setSession({
       id: String(raw.id),
       name: String(raw.name || raw.login),
       login: String(raw.login),
       email: raw.email ?? null,
       team: String(raw.team),
-      role: normalizeRole(raw.role),
+      role,
+      pages,
     });
+    return { ok: true, home: role === "socio" ? socioHome(pages) : "/dashboard" };
   }
-  return { ok: true };
+  return { ok: true, home: "/dashboard" };
 }

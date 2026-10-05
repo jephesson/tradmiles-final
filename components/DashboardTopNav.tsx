@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/cn";
 import EmailAlertasNav from "@/components/EmailAlertasNav";
+import { getSession } from "@/lib/auth";
 
 const ITEMS = [
   {
@@ -78,6 +79,11 @@ function isPainelVendas(path: string) {
 export default function DashboardTopNav() {
   const pathname = usePathname() || "";
   const [pendingCount, setPendingCount] = useState<number | null>(null);
+  const [isSocioUser, setIsSocioUser] = useState(false);
+
+  useEffect(() => {
+    setIsSocioUser(getSession()?.role === "socio");
+  }, []);
 
   useEffect(() => {
     let alive = true;
@@ -104,6 +110,14 @@ export default function DashboardTopNav() {
       window.removeEventListener("focus", onFocus);
     };
   }, [pathname]);
+
+  if (isSocioUser) {
+    return (
+      <div className="shrink-0 border-b border-slate-200/80 bg-white/90 px-4 py-3 text-sm font-semibold text-slate-800">
+        Dívida cartões
+      </div>
+    );
+  }
 
   const pending = pendingCount ?? 0;
   const hasPending = pending > 0;

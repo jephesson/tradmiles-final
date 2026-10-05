@@ -9,7 +9,7 @@ export const dynamic = "force-dynamic";
 
 type RouteCtx = { params: Promise<{ id: string }> };
 
-async function loadOwn(session: { id: string; role: "admin" | "staff"; team: string }, id: string) {
+async function loadOwn(session: { id: string; role: string; team: string }, id: string) {
   const row = await prisma.dividaAReceber.findFirst({
     where: { id, team: session.team },
   });
