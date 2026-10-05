@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import type { PixTipo } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/auth-server";
-import { ensureCardDebtSeed } from "@/lib/card-debt/seed";
+import { resolveCardDebtCreditor } from "@/lib/card-debt/scope";
 import { normalizePixKey, pixKeyLooksValid } from "@/lib/inter/pix-key";
 
 export const runtime = "nodejs";
@@ -20,7 +20,10 @@ export async function GET() {
   if (sess.role === "socio") {
     return NextResponse.json({ ok: false, error: "Sócio só visualiza esta tela." }, { status: 403 });
   }
-  const creditor = await ensureCardDebtSeed(sess.team);
+  const { creditor } = await resolveCardDebtCreditor(sess);
+  if (!creditor) {
+    return NextResponse.json({ ok: false, error: "Nenhuma dívida de cartões vinculada." }, { status: 400 });
+  }
   return NextResponse.json({
     ok: true,
     data: {
@@ -55,7 +58,10 @@ export async function PUT(req: Request) {
   if (!pixKeyLooksValid(pixTipo, chavePix)) {
     return NextResponse.json({ ok: false, error: "Chave PIX inválida." }, { status: 400 });
   }
-  const creditor = await ensureCardDebtSeed(sess.team);
+  const { creditor } = await resolveCardDebtCreditor(sess);
+  if (!creditor) {
+    return NextResponse.json({ ok: false, error: "Nenhuma dívida de cartões vinculada." }, { status: 400 });
+  }
   const updated = await prisma.cardDebtCreditor.update({
     where: { id: creditor.id },
     data: { pixTipo, chavePix },

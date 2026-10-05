@@ -218,6 +218,7 @@ model User {
    * =========================
    */
   taxMonthsPaid TaxMonthPayment[] @relation("TaxMonthPaidBy")
+  cardDebtsOwned CardDebtCreditor[] @relation("CardDebtOwner")
 
   // ✅ PROTOCOLOS
   protocolsCreated Protocol[] @relation("ProtocolCreatedBy")
@@ -1871,6 +1872,10 @@ model CardDebtCreditor {
   pixTipo  PixTipo?
   chavePix String?
 
+  /** Sócio dono desta dívida de cartões. */
+  ownerId String?
+  owner   User?   @relation("CardDebtOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+
   purchases CardDebtPurchase[]
 
   createdAt DateTime @default(now())
@@ -1878,6 +1883,7 @@ model CardDebtCreditor {
 
   @@unique([team, name])
   @@index([team])
+  @@index([ownerId])
   @@map("card_debt_creditors")
 }
 

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/auth-server";
-import { ensureCardDebtSeed } from "@/lib/card-debt/seed";
+import { installmentScope, resolveCardDebtCreditor } from "@/lib/card-debt/scope";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -17,9 +17,9 @@ export async function GET() {
   } catch {
     return NextResponse.json({ ok: false, error: "Não autenticado" }, { status: 401 });
   }
-  await ensureCardDebtSeed(sess.team);
+  const { creditor } = await resolveCardDebtCreditor(sess);
   const rows = await prisma.cardDebtInstallment.findMany({
-    where: { purchase: { team: sess.team }, status: "OPEN" },
+    where: { ...installmentScope(sess, creditor?.id || null), status: "OPEN" },
     include: { purchase: { select: { id: true, title: true } } },
     orderBy: [{ dueDate: "asc" }, { purchase: { title: "asc" } }, { n: "asc" }],
   });

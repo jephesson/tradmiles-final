@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/auth-server";
 import { SOCIO_PAGES } from "@/lib/roles";
+import { assignCardDebtToSocio, defaultCreditorIdForName } from "@/lib/card-debt/scope";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -27,19 +28,36 @@ export async function GET() {
     return NextResponse.json({ ok: false, error: "Sem permissão." }, { status: 403 });
   }
 
-  const users = await prisma.user.findMany({
-    where: { team: sess.team, role: "socio" },
-    orderBy: { name: "asc" },
-    select: {
-      id: true,
-      name: true,
-      login: true,
-      isActive: true,
-      allowedPages: true,
-      createdAt: true,
-    },
+  const [users, creditors] = await Promise.all([
+    prisma.user.findMany({
+      where: { team: sess.team, role: "socio" },
+      orderBy: { name: "asc" },
+      select: {
+        id: true,
+        name: true,
+        login: true,
+        isActive: true,
+        allowedPages: true,
+        createdAt: true,
+        cardDebtsOwned: { select: { id: true, name: true } },
+      },
+    }),
+    prisma.cardDebtCreditor.findMany({
+      where: { team: sess.team },
+      orderBy: { name: "asc" },
+      select: { id: true, name: true, ownerId: true },
+    }),
+  ]);
+  return NextResponse.json({
+    ok: true,
+    data: users.map(({ cardDebtsOwned, ...u }) => ({
+      ...u,
+      cardDebtCreditorId: cardDebtsOwned[0]?.id || null,
+      cardDebtName: cardDebtsOwned[0]?.name || null,
+    })),
+    creditors,
+    pages: SOCIO_PAGES,
   });
-  return NextResponse.json({ ok: true, data: users, pages: SOCIO_PAGES });
 }
 
 export async function POST(req: Request) {
@@ -79,5 +97,12 @@ export async function POST(req: Request) {
     },
     select: { id: true, name: true, login: true, isActive: true, allowedPages: true },
   });
+
+  if (pages.includes("dividas-cartoes")) {
+    const requested = String(body?.cardDebtCreditorId || "").trim();
+    const creditorId = requested || (await defaultCreditorIdForName(sess.team, name));
+    await assignCardDebtToSocio({ team: sess.team, socioId: user.id, creditorId });
+  }
+
   return NextResponse.json({ ok: true, data: user }, { status: 201 });
 }

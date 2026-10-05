@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/auth-server";
 import { SOCIO_PAGES } from "@/lib/roles";
+import { assignCardDebtToSocio, defaultCreditorIdForName } from "@/lib/card-debt/scope";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -59,6 +60,21 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
       data,
       select: { id: true, name: true, login: true, isActive: true, allowedPages: true },
     });
+
+    const pages = data.allowedPages ?? user.allowedPages;
+    if (pages.includes("dividas-cartoes")) {
+      const requested = body?.cardDebtCreditorId;
+      const creditorId =
+        requested === null || requested === ""
+          ? null
+          : String(requested || "").trim() || (await defaultCreditorIdForName(sess.team, user.name));
+      if (requested !== undefined || data.allowedPages) {
+        await assignCardDebtToSocio({ team: sess.team, socioId: user.id, creditorId });
+      }
+    } else if (data.allowedPages) {
+      await assignCardDebtToSocio({ team: sess.team, socioId: user.id, creditorId: null });
+    }
+
     return NextResponse.json({ ok: true, data: user });
   } catch (e: any) {
     if (e?.code === "P2002") {

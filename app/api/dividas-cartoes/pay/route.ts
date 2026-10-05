@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/auth-server";
-import { ensureCardDebtSeed } from "@/lib/card-debt/seed";
+import { resolveCardDebtCreditor } from "@/lib/card-debt/scope";
 import { payCardDebtViaInter } from "@/lib/inter/pay";
 
 export const runtime = "nodejs";
@@ -53,8 +53,8 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: true, data: { via: "local", paid: true, amountCents, count: rowIds.length } });
   }
 
-  const creditor = await ensureCardDebtSeed(sess.team);
-  if (!creditor.chavePix || !creditor.pixTipo) {
+  const { creditor } = await resolveCardDebtCreditor(sess);
+  if (!creditor?.chavePix || !creditor.pixTipo) {
     return NextResponse.json(
       { ok: false, error: "Cadastre a chave PIX do Jocykleber nesta tela antes de enviar." },
       { status: 400 }

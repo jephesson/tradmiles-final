@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/auth-server";
-import { ensureCardDebtSeed } from "@/lib/card-debt/seed";
+import { installmentScope, resolveCardDebtCreditor } from "@/lib/card-debt/scope";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -38,33 +38,33 @@ export async function GET(req: Request) {
   }
 
   try {
-    const creditor = await ensureCardDebtSeed(sess.team);
-    const viewOnly = sess.role === "socio";
+    const { creditor, viewOnly } = await resolveCardDebtCreditor(sess);
     const { start, end } = monthRange(month);
+    const scope = installmentScope(sess, creditor?.id || null);
 
   const [monthRows, allOpen, allPaid, allTotal, monthBuckets] = await Promise.all([
     prisma.cardDebtInstallment.findMany({
-      where: { purchase: { team: sess.team }, dueDate: { gte: start, lt: end } },
+      where: { ...scope, dueDate: { gte: start, lt: end } },
       include: { purchase: { select: { id: true, title: true } } },
       orderBy: [{ dueDate: "asc" }, { purchase: { title: "asc" } }, { n: "asc" }],
     }),
     prisma.cardDebtInstallment.aggregate({
-      where: { purchase: { team: sess.team }, status: "OPEN" },
+      where: { ...scope, status: "OPEN" },
       _sum: { amountCents: true },
       _count: true,
     }),
     prisma.cardDebtInstallment.aggregate({
-      where: { purchase: { team: sess.team }, status: "PAID" },
+      where: { ...scope, status: "PAID" },
       _sum: { amountCents: true },
       _count: true,
     }),
     prisma.cardDebtInstallment.aggregate({
-      where: { purchase: { team: sess.team } },
+      where: scope,
       _sum: { amountCents: true },
       _count: true,
     }),
     prisma.cardDebtInstallment.findMany({
-      where: { purchase: { team: sess.team }, status: "OPEN" },
+      where: { ...scope, status: "OPEN" },
       select: { dueDate: true, amountCents: true },
     }),
   ]);
@@ -84,10 +84,10 @@ export async function GET(req: Request) {
     ok: true,
     data: {
       creditor: {
-        id: creditor.id,
-        name: creditor.name,
-        pixTipo: viewOnly ? null : creditor.pixTipo,
-        chavePix: viewOnly ? null : creditor.chavePix,
+        id: creditor?.id || "",
+        name: creditor?.name || "",
+        pixTipo: viewOnly ? null : creditor?.pixTipo || null,
+        chavePix: viewOnly ? null : creditor?.chavePix || null,
       },
       viewOnly,
       month,
@@ -150,7 +150,10 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: "Informe a data da 1ª parcela." }, { status: 400 });
   }
 
-  const creditor = await ensureCardDebtSeed(sess.team);
+  const { creditor } = await resolveCardDebtCreditor(sess);
+  if (!creditor) {
+    return NextResponse.json({ ok: false, error: "Nenhuma dívida de cartões vinculada." }, { status: 400 });
+  }
   const start = new Date(`${firstDue}T00:00:00.000Z`);
   const purchase = await prisma.cardDebtPurchase.create({
     data: {

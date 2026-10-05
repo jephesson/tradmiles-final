@@ -9,10 +9,15 @@ type Socio = {
   login: string;
   isActive: boolean;
   allowedPages: string[];
+  cardDebtCreditorId: string | null;
+  cardDebtName: string | null;
 };
+
+type CreditorOpt = { id: string; name: string; ownerId: string | null };
 
 export default function SociosPage() {
   const [items, setItems] = useState<Socio[]>([]);
+  const [creditors, setCreditors] = useState<CreditorOpt[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [showNew, setShowNew] = useState(false);
@@ -20,9 +25,11 @@ export default function SociosPage() {
   const [login, setLogin] = useState("");
   const [password, setPassword] = useState("");
   const [pages, setPages] = useState<string[]>(["dividas-cartoes"]);
+  const [creditorId, setCreditorId] = useState("");
   const [saving, setSaving] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
   const [editPages, setEditPages] = useState<string[]>([]);
+  const [editCreditorId, setEditCreditorId] = useState("");
   const [editPassword, setEditPassword] = useState("");
 
   async function load() {
@@ -33,6 +40,8 @@ export default function SociosPage() {
       const json = await res.json();
       if (!json?.ok) throw new Error(json?.error || "Falha ao carregar.");
       setItems(json.data || []);
+      setCreditors(json.creditors || []);
+      if (!creditorId && json.creditors?.[0]?.id) setCreditorId(json.creditors[0].id);
     } catch (e: any) {
       setError(e?.message || "Erro");
     } finally {
@@ -55,7 +64,7 @@ export default function SociosPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ name, login, password, pages }),
+        body: JSON.stringify({ name, login, password, pages, cardDebtCreditorId: pages.includes("dividas-cartoes") ? creditorId : null }),
       });
       const json = await res.json();
       if (!json?.ok) throw new Error(json?.error || "Erro ao cadastrar.");
@@ -81,6 +90,7 @@ export default function SociosPage() {
         credentials: "include",
         body: JSON.stringify({
           pages: editPages,
+          cardDebtCreditorId: editPages.includes("dividas-cartoes") ? editCreditorId || null : null,
           ...(editPassword.trim() ? { password: editPassword.trim() } : {}),
         }),
       });
@@ -119,7 +129,7 @@ export default function SociosPage() {
             <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Cadastro</div>
             <h1 className="mt-0.5 text-2xl font-bold tracking-tight text-slate-900">Sócios</h1>
             <p className="mt-1 text-sm text-slate-500">
-              O sócio entra com login próprio e vê só as telas que você marcar. Por enquanto: Dívida cartões (somente visualizar).
+              O sócio entra com login próprio e vê só as telas que você marcar. Vincule a dívida de cartões (hoje: Jocykleber) para ela ser dele.
             </p>
           </div>
           <button
@@ -151,6 +161,22 @@ export default function SociosPage() {
                 </label>
               ))}
             </div>
+            {pages.includes("dividas-cartoes") ? (
+              <label className="block text-sm text-slate-700">
+                <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">Dívida de cartões deste sócio</span>
+                <select
+                  className="h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm"
+                  value={creditorId}
+                  onChange={(e) => setCreditorId(e.target.value)}
+                >
+                  {creditors.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : null}
             <button type="button" disabled={saving} onClick={() => void createSocio()} className="h-10 rounded-xl bg-slate-900 px-4 text-sm font-semibold text-white disabled:opacity-60">
               Cadastrar
             </button>
@@ -171,6 +197,9 @@ export default function SociosPage() {
                 <div className="mt-1 text-xs text-slate-500">
                   Acesso: {s.allowedPages.length ? s.allowedPages.map((k) => SOCIO_PAGES.find((p) => p.key === k)?.label || k).join(", ") : "nenhum"}
                 </div>
+                <div className="mt-1 text-xs text-slate-500">
+                  Dívida cartões: {s.cardDebtName ? `vinculada a ${s.cardDebtName}` : "não vinculada"}
+                </div>
                 {s.isActive === false ? (
                   <span className="mt-1 inline-block rounded-full bg-rose-50 px-2 py-0.5 text-xs text-rose-700">Login suspenso</span>
                 ) : null}
@@ -185,6 +214,7 @@ export default function SociosPage() {
                   onClick={() => {
                     setEditId(s.id);
                     setEditPages(s.allowedPages || []);
+                    setEditCreditorId(s.cardDebtCreditorId || creditors[0]?.id || "");
                     setEditPassword("");
                   }}
                 >
@@ -205,6 +235,22 @@ export default function SociosPage() {
                     {p.label} (somente visualizar)
                   </label>
                 ))}
+                {editPages.includes("dividas-cartoes") ? (
+                  <label className="block text-sm">
+                    <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">Dívida de cartões deste sócio</span>
+                    <select
+                      className="h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm"
+                      value={editCreditorId}
+                      onChange={(e) => setEditCreditorId(e.target.value)}
+                    >
+                      {creditors.map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                ) : null}
                 <input
                   className="h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm"
                   type="password"
