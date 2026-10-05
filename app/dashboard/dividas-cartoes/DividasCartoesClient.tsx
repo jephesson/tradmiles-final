@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { ChevronLeft, ChevronRight, CreditCard, Plus } from "lucide-react";
 import PixDestinoConfirmModal, { type PixDestinoView } from "@/components/PixDestinoConfirmModal";
 import { currentMonthISORecife, nextMonthISO, previousMonthISO } from "@/lib/bonus/monthlyBonus";
 import { cn } from "@/lib/cn";
@@ -52,6 +53,7 @@ function monthLabel(ym: string) {
 export default function DividasCartoesClient() {
   const [month, setMonth] = useState(currentMonthISORecife());
   const [tab, setTab] = useState<"mes" | "todas">("mes");
+  const [hidePaid, setHidePaid] = useState(true);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [rows, setRows] = useState<Row[]>([]);
@@ -66,22 +68,36 @@ export default function DividasCartoesClient() {
   const [busy, setBusy] = useState(false);
   const [confirm, setConfirm] = useState<{ ids: string[]; amountCents: number } | null>(null);
   const [destino, setDestino] = useState<PixDestinoView | null>(null);
-
   const [newTitle, setNewTitle] = useState("");
   const [newAmount, setNewAmount] = useState("");
   const [newCount, setNewCount] = useState("12");
   const [newDue, setNewDue] = useState("");
   const [showNew, setShowNew] = useState(false);
+  const [showPix, setShowPix] = useState(false);
 
   const visible = tab === "mes" ? rows : openRows;
+  const listed = useMemo(
+    () => (hidePaid ? visible.filter((r) => r.status === "OPEN") : visible),
+    [visible, hidePaid]
+  );
   const selectedIds = useMemo(
-    () => visible.filter((r) => r.status === "OPEN" && selected[r.id]).map((r) => r.id),
-    [visible, selected]
+    () => listed.filter((r) => r.status === "OPEN" && selected[r.id]).map((r) => r.id),
+    [listed, selected]
   );
   const selectedCents = useMemo(
-    () => visible.filter((r) => selected[r.id] && r.status === "OPEN").reduce((s, r) => s + r.amountCents, 0),
-    [visible, selected]
+    () => listed.filter((r) => selected[r.id] && r.status === "OPEN").reduce((s, r) => s + r.amountCents, 0),
+    [listed, selected]
   );
+
+  const groups = useMemo(() => {
+    const map = new Map<string, { purchaseId: string; title: string; items: Row[] }>();
+    for (const r of listed) {
+      const cur = map.get(r.purchaseId) || { purchaseId: r.purchaseId, title: r.title, items: [] };
+      cur.items.push(r);
+      map.set(r.purchaseId, cur);
+    }
+    return [...map.values()];
+  }, [listed]);
 
   async function loadMonth(ym = month) {
     setLoading(true);
@@ -96,6 +112,7 @@ export default function DividasCartoesClient() {
       setCreditorName(json.data.creditor?.name || "Jocykleber");
       if (json.data.creditor?.pixTipo) setPixTipo(json.data.creditor.pixTipo);
       if (json.data.creditor?.chavePix) setChavePix(json.data.creditor.chavePix);
+      if (!json.data.creditor?.chavePix) setShowPix(true);
     } catch (e: any) {
       setError(e?.message || "Erro");
     } finally {
@@ -125,7 +142,7 @@ export default function DividasCartoesClient() {
       });
       const json = await res.json();
       if (!json?.ok) throw new Error(json?.error || "Erro ao salvar PIX.");
-      alert("PIX salvo.");
+      setShowPix(false);
     } catch (e: any) {
       alert(e?.message || "Erro");
     } finally {
@@ -147,8 +164,6 @@ export default function DividasCartoesClient() {
       if (!json?.ok) throw new Error(json?.error || "Erro ao pagar.");
       if (via === "inter" && json.data?.awaitingApproval) {
         alert("PIX enviado. Aguardando aprovação no Inter.");
-      } else {
-        alert(via === "inter" ? "PIX enviado." : "Parcela(s) marcada(s) como paga.");
       }
       setSelected({});
       setConfirm(null);
@@ -167,11 +182,8 @@ export default function DividasCartoesClient() {
       .reduce((s, r) => s + r.amountCents, 0);
     const res = await fetch("/api/dividas-cartoes/pix", { cache: "no-store", credentials: "include" });
     const json = await res.json();
-    if (!json?.ok) {
-      alert(json?.error || "Cadastre o PIX.");
-      return;
-    }
-    if (!json.data?.pixKey) {
+    if (!json?.ok || !json.data?.pixKey) {
+      setShowPix(true);
       alert("Cadastre a chave PIX do Jocykleber nesta tela.");
       return;
     }
@@ -209,119 +221,180 @@ export default function DividasCartoesClient() {
       setShowNew(false);
       await loadMonth(month);
       await loadOpen();
-      alert("Compra parcelada cadastrada.");
     } catch (e: any) {
       alert(e?.message || "Erro");
     }
   }
 
   const monthOpenIds = rows.filter((r) => r.status === "OPEN").map((r) => r.id);
-  const allOpenIds = openRows.map((r) => r.id);
+  const listedOpenIds = listed.filter((r) => r.status === "OPEN").map((r) => r.id);
+  const allListedSelected = listedOpenIds.length > 0 && listedOpenIds.every((id) => selected[id]);
+
+  function toggleGroup(purchaseId: string) {
+    const ids = listed.filter((r) => r.purchaseId === purchaseId && r.status === "OPEN").map((r) => r.id);
+    const allOn = ids.every((id) => selected[id]);
+    setSelected((prev) => {
+      const next = { ...prev };
+      for (const id of ids) next[id] = !allOn;
+      return next;
+    });
+  }
 
   return (
-    <div className="p-6 space-y-4">
-      <div>
-        <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Financeiro</div>
-        <h1 className="text-2xl font-bold">Dívida cartões</h1>
-        <p className="text-sm text-slate-600">
-          Parcelas do {creditorName} (planilha Jocykleber). Marque várias parcelas e pague tudo em <b>um PIX só</b>.
-        </p>
-      </div>
-
-      <div className="space-y-3 rounded-2xl border p-4">
-        <div className="text-sm font-semibold">Chave PIX ({creditorName})</div>
-        <div className="flex flex-wrap gap-2">
-          <select
-            className="rounded-xl border px-3 py-2 text-sm bg-white"
-            value={pixTipo}
-            onChange={(e) => setPixTipo(e.target.value as PixTipo)}
-          >
-            <option value="CPF">CPF</option>
-            <option value="CNPJ">CNPJ</option>
-            <option value="EMAIL">E-mail</option>
-            <option value="TELEFONE">Telefone</option>
-            <option value="ALEATORIA">Aleatória</option>
-          </select>
-          <input
-            className="min-w-[240px] flex-1 rounded-xl border px-3 py-2 text-sm"
-            placeholder="Chave PIX"
-            value={chavePix}
-            onChange={(e) => setChavePix(e.target.value)}
-          />
-          <button
-            type="button"
-            disabled={pixSaving || !chavePix.trim()}
-            onClick={() => void savePix()}
-            className="rounded-xl bg-black px-4 py-2 text-sm text-white disabled:opacity-60"
-          >
-            {pixSaving ? "Salvando..." : "Salvar PIX"}
-          </button>
+    <div className="space-y-5">
+      <div className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm shadow-slate-200/40">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+          <div>
+            <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Financeiro</div>
+            <h1 className="mt-0.5 text-2xl font-bold tracking-tight text-slate-900">Dívida cartões</h1>
+            <p className="mt-1 max-w-2xl text-sm text-slate-500">
+              Parcelas do {creditorName}. Marque várias e pague em um PIX só.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => setShowPix((v) => !v)}
+              className="inline-flex h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-medium text-slate-700 hover:bg-slate-50"
+            >
+              <CreditCard className="h-4 w-4" />
+              {chavePix ? "Chave PIX" : "Cadastrar PIX"}
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowNew((v) => !v)}
+              className="inline-flex h-10 items-center gap-2 rounded-xl bg-slate-900 px-4 text-sm font-semibold text-white shadow-sm hover:bg-slate-800"
+            >
+              <Plus className="h-4 w-4" />
+              Nova compra
+            </button>
+          </div>
         </div>
+
+        {showPix ? (
+          <div className="mt-4 grid gap-2 rounded-xl border border-slate-200 bg-slate-50/80 p-3 sm:grid-cols-[160px_1fr_auto]">
+            <select
+              className="h-10 rounded-xl border border-slate-200 bg-white px-3 text-sm"
+              value={pixTipo}
+              onChange={(e) => setPixTipo(e.target.value as PixTipo)}
+            >
+              <option value="CPF">CPF</option>
+              <option value="CNPJ">CNPJ</option>
+              <option value="EMAIL">E-mail</option>
+              <option value="TELEFONE">Telefone</option>
+              <option value="ALEATORIA">Aleatória</option>
+            </select>
+            <input
+              className="h-10 rounded-xl border border-slate-200 bg-white px-3 text-sm"
+              placeholder={`Chave PIX — ${creditorName}`}
+              value={chavePix}
+              onChange={(e) => setChavePix(e.target.value)}
+            />
+            <button
+              type="button"
+              disabled={pixSaving || !chavePix.trim()}
+              onClick={() => void savePix()}
+              className="h-10 rounded-xl bg-slate-900 px-4 text-sm font-semibold text-white disabled:opacity-60"
+            >
+              {pixSaving ? "Salvando..." : "Salvar"}
+            </button>
+          </div>
+        ) : chavePix ? (
+          <div className="mt-3 text-xs text-slate-500">
+            PIX cadastrado: {pixTipo} · {chavePix}
+          </div>
+        ) : null}
+
+        {showNew ? (
+          <div className="mt-4 grid gap-2 rounded-xl border border-amber-100 bg-amber-50/50 p-3 sm:grid-cols-5">
+            <input className="h-10 rounded-xl border border-slate-200 bg-white px-3 text-sm" placeholder="Compra" value={newTitle} onChange={(e) => setNewTitle(e.target.value)} />
+            <input className="h-10 rounded-xl border border-slate-200 bg-white px-3 text-sm" placeholder="Valor da parcela" value={newAmount} onChange={(e) => setNewAmount(e.target.value)} />
+            <input className="h-10 rounded-xl border border-slate-200 bg-white px-3 text-sm" placeholder="Qtd" value={newCount} onChange={(e) => setNewCount(e.target.value)} />
+            <input className="h-10 rounded-xl border border-slate-200 bg-white px-3 text-sm" type="date" value={newDue} onChange={(e) => setNewDue(e.target.value)} />
+            <button type="button" className="h-10 rounded-xl bg-slate-900 px-3 text-sm font-semibold text-white" onClick={() => void createPurchase()}>
+              Cadastrar
+            </button>
+          </div>
+        ) : null}
       </div>
 
       {totals ? (
-        <div className="grid gap-3 sm:grid-cols-4">
-          <div className="rounded-2xl border p-4">
-            <div className="text-xs text-slate-500">A pagar neste mês</div>
-            <div className="text-lg font-semibold tabular-nums">{money(totals.monthOpenCents)}</div>
-            <div className="text-xs text-slate-500">{totals.monthOpenCount} parcela(s)</div>
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="rounded-2xl border border-amber-100 bg-gradient-to-br from-amber-50/80 to-white p-4 shadow-sm">
+            <div className="text-[11px] font-semibold uppercase tracking-wide text-amber-700">A pagar neste mês</div>
+            <div className="mt-1 text-2xl font-bold tabular-nums text-amber-950">{money(totals.monthOpenCents)}</div>
+            <div className="mt-1 text-xs text-amber-800">{totals.monthOpenCount} parcela(s)</div>
           </div>
-          <div className="rounded-2xl border p-4">
-            <div className="text-xs text-slate-500">Pago neste mês</div>
-            <div className="text-lg font-semibold tabular-nums">{money(totals.monthPaidCents)}</div>
+          <div className="rounded-2xl border border-emerald-100 bg-gradient-to-br from-emerald-50/80 to-white p-4 shadow-sm">
+            <div className="text-[11px] font-semibold uppercase tracking-wide text-emerald-700">Pago neste mês</div>
+            <div className="mt-1 text-2xl font-bold tabular-nums text-emerald-900">{money(totals.monthPaidCents)}</div>
           </div>
-          <div className="rounded-2xl border p-4">
-            <div className="text-xs text-slate-500">Restante total</div>
-            <div className="text-lg font-semibold tabular-nums">{money(totals.allOpenCents)}</div>
-            <div className="text-xs text-slate-500">{totals.allOpenCount} parcela(s)</div>
+          <div className="rounded-2xl border border-slate-200/80 bg-gradient-to-br from-slate-50/60 to-white p-4 shadow-sm">
+            <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Restante total</div>
+            <div className="mt-1 text-2xl font-bold tabular-nums text-slate-900">{money(totals.allOpenCents)}</div>
+            <div className="mt-1 text-xs text-slate-500">{totals.allOpenCount} parcela(s)</div>
           </div>
-          <div className="rounded-2xl border p-4">
-            <div className="text-xs text-slate-500">Já pago (todas)</div>
-            <div className="text-lg font-semibold tabular-nums">{money(totals.allPaidCents)}</div>
+          <div className="rounded-2xl border border-slate-200/80 bg-gradient-to-br from-slate-50/60 to-white p-4 shadow-sm">
+            <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Já pago</div>
+            <div className="mt-1 text-2xl font-bold tabular-nums text-slate-900">{money(totals.allPaidCents)}</div>
           </div>
         </div>
       ) : null}
 
-      <div className="flex flex-wrap items-center gap-2">
-        <button type="button" className="rounded-xl border px-3 py-2 text-sm" onClick={() => setMonth(previousMonthISO(month))}>
-          ←
-        </button>
-        <div className="min-w-[180px] text-center text-sm font-semibold capitalize">{monthLabel(month)}</div>
-        <button type="button" className="rounded-xl border px-3 py-2 text-sm" onClick={() => setMonth(nextMonthISO(month))}>
-          →
-        </button>
-        <button
-          type="button"
-          className={cn("rounded-xl border px-3 py-2 text-sm", tab === "mes" && "bg-black text-white")}
-          onClick={() => setTab("mes")}
-        >
-          Parcelas do mês
-        </button>
-        <button
-          type="button"
-          className={cn("rounded-xl border px-3 py-2 text-sm", tab === "todas" && "bg-black text-white")}
-          onClick={() => setTab("todas")}
-        >
-          Restante total
-        </button>
-        <button type="button" className="rounded-xl border px-3 py-2 text-sm" onClick={() => setShowNew((v) => !v)}>
-          Nova compra
-        </button>
+      <div className="flex flex-col gap-3 rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm md:flex-row md:items-center md:justify-between">
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="inline-flex items-center rounded-xl border border-slate-200 bg-slate-50">
+            <button type="button" className="inline-flex h-10 w-10 items-center justify-center text-slate-600 hover:bg-white" onClick={() => setMonth(previousMonthISO(month))}>
+              <ChevronLeft className="h-4 w-4" />
+            </button>
+            <div className="min-w-[150px] px-2 text-center text-sm font-semibold capitalize text-slate-900">{monthLabel(month)}</div>
+            <button type="button" className="inline-flex h-10 w-10 items-center justify-center text-slate-600 hover:bg-white" onClick={() => setMonth(nextMonthISO(month))}>
+              <ChevronRight className="h-4 w-4" />
+            </button>
+          </div>
+          <div className="inline-flex rounded-full border border-slate-200 bg-slate-50 p-0.5">
+            <button
+              type="button"
+              onClick={() => setTab("mes")}
+              className={cn("rounded-full px-4 py-1.5 text-xs font-semibold", tab === "mes" ? "bg-slate-900 text-white" : "text-slate-600")}
+            >
+              Este mês
+            </button>
+            <button
+              type="button"
+              onClick={() => setTab("todas")}
+              className={cn("rounded-full px-4 py-1.5 text-xs font-semibold", tab === "todas" ? "bg-slate-900 text-white" : "text-slate-600")}
+            >
+              Restante
+            </button>
+          </div>
+          <label className="ml-1 inline-flex items-center gap-2 text-xs text-slate-600">
+            <input type="checkbox" checked={hidePaid} onChange={(e) => setHidePaid(e.target.checked)} />
+            Só em aberto
+          </label>
+        </div>
+        {tab === "mes" ? (
+          <button
+            type="button"
+            disabled={busy || !monthOpenIds.length}
+            onClick={() => void startPix(monthOpenIds)}
+            className="inline-flex h-10 items-center rounded-xl bg-emerald-700 px-4 text-sm font-semibold text-white hover:bg-emerald-800 disabled:opacity-50"
+          >
+            PIX do mês {totals ? money(totals.monthOpenCents) : ""}
+          </button>
+        ) : (
+          <button
+            type="button"
+            disabled={busy || !openRows.length}
+            onClick={() => void startPix(openRows.map((r) => r.id))}
+            className="inline-flex h-10 items-center rounded-xl bg-emerald-700 px-4 text-sm font-semibold text-white hover:bg-emerald-800 disabled:opacity-50"
+          >
+            PIX do restante {totals ? money(totals.allOpenCents) : ""}
+          </button>
+        )}
       </div>
 
-      {showNew ? (
-        <div className="grid gap-2 rounded-2xl border p-4 sm:grid-cols-5">
-          <input className="rounded-xl border px-3 py-2 text-sm" placeholder="Compra" value={newTitle} onChange={(e) => setNewTitle(e.target.value)} />
-          <input className="rounded-xl border px-3 py-2 text-sm" placeholder="Valor da parcela" value={newAmount} onChange={(e) => setNewAmount(e.target.value)} />
-          <input className="rounded-xl border px-3 py-2 text-sm" placeholder="Qtd parcelas" value={newCount} onChange={(e) => setNewCount(e.target.value)} />
-          <input className="rounded-xl border px-3 py-2 text-sm" type="date" value={newDue} onChange={(e) => setNewDue(e.target.value)} />
-          <button type="button" className="rounded-xl bg-black px-3 py-2 text-sm text-white" onClick={() => void createPurchase()}>
-            Cadastrar
-          </button>
-        </div>
-      ) : null}
-
-      {openByMonth.length && tab === "todas" ? (
+      {tab === "todas" && openByMonth.length ? (
         <div className="flex flex-wrap gap-2">
           {openByMonth.map((m) => (
             <button
@@ -331,176 +404,124 @@ export default function DividasCartoesClient() {
                 setMonth(m.month);
                 setTab("mes");
               }}
-              className="rounded-full border px-3 py-1 text-xs hover:bg-slate-50"
+              className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
             >
-              {monthLabel(m.month)} · {money(m.openCents)} ({m.count})
+              {monthLabel(m.month)} · {money(m.openCents)}
             </button>
           ))}
         </div>
       ) : null}
 
-      <div className="flex flex-wrap gap-2">
-        <button
-          type="button"
-          disabled={busy || !selectedIds.length}
-          onClick={() => void pay("local", selectedIds)}
-          className="rounded-xl border px-3 py-2 text-sm disabled:opacity-60"
-        >
-          Marcar pago ({selectedIds.length}) {selectedCents ? money(selectedCents) : ""}
-        </button>
-        <button
-          type="button"
-          disabled={busy || !selectedIds.length}
-          onClick={() => void startPix(selectedIds)}
-          className="rounded-xl bg-emerald-700 px-3 py-2 text-sm text-white disabled:opacity-60"
-        >
-          {selectedIds.length > 1
-            ? `Pagar ${selectedIds.length} parcelas em 1 PIX (${money(selectedCents)})`
-            : selectedIds.length === 1
-              ? `Pagar 1 parcela no PIX (${money(selectedCents)})`
-              : "Pagar seleção em 1 PIX"}
-        </button>
-        {tab === "mes" ? (
-          <>
-            <button
-              type="button"
-              disabled={busy || !monthOpenIds.length}
-              onClick={() => void pay("local", monthOpenIds)}
-              className="rounded-xl border px-3 py-2 text-sm disabled:opacity-60"
-            >
-              Marcar mês pago
-            </button>
-            <button
-              type="button"
-              disabled={busy || !monthOpenIds.length}
-              onClick={() => void startPix(monthOpenIds)}
-              className="rounded-xl bg-emerald-700 px-3 py-2 text-sm text-white disabled:opacity-60"
-            >
-              PIX do mês {totals ? money(totals.monthOpenCents) : ""}
-            </button>
-          </>
-        ) : (
-          <button
-            type="button"
-            disabled={busy || !allOpenIds.length}
-            onClick={() => void startPix(allOpenIds)}
-            className="rounded-xl bg-emerald-700 px-3 py-2 text-sm text-white disabled:opacity-60"
-          >
-            PIX do restante {totals ? money(totals.allOpenCents) : ""}
-          </button>
-        )}
-      </div>
+      {error ? (
+        <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">{error}</div>
+      ) : null}
 
-      {loading && <p className="text-sm text-slate-600">Carregando...</p>}
-      {error && <p className="text-sm text-red-600">{error}</p>}
+      <div className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm shadow-slate-200/40">
+        <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
+          <div className="text-sm font-semibold text-slate-800">
+            {tab === "mes" ? `Parcelas de ${monthLabel(month)}` : "Parcelas em aberto"}
+            {loading ? <span className="ml-2 text-xs font-normal text-slate-500">carregando...</span> : null}
+          </div>
+          <label className="inline-flex items-center gap-2 text-xs text-slate-500">
+            <input
+              type="checkbox"
+              checked={allListedSelected}
+              onChange={(e) => {
+                const next: Record<string, boolean> = {};
+                if (e.target.checked) for (const id of listedOpenIds) next[id] = true;
+                setSelected(next);
+              }}
+            />
+            Selecionar todas
+          </label>
+        </div>
 
-      {!loading && (
-        <div className="overflow-x-auto rounded-2xl border">
-          <table className="w-full text-sm">
-            <thead className="bg-slate-50 text-left text-xs text-slate-500">
-              <tr>
-                <th className="p-3">
-                  <input
-                    type="checkbox"
-                    checked={visible.filter((r) => r.status === "OPEN").length > 0 && visible.filter((r) => r.status === "OPEN").every((r) => selected[r.id])}
-                    onChange={(e) => {
-                      const next: Record<string, boolean> = {};
-                      if (e.target.checked) {
-                        for (const r of visible) if (r.status === "OPEN") next[r.id] = true;
-                      }
-                      setSelected(next);
-                    }}
-                  />
-                </th>
-                <th className="p-3">Compra</th>
-                <th className="p-3">Parcela</th>
-                <th className="p-3">Vencimento</th>
-                <th className="p-3">Valor</th>
-                <th className="p-3">Status</th>
-                <th className="p-3"></th>
-              </tr>
-            </thead>
-            <tbody>
-              {visible.map((r) => (
-                <tr key={r.id} className="border-t">
-                  <td className="p-3">
+        <div className="divide-y divide-slate-100">
+          {!loading && groups.length === 0 ? (
+            <div className="px-4 py-12 text-center text-sm text-slate-500">Nenhuma parcela nesta visão.</div>
+          ) : null}
+
+          {groups.map((g) => {
+            const openItems = g.items.filter((i) => i.status === "OPEN");
+            const groupCents = openItems.reduce((s, i) => s + i.amountCents, 0);
+            const groupSelected = openItems.length > 0 && openItems.every((i) => selected[i.id]);
+            return (
+              <div key={g.purchaseId}>
+                <div className="flex flex-wrap items-center gap-3 bg-slate-50/80 px-4 py-2.5">
+                  <input type="checkbox" checked={groupSelected} disabled={!openItems.length} onChange={() => toggleGroup(g.purchaseId)} />
+                  <div className="min-w-0 flex-1">
+                    <div className="font-semibold text-slate-900">{g.title}</div>
+                    <div className="text-xs text-slate-500">
+                      {openItems.length ? `${openItems.length} em aberto · ${money(groupCents)}` : "Tudo pago neste recorte"}
+                    </div>
+                  </div>
+                  {openItems.length ? (
+                    <button
+                      type="button"
+                      className="text-xs font-semibold text-emerald-700 hover:underline"
+                      onClick={() => void startPix(openItems.map((i) => i.id))}
+                    >
+                      PIX desta compra
+                    </button>
+                  ) : null}
+                </div>
+                {g.items.map((r) => (
+                  <div key={r.id} className="flex flex-wrap items-center gap-3 px-4 py-2.5 pl-11 text-sm">
                     {r.status === "OPEN" ? (
                       <input
                         type="checkbox"
                         checked={!!selected[r.id]}
                         onChange={(e) => setSelected((prev) => ({ ...prev, [r.id]: e.target.checked }))}
                       />
-                    ) : null}
-                  </td>
-                  <td className="p-3 font-medium">
-                    <div>{r.title}</div>
-                    {r.status === "OPEN" ? (
-                      <button
-                        type="button"
-                        className="text-[11px] text-slate-500 underline"
-                        onClick={() => {
-                          const ids = visible.filter((x) => x.purchaseId === r.purchaseId && x.status === "OPEN").map((x) => x.id);
-                          setSelected((prev) => {
-                            const next = { ...prev };
-                            for (const id of ids) next[id] = true;
-                            return next;
-                          });
-                        }}
-                      >
-                        Juntar restantes desta compra
-                      </button>
-                    ) : null}
-                  </td>
-                  <td className="p-3 tabular-nums">{r.n}</td>
-                  <td className="p-3 tabular-nums">{dateBR(r.dueDate)}</td>
-                  <td className="p-3 tabular-nums">{money(r.amountCents)}</td>
-                  <td className="p-3">
-                    {r.status === "PAID" ? (
-                      <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-xs text-emerald-700">Pago</span>
                     ) : (
-                      <span className="rounded-full bg-amber-50 px-2 py-0.5 text-xs text-amber-800">Aberto</span>
+                      <span className="w-4" />
                     )}
-                  </td>
-                  <td className="p-3">
-                    {r.status === "OPEN" ? (
-                      <div className="flex gap-2">
-                        <button type="button" className="text-xs underline" onClick={() => void pay("local", [r.id])}>
+                    <div className="w-16 tabular-nums text-slate-500">{r.n}ª</div>
+                    <div className="w-28 tabular-nums text-slate-600">{dateBR(r.dueDate)}</div>
+                    <div className="flex-1 font-medium tabular-nums text-slate-900">{money(r.amountCents)}</div>
+                    {r.status === "PAID" ? (
+                      <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-700">Pago</span>
+                    ) : (
+                      <div className="flex items-center gap-3">
+                        <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-800">Aberto</span>
+                        <button type="button" className="text-xs text-slate-500 hover:underline" onClick={() => void pay("local", [r.id])}>
                           Marcar pago
                         </button>
-                        <button type="button" className="text-xs underline text-emerald-700" onClick={() => void startPix([r.id])}>
+                        <button type="button" className="text-xs font-semibold text-emerald-700 hover:underline" onClick={() => void startPix([r.id])}>
                           PIX
                         </button>
                       </div>
-                    ) : null}
-                  </td>
-                </tr>
-              ))}
-              {visible.length === 0 ? (
-                <tr>
-                  <td className="p-6 text-slate-500" colSpan={7}>
-                    Nenhuma parcela {tab === "mes" ? "neste mês" : "em aberto"}.
-                  </td>
-                </tr>
-              ) : null}
-            </tbody>
-          </table>
+                    )}
+                  </div>
+                ))}
+              </div>
+            );
+          })}
         </div>
-      )}
+      </div>
 
       {selectedIds.length > 0 ? (
-        <div className="sticky bottom-4 z-20 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 shadow-lg">
-          <div className="text-sm text-emerald-950">
-            <b>{selectedIds.length}</b> parcela(s) juntas · <b>{money(selectedCents)}</b>
+        <div className="sticky bottom-4 z-20 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-emerald-200 bg-white px-4 py-3 shadow-lg">
+          <div className="text-sm text-slate-800">
+            <b>{selectedIds.length}</b> parcela(s) · <b>{money(selectedCents)}</b>
           </div>
           <div className="flex flex-wrap gap-2">
-            <button type="button" className="rounded-xl border px-3 py-2 text-sm" onClick={() => setSelected({})}>
+            <button type="button" className="h-10 rounded-xl border border-slate-200 px-3 text-sm" onClick={() => setSelected({})}>
               Limpar
             </button>
             <button
               type="button"
               disabled={busy}
+              onClick={() => void pay("local", selectedIds)}
+              className="h-10 rounded-xl border border-slate-200 px-3 text-sm"
+            >
+              Marcar pago
+            </button>
+            <button
+              type="button"
+              disabled={busy}
               onClick={() => void startPix(selectedIds)}
-              className="rounded-xl bg-emerald-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
+              className="h-10 rounded-xl bg-emerald-700 px-4 text-sm font-semibold text-white disabled:opacity-60"
             >
               Pagar em 1 PIX
             </button>
