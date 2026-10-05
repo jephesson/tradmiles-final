@@ -2,10 +2,10 @@ function env(name: string) {
   return String(process.env[name] || "").trim();
 }
 
-function wrapPemBody(kind: "CERTIFICATE" | "PRIVATE KEY", body: string) {
-  const b64 = body.replace(/\s+/g, "");
+function wrapPemBody(label: string, body: string) {
+  const b64 = body.replace(/[^A-Za-z0-9+/=]/g, "");
   const lines = b64.match(/.{1,64}/g) || [];
-  return `-----BEGIN ${kind}-----\n${lines.join("\n")}\n-----END ${kind}-----\n`;
+  return `-----BEGIN ${label}-----\n${lines.join("\n")}\n-----END ${label}-----\n`;
 }
 
 export function normalizePem(raw: string, kind: "cert" | "key") {
@@ -18,19 +18,25 @@ export function normalizePem(raw: string, kind: "cert" | "key") {
   }
   s = s.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
   s = s.replace(/\\n/g, "\n").replace(/\\r/g, "");
-  s = s.replace(/-----BEGIN ([A-Z0-9 ]+)-----/g, "\n-----BEGIN $1-----\n");
-  s = s.replace(/-----END ([A-Z0-9 ]+)-----/g, "\n-----END $1-----\n");
-  s = s.replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
 
-  if (!/-----BEGIN [A-Z0-9 ]+-----/.test(s)) {
-    const compact = s.replace(/\s+/g, "");
-    if (/^[A-Za-z0-9+/]+=*$/.test(compact) && compact.length > 80) {
-      s = wrapPemBody(kind === "key" ? "PRIVATE KEY" : "CERTIFICATE", compact).trim();
-    }
+  const fallback = kind === "key" ? "PRIVATE KEY" : "CERTIFICATE";
+  const blocks: string[] = [];
+  const re = /-----BEGIN ([A-Z0-9 ]+)-----([\s\S]*?)-----END \1-----/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(s))) {
+    blocks.push(wrapPemBody(m[1].trim(), m[2]));
+  }
+  if (blocks.length) return blocks.join("");
+
+  const begin = s.match(/-----BEGIN ([A-Z0-9 ]+)-----/);
+  if (begin) {
+    const rest = s.slice(s.indexOf(begin[0]) + begin[0].length);
+    return wrapPemBody(begin[1].trim(), rest);
   }
 
-  if (s && !s.endsWith("\n")) s += "\n";
-  return s;
+  const compact = s.replace(/[^A-Za-z0-9+/=]/g, "");
+  if (compact.length > 80) return wrapPemBody(fallback, compact);
+  return s.endsWith("\n") ? s : `${s}\n`;
 }
 
 function pemFromEnv(name: string, kind: "cert" | "key") {
