@@ -113,8 +113,11 @@ export default function DashboardTopNav() {
 
   if (isSocioUser) {
     return (
-      <div className="shrink-0 border-b border-slate-200/80 bg-white/90 px-4 py-3 text-sm font-semibold text-slate-800">
-        Dívida cartões
+      <div className="flex shrink-0 items-center justify-between border-b border-slate-200/80 bg-white/90 px-4 py-3">
+        <div className="text-sm font-semibold text-slate-800">Dívida cartões</div>
+        <Link href="/dashboard/conta" className="text-xs font-semibold text-slate-500 hover:text-slate-800">
+          Alterar senha
+        </Link>
       </div>
     );
   }

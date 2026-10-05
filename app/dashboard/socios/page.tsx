@@ -11,6 +11,7 @@ type Socio = {
   allowedPages: string[];
   cardDebtCreditorId: string | null;
   cardDebtName: string | null;
+  passwordEnabled: boolean;
 };
 
 type CreditorOpt = { id: string; name: string; ownerId: string | null };
@@ -129,7 +130,7 @@ export default function SociosPage() {
             <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Cadastro</div>
             <h1 className="mt-0.5 text-2xl font-bold tracking-tight text-slate-900">Sócios</h1>
             <p className="mt-1 text-sm text-slate-500">
-              O sócio entra com login próprio e vê só as telas que você marcar. Vincule a dívida de cartões (hoje: Jocykleber) para ela ser dele.
+              O sócio entra com login próprio e vê só as telas que você marcar. Você habilita a senha aqui; depois ele pode alterar a senha dele.
             </p>
           </div>
           <button
@@ -146,7 +147,7 @@ export default function SociosPage() {
             <div className="grid gap-3 sm:grid-cols-3">
               <input className="h-10 rounded-xl border border-slate-200 bg-white px-3 text-sm" placeholder="Nome" value={name} onChange={(e) => setName(e.target.value)} />
               <input className="h-10 rounded-xl border border-slate-200 bg-white px-3 text-sm" placeholder="Login" value={login} onChange={(e) => setLogin(e.target.value)} />
-              <input className="h-10 rounded-xl border border-slate-200 bg-white px-3 text-sm" type="password" placeholder="Senha (mín. 6)" value={password} onChange={(e) => setPassword(e.target.value)} />
+              <input className="h-10 rounded-xl border border-slate-200 bg-white px-3 text-sm" type="password" placeholder="Senha (opcional)" value={password} onChange={(e) => setPassword(e.target.value)} />
             </div>
             <div>
               <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Pode ver</div>
@@ -200,6 +201,11 @@ export default function SociosPage() {
                 <div className="mt-1 text-xs text-slate-500">
                   Dívida cartões: {s.cardDebtName ? `vinculada a ${s.cardDebtName}` : "não vinculada"}
                 </div>
+                {s.passwordEnabled ? (
+                  <span className="mt-1 inline-block rounded-full bg-emerald-50 px-2 py-0.5 text-xs text-emerald-800">Senha habilitada — ele pode trocar depois de entrar</span>
+                ) : (
+                  <span className="mt-1 inline-block rounded-full bg-amber-50 px-2 py-0.5 text-xs text-amber-800">Senha ainda não habilitada</span>
+                )}
                 {s.isActive === false ? (
                   <span className="mt-1 inline-block rounded-full bg-rose-50 px-2 py-0.5 text-xs text-rose-700">Login suspenso</span>
                 ) : null}
@@ -254,7 +260,7 @@ export default function SociosPage() {
                 <input
                   className="h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm"
                   type="password"
-                  placeholder="Nova senha (opcional)"
+                  placeholder={s.passwordEnabled ? "Redefinir senha (opcional)" : "Habilitar senha (mín. 6)"}
                   value={editPassword}
                   onChange={(e) => setEditPassword(e.target.value)}
                 />

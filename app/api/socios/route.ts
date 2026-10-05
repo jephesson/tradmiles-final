@@ -37,6 +37,7 @@ export async function GET() {
         name: true,
         login: true,
         isActive: true,
+        passwordEnabled: true,
         allowedPages: true,
         createdAt: true,
         cardDebtsOwned: { select: { id: true, name: true } },
@@ -74,11 +75,14 @@ export async function POST(req: Request) {
   const body = await req.json().catch(() => ({}));
   const name = String(body?.name || "").trim();
   const login = String(body?.login || "").trim().toLowerCase();
-  const password = String(body?.password || "");
+  const password = String(body?.password || "").trim();
   const pages = pagesFromBody(body);
 
-  if (!name || !login || password.length < 6) {
-    return NextResponse.json({ ok: false, error: "Nome, login e senha (mín. 6) são obrigatórios." }, { status: 400 });
+  if (!name || !login) {
+    return NextResponse.json({ ok: false, error: "Nome e login são obrigatórios." }, { status: 400 });
+  }
+  if (password && password.length < 6) {
+    return NextResponse.json({ ok: false, error: "Senha deve ter pelo menos 6 caracteres." }, { status: 400 });
   }
 
   const exists = await prisma.user.findUnique({ where: { login }, select: { id: true } });
@@ -86,16 +90,18 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: "Já existe um usuário com esse login." }, { status: 409 });
   }
 
+  const enabled = password.length >= 6;
   const user = await prisma.user.create({
     data: {
       name,
       login,
       team: TEAM,
       role: "socio",
-      passwordHash: sha256(password),
+      passwordHash: sha256(enabled ? password : crypto.randomBytes(24).toString("hex")),
+      passwordEnabled: enabled,
       allowedPages: pages,
     },
-    select: { id: true, name: true, login: true, isActive: true, allowedPages: true },
+    select: { id: true, name: true, login: true, isActive: true, passwordEnabled: true, allowedPages: true },
   });
 
   if (pages.includes("dividas-cartoes")) {

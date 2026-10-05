@@ -41,6 +41,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
     isActive?: boolean;
     allowedPages?: string[];
     passwordHash?: string;
+    passwordEnabled?: boolean;
   } = {};
 
   if (typeof body?.name === "string" && body.name.trim()) data.name = body.name.trim();
@@ -52,13 +53,14 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
       return NextResponse.json({ ok: false, error: "Senha deve ter pelo menos 6 caracteres." }, { status: 400 });
     }
     data.passwordHash = sha256(body.password.trim());
+    data.passwordEnabled = true;
   }
 
   try {
     const user = await prisma.user.update({
       where: { id: found.id },
       data,
-      select: { id: true, name: true, login: true, isActive: true, allowedPages: true },
+      select: { id: true, name: true, login: true, isActive: true, passwordEnabled: true, allowedPages: true },
     });
 
     const pages = data.allowedPages ?? user.allowedPages;

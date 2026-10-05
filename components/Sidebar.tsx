@@ -1305,6 +1305,14 @@ export default function Sidebar() {
             Configurações
           </Link>
         ) : null}
+        {session?.role === "socio" ? (
+          <Link
+            href="/dashboard/conta"
+            className="flex w-full items-center justify-center gap-2 rounded-xl bg-white px-3 py-2.5 text-sm font-semibold text-slate-800 shadow-md shadow-slate-900/[0.05] ring-1 ring-slate-200/70 transition hover:bg-slate-50 hover:shadow-lg hover:ring-slate-300/70"
+          >
+            Alterar senha
+          </Link>
+        ) : null}
         <button
           type="button"
           onClick={doLogout}

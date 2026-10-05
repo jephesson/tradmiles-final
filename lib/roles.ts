@@ -29,11 +29,12 @@ export function socioHome(pages?: string[] | null) {
 }
 
 export function socioCanVisit(pathname: string, pages?: string[] | null) {
+  if (pathname.startsWith("/dashboard/conta")) return true;
   const keys = new Set((pages || []).map((p) => String(p)));
   return SOCIO_PAGES.some((p) => keys.has(p.key) && pathname.startsWith(p.path));
 }
 
-const SOCIO_API_ALWAYS = ["/api/auth", "/api/session", "/api/presence/ping"];
+const SOCIO_API_ALWAYS = ["/api/auth", "/api/session", "/api/presence/ping", "/api/me"];
 
 export function socioCanCallApi(pathname: string, pages?: string[] | null) {
   if (SOCIO_API_ALWAYS.some((p) => pathname === p || pathname.startsWith(`${p}/`))) return true;

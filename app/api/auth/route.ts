@@ -196,6 +196,13 @@ export async function POST(req: Request): Promise<NextResponse> {
         );
       }
 
+      if (dbUser.passwordEnabled === false) {
+        return NextResponse.json(
+          { ok: false, error: "Senha ainda não habilitada. Peça ao administrador." },
+          { status: 403, headers: noCacheHeaders() }
+        );
+      }
+
       if (dbUser.passwordHash !== sha256(password)) {
         return NextResponse.json({ ok: false, error: "Senha inválida" }, { status: 401, headers: noCacheHeaders() });
       }
