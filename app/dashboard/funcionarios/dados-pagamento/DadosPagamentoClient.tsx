@@ -85,6 +85,9 @@ export default function DadosPagamentoClient() {
   const [city, setCity] = useState("");
   const [stateUf, setStateUf] = useState("");
   const [isDefaultBoarding, setIsDefaultBoarding] = useState(true);
+  const [pixTipo, setPixTipo] = useState<"CPF" | "CNPJ" | "EMAIL" | "TELEFONE" | "ALEATORIA">("CPF");
+  const [chavePix, setChavePix] = useState("");
+  const [pixSaving, setPixSaving] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -121,10 +124,43 @@ export default function DadosPagamentoClient() {
     }
   }, []);
 
+  const loadPix = useCallback(async () => {
+    try {
+      const res = await fetch("/api/funcionarios/pix", { cache: "no-store" });
+      const json = await res.json().catch(() => null);
+      if (!res.ok || !json?.ok) return;
+      if (json.data?.pixTipo) setPixTipo(json.data.pixTipo);
+      if (json.data?.chavePix) setChavePix(json.data.chavePix);
+    } catch {
+      // cartão continua independente
+    }
+  }, []);
+
   useEffect(() => {
     void load();
     void loadTitularHint();
-  }, [load, loadTitularHint]);
+    void loadPix();
+  }, [load, loadTitularHint, loadPix]);
+
+  async function savePix() {
+    setPixSaving(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/funcionarios/pix", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pixTipo, chavePix }),
+      });
+      const json = await res.json().catch(() => null);
+      if (!res.ok || !json?.ok) throw new Error(json?.error || "Falha ao salvar PIX.");
+      if (json.data?.chavePix) setChavePix(json.data.chavePix);
+      if (json.data?.pixTipo) setPixTipo(json.data.pixTipo);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Erro ao salvar PIX.");
+    } finally {
+      setPixSaving(false);
+    }
+  }
 
   function applyHint(h: TitularHint | null, { overwrite = false } = {}) {
     if (!h) {
@@ -266,7 +302,7 @@ export default function DadosPagamentoClient() {
             Dados de pagamento
           </h1>
           <p className="mt-1 text-sm text-slate-500">
-            Cartão + cobrança LATAM (nome, CPF, e-mail, nascimento, endereço).{" "}
+            Cartão + cobrança LATAM e chave PIX para receber comissão pelo Inter.{" "}
             <b>CVV não é salvo</b> — você digita na hora.
           </p>
         </div>
@@ -285,6 +321,40 @@ export default function DadosPagamentoClient() {
           {error}
         </div>
       ) : null}
+
+      <div className="space-y-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+        <div className="text-sm font-semibold text-slate-800">Chave PIX (comissão)</div>
+        <div className="grid gap-3 sm:grid-cols-3">
+          <select
+            className={INPUT}
+            value={pixTipo}
+            onChange={(e) =>
+              setPixTipo(e.target.value as "CPF" | "CNPJ" | "EMAIL" | "TELEFONE" | "ALEATORIA")
+            }
+          >
+            <option value="CPF">CPF</option>
+            <option value="CNPJ">CNPJ</option>
+            <option value="EMAIL">E-mail</option>
+            <option value="TELEFONE">Telefone</option>
+            <option value="ALEATORIA">Aleatória</option>
+          </select>
+          <input
+            className={cn(INPUT, "sm:col-span-2")}
+            placeholder="Chave PIX"
+            value={chavePix}
+            onChange={(e) => setChavePix(e.target.value)}
+          />
+        </div>
+        <button
+          type="button"
+          onClick={() => void savePix()}
+          disabled={pixSaving || !chavePix.trim()}
+          className="inline-flex h-10 items-center rounded-xl bg-slate-900 px-4 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-50"
+        >
+          {pixSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+          Salvar PIX
+        </button>
+      </div>
 
       {formOpen ? (
         <div className="space-y-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">

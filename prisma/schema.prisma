@@ -136,6 +136,10 @@ model User {
   role         String
   passwordHash String
 
+  /** PIX para receber comissão via Banco Inter. */
+  pixTipo  PixTipo?
+  chavePix String?
+
   /** Suspensão temporária de login — não afeta cedentes, comissões etc. */
   isActive Boolean @default(true)
 
@@ -201,6 +205,7 @@ model User {
    */
   employeePayouts     EmployeePayout[] @relation("EmployeePayoutUser")
   employeePayoutsPaid EmployeePayout[] @relation("EmployeePayoutPaidBy")
+  interPixRequested   InterPixPayment[] @relation("InterPixRequestedBy")
   cardCashbacks       CardCashbackMonth[] @relation("CardCashbackUser")
   cardCashbacksGenerated CardCashbackMonth[] @relation("CardCashbackGeneratedBy")
 
@@ -1363,6 +1368,7 @@ model CedenteCommission {
   note String?
 
   referral CedenteReferral?
+  interPixPayments InterPixPayment[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1799,6 +1805,7 @@ model EmployeePayout {
 
   user   User  @relation("EmployeePayoutUser", fields: [userId], references: [id], onDelete: Cascade)
   paidBy User? @relation("EmployeePayoutPaidBy", fields: [paidById], references: [id], onDelete: SetNull)
+  interPixPayments InterPixPayment[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1807,6 +1814,46 @@ model EmployeePayout {
   @@index([team, date])
   @@index([userId, date])
   @@map("employee_payouts")
+}
+
+model InterPixPayment {
+  id   String @id @default(cuid())
+  team String
+
+  kind String
+  /// EMPLOYEE_PAYOUT | CEDENTE_COMMISSION
+
+  employeePayoutId String?
+  employeePayout   EmployeePayout? @relation(fields: [employeePayoutId], references: [id], onDelete: SetNull)
+
+  cedenteCommissionId String?
+  cedenteCommission   CedenteCommission? @relation(fields: [cedenteCommissionId], references: [id], onDelete: SetNull)
+
+  amountCents Int
+  pixTipo     String
+  pixKey      String
+  description String
+
+  idempotencyKey     String  @unique
+  codigoSolicitacao  String? @unique
+  tipoRetorno        String?
+  interStatus        String?
+  endToEnd           String?
+  status             String  @default("CREATED")
+  errorMessage       String?
+  rawCreate          Json?
+  rawLast            Json?
+
+  requestedById String?
+  requestedBy   User?   @relation("InterPixRequestedBy", fields: [requestedById], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([team, kind, status])
+  @@index([employeePayoutId])
+  @@index([cedenteCommissionId])
+  @@map("inter_pix_payments")
 }
 
 /**

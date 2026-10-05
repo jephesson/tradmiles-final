@@ -15,6 +15,12 @@ type CommissionItem = {
   generatedAt: string;
   paidAt: string | null;
   note: string | null;
+  interPixPayments?: {
+    status: string;
+    interStatus?: string | null;
+    codigoSolicitacao?: string | null;
+    errorMessage?: string | null;
+  }[];
 
   cedente?: {
     id: string;
@@ -72,7 +78,24 @@ function fmtDateTimeBR(iso?: string | null) {
   return d.toLocaleString("pt-BR");
 }
 
-function statusBadge(status: CommissionItem["status"]) {
+function statusBadge(
+  status: CommissionItem["status"],
+  interStatus?: string | null
+) {
+  if (status === "PENDING" && (interStatus === "AWAITING_APPROVAL" || interStatus === "PROCESSING" || interStatus === "CREATED")) {
+    return (
+      <span className="inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-2.5 py-0.5 text-[11px] font-semibold text-amber-800">
+        Aguardando Inter
+      </span>
+    );
+  }
+  if (status === "PENDING" && interStatus === "FAILED") {
+    return (
+      <span className="inline-flex items-center rounded-full border border-rose-200 bg-rose-50 px-2.5 py-0.5 text-[11px] font-semibold text-rose-800">
+        PIX falhou
+      </span>
+    );
+  }
   if (status === "PENDING") {
     return (
       <span className="inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-2.5 py-0.5 text-[11px] font-semibold text-amber-800">
@@ -189,7 +212,7 @@ export default function CedenteCommissionsClient() {
 
   async function payCommission(id: string) {
     const note = window.prompt("Observação (opcional):", "") ?? "";
-    if (!window.confirm("Confirmar: marcar esta comissão como PAGA?")) return;
+    if (!window.confirm("Confirmar: enviar PIX pelo Inter (ou marcar como paga se o banco não estiver configurado)?")) return;
 
     try {
       setLoading(true);
@@ -201,7 +224,7 @@ export default function CedenteCommissionsClient() {
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) {
-        setErr(json?.message || "Falha ao pagar comissão.");
+        setErr(json?.error || json?.message || "Falha ao pagar comissão.");
         return;
       }
       await load();
@@ -253,7 +276,7 @@ export default function CedenteCommissionsClient() {
               Comissões · Cedentes
             </h1>
             <p className="mt-1 max-w-2xl text-sm text-slate-500">
-              Filtre, confira e marque como paga ou cancelada.
+              Filtre, confira e pague via PIX do Inter (ou marque como paga).
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -459,7 +482,7 @@ export default function CedenteCommissionsClient() {
 
               {filteredItems.map((it) => (
                 <tr key={it.id} className="align-top hover:bg-slate-50/70">
-                  <td className="px-4 py-3.5">{statusBadge(it.status)}</td>
+                  <td className="px-4 py-3.5">{statusBadge(it.status, it.interPixPayments?.[0]?.status)}</td>
                   <td className="px-4 py-3.5">
                     <div className="font-semibold text-slate-900">{it.cedente?.nomeCompleto || "—"}</div>
                     <div className="mt-0.5 text-xs text-slate-500">
@@ -491,9 +514,17 @@ export default function CedenteCommissionsClient() {
                         type="button"
                         className="h-8 rounded-xl bg-emerald-600 px-3 text-xs font-semibold text-white hover:bg-emerald-700 disabled:opacity-40"
                         onClick={() => void payCommission(it.id)}
-                        disabled={loading || it.status !== "PENDING"}
+                        disabled={
+                          loading ||
+                          it.status !== "PENDING" ||
+                          it.interPixPayments?.[0]?.status === "AWAITING_APPROVAL" ||
+                          it.interPixPayments?.[0]?.status === "PROCESSING" ||
+                          it.interPixPayments?.[0]?.status === "CREATED"
+                        }
                         title={
-                          it.status !== "PENDING" ? "Somente pendente pode ser paga" : "Marcar como paga"
+                          it.status !== "PENDING"
+                            ? "Somente pendente pode ser paga"
+                            : "Pagar via PIX Inter"
                         }
                       >
                         Pagar

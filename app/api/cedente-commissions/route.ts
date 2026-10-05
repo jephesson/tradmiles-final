@@ -58,6 +58,16 @@ export async function GET(req: Request) {
           purchase: { select: { id: true, numero: true, status: true, totalCents: true } },
           generatedBy: { select: { id: true, name: true, login: true } },
           paidBy: { select: { id: true, name: true, login: true } },
+          interPixPayments: {
+            orderBy: { createdAt: "desc" },
+            take: 1,
+            select: {
+              status: true,
+              interStatus: true,
+              codigoSolicitacao: true,
+              errorMessage: true,
+            },
+          },
         },
       }),
       prisma.cedenteCommission.count({ where }),

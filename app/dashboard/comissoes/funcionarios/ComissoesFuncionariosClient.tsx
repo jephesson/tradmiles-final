@@ -62,6 +62,12 @@ type PayoutRow = {
 
   paidAt: string | null;
   paidById: string | null;
+  interPix?: {
+    status: string;
+    interStatus?: string | null;
+    codigoSolicitacao?: string | null;
+    errorMessage?: string | null;
+  } | null;
 
   user: UserLite;
   paidBy: PaidByLite;
@@ -595,7 +601,12 @@ export default function ComissoesFuncionariosClient() {
     const key = `${d}|${userId}`;
     setPayingKey(key);
     try {
-      await apiPost<{ ok: true }>(`/api/payouts/funcionarios/pay`, { date: d, userId });
+      const out = await apiPost<{
+        ok: true;
+        via?: string;
+        paid?: boolean;
+        awaitingApproval?: boolean;
+      }>(`/api/payouts/funcionarios/pay`, { date: d, userId });
       await loadDay(d);
 
       // se o modal estiver aberto no mesmo user, atualiza também
@@ -603,7 +614,16 @@ export default function ComissoesFuncionariosClient() {
         await loadDetails(d, userId);
       }
 
-      setToast({ title: "Pago!", desc: `Pagamento marcado para ${d}.` });
+      setToast(
+        out.awaitingApproval
+          ? {
+              title: "PIX enviado",
+              desc: "Aguardando aprovação no Internet Banking do Inter (Aprovar).",
+            }
+          : out.via === "inter"
+            ? { title: "PIX pago", desc: `Comissão enviada pelo Inter em ${d}.` }
+            : { title: "Pago!", desc: `Pagamento marcado para ${d}.` }
+      );
     } catch (e: unknown) {
       setToast({ title: "Falha ao pagar", desc: getErrorMessage(e, "Falha ao pagar.") });
     } finally {
@@ -615,7 +635,11 @@ export default function ComissoesFuncionariosClient() {
     const pending = (day?.rows || []).filter((r) => {
       const isMissing = String(r.id || "").startsWith("missing:");
       const isPaid = !!r.paidById;
-      return !isMissing && !isPaid;
+      const awaitingInter =
+        r.interPix?.status === "AWAITING_APPROVAL" ||
+        r.interPix?.status === "PROCESSING" ||
+        r.interPix?.status === "CREATED";
+      return !isMissing && !isPaid && !awaitingInter;
     });
 
     if (d >= todayISORecife()) {
@@ -633,7 +657,7 @@ export default function ComissoesFuncionariosClient() {
 
     if (
       !confirm(
-        `Pagar ${pending.length} funcionário(s) do dia ${fmtDateBR(d)}?`
+        `Pagar ${pending.length} funcionário(s) do dia ${fmtDateBR(d)} via PIX do Inter (se estiver configurado)?`
       )
     ) {
       return;
@@ -641,14 +665,21 @@ export default function ComissoesFuncionariosClient() {
 
     setPayingKey("__all__");
     try {
-      const out = await apiPost<{ ok: true; paidCount?: number }>(`/api/payouts/funcionarios/pay`, {
+      const out = await apiPost<{
+        ok: true;
+        paidCount?: number;
+        awaitingCount?: number;
+        via?: string;
+      }>(`/api/payouts/funcionarios/pay`, {
         date: d,
         payAll: true,
       });
       await loadDay(d);
       setToast({
-        title: "Pagamentos marcados!",
-        desc: `${out.paidCount ?? pending.length} funcionário(s) pagos em ${d}.`,
+        title: out.via === "inter" ? "PIX enviado" : "Pagamentos marcados!",
+        desc: `${out.paidCount ?? pending.length} pago(s)${
+          out.awaitingCount ? ` · ${out.awaitingCount} aguardando Inter` : ""
+        } em ${d}.`,
       });
     } catch (e: unknown) {
       setToast({ title: "Falha ao pagar todos", desc: getErrorMessage(e, "Falha ao pagar.") });
@@ -1109,8 +1140,12 @@ export default function ComissoesFuncionariosClient() {
 
                 const isMissing = String(r.id || "").startsWith("missing:");
                 const isPaid = !!r.paidById;
-
-                const canPay = !isMissing && !isPaid && isClosedDay;
+                const awaitingInter =
+                  !isPaid &&
+                  (r.interPix?.status === "AWAITING_APPROVAL" ||
+                    r.interPix?.status === "PROCESSING" ||
+                    r.interPix?.status === "CREATED");
+                const canPay = !isMissing && !isPaid && !awaitingInter && isClosedDay;
                 const paying = payingKey === `${date}|${r.userId}`;
 
                 const displayName = firstName(r.user.name, r.user.login);
@@ -1197,6 +1232,23 @@ export default function ComissoesFuncionariosClient() {
                             {r.paidAt ? ` • ${fmtDateTimeBR(r.paidAt)}` : ""}
                           </div>
                         </div>
+                      ) : r.interPix &&
+                        (r.interPix.status === "AWAITING_APPROVAL" ||
+                          r.interPix.status === "PROCESSING" ||
+                          r.interPix.status === "CREATED") ? (
+                        <div className="space-y-1">
+                          <Pill kind="warn" text="AGUARDANDO INTER" />
+                          <div className="text-xs text-slate-500">
+                            Aprove no Internet Banking · Aprovar
+                          </div>
+                        </div>
+                      ) : r.interPix?.status === "FAILED" ? (
+                        <div className="space-y-1">
+                          <Pill kind="warn" text="PIX FALHOU" />
+                          <div className="text-xs text-rose-600">
+                            {r.interPix.errorMessage || "Tente pagar de novo."}
+                          </div>
+                        </div>
                       ) : (
                         <Pill kind={isClosedDay ? "warn" : "muted"} text="PENDENTE" />
                       )}
@@ -1211,7 +1263,7 @@ export default function ComissoesFuncionariosClient() {
                         className="h-9 rounded-xl bg-slate-900 px-3 text-xs font-semibold text-white shadow-sm transition hover:bg-slate-800 disabled:pointer-events-none disabled:opacity-50"
                         title={
                           canPay
-                            ? "Marcar como pago"
+                            ? "Marcar como pago / enviar PIX Inter"
                             : isMissing
                             ? "Ainda não existe payout no banco (compute o dia)"
                             : isPaid

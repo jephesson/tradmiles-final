@@ -238,6 +238,37 @@ export async function GET(req: Request) {
     });
 
     const byUserId = new Map(payouts.map((p) => [p.userId, p]));
+    const interRows = payouts.length
+      ? await prisma.interPixPayment.findMany({
+          where: { employeePayoutId: { in: payouts.map((p) => p.id) } },
+          orderBy: { createdAt: "desc" },
+          select: {
+            employeePayoutId: true,
+            status: true,
+            interStatus: true,
+            codigoSolicitacao: true,
+            errorMessage: true,
+          },
+        })
+      : [];
+    const latestInter = new Map<
+      string,
+      {
+        status: string;
+        interStatus: string | null;
+        codigoSolicitacao: string | null;
+        errorMessage: string | null;
+      }
+    >();
+    for (const row of interRows) {
+      if (!row.employeePayoutId || latestInter.has(row.employeePayoutId)) continue;
+      latestInter.set(row.employeePayoutId, {
+        status: row.status,
+        interStatus: row.interStatus,
+        codigoSolicitacao: row.codigoSolicitacao,
+        errorMessage: row.errorMessage,
+      });
+    }
 
     const bonusByUserId = await day1BonusByUser(session.team, date);
 
@@ -311,6 +342,7 @@ export async function GET(req: Request) {
 
           paidAt: p.paidAt ? p.paidAt.toISOString() : null,
           paidById: p.paidById ?? null,
+          interPix: latestInter.get(p.id) || null,
 
           user: p.user,
           paidBy: p.paidBy ?? null,
@@ -345,6 +377,7 @@ export async function GET(req: Request) {
 
         paidAt: null,
         paidById: null,
+        interPix: null,
 
         user: u,
         paidBy: null,

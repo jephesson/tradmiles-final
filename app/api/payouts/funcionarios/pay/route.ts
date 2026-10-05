@@ -2,9 +2,13 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/auth-server";
 import { todayISORecife } from "@/lib/payouts/employeePayouts";
+import { employeePayableCents } from "@/lib/payouts/employeePayable";
+import { interConfigured } from "@/lib/inter/config";
+import { payEmployeePayoutViaInter } from "@/lib/inter/pay";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+export const maxDuration = 60;
 
 function isISODate(v: string) {
   return /^\d{4}-\d{2}-\d{2}$/.test((v || "").trim());
@@ -41,6 +45,51 @@ async function recomputeDay(req: Request, date: string, breakdown: unknown) {
   }
 
   return { ok: true as const };
+}
+
+async function markLocalPaid(team: string, date: string, userId: string, meId: string) {
+  return prisma.employeePayout.updateMany({
+    where: { team, date, userId, paidById: null },
+    data: { paidById: meId, paidAt: new Date() },
+  });
+}
+
+async function payOne(opts: {
+  team: string;
+  date: string;
+  userId: string;
+  meId: string;
+}) {
+  const payout = await prisma.employeePayout.findFirst({
+    where: { team: opts.team, date: opts.date, userId: opts.userId },
+  });
+  if (!payout) return { ok: false as const, error: "Payout não encontrado.", status: 404 };
+  if (payout.paidById) {
+    return { ok: true as const, paid: true, via: "local" as const, awaitingApproval: false };
+  }
+
+  const amountCents = await employeePayableCents({
+    team: opts.team,
+    date: opts.date,
+    userId: opts.userId,
+    netPayCents: payout.netPayCents,
+    discountCents: payout.discountCents,
+  });
+
+  const inter = await payEmployeePayoutViaInter({
+    team: opts.team,
+    payoutId: payout.id,
+    userId: opts.userId,
+    date: opts.date,
+    amountCents,
+    requestedById: opts.meId,
+  });
+
+  if (inter.via === "local" || inter.paid) {
+    await markLocalPaid(opts.team, opts.date, opts.userId, opts.meId);
+  }
+
+  return { ok: true as const, ...inter };
 }
 
 export async function POST(req: Request) {
@@ -84,7 +133,7 @@ export async function POST(req: Request) {
     if (payAll) {
       const pending = await prisma.employeePayout.findMany({
         where: { team, date, paidById: null },
-        select: { id: true, breakdown: true },
+        select: { id: true, userId: true, breakdown: true },
       });
 
       if (pending.length) {
@@ -97,12 +146,42 @@ export async function POST(req: Request) {
         }
       }
 
-      const res = await prisma.employeePayout.updateMany({
-        where: { team, date, paidById: null },
-        data: { paidById: meId, paidAt: new Date() },
-      });
+      if (!interConfigured()) {
+        const res = await prisma.employeePayout.updateMany({
+          where: { team, date, paidById: null },
+          data: { paidById: meId, paidAt: new Date() },
+        });
+        return NextResponse.json({
+          ok: true,
+          via: "local",
+          paidCount: res.count,
+          changed: res.count > 0,
+        });
+      }
 
-      return NextResponse.json({ ok: true, paidCount: res.count, changed: res.count > 0 });
+      let paidCount = 0;
+      let awaiting = 0;
+      const errors: string[] = [];
+      for (const p of pending) {
+        try {
+          const out = await payOne({ team, date, userId: p.userId, meId });
+          if (!out.ok) errors.push(out.error);
+          else if (out.paid) paidCount += 1;
+          else if (out.awaitingApproval) awaiting += 1;
+        } catch (e) {
+          errors.push(e instanceof Error ? e.message : String(e));
+        }
+      }
+
+      return NextResponse.json({
+        ok: errors.length === 0,
+        via: "inter",
+        paidCount,
+        awaitingCount: awaiting,
+        changed: paidCount + awaiting > 0,
+        error: errors[0],
+        errors: errors.length ? errors : undefined,
+      });
     }
 
     const current = await prisma.employeePayout.findFirst({
@@ -128,10 +207,10 @@ export async function POST(req: Request) {
       }
     }
 
-    const res = await prisma.employeePayout.updateMany({
-      where: { team, date, userId, paidById: null },
-      data: { paidById: meId, paidAt: new Date() },
-    });
+    const paid = await payOne({ team, date, userId, meId });
+    if (!paid.ok) {
+      return NextResponse.json({ ok: false, error: paid.error }, { status: paid.status });
+    }
 
     const row = await prisma.employeePayout.findFirst({
       where: { team, date, userId },
@@ -145,7 +224,15 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: "Payout não encontrado." }, { status: 404 });
     }
 
-    return NextResponse.json({ ok: true, updated: row, changed: res.count === 1 });
+    return NextResponse.json({
+      ok: true,
+      updated: row,
+      changed: paid.paid || paid.awaitingApproval,
+      via: paid.via,
+      paid: paid.paid,
+      awaitingApproval: paid.awaitingApproval,
+      codigoSolicitacao: paid.codigoSolicitacao || null,
+    });
   } catch (e: unknown) {
     const message = e instanceof Error ? e.message : String(e);
     const msg = message === "UNAUTHENTICATED" ? "Não autenticado" : message;
