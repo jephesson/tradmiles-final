@@ -5,6 +5,7 @@ import { ensureCardDebtSeed } from "@/lib/card-debt/seed";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+export const maxDuration = 60;
 
 function monthRange(ym: string) {
   const [y, m] = ym.split("-").map(Number);
@@ -36,8 +37,9 @@ export async function GET(req: Request) {
     month = now;
   }
 
-  const creditor = await ensureCardDebtSeed(sess.team);
-  const { start, end } = monthRange(month);
+  try {
+    const creditor = await ensureCardDebtSeed(sess.team);
+    const { start, end } = monthRange(month);
 
   const [monthRows, allOpen, allPaid, allTotal, monthBuckets] = await Promise.all([
     prisma.cardDebtInstallment.findMany({
@@ -115,6 +117,11 @@ export async function GET(req: Request) {
         .map(([ym, v]) => ({ month: ym, ...v })),
     },
   });
+  } catch (e: unknown) {
+    const message = e instanceof Error ? e.message : "Erro ao carregar dívida de cartões.";
+    console.error("GET /api/dividas-cartoes", e);
+    return NextResponse.json({ ok: false, error: message }, { status: 500 });
+  }
 }
 
 export async function POST(req: Request) {

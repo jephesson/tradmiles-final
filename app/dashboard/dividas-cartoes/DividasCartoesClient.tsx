@@ -88,8 +88,8 @@ export default function DividasCartoesClient() {
     setError("");
     try {
       const res = await fetch(`/api/dividas-cartoes?month=${ym}`, { cache: "no-store", credentials: "include" });
-      const json = await res.json();
-      if (!json?.ok) throw new Error(json?.error || "Falha ao carregar.");
+      const json = await res.json().catch(() => null);
+      if (!json?.ok) throw new Error(json?.error || `Falha ao carregar (${res.status}).`);
       setRows(json.data.installments || []);
       setTotals(json.data.totals);
       setOpenByMonth(json.data.openByMonth || []);
@@ -110,8 +110,7 @@ export default function DividasCartoesClient() {
   }
 
   useEffect(() => {
-    void loadMonth(month);
-    void loadOpen();
+    void loadMonth(month).then(() => void loadOpen());
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [month]);
 
