@@ -59,6 +59,7 @@ async function payOne(opts: {
   date: string;
   userId: string;
   meId: string;
+  viaInter: boolean;
 }) {
   const payout = await prisma.employeePayout.findFirst({
     where: { team: opts.team, date: opts.date, userId: opts.userId },
@@ -66,6 +67,15 @@ async function payOne(opts: {
   if (!payout) return { ok: false as const, error: "Payout não encontrado.", status: 404 };
   if (payout.paidById) {
     return { ok: true as const, paid: true, via: "local" as const, awaitingApproval: false };
+  }
+
+  if (!opts.viaInter) {
+    await markLocalPaid(opts.team, opts.date, opts.userId, opts.meId);
+    return { ok: true as const, paid: true, via: "local" as const, awaitingApproval: false };
+  }
+
+  if (!interConfigured()) {
+    return { ok: false as const, error: "Banco Inter não está configurado no ambiente.", status: 400 };
   }
 
   const amountCents = await employeePayableCents({
@@ -111,6 +121,7 @@ export async function POST(req: Request) {
     const date = String(body?.date || "").slice(0, 10);
     const userId = String(body?.userId || "");
     const payAll = Boolean(body?.payAll);
+    const viaInter = String(body?.via || "").toLowerCase() === "inter";
 
     if (!date) {
       return NextResponse.json({ ok: false, error: "date obrigatório" }, { status: 400 });
@@ -146,7 +157,13 @@ export async function POST(req: Request) {
         }
       }
 
-      if (!interConfigured()) {
+      if (!viaInter || !interConfigured()) {
+        if (viaInter && !interConfigured()) {
+          return NextResponse.json(
+            { ok: false, error: "Banco Inter não está configurado no ambiente." },
+            { status: 400 }
+          );
+        }
         const res = await prisma.employeePayout.updateMany({
           where: { team, date, paidById: null },
           data: { paidById: meId, paidAt: new Date() },
@@ -164,7 +181,7 @@ export async function POST(req: Request) {
       const errors: string[] = [];
       for (const p of pending) {
         try {
-          const out = await payOne({ team, date, userId: p.userId, meId });
+          const out = await payOne({ team, date, userId: p.userId, meId, viaInter: true });
           if (!out.ok) errors.push(out.error);
           else if (out.paid) paidCount += 1;
           else if (out.awaitingApproval) awaiting += 1;
@@ -207,7 +224,7 @@ export async function POST(req: Request) {
       }
     }
 
-    const paid = await payOne({ team, date, userId, meId });
+    const paid = await payOne({ team, date, userId, meId, viaInter });
     if (!paid.ok) {
       return NextResponse.json({ ok: false, error: paid.error }, { status: paid.status });
     }

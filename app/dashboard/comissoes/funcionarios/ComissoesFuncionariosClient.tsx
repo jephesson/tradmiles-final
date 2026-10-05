@@ -597,7 +597,7 @@ export default function ComissoesFuncionariosClient() {
     } catch {}
   }
 
-  async function payRow(d: string, userId: string) {
+  async function payRow(d: string, userId: string, via: "local" | "inter") {
     const key = `${d}|${userId}`;
     setPayingKey(key);
     try {
@@ -606,7 +606,7 @@ export default function ComissoesFuncionariosClient() {
         via?: string;
         paid?: boolean;
         awaitingApproval?: boolean;
-      }>(`/api/payouts/funcionarios/pay`, { date: d, userId });
+      }>(`/api/payouts/funcionarios/pay`, { date: d, userId, via });
       await loadDay(d);
 
       // se o modal estiver aberto no mesmo user, atualiza também
@@ -615,12 +615,12 @@ export default function ComissoesFuncionariosClient() {
       }
 
       setToast(
-        out.awaitingApproval
+        via === "inter" && out.awaitingApproval
           ? {
               title: "PIX enviado",
               desc: "Aguardando aprovação no Internet Banking do Inter (Aprovar).",
             }
-          : out.via === "inter"
+          : via === "inter"
             ? { title: "PIX pago", desc: `Comissão enviada pelo Inter em ${d}.` }
             : { title: "Pago!", desc: `Pagamento marcado para ${d}.` }
       );
@@ -631,7 +631,7 @@ export default function ComissoesFuncionariosClient() {
     }
   }
 
-  async function payAllPending(d: string) {
+  async function payAllPending(d: string, via: "local" | "inter") {
     const pending = (day?.rows || []).filter((r) => {
       const isMissing = String(r.id || "").startsWith("missing:");
       const isPaid = !!r.paidById;
@@ -657,7 +657,9 @@ export default function ComissoesFuncionariosClient() {
 
     if (
       !confirm(
-        `Pagar ${pending.length} funcionário(s) do dia ${fmtDateBR(d)} via PIX do Inter (se estiver configurado)?`
+        via === "inter"
+          ? `Enviar PIX pelo Inter para ${pending.length} funcionário(s) do dia ${fmtDateBR(d)}?`
+          : `Marcar como pago ${pending.length} funcionário(s) do dia ${fmtDateBR(d)}?`
       )
     ) {
       return;
@@ -673,6 +675,7 @@ export default function ComissoesFuncionariosClient() {
       }>(`/api/payouts/funcionarios/pay`, {
         date: d,
         payAll: true,
+        via,
       });
       await loadDay(d);
       setToast({
@@ -1012,17 +1015,30 @@ export default function ComissoesFuncionariosClient() {
 
           <button
             type="button"
-            onClick={() => payAllPending(date)}
+            onClick={() => payAllPending(date, "local")}
+            disabled={!isClosedDay || payingKey === "__all__" || loading}
+            className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-800 shadow-sm transition hover:bg-slate-50 disabled:pointer-events-none disabled:opacity-50"
+            title={
+              isClosedDay
+                ? "Marcar todos os pendentes deste dia como pagos (sem PIX)"
+                : "Só paga dia fechado (anterior a hoje)"
+            }
+          >
+            {payingKey === "__all__" ? "Pagando..." : "Marcar todos"}
+          </button>
+          <button
+            type="button"
+            onClick={() => payAllPending(date, "inter")}
             disabled={!isClosedDay || payingKey === "__all__" || loading}
             className="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-emerald-700 px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-800 disabled:pointer-events-none disabled:opacity-50"
             title={
               isClosedDay
-                ? "Marcar todos os pendentes deste dia como pagos"
+                ? "Enviar PIX pelo Inter para todos os pendentes"
                 : "Só paga dia fechado (anterior a hoje)"
             }
           >
             <Banknote className="h-4 w-4 shrink-0 opacity-90" strokeWidth={2} aria-hidden />
-            {payingKey === "__all__" ? "Pagando..." : "Pagar todos"}
+            {payingKey === "__all__" ? "Enviando..." : "Enviar PIX todos"}
           </button>
             </>
           ) : null}
@@ -1256,23 +1272,26 @@ export default function ComissoesFuncionariosClient() {
 
                     <td className="px-4 py-3 text-right">
                       {canManage ? (
-                      <button
-                        type="button"
-                        onClick={() => payRow(date, r.userId)}
-                        disabled={!canPay || paying || payingKey === "__all__"}
-                        className="h-9 rounded-xl bg-slate-900 px-3 text-xs font-semibold text-white shadow-sm transition hover:bg-slate-800 disabled:pointer-events-none disabled:opacity-50"
-                        title={
-                          canPay
-                            ? "Marcar como pago / enviar PIX Inter"
-                            : isMissing
-                            ? "Ainda não existe payout no banco (compute o dia)"
-                            : isPaid
-                            ? "Já pago"
-                            : "Só paga dia fechado (anterior a hoje)"
-                        }
-                      >
-                        {paying ? "Pagando..." : "Pagar"}
-                      </button>
+                      <div className="flex flex-col items-end gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => payRow(date, r.userId, "local")}
+                          disabled={!canPay || paying || payingKey === "__all__"}
+                          className="h-8 rounded-xl border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-800 shadow-sm transition hover:bg-slate-50 disabled:pointer-events-none disabled:opacity-50"
+                          title={canPay ? "Marcar como pago sem enviar PIX" : undefined}
+                        >
+                          {paying ? "..." : "Marcar pago"}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => payRow(date, r.userId, "inter")}
+                          disabled={!canPay || paying || payingKey === "__all__"}
+                          className="h-8 rounded-xl bg-emerald-700 px-3 text-xs font-semibold text-white shadow-sm transition hover:bg-emerald-800 disabled:pointer-events-none disabled:opacity-50"
+                          title={canPay ? "Enviar PIX pelo Banco Inter" : undefined}
+                        >
+                          {paying ? "..." : "Enviar PIX"}
+                        </button>
+                      </div>
                       ) : (
                         <span className="text-xs text-slate-400">—</span>
                       )}

@@ -125,6 +125,62 @@ export async function GET(req: Request) {
   }
 }
 
+export async function POST(req: Request) {
+  try {
+    const session = await getSessionServer();
+    const userId = String(session?.id || "");
+    if (!userId) return badRequest("Sessão inválida: faça login novamente.");
+
+    const body = await req.json().catch(() => ({} as Record<string, unknown>));
+    const cedenteId = String(body?.cedenteId || "").trim();
+    const note = typeof body?.note === "string" ? body.note.trim() : "";
+
+    if (!cedenteId) return badRequest("Selecione o cedente.");
+
+    let amountCents = 0;
+    if (body?.amountCents != null && body.amountCents !== "") {
+      amountCents = Math.round(Number(body.amountCents));
+    } else {
+      const raw = String(body?.amount || body?.valor || "")
+        .trim()
+        .replace(/\s/g, "")
+        .replace(/\./g, "")
+        .replace(",", ".");
+      amountCents = Math.round(Number(raw) * 100);
+    }
+    if (!Number.isFinite(amountCents) || amountCents <= 0) {
+      return badRequest("Informe um valor maior que zero.");
+    }
+
+    const cedente = await prisma.cedente.findUnique({
+      where: { id: cedenteId },
+      select: { id: true, nomeCompleto: true, cpf: true, identificador: true },
+    });
+    if (!cedente) return badRequest("Cedente não encontrado.");
+
+    const commission = await prisma.cedenteCommission.create({
+      data: {
+        cedenteId: cedente.id,
+        amountCents,
+        status: "PENDING",
+        note: note || "Pagamento manual",
+        generatedById: userId,
+      },
+      include: {
+        cedente: { select: { id: true, nomeCompleto: true, cpf: true, identificador: true } },
+        purchase: { select: { id: true, numero: true, status: true, totalCents: true } },
+        generatedBy: { select: { id: true, name: true, login: true } },
+        paidBy: { select: { id: true, name: true, login: true } },
+      },
+    });
+
+    return ok({ commission });
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return serverError("Falha ao criar pagamento.", { detail: msg });
+  }
+}
+
 function clampInt(v: any, min: number, max: number) {
   const n = Number(v);
   if (!Number.isFinite(n)) return min;

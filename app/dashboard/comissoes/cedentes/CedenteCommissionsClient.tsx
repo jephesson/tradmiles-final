@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Banknote, RefreshCw, Search, Trophy, Users } from "lucide-react";
+import { Banknote, Plus, RefreshCw, Search, Trophy, Users, X } from "lucide-react";
 import { cn } from "@/lib/cn";
 
 type Status = "PENDING" | "PAID" | "CANCELED" | "";
@@ -142,6 +142,15 @@ export default function CedenteCommissionsClient() {
     items: [],
   });
 
+  const [addOpen, setAddOpen] = useState(false);
+  const [cedentes, setCedentes] = useState<
+    { id: string; nomeCompleto: string; cpf: string; identificador: string }[]
+  >([]);
+  const [cedenteQ, setCedenteQ] = useState("");
+  const [cedenteId, setCedenteId] = useState("");
+  const [amount, setAmount] = useState("");
+  const [addNote, setAddNote] = useState("");
+
   async function load() {
     try {
       setLoading(true);
@@ -210,9 +219,17 @@ export default function CedenteCommissionsClient() {
     return Math.floor((data?.skip || 0) / tk) + 1;
   }, [data.skip, data.take, take]);
 
-  async function payCommission(id: string) {
+  async function payCommission(id: string, via: "local" | "inter") {
     const note = window.prompt("Observação (opcional):", "") ?? "";
-    if (!window.confirm("Confirmar: enviar PIX pelo Inter (ou marcar como paga se o banco não estiver configurado)?")) return;
+    if (
+      !window.confirm(
+        via === "inter"
+          ? "Confirmar: enviar PIX pelo Banco Inter?"
+          : "Confirmar: marcar esta comissão como PAGA (sem enviar PIX)?"
+      )
+    ) {
+      return;
+    }
 
     try {
       setLoading(true);
@@ -220,7 +237,7 @@ export default function CedenteCommissionsClient() {
       const res = await fetch(`/api/cedente-commissions/${id}/pay`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ note }),
+        body: JSON.stringify({ note, via }),
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -264,6 +281,60 @@ export default function CedenteCommissionsClient() {
     setSkip(0);
   }
 
+  const cedenteHits = useMemo(() => {
+    const s = cedenteQ.trim().toLowerCase();
+    const rows = s
+      ? cedentes.filter((c) =>
+          [c.nomeCompleto, c.cpf, c.identificador].join(" ").toLowerCase().includes(s)
+        )
+      : cedentes;
+    return rows.slice(0, 12);
+  }, [cedentes, cedenteQ]);
+
+  async function openAdd() {
+    setAddOpen(true);
+    setErr("");
+    setCedenteQ("");
+    setCedenteId("");
+    setAmount("");
+    setAddNote("");
+    try {
+      const res = await fetch("/api/cedentes/lite", { cache: "no-store" });
+      const json = await res.json().catch(() => null);
+      if (res.ok && json?.ok) setCedentes(json.rows || []);
+    } catch {
+      setErr("Não deu para carregar a lista de cedentes.");
+    }
+  }
+
+  async function saveAdd() {
+    if (!cedenteId) {
+      setErr("Selecione o cedente.");
+      return;
+    }
+    try {
+      setLoading(true);
+      setErr("");
+      const res = await fetch("/api/cedente-commissions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ cedenteId, amount, note: addNote }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok || json?.ok === false) {
+        setErr(json?.error || json?.message || "Falha ao criar pagamento.");
+        return;
+      }
+      setAddOpen(false);
+      setStatus("PENDING");
+      await load();
+    } catch (e: unknown) {
+      setErr(e instanceof Error ? e.message : "Erro ao criar pagamento.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
   return (
     <div className="space-y-5">
       <div className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm shadow-slate-200/40">
@@ -276,10 +347,19 @@ export default function CedenteCommissionsClient() {
               Comissões · Cedentes
             </h1>
             <p className="mt-1 max-w-2xl text-sm text-slate-500">
-              Filtre, confira e pague via PIX do Inter (ou marque como paga).
+              Marque como pago, envie PIX pelo Inter ou lance um pagamento avulso.
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              className="inline-flex h-10 items-center gap-2 rounded-xl bg-emerald-700 px-4 text-sm font-semibold text-white shadow-sm hover:bg-emerald-800 disabled:opacity-50"
+              onClick={() => void openAdd()}
+              disabled={loading}
+            >
+              <Plus className="h-4 w-4" />
+              Adicionar pagamento
+            </button>
             <button
               type="button"
               className="inline-flex h-10 items-center rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-800 shadow-sm hover:bg-slate-50 disabled:opacity-50"
@@ -509,11 +589,20 @@ export default function CedenteCommissionsClient() {
                     </div>
                   </td>
                   <td className="px-4 py-3.5 text-right">
-                    <div className="flex items-center justify-end gap-1.5">
+                    <div className="flex flex-wrap items-center justify-end gap-1.5">
+                      <button
+                        type="button"
+                        className="h-8 rounded-xl border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-800 hover:bg-slate-50 disabled:opacity-40"
+                        onClick={() => void payCommission(it.id, "local")}
+                        disabled={loading || it.status !== "PENDING"}
+                        title="Marcar como pago sem enviar PIX"
+                      >
+                        Marcar pago
+                      </button>
                       <button
                         type="button"
                         className="h-8 rounded-xl bg-emerald-600 px-3 text-xs font-semibold text-white hover:bg-emerald-700 disabled:opacity-40"
-                        onClick={() => void payCommission(it.id)}
+                        onClick={() => void payCommission(it.id, "inter")}
                         disabled={
                           loading ||
                           it.status !== "PENDING" ||
@@ -521,13 +610,9 @@ export default function CedenteCommissionsClient() {
                           it.interPixPayments?.[0]?.status === "PROCESSING" ||
                           it.interPixPayments?.[0]?.status === "CREATED"
                         }
-                        title={
-                          it.status !== "PENDING"
-                            ? "Somente pendente pode ser paga"
-                            : "Pagar via PIX Inter"
-                        }
+                        title="Enviar PIX pelo Banco Inter"
                       >
-                        Pagar
+                        Enviar PIX
                       </button>
                       <button
                         type="button"
@@ -643,6 +728,102 @@ export default function CedenteCommissionsClient() {
           </table>
         </div>
       </div>
+
+      {addOpen ? (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-slate-900/40 p-4 sm:items-center">
+          <div className="w-full max-w-lg rounded-2xl bg-white p-5 shadow-xl">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h2 className="text-lg font-semibold text-slate-900">Adicionar pagamento</h2>
+                <p className="mt-0.5 text-sm text-slate-500">
+                  Lança um valor para o cedente. Depois você marca como pago ou envia o PIX.
+                </p>
+              </div>
+              <button
+                type="button"
+                className="rounded-lg p-1 text-slate-400 hover:bg-slate-50 hover:text-slate-700"
+                onClick={() => setAddOpen(false)}
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <label className="mt-4 block text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+              Cedente
+            </label>
+            <input
+              className={cn(INPUT, "mt-1")}
+              placeholder="Buscar nome, CPF ou ID"
+              value={cedenteQ}
+              onChange={(e) => setCedenteQ(e.target.value)}
+            />
+            <div className="mt-2 max-h-44 overflow-y-auto rounded-xl border border-slate-200">
+              {cedenteHits.length === 0 ? (
+                <div className="px-3 py-6 text-center text-sm text-slate-500">Nenhum cedente.</div>
+              ) : (
+                cedenteHits.map((c) => (
+                  <button
+                    key={c.id}
+                    type="button"
+                    onClick={() => {
+                      setCedenteId(c.id);
+                      setCedenteQ(`${c.identificador} · ${c.nomeCompleto}`);
+                    }}
+                    className={cn(
+                      "flex w-full flex-col items-start px-3 py-2 text-left text-sm hover:bg-slate-50",
+                      cedenteId === c.id ? "bg-emerald-50" : "bg-white"
+                    )}
+                  >
+                    <span className="font-semibold text-slate-900">{c.nomeCompleto}</span>
+                    <span className="text-xs text-slate-500">
+                      {c.identificador} · {c.cpf}
+                    </span>
+                  </button>
+                ))
+              )}
+            </div>
+
+            <label className="mt-4 block text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+              Valor (R$)
+            </label>
+            <input
+              className={cn(INPUT, "mt-1")}
+              placeholder="80,00"
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+              inputMode="decimal"
+            />
+
+            <label className="mt-4 block text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+              Observação
+            </label>
+            <input
+              className={cn(INPUT, "mt-1")}
+              placeholder="Opcional"
+              value={addNote}
+              onChange={(e) => setAddNote(e.target.value)}
+            />
+
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                type="button"
+                className="h-10 rounded-xl border border-slate-200 px-4 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                onClick={() => setAddOpen(false)}
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                className="h-10 rounded-xl bg-slate-900 px-4 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-50"
+                onClick={() => void saveAdd()}
+                disabled={loading || !cedenteId || !amount.trim()}
+              >
+                Lançar
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

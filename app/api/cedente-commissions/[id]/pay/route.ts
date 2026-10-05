@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { ok, badRequest, notFound, serverError } from "@/lib/api";
 import { getSessionServer } from "@/lib/auth-server";
+import { interConfigured } from "@/lib/inter/config";
 import { payCedenteCommissionViaInter } from "@/lib/inter/pay";
 
 export const dynamic = "force-dynamic";
@@ -23,8 +24,9 @@ export async function POST(
     const team = String(session?.team || "");
     if (!userId || !team) return badRequest("Sessão inválida: faça login novamente.");
 
-    const body = await req.json().catch(() => ({} as { note?: string }));
+    const body = await req.json().catch(() => ({} as { note?: string; via?: string }));
     const note = typeof body?.note === "string" ? body.note.trim() : "";
+    const viaInter = String(body?.via || "").toLowerCase() === "inter";
 
     const current = await prisma.cedenteCommission.findUnique({
       where: { id },
@@ -48,6 +50,33 @@ export async function POST(
         where: { id },
         data: { note },
       });
+    }
+
+    if (!viaInter) {
+      const updated = await prisma.cedenteCommission.update({
+        where: { id },
+        data: {
+          status: "PAID",
+          paidAt: new Date(),
+          paidById: userId,
+        },
+        include: {
+          cedente: { select: { id: true, nomeCompleto: true, cpf: true, identificador: true } },
+          purchase: { select: { id: true, numero: true, status: true } },
+          generatedBy: { select: { id: true, name: true, login: true } },
+          paidBy: { select: { id: true, name: true, login: true } },
+        },
+      });
+      return ok({
+        commission: updated,
+        via: "local",
+        paid: true,
+        awaitingApproval: false,
+      });
+    }
+
+    if (viaInter && !interConfigured()) {
+      return badRequest("Banco Inter não está configurado no ambiente.");
     }
 
     const inter = await payCedenteCommissionViaInter({
