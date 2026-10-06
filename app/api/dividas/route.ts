@@ -47,18 +47,6 @@ function parseOrderOrNull(v: any): number | null | undefined {
 
 export async function GET() {
   try {
-    const cards = await prisma.cardDebtCreditor.findMany({
-      select: { id: true, name: true, ownerId: true },
-    });
-    const { ensureCardLedgerDebt } = await import("@/lib/card-debt/sync-person-debt");
-    for (const c of cards) {
-      await ensureCardLedgerDebt({
-        creditorId: c.id,
-        creditorName: c.name,
-        linkedUserId: c.ownerId,
-      });
-    }
-
     const debts = await prisma.debt.findMany({
       orderBy: { createdAt: "desc" },
       include: {

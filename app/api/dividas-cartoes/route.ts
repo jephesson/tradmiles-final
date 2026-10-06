@@ -39,14 +39,6 @@ export async function GET(req: Request) {
 
   try {
     const { creditor, viewOnly } = await resolveCardDebtCreditor(sess);
-    if (creditor && sess.role !== "socio") {
-      const { ensureCardLedgerDebt } = await import("@/lib/card-debt/sync-person-debt");
-      await ensureCardLedgerDebt({
-        creditorId: creditor.id,
-        creditorName: creditor.name,
-        linkedUserId: creditor.ownerId,
-      });
-    }
     const { start, end } = monthRange(month);
     const scope = installmentScope(sess, creditor?.id || null);
 

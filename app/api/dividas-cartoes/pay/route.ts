@@ -55,8 +55,6 @@ export async function POST(req: Request) {
       const { abateCardPayOnPersonDebt } = await import("@/lib/card-debt/sync-person-debt");
       await abateCardPayOnPersonDebt({
         creditorId: creditor.id,
-        creditorName: creditor.name,
-        linkedUserId: creditor.ownerId,
         amountCents,
         note: `Cartão: ${rowIds.length} parcela(s)`,
         sourceRef: `local:${rowIds.slice().sort().join(",")}`,

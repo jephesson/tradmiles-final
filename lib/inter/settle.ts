@@ -72,8 +72,6 @@ export async function applyInterPixConsulta(rowId: string, consulta: {
       if (creditor && row.amountCents > 0) {
         await abateCardPayOnPersonDebt({
           creditorId: creditor.id,
-          creditorName: creditor.name,
-          linkedUserId: creditor.ownerId,
           amountCents: row.amountCents,
           note: `PIX cartão (${cardIds.length} parc.)`,
           sourceRef: `inter:${row.id}`,
