@@ -84,7 +84,7 @@ export async function GET() {
     });
 
     const people = await prisma.user.findMany({
-      where: { role: { in: ["staff", "socio"] } },
+      where: { role: { in: ["admin", "staff", "socio"] } },
       orderBy: { name: "asc" },
       select: { id: true, name: true, login: true, role: true },
     });

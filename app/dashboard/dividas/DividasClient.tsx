@@ -36,6 +36,12 @@ type CreditorGroup = {
   linkedUser: LinkableUser | null;
 };
 
+function linkRoleLabel(role: string) {
+  if (role === "socio") return "sócio";
+  if (role === "admin") return "admin";
+  return "funcionário";
+}
+
 const EMPTY_CREDITOR_KEY = "__SEM_PESSOA__";
 
 function fmtMoney(cents: number) {
@@ -619,7 +625,7 @@ export default function DividasClient() {
         </div>
 
         <div className="rounded-xl border border-slate-200 bg-white p-3">
-          <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Vincular a funcionário ou sócio</div>
+          <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Vincular a funcionário, sócio ou admin</div>
           <select
             className="mt-2 h-10 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm"
             value={g.linkedUser?.id || ""}
@@ -628,12 +634,12 @@ export default function DividasClient() {
             <option value="">Ninguém — só nome na dívida</option>
             {people.map((u) => (
               <option key={u.id} value={u.id}>
-                {u.name} ({u.role === "socio" ? "sócio" : "funcionário"} · {u.login})
+                {u.name} ({linkRoleLabel(u.role)} · {u.login})
               </option>
             ))}
           </select>
           <p className="mt-1 text-xs text-slate-500">
-            Quando for funcionário ou sócio, o PIX usa a chave cadastrada na pessoa.
+            Quando vinculado, o PIX usa a chave cadastrada na pessoa.
           </p>
         </div>
 

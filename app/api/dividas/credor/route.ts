@@ -29,11 +29,11 @@ export async function PATCH(req: NextRequest) {
 
   if (linkedUserId) {
     const user = await prisma.user.findFirst({
-      where: { id: linkedUserId, team: sess.team, role: { in: ["staff", "socio"] } },
+      where: { id: linkedUserId, team: sess.team, role: { in: ["admin", "staff", "socio"] } },
       select: { id: true },
     });
     if (!user) {
-      return NextResponse.json({ ok: false, error: "Funcionário ou sócio não encontrado." }, { status: 404 });
+      return NextResponse.json({ ok: false, error: "Pessoa não encontrada." }, { status: 404 });
     }
   }
 
