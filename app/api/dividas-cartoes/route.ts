@@ -39,6 +39,14 @@ export async function GET(req: Request) {
 
   try {
     const { creditor, viewOnly } = await resolveCardDebtCreditor(sess);
+    if (creditor && sess.role !== "socio") {
+      const { ensureCardLedgerDebt } = await import("@/lib/card-debt/sync-person-debt");
+      await ensureCardLedgerDebt({
+        creditorId: creditor.id,
+        creditorName: creditor.name,
+        linkedUserId: creditor.ownerId,
+      });
+    }
     const { start, end } = monthRange(month);
     const scope = installmentScope(sess, creditor?.id || null);
 
@@ -172,6 +180,16 @@ export async function POST(req: Request) {
         }),
       },
     },
+  });
+
+  const { addCardPurchaseToPersonDebt } = await import("@/lib/card-debt/sync-person-debt");
+  await addCardPurchaseToPersonDebt({
+    creditorId: creditor.id,
+    creditorName: creditor.name,
+    linkedUserId: creditor.ownerId,
+    purchaseId: purchase.id,
+    title,
+    totalCents: amountCents * count,
   });
 
   return NextResponse.json({ ok: true, data: { id: purchase.id } }, { status: 201 });

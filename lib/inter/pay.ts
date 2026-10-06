@@ -36,10 +36,12 @@ async function resolveEmployeePix(userId: string) {
 
 async function sendPix(opts: {
   team: string;
-  kind: "EMPLOYEE_PAYOUT" | "CEDENTE_COMMISSION" | "CARD_DEBT";
+  kind: "EMPLOYEE_PAYOUT" | "CEDENTE_COMMISSION" | "CARD_DEBT" | "PERSON_DEBT";
   employeePayoutId?: string;
   cedenteCommissionId?: string;
   cardDebtInstallmentIds?: string[];
+  debtIds?: string[];
+  personDebtGroupKey?: string;
   amountCents: number;
   pixTipo: PixTipo | string;
   pixKey: string;
@@ -89,6 +91,8 @@ async function sendPix(opts: {
       employeePayoutId: opts.employeePayoutId || null,
       cedenteCommissionId: opts.cedenteCommissionId || null,
       cardDebtInstallmentIds: cardIds,
+      debtIds: (opts.debtIds || []).filter(Boolean),
+      personDebtGroupKey: opts.personDebtGroupKey || null,
       amountCents: opts.amountCents,
       pixTipo: String(opts.pixTipo),
       pixKey: opts.pixKey,
@@ -223,6 +227,30 @@ export async function payCardDebtViaInter(opts: {
     team: opts.team,
     kind: "CARD_DEBT",
     cardDebtInstallmentIds: opts.installmentIds,
+    amountCents: opts.amountCents,
+    pixTipo: opts.pixTipo,
+    pixKey: opts.pixKey,
+    description: opts.description,
+    requestedById: opts.requestedById,
+  });
+}
+
+export async function payPersonDebtViaInter(opts: {
+  team: string;
+  groupKey: string;
+  amountCents: number;
+  pixTipo: PixTipo | string;
+  pixKey: string;
+  description: string;
+  requestedById: string;
+}): Promise<InterPayResult> {
+  if (!interConfigured()) {
+    return { via: "local", paid: true, awaitingApproval: false };
+  }
+  return sendPix({
+    team: opts.team,
+    kind: "PERSON_DEBT",
+    personDebtGroupKey: opts.groupKey,
     amountCents: opts.amountCents,
     pixTipo: opts.pixTipo,
     pixKey: opts.pixKey,

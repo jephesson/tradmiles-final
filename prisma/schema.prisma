@@ -167,6 +167,7 @@ model User {
 
   // Dívidas criadas por este usuário
   debtsCreated Debt[]
+  debtsLinked  Debt[] @relation("DebtLinkedUser")
 
   // Bloqueios criados por este usuário
   blockedCreated BlockedAccount[] @relation("BlockedCreatedBy")
@@ -1114,15 +1115,24 @@ model Debt {
   createdById String?
   createdBy   User?   @relation(fields: [createdById], references: [id], onDelete: SetNull)
 
+  /** Funcionário ou sócio dono desta dívida (PIX e vínculo). */
+  linkedUserId String?
+  linkedUser   User?   @relation("DebtLinkedUser", fields: [linkedUserId], references: [id], onDelete: SetNull)
+
+  sourceKind String?
+  sourceRef  String?
+
   payments DebtPayment[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  @@unique([sourceKind, sourceRef])
   @@index([status])
   @@index([creditorName])
   @@index([dueDate])
   @@index([createdAt])
+  @@index([linkedUserId])
   @@map("debts")
 }
 
@@ -1132,12 +1142,16 @@ model DebtPayment {
   amountCents Int
   note        String?
   paidAt      DateTime @default(now())
+  paidVia     String?
+  sourceKind  String?
+  sourceRef   String?
 
   debt Debt @relation(fields: [debtId], references: [id], onDelete: Cascade)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  @@unique([sourceKind, sourceRef])
   @@index([debtId])
   @@index([paidAt])
   @@map("debt_payments")
@@ -1828,7 +1842,7 @@ model InterPixPayment {
   team String
 
   kind String
-  /// EMPLOYEE_PAYOUT | CEDENTE_COMMISSION | CARD_DEBT
+  /// EMPLOYEE_PAYOUT | CEDENTE_COMMISSION | CARD_DEBT | PERSON_DEBT
 
   employeePayoutId String?
   employeePayout   EmployeePayout? @relation(fields: [employeePayoutId], references: [id], onDelete: SetNull)
@@ -1837,6 +1851,8 @@ model InterPixPayment {
   cedenteCommission   CedenteCommission? @relation(fields: [cedenteCommissionId], references: [id], onDelete: SetNull)
 
   cardDebtInstallmentIds String[] @default([])
+  debtIds                String[] @default([])
+  personDebtGroupKey     String?
 
   amountCents Int
   pixTipo     String

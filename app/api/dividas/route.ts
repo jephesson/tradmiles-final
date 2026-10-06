@@ -47,10 +47,23 @@ function parseOrderOrNull(v: any): number | null | undefined {
 
 export async function GET() {
   try {
+    const cards = await prisma.cardDebtCreditor.findMany({
+      select: { id: true, name: true, ownerId: true },
+    });
+    const { ensureCardLedgerDebt } = await import("@/lib/card-debt/sync-person-debt");
+    for (const c of cards) {
+      await ensureCardLedgerDebt({
+        creditorId: c.id,
+        creditorName: c.name,
+        linkedUserId: c.ownerId,
+      });
+    }
+
     const debts = await prisma.debt.findMany({
       orderBy: { createdAt: "desc" },
       include: {
         payments: { orderBy: { paidAt: "desc" } },
+        linkedUser: { select: { id: true, name: true, login: true, role: true } },
       },
     });
 
@@ -69,6 +82,9 @@ export async function GET() {
         creditorName: d.creditorName || null,
         dueDate: d.dueDate ? d.dueDate.toISOString() : null,
         payOrder: typeof d.payOrder === "number" ? d.payOrder : null,
+        linkedUserId: d.linkedUserId || null,
+        linkedUser: d.linkedUser,
+        sourceKind: d.sourceKind || null,
         createdAt: d.createdAt.toISOString(),
         payments: d.payments.map((p) => ({
           id: p.id,
@@ -79,7 +95,13 @@ export async function GET() {
       };
     });
 
-    return NextResponse.json({ ok: true, data }, { status: 200 });
+    const people = await prisma.user.findMany({
+      where: { role: { in: ["staff", "socio"] } },
+      orderBy: { name: "asc" },
+      select: { id: true, name: true, login: true, role: true },
+    });
+
+    return NextResponse.json({ ok: true, data, people }, { status: 200 });
   } catch (e: any) {
     console.error(e);
     return NextResponse.json(
@@ -112,6 +134,14 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ ok: false, error: "Data de vencimento inválida." }, { status: 400 });
     }
 
+    const sibling = creditorName
+      ? await prisma.debt.findFirst({
+          where: { creditorName, linkedUserId: { not: null } },
+          select: { linkedUserId: true },
+          orderBy: { updatedAt: "desc" },
+        })
+      : null;
+
     const created = await prisma.debt.create({
       data: {
         title,
@@ -120,6 +150,7 @@ export async function POST(request: NextRequest) {
         creditorName,
         dueDate: dueDate ?? null,
         payOrder: payOrder ?? null,
+        linkedUserId: sibling?.linkedUserId || null,
         status: "OPEN",
       },
       select: { id: true },

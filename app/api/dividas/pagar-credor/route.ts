@@ -1,97 +1,96 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { requireSession } from "@/lib/auth-server";
+import { allocateDebtPayment, EMPTY_CREDITOR_KEY } from "@/lib/debts/allocate";
+import { personDebtPixDestino } from "@/lib/debts/destino";
+import { payPersonDebtViaInter } from "@/lib/inter/pay";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-function safeInt(v: unknown) {
-  const n = Number(v);
-  return Number.isFinite(n) ? Math.trunc(n) : 0;
+function toCentsFromInput(s: unknown) {
+  const cleaned = String(s ?? "").trim();
+  if (!cleaned) return 0;
+  const normalized = cleaned.replace(/\./g, "").replace(",", ".");
+  const n = Number(normalized);
+  return Number.isFinite(n) ? Math.round(n * 100) : 0;
 }
 
-const EMPTY_CREDITOR_KEY = "__SEM_PESSOA__";
-
 export async function POST(req: NextRequest) {
+  let sess;
+  try {
+    sess = await requireSession();
+  } catch {
+    return NextResponse.json({ ok: false, error: "Não autenticado" }, { status: 401 });
+  }
+  if (sess.role === "socio") {
+    return NextResponse.json({ ok: false, error: "Sócio só visualiza." }, { status: 403 });
+  }
+
   try {
     const body = await req.json().catch(() => ({} as any));
     const rawGroupKey = String(body?.groupKey || "").trim();
-    const note = String(body?.note || "").trim() || "Quitação em lote por credor";
+    const note = String(body?.note || "").trim() || null;
+    const via = String(body?.via || "local") === "inter" ? "inter" : "local";
+    const amountCents = body?.amountCents
+      ? Math.round(Number(body.amountCents))
+      : toCentsFromInput(body?.amount);
 
     if (!rawGroupKey) {
       return NextResponse.json({ ok: false, error: "Credor não informado." }, { status: 400 });
     }
 
-    const where =
-      rawGroupKey === EMPTY_CREDITOR_KEY
-        ? {
-            status: "OPEN" as const,
-            OR: [{ creditorName: null }, { creditorName: "" }],
-          }
-        : {
-            status: "OPEN" as const,
-            creditorName: rawGroupKey,
-          };
+    const groupKey = rawGroupKey || EMPTY_CREDITOR_KEY;
 
-    const debts = await prisma.debt.findMany({
-      where,
-      include: {
-        payments: {
-          select: { amountCents: true },
-        },
-      },
-      orderBy: { createdAt: "asc" },
-    });
-
-    if (!debts.length) {
-      return NextResponse.json({ ok: false, error: "Nenhuma dívida aberta encontrada para esse credor." }, { status: 404 });
+    if (via === "inter") {
+      if (!(amountCents > 0)) {
+        return NextResponse.json({ ok: false, error: "Informe o valor do PIX." }, { status: 400 });
+      }
+      const destino = await personDebtPixDestino(groupKey);
+      const result = await payPersonDebtViaInter({
+        team: sess.team,
+        groupKey,
+        amountCents,
+        pixTipo: destino.pixTipo,
+        pixKey: destino.pixKey,
+        description: `Divida ${groupKey === EMPTY_CREDITOR_KEY ? "sem pessoa" : groupKey}`.slice(0, 140),
+        requestedById: sess.id,
+      });
+      if (result.paid) {
+        const alloc = await allocateDebtPayment({
+          groupKey,
+          amountCents,
+          note: note || "PIX Inter",
+          paidVia: "inter",
+          sourceKind: "PERSON_PIX",
+          sourceRef: result.codigoSolicitacao || `paid-${Date.now()}`,
+        });
+        return NextResponse.json({ ok: true, data: { ...result, ...alloc } });
+      }
+      return NextResponse.json({ ok: true, data: result });
     }
 
-    const actionable = debts
-      .map((debt) => {
-        const paidCents = debt.payments.reduce((sum, payment) => sum + safeInt(payment.amountCents), 0);
-        const balanceCents = Math.max(0, safeInt(debt.totalCents) - paidCents);
-        return {
-          id: debt.id,
-          balanceCents,
-        };
-      })
-      .filter((debt) => debt.balanceCents > 0);
+    const alloc = await allocateDebtPayment({
+      groupKey,
+      amountCents: amountCents > 0 ? amountCents : 0,
+      note: note || (amountCents > 0 ? "Pagamento parcial" : "Quitação em lote por credor"),
+      paidVia: "local",
+    });
 
-    if (!actionable.length) {
+    if (!alloc.paidCents) {
       return NextResponse.json({ ok: false, error: "Esse credor não possui saldo pendente." }, { status: 400 });
     }
-
-    await prisma.$transaction(async (tx) => {
-      for (const debt of actionable) {
-        await tx.debtPayment.create({
-          data: {
-            debtId: debt.id,
-            amountCents: debt.balanceCents,
-            note,
-          },
-        });
-
-        await tx.debt.update({
-          where: { id: debt.id },
-          data: { status: "PAID" },
-        });
-      }
-    });
-
-    const totalPaidCents = actionable.reduce((sum, debt) => sum + debt.balanceCents, 0);
 
     return NextResponse.json({
       ok: true,
       data: {
-        debtsCount: actionable.length,
-        totalPaidCents,
+        debtsCount: alloc.debts.length,
+        totalPaidCents: alloc.paidCents,
       },
     });
   } catch (e: any) {
-    console.error(e);
     return NextResponse.json(
-      { ok: false, error: e?.message || "Erro ao quitar dívidas do credor." },
-      { status: 500 }
+      { ok: false, error: e?.message || "Erro ao pagar dívidas do credor." },
+      { status: 400 }
     );
   }
 }

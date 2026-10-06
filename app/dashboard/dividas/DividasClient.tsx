@@ -1,6 +1,7 @@
 "use client";
 
 import { Fragment, useEffect, useMemo, useState } from "react";
+import PixDestinoConfirmModal, { type PixDestinoView } from "@/components/PixDestinoConfirmModal";
 
 type Payment = { id: string; amountCents: number; note?: string | null; paidAt: string };
 type Debt = {
@@ -14,9 +15,14 @@ type Debt = {
   creditorName?: string | null;
   dueDate?: string | null;
   payOrder?: number | null;
+  linkedUserId?: string | null;
+  linkedUser?: { id: string; name: string; login: string; role: string } | null;
+  sourceKind?: string | null;
   createdAt: string;
   payments: Payment[];
 };
+
+type LinkableUser = { id: string; name: string; login: string; role: string };
 
 type CreditorGroup = {
   key: string;
@@ -27,6 +33,7 @@ type CreditorGroup = {
   balanceCents: number;
   openCount: number;
   nextDueDate: string | null;
+  linkedUser: LinkableUser | null;
 };
 
 const EMPTY_CREDITOR_KEY = "__SEM_PESSOA__";
@@ -123,6 +130,7 @@ type SortMode =
 export default function DividasClient() {
   const [loading, setLoading] = useState(false);
   const [debts, setDebts] = useState<Debt[]>([]);
+  const [people, setPeople] = useState<LinkableUser[]>([]);
 
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
@@ -133,6 +141,9 @@ export default function DividasClient() {
 
   const [payAmount, setPayAmount] = useState<Record<string, string>>({});
   const [payNote, setPayNote] = useState<Record<string, string>>({});
+  const [pixDestino, setPixDestino] = useState<PixDestinoView | null>(null);
+  const [pixGroup, setPixGroup] = useState<CreditorGroup | null>(null);
+  const [pixBusy, setPixBusy] = useState(false);
 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [drafts, setDrafts] = useState<
@@ -157,6 +168,7 @@ export default function DividasClient() {
       const j = await r.json();
       if (!j?.ok) throw new Error(j?.error || "Erro ao carregar dívidas");
       setDebts(j.data || []);
+      setPeople(j.people || []);
     } catch (e: any) {
       alert(e.message);
     } finally {
@@ -215,10 +227,12 @@ export default function DividasClient() {
           balanceCents: 0,
           openCount: 0,
           nextDueDate: null,
+          linkedUser: null,
         });
       }
       const g = map.get(key)!;
       g.debts.push(d);
+      if (!g.linkedUser && d.linkedUser) g.linkedUser = d.linkedUser;
       g.totalCents += d.totalCents || 0;
       g.paidCents += d.paidCents || 0;
       g.balanceCents += d.balanceCents || 0;
@@ -424,29 +438,71 @@ export default function DividasClient() {
     }
   }
 
-  async function addPayment(debtId: string) {
-    const amount = payAmount[debtId] || "";
-    const note = payNote[debtId] || "";
+  async function addGroupPayment(group: CreditorGroup, via: "local" | "inter" = "local") {
+    const actionKey = groupActionKey(group.key);
+    const amount = payAmount[actionKey] || "";
+    const note = payNote[actionKey] || "";
     const cents = toCentsFromInput(amount);
-    if (cents <= 0) return alert("Pagamento inválido.");
+    if (cents <= 0) return alert("Informe o valor do pagamento.");
+    if (cents > group.balanceCents) return alert("Valor maior que o saldo dessa pessoa.");
 
     setLoading(true);
     try {
-      const r = await fetch(`/api/dividas/${debtId}/pagamentos`, {
+      const r = await fetch("/api/dividas/pagar-credor", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ amount, note }),
+        body: JSON.stringify({
+          groupKey: actionKey,
+          amount: amount,
+          note: note || "Pagamento na conta da pessoa",
+          via,
+        }),
       });
       const j = await r.json();
       if (!j?.ok) throw new Error(j?.error || "Erro ao registrar pagamento");
-
-      setPayAmount((prev) => ({ ...prev, [debtId]: "" }));
-      setPayNote((prev) => ({ ...prev, [debtId]: "" }));
+      if (j?.data?.awaitingApproval) {
+        alert("PIX enviado. Abate quando o Inter confirmar.");
+      }
+      setPayAmount((prev) => ({ ...prev, [actionKey]: "" }));
+      setPayNote((prev) => ({ ...prev, [actionKey]: "" }));
+      setPixDestino(null);
+      setPixGroup(null);
       await load();
     } catch (e: any) {
       alert(e.message);
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function startGroupPix(group: CreditorGroup) {
+    const actionKey = groupActionKey(group.key);
+    const cents = toCentsFromInput(payAmount[actionKey] || "");
+    if (cents <= 0) return alert("Informe o valor do PIX.");
+    try {
+      const r = await fetch(`/api/dividas/pix?groupKey=${encodeURIComponent(actionKey)}`, { cache: "no-store" });
+      const j = await r.json();
+      if (!j?.ok) throw new Error(j?.error || "PIX indisponível.");
+      setPixGroup(group);
+      setPixDestino(j.data);
+    } catch (e: any) {
+      alert(e.message);
+    }
+  }
+
+  async function linkPerson(group: CreditorGroup, userId: string) {
+    const actionKey = groupActionKey(group.key);
+    try {
+      const r = await fetch("/api/dividas/credor", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ groupKey: actionKey, linkedUserId: userId || null }),
+      });
+      const j = await r.json();
+      if (!j?.ok) throw new Error(j?.error || "Erro ao vincular");
+      await load();
+    } catch (e: any) {
+      alert(e.message);
     }
   }
 
@@ -561,6 +617,99 @@ export default function DividasClient() {
             <div className="text-sm font-semibold text-slate-900">{dateBR(g.nextDueDate)}</div>
           </div>
         </div>
+
+        <div className="rounded-xl border border-slate-200 bg-white p-3">
+          <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Vincular a funcionário ou sócio</div>
+          <select
+            className="mt-2 h-10 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm"
+            value={g.linkedUser?.id || ""}
+            onChange={(e) => void linkPerson(g, e.target.value)}
+          >
+            <option value="">Ninguém — só nome na dívida</option>
+            {people.map((u) => (
+              <option key={u.id} value={u.id}>
+                {u.name} ({u.role === "socio" ? "sócio" : "funcionário"} · {u.login})
+              </option>
+            ))}
+          </select>
+          <p className="mt-1 text-xs text-slate-500">
+            Quando for funcionário ou sócio, o PIX usa a chave cadastrada na pessoa.
+          </p>
+        </div>
+
+        {g.balanceCents > 0 ? (
+          <div className="space-y-2 rounded-xl border border-slate-200 bg-white p-3">
+            <div className="text-sm font-semibold">Pagar nesta pessoa (abate o saldo total)</div>
+            <div className="grid gap-2 md:grid-cols-4">
+              <input
+                className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm"
+                placeholder="Valor (ex: 200,00)"
+                value={payAmount[groupActionKey(g.key)] ?? ""}
+                onChange={(e) => setPayAmount((prev) => ({ ...prev, [groupActionKey(g.key)]: e.target.value }))}
+              />
+              <input
+                className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm"
+                placeholder="Obs (opcional)"
+                value={payNote[groupActionKey(g.key)] ?? ""}
+                onChange={(e) => setPayNote((prev) => ({ ...prev, [groupActionKey(g.key)]: e.target.value }))}
+              />
+              <button
+                onClick={() => void addGroupPayment(g, "local")}
+                className="rounded-xl bg-black px-4 py-2 text-sm text-white hover:bg-gray-800"
+                disabled={loading}
+              >
+                Registrar
+              </button>
+              <button
+                onClick={() => void startGroupPix(g)}
+                className="rounded-xl bg-emerald-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
+                disabled={loading}
+              >
+                Pagar via PIX
+              </button>
+            </div>
+            <div className="text-xs text-slate-500">
+              O valor entra na conta dessa pessoa e vai abatendo as linhas automaticamente. Não precisa achar a dívida do mesmo valor.
+            </div>
+          </div>
+        ) : null}
+
+        {(() => {
+          const hist = g.debts
+            .flatMap((d) => d.payments.map((p) => ({ ...p, title: d.title })))
+            .sort((a, b) => new Date(b.paidAt).getTime() - new Date(a.paidAt).getTime());
+          return (
+            <div className="space-y-2">
+              <div className="text-sm font-semibold">Histórico da pessoa</div>
+              {hist.length === 0 ? (
+                <div className="text-sm text-slate-600">Nenhum pagamento registrado.</div>
+              ) : (
+                <div className="max-h-56 overflow-auto rounded-xl border bg-white">
+                  <table className="w-full text-sm">
+                    <thead className="sticky top-0 bg-slate-50">
+                      <tr>
+                        <th className="px-3 py-2 text-left">Data/hora</th>
+                        <th className="px-3 py-2 text-left">Referência</th>
+                        <th className="px-3 py-2 text-right">Valor</th>
+                        <th className="px-3 py-2 text-left">Obs</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {hist.map((p) => (
+                        <tr key={p.id} className="border-t">
+                          <td className="px-3 py-2">{dateTimeBR(p.paidAt)}</td>
+                          <td className="px-3 py-2 text-slate-600">{p.title}</td>
+                          <td className="px-3 py-2 text-right">{fmtMoney(p.amountCents)}</td>
+                          <td className="px-3 py-2">{p.note || "-"}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          );
+        })()}
 
         <div className="space-y-3">
           {g.debts.map((d) => {
@@ -699,59 +848,9 @@ export default function DividasClient() {
                   </div>
                 </div>
 
-                {d.status !== "PAID" && d.status !== "CANCELED" ? (
-                  <div className="space-y-2 rounded-xl border border-slate-200 bg-slate-50 p-3">
-                    <div className="text-sm font-semibold">Adicionar pagamento</div>
-                    <div className="grid gap-2 md:grid-cols-3">
-                      <input
-                        className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm"
-                        placeholder="Valor (ex: 200,00)"
-                        value={payAmount[d.id] ?? ""}
-                        onChange={(e) => setPayAmount((prev) => ({ ...prev, [d.id]: e.target.value }))}
-                      />
-                      <input
-                        className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm"
-                        placeholder="Obs (opcional)"
-                        value={payNote[d.id] ?? ""}
-                        onChange={(e) => setPayNote((prev) => ({ ...prev, [d.id]: e.target.value }))}
-                      />
-                      <button
-                        onClick={() => addPayment(d.id)}
-                        className="rounded-xl bg-black px-4 py-2 text-sm text-white hover:bg-gray-800"
-                        disabled={loading}
-                      >
-                        Registrar
-                      </button>
-                    </div>
-                    <div className="text-xs text-slate-600">* grava automaticamente data e hora do registro.</div>
-                  </div>
-                ) : null}
-
                 <div className="space-y-2">
-                  <div className="text-sm font-semibold">Histórico</div>
-                  {d.payments.length === 0 ? (
-                    <div className="text-sm text-slate-600">Nenhum pagamento registrado.</div>
-                  ) : (
-                    <div className="max-h-56 overflow-auto rounded-xl border">
-                      <table className="w-full text-sm">
-                        <thead className="sticky top-0 bg-slate-50">
-                          <tr>
-                            <th className="px-3 py-2 text-left">Data/hora</th>
-                            <th className="px-3 py-2 text-right">Valor</th>
-                            <th className="px-3 py-2 text-left">Obs</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {d.payments.map((p) => (
-                            <tr key={p.id} className="border-t">
-                              <td className="px-3 py-2">{dateTimeBR(p.paidAt)}</td>
-                              <td className="px-3 py-2 text-right">{fmtMoney(p.amountCents)}</td>
-                              <td className="px-3 py-2">{p.note || "-"}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
+                  {d.payments.length === 0 ? null : (
+                    <div className="text-xs text-slate-500">{d.payments.length} pagamento(s) nesta linha</div>
                   )}
                 </div>
               </div>
@@ -1064,6 +1163,22 @@ export default function DividasClient() {
           </div>
         </div>
       )}
+      {pixDestino && pixGroup ? (
+        <PixDestinoConfirmModal
+          title={`PIX para ${pixGroup.name}`}
+          amountCents={toCentsFromInput(payAmount[groupActionKey(pixGroup.key)] || "")}
+          destino={pixDestino}
+          busy={loading || pixBusy}
+          onCancel={() => {
+            setPixDestino(null);
+            setPixGroup(null);
+          }}
+          onConfirm={() => {
+            setPixBusy(true);
+            void addGroupPayment(pixGroup, "inter").finally(() => setPixBusy(false));
+          }}
+        />
+      ) : null}
     </div>
   );
 }

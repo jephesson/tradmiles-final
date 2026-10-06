@@ -1,5 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { getInterPix } from "@/lib/inter/pix";
+import { abateCardPayOnPersonDebt } from "@/lib/card-debt/sync-person-debt";
+import { allocateDebtPayment } from "@/lib/debts/allocate";
 
 const PAID_RE = /PROCESSADO|EFETIVADO|PAGO|LIQUIDADO/i;
 const FAIL_RE = /CANCELADO|ERRO|RECUSADO|REJEITADO|FALHA/i;
@@ -61,6 +63,31 @@ export async function applyInterPixConsulta(rowId: string, consulta: {
       await prisma.cardDebtInstallment.updateMany({
         where: { id: { in: cardIds }, status: "OPEN" },
         data: { status: "PAID", paidAt: new Date(), paidVia: "inter" },
+      });
+      const sample = await prisma.cardDebtInstallment.findFirst({
+        where: { id: { in: cardIds } },
+        include: { purchase: { include: { creditor: true } } },
+      });
+      const creditor = sample?.purchase?.creditor;
+      if (creditor && row.amountCents > 0) {
+        await abateCardPayOnPersonDebt({
+          creditorId: creditor.id,
+          creditorName: creditor.name,
+          linkedUserId: creditor.ownerId,
+          amountCents: row.amountCents,
+          note: `PIX cartão (${cardIds.length} parc.)`,
+          sourceRef: `inter:${row.id}`,
+        });
+      }
+    }
+    if (row.personDebtGroupKey && row.amountCents > 0) {
+      await allocateDebtPayment({
+        groupKey: row.personDebtGroupKey,
+        amountCents: row.amountCents,
+        note: "PIX Inter",
+        paidVia: "inter",
+        sourceKind: "PERSON_PIX",
+        sourceRef: row.id,
       });
     }
   }

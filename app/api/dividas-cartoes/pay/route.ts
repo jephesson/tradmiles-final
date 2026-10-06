@@ -39,7 +39,7 @@ export async function POST(req: Request) {
 
   const rows = await prisma.cardDebtInstallment.findMany({
     where: { id: { in: ids }, status: "OPEN", purchase: { team: sess.team } },
-    include: { purchase: { select: { title: true } } },
+    include: { purchase: { select: { title: true, creditor: true } } },
   });
   if (!rows.length) {
     return NextResponse.json({ ok: false, error: "Nenhuma parcela em aberto nesses IDs." }, { status: 400 });
@@ -50,6 +50,18 @@ export async function POST(req: Request) {
 
   if (via === "local") {
     await markLocal(rowIds);
+    const creditor = rows[0]?.purchase?.creditor;
+    if (creditor) {
+      const { abateCardPayOnPersonDebt } = await import("@/lib/card-debt/sync-person-debt");
+      await abateCardPayOnPersonDebt({
+        creditorId: creditor.id,
+        creditorName: creditor.name,
+        linkedUserId: creditor.ownerId,
+        amountCents,
+        note: `Cartão: ${rowIds.length} parcela(s)`,
+        sourceRef: `local:${rowIds.slice().sort().join(",")}`,
+      });
+    }
     return NextResponse.json({ ok: true, data: { via: "local", paid: true, amountCents, count: rowIds.length } });
   }
 
