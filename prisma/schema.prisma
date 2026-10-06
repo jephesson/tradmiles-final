@@ -146,6 +146,10 @@ model User {
   /** Admin habilita a senha; o sócio só entra depois disso. */
   passwordEnabled Boolean @default(true)
 
+  /** Google Authenticator (TOTP) para admin e staff. */
+  totpSecretEnc String?
+  totpEnabled   Boolean @default(false)
+
   /** Suspensão temporária de login — não afeta cedentes, comissões etc. */
   isActive Boolean @default(true)
 

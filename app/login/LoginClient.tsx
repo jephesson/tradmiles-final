@@ -4,7 +4,7 @@ import Image from "next/image";
 import { useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Eye, Instagram, Lock, MessageCircle, User } from "lucide-react";
-import { signIn } from "@/lib/auth";
+import { signIn, loadTotpSetup, finishTotp } from "@/lib/auth";
 import LoginSkyBackdrop from "./LoginSkyBackdrop";
 
 const navy = "#0c2340";
@@ -15,6 +15,10 @@ export default function LoginClient() {
   const [showPwd, setShowPwd] = useState(false);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [step, setStep] = useState<"password" | "setup" | "verify">("password");
+  const [code, setCode] = useState("");
+  const [qr, setQr] = useState("");
+  const [manualSecret, setManualSecret] = useState("");
 
   const params = useSearchParams();
   const router = useRouter();
@@ -24,21 +28,58 @@ export default function LoginClient() {
     return raw && raw.startsWith("/dashboard") ? raw : "/dashboard";
   }, [params]);
 
+  async function goHome(home: string) {
+    const dest = home !== "/dashboard" && next === "/dashboard" ? home : next;
+    router.replace(dest);
+  }
+
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     setErr(null);
     setLoading(true);
 
     try {
+      if (step === "setup") {
+        const result = await finishTotp("enable", code);
+        if (!result.ok) {
+          setErr(result.error);
+          return;
+        }
+        await goHome(result.home);
+        return;
+      }
+      if (step === "verify") {
+        const result = await finishTotp("verify", code);
+        if (!result.ok) {
+          setErr(result.error);
+          return;
+        }
+        await goHome(result.home);
+        return;
+      }
+
       const result = await signIn({ login, password });
       if (!result.ok) {
         setErr(result.error);
         return;
       }
+      if ("totp" in result) {
+        if (result.totp === "setup") {
+          const setup = await loadTotpSetup();
+          if (!setup.ok) {
+            setErr(setup.error);
+            return;
+          }
+          setQr(setup.qrDataUrl);
+          setManualSecret(setup.secret);
+          setStep("setup");
+          return;
+        }
+        setStep("verify");
+        return;
+      }
 
-      const dest =
-        result.home !== "/dashboard" && next === "/dashboard" ? result.home : next;
-      router.replace(dest);
+      await goHome(result.home);
     } catch {
       setErr("Erro de rede. Tente novamente.");
     } finally {
@@ -72,13 +113,19 @@ export default function LoginClient() {
                       TradeMiles
                     </h1>
                     <p className="mt-0.5 text-sm text-slate-500">
-                      Entre com suas credenciais
+                      {step === "setup"
+                        ? "Cadastre o Google Authenticator"
+                        : step === "verify"
+                        ? "Código do Authenticator"
+                        : "Entre com suas credenciais"}
                     </p>
                   </div>
                 </div>
               </header>
 
               <div className="space-y-3 pt-1">
+                {step === "password" ? (
+                  <>
                 <label className="block">
                   <span className="sr-only">Login</span>
                   <div className="flex items-center gap-2.5 rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 transition focus-within:border-sky-300 focus-within:ring-2 focus-within:ring-sky-400/20">
@@ -123,6 +170,43 @@ export default function LoginClient() {
                     </button>
                   </div>
                 </label>
+                  </>
+                ) : step === "setup" ? (
+                  <div className="space-y-3 text-center">
+                    <p className="text-sm text-slate-600">
+                      Abra o <strong>Google Authenticator</strong>, adicione uma conta e aponte para o QR. Depois digite o código de 6 dígitos.
+                    </p>
+                    {qr ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={qr} alt="QR do Authenticator" className="mx-auto h-44 w-44 rounded-xl border border-slate-200" />
+                    ) : null}
+                    <p className="break-all text-[11px] text-slate-500">
+                      Ou digite a chave: <span className="font-mono text-slate-800">{manualSecret}</span>
+                    </p>
+                    <input
+                      className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-center text-lg tracking-[0.4em] outline-none focus:border-sky-300"
+                      placeholder="000000"
+                      inputMode="numeric"
+                      autoComplete="one-time-code"
+                      value={code}
+                      onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                    />
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    <p className="text-center text-sm text-slate-600">
+                      Abra o Google Authenticator e digite o código de 6 dígitos.
+                    </p>
+                    <input
+                      className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-center text-lg tracking-[0.4em] outline-none focus:border-sky-300"
+                      placeholder="000000"
+                      inputMode="numeric"
+                      autoComplete="one-time-code"
+                      value={code}
+                      onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                    />
+                  </div>
+                )}
 
                 {err && (
                   <p className="rounded-xl bg-red-50 px-3 py-2 text-center text-xs text-red-700 ring-1 ring-red-100/80">
@@ -146,7 +230,13 @@ export default function LoginClient() {
                     className="h-9 w-9 shrink-0 object-contain"
                     aria-hidden
                   />
-                  {loading ? "Entrando…" : "Entrar no painel Vias Aéreas"}
+                  {loading
+                    ? "Entrando…"
+                    : step === "setup"
+                    ? "Confirmar e entrar"
+                    : step === "verify"
+                    ? "Validar código"
+                    : "Entrar no painel Vias Aéreas"}
                 </button>
               </div>
             </div>

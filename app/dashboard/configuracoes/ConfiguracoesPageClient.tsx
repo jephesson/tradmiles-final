@@ -60,6 +60,71 @@ async function apiPostCommission(body: unknown): Promise<ApiOk> {
   return json as unknown as ApiOk;
 }
 
+function TotpAdminSection() {
+  const [rows, setRows] = useState<Array<{ id: string; name: string; login: string; totpEnabled?: boolean }>>([]);
+  const [busyId, setBusyId] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch("/api/funcionarios", { cache: "no-store", credentials: "include" })
+      .then((r) => r.json())
+      .then((json) => {
+        if (json?.ok && Array.isArray(json.data)) setRows(json.data);
+      })
+      .catch(() => {});
+  }, []);
+
+  async function resetTotp(id: string, name: string) {
+    if (!confirm(`Resetar o Google Authenticator de ${name}?`)) return;
+    setBusyId(id);
+    try {
+      const res = await fetch("/api/auth/totp", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ action: "reset", userId: id }),
+      });
+      const json = await res.json();
+      if (!json?.ok) throw new Error(json?.error || "Erro");
+      setRows((prev) => prev.map((u) => (u.id === id ? { ...u, totpEnabled: false } : u)));
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "Erro");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  return (
+    <div className="rounded-2xl border border-slate-200/90 bg-white p-5 shadow-sm sm:p-6">
+      <h2 className="text-base font-semibold text-slate-900">Google Authenticator (2FA)</h2>
+      <p className="mt-1 text-sm text-slate-600">
+        Admin e funcionários cadastram o app no próximo login. Sócio não usa. Se alguém perder o celular, resete aqui.
+      </p>
+      <div className="mt-4 divide-y divide-slate-100">
+        {rows.map((u) => (
+          <div key={u.id} className="flex flex-wrap items-center justify-between gap-2 py-2.5">
+            <div>
+              <div className="text-sm font-medium text-slate-900">{u.name}</div>
+              <div className="text-xs text-slate-500">{u.login}</div>
+            </div>
+            {u.totpEnabled ? (
+              <button
+                type="button"
+                disabled={busyId === u.id}
+                onClick={() => void resetTotp(u.id, u.name)}
+                className="rounded-xl border px-3 py-1.5 text-xs disabled:opacity-50"
+              >
+                Resetar
+              </button>
+            ) : (
+              <span className="text-xs text-amber-800">Pendente</span>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export default function ConfiguracoesPageClient() {
   const [booting, setBooting] = useState(true);
   const [unlocked, setUnlocked] = useState(false);
@@ -286,6 +351,8 @@ export default function ConfiguracoesPageClient() {
           taxa; bônus sobre excedente da meta = 30%; comissão vendedor em compras = 1%).
         </p>
       </div>
+
+      <TotpAdminSection />
 
       <div className="rounded-2xl border border-slate-200/90 bg-white p-5 shadow-sm sm:p-6">
         <h2 className="text-base font-semibold text-slate-900">Comissões de funcionários</h2>

@@ -15,6 +15,7 @@ type FuncItem = {
   team: string;
   role: string;
   isActive?: boolean;
+  totpEnabled?: boolean;
   inviteCode: string | null;
   createdAt: string;
   _count?: { cedentes: number };
@@ -408,6 +409,41 @@ export default function FuncionarioEditClient({ id }: { id: string }) {
               {isAdmin ? "Redefinir senha" : "Alterar senha"}
             </button>
           </div>
+
+          {isAdmin ? (
+            <div className="rounded-2xl border p-4 space-y-2">
+              <div className="text-sm font-semibold">Google Authenticator</div>
+              <p className="text-xs text-slate-500">
+                {item.totpEnabled
+                  ? "2FA ativo. Se a pessoa perdeu o celular, resete para ela cadastrar de novo no próximo login."
+                  : "Ainda não cadastrou. No próximo login o QR aparece automaticamente."}
+              </p>
+              {item.totpEnabled ? (
+                <button
+                  type="button"
+                  className="rounded-xl border px-4 py-2 text-sm"
+                  onClick={async () => {
+                    if (!confirm("Resetar o Authenticator desta pessoa?")) return;
+                    const res = await fetch("/api/auth/totp", {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      credentials: "include",
+                      body: JSON.stringify({ action: "reset", userId: item.id }),
+                    });
+                    const json = await res.json();
+                    if (!json?.ok) {
+                      alert(json?.error || "Erro");
+                      return;
+                    }
+                    setItem((prev) => (prev ? { ...prev, totpEnabled: false } : prev));
+                    setMsg("Authenticator resetado. Ela cadastra de novo no próximo login.");
+                  }}
+                >
+                  Resetar Authenticator
+                </button>
+              ) : null}
+            </div>
+          ) : null}
         </form>
       )}
     </div>

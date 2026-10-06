@@ -91,10 +91,15 @@ export async function setPassword(login: string, newPassword: string): Promise<b
 export async function signIn(params: {
   login: string;
   password: string;
-}): Promise<{ ok: true; home: string } | { ok: false; error: string }> {
+}): Promise<
+  | { ok: true; home: string }
+  | { ok: true; totp: "setup" | "verify" }
+  | { ok: false; error: string }
+> {
   const res = await fetch("/api/auth", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
+    credentials: "include",
     body: JSON.stringify({
       action: "login",
       login: params.login,
@@ -111,6 +116,58 @@ export async function signIn(params: {
     return { ok: false, error: err };
   }
 
+  if (json.totp === "setup" || json.totp === "verify") {
+    return { ok: true, totp: json.totp };
+  }
+
+  const raw = json?.data?.session;
+  if (raw?.id && raw?.login && raw?.team) {
+    const role = parseRole(raw.role);
+    const pages = Array.isArray(raw.pages) ? raw.pages.map(String) : [];
+    setSession({
+      id: String(raw.id),
+      name: String(raw.name || raw.login),
+      login: String(raw.login),
+      email: raw.email ?? null,
+      team: String(raw.team),
+      role,
+      pages,
+    });
+    return { ok: true, home: role === "socio" ? socioHome(pages) : "/dashboard" };
+  }
+  return { ok: true, home: "/dashboard" };
+}
+
+export async function loadTotpSetup(): Promise<
+  { ok: true; qrDataUrl: string; secret: string } | { ok: false; error: string }
+> {
+  const res = await fetch("/api/auth/totp", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify({ action: "setup" }),
+  });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok || !json?.ok) {
+    return { ok: false, error: json?.error || "Não foi possível gerar o QR." };
+  }
+  return { ok: true, qrDataUrl: json.data.qrDataUrl, secret: json.data.secret };
+}
+
+export async function finishTotp(
+  action: "enable" | "verify",
+  code: string
+): Promise<{ ok: true; home: string } | { ok: false; error: string }> {
+  const res = await fetch("/api/auth/totp", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify({ action, code }),
+  });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok || !json?.ok) {
+    return { ok: false, error: json?.error || "Código inválido." };
+  }
   const raw = json?.data?.session;
   if (raw?.id && raw?.login && raw?.team) {
     const role = parseRole(raw.role);

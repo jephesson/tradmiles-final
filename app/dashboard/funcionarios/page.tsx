@@ -10,6 +10,7 @@ type FuncItem = {
   team: string;
   role: string;
   isActive?: boolean;
+  totpEnabled?: boolean;
   inviteCode: string | null;
   createdAt: string;
   _count?: { cedentes: number };
@@ -107,6 +108,15 @@ export default function FuncionariosPage() {
                           Login suspenso
                         </span>
                       ) : null}
+                      {f.totpEnabled ? (
+                        <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700">
+                          Authenticator
+                        </span>
+                      ) : (
+                        <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-800">
+                          2FA pendente
+                        </span>
+                      )}
                     </div>
                     <div className="text-sm text-slate-600">
                       Login: <span className="font-medium">{f.login}</span> • CPF:{" "}

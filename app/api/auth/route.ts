@@ -2,6 +2,13 @@ import { NextResponse } from "next/server";
 import crypto from "node:crypto";
 import { prisma } from "@/lib/prisma";
 import { parseRole } from "@/lib/roles";
+import { totpRequired } from "@/lib/totp";
+import {
+  setSessionCookie,
+  clearSessionCookie,
+  setPending2faCookie,
+  clearPending2faCookie,
+} from "@/lib/tm-session-cookie";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -12,15 +19,6 @@ type Role = "admin" | "staff" | "socio";
 const TEAM = "@vias_aereas";
 const sha256 = (s: string) => crypto.createHash("sha256").update(s).digest("hex");
 const norm = (s: string | null | undefined) => (s ?? "").trim().toLowerCase();
-
-// ✅ cookie pequeno
-type SessionCookie = {
-  id: string;
-  login: string;
-  role: Role;
-  team: string;
-  pages?: string[];
-};
 
 type ApiLogin = { action: "login"; login: string; password: string };
 type ApiSetPassword = { action: "setPassword"; login: string; password: string };
@@ -74,38 +72,6 @@ function noCacheHeaders() {
     Expires: "0",
     "Surrogate-Control": "no-store",
   };
-}
-
-// Base64 URL-safe
-function b64urlEncode(input: string) {
-  return Buffer.from(input, "utf8")
-    .toString("base64")
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_")
-    .replace(/=+$/g, "");
-}
-
-function setSessionCookie(res: NextResponse, payload: SessionCookie) {
-  const value = b64urlEncode(JSON.stringify(payload));
-
-  const base = {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "lax" as const,
-    path: "/",
-    maxAge: 60 * 60 * 8,
-  };
-
-  const domain = process.env.COOKIE_DOMAIN?.trim();
-  if (domain) res.cookies.set("tm.session", value, { ...base, domain });
-  else res.cookies.set("tm.session", value, base);
-}
-
-function clearSessionCookie(res: NextResponse) {
-  const base = { path: "/" as const, maxAge: 0 };
-  const domain = process.env.COOKIE_DOMAIN?.trim();
-  if (domain) res.cookies.set("tm.session", "", { ...base, domain });
-  else res.cookies.set("tm.session", "", base);
 }
 
 function isApiBody(v: unknown): v is ApiBody {
@@ -211,6 +177,20 @@ export async function POST(req: Request): Promise<NextResponse> {
       const pages = Array.isArray((dbUser as { allowedPages?: string[] }).allowedPages)
         ? (dbUser as { allowedPages: string[] }).allowedPages
         : [];
+
+      if (totpRequired(role)) {
+        const res = NextResponse.json(
+          {
+            ok: true,
+            totp: dbUser.totpEnabled ? "verify" : "setup",
+          },
+          { headers: noCacheHeaders() }
+        );
+        setPending2faCookie(res, dbUser.id);
+        clearSessionCookie(res);
+        return res;
+      }
+
       const sessionForClient = {
         id: dbUser.id,
         name: dbUser.name?.trim() || dbUser.login,
@@ -258,6 +238,7 @@ export async function POST(req: Request): Promise<NextResponse> {
     if (raw.action === "logout") {
       const res = NextResponse.json({ ok: true }, { headers: noCacheHeaders() });
       clearSessionCookie(res);
+      clearPending2faCookie(res);
       return res;
     }
 
