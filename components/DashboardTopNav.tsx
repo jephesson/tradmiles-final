@@ -17,6 +17,7 @@ import {
 import { cn } from "@/lib/cn";
 import EmailAlertasNav from "@/components/EmailAlertasNav";
 import { getSession } from "@/lib/auth";
+import SessionIdleClock from "@/components/SessionIdleClock";
 
 const ITEMS = [
   {
@@ -115,9 +116,12 @@ export default function DashboardTopNav() {
     return (
       <div className="flex shrink-0 items-center justify-between border-b border-slate-200/80 bg-white/90 px-4 py-3">
         <div className="text-sm font-semibold text-slate-800">Dívida cartões</div>
-        <Link href="/dashboard/conta" className="text-xs font-semibold text-slate-500 hover:text-slate-800">
-          Alterar senha
-        </Link>
+        <div className="flex shrink-0 items-center gap-3">
+          <SessionIdleClock />
+          <Link href="/dashboard/conta" className="text-xs font-semibold text-slate-500 hover:text-slate-800">
+            Alterar senha
+          </Link>
+        </div>
       </div>
     );
   }
@@ -223,6 +227,10 @@ export default function DashboardTopNav() {
             </Link>
           );
         })}
+
+        <div className="ml-auto flex items-center pl-2">
+          <SessionIdleClock />
+        </div>
       </nav>
     </div>
   );

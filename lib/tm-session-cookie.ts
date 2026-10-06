@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { SESSION_IDLE_COOKIE_MAX_AGE } from "@/lib/session-idle";
 
 export type SessionCookie = {
   id: string;
@@ -6,6 +7,7 @@ export type SessionCookie = {
   role: "admin" | "staff" | "socio";
   team: string;
   pages?: string[];
+  last?: number;
 };
 
 function b64urlEncode(input: string) {
@@ -33,8 +35,17 @@ function cookieBase(maxAge: number) {
 }
 
 export function setSessionCookie(res: NextResponse, payload: SessionCookie) {
-  const value = b64urlEncode(JSON.stringify(payload));
-  const base = cookieBase(60 * 60 * 8);
+  const value = b64urlEncode(
+    JSON.stringify({
+      id: payload.id,
+      login: payload.login,
+      role: payload.role,
+      team: payload.team,
+      pages: payload.pages || [],
+      last: Date.now(),
+    })
+  );
+  const base = cookieBase(SESSION_IDLE_COOKIE_MAX_AGE);
   const domain = process.env.COOKIE_DOMAIN?.trim();
   if (domain) res.cookies.set("tm.session", value, { ...base, domain });
   else res.cookies.set("tm.session", value, base);

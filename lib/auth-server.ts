@@ -1,6 +1,7 @@
 // lib/auth-server.ts
 import "server-only";
 import { cookies } from "next/headers";
+import { isSessionIdleExpired } from "@/lib/session-idle";
 
 type Role = "admin" | "staff" | "socio";
 
@@ -29,6 +30,7 @@ export async function getSessionServer(): Promise<Session | null> {
     const s = JSON.parse(json);
 
     if (!s?.id || !s?.login || !s?.role || !s?.team) return null;
+    if (isSessionIdleExpired(s.last)) return null;
 
     return {
       id: String(s.id),

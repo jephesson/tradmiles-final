@@ -1,7 +1,7 @@
-// middleware.ts
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { isSocio, socioCanCallApi, socioCanVisit, socioHome } from "@/lib/roles";
+import { isSessionIdleExpired } from "@/lib/session-idle";
 
 function buildNext(url: URL) {
   const next = url.pathname + (url.search || "");
@@ -16,19 +16,56 @@ function sanitizeNext(nextParam?: string | null) {
   return null;
 }
 
-function readCookieSession(raw?: string) {
+type CookieSess = {
+  role?: string;
+  pages?: string[];
+  last?: number;
+  id?: string;
+  login?: string;
+  team?: string;
+};
+
+function b64urlDecodeUtf8(raw: string) {
+  const b64 = raw.replace(/-/g, "+").replace(/_/g, "/");
+  const pad = b64.length % 4 ? "=".repeat(4 - (b64.length % 4)) : "";
+  const bin = atob(b64 + pad);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return new TextDecoder().decode(bytes);
+}
+
+function readCookieSession(raw?: string): CookieSess | null {
   if (!raw) return null;
   try {
-    const b64 = raw.replace(/-/g, "+").replace(/_/g, "/");
-    const pad = b64.length % 4 ? "=".repeat(4 - (b64.length % 4)) : "";
-    const json = JSON.parse(atob(b64 + pad)) as {
-      role?: string;
-      pages?: string[];
-    };
-    return json;
+    return JSON.parse(b64urlDecodeUtf8(raw)) as CookieSess;
   } catch {
     return null;
   }
+}
+
+function sessionCookieOpts(maxAge: number) {
+  const domain = process.env.COOKIE_DOMAIN?.trim();
+  return {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax" as const,
+    path: "/",
+    maxAge,
+    ...(domain ? { domain } : {}),
+  };
+}
+
+function clearSessionOn(res: NextResponse) {
+  res.cookies.set("tm.session", "", sessionCookieOpts(0));
+}
+
+function toLogin(req: NextRequest, reason?: "idle") {
+  const loginUrl = new URL("/login", req.url);
+  loginUrl.searchParams.set("next", buildNext(req.nextUrl));
+  if (reason) loginUrl.searchParams.set("reason", reason);
+  const res = NextResponse.redirect(loginUrl);
+  clearSessionOn(res);
+  return res;
 }
 
 export function middleware(req: NextRequest) {
@@ -36,12 +73,12 @@ export function middleware(req: NextRequest) {
   const sessionCookie = req.cookies.get("tm.session")?.value;
   const isLogin = url.pathname === "/login" || url.pathname.startsWith("/login/");
   const sess = readCookieSession(sessionCookie);
+  const idle = Boolean(sessionCookie && (!sess || isSessionIdleExpired(sess.last)));
+  const valid = Boolean(sess?.id && sess.login && sess.role && sess.team && !idle);
 
   if (url.pathname.startsWith("/dashboard")) {
-    if (!sessionCookie) {
-      const loginUrl = new URL("/login", req.url);
-      loginUrl.searchParams.set("next", buildNext(url));
-      return NextResponse.redirect(loginUrl);
+    if (!valid) {
+      return toLogin(req, idle ? "idle" : undefined);
     }
     if (isSocio(sess?.role)) {
       const pages = sess?.pages || [];
@@ -52,7 +89,7 @@ export function middleware(req: NextRequest) {
     return NextResponse.next();
   }
 
-  if (url.pathname.startsWith("/api/") && isSocio(sess?.role)) {
+  if (url.pathname.startsWith("/api/") && valid && isSocio(sess?.role)) {
     if (!socioCanCallApi(url.pathname, sess?.pages || [])) {
       return NextResponse.json({ ok: false, error: "Sem permissão." }, { status: 403 });
     }
@@ -60,11 +97,19 @@ export function middleware(req: NextRequest) {
 
   if (isLogin) {
     if (req.method !== "GET") return NextResponse.next();
-    if (sessionCookie) {
+    if (valid) {
       const wanted = sanitizeNext(url.searchParams.get("next"));
       const home = isSocio(sess?.role) ? socioHome(sess?.pages || []) : "/dashboard";
-      const target = new URL(wanted && !isSocio(sess?.role) ? wanted : wanted && socioCanVisit(wanted, sess?.pages) ? wanted : home, req.url);
+      const target = new URL(
+        wanted && !isSocio(sess?.role) ? wanted : wanted && socioCanVisit(wanted, sess?.pages) ? wanted : home,
+        req.url
+      );
       return NextResponse.redirect(target);
+    }
+    if (sessionCookie) {
+      const res = NextResponse.next();
+      clearSessionOn(res);
+      return res;
     }
     return NextResponse.next();
   }

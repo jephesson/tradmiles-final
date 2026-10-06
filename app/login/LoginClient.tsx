@@ -10,18 +10,21 @@ import LoginSkyBackdrop from "./LoginSkyBackdrop";
 const navy = "#0c2340";
 
 export default function LoginClient() {
+  const params = useSearchParams();
+  const router = useRouter();
   const [login, setLogin] = useState("");
   const [password, setPassword] = useState("");
   const [showPwd, setShowPwd] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(
+    params.get("reason") === "idle"
+      ? "Sessão encerrada após 1 hora sem atividade. Entre de novo."
+      : null
+  );
   const [step, setStep] = useState<"password" | "setup" | "verify">("password");
   const [code, setCode] = useState("");
   const [qr, setQr] = useState("");
   const [manualSecret, setManualSecret] = useState("");
-
-  const params = useSearchParams();
-  const router = useRouter();
 
   const next = useMemo(() => {
     const raw = params.get("next");
@@ -113,7 +116,9 @@ export default function LoginClient() {
                       TradeMiles
                     </h1>
                     <p className="mt-0.5 text-sm text-slate-500">
-                      {step === "setup"
+                      {params.get("reason") === "idle"
+                        ? "Sessão encerrada por 1 hora sem uso"
+                        : step === "setup"
                         ? "Cadastre o Google Authenticator"
                         : step === "verify"
                         ? "Código do Authenticator"

@@ -1,6 +1,7 @@
 // app/api/session/route.ts
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
+import { isSessionIdleExpired } from "@/lib/session-idle";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -51,7 +52,7 @@ export async function GET() {
       sess = null;
     }
 
-    if (!sess?.id || !sess?.login || !sess?.team || !sess?.role) {
+    if (!sess?.id || !sess?.login || !sess?.team || !sess?.role || isSessionIdleExpired((sess as { last?: number }).last)) {
       return NextResponse.json(
         { ok: true, hasSession: false, user: null },
         { headers: noCache() }
