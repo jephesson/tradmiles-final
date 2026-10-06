@@ -64,17 +64,19 @@ export async function applyInterPixConsulta(rowId: string, consulta: {
         where: { id: { in: cardIds }, status: "OPEN" },
         data: { status: "PAID", paidAt: new Date(), paidVia: "inter" },
       });
-      const sample = await prisma.cardDebtInstallment.findFirst({
+      const paidRows = await prisma.cardDebtInstallment.findMany({
         where: { id: { in: cardIds } },
         include: { purchase: { include: { creditor: true } } },
       });
-      const creditor = sample?.purchase?.creditor;
-      if (creditor && row.amountCents > 0) {
+      for (const inst of paidRows) {
+        const creditor = inst.purchase?.creditor;
+        if (!creditor) continue;
         await abateCardPayOnPersonDebt({
           creditorId: creditor.id,
-          amountCents: row.amountCents,
+          creditorName: creditor.name,
+          amountCents: inst.amountCents,
           note: `PIX cartão (${cardIds.length} parc.)`,
-          sourceRef: `inter:${row.id}`,
+          sourceRef: `card-inst:${inst.id}`,
         });
       }
     }

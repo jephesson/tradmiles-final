@@ -53,12 +53,15 @@ export async function POST(req: Request) {
     const creditor = rows[0]?.purchase?.creditor;
     if (creditor) {
       const { abateCardPayOnPersonDebt } = await import("@/lib/card-debt/sync-person-debt");
-      await abateCardPayOnPersonDebt({
-        creditorId: creditor.id,
-        amountCents,
-        note: `Cartão: ${rowIds.length} parcela(s)`,
-        sourceRef: `local:${rowIds.slice().sort().join(",")}`,
-      });
+      for (const r of rows) {
+        await abateCardPayOnPersonDebt({
+          creditorId: creditor.id,
+          creditorName: creditor.name,
+          amountCents: r.amountCents,
+          note: `Cartão: ${r.purchase.title} (${r.n}ª)`,
+          sourceRef: `card-inst:${r.id}`,
+        });
+      }
     }
     return NextResponse.json({ ok: true, data: { via: "local", paid: true, amountCents, count: rowIds.length } });
   }

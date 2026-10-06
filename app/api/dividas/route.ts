@@ -47,6 +47,9 @@ function parseOrderOrNull(v: any): number | null | undefined {
 
 export async function GET() {
   try {
+    const { syncRecentCardPaysToPersonDebt } = await import("@/lib/card-debt/sync-person-debt");
+    await syncRecentCardPaysToPersonDebt();
+
     const debts = await prisma.debt.findMany({
       orderBy: { createdAt: "desc" },
       include: {
