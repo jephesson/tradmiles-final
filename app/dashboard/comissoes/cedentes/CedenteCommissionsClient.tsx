@@ -28,6 +28,7 @@ type CommissionItem = {
     nomeCompleto: string;
     cpf: string;
     identificador: string;
+    telefone?: string | null;
     banco?: string | null;
     pixTipo?: string | null;
     chavePix?: string | null;
@@ -253,6 +254,35 @@ export default function CedenteCommissionsClient() {
     await postPay(id, "local", note);
   }
 
+  async function deliverReceiptWhatsApp(id: string, waWin?: Window | null) {
+    const res = await fetch(`/api/cedente-commissions/${id}/comprovante`, {
+      cache: "no-store",
+      credentials: "include",
+    });
+    const meta = await res.json().catch(() => ({}));
+    if (!res.ok || !meta?.ok) {
+      waWin?.close();
+      throw new Error(meta?.error || "Não deu para gerar o comprovante.");
+    }
+
+    const message = String(meta.message || "");
+    if (message) {
+      try {
+        await navigator.clipboard.writeText(message);
+      } catch {
+        /* se o WhatsApp abrir, a mensagem já vai na URL */
+      }
+    }
+
+    if (meta.whatsappUrl) {
+      if (waWin && !waWin.closed) waWin.location.href = String(meta.whatsappUrl);
+      else window.open(String(meta.whatsappUrl), "_blank", "noopener,noreferrer");
+    } else {
+      waWin?.close();
+      alert("Comprovante copiado. Cadastre o WhatsApp do cedente para enviar direto.");
+    }
+  }
+
   async function postPay(id: string, via: "local" | "inter", note = "") {
     try {
       setLoading(true);
@@ -269,6 +299,15 @@ export default function CedenteCommissionsClient() {
       }
       setPixModal(null);
       await load();
+      if (via === "inter") {
+        const waWin = window.open("about:blank", "_blank");
+        try {
+          await deliverReceiptWhatsApp(id, waWin);
+        } catch (e: unknown) {
+          waWin?.close();
+          setErr(e instanceof Error ? e.message : "PIX enviado, mas o comprovante falhou.");
+        }
+      }
     } catch (e: unknown) {
       setErr(e instanceof Error ? e.message : "Erro inesperado ao pagar.");
     } finally {
@@ -371,7 +410,7 @@ export default function CedenteCommissionsClient() {
               Comissões · Cedentes
             </h1>
             <p className="mt-1 max-w-2xl text-sm text-slate-500">
-              Marque como pago, envie PIX pelo Inter ou lance um pagamento avulso.
+              Marque como pago, envie PIX pelo Inter (abre o comprovante escrito no WhatsApp) ou lance um pagamento avulso.
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -640,9 +679,18 @@ export default function CedenteCommissionsClient() {
                           it.interPixPayments?.[0]?.status === "PROCESSING" ||
                           it.interPixPayments?.[0]?.status === "CREATED"
                         }
-                        title="Enviar PIX pelo Banco Inter"
+                        title="Enviar PIX pelo Banco Inter e abrir comprovante no WhatsApp"
                       >
                         Enviar PIX
+                      </button>
+                      <button
+                        type="button"
+                        className="h-8 rounded-xl border border-emerald-200 bg-emerald-50 px-3 text-xs font-semibold text-emerald-800 hover:bg-emerald-100 disabled:opacity-40"
+                        onClick={() => void deliverReceiptWhatsApp(it.id).catch((e) => setErr(e instanceof Error ? e.message : "Falha no comprovante."))}
+                        disabled={loading || it.status === "CANCELED"}
+                        title="Abrir comprovante escrito no WhatsApp do cedente"
+                      >
+                        Comprovante
                       </button>
                       <button
                         type="button"

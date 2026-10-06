@@ -54,7 +54,7 @@ export async function GET(req: Request) {
         take,
         skip,
         include: {
-          cedente: { select: { id: true, nomeCompleto: true, cpf: true, identificador: true, banco: true, pixTipo: true, chavePix: true } },
+          cedente: { select: { id: true, nomeCompleto: true, cpf: true, identificador: true, telefone: true, banco: true, pixTipo: true, chavePix: true } },
           purchase: { select: { id: true, numero: true, status: true, totalCents: true } },
           generatedBy: { select: { id: true, name: true, login: true } },
           paidBy: { select: { id: true, name: true, login: true } },
