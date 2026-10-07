@@ -29,6 +29,7 @@ export async function GET() {
       identificador: true,
       nomeCompleto: true,
       cpf: true,
+      status: true,
     },
     orderBy: [{ nomeCompleto: "asc" }],
     take: 5000,

@@ -838,6 +838,76 @@ export default function NovaVendaClient({
     setFlowStep(2);
   }
 
+  function ptsFromCedenteRecord(c: any, p: Program) {
+    const n =
+      p === "LATAM"
+        ? c?.pontosLatam
+        : p === "SMILES"
+        ? c?.pontosSmiles
+        : p === "LIVELO"
+        ? c?.pontosLivelo
+        : p === "ESFERA"
+        ? c?.pontosEsfera
+        : c?.pontosIberia;
+    return clampInt(n);
+  }
+
+  function suggestionFromCedenteRecord(c: any, pts: number): Suggestion {
+    const leftover = pts - pointsTotal;
+    return {
+      cedente: {
+        id: String(c.id),
+        identificador: String(c.identificador || ""),
+        nomeCompleto: String(c.nomeCompleto || ""),
+        cpf: String(c.cpf || ""),
+        biometriaHorario: c.biometriaHorario || null,
+        owner: c.owner
+          ? {
+              id: String(c.owner.id || ""),
+              name: String(c.owner.name || c.owner.login || "—"),
+              login: String(c.owner.login || ""),
+            }
+          : { id: "", name: "—", login: "" },
+        impedirBloqueioPax: Boolean(c.impedirBloqueioPax),
+      },
+      program,
+      pointsNeeded: pointsTotal,
+      passengersNeeded: passengers,
+      pts,
+      paxLimit: sel?.paxLimit || 5,
+      usedPassengersYear: 0,
+      availablePassengersYear: sel?.paxLimit || 5,
+      leftoverPoints: leftover,
+      eligible: leftover >= 0,
+      priorityLabel:
+        leftover < 0
+          ? "INELIGIVEL"
+          : leftover <= 2000
+          ? "MAX"
+          : leftover > 10000
+          ? "OK"
+          : leftover >= 3000
+          ? "BAIXA"
+          : "MEIO",
+      alerts: leftover < 0 ? ["PONTOS_INSUFICIENTES"] : [],
+    };
+  }
+
+  async function switchCedenteKeepWizard(id: string) {
+    if (!id || id === sel?.cedente?.id) return;
+    const fromList = suggestions.find((s) => s.cedente.id === id);
+    if (fromList) {
+      setSel(fromList);
+      return;
+    }
+    const out = await api<{ ok: true; data: any }>(
+      `/api/cedentes/${encodeURIComponent(id)}`
+    );
+    const c = out?.data;
+    if (!c?.id) throw new Error("Cedente não encontrado.");
+    setSel(suggestionFromCedenteRecord(c, ptsFromCedenteRecord(c, program)));
+  }
+
   // carrega funcionários (preferência: /api/funcionarios)
   useEffect(() => {
     (async () => {
@@ -3563,7 +3633,7 @@ export default function NovaVendaClient({
           initialAdults={adultPassengers}
           initialChildren={childPassengers}
           initialInfants={infantPassengers}
-          cedenteOptions={eligibleSuggestions.map((s) => ({
+          cedenteOptions={suggestions.map((s) => ({
             id: s.cedente.id,
             nomeCompleto: s.cedente.nomeCompleto,
             identificador: s.cedente.identificador,
@@ -3571,15 +3641,12 @@ export default function NovaVendaClient({
             leftoverPoints: s.leftoverPoints,
             ownerName: s.cedente.owner?.name || s.cedente.owner?.login || "—",
           }))}
-          onSwitchCedente={(id) => {
-            const next = eligibleSuggestions.find((s) => s.cedente.id === id);
-            if (!next) return;
-            setSel(next);
-            setRevealCreds(false);
-            setCreds(null);
-            setCredsError("");
-            setShowProgramPass(false);
-            setShowEmailPass(false);
+          onSwitchCedente={async (id) => {
+            try {
+              await switchCedenteKeepWizard(id);
+            } catch (e: any) {
+              alert(e?.message || "Não foi possível trocar o cedente.");
+            }
           }}
           onClose={() => setBiometriaModalOpen(false)}
           onComplete={completeBiometriaWizard}

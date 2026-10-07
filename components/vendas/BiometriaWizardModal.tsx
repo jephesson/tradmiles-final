@@ -316,7 +316,7 @@ type Props = {
     leftoverPoints: number;
     ownerName: string;
   }>;
-  onSwitchCedente?: (cedenteId: string) => void;
+  onSwitchCedente?: (cedenteId: string) => void | Promise<void>;
   onClose: () => void;
   onComplete: (result: {
     purchaseCode: string | null;
@@ -413,6 +413,17 @@ export default function BiometriaWizardModal({
   const [liveAccountPoints, setLiveAccountPoints] = useState<number | null>(null);
   const [pickingCedente, setPickingCedente] = useState(false);
   const [cedentePickQ, setCedentePickQ] = useState("");
+  const [cedenteSwitching, setCedenteSwitching] = useState(false);
+  const [allCedentesLite, setAllCedentesLite] = useState<
+    Array<{
+      id: string;
+      identificador: string;
+      nomeCompleto: string;
+      cpf?: string | null;
+      status?: string;
+    }>
+  >([]);
+  const [allCedentesLoading, setAllCedentesLoading] = useState(false);
   const openedOnce = useRef(false);
   const lastCedenteId = useRef(cedenteId);
 
@@ -1023,24 +1034,87 @@ export default function BiometriaWizardModal({
     };
   }, [open, cedenteId, program]);
 
+  useEffect(() => {
+    if (!open || !pickingCedente || allCedentesLite.length > 0) return;
+    let cancelled = false;
+    setAllCedentesLoading(true);
+    void (async () => {
+      try {
+        const res = await fetch("/api/cedentes/lite", { cache: "no-store" });
+        const j = await res.json().catch(() => null);
+        if (cancelled || !j?.ok || !Array.isArray(j.rows)) return;
+        setAllCedentesLite(
+          j.rows.filter(
+            (r: { id?: string; status?: string }) =>
+              r?.id && String(r.status || "APPROVED").toUpperCase() === "APPROVED"
+          )
+        );
+      } catch {
+        // cai na lista da busca atual
+      } finally {
+        if (!cancelled) setAllCedentesLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [open, pickingCedente, allCedentesLite.length]);
+
   const otherCedentes = useMemo(() => {
     const q = cedentePickQ.trim().toLowerCase();
-    return cedenteOptions.filter((c) => {
-      if (c.id === cedenteId) return false;
-      if (!q) return true;
-      const hay = `${c.nomeCompleto} ${c.identificador} ${c.ownerName}`.toLowerCase();
-      return hay.includes(q);
-    });
-  }, [cedenteOptions, cedenteId, cedentePickQ]);
+    const ptsMap = new Map(cedenteOptions.map((c) => [c.id, c]));
+    const source =
+      allCedentesLite.length > 0
+        ? allCedentesLite.map((r) => {
+            const known = ptsMap.get(r.id);
+            return {
+              id: r.id,
+              nomeCompleto: r.nomeCompleto || known?.nomeCompleto || "—",
+              identificador: r.identificador || known?.identificador || "",
+              pts: known?.pts ?? null,
+              leftoverPoints: known?.leftoverPoints ?? null,
+              ownerName: known?.ownerName || "",
+              cpf: r.cpf || "",
+            };
+          })
+        : cedenteOptions.map((c) => ({
+            ...c,
+            pts: c.pts as number | null,
+            leftoverPoints: c.leftoverPoints as number | null,
+            cpf: "",
+          }));
 
-  function applyCedenteSwitch(nextId: string) {
-    const opt = cedenteOptions.find((c) => c.id === nextId);
-    if (!opt || !onSwitchCedente || nextId === cedenteId) return;
+    return source
+      .filter((c) => {
+        if (c.id === cedenteId) return false;
+        if (!q) return true;
+        const hay =
+          `${c.nomeCompleto} ${c.identificador} ${c.ownerName} ${c.cpf}`.toLowerCase();
+        return hay.includes(q);
+      })
+      .sort((a, b) => {
+        const la = a.leftoverPoints;
+        const lb = b.leftoverPoints;
+        if (la != null && lb != null && la !== lb) return lb - la;
+        if (la != null && lb == null) return -1;
+        if (la == null && lb != null) return 1;
+        return String(a.nomeCompleto).localeCompare(String(b.nomeCompleto), "pt-BR");
+      })
+      .slice(0, 60);
+  }, [allCedentesLite, cedenteOptions, cedenteId, cedentePickQ]);
+
+  async function applyCedenteSwitch(nextId: string, nome: string) {
+    if (!onSwitchCedente || nextId === cedenteId || cedenteSwitching) return;
     const ok = window.confirm(
-      `Trocar para ${opt.nomeCompleto}?\n\nLogin e código de acesso recomeçam neste cedente. Trecho, datas, passageiros e Order ID continuam.`
+      `Trocar para ${nome}?\n\nLogin e código de acesso recomeçam neste cedente. Trecho, datas, passageiros, cartão e Order ID continuam.`
     );
     if (!ok) return;
-    onSwitchCedente(nextId);
+    setCedenteSwitching(true);
+    try {
+      await onSwitchCedente(nextId);
+    } finally {
+      setCedenteSwitching(false);
+    }
   }
 
   if (!open) return null;
@@ -1072,7 +1146,7 @@ export default function BiometriaWizardModal({
             {onSwitchCedente ? (
               <button
                 type="button"
-                className="mt-2 text-xs font-semibold text-sky-700 hover:underline"
+                className="mt-2 rounded-lg border border-sky-200 bg-sky-50 px-2.5 py-1 text-xs font-semibold text-sky-800 hover:bg-sky-100"
                 onClick={() => {
                   setPickingCedente((v) => !v);
                   setCedentePickQ("");
@@ -1151,37 +1225,44 @@ export default function BiometriaWizardModal({
           <div className="mt-4 rounded-2xl border border-sky-200 bg-sky-50/50 p-4">
             <div className="text-sm font-semibold text-slate-900">Escolher outro cedente</div>
             <p className="mt-1 text-xs leading-relaxed text-slate-600">
-              Trecho, datas, passageiros e Order ID ficam. Só o login e o código desta conta
-              recomeçam.
+              Trecho, datas, passageiros, cartão e Order ID ficam. Só o login e o código desta
+              conta recomeçam.
             </p>
             <label className="relative mt-3 block">
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
               <input
                 className="w-full rounded-xl border border-slate-200 bg-white py-2 pl-9 pr-3 text-sm outline-none focus:border-sky-300 focus:ring-2 focus:ring-sky-900/10"
-                placeholder="Nome, ID ou responsável"
+                placeholder="Buscar por nome, ID ou CPF"
                 value={cedentePickQ}
                 onChange={(e) => setCedentePickQ(e.target.value)}
                 autoFocus
               />
             </label>
             <div className="mt-2 max-h-56 overflow-y-auto rounded-xl border border-slate-200 bg-white">
-              {otherCedentes.length ? (
+              {allCedentesLoading && !otherCedentes.length ? (
+                <div className="px-3 py-6 text-center text-sm text-slate-500">
+                  Carregando cedentes…
+                </div>
+              ) : otherCedentes.length ? (
                 otherCedentes.map((c) => {
-                  const leftover = Math.max(0, Math.trunc(c.leftoverPoints));
-                  const short = leftover < ptsEmissao;
+                  const leftover =
+                    c.leftoverPoints == null ? null : Math.trunc(c.leftoverPoints);
+                  const short = leftover != null && leftover < 0;
                   return (
                     <button
                       key={c.id}
                       type="button"
-                      className="flex w-full items-start justify-between gap-3 border-b border-slate-100 px-3 py-2.5 text-left last:border-0 hover:bg-slate-50"
-                      onClick={() => applyCedenteSwitch(c.id)}
+                      disabled={cedenteSwitching}
+                      className="flex w-full items-start justify-between gap-3 border-b border-slate-100 px-3 py-2.5 text-left last:border-0 hover:bg-slate-50 disabled:opacity-60"
+                      onClick={() => applyCedenteSwitch(c.id, c.nomeCompleto)}
                     >
                       <div className="min-w-0">
                         <div className="truncate text-sm font-semibold text-slate-900">
                           {c.nomeCompleto}
                         </div>
                         <div className="truncate text-[11px] text-slate-500">
-                          {c.identificador} · {c.ownerName}
+                          {c.identificador}
+                          {c.ownerName ? ` · ${c.ownerName}` : ""}
                         </div>
                       </div>
                       <div
@@ -1190,17 +1271,21 @@ export default function BiometriaWizardModal({
                           short ? "text-amber-700" : "text-slate-600"
                         )}
                       >
-                        {fmtPts(c.pts)} pts
-                        <div className="font-normal text-slate-400">
-                          sobra {fmtPts(leftover)}
-                        </div>
+                        {c.pts == null ? "—" : `${fmtPts(c.pts)} pts`}
+                        {leftover != null ? (
+                          <div className="font-normal text-slate-400">
+                            sobra {fmtPts(leftover)}
+                          </div>
+                        ) : null}
                       </div>
                     </button>
                   );
                 })
               ) : (
                 <div className="px-3 py-6 text-center text-sm text-slate-500">
-                  Nenhum outro cedente na lista desta busca.
+                  {cedentePickQ.trim()
+                    ? "Nenhum cedente com esse nome."
+                    : "Nenhum outro cedente cadastrado."}
                 </div>
               )}
             </div>
